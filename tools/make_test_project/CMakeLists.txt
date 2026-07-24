@@ -1,0 +1,3 @@
+add_executable(make_test_project main.cpp)
+target_link_libraries(make_test_project PRIVATE miniz)
+target_compile_features(make_test_project PRIVATE cxx_std_20)

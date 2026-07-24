@@ -1,0 +1,7 @@
+build/
+build-*/
+.DS_Store
+*.xcodeproj/
+CMakeUserPresets.json
+.cache/
+compile_commands.json
