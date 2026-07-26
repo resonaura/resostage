@@ -143,6 +143,14 @@ BuilderPanel::BuilderPanel(AudioEngine& engineRef) : engine(engineRef) {
     trackFileLabel.setColour(juce::Label::textColourId, ui::muted());
     importWavButton.setColour(juce::TextButton::buttonColourId, ui::panelAlt());
     importWavButton.onClick = [this] { importWavClicked(); };
+    styleSectionLabel(trackTrimLabel);
+    trackTrimLabel.setText("Trim (preview only -- not yet enforced during playback)", juce::dontSendNotification);
+    trackTrimEditor.onTrimChanged = [this](double startSec, double endSecOrZero) {
+        if (TrackDef* t = trackDefAtSelected()) {
+            t->trimStartSeconds = startSec;
+            t->trimEndSeconds = endSecOrZero;
+        }
+    };
     styleSectionLabel(trackSendsLabel);
     trackSendsLabel.setText("Aux sends", juce::dontSendNotification);
     trackSendGainSlider.setRange(-60.0, 12.0, 0.1);
@@ -195,6 +203,8 @@ BuilderPanel::BuilderPanel(AudioEngine& engineRef) : engine(engineRef) {
     addAndMakeVisible(trackSolo);
     addAndMakeVisible(trackFileLabel);
     addAndMakeVisible(importWavButton);
+    addAndMakeVisible(trackTrimLabel);
+    addAndMakeVisible(trackTrimEditor);
     addAndMakeVisible(trackSendsLabel);
     addAndMakeVisible(trackSendBusBox);
     addAndMakeVisible(trackSendGainSlider);
@@ -405,6 +415,8 @@ void BuilderPanel::resized() {
     place2(trackSolo, 24);
     place2(trackFileLabel, 28);
     place2(importWavButton, 26);
+    place2(trackTrimLabel, 16);
+    place2(trackTrimEditor, 48);
     place2(trackSendsLabel, 16);
     place2(trackSendBusBox, 26);
     place2(trackSendGainSlider, 26);
@@ -543,9 +555,9 @@ void BuilderPanel::showTrackEditor(bool show) {
     for (juce::Component* c : std::initializer_list<juce::Component*>{
              &trackNameLabel, &trackNameEdit, &trackBusLabel, &trackBusBox, &trackGainLabel,
              &trackGainSlider, &trackPanLabel, &trackPanSlider, &trackMute, &trackSolo,
-             &trackFileLabel, &importWavButton, &trackSendsLabel, &trackSendBusBox,
-             &trackSendGainSlider, &trackSendPre, &trackSendAddButton, &trackSendRemoveButton,
-             &trackSendsListLabel, &applyTrackButton})
+             &trackFileLabel, &importWavButton, &trackTrimLabel, &trackTrimEditor, &trackSendsLabel,
+             &trackSendBusBox, &trackSendGainSlider, &trackSendPre, &trackSendAddButton,
+             &trackSendRemoveButton, &trackSendsListLabel, &applyTrackButton})
         c->setVisible(show);
 }
 
@@ -660,6 +672,12 @@ void BuilderPanel::loadTrackEditor() {
     trackMute.setToggleState(t.mute, juce::dontSendNotification);
     trackSolo.setToggleState(t.solo, juce::dontSendNotification);
     trackFileLabel.setText("File: " + juce::String(t.file), juce::dontSendNotification);
+    {
+        const PeakOverview* overview = engine.trackPeaksAt(static_cast<size_t>(selectedItemRow));
+        const double dur = overview != nullptr ? overview->durationSeconds : 0.0;
+        trackTrimEditor.setWaveform(overview, dur);
+        trackTrimEditor.setTrim(t.trimStartSeconds, t.trimEndSeconds);
+    }
     if (t.busId.empty()) {
         trackBusBox.setSelectedId(kNoBusComboId, juce::dontSendNotification);
     } else {
@@ -1231,6 +1249,7 @@ void BuilderPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bo
 
     g.setColour(ui::text());
     juce::String text = "?";
+    int textIndent = 8;
 
     switch (activeList) {
         case ListTarget::Songs: {
@@ -1250,6 +1269,9 @@ void BuilderPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bo
                 text = juce::String(t.name.empty() ? t.id : t.name) + "  -> " + juce::String(t.busId)
                        + "  " + juce::String(t.gainDb, 1) + " dB"
                        + (t.mute ? "  [M]" : "");
+                g.setColour(ui::trackColorForIndex(row));
+                g.fillRoundedRectangle(6.0f, 4.0f, 4.0f, static_cast<float>(h) - 8.0f, 2.0f);
+                textIndent = 16;
             }
             break;
         }
@@ -1276,7 +1298,9 @@ void BuilderPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bo
         }
     }
 
-    g.drawText(text, 8, 0, w - 16, h, juce::Justification::centredLeft);
+    g.setColour(ui::text());
+
+    g.drawText(text, textIndent, 0, w - textIndent - 8, h, juce::Justification::centredLeft);
 }
 
 void BuilderPanel::selectedRowsChanged(int last) {

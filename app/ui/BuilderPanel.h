@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "AudioEngine.h"
+#include "ui/ClipTrimEditor.h"
 #include "ui/UiColors.h"
 
 #include <functional>
@@ -96,6 +97,10 @@ private:
     juce::ToggleButton trackSolo{"Solo"};
     juce::Label trackFileLabel;
     juce::TextButton importWavButton{"Import WAV..."};
+    // Waveform preview + trim handles ("Bundler Timeline Editor
+    // Integration") -- see ClipTrimEditor's doc comment re: scope.
+    juce::Label trackTrimLabel;
+    ClipTrimEditor trackTrimEditor;
     juce::Label trackSendsLabel;
     juce::ComboBox trackSendBusBox;
     juce::Slider trackSendGainSlider;

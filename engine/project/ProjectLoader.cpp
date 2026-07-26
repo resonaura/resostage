@@ -87,6 +87,9 @@ bool parseTrack(const simdjson::dom::element& trackEl, TrackDef& track, std::str
     (void)trackEl["solo"].get(solo);
     track.solo = solo;
 
+    (void)trackEl["trimStartSeconds"].get(track.trimStartSeconds);
+    (void)trackEl["trimEndSeconds"].get(track.trimEndSeconds);
+
     simdjson::dom::array sendsArr;
     if (!trackEl["sends"].get(sendsArr)) {
         for (simdjson::dom::element sendEl : sendsArr) {
@@ -209,6 +212,24 @@ bool parseSong(const simdjson::dom::element& songEl, SongDef& song, std::string&
             if (!parseEvent(evEl, ev, error))
                 return false;
             song.events.push_back(std::move(ev));
+        }
+    }
+
+    // Optional -- absent in projects saved before section markers existed.
+    simdjson::dom::array sectionsArr;
+    if (!songEl["sections"].get(sectionsArr)) {
+        for (simdjson::dom::element secEl : sectionsArr) {
+            std::string_view secIdView, secNameView;
+            if (secEl["id"].get(secIdView) || secEl["name"].get(secNameView))
+                continue; // malformed entry -- skip rather than fail the whole load
+            SongSection section;
+            section.id = std::string(secIdView);
+            section.name = std::string(secNameView);
+            (void)secEl["startSeconds"].get(section.startSeconds);
+            int64_t colorIdx = 0;
+            if (!secEl["colorIndex"].get(colorIdx))
+                section.colorIndex = static_cast<int>(colorIdx);
+            song.sections.push_back(std::move(section));
         }
     }
 

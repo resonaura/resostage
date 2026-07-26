@@ -57,6 +57,7 @@ private:
     juce::ComboBox midiInputSelector;
     juce::TextButton underrunButton{"Simulate 500ms underrun"};
     juce::Label remoteLabel;
+    juce::ToggleButton themeToggle{"Light mode"};
 
     // Lower, scrollable section: keybindings + MIDI remote mappings. Grows
     // with the number of mappings, so it lives in a Viewport rather than

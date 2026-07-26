@@ -122,6 +122,12 @@ std::string serializeProjectJson(const Project& project) {
             o << ",\n";
             o << "          \"mute\": " << (t.mute ? "true" : "false") << ",\n";
             o << "          \"solo\": " << (t.solo ? "true" : "false") << ",\n";
+            o << "          \"trimStartSeconds\": ";
+            writeNumber(o, t.trimStartSeconds);
+            o << ",\n";
+            o << "          \"trimEndSeconds\": ";
+            writeNumber(o, t.trimEndSeconds);
+            o << ",\n";
             o << "          \"sends\": [\n";
             for (size_t si = 0; si < t.sends.size(); ++si) {
                 const TrackSendDef& send = t.sends[si];
@@ -170,6 +176,20 @@ std::string serializeProjectJson(const Project& project) {
             }
             o << "]\n";
             o << "        }" << (ei + 1 < s.events.size() ? "," : "") << "\n";
+        }
+        o << "      ],\n";
+
+        o << "      \"sections\": [\n";
+        for (size_t sci = 0; sci < s.sections.size(); ++sci) {
+            const SongSection& sec = s.sections[sci];
+            o << "        {\n";
+            o << "          \"id\": \"" << jsonEscapeString(sec.id) << "\",\n";
+            o << "          \"name\": \"" << jsonEscapeString(sec.name) << "\",\n";
+            o << "          \"startSeconds\": ";
+            writeNumber(o, sec.startSeconds);
+            o << ",\n";
+            o << "          \"colorIndex\": " << sec.colorIndex << "\n";
+            o << "        }" << (sci + 1 < s.sections.size() ? "," : "") << "\n";
         }
         o << "      ]\n";
         o << "    }" << (si + 1 < project.songs.size() ? "," : "") << "\n";

@@ -160,6 +160,7 @@ void MixerPanel::rebuildStrips() {
                                 ? juce::String(def->name.empty() ? def->id : def->name)
                                 : juce::String(engine.trackIdAt(i));
         auto strip = std::make_unique<MixerStrip>(MixerStrip::Kind::Track, name);
+        strip->setStripColor(ui::trackColorForIndex(static_cast<int>(i)));
         if (def != nullptr) {
             strip->setGainDb(def->gainDb);
             strip->setPan(def->pan);

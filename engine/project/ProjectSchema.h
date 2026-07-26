@@ -26,6 +26,13 @@ struct TrackDef {
     bool mute = false;
     bool solo = false; // if any track is soloed, non-solo tracks are silenced
     std::vector<TrackSendDef> sends; // aux matrix rows for this track
+
+    // Clip trim boundaries, set via the Builder's waveform trim preview.
+    // Both 0.0 means "untrimmed" (the full file). NOTE: persisted metadata
+    // only -- the playback engine does not yet clip reads to this range;
+    // see ClipTrimEditor's doc comment.
+    double trimStartSeconds = 0.0;
+    double trimEndSeconds = 0.0;
 };
 
 struct TimeSignature {
@@ -80,6 +87,17 @@ struct TimelineEvent {
     double latencyCompensationMs = 0.0;
 };
 
+// A named structural marker on the timeline ruler (Intro/Verse/Chorus/
+// Bridge/Outro/Custom). Sections are points, not explicit ranges -- the
+// region a section covers is implicitly "from this marker to the next one
+// (or song end)", matching how markers work in most DAWs.
+struct SongSection {
+    std::string id;
+    std::string name = "Section";
+    double startSeconds = 0.0;
+    int colorIndex = 0; // index into ui::Accent's cycle, see UiColors.h
+};
+
 struct SongDef {
     std::string id;
     std::string name;
@@ -88,6 +106,7 @@ struct SongDef {
     PlaybackMode playbackMode = PlaybackMode::WaitForTrigger;
     std::vector<TrackDef> tracks;
     std::vector<TimelineEvent> events;
+    std::vector<SongSection> sections;
 
     // Built-in programmatic click generator (see ClickGenerator). Separate
     // from and compatible with a user-supplied click.wav routed as an

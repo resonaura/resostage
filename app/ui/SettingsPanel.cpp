@@ -35,6 +35,15 @@ SettingsPanel::SettingsPanel(AudioEngine& engineRef, CoreMidiInputListener& midi
         false, false, false, true);
     addAndMakeVisible(*deviceSelector);
 
+    themeToggle.setColour(juce::ToggleButton::textColourId, ui::text());
+    themeToggle.setToggleState(ui::currentTheme() == ui::Theme::Light, juce::dontSendNotification);
+    themeToggle.onClick = [this] {
+        ui::setTheme(themeToggle.getToggleState() ? ui::Theme::Light : ui::Theme::Dark);
+        if (auto* top = getTopLevelComponent())
+            top->repaint();
+    };
+    addAndMakeVisible(themeToggle);
+
     midiOutLabel.setText("MIDI output (Live Stage / hardware)", juce::dontSendNotification);
     midiOutLabel.setColour(juce::Label::textColourId, ui::text());
     addAndMakeVisible(midiOutLabel);
@@ -110,7 +119,9 @@ void SettingsPanel::paint(juce::Graphics& g) {
 
 void SettingsPanel::resized() {
     auto r = getLocalBounds().reduced(12);
-    header.setBounds(r.removeFromTop(18));
+    auto headerRow = r.removeFromTop(18);
+    themeToggle.setBounds(headerRow.removeFromRight(110));
+    header.setBounds(headerRow);
     r.removeFromTop(8);
     deviceSelector->setBounds(r.removeFromTop(280));
     r.removeFromTop(12);

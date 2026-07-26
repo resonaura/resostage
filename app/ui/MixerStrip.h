@@ -7,6 +7,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -107,6 +108,11 @@ public:
 
     void setStripName(const juce::String& n) { nameLabel.setText(n, juce::dontSendNotification); }
     void setSubtitle(const juce::String& s) { subLabel.setText(s, juce::dontSendNotification); }
+    // Deterministic per-track/bus accent colour (see ui::trackColorForIndex),
+    // drawn as a top accent bar so strips are visually distinguishable at a
+    // glance, matching the same colour used for this track/bus elsewhere
+    // (Timeline lanes, Builder list rows).
+    void setStripColor(juce::Colour c) { stripColor = c; repaint(); }
 
     // Track-only: populates the output-bus picker with every non-aux
     // (physical output) bus in the project and selects `currentBusId`
@@ -200,6 +206,10 @@ public:
     void paint(juce::Graphics& g) override {
         g.setColour(ui::panel());
         g.fillRoundedRectangle(getLocalBounds().toFloat(), 8.0f);
+        if (stripColor.has_value()) {
+            g.setColour(*stripColor);
+            g.fillRoundedRectangle(getLocalBounds().toFloat().withHeight(4.0f), 2.0f);
+        }
         g.setColour(ui::border());
         g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 8.0f, 1.0f);
     }
@@ -245,6 +255,7 @@ private:
     };
 
     Kind stripKind;
+    std::optional<juce::Colour> stripColor;
     juce::Label kindBadge;
     juce::Label nameLabel;
     juce::Label subLabel;
