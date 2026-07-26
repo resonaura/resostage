@@ -4,37 +4,37 @@
 
 #include <atomic>
 #include <memory>
-#include <vector>
 
 namespace resoset {
 
-// Flat, lock-free routing table with atomic-swap updates.
+// Flat routing table published via atomic std::shared_ptr swap.
 //
 // Rationale for the flat (non-matrix) representation: with realistic channel
 // counts for a live set (dozens of tracks, a handful of busses) a dense NxM
 // coefficient matrix wastes both memory and cycles multiplying mostly-zero
 // entries. A flat array of (track, bus) route edges walked in a straight-line
 // loop gets the same cache-locality and auto-vectorization benefits without
-// the sparsity waste, while keeping the same zero-allocation, zero-lock,
-// atomic-pointer-swap update model.
+// the sparsity waste.
 //
 // Concurrency model: exactly one audio thread calls acquireForRender(), and
-// exactly one non-real-time thread calls publish() (the message/UI thread).
-// publish() may allocate/free; acquireForRender() never allocates and never
-// blocks.
+// exactly one non-real-time thread calls publish(). publish() allocates (a
+// new snapshot + control block). acquireForRender() copies a shared_ptr --
+// an atomic refcount increment, no heap allocation -- safe on the audio thread.
 //
-// Reclamation: a single-reader hazard pointer. acquireForRender() publishes
-// the pointer it's about to return into an atomic `hazard` slot before
-// returning it (with a protect-and-validate retry, the standard hazard-
-// pointer pattern, in case the snapshot was retired between the load and the
-// hazard publish). publish() only actually frees a retired snapshot once it
-// observes that it is no longer the hazarded pointer. This is a correctness
-// guarantee, not a timing assumption: an early version of this class instead
-// used a fixed-size retirement ring sized on the assumption that the reader
-// would always finish with a snapshot before ~8 further publishes occurred --
-// a concurrent stress test (see tests/test_routing_engine.cpp) proved that
-// assumption false under a fast writer / slow reader race and produced a
-// real use-after-free. The hazard-pointer scheme has no such assumption.
+// Reclamation: atomic shared_ptr operations (std::atomic_load/atomic_store),
+// not a hand-rolled hazard pointer. An earlier hand-rolled single-reader
+// hazard-pointer version (and, before that, a fixed-size retirement ring)
+// both turned out to have genuine use-after-free bugs under concurrent
+// stress testing, caught by tests/test_routing_engine.cpp's concurrency test
+// running under AddressSanitizer. Reference counting is the standard,
+// provably-correct primitive for "publish immutable snapshots, readers keep
+// old ones alive as long as they need them" -- not worth re-deriving by hand
+// a second time. (Using the std::atomic_load/store free-function form rather
+// than C++20's std::atomic<shared_ptr<T>> class template because this
+// toolchain's libc++ doesn't yet implement that partial specialization --
+// static_assert failure on is_trivially_copyable. The free functions are
+// deprecated-for-removal in a future standard but are exactly the mechanism
+// atomic<shared_ptr<T>> itself replaces, and remain fully supported here.)
 class RoutingEngine {
 public:
     RoutingEngine();
@@ -43,20 +43,16 @@ public:
     RoutingEngine(const RoutingEngine&) = delete;
     RoutingEngine& operator=(const RoutingEngine&) = delete;
 
-    // Called from the message/UI thread. Takes ownership of `next`. May
-    // allocate/free (sweeps retired snapshots that are no longer hazarded).
+    // Called from the message/UI thread. Takes ownership of `next`.
     void publish(std::unique_ptr<RoutingSnapshot> next);
 
-    // Called from the audio thread. Never allocates, never blocks. Returns
-    // nullptr only if publish() has never been called yet.
-    const RoutingSnapshot* acquireForRender();
+    // Called from the audio thread. Returns a shared_ptr keeping the
+    // snapshot alive for as long as the caller holds it. Never allocates;
+    // returns nullptr only if publish() has never been called yet.
+    std::shared_ptr<const RoutingSnapshot> acquireForRender();
 
 private:
-    std::atomic<RoutingSnapshot*> active{nullptr};
-    std::atomic<RoutingSnapshot*> hazard{nullptr};
-
-    // Only ever touched from the publish() thread.
-    std::vector<std::unique_ptr<RoutingSnapshot>> retired;
+    std::shared_ptr<const RoutingSnapshot> active;
 };
 
 } // namespace resoset

@@ -2,7 +2,18 @@ add_library(resoset_engine STATIC
   timing/MasterClock.cpp
   audio/RoutingEngine.cpp
   audio/Metering.cpp
+  audio/WavStreamDecoder.cpp
+  audio/WavMetadata.cpp
+  audio/AudioRingBuffer.cpp
+  audio/StreamingTrackBuffer.cpp
+  audio/StreamingEngine.cpp
+  audio/ClickGenerator.cpp
+  audio/PeakOverview.cpp
+  audio/PeakCache.cpp
+  audio/ArtNetPacket.cpp
   project/ProjectLoader.cpp
+  project/ProjectJson.cpp
+  telemetry/SystemHealth.cpp
 )
 
 target_include_directories(resoset_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

@@ -112,6 +112,7 @@ struct SongSpec {
 int main(int argc, char** argv) {
     std::string outPath = "test_project.rsnraset";
     double sampleRate = 48000.0;
+    double durationSec = 20.0;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -119,9 +120,9 @@ int main(int argc, char** argv) {
             outPath = argv[++i];
         else if (arg == "--samplerate" && i + 1 < argc)
             sampleRate = std::stod(argv[++i]);
+        else if (arg == "--duration" && i + 1 < argc)
+            durationSec = std::stod(argv[++i]);
     }
-
-    const double durationSec = 20.0;
 
     std::vector<SongSpec> songs = {
         SongSpec{"song_1", "Opener (Test Tones A)", 128.0,

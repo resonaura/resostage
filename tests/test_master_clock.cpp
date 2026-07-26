@@ -68,6 +68,27 @@ TEST_CASE("MasterClock onAudioCallback pulls the projection toward the hardware-
     CHECK(mc.driftFactor() > 1.0); // correcting to catch up
 }
 
+// Regression test for a real bug: JUCE's CoreAudio backend hands back
+// AudioIODeviceCallbackContext::hostTimeNs pointing at AudioTimeStamp's raw
+// mach_absolute_time() ticks, not actual nanoseconds, despite the name.
+// Feeding that straight into MasterClock (which anchors against
+// SystemMonotonicClock::nowNanos(), which *does* apply the timebase
+// conversion) made the elapsed-time math wildly wrong -- the fix is to run
+// any such raw host-time value through ticksToNanos() first. This only
+// asserts ticksToNanos()'s basic mathematical sanity (exact numer/denom
+// values are a system property, not something to hardcode in a test).
+TEST_CASE("SystemMonotonicClock::ticksToNanos scales linearly and maps zero to zero") {
+    CHECK(SystemMonotonicClock::ticksToNanos(0) == 0);
+
+    const uint64_t oneTick = SystemMonotonicClock::ticksToNanos(1'000'000);
+    const uint64_t tenTicks = SystemMonotonicClock::ticksToNanos(10'000'000);
+    // Should scale ~10x (exact ratio depends on the platform's timebase, but
+    // it must be a consistent linear conversion, not a passthrough that
+    // silently disagrees with nowNanos()'s own conversion).
+    CHECK(tenTicks > oneTick * 9);
+    CHECK(tenTicks < oneTick * 11);
+}
+
 TEST_CASE("MasterClock stop() freezes the reported position") {
     FakeClock clock;
     MasterClock mc(&clock);

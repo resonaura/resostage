@@ -18,6 +18,19 @@ public:
 class SystemMonotonicClock final : public MonotonicClockSource {
 public:
     uint64_t nowNanos() const override;
+
+    // Converts a raw platform host-time value (mach_absolute_time() ticks on
+    // macOS; passthrough elsewhere) into nanoseconds, using the same
+    // timebase ratio nowNanos() uses internally. Needed because some OS/
+    // framework APIs hand back a host timestamp in raw tick units under a
+    // misleadingly nanosecond-sounding name (e.g. JUCE's
+    // AudioIODeviceCallbackContext::hostTimeNs on the CoreAudio backend is
+    // actually AudioTimeStamp::mHostTime, i.e. raw ticks) -- mixing that
+    // directly with an already-converted nanosecond value elsewhere corrupts
+    // MasterClock's elapsed-time math by the timebase ratio (~41.7x on Intel
+    // Macs and some Apple Silicon configurations), causing the playhead to
+    // rocket forward and immediately trip the song-end check.
+    static uint64_t ticksToNanos(uint64_t ticks);
 };
 
 // Fail-safe master playhead.

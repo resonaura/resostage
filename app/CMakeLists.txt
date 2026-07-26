@@ -8,6 +8,16 @@ target_sources(ResoStage PRIVATE
   Main.cpp
   MainComponent.cpp
   AudioEngine.cpp
+  midi/CoreMidiDispatcher.cpp
+  midi/CoreMidiInputListener.cpp
+  events/EventDispatcher.cpp
+  platform/AudioWorkgroup.cpp
+  web/WebServer.cpp
+  ui/PlayerPanel.cpp
+  ui/MixerPanel.cpp
+  ui/BuilderPanel.cpp
+  ui/SettingsPanel.cpp
+  ui/TimelineView.cpp
 )
 
 target_compile_definitions(ResoStage
@@ -21,9 +31,9 @@ target_compile_definitions(ResoStage
 target_link_libraries(ResoStage
   PRIVATE
     resoset_engine
+    websockets
     juce::juce_audio_basics
     juce::juce_audio_devices
-    juce::juce_audio_formats
     juce::juce_audio_utils
     juce::juce_core
     juce::juce_data_structures
@@ -35,5 +45,19 @@ target_link_libraries(ResoStage
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+
+target_include_directories(ResoStage PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${libwebsockets_SOURCE_DIR}/include
+  ${libwebsockets_BINARY_DIR}/include
+)
+
+if(APPLE)
+  target_link_libraries(ResoStage PRIVATE
+    "-framework CoreMIDI"
+    "-framework CoreFoundation"
+    "-framework CoreAudio"
+  )
+endif()
 
 target_compile_features(ResoStage PRIVATE cxx_std_20)

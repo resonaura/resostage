@@ -8,16 +8,23 @@
 
 namespace resoset {
 
-uint64_t SystemMonotonicClock::nowNanos() const {
+uint64_t SystemMonotonicClock::ticksToNanos(uint64_t ticks) {
 #if defined(__APPLE__)
     static const mach_timebase_info_data_t timebase = [] {
         mach_timebase_info_data_t info{};
         mach_timebase_info(&info);
         return info;
     }();
-    const uint64_t ticks = mach_absolute_time();
     // 128-bit intermediate avoids overflow for ticks * numer regardless of timebase ratio.
     return static_cast<uint64_t>((static_cast<__uint128_t>(ticks) * timebase.numer) / timebase.denom);
+#else
+    return ticks;
+#endif
+}
+
+uint64_t SystemMonotonicClock::nowNanos() const {
+#if defined(__APPLE__)
+    return ticksToNanos(mach_absolute_time());
 #else
     using namespace std::chrono;
     return static_cast<uint64_t>(duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count());

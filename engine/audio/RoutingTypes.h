@@ -5,15 +5,17 @@
 
 namespace resoset {
 
-// One (track -> bus) send edge. A track may appear in multiple TrackRoute
-// entries to feed several busses at once (e.g. "Synths 1" feeding both the
-// main FOH bus and the drummer's monitor bus).
+// One (track -> bus) edge. A track may appear in multiple TrackRoute entries
+// (main bus + aux sends). Main routes use track gain/pan; aux sends multiply
+// an extra sendGainLinear (and optionally ignore track fader when preFader).
 struct TrackRoute {
     uint32_t trackIndex = 0;
     uint32_t busIndex = 0;
-    float gainLinear = 1.0f;
-    float pan = 0.0f; // -1..+1, applied when the destination bus has 2 channels
+    float gainLinear = 1.0f;     // already includes track fader unless preFader send
+    float sendGainLinear = 1.0f; // aux send level (1.0 for main routes)
+    float pan = 0.0f;            // -1..+1, applied when the destination bus has 2 channels
     bool mute = false;
+    bool isAuxSend = false;
 };
 
 // A bus's assignment to a contiguous range of physical output channels.

@@ -28,6 +28,34 @@ if(RESOSET_BUILD_APP)
     GIT_SHALLOW    TRUE
   )
   FetchContent_MakeAvailable(JUCE)
+
+  # ---------------------------------------------------------------------------
+  # libwebsockets: embedded HTTP/WebSocket server for the dual native+remote
+  # web UI. TLS/extensions/test-apps disabled -- this serves a local-network-
+  # only UI, so a TLS backend (OpenSSL/mbedTLS) would be an unnecessary
+  # dependency for the "zero external runtime dependencies" goal. Chosen over
+  # the originally-researched uWebSockets because uWebSockets has no CMake
+  # build (Makefile-only), making it a much higher-risk FetchContent target;
+  # libwebsockets is a mature, widely-deployed C library with a proper CMake
+  # build that integrates as cleanly as JUCE did above.
+  set(LWS_WITH_SSL OFF CACHE BOOL "" FORCE)
+  set(LWS_WITH_SHARED OFF CACHE BOOL "" FORCE)
+  set(LWS_WITH_STATIC ON CACHE BOOL "" FORCE)
+  set(LWS_WITHOUT_TESTAPPS ON CACHE BOOL "" FORCE)
+  set(LWS_WITHOUT_TEST_SERVER ON CACHE BOOL "" FORCE)
+  set(LWS_WITHOUT_TEST_SERVER_EXTPOLL ON CACHE BOOL "" FORCE)
+  set(LWS_WITHOUT_TEST_PING ON CACHE BOOL "" FORCE)
+  set(LWS_WITHOUT_TEST_CLIENT ON CACHE BOOL "" FORCE)
+  set(LWS_WITH_MINIMAL_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(LWS_WITHOUT_EXTENSIONS ON CACHE BOOL "" FORCE)
+
+  FetchContent_Declare(
+    libwebsockets
+    GIT_REPOSITORY https://github.com/warmcat/libwebsockets.git
+    GIT_TAG        v4.5.8
+    GIT_SHALLOW    TRUE
+  )
+  FetchContent_MakeAvailable(libwebsockets)
 endif()
 
 add_subdirectory(third_party)

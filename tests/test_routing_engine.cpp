@@ -19,7 +19,7 @@ TEST_CASE("RoutingEngine starts empty and round-trips a single published snapsho
 
     engine.publish(std::move(snap));
 
-    const RoutingSnapshot* acquired = engine.acquireForRender();
+    std::shared_ptr<const RoutingSnapshot> acquired = engine.acquireForRender();
     REQUIRE(acquired != nullptr);
     REQUIRE(acquired->routes.size() == 1);
     CHECK(acquired->routes[0].trackIndex == 0);
@@ -53,7 +53,7 @@ TEST_CASE("RoutingEngine survives concurrent publish/acquire without torn reads"
     std::thread reader([&] {
         uint32_t lastSeenGeneration = 0;
         while (lastSeenGeneration < kGenerations) {
-            const RoutingSnapshot* snap = engine.acquireForRender();
+            std::shared_ptr<const RoutingSnapshot> snap = engine.acquireForRender();
             if (snap != nullptr) {
                 for (const auto& route : snap->routes) {
                     if (route.trackIndex != snap->busCount)
