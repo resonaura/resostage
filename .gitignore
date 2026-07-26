@@ -5,3 +5,4 @@ build-*/
 CMakeUserPresets.json
 .cache/
 compile_commands.json
+tests/audio
