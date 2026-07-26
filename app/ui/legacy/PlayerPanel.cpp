@@ -1,4 +1,4 @@
-#include "ui/PlayerPanel.h"
+#include "ui/legacy/PlayerPanel.h"
 
 #include <cmath>
 

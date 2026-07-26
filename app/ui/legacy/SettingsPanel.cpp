@@ -1,4 +1,4 @@
-#include "ui/SettingsPanel.h"
+#include "ui/legacy/SettingsPanel.h"
 
 namespace resoset {
 
@@ -86,7 +86,7 @@ SettingsPanel::SettingsPanel(AudioEngine& engineRef, CoreMidiInputListener& midi
     addAndMakeVisible(underrunButton);
 
     remoteLabel.setColour(juce::Label::textColourId, ui::muted());
-    remoteLabel.setText("Remote UI: http://<this-mac>:8080/", juce::dontSendNotification);
+    remoteLabel.setText("Remote UI: http://<this-mac>:2899/", juce::dontSendNotification);
     addAndMakeVisible(remoteLabel);
 
     keybindHeader.setText("KEYBOARD SHORTCUTS  --  click, then press a key to rebind (Esc cancels)",

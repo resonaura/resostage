@@ -1,4 +1,4 @@
-#include "ui/TimelineView.h"
+#include "ui/legacy/TimelineView.h"
 
 #include <algorithm>
 #include <cmath>

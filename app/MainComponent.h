@@ -4,11 +4,12 @@
 
 #include "AudioEngine.h"
 #include "midi/CoreMidiInputListener.h"
-#include "ui/BuilderPanel.h"
-#include "ui/BusyOverlay.h"
-#include "ui/MixerPanel.h"
-#include "ui/PlayerPanel.h"
-#include "ui/SettingsPanel.h"
+#include "ui/legacy/BuilderPanel.h"
+#include "ui/legacy/BusyOverlay.h"
+#include "ui/DevOrEmbeddedWebView.h"
+#include "ui/legacy/MixerPanel.h"
+#include "ui/legacy/PlayerPanel.h"
+#include "ui/legacy/SettingsPanel.h"
 #include "web/WebServer.h"
 
 #include <memory>
@@ -27,12 +28,17 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
 
 private:
-    enum class Mode { Player, Mixer, Builder, Settings };
+    // Web is the new default landing view (see DevOrEmbeddedWebView) -- a
+    // HeroUI/Tailwind React remote that mirrors Player/Mixer/Builder/
+    // Settings. It's transport-only server-side for now (no mixer fader/
+    // builder mutation endpoints yet), so the native panels stay reachable
+    // as tabs for actual editing rather than being removed outright.
+    enum class Mode { Web, Player, Mixer, Builder, Settings };
 
     AudioEngine engine;
     WebServer webServer;
     CoreMidiInputListener midiInput;
-    static constexpr uint16_t kWebPort = 8080;
+    static constexpr uint16_t kWebPort = 2899;
 
     // Top bar
     juce::Label appTitle;
@@ -41,6 +47,7 @@ private:
     juce::TextButton loadButton{"Load..."};
     juce::TextButton saveButton{"Save"};
     juce::TextButton saveAsButton{"Save As..."};
+    juce::TextButton webTab{"Web UI"};
     juce::TextButton playerTab{"Player"};
     juce::TextButton mixerTab{"Mixer"};
     juce::TextButton builderTab{"Builder"};
@@ -48,6 +55,10 @@ private:
     juce::Label statusLabel;
     juce::Label alarmBanner;
 
+    // http://localhost:2900 (Vite dev server) first, falls back to whatever
+    // the embedded WebServer below is serving. Constructed after webServer
+    // so kWebPort is already known.
+    std::unique_ptr<DevOrEmbeddedWebView> webView;
     PlayerPanel playerPanel;
     MixerPanel mixerPanel;
     BuilderPanel builderPanel;
@@ -60,7 +71,7 @@ private:
     BusyOverlay busyOverlay;
     bool wasBusyLastTick = false;
 
-    Mode mode = Mode::Player;
+    Mode mode = Mode::Web; // always the default landing view -- see setMode(Mode::Web) in the constructor
     std::unordered_map<std::string, std::string> keyBindings = {
         {"play", "space"},
         {"stop", "escape"},

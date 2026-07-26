@@ -26,11 +26,22 @@ enum class WebCommandKind : uint8_t {
     Next,
     Prev,
     SelectSong,
+    // Mixer parity commands -- `arg` is the track/bus index (relative to the
+    // currently-staged song for track commands), `value` is the new gain/pan
+    // in dB/-1..1, or 0.0/1.0 for mute/solo booleans.
+    SetTrackGain,
+    SetTrackPan,
+    SetTrackMute,
+    SetTrackSolo,
+    SetBusGain,
+    SetBusMute,
+    SetBusSolo,
 };
 
 struct WebCommand {
     WebCommandKind kind = WebCommandKind::Stop;
-    int arg = 0; // SelectSong index
+    int arg = 0;        // SelectSong index, or track/bus index for mixer commands
+    double value = 0.0; // gain (dB) / pan (-1..1) / bool (0.0 or 1.0) depending on kind
 };
 
 // Snapshot of everything the SPA needs, written by the message thread (~30 Hz)

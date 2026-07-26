@@ -1,5 +1,5 @@
-#include "ui/MixerPanel.h"
-#include "ui/UiColors.h"
+#include "ui/legacy/MixerPanel.h"
+#include "ui/legacy/UiColors.h"
 
 #include <algorithm>
 

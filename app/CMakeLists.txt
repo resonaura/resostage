@@ -13,16 +13,16 @@ target_sources(ResoStage PRIVATE
   events/EventDispatcher.cpp
   platform/AudioWorkgroup.cpp
   web/WebServer.cpp
-  ui/PlayerPanel.cpp
-  ui/MixerPanel.cpp
-  ui/BuilderPanel.cpp
-  ui/SettingsPanel.cpp
-  ui/TimelineView.cpp
+  ui/legacy/PlayerPanel.cpp
+  ui/legacy/MixerPanel.cpp
+  ui/legacy/BuilderPanel.cpp
+  ui/legacy/SettingsPanel.cpp
+  ui/legacy/TimelineView.cpp
 )
 
 target_compile_definitions(ResoStage
   PRIVATE
-    JUCE_WEB_BROWSER=0
+    JUCE_WEB_BROWSER=1
     JUCE_USE_CURL=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ResoStage,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:ResoStage,JUCE_VERSION>"
@@ -40,6 +40,7 @@ target_link_libraries(ResoStage
     juce::juce_events
     juce::juce_graphics
     juce::juce_gui_basics
+    juce::juce_gui_extra
   PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags

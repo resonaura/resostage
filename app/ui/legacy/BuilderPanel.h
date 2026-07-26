@@ -3,8 +3,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "AudioEngine.h"
-#include "ui/ClipTrimEditor.h"
-#include "ui/UiColors.h"
+#include "ui/legacy/ClipTrimEditor.h"
+#include "ui/legacy/UiColors.h"
 
 #include <functional>
 

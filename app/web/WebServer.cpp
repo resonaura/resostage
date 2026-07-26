@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <string_view>
 #include <vector>
 
 namespace resoset {
@@ -79,6 +80,76 @@ int parseSelectIndex(const char* body, size_t len) {
     } catch (...) {
         return -1;
     }
+}
+
+// Finds "key": <raw-value-text> (up to the next , or }) and returns the raw
+// slice, trimmed. Same "avoid a JSON dependency" spirit as parseSelectIndex.
+bool findJsonField(const std::string& s, const char* key, std::string& outRaw) {
+    const auto pos = s.find(key);
+    if (pos == std::string::npos)
+        return false;
+    const auto colon = s.find(':', pos);
+    if (colon == std::string::npos)
+        return false;
+    size_t start = colon + 1;
+    while (start < s.size() && (s[start] == ' ' || s[start] == '\t'))
+        ++start;
+    size_t end = start;
+    while (end < s.size() && s[end] != ',' && s[end] != '}')
+        ++end;
+    while (end > start && (s[end - 1] == ' ' || s[end - 1] == '\t'))
+        --end;
+    outRaw = s.substr(start, end - start);
+    return !outRaw.empty();
+}
+
+// Minimal body parse for {"index": N, "value": X} where X is a number or a
+// JSON boolean (mixer mute/solo send booleans; gain/pan send numbers).
+bool parseIndexAndValue(const char* body, size_t len, int& outIndex, double& outValue) {
+    if (body == nullptr || len == 0)
+        return false;
+    const std::string s(body, len);
+    std::string idxRaw, valRaw;
+    if (!findJsonField(s, "\"index\"", idxRaw) || !findJsonField(s, "\"value\"", valRaw))
+        return false;
+    try {
+        outIndex = std::stoi(idxRaw);
+    } catch (...) {
+        return false;
+    }
+    if (valRaw == "true") {
+        outValue = 1.0;
+    } else if (valRaw == "false") {
+        outValue = 0.0;
+    } else {
+        try {
+            outValue = std::stod(valRaw);
+        } catch (...) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isMixerCommandPath(const char* path) {
+    static const char* const kPaths[] = {
+        "/api/v1/track/gain", "/api/v1/track/pan",  "/api/v1/track/mute", "/api/v1/track/solo",
+        "/api/v1/bus/gain",   "/api/v1/bus/mute",   "/api/v1/bus/solo",
+    };
+    for (const char* p : kPaths)
+        if (std::strcmp(path, p) == 0)
+            return true;
+    return false;
+}
+
+WebCommandKind mixerCommandKindForPath(const char* path) {
+    if (std::strcmp(path, "/api/v1/track/gain") == 0) return WebCommandKind::SetTrackGain;
+    if (std::strcmp(path, "/api/v1/track/pan") == 0) return WebCommandKind::SetTrackPan;
+    if (std::strcmp(path, "/api/v1/track/mute") == 0) return WebCommandKind::SetTrackMute;
+    if (std::strcmp(path, "/api/v1/track/solo") == 0) return WebCommandKind::SetTrackSolo;
+    if (std::strcmp(path, "/api/v1/bus/gain") == 0) return WebCommandKind::SetBusGain;
+    if (std::strcmp(path, "/api/v1/bus/mute") == 0) return WebCommandKind::SetBusMute;
+    return WebCommandKind::SetBusSolo; // "/api/v1/bus/solo" -- last remaining option per isMixerCommandPath's list
 }
 
 int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
@@ -531,7 +602,16 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
                               "{\"error\":\"missing index\"}", 28);
             return true;
         }
-        cmd = {WebCommandKind::SelectSong, idx};
+        cmd = {WebCommandKind::SelectSong, idx, 0.0};
+    } else if (isMixerCommandPath(path)) {
+        int idx = 0;
+        double value = 0.0;
+        if (!parseIndexAndValue(body, bodyLen, idx, value)) {
+            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
+                              "{\"error\":\"missing index/value\"}", 34);
+            return true;
+        }
+        cmd = {mixerCommandKindForPath(path), idx, value};
     } else {
         ok = false;
     }
@@ -545,11 +625,23 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
 }
 
 int WebServer::serveStatic(struct lws* wsi, const char* path) {
-    // SPA: everything maps to index.html (single page).
-    (void)path;
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, embedded_assets::kIndexHtmlMime,
-                             embedded_assets::kIndexHtml,
-                             std::strlen(embedded_assets::kIndexHtml));
+    std::string_view p(path != nullptr && path[0] != '\0' ? path : "/");
+    if (p == "/")
+        p = embedded_assets::kIndexHtmlPath;
+
+    for (const auto& asset : embedded_assets::kAssets) {
+        if (p == asset.path)
+            return writeHttpResponse(wsi, HTTP_STATUS_OK, asset.mimeType, asset.data, asset.length);
+    }
+
+    // Unknown path (e.g. a future client-side route, or a stray request for
+    // something that was never built) -- fall back to index.html rather than
+    // a bare 404 so a refresh on a deep link still resolves to the SPA.
+    for (const auto& asset : embedded_assets::kAssets) {
+        if (std::string_view(asset.path) == embedded_assets::kIndexHtmlPath)
+            return writeHttpResponse(wsi, HTTP_STATUS_OK, asset.mimeType, asset.data, asset.length);
+    }
+    return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "text/plain", "not found", 9);
 }
 
 } // namespace resoset

@@ -1,4 +1,4 @@
-#include "ui/BuilderPanel.h"
+#include "ui/legacy/BuilderPanel.h"
 
 #include <algorithm>
 

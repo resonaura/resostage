@@ -1,5 +1,5 @@
 #include "MainComponent.h"
-#include "ui/UiColors.h"
+#include "ui/legacy/UiColors.h"
 
 #include <algorithm>
 
@@ -42,23 +42,28 @@ MainComponent::MainComponent()
     saveAsButton.onClick = [this] { saveProjectClicked(true); };
     addAndMakeVisible(saveAsButton);
 
+    styleModeTab(webTab, Mode::Web);
     styleModeTab(playerTab, Mode::Player);
     styleModeTab(mixerTab, Mode::Mixer);
     styleModeTab(builderTab, Mode::Builder);
     styleModeTab(settingsTab, Mode::Settings);
+    webTab.setRadioGroupId(7);
     playerTab.setRadioGroupId(7);
     mixerTab.setRadioGroupId(7);
     builderTab.setRadioGroupId(7);
     settingsTab.setRadioGroupId(7);
+    webTab.setClickingTogglesState(true);
     playerTab.setClickingTogglesState(true);
     mixerTab.setClickingTogglesState(true);
     builderTab.setClickingTogglesState(true);
     settingsTab.setClickingTogglesState(true);
-    playerTab.setToggleState(true, juce::dontSendNotification);
+    webTab.setToggleState(true, juce::dontSendNotification);
+    webTab.onClick = [this] { setMode(Mode::Web); };
     playerTab.onClick = [this] { setMode(Mode::Player); };
     mixerTab.onClick = [this] { setMode(Mode::Mixer); };
     builderTab.onClick = [this] { setMode(Mode::Builder); };
     settingsTab.onClick = [this] { setMode(Mode::Settings); };
+    addAndMakeVisible(webTab);
     addAndMakeVisible(playerTab);
     addAndMakeVisible(mixerTab);
     addAndMakeVisible(builderTab);
@@ -112,8 +117,8 @@ MainComponent::MainComponent()
         });
     };
 
-    addAndMakeVisible(playerPanel);
     addChildComponent(mixerPanel);
+    addChildComponent(playerPanel);
     addChildComponent(builderPanel);
     addChildComponent(settingsPanel);
     addChildComponent(busyOverlay);
@@ -131,17 +136,24 @@ MainComponent::MainComponent()
     settingsPanel.refreshBindings();
     onProjectLoaded();
 
-    setWantsKeyboardFocus(true);
-    setSize(1280, 800);
-    setMode(Mode::Player);
-    startTimerHz(30);
-
     std::string webError;
     if (webServer.start(kWebPort, webError)) {
         setStatus("Ready | Remote UI http://<this-mac>:" + juce::String(kWebPort) + "/");
     } else {
         setStatus("Web server failed: " + juce::String(webError));
     }
+
+    // Web UI is the default landing view -- always prefers the Vite dev
+    // server (webui/, :2900) when it's running, falls back to the embedded
+    // build the line above just started serving otherwise.
+    webView = std::make_unique<DevOrEmbeddedWebView>(
+        "http://localhost:" + juce::String(kWebPort) + "/");
+    addChildComponent(*webView);
+
+    setWantsKeyboardFocus(true);
+    setSize(1280, 800);
+    setMode(Mode::Web);
+    startTimerHz(30);
 }
 
 MainComponent::~MainComponent() {
@@ -158,11 +170,14 @@ void MainComponent::styleModeTab(juce::TextButton& b, Mode /*m*/) {
 
 void MainComponent::setMode(Mode m) {
     mode = m;
+    if (webView != nullptr)
+        webView->setVisible(m == Mode::Web);
     playerPanel.setVisible(m == Mode::Player);
     mixerPanel.setVisible(m == Mode::Mixer);
     builderPanel.setVisible(m == Mode::Builder);
     settingsPanel.setVisible(m == Mode::Settings);
 
+    webTab.setToggleState(m == Mode::Web, juce::dontSendNotification);
     playerTab.setToggleState(m == Mode::Player, juce::dontSendNotification);
     mixerTab.setToggleState(m == Mode::Mixer, juce::dontSendNotification);
     builderTab.setToggleState(m == Mode::Builder, juce::dontSendNotification);
@@ -224,6 +239,8 @@ void MainComponent::resized() {
     mixerTab.setBounds(top.removeFromRight(84));
     top.removeFromRight(4);
     playerTab.setBounds(top.removeFromRight(84));
+    top.removeFromRight(4);
+    webTab.setBounds(top.removeFromRight(84));
     top.removeFromRight(16);
     projectTitle.setBounds(top);
 
@@ -235,6 +252,8 @@ void MainComponent::resized() {
     else
         alarmBanner.setBounds({});
 
+    if (webView != nullptr)
+        webView->setBounds(r);
     playerPanel.setBounds(r);
     mixerPanel.setBounds(r);
     builderPanel.setBounds(r);
@@ -318,12 +337,38 @@ void MainComponent::timerCallback() {
 void MainComponent::drainWebCommands() {
     WebCommand cmd;
     while (webServer.pollCommand(cmd)) {
+        const size_t idx = static_cast<size_t>(cmd.arg);
         switch (cmd.kind) {
             case WebCommandKind::Play: engine.play(); break;
             case WebCommandKind::Stop: engine.stop(); break;
             case WebCommandKind::Next: nextSong(); break;
             case WebCommandKind::Prev: prevSong(); break;
             case WebCommandKind::SelectSong: goToSong(cmd.arg); break;
+            // Mixer parity commands -- same calls MixerPanel/MixerStrip make
+            // natively, just routed from the web client instead of a mouse
+            // drag. Track commands are always relative to whichever song is
+            // currently staged (matching MixerPanel's own convention).
+            case WebCommandKind::SetTrackGain:
+                engine.setTrackGainDb(engine.currentSongIndex(), idx, cmd.value);
+                break;
+            case WebCommandKind::SetTrackPan:
+                engine.setTrackPan(engine.currentSongIndex(), idx, cmd.value);
+                break;
+            case WebCommandKind::SetTrackMute:
+                engine.setTrackMute(engine.currentSongIndex(), idx, cmd.value != 0.0);
+                break;
+            case WebCommandKind::SetTrackSolo:
+                engine.setTrackSolo(engine.currentSongIndex(), idx, cmd.value != 0.0);
+                break;
+            case WebCommandKind::SetBusGain:
+                engine.setBusGainDb(idx, cmd.value);
+                break;
+            case WebCommandKind::SetBusMute:
+                engine.setBusMute(idx, cmd.value != 0.0);
+                break;
+            case WebCommandKind::SetBusSolo:
+                engine.setBusSolo(idx, cmd.value != 0.0);
+                break;
         }
     }
 }

@@ -5,7 +5,7 @@
 
 #include "AudioEngine.h"
 #include "midi/CoreMidiInputListener.h"
-#include "ui/UiColors.h"
+#include "ui/legacy/UiColors.h"
 
 #include <functional>
 #include <memory>

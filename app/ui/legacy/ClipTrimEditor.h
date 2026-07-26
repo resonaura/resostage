@@ -3,7 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "audio/PeakOverview.h"
-#include "ui/UiColors.h"
+#include "ui/legacy/UiColors.h"
 
 #include <algorithm>
 #include <functional>

@@ -3,7 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "AudioEngine.h"
-#include "ui/MixerStrip.h"
+#include "ui/legacy/MixerStrip.h"
 
 #include <memory>
 #include <vector>
