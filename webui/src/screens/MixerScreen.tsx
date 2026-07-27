@@ -1305,45 +1305,55 @@ export function MixerScreen({ state }: { state: WebUiState }) {
           <>
             {/* Left: Scrollable Ordinary Track Strips */}
             <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto pr-1">
-              {state.tracks.length === 0
-                ? ["Click", "Guide", "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Other"].map((name) => (
-                    <div key={name} className="flex h-full min-h-0 shrink-0 opacity-70">
-                      <ChannelStrip
-                        name={name}
-                        subtitle="Staged Track"
-                        color="#00dac3"
-                        gainDb={0}
-                        pan={0}
-                        peakDb={-100}
-                        mute={false}
-                        solo={false}
-                        onGain={() => {}}
-                        onPan={() => {}}
-                        onMute={() => {}}
-                        onSolo={() => {}}
-                      />
-                    </div>
-                  ))
-                : state.tracks.map((t, i) => (
-                    <div
-                      key={t.id}
-                      className="flex h-full min-h-0 shrink-0"
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setTrackMenu({ x: e.clientX, y: e.clientY, index: i });
-                      }}
-                    >
-                      <TrackStrip
-                        t={t}
-                        index={i}
-                        busses={state.busses}
-                        auxBusses={auxBusses}
-                        meters={state.meters}
-                        settings={state.settings}
-                        onDirectOutput={requestDirectOutput}
-                      />
-                    </div>
-                  ))}
+              {(state.tracks.length > 0
+                ? state.tracks
+                : [
+                    "Click",
+                    "Guide",
+                    "Drums",
+                    "Percussion",
+                    "Loops",
+                    "Bass",
+                    "Guitars",
+                    "Synths",
+                    "Keys",
+                    "Vocals",
+                    "Backing Vocals",
+                    "SFX",
+                    "Other",
+                  ].map((name, i) => ({
+                    id: `scaffold_${i}`,
+                    name,
+                    busId: "main",
+                    gainDb: 0,
+                    pan: 0,
+                    mute: false,
+                    solo: false,
+                    sends: [],
+                    peakDb: -100,
+                  }))
+              ).map((t, i) => (
+                <div
+                  key={t.id}
+                  className="flex h-full min-h-0 shrink-0"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (state.tracks.length > 0) {
+                      setTrackMenu({ x: e.clientX, y: e.clientY, index: i });
+                    }
+                  }}
+                >
+                  <TrackStrip
+                    t={t}
+                    index={i}
+                    busses={state.busses}
+                    auxBusses={auxBusses}
+                    meters={state.meters}
+                    settings={state.settings}
+                    onDirectOutput={requestDirectOutput}
+                  />
+                </div>
+              ))}
             </div>
 
             {/* Vertical Separator Divider Line */}
