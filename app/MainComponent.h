@@ -27,7 +27,12 @@ public:
     void resized() override;
     bool keyPressed(const juce::KeyPress& key) override;
 
+    // Save prompt on quit & autosave recovery
+    bool confirmQuitIfUnsaved();
+    void checkAndOfferAutosaveRecovery();
+
 private:
+
     // Web is the default (and, per the "single UI" goal, primary) landing
     // view -- a HeroUI/Tailwind React remote with full parity for transport,
     // mixer, project lifecycle, and Builder structural editing. The native

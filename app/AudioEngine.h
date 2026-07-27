@@ -77,7 +77,12 @@ public:
     bool saveProject(const std::string& path, std::string& error);
     const std::string& projectPath() const { return loader.archivePath(); }
 
+    bool hasAutosave(std::string& outTimestamp) const { return loader.hasAutosave(outTimestamp); }
+    bool loadAutosave(std::string& error) { return loader.loadAutosave(error); }
+    void clearAutosave() { loader.clearAutosave(); }
+
     // True until the user does a real Save As: the project is currently
+
     // backed by an auto-created draft archive in Application Support rather
     // than a location the user chose themselves. UI should treat this as
     // "unsaved" for prompting purposes even though projectPath() is non-empty.
@@ -180,6 +185,14 @@ public:
     void importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
                                 std::function<void(bool success, std::string error)> onComplete);
 
+    // Imports multiple stem WAV files at once in a single background pass into the container package.
+    struct BatchItem {
+        size_t trackIndex;
+        std::string filesystemPath;
+    };
+    void importSongStemsBatchAsync(size_t songIndex, const std::vector<BatchItem>& items,
+                                   std::function<void(bool success, std::string error)> onComplete);
+
     // Non-recursive scan of `folderPath` for .wav files (sorted by name, for
     // deterministic track order). Also attempts to detect a shared tempo for
     // the folder: first by looking for an embedded cue-point "Tempo: N"
@@ -192,21 +205,23 @@ public:
     bool scanFolderForImport(const std::string& folderPath, std::vector<std::string>& outWavPaths,
                              double& outDetectedBpm, std::string& error) const;
 
-    // Creates a new song from every .wav file directly inside `folderPath`
-    // (one track per file, filename minus extension/tempo-suffix as the
-    // track name, routed to the project's first bus), imports all the audio
-    // into the archive in a single combined rewrite, and appends the song to
-    // the project. Requires the project to already be saved at least once
-    // (same requirement as importWavForTrackAsync -- there must be an
-    // archive to write audio into). Restages whatever song was playing
-    // before, if any. Same background-thread/isBusy() contract as
-    // importWavForTrackAsync above (reading N large WAV files and rewriting
-    // the archive is even slower than a single-track import).
     void importSongFromFolderAsync(const std::string& folderPath, const std::string& songName, double bpm,
                                    int tsNumerator, int tsDenominator,
                                    std::function<void(bool success, std::string error)> onComplete);
 
+    // Unsaved changes / dirty state tracking for Logic Pro quit dialog & autosave
+    bool hasUnsavedChanges() const { return unsavedChanges.load(std::memory_order_acquire); }
+    void markDirty() {
+        unsavedChanges.store(true, std::memory_order_release);
+        if (projectLoaded) {
+            std::string err;
+            loader.saveAutosave(err);
+        }
+    }
+    void clearDirty() { unsavedChanges.store(false, std::memory_order_release); }
+
     // True from the moment an async import starts until its onComplete
+
     // fires. UI should disable further project-editing actions and show a
     // busy/spinner indicator while this is true.
     bool isBusy() const { return busyImporting.load(std::memory_order_acquire); }
@@ -346,8 +361,10 @@ private:
     int currentBlockSize = 512;
     bool projectLoaded = false;
     bool usingDraftArchive = false; // see isDraftProject()
+    std::atomic<bool> unsavedChanges{false};
     std::atomic<bool> busyImporting{false}; // see isBusy()
     std::thread importThread; // joined before starting a new import, and in ~AudioEngine()
+
 
     // Waveform-peak decoding is read-only UI feed, not playback-critical, so
     // it runs off the message thread on detached background threads

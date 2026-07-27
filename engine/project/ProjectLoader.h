@@ -127,6 +127,14 @@ public:
     // (isValid()==false) on failure.
     StreamCursor openStream(const std::string& archivePath, std::string& error) const;
 
+    // Package Container & Autosave API
+    bool isDirectoryContainer() const;
+    bool saveAutosave(std::string& error) const;
+    bool hasAutosave(std::string& outTimestamp) const;
+    bool loadAutosave(std::string& error);
+    void clearAutosave();
+    bool saveBackup(std::string& error) const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;
@@ -135,3 +143,4 @@ private:
 };
 
 } // namespace resoset
+

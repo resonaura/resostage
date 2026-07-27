@@ -16,7 +16,14 @@ public:
 
     void shutdown() override { mainWindow = nullptr; }
 
-    void systemRequestedQuit() override { quit(); }
+    void systemRequestedQuit() override {
+        if (mainWindow != nullptr && mainWindow->getMainComponent() != nullptr) {
+            if (!mainWindow->getMainComponent()->confirmQuitIfUnsaved()) {
+                return;
+            }
+        }
+        quit();
+    }
 
 private:
     class MainWindow final : public juce::DocumentWindow {
@@ -34,6 +41,10 @@ private:
             setVisible(true);
         }
 
+        MainComponent* getMainComponent() const {
+            return dynamic_cast<MainComponent*>(getContentComponent());
+        }
+
         void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
     };
 
@@ -41,5 +52,6 @@ private:
 };
 
 } // namespace resoset
+
 
 START_JUCE_APPLICATION(resoset::ResoStageApplication)

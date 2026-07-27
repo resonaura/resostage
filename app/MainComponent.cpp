@@ -504,6 +504,64 @@ void MainComponent::drainWebCommands() {
     }
 }
 
+bool MainComponent::confirmQuitIfUnsaved() {
+    if (!engine.hasUnsavedChanges())
+        return true;
+
+    juce::String projectName = juce::String(engine.project().name);
+    if (projectName.isEmpty())
+        projectName = "Untitled Project";
+
+    int choice = juce::AlertWindow::showYesNoCancelBox(
+        juce::AlertWindow::WarningIcon,
+        "Unsaved Changes",
+        "Do you want to save changes to '" + projectName + "' before quitting?",
+        "Save",
+        "Don't Save",
+        "Cancel",
+        this,
+        nullptr
+    );
+
+    if (choice == 1) { // Save
+        saveProjectClicked(engine.isDraftProject());
+        return !engine.hasUnsavedChanges();
+    } else if (choice == 2) { // Don't Save
+        return true;
+    }
+
+    return false; // Cancel
+}
+
+void MainComponent::checkAndOfferAutosaveRecovery() {
+    std::string timestamp;
+    if (engine.isProjectLoaded() && engine.hasAutosave(timestamp)) {
+        int choice = juce::AlertWindow::showYesNoCancelBox(
+            juce::AlertWindow::QuestionIcon,
+            "Auto-Save Recovery",
+            "An auto-saved version of '" + juce::String(engine.project().name) + "' (" + juce::String(timestamp) + ") was found.\nWould you like to recover the auto-saved version or load the saved file?",
+            "Load Auto-Save",
+            "Load Saved Version",
+            "Discard Auto-Save",
+            this,
+            nullptr
+        );
+        if (choice == 1) {
+            std::string err;
+            if (engine.loadAutosave(err)) {
+                setStatus("Auto-save recovered successfully");
+                onProjectLoaded();
+            } else {
+                setStatus("Failed to load auto-save: " + juce::String(err));
+            }
+        } else if (choice == 3) {
+            engine.clearAutosave();
+        }
+    }
+}
+
+
+
 void MainComponent::publishWebState() {
     WebUiState state;
     const auto& transport = engine.transport();

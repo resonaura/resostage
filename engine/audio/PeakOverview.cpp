@@ -210,6 +210,17 @@ bool decodePyramidFromWav(const uint8_t* data, size_t size, double& durationSeco
     return true;
 }
 
+// Interpolates a sample at continuous position mu in [0, 1] between y1 and y2
+// using 4 surrounding discrete points (y0, y1, y2, y3) for subsample zoom rendering.
+float cubicHermite(float y0, float y1, float y2, float y3, float mu) {
+    const float mu2 = mu * mu;
+    const float a0 = y3 - y2 - y0 + y1;
+    const float a1 = y0 - y1 - a0;
+    const float a2 = y2 - y0;
+    const float a3 = y1;
+    return (a0 * mu * mu2 + a1 * mu2 + a2 * mu + a3);
+}
+
 } // namespace
 
 bool PeakOverview::build(const ProjectLoader& loader, const std::string& archivePath, std::string& error) {
@@ -246,3 +257,4 @@ const PeakLevel* PeakOverview::bestLevelForZoom(double samplesPerPixel) const {
 }
 
 } // namespace resoset
+
