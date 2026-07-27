@@ -321,7 +321,7 @@ function TrackOutputRouting({
             setDirectOutputOpen(true);
           } else {
             setDirectOutputOpen(false);
-            onBusSelect(e.target.value);
+            onBusSelect(e.target.value === "__sends_only__" ? "" : e.target.value);
           }
         }}
         className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
@@ -331,7 +331,8 @@ function TrackOutputRouting({
             {b.name || b.id}
           </option>
         ))}
-        <option value={EXT_OUTPUT_VALUE}>Ext. Output</option>
+        <option value="__sends_only__">Sends Only</option>
+        <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
       </select>
 
       {/* Always visible (not just once Ext. Output is picked) -- it's the
@@ -448,7 +449,7 @@ function BusDestinationRouting({
         title="Where this bus's signal goes"
       >
         <option value="master">Master</option>
-        <option value={EXT_OUTPUT_VALUE}>Ext. Output</option>
+        <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
       </select>
 
       {extOutputOpen && (
@@ -565,7 +566,7 @@ function ChannelStrip({
   };
 
   return (
-    <div className="flex w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-surface/80 p-2 select-none">
+    <div className="flex h-full min-h-0 w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-surface/80 p-2 select-none">
       {/* Header */}
       <div className="flex flex-col items-center gap-0.5 w-full text-center">
         <div
@@ -601,7 +602,7 @@ function ChannelStrip({
           <div className="w-full my-1">
             <select
               value={busId || ""}
-              onChange={(e) => onBusSelect(e.target.value)}
+              onChange={(e) => onBusSelect(e.target.value === "__sends_only__" ? "" : e.target.value)}
               className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
             >
               {busses.map((b) => (
@@ -609,6 +610,8 @@ function ChannelStrip({
                   {b.name || b.id}
                 </option>
               ))}
+              <option value="__sends_only__">Sends Only</option>
+              <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
             </select>
           </div>
         )
@@ -1302,26 +1305,45 @@ export function MixerScreen({ state }: { state: WebUiState }) {
           <>
             {/* Left: Scrollable Ordinary Track Strips */}
             <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto pr-1">
-              {state.tracks.map((t, i) => (
-                <div
-                  key={t.id}
-                  className="flex shrink-0"
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setTrackMenu({ x: e.clientX, y: e.clientY, index: i });
-                  }}
-                >
-                  <TrackStrip
-                    t={t}
-                    index={i}
-                    busses={state.busses}
-                    auxBusses={auxBusses}
-                    meters={state.meters}
-                    settings={state.settings}
-                    onDirectOutput={requestDirectOutput}
-                  />
-                </div>
-              ))}
+              {state.tracks.length === 0
+                ? ["Click", "Guide", "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Other"].map((name) => (
+                    <div key={name} className="flex h-full min-h-0 shrink-0 opacity-70">
+                      <ChannelStrip
+                        name={name}
+                        subtitle="Staged Track"
+                        color="#00dac3"
+                        gainDb={0}
+                        pan={0}
+                        peakDb={-100}
+                        mute={false}
+                        solo={false}
+                        onGain={() => {}}
+                        onPan={() => {}}
+                        onMute={() => {}}
+                        onSolo={() => {}}
+                      />
+                    </div>
+                  ))
+                : state.tracks.map((t, i) => (
+                    <div
+                      key={t.id}
+                      className="flex h-full min-h-0 shrink-0"
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setTrackMenu({ x: e.clientX, y: e.clientY, index: i });
+                      }}
+                    >
+                      <TrackStrip
+                        t={t}
+                        index={i}
+                        busses={state.busses}
+                        auxBusses={auxBusses}
+                        meters={state.meters}
+                        settings={state.settings}
+                        onDirectOutput={requestDirectOutput}
+                      />
+                    </div>
+                  ))}
             </div>
 
             {/* Vertical Separator Divider Line */}
@@ -1343,7 +1365,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
               {auxBusses.map((b) => (
                 <div
                   key={b.id}
-                  className="flex shrink-0"
+                  className="flex h-full min-h-0 shrink-0"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setBusMenu({
@@ -1367,16 +1389,18 @@ export function MixerScreen({ state }: { state: WebUiState }) {
             {/* Vertical Divider */}
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
-            {/* Rightmost Fixed Section: Metronome + Master Bus (ALWAYS VISIBLE) */}
-            <div className="flex shrink-0 gap-2 items-center">
-              <MetronomeStrip state={state} />
+            {/* Rightmost Fixed Section: Metronome + Master Bus (ALWAYS VISIBLE, FULL HEIGHT) */}
+            <div className="flex h-full min-h-0 shrink-0 gap-2 items-stretch">
+              <div className="flex h-full min-h-0 shrink-0">
+                <MetronomeStrip state={state} />
+              </div>
 
               <div className="mx-1 w-px shrink-0 self-stretch bg-default/40" />
 
               {mainBusses.map((b) => (
                 <div
                   key={b.id}
-                  className="flex shrink-0"
+                  className="flex h-full min-h-0 shrink-0"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setBusMenu({
