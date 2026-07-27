@@ -32,7 +32,17 @@ inline bool getInt(const simdjson::dom::element& el, const char* key, int& out) 
 }
 
 inline bool getDouble(const simdjson::dom::element& el, const char* key, double& out) {
-    return !el[key].get(out);
+    double d;
+    if (!el[key].get(d)) {
+        out = d;
+        return true;
+    }
+    int64_t i;
+    if (!el[key].get(i)) {
+        out = static_cast<double>(i);
+        return true;
+    }
+    return false;
 }
 
 inline bool getBool(const simdjson::dom::element& el, const char* key, bool& out) {
