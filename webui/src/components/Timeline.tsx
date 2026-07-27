@@ -578,10 +578,17 @@ function buildRows(currentTracks: TrackRow[], songs: SongRow[]): TimelineRow[] {
   return rows;
 }
 
-function songDurationSeconds(song: SongRow, peaksForSong: { durationSeconds: number }[] | undefined): number {
+function songDurationSeconds(song: SongRow, peaksForSong: { id: string; trackId?: string; durationSeconds: number }[] | undefined): number {
   let max = 0;
-  for (const p of peaksForSong ?? []) max = Math.max(max, p.durationSeconds);
-  for (const e of song.events) max = Math.max(max, e.timeSeconds);
+  for (const r of song.regions ?? []) {
+    if (r.durationSeconds) max = Math.max(max, r.durationSeconds);
+  }
+  for (const p of peaksForSong ?? []) {
+    if (p.durationSeconds) max = Math.max(max, p.durationSeconds);
+  }
+  for (const e of song.events) {
+    if (e.timeSeconds) max = Math.max(max, e.timeSeconds);
+  }
   return Math.max(max, 1);
 }
 
@@ -1094,11 +1101,12 @@ export function Timeline({
                         const viewEnd = Math.min(segEnd, scrollState.scrollLeft + scrollState.viewportWidth);
                         if (viewEnd <= viewStart) return null;
 
-                        const track = state.tracks.find((t) => (t.name || t.id) === row.name);
-                        if (!track) return null;
+                        const track = state.tracks.find((t) => (t.name || t.id) === row.name || t.id === row.name);
+                        const songRegion = song.regions?.find((r) => r.trackId === track?.id || r.trackId === row.name);
+                        if (!track && !songRegion) return null;
 
                         const peaksForSong = allPeaks?.songs[i]?.tracks ?? (i === state.songIndex ? peaks?.tracks : undefined);
-                        const peakEntry = peaksForSong?.find((p) => p.id === track.id);
+                        const peakEntry = peaksForSong?.find((p) => (p as any).trackId === track?.id || p.id === track?.id || p.id === songRegion?.id);
                         const regionData = getRegion(i, row.name);
                         const segDuration = songLengths[i];
 
@@ -1128,7 +1136,7 @@ export function Timeline({
                               viewportWidth={viewEnd - viewStart}
                               pxPerSec={pxPerSec}
                               color={row.color}
-                              muted={track.mute || regionData.muted}
+                              muted={(track?.mute ?? false) || regionData.muted}
                             />
 
                             {/* Region block overlay */}

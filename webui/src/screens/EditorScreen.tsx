@@ -3,7 +3,7 @@ import { Button, Card, Slider, ScrollShadow } from "@heroui/react";
 import { ChevronDown, ChevronUp, Gauge, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { builder } from "../lib/api";
 import type { AllPeaksResponse, EventTypeWire, PeaksResponse, RegionRow, SongEventRow, SongRow, TrackRow, WebUiState } from "../lib/types";
-import { ImportStemsModal } from "../components/ImportStemsModal";
+import { ImportStemsModal, executeStemImport, autoDetectStemMappings, autoDetectSongName, autoDetectBpm } from "../components/ImportStemsModal";
 import { Timeline } from "../components/Timeline";
 
 // ─── Re-export tab type ────────────────────────────────────────────────────
@@ -614,20 +614,61 @@ export function EditorScreen({
     }
   };
 
-  const handleFolderChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []).filter((f) =>
-      f.name.toLowerCase().endsWith(".wav") || f.name.toLowerCase().endsWith(".mp3") || f.name.toLowerCase().endsWith(".aif")
+  const handleFolderChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const allFiles = Array.from(e.target.files ?? []).filter((f) =>
+      f.name.toLowerCase().endsWith(".wav") ||
+      f.name.toLowerCase().endsWith(".mp3") ||
+      f.name.toLowerCase().endsWith(".aif") ||
+      f.name.toLowerCase().endsWith(".flac")
     );
     e.target.value = "";
-    if (files.length === 0) return;
+    if (allFiles.length === 0) return;
 
-    let folderName = "";
-    if (files[0].webkitRelativePath) {
-      folderName = files[0].webkitRelativePath.split("/")[0];
+    const filesBySongFolder: Record<string, File[]> = {};
+
+    for (const file of allFiles) {
+      const relPath = file.webkitRelativePath || file.name;
+      const parts = relPath.split("/").filter(Boolean);
+      let songFolderName = "IMPORTED SONG";
+
+      if (parts.length >= 3) {
+        songFolderName = parts[parts.length - 2];
+      } else if (parts.length === 2) {
+        songFolderName = parts[0];
+      } else {
+        songFolderName = autoDetectSongName(file.name);
+      }
+
+      if (!filesBySongFolder[songFolderName]) {
+        filesBySongFolder[songFolderName] = [];
+      }
+      filesBySongFolder[songFolderName].push(file);
     }
-    setImportFiles(files);
-    setImportFolder(folderName);
-    setIsImportModalOpen(true);
+
+    const songFolders = Object.keys(filesBySongFolder);
+
+    if (songFolders.length === 1) {
+      const folderName = songFolders[0];
+      setImportFiles(filesBySongFolder[folderName]);
+      setImportFolder(folderName);
+      setIsImportModalOpen(true);
+      return;
+    }
+
+    for (const folderName of songFolders) {
+      const songFiles = filesBySongFolder[folderName];
+      const songName = autoDetectSongName(folderName);
+      let bpm = 120;
+      for (const f of songFiles) {
+        const detected = autoDetectBpm(f.name);
+        if (detected !== 120) {
+          bpm = detected;
+          break;
+        }
+      }
+      const mappings = autoDetectStemMappings(songFiles);
+      await executeStemImport(songName, bpm, 4, 4, mappings, state);
+    }
   };
 
 

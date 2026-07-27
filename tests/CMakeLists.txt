@@ -15,6 +15,7 @@ add_executable(resoset_engine_tests
   test_peak_cache.cpp
   test_artnet_packet.cpp
   test_seqlock.cpp
+  test_audio_folder_import.cpp
 )
 
 target_link_libraries(resoset_engine_tests PRIVATE resoset_engine doctest)

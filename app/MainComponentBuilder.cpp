@@ -361,12 +361,15 @@ void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, c
         return;
     }
     if (engine.projectPath().empty()) {
-        // importWavForTrackAsync needs an on-disk archive to write into --
-        // unlike the native flow (which can pop a Save As prompt), a remote
-        // upload has nowhere to prompt, so just fail with a clear reason.
-        std::remove(tempWavPath.c_str());
-        setStatus("Import failed: save the project first (it needs an archive to write audio into)");
-        return;
+        std::string err;
+        const auto docDir = juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile("Documents").getChildFile("ResoSet_Projects");
+        docDir.createDirectory();
+        const std::string defaultPath = docDir.getChildFile("UntitledProject.rsnraset").getFullPathName().toStdString();
+        if (!engine.saveProject(defaultPath, err)) {
+            std::remove(tempWavPath.c_str());
+            setStatus("Import failed: could not auto-create project archive (" + juce::String(err) + ")");
+            return;
+        }
     }
 
     const auto sIdx = static_cast<size_t>(songIndex);

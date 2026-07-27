@@ -1487,8 +1487,14 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
         return;
     }
     if (!loader.isOpen() || loader.archivePath().empty()) {
-        fail("Save the project first (Save As...) so imported audio has an archive to live in");
-        return;
+        std::string err;
+        const auto docDir = juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile("Documents").getChildFile("ResoSet_Projects");
+        docDir.createDirectory();
+        const std::string defaultPath = docDir.getChildFile("UntitledProject.rsnraset").getFullPathName().toStdString();
+        if (!saveProject(defaultPath, err)) {
+            fail("Failed to auto-create project archive: " + err);
+            return;
+        }
     }
 
     // Sanitize archive entry name and figure out the new track name --

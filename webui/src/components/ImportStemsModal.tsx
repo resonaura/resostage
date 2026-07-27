@@ -140,143 +140,7 @@ export function ImportStemsModal({
   const handleConfirmImport = async () => {
     setIsImporting(true);
     try {
-      // 1. Create new song. noSeed=true is essential here: builder.songAdd()
-      // otherwise scaffolds 8 default tracks (or clones the first song's
-      // tracks) before we get a chance to add our own -- this used to
-      // silently desync every index this file computes below from the
-      // actual server-side track list (the seeded tracks shifted
-      // everything), so trackUpdate() renamed the wrong (pre-seeded) track
-      // while the real new one sat unused as "New Track" with no audio, and
-      // the corruption then got cloned into every subsequent imported song.
-      await builder.songAdd(true);
-      const songIndex = state.songs.length; // index of newly added song
-
-      // Enable built-in click if any click stem detected or chosen
-      const enableClick = stemMappings.some(
-        (s) =>
-          s.detectedCategory === "Click" ||
-          s.targetTrackName === "(Use Built-in Metronome)" ||
-          s.targetTrackName === "Click"
-      );
-
-      // Update song metadata
-      await builder.songUpdate({
-        index: songIndex,
-        name: songName,
-        bpm: bpm,
-        mode: "auto",
-        tsNum: tsNum,
-        tsDen: tsDen,
-        click: enableClick,
-        clickBusId: state.busses[0]?.id || "main",
-        clickSends: [], // no sends on freshly imported song; user can add via Click → Send popover
-      });
-
-      // 2. Map stems to consolidated tracks (excluding special actions).
-      // IMPORTANT: `state.tracks` is the currently-STAGED song's mixer track
-      // list (see api.ts's mixer.* comments), not the brand-new song we just
-      // created above -- using it here to compute indices was the bug that
-      // dropped stems on the floor (wrong/stale indices, since the new song
-      // 2. Map stems to consolidated global tracks.
-      // Reuse existing global project tracks (state.tracks) matching trackName
-      // to avoid creating redundant/duplicate empty tracks across songs.
-      const requiredTrackNames = Array.from(
-        new Set(
-          stemMappings
-            .map((s) => s.targetTrackName)
-            .filter((t) => t !== "(Skip)" && t !== "(Use Built-in Metronome)")
-        )
-      );
-
-      const currentGlobalTracks = [...state.tracks];
-      const trackIndexByName: Record<string, number> = {};
-
-      for (const trackName of requiredTrackNames) {
-        let globalIndex = currentGlobalTracks.findIndex(
-          (t) => (t.name || t.id).toLowerCase() === trackName.toLowerCase()
-        );
-        if (globalIndex < 0) {
-          await builder.trackAdd(songIndex);
-          globalIndex = currentGlobalTracks.length;
-          const newTrack = {
-            id: `trk_${globalIndex + 1}`,
-            name: trackName,
-            busId: state.busses[0]?.id || "main",
-            gainDb: 0,
-            pan: 0,
-            mute: false,
-            solo: false,
-            sends: [],
-            peakDb: -100,
-          };
-          currentGlobalTracks.push(newTrack);
-          await builder.trackUpdate({
-            songIndex,
-            index: globalIndex,
-            name: trackName,
-            busId: state.busses[0]?.id || "main",
-            gainDb: 0,
-            pan: 0,
-            mute: false,
-            solo: false,
-          });
-        }
-        trackIndexByName[trackName] = globalIndex;
-      }
-
-      // 3. Upload stems to mapped global tracks.
-      const uploadCountByName: Record<string, number> = {};
-      for (const item of stemMappings) {
-        if (
-          item.targetTrackName === "(Skip)" ||
-          item.targetTrackName === "(Use Built-in Metronome)"
-        )
-          continue;
-
-        const baseName = item.targetTrackName;
-        const occurrence = (uploadCountByName[baseName] ?? 0) + 1;
-        uploadCountByName[baseName] = occurrence;
-
-        let targetIndex = trackIndexByName[baseName];
-        if (occurrence > 1) {
-          const disambiguatedName = `${baseName} ${occurrence}`;
-          let disambiguatedIndex = currentGlobalTracks.findIndex(
-            (t) => (t.name || t.id).toLowerCase() === disambiguatedName.toLowerCase()
-          );
-          if (disambiguatedIndex < 0) {
-            await builder.trackAdd(songIndex);
-            disambiguatedIndex = currentGlobalTracks.length;
-            const newTrack = {
-              id: `trk_${disambiguatedIndex + 1}`,
-              name: disambiguatedName,
-              busId: state.busses[0]?.id || "main",
-              gainDb: 0,
-              pan: 0,
-              mute: false,
-              solo: false,
-              sends: [],
-              peakDb: -100,
-            };
-            currentGlobalTracks.push(newTrack);
-            await builder.trackUpdate({
-              songIndex,
-              index: disambiguatedIndex,
-              name: disambiguatedName,
-              busId: state.busses[0]?.id || "main",
-              gainDb: 0,
-              pan: 0,
-              mute: false,
-              solo: false,
-            });
-          }
-          targetIndex = disambiguatedIndex;
-        }
-
-        if (targetIndex !== undefined) {
-          await builder.trackImportWav(songIndex, targetIndex, item.file);
-        }
-      }
-
+      await executeStemImport(songName, bpm, tsNum, tsDen, stemMappings, state);
       onClose();
     } catch (err) {
       console.error("Stem import failed:", err);
@@ -425,4 +289,150 @@ export function ImportStemsModal({
       </Modal.Backdrop>
     </Modal>
   );
+}
+
+export async function executeStemImport(
+  songName: string,
+  bpm: number,
+  tsNum: number,
+  tsDen: number,
+  stemMappings: StemImportItem[],
+  state: WebUiState
+) {
+  await builder.songAdd(true);
+  const songIndex = state.songs.length;
+
+  const enableClick = stemMappings.some(
+    (s) =>
+      s.detectedCategory === "Click" ||
+      s.targetTrackName === "(Use Built-in Metronome)" ||
+      s.targetTrackName === "Click"
+  );
+
+  await builder.songUpdate({
+    index: songIndex,
+    name: songName,
+    bpm: bpm,
+    mode: "auto",
+    tsNum: tsNum,
+    tsDen: tsDen,
+    click: enableClick,
+    clickBusId: state.busses[0]?.id || "main",
+    clickSends: [],
+  });
+
+  const requiredTrackNames = Array.from(
+    new Set(
+      stemMappings
+        .map((s) => s.targetTrackName)
+        .filter((t) => t !== "(Skip)" && t !== "(Use Built-in Metronome)")
+    )
+  );
+
+  const currentGlobalTracks = [...state.tracks];
+  const trackIndexByName: Record<string, number> = {};
+
+  for (const trackName of requiredTrackNames) {
+    let globalIndex = currentGlobalTracks.findIndex(
+      (t) => (t.name || t.id).toLowerCase() === trackName.toLowerCase()
+    );
+    if (globalIndex < 0) {
+      await builder.trackAdd(songIndex);
+      globalIndex = currentGlobalTracks.length;
+      const newTrack = {
+        id: `trk_${globalIndex + 1}`,
+        name: trackName,
+        busId: state.busses[0]?.id || "main",
+        gainDb: 0,
+        pan: 0,
+        mute: false,
+        solo: false,
+        sends: [],
+        peakDb: -100,
+      };
+      currentGlobalTracks.push(newTrack);
+      await builder.trackUpdate({
+        songIndex,
+        index: globalIndex,
+        name: trackName,
+        busId: state.busses[0]?.id || "main",
+        gainDb: 0,
+        pan: 0,
+        mute: false,
+        solo: false,
+      });
+    }
+    trackIndexByName[trackName] = globalIndex;
+  }
+
+  const uploadCountByName: Record<string, number> = {};
+  for (const item of stemMappings) {
+    if (
+      item.targetTrackName === "(Skip)" ||
+      item.targetTrackName === "(Use Built-in Metronome)"
+    )
+      continue;
+
+    const baseName = item.targetTrackName;
+    const occurrence = (uploadCountByName[baseName] ?? 0) + 1;
+    uploadCountByName[baseName] = occurrence;
+
+    let targetIndex = trackIndexByName[baseName];
+    if (occurrence > 1) {
+      const disambiguatedName = `${baseName} ${occurrence}`;
+      let disambiguatedIndex = currentGlobalTracks.findIndex(
+        (t) => (t.name || t.id).toLowerCase() === disambiguatedName.toLowerCase()
+      );
+      if (disambiguatedIndex < 0) {
+        await builder.trackAdd(songIndex);
+        disambiguatedIndex = currentGlobalTracks.length;
+        const newTrack = {
+          id: `trk_${disambiguatedIndex + 1}`,
+          name: disambiguatedName,
+          busId: state.busses[0]?.id || "main",
+          gainDb: 0,
+          pan: 0,
+          mute: false,
+          solo: false,
+          sends: [],
+          peakDb: -100,
+        };
+        currentGlobalTracks.push(newTrack);
+        await builder.trackUpdate({
+          songIndex,
+          index: disambiguatedIndex,
+          name: disambiguatedName,
+          busId: state.busses[0]?.id || "main",
+          gainDb: 0,
+          pan: 0,
+          mute: false,
+          solo: false,
+        });
+      }
+      targetIndex = disambiguatedIndex;
+    }
+
+    if (targetIndex !== undefined) {
+      await builder.trackImportWav(songIndex, targetIndex, item.file);
+    }
+  }
+}
+
+export function autoDetectStemMappings(files: File[]): StemImportItem[] {
+  const seenCounts: Record<string, number> = {};
+  return files.map((file) => {
+    const category = autoDetectStemType(file.name);
+    const isClick = category === "Click";
+    if (isClick) {
+      return { file, filename: file.name, detectedCategory: category, targetTrackName: "(Use Built-in Metronome)" };
+    }
+    const occurrence = (seenCounts[category] ?? 0) + 1;
+    seenCounts[category] = occurrence;
+    return {
+      file,
+      filename: file.name,
+      detectedCategory: category,
+      targetTrackName: occurrence === 1 ? category : `${category} ${occurrence}`,
+    };
+  });
 }

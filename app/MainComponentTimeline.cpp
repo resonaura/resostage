@@ -119,6 +119,7 @@ std::string MainComponent::buildAllPeaksJson() const {
                 o << ",";
             const PeakOverview* pk = regions[i].file.empty() ? nullptr : engine.cachedPeaksForFile(regions[i].file);
             o << "{\"id\":\"" << regions[i].id << "\","
+              << "\"trackId\":\"" << regions[i].trackId << "\","
               << "\"durationSeconds\":" << (pk != nullptr ? pk->durationSeconds : 0.0) << ","
               << "\"peaks\":[";
             if (pk != nullptr) {
