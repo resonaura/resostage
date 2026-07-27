@@ -214,7 +214,23 @@ void AudioEngine::rebuildTrackPeaks() {
         return;
 
     const SongDef& song = proj.songs[currentSong];
-    trackPeaks.resize(song.regions.size()); // blank lanes -- filled in as the background build below completes
+
+    // Build a region→trackIndex map so peaks can be placed at the correct
+    // track position (trackPeaks is indexed by track, not by region).
+    std::vector<int> regionTrackIndices;
+    regionTrackIndices.reserve(song.regions.size());
+    for (const auto& r : song.regions) {
+        int idx = -1;
+        for (size_t ti = 0; ti < trackIdByIndex.size(); ++ti) {
+            if (trackIdByIndex[ti] == r.trackId) {
+                idx = static_cast<int>(ti);
+                break;
+            }
+        }
+        regionTrackIndices.push_back(idx);
+    }
+
+    trackPeaks.resize(trackIdByIndex.size()); // blank lanes -- filled in as the background build below completes
 
     const uint64_t generation = peakBuildGeneration.load(std::memory_order_relaxed);
     const size_t songIndexForBuild = currentSong;
@@ -230,7 +246,8 @@ void AudioEngine::rebuildTrackPeaks() {
     // again (this used to be the single biggest contributor to "loading a
     // song feels slow", since it ran synchronously right here).
     activePeakBuilds.fetch_add(1, std::memory_order_relaxed);
-    std::thread([this, generation, songIndexForBuild, archivePathForBuild, files = std::move(trackFiles)]() {
+    std::thread([this, generation, songIndexForBuild, archivePathForBuild, files = std::move(trackFiles),
+                 regionTrackIndices = std::move(regionTrackIndices)]() mutable {
         std::vector<PeakOverview> buildResults(files.size());
         std::vector<ProjectLoader::ExtraFile> buildExtras;
 
@@ -295,16 +312,28 @@ void AudioEngine::rebuildTrackPeaks() {
         activePeakBuilds.fetch_sub(1, std::memory_order_release);
 
         juce::MessageManager::callAsync(
-            [this, generation, songIndexForBuild, results = std::move(buildResults), newExtras = std::move(buildExtras)]() mutable {
+            [this, generation, songIndexForBuild, results = std::move(buildResults), newExtras = std::move(buildExtras),
+             regionTrackIndices = std::move(regionTrackIndices)]() mutable {
                 // Song changed again while this build was in flight -- discard.
                 if (peakBuildGeneration.load(std::memory_order_acquire) != generation || currentSong != songIndexForBuild)
                     return;
-                trackPeaks = std::move(results);
+
+                // Remap region-indexed peaks to track-indexed peaks.
+                trackPeaks.assign(regionTrackIndices.size(), PeakOverview{});
+                for (size_t i = 0; i < results.size() && i < regionTrackIndices.size(); ++i) {
+                    const int trackIdx = regionTrackIndices[i];
+                    if (trackIdx >= 0 && static_cast<size_t>(trackIdx) < trackPeaks.size())
+                        trackPeaks[static_cast<size_t>(trackIdx)] = std::move(results[i]);
+                }
+
                 if (songIndexForBuild < loader.project().songs.size()) {
                     auto& s = loader.project().songs[songIndexForBuild];
-                    for (size_t i = 0; i < trackPeaks.size() && i < s.regions.size(); ++i) {
-                        if (s.regions[i].durationSeconds <= 0.0 && trackPeaks[i].durationSeconds > 0.0) {
-                            s.regions[i].durationSeconds = trackPeaks[i].durationSeconds;
+                    for (size_t i = 0; i < regionTrackIndices.size() && i < s.regions.size(); ++i) {
+                        const int trackIdx = regionTrackIndices[i];
+                        if (trackIdx >= 0 && static_cast<size_t>(trackIdx) < trackPeaks.size()) {
+                            if (s.regions[i].durationSeconds <= 0.0 && trackPeaks[static_cast<size_t>(trackIdx)].durationSeconds > 0.0) {
+                                s.regions[i].durationSeconds = trackPeaks[static_cast<size_t>(trackIdx)].durationSeconds;
+                            }
                         }
                     }
                 }
@@ -421,7 +450,6 @@ void AudioEngine::publishRoutingSnapshot() {
     const Project& proj = loader.project();
     if (currentSong >= proj.songs.size())
         return;
-    const SongDef& song = proj.songs[currentSong];
 
     bool anyTrackSolo = false;
     for (size_t i = 0; i < proj.tracks.size() && i < trackIdByIndex.size(); ++i)

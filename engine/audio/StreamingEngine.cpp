@@ -87,6 +87,7 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
                 return false;
             }
             staged->byId[regionDef.id] = buf.get();
+            staged->byId[regionDef.trackId] = buf.get();
             staged->buffers.push_back(std::move(buf));
         }
     }
@@ -109,6 +110,7 @@ void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_
             if (!buf->open(*projectLoader, regionDef.file, ringCapacityFrames, deviceSampleRate, openError))
                 return; // best-effort; stageSong() will retry and report properly later
             staged->byId[regionDef.id] = buf.get();
+            staged->byId[regionDef.trackId] = buf.get();
             staged->buffers.push_back(std::move(buf));
         }
     }
