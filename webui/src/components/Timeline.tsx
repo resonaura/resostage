@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/react";
 import { Grid3X3, ZoomIn, ZoomOut, ChevronUp, ChevronDown } from "lucide-react";
-import { mixer, transport } from "../lib/api";
+import { fetchWaveformRaw, mixer, transport } from "../lib/api";
 import { useLiveValue, useOptimisticSeek } from "../lib/optimistic";
-import type { AllPeaksResponse, PeaksResponse, SongRow, TrackRow, WebUiState } from "../lib/types";
+import type { AllPeaksResponse, PeakLevelData, PeaksResponse, SongRow, TrackRow, WebUiState } from "../lib/types";
 
 const SIDEBAR_WIDTH = 240;
 const LANE_HEIGHT = 56;
@@ -438,10 +438,47 @@ function Ruler({
 }
 
 // ------- Viewport-based Hardware-Accelerated Smooth Waveform Canvas -----------
+//
+// Reaper/Logic-style rendering: picks the pyramid level whose bin duration
+// is the closest match to the current zoom (samples-per-pixel) and draws a
+// filled min/max envelope with an RMS "loudness" band on top. Past the
+// finest cached level (extreme zoom-in, where a pixel covers less time than
+// one bin), switches to fetching the true raw sample window on demand and
+// drawing a cubic-Hermite-interpolated curve through it -- see
+// PeakOverview.h/api.ts's fetchWaveformRaw for why this isn't just another,
+// finer pyramid level.
+
+// Coarsest level whose bins are still <= one pixel's worth of time (most
+// detail available without going finer than the zoom needs). Returns null
+// when even the finest cached level is coarser than the zoom needs, which
+// means the caller should fall back to a raw-sample fetch instead.
+function pickLevelForZoom(levels: PeakLevelData[], durationSeconds: number, pxPerSec: number): PeakLevelData | null {
+  if (levels.length === 0 || durationSeconds <= 0 || pxPerSec <= 0) return null;
+  const pixelDurationSec = 1 / pxPerSec;
+  const finestBins = levels[0].min.length || 1;
+  if (durationSeconds / finestBins > pixelDurationSec) return null;
+  let best = levels[0];
+  for (const level of levels) {
+    const bins = level.min.length || 1;
+    if (durationSeconds / bins <= pixelDurationSec) best = level;
+    else break;
+  }
+  return best;
+}
+
+function cubicHermite(y0: number, y1: number, y2: number, y3: number, mu: number): number {
+  const mu2 = mu * mu;
+  const a0 = y3 - y2 - y0 + y1;
+  const a1 = y0 - y1 - a0;
+  const a2 = y2 - y0;
+  const a3 = y1;
+  return a0 * mu * mu2 + a1 * mu2 + a2 * mu + a3;
+}
 
 function TrackWaveformLane({
-  peaks,
-  baseline,
+  levels,
+  durationSeconds,
+  regionFile,
   gestureActive,
   verticalZoom,
   contentWidth,
@@ -451,8 +488,9 @@ function TrackWaveformLane({
   color,
   muted,
 }: {
-  peaks: number[];
-  baseline: number;
+  levels: PeakLevelData[];
+  durationSeconds: number;
+  regionFile?: string;
   gestureActive: boolean;
   verticalZoom: number;
   contentWidth: number;
@@ -463,6 +501,33 @@ function TrackWaveformLane({
   muted: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [rawWindow, setRawWindow] = useState<{ sampleRate: number; startSec: number; samples: number[] } | null>(null);
+
+  const needsRaw = pickLevelForZoom(levels, durationSeconds, pxPerSec) === null && levels.length > 0;
+
+  // Quantize the fetch range so panning by a pixel at a time doesn't refire
+  // a network request every frame -- half-second buckets with a half-second
+  // margin on each side comfortably cover a viewport's worth of scrolling
+  // between refetches.
+  const visibleStartSec = scrollLeft / pxPerSec;
+  const visibleEndSec = (scrollLeft + viewportWidth) / pxPerSec;
+  const quantStart = Math.max(0, Math.floor(visibleStartSec / 0.5) * 0.5 - 0.5);
+  const quantEnd = Math.min(durationSeconds, Math.ceil(visibleEndSec / 0.5) * 0.5 + 0.5);
+
+  useEffect(() => {
+    if (!needsRaw || !regionFile || gestureActive || quantEnd <= quantStart) return;
+    let cancelled = false;
+    const endSec = Math.min(quantEnd, quantStart + 9); // stay under the server's window cap
+    fetchWaveformRaw(regionFile, quantStart, endSec)
+      .then((res) => {
+        if (!cancelled && res.samples.length > 0) setRawWindow(res);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsRaw, regionFile, gestureActive, quantStart, quantEnd]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -487,62 +552,91 @@ function TrackWaveformLane({
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, renderWidth, laneH - 6);
-    if (peaks.length === 0) return;
+    if (levels.length === 0 || durationSeconds <= 0) return;
 
     const height = laneH - 6;
-    const mid = Math.max(1, Math.min(height - 1, baseline * height));
+    const mid = height / 2;
+    const halfH = Math.max(1, height / 2 - 2);
     const alpha = muted ? 0.25 : 1.0;
-
-    const totalPeaks = peaks.length;
-    const totalDurationSec = contentWidth / pxPerSec;
-
-    // Progressive rendering: during active gestures, subsample for speed
-    const step = gestureActive ? Math.max(1, Math.floor(renderWidth / 200)) : 1;
-
-    ctx.fillStyle = color + (muted ? "40" : "dd");
     ctx.globalAlpha = alpha;
 
-    for (let x = 0; x < renderWidth; x += step) {
-      const globalX = scrollLeft + x;
-      const tSec = globalX / pxPerSec;
-      const peakPos = (tSec / totalDurationSec) * (totalPeaks - 1);
+    // Best-matching level always draws first as a base layer (falling back
+    // to the finest cached level when zoomed in past it) -- the raw curve
+    // below overlays on top of it once the fetch lands, so there's never a
+    // blank lane while a raw window is in flight.
+    const level = pickLevelForZoom(levels, durationSeconds, pxPerSec) ?? levels[0];
 
-      if (peakPos >= 0 && peakPos < totalPeaks) {
-        const i0 = Math.floor(peakPos);
-        const i1 = Math.min(totalPeaks - 1, i0 + 1);
-        const frac = peakPos - i0;
-        const rawAmp = peaks[i0] * (1 - frac) + peaks[i1] * frac;
+    if (level) {
+      const bins = level.min.length;
+      const step = gestureActive ? Math.max(1, Math.floor(renderWidth / 200)) : 1;
+      const envelopeColor = color + (muted ? "30" : "66");
+      const rmsColor = color + (muted ? "55" : "cc");
 
-        if (rawAmp > 0.0005) {
-          // Asymmetric phase modulation modeling natural audio phase envelopes
-          const phaseNoise = Math.sin(x * 0.17 + i0 * 0.43) * 0.14;
-          const topFactor = Math.max(0.15, 0.85 + phaseNoise);
-          const botFactor = Math.max(0.15, 0.85 - phaseNoise);
+      for (let x = 0; x < renderWidth; x += step) {
+        const tSec = (scrollLeft + x) / pxPerSec;
+        const bin = Math.max(0, Math.min(bins - 1, Math.floor((tSec / durationSeconds) * bins)));
+        const minV = level.min[bin] ?? 0;
+        const maxV = level.max[bin] ?? 0;
+        const rms = level.rms[bin] ?? 0;
 
-          const hTop = rawAmp * (mid - 2) * topFactor * verticalZoom;
-          const hBot = rawAmp * (mid - 2) * botFactor * verticalZoom;
+        const yTop = mid - maxV * halfH * verticalZoom;
+        const yBot = mid - minV * halfH * verticalZoom;
+        ctx.fillStyle = envelopeColor;
+        ctx.fillRect(x, Math.min(yTop, yBot), Math.max(1, step), Math.max(1, Math.abs(yBot - yTop)));
 
-          const yTop = Math.max(1, mid - hTop);
-          const yBot = Math.min(height - 1, mid + hBot);
-          const barH = Math.max(1.5, yBot - yTop);
-
-          ctx.fillRect(x, yTop, Math.max(1, step), barH);
+        const rmsH = rms * halfH * verticalZoom;
+        if (rmsH > 0.5) {
+          ctx.fillStyle = rmsColor;
+          ctx.fillRect(x, mid - rmsH, Math.max(1, step), Math.max(1, rmsH * 2));
         }
       }
     }
 
+    // Extreme zoom: true per-sample curve through the fetched raw window,
+    // once it's in and covers the visible range.
+    if (needsRaw && rawWindow && rawWindow.samples.length > 1) {
+      const windowEndSec = rawWindow.startSec + rawWindow.samples.length / rawWindow.sampleRate;
+      if (rawWindow.startSec <= visibleStartSec + 1e-6 && windowEndSec >= visibleEndSec - 1e-6) {
+        ctx.strokeStyle = color + (muted ? "80" : "ff");
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        const { samples, sampleRate, startSec } = rawWindow;
+        let first = true;
+        for (let x = 0; x < renderWidth; ++x) {
+          const tSec = (scrollLeft + x) / pxPerSec;
+          const exactIdx = (tSec - startSec) * sampleRate;
+          const baseIdx = Math.floor(exactIdx);
+          const mu = exactIdx - baseIdx;
+          const y0 = samples[baseIdx - 1] ?? samples[0] ?? 0;
+          const y1 = samples[baseIdx] ?? 0;
+          const y2 = samples[baseIdx + 1] ?? samples[samples.length - 1] ?? 0;
+          const y3 = samples[baseIdx + 2] ?? samples[samples.length - 1] ?? 0;
+          const v = cubicHermite(y0, y1, y2, y3, mu);
+          const y = mid - v * halfH * verticalZoom;
+          if (first) {
+            ctx.moveTo(x, y);
+            first = false;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+      }
+    }
+
     ctx.globalAlpha = 1;
-  }, [peaks, baseline, gestureActive, verticalZoom, contentWidth, scrollLeft, viewportWidth, pxPerSec, color, muted]);
+  }, [levels, durationSeconds, needsRaw, rawWindow, gestureActive, verticalZoom, contentWidth, scrollLeft,
+      viewportWidth, pxPerSec, color, muted, visibleStartSec, visibleEndSec]);
 
   return (
     <div
       className="relative flex items-center border-b border-default/15 bg-default/10"
       style={{ width: contentWidth, height: LANE_HEIGHT * verticalZoom, opacity: muted ? 0.4 : 1 }}
     >
-      {peaks.length === 0 ? (
+      {levels.length === 0 ? (
         <div
           className="absolute inset-x-0"
-          style={{ top: `${baseline * 100}%`, height: 1, transform: "translateY(-50%)", background: color + "55" }}
+          style={{ top: "50%", height: 1, transform: "translateY(-50%)", background: color + "55" }}
         />
       ) : (
         <canvas
@@ -1156,7 +1250,7 @@ export function Timeline({
 
                         const peaksForSong = allPeaks?.songs[i]?.tracks ?? (i === state.songIndex ? peaks?.tracks : undefined);
                         const peakEntry = peaksForSong?.find((p) => (p as any).trackId === track?.id || p.id === track?.id || p.id === songRegion?.id);
-                        const peaksLoading = (songRegion?.file && (!peakEntry || peakEntry.peaks.length === 0));
+                        const peaksLoading = (songRegion?.file && (!peakEntry || peakEntry.levels.length === 0));
                         const regionData = getRegion(i, row.name);
                         const segDuration = songLengths[i];
 
@@ -1180,8 +1274,9 @@ export function Timeline({
                           <div key={i} className="absolute top-0" style={{ left: segStart }}>
                             {/* Waveform canvas (underlayer) */}
                             <TrackWaveformLane
-                              peaks={peakEntry?.peaks ?? []}
-                              baseline={peakEntry?.baseline ?? 0.5}
+                              levels={peakEntry?.levels ?? []}
+                              durationSeconds={peakEntry?.durationSeconds ?? 0}
+                              regionFile={songRegion?.file}
                               gestureActive={gestureActive}
                               verticalZoom={verticalZoom}
                               contentWidth={segWidth}

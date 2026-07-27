@@ -26,4 +26,9 @@ target_link_libraries(resoset_engine
     moodycamel_rwq
 )
 
+if(APPLE)
+  find_library(ACCELERATE_FRAMEWORK Accelerate REQUIRED)
+  target_link_libraries(resoset_engine PUBLIC ${ACCELERATE_FRAMEWORK})
+endif()
+
 target_compile_features(resoset_engine PUBLIC cxx_std_20)

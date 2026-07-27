@@ -46,6 +46,22 @@ export async function fetchAllPeaks(): Promise<AllPeaksResponse> {
   return (await res.json()) as AllPeaksResponse;
 }
 
+export interface WaveformRawResponse {
+  sampleRate: number;
+  startSec: number;
+  samples: number[];
+}
+
+// True per-sample window for extreme zoom-in, where even the finest cached
+// pyramid level (see PeakLevelData) is coarser than one pixel. `file` is the
+// region's archive-relative WAV path (RegionRow.file). Bounded to a few
+// seconds server-side -- only call this for a genuinely small visible range.
+export async function fetchWaveformRaw(file: string, startSec: number, endSec: number): Promise<WaveformRawResponse> {
+  const params = new URLSearchParams({ file, startSec: String(startSec), endSec: String(endSec) });
+  const res = await fetch(apiUrl(`/api/v1/player/waveform-raw?${params.toString()}`));
+  return (await res.json()) as WaveformRawResponse;
+}
+
 // Mixer parity -- same calls the native MixerStrip/MixerPanel make, just
 // routed from here. `index` is relative to the currently-staged song for
 // track commands (matching the native convention), or the bus list for bus

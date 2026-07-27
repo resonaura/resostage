@@ -1,8 +1,12 @@
 #include "WebServer.h"
 #include "EmbeddedAssets.h"
 
+#include "audio/WavStreamDecoder.h"
+#include "project/ProjectLoader.h"
+
 #include <libwebsockets.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -81,6 +85,47 @@ std::string jsonEscape(const std::string& s) {
         }
     }
     return out;
+}
+
+// Percent-decodes a URL query-string value (e.g. "Audio%2Fkick.wav" ->
+// "Audio/kick.wav", "+" -> " "). Malformed escapes are passed through as-is.
+std::string urlDecode(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '%' && i + 2 < s.size() && std::isxdigit(static_cast<unsigned char>(s[i + 1]))
+            && std::isxdigit(static_cast<unsigned char>(s[i + 2]))) {
+            const int hi = std::isdigit(static_cast<unsigned char>(s[i + 1])) ? s[i + 1] - '0' : (std::tolower(s[i + 1]) - 'a' + 10);
+            const int lo = std::isdigit(static_cast<unsigned char>(s[i + 2])) ? s[i + 2] - '0' : (std::tolower(s[i + 2]) - 'a' + 10);
+            out += static_cast<char>((hi << 4) | lo);
+            i += 2;
+        } else if (s[i] == '+') {
+            out += ' ';
+        } else {
+            out += s[i];
+        }
+    }
+    return out;
+}
+
+// Extracts `key`'s value from a raw "a=1&b=2" query string (as returned by
+// lws' WSI_TOKEN_HTTP_URI_ARGS), percent-decoded. Empty string if absent.
+std::string queryParam(const char* queryArgs, const char* key) {
+    if (queryArgs == nullptr)
+        return {};
+    const std::string args(queryArgs);
+    const std::string prefix = std::string(key) + "=";
+    size_t pos = 0;
+    while (pos < args.size()) {
+        const size_t amp = args.find('&', pos);
+        const std::string part = args.substr(pos, amp == std::string::npos ? std::string::npos : amp - pos);
+        if (part.compare(0, prefix.size(), prefix) == 0)
+            return urlDecode(part.substr(prefix.size()));
+        if (amp == std::string::npos)
+            break;
+        pos = amp + 1;
+    }
+    return {};
 }
 
 // Guards against NaN/Inf reaching the wire: ostringstream would emit "nan"/
@@ -447,6 +492,11 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return server->servePeaks(wsi);
                     if (std::strcmp(uri, "/api/v1/player/peaks-all") == 0)
                         return server->serveAllPeaks(wsi);
+                    if (std::strcmp(uri, "/api/v1/player/waveform-raw") == 0) {
+                        char argsBuf[512] = "";
+                        lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
+                        return server->serveWaveformRaw(wsi, argsBuf);
+                    }
                     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
                                              "{\"error\":\"not found\"}", 27);
                 }
@@ -1120,6 +1170,111 @@ int WebServer::serveAllPeaks(struct lws* wsi) {
         std::lock_guard<std::mutex> lock(allPeaksMutex);
         json = allPeaksJson;
     }
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+}
+
+void WebServer::publishArchivePath(std::string path) {
+    std::lock_guard<std::mutex> lock(archivePathMutex);
+    archivePathForRaw = std::move(path);
+}
+
+// On-demand true-sample fetch for extreme-zoom waveform rendering (see
+// PeakOverview.h's class comment on why the cached pyramid stays coarse
+// instead of growing a hyper-fine level for this). Runs entirely on this
+// (lws service) thread against a private ProjectLoader opened just for this
+// request -- same "independent reader on the same file" pattern
+// AudioEngine's background peak builds use -- so it never touches
+// AudioEngine's own loader/StreamingEngine state.
+int WebServer::serveWaveformRaw(struct lws* wsi, const char* queryArgs) {
+    const std::string file = queryParam(queryArgs, "file");
+    const double startSec = std::strtod(queryParam(queryArgs, "startSec").c_str(), nullptr);
+    const double endSec = std::strtod(queryParam(queryArgs, "endSec").c_str(), nullptr);
+
+    std::string archivePath;
+    {
+        std::lock_guard<std::mutex> lock(archivePathMutex);
+        archivePath = archivePathForRaw;
+    }
+
+    auto jsonError = [wsi](int status, const char* msg) {
+        return writeHttpResponse(wsi, status, "application/json", msg, std::strlen(msg));
+    };
+
+    if (file.empty() || archivePath.empty() || !(endSec > startSec))
+        return jsonError(HTTP_STATUS_BAD_REQUEST, "{\"error\":\"bad request\"}");
+
+    ProjectLoader rawLoader;
+    std::string error;
+    if (!rawLoader.open(archivePath, error))
+        return jsonError(HTTP_STATUS_INTERNAL_SERVER_ERROR, "{\"error\":\"archive open failed\"}");
+
+    ProjectLoader::StreamCursor cursor = rawLoader.openStream(file, error);
+    if (!cursor.isValid())
+        return jsonError(HTTP_STATUS_NOT_FOUND, "{\"error\":\"file not found\"}");
+
+    auto readFn = [&](void* buf, size_t n) -> size_t { return cursor.read(buf, n); };
+    WavStreamDecoder decoder;
+    if (!decoder.parseHeader(readFn, error) || decoder.numChannels() <= 0 || decoder.sampleRate() <= 0.0)
+        return jsonError(HTTP_STATUS_INTERNAL_SERVER_ERROR, "{\"error\":\"bad wav header\"}");
+
+    const int numChannels = decoder.numChannels();
+    const double sr = decoder.sampleRate();
+    const int64_t totalFrames = decoder.totalFrames();
+    const int64_t startFrame = std::clamp<int64_t>(static_cast<int64_t>(startSec * sr), 0, totalFrames);
+    // Bound the window generously (a few seconds' worth) -- this endpoint is
+    // for extreme zoom-in only, where the visible range is always small; a
+    // caller asking for more than this is almost certainly a mistake, not a
+    // legitimate zoom level.
+    const int64_t maxFrames = static_cast<int64_t>(sr * 10.0);
+    const int64_t endFrame = std::clamp<int64_t>(static_cast<int64_t>(endSec * sr), startFrame,
+                                                 std::min(totalFrames, startFrame + maxFrames));
+    const int64_t framesWanted = endFrame - startFrame;
+    if (framesWanted <= 0)
+        return jsonError(HTTP_STATUS_OK, "{\"sampleRate\":0,\"samples\":[]}");
+
+    // Audio entries are stored uncompressed (MZ_NO_COMPRESSION, see
+    // ProjectLoader::saveAsWithExtras), so this skip is a cheap forward read
+    // through already-cached file pages, not real decompression work.
+    std::vector<std::vector<float>> planar(static_cast<size_t>(numChannels));
+    std::vector<float*> ptrs(static_cast<size_t>(numChannels));
+    constexpr int64_t kSkipChunk = 65536;
+    std::vector<std::vector<float>> skipBuf(static_cast<size_t>(numChannels));
+    for (auto& c : skipBuf)
+        c.resize(static_cast<size_t>(kSkipChunk));
+    std::vector<float*> skipPtrs(static_cast<size_t>(numChannels));
+    for (int c = 0; c < numChannels; ++c)
+        skipPtrs[static_cast<size_t>(c)] = skipBuf[static_cast<size_t>(c)].data();
+    int64_t toSkip = startFrame;
+    while (toSkip > 0) {
+        const int64_t chunk = std::min(toSkip, kSkipChunk);
+        const int64_t got = decoder.decodeFrames(readFn, skipPtrs.data(), chunk);
+        if (got <= 0)
+            break;
+        toSkip -= got;
+    }
+
+    for (auto& c : planar)
+        c.resize(static_cast<size_t>(framesWanted));
+    for (int c = 0; c < numChannels; ++c)
+        ptrs[static_cast<size_t>(c)] = planar[static_cast<size_t>(c)].data();
+    const int64_t gotFrames = decoder.decodeFrames(readFn, ptrs.data(), framesWanted);
+
+    std::ostringstream o;
+    o.setf(std::ios::fixed);
+    o.precision(5);
+    o << "{\"sampleRate\":" << sr << ",\"startSec\":" << (static_cast<double>(startFrame) / sr)
+      << ",\"samples\":[";
+    for (int64_t i = 0; i < gotFrames; ++i) {
+        if (i)
+            o << ",";
+        float mixed = 0.0f;
+        for (int c = 0; c < numChannels; ++c)
+            mixed += planar[static_cast<size_t>(c)][static_cast<size_t>(i)];
+        mixed /= static_cast<float>(numChannels);
+        o << mixed;
+    }
+    o << "]}";
+    const std::string json = o.str();
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 

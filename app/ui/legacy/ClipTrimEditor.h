@@ -49,15 +49,19 @@ public:
         g.setColour(ui::meterBg());
         g.fillRoundedRectangle(b, 4.0f);
 
-        if (peaks != nullptr && !peaks->peaks.empty() && duration > 0.0) {
-            const int bins = static_cast<int>(peaks->peaks.size());
+        if (peaks != nullptr && !peaks->empty() && duration > 0.0) {
+            // Coarsest level is plenty for this small preview strip -- no
+            // need for the full pyramid here.
+            const auto& level = peaks->levels.back();
+            const int bins = static_cast<int>(level.bins.size());
             const float midY = b.getCentreY();
             const float halfH = b.getHeight() * 0.42f;
             g.setColour(ui::accent().withAlpha(0.75f));
             for (int x = 0; x < static_cast<int>(b.getWidth()); ++x) {
                 const int bin = juce::jlimit(0, bins - 1,
                                              static_cast<int>((static_cast<float>(x) / b.getWidth()) * static_cast<float>(bins)));
-                const float peak = peaks->peaks[static_cast<size_t>(bin)];
+                const auto& pb = level.bins[static_cast<size_t>(bin)];
+                const float peak = std::max(std::abs(pb.minVal), std::abs(pb.maxVal));
                 const float h = juce::jmax(1.0f, peak * halfH);
                 g.drawVerticalLine(static_cast<int>(b.getX()) + x, midY - h, midY + h);
             }

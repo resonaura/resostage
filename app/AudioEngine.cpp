@@ -322,7 +322,7 @@ void AudioEngine::rebuildTrackPeaks() {
                             return;
                         PeakOverview overview;
                         std::string error;
-                        if (overview.buildFromBuffer(pb.data.data(), pb.data.size(), 16384, error)) {
+                        if (overview.buildFromBuffer(pb.data.data(), pb.data.size(), error)) {
                             threadExtras[t].push_back(PeakCache::makeCacheExtra(overview, pb.path));
                             {
                                 std::lock_guard<std::mutex> lock(peakCacheMutex);
@@ -450,7 +450,7 @@ void AudioEngine::ensureAllSongPeaksBuilt() {
                     jobs.emplace_back([this, &pb = pending[t], &threadExtras, t]() {
                         PeakOverview overview;
                         std::string error;
-                        if (overview.buildFromBuffer(pb.data.data(), pb.data.size(), 16384, error)) {
+                        if (overview.buildFromBuffer(pb.data.data(), pb.data.size(), error)) {
                             threadExtras[t].push_back(PeakCache::makeCacheExtra(overview, pb.path));
                             {
                                 std::lock_guard<std::mutex> lock(peakCacheMutex);
@@ -1707,7 +1707,7 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             // to ensureAllSongPeaksBuilt()'s unbounded thread fan-out.
             PeakOverview overview;
             std::string peakError;
-            const bool peaksOk = overview.buildFromBuffer(data.data(), data.size(), 16384, peakError);
+            const bool peaksOk = overview.buildFromBuffer(data.data(), data.size(), peakError);
 
             std::vector<ProjectLoader::ExtraFile> extras;
             ProjectLoader::ExtraFile extra;
@@ -1994,7 +1994,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
 
             PeakOverview overview;
             std::string peakError;
-            if (overview.buildFromBuffer(data.data(), data.size(), 16384, peakError)) {
+            if (overview.buildFromBuffer(data.data(), data.size(), peakError)) {
                 peakExtras.push_back(PeakCache::makeCacheExtra(overview, entry));
                 newPeakEntries.emplace_back(entry, std::move(overview));
             }

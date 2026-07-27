@@ -13,6 +13,40 @@ namespace resoset {
 
 using namespace builder_json;
 
+namespace {
+void writePeakOverviewJson(std::ostringstream& o, const PeakOverview* pk) {
+    o << "\"durationSeconds\":" << (pk != nullptr ? pk->durationSeconds : 0.0) << ","
+      << "\"levels\":[";
+    if (pk != nullptr) {
+        for (size_t li = 0; li < pk->levels.size(); ++li) {
+            if (li)
+                o << ",";
+            const PeakLevel& level = pk->levels[li];
+            o << "{\"samplesPerBin\":" << level.samplesPerBin << ",\"min\":[";
+            for (size_t b = 0; b < level.bins.size(); ++b) {
+                if (b)
+                    o << ",";
+                o << level.bins[b].minVal;
+            }
+            o << "],\"max\":[";
+            for (size_t b = 0; b < level.bins.size(); ++b) {
+                if (b)
+                    o << ",";
+                o << level.bins[b].maxVal;
+            }
+            o << "],\"rms\":[";
+            for (size_t b = 0; b < level.bins.size(); ++b) {
+                if (b)
+                    o << ",";
+                o << level.bins[b].rms;
+            }
+            o << "]}";
+        }
+    }
+    o << "]";
+}
+} // namespace
+
 void MainComponent::transportSeek(const std::string& json) {
     simdjson::dom::parser parser;
     simdjson::dom::element doc;
@@ -33,6 +67,11 @@ void MainComponent::transportSeek(const std::string& json) {
 }
 
 void MainComponent::maybePublishPeaks() {
+    // Cheap string mirror so the HTTP thread can serve on-demand raw-sample
+    // fetches (extreme-zoom waveform rendering) without ever touching
+    // AudioEngine's loader directly -- see WebServer::serveWaveformRaw().
+    webServer.publishArchivePath(engine.projectPath());
+
     const int songIdx = (engine.currentSongIndex() == static_cast<size_t>(-1))
                             ? -1
                             : static_cast<int>(engine.currentSongIndex());
@@ -40,7 +79,7 @@ void MainComponent::maybePublishPeaks() {
     bool complete = engine.trackCount() > 0;
     for (size_t i = 0; i < engine.trackCount(); ++i) {
         const PeakOverview* pk = engine.trackPeaksAt(i);
-        if (pk == nullptr || pk->peaks.empty()) {
+        if (pk == nullptr || pk->empty()) {
             complete = false;
             break;
         }
@@ -63,18 +102,9 @@ std::string MainComponent::buildPeaksJson() const {
         if (i)
             o << ",";
         const PeakOverview* pk = engine.trackPeaksAt(i);
-        o << "{\"id\":\"" << engine.trackIdAt(i) << "\","
-          << "\"durationSeconds\":" << (pk != nullptr ? pk->durationSeconds : 0.0) << ","
-          << "\"baseline\":" << (pk != nullptr ? static_cast<double>(pk->baseline) : 0.5) << ","
-          << "\"peaks\":[";
-        if (pk != nullptr) {
-            for (size_t b = 0; b < pk->peaks.size(); ++b) {
-                if (b)
-                    o << ",";
-                o << pk->peaks[b];
-            }
-        }
-        o << "]}";
+        o << "{\"id\":\"" << engine.trackIdAt(i) << "\",";
+        writePeakOverviewJson(o, pk);
+        o << "}";
     }
     o << "]}";
     return o.str();
@@ -120,18 +150,9 @@ std::string MainComponent::buildAllPeaksJson() const {
                 o << ",";
             const PeakOverview* pk = regions[i].file.empty() ? nullptr : engine.cachedPeaksForFile(regions[i].file);
             o << "{\"id\":\"" << regions[i].id << "\","
-              << "\"trackId\":\"" << regions[i].trackId << "\","
-              << "\"durationSeconds\":" << (pk != nullptr ? pk->durationSeconds : 0.0) << ","
-              << "\"baseline\":" << (pk != nullptr ? static_cast<double>(pk->baseline) : 0.5) << ","
-              << "\"peaks\":[";
-            if (pk != nullptr) {
-                for (size_t b = 0; b < pk->peaks.size(); ++b) {
-                    if (b)
-                        o << ",";
-                    o << pk->peaks[b];
-                }
-            }
-            o << "]}";
+              << "\"trackId\":\"" << regions[i].trackId << "\",";
+            writePeakOverviewJson(o, pk);
+            o << "}";
         }
         o << "]}";
     }

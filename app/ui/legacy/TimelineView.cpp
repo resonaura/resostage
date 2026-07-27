@@ -314,18 +314,20 @@ void TimelineView::paint(juce::Graphics& g) {
                 g.fillRoundedRectangle(clip.toFloat(), 3.0f);
 
                 if (const PeakOverview* ov = engine.trackPeaksAt(i);
-                    ov != nullptr && !ov->peaks.empty() && songLengthSeconds > 0.0) {
+                    ov != nullptr && !ov->empty() && songLengthSeconds > 0.0) {
                     const int midY = clip.getCentreY();
                     const int halfH = juce::jmax(2, clip.getHeight() / 2 - 1);
                     g.setColour(ui::text().withAlpha(tr.mute ? 0.35f : 0.85f));
-                    const int bins = static_cast<int>(ov->peaks.size());
+                    const auto& level = ov->levels.back();
+                    const int bins = static_cast<int>(level.bins.size());
                     for (int px = clip.getX(); px < clip.getRight(); ++px) {
                         const double t = xToSeconds(px);
                         if (t < 0.0 || t > songLengthSeconds)
                             continue;
                         const int bin = juce::jlimit(0, bins - 1,
                                                      static_cast<int>(t / songLengthSeconds * bins));
-                        const float peak = ov->peaks[static_cast<size_t>(bin)];
+                        const auto& pb = level.bins[static_cast<size_t>(bin)];
+                        const float peak = std::max(std::abs(pb.minVal), std::abs(pb.maxVal));
                         const int h = juce::jmax(1, static_cast<int>(peak * static_cast<float>(halfH)));
                         g.drawVerticalLine(px, static_cast<float>(midY - h), static_cast<float>(midY + h));
                     }

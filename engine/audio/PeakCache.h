@@ -12,17 +12,23 @@ namespace resoset {
 //   Peaks/<sanitized-audio-path>.rpk
 //
 // Binary little-endian:
-//   char magic[4] = "RPK2"
-//   uint32_t numBins
+//   char magic[4] = "RPK3"
 //   double durationSeconds
 //   int32_t numChannels
-//   float baseline
-//   float peaks[numBins]
+//   uint32_t numLevels
+//   per level:
+//     int32_t samplesPerBin
+//     uint32_t numBins
+//     float minVal[numBins]
+//     float maxVal[numBins]
+//     float rms[numBins]
 //
 // Cache key is derived from the archive-relative audio path so import/replace
-// of a stem naturally invalidates the old file when the path changes.
+// of a stem naturally invalidates the old file when the path changes. Files
+// written by the older single-resolution "RPK2" format are treated as a
+// cache miss and rebuilt -- cheap, not worth a bit-for-bit migration.
 struct PeakCache {
-    static constexpr char kMagic[4] = {'R', 'P', 'K', '2'};
+    static constexpr char kMagic[4] = {'R', 'P', 'K', '3'};
 
     // "Audio/song1_kick.wav" -> "Peaks/Audio_song1_kick.wav.rpk"
     static std::string cacheEntryPath(const std::string& audioArchivePath);
@@ -30,7 +36,7 @@ struct PeakCache {
     static std::vector<uint8_t> serialize(const PeakOverview& overview);
     static bool deserialize(const uint8_t* data, size_t size, PeakOverview& out, std::string& error);
 
-    // Load from open archive; returns false if missing/corrupt.
+    // Load from open archive; returns false if missing/corrupt/old-format.
     static bool loadFromArchive(const ProjectLoader& loader, const std::string& audioArchivePath,
                                 PeakOverview& out, std::string& error);
 

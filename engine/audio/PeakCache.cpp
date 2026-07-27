@@ -66,34 +66,35 @@ std::string PeakCache::cacheEntryPath(const std::string& audioArchivePath) {
 
 std::vector<uint8_t> PeakCache::serialize(const PeakOverview& overview) {
     std::vector<uint8_t> out;
-    out.reserve(4 + 4 + 8 + 4 + 4 + overview.peaks.size() * 4);
     out.insert(out.end(), kMagic, kMagic + 4);
-    appendU32(out, static_cast<uint32_t>(overview.peaks.size()));
     appendF64(out, overview.durationSeconds);
     appendI32(out, overview.numChannels);
-    appendF32(out, overview.baseline);
-    for (float p : overview.peaks)
-        appendF32(out, p);
+    appendU32(out, static_cast<uint32_t>(overview.levels.size()));
+    for (const auto& level : overview.levels) {
+        appendI32(out, level.samplesPerBin);
+        appendU32(out, static_cast<uint32_t>(level.bins.size()));
+        for (const auto& bin : level.bins)
+            appendF32(out, bin.minVal);
+        for (const auto& bin : level.bins)
+            appendF32(out, bin.maxVal);
+        for (const auto& bin : level.bins)
+            appendF32(out, bin.rms);
+    }
     return out;
 }
 
 bool PeakCache::deserialize(const uint8_t* data, size_t size, PeakOverview& out, std::string& error) {
     out = PeakOverview{};
-    if (data == nullptr || size < 4 + 4 + 8 + 4) {
+    if (data == nullptr || size < 4 + 8 + 4 + 4) {
         error = "Peak cache too short";
         return false;
     }
     if (std::memcmp(data, kMagic, 4) != 0) {
-        error = "Peak cache bad magic";
+        error = "Peak cache bad magic or old format";
         return false;
     }
     const uint8_t* p = data + 4;
     const uint8_t* end = data + size;
-    uint32_t numBins = 0;
-    if (!readU32(p, end, numBins) || numBins == 0 || numBins > 32768) {
-        error = "Peak cache bad bin count";
-        return false;
-    }
     if (!readF64(p, end, out.durationSeconds)) {
         error = "Peak cache bad duration";
         return false;
@@ -104,14 +105,40 @@ bool PeakCache::deserialize(const uint8_t* data, size_t size, PeakOverview& out,
         return false;
     }
     out.numChannels = ch;
-    if (!readF32(p, end, out.baseline))
-        out.baseline = 0.5f;
-    out.peaks.resize(numBins);
-    for (uint32_t i = 0; i < numBins; ++i) {
-        if (!readF32(p, end, out.peaks[i])) {
-            error = "Peak cache truncated peaks";
+    uint32_t numLevels = 0;
+    if (!readU32(p, end, numLevels) || numLevels > 16) {
+        error = "Peak cache bad level count";
+        return false;
+    }
+    out.levels.resize(numLevels);
+    for (auto& level : out.levels) {
+        int32_t samplesPerBin = 0;
+        if (!readI32(p, end, samplesPerBin)) {
+            error = "Peak cache bad level header";
             return false;
         }
+        level.samplesPerBin = samplesPerBin;
+        uint32_t numBins = 0;
+        if (!readU32(p, end, numBins) || numBins > (1u << 20)) {
+            error = "Peak cache bad bin count";
+            return false;
+        }
+        level.bins.resize(numBins);
+        for (uint32_t i = 0; i < numBins; ++i)
+            if (!readF32(p, end, level.bins[i].minVal)) {
+                error = "Peak cache truncated min values";
+                return false;
+            }
+        for (uint32_t i = 0; i < numBins; ++i)
+            if (!readF32(p, end, level.bins[i].maxVal)) {
+                error = "Peak cache truncated max values";
+                return false;
+            }
+        for (uint32_t i = 0; i < numBins; ++i)
+            if (!readF32(p, end, level.bins[i].rms)) {
+                error = "Peak cache truncated rms values";
+                return false;
+            }
     }
     return true;
 }

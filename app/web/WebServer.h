@@ -350,6 +350,13 @@ public:
     // via GET /api/v1/player/peaks-all.
     void publishAllPeaks(std::string json);
 
+    // Message-thread: keep the currently open project's archive path mirrored
+    // here so the HTTP service thread can open its own independent
+    // ProjectLoader for on-demand raw-sample fetches (see serveWaveformRaw())
+    // without ever touching AudioEngine's loader -- same "separate reader on
+    // the same file" pattern AudioEngine's background peak builds use.
+    void publishArchivePath(std::string path);
+
 private:
     friend int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
     friend int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
@@ -363,6 +370,7 @@ private:
     int serveExportDownload(struct lws* wsi);
     int servePeaks(struct lws* wsi);
     int serveAllPeaks(struct lws* wsi);
+    int serveWaveformRaw(struct lws* wsi, const char* queryArgs);
 
     // Called only from the lws service thread.
     void onClientOpened();
@@ -396,6 +404,9 @@ private:
 
     mutable std::mutex allPeaksMutex;
     std::string allPeaksJson = "{\"songs\":[]}";
+
+    mutable std::mutex archivePathMutex;
+    std::string archivePathForRaw;
 
     // Per-session WS bookkeeping lives in the .cpp (opaque to callers).
     // The service thread owns a linked list of live WS sessions via user data.

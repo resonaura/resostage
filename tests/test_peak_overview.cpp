@@ -64,23 +64,31 @@ std::string makeArchiveWithWav() {
 
 } // namespace
 
-TEST_CASE("PeakOverview builds non-empty bins from a sine WAV in .rsnraset") {
+TEST_CASE("PeakOverview builds a multi-level pyramid from a sine WAV in .rsnraset") {
     const std::string path = makeArchiveWithWav();
     ProjectLoader loader;
     std::string error;
     REQUIRE(loader.open(path, error));
 
     PeakOverview ov;
-    REQUIRE(ov.build(loader, "Audio/tone.wav", 64, error));
-    CHECK(ov.peaks.size() == 64);
+    REQUIRE(ov.build(loader, "Audio/tone.wav", error));
+    REQUIRE(!ov.levels.empty());
     CHECK(ov.durationSeconds == doctest::Approx(0.25).epsilon(0.01));
     CHECK(ov.numChannels == 1);
 
+    // Finest level should be the most bins, each subsequent level strictly coarser.
+    for (size_t i = 1; i < ov.levels.size(); ++i)
+        CHECK(ov.levels[i].bins.size() < ov.levels[i - 1].bins.size());
+
     float maxPeak = 0.0f;
-    for (float p : ov.peaks)
-        maxPeak = std::max(maxPeak, p);
+    for (const auto& bin : ov.levels.front().bins)
+        maxPeak = std::max(maxPeak, std::max(std::abs(bin.minVal), std::abs(bin.maxVal)));
     CHECK(maxPeak > 0.2f);
     CHECK(maxPeak <= 1.0f);
+
+    const PeakLevel* best = ov.bestLevelForZoom(1.0);
+    REQUIRE(best != nullptr);
+    CHECK(best->samplesPerBin >= 1);
 
     std::remove(path.c_str());
 }

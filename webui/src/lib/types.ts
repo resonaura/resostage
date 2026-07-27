@@ -133,11 +133,21 @@ export interface SettingsState {
   keybindings: KeybindingRow[];
 }
 
+// One pyramid level of a track's peak overview -- parallel arrays (not
+// array-of-objects) to keep JSON parse cost down for the coarser/whole-file
+// levels. samplesPerBin lets the renderer pick the level closest to the
+// current samples-per-pixel without the server needing to know the zoom.
+export interface PeakLevelData {
+  samplesPerBin: number;
+  min: number[];
+  max: number[];
+  rms: number[];
+}
+
 export interface TrackPeaks {
   id: string;
   durationSeconds: number;
-  baseline: number;
-  peaks: number[];
+  levels: PeakLevelData[];
 }
 
 export interface PeaksResponse {
