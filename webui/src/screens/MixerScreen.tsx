@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Slider } from "@heroui/react";
 import { Plus } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { builder, mixer } from "../lib/api";
 import { useLiveValue } from "../lib/optimistic";
@@ -246,10 +247,12 @@ function SendKnobs({
   auxBusses,
   sends,
   trackIndex,
+  onSendChange,
 }: {
   auxBusses: BusRow[];
   sends: { busId: string; gainDb: number }[];
   trackIndex: number;
+  onSendChange?: (busId: string, gainDb: number) => void;
 }) {
   if (auxBusses.length === 0) return null;
   return (
@@ -258,12 +261,12 @@ function SendKnobs({
         const existing = sends.find((s) => s.busId === bus.id);
         const value = existing?.gainDb ?? SEND_FLOOR_DB;
         return (
-          <div key={bus.id} className="flex items-center justify-between gap-1">
+          <div key={bus.id} className="flex items-center justify-between gap-1 w-full">
             <span
-              className="truncate text-[8px] font-mono text-foreground/40"
+              className="truncate text-[9px] font-mono text-foreground/60 max-w-[54px]"
               title={bus.name || bus.id}
             >
-              {(bus.name || bus.id).slice(0, 4)}
+              {bus.name || bus.id}
             </span>
             <Knob
               value={value}
@@ -271,7 +274,11 @@ function SendKnobs({
               max={6}
               defaultValue={SEND_FLOOR_DB}
               accent="#00dac3"
-              onCommit={(v) => mixer.setTrackSend(trackIndex, bus.id, v)}
+              onCommit={(v) =>
+                onSendChange
+                  ? onSendChange(bus.id, v)
+                  : mixer.setTrackSend(trackIndex, bus.id, v)
+              }
               size={16}
               title={`Send to ${bus.name || bus.id}`}
             />
@@ -332,12 +339,11 @@ function TrackOutputRouting({
           determines whether Ext. Output offers single channels or pairs. */}
       <button
         type="button"
-        className="mt-1 flex items-center gap-1 text-foreground/70"
+        className="mt-1 flex items-center justify-center p-0.5 text-foreground/70 transition-colors hover:text-foreground"
         title={mono ? "Mono (click for stereo)" : "Stereo (click for mono)"}
         onClick={() => setMono((m) => !m)}
       >
         <MonoStereoIcon stereo={!mono} />
-        <span className="text-[8px] uppercase">{mono ? "Mono" : "Stereo"}</span>
       </button>
 
       {directOutputOpen && (
@@ -414,16 +420,13 @@ function BusDestinationRouting({
     <div className="w-full my-1 flex flex-col items-center gap-1">
       <button
         type="button"
-        className="flex items-center gap-1 text-foreground/70"
+        className="flex items-center justify-center p-0.5 text-foreground/70 transition-colors hover:text-foreground"
         title={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
         onClick={() =>
           updateBusChannels(bus, index, stereo ? 1 : 2, bus.startChannel)
         }
       >
         <MonoStereoIcon stereo={stereo} />
-        <span className="text-[8px] uppercase">
-          {stereo ? "Stereo" : "Mono"}
-        </span>
       </button>
       <select
         value={extOutputOpen ? EXT_OUTPUT_VALUE : "master"}
@@ -539,6 +542,7 @@ function ChannelStrip({
     auxBusses: BusRow[];
     values: { busId: string; gainDb: number }[];
     trackIndex: number;
+    onSendChange?: (busId: string, gainDb: number) => void;
   };
   // Mono/stereo toggle + Master-vs-Direct-Output routing. Bus strips only
   // (every bus except Master -- see BusDestinationRouting).
@@ -727,48 +731,70 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   const [clickSolo, setClickSolo] = useState(false);
 
   const hasSongs = state.songs.length > 0;
-  const isMetronomeOn = hasSongs ? state.songs.some((s) => s.click) : false;
-  const currentClickBus =
-    hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]?.clickBusId
-      ? state.songs[state.songIndex].clickBusId
-      : state.busses[0]?.id || "main";
+  const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
+  const currentSong = hasSongs ? state.songs[songIdx] : null;
+  const isMetronomeOn = currentSong ? currentSong.click : false;
+  const currentClickBus = currentSong?.clickBusId || state.busses[0]?.id || "main";
 
   const clickBusMeter = state.meters.find((m) => m.id === currentClickBus);
+  const auxBusses = state.busses.filter((b) => b.isAux);
+  const clickSends = currentSong?.clickSends ?? [];
 
   const toggleMetronomeMute = () => {
     const nextState = !isMetronomeOn;
-    const busId = currentClickBus;
-    if (hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]) {
-      const s = state.songs[state.songIndex];
+    if (hasSongs && currentSong) {
       void builder.songUpdate({
-        index: state.songIndex,
-        name: s.name,
-        bpm: s.bpm,
-        mode: s.mode,
-        tsNum: s.tsNum,
-        tsDen: s.tsDen,
+        index: songIdx,
+        name: currentSong.name,
+        bpm: currentSong.bpm,
+        mode: currentSong.mode,
+        tsNum: currentSong.tsNum,
+        tsDen: currentSong.tsDen,
         click: nextState,
-        clickBusId: s.clickBusId || busId,
-        clickSends: s.clickSends ?? [],
+        clickBusId: currentSong.clickBusId || currentClickBus,
+        clickSends: currentSong.clickSends ?? [],
       });
     }
   };
 
   const changeClickBus = (busId: string) => {
-    if (hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]) {
-      const s = state.songs[state.songIndex];
+    if (hasSongs && currentSong) {
       void builder.songUpdate({
-        index: state.songIndex,
-        name: s.name,
-        bpm: s.bpm,
-        mode: s.mode,
-        tsNum: s.tsNum,
-        tsDen: s.tsDen,
-        click: s.click,
+        index: songIdx,
+        name: currentSong.name,
+        bpm: currentSong.bpm,
+        mode: currentSong.mode,
+        tsNum: currentSong.tsNum,
+        tsDen: currentSong.tsDen,
+        click: currentSong.click,
         clickBusId: busId,
-        clickSends: s.clickSends ?? [],
+        clickSends: currentSong.clickSends ?? [],
       });
     }
+  };
+
+  const handleClickSendChange = (busId: string, gainDb: number) => {
+    if (!hasSongs || !currentSong) return;
+    const existing = clickSends.find((cs) => cs.busId === busId);
+    let updatedSends: typeof clickSends;
+    if (existing) {
+      updatedSends = clickSends.map((cs) =>
+        cs.busId === busId ? { ...cs, gainDb, enabled: gainDb > -59 } : cs
+      );
+    } else {
+      updatedSends = [...clickSends, { busId, gainDb, enabled: gainDb > -59 }];
+    }
+    void builder.songUpdate({
+      index: songIdx,
+      name: currentSong.name,
+      bpm: currentSong.bpm,
+      mode: currentSong.mode,
+      tsNum: currentSong.tsNum,
+      tsDen: currentSong.tsDen,
+      click: currentSong.click,
+      clickBusId: currentSong.clickBusId,
+      clickSends: updatedSends,
+    });
   };
 
   return (
@@ -779,6 +805,12 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       busses={state.busses}
       busId={currentClickBus}
       onBusSelect={changeClickBus}
+      sends={{
+        auxBusses,
+        values: clickSends,
+        trackIndex: -1,
+        onSendChange: handleClickSendChange,
+      }}
       gainDb={clickGain}
       pan={clickPan}
       peakDb={isMetronomeOn ? clickBusMeter?.peakDb : -100}
@@ -916,7 +948,7 @@ function TrackContextMenu({
   };
 
   return (
-    <>
+    <AnimatePresence>
       <div
         className="fixed inset-0 z-40"
         onClick={onClose}
@@ -925,8 +957,12 @@ function TrackContextMenu({
           onClose();
         }}
       />
-      <div
-        className="fixed z-50 w-48 overflow-hidden rounded-lg border border-default/40 bg-surface py-1 text-xs shadow-xl"
+      <motion.div
+        initial={{ opacity: 0, scale: 0.94, y: -4 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.94 }}
+        transition={{ duration: 0.12, ease: "easeOut" }}
+        className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
         style={{ left: menu.x, top: menu.y }}
       >
         {renaming ? (
@@ -948,7 +984,7 @@ function TrackContextMenu({
             />
           </form>
         ) : (
-          <MenuItem onClick={() => setRenaming(true)}>Rename...</MenuItem>
+          <MenuItem onClick={() => setRenaming(true)}>Rename Track...</MenuItem>
         )}
         <MenuItem
           onClick={() =>
@@ -1012,8 +1048,125 @@ function TrackContextMenu({
         >
           Remove Track
         </MenuItem>
-      </div>
-    </>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function BusContextMenu({
+  menu,
+  bus,
+  onClose,
+}: {
+  menu: { x: number; y: number; index: number };
+  bus: BusRow;
+  onClose: () => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(bus.name || bus.id);
+
+  const act = (fn: () => void) => {
+    fn();
+    onClose();
+  };
+
+  const commitRename = () => {
+    const name = nameDraft.trim();
+    if (name.length > 0) {
+      void builder.busUpdate({
+        index: menu.index,
+        name,
+        channels: bus.channels,
+        startChannel: bus.startChannel,
+        gainDb: bus.gainDb,
+        mute: bus.mute,
+        solo: bus.solo,
+        isAux: bus.isAux,
+      });
+    }
+    onClose();
+  };
+
+  return (
+    <AnimatePresence>
+      <div
+        className="fixed inset-0 z-40"
+        onClick={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onClose();
+        }}
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.94, y: -4 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.94 }}
+        transition={{ duration: 0.12, ease: "easeOut" }}
+        className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
+        style={{ left: menu.x, top: menu.y }}
+      >
+        {renaming ? (
+          <form
+            className="px-2 py-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              commitRename();
+            }}
+          >
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") onClose();
+              }}
+              className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
+            />
+          </form>
+        ) : (
+          <MenuItem onClick={() => setRenaming(true)}>Rename Bus...</MenuItem>
+        )}
+        <MenuItem
+          onClick={() =>
+            act(() => {
+              void mixer.setBusGain(menu.index, 0);
+            })
+          }
+        >
+          Reset Gain
+        </MenuItem>
+        <MenuItem
+          onClick={() =>
+            act(() => {
+              void mixer.setBusMute(menu.index, false);
+              void mixer.setBusSolo(menu.index, false);
+            })
+          }
+        >
+          Clear Mute &amp; Solo
+        </MenuItem>
+        {bus.id !== "main" && (
+          <>
+            <div className="my-1 h-px bg-default/20" />
+            <MenuItem
+              danger
+              onClick={() =>
+                act(() => {
+                  if (
+                    window.confirm(
+                      `Remove bus "${bus.name || bus.id}"? This can't be undone.`,
+                    )
+                  )
+                    void builder.busRemove(menu.index);
+                })
+              }
+            >
+              Remove Bus
+            </MenuItem>
+          </>
+        )}
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
@@ -1037,6 +1190,8 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   const master = state.busses.find((b) => b.id === "main") ?? mainBusses[0];
   const pendingBusJobs = useRef<PendingBusJob[]>([]);
   const [trackMenu, setTrackMenu] = useState<TrackMenuState | null>(null);
+
+  const [busMenu, setBusMenu] = useState<{ x: number; y: number; index: number } | null>(null);
 
   useEffect(() => {
     if (pendingBusJobs.current.length === 0) return;
@@ -1173,7 +1328,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
             {/* Right: "+ Send" (left, centered, big), then Sends, then Metronome (own separator), then Master */}
-            <div className="flex shrink-0 gap-2">
+            <div className="flex shrink-0 gap-2 max-w-[45%] overflow-x-auto">
               <div className="flex h-full w-20 shrink-0 flex-col items-center justify-center">
                 <button
                   onClick={() => requestAddSend()}
@@ -1186,14 +1341,26 @@ export function MixerScreen({ state }: { state: WebUiState }) {
               </div>
 
               {auxBusses.map((b) => (
-                <BusStrip
+                <div
                   key={b.id}
-                  b={b}
-                  index={state.busses.indexOf(b)}
-                  meters={state.meters}
-                  master={master}
-                  settings={state.settings}
-                />
+                  className="flex shrink-0"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setBusMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      index: state.busses.indexOf(b),
+                    });
+                  }}
+                >
+                  <BusStrip
+                    b={b}
+                    index={state.busses.indexOf(b)}
+                    meters={state.meters}
+                    master={master}
+                    settings={state.settings}
+                  />
+                </div>
               ))}
 
               <div className="mx-1 w-px shrink-0 self-stretch bg-default/40" />
@@ -1203,15 +1370,27 @@ export function MixerScreen({ state }: { state: WebUiState }) {
               <div className="mx-1 w-px shrink-0 self-stretch bg-default/40" />
 
               {mainBusses.map((b) => (
-                <BusStrip
+                <div
                   key={b.id}
-                  b={b}
-                  index={state.busses.indexOf(b)}
-                  meters={state.meters}
-                  master={master}
-                  settings={state.settings}
-                  isMaster={b === master}
-                />
+                  className="flex shrink-0"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setBusMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      index: state.busses.indexOf(b),
+                    });
+                  }}
+                >
+                  <BusStrip
+                    b={b}
+                    index={state.busses.indexOf(b)}
+                    meters={state.meters}
+                    master={master}
+                    settings={state.settings}
+                    isMaster={b === master}
+                  />
+                </div>
               ))}
             </div>
           </>
@@ -1222,8 +1401,16 @@ export function MixerScreen({ state }: { state: WebUiState }) {
         <TrackContextMenu
           menu={trackMenu}
           track={state.tracks[trackMenu.index]}
-          songIndex={state.songIndex}
+          songIndex={state.songIndex >= 0 ? state.songIndex : 0}
           onClose={() => setTrackMenu(null)}
+        />
+      )}
+
+      {busMenu && state.busses[busMenu.index] && (
+        <BusContextMenu
+          menu={busMenu}
+          bus={state.busses[busMenu.index]}
+          onClose={() => setBusMenu(null)}
         />
       )}
     </div>

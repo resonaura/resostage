@@ -51,6 +51,11 @@ function useGlobalHotkeys(state: WebUiState) {
         } else {
           void transport.play();
         }
+      } else if (e.key >= "1" && e.key <= "9") {
+        const songIdx = parseInt(e.key, 10) - 1;
+        e.preventDefault();
+        e.stopPropagation();
+        void transport.select(songIdx);
       } else if (e.code === "ArrowLeft") {
         e.preventDefault();
         void transport.seek(Math.max(0, playheadRef.current - 5));

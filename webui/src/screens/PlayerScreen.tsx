@@ -50,10 +50,7 @@ function barBeat(seconds: number, bpm: number, tsNum: number): string {
   return `${bar} | ${beat}`;
 }
 
-function capitalize(s: string): string {
-  if (!s) return "";
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+
 
 // Single sparkline SVG renderer (no pinging animations, clean solid line)
 function Sparkline({
@@ -224,30 +221,35 @@ export function PlayerScreen({
     setMetronomeOverride(nextState);
     const defaultClickBus = state.busses[0]?.id || "main";
 
-    if (hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]) {
-      const s = state.songs[state.songIndex];
-      void builder.songUpdate({
-        index: state.songIndex,
-        name: s.name,
-        bpm: s.bpm,
-        mode: s.mode,
-        tsNum: s.tsNum,
-        tsDen: s.tsDen,
-        click: nextState,
-        clickBusId: s.clickBusId || defaultClickBus,
-        clickSends: (s.clickSends ?? []).map((cs) => ({
-          busId: cs.busId,
-          gainDb: cs.gainDb,
-          enabled: cs.enabled,
-        })),
-      });
+    if (hasSongs) {
+      const idx = state.songIndex >= 0 ? state.songIndex : 0;
+      const s = state.songs[idx];
+      if (s) {
+        void builder.songUpdate({
+          index: idx,
+          name: s.name,
+          bpm: s.bpm,
+          mode: s.mode,
+          tsNum: s.tsNum,
+          tsDen: s.tsDen,
+          click: nextState,
+          clickBusId: s.clickBusId || defaultClickBus,
+          clickSends: (s.clickSends ?? []).map((cs) => ({
+            busId: cs.busId,
+            gainDb: cs.gainDb,
+            enabled: cs.enabled,
+          })),
+        });
+      }
     }
   };
 
   // Toggle a send on/off for the metronome (aux bus click routing)
   const toggleClickSend = (busId: string) => {
-    if (!hasSongs || state.songIndex < 0 || !state.songs[state.songIndex]) return;
-    const s = state.songs[state.songIndex];
+    if (!hasSongs) return;
+    const idx = state.songIndex >= 0 ? state.songIndex : 0;
+    const s = state.songs[idx];
+    if (!s) return;
     const existing = (s.clickSends ?? []).find((cs) => cs.busId === busId);
     let newSends: ClickSendRow[];
     if (existing) {
@@ -263,7 +265,7 @@ export function PlayerScreen({
       ];
     }
     void builder.songUpdate({
-      index: state.songIndex,
+      index: idx,
       name: s.name,
       bpm: s.bpm,
       mode: s.mode,
@@ -572,18 +574,21 @@ export function PlayerScreen({
                 No busses.
               </div>
             ) : (
-              state.meters.map((m) => (
-                <div
-                  key={m.id}
-                  className="flex h-full flex-col items-center justify-between gap-1.5 py-1"
-                >
-                  {/* Capitalized bus name */}
+              state.meters.map((m) => {
+                const busObj = state.busses.find((b) => b.id === m.id);
+                const displayName = busObj?.name || (m.id === "main" ? "Main" : m.id);
+                return (
                   <div
-                    className="truncate text-xs font-semibold text-foreground/80 max-w-[72px]"
-                    title={capitalize(m.id)}
+                    key={m.id}
+                    className="flex h-full flex-col items-center justify-between gap-1.5 py-1"
                   >
-                    {capitalize(m.id)}
-                  </div>
+                    {/* Bus name */}
+                    <div
+                      className="truncate text-xs font-semibold text-foreground/80 max-w-[72px]"
+                      title={displayName}
+                    >
+                      {displayName}
+                    </div>
                   <div className="flex h-full min-h-0 flex-1 items-center justify-center">
                     <LevelMeterBar
                       db={m.peakDb}
@@ -613,8 +618,8 @@ export function PlayerScreen({
                     </div>
                   </div>
                 </div>
-              ))
-            )}
+              );
+            }))}
           </div>
         </div>
       </div>

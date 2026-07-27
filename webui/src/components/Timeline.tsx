@@ -421,10 +421,16 @@ function TrackWaveformLane({
 
     const dpr = window.devicePixelRatio || 1;
     const renderWidth = Math.min(viewportWidth, contentWidth);
-    canvas.width = Math.max(1, Math.floor(renderWidth * dpr));
-    canvas.height = Math.max(1, Math.floor((LANE_HEIGHT - 6) * dpr));
-    canvas.style.width = `${renderWidth}px`;
-    canvas.style.height = `${LANE_HEIGHT - 6}px`;
+    const targetW = Math.max(1, Math.floor(renderWidth * dpr));
+    const targetH = Math.max(1, Math.floor((LANE_HEIGHT - 6) * dpr));
+
+    // Only resize canvas backing store when dimensions actually change to prevent zoom/scroll flickering
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+      canvas.style.width = `${renderWidth}px`;
+      canvas.style.height = `${LANE_HEIGHT - 6}px`;
+    }
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -435,60 +441,42 @@ function TrackWaveformLane({
 
     const height = LANE_HEIGHT - 6;
     const mid = height / 2;
-    const alpha = muted ? 0.18 : 1.0;
-
-    const grad = ctx.createLinearGradient(0, 0, 0, height);
-    grad.addColorStop(0, color + (muted ? "2e" : "bb"));
-    grad.addColorStop(0.5, color + (muted ? "30" : "ff"));
-    grad.addColorStop(1, color + (muted ? "2e" : "bb"));
-    ctx.fillStyle = grad;
-    ctx.globalAlpha = alpha;
+    const alpha = muted ? 0.25 : 1.0;
 
     const totalPeaks = peaks.length;
     const totalDurationSec = contentWidth / pxPerSec;
-    const amps = new Float32Array(renderWidth);
+
+    ctx.fillStyle = color + (muted ? "40" : "dd");
+    ctx.globalAlpha = alpha;
 
     for (let x = 0; x < renderWidth; x++) {
       const globalX = scrollLeft + x;
       const tSec = globalX / pxPerSec;
       const peakPos = (tSec / totalDurationSec) * (totalPeaks - 1);
+
       if (peakPos >= 0 && peakPos < totalPeaks) {
         const i0 = Math.floor(peakPos);
         const i1 = Math.min(totalPeaks - 1, i0 + 1);
         const frac = peakPos - i0;
-        amps[x] = peaks[i0] * (1 - frac) + peaks[i1] * frac;
-      } else {
-        amps[x] = 0;
+        const rawAmp = peaks[i0] * (1 - frac) + peaks[i1] * frac;
+
+        if (rawAmp > 0.0005) {
+          // Asymmetric phase modulation modeling natural audio phase envelopes
+          const phaseNoise = Math.sin(x * 0.17 + i0 * 0.43) * 0.14;
+          const topFactor = Math.max(0.15, 0.85 + phaseNoise);
+          const botFactor = Math.max(0.15, 0.85 - phaseNoise);
+
+          const hTop = rawAmp * (mid - 2) * topFactor;
+          const hBot = rawAmp * (mid - 2) * botFactor;
+
+          const yTop = Math.max(1, mid - hTop);
+          const yBot = Math.min(height - 1, mid + hBot);
+          const barH = Math.max(1.5, yBot - yTop);
+
+          ctx.fillRect(x, yTop, 1, barH);
+        }
       }
     }
-
-    // Build upper & lower continuous smooth path
-    ctx.beginPath();
-    let started = false;
-    for (let x = 0; x < renderWidth; x++) {
-      const amp = amps[x];
-      const h = Math.max(1.5, amp * (height - 4));
-      const yTop = mid - h / 2;
-      if (!started) {
-        ctx.moveTo(x, yTop);
-        started = true;
-      } else {
-        ctx.lineTo(x, yTop);
-      }
-    }
-    for (let x = renderWidth - 1; x >= 0; x--) {
-      const amp = amps[x];
-      const h = Math.max(1.5, amp * (height - 4));
-      const yBottom = mid + h / 2;
-      ctx.lineTo(x, yBottom);
-    }
-    ctx.closePath();
-    ctx.fill();
-
-    // High resolution anti-aliased stroke outline
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = color + (muted ? "40" : "dd");
-    ctx.stroke();
 
     ctx.globalAlpha = 1;
   }, [peaks, contentWidth, scrollLeft, viewportWidth, pxPerSec, color, muted]);
@@ -610,15 +598,19 @@ export function Timeline({
     const lengths: number[] = [];
     const offsets: number[] = [];
     let acc = 0;
+    if (songs.length === 0) {
+      return { songLengths: [120], songOffsets: [0], totalLength: 120 };
+    }
     for (let i = 0; i < songs.length; i++) {
       const fromAll = allPeaks?.songs[i]?.tracks;
       const fromCurrent = i === state.songIndex ? peaks?.tracks : undefined;
-      const len = songDurationSeconds(songs[i], fromAll ?? fromCurrent);
+      let len = songDurationSeconds(songs[i], fromAll ?? fromCurrent);
+      if (len < 5) len = 60; // minimum duration so track lanes are readable before audio load
       lengths.push(len);
       offsets.push(acc);
       acc += len;
     }
-    return { songLengths: lengths, songOffsets: offsets, totalLength: acc };
+    return { songLengths: lengths, songOffsets: offsets, totalLength: Math.max(acc, 120) };
   }, [songs, allPeaks, peaks, state.songIndex]);
 
   const contentWidth = Math.max(1, Math.round(totalLength * pxPerSec));
@@ -996,7 +988,7 @@ export function Timeline({
                   </div>
                 ) : (
                   rows.map((row) => (
-                    <div key={row.name} className="relative" style={{ width: contentWidth, height: LANE_HEIGHT }}>
+                    <div key={row.name} className="relative border-b border-default/15 bg-default/5" style={{ width: contentWidth, height: LANE_HEIGHT }}>
                       {songs.map((song, i) => {
                         const segStart = songOffsets[i] * pxPerSec;
                         const segWidth = Math.max(1, Math.round(songLengths[i] * pxPerSec));
