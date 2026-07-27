@@ -124,6 +124,10 @@ void TruePeakEstimator::reset() {
 }
 
 float TruePeakEstimator::processBlock(const float* samples, int numSamples) {
+    if (samples == nullptr || numSamples <= 0 || tapsPerPhase <= 0 ||
+        history.size() < static_cast<size_t>(tapsPerPhase) || polyphaseTaps.empty())
+        return 0.0f;
+
     float peak = 0.0f;
     for (int i = 0; i < numSamples; ++i) {
         history[static_cast<size_t>(historyPos)] = samples[i];
@@ -132,11 +136,12 @@ float TruePeakEstimator::processBlock(const float* samples, int numSamples) {
         for (int phase = 0; phase < factor; ++phase) {
             double acc = 0.0;
             for (int k = 0; k < tapsPerPhase; ++k) {
-                // Oldest sample is at historyPos (about to be overwritten next); walk
-                // forward from there so tap index 0 aligns with the oldest sample.
                 const int idx = (historyPos + k) % tapsPerPhase;
-                acc += static_cast<double>(history[static_cast<size_t>(idx)]) *
-                       polyphaseTaps[static_cast<size_t>(phase * tapsPerPhase + k)];
+                const size_t tapIdx = static_cast<size_t>(phase * tapsPerPhase + k);
+                if (tapIdx < polyphaseTaps.size() && static_cast<size_t>(idx) < history.size()) {
+                    acc += static_cast<double>(history[static_cast<size_t>(idx)]) *
+                           polyphaseTaps[tapIdx];
+                }
             }
             peak = std::max(peak, static_cast<float>(std::abs(acc)));
         }
@@ -195,14 +200,18 @@ void LoudnessMeter::reset() {
 }
 
 void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
-    if (blockSizeSamples <= 0 || hopSizeSamples <= 0)
+    if (channels == nullptr || numSamples <= 0 || blockSizeSamples <= 0 || hopSizeSamples <= 0)
         return;
 
     float peakLinear = 0.0f;
     float truePeakLinear = 0.0f;
 
-    for (int ch = 0; ch < channelCount; ++ch) {
+    const int chs = std::min(channelCount, std::min(static_cast<int>(truePeakEstimators.size()), static_cast<int>(kFilters.size())));
+
+    for (int ch = 0; ch < chs; ++ch) {
         const float* in = channels[ch];
+        if (in == nullptr)
+            continue;
 
         for (int i = 0; i < numSamples; ++i)
             peakLinear = std::max(peakLinear, std::abs(in[i]));
@@ -213,6 +222,7 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
         auto& filter = kFilters[static_cast<size_t>(ch)];
         for (int i = 0; i < numSamples; ++i) {
             const float weighted = filter.process(in[i]);
+
             sumSq += static_cast<double>(weighted) * static_cast<double>(weighted);
         }
         sumSquaresPerChannel[static_cast<size_t>(ch)] = sumSq;

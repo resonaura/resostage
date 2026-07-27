@@ -56,10 +56,26 @@ export interface WaveformRawResponse {
 // pyramid level (see PeakLevelData) is coarser than one pixel. `file` is the
 // region's archive-relative WAV path (RegionRow.file). Bounded to a few
 // seconds server-side -- only call this for a genuinely small visible range.
-export async function fetchWaveformRaw(file: string, startSec: number, endSec: number): Promise<WaveformRawResponse> {
-  const params = new URLSearchParams({ file, startSec: String(startSec), endSec: String(endSec) });
-  const res = await fetch(apiUrl(`/api/v1/player/waveform-raw?${params.toString()}`));
-  return (await res.json()) as WaveformRawResponse;
+const rawWaveformCache = new Map<string, WaveformRawResponse>();
+
+export async function fetchWaveformRaw(
+  file: string,
+  startSec: number,
+  endSec: number
+): Promise<WaveformRawResponse> {
+  const cacheKey = `${file}:${startSec.toFixed(2)}:${endSec.toFixed(2)}`;
+  if (rawWaveformCache.has(cacheKey)) {
+    return rawWaveformCache.get(cacheKey)!;
+  }
+  const url = apiUrl(
+    `/api/v1/player/waveform-raw?file=${encodeURIComponent(file)}&start=${startSec}&end=${endSec}`
+  );
+  const res = await fetch(url);
+  const data = (await res.json()) as WaveformRawResponse;
+  if (data && data.samples) {
+    rawWaveformCache.set(cacheKey, data);
+  }
+  return data;
 }
 
 // Mixer parity -- same calls the native MixerStrip/MixerPanel make, just

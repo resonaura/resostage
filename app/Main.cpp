@@ -18,12 +18,15 @@ public:
 
     void systemRequestedQuit() override {
         if (mainWindow != nullptr && mainWindow->getMainComponent() != nullptr) {
-            if (!mainWindow->getMainComponent()->confirmQuitIfUnsaved()) {
-                return;
-            }
+            mainWindow->getMainComponent()->confirmQuitIfUnsaved([this](bool canQuit) {
+                if (canQuit)
+                    quit();
+            });
+            return;
         }
         quit();
     }
+
 
 private:
     class MainWindow final : public juce::DocumentWindow {

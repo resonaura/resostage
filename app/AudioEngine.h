@@ -392,8 +392,12 @@ private:
     // Per-track decode scratch (up to 2 channels), indexed like trackIdByIndex.
     std::vector<juce::AudioBuffer<float>> trackScratch;
 
+    mutable std::recursive_mutex routingMutex;
+
+
     void ensureScratchSizes();
     void buildBusListFromProject();
+
     void publishRoutingSnapshot(); // message-thread: build RoutingSnapshot from Project
     void ensureTrackMeters(size_t count);
     bool selectSongInternal(size_t songIndex, std::string& error, bool fireOnLoadEvents, bool gaplessKeepPlaying);

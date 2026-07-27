@@ -28,10 +28,11 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
 
     // Save prompt on quit & autosave recovery
-    bool confirmQuitIfUnsaved();
+    void confirmQuitIfUnsaved(std::function<void(bool)> onDecision = nullptr);
     void checkAndOfferAutosaveRecovery();
 
 private:
+
 
     // Web is the default (and, per the "single UI" goal, primary) landing
     // view -- a HeroUI/Tailwind React remote with full parity for transport,
@@ -111,6 +112,8 @@ private:
     void onProjectLoaded();
     void publishWebState();
     void drainWebCommands();
+
+
 
     // Builder structural-edit parity for the web UI -- see
     // MainComponentBuilder.cpp. Each mirrors the matching BuilderPanel.cpp

@@ -557,48 +557,93 @@ function TrackWaveformLane({
     const height = laneH - 6;
     const mid = height / 2;
     const halfH = Math.max(1, height / 2 - 2);
-    const alpha = muted ? 0.25 : 1.0;
+    const alpha = muted ? 0.35 : 1.0;
     ctx.globalAlpha = alpha;
 
-    // Best-matching level always draws first as a base layer (falling back
-    // to the finest cached level when zoomed in past it) -- the raw curve
-    // below overlays on top of it once the fetch lands, so there's never a
-    // blank lane while a raw window is in flight.
+    const isRawActive = needsRaw && rawWindow && rawWindow.samples.length > 1;
     const level = pickLevelForZoom(levels, durationSeconds, pxPerSec) ?? levels[0];
 
-    if (level) {
+    if (level && !isRawActive) {
       const bins = level.min.length;
       const step = gestureActive ? Math.max(1, Math.floor(renderWidth / 200)) : 1;
-      const envelopeColor = color + (muted ? "30" : "66");
-      const rmsColor = color + (muted ? "55" : "cc");
 
-      for (let x = 0; x < renderWidth; x += step) {
+      // Outer Peak Envelope Path (continuous smooth contour)
+      ctx.beginPath();
+      let first = true;
+
+      // Top boundary (left to right)
+      for (let x = 0; x <= renderWidth; x += step) {
+        const tSec = (scrollLeft + x) / pxPerSec;
+        const bin = Math.max(0, Math.min(bins - 1, Math.floor((tSec / durationSeconds) * bins)));
+        const maxV = level.max[bin] ?? 0;
+        const yTop = mid - maxV * halfH * verticalZoom;
+        if (first) {
+          ctx.moveTo(x, yTop);
+          first = false;
+        } else {
+          ctx.lineTo(x, yTop);
+        }
+      }
+
+      // Bottom boundary (right to left)
+      for (let x = renderWidth; x >= 0; x -= step) {
         const tSec = (scrollLeft + x) / pxPerSec;
         const bin = Math.max(0, Math.min(bins - 1, Math.floor((tSec / durationSeconds) * bins)));
         const minV = level.min[bin] ?? 0;
-        const maxV = level.max[bin] ?? 0;
-        const rms = level.rms[bin] ?? 0;
-
-        const yTop = mid - maxV * halfH * verticalZoom;
         const yBot = mid - minV * halfH * verticalZoom;
-        ctx.fillStyle = envelopeColor;
-        ctx.fillRect(x, Math.min(yTop, yBot), Math.max(1, step), Math.max(1, Math.abs(yBot - yTop)));
+        ctx.lineTo(x, yBot);
+      }
 
+      ctx.closePath();
+
+      // Soft crisp gradient fill
+      const grad = ctx.createLinearGradient(0, 0, 0, height);
+      grad.addColorStop(0, color + "aa");
+      grad.addColorStop(0.5, color + "77");
+      grad.addColorStop(1, color + "aa");
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Sharp outer contour line
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // RMS Core Fill
+      ctx.beginPath();
+      let firstRms = true;
+      for (let x = 0; x <= renderWidth; x += step) {
+        const tSec = (scrollLeft + x) / pxPerSec;
+        const bin = Math.max(0, Math.min(bins - 1, Math.floor((tSec / durationSeconds) * bins)));
+        const rms = level.rms[bin] ?? 0;
         const rmsH = rms * halfH * verticalZoom;
-        if (rmsH > 0.5) {
-          ctx.fillStyle = rmsColor;
-          ctx.fillRect(x, mid - rmsH, Math.max(1, step), Math.max(1, rmsH * 2));
+        const yTop = mid - rmsH;
+        if (firstRms) {
+          ctx.moveTo(x, yTop);
+          firstRms = false;
+        } else {
+          ctx.lineTo(x, yTop);
         }
       }
+      for (let x = renderWidth; x >= 0; x -= step) {
+        const tSec = (scrollLeft + x) / pxPerSec;
+        const bin = Math.max(0, Math.min(bins - 1, Math.floor((tSec / durationSeconds) * bins)));
+        const rms = level.rms[bin] ?? 0;
+        const rmsH = rms * halfH * verticalZoom;
+        const yBot = mid + rmsH;
+        ctx.lineTo(x, yBot);
+      }
+      ctx.closePath();
+      ctx.fillStyle = color + "ee";
+      ctx.fill();
     }
 
-    // Extreme zoom: true per-sample curve through the fetched raw window,
-    // once it's in and covers the visible range.
-    if (needsRaw && rawWindow && rawWindow.samples.length > 1) {
+    // Extreme zoom: true per-sample curve through the fetched raw window
+    if (isRawActive && rawWindow) {
       const windowEndSec = rawWindow.startSec + rawWindow.samples.length / rawWindow.sampleRate;
       if (rawWindow.startSec <= visibleStartSec + 1e-6 && windowEndSec >= visibleEndSec - 1e-6) {
-        ctx.strokeStyle = color + (muted ? "80" : "ff");
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
         const { samples, sampleRate, startSec } = rawWindow;
         let first = true;
@@ -641,13 +686,14 @@ function TrackWaveformLane({
       ) : (
         <canvas
           ref={canvasRef}
-          className="pointer-events-none absolute top-1"
+          className="pointer-events-none absolute top-1 transition-opacity duration-300 ease-out"
           style={{ left: scrollLeft }}
         />
       )}
     </div>
   );
 }
+
 
 // ------- Timeline (continuous multi-song arrangement) -------------------
 

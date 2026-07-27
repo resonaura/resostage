@@ -504,61 +504,70 @@ void MainComponent::drainWebCommands() {
     }
 }
 
-bool MainComponent::confirmQuitIfUnsaved() {
-    if (!engine.hasUnsavedChanges())
-        return true;
+void MainComponent::confirmQuitIfUnsaved(std::function<void(bool)> onDecision) {
+    if (!engine.hasUnsavedChanges()) {
+        if (onDecision) onDecision(true);
+        return;
+    }
 
     juce::String projectName = juce::String(engine.project().name);
     if (projectName.isEmpty())
         projectName = "Untitled Project";
 
-    int choice = juce::AlertWindow::showYesNoCancelBox(
-        juce::AlertWindow::WarningIcon,
-        "Unsaved Changes",
-        "Do you want to save changes to '" + projectName + "' before quitting?",
-        "Save",
-        "Don't Save",
-        "Cancel",
-        this,
-        nullptr
+    juce::AlertWindow::showAsync(
+        juce::MessageBoxOptions()
+            .withIconType(juce::MessageBoxIconType::WarningIcon)
+            .withTitle("Unsaved Changes")
+            .withMessage("Do you want to save changes to '" + projectName + "' before quitting?")
+            .withButton("Save")
+            .withButton("Don't Save")
+            .withButton("Cancel")
+            .withAssociatedComponent(this),
+        [this, onDecision](int choice) {
+            if (choice == 1) { // Save
+                saveProjectClicked(engine.isDraftProject(), [this, onDecision](bool ok) {
+                    if (ok) engine.clearDirty();
+                    if (onDecision) onDecision(ok);
+                });
+            } else if (choice == 2) { // Don't Save
+                if (onDecision) onDecision(true);
+            } else { // Cancel
+                if (onDecision) onDecision(false);
+            }
+        }
     );
-
-    if (choice == 1) { // Save
-        saveProjectClicked(engine.isDraftProject());
-        return !engine.hasUnsavedChanges();
-    } else if (choice == 2) { // Don't Save
-        return true;
-    }
-
-    return false; // Cancel
 }
 
 void MainComponent::checkAndOfferAutosaveRecovery() {
     std::string timestamp;
     if (engine.isProjectLoaded() && engine.hasAutosave(timestamp)) {
-        int choice = juce::AlertWindow::showYesNoCancelBox(
-            juce::AlertWindow::QuestionIcon,
-            "Auto-Save Recovery",
-            "An auto-saved version of '" + juce::String(engine.project().name) + "' (" + juce::String(timestamp) + ") was found.\nWould you like to recover the auto-saved version or load the saved file?",
-            "Load Auto-Save",
-            "Load Saved Version",
-            "Discard Auto-Save",
-            this,
-            nullptr
-        );
-        if (choice == 1) {
-            std::string err;
-            if (engine.loadAutosave(err)) {
-                setStatus("Auto-save recovered successfully");
-                onProjectLoaded();
-            } else {
-                setStatus("Failed to load auto-save: " + juce::String(err));
+        juce::AlertWindow::showAsync(
+            juce::MessageBoxOptions()
+                .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                .withTitle("Auto-Save Recovery")
+                .withMessage("An auto-saved version of '" + juce::String(engine.project().name) + "' (" + juce::String(timestamp) + ") was found.\nWould you like to recover the auto-saved version or load the saved file?")
+
+                .withButton("Load Auto-Save")
+                .withButton("Load Saved Version")
+                .withButton("Discard Auto-Save")
+                .withAssociatedComponent(this),
+            [this](int choice) {
+                if (choice == 1) { // Load Auto-Save
+                    std::string err;
+                    if (engine.loadAutosave(err)) {
+                        setStatus("Auto-save recovered successfully");
+                        onProjectLoaded();
+                    } else {
+                        setStatus("Failed to load auto-save: " + juce::String(err));
+                    }
+                } else if (choice == 3) { // Discard Auto-Save
+                    engine.clearAutosave();
+                }
             }
-        } else if (choice == 3) {
-            engine.clearAutosave();
-        }
+        );
     }
 }
+
 
 
 

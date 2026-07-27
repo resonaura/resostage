@@ -491,8 +491,12 @@ void AudioEngine::ensureTrackMeters(size_t count) {
 }
 
 void AudioEngine::buildBusListFromProject() {
+    std::lock_guard<std::recursive_mutex> lock(routingMutex);
+
+
     busses.clear();
     busIndexById.clear();
+
 
     for (const BusDef& bus : loader.project().busses) {
         LoadedBus lb;
@@ -518,8 +522,12 @@ void AudioEngine::buildBusListFromProject() {
 }
 
 void AudioEngine::publishRoutingSnapshot() {
+    std::lock_guard<std::recursive_mutex> lock(routingMutex);
+
+
     if (!projectLoaded || currentSong == static_cast<size_t>(-1))
         return;
+
     const Project& proj = loader.project();
     if (currentSong >= proj.songs.size())
         return;
@@ -713,6 +721,9 @@ void AudioEngine::setBusSolo(size_t busIndex, bool solo) {
 }
 
 void AudioEngine::refreshClickState() {
+    std::lock_guard<std::recursive_mutex> lock(routingMutex);
+
+
     if (!projectLoaded || currentSong >= loader.project().songs.size())
         return;
     const SongDef& song = loader.project().songs[currentSong];
@@ -747,6 +758,9 @@ void AudioEngine::setBusOutputChannel(size_t busIndex, int startChannel) {
 }
 
 void AudioEngine::ensureScratchSizes() {
+    std::lock_guard<std::recursive_mutex> lock(routingMutex);
+
+
     const int busChannels = std::max<int>(2, static_cast<int>(busses.size()) * 2);
     const int samples = std::max(currentBlockSize, 1);
     busScratch.setSize(busChannels, samples, false, false, true);
@@ -756,6 +770,7 @@ void AudioEngine::ensureScratchSizes() {
 
     clickScratch.assign(static_cast<size_t>(samples), 0.0f);
 }
+
 
 bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     stop();
@@ -1374,7 +1389,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     if (snap == nullptr || busses.empty())
         return;
 
+    std::unique_lock<std::recursive_mutex> routeLock(routingMutex, std::try_to_lock);
+    if (!routeLock.owns_lock())
+        return;
+
+
     StreamingEngine::ActiveSongHandle activeSong = streaming.acquireActiveSong();
+
     if (!activeSong)
         return;
 
@@ -1484,7 +1505,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     const bool clickActive = clickTargetBusIndex >= 0 && static_cast<size_t>(clickTargetBusIndex) < busses.size();
     const bool clickHasSends = !clickSendBusIndices.empty();
     if (clickActive || clickHasSends) {
+        if (clickScratch.size() < static_cast<size_t>(numSamples))
+            clickScratch.resize(static_cast<size_t>(numSamples), 0.0f);
         clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
+
 
         if (isClickEnabled) {
             // Main target bus
