@@ -643,12 +643,21 @@ void MainComponent::publishWebState() {
         state.busses.push_back(std::move(br));
     }
 
-    state.cpuPercent = health.processCpuPercent;
-    state.rssBytes = health.processRssBytes;
+    state.cpuPercent = health.totalCpuPercent;
+    state.rssBytes = health.totalRssBytes;
     state.freeBytes = health.systemFreeBytes;
     state.underrunCount = health.underrunCount;
     state.audioCallbackCount = health.audioCallbackCount;
     state.webClientCount = webServer.clientCount();
+    state.processes.clear();
+    for (const auto& p : health.processes) {
+        WebUiState::ProcessEntry pe;
+        pe.pid = p.pid;
+        pe.name = p.name;
+        pe.rssBytes = p.rssBytes;
+        pe.cpuPercent = p.cpuPercent;
+        state.processes.push_back(std::move(pe));
+    }
     engine.health().setWebClientCount(state.webClientCount);
 
     populateSettingsState(state.settings);

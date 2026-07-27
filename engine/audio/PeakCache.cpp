@@ -66,11 +66,12 @@ std::string PeakCache::cacheEntryPath(const std::string& audioArchivePath) {
 
 std::vector<uint8_t> PeakCache::serialize(const PeakOverview& overview) {
     std::vector<uint8_t> out;
-    out.reserve(4 + 4 + 8 + 4 + overview.peaks.size() * 4);
+    out.reserve(4 + 4 + 8 + 4 + 4 + overview.peaks.size() * 4);
     out.insert(out.end(), kMagic, kMagic + 4);
     appendU32(out, static_cast<uint32_t>(overview.peaks.size()));
     appendF64(out, overview.durationSeconds);
     appendI32(out, overview.numChannels);
+    appendF32(out, overview.baseline);
     for (float p : overview.peaks)
         appendF32(out, p);
     return out;
@@ -89,7 +90,7 @@ bool PeakCache::deserialize(const uint8_t* data, size_t size, PeakOverview& out,
     const uint8_t* p = data + 4;
     const uint8_t* end = data + size;
     uint32_t numBins = 0;
-    if (!readU32(p, end, numBins) || numBins == 0 || numBins > 8192) {
+    if (!readU32(p, end, numBins) || numBins == 0 || numBins > 32768) {
         error = "Peak cache bad bin count";
         return false;
     }
@@ -103,6 +104,8 @@ bool PeakCache::deserialize(const uint8_t* data, size_t size, PeakOverview& out,
         return false;
     }
     out.numChannels = ch;
+    if (!readF32(p, end, out.baseline))
+        out.baseline = 0.5f;
     out.peaks.resize(numBins);
     for (uint32_t i = 0; i < numBins; ++i) {
         if (!readF32(p, end, out.peaks[i])) {

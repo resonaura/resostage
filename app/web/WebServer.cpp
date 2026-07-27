@@ -890,7 +890,17 @@ std::string WebServer::buildStateJson() const {
       << "\"freeBytes\":" << snap.freeBytes << ","
       << "\"underrunCount\":" << snap.underrunCount << ","
       << "\"audioCallbackCount\":" << snap.audioCallbackCount << ","
-      << "\"webClientCount\":" << snap.webClientCount
+      << "\"webClientCount\":" << snap.webClientCount << ","
+      << "\"processes\":[";
+    for (size_t i = 0; i < snap.processes.size(); ++i) {
+        if (i) o << ",";
+        const auto& p = snap.processes[i];
+        o << "{\"pid\":" << p.pid
+          << ",\"name\":\"" << jsonEscape(p.name) << "\""
+          << ",\"rssBytes\":" << p.rssBytes
+          << ",\"cpuPercent\":" << finiteOrZero(p.cpuPercent) << "}";
+    }
+    o << "]"
       << "},";
 
     const auto& s = snap.settings;

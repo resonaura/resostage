@@ -12,16 +12,17 @@ namespace resoset {
 //   Peaks/<sanitized-audio-path>.rpk
 //
 // Binary little-endian:
-//   char magic[4] = "RPK1"
+//   char magic[4] = "RPK2"
 //   uint32_t numBins
 //   double durationSeconds
 //   int32_t numChannels
+//   float baseline
 //   float peaks[numBins]
 //
 // Cache key is derived from the archive-relative audio path so import/replace
 // of a stem naturally invalidates the old file when the path changes.
 struct PeakCache {
-    static constexpr char kMagic[4] = {'R', 'P', 'K', '1'};
+    static constexpr char kMagic[4] = {'R', 'P', 'K', '2'};
 
     // "Audio/song1_kick.wav" -> "Peaks/Audio_song1_kick.wav.rpk"
     static std::string cacheEntryPath(const std::string& audioArchivePath);

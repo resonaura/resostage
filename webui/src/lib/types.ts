@@ -97,6 +97,13 @@ export interface BusRow {
   peakDb: number;
 }
 
+export interface ProcessHealthEntry {
+  pid: number;
+  name: string;
+  rssBytes: number;
+  cpuPercent: number;
+}
+
 export interface HealthState {
   cpuPercent: number;
   rssBytes: number;
@@ -104,6 +111,7 @@ export interface HealthState {
   underrunCount: number;
   audioCallbackCount: number;
   webClientCount: number;
+  processes: ProcessHealthEntry[];
 }
 
 export interface KeybindingRow {
@@ -128,6 +136,7 @@ export interface SettingsState {
 export interface TrackPeaks {
   id: string;
   durationSeconds: number;
+  baseline: number;
   peaks: number[];
 }
 
@@ -187,6 +196,7 @@ export const emptyState: WebUiState = {
     underrunCount: 0,
     audioCallbackCount: 0,
     webClientCount: 0,
+    processes: [],
   },
   settings: {
     currentOutputDevice: "",

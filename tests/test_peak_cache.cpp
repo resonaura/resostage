@@ -13,17 +13,19 @@ TEST_CASE("PeakCache serialize/deserialize round-trip") {
     PeakOverview ov;
     ov.durationSeconds = 12.5;
     ov.numChannels = 2;
+    ov.baseline = 0.42f;
     ov.peaks = {0.1f, 0.5f, 0.9f, 0.2f};
 
     const auto bytes = PeakCache::serialize(ov);
     REQUIRE(bytes.size() >= 4);
-    CHECK(std::memcmp(bytes.data(), "RPK1", 4) == 0);
+    CHECK(std::memcmp(bytes.data(), "RPK2", 4) == 0);
 
     PeakOverview back;
     std::string error;
     REQUIRE(PeakCache::deserialize(bytes.data(), bytes.size(), back, error));
     CHECK(back.durationSeconds == doctest::Approx(12.5));
     CHECK(back.numChannels == 2);
+    CHECK(back.baseline == doctest::Approx(0.42f));
     REQUIRE(back.peaks.size() == 4);
     CHECK(back.peaks[0] == doctest::Approx(0.1f));
     CHECK(back.peaks[2] == doctest::Approx(0.9f));

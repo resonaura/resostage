@@ -65,6 +65,7 @@ std::string MainComponent::buildPeaksJson() const {
         const PeakOverview* pk = engine.trackPeaksAt(i);
         o << "{\"id\":\"" << engine.trackIdAt(i) << "\","
           << "\"durationSeconds\":" << (pk != nullptr ? pk->durationSeconds : 0.0) << ","
+          << "\"baseline\":" << (pk != nullptr ? static_cast<double>(pk->baseline) : 0.5) << ","
           << "\"peaks\":[";
         if (pk != nullptr) {
             for (size_t b = 0; b < pk->peaks.size(); ++b) {
@@ -121,6 +122,7 @@ std::string MainComponent::buildAllPeaksJson() const {
             o << "{\"id\":\"" << regions[i].id << "\","
               << "\"trackId\":\"" << regions[i].trackId << "\","
               << "\"durationSeconds\":" << (pk != nullptr ? pk->durationSeconds : 0.0) << ","
+              << "\"baseline\":" << (pk != nullptr ? static_cast<double>(pk->baseline) : 0.5) << ","
               << "\"peaks\":[";
             if (pk != nullptr) {
                 for (size_t b = 0; b < pk->peaks.size(); ++b) {

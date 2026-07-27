@@ -241,12 +241,21 @@ struct WebUiState {
     };
     std::vector<BusRow> busses;
 
+    // Health -- combined totals across all app-related processes.
     double cpuPercent = 0.0;
     uint64_t rssBytes = 0;
     uint64_t freeBytes = 0;
     uint64_t underrunCount = 0;
     uint64_t audioCallbackCount = 0;
     int webClientCount = 0;
+    // Per-process resource breakdown.
+    struct ProcessEntry {
+        int pid = 0;
+        std::string name;
+        uint64_t rssBytes = 0;
+        double cpuPercent = 0.0;
+    };
+    std::vector<ProcessEntry> processes;
 
     // Settings parity -- mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent
     // + MIDI I/O pickers + keybinding rows. Populated from juce::

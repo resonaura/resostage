@@ -154,8 +154,8 @@ void PlayerPanel::refreshTransport() {
     const auto health = engine.health().sample();
     healthLabel.setText(
         juce::String::formatted("CPU %.1f%%   RAM %.0f MB   Underruns %llu   Drift x%.5f   Clients %d",
-                                health.processCpuPercent,
-                                static_cast<double>(health.processRssBytes) / (1024.0 * 1024.0),
+                                 health.totalCpuPercent,
+                                 static_cast<double>(health.totalRssBytes) / (1024.0 * 1024.0),
                                 static_cast<unsigned long long>(health.underrunCount),
                                 drift,
                                 health.webClientCount),

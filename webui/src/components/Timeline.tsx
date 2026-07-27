@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/react";
-import { Grid3X3, ZoomIn, ZoomOut } from "lucide-react";
+import { Grid3X3, ZoomIn, ZoomOut, ChevronUp, ChevronDown } from "lucide-react";
 import { mixer, transport } from "../lib/api";
 import { useLiveValue, useOptimisticSeek } from "../lib/optimistic";
 import type { AllPeaksResponse, PeaksResponse, SongRow, TrackRow, WebUiState } from "../lib/types";
@@ -225,10 +225,12 @@ function TrackHeaderControl({
   track,
   index,
   color,
+  verticalZoom,
 }: {
   track: TrackRow;
   index: number;
   color: string;
+  verticalZoom: number;
 }) {
   const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) => mixer.setTrackGain(index, v));
   const [pan, setPan] = useLiveValue(track.pan ?? 0, (v) => mixer.setTrackPan(index, v));
@@ -242,7 +244,7 @@ function TrackHeaderControl({
   return (
     <div
       className="flex flex-col justify-between border-b border-default/15 px-3 py-1.5 select-none bg-surface/40 hover:bg-surface/70 transition-colors"
-      style={{ height: LANE_HEIGHT }}
+      style={{ height: LANE_HEIGHT * verticalZoom }}
     >
       {/* Top Row: Color indicator, Track Name, Pan Knob & Value, Mute & Solo */}
       <div className="flex items-center gap-2 min-w-0">
@@ -439,6 +441,9 @@ function Ruler({
 
 function TrackWaveformLane({
   peaks,
+  baseline,
+  gestureActive,
+  verticalZoom,
   contentWidth,
   scrollLeft,
   viewportWidth,
@@ -447,6 +452,9 @@ function TrackWaveformLane({
   muted,
 }: {
   peaks: number[];
+  baseline: number;
+  gestureActive: boolean;
+  verticalZoom: number;
   contentWidth: number;
   scrollLeft: number;
   viewportWidth: number;
@@ -462,35 +470,39 @@ function TrackWaveformLane({
 
     const dpr = window.devicePixelRatio || 1;
     const renderWidth = Math.min(viewportWidth, contentWidth);
+    const laneH = Math.max(20, Math.round(LANE_HEIGHT * verticalZoom));
     const targetW = Math.max(1, Math.floor(renderWidth * dpr));
-    const targetH = Math.max(1, Math.floor((LANE_HEIGHT - 6) * dpr));
+    const targetH = Math.max(1, Math.floor((laneH - 6) * dpr));
 
     // Only resize canvas backing store when dimensions actually change to prevent zoom/scroll flickering
     if (canvas.width !== targetW || canvas.height !== targetH) {
       canvas.width = targetW;
       canvas.height = targetH;
       canvas.style.width = `${renderWidth}px`;
-      canvas.style.height = `${LANE_HEIGHT - 6}px`;
+      canvas.style.height = `${laneH - 6}px`;
     }
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, renderWidth, LANE_HEIGHT - 6);
+    ctx.clearRect(0, 0, renderWidth, laneH - 6);
     if (peaks.length === 0) return;
 
-    const height = LANE_HEIGHT - 6;
-    const mid = height / 2;
+    const height = laneH - 6;
+    const mid = Math.max(1, Math.min(height - 1, baseline * height));
     const alpha = muted ? 0.25 : 1.0;
 
     const totalPeaks = peaks.length;
     const totalDurationSec = contentWidth / pxPerSec;
 
+    // Progressive rendering: during active gestures, subsample for speed
+    const step = gestureActive ? Math.max(1, Math.floor(renderWidth / 200)) : 1;
+
     ctx.fillStyle = color + (muted ? "40" : "dd");
     ctx.globalAlpha = alpha;
 
-    for (let x = 0; x < renderWidth; x++) {
+    for (let x = 0; x < renderWidth; x += step) {
       const globalX = scrollLeft + x;
       const tSec = globalX / pxPerSec;
       const peakPos = (tSec / totalDurationSec) * (totalPeaks - 1);
@@ -507,30 +519,30 @@ function TrackWaveformLane({
           const topFactor = Math.max(0.15, 0.85 + phaseNoise);
           const botFactor = Math.max(0.15, 0.85 - phaseNoise);
 
-          const hTop = rawAmp * (mid - 2) * topFactor;
-          const hBot = rawAmp * (mid - 2) * botFactor;
+          const hTop = rawAmp * (mid - 2) * topFactor * verticalZoom;
+          const hBot = rawAmp * (mid - 2) * botFactor * verticalZoom;
 
           const yTop = Math.max(1, mid - hTop);
           const yBot = Math.min(height - 1, mid + hBot);
           const barH = Math.max(1.5, yBot - yTop);
 
-          ctx.fillRect(x, yTop, 1, barH);
+          ctx.fillRect(x, yTop, Math.max(1, step), barH);
         }
       }
     }
 
     ctx.globalAlpha = 1;
-  }, [peaks, contentWidth, scrollLeft, viewportWidth, pxPerSec, color, muted]);
+  }, [peaks, baseline, gestureActive, verticalZoom, contentWidth, scrollLeft, viewportWidth, pxPerSec, color, muted]);
 
   return (
     <div
       className="relative flex items-center border-b border-default/15 bg-default/10"
-      style={{ width: contentWidth, height: LANE_HEIGHT, opacity: muted ? 0.4 : 1 }}
+      style={{ width: contentWidth, height: LANE_HEIGHT * verticalZoom, opacity: muted ? 0.4 : 1 }}
     >
       {peaks.length === 0 ? (
         <div
           className="absolute inset-x-0"
-          style={{ top: "50%", height: 1, transform: "translateY(-50%)", background: color + "55" }}
+          style={{ top: `${baseline * 100}%`, height: 1, transform: "translateY(-50%)", background: color + "55" }}
         />
       ) : (
         <canvas
@@ -596,11 +608,11 @@ function songDurationSeconds(song: SongRow, peaksForSong: { id: string; trackId?
 
 // Read-only sidebar row for a track that only exists in a non-staged song --
 // no mixer controls, since there's no staged track index to drive them with.
-function TimelineRowLabel({ name, color }: { name: string; color: string }) {
+function TimelineRowLabel({ name, color, verticalZoom }: { name: string; color: string; verticalZoom: number }) {
   return (
     <div
       className="flex items-center gap-2 border-b border-default/15 px-3 py-1.5 select-none bg-surface/20 opacity-60"
-      style={{ height: LANE_HEIGHT }}
+      style={{ height: LANE_HEIGHT * verticalZoom }}
     >
       <span className="h-3.5 w-2 shrink-0 rounded-sm" style={{ background: color }} />
       <span className="truncate text-xs font-medium text-foreground/60" title={name}>
@@ -639,6 +651,18 @@ export function Timeline({
 
   // Snap-to-grid toggle
   const [snapToGrid, setSnapToGrid] = useState(true);
+
+  // Progressive rendering: track gesture activity for coarse→fine rendering
+  const [gestureActive, setGestureActive] = useState(false);
+  const gestureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markGestureActiveRef = useRef(() => {
+    setGestureActive(true);
+    if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
+    gestureTimerRef.current = setTimeout(() => setGestureActive(false), 250);
+  });
+
+  // Vertical zoom (buttons, not gestures)
+  const [verticalZoom, setVerticalZoom] = useState(1.0);
 
   // Toast notifications
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -771,6 +795,7 @@ export function Timeline({
       if (e.ctrlKey || e.metaKey || e.altKey) {
         e.preventDefault();
         e.stopPropagation();
+        markGestureActiveRef.current();
 
         const base = 2;
         const speed = e.deltaMode === 1 ? 0.14 : 0.0065;
@@ -790,6 +815,7 @@ export function Timeline({
     const handleGestureChange = (e: any) => {
       e.preventDefault();
       e.stopPropagation();
+      markGestureActiveRef.current();
       if (typeof e.scale === "number" && e.scale > 0) {
         const deltaScale = e.scale / lastScale;
         lastScale = e.scale;
@@ -876,6 +902,7 @@ export function Timeline({
   };
 
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
+    markGestureActiveRef.current();
     setScrollTopY(e.currentTarget.scrollTop);
     setScrollState({
       scrollLeft: e.currentTarget.scrollLeft,
@@ -929,6 +956,25 @@ export function Timeline({
           >
             <ZoomIn size={14} />
           </Button>
+          <div className="w-px h-4 bg-default/30 mx-0.5" />
+          <Button
+            size="sm"
+            variant="outline"
+            isIconOnly
+            aria-label="Zoom lanes vertically out"
+            onPress={() => setVerticalZoom((v) => Math.max(0.3, v / 1.3))}
+          >
+            <ChevronDown size={14} />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            isIconOnly
+            aria-label="Zoom lanes vertically in"
+            onPress={() => setVerticalZoom((v) => Math.min(4, v * 1.3))}
+          >
+            <ChevronUp size={14} />
+          </Button>
         </div>
       </div>
 
@@ -972,9 +1018,10 @@ export function Timeline({
                         track={state.tracks[row.headerIndex]}
                         index={row.headerIndex}
                         color={row.color}
+                        verticalZoom={verticalZoom}
                       />
                     ) : (
-                      <TimelineRowLabel key={row.name} name={row.name} color={row.color} />
+                      <TimelineRowLabel key={row.name} name={row.name} color={row.color} verticalZoom={verticalZoom} />
                     ),
                   )
                 )}
@@ -1094,7 +1141,7 @@ export function Timeline({
                   </div>
                 ) : (
                   rows.map((row) => (
-                    <div key={row.name} className="relative border-b border-default/15 bg-default/5" style={{ width: contentWidth, height: LANE_HEIGHT }}>
+                    <div key={row.name} className="relative border-b border-default/15 bg-default/5" style={{ width: contentWidth, height: LANE_HEIGHT * verticalZoom }}>
                       {songs.map((song, i) => {
                         const segStart = songOffsets[i] * pxPerSec;
                         const segWidth = Math.max(1, Math.round(songLengths[i] * pxPerSec));
@@ -1134,6 +1181,9 @@ export function Timeline({
                             {/* Waveform canvas (underlayer) */}
                             <TrackWaveformLane
                               peaks={peakEntry?.peaks ?? []}
+                              baseline={peakEntry?.baseline ?? 0.5}
+                              gestureActive={gestureActive}
+                              verticalZoom={verticalZoom}
                               contentWidth={segWidth}
                               scrollLeft={viewStart - segStart}
                               viewportWidth={viewEnd - viewStart}

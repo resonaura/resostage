@@ -15,7 +15,7 @@ TEST_CASE("SystemHealth samples process RSS and free RAM") {
     CHECK(a.audioCallbackCount == 2);
     CHECK(a.underrunCount == 1);
     CHECK(a.webClientCount == 3);
-    CHECK(a.processRssBytes > 0);
+    CHECK(a.totalRssBytes > 0);
     // On a real macOS host both of these should be non-zero; keep free soft
     // in case of unusual sandboxing.
     CHECK(a.systemTotalBytes > 0);
@@ -30,5 +30,5 @@ TEST_CASE("SystemHealth CPU percent is non-negative after two samples") {
         x += static_cast<double>(i) * 0.000001;
     (void)x;
     const SystemHealthSnapshot b = health.sample();
-    CHECK(b.processCpuPercent >= 0.0);
+    CHECK(b.totalCpuPercent >= 0.0);
 }

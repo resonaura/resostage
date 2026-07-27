@@ -267,14 +267,23 @@ void AudioEngine::rebuildTrackPeaks() {
         const bool haveLoader = !files.empty() && peakLoader.open(archivePathForBuild, openError);
 
         if (haveLoader) {
+            // Phase 1: Extract all files to memory buffers (sequential on one
+            // zip handle -- can't parallelize zip reads). Check session cache
+            // and on-disk peak cache during this phase to skip files we
+            // already know about.
+            struct PendingBuild {
+                size_t index;
+                std::vector<uint8_t> data;
+                std::string path;
+            };
+            std::vector<PendingBuild> pending;
+            pending.reserve(files.size());
+
             for (size_t i = 0; i < files.size(); ++i) {
                 if (peakBuildGeneration.load(std::memory_order_acquire) != generation)
-                    break; // superseded by a newer selectSong -- abandon, don't waste I/O
+                    break;
 
-                // Cheapest first: this session already computed it (e.g.
-                // switching back to a song via Prev/Next -- no on-disk cache
-                // exists yet for a freshly imported, not-yet-saved song, so
-                // without this every reselect would redecode the whole file).
+                // Session cache hit -- already built this session.
                 {
                     std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
                     if (auto it = peakOverviewSessionCache.find(files[i]); it != peakOverviewSessionCache.end()) {
@@ -283,26 +292,53 @@ void AudioEngine::rebuildTrackPeaks() {
                     }
                 }
 
+                // On-disk peak cache hit.
                 std::string error;
-                // Prefer on-disk peak cache inside the .rsnraset (Peaks/*.rpk).
-                bool built = PeakCache::loadFromArchive(peakLoader, files[i], buildResults[i], error);
-                if (!built) {
-                    // 4096 bins (PeakOverview::build's max) rather than a
-                    // coarser count: at 512 bins, a multi-minute stem works
-                    // out to ~13px per bin at typical timeline zoom,
-                    // rendering as visibly blocky stepped rectangles instead
-                    // of a smooth waveform. 4096 keeps that under ~2px/bin
-                    // at the same zoom.
-                    built = buildResults[i].build(peakLoader, files[i], 4096, error);
-                    if (built)
-                        buildExtras.push_back(PeakCache::makeCacheExtra(buildResults[i], files[i]));
-                }
-                if (built) {
-                    std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
-                    peakOverviewSessionCache[files[i]] = buildResults[i];
+                if (PeakCache::loadFromArchive(peakLoader, files[i], buildResults[i], error))
+                    continue;
+
+                // Extract to memory for parallel decode below.
+                std::vector<uint8_t> wavData;
+                std::string extractErr;
+                if (peakLoader.extractFile(files[i], wavData, extractErr) && !wavData.empty()) {
+                    pending.push_back({i, std::move(wavData), files[i]});
                 } else {
                     buildResults[i] = PeakOverview{};
                 }
+            }
+
+            // Phase 2: Decode peaks from memory buffers in parallel.
+            // Each build is fully independent (no shared state), so we can
+            // use one thread per file. Most songs have 5-20 regions, so
+            // this is a bounded number of threads.
+            if (!pending.empty()) {
+                std::vector<std::thread> threads;
+                std::vector<std::vector<ProjectLoader::ExtraFile>> threadExtras(pending.size());
+                threads.reserve(pending.size());
+                for (size_t t = 0; t < pending.size(); ++t) {
+                    threads.emplace_back([this, &pb = pending[t], &buildResults, &threadExtras, t,
+                                          generation]() {
+                        if (peakBuildGeneration.load(std::memory_order_acquire) != generation)
+                            return;
+                        PeakOverview overview;
+                        std::string error;
+                        if (overview.buildFromBuffer(pb.data.data(), pb.data.size(), 16384, error)) {
+                            threadExtras[t].push_back(PeakCache::makeCacheExtra(overview, pb.path));
+                            {
+                                std::lock_guard<std::mutex> lock(peakCacheMutex);
+                                peakOverviewSessionCache[pb.path] = overview;
+                            }
+                            buildResults[pb.index] = std::move(overview);
+                        } else {
+                            buildResults[pb.index] = PeakOverview{};
+                        }
+                    });
+                }
+                for (auto& t : threads)
+                    t.join();
+                for (auto& extras : threadExtras)
+                    for (auto& e : extras)
+                        buildExtras.push_back(std::move(e));
             }
         }
 
@@ -379,19 +415,53 @@ void AudioEngine::ensureAllSongPeaksBuilt() {
         std::string openError;
         ProjectLoader peakLoader;
         if (peakLoader.open(archivePathForBuild, openError)) {
+            // Phase 1: Extract all files to memory (sequential on zip handle).
+            struct PendingBuild {
+                std::string path;
+                std::vector<uint8_t> data;
+            };
+            std::vector<PendingBuild> pending;
+            pending.reserve(files.size());
+            std::vector<std::string> cachedPaths;
+
             for (const auto& file : files) {
                 PeakOverview overview;
                 std::string error;
-                bool built = PeakCache::loadFromArchive(peakLoader, file, overview, error);
-                if (!built) {
-                    built = overview.build(peakLoader, file, 4096, error);
-                    if (built)
-                        newExtras.push_back(PeakCache::makeCacheExtra(overview, file));
-                }
-                if (built) {
-                    std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
+                if (PeakCache::loadFromArchive(peakLoader, file, overview, error)) {
+                    std::lock_guard<std::mutex> lock(peakCacheMutex);
                     peakOverviewSessionCache[file] = std::move(overview);
+                    continue;
                 }
+                std::vector<uint8_t> wavData;
+                std::string extractErr;
+                if (peakLoader.extractFile(file, wavData, extractErr) && !wavData.empty()) {
+                    pending.push_back({file, std::move(wavData)});
+                }
+            }
+
+            // Phase 2: Decode peaks in parallel.
+            if (!pending.empty()) {
+                std::vector<std::thread> threads;
+                std::vector<std::vector<ProjectLoader::ExtraFile>> threadExtras(pending.size());
+                threads.reserve(pending.size());
+                for (size_t t = 0; t < pending.size(); ++t) {
+                    threads.emplace_back([this, &pb = pending[t], &threadExtras, t]() {
+                        PeakOverview overview;
+                        std::string error;
+                        if (overview.buildFromBuffer(pb.data.data(), pb.data.size(), 16384, error)) {
+                            threadExtras[t].push_back(PeakCache::makeCacheExtra(overview, pb.path));
+                            {
+                                std::lock_guard<std::mutex> lock(peakCacheMutex);
+                                peakOverviewSessionCache[pb.path] = std::move(overview);
+                            }
+                        }
+                    });
+                }
+                for (auto& t : threads)
+                    t.join();
+                for (auto& extras : threadExtras)
+                    for (auto& e : extras)
+                        newExtras.push_back(std::move(e));
             }
         }
         activePeakBuilds.fetch_sub(1, std::memory_order_release);

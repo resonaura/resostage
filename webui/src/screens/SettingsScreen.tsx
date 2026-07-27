@@ -241,25 +241,52 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
         <Card.Header>
           <Card.Title>System health</Card.Title>
         </Card.Header>
-        <Card.Content className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Stat
-            label="CPU"
-            value={`${Math.min(
-              100,
-              Math.max(
-                0,
-                (h.cpuPercent ?? 0) /
-                  (typeof navigator !== "undefined" && navigator.hardwareConcurrency
-                    ? navigator.hardwareConcurrency
-                    : 10),
-              ),
-            ).toFixed(1)}%`}
-          />
-          <Stat label="RAM (RSS)" value={formatBytes(h.rssBytes)} />
-          <Stat label="Free RAM" value={formatBytes(h.freeBytes)} />
-          <Stat label="Underruns" value={String(h.underrunCount)} />
-          <Stat label="Audio callbacks" value={String(h.audioCallbackCount)} />
-          <Stat label="Web clients" value={String(h.webClientCount)} />
+        <Card.Content className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Stat
+              label="CPU (total)"
+              value={`${Math.min(
+                100,
+                Math.max(
+                  0,
+                  (h.cpuPercent ?? 0) /
+                    (typeof navigator !== "undefined" && navigator.hardwareConcurrency
+                      ? navigator.hardwareConcurrency
+                      : 10),
+                ),
+              ).toFixed(1)}%`}
+            />
+            <Stat label="RAM (total RSS)" value={formatBytes(h.rssBytes)} />
+            <Stat label="Free RAM" value={formatBytes(h.freeBytes)} />
+            <Stat label="Underruns" value={String(h.underrunCount)} />
+            <Stat label="Audio callbacks" value={String(h.audioCallbackCount)} />
+            <Stat label="Web clients" value={String(h.webClientCount)} />
+          </div>
+          {(h.processes?.length ?? 0) > 0 && (
+            <div className="rounded-lg bg-default/30 p-3">
+              <div className="mb-2 text-xs font-medium uppercase text-default-500">Per-process breakdown</div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-default-500">
+                    <th className="pb-1 pr-3">Process</th>
+                    <th className="pb-1 pr-3 text-right">PID</th>
+                    <th className="pb-1 pr-3 text-right">RSS</th>
+                    <th className="pb-1 text-right">CPU</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(h.processes ?? []).map((p) => (
+                    <tr key={p.pid} className="border-t border-default/20">
+                      <td className="py-1 pr-3 font-mono text-xs">{p.name || "—"}</td>
+                      <td className="py-1 pr-3 text-right font-mono text-xs">{p.pid}</td>
+                      <td className="py-1 pr-3 text-right">{formatBytes(p.rssBytes)}</td>
+                      <td className="py-1 text-right">{p.cpuPercent.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card.Content>
       </Card>
     </div>
