@@ -42,19 +42,44 @@ export function useLiveValue(
 // Playhead-specific: the server pushes updates ~30 Hz while playing.
 // We want an optimistic position after a seek that immediately moves the
 // needle, then gracefully hands back control once the WS frame arrives.
-export function useOptimisticSeek(serverSeconds: number): [number, (v: number) => void] {
+export function useOptimisticSeek(
+  serverSeconds: number,
+  resetKey?: any,
+): [number, (v: number) => void] {
   const [seconds, setSeconds] = useState(serverSeconds);
   const lastSeekAt = useRef(0);
-  const SEEK_LOCK_MS = 600; // a bit longer -- server may restage
+  const targetSeekVal = useRef<number | null>(null);
+  const prevKey = useRef(resetKey);
+  const SEEK_LOCK_MS = 600;
 
   useEffect(() => {
-    if (Date.now() - lastSeekAt.current > SEEK_LOCK_MS) setSeconds(serverSeconds);
-  }, [serverSeconds]);
+    // Drop optimistic lock immediately when songIndex or project structure changes
+    if (prevKey.current !== resetKey) {
+      prevKey.current = resetKey;
+      lastSeekAt.current = 0;
+      targetSeekVal.current = null;
+      setSeconds(serverSeconds);
+      return;
+    }
+
+    const elapsed = Date.now() - lastSeekAt.current;
+    if (elapsed > SEEK_LOCK_MS) {
+      setSeconds(serverSeconds);
+      targetSeekVal.current = null;
+    } else if (targetSeekVal.current !== null && Math.abs(serverSeconds - targetSeekVal.current) < 0.8) {
+      // Server caught up to seek target -- release lock early for smooth playback!
+      lastSeekAt.current = 0;
+      targetSeekVal.current = null;
+      setSeconds(serverSeconds);
+    }
+  }, [serverSeconds, resetKey]);
 
   const seek = (v: number) => {
     lastSeekAt.current = Date.now();
+    targetSeekVal.current = v;
     setSeconds(v);
   };
 
   return [seconds, seek];
 }
+

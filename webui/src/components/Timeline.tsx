@@ -805,7 +805,8 @@ export function Timeline({
   const [scrollTopY, setScrollTopY] = useState(0);
   const [scrollState, setScrollState] = useState({ scrollLeft: 0, viewportWidth: 1000 });
 
-  const [playheadSec, setPlayheadSec] = useOptimisticSeek(state.playheadSeconds);
+  const [playheadSec, setPlayheadSec] = useOptimisticSeek(state.playheadSeconds, state.songIndex);
+
 
   // Snap-to-grid toggle
   const [snapToGrid, setSnapToGrid] = useState(true);
@@ -1068,8 +1069,40 @@ export function Timeline({
     });
   };
 
-  const currentSongOffset = state.songIndex >= 0 ? (songOffsets[state.songIndex] ?? 0) : 0;
-  const playheadAbsoluteSec = currentSongOffset + playheadSec;
+  const currentSongIdx = state.songIndex >= 0 ? state.songIndex : 0;
+  const currentSongOffset = songOffsets[currentSongIdx] ?? 0;
+  const currentSongDuration = songLengths[currentSongIdx] ?? 120;
+  const safePlayheadSec = Math.max(0, Math.min(playheadSec, currentSongDuration));
+  const playheadAbsoluteSec = currentSongOffset + safePlayheadSec;
+
+  const prevSongIdxRef = useRef(currentSongIdx);
+
+  // Auto-scroll timeline to keep playhead in view during playback or on song change
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    const scroller = scrollRef.current;
+    const playheadPx = playheadAbsoluteSec * pxPerSec;
+    const currentLeft = scroller.scrollLeft;
+    const viewWidth = scroller.clientWidth || 1000;
+
+    if (state.playing || prevSongIdxRef.current !== currentSongIdx) {
+      const songChanged = prevSongIdxRef.current !== currentSongIdx;
+      prevSongIdxRef.current = currentSongIdx;
+      const rightMargin = 120;
+      const leftMargin = 40;
+
+      if (songChanged || playheadPx > currentLeft + viewWidth - rightMargin || playheadPx < currentLeft + leftMargin) {
+        const targetLeft = Math.max(0, playheadPx - viewWidth * 0.25);
+        scroller.scrollLeft = targetLeft;
+        setScrollState({
+          scrollLeft: targetLeft,
+          viewportWidth: viewWidth,
+        });
+      }
+    }
+  }, [state.playing, currentSongIdx, Math.floor(playheadAbsoluteSec), pxPerSec]);
+
+
 
   // ── Toolbar ──────────────────────────────────────────────────────────────
   return (

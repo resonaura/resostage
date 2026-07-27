@@ -1058,7 +1058,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // Reset playhead to the start of the newly staged song.
     clock.start(currentSampleRate, 0);
     underrunFadeOutRemaining = 0;
-    recoveryFadeInRemaining = 0;
+    recoveryFadeInRemaining = 512; // soft 512-sample (~10ms) edge between songs
     lastCallbackWasUnderrun = false;
 
     if (gaplessKeepPlaying) {
@@ -1068,8 +1068,8 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
         transportTelemetry.running.store(true, std::memory_order_relaxed);
         midiDispatcher.startClock(song.bpm, SystemMonotonicClock{}.nowNanos());
-        recoveryFadeInRemaining = kUnderrunFadeSamples; // soft edge between songs
     } else {
+
         clock.stop();
         transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
         transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
@@ -1428,8 +1428,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 playing.store(false, std::memory_order_release);
                 clock.stop();
             }
+            if (underrunFadeOutRemaining <= 0) {
+                underrunFadeOutRemaining = 512;
+            }
             return;
         }
+
     }
 
     // Pass 1: pull this block's audio from each track's stream exactly once
@@ -1578,17 +1582,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
-    // Spec micro-fade: 128-sample linear fade-out after underrun detection and
-    // fade-in on recovery. Applied to the summed physical outputs only.
+    // Spec micro-fade: 512-sample linear fade-out after underrun/song end and
+    // fade-in on new song start. Applied to the summed physical outputs only.
     if (underrunFadeOutRemaining > 0 || recoveryFadeInRemaining > 0) {
+        constexpr float kFadeLen = 512.0f;
         for (int i = 0; i < numSamples; ++i) {
             float g = 1.0f;
             if (underrunFadeOutRemaining > 0) {
-                g = static_cast<float>(underrunFadeOutRemaining) / static_cast<float>(kUnderrunFadeSamples);
+                g = static_cast<float>(underrunFadeOutRemaining) / kFadeLen;
                 --underrunFadeOutRemaining;
             } else if (recoveryFadeInRemaining > 0) {
-                const int done = kUnderrunFadeSamples - recoveryFadeInRemaining;
-                g = static_cast<float>(done + 1) / static_cast<float>(kUnderrunFadeSamples);
+                const int done = static_cast<int>(kFadeLen) - recoveryFadeInRemaining;
+                g = static_cast<float>(done + 1) / kFadeLen;
                 --recoveryFadeInRemaining;
             }
             for (int ch = 0; ch < numOutputChannels; ++ch)
@@ -1596,6 +1601,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     outputChannelData[ch][i] *= g;
         }
     }
+
 }
 
 void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
@@ -1702,7 +1708,7 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
     busyImporting.store(true, std::memory_order_release);
 
 
-    importThread = std::thread([this, filesystemPath, entry, archivePath, tempOut, projectSnapshot, songToRestore, wasPlaying,
+    importThread = std::thread([this, songIndex, trackIndex, filesystemPath, entry, archivePath, tempOut, projectSnapshot, songToRestore, wasPlaying,
                                  onComplete]() mutable {
         std::string error;
         std::vector<uint8_t> data;
@@ -1740,8 +1746,23 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             extra.archivePath = entry;
             extra.data = std::move(data);
             extras.push_back(std::move(extra));
-            if (peaksOk)
+            if (peaksOk) {
                 extras.push_back(PeakCache::makeCacheExtra(overview, entry));
+                if (songIndex < projectSnapshot.songs.size()) {
+                    SongDef& s = projectSnapshot.songs[songIndex];
+                    if (trackIndex < projectSnapshot.tracks.size()) {
+                        const std::string& trkId = projectSnapshot.tracks[trackIndex].id;
+                        for (auto& r : s.regions) {
+                            if (r.trackId == trkId) {
+                                r.durationSeconds = overview.durationSeconds;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+
 
             writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot);
 
@@ -2181,7 +2202,10 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             reg.id = "reg_" + song.id + "_" + std::to_string(i + 1);
             reg.trackId = trackId;
             reg.file = entry;
+            reg.durationSeconds = overview.durationSeconds;
+
             song.regions.push_back(std::move(reg));
+
         }
 
         bool writeOk = false;
