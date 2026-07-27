@@ -377,6 +377,7 @@ private:
     // thread's private Project snapshot already had baked in), rebuilds
     // busses/routing, restarts streaming, and restages songToRestore. Always
     // clears busyImporting and calls onComplete exactly once.
+    std::function<void()> pendingFinishImport;
     void finishAsyncImport(bool writeSucceeded, std::string writeError, const std::string& tempOut,
                            const std::string& archivePath, size_t songToRestore, bool wasPlaying,
                            const std::function<void(bool, std::string)>& onComplete);

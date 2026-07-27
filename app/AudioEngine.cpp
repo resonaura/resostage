@@ -71,6 +71,11 @@ AudioEngine::~AudioEngine() {
     // bounded, acceptable delay on quit.
     if (importThread.joinable())
         importThread.join();
+    if (pendingFinishImport) {
+        auto fn = std::move(pendingFinishImport);
+        pendingFinishImport = nullptr;
+        fn();
+    }
     // Background peak builds also read `loader` (see rebuildTrackPeaks());
     // wait for them before streaming.stop() hands loader ownership to us.
     joinPendingPeakBuilds();
@@ -1450,10 +1455,14 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             onComplete(false, std::move(msg));
     };
 
-    if (importThread.joinable()) {
+    if (importThread.joinable())
         importThread.join();
-        busyImporting.store(false, std::memory_order_release);
+    if (pendingFinishImport) {
+        auto fn = std::move(pendingFinishImport);
+        pendingFinishImport = nullptr;
+        fn();
     }
+    busyImporting.store(false, std::memory_order_release);
     const TrackDef* track = trackDefInSong(songIndex, trackIndex);
     if (track == nullptr) {
         fail("Invalid track index");
@@ -1503,8 +1512,6 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
 
     const std::string archivePath = loader.archivePath();
 
-    if (importThread.joinable())
-        importThread.join();
     busyImporting.store(true, std::memory_order_release);
 
     importThread = std::thread([this, filesystemPath, entry, archivePath, projectSnapshot, songToRestore, wasPlaying,
@@ -1543,9 +1550,18 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             writeOk = loader.saveAsWithExtras(tempOut, {extra}, error, &projectSnapshot);
         }
 
-        juce::MessageManager::callAsync([this, readOk, writeOk, error, tempOut, archivePath, songToRestore,
-                                          wasPlaying, onComplete]() mutable {
+        auto finishFn = [this, readOk, writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, onComplete]() {
             finishAsyncImport(readOk && writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, onComplete);
+        };
+
+        pendingFinishImport = finishFn;
+
+        juce::MessageManager::callAsync([this]() {
+            if (pendingFinishImport) {
+                auto fn = std::move(pendingFinishImport);
+                pendingFinishImport = nullptr;
+                fn();
+            }
         });
     });
 }
