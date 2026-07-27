@@ -1,10 +1,11 @@
 import { Button } from "@heroui/react";
+import { ChevronDown } from "lucide-react";
 import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { Timeline } from "../components/Timeline";
 import { builder, fetchAllPeaks, fetchPeaks, transport } from "../lib/api";
-import type { AllPeaksResponse, PeaksResponse, WebUiState } from "../lib/types";
+import type { AllPeaksResponse, ClickSendRow, PeaksResponse, WebUiState } from "../lib/types";
 
 function MetronomeIcon({
   size = 16,
@@ -212,6 +213,7 @@ export function PlayerScreen({
   const [metronomeOverride, setMetronomeOverride] = useState<boolean | null>(
     null,
   );
+  const [clickSendsOpen, setClickSendsOpen] = useState(false);
 
   const hasSongs = state.songs.length > 0;
   const isMetronomeOn =
@@ -233,8 +235,44 @@ export function PlayerScreen({
         tsDen: s.tsDen,
         click: nextState,
         clickBusId: s.clickBusId || defaultClickBus,
+        clickSends: (s.clickSends ?? []).map((cs) => ({
+          busId: cs.busId,
+          gainDb: cs.gainDb,
+          enabled: cs.enabled,
+        })),
       });
     }
+  };
+
+  // Toggle a send on/off for the metronome (aux bus click routing)
+  const toggleClickSend = (busId: string) => {
+    if (!hasSongs || state.songIndex < 0 || !state.songs[state.songIndex]) return;
+    const s = state.songs[state.songIndex];
+    const existing = (s.clickSends ?? []).find((cs) => cs.busId === busId);
+    let newSends: ClickSendRow[];
+    if (existing) {
+      // Toggle enabled flag
+      newSends = (s.clickSends ?? []).map((cs) =>
+        cs.busId === busId ? { ...cs, enabled: !cs.enabled } : cs
+      );
+    } else {
+      // Add new send at unity gain, enabled
+      newSends = [
+        ...(s.clickSends ?? []),
+        { busId, gainDb: 0.0, enabled: true },
+      ];
+    }
+    void builder.songUpdate({
+      index: state.songIndex,
+      name: s.name,
+      bpm: s.bpm,
+      mode: s.mode,
+      tsNum: s.tsNum,
+      tsDen: s.tsDen,
+      click: s.click,
+      clickBusId: s.clickBusId,
+      clickSends: newSends,
+    });
   };
 
   useEffect(() => {
@@ -382,20 +420,75 @@ export function PlayerScreen({
             <SkipForward size={16} />
           </button>
 
-          {/* Global Metronome Toggle Button */}
-          <button
-            type="button"
-            onClick={toggleMetronome}
-            className={`flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors ${
-              isMetronomeOn
-                ? "border-accent bg-accent/20 text-accent"
-                : "border-default/40 bg-default/10 text-foreground/40 hover:bg-default/25 hover:text-foreground"
-            }`}
-            title={isMetronomeOn ? "Metronome: ON" : "Metronome: OFF"}
-          >
-            <MetronomeIcon size={16} />
-            <span>Click</span>
-          </button>
+          {/* Global Metronome Toggle + Send routing */}
+          <div className="relative flex items-stretch rounded-lg border border-default/40 overflow-hidden">
+            {/* Main click toggle */}
+            <button
+              type="button"
+              onClick={toggleMetronome}
+              className={`flex h-9 items-center gap-1.5 px-2.5 text-xs font-semibold transition-colors ${
+                isMetronomeOn
+                  ? "bg-accent/20 text-accent"
+                  : "bg-default/10 text-foreground/40 hover:bg-default/25 hover:text-foreground"
+              }`}
+              title={isMetronomeOn ? "Metronome: ON" : "Metronome: OFF"}
+            >
+              <MetronomeIcon size={16} />
+              <span>Click</span>
+            </button>
+            {/* Send routing chevron */}
+            <button
+              type="button"
+              onClick={() => setClickSendsOpen((o) => !o)}
+              className={`flex h-9 items-center border-l border-default/40 px-1.5 transition-colors ${
+                clickSendsOpen
+                  ? "bg-accent/10 text-accent"
+                  : "bg-default/10 text-foreground/40 hover:bg-default/25 hover:text-foreground"
+              }`}
+              title="Click send routing"
+            >
+              <ChevronDown size={12} className={`transition-transform ${clickSendsOpen ? "rotate-180" : ""}`} />
+            </button>
+            {/* Popover: one row per bus, toggle send on/off */}
+            {clickSendsOpen && (
+              <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-lg border border-default/40 bg-surface shadow-xl">
+                <div className="border-b border-default/20 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground/40">
+                  Click → Send to Bus
+                </div>
+                {state.busses.map((bus) => {
+                  const send = (song?.clickSends ?? []).find(
+                    (cs) => cs.busId === bus.id,
+                  );
+                  const isActive = send?.enabled === true;
+                  return (
+                    <button
+                      key={bus.id}
+                      type="button"
+                      onClick={() => toggleClickSend(bus.id)}
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-default/15 ${
+                        isActive ? "text-accent" : "text-foreground/50"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+                          isActive ? "bg-accent" : "bg-default/40"
+                        }`}
+                      />
+                      <span className="truncate">{bus.name || bus.id}</span>
+                      {bus.isAux && (
+                        <span className="ml-auto shrink-0 rounded bg-default/20 px-1 text-[9px] uppercase text-foreground/30">
+                          aux
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+                {state.busses.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-foreground/30">No buses</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Dual sparkline graphs: CPU & RAM */}

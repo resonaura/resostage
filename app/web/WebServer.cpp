@@ -789,7 +789,16 @@ std::string WebServer::buildStateJson() const {
           << "\"tsNum\":" << song.tsNum << ","
           << "\"tsDen\":" << song.tsDen << ","
           << "\"click\":" << (song.click ? "true" : "false") << ","
-          << "\"clickBusId\":\"" << jsonEscape(song.clickBusId) << "\",";
+          << "\"clickBusId\":\"" << jsonEscape(song.clickBusId) << "\","
+          << "\"clickSends\":[";
+        for (size_t ci = 0; ci < song.clickSends.size(); ++ci) {
+            if (ci) o << ",";
+            const auto& cs = song.clickSends[ci];
+            o << "{\"busId\":\"" << jsonEscape(cs.busId) << "\","
+              << "\"gainDb\":" << finiteOrZero(cs.gainDb) << ","
+              << "\"enabled\":" << (cs.enabled ? "true" : "false") << "}";
+        }
+        o << "],";
 
         o << "\"tracks\":[";
         for (size_t j = 0; j < song.tracks.size(); ++j) {

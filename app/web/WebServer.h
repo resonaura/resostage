@@ -156,6 +156,9 @@ struct WebUiState {
         int tsDen = 4;
         bool click = false;
         std::string clickBusId;
+        // click sends: extra buses (aux monitor mixes) the metronome feeds.
+        struct ClickSendRow { std::string busId; double gainDb = 0.0; bool enabled = true; };
+        std::vector<ClickSendRow> clickSends;
 
         struct TrackRow {
             std::string id;

@@ -659,6 +659,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
         tsDen: s.tsDen,
         click: nextState,
         clickBusId: s.clickBusId || busId,
+        clickSends: s.clickSends ?? [],
       });
     }
   };
@@ -675,6 +676,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
         tsDen: s.tsDen,
         click: s.click,
         clickBusId: busId,
+        clickSends: s.clickSends ?? [],
       });
     }
   };

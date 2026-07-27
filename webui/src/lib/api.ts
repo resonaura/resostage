@@ -139,6 +139,7 @@ export const builder = {
     tsDen: number;
     click: boolean;
     clickBusId: string;
+    clickSends: { busId: string; gainDb: number; enabled: boolean }[];
   }) => post("/api/v1/builder/song/update", patch),
 
   trackAdd: (songIndex: number) => post("/api/v1/builder/track/add", { songIndex }),

@@ -162,6 +162,7 @@ export function ImportStemsModal({
         tsDen: tsDen,
         click: enableClick,
         clickBusId: state.busses[0]?.id || "main",
+        clickSends: [], // no sends on freshly imported song; user can add via Click → Send popover
       });
 
       // 2. Map stems to consolidated tracks (excluding special actions).

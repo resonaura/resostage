@@ -114,6 +114,11 @@ struct SongDef {
     bool builtInClickEnabled = false;
     std::string builtInClickBusId;
     double builtInClickGainDb = -6.0;
+    // Additional sends: the click is mixed into each of these buses (aux
+    // monitor mixes) at the specified gain, independent of the main bus above.
+    // Mirrors the per-track TrackSendDef routing so the click can go to
+    // "FOH main + drummer IEM + guitarist IEM" simultaneously.
+    std::vector<TrackSendDef> builtInClickSends;
 };
 
 struct BusOutputDef {

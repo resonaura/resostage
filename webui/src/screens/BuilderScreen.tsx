@@ -240,6 +240,7 @@ function SongEditor({ song, index }: { song: SongRow; index: number }) {
               tsDen,
               click: song.click,
               clickBusId: song.clickBusId,
+              clickSends: song.clickSends ?? [],
             })
           }
         >

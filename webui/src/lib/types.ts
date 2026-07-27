@@ -30,6 +30,12 @@ export interface SongEventRow {
   httpUrl: string;
 }
 
+export interface ClickSendRow {
+  busId: string;
+  gainDb: number;
+  enabled: boolean;
+}
+
 export interface SongRow {
   name: string;
   bpm: number;
@@ -38,6 +44,7 @@ export interface SongRow {
   tsDen: number;
   click: boolean;
   clickBusId: string;
+  clickSends: ClickSendRow[];
   tracks: SongTrackRow[];
   events: SongEventRow[];
 }

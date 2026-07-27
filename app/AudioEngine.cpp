@@ -606,12 +606,23 @@ void AudioEngine::refreshClickState() {
         return;
     const SongDef& song = loader.project().songs[currentSong];
     clickTargetBusIndex = -1;
+    clickSendBusIndices.clear();
+    clickSendGainLinears.clear();
     if (song.builtInClickEnabled) {
         auto clickBusIt = busIndexById.find(song.builtInClickBusId);
         if (clickBusIt != busIndexById.end()) {
             clickTargetBusIndex = static_cast<int>(clickBusIt->second);
             clickGainLinear = dbToGain(song.builtInClickGainDb);
             clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+        }
+        for (const TrackSendDef& cs : song.builtInClickSends) {
+            if (!cs.enabled)
+                continue;
+            auto it = busIndexById.find(cs.busId);
+            if (it == busIndexById.end())
+                continue;
+            clickSendBusIndices.push_back(static_cast<int>(it->second));
+            clickSendGainLinears.push_back(dbToGain(cs.gainDb));
         }
     }
 }
@@ -876,12 +887,23 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     eventFiredFlags.assign(song.events.size(), 0);
 
     clickTargetBusIndex = -1;
+    clickSendBusIndices.clear();
+    clickSendGainLinears.clear();
     if (song.builtInClickEnabled) {
         auto clickBusIt = busIndexById.find(song.builtInClickBusId);
         if (clickBusIt != busIndexById.end()) {
             clickTargetBusIndex = static_cast<int>(clickBusIt->second);
             clickGainLinear = dbToGain(song.builtInClickGainDb);
             clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+        }
+        for (const TrackSendDef& cs : song.builtInClickSends) {
+            if (!cs.enabled)
+                continue;
+            auto it = busIndexById.find(cs.busId);
+            if (it == busIndexById.end())
+                continue;
+            clickSendBusIndices.push_back(static_cast<int>(it->second));
+            clickSendGainLinears.push_back(dbToGain(cs.gainDb));
         }
     }
 
@@ -1336,12 +1358,35 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // Built-in click generator: mixed directly into its target bus's scratch
     // region (mono summed to both channels), same as any other source, so it
     // participates in metering and physical output routing normally.
-    if (clickTargetBusIndex >= 0 && static_cast<size_t>(clickTargetBusIndex) < busses.size()) {
-        const int scratchOffset = clickTargetBusIndex * 2;
-        if (scratchOffset + 2 <= scratchChannels) {
-            clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
+    // Also mixed into every send bus from builtInClickSends (monitor mixes).
+    const bool clickActive = clickTargetBusIndex >= 0 && static_cast<size_t>(clickTargetBusIndex) < busses.size();
+    const bool clickHasSends = !clickSendBusIndices.empty();
+    if (clickActive || clickHasSends) {
+        clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
+
+        // Main target bus
+        if (clickActive) {
+            const int scratchOffset = clickTargetBusIndex * 2;
+            if (scratchOffset + 2 <= scratchChannels) {
+                for (int i = 0; i < numSamples; ++i) {
+                    const float v = clickScratch[static_cast<size_t>(i)] * clickGainLinear;
+                    busScratch.addSample(scratchOffset + 0, i, v);
+                    busScratch.addSample(scratchOffset + 1, i, v);
+                }
+            }
+        }
+
+        // Send buses (aux monitor mixes)
+        for (size_t si = 0; si < clickSendBusIndices.size(); ++si) {
+            const int sendBusIdx = clickSendBusIndices[si];
+            if (static_cast<size_t>(sendBusIdx) >= busses.size())
+                continue;
+            const int scratchOffset = sendBusIdx * 2;
+            if (scratchOffset + 2 > scratchChannels)
+                continue;
+            const float sendGain = clickSendGainLinears[si];
             for (int i = 0; i < numSamples; ++i) {
-                const float v = clickScratch[static_cast<size_t>(i)] * clickGainLinear;
+                const float v = clickScratch[static_cast<size_t>(i)] * sendGain;
                 busScratch.addSample(scratchOffset + 0, i, v);
                 busScratch.addSample(scratchOffset + 1, i, v);
             }

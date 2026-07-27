@@ -105,6 +105,19 @@ std::string serializeProjectJson(const Project& project) {
         o << "      \"builtInClickGainDb\": ";
         writeNumber(o, s.builtInClickGainDb);
         o << ",\n";
+        o << "      \"builtInClickSends\": [\n";
+        for (size_t csi = 0; csi < s.builtInClickSends.size(); ++csi) {
+            const TrackSendDef& cs = s.builtInClickSends[csi];
+            o << "        {\n";
+            o << "          \"bus\": \"" << jsonEscapeString(cs.busId) << "\",\n";
+            o << "          \"gainDb\": ";
+            writeNumber(o, cs.gainDb);
+            o << ",\n";
+            o << "          \"preFader\": " << (cs.preFader ? "true" : "false") << ",\n";
+            o << "          \"enabled\": " << (cs.enabled ? "true" : "false") << "\n";
+            o << "        }" << (csi + 1 < s.builtInClickSends.size() ? "," : "") << "\n";
+        }
+        o << "      ],\n";
 
         o << "      \"tracks\": [\n";
         for (size_t ti = 0; ti < s.tracks.size(); ++ti) {

@@ -155,6 +155,24 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     if (getBool(doc, "click", boolVal)) s.builtInClickEnabled = boolVal;
     if (getString(doc, "clickBusId", strVal)) s.builtInClickBusId = strVal;
 
+    // clickSends: full replacement when present (web sends the entire array)
+    simdjson::dom::array clickSendsArr;
+    if (!doc["clickSends"].get(clickSendsArr)) {
+        s.builtInClickSends.clear();
+        for (simdjson::dom::element csEl : clickSendsArr) {
+            TrackSendDef cs;
+            std::string_view sv;
+            if (csEl["busId"].get(sv))
+                continue; // busId is required
+            cs.busId = std::string(sv);
+            (void)csEl["gainDb"].get(cs.gainDb);
+            bool enabled = true;
+            (void)csEl["enabled"].get(enabled);
+            cs.enabled = enabled;
+            s.builtInClickSends.push_back(std::move(cs));
+        }
+    }
+
     if (index == static_cast<int>(engine.currentSongIndex())) {
         engine.refreshClickState();
     } else {

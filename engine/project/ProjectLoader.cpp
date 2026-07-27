@@ -205,6 +205,23 @@ bool parseSong(const simdjson::dom::element& songEl, SongDef& song, std::string&
         song.builtInClickBusId = std::string(clickBusView);
     (void)songEl["builtInClickGainDb"].get(song.builtInClickGainDb);
 
+    simdjson::dom::array clickSendsArr;
+    if (!songEl["builtInClickSends"].get(clickSendsArr)) {
+        for (simdjson::dom::element csEl : clickSendsArr) {
+            TrackSendDef cs;
+            std::string_view busView;
+            if (csEl["bus"].get(busView))
+                continue;
+            cs.busId = std::string(busView);
+            (void)csEl["gainDb"].get(cs.gainDb);
+            (void)csEl["preFader"].get(cs.preFader);
+            bool enabled = true;
+            (void)csEl["enabled"].get(enabled);
+            cs.enabled = enabled;
+            song.builtInClickSends.push_back(std::move(cs));
+        }
+    }
+
     simdjson::dom::array eventsArr;
     if (!songEl["events"].get(eventsArr)) {
         for (simdjson::dom::element evEl : eventsArr) {

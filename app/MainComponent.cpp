@@ -534,6 +534,13 @@ void MainComponent::publishWebState() {
         row.tsDen = song.timeSignature.denominator;
         row.click = song.builtInClickEnabled;
         row.clickBusId = song.builtInClickBusId;
+        for (const TrackSendDef& cs : song.builtInClickSends) {
+            WebUiState::SongRow::ClickSendRow csr;
+            csr.busId = cs.busId;
+            csr.gainDb = cs.gainDb;
+            csr.enabled = cs.enabled;
+            row.clickSends.push_back(std::move(csr));
+        }
 
         row.tracks.reserve(song.tracks.size());
         for (const TrackDef& t : song.tracks) {
