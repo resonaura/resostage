@@ -334,6 +334,7 @@ void MainComponent::timerCallback() {
 
     drainWebCommands();
     publishWebState();
+    maybePublishPeaks();
 }
 
 void MainComponent::drainWebCommands() {
@@ -396,10 +397,13 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::LoadProjectFromPath: {
                 // Plain-browser upload path: bytes already landed in cmd.path
                 // (a temp file written by WebServer's upload handler) --
-                // load it exactly like a FileChooser result, then delete it.
+                // load it exactly like a FileChooser result. Unlike WAV
+                // import, this temp file IS the working archive from now on
+                // (ProjectLoader streams tracks/peaks from it on demand, same
+                // as any user-picked .rsnraset) -- must NOT delete it on
+                // success, only if the load itself failed and it's dead weight.
                 std::string error;
                 const bool loaded = engine.loadProject(cmd.path, error);
-                std::remove(cmd.path.c_str());
                 if (loaded) {
                     applyProjectBindings();
                     settingsPanel.refreshBindings();
@@ -408,6 +412,7 @@ void MainComponent::drainWebCommands() {
                     if (!engine.project().songs.empty())
                         goToSong(0);
                 } else {
+                    std::remove(cmd.path.c_str());
                     setStatus("Upload load failed: " + juce::String(error));
                 }
                 break;
@@ -462,6 +467,16 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderEventRemove: builderEventRemove(cmd.json); break;
             case WebCommandKind::BuilderEventMove: builderEventMove(cmd.json); break;
             case WebCommandKind::BuilderEventUpdate: builderEventUpdate(cmd.json); break;
+            // Settings parity -- see MainComponentSettings.cpp.
+            case WebCommandKind::SetAudioOutputDevice: settingsSetAudioOutputDevice(cmd.json); break;
+            case WebCommandKind::SetSampleRate: settingsSetSampleRate(cmd.json); break;
+            case WebCommandKind::SetBufferSize: settingsSetBufferSize(cmd.json); break;
+            case WebCommandKind::SetMidiOutput: settingsSetMidiOutput(cmd.json); break;
+            case WebCommandKind::SetMidiInput: settingsSetMidiInput(cmd.json); break;
+            case WebCommandKind::SetKeybinding: settingsSetKeybinding(cmd.json); break;
+            case WebCommandKind::SetOutputChannels: settingsSetOutputChannels(cmd.json); break;
+            // Timeline parity -- see MainComponentTimeline.cpp.
+            case WebCommandKind::Seek: transportSeek(cmd.json); break;
         }
     }
 }
@@ -602,6 +617,8 @@ void MainComponent::publishWebState() {
     state.audioCallbackCount = health.audioCallbackCount;
     state.webClientCount = webServer.clientCount();
     engine.health().setWebClientCount(state.webClientCount);
+
+    populateSettingsState(state.settings);
 
     webServer.publishState(state);
 }

@@ -1,5 +1,5 @@
 import { apiUrl } from "./backend";
-import type { EventTypeWire } from "./types";
+import type { EventTypeWire, PeaksResponse } from "./types";
 
 // Mirrors WebServer::handleHttpApi().
 async function post(path: string, body?: unknown): Promise<void> {
@@ -22,7 +22,20 @@ export const transport = {
   next: () => post("/api/v1/transport/next"),
   prev: () => post("/api/v1/transport/prev"),
   select: (index: number) => post("/api/v1/transport/select", { index }),
+  // Mirrors TimelineView.cpp's click/drag-to-seek (AudioEngine::
+  // seekToSeconds) -- restages the song, so the caller should throttle
+  // repeated calls during a drag gesture (same reason the native timeline
+  // does) rather than firing on every pointermove.
+  seek: (seconds: number) => post("/api/v1/transport/seek", { seconds }),
 };
+
+// Per-track peak-overview waveform data for the currently-staged song (see
+// MainComponent::buildPeaksJson()). Not part of the live WS state -- fetch
+// on demand (mount + whenever state.songIndex changes).
+export async function fetchPeaks(): Promise<PeaksResponse> {
+  const res = await fetch(apiUrl("/api/v1/player/peaks"));
+  return (await res.json()) as PeaksResponse;
+}
 
 // Mixer parity -- same calls the native MixerStrip/MixerPanel make, just
 // routed from here. `index` is relative to the currently-staged song for
@@ -163,4 +176,19 @@ export const builder = {
     midiVelocity: number;
     httpUrl: string;
   }) => post("/api/v1/builder/event/update", patch),
+};
+
+// Settings parity -- mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent
+// callbacks and MIDI/keybinding row handlers. See MainComponentSettings.cpp.
+export const settings = {
+  setAudioOutputDevice: (name: string) => post("/api/v1/settings/audio-device", { name }),
+  setSampleRate: (value: number) => post("/api/v1/settings/sample-rate", { value }),
+  setBufferSize: (value: number) => post("/api/v1/settings/buffer-size", { value }),
+  setMidiOutput: (name: string) => post("/api/v1/settings/midi-output", { name }),
+  setMidiInput: (name: string) => post("/api/v1/settings/midi-input", { name }),
+  setKeybinding: (action: string, key: string) => post("/api/v1/settings/keybinding", { action, key }),
+  // `channels` is the full list of active channel indices (0-based) -- the
+  // caller sends the complete set every time, matching the native checkbox
+  // list's "whole BigInteger bitmask" semantics.
+  setOutputChannels: (channels: number[]) => post("/api/v1/settings/output-channels", { channels }),
 };

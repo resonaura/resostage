@@ -81,6 +81,35 @@ export interface HealthState {
   webClientCount: number;
 }
 
+export interface KeybindingRow {
+  action: string;
+  key: string;
+}
+
+export interface SettingsState {
+  currentOutputDevice: string;
+  outputDevices: string[];
+  sampleRate: number;
+  availableSampleRates: number[];
+  bufferSize: number;
+  availableBufferSizes: number[];
+  outputChannelNames: string[];
+  activeOutputChannels: boolean[];
+  midiOutputs: string[];
+  midiInputs: string[];
+  keybindings: KeybindingRow[];
+}
+
+export interface TrackPeaks {
+  id: string;
+  durationSeconds: number;
+  peaks: number[];
+}
+
+export interface PeaksResponse {
+  tracks: TrackPeaks[];
+}
+
 export interface WebUiState {
   projectName: string;
   songName: string;
@@ -99,6 +128,7 @@ export interface WebUiState {
   tracks: TrackRow[];
   busses: BusRow[];
   health: HealthState;
+  settings: SettingsState;
 }
 
 export const emptyState: WebUiState = {
@@ -125,5 +155,18 @@ export const emptyState: WebUiState = {
     underrunCount: 0,
     audioCallbackCount: 0,
     webClientCount: 0,
+  },
+  settings: {
+    currentOutputDevice: "",
+    outputDevices: [],
+    sampleRate: 0,
+    availableSampleRates: [],
+    bufferSize: 0,
+    availableBufferSizes: [],
+    outputChannelNames: [],
+    activeOutputChannels: [],
+    midiOutputs: [],
+    midiInputs: [],
+    keybindings: [],
   },
 };

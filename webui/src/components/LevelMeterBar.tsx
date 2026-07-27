@@ -48,9 +48,18 @@ interface LevelMeterBarProps {
   label?: string;
   vertical?: boolean;
   className?: string;
+  showValue?: boolean;
+  barClassName?: string;
 }
 
-export function LevelMeterBar({ db, label, vertical = true, className = "" }: LevelMeterBarProps) {
+export function LevelMeterBar({
+  db,
+  label,
+  vertical = true,
+  className = "",
+  showValue = true,
+  barClassName,
+}: LevelMeterBarProps) {
   const [display, setDisplay] = useState(FLOOR_DB);
   const [peak, setPeak] = useState(FLOOR_DB);
   const [clipLatched, setClipLatched] = useState(false);
@@ -98,7 +107,7 @@ export function LevelMeterBar({ db, label, vertical = true, className = "" }: Le
         onClick={() => setClipLatched(false)}
         title={clipLatched ? "Clipped -- click to reset" : undefined}
         className={`relative overflow-hidden rounded-md bg-default/40 ${
-          vertical ? "h-24 w-4" : "h-3 w-full"
+          barClassName ?? (vertical ? "h-24 w-4" : "h-3 w-full")
         }`}
       >
         <div
@@ -122,9 +131,11 @@ export function LevelMeterBar({ db, label, vertical = true, className = "" }: Le
           <div className="absolute top-0 h-full w-0.5 bg-foreground/80" style={{ left: `${peakPct}%` }} />
         )}
       </button>
-      <div className="w-12 shrink-0 text-right text-xs tabular-nums text-foreground/60">
-        {display <= FLOOR_DB + 1 ? "-inf" : display.toFixed(1)}
-      </div>
+      {showValue && (
+        <div className="w-12 shrink-0 text-right text-xs tabular-nums text-foreground/60">
+          {display <= FLOOR_DB + 1 ? "-inf" : display.toFixed(1)}
+        </div>
+      )}
     </div>
   );
 }

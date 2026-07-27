@@ -286,6 +286,14 @@ private:
     int recoveryFadeInRemaining = 0;
     bool lastCallbackWasUnderrun = false;
 
+    // Audio-thread-only: the render callback returns immediately while
+    // !playing, which otherwise means trackMeters/busMeters just keep
+    // reporting whatever they last read while playing forever (the Mixer/web
+    // meters visibly "freeze" instead of falling to silence on Stop). Set
+    // once the first stopped callback has pushed a silent frame so we don't
+    // redo that write every callback for as long as playback stays stopped.
+    bool metersSilencedSinceStop = false;
+
     // Built-in click generator routing for the current song; disabled (-1)
     // unless the song has builtInClickEnabled and a resolvable target bus.
     ClickGenerator clickGenerator;

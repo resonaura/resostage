@@ -8,6 +8,8 @@ target_sources(ResoStage PRIVATE
   Main.cpp
   MainComponent.cpp
   MainComponentBuilder.cpp
+  MainComponentSettings.cpp
+  MainComponentTimeline.cpp
   AudioEngine.cpp
   midi/CoreMidiDispatcher.cpp
   midi/CoreMidiInputListener.cpp

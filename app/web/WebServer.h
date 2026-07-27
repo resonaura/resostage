@@ -83,6 +83,22 @@ enum class WebCommandKind : uint8_t {
     BuilderEventRemove,
     BuilderEventMove,
     BuilderEventUpdate,
+    // Settings parity -- audio device/sample-rate/buffer-size, MIDI I/O
+    // device selection, keybindings. Same raw-JSON-passthrough routing as
+    // the Builder commands above; handled in MainComponentSettings.cpp.
+    SetAudioOutputDevice,
+    SetSampleRate,
+    SetBufferSize,
+    SetMidiOutput,
+    SetMidiInput,
+    SetKeybinding,
+    SetOutputChannels,
+    // Timeline parity -- `value` is the target position in seconds. Mirrors
+    // TimelineView.cpp's click/drag-to-seek (see AudioEngine::seekToSeconds);
+    // the frontend throttles drag updates itself, same reason TimelineView's
+    // own doc comment gives (seek restages the song, so hammering it on
+    // every mouse-move would be wasteful).
+    Seek,
 };
 
 struct WebCommand {
@@ -203,6 +219,33 @@ struct WebUiState {
     uint64_t underrunCount = 0;
     uint64_t audioCallbackCount = 0;
     int webClientCount = 0;
+
+    // Settings parity -- mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent
+    // + MIDI I/O pickers + keybinding rows. Populated from juce::
+    // AudioDeviceManager/CoreMidiDispatcher/CoreMidiInputListener/Project::
+    // keybindings in MainComponent::publishWebState(), all message-thread-only
+    // reads (JUCE device manager API isn't safe to touch from the lws thread).
+    struct SettingsRow {
+        std::string currentOutputDevice;
+        std::vector<std::string> outputDevices;
+        double sampleRate = 0.0;
+        std::vector<double> availableSampleRates;
+        int bufferSize = 0;
+        std::vector<int> availableBufferSizes;
+        // Per-physical-channel activation (interfaces with >2 outputs can
+        // route different busses to different channel pairs) -- mirrors
+        // AudioDeviceSelectorComponent's channel checkbox list.
+        std::vector<std::string> outputChannelNames;
+        std::vector<bool> activeOutputChannels;
+        std::vector<std::string> midiOutputs;
+        std::vector<std::string> midiInputs;
+        struct Keybinding {
+            std::string action;
+            std::string key;
+        };
+        std::vector<Keybinding> keybindings;
+    };
+    SettingsRow settings;
 };
 
 // Embedded HTTP + WebSocket server (libwebsockets).
@@ -253,6 +296,14 @@ public:
     void beginTrackImport(int songIndex, int trackIndex, std::string fileName);
     void takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName);
 
+    // Message-thread: publish the current song's per-track peak-overview
+    // JSON (see MainComponent::buildPeaksJson()). Kept separate from the
+    // ~30Hz WebUiState broadcast -- peak arrays are large (up to 4096 floats
+    // per track) and only change when the staged song changes, so pushing
+    // them through the WS stream on every frame would waste bandwidth for no
+    // reason. Served on demand via GET /api/v1/player/peaks instead.
+    void publishPeaks(std::string json);
+
 private:
     friend int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
     friend int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
@@ -264,6 +315,7 @@ private:
     int serveStatic(struct lws* wsi, const char* path);
     int serveExportStatus(struct lws* wsi);
     int serveExportDownload(struct lws* wsi);
+    int servePeaks(struct lws* wsi);
 
     // Called only from the lws service thread.
     void onClientOpened();
@@ -291,6 +343,9 @@ private:
     int pendingImportSongIndex = -1;
     int pendingImportTrackIndex = -1;
     std::string pendingImportFileName;
+
+    mutable std::mutex peaksMutex;
+    std::string peaksJson = "{\"tracks\":[]}";
 
     // Per-session WS bookkeeping lives in the .cpp (opaque to callers).
     // The service thread owns a linked list of live WS sessions via user data.

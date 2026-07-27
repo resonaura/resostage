@@ -131,6 +131,30 @@ private:
     void builderEventMove(const std::string& json);
     void builderEventUpdate(const std::string& json);
 
+    // Settings parity for the web UI -- see MainComponentSettings.cpp.
+    // Mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent callbacks and
+    // MIDI/keybinding row handlers, JSON-driven instead of widget-driven.
+    void settingsSetAudioOutputDevice(const std::string& json);
+    void settingsSetSampleRate(const std::string& json);
+    void settingsSetBufferSize(const std::string& json);
+    void settingsSetMidiOutput(const std::string& json);
+    void settingsSetMidiInput(const std::string& json);
+    void settingsSetKeybinding(const std::string& json);
+    void settingsSetOutputChannels(const std::string& json);
+    void populateSettingsState(WebUiState::SettingsRow& out);
+
+    // Timeline parity for the web UI -- see MainComponentTimeline.cpp.
+    void transportSeek(const std::string& json);
+    // Publishes the staged song's per-track peak-overview JSON (see
+    // WebServer::publishPeaks()) once right after a song change, then keeps
+    // republishing each tick while the background peak build is still in
+    // flight (rebuildTrackPeaks() runs off-thread -- see AudioEngine.cpp),
+    // stopping once every track has real data. Called from timerCallback().
+    void maybePublishPeaks();
+    std::string buildPeaksJson() const;
+    int lastPeaksPublishSongIndex = -2;
+    bool lastPeaksPublishComplete = false;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
 

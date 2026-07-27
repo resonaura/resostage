@@ -179,9 +179,9 @@ WebCommandKind mixerCommandKindForPath(const char* path) {
     return WebCommandKind::SetBusSolo; // "/api/v1/bus/solo" -- last remaining option per isMixerCommandPath's list
 }
 
-// Builder paths carry their whole payload as a raw JSON pass-through (see
-// WebCommand::json) -- WebServer does no field parsing for these at all,
-// unlike the mixer paths above.
+// Builder and Settings paths carry their whole payload as a raw JSON
+// pass-through (see WebCommand::json) -- WebServer does no field parsing for
+// these at all, unlike the mixer paths above.
 struct BuilderRoute {
     const char* path;
     WebCommandKind kind;
@@ -204,6 +204,14 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/event/remove", WebCommandKind::BuilderEventRemove},
     {"/api/v1/builder/event/move", WebCommandKind::BuilderEventMove},
     {"/api/v1/builder/event/update", WebCommandKind::BuilderEventUpdate},
+    {"/api/v1/settings/audio-device", WebCommandKind::SetAudioOutputDevice},
+    {"/api/v1/settings/sample-rate", WebCommandKind::SetSampleRate},
+    {"/api/v1/settings/buffer-size", WebCommandKind::SetBufferSize},
+    {"/api/v1/settings/midi-output", WebCommandKind::SetMidiOutput},
+    {"/api/v1/settings/midi-input", WebCommandKind::SetMidiInput},
+    {"/api/v1/settings/keybinding", WebCommandKind::SetKeybinding},
+    {"/api/v1/settings/output-channels", WebCommandKind::SetOutputChannels},
+    {"/api/v1/transport/seek", WebCommandKind::Seek},
 };
 
 bool builderCommandKindForPath(const char* path, WebCommandKind& outKind) {
@@ -423,6 +431,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return server->serveExportStatus(wsi);
                     if (std::strcmp(uri, "/api/v1/project/download") == 0)
                         return server->serveExportDownload(wsi);
+                    if (std::strcmp(uri, "/api/v1/player/peaks") == 0)
+                        return server->servePeaks(wsi);
                     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
                                              "{\"error\":\"not found\"}", 27);
                 }
@@ -852,6 +862,62 @@ std::string WebServer::buildStateJson() const {
       << "\"underrunCount\":" << snap.underrunCount << ","
       << "\"audioCallbackCount\":" << snap.audioCallbackCount << ","
       << "\"webClientCount\":" << snap.webClientCount
+      << "},";
+
+    const auto& s = snap.settings;
+    o << "\"settings\":{"
+      << "\"currentOutputDevice\":\"" << jsonEscape(s.currentOutputDevice) << "\","
+      << "\"outputDevices\":[";
+    for (size_t i = 0; i < s.outputDevices.size(); ++i) {
+        if (i) o << ",";
+        o << "\"" << jsonEscape(s.outputDevices[i]) << "\"";
+    }
+    o << "],"
+      << "\"sampleRate\":" << finiteOrZero(s.sampleRate) << ","
+      << "\"availableSampleRates\":[";
+    for (size_t i = 0; i < s.availableSampleRates.size(); ++i) {
+        if (i) o << ",";
+        o << finiteOrZero(s.availableSampleRates[i]);
+    }
+    o << "],"
+      << "\"bufferSize\":" << s.bufferSize << ","
+      << "\"availableBufferSizes\":[";
+    for (size_t i = 0; i < s.availableBufferSizes.size(); ++i) {
+        if (i) o << ",";
+        o << s.availableBufferSizes[i];
+    }
+    o << "],"
+      << "\"outputChannelNames\":[";
+    for (size_t i = 0; i < s.outputChannelNames.size(); ++i) {
+        if (i) o << ",";
+        o << "\"" << jsonEscape(s.outputChannelNames[i]) << "\"";
+    }
+    o << "],"
+      << "\"activeOutputChannels\":[";
+    for (size_t i = 0; i < s.activeOutputChannels.size(); ++i) {
+        if (i) o << ",";
+        o << (s.activeOutputChannels[i] ? "true" : "false");
+    }
+    o << "],"
+      << "\"midiOutputs\":[";
+    for (size_t i = 0; i < s.midiOutputs.size(); ++i) {
+        if (i) o << ",";
+        o << "\"" << jsonEscape(s.midiOutputs[i]) << "\"";
+    }
+    o << "],"
+      << "\"midiInputs\":[";
+    for (size_t i = 0; i < s.midiInputs.size(); ++i) {
+        if (i) o << ",";
+        o << "\"" << jsonEscape(s.midiInputs[i]) << "\"";
+    }
+    o << "],"
+      << "\"keybindings\":[";
+    for (size_t i = 0; i < s.keybindings.size(); ++i) {
+        if (i) o << ",";
+        o << "{\"action\":\"" << jsonEscape(s.keybindings[i].action) << "\","
+          << "\"key\":\"" << jsonEscape(s.keybindings[i].key) << "\"}";
+    }
+    o << "]"
       << "}"
       << "}";
 
@@ -988,6 +1054,20 @@ void WebServer::takeTrackImportTarget(int& songIndex, int& trackIndex, std::stri
     pendingImportSongIndex = -1;
     pendingImportTrackIndex = -1;
     pendingImportFileName.clear();
+}
+
+void WebServer::publishPeaks(std::string json) {
+    std::lock_guard<std::mutex> lock(peaksMutex);
+    peaksJson = std::move(json);
+}
+
+int WebServer::servePeaks(struct lws* wsi) {
+    std::string json;
+    {
+        std::lock_guard<std::mutex> lock(peaksMutex);
+        json = peaksJson;
+    }
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
 int WebServer::serveExportStatus(struct lws* wsi) {

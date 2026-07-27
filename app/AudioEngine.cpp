@@ -579,6 +579,18 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     projectLoaded = true;
     peakOverviewSessionCache.clear(); // different archive -- same file path could mean different audio
 
+    // stop() above only freezes the playhead at wherever it was (so a normal
+    // Stop/Play resumes in place) -- selectSong() is what actually zeroes it
+    // back out when staging a song. If the loaded project has at least one
+    // song, ensureSongSelected()/goToSong(0) does that momentarily after this
+    // returns. If it has none, nothing else ever will, and the old project's
+    // stale position keeps reporting as this one's -- e.g. Player's timeline
+    // showing a playhead seconds into a song that no longer exists.
+    if (loader.project().songs.empty()) {
+        clock.start(currentSampleRate, 0);
+        clock.stop();
+    }
+
     streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
                     [] { leaveCurrentThreadWorkgroupIfJoined(); });
     return true;
@@ -586,6 +598,10 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
 
 void AudioEngine::newProject(const std::string& name) {
     stop();
+    // Same reasoning as loadProject() above -- a brand new project always
+    // starts with zero songs, so nothing downstream will reset this.
+    clock.start(currentSampleRate, 0);
+    clock.stop();
     joinPendingPeakBuilds();
     streaming.stop();
 
@@ -1108,8 +1124,26 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     transportTelemetry.driftFactor.store(clock.driftFactor(), std::memory_order_relaxed);
     transportTelemetry.running.store(playing.load(std::memory_order_relaxed), std::memory_order_relaxed);
 
-    if (!playing.load(std::memory_order_acquire))
+    if (!playing.load(std::memory_order_acquire)) {
+        // See metersSilencedSinceStop's doc comment: without this, meters
+        // hold their last playing-state value forever instead of dropping to
+        // silence once transport stops.
+        if (!metersSilencedSinceStop) {
+            const MeterFrame silent{};
+            for (auto& m : trackMeters)
+                if (m != nullptr)
+                    m->write(silent);
+            for (size_t i = 0; i < busMeters.size(); ++i) {
+                if (i < busLoudnessMeters.size())
+                    busLoudnessMeters[i].reset();
+                if (busMeters[i] != nullptr)
+                    busMeters[i]->write(silent);
+            }
+            metersSilencedSinceStop = true;
+        }
         return;
+    }
+    metersSilencedSinceStop = false;
 
     const std::shared_ptr<const RoutingSnapshot> snap = routing.acquireForRender();
     if (snap == nullptr || busses.empty())

@@ -77,7 +77,7 @@ export default function App() {
         <Tabs.Panel id="player" className="flex-1 overflow-auto p-4">
           <PlayerScreen state={state} />
         </Tabs.Panel>
-        <Tabs.Panel id="mixer" className="flex-1 overflow-auto p-4">
+        <Tabs.Panel id="mixer" className="flex flex-1 flex-col overflow-hidden p-4">
           <MixerScreen state={state} />
         </Tabs.Panel>
         <Tabs.Panel id="builder" className="flex-1 overflow-auto p-4">
