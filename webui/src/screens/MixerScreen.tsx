@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { Slider, ScrollShadow } from "@heroui/react";
+import { ScrollShadow, Slider } from "@heroui/react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Plus } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { builder, mixer } from "../lib/api";
 import { useLiveValue } from "../lib/optimistic";
@@ -117,15 +117,12 @@ function GainFader({
       aria-label="Gain"
       className="h-full"
     >
-      <Slider.Track className="relative h-full w-2.5 rounded-full bg-default/20">
-        <Slider.Fill
-          className="rounded-full transition-all"
-          style={{ backgroundColor: accent }}
-        />
-        <Slider.Thumb
-          className="size-4 border-2 border-background shadow-md transition-transform hover:scale-110"
-          style={{ backgroundColor: accent }}
-        />
+      <Slider.Track
+        className="relative h-full w-2.5 rounded-full bg-default/20"
+        style={{ borderBottomColor: "var(--segment)" }}
+      >
+        <Slider.Fill style={{ backgroundColor: "var(--segment)" }} />
+        <Slider.Thumb />
       </Slider.Track>
     </Slider>
   );
@@ -334,7 +331,10 @@ function SendKnobs({
         const value = existing?.gainDb ?? SEND_FLOOR_DB;
         const color = colorForIndex(idx);
         return (
-          <div key={bus.id} className="flex items-center justify-between gap-1 w-full px-0.5">
+          <div
+            key={bus.id}
+            className="flex items-center justify-between gap-1 w-full px-0.5"
+          >
             <span
               className="truncate text-[9px] font-mono font-medium max-w-[48px]"
               style={{ color }}
@@ -381,8 +381,8 @@ function TrackOutputRouting({
   const currentValue = directOutputOpen
     ? EXT_OUTPUT_VALUE
     : busId === ""
-    ? "__sends_only__"
-    : busId;
+      ? "__sends_only__"
+      : busId;
 
   return (
     <div className="w-full my-1 flex flex-col items-center gap-1.5">
@@ -405,7 +405,9 @@ function TrackOutputRouting({
             setDirectOutputOpen(true);
           } else {
             setDirectOutputOpen(false);
-            onBusSelect(e.target.value === "__sends_only__" ? "" : e.target.value);
+            onBusSelect(
+              e.target.value === "__sends_only__" ? "" : e.target.value,
+            );
           }
         }}
         className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
@@ -543,8 +545,6 @@ function updateBusChannels(
   });
 }
 
-
-
 function StripButton({
   active,
   color,
@@ -571,7 +571,11 @@ function StripButton({
           : "border-default/50 bg-default/10 text-foreground/50 hover:bg-default/25"
       }`}
     >
-      <span className={flashingMute ? "animate-pulse text-amber-400 font-extrabold" : ""}>
+      <span
+        className={
+          flashingMute ? "animate-pulse text-amber-400 font-extrabold" : ""
+        }
+      >
         {children}
       </span>
     </button>
@@ -737,7 +741,12 @@ function ChannelStrip({
 
       {/* Mute & Solo buttons */}
       <div className="flex w-full gap-1">
-        <StripButton active={mute} color="danger" flashingMute={isDimmed} onClick={onMute}>
+        <StripButton
+          active={mute}
+          color="danger"
+          flashingMute={isDimmed}
+          onClick={onMute}
+        >
           M
         </StripButton>
         <StripButton active={solo} color="warning" onClick={onSolo}>
@@ -820,7 +829,8 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
   const currentSong = hasSongs ? state.songs[songIdx] : null;
   const isMetronomeOn = currentSong ? currentSong.click : false;
-  const currentClickBus = currentSong?.clickBusId || state.busses[0]?.id || "main";
+  const currentClickBus =
+    currentSong?.clickBusId || state.busses[0]?.id || "main";
 
   const clickBusMeter = state.meters.find((m) => m.id === currentClickBus);
   const auxBusses = state.busses.filter((b) => b.isAux);
@@ -865,7 +875,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
     let updatedSends: typeof clickSends;
     if (existing) {
       updatedSends = clickSends.map((cs) =>
-        cs.busId === busId ? { ...cs, gainDb, enabled: gainDb > -59 } : cs
+        cs.busId === busId ? { ...cs, gainDb, enabled: gainDb > -59 } : cs,
       );
     } else {
       updatedSends = [...clickSends, { busId, gainDb, enabled: gainDb > -59 }];
@@ -895,7 +905,9 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
         settings: state.settings,
         onDirectOutput: (_mono, startChannel) => {
           const mainBusses = state.busses.filter((b) => !b.isAux);
-          const existing = mainBusses.find((b) => b.startChannel === startChannel);
+          const existing = mainBusses.find(
+            (b) => b.startChannel === startChannel,
+          );
           if (existing) {
             changeClickBus(existing.id);
           }
@@ -1290,7 +1302,11 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   const pendingBusJobs = useRef<PendingBusJob[]>([]);
   const [trackMenu, setTrackMenu] = useState<TrackMenuState | null>(null);
 
-  const [busMenu, setBusMenu] = useState<{ x: number; y: number; index: number } | null>(null);
+  const [busMenu, setBusMenu] = useState<{
+    x: number;
+    y: number;
+    index: number;
+  } | null>(null);
 
   useEffect(() => {
     if (pendingBusJobs.current.length === 0) return;
@@ -1403,7 +1419,10 @@ export function MixerScreen({ state }: { state: WebUiState }) {
         ) : (
           <>
             {/* Left: Scrollable Ordinary Track Strips */}
-            <ScrollShadow orientation="horizontal" className="flex min-h-0 flex-1 gap-2 pr-1">
+            <ScrollShadow
+              orientation="horizontal"
+              className="flex min-h-0 flex-1 gap-2 pr-1"
+            >
               {state.tracks.map((t, i) => (
                 <div
                   key={t.id}
@@ -1431,7 +1450,10 @@ export function MixerScreen({ state }: { state: WebUiState }) {
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
             {/* Middle: Aux Send Buses (Scrollable independently, max-w-[35%]) */}
-            <ScrollShadow orientation="horizontal" className="flex shrink-0 gap-2 max-w-[35%]">
+            <ScrollShadow
+              orientation="horizontal"
+              className="flex shrink-0 gap-2 max-w-[35%]"
+            >
               <div className="flex h-full w-20 shrink-0 flex-col items-center justify-center">
                 <button
                   onClick={() => requestAddSend()}
