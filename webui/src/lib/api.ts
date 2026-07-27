@@ -58,7 +58,8 @@ export const mixer = {
   setTrackSolo: (index: number, value: boolean) => post("/api/v1/track/solo", { index, value }),
   // Bus assignment for the track's main output -- matches the MixerStrip
   // outputBusBox in the native UI. Empty busId = "(sends only)".
-  setTrackBus: (index: number, busId: string) => post("/api/v1/track/bus", { index, busId }),
+  setTrackBus: (index: number, busId: string) =>
+    builder.trackUpdate({ index, busId }),
   setBusGain: (index: number, value: number) => post("/api/v1/bus/gain", { index, value }),
   setBusMute: (index: number, value: boolean) => post("/api/v1/bus/mute", { index, value }),
   setBusSolo: (index: number, value: boolean) => post("/api/v1/bus/solo", { index, value }),
@@ -148,14 +149,14 @@ export const builder = {
   trackMove: (songIndex: number, index: number, delta: number) =>
     post("/api/v1/builder/track/move", { songIndex, index, delta }),
   trackUpdate: (patch: {
-    songIndex: number;
+    songIndex?: number;
     index: number;
-    name: string;
-    busId: string;
-    gainDb: number;
-    pan: number;
-    mute: boolean;
-    solo: boolean;
+    name?: string;
+    busId?: string;
+    gainDb?: number;
+    pan?: number;
+    mute?: boolean;
+    solo?: boolean;
   }) => post("/api/v1/builder/track/update", patch),
 
   async trackImportWav(songIndex: number, index: number, file: File): Promise<void> {
