@@ -16,6 +16,7 @@ StreamingEngine::~StreamingEngine() { stop(); }
 
 void StreamingEngine::start(const ProjectLoader* loader, std::function<void()> onIoThreadStart,
                             std::function<void()> onIoThreadStop) {
+    stop();
     projectLoader = loader;
     ioThreadStartHook = std::move(onIoThreadStart);
     ioThreadStopHook = std::move(onIoThreadStop);
