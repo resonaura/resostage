@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Modal } from "@heroui/react";
+import { Button, Modal, ScrollShadow } from "@heroui/react";
 import { Check, FolderUp, Layers, Music } from "lucide-react";
 import { builder } from "../lib/api";
 import type { WebUiState } from "../lib/types";
@@ -277,8 +277,9 @@ export function ImportStemsModal({
             </div>
           </Modal.Header>
 
-          <Modal.Body className="flex flex-col gap-4 py-4 max-h-[70vh] overflow-y-auto">
-            {/* Song Information Inputs */}
+          <Modal.Body className="p-0">
+            <ScrollShadow orientation="vertical" className="flex flex-col gap-4 p-4 max-h-[70vh]">
+              {/* Song Information Inputs */}
             <div className="grid grid-cols-3 gap-3 bg-default/10 p-3 rounded-lg border border-default/20">
               <div className="col-span-1 flex flex-col gap-1">
                 <label className="text-[10px] font-semibold uppercase text-foreground/50">Song Title</label>
@@ -377,6 +378,7 @@ export function ImportStemsModal({
                 ))}
               </div>
             </div>
+          </ScrollShadow>
           </Modal.Body>
 
           <Modal.Footer className="border-t border-default/20 pt-3 flex justify-end gap-2">

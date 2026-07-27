@@ -1,4 +1,4 @@
-import { Button } from "@heroui/react";
+import { Button, ScrollShadow } from "@heroui/react";
 import { ChevronDown } from "lucide-react";
 import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -569,7 +569,7 @@ export function PlayerScreen({
           <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
             Setlist
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <ScrollShadow orientation="vertical" className="min-h-0 flex-1">
             {state.songs.length === 0 ? (
               /* Centered vertically when setlist is empty */
               <div className="flex h-full items-center justify-center px-4 py-6 text-center text-sm text-foreground/40">
@@ -621,7 +621,7 @@ export function PlayerScreen({
                 })}
               </div>
             )}
-          </div>
+          </ScrollShadow>
         </div>
 
         {/* Bus meters — Vertical meters (Capped at max 40% screen width) */}
@@ -629,7 +629,7 @@ export function PlayerScreen({
           <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
             Bus meters
           </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center gap-6 overflow-x-auto p-4">
+          <ScrollShadow orientation="horizontal" className="flex min-h-0 flex-1 items-center justify-center gap-6 p-4">
             {state.meters.length === 0 ? (
               <div className="py-4 text-center text-sm text-foreground/40">
                 No busses.
@@ -650,38 +650,39 @@ export function PlayerScreen({
                     >
                       {displayName}
                     </div>
-                  <div className="flex h-full min-h-0 flex-1 items-center justify-center">
-                    <LevelMeterBar
-                      db={m.peakDb}
-                      vertical={true}
-                      showValue={false}
-                      className="h-full"
-                      barClassName="h-full w-3.5"
-                    />
-                  </div>
-                  <div className="text-center text-[10px] tabular-nums text-foreground/50">
-                    <div
-                      className={
-                        m.peakDb > -3
-                          ? "text-danger font-bold"
-                          : m.peakDb > -9
-                            ? "text-warning font-semibold"
-                            : ""
-                      }
-                    >
-                      {m.peakDb <= -99 ? "−∞" : m.peakDb.toFixed(1)} dB
+                    <div className="flex h-full min-h-0 flex-1 items-center justify-center">
+                      <LevelMeterBar
+                        db={m.peakDb}
+                        vertical={true}
+                        showValue={false}
+                        className="h-full"
+                        barClassName="h-full w-3.5"
+                      />
                     </div>
-                    {/* Always-visible LUFS readout to prevent layout jump during silence */}
-                    <div className="text-[9px] text-foreground/35">
-                      {m.shortTermLufs <= -144
-                        ? "−∞ L"
-                        : `${m.shortTermLufs.toFixed(1)} L`}
+                    <div className="text-center text-[10px] tabular-nums text-foreground/50">
+                      <div
+                        className={
+                          m.peakDb > -3
+                            ? "text-danger font-bold"
+                            : m.peakDb > -9
+                              ? "text-warning font-semibold"
+                              : ""
+                        }
+                      >
+                        {m.peakDb <= -99 ? "−∞" : m.peakDb.toFixed(1)} dB
+                      </div>
+                      {/* Always-visible LUFS readout to prevent layout jump during silence */}
+                      <div className="text-[9px] text-foreground/35">
+                        {m.shortTermLufs <= -144
+                          ? "−∞ L"
+                          : `${m.shortTermLufs.toFixed(1)} L`}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            }))}
-          </div>
+                );
+              })
+            )}
+          </ScrollShadow>
         </div>
       </div>
 

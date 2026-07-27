@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Card, Slider } from "@heroui/react";
+import { Button, Card, Slider, ScrollShadow } from "@heroui/react";
 import { ChevronDown, ChevronUp, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { builder } from "../lib/api";
 import type { EventTypeWire, SongEventRow, SongRow, SongTrackRow, WebUiState } from "../lib/types";
@@ -112,26 +112,28 @@ function ListPanel({
           </Button>
         </div>
       </Card.Header>
-      <Card.Content className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-        {rows.length === 0 ? (
-          <div className="p-3 text-sm text-foreground/40">{emptyHint}</div>
-        ) : (
-          rows.map((r, i) => (
-            <button
-              key={r.key}
-              onClick={() => onSelect(i)}
-              className={`flex flex-col items-start rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                i === selected ? "bg-accent/15 text-foreground" : "text-foreground/70 hover:bg-default/20"
-              }`}
-            >
-              <span>
-                {r.active ? "▶ " : ""}
-                {r.label}
-              </span>
-              {r.sub && <span className="text-xs text-foreground/40">{r.sub}</span>}
-            </button>
-          ))
-        )}
+      <Card.Content className="flex min-h-0 flex-1 flex-col p-0">
+        <ScrollShadow orientation="vertical" className="flex min-h-0 flex-1 flex-col gap-0.5 p-2">
+          {rows.length === 0 ? (
+            <div className="p-3 text-sm text-foreground/40">{emptyHint}</div>
+          ) : (
+            rows.map((r, i) => (
+              <button
+                key={r.key}
+                onClick={() => onSelect(i)}
+                className={`flex flex-col items-start rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                  i === selected ? "bg-accent/15 text-foreground" : "text-foreground/70 hover:bg-default/20"
+                }`}
+              >
+                <span>
+                  {r.active ? "▶ " : ""}
+                  {r.label}
+                </span>
+                {r.sub && <span className="text-xs text-foreground/40">{r.sub}</span>}
+              </button>
+            ))
+          )}
+        </ScrollShadow>
       </Card.Content>
     </Card>
   );
@@ -187,65 +189,71 @@ function SongEditor({ song, index }: { song: SongRow; index: number }) {
       <Card.Header className="shrink-0">
         <Card.Title className="text-sm">Song {index + 1}</Card.Title>
       </Card.Header>
-      <Card.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-        <Field label="Name">
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="BPM">
-          <input
-            type="number"
-            step={0.1}
-            className={inputCls}
-            value={bpm}
-            onChange={(e) => setBpm(Number(e.target.value))}
-          />
-        </Field>
-        <Field label="End mode">
-          <ToggleRow
-            options={[
-              { value: "wait", label: "Wait for trigger" },
-              { value: "auto", label: "Autoplay next" },
-            ]}
-            value={mode}
-            onChange={(v) => setMode(v as "auto" | "wait")}
-          />
-        </Field>
-        <div className="flex gap-3">
-          <Field label="Time sig num">
+      <Card.Content className="flex min-h-0 flex-1 flex-col p-0">
+        <ScrollShadow orientation="vertical" className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+          <Field label="Name">
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="BPM">
             <input
               type="number"
+              step={0.1}
               className={inputCls}
-              value={tsNum}
-              onChange={(e) => setTsNum(Number(e.target.value))}
+              value={bpm}
+              onChange={(e) => setBpm(Number(e.target.value))}
             />
           </Field>
-          <Field label="Time sig den">
-            <input
-              type="number"
-              className={inputCls}
-              value={tsDen}
-              onChange={(e) => setTsDen(Number(e.target.value))}
+          <Field label="End mode">
+            <ToggleRow
+              options={[
+                { value: "wait", label: "Wait for trigger" },
+                { value: "auto", label: "Autoplay next" },
+              ]}
+              value={mode}
+              onChange={(v) => setMode(v as "auto" | "wait")}
             />
           </Field>
-        </div>
-        <Button
-          variant="primary"
-          onPress={() =>
-            builder.songUpdate({
-              index,
-              name,
-              bpm,
-              mode,
-              tsNum,
-              tsDen,
-              click: song.click,
-              clickBusId: song.clickBusId,
-              clickSends: song.clickSends ?? [],
-            })
-          }
-        >
-          Apply song settings
-        </Button>
+          <Field label="Time signature">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={32}
+                className={inputCls}
+                value={tsNum}
+                onChange={(e) => setTsNum(Number(e.target.value))}
+              />
+              <span className="text-foreground/40">/</span>
+              <input
+                type="number"
+                min={1}
+                max={32}
+                className={inputCls}
+                value={tsDen}
+                onChange={(e) => setTsDen(Number(e.target.value))}
+              />
+            </div>
+          </Field>
+
+          <Button
+            className="mt-2"
+            onPress={() =>
+              void builder.songUpdate({
+                index,
+                name,
+                bpm,
+                mode,
+                tsNum,
+                tsDen,
+                click: song.click,
+                clickBusId: song.clickBusId,
+                clickSends: song.clickSends ?? [],
+              })
+            }
+          >
+            Apply song settings
+          </Button>
+        </ScrollShadow>
       </Card.Content>
     </Card>
   );

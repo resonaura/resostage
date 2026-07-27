@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Slider } from "@heroui/react";
+import { Slider, ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { LevelMeterBar } from "../components/LevelMeterBar";
@@ -1403,7 +1403,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
         ) : (
           <>
             {/* Left: Scrollable Ordinary Track Strips */}
-            <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto pr-1">
+            <ScrollShadow orientation="horizontal" className="flex min-h-0 flex-1 gap-2 pr-1">
               {state.tracks.map((t, i) => (
                 <div
                   key={t.id}
@@ -1425,13 +1425,13 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                   />
                 </div>
               ))}
-            </div>
+            </ScrollShadow>
 
             {/* Vertical Separator Divider Line */}
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
             {/* Middle: Aux Send Buses (Scrollable independently, max-w-[35%]) */}
-            <div className="flex shrink-0 gap-2 max-w-[35%] overflow-x-auto">
+            <ScrollShadow orientation="horizontal" className="flex shrink-0 gap-2 max-w-[35%]">
               <div className="flex h-full w-20 shrink-0 flex-col items-center justify-center">
                 <button
                   onClick={() => requestAddSend()}
@@ -1466,7 +1466,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                   />
                 </div>
               ))}
-            </div>
+            </ScrollShadow>
 
             {/* Vertical Divider */}
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
