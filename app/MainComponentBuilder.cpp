@@ -39,6 +39,41 @@ void MainComponent::builderSongAdd() {
     song.bpm = 120.0;
     if (!proj.busses.empty())
         song.builtInClickBusId = proj.busses.front().id;
+
+    const std::string defaultBusId = !proj.busses.empty() ? proj.busses.front().id : "main";
+
+    if (!proj.songs.empty() && !proj.songs.front().tracks.empty()) {
+        std::vector<std::string> trUsed;
+        for (const auto& masterTr : proj.songs.front().tracks) {
+            TrackDef t;
+            t.id = makeUniqueId("trk", trUsed);
+            trUsed.push_back(t.id);
+            t.name = masterTr.name;
+            t.file = ""; // empty audio region until imported
+            t.busId = masterTr.busId;
+            t.gainDb = masterTr.gainDb;
+            t.pan = masterTr.pan;
+            t.mute = masterTr.mute;
+            t.solo = masterTr.solo;
+            t.sends = masterTr.sends;
+            song.tracks.push_back(std::move(t));
+        }
+    } else {
+        const std::vector<std::string> defaultTrackNames = {
+            "Drums", "Percussion", "Bass", "Guitars", "Synths", "Vocals", "SFX", "Guide"
+        };
+        std::vector<std::string> trUsed;
+        for (const auto& tname : defaultTrackNames) {
+            TrackDef t;
+            t.id = makeUniqueId("trk", trUsed);
+            trUsed.push_back(t.id);
+            t.name = tname;
+            t.file = "";
+            t.busId = defaultBusId;
+            song.tracks.push_back(std::move(t));
+        }
+    }
+
     proj.songs.push_back(std::move(song));
 
     goToSong(static_cast<int>(proj.songs.size()) - 1);

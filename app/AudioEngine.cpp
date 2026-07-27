@@ -635,11 +635,17 @@ void AudioEngine::newProject(const std::string& name) {
     }
 
     buildBusListFromProject();
-    currentSong = static_cast<size_t>(-1);
-    trackIdByIndex.clear();
-    trackScratch.clear();
-    trackMeters.clear();
     projectLoaded = true;
+
+    if (!loader.project().songs.empty()) {
+        std::string err;
+        selectSong(0, err);
+    } else {
+        currentSong = static_cast<size_t>(-1);
+        trackIdByIndex.clear();
+        trackScratch.clear();
+        trackMeters.clear();
+    }
 
     streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
                     [] { leaveCurrentThreadWorkgroupIfJoined(); });

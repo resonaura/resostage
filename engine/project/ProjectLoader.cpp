@@ -272,6 +272,30 @@ void ProjectLoader::newProject(const std::string& name) {
     mainBus.channels = 2;
     mainBus.output.startChannel = 0;
     parsedProject.busses.push_back(std::move(mainBus));
+
+    // Create default initial song with standard consolidated track set
+    SongDef song;
+    song.id = "song_1";
+    song.name = "Song 1";
+    song.bpm = 120.0;
+    song.builtInClickBusId = "main";
+    song.builtInClickEnabled = true;
+
+    const std::vector<std::string> defaultTrackNames = {
+        "Drums", "Percussion", "Bass", "Guitars", "Synths", "Vocals", "SFX", "Guide"
+    };
+
+    int trId = 1;
+    for (const auto& tname : defaultTrackNames) {
+        TrackDef t;
+        t.id = "tr_" + std::to_string(trId++);
+        t.name = tname;
+        t.file = ""; // empty region until WAV imported
+        t.busId = "main";
+        song.tracks.push_back(std::move(t));
+    }
+
+    parsedProject.songs.push_back(std::move(song));
 }
 
 bool ProjectLoader::isOpen() const {

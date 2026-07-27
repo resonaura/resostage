@@ -73,6 +73,8 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
     {
         std::lock_guard<std::mutex> lock(projectLoaderMutex);
         for (const TrackDef& trackDef : song.tracks) {
+            if (trackDef.file.empty())
+                continue; // empty region — no audio yet, skip streaming
             auto buf = std::make_unique<StreamingTrackBuffer>();
             std::string openError;
             if (!buf->open(*projectLoader, trackDef.file, ringCapacityFrames, deviceSampleRate, openError)) {

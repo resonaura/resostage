@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Card, Slider } from "@heroui/react";
 import { ChevronDown, ChevronUp, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { builder } from "../lib/api";
-import { IS_EMBEDDED } from "../lib/embedded";
 import type { EventTypeWire, SongEventRow, SongRow, SongTrackRow, WebUiState } from "../lib/types";
+import { ImportStemsModal } from "../components/ImportStemsModal";
 
 type Tab = "songs" | "tracks" | "events" | "busses";
 
@@ -587,27 +587,50 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
 
   const song = state.songs[songContext] as SongRow | undefined;
 
+  const [importFiles, setImportFiles] = useState<File[]>([]);
+  const [importFolder, setImportFolder] = useState<string>("");
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
   const handleImportFolderClick = () => {
-    void builder.songImportFolder();
-    if (!IS_EMBEDDED && folderInputRef.current) {
+    if (folderInputRef.current) {
       folderInputRef.current.click();
     }
   };
 
-  const handleFolderChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFolderChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter((f) =>
-      f.name.toLowerCase().endsWith(".wav")
+      f.name.toLowerCase().endsWith(".wav") || f.name.toLowerCase().endsWith(".mp3") || f.name.toLowerCase().endsWith(".aif")
     );
     e.target.value = "";
     if (files.length === 0) return;
 
-    // Add new song
-    await builder.songAdd();
-    const newSongIndex = state.songs.length;
-    // Upload each WAV file as a track
-    for (let i = 0; i < files.length; i++) {
-      await builder.trackAdd(newSongIndex);
-      await builder.trackImportWav(newSongIndex, i, files[i]);
+    let folderName = "";
+    if (files[0].webkitRelativePath) {
+      folderName = files[0].webkitRelativePath.split("/")[0];
+    }
+    setImportFiles(files);
+    setImportFolder(folderName);
+    setIsImportModalOpen(true);
+  };
+
+  const handleInitDefaultTracks = async () => {
+    const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
+    const defaultTracks = ["Click", "Guide", "Drums", "Percussion", "Bass", "Guitars", "Synths", "Vocals", "SFX"];
+    for (const name of defaultTracks) {
+      if (!state.tracks.some((t) => t.name === name)) {
+        await builder.trackAdd(songIndex);
+        const nextIndex = state.tracks.length;
+        await builder.trackUpdate({
+          songIndex,
+          index: nextIndex,
+          name,
+          busId: state.busses[0]?.id || "main",
+          gainDb: 0,
+          pan: 0,
+          mute: false,
+          solo: false,
+        });
+      }
     }
   };
 
@@ -624,12 +647,21 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
         </div>
       )}
 
-      <div className="flex shrink-0 gap-1.5">
-        {(["songs", "tracks", "events", "busses"] as Tab[]).map((t) => (
-          <Button key={t} size="sm" variant={tab === t ? "secondary" : "outline"} onPress={() => setTab(t)}>
-            {t[0].toUpperCase() + t.slice(1)}
+      <div className="flex shrink-0 items-center justify-between gap-1.5">
+        <div className="flex items-center gap-1.5">
+          {(["songs", "tracks", "events", "busses"] as Tab[]).map((t) => (
+            <Button key={t} size="sm" variant={tab === t ? "secondary" : "outline"} onPress={() => setTab(t)}>
+              {t[0].toUpperCase() + t.slice(1)}
+            </Button>
+          ))}
+        </div>
+
+        {tab === "tracks" && (
+          <Button size="sm" variant="outline" onPress={handleInitDefaultTracks}>
+            <Plus size={14} className="mr-1 inline-block" />
+            Default Track Preset
           </Button>
-        ))}
+        )}
       </div>
 
       {(tab === "tracks" || tab === "events") && (
@@ -774,6 +806,16 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
           </>
         )}
       </div>
+
+      {isImportModalOpen && (
+        <ImportStemsModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          files={importFiles}
+          folderName={importFolder}
+          state={state}
+        />
+      )}
     </div>
   );
 }
