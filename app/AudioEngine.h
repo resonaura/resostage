@@ -5,6 +5,7 @@
 
 #include "audio/ClickGenerator.h"
 #include "audio/Metering.h"
+#include "audio/PeakBuildThreadPool.h"
 #include "audio/PeakOverview.h"
 #include "audio/RoutingEngine.h"
 #include "audio/StreamingEngine.h"
@@ -17,6 +18,7 @@
 #include "telemetry/Telemetry.h"
 #include "timing/MasterClock.h"
 
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -294,6 +296,14 @@ private:
     std::unordered_map<std::string, PeakOverview> peakOverviewSessionCache;
     mutable std::mutex peakCacheMutex; // guards peakOverviewSessionCache against background peak-build threads
     std::atomic<bool> allPeaksBuildInFlight{false}; // one ensureAllSongPeaksBuilt() sweep at a time
+
+    // Bounded worker pool shared by rebuildTrackPeaks() and
+    // ensureAllSongPeaksBuilt() for the per-file decode fan-out. Replaces
+    // spawning one raw std::thread per file -- for a project with many
+    // uncached stems that could oversubscribe the machine by dozens to
+    // hundreds of threads (see PeakBuildThreadPool.h). Sized once at
+    // construction, shared across every call for this engine's lifetime.
+    PeakBuildThreadPool peakBuildPool{std::clamp(std::thread::hardware_concurrency(), 2u, 8u)};
 
     size_t currentSong = 0;
     int64_t currentSongLengthFrames = 0; // 0 = unknown/no tracks

@@ -307,17 +307,17 @@ void AudioEngine::rebuildTrackPeaks() {
                 }
             }
 
-            // Phase 2: Decode peaks from memory buffers in parallel.
-            // Each build is fully independent (no shared state), so we can
-            // use one thread per file. Most songs have 5-20 regions, so
-            // this is a bounded number of threads.
+            // Phase 2: Decode peaks from memory buffers in parallel. Each
+            // build is fully independent (no shared state), so jobs are
+            // handed to the bounded peakBuildPool rather than spawning one
+            // raw thread per file -- keeps this bounded even when a sweep
+            // and a rebuild overlap.
             if (!pending.empty()) {
-                std::vector<std::thread> threads;
                 std::vector<std::vector<ProjectLoader::ExtraFile>> threadExtras(pending.size());
-                threads.reserve(pending.size());
+                std::vector<std::function<void()>> jobs;
+                jobs.reserve(pending.size());
                 for (size_t t = 0; t < pending.size(); ++t) {
-                    threads.emplace_back([this, &pb = pending[t], &buildResults, &threadExtras, t,
-                                          generation]() {
+                    jobs.emplace_back([this, &pb = pending[t], &buildResults, &threadExtras, t, generation]() {
                         if (peakBuildGeneration.load(std::memory_order_acquire) != generation)
                             return;
                         PeakOverview overview;
@@ -334,8 +334,7 @@ void AudioEngine::rebuildTrackPeaks() {
                         }
                     });
                 }
-                for (auto& t : threads)
-                    t.join();
+                peakBuildPool.runBatchAndWait(std::move(jobs));
                 for (auto& extras : threadExtras)
                     for (auto& e : extras)
                         buildExtras.push_back(std::move(e));
@@ -439,13 +438,16 @@ void AudioEngine::ensureAllSongPeaksBuilt() {
                 }
             }
 
-            // Phase 2: Decode peaks in parallel.
+            // Phase 2: Decode peaks in parallel, via the bounded pool -- a
+            // whole-project sweep can involve far more files than
+            // rebuildTrackPeaks()'s single-song case, so this is exactly the
+            // fan-out the pool exists to cap.
             if (!pending.empty()) {
-                std::vector<std::thread> threads;
                 std::vector<std::vector<ProjectLoader::ExtraFile>> threadExtras(pending.size());
-                threads.reserve(pending.size());
+                std::vector<std::function<void()>> jobs;
+                jobs.reserve(pending.size());
                 for (size_t t = 0; t < pending.size(); ++t) {
-                    threads.emplace_back([this, &pb = pending[t], &threadExtras, t]() {
+                    jobs.emplace_back([this, &pb = pending[t], &threadExtras, t]() {
                         PeakOverview overview;
                         std::string error;
                         if (overview.buildFromBuffer(pb.data.data(), pb.data.size(), 16384, error)) {
@@ -457,8 +459,7 @@ void AudioEngine::ensureAllSongPeaksBuilt() {
                         }
                     });
                 }
-                for (auto& t : threads)
-                    t.join();
+                peakBuildPool.runBatchAndWait(std::move(jobs));
                 for (auto& extras : threadExtras)
                     for (auto& e : extras)
                         newExtras.push_back(std::move(e));
@@ -1695,10 +1696,33 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
         bool writeOk = false;
         const std::string tempOut = archivePath + ".new";
         if (readOk) {
+            // Build the peak overview from the bytes we just read, before the
+            // import archive write, and persist it alongside the audio in the
+            // same atomic save -- this is what actually fixes the "import
+            // freezes the app" bug: without this, the peak cache for this
+            // file wouldn't exist yet after import, and the next
+            // ensureAllSongPeaksBuilt() sweep would have to decode it (and
+            // potentially the whole project) from scratch on the message
+            // thread's watch. See PeakBuildThreadPool.h for the matching fix
+            // to ensureAllSongPeaksBuilt()'s unbounded thread fan-out.
+            PeakOverview overview;
+            std::string peakError;
+            const bool peaksOk = overview.buildFromBuffer(data.data(), data.size(), 16384, peakError);
+
+            std::vector<ProjectLoader::ExtraFile> extras;
             ProjectLoader::ExtraFile extra;
             extra.archivePath = entry;
             extra.data = std::move(data);
-            writeOk = loader.saveAsWithExtras(tempOut, {extra}, error, &projectSnapshot);
+            extras.push_back(std::move(extra));
+            if (peaksOk)
+                extras.push_back(PeakCache::makeCacheExtra(overview, entry));
+
+            writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot);
+
+            if (writeOk && peaksOk) {
+                std::lock_guard<std::mutex> lock(peakCacheMutex);
+                peakOverviewSessionCache[entry] = std::move(overview);
+            }
         }
 
         auto finishFn = [this, readOk, writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, onComplete]() {
@@ -1737,11 +1761,12 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         return;
     }
 
-    // A successful import may have replaced the audio behind an existing
-    // archive path (re-importing a WAV with the same filename) -- drop the
-    // whole session peak cache rather than trying to track which entries
-    // are still valid; imports are rare enough that recomputing is cheap.
-    peakOverviewSessionCache.clear();
+    // Peaks for every file this import touched were already computed and
+    // merged into peakOverviewSessionCache on the background thread (see
+    // importWavForTrackAsync/importSongFromFolderAsync), keyed by archive
+    // path -- so a stale entry from re-importing over the same filename is
+    // naturally overwritten with the fresh one, and no other file's cached
+    // peaks need to be thrown away just because an unrelated import happened.
 
     if (std::rename(tempOut.c_str(), archivePath.c_str()) != 0) {
         std::string reopenError;
@@ -1930,6 +1955,12 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
 
         std::vector<ProjectLoader::ExtraFile> extras;
         extras.reserve(wavPaths.size());
+        // Peaks built inline per file below, from bytes already in RAM, and
+        // persisted alongside the audio in the same save -- see the matching
+        // comment in importWavForTrackAsync for why this (not a post-import
+        // sweep) is what keeps a folder import from freezing the app.
+        std::vector<ProjectLoader::ExtraFile> peakExtras;
+        std::vector<std::pair<std::string, PeakOverview>> newPeakEntries;
         bool readOk = true;
 
         for (size_t i = 0; readOk && i < wavPaths.size(); ++i) {
@@ -1960,6 +1991,13 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
 
             const std::string base = srcPath.filename().string();
             const std::string entry = "Audio/" + base;
+
+            PeakOverview overview;
+            std::string peakError;
+            if (overview.buildFromBuffer(data.data(), data.size(), 16384, peakError)) {
+                peakExtras.push_back(PeakCache::makeCacheExtra(overview, entry));
+                newPeakEntries.emplace_back(entry, std::move(overview));
+            }
 
             ProjectLoader::ExtraFile extra;
             extra.archivePath = entry;
@@ -1999,7 +2037,15 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
         const std::string tempOut = archivePath + ".new";
         if (readOk) {
             projectSnapshot.songs.push_back(std::move(song));
+            for (auto& pe : peakExtras)
+                extras.push_back(std::move(pe));
             writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot);
+
+            if (writeOk) {
+                std::lock_guard<std::mutex> lock(peakCacheMutex);
+                for (auto& [path, overview] : newPeakEntries)
+                    peakOverviewSessionCache[path] = std::move(overview);
+            }
         }
 
         auto finishFn = [this, readOk, writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, onComplete]() {

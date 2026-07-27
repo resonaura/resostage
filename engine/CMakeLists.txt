@@ -10,6 +10,7 @@ add_library(resoset_engine STATIC
   audio/ClickGenerator.cpp
   audio/PeakOverview.cpp
   audio/PeakCache.cpp
+  audio/PeakBuildThreadPool.cpp
   audio/ArtNetPacket.cpp
   project/ProjectLoader.cpp
   project/ProjectJson.cpp
