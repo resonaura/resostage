@@ -151,9 +151,15 @@ std::string serializeProjectJson(const Project& project) {
         }
         o << "      ],\n";
 
+        std::vector<const Region*> validRegions;
+        for (const auto& r : s.regions) {
+            if (!r.file.empty())
+                validRegions.push_back(&r);
+        }
+
         o << "      \"regions\": [\n";
-        for (size_t ri = 0; ri < s.regions.size(); ++ri) {
-            const Region& r = s.regions[ri];
+        for (size_t ri = 0; ri < validRegions.size(); ++ri) {
+            const Region& r = *validRegions[ri];
             o << "        {\n";
             o << "          \"id\": \"" << jsonEscapeString(r.id) << "\",\n";
             o << "          \"trackId\": \"" << jsonEscapeString(r.trackId) << "\",\n";
@@ -176,7 +182,7 @@ std::string serializeProjectJson(const Project& project) {
             o << "          \"fadeOutSeconds\": ";
             writeNumber(o, r.fadeOutSeconds);
             o << "\n";
-            o << "        }" << (ri + 1 < s.regions.size() ? "," : "") << "\n";
+            o << "        }" << (ri + 1 < validRegions.size() ? "," : "") << "\n";
         }
         o << "      ],\n";
 

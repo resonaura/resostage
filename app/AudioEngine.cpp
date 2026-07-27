@@ -524,9 +524,10 @@ void AudioEngine::buildBusListFromProject() {
 void AudioEngine::publishRoutingSnapshot() {
     std::lock_guard<std::recursive_mutex> lock(routingMutex);
 
-
     if (!projectLoaded || currentSong == static_cast<size_t>(-1))
         return;
+
+    markDirty();
 
     const Project& proj = loader.project();
     if (currentSong >= proj.songs.size())
@@ -805,6 +806,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
 
     streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
                     [] { leaveCurrentThreadWorkgroupIfJoined(); });
+    clearDirty();
     return true;
 }
 
@@ -846,7 +848,9 @@ void AudioEngine::newProject(const std::string& name) {
 
     streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
                     [] { leaveCurrentThreadWorkgroupIfJoined(); });
+    clearDirty();
 }
+
 
 bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     if (!projectLoaded) {
@@ -958,8 +962,11 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
         if (wasPlaying)
             play();
     }
+    clearDirty();
+    clearAutosave();
     return true;
 }
+
 
 bool AudioEngine::selectSong(size_t songIndex, std::string& error, bool fireOnLoadEventsFlag) {
     return selectSongInternal(songIndex, error, fireOnLoadEventsFlag, /*gaplessKeepPlaying=*/false);

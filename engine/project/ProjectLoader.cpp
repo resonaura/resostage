@@ -222,7 +222,9 @@ bool parseSong(const simdjson::dom::element& songEl, SongDef& song, std::string&
             Region reg;
             if (!parseRegion(regEl, reg, error))
                 return false;
-            song.regions.push_back(std::move(reg));
+            if (!reg.file.empty()) {
+                song.regions.push_back(std::move(reg));
+            }
         }
     } else {
         // Fallback / legacy format: song contained "tracks" array
@@ -357,6 +359,7 @@ void ProjectLoader::newProject(const std::string& name) {
     parsedProject.busses.push_back(std::move(mainBus));
 
     // Seed global project-level tracks (NO songs created, songs array remains empty)
+
     const std::vector<std::string> defaultTrackNames = {
         "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Guide"
     };
@@ -370,8 +373,8 @@ void ProjectLoader::newProject(const std::string& name) {
     }
 }
 
-
 bool ProjectLoader::isOpen() const {
+
     return impl != nullptr && (impl->isContainerDir || impl->zipOpen);
 }
 

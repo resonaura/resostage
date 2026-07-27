@@ -249,6 +249,9 @@ void MainComponent::builderRegionAdd(const std::string& json) {
     reg.id = makeUniqueId("reg", used);
     reg.trackId = trackId;
     getString(doc, "file", reg.file);
+    if (reg.file.empty())
+        return;
+
     getDouble(doc, "startSeconds", reg.startSeconds);
     getDouble(doc, "sourceOffsetSeconds", reg.sourceOffsetSeconds);
     getDouble(doc, "durationSeconds", reg.durationSeconds);

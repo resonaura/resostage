@@ -529,7 +529,8 @@ function TrackWaveformLane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsRaw, regionFile, gestureActive, quantStart, quantEnd]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+
     const canvas = canvasRef.current;
     if (!canvas || viewportWidth <= 0) return;
 
@@ -567,75 +568,92 @@ function TrackWaveformLane({
       const bins = level.min.length;
       const step = gestureActive ? Math.max(1, Math.floor(renderWidth / 200)) : 1;
 
-      // Outer Peak Envelope Path (continuous smooth contour)
-      ctx.beginPath();
-      let first = true;
+      // Build 1:1 aligned top and bottom vertices with range aggregation
+      const topPoints: { x: number; y: number }[] = [];
+      const botPoints: { x: number; y: number }[] = [];
+      const rmsTopPoints: { x: number; y: number }[] = [];
+      const rmsBotPoints: { x: number; y: number }[] = [];
 
-      // Top boundary (left to right)
       for (let x = 0; x <= renderWidth; x += step) {
-        const tSec = (scrollLeft + x) / pxPerSec;
-        const bin = Math.max(0, Math.min(bins - 1, Math.floor((tSec / durationSeconds) * bins)));
-        const maxV = level.max[bin] ?? 0;
-        const yTop = mid - maxV * halfH * verticalZoom;
-        if (first) {
-          ctx.moveTo(x, yTop);
-          first = false;
+        const tStartSec = (scrollLeft + x) / pxPerSec;
+        const tEndSec = (scrollLeft + x + step) / pxPerSec;
+
+        const startBin = Math.max(0, Math.min(bins - 1, Math.floor((tStartSec / durationSeconds) * bins)));
+        const endBin = Math.max(startBin, Math.min(bins - 1, Math.floor((tEndSec / durationSeconds) * bins)));
+
+        let maxV = -1;
+        let minV = 1;
+        let rmsV = 0;
+
+        if (startBin === endBin) {
+          maxV = level.max[startBin] ?? 0;
+          minV = level.min[startBin] ?? 0;
+          rmsV = level.rms[startBin] ?? 0;
         } else {
-          ctx.lineTo(x, yTop);
+          for (let b = startBin; b <= endBin; ++b) {
+            const mx = level.max[b] ?? 0;
+            const mn = level.min[b] ?? 0;
+            const rm = level.rms[b] ?? 0;
+            if (maxV === -1 || mx > maxV) maxV = mx;
+            if (minV === 1 || mn < minV) minV = mn;
+            if (rm > rmsV) rmsV = rm;
+          }
         }
-      }
 
-      // Bottom boundary (right to left)
-      for (let x = renderWidth; x >= 0; x -= step) {
-        const tSec = (scrollLeft + x) / pxPerSec;
-        const bin = Math.max(0, Math.min(bins - 1, Math.floor((tSec / durationSeconds) * bins)));
-        const minV = level.min[bin] ?? 0;
+        if (maxV === -1) maxV = 0;
+        if (minV === 1) minV = 0;
+
+        const yTop = mid - maxV * halfH * verticalZoom;
         const yBot = mid - minV * halfH * verticalZoom;
-        ctx.lineTo(x, yBot);
+        topPoints.push({ x, y: yTop });
+        botPoints.push({ x, y: yBot });
+
+        const rmsH = rmsV * halfH * verticalZoom;
+        rmsTopPoints.push({ x, y: mid - rmsH });
+        rmsBotPoints.push({ x, y: mid + rmsH });
       }
 
-      ctx.closePath();
+      // Outer Peak Envelope Path (continuous smooth contour)
+      if (topPoints.length > 0) {
+        ctx.beginPath();
+        ctx.moveTo(topPoints[0].x, topPoints[0].y);
+        for (let i = 1; i < topPoints.length; ++i) {
+          ctx.lineTo(topPoints[i].x, topPoints[i].y);
+        }
+        for (let i = botPoints.length - 1; i >= 0; --i) {
+          ctx.lineTo(botPoints[i].x, botPoints[i].y);
+        }
+        ctx.closePath();
 
-      // Soft crisp gradient fill
-      const grad = ctx.createLinearGradient(0, 0, 0, height);
-      grad.addColorStop(0, color + "aa");
-      grad.addColorStop(0.5, color + "77");
-      grad.addColorStop(1, color + "aa");
-      ctx.fillStyle = grad;
-      ctx.fill();
+        // Soft crisp gradient fill
+        const grad = ctx.createLinearGradient(0, 0, 0, height);
+        grad.addColorStop(0, color + "aa");
+        grad.addColorStop(0.5, color + "77");
+        grad.addColorStop(1, color + "aa");
+        ctx.fillStyle = grad;
+        ctx.fill();
 
-      // Sharp outer contour line
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.stroke();
+        // Sharp outer contour line
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
 
       // RMS Core Fill
-      ctx.beginPath();
-      let firstRms = true;
-      for (let x = 0; x <= renderWidth; x += step) {
-        const tSec = (scrollLeft + x) / pxPerSec;
-        const bin = Math.max(0, Math.min(bins - 1, Math.floor((tSec / durationSeconds) * bins)));
-        const rms = level.rms[bin] ?? 0;
-        const rmsH = rms * halfH * verticalZoom;
-        const yTop = mid - rmsH;
-        if (firstRms) {
-          ctx.moveTo(x, yTop);
-          firstRms = false;
-        } else {
-          ctx.lineTo(x, yTop);
+      if (rmsTopPoints.length > 0) {
+        ctx.beginPath();
+        ctx.moveTo(rmsTopPoints[0].x, rmsTopPoints[0].y);
+        for (let i = 1; i < rmsTopPoints.length; ++i) {
+          ctx.lineTo(rmsTopPoints[i].x, rmsTopPoints[i].y);
         }
+        for (let i = rmsBotPoints.length - 1; i >= 0; --i) {
+          ctx.lineTo(rmsBotPoints[i].x, rmsBotPoints[i].y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = color + "ee";
+        ctx.fill();
       }
-      for (let x = renderWidth; x >= 0; x -= step) {
-        const tSec = (scrollLeft + x) / pxPerSec;
-        const bin = Math.max(0, Math.min(bins - 1, Math.floor((tSec / durationSeconds) * bins)));
-        const rms = level.rms[bin] ?? 0;
-        const rmsH = rms * halfH * verticalZoom;
-        const yBot = mid + rmsH;
-        ctx.lineTo(x, yBot);
-      }
-      ctx.closePath();
-      ctx.fillStyle = color + "ee";
-      ctx.fill();
+
     }
 
     // Extreme zoom: true per-sample curve through the fetched raw window
@@ -1291,8 +1309,9 @@ export function Timeline({
                         if (viewEnd <= viewStart) return null;
 
                         const track = state.tracks.find((t) => (t.name || t.id) === row.name || t.id === row.name);
-                        const songRegion = song.regions?.find((r) => r.trackId === track?.id || r.trackId === row.name);
-                        if (!track && !songRegion) return null;
+                        const songRegion = song.regions?.find((r) => Boolean(r.file) && (r.trackId === track?.id || r.trackId === row.name));
+                        if (!songRegion || !songRegion.file) return null;
+
 
                         const peaksForSong = allPeaks?.songs[i]?.tracks ?? (i === state.songIndex ? peaks?.tracks : undefined);
                         const peakEntry = peaksForSong?.find((p) => (p as any).trackId === track?.id || p.id === track?.id || p.id === songRegion?.id);
@@ -1545,7 +1564,7 @@ export function Timeline({
   );
 }
 
-// Beat/bar vertical grid lines drawn on a viewport-sliced canvas
+// Beat/bar vertical grid lines drawn on a viewport-sliced canvas, matching Ruler tick density
 function BeatGrid({
   pxPerSec,
   contentWidth,
@@ -1565,7 +1584,12 @@ function BeatGrid({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  useEffect(() => {
+  const { majorStepSec, minorStepSec } = useMemo(
+    () => getTickConfig(pxPerSec, bpm, tsNum),
+    [pxPerSec, bpm, tsNum]
+  );
+
+  useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || viewportWidth <= 0) return;
     const parent = canvas.parentElement;
@@ -1573,42 +1597,46 @@ function BeatGrid({
 
     const dpr = window.devicePixelRatio || 1;
     const renderWidth = Math.min(viewportWidth, contentWidth);
-    canvas.width = Math.max(1, Math.floor(renderWidth * dpr));
-    canvas.height = Math.max(1, Math.floor(height * dpr));
-    canvas.style.width = `${renderWidth}px`;
-    canvas.style.height = `${height}px`;
+    const targetW = Math.max(1, Math.floor(renderWidth * dpr));
+    const targetH = Math.max(1, Math.floor(height * dpr));
+
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+      canvas.style.width = `${renderWidth}px`;
+      canvas.style.height = `${height}px`;
+    }
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, renderWidth, height);
 
-    if (bpm > 1) {
-      const beatSec = 60 / bpm;
-      const barSec = beatSec * Math.max(1, tsNum);
-      const eps = beatSec * 0.01;
-
+    if (minorStepSec > 0) {
       const startTime = Math.max(0, scrollLeft / pxPerSec);
-      const endTime = Math.min(songLength + beatSec, (scrollLeft + viewportWidth) / pxPerSec);
-      const startBeat = Math.floor(startTime / beatSec) * beatSec;
+      const endTime = Math.min(songLength + minorStepSec, (scrollLeft + viewportWidth) / pxPerSec);
+      const startTick = Math.floor(startTime / minorStepSec) * minorStepSec;
+      const eps = minorStepSec * 0.01;
 
-      for (let t = startBeat; t <= endTime; t += beatSec) {
-        const globalX = Math.round(t * pxPerSec);
+      for (let t = startTick; t <= endTime; t += minorStepSec) {
+        const rounded = Math.round(t / minorStepSec) * minorStepSec;
+        const globalX = Math.round(rounded * pxPerSec);
         const canvasX = globalX - scrollLeft;
         if (canvasX < 0 || canvasX > renderWidth) continue;
 
-        const isBar =
-          Math.abs(((t % barSec) + barSec) % barSec) < eps ||
-          Math.abs(((t % barSec) + barSec) % barSec - barSec) < eps;
-        ctx.strokeStyle = isBar ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)";
-        ctx.lineWidth = 1;
+        const isMajor =
+          Math.abs(((rounded % majorStepSec) + majorStepSec) % majorStepSec) < eps ||
+          Math.abs(((rounded % majorStepSec) + majorStepSec) % majorStepSec - majorStepSec) < eps;
+
+        ctx.strokeStyle = isMajor ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.03)";
+        ctx.lineWidth = isMajor ? 1.5 : 1;
         ctx.beginPath();
         ctx.moveTo(canvasX, 0);
         ctx.lineTo(canvasX, height);
         ctx.stroke();
       }
     }
-  }, [pxPerSec, contentWidth, scrollLeft, viewportWidth, songLength, bpm, tsNum]);
+  }, [pxPerSec, contentWidth, scrollLeft, viewportWidth, songLength, majorStepSec, minorStepSec]);
 
   return (
     <canvas
@@ -1618,3 +1646,4 @@ function BeatGrid({
     />
   );
 }
+
