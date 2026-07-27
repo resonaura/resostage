@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Slider } from "@heroui/react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { mixer } from "../lib/api";
+import { useLiveValue } from "../lib/optimistic";
 import type { BusRow, TrackRow, WebUiState } from "../lib/types";
 
 // Ableton-style channel strip console: colored title bar, pan knob, mute/
@@ -17,26 +18,7 @@ function colorForIndex(i: number): string {
   return TRACK_COLORS[i % TRACK_COLORS.length];
 }
 
-// Server round-trips take a WS frame or two; keep the control's visual value
-// local for ~400ms after a user edit so drags feel instant, then let the next
-// live snapshot take back over (so other clients moving the same control are
-// still reflected here).
-function useLiveValue(serverValue: number, commit: (v: number) => void) {
-  const [value, setValue] = useState(serverValue);
-  const lastLocalEdit = useRef(0);
-
-  useEffect(() => {
-    if (Date.now() - lastLocalEdit.current > 400) setValue(serverValue);
-  }, [serverValue]);
-
-  const onChange = (v: number) => {
-    lastLocalEdit.current = Date.now();
-    setValue(v);
-    commit(v);
-  };
-
-  return [value, onChange] as const;
-}
+// useLiveValue is now imported from lib/optimistic (shared with Timeline).
 
 const GAIN_MIN = -60;
 const GAIN_MAX = 12;
@@ -63,12 +45,14 @@ function GainFader({ gainDb, onChange }: { gainDb: number; onChange: (v: number)
 }
 
 // Compact rotary knob (drag up/down to change) -- pan control, Ableton-style.
+// `value` is the display value (caller's optimistic state); `onCommit` is the
+// server call (throttled here to one per animation frame during drags).
 function Knob({
   value,
   min,
   max,
   defaultValue = 0,
-  onChange,
+  onCommit,
   size = 26,
   title,
 }: {
@@ -76,34 +60,68 @@ function Knob({
   min: number;
   max: number;
   defaultValue?: number;
-  onChange: (v: number) => void;
+  onCommit: (v: number) => void;
   size?: number;
   title?: string;
 }) {
+  // Knob renders its own local value for zero-latency visual feedback during
+  // drags; once the drag ends the parent's optimistic value (from useLiveValue)
+  // drives. This prevents any stutter from re-render timing.
+  const [localValue, setLocalValue] = useState(value);
   const dragging = useRef(false);
   const startY = useRef(0);
   const startValue = useRef(0);
+  const rafId = useRef<number | null>(null);
+  const pendingCommit = useRef<number | null>(null);
+
+  // Sync from parent when not dragging
+  const dragRef = useRef(false);
+  dragRef.current = dragging.current;
+  if (!dragging.current && localValue !== value) setLocalValue(value);
 
   const angleFor = (v: number) => {
     const t = (v - min) / (max - min);
     return -135 + t * 270;
   };
 
+  const scheduleCommit = (v: number) => {
+    pendingCommit.current = v;
+    if (rafId.current == null) {
+      rafId.current = requestAnimationFrame(() => {
+        rafId.current = null;
+        if (pendingCommit.current != null) {
+          onCommit(pendingCommit.current);
+          pendingCommit.current = null;
+        }
+      });
+    }
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     dragging.current = true;
     startY.current = e.clientY;
-    startValue.current = value;
+    startValue.current = localValue;
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging.current) return;
     const dy = startY.current - e.clientY;
     const range = max - min;
-    const next = Math.max(min, Math.min(max, startValue.current + (dy / 120) * range));
-    onChange(Math.round(next * 100) / 100);
+    const next = Math.round(Math.max(min, Math.min(max, startValue.current + (dy / 120) * range)) * 100) / 100;
+    setLocalValue(next); // instant visual
+    scheduleCommit(next); // throttled to RAF
   };
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     dragging.current = false;
+    // Flush any pending commit
+    if (rafId.current != null) {
+      cancelAnimationFrame(rafId.current);
+      rafId.current = null;
+    }
+    if (pendingCommit.current != null) {
+      onCommit(pendingCommit.current);
+      pendingCommit.current = null;
+    }
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
@@ -113,12 +131,12 @@ function Knob({
       aria-label={title}
       aria-valuemin={min}
       aria-valuemax={max}
-      aria-valuenow={value}
+      aria-valuenow={localValue}
       title={title}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onDoubleClick={() => onChange(defaultValue)}
+      onDoubleClick={() => { setLocalValue(defaultValue); onCommit(defaultValue); }}
       className="relative shrink-0 cursor-ns-resize touch-none select-none rounded-full border border-default/60 bg-default/20"
       style={{ width: size, height: size }}
     >
@@ -127,7 +145,7 @@ function Knob({
         style={{
           height: size * 0.4,
           transformOrigin: "bottom center",
-          transform: `translateX(-50%) rotate(${angleFor(value)}deg)`,
+          transform: `translateX(-50%) rotate(${angleFor(localValue)}deg)`,
         }}
       />
     </div>
@@ -200,7 +218,7 @@ function ChannelStrip({
         </div>
         <div className="flex justify-center py-0.5">
           {onPan ? (
-            <Knob value={panValue} min={-1} max={1} onChange={handlePan} title="Pan" />
+            <Knob value={panValue} min={-1} max={1} onCommit={handlePan} title="Pan" />
           ) : (
             <div className="h-[26px]" />
           )}

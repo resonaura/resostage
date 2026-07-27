@@ -15,6 +15,8 @@ function formatTime(sec: number): string {
 
 export function PlayerScreen({ state }: { state: WebUiState }) {
   const [peaks, setPeaks] = useState<PeaksResponse | null>(null);
+  // Zoom lives here so it survives tab switches without resetting
+  const [pxPerSec, setPxPerSec] = useState(40);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,7 +30,8 @@ export function PlayerScreen({ state }: { state: WebUiState }) {
         const data = await fetchPeaks().catch(() => null);
         if (cancelled) return;
         if (data) setPeaks(data);
-        const complete = data != null && data.tracks.length > 0 && data.tracks.every((t) => t.peaks.length > 0);
+        const complete =
+          data != null && data.tracks.length > 0 && data.tracks.every((t) => t.peaks.length > 0);
         if (complete) return;
         await new Promise((r) => setTimeout(r, 250));
       }
@@ -41,13 +44,17 @@ export function PlayerScreen({ state }: { state: WebUiState }) {
     };
   }, [state.songIndex]);
 
+  // When no song is selected, clamp the display to 0 rather than showing a
+  // stale playhead position from the previously-loaded project.
+  const displaySeconds = state.songIndex >= 0 ? state.playheadSeconds : 0;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
         <Card>
           <Card.Content className="flex flex-col gap-4 pt-6">
             <div className="text-center">
-              <div className="text-6xl font-bold tabular-nums">{formatTime(state.playheadSeconds)}</div>
+              <div className="text-6xl font-bold tabular-nums">{formatTime(displaySeconds)}</div>
               <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm text-foreground/60">
                 <span className={state.playing ? "font-bold text-success" : "font-bold text-danger"}>
                   {state.playing ? "PLAYING" : "STOPPED"}
@@ -63,7 +70,10 @@ export function PlayerScreen({ state }: { state: WebUiState }) {
                 <SkipBack size={18} />
                 Prev
               </Button>
-              <Button variant="primary" onPress={() => (state.playing ? transport.stop() : transport.play())}>
+              <Button
+                variant="primary"
+                onPress={() => (state.playing ? transport.stop() : transport.play())}
+              >
                 {state.playing ? <Pause size={18} /> : <Play size={18} />}
                 {state.playing ? "Pause" : "Play"}
               </Button>
@@ -80,7 +90,7 @@ export function PlayerScreen({ state }: { state: WebUiState }) {
         </Card>
       </div>
 
-      <Timeline state={state} peaks={peaks} />
+      <Timeline state={state} peaks={peaks} pxPerSec={pxPerSec} setPxPerSec={setPxPerSec} />
 
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
         <Card>
@@ -89,7 +99,9 @@ export function PlayerScreen({ state }: { state: WebUiState }) {
           </Card.Header>
           <Card.Content className="flex flex-col gap-1">
             {state.songs.length === 0 && (
-              <div className="py-6 text-center text-sm text-foreground/50">No songs in this project.</div>
+              <div className="py-6 text-center text-sm text-foreground/50">
+                No songs in this project.
+              </div>
             )}
             {state.songs.map((song, i) => (
               <button
