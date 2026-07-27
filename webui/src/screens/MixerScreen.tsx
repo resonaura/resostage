@@ -385,7 +385,19 @@ function TrackOutputRouting({
     : busId;
 
   return (
-    <div className="w-full my-1 flex flex-col items-center gap-1">
+    <div className="w-full my-1 flex flex-col items-center gap-1.5">
+      {/* Mono/Stereo toggle ALWAYS at top with vertical spacing */}
+      <div className="w-full flex items-center justify-center my-0.5">
+        <button
+          type="button"
+          className="flex items-center justify-center p-1 text-foreground/70 transition-colors hover:text-foreground mx-auto"
+          title={mono ? "Mono (click for stereo)" : "Stereo (click for mono)"}
+          onClick={() => setMono((m) => !m)}
+        >
+          <MonoStereoIcon stereo={!mono} />
+        </button>
+      </div>
+
       <select
         value={currentValue}
         onChange={(e) => {
@@ -427,46 +439,10 @@ function TrackOutputRouting({
           ))}
         </select>
       )}
-
-      <div className="w-full flex items-center justify-center">
-        <button
-          type="button"
-          className="flex items-center justify-center p-0.5 text-foreground/70 transition-colors hover:text-foreground mx-auto"
-          title={mono ? "Mono (click for stereo)" : "Stereo (click for mono)"}
-          onClick={() => setMono((m) => !m)}
-        >
-          <MonoStereoIcon stereo={!mono} />
-        </button>
-      </div>
     </div>
   );
 }
 
-function updateBusChannels(
-  bus: BusRow,
-  index: number,
-  channels: number,
-  startChannel: number,
-) {
-  void builder.busUpdate({
-    index,
-    name: bus.name,
-    channels,
-    startChannel,
-    gainDb: bus.gainDb,
-    mute: bus.mute,
-    solo: bus.solo,
-    isAux: bus.isAux,
-  });
-}
-
-// Bus output destination: send this bus's signal to the same physical
-// channels as Master (summed into the main mix), or pin it to its own
-// dedicated hardware output -- same two-step "Ext. Output" pattern as
-// TrackOutputRouting (a single escape-hatch entry in the primary select,
-// actual channel choices only appear in the secondary list once picked --
-// not every channel dumped into the main dropdown). Every bus strip except
-// Master gets this, plus a mono/stereo toggle for how many channels it claims.
 function BusDestinationRouting({
   bus,
   index,
@@ -487,17 +463,21 @@ function BusDestinationRouting({
   const options = directOutputOptions(settings, stereo);
 
   return (
-    <div className="w-full my-1 flex flex-col items-center gap-1">
-      <button
-        type="button"
-        className="flex items-center justify-center p-0.5 text-foreground/70 transition-colors hover:text-foreground"
-        title={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
-        onClick={() =>
-          updateBusChannels(bus, index, stereo ? 1 : 2, bus.startChannel)
-        }
-      >
-        <MonoStereoIcon stereo={stereo} />
-      </button>
+    <div className="w-full my-1 flex flex-col items-center gap-1.5">
+      {/* Mono/Stereo toggle ALWAYS at top with vertical spacing */}
+      <div className="w-full flex items-center justify-center my-0.5">
+        <button
+          type="button"
+          className="flex items-center justify-center p-1 text-foreground/70 transition-colors hover:text-foreground mx-auto"
+          title={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
+          onClick={() =>
+            updateBusChannels(bus, index, stereo ? 1 : 2, bus.startChannel)
+          }
+        >
+          <MonoStereoIcon stereo={stereo} />
+        </button>
+      </div>
+
       <select
         value={extOutputOpen ? EXT_OUTPUT_VALUE : "master"}
         onChange={(e) => {
@@ -529,7 +509,7 @@ function BusDestinationRouting({
             if (!Number.isNaN(startChannel) && e.target.value !== "")
               updateBusChannels(bus, index, bus.channels, startChannel);
           }}
-          className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] text-foreground focus:outline-none"
+          className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
         >
           <option value="" disabled>
             Channel...
@@ -544,6 +524,26 @@ function BusDestinationRouting({
     </div>
   );
 }
+
+function updateBusChannels(
+  bus: BusRow,
+  index: number,
+  channels: number,
+  startChannel: number,
+) {
+  void builder.busUpdate({
+    index,
+    name: bus.name,
+    channels,
+    startChannel,
+    gainDb: bus.gainDb,
+    mute: bus.mute,
+    solo: bus.solo,
+    isAux: bus.isAux,
+  });
+}
+
+
 
 function StripButton({
   active,
@@ -891,6 +891,16 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       busses={state.busses}
       busId={currentClickBus}
       onBusSelect={changeClickBus}
+      directOutput={{
+        settings: state.settings,
+        onDirectOutput: (_mono, startChannel) => {
+          const mainBusses = state.busses.filter((b) => !b.isAux);
+          const existing = mainBusses.find((b) => b.startChannel === startChannel);
+          if (existing) {
+            changeClickBus(existing.id);
+          }
+        },
+      }}
       sends={{
         auxBusses,
         values: clickSends,
