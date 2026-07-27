@@ -2002,9 +2002,18 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot);
         }
 
-        juce::MessageManager::callAsync([this, readOk, writeOk, error, tempOut, archivePath, songToRestore,
-                                          wasPlaying, onComplete]() mutable {
+        auto finishFn = [this, readOk, writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, onComplete]() {
             finishAsyncImport(readOk && writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, onComplete);
+        };
+
+        pendingFinishImport = finishFn;
+
+        juce::MessageManager::callAsync([this]() {
+            if (pendingFinishImport) {
+                auto fn = std::move(pendingFinishImport);
+                pendingFinishImport = nullptr;
+                fn();
+            }
         });
     });
 }
