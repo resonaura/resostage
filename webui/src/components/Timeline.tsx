@@ -488,8 +488,8 @@ function TrackWaveformLane({
     >
       {peaks.length === 0 ? (
         <div
-          className="animate-pulse rounded-sm bg-default/20"
-          style={{ width: "100%", height: 6, margin: "auto 0" }}
+          className="absolute inset-x-0"
+          style={{ top: "50%", height: 1, transform: "translateY(-50%)", background: color + "55" }}
         />
       ) : (
         <canvas
