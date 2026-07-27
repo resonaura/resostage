@@ -177,8 +177,9 @@ export function ImportStemsModal({
       // list (see api.ts's mixer.* comments), not the brand-new song we just
       // created above -- using it here to compute indices was the bug that
       // dropped stems on the floor (wrong/stale indices, since the new song
-      // actually starts with zero tracks). Track the new song's own tracks
-      // locally instead; it's a fresh song, so every name is new by construction.
+      // 2. Map stems to consolidated global tracks.
+      // Reuse existing global project tracks (state.tracks) matching trackName
+      // to avoid creating redundant/duplicate empty tracks across songs.
       const requiredTrackNames = Array.from(
         new Set(
           stemMappings
@@ -187,18 +188,31 @@ export function ImportStemsModal({
         )
       );
 
+      const currentGlobalTracks = [...state.tracks];
       const trackIndexByName: Record<string, number> = {};
-      const newSongTrackNames: string[] = [];
 
       for (const trackName of requiredTrackNames) {
-        let existingIndex = newSongTrackNames.indexOf(trackName);
-        if (existingIndex < 0) {
+        let globalIndex = currentGlobalTracks.findIndex(
+          (t) => (t.name || t.id).toLowerCase() === trackName.toLowerCase()
+        );
+        if (globalIndex < 0) {
           await builder.trackAdd(songIndex);
-          existingIndex = newSongTrackNames.length;
-          newSongTrackNames.push(trackName);
+          globalIndex = currentGlobalTracks.length;
+          const newTrack = {
+            id: `trk_${globalIndex + 1}`,
+            name: trackName,
+            busId: state.busses[0]?.id || "main",
+            gainDb: 0,
+            pan: 0,
+            mute: false,
+            solo: false,
+            sends: [],
+            peakDb: -100,
+          };
+          currentGlobalTracks.push(newTrack);
           await builder.trackUpdate({
             songIndex,
-            index: existingIndex,
+            index: globalIndex,
             name: trackName,
             busId: state.busses[0]?.id || "main",
             gainDb: 0,
@@ -207,16 +221,10 @@ export function ImportStemsModal({
             solo: false,
           });
         }
-        trackIndexByName[trackName] = existingIndex;
+        trackIndexByName[trackName] = globalIndex;
       }
 
-      // 3. Upload stems to mapped tracks. A track can only hold ONE file, so
-      // if more than one stem still ends up targeting the same name here
-      // (e.g. the user manually picked the same existing track for two
-      // files), uploading both to that one track index would silently keep
-      // only the last upload -- the exact "two audio files, only one
-      // survives" bug. Every occurrence past the first instead gets its own
-      // freshly-created, disambiguated track rather than losing audio.
+      // 3. Upload stems to mapped global tracks.
       const uploadCountByName: Record<string, number> = {};
       for (const item of stemMappings) {
         if (
@@ -232,19 +240,36 @@ export function ImportStemsModal({
         let targetIndex = trackIndexByName[baseName];
         if (occurrence > 1) {
           const disambiguatedName = `${baseName} ${occurrence}`;
-          await builder.trackAdd(songIndex);
-          targetIndex = newSongTrackNames.length;
-          newSongTrackNames.push(disambiguatedName);
-          await builder.trackUpdate({
-            songIndex,
-            index: targetIndex,
-            name: disambiguatedName,
-            busId: state.busses[0]?.id || "main",
-            gainDb: 0,
-            pan: 0,
-            mute: false,
-            solo: false,
-          });
+          let disambiguatedIndex = currentGlobalTracks.findIndex(
+            (t) => (t.name || t.id).toLowerCase() === disambiguatedName.toLowerCase()
+          );
+          if (disambiguatedIndex < 0) {
+            await builder.trackAdd(songIndex);
+            disambiguatedIndex = currentGlobalTracks.length;
+            const newTrack = {
+              id: `trk_${disambiguatedIndex + 1}`,
+              name: disambiguatedName,
+              busId: state.busses[0]?.id || "main",
+              gainDb: 0,
+              pan: 0,
+              mute: false,
+              solo: false,
+              sends: [],
+              peakDb: -100,
+            };
+            currentGlobalTracks.push(newTrack);
+            await builder.trackUpdate({
+              songIndex,
+              index: disambiguatedIndex,
+              name: disambiguatedName,
+              busId: state.busses[0]?.id || "main",
+              gainDb: 0,
+              pan: 0,
+              mute: false,
+              solo: false,
+            });
+          }
+          targetIndex = disambiguatedIndex;
         }
 
         if (targetIndex !== undefined) {

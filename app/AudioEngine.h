@@ -317,6 +317,7 @@ private:
     ClickGenerator clickGenerator;
     int clickTargetBusIndex = -1;
     float clickGainLinear = 1.0f;
+    bool isClickEnabled = false;
     // Additional send destinations for the click (monitor mixes). Resolved
     // from song.builtInClickSends in refreshClickState(); parallel arrays.
     std::vector<int> clickSendBusIndices;

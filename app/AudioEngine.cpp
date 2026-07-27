@@ -300,6 +300,14 @@ void AudioEngine::rebuildTrackPeaks() {
                 if (peakBuildGeneration.load(std::memory_order_acquire) != generation || currentSong != songIndexForBuild)
                     return;
                 trackPeaks = std::move(results);
+                if (songIndexForBuild < loader.project().songs.size()) {
+                    auto& s = loader.project().songs[songIndexForBuild];
+                    for (size_t i = 0; i < trackPeaks.size() && i < s.regions.size(); ++i) {
+                        if (s.regions[i].durationSeconds <= 0.0 && trackPeaks[i].durationSeconds > 0.0) {
+                            s.regions[i].durationSeconds = trackPeaks[i].durationSeconds;
+                        }
+                    }
+                }
                 for (auto& e : newExtras)
                     pendingPeakCacheExtras.push_back(std::move(e));
             });
@@ -610,22 +618,22 @@ void AudioEngine::refreshClickState() {
     clickTargetBusIndex = -1;
     clickSendBusIndices.clear();
     clickSendGainLinears.clear();
-    if (song.builtInClickEnabled) {
-        auto clickBusIt = busIndexById.find(song.builtInClickBusId);
-        if (clickBusIt != busIndexById.end()) {
-            clickTargetBusIndex = static_cast<int>(clickBusIt->second);
-            clickGainLinear = dbToGain(song.builtInClickGainDb);
-            clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
-        }
-        for (const TrackSendDef& cs : song.builtInClickSends) {
-            if (!cs.enabled)
-                continue;
-            auto it = busIndexById.find(cs.busId);
-            if (it == busIndexById.end())
-                continue;
-            clickSendBusIndices.push_back(static_cast<int>(it->second));
-            clickSendGainLinears.push_back(dbToGain(cs.gainDb));
-        }
+    isClickEnabled = song.builtInClickEnabled;
+
+    auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty() ? (busses.empty() ? "" : busses.front().id) : song.builtInClickBusId);
+    if (clickBusIt != busIndexById.end()) {
+        clickTargetBusIndex = static_cast<int>(clickBusIt->second);
+        clickGainLinear = dbToGain(song.builtInClickGainDb);
+        clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+    }
+    for (const TrackSendDef& cs : song.builtInClickSends) {
+        if (!cs.enabled)
+            continue;
+        auto it = busIndexById.find(cs.busId);
+        if (it == busIndexById.end())
+            continue;
+        clickSendBusIndices.push_back(static_cast<int>(it->second));
+        clickSendGainLinears.push_back(dbToGain(cs.gainDb));
     }
 }
 
@@ -902,22 +910,22 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     clickTargetBusIndex = -1;
     clickSendBusIndices.clear();
     clickSendGainLinears.clear();
-    if (song.builtInClickEnabled) {
-        auto clickBusIt = busIndexById.find(song.builtInClickBusId);
-        if (clickBusIt != busIndexById.end()) {
-            clickTargetBusIndex = static_cast<int>(clickBusIt->second);
-            clickGainLinear = dbToGain(song.builtInClickGainDb);
-            clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
-        }
-        for (const TrackSendDef& cs : song.builtInClickSends) {
-            if (!cs.enabled)
-                continue;
-            auto it = busIndexById.find(cs.busId);
-            if (it == busIndexById.end())
-                continue;
-            clickSendBusIndices.push_back(static_cast<int>(it->second));
-            clickSendGainLinears.push_back(dbToGain(cs.gainDb));
-        }
+    isClickEnabled = song.builtInClickEnabled;
+
+    auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty() ? (busses.empty() ? "" : busses.front().id) : song.builtInClickBusId);
+    if (clickBusIt != busIndexById.end()) {
+        clickTargetBusIndex = static_cast<int>(clickBusIt->second);
+        clickGainLinear = dbToGain(song.builtInClickGainDb);
+        clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+    }
+    for (const TrackSendDef& cs : song.builtInClickSends) {
+        if (!cs.enabled)
+            continue;
+        auto it = busIndexById.find(cs.busId);
+        if (it == busIndexById.end())
+            continue;
+        clickSendBusIndices.push_back(static_cast<int>(it->second));
+        clickSendGainLinears.push_back(dbToGain(cs.gainDb));
     }
 
     currentSong = songIndex;
@@ -1377,31 +1385,33 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     if (clickActive || clickHasSends) {
         clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
 
-        // Main target bus
-        if (clickActive) {
-            const int scratchOffset = clickTargetBusIndex * 2;
-            if (scratchOffset + 2 <= scratchChannels) {
+        if (isClickEnabled) {
+            // Main target bus
+            if (clickActive) {
+                const int scratchOffset = clickTargetBusIndex * 2;
+                if (scratchOffset + 2 <= scratchChannels) {
+                    for (int i = 0; i < numSamples; ++i) {
+                        const float v = clickScratch[static_cast<size_t>(i)] * clickGainLinear;
+                        busScratch.addSample(scratchOffset + 0, i, v);
+                        busScratch.addSample(scratchOffset + 1, i, v);
+                    }
+                }
+            }
+
+            // Send buses (aux monitor mixes)
+            for (size_t si = 0; si < clickSendBusIndices.size(); ++si) {
+                const int sendBusIdx = clickSendBusIndices[si];
+                if (static_cast<size_t>(sendBusIdx) >= busses.size())
+                    continue;
+                const int scratchOffset = sendBusIdx * 2;
+                if (scratchOffset + 2 > scratchChannels)
+                    continue;
+                const float sendGain = clickSendGainLinears[si];
                 for (int i = 0; i < numSamples; ++i) {
-                    const float v = clickScratch[static_cast<size_t>(i)] * clickGainLinear;
+                    const float v = clickScratch[static_cast<size_t>(i)] * sendGain;
                     busScratch.addSample(scratchOffset + 0, i, v);
                     busScratch.addSample(scratchOffset + 1, i, v);
                 }
-            }
-        }
-
-        // Send buses (aux monitor mixes)
-        for (size_t si = 0; si < clickSendBusIndices.size(); ++si) {
-            const int sendBusIdx = clickSendBusIndices[si];
-            if (static_cast<size_t>(sendBusIdx) >= busses.size())
-                continue;
-            const int scratchOffset = sendBusIdx * 2;
-            if (scratchOffset + 2 > scratchChannels)
-                continue;
-            const float sendGain = clickSendGainLinears[si];
-            for (int i = 0; i < numSamples; ++i) {
-                const float v = clickScratch[static_cast<size_t>(i)] * sendGain;
-                busScratch.addSample(scratchOffset + 0, i, v);
-                busScratch.addSample(scratchOffset + 1, i, v);
             }
         }
     }
@@ -1710,6 +1720,31 @@ bool AudioEngine::scanFolderForImport(const std::string& folderPath, std::vector
     return true;
 }
 
+static std::string autoDetectStemCategory(const std::string& filename) {
+    std::string upper = filename;
+    for (char& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+    if (upper.find("CLICK") != std::string::npos || upper.find("METRO") != std::string::npos || upper.find("COUNT") != std::string::npos) return "Click";
+    if (upper.find("GUIDE") != std::string::npos || upper.find("CUE") != std::string::npos || upper.find("SLATE") != std::string::npos) return "Guide";
+    if (upper.find("BASS") != std::string::npos || upper.find("SUB") != std::string::npos) return "Bass";
+    if (upper.find("DRUM") != std::string::npos || upper.find("DRM") != std::string::npos || upper.find("KICK") != std::string::npos || upper.find("SNARE") != std::string::npos || upper.find("BEAT") != std::string::npos || upper.find("HAT") != std::string::npos || upper.find("CYMBAL") != std::string::npos || upper.find("TOM") != std::string::npos) return "Drums";
+    if (upper.find("PERC") != std::string::npos || upper.find("SHAKER") != std::string::npos || upper.find("CONGA") != std::string::npos || upper.find("TAMB") != std::string::npos || upper.find("CLAP") != std::string::npos) return "Percussion";
+    if (upper.find("LOOP") != std::string::npos || upper.find("TOPS") != std::string::npos || upper.find("GROOVE") != std::string::npos) return "Loops";
+    if (upper.find("BACK") != std::string::npos || upper.find("BK") != std::string::npos || upper.find("BGV") != std::string::npos || upper.find("BVOX") != std::string::npos || upper.find("BACKING") != std::string::npos || upper.find("CHOIR") != std::string::npos || upper.find("HARMONY") != std::string::npos) return "Backing Vocals";
+    if (upper.find("VOX") != std::string::npos || upper.find("VOCAL") != std::string::npos || upper.find("LEAD") != std::string::npos) return "Vocals";
+    if (upper.find("KEY") != std::string::npos || upper.find("PIANO") != std::string::npos || upper.find("ORGAN") != std::string::npos || upper.find("RHODES") != std::string::npos) return "Keys";
+    if (upper.find("SYNTH") != std::string::npos || upper.find("PAD") != std::string::npos || upper.find("ARP") != std::string::npos) return "Synths";
+    if (upper.find("GUITAR") != std::string::npos || upper.find("GTR") != std::string::npos || upper.find("ACOUSTIC") != std::string::npos || upper.find("ELECTRIC") != std::string::npos) return "Guitars";
+    if (upper.find("SFX") != std::string::npos || upper.find("FX") != std::string::npos || upper.find("RISER") != std::string::npos || upper.find("SWEEP") != std::string::npos || upper.find("HIT") != std::string::npos || upper.find("DROP") != std::string::npos) return "SFX";
+
+    std::string stem = filename;
+    const auto slash = stem.find_last_of("/\\");
+    if (slash != std::string::npos) stem = stem.substr(slash + 1);
+    const auto dot = stem.find_last_of('.');
+    if (dot != std::string::npos) stem = stem.substr(0, dot);
+    return stem;
+}
+
 void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const std::string& songName, double bpm,
                                             int tsNumerator, int tsDenominator,
                                             std::function<void(bool, std::string)> onComplete) {
@@ -1825,15 +1860,23 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             extra.data = std::move(data);
             extras.push_back(std::move(extra));
 
-            std::string trkName = stripBpmSuffix(srcPath.stem().string());
+            std::string category = autoDetectStemCategory(srcPath.filename().string());
+            if (category == "Click") {
+                song.builtInClickEnabled = true;
+                continue;
+            }
+
             std::string trackId;
             for (const auto& t : projectSnapshot.tracks) {
-                if (t.name == trkName) { trackId = t.id; break; }
+                if (juce::String(t.name).equalsIgnoreCase(juce::String(category)) || t.id == category) {
+                    trackId = t.id;
+                    break;
+                }
             }
             if (trackId.empty()) {
                 TrackDef track;
                 track.id = "trk_" + std::to_string(projectSnapshot.tracks.size() + 1);
-                track.name = trkName;
+                track.name = category;
                 track.busId = defaultBusId;
                 projectSnapshot.tracks.push_back(track);
                 trackId = track.id;
