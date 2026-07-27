@@ -1305,42 +1305,13 @@ export function MixerScreen({ state }: { state: WebUiState }) {
           <>
             {/* Left: Scrollable Ordinary Track Strips */}
             <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto pr-1">
-              {(state.tracks.length > 0
-                ? state.tracks
-                : [
-                    "Click",
-                    "Guide",
-                    "Drums",
-                    "Percussion",
-                    "Loops",
-                    "Bass",
-                    "Guitars",
-                    "Synths",
-                    "Keys",
-                    "Vocals",
-                    "Backing Vocals",
-                    "SFX",
-                    "Other",
-                  ].map((name, i) => ({
-                    id: `scaffold_${i}`,
-                    name,
-                    busId: "main",
-                    gainDb: 0,
-                    pan: 0,
-                    mute: false,
-                    solo: false,
-                    sends: [],
-                    peakDb: -100,
-                  }))
-              ).map((t, i) => (
+              {state.tracks.map((t, i) => (
                 <div
                   key={t.id}
                   className="flex h-full min-h-0 shrink-0"
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    if (state.tracks.length > 0) {
-                      setTrackMenu({ x: e.clientX, y: e.clientY, index: i });
-                    }
+                    setTrackMenu({ x: e.clientX, y: e.clientY, index: i });
                   }}
                 >
                   <TrackStrip
