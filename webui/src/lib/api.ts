@@ -1,5 +1,5 @@
 import { apiUrl } from "./backend";
-import type { EventTypeWire, PeaksResponse } from "./types";
+import type { AllPeaksResponse, EventTypeWire, PeaksResponse } from "./types";
 
 // Mirrors WebServer::handleHttpApi().
 async function post(path: string, body?: unknown): Promise<void> {
@@ -37,6 +37,15 @@ export async function fetchPeaks(): Promise<PeaksResponse> {
   return (await res.json()) as PeaksResponse;
 }
 
+// Peak data for every song, powering the continuous multi-song Timeline.
+// Larger/slower than fetchPeaks() (whole project, not just the staged
+// song) -- fetch once on Timeline mount and poll at a slow interval rather
+// than on every state tick.
+export async function fetchAllPeaks(): Promise<AllPeaksResponse> {
+  const res = await fetch(apiUrl("/api/v1/player/peaks-all"));
+  return (await res.json()) as AllPeaksResponse;
+}
+
 // Mixer parity -- same calls the native MixerStrip/MixerPanel make, just
 // routed from here. `index` is relative to the currently-staged song for
 // track commands (matching the native convention), or the bus list for bus
@@ -53,6 +62,12 @@ export const mixer = {
   setBusGain: (index: number, value: number) => post("/api/v1/bus/gain", { index, value }),
   setBusMute: (index: number, value: boolean) => post("/api/v1/bus/mute", { index, value }),
   setBusSolo: (index: number, value: boolean) => post("/api/v1/bus/solo", { index, value }),
+  // Ableton-style send knob: find-or-create this track's send to busId at
+  // gainDb. Matches native MixerStrip::onSendChanged -- turning a knob up
+  // from its floor implicitly creates the send, no separate "add" call
+  // needed. See MainComponent::setTrackSendFromJson().
+  setTrackSend: (trackIndex: number, busId: string, gainDb: number) =>
+    post("/api/v1/mixer/track/send", { trackIndex, busId, gainDb }),
 };
 
 // Project lifecycle. New/loadDialog/save/saveAs just ask the native app to

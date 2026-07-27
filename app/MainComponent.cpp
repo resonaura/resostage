@@ -355,6 +355,7 @@ void MainComponent::timerCallback() {
     drainWebCommands();
     publishWebState();
     maybePublishPeaks();
+    maybePublishAllPeaks();
 }
 
 void MainComponent::drainWebCommands() {
@@ -392,6 +393,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetBusSolo:
                 engine.setBusSolo(idx, cmd.value != 0.0);
                 break;
+            case WebCommandKind::SetTrackSend: setTrackSendFromJson(cmd.json); break;
             // Project lifecycle parity -- see WebCommandKind's doc comment.
             // New/Load-dialog/Save/Save-As go through the exact same methods
             // the native top-bar buttons call; any native dialog they pop
@@ -600,7 +602,8 @@ void MainComponent::publishWebState() {
             tr.pan = def->pan;
             tr.mute = def->mute;
             tr.solo = def->solo;
-            tr.sends = static_cast<int>(def->sends.size());
+            for (const auto& send : def->sends)
+                tr.sends.push_back({send.busId, send.gainDb});
         }
         if (const auto* meter = engine.trackMeterAt(i)) {
             MeterFrame frame;

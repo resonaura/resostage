@@ -302,6 +302,66 @@ void AudioEngine::rebuildTrackPeaks() {
     }).detach();
 }
 
+const PeakOverview* AudioEngine::cachedPeaksForFile(const std::string& file) const {
+    std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
+    auto it = peakOverviewSessionCache.find(file);
+    return it != peakOverviewSessionCache.end() ? &it->second : nullptr;
+}
+
+void AudioEngine::ensureAllSongPeaksBuilt() {
+    if (!projectLoaded)
+        return;
+    if (allPeaksBuildInFlight.exchange(true, std::memory_order_acq_rel))
+        return; // a sweep is already in flight; it'll pick up anything still missing next time it's called
+
+    std::vector<std::string> filesToBuild;
+    {
+        std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
+        for (const auto& song : loader.project().songs)
+            for (const auto& t : song.tracks)
+                if (!t.file.empty() && !peakOverviewSessionCache.count(t.file)
+                    && std::find(filesToBuild.begin(), filesToBuild.end(), t.file) == filesToBuild.end())
+                    filesToBuild.push_back(t.file);
+    }
+    if (filesToBuild.empty()) {
+        allPeaksBuildInFlight.store(false, std::memory_order_release);
+        return;
+    }
+
+    // Same independent-reader pattern as rebuildTrackPeaks() (see its doc
+    // comment): a separate mz_zip_archive on the same file so this sweep
+    // never contends with the streaming I/O thread's refill() calls.
+    const std::string archivePathForBuild = loader.archivePath();
+    activePeakBuilds.fetch_add(1, std::memory_order_relaxed);
+    std::thread([this, archivePathForBuild, files = std::move(filesToBuild)]() {
+        std::vector<ProjectLoader::ExtraFile> newExtras;
+        std::string openError;
+        ProjectLoader peakLoader;
+        if (peakLoader.open(archivePathForBuild, openError)) {
+            for (const auto& file : files) {
+                PeakOverview overview;
+                std::string error;
+                bool built = PeakCache::loadFromArchive(peakLoader, file, overview, error);
+                if (!built) {
+                    built = overview.build(peakLoader, file, 4096, error);
+                    if (built)
+                        newExtras.push_back(PeakCache::makeCacheExtra(overview, file));
+                }
+                if (built) {
+                    std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
+                    peakOverviewSessionCache[file] = std::move(overview);
+                }
+            }
+        }
+        activePeakBuilds.fetch_sub(1, std::memory_order_release);
+        juce::MessageManager::callAsync([this, extras = std::move(newExtras)]() mutable {
+            for (auto& e : extras)
+                pendingPeakCacheExtras.push_back(std::move(e));
+            allPeaksBuildInFlight.store(false, std::memory_order_release);
+        });
+    }).detach();
+}
+
 double AudioEngine::currentSongLengthSeconds() const {
     if (currentSampleRate <= 0.0 || currentSongLengthFrames <= 0)
         return 0.0;

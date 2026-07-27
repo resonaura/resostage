@@ -121,6 +121,7 @@ private:
     void builderTrackRemove(const std::string& json);
     void builderTrackMove(const std::string& json);
     void builderTrackUpdate(const std::string& json);
+    void setTrackSendFromJson(const std::string& json);
     void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath);
     void builderBusAdd();
     void builderBusRemove(const std::string& json);
@@ -154,6 +155,14 @@ private:
     std::string buildPeaksJson() const;
     int lastPeaksPublishSongIndex = -2;
     bool lastPeaksPublishComplete = false;
+
+    // Continuous multi-song timeline parity: same idea as maybePublishPeaks/
+    // buildPeaksJson above, but covers every song's tracks (not just the
+    // staged one) -- see AudioEngine::ensureAllSongPeaksBuilt().
+    void maybePublishAllPeaks();
+    std::string buildAllPeaksJson() const;
+    int lastAllPeaksBuiltCount = -1;
+    bool lastAllPeaksComplete = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

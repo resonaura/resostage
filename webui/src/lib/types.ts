@@ -48,6 +48,11 @@ export interface MeterRow {
   shortTermLufs: number;
 }
 
+export interface TrackSendRow {
+  busId: string;
+  gainDb: number;
+}
+
 export interface TrackRow {
   id: string;
   name: string;
@@ -56,7 +61,7 @@ export interface TrackRow {
   pan: number;
   mute: boolean;
   solo: boolean;
-  sends: number;
+  sends: TrackSendRow[];
   peakDb: number;
 }
 
@@ -108,6 +113,13 @@ export interface TrackPeaks {
 
 export interface PeaksResponse {
   tracks: TrackPeaks[];
+}
+
+// Peak data for every song's tracks (not just the currently-staged one) --
+// see AudioEngine::ensureAllSongPeaksBuilt()/MainComponent::buildAllPeaksJson().
+// Powers the continuous multi-song Timeline view.
+export interface AllPeaksResponse {
+  songs: { tracks: TrackPeaks[] }[];
 }
 
 export interface WebUiState {

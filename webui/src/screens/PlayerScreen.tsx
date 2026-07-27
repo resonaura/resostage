@@ -1,12 +1,18 @@
-import { useEffect, useRef, useState } from "react";
 import { Button } from "@heroui/react";
 import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
-import { builder, fetchPeaks, transport } from "../lib/api";
+import { useEffect, useRef, useState } from "react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { Timeline } from "../components/Timeline";
-import type { PeaksResponse, WebUiState } from "../lib/types";
+import { builder, fetchAllPeaks, fetchPeaks, transport } from "../lib/api";
+import type { AllPeaksResponse, PeaksResponse, WebUiState } from "../lib/types";
 
-function MetronomeIcon({ size = 16, className = "" }: { size?: number; className?: string }) {
+function MetronomeIcon({
+  size = 16,
+  className = "",
+}: {
+  size?: number;
+  className?: string;
+}) {
   return (
     <svg
       width={size}
@@ -39,7 +45,7 @@ function barBeat(seconds: number, bpm: number, tsNum: number): string {
   const secondsPerBeat = 60 / bpm;
   const totalBeats = seconds / secondsPerBeat;
   const bar = Math.floor(totalBeats / beatsPerBar) + 1;
-  const beat = Math.floor(totalBeats) % beatsPerBar + 1;
+  const beat = (Math.floor(totalBeats) % beatsPerBar) + 1;
   return `${bar} | ${beat}`;
 }
 
@@ -72,7 +78,8 @@ function Sparkline({
   });
   const pathD = `M ${points.join(" L ")}`;
   const areaD = `M 0,24 L ${points.join(" L ")} L 90,24 Z`;
-  const lastPoint = points.length > 0 ? points[points.length - 1].split(",") : ["90", "24"];
+  const lastPoint =
+    points.length > 0 ? points[points.length - 1].split(",") : ["90", "24"];
 
   return (
     <div className="flex flex-col items-center gap-0.5">
@@ -88,7 +95,13 @@ function Sparkline({
           </linearGradient>
         </defs>
         <path d={areaD} fill={`url(#${gradientId})`} />
-        <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+        <path
+          d={pathD}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
         {/* Solid static dot at latest point -- no constant pinging animation */}
         <circle cx={lastPoint[0]} cy={lastPoint[1]} r="2" fill={color} />
       </svg>
@@ -159,16 +172,26 @@ function SystemHealthWidget({
 
       {/* Status details */}
       <div className="flex flex-col gap-0.5 text-[10px] text-foreground/40">
-        <div className={`flex items-center gap-1 font-bold ${state.playing ? "text-success" : "text-danger"}`}>
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${state.playing ? "animate-pulse bg-success" : "bg-danger"}`} />
+        <div
+          className={`flex items-center gap-1 font-bold ${state.playing ? "text-success" : "text-danger"}`}
+        >
+          <span
+            className={`inline-block h-1.5 w-1.5 rounded-full ${state.playing ? "animate-pulse bg-success" : "bg-danger"}`}
+          />
           {state.playing ? "PLAYING" : "STOPPED"}
         </div>
         {(h?.underrunCount ?? 0) > 0 ? (
-          <span className="font-bold text-danger">⚠ {h?.underrunCount} underrun{(h?.underrunCount ?? 0) !== 1 ? "s" : ""}</span>
+          <span className="font-bold text-danger">
+            ⚠ {h?.underrunCount} underrun
+            {(h?.underrunCount ?? 0) !== 1 ? "s" : ""}
+          </span>
         ) : (
           <span>0 underruns</span>
         )}
-        <span>{h?.webClientCount ?? 1} client{(h?.webClientCount ?? 1) !== 1 ? "s" : ""}</span>
+        <span>
+          {h?.webClientCount ?? 1} client
+          {(h?.webClientCount ?? 1) !== 1 ? "s" : ""}
+        </span>
       </div>
     </div>
   );
@@ -184,11 +207,15 @@ export function PlayerScreen({
   ramHistory: number[];
 }) {
   const [peaks, setPeaks] = useState<PeaksResponse | null>(null);
+  const [allPeaks, setAllPeaks] = useState<AllPeaksResponse | null>(null);
   const [pxPerSec, setPxPerSec] = useState(40);
-  const [metronomeOverride, setMetronomeOverride] = useState<boolean | null>(null);
+  const [metronomeOverride, setMetronomeOverride] = useState<boolean | null>(
+    null,
+  );
 
   const hasSongs = state.songs.length > 0;
-  const isMetronomeOn = metronomeOverride ?? (hasSongs ? state.songs.some((s) => s.click) : false);
+  const isMetronomeOn =
+    metronomeOverride ?? (hasSongs ? state.songs.some((s) => s.click) : false);
 
   const toggleMetronome = () => {
     const nextState = !isMetronomeOn;
@@ -229,26 +256,50 @@ export function PlayerScreen({
     };
   }, [state.projectName, state.songIndex]);
 
+  // Continuous multi-song timeline: peak data for every song, not just the
+  // staged one. Re-polled (not just fetched once) since AudioEngine builds
+  // these in the background -- re-fetching a few times lets the timeline
+  // fill in waveforms progressively as the sweep completes, and re-running
+  // it when the song count changes picks up newly added songs/tracks.
+  useEffect(() => {
+    let cancelPoll = false;
+    const poll = async () => {
+      for (let attempt = 0; attempt < 30 && !cancelPoll; attempt++) {
+        const data = await fetchAllPeaks().catch(() => null);
+        if (cancelPoll) return;
+        if (data) setAllPeaks(data);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    };
+    void poll();
+    return () => {
+      cancelPoll = true;
+    };
+  }, [state.projectName, state.songs.length]);
+
   const displaySeconds = state.playheadSeconds;
-  const song = state.songIndex >= 0 && state.songs[state.songIndex] ? state.songs[state.songIndex] : null;
+  const song =
+    state.songIndex >= 0 && state.songs[state.songIndex]
+      ? state.songs[state.songIndex]
+      : null;
 
   let songLength = 0;
   if (peaks && peaks.tracks) {
     for (const tr of peaks.tracks) {
-      if (tr && tr.durationSeconds > songLength) songLength = tr.durationSeconds;
+      if (tr && tr.durationSeconds > songLength)
+        songLength = tr.durationSeconds;
     }
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-
       {/* ── 1. Top Transport bar ──────────────────────────────── */}
       <div className="flex shrink-0 items-stretch gap-0 overflow-hidden rounded-xl border border-default/30 bg-surface/80">
-
         {/* Clock + bar/beat */}
         <div className="flex flex-col justify-center border-r border-default/30 px-5 py-2.5">
           <div
-            className={`font-mono text-3xl font-bold tabular-nums tracking-tight leading-none ${
+            style={{ fontWeight: "100" }}
+            className={`font-mono text-3xl tabular-nums tracking-tight leading-none ${
               state.playing ? "text-success" : "text-foreground"
             }`}
           >
@@ -276,14 +327,18 @@ export function PlayerScreen({
             {song && song.bpm > 0 ? (
               <>
                 <span>{song.bpm.toFixed(1)} bpm</span>
-                <span>{song.tsNum}/{song.tsDen}</span>
+                <span>
+                  {song.tsNum}/{song.tsDen}
+                </span>
                 <span>{song.tracks.length} tracks</span>
               </>
             ) : (
               <span>Select a song to begin</span>
             )}
             {state.drift !== 1 && (
-              <span className="text-warning">drift ×{state.drift.toFixed(4)}</span>
+              <span className="text-warning">
+                drift ×{state.drift.toFixed(4)}
+              </span>
             )}
           </div>
         </div>
@@ -302,7 +357,9 @@ export function PlayerScreen({
           <Button
             variant="secondary"
             className="flex h-9 px-4 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent/80 transition-colors"
-            onPress={() => (state.playing ? transport.stop() : transport.play())}
+            onPress={() =>
+              state.playing ? transport.stop() : transport.play()
+            }
             aria-label={state.playing ? "Pause" : "Play"}
           >
             {state.playing ? <Pause size={15} /> : <Play size={15} />}
@@ -342,12 +399,15 @@ export function PlayerScreen({
         </div>
 
         {/* Dual sparkline graphs: CPU & RAM */}
-        <SystemHealthWidget state={state} cpuHistory={cpuHistory} ramHistory={ramHistory} />
+        <SystemHealthWidget
+          state={state}
+          cpuHistory={cpuHistory}
+          ramHistory={ramHistory}
+        />
       </div>
 
       {/* ── 2. Middle: Setlist + Bus meters (flex layout, max 40% meters width) ─ */}
       <div className="flex h-[210px] shrink-0 gap-3">
-
         {/* Setlist (occupies all remaining available width) */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-default/30 bg-surface/60">
           <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
@@ -382,15 +442,21 @@ export function PlayerScreen({
                         }`}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className={`truncate text-sm ${isActive ? "font-semibold text-foreground" : "text-foreground/80"}`}>
+                        <div
+                          className={`truncate text-sm ${isActive ? "font-semibold text-foreground" : "text-foreground/80"}`}
+                        >
                           {i + 1}. {s.name}
                         </div>
                         <div className="text-[10px] text-foreground/35">
-                          {s.bpm.toFixed(1)} bpm · {s.mode === "auto" ? "auto" : "wait"} · {s.tracks.length} trk
+                          {s.bpm.toFixed(1)} bpm ·{" "}
+                          {s.mode === "auto" ? "auto" : "wait"} ·{" "}
+                          {s.tracks.length} trk
                         </div>
                       </div>
                       {isActive && (
-                        <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold ${state.playing ? "bg-success/15 text-success" : "bg-default/30 text-foreground/30"}`}>
+                        <span
+                          className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold ${state.playing ? "bg-success/15 text-success" : "bg-default/30 text-foreground/30"}`}
+                        >
                           {state.playing ? "NOW" : "CUE"}
                         </span>
                       )}
@@ -409,24 +475,48 @@ export function PlayerScreen({
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center gap-6 overflow-x-auto p-4">
             {state.meters.length === 0 ? (
-              <div className="py-4 text-center text-sm text-foreground/40">No busses.</div>
+              <div className="py-4 text-center text-sm text-foreground/40">
+                No busses.
+              </div>
             ) : (
               state.meters.map((m) => (
-                <div key={m.id} className="flex h-full flex-col items-center justify-between gap-1.5 py-1">
+                <div
+                  key={m.id}
+                  className="flex h-full flex-col items-center justify-between gap-1.5 py-1"
+                >
                   {/* Capitalized bus name */}
-                  <div className="truncate text-xs font-semibold text-foreground/80 max-w-[72px]" title={capitalize(m.id)}>
+                  <div
+                    className="truncate text-xs font-semibold text-foreground/80 max-w-[72px]"
+                    title={capitalize(m.id)}
+                  >
                     {capitalize(m.id)}
                   </div>
                   <div className="flex h-full min-h-0 flex-1 items-center justify-center">
-                    <LevelMeterBar db={m.peakDb} vertical={true} showValue={false} className="h-full" barClassName="h-full w-3.5" />
+                    <LevelMeterBar
+                      db={m.peakDb}
+                      vertical={true}
+                      showValue={false}
+                      className="h-full"
+                      barClassName="h-full w-3.5"
+                    />
                   </div>
                   <div className="text-center text-[10px] tabular-nums text-foreground/50">
-                    <div className={m.peakDb > -3 ? "text-danger font-bold" : m.peakDb > -9 ? "text-warning font-semibold" : ""}>
+                    <div
+                      className={
+                        m.peakDb > -3
+                          ? "text-danger font-bold"
+                          : m.peakDb > -9
+                            ? "text-warning font-semibold"
+                            : ""
+                      }
+                    >
                       {m.peakDb <= -99 ? "−∞" : m.peakDb.toFixed(1)} dB
                     </div>
                     {/* Always-visible LUFS readout to prevent layout jump during silence */}
                     <div className="text-[9px] text-foreground/35">
-                      {m.shortTermLufs <= -144 ? "−∞ L" : `${m.shortTermLufs.toFixed(1)} L`}
+                      {m.shortTermLufs <= -144
+                        ? "−∞ L"
+                        : `${m.shortTermLufs.toFixed(1)} L`}
                     </div>
                   </div>
                 </div>
@@ -434,14 +524,18 @@ export function PlayerScreen({
             )}
           </div>
         </div>
-
       </div>
 
       {/* ── 3. Bottom: Timeline (expands to fill remaining height) ── */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <Timeline state={state} peaks={peaks} pxPerSec={pxPerSec} setPxPerSec={setPxPerSec} />
+        <Timeline
+          state={state}
+          peaks={peaks}
+          allPeaks={allPeaks}
+          pxPerSec={pxPerSec}
+          setPxPerSec={setPxPerSec}
+        />
       </div>
-
     </div>
   );
 }

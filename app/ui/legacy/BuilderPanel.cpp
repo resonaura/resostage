@@ -1064,7 +1064,9 @@ void BuilderPanel::addItem() {
             TrackDef track;
             track.id = makeUniqueId("trk", used);
             track.name = "New Track";
-            track.file = "Audio/placeholder.wav";
+            track.file = ""; // no audio yet -- empty is the established "unassigned" convention,
+                              // matching StreamingEngine::stageSong's skip-if-empty check. A fake
+                              // non-empty path here caused "File not found in archive" failures.
             track.busId = proj.busses.empty() ? "bus_main" : proj.busses.front().id;
             s->tracks.push_back(std::move(track));
             selectedItemRow = static_cast<int>(s->tracks.size()) - 1;

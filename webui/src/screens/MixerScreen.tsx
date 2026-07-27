@@ -1,9 +1,68 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Slider } from "@heroui/react";
+import { Plus } from "lucide-react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { builder, mixer } from "../lib/api";
 import { useLiveValue } from "../lib/optimistic";
-import type { BusRow, TrackRow, WebUiState } from "../lib/types";
+import type { BusRow, SettingsState, TrackRow, WebUiState } from "../lib/types";
+
+// Floor for a send knob that hasn't been touched yet -- matches native
+// MixerStrip's convention (see MixerPanel.cpp's auxSlotTemplate): a track
+// with no TrackSendDef for a given aux bus is treated as "sending at -60dB",
+// and turning the knob up from there implicitly creates the send.
+const SEND_FLOOR_DB = -60;
+
+// Sentinel value for the track/bus output <select>: picking it reveals a
+// secondary channel-list dropdown instead of immediately committing a
+// change (mirrors the two-step "pick a category, then pick specifics" UX
+// used for everything else in this screen -- no huge flat list of every
+// channel dumped into the primary select).
+const EXT_OUTPUT_VALUE = "__ext_output__";
+
+function MonoStereoIcon({ stereo, size = 13 }: { stereo: boolean; size?: number }) {
+  if (!stereo) {
+    return (
+      <span
+        className="inline-block shrink-0 rounded-full border-[1.5px] border-current"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <span className="relative inline-block shrink-0" style={{ width: size * 1.6, height: size }}>
+      <span
+        className="absolute left-0 top-0 rounded-full border-[1.5px] border-current"
+        style={{ width: size, height: size }}
+      />
+      <span
+        className="absolute right-0 top-0 rounded-full border-[1.5px] border-current opacity-60"
+        style={{ width: size, height: size }}
+      />
+    </span>
+  );
+}
+
+// Enumerates the physical-output picks available for "direct to output"
+// routing: single channels when mono, adjacent pairs ("1/2", "3/4", ...)
+// when stereo, skipping any channel the user has deactivated in Settings.
+function directOutputOptions(
+  settings: SettingsState,
+  stereo: boolean,
+): { label: string; startChannel: number }[] {
+  const count = settings.outputChannelNames.length;
+  const isActive = (i: number) => settings.activeOutputChannels[i] !== false;
+  const options: { label: string; startChannel: number }[] = [];
+  if (stereo) {
+    for (let i = 0; i + 1 < count; i += 2) {
+      if (isActive(i) && isActive(i + 1)) options.push({ label: `${i + 1}/${i + 2}`, startChannel: i });
+    }
+  } else {
+    for (let i = 0; i < count; i++) {
+      if (isActive(i)) options.push({ label: `${i + 1}`, startChannel: i });
+    }
+  }
+  return options;
+}
 
 const TRACK_COLORS = [
   "#0091ff", "#30d158", "#ff9230", "#db34f2", "#ff375f",
@@ -153,6 +212,212 @@ function Knob({
   );
 }
 
+// Ableton-style send-knob row: one small knob per aux bus, floor = "no send
+// yet" (matches native MixerStrip::setSendSlots). Turning a knob up from the
+// floor implicitly creates the TrackSendDef via mixer.setTrackSend -- no
+// separate "add" step, same as the native mixer.
+function SendKnobs({
+  auxBusses,
+  sends,
+  trackIndex,
+}: {
+  auxBusses: BusRow[];
+  sends: { busId: string; gainDb: number }[];
+  trackIndex: number;
+}) {
+  if (auxBusses.length === 0) return null;
+  return (
+    <div className="flex w-full flex-col gap-1 border-t border-default/20 py-1">
+      {auxBusses.map((bus) => {
+        const existing = sends.find((s) => s.busId === bus.id);
+        const value = existing?.gainDb ?? SEND_FLOOR_DB;
+        return (
+          <div key={bus.id} className="flex items-center justify-between gap-1">
+            <span className="truncate text-[8px] font-mono text-foreground/40" title={bus.name || bus.id}>
+              {(bus.name || bus.id).slice(0, 4)}
+            </span>
+            <Knob
+              value={value}
+              min={SEND_FLOOR_DB}
+              max={6}
+              defaultValue={SEND_FLOOR_DB}
+              accent="#00dac3"
+              onCommit={(v) => mixer.setTrackSend(trackIndex, bus.id, v)}
+              size={16}
+              title={`Send to ${bus.name || bus.id}`}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Track output routing: the normal bus <select> plus an "Ext. Output"
+// escape hatch that pins the track straight to a physical output channel
+// (or channel pair) instead of any bus in the project. Mono selects a single
+// channel; stereo selects an adjacent pair ("1/2", "3/4", ...) depending on
+// what's active in Settings.
+function TrackOutputRouting({
+  busId,
+  busses,
+  settings,
+  onBusSelect,
+  onDirectOutput,
+}: {
+  busId: string;
+  busses: BusRow[];
+  settings: SettingsState;
+  onBusSelect: (id: string) => void;
+  onDirectOutput: (mono: boolean, startChannel: number) => void;
+}) {
+  const [directOutputOpen, setDirectOutputOpen] = useState(false);
+  const [mono, setMono] = useState(false);
+
+  const options = directOutputOptions(settings, !mono);
+
+  return (
+    <div className="w-full my-1">
+      <select
+        value={directOutputOpen ? EXT_OUTPUT_VALUE : busId || ""}
+        onChange={(e) => {
+          if (e.target.value === EXT_OUTPUT_VALUE) {
+            setDirectOutputOpen(true);
+          } else {
+            setDirectOutputOpen(false);
+            onBusSelect(e.target.value);
+          }
+        }}
+        className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
+      >
+        {busses.map((b) => (
+          <option key={b.id} value={b.id}>
+            {b.name || b.id}
+          </option>
+        ))}
+        <option value={EXT_OUTPUT_VALUE}>Ext. Output</option>
+      </select>
+
+      {directOutputOpen && (
+        <div className="mt-1 flex flex-col items-center gap-1 rounded border border-default/40 bg-default/10 p-1">
+          <button
+            className="flex items-center gap-1 text-foreground/70"
+            title={mono ? "Mono (click for stereo)" : "Stereo (click for mono)"}
+            onClick={() => setMono((m) => !m)}
+          >
+            <MonoStereoIcon stereo={!mono} />
+            <span className="text-[8px] uppercase">{mono ? "Mono" : "Stereo"}</span>
+          </button>
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              const startChannel = Number(e.target.value);
+              if (!Number.isNaN(startChannel) && e.target.value !== "") onDirectOutput(mono, startChannel);
+            }}
+            className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] text-foreground focus:outline-none"
+          >
+            <option value="" disabled>
+              Channel...
+            </option>
+            {options.map((o) => (
+              <option key={o.startChannel} value={o.startChannel}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function updateBusChannels(bus: BusRow, index: number, channels: number, startChannel: number) {
+  void builder.busUpdate({
+    index,
+    name: bus.name,
+    channels,
+    startChannel,
+    gainDb: bus.gainDb,
+    mute: bus.mute,
+    solo: bus.solo,
+    isAux: bus.isAux,
+  });
+}
+
+// Bus output destination: send this bus's signal to the same physical
+// channels as Master (summed into the main mix), or pin it to its own
+// dedicated hardware output -- same two-step "Ext. Output" pattern as
+// TrackOutputRouting (a single escape-hatch entry in the primary select,
+// actual channel choices only appear in the secondary list once picked --
+// not every channel dumped into the main dropdown). Every bus strip except
+// Master gets this, plus a mono/stereo toggle for how many channels it claims.
+function BusDestinationRouting({
+  bus,
+  index,
+  master,
+  settings,
+}: {
+  bus: BusRow;
+  index: number;
+  master: BusRow | undefined;
+  settings: SettingsState;
+}) {
+  const stereo = bus.channels >= 2;
+  const isFollowingMaster = !!master && bus.startChannel === master.startChannel && bus.channels === master.channels;
+  const [extOutputOpen, setExtOutputOpen] = useState(!isFollowingMaster);
+  const options = directOutputOptions(settings, stereo);
+
+  return (
+    <div className="w-full my-1 flex flex-col items-center gap-1">
+      <button
+        type="button"
+        className="flex items-center gap-1 text-foreground/70"
+        title={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
+        onClick={() => updateBusChannels(bus, index, stereo ? 1 : 2, bus.startChannel)}
+      >
+        <MonoStereoIcon stereo={stereo} />
+        <span className="text-[8px] uppercase">{stereo ? "Stereo" : "Mono"}</span>
+      </button>
+      <select
+        value={extOutputOpen ? EXT_OUTPUT_VALUE : "master"}
+        onChange={(e) => {
+          if (e.target.value === EXT_OUTPUT_VALUE) {
+            setExtOutputOpen(true);
+          } else {
+            setExtOutputOpen(false);
+            if (master) updateBusChannels(bus, index, master.channels, master.startChannel);
+          }
+        }}
+        className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
+        title="Where this bus's signal goes"
+      >
+        <option value="master">Master</option>
+        <option value={EXT_OUTPUT_VALUE}>Ext. Output</option>
+      </select>
+
+      {extOutputOpen && (
+        <select
+          value={isFollowingMaster ? "" : String(bus.startChannel)}
+          onChange={(e) => {
+            const startChannel = Number(e.target.value);
+            if (!Number.isNaN(startChannel) && e.target.value !== "") updateBusChannels(bus, index, bus.channels, startChannel);
+          }}
+          className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] text-foreground focus:outline-none"
+        >
+          <option value="" disabled>
+            Channel...
+          </option>
+          {options.map((o) => (
+            <option key={o.startChannel} value={o.startChannel}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
 function StripButton({
   active,
   color,
@@ -185,6 +450,9 @@ function ChannelStrip({
   busses,
   busId,
   onBusSelect,
+  directOutput,
+  sends,
+  busDestination,
   gainDb,
   pan,
   peakDb,
@@ -201,6 +469,15 @@ function ChannelStrip({
   busses?: BusRow[];
   busId?: string;
   onBusSelect?: (id: string) => void;
+  // When set, the plain <select> is replaced by TrackOutputRouting (adds the
+  // "Direct Output" escape hatch + mono/stereo channel picker). Track strips
+  // only -- doesn't apply to bus/master/click strips.
+  directOutput?: { settings: SettingsState; onDirectOutput: (mono: boolean, startChannel: number) => void };
+  // Ableton-style send knob row, one per aux bus. Track strips only.
+  sends?: { auxBusses: BusRow[]; values: { busId: string; gainDb: number }[]; trackIndex: number };
+  // Mono/stereo toggle + Master-vs-Direct-Output routing. Bus strips only
+  // (every bus except Master -- see BusDestinationRouting).
+  busDestination?: React.ReactNode;
   gainDb: number;
   pan: number | null;
   peakDb: number | undefined;
@@ -229,22 +506,36 @@ function ChannelStrip({
         {subtitle && <div className="text-[9px] text-foreground/40 font-mono truncate w-full">{subtitle}</div>}
       </div>
 
-      {/* Bus Routing Dropdown */}
-      {busses && onBusSelect && (
-        <div className="w-full my-1">
-          <select
-            value={busId || ""}
-            onChange={(e) => onBusSelect(e.target.value)}
-            className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
-          >
-            {busses.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name || b.id}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* Bus Routing Dropdown -- "Main and Sends": this main destination and
+          the send knobs below are independent, both editable at once. */}
+      {busses && onBusSelect && directOutput ? (
+        <TrackOutputRouting
+          busId={busId || ""}
+          busses={busses}
+          settings={directOutput.settings}
+          onBusSelect={onBusSelect}
+          onDirectOutput={directOutput.onDirectOutput}
+        />
+      ) : (
+        busses &&
+        onBusSelect && (
+          <div className="w-full my-1">
+            <select
+              value={busId || ""}
+              onChange={(e) => onBusSelect(e.target.value)}
+              className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
+            >
+              {busses.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name || b.id}
+                </option>
+              ))}
+            </select>
+          </div>
+        )
       )}
+
+      {busDestination}
 
       {/* Pan Knob */}
       {onPan && pan !== null ? (
@@ -285,6 +576,8 @@ function ChannelStrip({
           S
         </StripButton>
       </div>
+
+      {sends && <SendKnobs auxBusses={sends.auxBusses} sends={sends.values} trackIndex={sends.trackIndex} />}
     </div>
   );
 }
@@ -293,12 +586,18 @@ function TrackStrip({
   t,
   index,
   busses,
+  auxBusses,
   meters,
+  settings,
+  onDirectOutput,
 }: {
   t: TrackRow;
   index: number;
   busses: BusRow[];
+  auxBusses: BusRow[];
   meters: import("../lib/types").MeterRow[];
+  settings: SettingsState;
+  onDirectOutput: (trackIndex: number, mono: boolean, startChannel: number) => void;
 }) {
   const color = colorForIndex(index);
   const busMeter = meters.find((m) => m.id === t.busId);
@@ -312,6 +611,8 @@ function TrackStrip({
       busses={busses}
       busId={t.busId}
       onBusSelect={(bId) => mixer.setTrackBus(index, bId)}
+      directOutput={{ settings, onDirectOutput: (mono, ch) => onDirectOutput(index, mono, ch) }}
+      sends={{ auxBusses, values: t.sends, trackIndex: index }}
       gainDb={t.gainDb ?? 0}
       pan={t.pan ?? 0}
       peakDb={peakDb}
@@ -398,11 +699,15 @@ function BusStrip({
   b,
   index,
   meters,
+  master,
+  settings,
   isMaster = false,
 }: {
   b: BusRow;
   index: number;
   meters: import("../lib/types").MeterRow[];
+  master?: BusRow;
+  settings: SettingsState;
   isMaster?: boolean;
 }) {
   const meter = meters.find((m) => m.id === b.id);
@@ -422,13 +727,268 @@ function BusStrip({
       onPan={null}
       onMute={() => mixer.setBusMute(index, !b.mute)}
       onSolo={() => mixer.setBusSolo(index, !b.solo)}
+      busDestination={!isMaster ? <BusDestinationRouting bus={b} index={index} master={master} settings={settings} /> : undefined}
     />
   );
+}
+
+interface TrackMenuState {
+  x: number;
+  y: number;
+  index: number;
+}
+
+function MenuItem({
+  children,
+  danger = false,
+  disabled = false,
+  onClick,
+}: {
+  children: React.ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex w-full items-center px-3 py-1.5 text-left transition-colors disabled:opacity-30 disabled:cursor-default ${
+        danger
+          ? "text-danger hover:bg-danger/10"
+          : "text-foreground/80 hover:bg-default/20"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Right-click menu for a mixer track strip. Everything here is backed by
+// APIs that already exist (builder.trackMove/trackUpdate/trackRemove,
+// mixer.setTrack*) -- no new backend routes needed. Rename uses an inline
+// text field rather than window.prompt(), since the embedded native
+// WebView's WKWebView backing isn't guaranteed to implement the JS prompt()
+// panel (window.confirm() already works elsewhere in this app and is used
+// here for the destructive Remove action, but prompt() is a separate,
+// less-commonly-implemented UIDelegate method).
+function TrackContextMenu({
+  menu,
+  track,
+  songIndex,
+  onClose,
+}: {
+  menu: TrackMenuState;
+  track: TrackRow;
+  songIndex: number;
+  onClose: () => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(track.name || track.id);
+
+  const act = (fn: () => void) => {
+    fn();
+    onClose();
+  };
+
+  const commitRename = () => {
+    const name = nameDraft.trim();
+    if (name.length > 0) {
+      void builder.trackUpdate({
+        songIndex,
+        index: menu.index,
+        name,
+        busId: track.busId,
+        gainDb: track.gainDb,
+        pan: track.pan,
+        mute: track.mute,
+        solo: track.solo,
+      });
+    }
+    onClose();
+  };
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40"
+        onClick={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onClose();
+        }}
+      />
+      <div
+        className="fixed z-50 w-48 overflow-hidden rounded-lg border border-default/40 bg-surface py-1 text-xs shadow-xl"
+        style={{ left: menu.x, top: menu.y }}
+      >
+        {renaming ? (
+          <form
+            className="px-2 py-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              commitRename();
+            }}
+          >
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") onClose();
+              }}
+              className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
+            />
+          </form>
+        ) : (
+          <MenuItem onClick={() => setRenaming(true)}>Rename...</MenuItem>
+        )}
+        <MenuItem onClick={() => act(() => void builder.trackMove(songIndex, menu.index, -1))}>Move Left</MenuItem>
+        <MenuItem onClick={() => act(() => void builder.trackMove(songIndex, menu.index, 1))}>Move Right</MenuItem>
+        <div className="my-1 h-px bg-default/20" />
+        <MenuItem
+          onClick={() =>
+            act(() => {
+              void mixer.setTrackGain(menu.index, 0);
+              void mixer.setTrackPan(menu.index, 0);
+            })
+          }
+        >
+          Reset Gain &amp; Pan
+        </MenuItem>
+        <MenuItem
+          onClick={() =>
+            act(() => {
+              void mixer.setTrackMute(menu.index, false);
+              void mixer.setTrackSolo(menu.index, false);
+            })
+          }
+        >
+          Clear Mute &amp; Solo
+        </MenuItem>
+        <MenuItem
+          disabled={track.sends.length === 0}
+          onClick={() =>
+            act(() => {
+              for (const s of track.sends) void mixer.setTrackSend(menu.index, s.busId, SEND_FLOOR_DB);
+            })
+          }
+        >
+          Clear All Sends
+        </MenuItem>
+        <div className="my-1 h-px bg-default/20" />
+        <MenuItem
+          danger
+          onClick={() =>
+            act(() => {
+              if (window.confirm(`Remove track "${track.name || track.id}"? This can't be undone.`))
+                void builder.trackRemove(songIndex, menu.index);
+            })
+          }
+        >
+          Remove Track
+        </MenuItem>
+      </div>
+    </>
+  );
+}
+
+// builder.busAdd() is fire-and-forget with no ID in the response -- the new
+// bus only shows up on the next WebSocket state push. To turn "add a bus"
+// into "add a bus AND configure it" (needed for both the mixer's "+ Add
+// Send" button and a track's "Direct Output" picker, neither of which have
+// a bus to point at yet), queue a job keyed by the bus-id snapshot taken
+// right before the add, then finish configuring whichever bus shows up next
+// that wasn't in that snapshot.
+interface PendingBusJob {
+  knownIds: Set<string>;
+  finalize: (busId: string, index: number) => void;
 }
 
 export function MixerScreen({ state }: { state: WebUiState }) {
   const auxBusses = state.busses.filter((b) => b.isAux);
   const mainBusses = state.busses.filter((b) => !b.isAux);
+  // "main" is the canonical master bus id (see ProjectLoader::newProject());
+  // fall back to the first non-aux bus for older/unusual projects.
+  const master = state.busses.find((b) => b.id === "main") ?? mainBusses[0];
+  const pendingBusJobs = useRef<PendingBusJob[]>([]);
+  const [trackMenu, setTrackMenu] = useState<TrackMenuState | null>(null);
+
+  useEffect(() => {
+    if (pendingBusJobs.current.length === 0) return;
+    const claimed = new Set<string>();
+    const remaining: PendingBusJob[] = [];
+    for (const job of pendingBusJobs.current) {
+      const idx = state.busses.findIndex((b) => !job.knownIds.has(b.id) && !claimed.has(b.id));
+      if (idx >= 0) {
+        claimed.add(state.busses[idx].id);
+        job.finalize(state.busses[idx].id, idx);
+      } else {
+        remaining.push(job);
+      }
+    }
+    pendingBusJobs.current = remaining;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.busses]);
+
+  function queueBusJob(finalize: (busId: string, index: number) => void) {
+    pendingBusJobs.current.push({ knownIds: new Set(state.busses.map((b) => b.id)), finalize });
+    void builder.busAdd();
+  }
+
+  function nextOutputChannel(): number {
+    return state.busses.reduce((max, b) => Math.max(max, b.startChannel + b.channels), 0);
+  }
+
+  // "+ Add Send" -- creates a new aux (return) bus directly from the mixer
+  // page, same result as BuilderPanel's "Add Return" button, just reachable
+  // without leaving the Mixer. Always starts stereo; mono is a per-bus
+  // toggle on the strip itself afterward (see BusDestinationRouting), not a
+  // separate creation path.
+  function requestAddSend() {
+    const label = `Send ${auxBusses.length + 1}`;
+    queueBusJob((_busId, index) => {
+      void builder.busUpdate({
+        index,
+        name: label,
+        channels: 2,
+        startChannel: nextOutputChannel(),
+        gainDb: 0,
+        mute: false,
+        solo: false,
+        isAux: true,
+      });
+    });
+  }
+
+  // Track "Direct Output" -- pins a track straight to a physical channel (or
+  // pair) instead of a project bus, by finding an existing non-aux bus
+  // already pinned to that exact channel range or creating one on the fly.
+  function requestDirectOutput(trackIndex: number, mono: boolean, startChannel: number) {
+    const channels = mono ? 1 : 2;
+    const existing = mainBusses.find((b) => b.startChannel === startChannel && b.channels === channels);
+    if (existing) {
+      void mixer.setTrackBus(trackIndex, existing.id);
+      return;
+    }
+    const label = mono
+      ? `Out ${startChannel + 1}`
+      : `Out ${startChannel + 1}/${startChannel + 2}`;
+    queueBusJob((busId, index) => {
+      void builder.busUpdate({
+        index,
+        name: label,
+        channels,
+        startChannel,
+        gainDb: 0,
+        mute: false,
+        solo: false,
+        isAux: false,
+      });
+      void mixer.setTrackBus(trackIndex, busId);
+    });
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
@@ -451,37 +1011,84 @@ export function MixerScreen({ state }: { state: WebUiState }) {
             {/* Left: Scrollable Ordinary Track Strips */}
             <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto pr-1">
               {state.tracks.map((t, i) => (
-                <TrackStrip key={t.id} t={t} index={i} busses={state.busses} meters={state.meters} />
+                <div
+                  key={t.id}
+                  className="shrink-0"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setTrackMenu({ x: e.clientX, y: e.clientY, index: i });
+                  }}
+                >
+                  <TrackStrip
+                    t={t}
+                    index={i}
+                    busses={state.busses}
+                    auxBusses={auxBusses}
+                    meters={state.meters}
+                    settings={state.settings}
+                    onDirectOutput={requestDirectOutput}
+                  />
+                </div>
               ))}
             </div>
 
             {/* Vertical Separator Divider Line */}
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
-            {/* Right: Pinned Metronome Track Strip + Aux Busses + Master Bus (Always pinned on the far right) */}
+            {/* Right: "+ Send" (left, centered, big), then Sends, then Metronome (own separator), then Master */}
             <div className="flex shrink-0 gap-2">
-              <MetronomeStrip state={state} />
+              <div className="flex h-full w-20 shrink-0 flex-col items-center justify-center">
+                <button
+                  onClick={() => requestAddSend()}
+                  title="Add a new return/send bus"
+                  className="flex h-20 w-20 shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-default/40 bg-default/10 text-foreground/60 transition-colors hover:bg-default/25 hover:text-foreground"
+                >
+                  <Plus size={22} />
+                  <span className="text-[11px] font-semibold">Send</span>
+                </button>
+              </div>
+
               {auxBusses.map((b) => (
                 <BusStrip
                   key={b.id}
                   b={b}
                   index={state.busses.indexOf(b)}
                   meters={state.meters}
+                  master={master}
+                  settings={state.settings}
                 />
               ))}
+
+              <div className="mx-1 w-px shrink-0 self-stretch bg-default/40" />
+
+              <MetronomeStrip state={state} />
+
+              <div className="mx-1 w-px shrink-0 self-stretch bg-default/40" />
+
               {mainBusses.map((b) => (
                 <BusStrip
                   key={b.id}
                   b={b}
                   index={state.busses.indexOf(b)}
                   meters={state.meters}
-                  isMaster={true}
+                  master={master}
+                  settings={state.settings}
+                  isMaster={b === master}
                 />
               ))}
             </div>
           </>
         )}
       </div>
+
+      {trackMenu && state.tracks[trackMenu.index] && (
+        <TrackContextMenu
+          menu={trackMenu}
+          track={state.tracks[trackMenu.index]}
+          songIndex={state.songIndex}
+          onClose={() => setTrackMenu(null)}
+        />
+      )}
     </div>
   );
 }

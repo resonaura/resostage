@@ -166,7 +166,10 @@ void MainComponent::builderTrackAdd(const std::string& json) {
     TrackDef track;
     track.id = makeUniqueId("trk", used);
     track.name = "New Track";
-    track.file = "Audio/placeholder.wav";
+    track.file = ""; // no audio yet -- empty is the established "unassigned" convention
+                      // (see StreamingEngine::stageSong's `trackDef.file.empty()` skip and
+                      // builderSongAdd's default-track seeding); a fake non-empty path here
+                      // caused "File not found in archive" failures on song select/play.
     track.busId = proj.busses.empty() ? "bus_main" : proj.busses.front().id;
     s.tracks.push_back(std::move(track));
 
@@ -255,6 +258,40 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
     mixerPanel.refreshStructure();
     playerPanel.refreshProject();
     setStatus("Track updated");
+}
+
+void MainComponent::setTrackSendFromJson(const std::string& json) {
+    simdjson::dom::element doc;
+    int trackIndex = -1;
+    std::string busId;
+    double gainDb = 0.0;
+    if (!parseJson(json, doc) || !getInt(doc, "trackIndex", trackIndex) || !getString(doc, "busId", busId)
+        || !getDouble(doc, "gainDb", gainDb) || !engine.isProjectLoaded())
+        return;
+    const size_t idx = static_cast<size_t>(trackIndex);
+    const size_t songIdx = engine.currentSongIndex();
+    const TrackDef* t = engine.trackDefAt(idx);
+    if (t == nullptr)
+        return;
+
+    // Mirrors MixerPanel.cpp's onSendChanged: find this track's existing send
+    // to busId and update its gain, or create one if this is the first time
+    // (turning a knob up from its floor implicitly creates the send).
+    for (size_t si = 0; si < t->sends.size(); ++si) {
+        if (t->sends[si].busId == busId) {
+            TrackSendDef updated = t->sends[si];
+            updated.gainDb = gainDb;
+            engine.setTrackSend(songIdx, idx, si, updated);
+            mixerPanel.refreshStructure();
+            return;
+        }
+    }
+    TrackSendDef newSend;
+    newSend.busId = busId;
+    newSend.gainDb = gainDb;
+    newSend.enabled = true;
+    engine.addTrackSend(songIdx, idx, newSend);
+    mixerPanel.refreshStructure();
 }
 
 void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath) {

@@ -213,6 +213,22 @@ public:
     const PeakOverview* trackPeaksAt(size_t index) const;
     void rebuildTrackPeaks();
 
+    // Peak overview for ANY track file in the project, not just the
+    // currently-staged song -- powers the web UI's continuous multi-song
+    // timeline (see MainComponent::buildAllPeaksJson()). Reads straight from
+    // the same session/on-disk cache trackPeaksAt() draws from; returns
+    // nullptr if that file hasn't been built yet (call
+    // ensureAllSongPeaksBuilt() to kick that off, then poll again).
+    const PeakOverview* cachedPeaksForFile(const std::string& file) const;
+
+    // Background-builds (or loads from the archive's Peaks/*.rpk cache)
+    // peak overviews for every track in every song, not just the staged one.
+    // Safe to call repeatedly/every tick -- it's a no-op once every file is
+    // already cached, and only ever adds to the cache, so calling it again
+    // after a Builder edit that adds a track is exactly how new files get
+    // picked up.
+    void ensureAllSongPeaksBuilt();
+
     MasterClock& masterClock() { return clock; }
 
     // Debug-only: makes the NEXT audio callback sleep for `milliseconds`
@@ -276,7 +292,8 @@ private:
     // case within one run. Cleared on project load/import (file identity
     // may have changed).
     std::unordered_map<std::string, PeakOverview> peakOverviewSessionCache;
-    std::mutex peakCacheMutex; // guards peakOverviewSessionCache against background peak-build threads
+    mutable std::mutex peakCacheMutex; // guards peakOverviewSessionCache against background peak-build threads
+    std::atomic<bool> allPeaksBuildInFlight{false}; // one ensureAllSongPeaksBuilt() sweep at a time
 
     size_t currentSong = 0;
     int64_t currentSongLengthFrames = 0; // 0 = unknown/no tracks

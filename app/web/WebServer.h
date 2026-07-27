@@ -36,6 +36,13 @@ enum class WebCommandKind : uint8_t {
     SetBusGain,
     SetBusMute,
     SetBusSolo,
+    // Ableton-style per-track send routing -- `json` carries
+    // {trackIndex, busId, gainDb}. Mirrors MixerPanel.cpp's onSendChanged:
+    // find the track's existing TrackSendDef for busId and update its gain,
+    // or create a new one if this is the first time this bus was sent to
+    // (turning a knob up from its floor implicitly creates the send). Always
+    // targets engine.currentSongIndex(), same as the other mixer commands.
+    SetTrackSend,
     // Project lifecycle parity -- see app/web/WebServer.cpp's
     // isMixerCommandPath-style routing and MainComponent::drainWebCommands().
     // New/OpenLoadDialog/SaveProject/SaveProjectAs just call the exact same
@@ -196,7 +203,11 @@ struct WebUiState {
         double pan = 0.0;
         bool mute = false;
         bool solo = false;
-        int sends = 0;
+        struct SendRow {
+            std::string busId;
+            double gainDb = 0.0;
+        };
+        std::vector<SendRow> sends;
         float peakDb = -144.0f;
     };
     std::vector<TrackRow> tracks;
@@ -305,6 +316,15 @@ public:
     // reason. Served on demand via GET /api/v1/player/peaks instead.
     void publishPeaks(std::string json);
 
+    // Message-thread: same idea as publishPeaks(), but for the continuous
+    // multi-song timeline's peak data (every song's tracks, not just the
+    // currently-staged one -- see MainComponent::buildAllPeaksJson()). Kept
+    // as its own endpoint/cache rather than folded into publishPeaks() since
+    // it's a strictly larger payload and only the timeline screen needs it
+    // (Player/Mixer only ever look at the current song). Served on demand
+    // via GET /api/v1/player/peaks-all.
+    void publishAllPeaks(std::string json);
+
 private:
     friend int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
     friend int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
@@ -317,6 +337,7 @@ private:
     int serveExportStatus(struct lws* wsi);
     int serveExportDownload(struct lws* wsi);
     int servePeaks(struct lws* wsi);
+    int serveAllPeaks(struct lws* wsi);
 
     // Called only from the lws service thread.
     void onClientOpened();
@@ -347,6 +368,9 @@ private:
 
     mutable std::mutex peaksMutex;
     std::string peaksJson = "{\"tracks\":[]}";
+
+    mutable std::mutex allPeaksMutex;
+    std::string allPeaksJson = "{\"songs\":[]}";
 
     // Per-session WS bookkeeping lives in the .cpp (opaque to callers).
     // The service thread owns a linked list of live WS sessions via user data.

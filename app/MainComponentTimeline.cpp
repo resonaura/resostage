@@ -79,4 +79,61 @@ std::string MainComponent::buildPeaksJson() const {
     return o.str();
 }
 
+void MainComponent::maybePublishAllPeaks() {
+    if (!engine.isProjectLoaded())
+        return;
+    engine.ensureAllSongPeaksBuilt();
+
+    int totalFiles = 0, builtFiles = 0;
+    for (const auto& song : engine.project().songs) {
+        for (const auto& t : song.tracks) {
+            if (t.file.empty())
+                continue;
+            ++totalFiles;
+            if (engine.cachedPeaksForFile(t.file) != nullptr)
+                ++builtFiles;
+        }
+    }
+    const bool complete = builtFiles == totalFiles;
+    if (builtFiles == lastAllPeaksBuiltCount && complete == lastAllPeaksComplete)
+        return; // nothing new since the last publish
+
+    webServer.publishAllPeaks(buildAllPeaksJson());
+    lastAllPeaksBuiltCount = builtFiles;
+    lastAllPeaksComplete = complete;
+}
+
+std::string MainComponent::buildAllPeaksJson() const {
+    std::ostringstream o;
+    o.setf(std::ios::fixed);
+    o.precision(4);
+    o << "{\"songs\":[";
+    const auto& songs = engine.project().songs;
+    for (size_t s = 0; s < songs.size(); ++s) {
+        if (s)
+            o << ",";
+        o << "{\"tracks\":[";
+        const auto& tracks = songs[s].tracks;
+        for (size_t i = 0; i < tracks.size(); ++i) {
+            if (i)
+                o << ",";
+            const PeakOverview* pk = tracks[i].file.empty() ? nullptr : engine.cachedPeaksForFile(tracks[i].file);
+            o << "{\"id\":\"" << tracks[i].id << "\","
+              << "\"durationSeconds\":" << (pk != nullptr ? pk->durationSeconds : 0.0) << ","
+              << "\"peaks\":[";
+            if (pk != nullptr) {
+                for (size_t b = 0; b < pk->peaks.size(); ++b) {
+                    if (b)
+                        o << ",";
+                    o << pk->peaks[b];
+                }
+            }
+            o << "]}";
+        }
+        o << "]}";
+    }
+    o << "]}";
+    return o.str();
+}
+
 } // namespace resoset

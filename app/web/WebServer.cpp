@@ -213,6 +213,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/settings/keybinding", WebCommandKind::SetKeybinding},
     {"/api/v1/settings/output-channels", WebCommandKind::SetOutputChannels},
     {"/api/v1/transport/seek", WebCommandKind::Seek},
+    {"/api/v1/mixer/track/send", WebCommandKind::SetTrackSend},
 };
 
 bool builderCommandKindForPath(const char* path, WebCommandKind& outKind) {
@@ -260,6 +261,16 @@ int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
     if (lws_add_http_header_by_name(wsi,
                                     reinterpret_cast<const unsigned char*>("access-control-allow-origin"),
                                     reinterpret_cast<const unsigned char*>("*"), 1, &p, end))
+        return 1;
+    // Nothing served here should ever be cached -- the SPA bundle is
+    // rebaked into the binary on every dev iteration with no versioned URL
+    // (index.html is always "/"), and WKWebView's persistent disk cache in
+    // particular is happy to keep serving a stale bundle across app
+    // relaunches without this. Every response is either tiny/dynamic
+    // (state/JSON) or the whole point is "must reflect the latest build".
+    if (lws_add_http_header_by_name(wsi,
+                                    reinterpret_cast<const unsigned char*>("cache-control"),
+                                    reinterpret_cast<const unsigned char*>("no-store, must-revalidate"), 24, &p, end))
         return 1;
     if (contentDisposition != nullptr) {
         if (lws_add_http_header_by_name(
@@ -434,6 +445,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return server->serveExportDownload(wsi);
                     if (std::strcmp(uri, "/api/v1/player/peaks") == 0)
                         return server->servePeaks(wsi);
+                    if (std::strcmp(uri, "/api/v1/player/peaks-all") == 0)
+                        return server->serveAllPeaks(wsi);
                     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
                                              "{\"error\":\"not found\"}", 27);
                 }
@@ -835,7 +848,13 @@ std::string WebServer::buildStateJson() const {
           << "\"pan\":" << finiteOrZero(t.pan) << ","
           << "\"mute\":" << (t.mute ? "true" : "false") << ","
           << "\"solo\":" << (t.solo ? "true" : "false") << ","
-          << "\"sends\":" << t.sends << ","
+          << "\"sends\":[";
+        for (size_t si = 0; si < t.sends.size(); ++si) {
+            if (si) o << ",";
+            o << "{\"busId\":\"" << jsonEscape(t.sends[si].busId) << "\","
+              << "\"gainDb\":" << finiteOrZero(t.sends[si].gainDb) << "}";
+        }
+        o << "],"
           << "\"peakDb\":" << finiteOrZero(t.peakDb) << "}";
     }
     o << "],";
@@ -1067,6 +1086,20 @@ int WebServer::servePeaks(struct lws* wsi) {
     {
         std::lock_guard<std::mutex> lock(peaksMutex);
         json = peaksJson;
+    }
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+}
+
+void WebServer::publishAllPeaks(std::string json) {
+    std::lock_guard<std::mutex> lock(allPeaksMutex);
+    allPeaksJson = std::move(json);
+}
+
+int WebServer::serveAllPeaks(struct lws* wsi) {
+    std::string json;
+    {
+        std::lock_guard<std::mutex> lock(allPeaksMutex);
+        json = allPeaksJson;
     }
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }

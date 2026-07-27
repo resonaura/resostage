@@ -273,29 +273,13 @@ void ProjectLoader::newProject(const std::string& name) {
     mainBus.output.startChannel = 0;
     parsedProject.busses.push_back(std::move(mainBus));
 
-    // Create default initial song with standard consolidated track set
-    SongDef song;
-    song.id = "song_1";
-    song.name = "Song 1";
-    song.bpm = 120.0;
-    song.builtInClickBusId = "main";
-    song.builtInClickEnabled = true;
-
-    const std::vector<std::string> defaultTrackNames = {
-        "Drums", "Percussion", "Bass", "Guitars", "Synths", "Vocals", "SFX", "Guide"
-    };
-
-    int trId = 1;
-    for (const auto& tname : defaultTrackNames) {
-        TrackDef t;
-        t.id = "tr_" + std::to_string(trId++);
-        t.name = tname;
-        t.file = ""; // empty region until WAV imported
-        t.busId = "main";
-        song.tracks.push_back(std::move(t));
-    }
-
-    parsedProject.songs.push_back(std::move(song));
+    // No default song here: a brand-new project starts with zero songs, and
+    // the UI (ensureSongSelected() et al.) already tolerates that fine. The
+    // "seed with a standard consolidated track set" behavior lives in
+    // MainComponent::builderSongAdd() instead, which applies it to whichever
+    // song the user actually asks to add (and reuses the first real song's
+    // track template for every song after that) -- doing it again here too
+    // just produced an unwanted phantom "Song 1" nobody asked for.
 }
 
 bool ProjectLoader::isOpen() const {

@@ -96,19 +96,31 @@ export function ImportStemsModal({
   const [tsDen, setTsDen] = useState(4);
   const [isImporting, setIsImporting] = useState(false);
 
-  // Mapped stem items: Click stems default to using built-in C++ click generator
-  const [stemMappings, setStemMappings] = useState<StemImportItem[]>(() =>
-    files.map((file) => {
+  // Mapped stem items: Click stems default to using built-in C++ click
+  // generator. When two files auto-detect to the same category (e.g. two
+  // "Guitars" stems), default their target names to distinct tracks
+  // ("Guitars", "Guitars 2") up front -- a track can only hold one file
+  // (TrackDef.file is a single string), so leaving both defaulted to the
+  // same name would make the upload step below silently overwrite the
+  // first file with the second once actually imported.
+  const [stemMappings, setStemMappings] = useState<StemImportItem[]>(() => {
+    const seenCounts: Record<string, number> = {};
+    return files.map((file) => {
       const category = autoDetectStemType(file.name);
       const isClick = category === "Click";
+      if (isClick) {
+        return { file, filename: file.name, detectedCategory: category, targetTrackName: "(Use Built-in Metronome)" };
+      }
+      const occurrence = (seenCounts[category] ?? 0) + 1;
+      seenCounts[category] = occurrence;
       return {
         file,
         filename: file.name,
         detectedCategory: category,
-        targetTrackName: isClick ? "(Use Built-in Metronome)" : category,
+        targetTrackName: occurrence === 1 ? category : `${category} ${occurrence}`,
       };
-    })
-  );
+    });
+  });
 
   const handleTargetChange = (index: number, newTarget: string) => {
     setStemMappings((prev) => {
@@ -145,7 +157,13 @@ export function ImportStemsModal({
         clickBusId: state.busses[0]?.id || "main",
       });
 
-      // 2. Map stems to consolidated tracks (excluding special actions)
+      // 2. Map stems to consolidated tracks (excluding special actions).
+      // IMPORTANT: `state.tracks` is the currently-STAGED song's mixer track
+      // list (see api.ts's mixer.* comments), not the brand-new song we just
+      // created above -- using it here to compute indices was the bug that
+      // dropped stems on the floor (wrong/stale indices, since the new song
+      // actually starts with zero tracks). Track the new song's own tracks
+      // locally instead; it's a fresh song, so every name is new by construction.
       const requiredTrackNames = Array.from(
         new Set(
           stemMappings
@@ -155,14 +173,14 @@ export function ImportStemsModal({
       );
 
       const trackIndexByName: Record<string, number> = {};
-      let newTracksAddedCount = 0;
+      const newSongTrackNames: string[] = [];
 
       for (const trackName of requiredTrackNames) {
-        let existingIndex = state.tracks.findIndex((t) => t.name === trackName);
+        let existingIndex = newSongTrackNames.indexOf(trackName);
         if (existingIndex < 0) {
           await builder.trackAdd(songIndex);
-          existingIndex = state.tracks.length + newTracksAddedCount;
-          newTracksAddedCount++;
+          existingIndex = newSongTrackNames.length;
+          newSongTrackNames.push(trackName);
           await builder.trackUpdate({
             songIndex,
             index: existingIndex,
@@ -177,14 +195,43 @@ export function ImportStemsModal({
         trackIndexByName[trackName] = existingIndex;
       }
 
-      // 3. Upload stems to mapped tracks
+      // 3. Upload stems to mapped tracks. A track can only hold ONE file, so
+      // if more than one stem still ends up targeting the same name here
+      // (e.g. the user manually picked the same existing track for two
+      // files), uploading both to that one track index would silently keep
+      // only the last upload -- the exact "two audio files, only one
+      // survives" bug. Every occurrence past the first instead gets its own
+      // freshly-created, disambiguated track rather than losing audio.
+      const uploadCountByName: Record<string, number> = {};
       for (const item of stemMappings) {
         if (
           item.targetTrackName === "(Skip)" ||
           item.targetTrackName === "(Use Built-in Metronome)"
         )
           continue;
-        const targetIndex = trackIndexByName[item.targetTrackName];
+
+        const baseName = item.targetTrackName;
+        const occurrence = (uploadCountByName[baseName] ?? 0) + 1;
+        uploadCountByName[baseName] = occurrence;
+
+        let targetIndex = trackIndexByName[baseName];
+        if (occurrence > 1) {
+          const disambiguatedName = `${baseName} ${occurrence}`;
+          await builder.trackAdd(songIndex);
+          targetIndex = newSongTrackNames.length;
+          newSongTrackNames.push(disambiguatedName);
+          await builder.trackUpdate({
+            songIndex,
+            index: targetIndex,
+            name: disambiguatedName,
+            busId: state.busses[0]?.id || "main",
+            gainDb: 0,
+            pan: 0,
+            mute: false,
+            solo: false,
+          });
+        }
+
         if (targetIndex !== undefined) {
           await builder.trackImportWav(songIndex, targetIndex, item.file);
         }

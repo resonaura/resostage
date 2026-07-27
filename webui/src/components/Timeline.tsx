@@ -3,7 +3,7 @@ import { Button } from "@heroui/react";
 import { ZoomIn, ZoomOut } from "lucide-react";
 import { mixer, transport } from "../lib/api";
 import { useLiveValue, useOptimisticSeek } from "../lib/optimistic";
-import type { PeaksResponse, SongEventRow, TrackRow, WebUiState } from "../lib/types";
+import type { AllPeaksResponse, PeaksResponse, SongRow, TrackRow, WebUiState } from "../lib/types";
 
 const SIDEBAR_WIDTH = 240;
 const LANE_HEIGHT = 56;
@@ -514,16 +514,74 @@ function TrackWaveformLane({
   );
 }
 
-// ------- Timeline -------------------------------------------------------
+// ------- Timeline (continuous multi-song arrangement) -------------------
+
+// One row per unique track NAME across the whole project (tracks belong to
+// individual songs in this schema, so "continuous" means aligning
+// same-named tracks -- e.g. every song's "Drums" -- into one lane spanning
+// all songs, Logic-Pro-style). Rows backed by a track in the *currently
+// staged* song get full TrackHeaderControl (gain/pan/mute/solo); rows that
+// only exist in other songs get a plain label -- there's no staged track
+// index to drive mixer.set*() with for those.
+interface TimelineRow {
+  name: string;
+  color: string;
+  headerIndex: number | null;
+}
+
+function buildRows(currentTracks: TrackRow[], songs: SongRow[]): TimelineRow[] {
+  const rows: TimelineRow[] = [];
+  const seen = new Set<string>();
+  currentTracks.forEach((t, i) => {
+    const name = t.name || t.id;
+    if (seen.has(name)) return;
+    seen.add(name);
+    rows.push({ name, color: TRACK_COLORS[i % TRACK_COLORS.length], headerIndex: i });
+  });
+  for (const s of songs) {
+    for (const t of s.tracks) {
+      const name = t.name || t.id;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      rows.push({ name, color: TRACK_COLORS[rows.length % TRACK_COLORS.length], headerIndex: null });
+    }
+  }
+  return rows;
+}
+
+function songDurationSeconds(song: SongRow, peaksForSong: { durationSeconds: number }[] | undefined): number {
+  let max = 0;
+  for (const p of peaksForSong ?? []) max = Math.max(max, p.durationSeconds);
+  for (const e of song.events) max = Math.max(max, e.timeSeconds);
+  return Math.max(max, 1);
+}
+
+// Read-only sidebar row for a track that only exists in a non-staged song --
+// no mixer controls, since there's no staged track index to drive them with.
+function TimelineRowLabel({ name, color }: { name: string; color: string }) {
+  return (
+    <div
+      className="flex items-center gap-2 border-b border-default/15 px-3 py-1.5 select-none bg-surface/20 opacity-60"
+      style={{ height: LANE_HEIGHT }}
+    >
+      <span className="h-3.5 w-2 shrink-0 rounded-sm" style={{ background: color }} />
+      <span className="truncate text-xs font-medium text-foreground/60" title={name}>
+        {name}
+      </span>
+    </div>
+  );
+}
 
 export function Timeline({
   state,
   peaks,
+  allPeaks,
   pxPerSec,
   setPxPerSec,
 }: {
   state: WebUiState;
   peaks: PeaksResponse | null;
+  allPeaks: AllPeaksResponse | null;
   pxPerSec: number;
   setPxPerSec: React.Dispatch<React.SetStateAction<number>>;
 }) {
@@ -541,20 +599,31 @@ export function Timeline({
 
   const [playheadSec, setPlayheadSec] = useOptimisticSeek(state.playheadSeconds);
 
-  const hasSong = state.songIndex >= 0;
-  const song = hasSong ? state.songs[state.songIndex] : undefined;
-  const events: SongEventRow[] = song?.events ?? [];
-  const bpm = song?.bpm ?? 0;
-  const tsNum = song?.tsNum ?? 4;
+  const songs = state.songs;
+  const hasSongs = songs.length > 0;
 
-  const songLength = useMemo(() => {
-    let max = 0;
-    for (const t of peaks?.tracks ?? []) max = Math.max(max, t.durationSeconds);
-    for (const e of events) max = Math.max(max, e.timeSeconds);
-    return Math.max(max, hasSong ? 1 : 0);
-  }, [peaks, events, hasSong]);
+  // Per-song duration/offset in absolute project time. Uses allPeaks (every
+  // song) when available, falling back to the fast single-song `peaks`
+  // fetch for whichever song is currently staged so its segment doesn't
+  // wait on the slower whole-project sweep.
+  const { songLengths, songOffsets, totalLength } = useMemo(() => {
+    const lengths: number[] = [];
+    const offsets: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < songs.length; i++) {
+      const fromAll = allPeaks?.songs[i]?.tracks;
+      const fromCurrent = i === state.songIndex ? peaks?.tracks : undefined;
+      const len = songDurationSeconds(songs[i], fromAll ?? fromCurrent);
+      lengths.push(len);
+      offsets.push(acc);
+      acc += len;
+    }
+    return { songLengths: lengths, songOffsets: offsets, totalLength: acc };
+  }, [songs, allPeaks, peaks, state.songIndex]);
 
-  const contentWidth = Math.max(1, Math.round(songLength * pxPerSec));
+  const contentWidth = Math.max(1, Math.round(totalLength * pxPerSec));
+
+  const rows = useMemo(() => buildRows(state.tracks, songs), [state.tracks, songs]);
 
   const applyZoomAt = (nextPxPerSec: number, focusClientX?: number) => {
     const scroller = scrollRef.current;
@@ -663,23 +732,51 @@ export function Timeline({
     };
   }, []);
 
+  // Maps an absolute (whole-timeline) second offset to whichever song
+  // segment contains it, plus the position within that song.
+  const resolveSong = (absSeconds: number): { songIndex: number; localSeconds: number } => {
+    for (let i = 0; i < songs.length; i++) {
+      const start = songOffsets[i];
+      const end = start + songLengths[i];
+      if (absSeconds < end || i === songs.length - 1)
+        return { songIndex: i, localSeconds: Math.max(0, absSeconds - start) };
+    }
+    return { songIndex: -1, localSeconds: 0 };
+  };
+
   const seekFromClientX = (clientX: number, commit = false) => {
     const bodyEl = timelineBodyRef.current;
-    if (!bodyEl) return;
+    if (!bodyEl || songs.length === 0) return;
     const rect = bodyEl.getBoundingClientRect();
     const x = clientX - rect.left;
-    const seconds = Math.max(0, x / pxPerSec);
-    setPlayheadSec(seconds);
+    const absSeconds = Math.max(0, x / pxPerSec);
+    const { songIndex, localSeconds } = resolveSong(absSeconds);
+    if (songIndex < 0) return;
 
+    if (songIndex !== state.songIndex) {
+      // A click landed in a different song's segment -- only act on
+      // release/click (never mid-drag), since selecting restages the song
+      // (heavier than a same-song seek, and mid-drag would restage repeatedly).
+      if (commit) {
+        setPlayheadSec(localSeconds);
+        void (async () => {
+          await transport.select(songIndex);
+          await transport.seek(localSeconds);
+        })();
+      }
+      return;
+    }
+
+    setPlayheadSec(localSeconds);
     const now = Date.now();
     if (commit || now - lastSeekAt.current >= SEEK_THROTTLE_MS) {
       lastSeekAt.current = now;
-      void transport.seek(seconds);
+      void transport.seek(localSeconds);
     }
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (!hasSong) return;
+    if (!hasSongs) return;
     dragging.current = true;
     (e.target as Element).setPointerCapture?.(e.pointerId);
     seekFromClientX(e.clientX, true);
@@ -702,8 +799,8 @@ export function Timeline({
     });
   };
 
-  const peaksById = new Map((peaks?.tracks ?? []).map((t) => [t.id, t.peaks]));
-  const trackCount = state.tracks.length;
+  const currentSongOffset = state.songIndex >= 0 ? (songOffsets[state.songIndex] ?? 0) : 0;
+  const playheadAbsoluteSec = currentSongOffset + playheadSec;
 
   return (
     <div ref={containerRef} className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-surface/60">
@@ -711,11 +808,9 @@ export function Timeline({
       <div className="flex shrink-0 items-center justify-between border-b border-default/30 px-3 py-1.5 bg-surface/80 z-20">
         <span className="text-xs font-semibold uppercase tracking-wide text-foreground/40">
           Timeline
-          {song && (
-            <span className="ml-2 font-normal lowercase text-foreground/25">
-              {bpm.toFixed(1)} bpm · {tsNum}/{song.tsDen}
-            </span>
-          )}
+          <span className="ml-2 font-normal lowercase text-foreground/25">
+            {songs.length} song{songs.length === 1 ? "" : "s"} &middot; {formatTimeShort(totalLength)}
+          </span>
         </span>
         <div className="flex items-center gap-1">
           <Button
@@ -739,9 +834,9 @@ export function Timeline({
         </div>
       </div>
 
-      {!hasSong ? (
+      {!hasSongs ? (
         <div className="flex h-full min-h-0 items-center justify-center text-sm text-foreground/40">
-          No song selected
+          No songs in this project
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -755,7 +850,7 @@ export function Timeline({
               className="shrink-0 border-b border-default/30 px-2.5 text-[10px] font-bold uppercase tracking-wider text-foreground/40 flex items-center bg-surface"
               style={{ height: RULER_HEIGHT }}
             >
-              {bpm > 1 ? "BARS" : "TIME"}
+              SONGS
             </div>
             {/* Event lane spacer */}
             <div
@@ -767,19 +862,23 @@ export function Timeline({
             {/* Track controls list (scrolls vertically in sync with right timeline) */}
             <div className="flex-1 min-h-0 overflow-hidden">
               <div style={{ transform: `translateY(-${scrollTopY}px)` }}>
-                {trackCount === 0 ? (
+                {rows.length === 0 ? (
                   <div className="flex h-20 items-center justify-center px-2 text-[10px] text-foreground/40">
                     No tracks
                   </div>
                 ) : (
-                  state.tracks.map((t, i) => (
-                    <TrackHeaderControl
-                      key={t.id}
-                      track={t}
-                      index={i}
-                      color={TRACK_COLORS[i % TRACK_COLORS.length]}
-                    />
-                  ))
+                  rows.map((row) =>
+                    row.headerIndex !== null ? (
+                      <TrackHeaderControl
+                        key={row.name}
+                        track={state.tracks[row.headerIndex]}
+                        index={row.headerIndex}
+                        color={row.color}
+                      />
+                    ) : (
+                      <TimelineRowLabel key={row.name} name={row.name} color={row.color} />
+                    ),
+                  )
                 )}
               </div>
             </div>
@@ -796,79 +895,137 @@ export function Timeline({
               className="relative flex min-h-0 flex-col"
               style={{ width: contentWidth, minHeight: "100%" }}
             >
-              {/* 1. Sticky Ruler Header (Stays fixed at top: 0 when scrolling tracks vertically) */}
-              <div className="sticky top-0 z-20 bg-surface/95 shrink-0">
-                <Ruler
-                  pxPerSec={pxPerSec}
-                  contentWidth={contentWidth}
-                  songLength={songLength}
-                  bpm={bpm}
-                  tsNum={tsNum}
-                />
+              {/* 1. Sticky Ruler Header -- one segment per song, each with its own bpm/time-signature grid */}
+              <div
+                className="sticky top-0 z-20 bg-surface/95 shrink-0 cursor-col-resize touch-none relative"
+                style={{ width: contentWidth, height: RULER_HEIGHT }}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+              >
+                {songs.map((song, i) => {
+                  const left = Math.round(songOffsets[i] * pxPerSec);
+                  const isActive = i === state.songIndex;
+                  return (
+                    <div key={i} className="absolute top-0" style={{ left, height: RULER_HEIGHT }}>
+                      {i > 0 && <div className="absolute left-0 top-0 h-full w-px bg-default/40" />}
+                      <div
+                        className={`absolute -top-px left-1.5 z-10 truncate rounded-b px-1 text-[8px] font-bold uppercase tracking-wide ${
+                          isActive ? "bg-accent text-accent-foreground" : "bg-default/30 text-foreground/50"
+                        }`}
+                        style={{ maxWidth: Math.max(20, songLengths[i] * pxPerSec - 6) }}
+                        title={song.name}
+                      >
+                        {i + 1}. {song.name}
+                      </div>
+                      <Ruler
+                        pxPerSec={pxPerSec}
+                        contentWidth={Math.max(1, Math.round(songLengths[i] * pxPerSec))}
+                        songLength={songLengths[i]}
+                        bpm={song.bpm}
+                        tsNum={song.tsNum}
+                      />
+                    </div>
+                  );
+                })}
               </div>
 
-              {/* 2. Event Marker Lane */}
+              {/* 2. Event Marker Lane -- events from every song, each at its song's absolute offset */}
               <div
-                className="relative shrink-0 border-b border-default/30 bg-surface/30"
-                style={{ height: EVENT_LANE_HEIGHT }}
+                className="relative shrink-0 border-b border-default/30 bg-surface/30 cursor-col-resize touch-none"
+                style={{ height: EVENT_LANE_HEIGHT, width: contentWidth }}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
               >
                 <div className="relative" style={{ width: contentWidth }}>
-                  {events
-                    .filter((e) => !e.triggerOnLoad)
-                    .map((e) => {
-                      const color = EVENT_COLORS[e.type] ?? "#8e8e93";
-                      return (
-                        <div
-                          key={e.id}
-                          className="absolute top-1 flex flex-col items-center"
-                          style={{ left: e.timeSeconds * pxPerSec - 5 }}
-                          title={`${e.id} (${e.type}) @ ${e.timeSeconds.toFixed(2)}s`}
-                        >
-                          <div className="h-3 w-px" style={{ background: color + "aa" }} />
+                  {songs.flatMap((song, i) =>
+                    song.events
+                      .filter((e) => !e.triggerOnLoad)
+                      .map((e) => {
+                        const color = EVENT_COLORS[e.type] ?? "#8e8e93";
+                        const left = (songOffsets[i] + e.timeSeconds) * pxPerSec - 5;
+                        return (
                           <div
-                            className="h-1.5 w-1.5 rounded-full"
-                            style={{ background: color }}
-                          />
-                        </div>
-                      );
-                    })}
+                            key={`${i}:${e.id}`}
+                            className="absolute top-1 flex flex-col items-center"
+                            style={{ left }}
+                            title={`${song.name}: ${e.id} (${e.type}) @ ${e.timeSeconds.toFixed(2)}s`}
+                          >
+                            <div className="h-3 w-px" style={{ background: color + "aa" }} />
+                            <div
+                              className="h-1.5 w-1.5 rounded-full"
+                              style={{ background: color }}
+                            />
+                          </div>
+                        );
+                      }),
+                  )}
                 </div>
               </div>
 
-              {/* 3. Track Waveforms & Grid Container */}
+              {/* 3. Track Waveforms & Grid Container -- one row per canonical track name, one segment per song */}
               <div
                 className="relative flex-1 touch-none select-none min-h-[120px]"
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
               >
-                {/* Beat/bar vertical grid canvas (Viewport Sliced) */}
-                <BeatGrid
-                  pxPerSec={pxPerSec}
-                  contentWidth={contentWidth}
-                  scrollLeft={scrollState.scrollLeft}
-                  viewportWidth={scrollState.viewportWidth}
-                  songLength={songLength}
-                  bpm={bpm}
-                  tsNum={tsNum}
-                />
+                {/* Beat/bar vertical grid canvas, per song (Viewport Sliced) */}
+                {songs.map((song, i) => (
+                  <div
+                    key={i}
+                    className="absolute top-0 bottom-0"
+                    style={{ left: Math.round(songOffsets[i] * pxPerSec) }}
+                  >
+                    <BeatGrid
+                      pxPerSec={pxPerSec}
+                      contentWidth={Math.max(1, Math.round(songLengths[i] * pxPerSec))}
+                      scrollLeft={Math.max(0, scrollState.scrollLeft - songOffsets[i] * pxPerSec)}
+                      viewportWidth={scrollState.viewportWidth}
+                      songLength={songLengths[i]}
+                      bpm={song.bpm}
+                      tsNum={song.tsNum}
+                    />
+                  </div>
+                ))}
 
-                {trackCount === 0 ? (
+                {rows.length === 0 ? (
                   <div className="flex h-20 items-center justify-center text-sm text-foreground/40">
-                    No tracks in this song.
+                    No tracks in this project.
                   </div>
                 ) : (
-                  state.tracks.map((t, i) => (
-                    <TrackWaveformLane
-                      key={t.id}
-                      peaks={peaksById.get(t.id) ?? []}
-                      contentWidth={contentWidth}
-                      scrollLeft={scrollState.scrollLeft}
-                      viewportWidth={scrollState.viewportWidth}
-                      pxPerSec={pxPerSec}
-                      color={TRACK_COLORS[i % TRACK_COLORS.length]}
-                      muted={t.mute}
-                    />
+                  rows.map((row) => (
+                    <div key={row.name} className="relative" style={{ width: contentWidth, height: LANE_HEIGHT }}>
+                      {songs.map((song, i) => {
+                        const segStart = songOffsets[i] * pxPerSec;
+                        const segWidth = Math.max(1, Math.round(songLengths[i] * pxPerSec));
+                        const segEnd = segStart + segWidth;
+                        const viewStart = Math.max(segStart, scrollState.scrollLeft);
+                        const viewEnd = Math.min(segEnd, scrollState.scrollLeft + scrollState.viewportWidth);
+                        if (viewEnd <= viewStart) return null;
+
+                        const track = song.tracks.find((t) => (t.name || t.id) === row.name);
+                        if (!track) return null;
+
+                        const peaksForSong = allPeaks?.songs[i]?.tracks ?? (i === state.songIndex ? peaks?.tracks : undefined);
+                        const peakEntry = peaksForSong?.find((p) => p.id === track.id);
+
+                        return (
+                          <div key={i} className="absolute top-0" style={{ left: segStart }}>
+                            <TrackWaveformLane
+                              peaks={peakEntry?.peaks ?? []}
+                              contentWidth={segWidth}
+                              scrollLeft={viewStart - segStart}
+                              viewportWidth={viewEnd - viewStart}
+                              pxPerSec={pxPerSec}
+                              color={row.color}
+                              muted={track.mute}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
                   ))
                 )}
               </div>
@@ -877,7 +1034,7 @@ export function Timeline({
               <div
                 className="pointer-events-none absolute top-0 z-30 flex flex-col items-center bottom-0"
                 style={{
-                  left: playheadSec * pxPerSec,
+                  left: playheadAbsoluteSec * pxPerSec,
                   transform: "translateX(-50%)",
                 }}
               >
