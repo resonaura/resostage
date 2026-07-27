@@ -113,7 +113,7 @@ private:
     // instead of widget-driven, and finishes by invoking the same
     // builderPanel.onProjectEdited()/onRoutingEdited() hooks the native
     // Builder tab already uses to refresh everything else.
-    void builderSongAdd();
+    void builderSongAdd(const std::string& json);
     void builderSongRemove(const std::string& json);
     void builderSongMove(const std::string& json);
     void builderSongUpdate(const std::string& json);

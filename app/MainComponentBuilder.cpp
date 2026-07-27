@@ -26,7 +26,7 @@ bool parseJson(const std::string& json, simdjson::dom::element& out) {
 
 } // namespace
 
-void MainComponent::builderSongAdd() {
+void MainComponent::builderSongAdd(const std::string& json) {
     if (!engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
@@ -42,7 +42,22 @@ void MainComponent::builderSongAdd() {
 
     const std::string defaultBusId = !proj.busses.empty() ? proj.busses.front().id : "main";
 
-    if (!proj.songs.empty() && !proj.songs.front().tracks.empty()) {
+    // Callers that build their own exact track list right after adding the
+    // song (e.g. ImportStemsModal.tsx mapping stem files to tracks) pass
+    // noSeed so they get a genuinely empty song instead -- without this,
+    // the default-track seeding below collided with their own trackAdd()
+    // calls: the seeded tracks shifted every index the caller assumed was
+    // fresh, so trackUpdate() ended up renaming/uploading onto the WRONG
+    // (pre-seeded) track while the caller's own newly-added track sat
+    // unused, still called "New Track" with no audio.
+    simdjson::dom::element doc;
+    bool noSeed = false;
+    if (parseJson(json, doc))
+        getBool(doc, "noSeed", noSeed);
+
+    if (noSeed) {
+        // no tracks -- caller adds exactly what it needs
+    } else if (!proj.songs.empty() && !proj.songs.front().tracks.empty()) {
         std::vector<std::string> trUsed;
         for (const auto& masterTr : proj.songs.front().tracks) {
             TrackDef t;

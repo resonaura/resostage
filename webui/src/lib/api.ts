@@ -121,7 +121,12 @@ export const project = {
 // MainComponentBuilder.cpp, which does the actual field parsing -- see
 // app/web/BuilderJson.h.
 export const builder = {
-  songAdd: () => post("/api/v1/builder/song/add"),
+  // noSeed=true skips the default-track scaffolding (clone of the first
+  // song's tracks, or the 8 standard names for the very first song) --
+  // for callers that build their own exact track list right after (see
+  // ImportStemsModal.tsx), since otherwise the seeded tracks silently
+  // shift every index the caller assumes is fresh.
+  songAdd: (noSeed = false) => post("/api/v1/builder/song/add", { noSeed }),
   songImportFolder: () => post("/api/v1/builder/song/import-folder"),
   songRemove: (index: number) => post("/api/v1/builder/song/remove", { index }),
   songMove: (index: number, delta: number) => post("/api/v1/builder/song/move", { index, delta }),

@@ -468,7 +468,7 @@ void MainComponent::drainWebCommands() {
                 break;
             }
             // Builder structural-edit parity -- see MainComponentBuilder.cpp.
-            case WebCommandKind::BuilderSongAdd: builderSongAdd(); break;
+            case WebCommandKind::BuilderSongAdd: builderSongAdd(cmd.json); break;
             case WebCommandKind::BuilderSongImportFolder: builderPanel.importSongFolderClicked(); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
             case WebCommandKind::BuilderSongMove: builderSongMove(cmd.json); break;

@@ -298,16 +298,21 @@ function TrackOutputRouting({
         <option value={EXT_OUTPUT_VALUE}>Ext. Output</option>
       </select>
 
+      {/* Always visible (not just once Ext. Output is picked) -- it's the
+          same per-track mono/stereo choice the bus strips always show, and
+          determines whether Ext. Output offers single channels or pairs. */}
+      <button
+        type="button"
+        className="mt-1 flex items-center gap-1 text-foreground/70"
+        title={mono ? "Mono (click for stereo)" : "Stereo (click for mono)"}
+        onClick={() => setMono((m) => !m)}
+      >
+        <MonoStereoIcon stereo={!mono} />
+        <span className="text-[8px] uppercase">{mono ? "Mono" : "Stereo"}</span>
+      </button>
+
       {directOutputOpen && (
         <div className="mt-1 flex flex-col items-center gap-1 rounded border border-default/40 bg-default/10 p-1">
-          <button
-            className="flex items-center gap-1 text-foreground/70"
-            title={mono ? "Mono (click for stereo)" : "Stereo (click for mono)"}
-            onClick={() => setMono((m) => !m)}
-          >
-            <MonoStereoIcon stereo={!mono} />
-            <span className="text-[8px] uppercase">{mono ? "Mono" : "Stereo"}</span>
-          </button>
           <select
             defaultValue=""
             onChange={(e) => {
@@ -1013,7 +1018,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
               {state.tracks.map((t, i) => (
                 <div
                   key={t.id}
-                  className="shrink-0"
+                  className="flex shrink-0"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setTrackMenu({ x: e.clientX, y: e.clientY, index: i });

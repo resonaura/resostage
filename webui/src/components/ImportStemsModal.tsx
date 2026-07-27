@@ -133,8 +133,15 @@ export function ImportStemsModal({
   const handleConfirmImport = async () => {
     setIsImporting(true);
     try {
-      // 1. Create new song
-      await builder.songAdd();
+      // 1. Create new song. noSeed=true is essential here: builder.songAdd()
+      // otherwise scaffolds 8 default tracks (or clones the first song's
+      // tracks) before we get a chance to add our own -- this used to
+      // silently desync every index this file computes below from the
+      // actual server-side track list (the seeded tracks shifted
+      // everything), so trackUpdate() renamed the wrong (pre-seeded) track
+      // while the real new one sat unused as "New Track" with no audio, and
+      // the corruption then got cloned into every subsequent imported song.
+      await builder.songAdd(true);
       const songIndex = state.songs.length; // index of newly added song
 
       // Enable built-in click if any click stem detected or chosen
