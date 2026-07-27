@@ -59,6 +59,29 @@ bool parseBus(const simdjson::dom::element& busEl, BusDef& bus, std::string& err
     return true;
 }
 
+bool parseRegion(const simdjson::dom::element& regEl, Region& reg, std::string& error) {
+    std::string_view idView, trackIdView;
+    if (regEl["id"].get(idView) || regEl["trackId"].get(trackIdView)) {
+        error = "Region entry missing required 'id' or 'trackId'";
+        return false;
+    }
+    reg.id = std::string(idView);
+    reg.trackId = std::string(trackIdView);
+
+    std::string_view fileView;
+    if (!regEl["file"].get(fileView))
+        reg.file = std::string(fileView);
+
+    (void)regEl["startSeconds"].get(reg.startSeconds);
+    (void)regEl["sourceOffsetSeconds"].get(reg.sourceOffsetSeconds);
+    (void)regEl["durationSeconds"].get(reg.durationSeconds);
+    (void)regEl["gainDb"].get(reg.gainDb);
+    (void)regEl["fadeInSeconds"].get(reg.fadeInSeconds);
+    (void)regEl["fadeOutSeconds"].get(reg.fadeOutSeconds);
+
+    return true;
+}
+
 bool parseTrack(const simdjson::dom::element& trackEl, TrackDef& track, std::string& error) {
     std::string_view idView, nameView;
     if (trackEl["id"].get(idView) || trackEl["name"].get(nameView)) {
@@ -67,10 +90,6 @@ bool parseTrack(const simdjson::dom::element& trackEl, TrackDef& track, std::str
     }
     track.id = std::string(idView);
     track.name = std::string(nameView);
-
-    std::string_view fileView;
-    if (!trackEl["file"].get(fileView))
-        track.file = std::string(fileView);
 
     std::string_view busView;
     if (!trackEl["bus"].get(busView))
@@ -93,9 +112,6 @@ bool parseTrack(const simdjson::dom::element& trackEl, TrackDef& track, std::str
     bool solo = false;
     (void)trackEl["solo"].get(solo);
     track.solo = solo;
-
-    (void)trackEl["trimStartSeconds"].get(track.trimStartSeconds);
-    (void)trackEl["trimEndSeconds"].get(track.trimEndSeconds);
 
     simdjson::dom::array sendsArr;
     if (!trackEl["sends"].get(sendsArr)) {
@@ -170,7 +186,7 @@ bool parseEvent(const simdjson::dom::element& evEl, TimelineEvent& ev, std::stri
     return true;
 }
 
-bool parseSong(const simdjson::dom::element& songEl, SongDef& song, std::string& error) {
+bool parseSong(const simdjson::dom::element& songEl, SongDef& song, std::string& error, Project& project) {
     std::string_view idView, nameView;
     if (songEl["id"].get(idView) || songEl["name"].get(nameView)) {
         error = "Song entry missing required 'id' or 'name'";
@@ -196,13 +212,46 @@ bool parseSong(const simdjson::dom::element& songEl, SongDef& song, std::string&
     if (!songEl["playbackMode"].get(modeStr))
         song.playbackMode = parsePlaybackMode(modeStr);
 
-    simdjson::dom::array tracksArr;
-    if (!songEl["tracks"].get(tracksArr)) {
-        for (simdjson::dom::element trackEl : tracksArr) {
-            TrackDef track;
-            if (!parseTrack(trackEl, track, error))
+    simdjson::dom::array regionsArr;
+    if (!songEl["regions"].get(regionsArr)) {
+        for (simdjson::dom::element regEl : regionsArr) {
+            Region reg;
+            if (!parseRegion(regEl, reg, error))
                 return false;
-            song.tracks.push_back(std::move(track));
+            song.regions.push_back(std::move(reg));
+        }
+    } else {
+        // Fallback / legacy format: song contained "tracks" array
+        simdjson::dom::array tracksArr;
+        if (!songEl["tracks"].get(tracksArr)) {
+            int regCounter = 1;
+            for (simdjson::dom::element trackEl : tracksArr) {
+                TrackDef legacyTrack;
+                if (parseTrack(trackEl, legacyTrack, error)) {
+                    bool exists = false;
+                    for (const auto& existing : project.tracks) {
+                        if (existing.id == legacyTrack.id) { exists = true; break; }
+                    }
+                    if (!exists) {
+                        project.tracks.push_back(legacyTrack);
+                    }
+                    std::string_view trkFileView;
+                    if (!trackEl["file"].get(trkFileView) && !trkFileView.empty()) {
+                        Region reg;
+                        reg.id = "reg_" + song.id + "_" + std::to_string(regCounter++);
+                        reg.trackId = legacyTrack.id;
+                        reg.file = std::string(trkFileView);
+                        (void)trackEl["trimStartSeconds"].get(reg.sourceOffsetSeconds);
+                        double trimEnd = 0.0;
+                        (void)trackEl["trimEndSeconds"].get(trimEnd);
+                        if (trimEnd > reg.sourceOffsetSeconds) {
+                            reg.durationSeconds = trimEnd - reg.sourceOffsetSeconds;
+                        }
+                        reg.gainDb = legacyTrack.gainDb;
+                        song.regions.push_back(std::move(reg));
+                    }
+                }
+            }
         }
     }
 
@@ -306,7 +355,6 @@ void ProjectLoader::newProject(const std::string& name) {
         TrackDef t;
         t.id = "trk_" + std::to_string(idCounter++);
         t.name = tname;
-        t.file = "";
         t.busId = "main";
         parsedProject.tracks.push_back(std::move(t));
     }
@@ -592,7 +640,6 @@ bool ProjectLoader::open(const std::string& path, std::string& error) {
             TrackDef t;
             t.id = "trk_" + std::to_string(idCounter++);
             t.name = tname;
-            t.file = "";
             t.busId = "main";
             proj.tracks.push_back(std::move(t));
         }
@@ -602,7 +649,7 @@ bool ProjectLoader::open(const std::string& path, std::string& error) {
     if (!doc["songs"].get(songsArr)) {
         for (simdjson::dom::element songEl : songsArr) {
             SongDef song;
-            if (!parseSong(songEl, song, error))
+            if (!parseSong(songEl, song, error, proj))
                 return false;
             proj.songs.push_back(std::move(song));
         }

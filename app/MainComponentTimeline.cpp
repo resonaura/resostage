@@ -86,11 +86,11 @@ void MainComponent::maybePublishAllPeaks() {
 
     int totalFiles = 0, builtFiles = 0;
     for (const auto& song : engine.project().songs) {
-        for (const auto& t : song.tracks) {
-            if (t.file.empty())
+        for (const auto& r : song.regions) {
+            if (r.file.empty())
                 continue;
             ++totalFiles;
-            if (engine.cachedPeaksForFile(t.file) != nullptr)
+            if (engine.cachedPeaksForFile(r.file) != nullptr)
                 ++builtFiles;
         }
     }
@@ -113,12 +113,12 @@ std::string MainComponent::buildAllPeaksJson() const {
         if (s)
             o << ",";
         o << "{\"tracks\":[";
-        const auto& tracks = songs[s].tracks;
-        for (size_t i = 0; i < tracks.size(); ++i) {
+        const auto& regions = songs[s].regions;
+        for (size_t i = 0; i < regions.size(); ++i) {
             if (i)
                 o << ",";
-            const PeakOverview* pk = tracks[i].file.empty() ? nullptr : engine.cachedPeaksForFile(tracks[i].file);
-            o << "{\"id\":\"" << tracks[i].id << "\","
+            const PeakOverview* pk = regions[i].file.empty() ? nullptr : engine.cachedPeaksForFile(regions[i].file);
+            o << "{\"id\":\"" << regions[i].id << "\","
               << "\"durationSeconds\":" << (pk != nullptr ? pk->durationSeconds : 0.0) << ","
               << "\"peaks\":[";
             if (pk != nullptr) {

@@ -1,10 +1,10 @@
 import { Button, ScrollShadow } from "@heroui/react";
 import { ChevronDown } from "lucide-react";
 import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { Timeline } from "../components/Timeline";
-import { builder, fetchAllPeaks, fetchPeaks, transport } from "../lib/api";
+import { builder, transport } from "../lib/api";
 import type { AllPeaksResponse, ClickSendRow, PeaksResponse, WebUiState } from "../lib/types";
 
 function MetronomeIcon({
@@ -118,33 +118,13 @@ function SystemHealthWidget({
   ramHistory: number[];
 }) {
   const h = state.health;
-  const [displayCpu, setDisplayCpu] = useState(0);
-  const [displayRam, setDisplayRam] = useState(0);
-
-  const rawCpuRef = useRef(0);
-  const rawRamRef = useRef(0);
-
   const coreCount =
     typeof navigator !== "undefined" && navigator.hardwareConcurrency
       ? navigator.hardwareConcurrency
       : 10;
   const rawCpu = h?.cpuPercent ?? 0;
-  const targetCpu = Math.min(100, Math.max(0, rawCpu / coreCount));
-  const targetRam = (h?.rssBytes ?? 0) / (1024 * 1024);
-
-  rawCpuRef.current = targetCpu;
-  rawRamRef.current = targetRam;
-
-  // 1Hz (once per second) update for numerical readouts
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setDisplayCpu(rawCpuRef.current);
-      setDisplayRam(rawRamRef.current);
-    }, 1000);
-    setDisplayCpu(rawCpuRef.current);
-    setDisplayRam(rawRamRef.current);
-    return () => clearInterval(timer);
-  }, []);
+  const cpuVal = Math.min(100, Math.max(0, rawCpu / coreCount));
+  const ramVal = (h?.rssBytes ?? 0) / (1024 * 1024);
 
   return (
     <div className="flex shrink-0 items-center gap-4 border-l border-default/30 px-4 py-2 tabular-nums">
@@ -154,17 +134,17 @@ function SystemHealthWidget({
         color="var(--accent, #0091ff)"
         gradientId="cpuGrad"
         label="CPU"
-        valueText={`${displayCpu.toFixed(1)}%`}
+        valueText={`${cpuVal.toFixed(1)}%`}
         maxMinVal={25}
       />
 
-      {/* Graph 2: RAM (Track Palette Purple #c56cf0) */}
+      {/* Graph 2: RAM (Purple Color #a855f7) */}
       <Sparkline
         history={ramHistory}
-        color="#c56cf0"
+        color="#a855f7"
         gradientId="ramGrad"
         label="RAM"
-        valueText={`${displayRam.toFixed(0)} MB`}
+        valueText={`${ramVal.toFixed(0)} MB`}
         maxMinVal={200}
       />
 
@@ -199,14 +179,19 @@ export function PlayerScreen({
   state,
   cpuHistory,
   ramHistory,
+  peaks,
+  allPeaks,
+  pxPerSec,
+  setPxPerSec,
 }: {
   state: WebUiState;
   cpuHistory: number[];
   ramHistory: number[];
+  peaks: PeaksResponse | null;
+  allPeaks: AllPeaksResponse | null;
+  pxPerSec: number;
+  setPxPerSec: React.Dispatch<React.SetStateAction<number>>;
 }) {
-  const [peaks, setPeaks] = useState<PeaksResponse | null>(null);
-  const [allPeaks, setAllPeaks] = useState<AllPeaksResponse | null>(null);
-  const [pxPerSec, setPxPerSec] = useState(40);
   const [metronomeOverride, setMetronomeOverride] = useState<boolean | null>(
     null,
   );
@@ -277,47 +262,8 @@ export function PlayerScreen({
     });
   };
 
-  useEffect(() => {
-    let cancelPoll = false;
-    const poll = async () => {
-      for (let attempt = 0; attempt < 20 && !cancelPoll; attempt++) {
-        const data = await fetchPeaks().catch(() => null);
-        if (cancelPoll) return;
-        if (data && data.tracks && data.tracks.length > 0) {
-          setPeaks(data);
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-    };
-    void poll();
-    return () => {
-      cancelPoll = true;
-    };
-  }, [state.projectName, state.songIndex]);
-
-  // Continuous multi-song timeline: peak data for every song, not just the
-  // staged one. Re-polled (not just fetched once) since AudioEngine builds
-  // these in the background -- re-fetching a few times lets the timeline
-  // fill in waveforms progressively as the sweep completes, and re-running
-  // it when the song count changes picks up newly added songs/tracks.
-  useEffect(() => {
-    let cancelPoll = false;
-    const poll = async () => {
-      for (let attempt = 0; attempt < 30 && !cancelPoll; attempt++) {
-        const data = await fetchAllPeaks().catch(() => null);
-        if (cancelPoll) return;
-        if (data) setAllPeaks(data);
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-    };
-    void poll();
-    return () => {
-      cancelPoll = true;
-    };
-  }, [state.projectName, state.songs.length]);
-
   const displaySeconds = state.playheadSeconds;
+
   const song =
     state.songIndex >= 0 && state.songs[state.songIndex]
       ? state.songs[state.songIndex]
@@ -394,7 +340,7 @@ export function PlayerScreen({
                 <span>
                   {song.tsNum}/{song.tsDen}
                 </span>
-                <span>{song.tracks.length} tracks</span>
+                <span>{state.tracks.length} tracks</span>
               </>
             ) : (
               <span>Select a song to begin</span>
@@ -606,7 +552,7 @@ export function PlayerScreen({
                         <div className="text-[10px] text-foreground/35">
                           {s.bpm.toFixed(1)} bpm ·{" "}
                           {s.mode === "auto" ? "auto" : "wait"} ·{" "}
-                          {s.tracks.length} trk
+                          {s.regions?.length ?? 0} clips
                         </div>
                       </div>
                       {isActive && (

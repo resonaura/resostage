@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/react";
-import { ZoomIn, ZoomOut } from "lucide-react";
+import { Grid3X3, ZoomIn, ZoomOut } from "lucide-react";
 import { mixer, transport } from "../lib/api";
 import { useLiveValue, useOptimisticSeek } from "../lib/optimistic";
 import type { AllPeaksResponse, PeaksResponse, SongRow, TrackRow, WebUiState } from "../lib/types";
@@ -18,6 +18,47 @@ const TRACK_COLORS = [
   "#00d2e0", "#ff4245", "#6d7cff", "#00dac3", "#3cd3fe",
   "#ffd600", "#b78a66",
 ];
+
+const HANDLE_PX = 8; // px width of trim handle hit area
+
+// ── Region model (frontend-only until backend exposes a regions API) ──────
+// Each waveform segment per song per track is treated as one Region.
+// The user can trim its start/end within the segment and move it.
+interface RegionState {
+  songIndex: number;
+  trackName: string;
+  trimStart: number; // seconds trimmed from left (≥ 0)
+  trimEnd: number;   // seconds trimmed from right (≥ 0)
+  muted: boolean;
+}
+
+type RegionKey = string; // `${songIndex}:${trackName}`
+const regionKey = (songIndex: number, trackName: string): RegionKey =>
+  `${songIndex}:${trackName}`;
+
+// ── Inline Toast ──────────────────────────────────────────────────────────
+interface Toast {
+  id: number;
+  message: string;
+}
+
+function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] flex flex-col items-center gap-2 pointer-events-none">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className="pointer-events-auto flex items-center gap-2.5 rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md px-4 py-2.5 text-sm font-medium text-foreground shadow-2xl"
+          style={{ animation: "fadeInUp 0.2s ease-out" }}
+          onClick={() => onDismiss(t.id)}
+        >
+          <span className="h-2 w-2 rounded-full bg-warning shrink-0" />
+          {t.message}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const EVENT_COLORS: Record<string, string> = {
   programChange: "#30d158",
@@ -527,8 +568,8 @@ function buildRows(currentTracks: TrackRow[], songs: SongRow[]): TimelineRow[] {
     rows.push({ name, color: TRACK_COLORS[i % TRACK_COLORS.length], headerIndex: i });
   });
   for (const s of songs) {
-    for (const t of s.tracks) {
-      const name = t.name || t.id;
+    for (const r of s.regions ?? []) {
+      const name = r.trackId;
       if (seen.has(name)) continue;
       seen.add(name);
       rows.push({ name, color: TRACK_COLORS[rows.length % TRACK_COLORS.length], headerIndex: null });
@@ -586,6 +627,48 @@ export function Timeline({
   const [scrollState, setScrollState] = useState({ scrollLeft: 0, viewportWidth: 1000 });
 
   const [playheadSec, setPlayheadSec] = useOptimisticSeek(state.playheadSeconds);
+
+  // Snap-to-grid toggle
+  const [snapToGrid, setSnapToGrid] = useState(true);
+
+  // Toast notifications
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastCounterRef = useRef(0);
+  const showToast = (message: string) => {
+    const id = ++toastCounterRef.current;
+    setToasts((prev) => [...prev, { id, message }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500);
+  };
+
+  // Region state (frontend-only until backend API exists)
+  const [regions, setRegions] = useState<Map<RegionKey, RegionState>>(new Map());
+
+  // Region drag state
+  type RegionDragMode = "move" | "trimStart" | "trimEnd";
+  const regionDragRef = useRef<{
+    key: RegionKey;
+    mode: RegionDragMode;
+    startX: number;
+    origTrimStart: number;
+    origTrimEnd: number;
+    songIndex: number;
+    maxDuration: number;
+  } | null>(null);
+
+  const getRegion = (songIndex: number, trackName: string): RegionState => {
+    const key = regionKey(songIndex, trackName);
+    return regions.get(key) ?? { songIndex, trackName, trimStart: 0, trimEnd: 0, muted: false };
+  };
+
+  const setRegion = (songIndex: number, trackName: string, patch: Partial<RegionState>) => {
+    const key = regionKey(songIndex, trackName);
+    setRegions((prev) => {
+      const next = new Map(prev);
+      const existing = prev.get(key) ?? { songIndex, trackName, trimStart: 0, trimEnd: 0, muted: false };
+      next.set(key, { ...existing, ...patch });
+      return next;
+    });
+  };
 
   const songs = state.songs;
   const hasSongs = songs.length > 0;
@@ -794,8 +877,12 @@ export function Timeline({
   const currentSongOffset = state.songIndex >= 0 ? (songOffsets[state.songIndex] ?? 0) : 0;
   const playheadAbsoluteSec = currentSongOffset + playheadSec;
 
+  // ── Toolbar ──────────────────────────────────────────────────────────────
   return (
     <div ref={containerRef} className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-surface/60">
+      {/* Toast overlay */}
+      <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
+
       {/* Toolbar */}
       <div className="flex shrink-0 items-center justify-between border-b border-default/30 px-3 py-1.5 bg-surface/80 z-20">
         <span className="text-xs font-semibold uppercase tracking-wide text-foreground/40">
@@ -805,6 +892,16 @@ export function Timeline({
           </span>
         </span>
         <div className="flex items-center gap-1">
+          {/* Snap-to-grid toggle */}
+          <Button
+            size="sm"
+            variant={snapToGrid ? "secondary" : "outline"}
+            isIconOnly
+            aria-label={snapToGrid ? "Snap to grid: ON" : "Snap to grid: OFF"}
+            onPress={() => setSnapToGrid((v) => !v)}
+          >
+            <Grid3X3 size={13} />
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -997,14 +1094,33 @@ export function Timeline({
                         const viewEnd = Math.min(segEnd, scrollState.scrollLeft + scrollState.viewportWidth);
                         if (viewEnd <= viewStart) return null;
 
-                        const track = song.tracks.find((t) => (t.name || t.id) === row.name);
+                        const track = state.tracks.find((t) => (t.name || t.id) === row.name);
                         if (!track) return null;
 
                         const peaksForSong = allPeaks?.songs[i]?.tracks ?? (i === state.songIndex ? peaks?.tracks : undefined);
                         const peakEntry = peaksForSong?.find((p) => p.id === track.id);
+                        const regionData = getRegion(i, row.name);
+                        const segDuration = songLengths[i];
+
+                        // Trim clamped within segment
+                        const trimStart = Math.max(0, Math.min(regionData.trimStart, segDuration - 0.1));
+                        const trimEnd = Math.max(0, Math.min(regionData.trimEnd, segDuration - trimStart - 0.1));
+                        const trimStartPx = trimStart * pxPerSec;
+                        const trimEndPx = trimEnd * pxPerSec;
+                        const regionLeft = segStart + trimStartPx;
+                        void regionLeft;
+                        const regionWidth = Math.max(8, segWidth - trimStartPx - trimEndPx);
+
+                        // Snap helper: snap seconds to nearest beat (if BPM known)
+                        const snapSec = (sec: number) => {
+                          if (!snapToGrid || song.bpm <= 0) return sec;
+                          const beatSec = 60 / song.bpm;
+                          return Math.round(sec / beatSec) * beatSec;
+                        };
 
                         return (
                           <div key={i} className="absolute top-0" style={{ left: segStart }}>
+                            {/* Waveform canvas (underlayer) */}
                             <TrackWaveformLane
                               peaks={peakEntry?.peaks ?? []}
                               contentWidth={segWidth}
@@ -1012,7 +1128,172 @@ export function Timeline({
                               viewportWidth={viewEnd - viewStart}
                               pxPerSec={pxPerSec}
                               color={row.color}
-                              muted={track.mute}
+                              muted={track.mute || regionData.muted}
+                            />
+
+                            {/* Region block overlay */}
+                            <div
+                              className="absolute top-1 bottom-1 rounded-md pointer-events-auto"
+                              style={{
+                                left: trimStartPx,
+                                width: regionWidth,
+                                border: `1.5px solid ${row.color}55`,
+                                background: `${row.color}12`,
+                                cursor: "grab",
+                                opacity: regionData.muted ? 0.4 : 1,
+                              }}
+                              title={`${row.name} – Song ${i + 1}: ${song.name}`}
+                              onPointerDown={(e) => {
+                                // Don't interfere with the handle hit zones below
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const localX = e.clientX - rect.left;
+                                if (localX < HANDLE_PX || localX > regionWidth - HANDLE_PX) return;
+                                e.stopPropagation();
+                                // Mark region drag (move)
+                                regionDragRef.current = {
+                                  key: regionKey(i, row.name),
+                                  mode: "move",
+                                  startX: e.clientX,
+                                  origTrimStart: trimStart,
+                                  origTrimEnd: trimEnd,
+                                  songIndex: i,
+                                  maxDuration: segDuration,
+                                };
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                              }}
+                              onPointerMove={(e) => {
+                                const rd = regionDragRef.current;
+                                if (!rd || rd.key !== regionKey(i, row.name) || rd.mode !== "move") return;
+                                const dx = e.clientX - rd.startX;
+                                const dSec = dx / pxPerSec;
+
+                                // Check if drag crosses into a different song with different BPM
+                                const absX = segStart + trimStartPx + (rd.origTrimStart + dSec) * pxPerSec;
+                                // find which song the pointer is currently in
+                                const pointerAbsSec = (scrollState.scrollLeft + e.clientX - (scrollRef.current?.getBoundingClientRect().left ?? 0)) / pxPerSec;
+                                const targetSongIdx = songOffsets.findIndex((offset, idx) =>
+                                  pointerAbsSec >= offset && pointerAbsSec < offset + songLengths[idx]
+                                );
+                                void absX; // silence lint
+                                if (targetSongIdx !== -1 && targetSongIdx !== rd.songIndex) {
+                                  const srcBpm = songs[rd.songIndex]?.bpm ?? 0;
+                                  const dstBpm = songs[targetSongIdx]?.bpm ?? 0;
+                                  if (Math.abs(srcBpm - dstBpm) > 0.1) {
+                                    showToast(
+                                      `Can't move region here — tempo differs (${srcBpm.toFixed(1)} BPM → ${dstBpm.toFixed(1)} BPM)`
+                                    );
+                                    return;
+                                  }
+                                }
+
+                                // Only allow movement within same song
+                                if (targetSongIdx !== -1 && targetSongIdx !== rd.songIndex) return;
+
+                                const rawNewTrimStart = Math.max(0, rd.origTrimStart + dSec);
+                                const newTrimStart = snapSec(rawNewTrimStart);
+                                const newTrimEnd = Math.max(0, rd.maxDuration - newTrimStart - (rd.maxDuration - rd.origTrimStart - rd.origTrimEnd));
+                                setRegion(i, row.name, {
+                                  trimStart: Math.min(newTrimStart, rd.maxDuration - 0.1),
+                                  trimEnd: Math.max(0, newTrimEnd),
+                                });
+                              }}
+                              onPointerUp={(e) => {
+                                if (regionDragRef.current?.key === regionKey(i, row.name)) {
+                                  regionDragRef.current = null;
+                                  e.currentTarget.releasePointerCapture(e.pointerId);
+                                }
+                              }}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setRegion(i, row.name, { muted: !regionData.muted });
+                              }}
+                            >
+                              {/* Region label */}
+                              <div
+                                className="absolute top-0.5 left-2 text-[9px] font-semibold truncate max-w-[80%] pointer-events-none select-none"
+                                style={{ color: row.color, opacity: 0.8 }}
+                              >
+                                {regionData.muted ? "[M] " : ""}{song.name}
+                              </div>
+                            </div>
+
+                            {/* Trim handle: LEFT edge */}
+                            <div
+                              className="absolute top-1 bottom-1 rounded-l-md cursor-ew-resize z-10"
+                              style={{
+                                left: trimStartPx,
+                                width: HANDLE_PX,
+                                background: `${row.color}99`,
+                              }}
+                              title="Drag to trim start"
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                regionDragRef.current = {
+                                  key: regionKey(i, row.name),
+                                  mode: "trimStart",
+                                  startX: e.clientX,
+                                  origTrimStart: trimStart,
+                                  origTrimEnd: trimEnd,
+                                  songIndex: i,
+                                  maxDuration: segDuration,
+                                };
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                              }}
+                              onPointerMove={(e) => {
+                                const rd = regionDragRef.current;
+                                if (!rd || rd.key !== regionKey(i, row.name) || rd.mode !== "trimStart") return;
+                                const dx = e.clientX - rd.startX;
+                                const dSec = dx / pxPerSec;
+                                const maxTrim = rd.maxDuration - rd.origTrimEnd - 0.1;
+                                const rawNew = Math.max(0, Math.min(maxTrim, rd.origTrimStart + dSec));
+                                setRegion(i, row.name, { trimStart: snapSec(rawNew) });
+                              }}
+                              onPointerUp={(e) => {
+                                if (regionDragRef.current?.key === regionKey(i, row.name)) {
+                                  regionDragRef.current = null;
+                                  e.currentTarget.releasePointerCapture(e.pointerId);
+                                }
+                              }}
+                            />
+
+                            {/* Trim handle: RIGHT edge */}
+                            <div
+                              className="absolute top-1 bottom-1 rounded-r-md cursor-ew-resize z-10"
+                              style={{
+                                left: trimStartPx + regionWidth - HANDLE_PX,
+                                width: HANDLE_PX,
+                                background: `${row.color}99`,
+                              }}
+                              title="Drag to trim end"
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                regionDragRef.current = {
+                                  key: regionKey(i, row.name),
+                                  mode: "trimEnd",
+                                  startX: e.clientX,
+                                  origTrimStart: trimStart,
+                                  origTrimEnd: trimEnd,
+                                  songIndex: i,
+                                  maxDuration: segDuration,
+                                };
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                              }}
+                              onPointerMove={(e) => {
+                                const rd = regionDragRef.current;
+                                if (!rd || rd.key !== regionKey(i, row.name) || rd.mode !== "trimEnd") return;
+                                const dx = e.clientX - rd.startX;
+                                const dSec = dx / pxPerSec;
+                                const maxTrim = rd.maxDuration - rd.origTrimStart - 0.1;
+                                const rawNew = Math.max(0, Math.min(maxTrim, rd.origTrimEnd - dSec));
+                                setRegion(i, row.name, { trimEnd: snapSec(rawNew) });
+                              }}
+                              onPointerUp={(e) => {
+                                if (regionDragRef.current?.key === regionKey(i, row.name)) {
+                                  regionDragRef.current = null;
+                                  e.currentTarget.releasePointerCapture(e.pointerId);
+                                }
+                              }}
                             />
                           </div>
                         );

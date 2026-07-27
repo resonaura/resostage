@@ -94,7 +94,6 @@ std::string serializeProjectJson(const Project& project) {
         o << "    {\n";
         o << "      \"id\": \"" << jsonEscapeString(t.id) << "\",\n";
         o << "      \"name\": \"" << jsonEscapeString(t.name) << "\",\n";
-        o << "      \"file\": \"" << jsonEscapeString(t.file) << "\",\n";
         o << "      \"bus\": \"" << jsonEscapeString(t.busId) << "\",\n";
         o << "      \"gainDb\": ";
         writeNumber(o, t.gainDb);
@@ -103,7 +102,20 @@ std::string serializeProjectJson(const Project& project) {
         writeNumber(o, t.pan);
         o << ",\n";
         o << "      \"mute\": " << (t.mute ? "true" : "false") << ",\n";
-        o << "      \"solo\": " << (t.solo ? "true" : "false") << "\n";
+        o << "      \"solo\": " << (t.solo ? "true" : "false") << ",\n";
+        o << "      \"sends\": [\n";
+        for (size_t si = 0; si < t.sends.size(); ++si) {
+            const TrackSendDef& send = t.sends[si];
+            o << "        {\n";
+            o << "          \"bus\": \"" << jsonEscapeString(send.busId) << "\",\n";
+            o << "          \"gainDb\": ";
+            writeNumber(o, send.gainDb);
+            o << ",\n";
+            o << "          \"preFader\": " << (send.preFader ? "true" : "false") << ",\n";
+            o << "          \"enabled\": " << (send.enabled ? "true" : "false") << "\n";
+            o << "        }" << (si + 1 < t.sends.size() ? "," : "") << "\n";
+        }
+        o << "      ]\n";
         o << "    }" << (i + 1 < project.tracks.size() ? "," : "") << "\n";
     }
     o << "  ],\n";
@@ -139,42 +151,32 @@ std::string serializeProjectJson(const Project& project) {
         }
         o << "      ],\n";
 
-        o << "      \"tracks\": [\n";
-        for (size_t ti = 0; ti < s.tracks.size(); ++ti) {
-            const TrackDef& t = s.tracks[ti];
+        o << "      \"regions\": [\n";
+        for (size_t ri = 0; ri < s.regions.size(); ++ri) {
+            const Region& r = s.regions[ri];
             o << "        {\n";
-            o << "          \"id\": \"" << jsonEscapeString(t.id) << "\",\n";
-            o << "          \"name\": \"" << jsonEscapeString(t.name) << "\",\n";
-            o << "          \"file\": \"" << jsonEscapeString(t.file) << "\",\n";
-            o << "          \"bus\": \"" << jsonEscapeString(t.busId) << "\",\n";
+            o << "          \"id\": \"" << jsonEscapeString(r.id) << "\",\n";
+            o << "          \"trackId\": \"" << jsonEscapeString(r.trackId) << "\",\n";
+            o << "          \"file\": \"" << jsonEscapeString(r.file) << "\",\n";
+            o << "          \"startSeconds\": ";
+            writeNumber(o, r.startSeconds);
+            o << ",\n";
+            o << "          \"sourceOffsetSeconds\": ";
+            writeNumber(o, r.sourceOffsetSeconds);
+            o << ",\n";
+            o << "          \"durationSeconds\": ";
+            writeNumber(o, r.durationSeconds);
+            o << ",\n";
             o << "          \"gainDb\": ";
-            writeNumber(o, t.gainDb);
+            writeNumber(o, r.gainDb);
             o << ",\n";
-            o << "          \"pan\": ";
-            writeNumber(o, t.pan);
+            o << "          \"fadeInSeconds\": ";
+            writeNumber(o, r.fadeInSeconds);
             o << ",\n";
-            o << "          \"mute\": " << (t.mute ? "true" : "false") << ",\n";
-            o << "          \"solo\": " << (t.solo ? "true" : "false") << ",\n";
-            o << "          \"trimStartSeconds\": ";
-            writeNumber(o, t.trimStartSeconds);
-            o << ",\n";
-            o << "          \"trimEndSeconds\": ";
-            writeNumber(o, t.trimEndSeconds);
-            o << ",\n";
-            o << "          \"sends\": [\n";
-            for (size_t si = 0; si < t.sends.size(); ++si) {
-                const TrackSendDef& send = t.sends[si];
-                o << "            {\n";
-                o << "              \"bus\": \"" << jsonEscapeString(send.busId) << "\",\n";
-                o << "              \"gainDb\": ";
-                writeNumber(o, send.gainDb);
-                o << ",\n";
-                o << "              \"preFader\": " << (send.preFader ? "true" : "false") << ",\n";
-                o << "              \"enabled\": " << (send.enabled ? "true" : "false") << "\n";
-                o << "            }" << (si + 1 < t.sends.size() ? "," : "") << "\n";
-            }
-            o << "          ]\n";
-            o << "        }" << (ti + 1 < s.tracks.size() ? "," : "") << "\n";
+            o << "          \"fadeOutSeconds\": ";
+            writeNumber(o, r.fadeOutSeconds);
+            o << "\n";
+            o << "        }" << (ri + 1 < s.regions.size() ? "," : "") << "\n";
         }
         o << "      ],\n";
 

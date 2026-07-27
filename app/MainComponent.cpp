@@ -542,19 +542,19 @@ void MainComponent::publishWebState() {
             row.clickSends.push_back(std::move(csr));
         }
 
-        row.tracks.reserve(song.tracks.size());
-        for (const TrackDef& t : song.tracks) {
-            WebUiState::SongRow::TrackRow tr;
-            tr.id = t.id;
-            tr.name = t.name;
-            tr.busId = t.busId;
-            tr.file = t.file;
-            tr.gainDb = t.gainDb;
-            tr.pan = t.pan;
-            tr.mute = t.mute;
-            tr.solo = t.solo;
-            tr.sendsCount = static_cast<int>(t.sends.size());
-            row.tracks.push_back(std::move(tr));
+        row.regions.reserve(song.regions.size());
+        for (const Region& r : song.regions) {
+            WebUiState::SongRow::RegionRow rr;
+            rr.id = r.id;
+            rr.trackId = r.trackId;
+            rr.file = r.file;
+            rr.startSeconds = r.startSeconds;
+            rr.sourceOffsetSeconds = r.sourceOffsetSeconds;
+            rr.durationSeconds = r.durationSeconds;
+            rr.gainDb = r.gainDb;
+            rr.fadeInSeconds = r.fadeInSeconds;
+            rr.fadeOutSeconds = r.fadeOutSeconds;
+            row.regions.push_back(std::move(rr));
         }
 
         row.events.reserve(song.events.size());
@@ -598,9 +598,7 @@ void MainComponent::publishWebState() {
         state.meters.push_back(std::move(m));
     }
 
-    const auto& projTracks = !proj.tracks.empty()
-        ? proj.tracks
-        : (proj.songs.empty() ? std::vector<TrackDef>{} : proj.songs.front().tracks);
+    const auto& projTracks = proj.tracks;
 
     state.tracks.reserve(projTracks.size());
     for (size_t i = 0; i < projTracks.size(); ++i) {

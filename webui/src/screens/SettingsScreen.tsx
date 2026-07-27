@@ -242,7 +242,19 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
           <Card.Title>System health</Card.Title>
         </Card.Header>
         <Card.Content className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Stat label="CPU" value={`${h.cpuPercent.toFixed(1)} %`} />
+          <Stat
+            label="CPU"
+            value={`${Math.min(
+              100,
+              Math.max(
+                0,
+                (h.cpuPercent ?? 0) /
+                  (typeof navigator !== "undefined" && navigator.hardwareConcurrency
+                    ? navigator.hardwareConcurrency
+                    : 10),
+              ),
+            ).toFixed(1)}%`}
+          />
           <Stat label="RAM (RSS)" value={formatBytes(h.rssBytes)} />
           <Stat label="Free RAM" value={formatBytes(h.freeBytes)} />
           <Stat label="Underruns" value={String(h.underrunCount)} />

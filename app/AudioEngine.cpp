@@ -139,14 +139,8 @@ const TrackDef* AudioEngine::trackDefAt(size_t index) const {
     if (!projectLoaded)
         return nullptr;
     const auto& trks = loader.project().tracks;
-    if (!trks.empty()) {
-        if (index < trks.size())
-            return &trks[index];
-        return nullptr;
-    }
-    const auto& songs = loader.project().songs;
-    if (currentSong < songs.size() && index < songs[currentSong].tracks.size())
-        return &songs[currentSong].tracks[index];
+    if (index < trks.size())
+        return &trks[index];
     return nullptr;
 }
 
@@ -155,14 +149,13 @@ TrackDef* AudioEngine::trackDefAt(size_t index) {
 }
 
 const TrackDef* AudioEngine::trackDefInSong(size_t songIndex, size_t trackIndex) const {
-    const auto& songs = loader.project().songs;
-    if (songIndex >= songs.size() || trackIndex >= songs[songIndex].tracks.size())
-        return nullptr;
-    return &songs[songIndex].tracks[trackIndex];
+    (void)songIndex;
+    return trackDefAt(trackIndex);
 }
 
 TrackDef* AudioEngine::trackDefInSong(size_t songIndex, size_t trackIndex) {
-    return const_cast<TrackDef*>(static_cast<const AudioEngine*>(this)->trackDefInSong(songIndex, trackIndex));
+    (void)songIndex;
+    return trackDefAt(trackIndex);
 }
 
 bool AudioEngine::isBusMuted(size_t busIndex) const {
@@ -221,15 +214,15 @@ void AudioEngine::rebuildTrackPeaks() {
         return;
 
     const SongDef& song = proj.songs[currentSong];
-    trackPeaks.resize(song.tracks.size()); // blank lanes -- filled in as the background build below completes
+    trackPeaks.resize(song.regions.size()); // blank lanes -- filled in as the background build below completes
 
     const uint64_t generation = peakBuildGeneration.load(std::memory_order_relaxed);
     const size_t songIndexForBuild = currentSong;
     const std::string archivePathForBuild = loader.archivePath();
     std::vector<std::string> trackFiles;
-    trackFiles.reserve(song.tracks.size());
-    for (const auto& t : song.tracks)
-        trackFiles.push_back(t.file);
+    trackFiles.reserve(song.regions.size());
+    for (const auto& r : song.regions)
+        trackFiles.push_back(r.file);
 
     // Waveform decode is read-only and feeds the UI only, never playback --
     // do it off the message thread so switching songs doesn't block on
@@ -329,10 +322,10 @@ void AudioEngine::ensureAllSongPeaksBuilt() {
     {
         std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
         for (const auto& song : loader.project().songs)
-            for (const auto& t : song.tracks)
-                if (!t.file.empty() && !peakOverviewSessionCache.count(t.file)
-                    && std::find(filesToBuild.begin(), filesToBuild.end(), t.file) == filesToBuild.end())
-                    filesToBuild.push_back(t.file);
+            for (const auto& r : song.regions)
+                if (!r.file.empty() && !peakOverviewSessionCache.count(r.file)
+                    && std::find(filesToBuild.begin(), filesToBuild.end(), r.file) == filesToBuild.end())
+                    filesToBuild.push_back(r.file);
     }
     if (filesToBuild.empty()) {
         allPeaksBuildInFlight.store(false, std::memory_order_release);
@@ -423,8 +416,8 @@ void AudioEngine::publishRoutingSnapshot() {
     const SongDef& song = proj.songs[currentSong];
 
     bool anyTrackSolo = false;
-    for (size_t i = 0; i < song.tracks.size() && i < trackIdByIndex.size(); ++i)
-        if (song.tracks[i].solo)
+    for (size_t i = 0; i < proj.tracks.size() && i < trackIdByIndex.size(); ++i)
+        if (proj.tracks[i].solo)
             anyTrackSolo = true;
 
     bool anyBusSolo = false;
@@ -435,8 +428,8 @@ void AudioEngine::publishRoutingSnapshot() {
     auto snapshot = std::make_unique<RoutingSnapshot>();
     snapshot->busCount = static_cast<uint32_t>(busses.size());
 
-    for (size_t i = 0; i < song.tracks.size() && i < trackIdByIndex.size(); ++i) {
-        const TrackDef& trackDef = song.tracks[i];
+    for (size_t i = 0; i < proj.tracks.size() && i < trackIdByIndex.size(); ++i) {
+        const TrackDef& trackDef = proj.tracks[i];
         const bool trackSilenced = trackDef.mute || (anyTrackSolo && !trackDef.solo);
         const float trackGain = dbToGain(trackDef.gainDb);
         const float trackPan = static_cast<float>(std::clamp(trackDef.pan, -1.0, 1.0));
@@ -877,8 +870,8 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // (publishRoutingSnapshot() already treats "busId not found" as simply
     // "no main route" -- only a *non-empty* dangling reference is an error).
     std::vector<std::string> newTrackIds;
-    newTrackIds.reserve(song.tracks.size());
-    for (const TrackDef& trackDef : song.tracks) {
+    newTrackIds.reserve(proj.tracks.size());
+    for (const TrackDef& trackDef : proj.tracks) {
         if (!trackDef.busId.empty() && busIndexById.find(trackDef.busId) == busIndexById.end()) {
             error = "Track '" + trackDef.id + "' references unknown bus '" + trackDef.busId + "'";
             return false;
@@ -1504,10 +1497,27 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
     }
 
     // Update in-memory live track immediately so main thread UI/state has it
-    if (TrackDef* liveTrack = trackDefInSong(songIndex, trackIndex)) {
-        liveTrack->file = entry;
+    if (TrackDef* liveTrack = trackDefAt(trackIndex)) {
         if (liveTrack->name.empty() || liveTrack->name == "New Track")
             liveTrack->name = newTrackName;
+    }
+    if (songIndex < loader.project().songs.size()) {
+        SongDef& s = loader.project().songs[songIndex];
+        const TrackDef* trk = trackDefAt(trackIndex);
+        if (trk) {
+            Region* regPtr = nullptr;
+            for (auto& r : s.regions) {
+                if (r.trackId == trk->id) { regPtr = &r; break; }
+            }
+            if (!regPtr) {
+                Region reg;
+                reg.id = "reg_" + s.id + "_" + trk->id;
+                reg.trackId = trk->id;
+                s.regions.push_back(reg);
+                regPtr = &s.regions.back();
+            }
+            regPtr->file = entry;
+        }
     }
 
     const size_t songToRestore = currentSong;
@@ -1518,11 +1528,23 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
 
     // Private snapshot the background thread writes from
     Project projectSnapshot = loader.project();
-    if (TrackDef* snapTrack = (songIndex < projectSnapshot.songs.size() && trackIndex < projectSnapshot.songs[songIndex].tracks.size())
-                                  ? &projectSnapshot.songs[songIndex].tracks[trackIndex]
-                                  : nullptr) {
-        snapTrack->file = entry;
-        snapTrack->name = newTrackName;
+    if (songIndex < projectSnapshot.songs.size()) {
+        SongDef& s = projectSnapshot.songs[songIndex];
+        if (trackIndex < projectSnapshot.tracks.size()) {
+            const std::string& trkId = projectSnapshot.tracks[trackIndex].id;
+            Region* regPtr = nullptr;
+            for (auto& r : s.regions) {
+                if (r.trackId == trkId) { regPtr = &r; break; }
+            }
+            if (!regPtr) {
+                Region reg;
+                reg.id = "reg_" + s.id + "_" + trkId;
+                reg.trackId = trkId;
+                s.regions.push_back(reg);
+                regPtr = &s.regions.back();
+            }
+            regPtr->file = entry;
+        }
     }
 
     const std::string archivePath = loader.archivePath();
@@ -1803,12 +1825,25 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             extra.data = std::move(data);
             extras.push_back(std::move(extra));
 
-            TrackDef track;
-            track.id = "trk_" + song.id + "_" + std::to_string(i + 1);
-            track.name = stripBpmSuffix(srcPath.stem().string());
-            track.file = entry;
-            track.busId = defaultBusId;
-            song.tracks.push_back(std::move(track));
+            std::string trkName = stripBpmSuffix(srcPath.stem().string());
+            std::string trackId;
+            for (const auto& t : projectSnapshot.tracks) {
+                if (t.name == trkName) { trackId = t.id; break; }
+            }
+            if (trackId.empty()) {
+                TrackDef track;
+                track.id = "trk_" + std::to_string(projectSnapshot.tracks.size() + 1);
+                track.name = trkName;
+                track.busId = defaultBusId;
+                projectSnapshot.tracks.push_back(track);
+                trackId = track.id;
+            }
+
+            Region reg;
+            reg.id = "reg_" + song.id + "_" + std::to_string(i + 1);
+            reg.trackId = trackId;
+            reg.file = entry;
+            song.regions.push_back(std::move(reg));
         }
 
         bool writeOk = false;

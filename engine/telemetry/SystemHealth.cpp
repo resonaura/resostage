@@ -58,6 +58,19 @@ uint64_t processCpuTimeNanos() {
 } // namespace
 
 SystemHealthSnapshot SystemHealth::sample() const {
+    const auto wallNow = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+
+    // Throttle Mach OS syscalls & CPU load calculations to 1 Hz (once per 1000 ms)
+    if (lastWallNanos != 0 && wallNow >= lastWallNanos && (wallNow - lastWallNanos) < 1'000'000'000ull) {
+        cachedSnapshot.underrunCount = underrunCount.load(std::memory_order_relaxed);
+        cachedSnapshot.audioCallbackCount = audioCallbackCount.load(std::memory_order_relaxed);
+        cachedSnapshot.webClientCount = webClientCount.load(std::memory_order_relaxed);
+        return cachedSnapshot;
+    }
+
     SystemHealthSnapshot snap;
     snap.processRssBytes = processRssBytes();
     snap.systemFreeBytes = systemFreeMemoryBytes();
@@ -67,10 +80,6 @@ SystemHealthSnapshot SystemHealth::sample() const {
     snap.webClientCount = webClientCount.load(std::memory_order_relaxed);
 
     const uint64_t cpuNow = processCpuTimeNanos();
-    const auto wallNow = static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count());
     if (lastWallNanos != 0 && wallNow > lastWallNanos && cpuNow >= lastCpuNanos) {
         const double dCpu = static_cast<double>(cpuNow - lastCpuNanos);
         const double dWall = static_cast<double>(wallNow - lastWallNanos);
@@ -79,6 +88,7 @@ SystemHealthSnapshot SystemHealth::sample() const {
     }
     lastCpuNanos = cpuNow;
     lastWallNanos = wallNow;
+    cachedSnapshot = snap;
 
     return snap;
 }

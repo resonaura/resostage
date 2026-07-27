@@ -58,6 +58,10 @@ void StreamingEngine::ioThreadLoop() {
         ioThreadStopHook();
 }
 
+StreamingTrackBuffer* StreamingEngine::ActiveSongHandle::region(const std::string& regionId) const {
+    return track(regionId);
+}
+
 bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
                                 double deviceSampleRate, std::string& error) {
     {
@@ -73,16 +77,16 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
     staged->songIndex = songIndex;
     {
         std::lock_guard<std::mutex> lock(projectLoaderMutex);
-        for (const TrackDef& trackDef : song.tracks) {
-            if (trackDef.file.empty())
+        for (const Region& regionDef : song.regions) {
+            if (regionDef.file.empty())
                 continue; // empty region — no audio yet, skip streaming
             auto buf = std::make_unique<StreamingTrackBuffer>();
             std::string openError;
-            if (!buf->open(*projectLoader, trackDef.file, ringCapacityFrames, deviceSampleRate, openError)) {
-                error = "Track '" + trackDef.id + "': " + openError;
+            if (!buf->open(*projectLoader, regionDef.file, ringCapacityFrames, deviceSampleRate, openError)) {
+                error = "Region '" + regionDef.id + "': " + openError;
                 return false;
             }
-            staged->byId[trackDef.id] = buf.get();
+            staged->byId[regionDef.id] = buf.get();
             staged->buffers.push_back(std::move(buf));
         }
     }
@@ -97,12 +101,14 @@ void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_
     staged->songIndex = songIndex;
     {
         std::lock_guard<std::mutex> lock(projectLoaderMutex);
-        for (const TrackDef& trackDef : song.tracks) {
+        for (const Region& regionDef : song.regions) {
+            if (regionDef.file.empty())
+                continue;
             auto buf = std::make_unique<StreamingTrackBuffer>();
             std::string openError;
-            if (!buf->open(*projectLoader, trackDef.file, ringCapacityFrames, deviceSampleRate, openError))
+            if (!buf->open(*projectLoader, regionDef.file, ringCapacityFrames, deviceSampleRate, openError))
                 return; // best-effort; stageSong() will retry and report properly later
-            staged->byId[trackDef.id] = buf.get();
+            staged->byId[regionDef.id] = buf.get();
             staged->buffers.push_back(std::move(buf));
         }
     }

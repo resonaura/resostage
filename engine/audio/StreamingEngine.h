@@ -43,6 +43,7 @@ public:
         ActiveSongHandle() = default;
         explicit operator bool() const { return staged != nullptr; }
         StreamingTrackBuffer* track(const std::string& trackId) const;
+        StreamingTrackBuffer* region(const std::string& regionId) const;
 
     private:
         friend class StreamingEngine;

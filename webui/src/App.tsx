@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Tabs } from "@heroui/react";
 import { AlertTriangle, Gauge, Music4, Radio, Settings2, Sliders } from "lucide-react";
 import { useLiveState } from "./lib/useLiveState";
-import { project } from "./lib/api";
+import { fetchAllPeaks, fetchPeaks, project } from "./lib/api";
 import { IS_EMBEDDED } from "./lib/embedded";
-import type { WebUiState } from "./lib/types";
+import type { AllPeaksResponse, PeaksResponse, WebUiState } from "./lib/types";
 import { PlayerScreen } from "./screens/PlayerScreen";
 import { MixerScreen } from "./screens/MixerScreen";
-import { BuilderScreen } from "./screens/BuilderScreen";
+import { EditorScreen } from "./screens/EditorScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
 // HeroUI v3 has no provider -- theme is CSS-driven via a class/data-theme
@@ -81,6 +81,44 @@ export default function App() {
   useGlobalHotkeys(state);
   const [tab, setTab] = useState("player");
 
+  // ── Shared timeline state (DRY: both Player and Editor use the same peaks + zoom) ──
+  const [peaks, setPeaks] = useState<PeaksResponse | null>(null);
+  const [allPeaks, setAllPeaks] = useState<AllPeaksResponse | null>(null);
+  const [pxPerSec, setPxPerSec] = useState(40);
+
+  // Per-song peaks (current staged song)
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      for (let attempt = 0; attempt < 20 && !cancelled; attempt++) {
+        const data = await fetchPeaks().catch(() => null);
+        if (cancelled) return;
+        if (data && data.tracks && data.tracks.length > 0) {
+          setPeaks(data);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    };
+    void poll();
+    return () => { cancelled = true; };
+  }, [state.projectName, state.songIndex]);
+
+  // All-song peaks (for the multi-song timeline)
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      for (let attempt = 0; attempt < 30 && !cancelled; attempt++) {
+        const data = await fetchAllPeaks().catch(() => null);
+        if (cancelled) return;
+        if (data) setAllPeaks(data);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    };
+    void poll();
+    return () => { cancelled = true; };
+  }, [state.projectName, state.songs.length]);
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
       {state.hardwareAlarm && (
@@ -115,9 +153,9 @@ export default function App() {
               Mixer
               <Tabs.Indicator />
             </Tabs.Tab>
-            <Tabs.Tab id="builder">
+            <Tabs.Tab id="editor">
               <Gauge size={15} className="mr-1.5 inline-block" />
-              Builder
+              Editor
               <Tabs.Indicator />
             </Tabs.Tab>
             <Tabs.Tab id="settings">
@@ -129,13 +167,27 @@ export default function App() {
         </Tabs.ListContainer>
 
         <Tabs.Panel id="player" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-          <PlayerScreen state={state} cpuHistory={cpuHistory} ramHistory={ramHistory} />
+          <PlayerScreen
+            state={state}
+            cpuHistory={cpuHistory}
+            ramHistory={ramHistory}
+            peaks={peaks}
+            allPeaks={allPeaks}
+            pxPerSec={pxPerSec}
+            setPxPerSec={setPxPerSec}
+          />
         </Tabs.Panel>
         <Tabs.Panel id="mixer" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
           <MixerScreen state={state} />
         </Tabs.Panel>
-        <Tabs.Panel id="builder" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-          <BuilderScreen state={state} />
+        <Tabs.Panel id="editor" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+          <EditorScreen
+            state={state}
+            peaks={peaks}
+            allPeaks={allPeaks}
+            pxPerSec={pxPerSec}
+            setPxPerSec={setPxPerSec}
+          />
         </Tabs.Panel>
         <Tabs.Panel id="settings" className="flex-1 overflow-auto p-3">
           <SettingsScreen state={state} />

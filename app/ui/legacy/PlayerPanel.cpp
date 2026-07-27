@@ -279,7 +279,7 @@ void PlayerPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, boo
     g.setFont(juce::Font(juce::FontOptions(12.0f)));
     const char* mode = song.playbackMode == PlaybackMode::AutoplayNext ? "auto" : "wait";
     g.drawText(juce::String(song.bpm, 1) + " bpm  |  " + mode + "  |  "
-                   + juce::String(static_cast<int>(song.tracks.size())) + " tracks  |  "
+                   + juce::String(static_cast<int>(song.regions.size())) + " regions  |  "
                    + juce::String(static_cast<int>(song.events.size())) + " events",
                12, h / 2, w - 24, h / 2 - 2, juce::Justification::centredLeft);
 

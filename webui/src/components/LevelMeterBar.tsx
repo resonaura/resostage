@@ -14,7 +14,10 @@ const PEAK_HOLD_SECONDS = 0.8;
 const PEAK_DECAY_DB_PER_SEC = 50;
 
 function normFor(db: number): number {
-  return Math.max(0, Math.min(1, (db - RANGE_LOW_DB) / (RANGE_HIGH_DB - RANGE_LOW_DB)));
+  return Math.max(
+    0,
+    Math.min(1, (db - RANGE_LOW_DB) / (RANGE_HIGH_DB - RANGE_LOW_DB)),
+  );
 }
 
 function gradientColor(db: number): string {
@@ -65,7 +68,12 @@ export function LevelMeterBar({
   const [clipLatched, setClipLatched] = useState(false);
   const dbRef = useRef(db);
   dbRef.current = db;
-  const anim = useRef({ display: FLOOR_DB, peak: FLOOR_DB, holdRemaining: 0, lastT: 0 });
+  const anim = useRef({
+    display: FLOOR_DB,
+    peak: FLOOR_DB,
+    holdRemaining: 0,
+    lastT: 0,
+  });
 
   useEffect(() => {
     let raf = 0;
@@ -75,7 +83,10 @@ export function LevelMeterBar({
       s.lastT = t;
 
       const target = Math.max(dbRef.current, FLOOR_DB);
-      s.display = target >= s.display ? target : Math.max(target, s.display - BAR_DECAY_DB_PER_SEC * dt);
+      s.display =
+        target >= s.display
+          ? target
+          : Math.max(target, s.display - BAR_DECAY_DB_PER_SEC * dt);
 
       if (target >= s.peak) {
         s.peak = target;
@@ -100,13 +111,19 @@ export function LevelMeterBar({
   const color = gradientColor(display);
 
   return (
-    <div className={`flex items-center gap-2 ${vertical ? "h-full" : ""} ${className}`}>
-      {label && <div className="w-16 shrink-0 truncate text-xs text-foreground/60">{label}</div>}
+    <div
+      className={`flex items-center gap-2 ${vertical ? "h-full" : ""} ${className}`}
+    >
+      {label && (
+        <div className="w-16 shrink-0 truncate text-xs text-foreground/60">
+          {label}
+        </div>
+      )}
       <button
         type="button"
         onClick={() => setClipLatched(false)}
         title={clipLatched ? "Clipped -- click to reset" : undefined}
-        className={`relative overflow-hidden rounded-md bg-default/40 ${
+        className={`relative overflow-hidden rounded-md bg-default/20 ${
           barClassName ?? (vertical ? "h-24 w-4" : "h-3 w-full")
         }`}
       >
@@ -126,9 +143,15 @@ export function LevelMeterBar({
           />
         )}
         {vertical ? (
-          <div className="absolute left-0 h-0.5 w-full bg-foreground/80" style={{ bottom: `${peakPct}%` }} />
+          <div
+            className="absolute left-0 h-0.5 w-full bg-foreground/80"
+            style={{ bottom: `${peakPct}%` }}
+          />
         ) : (
-          <div className="absolute top-0 h-full w-0.5 bg-foreground/80" style={{ left: `${peakPct}%` }} />
+          <div
+            className="absolute top-0 h-full w-0.5 bg-foreground/80"
+            style={{ left: `${peakPct}%` }}
+          />
         )}
       </button>
       {showValue && (

@@ -80,7 +80,7 @@ void TimelineView::clampLaneScroll() {
         laneScrollOffset = 0.0;
         return;
     }
-    const size_t trackCount = engine.project().songs[engine.currentSongIndex()].tracks.size();
+    const size_t trackCount = engine.trackCount();
     const double contentH = static_cast<double>(trackCount) * kLaneH;
     const double maxScroll = juce::jmax(0.0, contentH - static_cast<double>(visibleLaneAreaHeight()));
     laneScrollOffset = juce::jlimit(0.0, maxScroll, laneScrollOffset);
@@ -280,7 +280,7 @@ void TimelineView::paint(juce::Graphics& g) {
     const int lanesClipTop = gridTop + 1;
     const int lanesClipBottom = juce::jmax(lanesClipTop, area.getBottom() - kEventLaneH - 4);
     int y = gridTop + 4 - static_cast<int>(std::lround(laneScrollOffset));
-    const size_t trackCount = song.tracks.size();
+    const size_t trackCount = engine.trackCount();
     {
         juce::Graphics::ScopedSaveState clipState(g);
         g.reduceClipRegion(area.getX(), lanesClipTop, area.getWidth(), lanesClipBottom - lanesClipTop);
@@ -293,7 +293,9 @@ void TimelineView::paint(juce::Graphics& g) {
             g.setColour(i % 2 ? ui::panel().brighter(0.04f) : ui::panel());
             g.fillRect(lane.withX(contentX).withWidth(contentW));
 
-            const TrackDef& tr = song.tracks[i];
+            const TrackDef* trPtr = engine.trackDefAt(i);
+            if (!trPtr) continue;
+            const TrackDef& tr = *trPtr;
             const juce::Colour trackColor = ui::trackColorForIndex(static_cast<int>(i));
             g.setColour(trackColor);
             g.fillRect(area.getX(), y, 3, kLaneH);

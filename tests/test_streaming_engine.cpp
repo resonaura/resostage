@@ -85,19 +85,25 @@ TEST_CASE("StreamingEngine survives concurrent stageSong() and acquireActiveSong
     std::string error;
     REQUIRE(loader.open(path, error));
 
+    TrackDef trackA; trackA.id = "track_a";
+    TrackDef trackB; trackB.id = "track_b";
+    loader.project().tracks = { trackA, trackB };
+
     SongDef songA;
     songA.id = "song_a";
-    TrackDef trackA;
-    trackA.id = "track_a";
-    trackA.file = "Audio/a.wav";
-    songA.tracks.push_back(trackA);
+    Region regA;
+    regA.id = "reg_a";
+    regA.trackId = "track_a";
+    regA.file = "Audio/a.wav";
+    songA.regions.push_back(regA);
 
     SongDef songB;
     songB.id = "song_b";
-    TrackDef trackB;
-    trackB.id = "track_b";
-    trackB.file = "Audio/b.wav";
-    songB.tracks.push_back(trackB);
+    Region regB;
+    regB.id = "reg_b";
+    regB.trackId = "track_b";
+    regB.file = "Audio/b.wav";
+    songB.regions.push_back(regB);
 
     StreamingEngine engine;
     engine.start(&loader);
@@ -123,9 +129,9 @@ TEST_CASE("StreamingEngine survives concurrent stageSong() and acquireActiveSong
         while (!stop.load(std::memory_order_acquire)) {
             StreamingEngine::ActiveSongHandle handle = engine.acquireActiveSong();
             if (handle) {
-                StreamingTrackBuffer* track = handle.track("track_a");
+                StreamingTrackBuffer* track = handle.region("reg_a");
                 if (track == nullptr)
-                    track = handle.track("track_b");
+                    track = handle.region("reg_b");
                 if (track != nullptr) {
                     track->read(channels, 256, 0);
                     readsDone.fetch_add(1, std::memory_order_relaxed);

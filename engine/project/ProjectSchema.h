@@ -16,23 +16,28 @@ struct TrackSendDef {
     bool enabled = true;
 };
 
+// An audio clip placed on a global track for a specific song.
+struct Region {
+    std::string id;
+    std::string trackId; // references a TrackDef.id in Project::tracks
+    std::string file;    // archive path, e.g. "Audio/song1_synths1.wav"
+    double startSeconds = 0.0;        // position within the song timeline
+    double sourceOffsetSeconds = 0.0; // start offset into source audio file
+    double durationSeconds = 0.0;     // clip duration in seconds (0 = full file)
+    double gainDb = 0.0;
+    double fadeInSeconds = 0.0;
+    double fadeOutSeconds = 0.0;
+};
+
 struct TrackDef {
     std::string id;
     std::string name;
-    std::string file;  // path within the archive, e.g. "Audio/song1_synths1.wav"
     std::string busId; // main (FOH) bus assignment
     double gainDb = 0.0;
     double pan = 0.0; // -1..+1
     bool mute = false;
     bool solo = false; // if any track is soloed, non-solo tracks are silenced
     std::vector<TrackSendDef> sends; // aux matrix rows for this track
-
-    // Clip trim boundaries, set via the Builder's waveform trim preview.
-    // Both 0.0 means "untrimmed" (the full file). NOTE: persisted metadata
-    // only -- the playback engine does not yet clip reads to this range;
-    // see ClipTrimEditor's doc comment.
-    double trimStartSeconds = 0.0;
-    double trimEndSeconds = 0.0;
 };
 
 struct TimeSignature {
@@ -104,7 +109,7 @@ struct SongDef {
     double bpm = 120.0;
     TimeSignature timeSignature;
     PlaybackMode playbackMode = PlaybackMode::WaitForTrigger;
-    std::vector<TrackDef> tracks;
+    std::vector<Region> regions;
     std::vector<TimelineEvent> events;
     std::vector<SongSection> sections;
 

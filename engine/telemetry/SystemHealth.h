@@ -45,6 +45,7 @@ private:
     // CPU estimation state (message-thread sample() only).
     mutable uint64_t lastCpuNanos = 0;
     mutable uint64_t lastWallNanos = 0;
+    mutable SystemHealthSnapshot cachedSnapshot{};
 };
 
 } // namespace resoset

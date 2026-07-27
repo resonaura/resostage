@@ -55,39 +55,7 @@ void MainComponent::builderSongAdd(const std::string& json) {
     if (parseJson(json, doc))
         getBool(doc, "noSeed", noSeed);
 
-    if (noSeed) {
-        // no tracks -- caller adds exactly what it needs
-    } else if (!proj.songs.empty() && !proj.songs.front().tracks.empty()) {
-        std::vector<std::string> trUsed;
-        for (const auto& masterTr : proj.songs.front().tracks) {
-            TrackDef t;
-            t.id = makeUniqueId("trk", trUsed);
-            trUsed.push_back(t.id);
-            t.name = masterTr.name;
-            t.file = ""; // empty audio region until imported
-            t.busId = masterTr.busId;
-            t.gainDb = masterTr.gainDb;
-            t.pan = masterTr.pan;
-            t.mute = masterTr.mute;
-            t.solo = masterTr.solo;
-            t.sends = masterTr.sends;
-            song.tracks.push_back(std::move(t));
-        }
-    } else {
-        const std::vector<std::string> defaultTrackNames = {
-            "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Guide"
-        };
-        std::vector<std::string> trUsed;
-        for (const auto& tname : defaultTrackNames) {
-            TrackDef t;
-            t.id = makeUniqueId("trk", trUsed);
-            trUsed.push_back(t.id);
-            t.name = tname;
-            t.file = "";
-            t.busId = defaultBusId;
-            song.tracks.push_back(std::move(t));
-        }
-    }
+    // No per-song track seeding needed; tracks are project-global.
 
     proj.songs.push_back(std::move(song));
 
@@ -194,13 +162,8 @@ void MainComponent::builderTrackAdd(const std::string& json) {
     TrackDef track;
     track.id = makeUniqueId("trk", used);
     track.name = "New Track";
-    track.file = "";
     track.busId = proj.busses.empty() ? "main" : proj.busses.front().id;
     proj.tracks.push_back(track);
-
-    for (auto& s : proj.songs) {
-        s.tracks.push_back(track);
-    }
 
     builderPanel.refresh();
     builderPanel.onProjectEdited();
@@ -217,10 +180,6 @@ void MainComponent::builderTrackRemove(const std::string& json) {
         return;
 
     proj.tracks.erase(proj.tracks.begin() + index);
-    for (auto& s : proj.songs) {
-        if (index < static_cast<int>(s.tracks.size()))
-            s.tracks.erase(s.tracks.begin() + index);
-    }
     builderPanel.refresh();
     builderPanel.onProjectEdited();
     setStatus("Track removed");
@@ -237,10 +196,6 @@ void MainComponent::builderTrackMove(const std::string& json) {
         return;
 
     std::swap(proj.tracks[static_cast<size_t>(index)], proj.tracks[static_cast<size_t>(to)]);
-    for (auto& s : proj.songs) {
-        if (index < static_cast<int>(s.tracks.size()) && to < static_cast<int>(s.tracks.size()))
-            std::swap(s.tracks[static_cast<size_t>(index)], s.tracks[static_cast<size_t>(to)]);
-    }
     builderPanel.refresh();
     builderPanel.onProjectEdited();
 }
@@ -265,18 +220,6 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
     if (getBool(doc, "mute", boolVal)) t.mute = boolVal;
     if (getBool(doc, "solo", boolVal)) t.solo = boolVal;
 
-    for (auto& s : proj.songs) {
-        if (index < static_cast<int>(s.tracks.size())) {
-            TrackDef& st = s.tracks[static_cast<size_t>(index)];
-            st.name = t.name;
-            st.busId = t.busId;
-            st.gainDb = t.gainDb;
-            st.pan = t.pan;
-            st.mute = t.mute;
-            st.solo = t.solo;
-        }
-    }
-
     engine.setTrackGainDb(0, static_cast<size_t>(index), t.gainDb);
     engine.setTrackPan(0, static_cast<size_t>(index), t.pan);
     engine.setTrackBusId(0, static_cast<size_t>(index), t.busId);
@@ -285,6 +228,94 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
 
     builderPanel.refresh();
     builderPanel.onProjectEdited();
+}
+
+void MainComponent::builderRegionAdd(const std::string& json) {
+    simdjson::dom::element doc;
+    int songIndex = -1;
+    std::string trackId;
+    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "trackId", trackId) || !engine.isProjectLoaded())
+        return;
+    Project& proj = engine.project();
+    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
+        return;
+    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
+
+    std::vector<std::string> used;
+    for (const auto& r : s.regions)
+        used.push_back(r.id);
+
+    Region reg;
+    reg.id = makeUniqueId("reg", used);
+    reg.trackId = trackId;
+    getString(doc, "file", reg.file);
+    getDouble(doc, "startSeconds", reg.startSeconds);
+    getDouble(doc, "sourceOffsetSeconds", reg.sourceOffsetSeconds);
+    getDouble(doc, "durationSeconds", reg.durationSeconds);
+    getDouble(doc, "gainDb", reg.gainDb);
+    getDouble(doc, "fadeInSeconds", reg.fadeInSeconds);
+    getDouble(doc, "fadeOutSeconds", reg.fadeOutSeconds);
+
+    s.regions.push_back(std::move(reg));
+    builderPanel.refresh();
+    builderPanel.onProjectEdited();
+    setStatus("Region added");
+}
+
+void MainComponent::builderRegionRemove(const std::string& json) {
+    simdjson::dom::element doc;
+    int songIndex = -1;
+    std::string regionId;
+    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "regionId", regionId) || !engine.isProjectLoaded())
+        return;
+    Project& proj = engine.project();
+    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
+        return;
+    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
+
+    auto it = std::remove_if(s.regions.begin(), s.regions.end(), [&](const Region& r) { return r.id == regionId; });
+    if (it != s.regions.end()) {
+        s.regions.erase(it, s.regions.end());
+        builderPanel.refresh();
+        builderPanel.onProjectEdited();
+        setStatus("Region removed");
+    }
+}
+
+void MainComponent::builderRegionUpdate(const std::string& json) {
+    simdjson::dom::element doc;
+    int songIndex = -1;
+    std::string regionId;
+    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "regionId", regionId) || !engine.isProjectLoaded())
+        return;
+    Project& proj = engine.project();
+    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
+        return;
+    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
+
+    Region* regPtr = nullptr;
+    for (auto& r : s.regions) {
+        if (r.id == regionId) {
+            regPtr = &r;
+            break;
+        }
+    }
+    if (!regPtr) return;
+
+    std::string strVal;
+    double numVal;
+    if (getString(doc, "trackId", strVal)) regPtr->trackId = strVal;
+    if (getString(doc, "file", strVal)) regPtr->file = strVal;
+    if (getDouble(doc, "startSeconds", numVal)) regPtr->startSeconds = numVal;
+    if (getDouble(doc, "sourceOffsetSeconds", numVal)) regPtr->sourceOffsetSeconds = numVal;
+    if (getDouble(doc, "durationSeconds", numVal)) regPtr->durationSeconds = numVal;
+    if (getDouble(doc, "gainDb", numVal)) regPtr->gainDb = numVal;
+    if (getDouble(doc, "fadeInSeconds", numVal)) regPtr->fadeInSeconds = numVal;
+    if (getDouble(doc, "fadeOutSeconds", numVal)) regPtr->fadeOutSeconds = numVal;
+
+    builderPanel.refresh();
+    builderPanel.onProjectEdited();
+    setStatus("Region updated");
 }
 
 
@@ -387,10 +418,9 @@ void MainComponent::builderBusRemove(const std::string& json) {
     const std::string removedId = proj.busses[static_cast<size_t>(index)].id;
     proj.busses.erase(proj.busses.begin() + index);
     const std::string fallback = proj.busses.front().id;
-    for (auto& song : proj.songs)
-        for (auto& tr : song.tracks)
-            if (tr.busId == removedId)
-                tr.busId = fallback;
+    for (auto& tr : proj.tracks)
+        if (tr.busId == removedId)
+            tr.busId = fallback;
 
     builderPanel.refresh();
     builderPanel.onProjectEdited();

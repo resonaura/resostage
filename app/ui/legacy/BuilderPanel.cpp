@@ -145,11 +145,7 @@ BuilderPanel::BuilderPanel(AudioEngine& engineRef) : engine(engineRef) {
     importWavButton.onClick = [this] { importWavClicked(); };
     styleSectionLabel(trackTrimLabel);
     trackTrimLabel.setText("Trim (preview only -- not yet enforced during playback)", juce::dontSendNotification);
-    trackTrimEditor.onTrimChanged = [this](double startSec, double endSecOrZero) {
-        if (TrackDef* t = trackDefAtSelected()) {
-            t->trimStartSeconds = startSec;
-            t->trimEndSeconds = endSecOrZero;
-        }
+    trackTrimEditor.onTrimChanged = [this](double /*startSec*/, double /*endSecOrZero*/) {
     };
     styleSectionLabel(trackSendsLabel);
     trackSendsLabel.setText("Aux sends", juce::dontSendNotification);
@@ -562,10 +558,10 @@ void BuilderPanel::showTrackEditor(bool show) {
 }
 
 TrackDef* BuilderPanel::trackDefAtSelected() {
-    SongDef* s = currentSong();
-    if (s == nullptr || selectedItemRow < 0 || selectedItemRow >= static_cast<int>(s->tracks.size()))
+    Project& proj = engine.project();
+    if (selectedItemRow < 0 || selectedItemRow >= static_cast<int>(proj.tracks.size()))
         return nullptr;
-    return &s->tracks[static_cast<size_t>(selectedItemRow)];
+    return &proj.tracks[static_cast<size_t>(selectedItemRow)];
 }
 
 void BuilderPanel::showBusEditor(bool show) {
@@ -662,21 +658,20 @@ void BuilderPanel::loadSongEditor() {
 }
 
 void BuilderPanel::loadTrackEditor() {
-    const SongDef* s = currentSong();
-    if (s == nullptr || selectedItemRow < 0 || selectedItemRow >= static_cast<int>(s->tracks.size()))
+    const Project& proj = engine.project();
+    if (selectedItemRow < 0 || selectedItemRow >= static_cast<int>(proj.tracks.size()))
         return;
-    const TrackDef& t = s->tracks[static_cast<size_t>(selectedItemRow)];
+    const TrackDef& t = proj.tracks[static_cast<size_t>(selectedItemRow)];
     trackNameEdit.setText(t.name.empty() ? t.id : t.name, juce::dontSendNotification);
     trackGainSlider.setValue(t.gainDb, juce::dontSendNotification);
     trackPanSlider.setValue(t.pan, juce::dontSendNotification);
     trackMute.setToggleState(t.mute, juce::dontSendNotification);
     trackSolo.setToggleState(t.solo, juce::dontSendNotification);
-    trackFileLabel.setText("File: " + juce::String(t.file), juce::dontSendNotification);
+    trackFileLabel.setText("Track ID: " + juce::String(t.id), juce::dontSendNotification);
     {
         const PeakOverview* overview = engine.trackPeaksAt(static_cast<size_t>(selectedItemRow));
         const double dur = overview != nullptr ? overview->durationSeconds : 0.0;
         trackTrimEditor.setWaveform(overview, dur);
-        trackTrimEditor.setTrim(t.trimStartSeconds, t.trimEndSeconds);
     }
     if (t.busId.empty()) {
         trackBusBox.setSelectedId(kNoBusComboId, juce::dontSendNotification);
@@ -775,10 +770,10 @@ void BuilderPanel::applySongSettings() {
 }
 
 void BuilderPanel::applyTrackSettings() {
-    SongDef* s = currentSong();
-    if (s == nullptr || selectedItemRow < 0 || selectedItemRow >= static_cast<int>(s->tracks.size()))
+    Project& proj = engine.project();
+    if (selectedItemRow < 0 || selectedItemRow >= static_cast<int>(proj.tracks.size()))
         return;
-    TrackDef& t = s->tracks[static_cast<size_t>(selectedItemRow)];
+    TrackDef& t = proj.tracks[static_cast<size_t>(selectedItemRow)];
     t.name = trackNameEdit.getText().toStdString();
     t.gainDb = trackGainSlider.getValue();
     t.pan = trackPanSlider.getValue();
@@ -1055,23 +1050,15 @@ void BuilderPanel::addItem() {
             break;
         }
         case ListTarget::Tracks: {
-            SongDef* s = currentSong();
-            if (s == nullptr)
-                break;
             std::vector<std::string> used;
-            for (const auto& t : s->tracks)
+            for (const auto& t : proj.tracks)
                 used.push_back(t.id);
             TrackDef track;
             track.id = makeUniqueId("trk", used);
             track.name = "New Track";
-            track.file = ""; // no audio yet -- empty is the established "unassigned" convention,
-                              // matching StreamingEngine::stageSong's skip-if-empty check. A fake
-                              // non-empty path here caused "File not found in archive" failures.
             track.busId = proj.busses.empty() ? "bus_main" : proj.busses.front().id;
-            s->tracks.push_back(std::move(track));
-            selectedItemRow = static_cast<int>(s->tracks.size()) - 1;
-            if (onSelectSong && selectedSongRow >= 0)
-                onSelectSong(selectedSongRow);
+            proj.tracks.push_back(std::move(track));
+            selectedItemRow = static_cast<int>(proj.tracks.size()) - 1;
             break;
         }
         case ListTarget::Events: {
@@ -1137,13 +1124,10 @@ void BuilderPanel::removeItem() {
             break;
         }
         case ListTarget::Tracks: {
-            SongDef* s = currentSong();
-            if (s == nullptr || selectedItemRow >= static_cast<int>(s->tracks.size()))
+            if (selectedItemRow < 0 || selectedItemRow >= static_cast<int>(proj.tracks.size()))
                 return;
-            s->tracks.erase(s->tracks.begin() + selectedItemRow);
-            selectedItemRow = std::min(selectedItemRow, static_cast<int>(s->tracks.size()) - 1);
-            if (onSelectSong && selectedSongRow >= 0)
-                onSelectSong(selectedSongRow);
+            proj.tracks.erase(proj.tracks.begin() + selectedItemRow);
+            selectedItemRow = std::min(selectedItemRow, static_cast<int>(proj.tracks.size()) - 1);
             break;
         }
         case ListTarget::Events: {
@@ -1161,10 +1145,9 @@ void BuilderPanel::removeItem() {
             proj.busses.erase(proj.busses.begin() + selectedItemRow);
             // Retarget tracks that pointed at the removed bus.
             const std::string fallback = proj.busses.front().id;
-            for (auto& song : proj.songs)
-                for (auto& tr : song.tracks)
-                    if (tr.busId == removedId)
-                        tr.busId = fallback;
+            for (auto& tr : proj.tracks)
+                if (tr.busId == removedId)
+                    tr.busId = fallback;
             selectedItemRow = std::min(selectedItemRow, static_cast<int>(proj.busses.size()) - 1);
             break;
         }
@@ -1200,11 +1183,8 @@ void BuilderPanel::moveItem(int delta) {
                 onSelectSong(selectedSongRow);
             break;
         case ListTarget::Tracks: {
-            SongDef* s = currentSong();
-            if (s == nullptr || !swapIn(s->tracks))
+            if (!swapIn(proj.tracks))
                 return;
-            if (onSelectSong && selectedSongRow >= 0)
-                onSelectSong(selectedSongRow);
             break;
         }
         case ListTarget::Events: {
@@ -1230,8 +1210,7 @@ int BuilderPanel::getNumRows() {
         case ListTarget::Songs:
             return static_cast<int>(engine.project().songs.size());
         case ListTarget::Tracks: {
-            const SongDef* s = currentSong();
-            return s != nullptr ? static_cast<int>(s->tracks.size()) : 0;
+            return static_cast<int>(engine.project().tracks.size());
         }
         case ListTarget::Events: {
             const SongDef* s = currentSong();
@@ -1265,9 +1244,9 @@ void BuilderPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bo
             break;
         }
         case ListTarget::Tracks: {
-            const SongDef* s = currentSong();
-            if (s != nullptr && row >= 0 && row < static_cast<int>(s->tracks.size())) {
-                const auto& t = s->tracks[static_cast<size_t>(row)];
+            const auto& tracks = engine.project().tracks;
+            if (row >= 0 && row < static_cast<int>(tracks.size())) {
+                const auto& t = tracks[static_cast<size_t>(row)];
                 text = juce::String(t.name.empty() ? t.id : t.name) + "  -> " + juce::String(t.busId)
                        + "  " + juce::String(t.gainDb, 1) + " dB"
                        + (t.mute ? "  [M]" : "");

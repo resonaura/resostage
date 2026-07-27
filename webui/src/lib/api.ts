@@ -159,6 +159,32 @@ export const builder = {
     solo?: boolean;
   }) => post("/api/v1/builder/track/update", patch),
 
+  regionAdd: (patch: {
+    songIndex: number;
+    trackId: string;
+    file?: string;
+    startSeconds?: number;
+    sourceOffsetSeconds?: number;
+    durationSeconds?: number;
+    gainDb?: number;
+    fadeInSeconds?: number;
+    fadeOutSeconds?: number;
+  }) => post("/api/v1/builder/region/add", patch),
+  regionRemove: (songIndex: number, regionId: string) =>
+    post("/api/v1/builder/region/remove", { songIndex, regionId }),
+  regionUpdate: (patch: {
+    songIndex: number;
+    regionId: string;
+    trackId?: string;
+    file?: string;
+    startSeconds?: number;
+    sourceOffsetSeconds?: number;
+    durationSeconds?: number;
+    gainDb?: number;
+    fadeInSeconds?: number;
+    fadeOutSeconds?: number;
+  }) => post("/api/v1/builder/region/update", patch),
+
   async trackImportWav(songIndex: number, index: number, file: File): Promise<void> {
     await post("/api/v1/builder/track/import-wav/begin", { songIndex, index, fileName: file.name });
     try {

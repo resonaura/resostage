@@ -173,6 +173,19 @@ struct WebUiState {
         };
         std::vector<TrackRow> tracks;
 
+        struct RegionRow {
+            std::string id;
+            std::string trackId;
+            std::string file;
+            double startSeconds = 0.0;
+            double sourceOffsetSeconds = 0.0;
+            double durationSeconds = 0.0;
+            double gainDb = 0.0;
+            double fadeInSeconds = 0.0;
+            double fadeOutSeconds = 0.0;
+        };
+        std::vector<RegionRow> regions;
+
         struct EventRow {
             std::string id;
             std::string type; // "programChange" | "cc" | "noteOn" | "noteOff" | "http" | "dmx"

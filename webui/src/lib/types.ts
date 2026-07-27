@@ -36,6 +36,18 @@ export interface ClickSendRow {
   enabled: boolean;
 }
 
+export interface RegionRow {
+  id: string;
+  trackId: string;
+  file: string;
+  startSeconds: number;
+  sourceOffsetSeconds: number;
+  durationSeconds: number;
+  gainDb: number;
+  fadeInSeconds: number;
+  fadeOutSeconds: number;
+}
+
 export interface SongRow {
   name: string;
   bpm: number;
@@ -46,6 +58,7 @@ export interface SongRow {
   clickBusId: string;
   clickSends: ClickSendRow[];
   tracks: SongTrackRow[];
+  regions?: RegionRow[];
   events: SongEventRow[];
 }
 

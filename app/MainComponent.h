@@ -121,6 +121,9 @@ private:
     void builderTrackRemove(const std::string& json);
     void builderTrackMove(const std::string& json);
     void builderTrackUpdate(const std::string& json);
+    void builderRegionAdd(const std::string& json);
+    void builderRegionRemove(const std::string& json);
+    void builderRegionUpdate(const std::string& json);
     void setTrackSendFromJson(const std::string& json);
     void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath);
     void builderBusAdd();

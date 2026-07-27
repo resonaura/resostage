@@ -90,12 +90,10 @@ TEST_CASE("ProjectLoader parses busses, songs, tracks, events, keybindings, and 
     CHECK(song.timeSignature.denominator == 8);
     CHECK(song.playbackMode == PlaybackMode::AutoplayNext);
 
-    REQUIRE(song.tracks.size() == 1);
-    CHECK(song.tracks[0].id == "trk_1");
-    CHECK(song.tracks[0].busId == "bus_main");
-    CHECK(song.tracks[0].gainDb == doctest::Approx(-1.5));
-    CHECK(song.tracks[0].pan == doctest::Approx(0.25));
-    CHECK(song.tracks[0].mute == true);
+    REQUIRE_FALSE(proj.tracks.empty());
+    REQUIRE(song.regions.size() == 1);
+    CHECK(song.regions[0].trackId == "trk_1");
+    CHECK(song.regions[0].file == "Audio/dummy.wav");
 
     REQUIRE(song.events.size() == 4);
 
@@ -192,8 +190,10 @@ TEST_CASE("ProjectLoader parses and round-trips a sends-only track (empty bus)")
 
     const Project& proj = loader.project();
     REQUIRE(proj.songs.size() == 1);
-    REQUIRE(proj.songs[0].tracks.size() == 1);
-    const TrackDef& t = proj.songs[0].tracks[0];
+    REQUIRE_FALSE(proj.tracks.empty());
+    auto tIt = std::find_if(proj.tracks.begin(), proj.tracks.end(), [](const TrackDef& trk) { return trk.id == "t1"; });
+    REQUIRE(tIt != proj.tracks.end());
+    const TrackDef& t = *tIt;
     CHECK(t.busId.empty());
     REQUIRE(t.sends.size() == 1);
     CHECK(t.sends[0].busId == "bus_aux");
@@ -206,10 +206,12 @@ TEST_CASE("ProjectLoader parses and round-trips a sends-only track (empty bus)")
     ProjectLoader reopened;
     REQUIRE(reopened.open(outPath, error));
     REQUIRE(reopened.project().songs.size() == 1);
-    REQUIRE(reopened.project().songs[0].tracks.size() == 1);
-    CHECK(reopened.project().songs[0].tracks[0].busId.empty());
-    REQUIRE(reopened.project().songs[0].tracks[0].sends.size() == 1);
-    CHECK(reopened.project().songs[0].tracks[0].sends[0].busId == "bus_aux");
+    REQUIRE_FALSE(reopened.project().tracks.empty());
+    auto rIt = std::find_if(reopened.project().tracks.begin(), reopened.project().tracks.end(), [](const TrackDef& trk) { return trk.id == "t1"; });
+    REQUIRE(rIt != reopened.project().tracks.end());
+    CHECK(rIt->busId.empty());
+    REQUIRE(rIt->sends.size() == 1);
+    CHECK(rIt->sends[0].busId == "bus_aux");
 
     std::remove(outPath.c_str());
 }
@@ -242,7 +244,7 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     // Mutate a few fields as the Builder would.
     loader.project().name = "Round Trip";
     loader.project().songs[0].bpm = 99.5;
-    loader.project().songs[0].tracks[0].gainDb = -6.0;
+    loader.project().tracks[0].gainDb = -6.0;
     loader.project().busses[0].output.startChannel = 4;
 
     const std::string outPath =
@@ -257,8 +259,8 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(p.name == "Round Trip");
     REQUIRE_FALSE(p.songs.empty());
     CHECK(p.songs[0].bpm == doctest::Approx(99.5));
-    REQUIRE_FALSE(p.songs[0].tracks.empty());
-    CHECK(p.songs[0].tracks[0].gainDb == doctest::Approx(-6.0));
+    REQUIRE_FALSE(p.tracks.empty());
+    CHECK(p.tracks[0].gainDb == doctest::Approx(-6.0));
     REQUIRE_FALSE(p.busses.empty());
     CHECK(p.busses[0].output.startChannel == 4);
     // Events preserved

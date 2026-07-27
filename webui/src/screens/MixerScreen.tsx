@@ -97,8 +97,8 @@ const GAIN_MIN = -60;
 const GAIN_MAX = 12;
 
 function GainFader({
+  accent,
   gainDb,
-  accent = "var(--accent, #0091ff)",
   onChange,
 }: {
   gainDb: number;
@@ -118,11 +118,17 @@ function GainFader({
       className="h-full"
     >
       <Slider.Track
-        className="relative h-full w-2.5 rounded-full bg-default/20"
-        style={{ borderBottomColor: "var(--segment)" }}
+        className="relative h-full w-2.5 rounded-full bg-background/50"
+        style={{ borderBottomColor: accent }}
       >
-        <Slider.Fill style={{ backgroundColor: "var(--segment)" }} />
-        <Slider.Thumb />
+        <Slider.Fill style={{ backgroundColor: accent }} />
+        <Slider.Thumb
+          style={{
+            backgroundColor: "white",
+            width: "0.2rem",
+            padding: "0.4rem",
+          }}
+        />
       </Slider.Track>
     </Slider>
   );
@@ -255,7 +261,17 @@ function SendArcKnob({
   title?: string;
   onChange: (val: number) => void;
 }) {
-  const norm = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const [localValue, setLocalValue] = useState(value);
+  const dragging = useRef(false);
+  const startY = useRef(0);
+  const startValue = useRef(0);
+  const rafId = useRef<number | null>(null);
+  const pendingCommit = useRef<number | null>(null);
+
+  // Sync external value when not dragging
+  if (!dragging.current && localValue !== value) setLocalValue(value);
+
+  const norm = Math.max(0, Math.min(1, (localValue - min) / (max - min)));
   const angle = -135 + norm * 270;
   const radius = 9;
   const strokeWidth = 2.5;
@@ -263,15 +279,68 @@ function SendArcKnob({
   const arcLength = circumference * (270 / 360);
   const strokeDashoffset = arcLength * (1 - norm);
 
+  const scheduleCommit = (v: number) => {
+    pendingCommit.current = v;
+    if (rafId.current == null) {
+      rafId.current = requestAnimationFrame(() => {
+        rafId.current = null;
+        if (pendingCommit.current != null) {
+          onChange(pendingCommit.current);
+          pendingCommit.current = null;
+        }
+      });
+    }
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragging.current = true;
+    startY.current = e.clientY;
+    startValue.current = localValue;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
+    const dy = startY.current - e.clientY;
+    const range = max - min;
+    const next = Math.max(
+      min,
+      Math.min(max, startValue.current + (dy / 120) * range),
+    );
+    setLocalValue(next);
+    scheduleCommit(next);
+  };
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    if (rafId.current != null) {
+      cancelAnimationFrame(rafId.current);
+      rafId.current = null;
+    }
+    if (pendingCommit.current != null) {
+      onChange(pendingCommit.current);
+      pendingCommit.current = null;
+    }
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
   return (
     <div
-      className="relative flex items-center justify-center cursor-pointer select-none"
+      className="relative flex items-center justify-center cursor-ns-resize select-none touch-none"
       title={title}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onDoubleClick={() => {
+        setLocalValue(SEND_FLOOR_DB);
+        onChange(SEND_FLOOR_DB);
+      }}
       onWheel={(e) => {
         e.preventDefault();
         const delta = e.deltaY < 0 ? 1 : -1;
         const step = (max - min) / 40;
-        const newVal = Math.max(min, Math.min(max, value + delta * step));
+        const newVal = Math.max(min, Math.min(max, localValue + delta * step));
+        setLocalValue(newVal);
         onChange(newVal);
       }}
     >
@@ -298,7 +367,11 @@ function SendArcKnob({
           strokeDasharray={`${arcLength} ${circumference}`}
           strokeDashoffset={strokeDashoffset}
           strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 0.1s ease-out" }}
+          style={{
+            transition: dragging.current
+              ? "none"
+              : "stroke-dashoffset 0.1s ease-out",
+          }}
         />
       </svg>
       {/* Knob Indicator Dot */}
@@ -648,7 +721,7 @@ function ChannelStrip({
 
   return (
     <div
-      className={`flex h-full min-h-0 w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-surface/80 p-2 select-none transition-opacity duration-300 ${
+      className={`flex h-full min-h-0 w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-background-tertiary p-2 select-none transition-opacity duration-300 ${
         isDimmed ? "opacity-35" : "opacity-100"
       }`}
     >
@@ -1059,7 +1132,7 @@ function TrackContextMenu({
   };
 
   return (
-    <AnimatePresence>
+    <>
       <div
         className="fixed inset-0 z-40"
         onClick={onClose}
@@ -1068,99 +1141,104 @@ function TrackContextMenu({
           onClose();
         }}
       />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.94, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.94 }}
-        transition={{ duration: 0.12, ease: "easeOut" }}
-        className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
-        style={{ left: menu.x, top: menu.y }}
-      >
-        {renaming ? (
-          <form
-            className="px-2 py-1.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              commitRename();
-            }}
-          >
-            <input
-              autoFocus
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") onClose();
+      <AnimatePresence>
+        <motion.div
+          key="track-ctx-menu"
+          initial={{ opacity: 0, scale: 0.94, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.94 }}
+          transition={{ duration: 0.12, ease: "easeOut" }}
+          className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
+          style={{ left: menu.x, top: menu.y }}
+        >
+          {renaming ? (
+            <form
+              className="px-2 py-1.5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                commitRename();
               }}
-              className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
-            />
-          </form>
-        ) : (
-          <MenuItem onClick={() => setRenaming(true)}>Rename Track...</MenuItem>
-        )}
-        <MenuItem
-          onClick={() =>
-            act(() => void builder.trackMove(songIndex, menu.index, -1))
-          }
-        >
-          Move Left
-        </MenuItem>
-        <MenuItem
-          onClick={() =>
-            act(() => void builder.trackMove(songIndex, menu.index, 1))
-          }
-        >
-          Move Right
-        </MenuItem>
-        <div className="my-1 h-px bg-default/20" />
-        <MenuItem
-          onClick={() =>
-            act(() => {
-              void mixer.setTrackGain(menu.index, 0);
-              void mixer.setTrackPan(menu.index, 0);
-            })
-          }
-        >
-          Reset Gain &amp; Pan
-        </MenuItem>
-        <MenuItem
-          onClick={() =>
-            act(() => {
-              void mixer.setTrackMute(menu.index, false);
-              void mixer.setTrackSolo(menu.index, false);
-            })
-          }
-        >
-          Clear Mute &amp; Solo
-        </MenuItem>
-        <MenuItem
-          disabled={track.sends.length === 0}
-          onClick={() =>
-            act(() => {
-              for (const s of track.sends)
-                void mixer.setTrackSend(menu.index, s.busId, SEND_FLOOR_DB);
-            })
-          }
-        >
-          Clear All Sends
-        </MenuItem>
-        <div className="my-1 h-px bg-default/20" />
-        <MenuItem
-          danger
-          onClick={() =>
-            act(() => {
-              if (
-                window.confirm(
-                  `Remove track "${track.name || track.id}"? This can't be undone.`,
+            >
+              <input
+                autoFocus
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") onClose();
+                }}
+                className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
+              />
+            </form>
+          ) : (
+            <MenuItem onClick={() => setRenaming(true)}>
+              Rename Track...
+            </MenuItem>
+          )}
+          <MenuItem
+            onClick={() =>
+              act(() => void builder.trackMove(songIndex, menu.index, -1))
+            }
+          >
+            Move Left
+          </MenuItem>
+          <MenuItem
+            onClick={() =>
+              act(() => void builder.trackMove(songIndex, menu.index, 1))
+            }
+          >
+            Move Right
+          </MenuItem>
+          <div className="my-1 h-px bg-default/20" />
+          <MenuItem
+            onClick={() =>
+              act(() => {
+                void mixer.setTrackGain(menu.index, 0);
+                void mixer.setTrackPan(menu.index, 0);
+              })
+            }
+          >
+            Reset Gain & Pan
+          </MenuItem>
+          <MenuItem
+            onClick={() =>
+              act(() => {
+                void mixer.setTrackMute(menu.index, false);
+                void mixer.setTrackSolo(menu.index, false);
+              })
+            }
+          >
+            Clear Mute & Solo
+          </MenuItem>
+          <MenuItem
+            disabled={track.sends.length === 0}
+            onClick={() =>
+              act(() => {
+                for (const s of track.sends)
+                  void mixer.setTrackSend(menu.index, s.busId, SEND_FLOOR_DB);
+              })
+            }
+          >
+            Clear All Sends
+          </MenuItem>
+          <div className="my-1 h-px bg-default/20" />
+          <MenuItem
+            danger
+            onClick={() =>
+              act(() => {
+                if (
+                  window.confirm(
+                    `Remove track "${track.name || track.id}"? This can't be undone.`,
+                  )
                 )
-              )
-                void builder.trackRemove(songIndex, menu.index);
-            })
-          }
-        >
-          Remove Track
-        </MenuItem>
-      </motion.div>
-    </AnimatePresence>
+                  void builder.trackRemove(songIndex, menu.index);
+              })
+            }
+          >
+            Remove Track
+          </MenuItem>
+        </motion.div>
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -1199,7 +1277,7 @@ function BusContextMenu({
   };
 
   return (
-    <AnimatePresence>
+    <>
       <div
         className="fixed inset-0 z-40"
         onClick={onClose}
@@ -1208,76 +1286,79 @@ function BusContextMenu({
           onClose();
         }}
       />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.94, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.94 }}
-        transition={{ duration: 0.12, ease: "easeOut" }}
-        className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
-        style={{ left: menu.x, top: menu.y }}
-      >
-        {renaming ? (
-          <form
-            className="px-2 py-1.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              commitRename();
-            }}
-          >
-            <input
-              autoFocus
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") onClose();
+      <AnimatePresence>
+        <motion.div
+          key="bus-ctx-menu"
+          initial={{ opacity: 0, scale: 0.94, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.94 }}
+          transition={{ duration: 0.12, ease: "easeOut" }}
+          className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
+          style={{ left: menu.x, top: menu.y }}
+        >
+          {renaming ? (
+            <form
+              className="px-2 py-1.5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                commitRename();
               }}
-              className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
-            />
-          </form>
-        ) : (
-          <MenuItem onClick={() => setRenaming(true)}>Rename Bus...</MenuItem>
-        )}
-        <MenuItem
-          onClick={() =>
-            act(() => {
-              void mixer.setBusGain(menu.index, 0);
-            })
-          }
-        >
-          Reset Gain
-        </MenuItem>
-        <MenuItem
-          onClick={() =>
-            act(() => {
-              void mixer.setBusMute(menu.index, false);
-              void mixer.setBusSolo(menu.index, false);
-            })
-          }
-        >
-          Clear Mute &amp; Solo
-        </MenuItem>
-        {bus.id !== "main" && (
-          <>
-            <div className="my-1 h-px bg-default/20" />
-            <MenuItem
-              danger
-              onClick={() =>
-                act(() => {
-                  if (
-                    window.confirm(
-                      `Remove bus "${bus.name || bus.id}"? This can't be undone.`,
-                    )
-                  )
-                    void builder.busRemove(menu.index);
-                })
-              }
             >
-              Remove Bus
-            </MenuItem>
-          </>
-        )}
-      </motion.div>
-    </AnimatePresence>
+              <input
+                autoFocus
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") onClose();
+                }}
+                className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
+              />
+            </form>
+          ) : (
+            <MenuItem onClick={() => setRenaming(true)}>Rename Bus...</MenuItem>
+          )}
+          <MenuItem
+            onClick={() =>
+              act(() => {
+                void mixer.setBusGain(menu.index, 0);
+              })
+            }
+          >
+            Reset Gain
+          </MenuItem>
+          <MenuItem
+            onClick={() =>
+              act(() => {
+                void mixer.setBusMute(menu.index, false);
+                void mixer.setBusSolo(menu.index, false);
+              })
+            }
+          >
+            Clear Mute & Solo
+          </MenuItem>
+          {bus.id !== "main" && (
+            <>
+              <div className="my-1 h-px bg-default/20" />
+              <MenuItem
+                danger
+                onClick={() =>
+                  act(() => {
+                    if (
+                      window.confirm(
+                        `Remove bus "${bus.name || bus.id}"? This can't be undone.`,
+                      )
+                    )
+                      void builder.busRemove(menu.index);
+                  })
+                }
+              >
+                Remove Bus
+              </MenuItem>
+            </>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -1411,7 +1492,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
       </div>
 
       {/* Mixer Console Container: Scrollable Tracks on Left, Separator, Fixed Metronome/Master/Aux on Right */}
-      <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-default/30 bg-surface/60 p-3">
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-default/30 bg-background-secondary p-3">
         {state.tracks.length === 0 && state.busses.length === 0 ? (
           <div className="flex h-full w-full items-center justify-center px-4 py-6 text-center text-sm text-foreground/40">
             No tracks staged in this project.

@@ -800,19 +800,19 @@ std::string WebServer::buildStateJson() const {
         }
         o << "],";
 
-        o << "\"tracks\":[";
-        for (size_t j = 0; j < song.tracks.size(); ++j) {
+        o << "\"regions\":[";
+        for (size_t j = 0; j < song.regions.size(); ++j) {
             if (j) o << ",";
-            const auto& t = song.tracks[j];
-            o << "{\"id\":\"" << jsonEscape(t.id) << "\","
-              << "\"name\":\"" << jsonEscape(t.name) << "\","
-              << "\"busId\":\"" << jsonEscape(t.busId) << "\","
-              << "\"file\":\"" << jsonEscape(t.file) << "\","
-              << "\"gainDb\":" << finiteOrZero(t.gainDb) << ","
-              << "\"pan\":" << finiteOrZero(t.pan) << ","
-              << "\"mute\":" << (t.mute ? "true" : "false") << ","
-              << "\"solo\":" << (t.solo ? "true" : "false") << ","
-              << "\"sendsCount\":" << t.sendsCount << "}";
+            const auto& r = song.regions[j];
+            o << "{\"id\":\"" << jsonEscape(r.id) << "\","
+              << "\"trackId\":\"" << jsonEscape(r.trackId) << "\","
+              << "\"file\":\"" << jsonEscape(r.file) << "\","
+              << "\"startSeconds\":" << finiteOrZero(r.startSeconds) << ","
+              << "\"sourceOffsetSeconds\":" << finiteOrZero(r.sourceOffsetSeconds) << ","
+              << "\"durationSeconds\":" << finiteOrZero(r.durationSeconds) << ","
+              << "\"gainDb\":" << finiteOrZero(r.gainDb) << ","
+              << "\"fadeInSeconds\":" << finiteOrZero(r.fadeInSeconds) << ","
+              << "\"fadeOutSeconds\":" << finiteOrZero(r.fadeOutSeconds) << "}";
         }
         o << "],";
 
