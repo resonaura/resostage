@@ -1450,9 +1450,9 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             onComplete(false, std::move(msg));
     };
 
-    if (busyImporting.load(std::memory_order_acquire)) {
-        fail("Another import is already in progress");
-        return;
+    if (importThread.joinable()) {
+        importThread.join();
+        busyImporting.store(false, std::memory_order_release);
     }
     const TrackDef* track = trackDefInSong(songIndex, trackIndex);
     if (track == nullptr) {
@@ -1479,16 +1479,20 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
         newTrackName = (dot == std::string::npos) ? base : base.substr(0, dot);
     }
 
+    // Update in-memory live track immediately so main thread UI/state has it
+    if (TrackDef* liveTrack = trackDefInSong(songIndex, trackIndex)) {
+        liveTrack->file = entry;
+        if (liveTrack->name.empty() || liveTrack->name == "New Track")
+            liveTrack->name = newTrackName;
+    }
+
     const size_t songToRestore = currentSong;
     const bool wasPlaying = playing.load(std::memory_order_acquire);
     stop();
     joinPendingPeakBuilds(); // also reads `loader`; must finish before we hand it to the import thread
     streaming.stop(); // halts the I/O thread -- loader is exclusively ours until streaming.start() below
 
-    // Private snapshot the background thread writes from -- the shared
-    // loader.project() is left completely untouched until the fast
-    // message-thread completion phase, so UI reads on the timer (which run
-    // regardless of what BuilderPanel does) never race a background mutation.
+    // Private snapshot the background thread writes from
     Project projectSnapshot = loader.project();
     if (TrackDef* snapTrack = (songIndex < projectSnapshot.songs.size() && trackIndex < projectSnapshot.songs[songIndex].tracks.size())
                                   ? &projectSnapshot.songs[songIndex].tracks[trackIndex]
@@ -1572,11 +1576,9 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     // are still valid; imports are rare enough that recomputing is cheap.
     peakOverviewSessionCache.clear();
 
-    loader.close();
-    std::remove(archivePath.c_str());
     if (std::rename(tempOut.c_str(), archivePath.c_str()) != 0) {
         std::string reopenError;
-        (void)loader.open(archivePath, reopenError);
+        (void)loader.reopenArchiveKeepProject(archivePath, reopenError);
         projectLoaded = loader.isOpen();
         if (projectLoaded)
             streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
@@ -1586,7 +1588,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     }
 
     std::string openError;
-    if (!loader.open(archivePath, openError)) {
+    if (!loader.reopenArchiveKeepProject(archivePath, openError)) {
         projectLoaded = false;
         done(false, "Import written, but failed to reopen archive: " + openError);
         return;

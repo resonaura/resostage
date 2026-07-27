@@ -617,13 +617,13 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
   const handleInitDefaultTracks = async () => {
     const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
     const defaultTracks = ["Click", "Guide", "Drums", "Percussion", "Bass", "Guitars", "Synths", "Vocals", "SFX"];
+    let trackIndex = state.tracks.length;
     for (const name of defaultTracks) {
       if (!state.tracks.some((t) => t.name === name)) {
         await builder.trackAdd(songIndex);
-        const nextIndex = state.tracks.length;
         await builder.trackUpdate({
           songIndex,
-          index: nextIndex,
+          index: trackIndex,
           name,
           busId: state.busses[0]?.id || "main",
           gainDb: 0,
@@ -631,6 +631,7 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
           mute: false,
           solo: false,
         });
+        trackIndex++;
       }
     }
   };

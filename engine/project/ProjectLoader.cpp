@@ -498,6 +498,21 @@ ProjectLoader::StreamCursor ProjectLoader::openStream(const std::string& archive
     return cursor;
 }
 
+bool ProjectLoader::reopenArchiveKeepProject(const std::string& path, std::string& error) {
+    if (impl->zipOpen) {
+        mz_zip_reader_end(&impl->zip);
+        impl->zipOpen = false;
+    }
+    std::memset(&impl->zip, 0, sizeof(impl->zip));
+    if (!mz_zip_reader_init_file(&impl->zip, path.c_str(), 0)) {
+        error = "Failed to open archive: " + path;
+        return false;
+    }
+    impl->zipOpen = true;
+    openArchivePath = path;
+    return true;
+}
+
 bool ProjectLoader::open(const std::string& path, std::string& error) {
     close();
 

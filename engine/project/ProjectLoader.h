@@ -59,6 +59,7 @@ public:
     // Opens the .rsnraset (ZIP) file and parses project.json. Returns false and
     // fills `error` on failure (bad zip, missing project.json, malformed JSON).
     bool open(const std::string& path, std::string& error);
+    bool reopenArchiveKeepProject(const std::string& path, std::string& error);
     void close();
 
     // Resets to a fresh, empty, unsaved Project -- not backed by any archive

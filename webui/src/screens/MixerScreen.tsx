@@ -19,7 +19,13 @@ const SEND_FLOOR_DB = -60;
 // channel dumped into the primary select).
 const EXT_OUTPUT_VALUE = "__ext_output__";
 
-function MonoStereoIcon({ stereo, size = 13 }: { stereo: boolean; size?: number }) {
+function MonoStereoIcon({
+  stereo,
+  size = 13,
+}: {
+  stereo: boolean;
+  size?: number;
+}) {
   if (!stereo) {
     return (
       <span
@@ -29,7 +35,10 @@ function MonoStereoIcon({ stereo, size = 13 }: { stereo: boolean; size?: number 
     );
   }
   return (
-    <span className="relative inline-block shrink-0" style={{ width: size * 1.6, height: size }}>
+    <span
+      className="relative inline-block shrink-0"
+      style={{ width: size * 1.6, height: size }}
+    >
       <span
         className="absolute left-0 top-0 rounded-full border-[1.5px] border-current"
         style={{ width: size, height: size }}
@@ -54,7 +63,8 @@ function directOutputOptions(
   const options: { label: string; startChannel: number }[] = [];
   if (stereo) {
     for (let i = 0; i + 1 < count; i += 2) {
-      if (isActive(i) && isActive(i + 1)) options.push({ label: `${i + 1}/${i + 2}`, startChannel: i });
+      if (isActive(i) && isActive(i + 1))
+        options.push({ label: `${i + 1}/${i + 2}`, startChannel: i });
     }
   } else {
     for (let i = 0; i < count; i++) {
@@ -65,9 +75,18 @@ function directOutputOptions(
 }
 
 const TRACK_COLORS = [
-  "#0091ff", "#30d158", "#ff9230", "#db34f2", "#ff375f",
-  "#00d2e0", "#ff4245", "#6d7cff", "#00dac3", "#3cd3fe",
-  "#ffd600", "#b78a66",
+  "#0091ff",
+  "#30d158",
+  "#ff9230",
+  "#db34f2",
+  "#ff375f",
+  "#00d2e0",
+  "#ff4245",
+  "#6d7cff",
+  "#00dac3",
+  "#3cd3fe",
+  "#ffd600",
+  "#b78a66",
 ];
 function colorForIndex(i: number): string {
   return TRACK_COLORS[i % TRACK_COLORS.length];
@@ -167,7 +186,11 @@ function Knob({
     if (!dragging.current) return;
     const dy = startY.current - e.clientY;
     const range = max - min;
-    const next = Math.round(Math.max(min, Math.min(max, startValue.current + (dy / 120) * range)) * 100) / 100;
+    const next =
+      Math.round(
+        Math.max(min, Math.min(max, startValue.current + (dy / 120) * range)) *
+          100,
+      ) / 100;
     setLocalValue(next);
     scheduleCommit(next);
   };
@@ -195,7 +218,10 @@ function Knob({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onDoubleClick={() => { setLocalValue(defaultValue); onCommit(defaultValue); }}
+      onDoubleClick={() => {
+        setLocalValue(defaultValue);
+        onCommit(defaultValue);
+      }}
       className="relative shrink-0 cursor-ns-resize touch-none select-none rounded-full border border-default/60 bg-default/20"
       style={{ width: size, height: size }}
     >
@@ -233,7 +259,10 @@ function SendKnobs({
         const value = existing?.gainDb ?? SEND_FLOOR_DB;
         return (
           <div key={bus.id} className="flex items-center justify-between gap-1">
-            <span className="truncate text-[8px] font-mono text-foreground/40" title={bus.name || bus.id}>
+            <span
+              className="truncate text-[8px] font-mono text-foreground/40"
+              title={bus.name || bus.id}
+            >
               {(bus.name || bus.id).slice(0, 4)}
             </span>
             <Knob
@@ -317,7 +346,8 @@ function TrackOutputRouting({
             defaultValue=""
             onChange={(e) => {
               const startChannel = Number(e.target.value);
-              if (!Number.isNaN(startChannel) && e.target.value !== "") onDirectOutput(mono, startChannel);
+              if (!Number.isNaN(startChannel) && e.target.value !== "")
+                onDirectOutput(mono, startChannel);
             }}
             className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] text-foreground focus:outline-none"
           >
@@ -336,7 +366,12 @@ function TrackOutputRouting({
   );
 }
 
-function updateBusChannels(bus: BusRow, index: number, channels: number, startChannel: number) {
+function updateBusChannels(
+  bus: BusRow,
+  index: number,
+  channels: number,
+  startChannel: number,
+) {
   void builder.busUpdate({
     index,
     name: bus.name,
@@ -368,7 +403,10 @@ function BusDestinationRouting({
   settings: SettingsState;
 }) {
   const stereo = bus.channels >= 2;
-  const isFollowingMaster = !!master && bus.startChannel === master.startChannel && bus.channels === master.channels;
+  const isFollowingMaster =
+    !!master &&
+    bus.startChannel === master.startChannel &&
+    bus.channels === master.channels;
   const [extOutputOpen, setExtOutputOpen] = useState(!isFollowingMaster);
   const options = directOutputOptions(settings, stereo);
 
@@ -378,10 +416,14 @@ function BusDestinationRouting({
         type="button"
         className="flex items-center gap-1 text-foreground/70"
         title={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
-        onClick={() => updateBusChannels(bus, index, stereo ? 1 : 2, bus.startChannel)}
+        onClick={() =>
+          updateBusChannels(bus, index, stereo ? 1 : 2, bus.startChannel)
+        }
       >
         <MonoStereoIcon stereo={stereo} />
-        <span className="text-[8px] uppercase">{stereo ? "Stereo" : "Mono"}</span>
+        <span className="text-[8px] uppercase">
+          {stereo ? "Stereo" : "Mono"}
+        </span>
       </button>
       <select
         value={extOutputOpen ? EXT_OUTPUT_VALUE : "master"}
@@ -390,7 +432,13 @@ function BusDestinationRouting({
             setExtOutputOpen(true);
           } else {
             setExtOutputOpen(false);
-            if (master) updateBusChannels(bus, index, master.channels, master.startChannel);
+            if (master)
+              updateBusChannels(
+                bus,
+                index,
+                master.channels,
+                master.startChannel,
+              );
           }
         }}
         className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
@@ -405,7 +453,8 @@ function BusDestinationRouting({
           value={isFollowingMaster ? "" : String(bus.startChannel)}
           onChange={(e) => {
             const startChannel = Number(e.target.value);
-            if (!Number.isNaN(startChannel) && e.target.value !== "") updateBusChannels(bus, index, bus.channels, startChannel);
+            if (!Number.isNaN(startChannel) && e.target.value !== "")
+              updateBusChannels(bus, index, bus.channels, startChannel);
           }}
           className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] text-foreground focus:outline-none"
         >
@@ -435,12 +484,16 @@ function StripButton({
   onClick: () => void;
 }) {
   const activeCls =
-    color === "danger" ? "bg-danger text-white border-danger" : "bg-warning text-black border-warning";
+    color === "danger"
+      ? "bg-danger text-white border-danger"
+      : "bg-warning text-black border-warning";
   return (
     <button
       onClick={onClick}
       className={`flex h-5 w-full items-center justify-center rounded border text-[10px] font-bold transition-colors ${
-        active ? activeCls : "border-default/50 bg-default/10 text-foreground/50 hover:bg-default/25"
+        active
+          ? activeCls
+          : "border-default/50 bg-default/10 text-foreground/50 hover:bg-default/25"
       }`}
     >
       {children}
@@ -477,9 +530,16 @@ function ChannelStrip({
   // When set, the plain <select> is replaced by TrackOutputRouting (adds the
   // "Direct Output" escape hatch + mono/stereo channel picker). Track strips
   // only -- doesn't apply to bus/master/click strips.
-  directOutput?: { settings: SettingsState; onDirectOutput: (mono: boolean, startChannel: number) => void };
+  directOutput?: {
+    settings: SettingsState;
+    onDirectOutput: (mono: boolean, startChannel: number) => void;
+  };
   // Ableton-style send knob row, one per aux bus. Track strips only.
-  sends?: { auxBusses: BusRow[]; values: { busId: string; gainDb: number }[]; trackIndex: number };
+  sends?: {
+    auxBusses: BusRow[];
+    values: { busId: string; gainDb: number }[];
+    trackIndex: number;
+  };
   // Mono/stereo toggle + Master-vs-Direct-Output routing. Bus strips only
   // (every bus except Master -- see BusDestinationRouting).
   busDestination?: React.ReactNode;
@@ -504,11 +564,21 @@ function ChannelStrip({
     <div className="flex w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-surface/80 p-2 select-none">
       {/* Header */}
       <div className="flex flex-col items-center gap-0.5 w-full text-center">
-        <div className="h-1 w-full rounded-full" style={{ backgroundColor: color }} />
-        <div className="truncate text-xs font-semibold text-foreground w-full" title={name}>
+        <div
+          className="h-1 w-full rounded-full"
+          style={{ backgroundColor: color }}
+        />
+        <div
+          className="truncate text-xs font-semibold text-foreground w-full"
+          title={name}
+        >
           {name}
         </div>
-        {subtitle && <div className="text-[9px] text-foreground/40 font-mono truncate w-full">{subtitle}</div>}
+        {subtitle && (
+          <div className="text-[9px] text-foreground/40 font-mono truncate w-full">
+            {subtitle}
+          </div>
+        )}
       </div>
 
       {/* Bus Routing Dropdown -- "Main and Sends": this main destination and
@@ -555,7 +625,9 @@ function ChannelStrip({
             size={24}
             title="Pan"
           />
-          <div className="text-[9px] font-mono text-foreground/50">{formatPan(pan)}</div>
+          <div className="text-[9px] font-mono text-foreground/50">
+            {formatPan(pan)}
+          </div>
         </div>
       ) : (
         <div className="h-2" />
@@ -564,7 +636,12 @@ function ChannelStrip({
       {/* Fader & Meter Section */}
       <div className="flex min-h-0 flex-1 items-center justify-center gap-2 py-2">
         <GainFader gainDb={gainDb} accent={color} onChange={onGain} />
-        <LevelMeterBar db={peakDb ?? -100} vertical={true} showValue={false} barClassName="h-full w-2" />
+        <LevelMeterBar
+          db={peakDb ?? -100}
+          vertical={true}
+          showValue={false}
+          barClassName="h-full w-2"
+        />
       </div>
 
       {/* Gain readout */}
@@ -582,7 +659,13 @@ function ChannelStrip({
         </StripButton>
       </div>
 
-      {sends && <SendKnobs auxBusses={sends.auxBusses} sends={sends.values} trackIndex={sends.trackIndex} />}
+      {sends && (
+        <SendKnobs
+          auxBusses={sends.auxBusses}
+          sends={sends.values}
+          trackIndex={sends.trackIndex}
+        />
+      )}
     </div>
   );
 }
@@ -602,7 +685,11 @@ function TrackStrip({
   auxBusses: BusRow[];
   meters: import("../lib/types").MeterRow[];
   settings: SettingsState;
-  onDirectOutput: (trackIndex: number, mono: boolean, startChannel: number) => void;
+  onDirectOutput: (
+    trackIndex: number,
+    mono: boolean,
+    startChannel: number,
+  ) => void;
 }) {
   const color = colorForIndex(index);
   const busMeter = meters.find((m) => m.id === t.busId);
@@ -616,7 +703,10 @@ function TrackStrip({
       busses={busses}
       busId={t.busId}
       onBusSelect={(bId) => mixer.setTrackBus(index, bId)}
-      directOutput={{ settings, onDirectOutput: (mono, ch) => onDirectOutput(index, mono, ch) }}
+      directOutput={{
+        settings,
+        onDirectOutput: (mono, ch) => onDirectOutput(index, mono, ch),
+      }}
       sends={{ auxBusses, values: t.sends, trackIndex: index }}
       gainDb={t.gainDb ?? 0}
       pan={t.pan ?? 0}
@@ -734,7 +824,16 @@ function BusStrip({
       onPan={null}
       onMute={() => mixer.setBusMute(index, !b.mute)}
       onSolo={() => mixer.setBusSolo(index, !b.solo)}
-      busDestination={!isMaster ? <BusDestinationRouting bus={b} index={index} master={master} settings={settings} /> : undefined}
+      busDestination={
+        !isMaster ? (
+          <BusDestinationRouting
+            bus={b}
+            index={index}
+            master={master}
+            settings={settings}
+          />
+        ) : undefined
+      }
     />
   );
 }
@@ -851,8 +950,20 @@ function TrackContextMenu({
         ) : (
           <MenuItem onClick={() => setRenaming(true)}>Rename...</MenuItem>
         )}
-        <MenuItem onClick={() => act(() => void builder.trackMove(songIndex, menu.index, -1))}>Move Left</MenuItem>
-        <MenuItem onClick={() => act(() => void builder.trackMove(songIndex, menu.index, 1))}>Move Right</MenuItem>
+        <MenuItem
+          onClick={() =>
+            act(() => void builder.trackMove(songIndex, menu.index, -1))
+          }
+        >
+          Move Left
+        </MenuItem>
+        <MenuItem
+          onClick={() =>
+            act(() => void builder.trackMove(songIndex, menu.index, 1))
+          }
+        >
+          Move Right
+        </MenuItem>
         <div className="my-1 h-px bg-default/20" />
         <MenuItem
           onClick={() =>
@@ -878,7 +989,8 @@ function TrackContextMenu({
           disabled={track.sends.length === 0}
           onClick={() =>
             act(() => {
-              for (const s of track.sends) void mixer.setTrackSend(menu.index, s.busId, SEND_FLOOR_DB);
+              for (const s of track.sends)
+                void mixer.setTrackSend(menu.index, s.busId, SEND_FLOOR_DB);
             })
           }
         >
@@ -889,7 +1001,11 @@ function TrackContextMenu({
           danger
           onClick={() =>
             act(() => {
-              if (window.confirm(`Remove track "${track.name || track.id}"? This can't be undone.`))
+              if (
+                window.confirm(
+                  `Remove track "${track.name || track.id}"? This can't be undone.`,
+                )
+              )
                 void builder.trackRemove(songIndex, menu.index);
             })
           }
@@ -927,7 +1043,9 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     const claimed = new Set<string>();
     const remaining: PendingBusJob[] = [];
     for (const job of pendingBusJobs.current) {
-      const idx = state.busses.findIndex((b) => !job.knownIds.has(b.id) && !claimed.has(b.id));
+      const idx = state.busses.findIndex(
+        (b) => !job.knownIds.has(b.id) && !claimed.has(b.id),
+      );
       if (idx >= 0) {
         claimed.add(state.busses[idx].id);
         job.finalize(state.busses[idx].id, idx);
@@ -940,12 +1058,18 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   }, [state.busses]);
 
   function queueBusJob(finalize: (busId: string, index: number) => void) {
-    pendingBusJobs.current.push({ knownIds: new Set(state.busses.map((b) => b.id)), finalize });
+    pendingBusJobs.current.push({
+      knownIds: new Set(state.busses.map((b) => b.id)),
+      finalize,
+    });
     void builder.busAdd();
   }
 
   function nextOutputChannel(): number {
-    return state.busses.reduce((max, b) => Math.max(max, b.startChannel + b.channels), 0);
+    return state.busses.reduce(
+      (max, b) => Math.max(max, b.startChannel + b.channels),
+      0,
+    );
   }
 
   // "+ Add Send" -- creates a new aux (return) bus directly from the mixer
@@ -972,9 +1096,15 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   // Track "Direct Output" -- pins a track straight to a physical channel (or
   // pair) instead of a project bus, by finding an existing non-aux bus
   // already pinned to that exact channel range or creating one on the fly.
-  function requestDirectOutput(trackIndex: number, mono: boolean, startChannel: number) {
+  function requestDirectOutput(
+    trackIndex: number,
+    mono: boolean,
+    startChannel: number,
+  ) {
     const channels = mono ? 1 : 2;
-    const existing = mainBusses.find((b) => b.startChannel === startChannel && b.channels === channels);
+    const existing = mainBusses.find(
+      (b) => b.startChannel === startChannel && b.channels === channels,
+    );
     if (existing) {
       void mixer.setTrackBus(trackIndex, existing.id);
       return;
@@ -1048,7 +1178,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                 <button
                   onClick={() => requestAddSend()}
                   title="Add a new return/send bus"
-                  className="flex h-20 w-20 shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-default/40 bg-default/10 text-foreground/60 transition-colors hover:bg-default/25 hover:text-foreground"
+                  className="flex h-full w-20 shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-default/40 bg-default/10 text-foreground/60 transition-colors hover:bg-default/25 hover:text-foreground"
                 >
                   <Plus size={22} />
                   <span className="text-[11px] font-semibold">Send</span>
