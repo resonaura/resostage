@@ -184,49 +184,43 @@ void MainComponent::builderSongUpdate(const std::string& json) {
 }
 
 void MainComponent::builderTrackAdd(const std::string& json) {
-    simdjson::dom::element doc;
-    int songIndex = -1;
-    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !engine.isProjectLoaded())
+    if (!engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
-        return;
-    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
     std::vector<std::string> used;
-    for (const auto& t : s.tracks)
+    for (const auto& t : proj.tracks)
         used.push_back(t.id);
     TrackDef track;
     track.id = makeUniqueId("trk", used);
     track.name = "New Track";
-    track.file = ""; // no audio yet -- empty is the established "unassigned" convention
-                      // (see StreamingEngine::stageSong's `trackDef.file.empty()` skip and
-                      // builderSongAdd's default-track seeding); a fake non-empty path here
-                      // caused "File not found in archive" failures on song select/play.
-    track.busId = proj.busses.empty() ? "bus_main" : proj.busses.front().id;
-    s.tracks.push_back(std::move(track));
+    track.file = "";
+    track.busId = proj.busses.empty() ? "main" : proj.busses.front().id;
+    proj.tracks.push_back(track);
 
-    goToSong(songIndex);
+    for (auto& s : proj.songs) {
+        s.tracks.push_back(track);
+    }
+
     builderPanel.refresh();
     builderPanel.onProjectEdited();
-    setStatus("Track added -- use Import WAV to give it audio");
+    setStatus("Track added");
 }
 
 void MainComponent::builderTrackRemove(const std::string& json) {
     simdjson::dom::element doc;
-    int songIndex = -1, index = -1;
-    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getInt(doc, "index", index)
-        || !engine.isProjectLoaded())
+    int index = -1;
+    if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
-        return;
-    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
-    if (index < 0 || index >= static_cast<int>(s.tracks.size()))
+    if (index < 0 || index >= static_cast<int>(proj.tracks.size()))
         return;
 
-    s.tracks.erase(s.tracks.begin() + index);
-    goToSong(songIndex);
+    proj.tracks.erase(proj.tracks.begin() + index);
+    for (auto& s : proj.songs) {
+        if (index < static_cast<int>(s.tracks.size()))
+            s.tracks.erase(s.tracks.begin() + index);
+    }
     builderPanel.refresh();
     builderPanel.onProjectEdited();
     setStatus("Track removed");
@@ -234,64 +228,66 @@ void MainComponent::builderTrackRemove(const std::string& json) {
 
 void MainComponent::builderTrackMove(const std::string& json) {
     simdjson::dom::element doc;
-    int songIndex = -1, index = -1, delta = 0;
-    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getInt(doc, "index", index)
-        || !getInt(doc, "delta", delta) || !engine.isProjectLoaded())
+    int index = -1, delta = 0;
+    if (!parseJson(json, doc) || !getInt(doc, "index", index) || !getInt(doc, "delta", delta) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
-        return;
-    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
     const int to = index + delta;
-    if (index < 0 || index >= static_cast<int>(s.tracks.size()) || to < 0
-        || to >= static_cast<int>(s.tracks.size()))
+    if (index < 0 || index >= static_cast<int>(proj.tracks.size()) || to < 0 || to >= static_cast<int>(proj.tracks.size()))
         return;
 
-    std::swap(s.tracks[static_cast<size_t>(index)], s.tracks[static_cast<size_t>(to)]);
-    goToSong(songIndex);
+    std::swap(proj.tracks[static_cast<size_t>(index)], proj.tracks[static_cast<size_t>(to)]);
+    for (auto& s : proj.songs) {
+        if (index < static_cast<int>(s.tracks.size()) && to < static_cast<int>(s.tracks.size()))
+            std::swap(s.tracks[static_cast<size_t>(index)], s.tracks[static_cast<size_t>(to)]);
+    }
     builderPanel.refresh();
     builderPanel.onProjectEdited();
 }
 
 void MainComponent::builderTrackUpdate(const std::string& json) {
     simdjson::dom::element doc;
-    int songIndex = -1, index = -1;
-    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getInt(doc, "index", index)
-        || !engine.isProjectLoaded())
+    int index = -1;
+    if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
+    if (index < 0 || index >= static_cast<int>(proj.tracks.size()))
         return;
-    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
-    if (index < 0 || index >= static_cast<int>(s.tracks.size()))
-        return;
-    TrackDef& t = s.tracks[static_cast<size_t>(index)];
+    TrackDef& t = proj.tracks[static_cast<size_t>(index)];
 
     std::string strVal;
     double numVal;
     bool boolVal;
     if (getString(doc, "name", strVal)) t.name = strVal;
-    if (getString(doc, "busId", strVal)) t.busId = strVal; // "" == sends-only, matches kNoBusComboId
+    if (getString(doc, "busId", strVal)) t.busId = strVal;
     if (getDouble(doc, "gainDb", numVal)) t.gainDb = numVal;
     if (getDouble(doc, "pan", numVal)) t.pan = numVal;
     if (getBool(doc, "mute", boolVal)) t.mute = boolVal;
     if (getBool(doc, "solo", boolVal)) t.solo = boolVal;
 
-    // Same live-routing setters MixerStrip/BuilderPanel's "Apply track" call
-    // -- safe to call unconditionally whether or not songIndex is staged.
-    const auto sIdx = static_cast<size_t>(songIndex);
-    const auto tIdx = static_cast<size_t>(index);
-    engine.setTrackGainDb(sIdx, tIdx, t.gainDb);
-    engine.setTrackPan(sIdx, tIdx, t.pan);
-    engine.setTrackMute(sIdx, tIdx, t.mute);
-    engine.setTrackSolo(sIdx, tIdx, t.solo);
-    engine.setTrackBusId(sIdx, tIdx, t.busId);
+    for (auto& s : proj.songs) {
+        if (index < static_cast<int>(s.tracks.size())) {
+            TrackDef& st = s.tracks[static_cast<size_t>(index)];
+            st.name = t.name;
+            st.busId = t.busId;
+            st.gainDb = t.gainDb;
+            st.pan = t.pan;
+            st.mute = t.mute;
+            st.solo = t.solo;
+        }
+    }
+
+    engine.setTrackGainDb(0, static_cast<size_t>(index), t.gainDb);
+    engine.setTrackPan(0, static_cast<size_t>(index), t.pan);
+    engine.setTrackBusId(0, static_cast<size_t>(index), t.busId);
+    engine.setTrackMute(0, static_cast<size_t>(index), t.mute);
+    engine.setTrackSolo(0, static_cast<size_t>(index), t.solo);
 
     builderPanel.refresh();
-    mixerPanel.refreshStructure();
-    playerPanel.refreshProject();
-    setStatus("Track updated");
+    builderPanel.onProjectEdited();
 }
+
+
 
 void MainComponent::setTrackSendFromJson(const std::string& json) {
     simdjson::dom::element doc;

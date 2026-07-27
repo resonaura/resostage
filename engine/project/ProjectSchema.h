@@ -159,6 +159,7 @@ struct Project {
     std::string name;
     double sampleRate = 48000.0;
     std::vector<BusDef> busses;
+    std::vector<TrackDef> tracks;
     std::vector<SongDef> songs;
     KeyBindingMap keybindings;
     std::vector<MidiMapping> midiMappings;

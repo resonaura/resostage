@@ -88,6 +88,26 @@ std::string serializeProjectJson(const Project& project) {
     }
     o << "  ],\n";
 
+    o << "  \"tracks\": [\n";
+    for (size_t i = 0; i < project.tracks.size(); ++i) {
+        const TrackDef& t = project.tracks[i];
+        o << "    {\n";
+        o << "      \"id\": \"" << jsonEscapeString(t.id) << "\",\n";
+        o << "      \"name\": \"" << jsonEscapeString(t.name) << "\",\n";
+        o << "      \"file\": \"" << jsonEscapeString(t.file) << "\",\n";
+        o << "      \"bus\": \"" << jsonEscapeString(t.busId) << "\",\n";
+        o << "      \"gainDb\": ";
+        writeNumber(o, t.gainDb);
+        o << ",\n";
+        o << "      \"pan\": ";
+        writeNumber(o, t.pan);
+        o << ",\n";
+        o << "      \"mute\": " << (t.mute ? "true" : "false") << ",\n";
+        o << "      \"solo\": " << (t.solo ? "true" : "false") << "\n";
+        o << "    }" << (i + 1 < project.tracks.size() ? "," : "") << "\n";
+    }
+    o << "  ],\n";
+
     o << "  \"songs\": [\n";
     for (size_t si = 0; si < project.songs.size(); ++si) {
         const SongDef& s = project.songs[si];

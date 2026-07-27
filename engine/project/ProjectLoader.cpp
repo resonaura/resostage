@@ -290,15 +290,7 @@ void ProjectLoader::newProject(const std::string& name) {
     mainBus.output.startChannel = 0;
     parsedProject.busses.push_back(std::move(mainBus));
 
-    // Seed default song with standard 11 tracks so real tracks exist in C++ backend
-    SongDef song;
-    song.id = "song_1";
-    song.name = "Song 1";
-    song.bpm = 120.0;
-    song.timeSignature = {4, 4};
-    song.builtInClickEnabled = true;
-    song.builtInClickBusId = "main";
-
+    // Seed global project-level tracks (NO songs created, songs array remains empty)
     const std::vector<std::string> defaultTrackNames = {
         "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Guide"
     };
@@ -309,9 +301,8 @@ void ProjectLoader::newProject(const std::string& name) {
         t.name = tname;
         t.file = "";
         t.busId = "main";
-        song.tracks.push_back(std::move(t));
+        parsedProject.tracks.push_back(std::move(t));
     }
-    parsedProject.songs.push_back(std::move(song));
 }
 
 bool ProjectLoader::isOpen() const {

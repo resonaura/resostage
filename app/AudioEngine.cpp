@@ -816,6 +816,17 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     trackScratch.clear();
     trackMeters.clear();
 
+    const auto& projTracks = loader.project().tracks;
+    if (!projTracks.empty()) {
+        for (const auto& t : projTracks) {
+            trackIdByIndex.push_back(t.id);
+        }
+        trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
+        ensureTrackMeters(trackIdByIndex.size());
+        ensureScratchSizes();
+        publishRoutingSnapshot();
+    }
+
     if (songToRestore != static_cast<size_t>(-1)
         && songToRestore < loader.project().songs.size()) {
         std::string selectError;
