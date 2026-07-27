@@ -136,12 +136,18 @@ const std::string& AudioEngine::busNameAt(size_t index) const {
 }
 
 const TrackDef* AudioEngine::trackDefAt(size_t index) const {
-    if (currentSong == static_cast<size_t>(-1) || index >= trackIdByIndex.size())
+    if (!projectLoaded)
         return nullptr;
+    const auto& trks = loader.project().tracks;
+    if (!trks.empty()) {
+        if (index < trks.size())
+            return &trks[index];
+        return nullptr;
+    }
     const auto& songs = loader.project().songs;
-    if (currentSong >= songs.size() || index >= songs[currentSong].tracks.size())
-        return nullptr;
-    return &songs[currentSong].tracks[index];
+    if (currentSong < songs.size() && index < songs[currentSong].tracks.size())
+        return &songs[currentSong].tracks[index];
+    return nullptr;
 }
 
 TrackDef* AudioEngine::trackDefAt(size_t index) {

@@ -598,20 +598,24 @@ void MainComponent::publishWebState() {
         state.meters.push_back(std::move(m));
     }
 
-    state.tracks.reserve(engine.trackCount());
-    for (size_t i = 0; i < engine.trackCount(); ++i) {
+    const auto& projTracks = !proj.tracks.empty()
+        ? proj.tracks
+        : (proj.songs.empty() ? std::vector<TrackDef>{} : proj.songs.front().tracks);
+
+    state.tracks.reserve(projTracks.size());
+    for (size_t i = 0; i < projTracks.size(); ++i) {
+        const TrackDef& def = projTracks[i];
         WebUiState::TrackRow tr;
-        tr.id = engine.trackIdAt(i);
-        if (const TrackDef* def = engine.trackDefAt(i)) {
-            tr.name = def->name.empty() ? def->id : def->name;
-            tr.busId = def->busId;
-            tr.gainDb = def->gainDb;
-            tr.pan = def->pan;
-            tr.mute = def->mute;
-            tr.solo = def->solo;
-            for (const auto& send : def->sends)
-                tr.sends.push_back({send.busId, send.gainDb});
-        }
+        tr.id = def.id;
+        tr.name = def.name.empty() ? def.id : def.name;
+        tr.busId = def.busId;
+        tr.gainDb = def.gainDb;
+        tr.pan = def.pan;
+        tr.mute = def.mute;
+        tr.solo = def.solo;
+        for (const auto& send : def.sends)
+            tr.sends.push_back({send.busId, send.gainDb});
+
         if (const auto* meter = engine.trackMeterAt(i)) {
             MeterFrame frame;
             if (meter->read(frame))

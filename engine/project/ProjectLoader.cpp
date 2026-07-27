@@ -60,16 +60,23 @@ bool parseBus(const simdjson::dom::element& busEl, BusDef& bus, std::string& err
 }
 
 bool parseTrack(const simdjson::dom::element& trackEl, TrackDef& track, std::string& error) {
-    std::string_view idView, nameView, fileView, busView;
-    if (trackEl["id"].get(idView) || trackEl["name"].get(nameView) ||
-        trackEl["file"].get(fileView) || trackEl["bus"].get(busView)) {
-        error = "Track entry missing required 'id', 'name', 'file', or 'bus'";
+    std::string_view idView, nameView;
+    if (trackEl["id"].get(idView) || trackEl["name"].get(nameView)) {
+        error = "Track entry missing required 'id' or 'name'";
         return false;
     }
     track.id = std::string(idView);
     track.name = std::string(nameView);
-    track.file = std::string(fileView);
-    track.busId = std::string(busView);
+
+    std::string_view fileView;
+    if (!trackEl["file"].get(fileView))
+        track.file = std::string(fileView);
+
+    std::string_view busView;
+    if (!trackEl["bus"].get(busView))
+        track.busId = std::string(busView);
+    else
+        track.busId = "main";
 
     double gainDb = 0.0;
     (void)trackEl["gainDb"].get(gainDb);
@@ -564,6 +571,30 @@ bool ProjectLoader::open(const std::string& path, std::string& error) {
             if (!parseBus(busEl, bus, error))
                 return false;
             proj.busses.push_back(std::move(bus));
+        }
+    }
+
+    simdjson::dom::array tracksArr;
+    if (!doc["tracks"].get(tracksArr)) {
+        for (simdjson::dom::element trackEl : tracksArr) {
+            TrackDef track;
+            if (parseTrack(trackEl, track, error))
+                proj.tracks.push_back(std::move(track));
+        }
+    }
+
+    if (proj.tracks.empty()) {
+        const std::vector<std::string> defaultTrackNames = {
+            "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Guide"
+        };
+        int idCounter = 1;
+        for (const auto& tname : defaultTrackNames) {
+            TrackDef t;
+            t.id = "trk_" + std::to_string(idCounter++);
+            t.name = tname;
+            t.file = "";
+            t.busId = "main";
+            proj.tracks.push_back(std::move(t));
         }
     }
 
