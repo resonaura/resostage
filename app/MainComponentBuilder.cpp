@@ -75,7 +75,7 @@ void MainComponent::builderSongAdd(const std::string& json) {
         }
     } else {
         const std::vector<std::string> defaultTrackNames = {
-            "Drums", "Percussion", "Bass", "Guitars", "Synths", "Vocals", "SFX", "Guide"
+            "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Guide"
         };
         std::vector<std::string> trUsed;
         for (const auto& tname : defaultTrackNames) {

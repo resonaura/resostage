@@ -12,13 +12,17 @@ export interface StemImportItem {
 }
 
 export const STANDARD_TRACK_NAMES = [
+  "Click",
   "Guide",
   "Drums",
   "Percussion",
+  "Loops",
   "Bass",
   "Guitars",
   "Synths",
+  "Keys",
   "Vocals",
+  "Backing Vocals",
   "SFX",
   "Other",
 ];
@@ -28,12 +32,15 @@ export function autoDetectStemType(filename: string): string {
   if (upper.includes("CLICK") || upper.includes("METRO") || upper.includes("COUNT")) return "Click";
   if (upper.includes("GUIDE") || upper.includes("CUE") || upper.includes("SLATE")) return "Guide";
   if (upper.includes("BASS") || upper.includes("BS") || upper.includes("SUB")) return "Bass";
-  if (upper.includes("DRUM") || upper.includes("DRM") || upper.includes("BEAT") || upper.includes("LOOP") || upper.includes("KICK") || upper.includes("SNARE")) return "Drums";
-  if (upper.includes("PERC") || upper.includes("SHAKER") || upper.includes("CONGA") || upper.includes("TAMB")) return "Percussion";
-  if (upper.includes("VOX") || upper.includes("VOCAL") || upper.includes("BACK") || upper.includes("LEAD") || upper.includes("CHOIR")) return "Vocals";
-  if (upper.includes("SYNTH") || upper.includes("KEY") || upper.includes("PIANO") || upper.includes("ORGAN") || upper.includes("PAD")) return "Synths";
+  if (upper.includes("DRUM") || upper.includes("DRM") || upper.includes("KICK") || upper.includes("SNARE") || upper.includes("BEAT") || upper.includes("HAT") || upper.includes("CYMBAL") || upper.includes("TOM")) return "Drums";
+  if (upper.includes("PERC") || upper.includes("SHAKER") || upper.includes("CONGA") || upper.includes("TAMB") || upper.includes("CLAP")) return "Percussion";
+  if (upper.includes("LOOP") || upper.includes("TOPS") || upper.includes("GROOVE")) return "Loops";
+  if (upper.includes("BACK") || upper.includes("BK") || upper.includes("BGV") || upper.includes("BVOX") || upper.includes("BACKING") || upper.includes("CHOIR") || upper.includes("HARMONY") || upper.includes("SECOND")) return "Backing Vocals";
+  if (upper.includes("VOX") || upper.includes("VOCAL") || upper.includes("LEAD") || upper.includes("MAIN_VOX")) return "Vocals";
+  if (upper.includes("KEY") || upper.includes("PIANO") || upper.includes("ORGAN") || upper.includes("RHODES")) return "Keys";
+  if (upper.includes("SYNTH") || upper.includes("PAD") || upper.includes("ARP") || upper.includes("LEAD_SYNTH")) return "Synths";
   if (upper.includes("GUITAR") || upper.includes("GTR") || upper.includes("ACOUSTIC") || upper.includes("ELECTRIC")) return "Guitars";
-  if (upper.includes("SFX") || upper.includes("FX") || upper.includes("RISER") || upper.includes("SWEEP") || upper.includes("HIT")) return "SFX";
+  if (upper.includes("SFX") || upper.includes("FX") || upper.includes("RISER") || upper.includes("SWEEP") || upper.includes("HIT") || upper.includes("NOISE") || upper.includes("DROP")) return "SFX";
   if (upper.includes("BRASS") || upper.includes("HORN") || upper.includes("STRINGS") || upper.includes("ORCH")) return "Synths";
   return "Other";
 }
