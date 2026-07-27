@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Card, Slider } from "@heroui/react";
 import { ChevronDown, ChevronUp, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { builder } from "../lib/api";
+import { IS_EMBEDDED } from "../lib/embedded";
 import type { EventTypeWire, SongEventRow, SongRow, SongTrackRow, WebUiState } from "../lib/types";
 
 type Tab = "songs" | "tracks" | "events" | "busses";
@@ -52,6 +53,7 @@ function ListPanel({
   onAdd,
   onRemove,
   onMove,
+  onImport,
   emptyHint,
 }: {
   title: string;
@@ -61,13 +63,20 @@ function ListPanel({
   onAdd: () => void;
   onRemove: () => void;
   onMove: (delta: number) => void;
+  onImport?: () => void;
   emptyHint: string;
 }) {
   return (
-    <Card className="flex w-full shrink-0 flex-col md:w-64">
-      <Card.Header className="flex flex-row items-center justify-between">
+    <Card className="flex h-full min-h-0 w-full shrink-0 flex-col md:w-[40%]">
+      <Card.Header className="flex flex-row items-center justify-between shrink-0">
         <Card.Title className="text-sm">{title}</Card.Title>
         <div className="flex gap-1">
+          {onImport && (
+            <Button size="sm" variant="outline" aria-label="Import Song Folder…" onPress={onImport}>
+              <Upload size={14} className="mr-1" />
+              Import…
+            </Button>
+          )}
           <Button size="sm" variant="outline" isIconOnly aria-label="Add" onPress={onAdd}>
             <Plus size={14} />
           </Button>
@@ -103,7 +112,7 @@ function ListPanel({
           </Button>
         </div>
       </Card.Header>
-      <Card.Content className="flex max-h-80 flex-col gap-0.5 overflow-y-auto p-2">
+      <Card.Content className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
         {rows.length === 0 ? (
           <div className="p-3 text-sm text-foreground/40">{emptyHint}</div>
         ) : (
@@ -124,6 +133,14 @@ function ListPanel({
           ))
         )}
       </Card.Content>
+    </Card>
+  );
+}
+
+function EmptyDetailPanel() {
+  return (
+    <Card className="flex h-full min-h-0 flex-1 items-center justify-center border border-default/30 bg-surface/60 p-6 text-center text-sm text-foreground/40">
+      Select an item from the sidebar to view and edit details.
     </Card>
   );
 }
@@ -158,21 +175,19 @@ function PanSlider({ value, onChange }: { value: number; onChange: (v: number) =
 // Songs
 // ---------------------------------------------------------------------------
 
-function SongEditor({ song, index, busses }: { song: SongRow; index: number; busses: WebUiState["busses"] }) {
+function SongEditor({ song, index }: { song: SongRow; index: number }) {
   const [name, setName] = useState(song.name);
   const [bpm, setBpm] = useState(song.bpm);
   const [mode, setMode] = useState<"auto" | "wait">(song.mode);
   const [tsNum, setTsNum] = useState(song.tsNum);
   const [tsDen, setTsDen] = useState(song.tsDen);
-  const [click, setClick] = useState(song.click);
-  const [clickBusId, setClickBusId] = useState(song.clickBusId);
 
   return (
-    <Card className="flex-1">
-      <Card.Header>
+    <Card className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <Card.Header className="shrink-0">
         <Card.Title className="text-sm">Song {index + 1}</Card.Title>
       </Card.Header>
-      <Card.Content className="flex flex-col gap-3">
+      <Card.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <Field label="Name">
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
@@ -213,31 +228,19 @@ function SongEditor({ song, index, busses }: { song: SongRow; index: number; bus
             />
           </Field>
         </div>
-        <Field label="Built-in click">
-          <ToggleRow
-            options={[
-              { value: "off", label: "Off" },
-              { value: "on", label: "On" },
-            ]}
-            value={click ? "on" : "off"}
-            onChange={(v) => setClick(v === "on")}
-          />
-        </Field>
-        {click && (
-          <Field label="Click bus">
-            <select className={inputCls} value={clickBusId} onChange={(e) => setClickBusId(e.target.value)}>
-              {busses.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name || b.id}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
         <Button
           variant="primary"
           onPress={() =>
-            builder.songUpdate({ index, name, bpm, mode, tsNum, tsDen, click, clickBusId })
+            builder.songUpdate({
+              index,
+              name,
+              bpm,
+              mode,
+              tsNum,
+              tsDen,
+              click: song.click,
+              clickBusId: song.clickBusId,
+            })
           }
         >
           Apply song settings
@@ -273,12 +276,12 @@ function TrackEditor({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <Card className="flex-1">
-      <Card.Header>
+    <Card className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <Card.Header className="shrink-0">
         <Card.Title className="text-sm">Track {index + 1}</Card.Title>
         <Card.Description className="truncate text-xs">{track.file || "(no audio yet)"}</Card.Description>
       </Card.Header>
-      <Card.Content className="flex flex-col gap-3">
+      <Card.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <Field label="Name">
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
@@ -362,11 +365,11 @@ function EventEditor({ event, songIndex, index }: { event: SongEventRow; songInd
   const isMidi = type === "programChange" || type === "cc" || type === "noteOn" || type === "noteOff";
 
   return (
-    <Card className="flex-1">
-      <Card.Header>
+    <Card className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <Card.Header className="shrink-0">
         <Card.Title className="text-sm">Event {index + 1}</Card.Title>
       </Card.Header>
-      <Card.Content className="flex flex-col gap-3">
+      <Card.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <Field label="Type">
           <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as EventTypeWire)}>
             {EVENT_TYPES.map((t) => (
@@ -516,11 +519,11 @@ function BusEditor({ bus, index }: { bus: WebUiState["busses"][number]; index: n
   const [isAux, setIsAux] = useState(bus.isAux);
 
   return (
-    <Card className="flex-1">
-      <Card.Header>
+    <Card className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <Card.Header className="shrink-0">
         <Card.Title className="text-sm">Bus {index + 1}</Card.Title>
       </Card.Header>
-      <Card.Content className="flex flex-col gap-3">
+      <Card.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <Field label="Name">
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
@@ -574,6 +577,7 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
   const [tab, setTab] = useState<Tab>("songs");
   const [songContext, setSongContext] = useState(0);
   const [selected, setSelected] = useState(-1);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (state.songIndex >= 0) setSongContext(state.songIndex);
@@ -583,20 +587,44 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
 
   const song = state.songs[songContext] as SongRow | undefined;
 
+  const handleImportFolderClick = () => {
+    void builder.songImportFolder();
+    if (!IS_EMBEDDED && folderInputRef.current) {
+      folderInputRef.current.click();
+    }
+  };
+
+  const handleFolderChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).filter((f) =>
+      f.name.toLowerCase().endsWith(".wav")
+    );
+    e.target.value = "";
+    if (files.length === 0) return;
+
+    // Add new song
+    await builder.songAdd();
+    const newSongIndex = state.songs.length;
+    // Upload each WAV file as a track
+    for (let i = 0; i < files.length; i++) {
+      await builder.trackAdd(newSongIndex);
+      await builder.trackImportWav(newSongIndex, i, files[i]);
+    }
+  };
+
   if (!state.projectName) {
     return <div className="p-6 text-sm text-foreground/50">No project loaded.</div>;
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-3">
       {state.busy && (
-        <div className="flex items-center gap-2 rounded-lg bg-warning/15 px-3 py-2 text-sm text-warning">
+        <div className="flex shrink-0 items-center gap-2 rounded-lg bg-warning/15 px-3 py-2 text-sm text-warning">
           <Loader2 size={14} className="animate-spin" />
           Import in progress&hellip; the app is busy.
         </div>
       )}
 
-      <div className="flex gap-1.5">
+      <div className="flex shrink-0 gap-1.5">
         {(["songs", "tracks", "events", "busses"] as Tab[]).map((t) => (
           <Button key={t} size="sm" variant={tab === t ? "secondary" : "outline"} onPress={() => setTab(t)}>
             {t[0].toUpperCase() + t.slice(1)}
@@ -605,27 +633,39 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
       </div>
 
       {(tab === "tracks" || tab === "events") && (
-        <Field label="Song context">
-          <select
-            className={inputCls}
-            value={songContext}
-            onChange={(e) => {
-              setSongContext(Number(e.target.value));
-              setSelected(-1);
-            }}
-          >
-            {state.songs.map((s, i) => (
-              <option key={i} value={i}>
-                {i + 1}. {s.name}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <div className="shrink-0">
+          <Field label="Song context">
+            <select
+              className={inputCls}
+              value={songContext}
+              onChange={(e) => {
+                setSongContext(Number(e.target.value));
+                setSelected(-1);
+              }}
+            >
+              {state.songs.map((s, i) => (
+                <option key={i} value={i}>
+                  {i + 1}. {s.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
       )}
 
-      <div className="flex flex-col gap-4 md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
         {tab === "songs" && (
           <>
+            <input
+              ref={folderInputRef}
+              type="file"
+              // @ts-expect-error webkitdirectory is standard in HTML5 directory pickers
+              webkitdirectory=""
+              directory=""
+              multiple
+              className="hidden"
+              onChange={handleFolderChosen}
+            />
             <ListPanel
               title="Songs"
               rows={state.songs.map((s, i) => ({
@@ -639,10 +679,13 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
               onAdd={() => builder.songAdd()}
               onRemove={() => selected >= 0 && builder.songRemove(selected)}
               onMove={(d) => selected >= 0 && builder.songMove(selected, d)}
+              onImport={handleImportFolderClick}
               emptyHint="No songs yet."
             />
-            {selected >= 0 && state.songs[selected] && (
-              <SongEditor key={selected} song={state.songs[selected]} index={selected} busses={state.busses} />
+            {selected >= 0 && state.songs[selected] ? (
+              <SongEditor key={selected} song={state.songs[selected]} index={selected} />
+            ) : (
+              <EmptyDetailPanel />
             )}
           </>
         )}
@@ -663,7 +706,7 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
               onMove={(d) => selected >= 0 && builder.trackMove(songContext, selected, d)}
               emptyHint="No tracks in this song yet."
             />
-            {selected >= 0 && song.tracks[selected] && (
+            {selected >= 0 && song.tracks[selected] ? (
               <TrackEditor
                 key={`${songContext}-${selected}`}
                 track={song.tracks[selected]}
@@ -672,6 +715,8 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
                 busses={state.busses}
                 busy={state.busy}
               />
+            ) : (
+              <EmptyDetailPanel />
             )}
           </>
         )}
@@ -692,13 +737,15 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
               onMove={(d) => selected >= 0 && builder.eventMove(songContext, selected, d)}
               emptyHint="No events in this song yet."
             />
-            {selected >= 0 && song.events[selected] && (
+            {selected >= 0 && song.events[selected] ? (
               <EventEditor
                 key={`${songContext}-${selected}`}
                 event={song.events[selected]}
                 songIndex={songContext}
                 index={selected}
               />
+            ) : (
+              <EmptyDetailPanel />
             )}
           </>
         )}
@@ -719,8 +766,10 @@ export function BuilderScreen({ state }: { state: WebUiState }) {
               onMove={(d) => selected >= 0 && builder.busMove(selected, d)}
               emptyHint="No busses."
             />
-            {selected >= 0 && state.busses[selected] && (
+            {selected >= 0 && state.busses[selected] ? (
               <BusEditor key={selected} bus={state.busses[selected]} index={selected} />
+            ) : (
+              <EmptyDetailPanel />
             )}
           </>
         )}

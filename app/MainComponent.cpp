@@ -172,14 +172,29 @@ void MainComponent::styleModeTab(juce::TextButton& b, Mode /*m*/) {
 
 void MainComponent::setMode(Mode m) {
     mode = m;
+    const bool isWeb = (m == Mode::Web);
     if (webView != nullptr)
-        webView->setVisible(m == Mode::Web);
+        webView->setVisible(isWeb);
     playerPanel.setVisible(m == Mode::Player);
     mixerPanel.setVisible(m == Mode::Mixer);
     builderPanel.setVisible(m == Mode::Builder);
     settingsPanel.setVisible(m == Mode::Settings);
 
-    webTab.setToggleState(m == Mode::Web, juce::dontSendNotification);
+    const bool showNativeHeader = !isWeb;
+    appTitle.setVisible(showNativeHeader);
+    projectTitle.setVisible(showNativeHeader);
+    newButton.setVisible(showNativeHeader);
+    loadButton.setVisible(showNativeHeader);
+    saveButton.setVisible(showNativeHeader);
+    saveAsButton.setVisible(showNativeHeader);
+    webTab.setVisible(showNativeHeader);
+    playerTab.setVisible(showNativeHeader);
+    mixerTab.setVisible(showNativeHeader);
+    builderTab.setVisible(showNativeHeader);
+    settingsTab.setVisible(showNativeHeader);
+    statusLabel.setVisible(showNativeHeader);
+
+    webTab.setToggleState(isWeb, juce::dontSendNotification);
     playerTab.setToggleState(m == Mode::Player, juce::dontSendNotification);
     mixerTab.setToggleState(m == Mode::Mixer, juce::dontSendNotification);
     builderTab.setToggleState(m == Mode::Builder, juce::dontSendNotification);
@@ -195,17 +210,16 @@ void MainComponent::setMode(Mode m) {
         settingsPanel.refreshMidiLists();
 
     resized();
-    // setMode() runs once during the constructor, before the containing
-    // window has called setVisible(true) -- grabbing focus on a component
-    // that isn't showing yet trips a JUCE assertion (harmless without a
-    // debugger attached, but pure noise). Only the window is a safe thing to
-    // check here since MainComponent itself isn't parented yet either.
+    repaint();
     if (isShowing())
         grabKeyboardFocus();
 }
 
 void MainComponent::paint(juce::Graphics& g) {
     g.fillAll(ui::bg());
+    if (mode == Mode::Web) {
+        return;
+    }
     // Top bar background
     g.setColour(ui::panel());
     g.fillRect(0, 0, getWidth(), 52);
@@ -220,6 +234,12 @@ void MainComponent::paint(juce::Graphics& g) {
 
 void MainComponent::resized() {
     busyOverlay.setBounds(getLocalBounds());
+
+    if (mode == Mode::Web) {
+        if (webView != nullptr)
+            webView->setBounds(getLocalBounds());
+        return;
+    }
 
     auto r = getLocalBounds();
 
@@ -447,6 +467,7 @@ void MainComponent::drainWebCommands() {
             }
             // Builder structural-edit parity -- see MainComponentBuilder.cpp.
             case WebCommandKind::BuilderSongAdd: builderSongAdd(); break;
+            case WebCommandKind::BuilderSongImportFolder: builderPanel.importSongFolderClicked(); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
             case WebCommandKind::BuilderSongMove: builderSongMove(cmd.json); break;
             case WebCommandKind::BuilderSongUpdate: builderSongUpdate(cmd.json); break;

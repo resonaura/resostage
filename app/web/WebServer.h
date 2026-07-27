@@ -60,6 +60,7 @@ enum class WebCommandKind : uint8_t {
     // BuilderPanel.cpp's own addItem/removeItem/moveItem/apply*Settings
     // logic almost line for line, just JSON-driven instead of widget-driven).
     BuilderSongAdd,
+    BuilderSongImportFolder,
     BuilderSongRemove,
     BuilderSongMove,
     BuilderSongUpdate,

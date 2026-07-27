@@ -14,6 +14,8 @@ import { SettingsScreen } from "./screens/SettingsScreen";
 // attribute on <html>. This app is a stage-side remote/mirror of the native
 // (always-dark) desktop app, so it defaults to dark rather than following
 // system preference.
+import { transport } from "./lib/api";
+
 function useForcedDarkTheme() {
   useEffect(() => {
     const root = document.documentElement;
@@ -22,13 +24,60 @@ function useForcedDarkTheme() {
   }, []);
 }
 
+function useGlobalHotkeys(state: WebUiState) {
+  const playingRef = useRef(state.playing);
+  playingRef.current = state.playing;
+  const playheadRef = useRef(state.playheadSeconds);
+  playheadRef.current = state.playheadSeconds;
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (playingRef.current) {
+          void transport.stop();
+        } else {
+          void transport.play();
+        }
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        void transport.seek(Math.max(0, playheadRef.current - 5));
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        void transport.seek(playheadRef.current + 5);
+      } else if (e.code === "Home") {
+        e.preventDefault();
+        void transport.seek(0);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+    };
+  }, []);
+}
+
 export default function App() {
   useForcedDarkTheme();
-  const { state, status } = useLiveState();
+  const { state, status, cpuHistory, ramHistory } = useLiveState();
+  useGlobalHotkeys(state);
   const [tab, setTab] = useState("player");
 
   return (
-    <div className="flex h-full min-h-screen flex-col bg-background text-foreground">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
       {state.hardwareAlarm && (
         <div className="flex items-center justify-center gap-2 bg-danger px-3 py-2 text-sm font-semibold text-danger-foreground">
           <AlertTriangle size={16} />
@@ -36,7 +85,7 @@ export default function App() {
         </div>
       )}
 
-      <header className="flex flex-wrap items-center gap-3 border-b border-default/60 bg-surface px-4 py-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-default/60 bg-surface px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-accent">
           <Radio size={16} />
           ResoStage
@@ -48,9 +97,9 @@ export default function App() {
         <ConnectionBadge status={status} />
       </header>
 
-      <Tabs selectedKey={tab} onSelectionChange={(k) => setTab(String(k))} className="flex flex-1 flex-col">
-        <Tabs.ListContainer className="border-b border-default/60 bg-surface px-2">
-          <Tabs.List aria-label="Sections">
+      <Tabs selectedKey={tab} onSelectionChange={(k) => setTab(String(k))} className="flex min-h-0 flex-1 flex-col">
+        <Tabs.ListContainer className="shrink-0 border-b border-default/30 px-2 bg-transparent">
+          <Tabs.List aria-label="Sections" className="bg-transparent">
             <Tabs.Tab id="player">
               <Music4 size={15} className="mr-1.5 inline-block" />
               Player
@@ -74,21 +123,21 @@ export default function App() {
           </Tabs.List>
         </Tabs.ListContainer>
 
-        <Tabs.Panel id="player" className="flex-1 overflow-auto p-4">
-          <PlayerScreen state={state} />
+        <Tabs.Panel id="player" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+          <PlayerScreen state={state} cpuHistory={cpuHistory} ramHistory={ramHistory} />
         </Tabs.Panel>
-        <Tabs.Panel id="mixer" className="flex flex-1 flex-col overflow-hidden p-4">
+        <Tabs.Panel id="mixer" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
           <MixerScreen state={state} />
         </Tabs.Panel>
-        <Tabs.Panel id="builder" className="flex-1 overflow-auto p-4">
+        <Tabs.Panel id="builder" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
           <BuilderScreen state={state} />
         </Tabs.Panel>
-        <Tabs.Panel id="settings" className="flex-1 overflow-auto p-4">
+        <Tabs.Panel id="settings" className="flex-1 overflow-auto p-3">
           <SettingsScreen state={state} />
         </Tabs.Panel>
       </Tabs>
 
-      <footer className="border-t border-default/60 px-4 py-2 text-center text-xs text-foreground/40">
+      <footer className="shrink-0 border-t border-default/60 px-4 py-1.5 text-center text-xs text-foreground/40">
         {state.statusMessage || "ResoStage remote · mirrors desktop state"}
       </footer>
     </div>

@@ -158,6 +158,7 @@ public:
     void setBusOutputChannel(size_t busIndex, int startChannel);
     // Full rebuild of routing from the current Project state (after Builder edits).
     void republishRouting();
+    void refreshClickState();
     // Rebuild global bus list after Builder adds/removes busses (message thread).
     void rebuildBussesFromProject();
     double currentSongLengthSeconds() const;

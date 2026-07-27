@@ -541,6 +541,21 @@ void AudioEngine::setBusSolo(size_t busIndex, bool solo) {
     publishRoutingSnapshot();
 }
 
+void AudioEngine::refreshClickState() {
+    if (!projectLoaded || currentSong >= loader.project().songs.size())
+        return;
+    const SongDef& song = loader.project().songs[currentSong];
+    clickTargetBusIndex = -1;
+    if (song.builtInClickEnabled) {
+        auto clickBusIt = busIndexById.find(song.builtInClickBusId);
+        if (clickBusIt != busIndexById.end()) {
+            clickTargetBusIndex = static_cast<int>(clickBusIt->second);
+            clickGainLinear = dbToGain(song.builtInClickGainDb);
+            clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+        }
+    }
+}
+
 void AudioEngine::setBusOutputChannel(size_t busIndex, int startChannel) {
     auto& buses = loader.project().busses;
     if (busIndex >= buses.size())

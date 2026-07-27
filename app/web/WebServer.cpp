@@ -188,6 +188,7 @@ struct BuilderRoute {
 };
 constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/song/add", WebCommandKind::BuilderSongAdd},
+    {"/api/v1/builder/song/import-folder", WebCommandKind::BuilderSongImportFolder},
     {"/api/v1/builder/song/remove", WebCommandKind::BuilderSongRemove},
     {"/api/v1/builder/song/move", WebCommandKind::BuilderSongMove},
     {"/api/v1/builder/song/update", WebCommandKind::BuilderSongUpdate},

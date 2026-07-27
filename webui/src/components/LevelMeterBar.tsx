@@ -9,9 +9,9 @@ import { useEffect, useRef, useState } from "react";
 const FLOOR_DB = -100;
 const RANGE_LOW_DB = -60;
 const RANGE_HIGH_DB = 6;
-const BAR_DECAY_DB_PER_SEC = 20;
-const PEAK_HOLD_SECONDS = 1.5;
-const PEAK_DECAY_DB_PER_SEC = 20;
+const BAR_DECAY_DB_PER_SEC = 80;
+const PEAK_HOLD_SECONDS = 0.8;
+const PEAK_DECAY_DB_PER_SEC = 50;
 
 function normFor(db: number): number {
   return Math.max(0, Math.min(1, (db - RANGE_LOW_DB) / (RANGE_HIGH_DB - RANGE_LOW_DB)));
@@ -100,7 +100,7 @@ export function LevelMeterBar({
   const color = gradientColor(display);
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <div className={`flex items-center gap-2 ${vertical ? "h-full" : ""} ${className}`}>
       {label && <div className="w-16 shrink-0 truncate text-xs text-foreground/60">{label}</div>}
       <button
         type="button"
@@ -116,12 +116,12 @@ export function LevelMeterBar({
         />
         {vertical ? (
           <div
-            className="absolute bottom-0 left-0 w-full transition-[height] duration-75"
+            className="absolute bottom-0 left-0 w-full"
             style={{ height: `${fillPct}%`, background: color }}
           />
         ) : (
           <div
-            className="absolute left-0 top-0 h-full transition-[width] duration-75"
+            className="absolute left-0 top-0 h-full"
             style={{ width: `${fillPct}%`, background: color }}
           />
         )}

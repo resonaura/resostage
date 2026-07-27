@@ -1,29 +1,31 @@
 import { useRef, useState } from "react";
 import { Slider } from "@heroui/react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
-import { mixer } from "../lib/api";
+import { builder, mixer } from "../lib/api";
 import { useLiveValue } from "../lib/optimistic";
 import type { BusRow, TrackRow, WebUiState } from "../lib/types";
 
-// Ableton-style channel strip console: colored title bar, pan knob, mute/
-// solo, then a peak meter running alongside the vertical gain fader. Same
-// backend calls as before (AudioEngine::setTrackGainDb et al. via
-// MainComponent::drainWebCommands()) -- this is a visual rebuild only.
-
 const TRACK_COLORS = [
-  "#ff5a5f", "#ff9f43", "#feca57", "#1dd1a1", "#00d2d3",
-  "#54a0ff", "#5f27cd", "#c56cf0", "#ff6b81", "#a4b0be",
+  "#0091ff", "#30d158", "#ff9230", "#db34f2", "#ff375f",
+  "#00d2e0", "#ff4245", "#6d7cff", "#00dac3", "#3cd3fe",
+  "#ffd600", "#b78a66",
 ];
 function colorForIndex(i: number): string {
   return TRACK_COLORS[i % TRACK_COLORS.length];
 }
 
-// useLiveValue is now imported from lib/optimistic (shared with Timeline).
-
 const GAIN_MIN = -60;
 const GAIN_MAX = 12;
 
-function GainFader({ gainDb, onChange }: { gainDb: number; onChange: (v: number) => void }) {
+function GainFader({
+  gainDb,
+  accent = "var(--accent, #0091ff)",
+  onChange,
+}: {
+  gainDb: number;
+  accent?: string;
+  onChange: (v: number) => void;
+}) {
   const [value, handleChange] = useLiveValue(gainDb, onChange);
   return (
     <Slider
@@ -36,22 +38,26 @@ function GainFader({ gainDb, onChange }: { gainDb: number; onChange: (v: number)
       aria-label="Gain"
       className="h-full"
     >
-      <Slider.Track className="h-full w-1.5 rounded-full bg-default/30">
-        <Slider.Fill className="w-full rounded-full bg-accent" />
-        <Slider.Thumb className="size-3.5 rounded-full border-2 border-background bg-accent shadow" />
+      <Slider.Track className="relative h-full w-2.5 rounded-full bg-default/20">
+        <Slider.Fill
+          className="rounded-full transition-all"
+          style={{ backgroundColor: accent }}
+        />
+        <Slider.Thumb
+          className="size-4 border-2 border-background shadow-md transition-transform hover:scale-110"
+          style={{ backgroundColor: accent }}
+        />
       </Slider.Track>
     </Slider>
   );
 }
 
-// Compact rotary knob (drag up/down to change) -- pan control, Ableton-style.
-// `value` is the display value (caller's optimistic state); `onCommit` is the
-// server call (throttled here to one per animation frame during drags).
 function Knob({
   value,
   min,
   max,
   defaultValue = 0,
+  accent = "var(--accent, #0091ff)",
   onCommit,
   size = 26,
   title,
@@ -60,13 +66,11 @@ function Knob({
   min: number;
   max: number;
   defaultValue?: number;
+  accent?: string;
   onCommit: (v: number) => void;
   size?: number;
   title?: string;
 }) {
-  // Knob renders its own local value for zero-latency visual feedback during
-  // drags; once the drag ends the parent's optimistic value (from useLiveValue)
-  // drives. This prevents any stutter from re-render timing.
   const [localValue, setLocalValue] = useState(value);
   const dragging = useRef(false);
   const startY = useRef(0);
@@ -74,9 +78,6 @@ function Knob({
   const rafId = useRef<number | null>(null);
   const pendingCommit = useRef<number | null>(null);
 
-  // Sync from parent when not dragging
-  const dragRef = useRef(false);
-  dragRef.current = dragging.current;
   if (!dragging.current && localValue !== value) setLocalValue(value);
 
   const angleFor = (v: number) => {
@@ -108,12 +109,11 @@ function Knob({
     const dy = startY.current - e.clientY;
     const range = max - min;
     const next = Math.round(Math.max(min, Math.min(max, startValue.current + (dy / 120) * range)) * 100) / 100;
-    setLocalValue(next); // instant visual
-    scheduleCommit(next); // throttled to RAF
+    setLocalValue(next);
+    scheduleCommit(next);
   };
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     dragging.current = false;
-    // Flush any pending commit
     if (rafId.current != null) {
       cancelAnimationFrame(rafId.current);
       rafId.current = null;
@@ -141,9 +141,10 @@ function Knob({
       style={{ width: size, height: size }}
     >
       <div
-        className="absolute left-1/2 top-1/2 w-[2px] -translate-x-1/2 -translate-y-full rounded-full bg-foreground/80"
+        className="absolute left-1/2 top-1/2 w-[2px] -translate-x-1/2 -translate-y-full rounded-full"
         style={{
           height: size * 0.4,
+          backgroundColor: accent,
           transformOrigin: "bottom center",
           transform: `translateX(-50%) rotate(${angleFor(localValue)}deg)`,
         }}
@@ -179,8 +180,11 @@ function StripButton({
 
 function ChannelStrip({
   name,
-  sub,
-  accent,
+  subtitle,
+  color,
+  busses,
+  busId,
+  onBusSelect,
   gainDb,
   pan,
   peakDb,
@@ -192,11 +196,14 @@ function ChannelStrip({
   onSolo,
 }: {
   name: string;
-  sub: string;
-  accent: string;
+  subtitle?: string;
+  color: string;
+  busses?: BusRow[];
+  busId?: string;
+  onBusSelect?: (id: string) => void;
   gainDb: number;
   pan: number | null;
-  peakDb: number;
+  peakDb: number | undefined;
   mute: boolean;
   solo: boolean;
   onGain: (v: number) => void;
@@ -204,61 +211,110 @@ function ChannelStrip({
   onMute: () => void;
   onSolo: () => void;
 }) {
-  const [panValue, handlePan] = useLiveValue(pan ?? 0, onPan ?? (() => {}));
+  const formatDb = (v: number) => (v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1));
+  const formatPan = (p: number) => {
+    if (Math.abs(p) < 0.05) return "C";
+    if (p < 0) return `L${Math.round(-p * 100)}`;
+    return `R${Math.round(p * 100)}`;
+  };
 
   return (
-    <div className="flex h-full w-[76px] shrink-0 flex-col overflow-hidden rounded-lg border border-default/40 bg-black/25">
-      <div className="h-1 w-full shrink-0" style={{ background: accent }} />
-      <div className="flex shrink-0 flex-col gap-1 px-1.5 pt-1.5">
-        <div className="truncate text-center text-[11px] font-semibold leading-tight" title={name}>
+    <div className="flex w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-surface/80 p-2 select-none">
+      {/* Header */}
+      <div className="flex flex-col items-center gap-0.5 w-full text-center">
+        <div className="h-1 w-full rounded-full" style={{ backgroundColor: color }} />
+        <div className="truncate text-xs font-semibold text-foreground w-full" title={name}>
           {name}
         </div>
-        <div className="truncate text-center text-[9px] leading-tight text-foreground/40" title={sub}>
-          {sub}
-        </div>
-        <div className="flex justify-center py-0.5">
-          {onPan ? (
-            <Knob value={panValue} min={-1} max={1} onCommit={handlePan} title="Pan" />
-          ) : (
-            <div className="h-[26px]" />
-          )}
-        </div>
-        <div className="flex gap-1">
-          <StripButton active={mute} color="danger" onClick={onMute}>
-            M
-          </StripButton>
-          <StripButton active={solo} color="warning" onClick={onSolo}>
-            S
-          </StripButton>
-        </div>
+        {subtitle && <div className="text-[9px] text-foreground/40 font-mono truncate w-full">{subtitle}</div>}
       </div>
 
-      <div className="flex min-h-0 flex-1 items-stretch justify-center gap-1.5 px-2 py-2">
-        <LevelMeterBar
-          db={peakDb}
-          vertical
-          showValue={false}
-          barClassName="h-full w-2.5"
-          className="!gap-0 h-full"
-        />
-        <GainFader gainDb={gainDb} onChange={onGain} />
+      {/* Bus Routing Dropdown */}
+      {busses && onBusSelect && (
+        <div className="w-full my-1">
+          <select
+            value={busId || ""}
+            onChange={(e) => onBusSelect(e.target.value)}
+            className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
+          >
+            {busses.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name || b.id}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Pan Knob */}
+      {onPan && pan !== null ? (
+        <div className="flex flex-col items-center gap-0.5 my-1">
+          <Knob
+            value={pan}
+            min={-1}
+            max={1}
+            defaultValue={0}
+            accent={color}
+            onCommit={onPan}
+            size={24}
+            title="Pan"
+          />
+          <div className="text-[9px] font-mono text-foreground/50">{formatPan(pan)}</div>
+        </div>
+      ) : (
+        <div className="h-2" />
+      )}
+
+      {/* Fader & Meter Section */}
+      <div className="flex min-h-0 flex-1 items-center justify-center gap-2 py-2">
+        <GainFader gainDb={gainDb} accent={color} onChange={onGain} />
+        <LevelMeterBar db={peakDb ?? -100} vertical={true} showValue={false} barClassName="h-full w-2" />
       </div>
-      <div className="shrink-0 border-t border-default/30 bg-black/20 py-1 text-center text-[10px] tabular-nums text-foreground/60">
-        {gainDb.toFixed(1)}
+
+      {/* Gain readout */}
+      <div className="text-[10px] font-mono text-foreground/70 font-medium mb-1">
+        {formatDb(gainDb)} dB
+      </div>
+
+      {/* Mute & Solo buttons */}
+      <div className="flex w-full gap-1">
+        <StripButton active={mute} color="danger" onClick={onMute}>
+          M
+        </StripButton>
+        <StripButton active={solo} color="warning" onClick={onSolo}>
+          S
+        </StripButton>
       </div>
     </div>
   );
 }
 
-function TrackStrip({ t, index }: { t: TrackRow; index: number }) {
+function TrackStrip({
+  t,
+  index,
+  busses,
+  meters,
+}: {
+  t: TrackRow;
+  index: number;
+  busses: BusRow[];
+  meters: import("../lib/types").MeterRow[];
+}) {
+  const color = colorForIndex(index);
+  const busMeter = meters.find((m) => m.id === t.busId);
+  const peakDb = t.peakDb ?? busMeter?.peakDb;
+
   return (
     <ChannelStrip
       name={t.name || t.id}
-      sub={t.busId || "sends only"}
-      accent={colorForIndex(index)}
-      gainDb={t.gainDb}
-      pan={t.pan}
-      peakDb={t.peakDb}
+      subtitle={`Track ${index + 1}`}
+      color={color}
+      busses={busses}
+      busId={t.busId}
+      onBusSelect={(bId) => mixer.setTrackBus(index, bId)}
+      gainDb={t.gainDb ?? 0}
+      pan={t.pan ?? 0}
+      peakDb={peakDb}
       mute={t.mute}
       solo={t.solo}
       onGain={(v) => mixer.setTrackGain(index, v)}
@@ -269,15 +325,97 @@ function TrackStrip({ t, index }: { t: TrackRow; index: number }) {
   );
 }
 
-function BusStrip({ b, index }: { b: BusRow; index: number }) {
+function MetronomeStrip({ state }: { state: WebUiState }) {
+  const [clickGain, setClickGain] = useState(0);
+  const [clickPan, setClickPan] = useState(0);
+  const [clickSolo, setClickSolo] = useState(false);
+
+  const hasSongs = state.songs.length > 0;
+  const isMetronomeOn = hasSongs ? state.songs.some((s) => s.click) : false;
+  const currentClickBus =
+    hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]?.clickBusId
+      ? state.songs[state.songIndex].clickBusId
+      : state.busses[0]?.id || "main";
+
+  const clickBusMeter = state.meters.find((m) => m.id === currentClickBus);
+
+  const toggleMetronomeMute = () => {
+    const nextState = !isMetronomeOn;
+    const busId = currentClickBus;
+    if (hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]) {
+      const s = state.songs[state.songIndex];
+      void builder.songUpdate({
+        index: state.songIndex,
+        name: s.name,
+        bpm: s.bpm,
+        mode: s.mode,
+        tsNum: s.tsNum,
+        tsDen: s.tsDen,
+        click: nextState,
+        clickBusId: s.clickBusId || busId,
+      });
+    }
+  };
+
+  const changeClickBus = (busId: string) => {
+    if (hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]) {
+      const s = state.songs[state.songIndex];
+      void builder.songUpdate({
+        index: state.songIndex,
+        name: s.name,
+        bpm: s.bpm,
+        mode: s.mode,
+        tsNum: s.tsNum,
+        tsDen: s.tsDen,
+        click: s.click,
+        clickBusId: busId,
+      });
+    }
+  };
+
+  return (
+    <ChannelStrip
+      name="Click"
+      subtitle="Metronome"
+      color="#ff9230"
+      busses={state.busses}
+      busId={currentClickBus}
+      onBusSelect={changeClickBus}
+      gainDb={clickGain}
+      pan={clickPan}
+      peakDb={isMetronomeOn ? clickBusMeter?.peakDb : -100}
+      mute={!isMetronomeOn}
+      solo={clickSolo}
+      onGain={(v) => setClickGain(v)}
+      onPan={(v) => setClickPan(v)}
+      onMute={toggleMetronomeMute}
+      onSolo={() => setClickSolo(!clickSolo)}
+    />
+  );
+}
+
+function BusStrip({
+  b,
+  index,
+  meters,
+  isMaster = false,
+}: {
+  b: BusRow;
+  index: number;
+  meters: import("../lib/types").MeterRow[];
+  isMaster?: boolean;
+}) {
+  const meter = meters.find((m) => m.id === b.id);
+  const color = isMaster ? "#ff375f" : "#ff9230";
+
   return (
     <ChannelStrip
       name={b.name || b.id}
-      sub={b.isAux ? "AUX RETURN" : `ch ${b.startChannel}`}
-      accent={b.isAux ? "#8e8e93" : "#0a84ff"}
-      gainDb={b.gainDb}
+      subtitle={isMaster ? "Master Output" : b.isAux ? "Aux Send" : "Sub Bus"}
+      color={color}
+      gainDb={b.gainDb ?? 0}
       pan={null}
-      peakDb={b.peakDb}
+      peakDb={meter?.peakDb ?? b.peakDb}
       mute={b.mute}
       solo={b.solo}
       onGain={(v) => mixer.setBusGain(index, v)}
@@ -289,6 +427,9 @@ function BusStrip({ b, index }: { b: BusRow; index: number }) {
 }
 
 export function MixerScreen({ state }: { state: WebUiState }) {
+  const auxBusses = state.busses.filter((b) => b.isAux);
+  const mainBusses = state.busses.filter((b) => !b.isAux);
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex shrink-0 items-center gap-2 text-xs text-foreground/40">
@@ -299,20 +440,45 @@ export function MixerScreen({ state }: { state: WebUiState }) {
         <span>{state.busses.length} busses</span>
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto rounded-xl border border-default/30 bg-surface/60 p-3">
+      {/* Mixer Console Container: Scrollable Tracks on Left, Separator, Fixed Metronome/Master/Aux on Right */}
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-default/30 bg-surface/60 p-3">
         {state.tracks.length === 0 && state.busses.length === 0 ? (
-          <div className="w-full py-10 text-center text-sm text-foreground/50">No tracks staged.</div>
+          <div className="flex h-full w-full items-center justify-center px-4 py-6 text-center text-sm text-foreground/40">
+            No tracks staged in this project.
+          </div>
         ) : (
           <>
-            {state.tracks.map((t, i) => (
-              <TrackStrip key={t.id} t={t} index={i} />
-            ))}
-            {state.tracks.length > 0 && state.busses.length > 0 && (
-              <div className="mx-1 w-px shrink-0 self-stretch bg-default/30" />
-            )}
-            {state.busses.map((b, i) => (
-              <BusStrip key={b.id} b={b} index={i} />
-            ))}
+            {/* Left: Scrollable Ordinary Track Strips */}
+            <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto pr-1">
+              {state.tracks.map((t, i) => (
+                <TrackStrip key={t.id} t={t} index={i} busses={state.busses} meters={state.meters} />
+              ))}
+            </div>
+
+            {/* Vertical Separator Divider Line */}
+            <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
+
+            {/* Right: Pinned Metronome Track Strip + Aux Busses + Master Bus (Always pinned on the far right) */}
+            <div className="flex shrink-0 gap-2">
+              <MetronomeStrip state={state} />
+              {auxBusses.map((b) => (
+                <BusStrip
+                  key={b.id}
+                  b={b}
+                  index={state.busses.indexOf(b)}
+                  meters={state.meters}
+                />
+              ))}
+              {mainBusses.map((b) => (
+                <BusStrip
+                  key={b.id}
+                  b={b}
+                  index={state.busses.indexOf(b)}
+                  meters={state.meters}
+                  isMaster={true}
+                />
+              ))}
+            </div>
           </>
         )}
       </div>

@@ -27,6 +27,8 @@ public:
     std::function<void()> onProjectEdited;      // structure changed
     std::function<void()> onRoutingEdited;      // mix/routing-only change
 
+    void importSongFolderClicked();
+
     // Triggers MainComponent's Save As flow (file picker + engine.saveProject),
     // calling the given callback with whether it actually succeeded. Used by
     // WAV/folder import: both require an on-disk archive to write audio
@@ -172,7 +174,6 @@ private:
     void applyBusSettings();
     void applyEventSettings();
     void importWavClicked();
-    void importSongFolderClicked();
     void promptSongFolderImport(const juce::File& folder);
     // Calls onReady() immediately if the project already has an on-disk
     // archive (engine.projectPath() non-empty); otherwise prompts to Save As

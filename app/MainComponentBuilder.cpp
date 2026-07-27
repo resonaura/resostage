@@ -105,7 +105,11 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     if (getBool(doc, "click", boolVal)) s.builtInClickEnabled = boolVal;
     if (getString(doc, "clickBusId", strVal)) s.builtInClickBusId = strVal;
 
-    goToSong(index);
+    if (index == static_cast<int>(engine.currentSongIndex())) {
+        engine.refreshClickState();
+    } else {
+        goToSong(index);
+    }
     builderPanel.refresh();
     builderPanel.onProjectEdited();
     setStatus("Song updated");

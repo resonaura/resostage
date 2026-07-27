@@ -47,6 +47,9 @@ export const mixer = {
   setTrackPan: (index: number, value: number) => post("/api/v1/track/pan", { index, value }),
   setTrackMute: (index: number, value: boolean) => post("/api/v1/track/mute", { index, value }),
   setTrackSolo: (index: number, value: boolean) => post("/api/v1/track/solo", { index, value }),
+  // Bus assignment for the track's main output -- matches the MixerStrip
+  // outputBusBox in the native UI. Empty busId = "(sends only)".
+  setTrackBus: (index: number, busId: string) => post("/api/v1/track/bus", { index, busId }),
   setBusGain: (index: number, value: number) => post("/api/v1/bus/gain", { index, value }),
   setBusMute: (index: number, value: boolean) => post("/api/v1/bus/mute", { index, value }),
   setBusSolo: (index: number, value: boolean) => post("/api/v1/bus/solo", { index, value }),
@@ -104,6 +107,7 @@ export const project = {
 // app/web/BuilderJson.h.
 export const builder = {
   songAdd: () => post("/api/v1/builder/song/add"),
+  songImportFolder: () => post("/api/v1/builder/song/import-folder"),
   songRemove: (index: number) => post("/api/v1/builder/song/remove", { index }),
   songMove: (index: number, delta: number) => post("/api/v1/builder/song/move", { index, delta }),
   songUpdate: (patch: {
