@@ -585,6 +585,10 @@ bool ProjectLoader::open(const std::string& path, std::string& error) {
     impl->zipOpen = true;
     openArchivePath = path;
 
+    return reparseProject(error);
+}
+
+bool ProjectLoader::reparseProject(std::string& error) {
     std::vector<uint8_t> jsonBytes;
     if (!extractFile("project.json", jsonBytes, error))
         return false;

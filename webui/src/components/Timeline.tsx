@@ -561,15 +561,17 @@ interface TimelineRow {
 function buildRows(currentTracks: TrackRow[], songs: SongRow[]): TimelineRow[] {
   const rows: TimelineRow[] = [];
   const seen = new Set<string>();
+  const trackIdToRowName = new Map<string, string>();
   currentTracks.forEach((t, i) => {
     const name = t.name || t.id;
     if (seen.has(name)) return;
     seen.add(name);
+    trackIdToRowName.set(t.id, name);
     rows.push({ name, color: TRACK_COLORS[i % TRACK_COLORS.length], headerIndex: i });
   });
   for (const s of songs) {
     for (const r of s.regions ?? []) {
-      const name = r.trackId;
+      const name = trackIdToRowName.get(r.trackId) ?? r.trackId;
       if (seen.has(name)) continue;
       seen.add(name);
       rows.push({ name, color: TRACK_COLORS[rows.length % TRACK_COLORS.length], headerIndex: null });
@@ -1107,6 +1109,7 @@ export function Timeline({
 
                         const peaksForSong = allPeaks?.songs[i]?.tracks ?? (i === state.songIndex ? peaks?.tracks : undefined);
                         const peakEntry = peaksForSong?.find((p) => (p as any).trackId === track?.id || p.id === track?.id || p.id === songRegion?.id);
+                        const peaksLoading = (songRegion?.file && (!peakEntry || peakEntry.peaks.length === 0));
                         const regionData = getRegion(i, row.name);
                         const segDuration = songLengths[i];
 
@@ -1222,8 +1225,17 @@ export function Timeline({
                                 className="absolute top-0.5 left-2 text-[9px] font-semibold truncate max-w-[80%] pointer-events-none select-none"
                                 style={{ color: row.color, opacity: 0.8 }}
                               >
-                                {regionData.muted ? "[M] " : ""}{song.name}
+                                {regionData.muted ? "[M] " : ""}{row.name}
                               </div>
+                              {/* Peaks loading indicator */}
+                              {peaksLoading && regionWidth > 40 && (
+                                <div
+                                  className="absolute bottom-0.5 left-2 text-[8px] pointer-events-none select-none animate-pulse"
+                                  style={{ color: row.color, opacity: 0.5 }}
+                                >
+                                  peaks…
+                                </div>
+                              )}
                             </div>
 
                             {/* Trim handle: LEFT edge */}

@@ -60,6 +60,9 @@ public:
     // fills `error` on failure (bad zip, missing project.json, malformed JSON).
     bool open(const std::string& path, std::string& error);
     bool reopenArchiveKeepProject(const std::string& path, std::string& error);
+    // Re-parses project.json from the already-open archive into parsedProject.
+    // Use after archive contents changed (e.g. import wrote new project.json).
+    bool reparseProject(std::string& error);
     void close();
 
     // Resets to a fresh, empty, unsaved Project -- not backed by any archive

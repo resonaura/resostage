@@ -1676,6 +1676,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     if (std::rename(tempOut.c_str(), archivePath.c_str()) != 0) {
         std::string reopenError;
         (void)loader.reopenArchiveKeepProject(archivePath, reopenError);
+        (void)loader.reparseProject(reopenError);
         projectLoaded = loader.isOpen();
         if (projectLoaded)
             streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
@@ -1685,7 +1686,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     }
 
     std::string openError;
-    if (!loader.reopenArchiveKeepProject(archivePath, openError)) {
+    if (!loader.reopenArchiveKeepProject(archivePath, openError)
+        || !loader.reparseProject(openError)) {
         projectLoaded = false;
         done(false, "Import written, but failed to reopen archive: " + openError);
         return;
