@@ -507,83 +507,81 @@ void AudioEngine::rebuildBussesFromProject() {
 }
 
 void AudioEngine::setTrackGainDb(size_t songIndex, size_t trackIndex, double gainDb) {
-    TrackDef* t = trackDefInSong(songIndex, trackIndex);
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
     t->gainDb = gainDb;
-    if (songIndex == currentSong)
-        publishRoutingSnapshot();
+    publishRoutingSnapshot();
 }
 
 void AudioEngine::setTrackPan(size_t songIndex, size_t trackIndex, double pan) {
-    TrackDef* t = trackDefInSong(songIndex, trackIndex);
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
     t->pan = std::clamp(pan, -1.0, 1.0);
-    if (songIndex == currentSong)
-        publishRoutingSnapshot();
+    publishRoutingSnapshot();
 }
 
 void AudioEngine::setTrackMute(size_t songIndex, size_t trackIndex, bool mute) {
-    TrackDef* t = trackDefInSong(songIndex, trackIndex);
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
     t->mute = mute;
-    if (songIndex == currentSong)
-        publishRoutingSnapshot();
+    publishRoutingSnapshot();
 }
 
 void AudioEngine::setTrackSolo(size_t songIndex, size_t trackIndex, bool solo) {
-    TrackDef* t = trackDefInSong(songIndex, trackIndex);
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
     t->solo = solo;
-    if (songIndex == currentSong)
-        publishRoutingSnapshot();
+    publishRoutingSnapshot();
 }
 
 void AudioEngine::setTrackBusId(size_t songIndex, size_t trackIndex, const std::string& busId) {
-    TrackDef* t = trackDefInSong(songIndex, trackIndex);
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
-    // Empty busId is a deliberate, valid "sends-only, no main destination"
-    // state -- only reject a non-empty value that doesn't name a real bus.
     if (!busId.empty() && busIndexById.find(busId) == busIndexById.end())
         return;
     t->busId = busId;
-    if (songIndex == currentSong)
-        publishRoutingSnapshot();
+    publishRoutingSnapshot();
 }
 
 void AudioEngine::setTrackSend(size_t songIndex, size_t trackIndex, size_t sendIndex, const TrackSendDef& send) {
-    TrackDef* t = trackDefInSong(songIndex, trackIndex);
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr || sendIndex >= t->sends.size())
         return;
     if (busIndexById.find(send.busId) == busIndexById.end())
         return;
     t->sends[sendIndex] = send;
-    if (songIndex == currentSong)
-        publishRoutingSnapshot();
+    publishRoutingSnapshot();
 }
 
 void AudioEngine::addTrackSend(size_t songIndex, size_t trackIndex, const TrackSendDef& send) {
-    TrackDef* t = trackDefInSong(songIndex, trackIndex);
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
     if (busIndexById.find(send.busId) == busIndexById.end())
         return;
     t->sends.push_back(send);
-    if (songIndex == currentSong)
-        publishRoutingSnapshot();
+    publishRoutingSnapshot();
 }
 
 void AudioEngine::removeTrackSend(size_t songIndex, size_t trackIndex, size_t sendIndex) {
-    TrackDef* t = trackDefInSong(songIndex, trackIndex);
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr || sendIndex >= t->sends.size())
         return;
     t->sends.erase(t->sends.begin() + static_cast<std::ptrdiff_t>(sendIndex));
-    if (songIndex == currentSong)
-        publishRoutingSnapshot();
+    publishRoutingSnapshot();
 }
 
 void AudioEngine::setBusGainDb(size_t busIndex, double gainDb) {

@@ -243,6 +243,78 @@ function Knob({
 // yet" (matches native MixerStrip::setSendSlots). Turning a knob up from the
 // floor implicitly creates the TrackSendDef via mixer.setTrackSend -- no
 // separate "add" step, same as the native mixer.
+function SendArcKnob({
+  value,
+  min = SEND_FLOOR_DB,
+  max = 6,
+  busColor,
+  title,
+  onChange,
+}: {
+  value: number;
+  min?: number;
+  max?: number;
+  busColor: string;
+  title?: string;
+  onChange: (val: number) => void;
+}) {
+  const norm = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const angle = -135 + norm * 270;
+  const radius = 9;
+  const strokeWidth = 2.5;
+  const circumference = 2 * Math.PI * radius;
+  const arcLength = circumference * (270 / 360);
+  const strokeDashoffset = arcLength * (1 - norm);
+
+  return (
+    <div
+      className="relative flex items-center justify-center cursor-pointer select-none"
+      title={title}
+      onWheel={(e) => {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 1 : -1;
+        const step = (max - min) / 40;
+        const newVal = Math.max(min, Math.min(max, value + delta * step));
+        onChange(newVal);
+      }}
+    >
+      <svg width={24} height={24} className="transform -rotate-90">
+        {/* Track Arc */}
+        <circle
+          cx={12}
+          cy={12}
+          r={radius}
+          fill="none"
+          stroke="rgba(255,255,255,0.15)"
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${arcLength} ${circumference}`}
+          strokeLinecap="round"
+        />
+        {/* Filled Arc colored by busColor */}
+        <circle
+          cx={12}
+          cy={12}
+          r={radius}
+          fill="none"
+          stroke={busColor}
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${arcLength} ${circumference}`}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dashoffset 0.1s ease-out" }}
+        />
+      </svg>
+      {/* Knob Indicator Dot */}
+      <div
+        className="absolute w-1 h-1 rounded-full bg-white pointer-events-none"
+        style={{
+          transform: `rotate(${angle}deg) translateY(-7px)`,
+        }}
+      />
+    </div>
+  );
+}
+
 function SendKnobs({
   auxBusses,
   sends,
@@ -257,30 +329,30 @@ function SendKnobs({
   if (auxBusses.length === 0) return null;
   return (
     <div className="flex w-full flex-col gap-1 border-t border-default/20 py-1">
-      {auxBusses.map((bus) => {
+      {auxBusses.map((bus, idx) => {
         const existing = sends.find((s) => s.busId === bus.id);
         const value = existing?.gainDb ?? SEND_FLOOR_DB;
+        const color = colorForIndex(idx);
         return (
-          <div key={bus.id} className="flex items-center justify-between gap-1 w-full">
+          <div key={bus.id} className="flex items-center justify-between gap-1 w-full px-0.5">
             <span
-              className="truncate text-[9px] font-mono text-foreground/60 max-w-[54px]"
+              className="truncate text-[9px] font-mono font-medium max-w-[48px]"
+              style={{ color }}
               title={bus.name || bus.id}
             >
               {bus.name || bus.id}
             </span>
-            <Knob
+            <SendArcKnob
               value={value}
               min={SEND_FLOOR_DB}
               max={6}
-              defaultValue={SEND_FLOOR_DB}
-              accent="#00dac3"
-              onCommit={(v) =>
+              busColor={color}
+              title={`Send to ${bus.name || bus.id}`}
+              onChange={(v) =>
                 onSendChange
                   ? onSendChange(bus.id, v)
                   : mixer.setTrackSend(trackIndex, bus.id, v)
               }
-              size={16}
-              title={`Send to ${bus.name || bus.id}`}
             />
           </div>
         );
@@ -289,11 +361,6 @@ function SendKnobs({
   );
 }
 
-// Track output routing: the normal bus <select> plus an "Ext. Output"
-// escape hatch that pins the track straight to a physical output channel
-// (or channel pair) instead of any bus in the project. Mono selects a single
-// channel; stereo selects an adjacent pair ("1/2", "3/4", ...) depending on
-// what's active in Settings.
 function TrackOutputRouting({
   busId,
   busses,
@@ -311,11 +378,16 @@ function TrackOutputRouting({
   const [mono, setMono] = useState(false);
 
   const options = directOutputOptions(settings, !mono);
+  const currentValue = directOutputOpen
+    ? EXT_OUTPUT_VALUE
+    : busId === ""
+    ? "__sends_only__"
+    : busId;
 
   return (
-    <div className="w-full my-1">
+    <div className="w-full my-1 flex flex-col items-center gap-1">
       <select
-        value={directOutputOpen ? EXT_OUTPUT_VALUE : busId || ""}
+        value={currentValue}
         onChange={(e) => {
           if (e.target.value === EXT_OUTPUT_VALUE) {
             setDirectOutputOpen(true);
@@ -335,40 +407,37 @@ function TrackOutputRouting({
         <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
       </select>
 
-      {/* Always visible (not just once Ext. Output is picked) -- it's the
-          same per-track mono/stereo choice the bus strips always show, and
-          determines whether Ext. Output offers single channels or pairs. */}
-      <button
-        type="button"
-        className="mt-1 flex items-center justify-center p-0.5 text-foreground/70 transition-colors hover:text-foreground"
-        title={mono ? "Mono (click for stereo)" : "Stereo (click for mono)"}
-        onClick={() => setMono((m) => !m)}
-      >
-        <MonoStereoIcon stereo={!mono} />
-      </button>
-
       {directOutputOpen && (
-        <div className="mt-1 flex flex-col items-center gap-1 rounded border border-default/40 bg-default/10 p-1">
-          <select
-            defaultValue=""
-            onChange={(e) => {
-              const startChannel = Number(e.target.value);
-              if (!Number.isNaN(startChannel) && e.target.value !== "")
-                onDirectOutput(mono, startChannel);
-            }}
-            className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] text-foreground focus:outline-none"
-          >
-            <option value="" disabled>
-              Channel...
+        <select
+          defaultValue=""
+          onChange={(e) => {
+            const startChannel = Number(e.target.value);
+            if (!Number.isNaN(startChannel) && e.target.value !== "")
+              onDirectOutput(mono, startChannel);
+          }}
+          className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
+        >
+          <option value="" disabled>
+            Channel...
+          </option>
+          {options.map((o) => (
+            <option key={o.startChannel} value={o.startChannel}>
+              {o.label}
             </option>
-            {options.map((o) => (
-              <option key={o.startChannel} value={o.startChannel}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
+          ))}
+        </select>
       )}
+
+      <div className="w-full flex items-center justify-center">
+        <button
+          type="button"
+          className="flex items-center justify-center p-0.5 text-foreground/70 transition-colors hover:text-foreground mx-auto"
+          title={mono ? "Mono (click for stereo)" : "Stereo (click for mono)"}
+          onClick={() => setMono((m) => !m)}
+        >
+          <MonoStereoIcon stereo={!mono} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -479,11 +548,13 @@ function BusDestinationRouting({
 function StripButton({
   active,
   color,
+  flashingMute,
   children,
   onClick,
 }: {
   active: boolean;
   color: "danger" | "warning";
+  flashingMute?: boolean;
   children: React.ReactNode;
   onClick: () => void;
 }) {
@@ -500,7 +571,9 @@ function StripButton({
           : "border-default/50 bg-default/10 text-foreground/50 hover:bg-default/25"
       }`}
     >
-      {children}
+      <span className={flashingMute ? "animate-pulse text-amber-400 font-extrabold" : ""}>
+        {children}
+      </span>
     </button>
   );
 }
@@ -520,6 +593,7 @@ function ChannelStrip({
   peakDb,
   mute,
   solo,
+  anySoloInGroup,
   onGain,
   onPan,
   onMute,
@@ -553,6 +627,7 @@ function ChannelStrip({
   peakDb: number | undefined;
   mute: boolean;
   solo: boolean;
+  anySoloInGroup?: boolean;
   onGain: (v: number) => void;
   onPan: ((v: number) => void) | null;
   onMute: () => void;
@@ -565,8 +640,14 @@ function ChannelStrip({
     return `R${Math.round(p * 100)}`;
   };
 
+  const isDimmed = !!anySoloInGroup && !solo;
+
   return (
-    <div className="flex h-full min-h-0 w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-surface/80 p-2 select-none">
+    <div
+      className={`flex h-full min-h-0 w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-surface/80 p-2 select-none transition-opacity duration-300 ${
+        isDimmed ? "opacity-35" : "opacity-100"
+      }`}
+    >
       {/* Header */}
       <div className="flex flex-col items-center gap-0.5 w-full text-center">
         <div
@@ -602,7 +683,7 @@ function ChannelStrip({
           <div className="w-full my-1">
             <select
               value={busId || ""}
-              onChange={(e) => onBusSelect(e.target.value === "__sends_only__" ? "" : e.target.value)}
+              onChange={(e) => onBusSelect(e.target.value)}
               className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
             >
               {busses.map((b) => (
@@ -610,8 +691,6 @@ function ChannelStrip({
                   {b.name || b.id}
                 </option>
               ))}
-              <option value="__sends_only__">Sends Only</option>
-              <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
             </select>
           </div>
         )
@@ -658,7 +737,7 @@ function ChannelStrip({
 
       {/* Mute & Solo buttons */}
       <div className="flex w-full gap-1">
-        <StripButton active={mute} color="danger" onClick={onMute}>
+        <StripButton active={mute} color="danger" flashingMute={isDimmed} onClick={onMute}>
           M
         </StripButton>
         <StripButton active={solo} color="warning" onClick={onSolo}>
@@ -671,6 +750,7 @@ function ChannelStrip({
           auxBusses={sends.auxBusses}
           sends={sends.values}
           trackIndex={sends.trackIndex}
+          onSendChange={sends.onSendChange}
         />
       )}
     </div>
@@ -684,6 +764,7 @@ function TrackStrip({
   auxBusses,
   meters,
   settings,
+  anySoloInGroup,
   onDirectOutput,
 }: {
   t: TrackRow;
@@ -692,6 +773,7 @@ function TrackStrip({
   auxBusses: BusRow[];
   meters: import("../lib/types").MeterRow[];
   settings: SettingsState;
+  anySoloInGroup?: boolean;
   onDirectOutput: (
     trackIndex: number,
     mono: boolean,
@@ -720,6 +802,7 @@ function TrackStrip({
       peakDb={peakDb}
       mute={t.mute}
       solo={t.solo}
+      anySoloInGroup={anySoloInGroup}
       onGain={(v) => mixer.setTrackGain(index, v)}
       onPan={(v) => mixer.setTrackPan(index, v)}
       onMute={() => mixer.setTrackMute(index, !t.mute)}
@@ -834,6 +917,7 @@ function BusStrip({
   master,
   settings,
   isMaster = false,
+  anySoloInGroup,
 }: {
   b: BusRow;
   index: number;
@@ -841,6 +925,7 @@ function BusStrip({
   master?: BusRow;
   settings: SettingsState;
   isMaster?: boolean;
+  anySoloInGroup?: boolean;
 }) {
   const meter = meters.find((m) => m.id === b.id);
   const color = isMaster ? "#ff375f" : "#ff9230";
@@ -855,6 +940,7 @@ function BusStrip({
       peakDb={meter?.peakDb ?? b.peakDb}
       mute={b.mute}
       solo={b.solo}
+      anySoloInGroup={anySoloInGroup}
       onGain={(v) => mixer.setBusGain(index, v)}
       onPan={null}
       onMute={() => mixer.setBusMute(index, !b.mute)}
@@ -1285,6 +1371,9 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     });
   }
 
+  const anyTrackSolo = state.tracks.some((tr) => tr.solo);
+  const anyAuxSolo = auxBusses.some((b) => b.solo);
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex shrink-0 items-center gap-2 text-xs text-foreground/40">
@@ -1321,6 +1410,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                     auxBusses={auxBusses}
                     meters={state.meters}
                     settings={state.settings}
+                    anySoloInGroup={anyTrackSolo}
                     onDirectOutput={requestDirectOutput}
                   />
                 </div>
@@ -1362,6 +1452,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                     meters={state.meters}
                     master={master}
                     settings={state.settings}
+                    anySoloInGroup={anyAuxSolo}
                   />
                 </div>
               ))}
