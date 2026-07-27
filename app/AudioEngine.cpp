@@ -1665,10 +1665,13 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
     }
 
     const std::string archivePath = loader.archivePath();
+    const bool isContainer = loader.isDirectoryContainer();
+    const std::string tempOut = isContainer ? archivePath : (archivePath + ".new");
 
     busyImporting.store(true, std::memory_order_release);
 
-    importThread = std::thread([this, filesystemPath, entry, archivePath, projectSnapshot, songToRestore, wasPlaying,
+
+    importThread = std::thread([this, filesystemPath, entry, archivePath, tempOut, projectSnapshot, songToRestore, wasPlaying,
                                  onComplete]() mutable {
         std::string error;
         std::vector<uint8_t> data;
@@ -1696,17 +1699,7 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
         }
 
         bool writeOk = false;
-        const std::string tempOut = archivePath + ".new";
         if (readOk) {
-            // Build the peak overview from the bytes we just read, before the
-            // import archive write, and persist it alongside the audio in the
-            // same atomic save -- this is what actually fixes the "import
-            // freezes the app" bug: without this, the peak cache for this
-            // file wouldn't exist yet after import, and the next
-            // ensureAllSongPeaksBuilt() sweep would have to decode it (and
-            // potentially the whole project) from scratch on the message
-            // thread's watch. See PeakBuildThreadPool.h for the matching fix
-            // to ensureAllSongPeaksBuilt()'s unbounded thread fan-out.
             PeakOverview overview;
             std::string peakError;
             const bool peaksOk = overview.buildFromBuffer(data.data(), data.size(), peakError);
