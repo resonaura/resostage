@@ -1327,8 +1327,8 @@ export function MixerScreen({ state }: { state: WebUiState }) {
             {/* Vertical Separator Divider Line */}
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
-            {/* Right: "+ Send" (left, centered, big), then Sends, then Metronome (own separator), then Master */}
-            <div className="flex shrink-0 gap-2 max-w-[45%] overflow-x-auto">
+            {/* Middle: Aux Send Buses (Scrollable independently, max-w-[35%]) */}
+            <div className="flex shrink-0 gap-2 max-w-[35%] overflow-x-auto">
               <div className="flex h-full w-20 shrink-0 flex-col items-center justify-center">
                 <button
                   onClick={() => requestAddSend()}
@@ -1362,9 +1362,13 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                   />
                 </div>
               ))}
+            </div>
 
-              <div className="mx-1 w-px shrink-0 self-stretch bg-default/40" />
+            {/* Vertical Divider */}
+            <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
+            {/* Rightmost Fixed Section: Metronome + Master Bus (ALWAYS VISIBLE) */}
+            <div className="flex shrink-0 gap-2 items-center">
               <MetronomeStrip state={state} />
 
               <div className="mx-1 w-px shrink-0 self-stretch bg-default/40" />

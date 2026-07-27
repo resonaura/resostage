@@ -517,6 +517,10 @@ interface TimelineRow {
   headerIndex: number | null;
 }
 
+const DEFAULT_FALLBACK_TRACKS = [
+  "Click", "Guide", "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX"
+];
+
 function buildRows(currentTracks: TrackRow[], songs: SongRow[]): TimelineRow[] {
   const rows: TimelineRow[] = [];
   const seen = new Set<string>();
@@ -533,6 +537,11 @@ function buildRows(currentTracks: TrackRow[], songs: SongRow[]): TimelineRow[] {
       seen.add(name);
       rows.push({ name, color: TRACK_COLORS[rows.length % TRACK_COLORS.length], headerIndex: null });
     }
+  }
+  if (rows.length === 0) {
+    DEFAULT_FALLBACK_TRACKS.forEach((name, i) => {
+      rows.push({ name, color: TRACK_COLORS[i % TRACK_COLORS.length], headerIndex: null });
+    });
   }
   return rows;
 }

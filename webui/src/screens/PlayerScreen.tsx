@@ -331,6 +331,30 @@ export function PlayerScreen({
     }
   }
 
+  const currentClickBus =
+    hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]?.clickBusId
+      ? state.songs[state.songIndex].clickBusId
+      : state.busses[0]?.id || "main";
+  const auxBusses = state.busses.filter((b) => b.isAux);
+
+  const changeClickBus = (busId: string) => {
+    if (!hasSongs) return;
+    const idx = state.songIndex >= 0 ? state.songIndex : 0;
+    const s = state.songs[idx];
+    if (!s) return;
+    void builder.songUpdate({
+      index: idx,
+      name: s.name,
+      bpm: s.bpm,
+      mode: s.mode,
+      tsNum: s.tsNum,
+      tsDen: s.tsDen,
+      click: s.click,
+      clickBusId: busId,
+      clickSends: s.clickSends ?? [],
+    });
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       {/* ── 1. Top Transport bar ──────────────────────────────── */}
@@ -451,43 +475,80 @@ export function PlayerScreen({
             >
               <ChevronDown size={12} className={`transition-transform ${clickSendsOpen ? "rotate-180" : ""}`} />
             </button>
-            {/* Popover: one row per bus, toggle send on/off */}
+            {/* Popover: 1-to-1 track parity with Output Bus select + Aux Sends list */}
             {clickSendsOpen && (
-              <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-lg border border-default/40 bg-surface shadow-xl">
-                <div className="border-b border-default/20 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground/40">
-                  Click → Send to Bus
+              <div className="absolute left-0 top-full z-50 mt-1.5 w-64 rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md p-3 shadow-2xl space-y-3 select-none">
+                <div className="flex items-center justify-between border-b border-default/20 pb-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-foreground/50">
+                    Click Routing
+                  </span>
+                  <span className="text-[10px] font-mono text-accent">Metronome</span>
                 </div>
-                {state.busses.map((bus) => {
-                  const send = (song?.clickSends ?? []).find(
-                    (cs) => cs.busId === bus.id,
-                  );
-                  const isActive = send?.enabled === true;
-                  return (
-                    <button
-                      key={bus.id}
-                      type="button"
-                      onClick={() => toggleClickSend(bus.id)}
-                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-default/15 ${
-                        isActive ? "text-accent" : "text-foreground/50"
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
-                          isActive ? "bg-accent" : "bg-default/40"
-                        }`}
-                      />
-                      <span className="truncate">{bus.name || bus.id}</span>
-                      {bus.isAux && (
-                        <span className="ml-auto shrink-0 rounded bg-default/20 px-1 text-[9px] uppercase text-foreground/30">
-                          aux
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-                {state.busses.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-foreground/30">No buses</div>
-                )}
+
+                {/* Primary Destination Bus Select (1-to-1 like track output) */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold text-foreground/60">
+                    Output Bus
+                  </label>
+                  <select
+                    value={currentClickBus}
+                    onChange={(e) => changeClickBus(e.target.value)}
+                    className="w-full rounded-md border border-default/40 bg-default/20 px-2 py-1 text-xs text-foreground focus:outline-none"
+                  >
+                    {state.busses.map((bus) => (
+                      <option key={bus.id} value={bus.id}>
+                        {bus.name || bus.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Aux Sends List (1-to-1 like track sends) */}
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold text-foreground/60">
+                    Aux Sends
+                  </div>
+                  {auxBusses.length === 0 ? (
+                    <div className="text-[10px] text-foreground/30 py-1">No Aux buses</div>
+                  ) : (
+                    auxBusses.map((bus) => {
+                      const send = (song?.clickSends ?? []).find((cs) => cs.busId === bus.id);
+                      const isActive = send?.enabled === true;
+                      return (
+                        <div
+                          key={bus.id}
+                          className="flex items-center justify-between gap-2 bg-default/10 p-1.5 rounded-lg border border-default/20"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleClickSend(bus.id)}
+                            className={`flex items-center gap-1.5 text-xs font-medium truncate ${
+                              isActive ? "text-accent" : "text-foreground/50 hover:text-foreground"
+                            }`}
+                          >
+                            <span
+                              className={`h-2 w-2 rounded-full shrink-0 ${
+                                isActive ? "bg-accent" : "bg-default/40"
+                              }`}
+                            />
+                            <span className="truncate">{bus.name || bus.id}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleClickSend(bus.id)}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              isActive
+                                ? "bg-accent/20 text-accent border border-accent/40"
+                                : "bg-default/20 text-foreground/40 hover:bg-default/30"
+                            }`}
+                          >
+                            {isActive ? "ACTIVE" : "OFF"}
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             )}
           </div>

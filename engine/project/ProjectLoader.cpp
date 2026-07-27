@@ -290,13 +290,29 @@ void ProjectLoader::newProject(const std::string& name) {
     mainBus.output.startChannel = 0;
     parsedProject.busses.push_back(std::move(mainBus));
 
-    // No default song here: a brand-new project starts with zero songs, and
-    // the UI (ensureSongSelected() et al.) already tolerates that fine. The
-    // "seed with a standard consolidated track set" behavior lives in
-    // MainComponent::builderSongAdd() instead, which applies it to whichever
-    // song the user actually asks to add (and reuses the first real song's
-    // track template for every song after that) -- doing it again here too
-    // just produced an unwanted phantom "Song 1" nobody asked for.
+    // Seed 1 default song with standard track channels so empty projects
+    // immediately display all default tracks in Builder/Timeline/Mixer.
+    SongDef song;
+    song.id = "song_1";
+    song.name = "Song 1";
+    song.bpm = 120.0;
+    song.timeSignature = {4, 4};
+    song.builtInClickEnabled = true;
+    song.builtInClickBusId = "main";
+
+    const std::vector<std::string> defaultTrackNames = {
+        "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Guide"
+    };
+    int idCounter = 1;
+    for (const auto& tname : defaultTrackNames) {
+        TrackDef t;
+        t.id = "trk_" + std::to_string(idCounter++);
+        t.name = tname;
+        t.file = "";
+        t.busId = "main";
+        song.tracks.push_back(std::move(t));
+    }
+    parsedProject.songs.push_back(std::move(song));
 }
 
 bool ProjectLoader::isOpen() const {
