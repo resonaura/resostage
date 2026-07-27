@@ -28,11 +28,10 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
 
 private:
-    // Web is the new default landing view (see DevOrEmbeddedWebView) -- a
-    // HeroUI/Tailwind React remote that mirrors Player/Mixer/Builder/
-    // Settings. It's transport-only server-side for now (no mixer fader/
-    // builder mutation endpoints yet), so the native panels stay reachable
-    // as tabs for actual editing rather than being removed outright.
+    // Web is the default (and, per the "single UI" goal, primary) landing
+    // view -- a HeroUI/Tailwind React remote with full parity for transport,
+    // mixer, project lifecycle, and Builder structural editing. The native
+    // panels stay reachable as tabs mainly as a fallback/dev tool now.
     enum class Mode { Web, Player, Mixer, Builder, Settings };
 
     AudioEngine engine;
@@ -107,6 +106,30 @@ private:
     void onProjectLoaded();
     void publishWebState();
     void drainWebCommands();
+
+    // Builder structural-edit parity for the web UI -- see
+    // MainComponentBuilder.cpp. Each mirrors the matching BuilderPanel.cpp
+    // method (addItem/removeItem/moveItem/apply*Settings), just JSON-driven
+    // instead of widget-driven, and finishes by invoking the same
+    // builderPanel.onProjectEdited()/onRoutingEdited() hooks the native
+    // Builder tab already uses to refresh everything else.
+    void builderSongAdd();
+    void builderSongRemove(const std::string& json);
+    void builderSongMove(const std::string& json);
+    void builderSongUpdate(const std::string& json);
+    void builderTrackAdd(const std::string& json);
+    void builderTrackRemove(const std::string& json);
+    void builderTrackMove(const std::string& json);
+    void builderTrackUpdate(const std::string& json);
+    void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath);
+    void builderBusAdd();
+    void builderBusRemove(const std::string& json);
+    void builderBusMove(const std::string& json);
+    void builderBusUpdate(const std::string& json);
+    void builderEventAdd(const std::string& json);
+    void builderEventRemove(const std::string& json);
+    void builderEventMove(const std::string& json);
+    void builderEventUpdate(const std::string& json);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

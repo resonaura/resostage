@@ -11,7 +11,8 @@ namespace resoset {
 // (e.g. a packaged release running on stage, with no `pnpm dev` around).
 class DevOrEmbeddedWebView final : public juce::WebBrowserComponent {
 public:
-    explicit DevOrEmbeddedWebView(juce::String fallbackUrl) : embeddedFallbackUrl(std::move(fallbackUrl)) {
+    explicit DevOrEmbeddedWebView(juce::String fallbackUrl)
+        : embeddedFallbackUrl(std::move(fallbackUrl) + "?embedded=1") {
         goToURL(devServerUrl);
     }
 
@@ -28,7 +29,13 @@ private:
         return false;
     }
 
-    const juce::String devServerUrl = "http://localhost:2900/";
+    // The `?embedded=1` marker lets the SPA tell "I'm running inside this
+    // app's own webview" apart from "I'm a plain LAN/localhost browser tab" --
+    // see webui/src/lib/embedded.ts. It's how a file-picker/save action
+    // decides between driving the native FileChooser (same on-screen window
+    // either way) versus a browser upload/download, which is the only option
+    // a remote tab has.
+    const juce::String devServerUrl = "http://localhost:2900/?embedded=1";
     juce::String embeddedFallbackUrl;
     bool triedFallback = false;
 };

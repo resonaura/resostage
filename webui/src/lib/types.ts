@@ -1,10 +1,45 @@
 // Mirrors WebServer::buildStateJson() in app/web/WebServer.cpp exactly --
 // keep these two in sync by hand (there's no shared schema generator yet).
 
+export type EventTypeWire = "programChange" | "cc" | "noteOn" | "noteOff" | "http" | "dmx";
+
+export interface SongTrackRow {
+  id: string;
+  name: string;
+  busId: string;
+  file: string;
+  gainDb: number;
+  pan: number;
+  mute: boolean;
+  solo: boolean;
+  sendsCount: number;
+}
+
+export interface SongEventRow {
+  id: string;
+  type: EventTypeWire;
+  timeSeconds: number;
+  triggerOnLoad: boolean;
+  latencyMs: number;
+  midiChannel: number;
+  midiProgram: number;
+  midiCC: number;
+  midiCCValue: number;
+  midiNote: number;
+  midiVelocity: number;
+  httpUrl: string;
+}
+
 export interface SongRow {
   name: string;
   bpm: number;
   mode: "auto" | "wait";
+  tsNum: number;
+  tsDen: number;
+  click: boolean;
+  clickBusId: string;
+  tracks: SongTrackRow[];
+  events: SongEventRow[];
 }
 
 export interface MeterRow {
@@ -33,6 +68,7 @@ export interface BusRow {
   solo: boolean;
   isAux: boolean;
   startChannel: number;
+  channels: number;
   peakDb: number;
 }
 
@@ -56,6 +92,8 @@ export interface WebUiState {
   hardwareAlarm: boolean;
   songIndex: number;
   songCount: number;
+  statusMessage: string;
+  busy: boolean;
   songs: SongRow[];
   meters: MeterRow[];
   tracks: TrackRow[];
@@ -74,6 +112,8 @@ export const emptyState: WebUiState = {
   hardwareAlarm: false,
   songIndex: -1,
   songCount: 0,
+  statusMessage: "",
+  busy: false,
   songs: [],
   meters: [],
   tracks: [],

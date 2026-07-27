@@ -1,7 +1,9 @@
 #include "MainComponent.h"
 #include "ui/legacy/UiColors.h"
+#include "web/BuilderJson.h"
 
 #include <algorithm>
+#include <cstdio>
 
 namespace resoset {
 
@@ -369,6 +371,97 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetBusSolo:
                 engine.setBusSolo(idx, cmd.value != 0.0);
                 break;
+            // Project lifecycle parity -- see WebCommandKind's doc comment.
+            // New/Load-dialog/Save/Save-As go through the exact same methods
+            // the native top-bar buttons call; any native dialog they pop
+            // shows in this same on-screen app window, which is correct
+            // whether the click originated from the embedded webview or the
+            // physical top-bar (same window either way).
+            case WebCommandKind::NewProject:
+                engine.newProject();
+                applyProjectBindings();
+                settingsPanel.refreshBindings();
+                onProjectLoaded();
+                setStatus("New project -- add songs in Builder, then Save As to create the .rsnraset file");
+                break;
+            case WebCommandKind::OpenLoadDialog:
+                loadProjectClicked();
+                break;
+            case WebCommandKind::SaveProject:
+                saveProjectClicked(false);
+                break;
+            case WebCommandKind::SaveProjectAs:
+                saveProjectClicked(true);
+                break;
+            case WebCommandKind::LoadProjectFromPath: {
+                // Plain-browser upload path: bytes already landed in cmd.path
+                // (a temp file written by WebServer's upload handler) --
+                // load it exactly like a FileChooser result, then delete it.
+                std::string error;
+                const bool loaded = engine.loadProject(cmd.path, error);
+                std::remove(cmd.path.c_str());
+                if (loaded) {
+                    applyProjectBindings();
+                    settingsPanel.refreshBindings();
+                    onProjectLoaded();
+                    setStatus("Loaded '" + juce::String(engine.project().name) + "' (uploaded from browser)");
+                    if (!engine.project().songs.empty())
+                        goToSong(0);
+                } else {
+                    setStatus("Upload load failed: " + juce::String(error));
+                }
+                break;
+            }
+            case WebCommandKind::ExportProjectForDownload: {
+                // Plain-browser download path: write the current project to a
+                // temp file and hand it to WebServer so a polling GET
+                // .../export-status / .../download can pick it up -- avoids
+                // blocking the lws service thread on this (message-thread
+                // only) save.
+                if (!engine.isProjectLoaded()) {
+                    webServer.failExport();
+                    setStatus("Nothing to export -- no project loaded");
+                    break;
+                }
+                const auto tempFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                          .getNonexistentChildFile("resostage-export", ".rsnraset");
+                std::string error;
+                if (engine.saveProject(tempFile.getFullPathName().toStdString(), error)) {
+                    juce::String safeName = juce::String(engine.project().name)
+                        .retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-");
+                    if (safeName.isEmpty())
+                        safeName = "Project";
+                    webServer.completeExport(tempFile.getFullPathName().toStdString(),
+                                             safeName.toStdString() + ".rsnraset");
+                    setStatus("Export ready for download");
+                } else {
+                    webServer.failExport();
+                    setStatus("Export failed: " + juce::String(error));
+                }
+                break;
+            }
+            // Builder structural-edit parity -- see MainComponentBuilder.cpp.
+            case WebCommandKind::BuilderSongAdd: builderSongAdd(); break;
+            case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
+            case WebCommandKind::BuilderSongMove: builderSongMove(cmd.json); break;
+            case WebCommandKind::BuilderSongUpdate: builderSongUpdate(cmd.json); break;
+            case WebCommandKind::BuilderTrackAdd: builderTrackAdd(cmd.json); break;
+            case WebCommandKind::BuilderTrackRemove: builderTrackRemove(cmd.json); break;
+            case WebCommandKind::BuilderTrackMove: builderTrackMove(cmd.json); break;
+            case WebCommandKind::BuilderTrackUpdate: builderTrackUpdate(cmd.json); break;
+            case WebCommandKind::BuilderTrackImportWavBegin:
+                break; // bookkeeping only -- see WebServer::beginTrackImport()
+            case WebCommandKind::BuilderTrackImportWavUpload:
+                builderTrackImportWavUpload(cmd.arg, static_cast<int>(cmd.value), cmd.path);
+                break;
+            case WebCommandKind::BuilderBusAdd: builderBusAdd(); break;
+            case WebCommandKind::BuilderBusRemove: builderBusRemove(cmd.json); break;
+            case WebCommandKind::BuilderBusMove: builderBusMove(cmd.json); break;
+            case WebCommandKind::BuilderBusUpdate: builderBusUpdate(cmd.json); break;
+            case WebCommandKind::BuilderEventAdd: builderEventAdd(cmd.json); break;
+            case WebCommandKind::BuilderEventRemove: builderEventRemove(cmd.json); break;
+            case WebCommandKind::BuilderEventMove: builderEventMove(cmd.json); break;
+            case WebCommandKind::BuilderEventUpdate: builderEventUpdate(cmd.json); break;
         }
     }
 }
@@ -390,6 +483,8 @@ void MainComponent::publishWebState() {
     state.songIndex = (engine.currentSongIndex() == static_cast<size_t>(-1))
                           ? -1
                           : static_cast<int>(engine.currentSongIndex());
+    state.statusMessage = statusLabel.getText().toStdString();
+    state.busy = engine.isBusy();
 
     state.songs.reserve(proj.songs.size());
     for (const SongDef& song : proj.songs) {
@@ -397,6 +492,44 @@ void MainComponent::publishWebState() {
         row.name = song.name;
         row.bpm = song.bpm;
         row.autoplay = (song.playbackMode == PlaybackMode::AutoplayNext);
+        row.tsNum = song.timeSignature.numerator;
+        row.tsDen = song.timeSignature.denominator;
+        row.click = song.builtInClickEnabled;
+        row.clickBusId = song.builtInClickBusId;
+
+        row.tracks.reserve(song.tracks.size());
+        for (const TrackDef& t : song.tracks) {
+            WebUiState::SongRow::TrackRow tr;
+            tr.id = t.id;
+            tr.name = t.name;
+            tr.busId = t.busId;
+            tr.file = t.file;
+            tr.gainDb = t.gainDb;
+            tr.pan = t.pan;
+            tr.mute = t.mute;
+            tr.solo = t.solo;
+            tr.sendsCount = static_cast<int>(t.sends.size());
+            row.tracks.push_back(std::move(tr));
+        }
+
+        row.events.reserve(song.events.size());
+        for (const TimelineEvent& e : song.events) {
+            WebUiState::SongRow::EventRow er;
+            er.id = e.id;
+            er.type = builder_json::eventTypeToWebString(e.type);
+            er.timeSeconds = e.timeSeconds;
+            er.triggerOnLoad = e.triggerOnLoad;
+            er.latencyMs = e.latencyCompensationMs;
+            er.midiChannel = e.midiChannel;
+            er.midiProgram = e.midiProgram;
+            er.midiCC = e.midiCC;
+            er.midiCCValue = e.midiCCValue;
+            er.midiNote = e.midiNote;
+            er.midiVelocity = e.midiVelocity;
+            er.httpUrl = e.httpUrl;
+            row.events.push_back(std::move(er));
+        }
+
         state.songs.push_back(std::move(row));
     }
 
@@ -452,6 +585,7 @@ void MainComponent::publishWebState() {
         if (i < proj.busses.size()) {
             br.isAux = proj.busses[i].isAux;
             br.startChannel = proj.busses[i].output.startChannel;
+            br.channels = proj.busses[i].channels;
         }
         if (const auto* meter = engine.busMeterAt(i)) {
             MeterFrame frame;

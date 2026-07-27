@@ -36,12 +36,61 @@ enum class WebCommandKind : uint8_t {
     SetBusGain,
     SetBusMute,
     SetBusSolo,
+    // Project lifecycle parity -- see app/web/WebServer.cpp's
+    // isMixerCommandPath-style routing and MainComponent::drainWebCommands().
+    // New/OpenLoadDialog/SaveProject/SaveProjectAs just call the exact same
+    // methods the native top-bar buttons call (message-thread only, may pop
+    // a native FileChooser/dialog in the same on-screen app window -- fine
+    // when the request came from the embedded webview, since that's the same
+    // window). LoadProjectFromPath and ExportProjectForDownload exist for
+    // the "plain browser, no native dialog available" path instead: a
+    // remote/tab client uploads bytes to a temp file (path carried in
+    // WebCommand::path) or asks the app to write the current project to a
+    // temp file it can then download over HTTP.
+    NewProject,
+    OpenLoadDialog,
+    SaveProject,
+    SaveProjectAs,
+    LoadProjectFromPath,
+    ExportProjectForDownload,
+    // Builder structural-edit parity -- one kind per BuilderPanel operation
+    // (Songs/Tracks/Busses/Events x Add/Remove/Move/Update). `json` carries
+    // the raw POST body verbatim; WebServer does no field parsing for these,
+    // it's all done message-thread-side in MainComponentBuilder.cpp (mirrors
+    // BuilderPanel.cpp's own addItem/removeItem/moveItem/apply*Settings
+    // logic almost line for line, just JSON-driven instead of widget-driven).
+    BuilderSongAdd,
+    BuilderSongRemove,
+    BuilderSongMove,
+    BuilderSongUpdate,
+    BuilderTrackAdd,
+    BuilderTrackRemove,
+    BuilderTrackMove,
+    BuilderTrackUpdate,
+    // Two-step WAV import (mirrors the ExportProjectForDownload handshake
+    // rather than reusing LoadProjectFromPath's single-shot upload): Begin
+    // stashes {songIndex, trackIndex} from a small JSON POST in WebServer
+    // (see beginTrackImport()), then Upload's raw-byte POST is handled the
+    // same way project upload is (streamed straight to a temp file, no size
+    // cap) and just needs to recall which track it was for.
+    BuilderTrackImportWavBegin,
+    BuilderTrackImportWavUpload,
+    BuilderBusAdd,
+    BuilderBusRemove,
+    BuilderBusMove,
+    BuilderBusUpdate,
+    BuilderEventAdd,
+    BuilderEventRemove,
+    BuilderEventMove,
+    BuilderEventUpdate,
 };
 
 struct WebCommand {
     WebCommandKind kind = WebCommandKind::Stop;
     int arg = 0;        // SelectSong index, or track/bus index for mixer commands
     double value = 0.0; // gain (dB) / pan (-1..1) / bool (0.0 or 1.0) depending on kind
+    std::string path;   // LoadProjectFromPath / BuilderTrackImportWavUpload: temp file path
+    std::string json;   // Builder*: raw POST body, parsed message-thread-side
 };
 
 // Snapshot of everything the SPA needs, written by the message thread (~30 Hz)
@@ -59,11 +108,59 @@ struct WebUiState {
     bool hardwareAlarm = false;
     int songIndex = -1;
     int songCount = 0;
+    // Mirrors MainComponent's bottom status bar text -- the web UI's only
+    // window into the result of a fire-and-forget command (project loaded ok,
+    // save failed, etc.) since REST POSTs here don't wait for the outcome.
+    std::string statusMessage;
+    // Mirrors AudioEngine::isBusy() -- true during an async WAV/folder
+    // import. The web UI disables Builder edits while this is set, same as
+    // the native BusyOverlay blocking all input.
+    bool busy = false;
 
     struct SongRow {
         std::string name;
         double bpm = 120.0;
         bool autoplay = false;
+
+        // Full per-song structure for the Builder editor -- unlike `tracks`/
+        // `busses` below (which mirror only the *currently-staged* song, for
+        // Player/Mixer), this covers every song so Builder can edit any of
+        // them without staging it first. Populated straight from
+        // engine.project().songs[i], not through the staged-song-scoped
+        // AudioEngine accessors.
+        int tsNum = 4;
+        int tsDen = 4;
+        bool click = false;
+        std::string clickBusId;
+
+        struct TrackRow {
+            std::string id;
+            std::string name;
+            std::string busId;
+            std::string file;
+            double gainDb = 0.0;
+            double pan = 0.0;
+            bool mute = false;
+            bool solo = false;
+            int sendsCount = 0;
+        };
+        std::vector<TrackRow> tracks;
+
+        struct EventRow {
+            std::string id;
+            std::string type; // "programChange" | "cc" | "noteOn" | "noteOff" | "http" | "dmx"
+            double timeSeconds = 0.0;
+            bool triggerOnLoad = false;
+            double latencyMs = 0.0;
+            int midiChannel = 1;
+            int midiProgram = 0;
+            int midiCC = 0;
+            int midiCCValue = 0;
+            int midiNote = 60;
+            int midiVelocity = 100;
+            std::string httpUrl;
+        };
+        std::vector<EventRow> events;
     };
     std::vector<SongRow> songs;
 
@@ -95,6 +192,7 @@ struct WebUiState {
         bool solo = false;
         bool isAux = false;
         int startChannel = 0;
+        int channels = 2;
         float peakDb = -144.0f;
     };
     std::vector<BusRow> busses;
@@ -139,6 +237,22 @@ public:
     // Message-thread: drain one remote command (if any). Returns false if empty.
     bool pollCommand(WebCommand& out);
 
+    // Message-thread: browser-download handshake for ExportProjectForDownload
+    // (see WebCommandKind). beginExport() invalidates any previous export
+    // before enqueueing the new one so a racing GET .../export-status can't
+    // observe a stale "ready". complete/fail report the outcome once the
+    // message thread has actually written the temp file.
+    void beginExport();
+    void completeExport(std::string filePath, std::string fileName);
+    void failExport();
+
+    // HTTP-thread: stash which track a following .../import-wav/upload POST
+    // is for, plus the original filename (so the archive entry ends up
+    // "Audio/kick.wav" instead of a generic temp name) -- see
+    // WebCommandKind::BuilderTrackImportWavBegin/Upload.
+    void beginTrackImport(int songIndex, int trackIndex, std::string fileName);
+    void takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName);
+
 private:
     friend int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
     friend int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
@@ -148,6 +262,8 @@ private:
     void enqueueCommand(WebCommand cmd);
     bool handleHttpApi(struct lws* wsi, const char* path, const char* method, const char* body, size_t bodyLen);
     int serveStatic(struct lws* wsi, const char* path);
+    int serveExportStatus(struct lws* wsi);
+    int serveExportDownload(struct lws* wsi);
 
     // Called only from the lws service thread.
     void onClientOpened();
@@ -165,6 +281,16 @@ private:
     WebUiState state;
 
     moodycamel::ReaderWriterQueue<WebCommand> commands{64};
+
+    mutable std::mutex exportMutex;
+    bool exportReady = false;
+    std::string exportFilePath;
+    std::string exportFileName;
+
+    mutable std::mutex importMutex;
+    int pendingImportSongIndex = -1;
+    int pendingImportTrackIndex = -1;
+    std::string pendingImportFileName;
 
     // Per-session WS bookkeeping lives in the .cpp (opaque to callers).
     // The service thread owns a linked list of live WS sessions via user data.

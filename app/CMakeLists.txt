@@ -7,6 +7,7 @@ juce_add_gui_app(ResoStage
 target_sources(ResoStage PRIVATE
   Main.cpp
   MainComponent.cpp
+  MainComponentBuilder.cpp
   AudioEngine.cpp
   midi/CoreMidiDispatcher.cpp
   midi/CoreMidiInputListener.cpp

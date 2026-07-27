@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
-import { Tabs } from "@heroui/react";
+import { useEffect, useRef, useState } from "react";
+import { Button, Tabs } from "@heroui/react";
 import { AlertTriangle, Gauge, Music4, Radio, Settings2, Sliders } from "lucide-react";
 import { useLiveState } from "./lib/useLiveState";
+import { project } from "./lib/api";
+import { IS_EMBEDDED } from "./lib/embedded";
+import type { WebUiState } from "./lib/types";
 import { PlayerScreen } from "./screens/PlayerScreen";
 import { MixerScreen } from "./screens/MixerScreen";
 import { BuilderScreen } from "./screens/BuilderScreen";
@@ -41,6 +44,7 @@ export default function App() {
         <div className="min-w-0 flex-1 truncate text-sm text-foreground/70">
           {state.projectName || "No project"}
         </div>
+        <ProjectMenu state={state} />
         <ConnectionBadge status={status} />
       </header>
 
@@ -85,8 +89,64 @@ export default function App() {
       </Tabs>
 
       <footer className="border-t border-default/60 px-4 py-2 text-center text-xs text-foreground/40">
-        ResoStage remote &middot; mirrors desktop state
+        {state.statusMessage || "ResoStage remote · mirrors desktop state"}
       </footer>
+    </div>
+  );
+}
+
+function ProjectMenu({ state }: { state: WebUiState }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleNew = () => {
+    if (state.songCount > 0 && !window.confirm(
+      "Start a new project? This discards the current project's unsaved in-memory state (any file already on disk is untouched)."
+    )) {
+      return;
+    }
+    void project.new();
+  };
+
+  const handleLoad = () => {
+    if (IS_EMBEDDED) {
+      void project.loadDialog();
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleFileChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) void project.upload(file);
+  };
+
+  const handleSave = () => void (IS_EMBEDDED ? project.save() : project.exportAndDownload());
+  const handleSaveAs = () => void (IS_EMBEDDED ? project.saveAs() : project.exportAndDownload());
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".rsnraset"
+        className="hidden"
+        onChange={handleFileChosen}
+      />
+      <Button size="sm" variant="outline" onPress={handleNew}>
+        New
+      </Button>
+      <Button size="sm" variant="outline" onPress={handleLoad}>
+        {IS_EMBEDDED ? "Load…" : "Upload…"}
+      </Button>
+      <Button size="sm" variant="outline" onPress={handleSave}>
+        {IS_EMBEDDED ? "Save" : "Download"}
+      </Button>
+      {IS_EMBEDDED && (
+        <Button size="sm" variant="outline" onPress={handleSaveAs}>
+          Save As&hellip;
+        </Button>
+      )}
     </div>
   );
 }

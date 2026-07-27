@@ -3,10 +3,15 @@
 
 #include <libwebsockets.h>
 
+#include <atomic>
+#include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string_view>
 #include <vector>
@@ -24,14 +29,36 @@ struct WsSession {
     bool writePending = false;
 };
 
-// Per-HTTP-transaction body accumulator for small REST POSTs.
+// Per-HTTP-transaction body accumulator for small REST POSTs. Upload
+// (/api/v1/project/upload) is the one path that bypasses `body` entirely --
+// project archives can be tens/hundreds of MB, so its bytes are streamed
+// straight to `uploadFile` instead of buffered in RAM.
 struct HttpSession {
     char path[256]{};
     char method[16]{};
     std::vector<char> body;
     bool isApi = false;
     bool isStatic = false;
+    bool isUpload = false;
+    bool isWavUpload = false; // distinguishes .../builder/track/import-wav/upload from project upload
+    char uploadPath[512]{};
+    FILE* uploadFile = nullptr;
 };
+
+// Unique temp path for a single upload's bytes; the message thread deletes it
+// once it has been fed into ProjectLoader/importWavForTrackAsync (success or
+// failure). Extension matters here beyond cosmetics: importWavForTrackAsync
+// derives the archive-internal file entry name from this path's basename, so
+// a WAV upload must land in a ".wav" file, not ".rsnraset".
+std::string makeUploadTempPath(const char* extension) {
+    static std::atomic<uint64_t> counter{0};
+    const auto n = counter.fetch_add(1, std::memory_order_relaxed);
+    const auto ts = std::chrono::steady_clock::now().time_since_epoch().count();
+    std::filesystem::path dir = std::filesystem::temp_directory_path();
+    std::filesystem::path file =
+        dir / ("resostage-upload-" + std::to_string(ts) + "-" + std::to_string(n) + extension);
+    return file.string();
+}
 
 std::string jsonEscape(const std::string& s) {
     std::string out;
@@ -152,9 +179,67 @@ WebCommandKind mixerCommandKindForPath(const char* path) {
     return WebCommandKind::SetBusSolo; // "/api/v1/bus/solo" -- last remaining option per isMixerCommandPath's list
 }
 
+// Builder paths carry their whole payload as a raw JSON pass-through (see
+// WebCommand::json) -- WebServer does no field parsing for these at all,
+// unlike the mixer paths above.
+struct BuilderRoute {
+    const char* path;
+    WebCommandKind kind;
+};
+constexpr BuilderRoute kBuilderRoutes[] = {
+    {"/api/v1/builder/song/add", WebCommandKind::BuilderSongAdd},
+    {"/api/v1/builder/song/remove", WebCommandKind::BuilderSongRemove},
+    {"/api/v1/builder/song/move", WebCommandKind::BuilderSongMove},
+    {"/api/v1/builder/song/update", WebCommandKind::BuilderSongUpdate},
+    {"/api/v1/builder/track/add", WebCommandKind::BuilderTrackAdd},
+    {"/api/v1/builder/track/remove", WebCommandKind::BuilderTrackRemove},
+    {"/api/v1/builder/track/move", WebCommandKind::BuilderTrackMove},
+    {"/api/v1/builder/track/update", WebCommandKind::BuilderTrackUpdate},
+    {"/api/v1/builder/track/import-wav/begin", WebCommandKind::BuilderTrackImportWavBegin},
+    {"/api/v1/builder/bus/add", WebCommandKind::BuilderBusAdd},
+    {"/api/v1/builder/bus/remove", WebCommandKind::BuilderBusRemove},
+    {"/api/v1/builder/bus/move", WebCommandKind::BuilderBusMove},
+    {"/api/v1/builder/bus/update", WebCommandKind::BuilderBusUpdate},
+    {"/api/v1/builder/event/add", WebCommandKind::BuilderEventAdd},
+    {"/api/v1/builder/event/remove", WebCommandKind::BuilderEventRemove},
+    {"/api/v1/builder/event/move", WebCommandKind::BuilderEventMove},
+    {"/api/v1/builder/event/update", WebCommandKind::BuilderEventUpdate},
+};
+
+bool builderCommandKindForPath(const char* path, WebCommandKind& outKind) {
+    for (const auto& route : kBuilderRoutes) {
+        if (std::strcmp(path, route.path) == 0) {
+            outKind = route.kind;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Keeps a WAV upload's archive entry human-readable ("Audio/kick.wav")
+// instead of a generic temp name -- see makeUploadTempPath's doc comment.
+// Deliberately conservative: only characters that are safe as both a
+// filesystem path component and a zip entry name survive.
+std::string sanitizeUploadFileName(const std::string& name) {
+    std::string out;
+    out.reserve(name.size());
+    for (char c : name) {
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_' || c == ' ')
+            out += c;
+        else
+            out += '_';
+    }
+    if (out.size() > 120)
+        out = out.substr(out.size() - 120); // keep the extension end, not an arbitrarily-truncated prefix
+    if (out.empty() || out.find('.') == std::string::npos)
+        out += ".wav";
+    return out;
+}
+
 int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
-                      const char* body, size_t bodyLen) {
-    uint8_t buf[LWS_PRE + 512];
+                      const char* body, size_t bodyLen,
+                      const char* contentDisposition = nullptr) {
+    uint8_t buf[LWS_PRE + 768];
     uint8_t* start = &buf[LWS_PRE];
     uint8_t* p = start;
     uint8_t* end = &buf[sizeof(buf) - 1];
@@ -167,6 +252,13 @@ int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
                                     reinterpret_cast<const unsigned char*>("access-control-allow-origin"),
                                     reinterpret_cast<const unsigned char*>("*"), 1, &p, end))
         return 1;
+    if (contentDisposition != nullptr) {
+        if (lws_add_http_header_by_name(
+                wsi, reinterpret_cast<const unsigned char*>("content-disposition"),
+                reinterpret_cast<const unsigned char*>(contentDisposition),
+                static_cast<int>(std::strlen(contentDisposition)), &p, end))
+            return 1;
+    }
     if (lws_finalize_write_http_header(wsi, start, &p, end))
         return 1;
 
@@ -182,6 +274,59 @@ int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
         lws_write(wsi, &empty, 0, LWS_WRITE_HTTP_FINAL);
     }
 
+    if (lws_http_transaction_completed(wsi))
+        return -1;
+    return 0;
+}
+
+// CORS preflight response for the dev-server case (Vite on :2900 issuing
+// cross-origin POSTs to the native backend on :2899). `Content-Type:
+// application/json` isn't a CORS "simple" header, so every POST from that
+// origin triggers an OPTIONS preflight first -- without this, the browser
+// blocks the real request even though the server would have accepted it
+// (this doesn't come up in production, where the SPA is served from the
+// same origin as the API and no preflight is ever issued).
+int writeCorsPreflightResponse(struct lws* wsi) {
+    // Same size as writeHttpResponse's buffer -- the security-best-practices
+    // headers lws_add_http_common_headers() injects (CSP, X-Frame-Options,
+    // etc., see LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE
+    // below) eat a few hundred bytes on their own, so anything smaller
+    // silently fails partway through adding our own headers.
+    uint8_t buf[LWS_PRE + 768];
+    uint8_t* start = &buf[LWS_PRE];
+    uint8_t* p = start;
+    uint8_t* end = &buf[sizeof(buf) - 1];
+
+    if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/plain", 0, &p, end))
+        return 1;
+    if (lws_add_http_header_by_name(wsi,
+                                    reinterpret_cast<const unsigned char*>("access-control-allow-origin"),
+                                    reinterpret_cast<const unsigned char*>("*"), 1, &p, end))
+        return 1;
+    static const char kMethods[] = "GET, POST, OPTIONS";
+    if (lws_add_http_header_by_name(
+            wsi, reinterpret_cast<const unsigned char*>("access-control-allow-methods"),
+            reinterpret_cast<const unsigned char*>(kMethods),
+            static_cast<int>(std::strlen(kMethods)), &p, end))
+        return 1;
+    static const char kHeaders[] = "Content-Type";
+    if (lws_add_http_header_by_name(
+            wsi, reinterpret_cast<const unsigned char*>("access-control-allow-headers"),
+            reinterpret_cast<const unsigned char*>(kHeaders),
+            static_cast<int>(std::strlen(kHeaders)), &p, end))
+        return 1;
+    static const char kMaxAge[] = "86400";
+    if (lws_add_http_header_by_name(wsi,
+                                    reinterpret_cast<const unsigned char*>("access-control-max-age"),
+                                    reinterpret_cast<const unsigned char*>(kMaxAge),
+                                    static_cast<int>(std::strlen(kMaxAge)), &p, end))
+        return 1;
+    if (lws_finalize_write_http_header(wsi, start, &p, end))
+        return 1;
+
+    unsigned char empty = 0;
+    if (lws_write(wsi, &empty, 0, LWS_WRITE_HTTP_FINAL) < 0)
+        return 1;
     if (lws_http_transaction_completed(wsi))
         return -1;
     return 0;
@@ -206,6 +351,16 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
             pss->body.clear();
             pss->isApi = false;
             pss->isStatic = false;
+            pss->isUpload = false;
+            pss->isWavUpload = false;
+            if (pss->uploadFile != nullptr) {
+                // Defensive: a previous transaction on a kept-alive connection
+                // aborted mid-upload without a BODY_COMPLETION/CLOSE. Don't leak
+                // the handle or the partial temp file into this new request.
+                std::fclose(pss->uploadFile);
+                std::remove(pss->uploadPath);
+                pss->uploadFile = nullptr;
+            }
 
             const char* uri = static_cast<const char*>(in);
             if (uri == nullptr)
@@ -221,10 +376,39 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
 
             // lws sets different URI tokens per method; POST_URI present => POST.
             const bool isPost = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) > 0;
+            const bool isOptions = lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI) > 0;
             const char* method = isPost ? "POST" : "GET";
+
+            // Cross-origin preflight (see writeCorsPreflightResponse's doc
+            // comment) -- only ever hit in dev mode, but must be answered
+            // before anything else or every mutating request from the Vite
+            // dev server silently fails client-side.
+            if (isOptions)
+                return writeCorsPreflightResponse(wsi);
 
             std::snprintf(pss->path, sizeof(pss->path), "%s", uri);
             std::snprintf(pss->method, sizeof(pss->method), "%s", method);
+
+            // Project/WAV upload: stream bytes straight to a temp file rather
+            // than through the small-JSON body accumulator below (archives
+            // and audio files can be tens/hundreds of MB; the 4096-byte cap
+            // below is for {"index":N}-sized bodies).
+            const bool isProjectUpload = isPost && std::strcmp(uri, "/api/v1/project/upload") == 0;
+            const bool isWavUpload =
+                isPost && std::strcmp(uri, "/api/v1/builder/track/import-wav/upload") == 0;
+            if (isProjectUpload || isWavUpload) {
+                pss->isApi = true;
+                pss->isUpload = true;
+                pss->isWavUpload = isWavUpload;
+                const std::string tempPath = makeUploadTempPath(isWavUpload ? ".wav" : ".rsnraset");
+                std::snprintf(pss->uploadPath, sizeof(pss->uploadPath), "%s", tempPath.c_str());
+                pss->uploadFile = std::fopen(pss->uploadPath, "wb");
+                if (pss->uploadFile == nullptr) {
+                    return writeHttpResponse(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "application/json",
+                                             "{\"error\":\"temp file\"}", 22);
+                }
+                return 0;
+            }
 
             if (std::strncmp(uri, "/api/", 5) == 0) {
                 pss->isApi = true;
@@ -235,6 +419,10 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
                                                  json.c_str(), json.size());
                     }
+                    if (std::strcmp(uri, "/api/v1/project/export-status") == 0)
+                        return server->serveExportStatus(wsi);
+                    if (std::strcmp(uri, "/api/v1/project/download") == 0)
+                        return server->serveExportDownload(wsi);
                     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
                                              "{\"error\":\"not found\"}", 27);
                 }
@@ -262,6 +450,11 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
     if (why == LWS_CALLBACK_HTTP_BODY) {
             if (pss == nullptr || !pss->isApi)
                 return lws_callback_http_dummy(wsi, why, user, in, len);
+            if (pss->isUpload) {
+                if (pss->uploadFile != nullptr && in != nullptr && len > 0)
+                    std::fwrite(in, 1, len, pss->uploadFile);
+                return 0;
+            }
             const char* chunk = static_cast<const char*>(in);
             if (chunk != nullptr && len > 0) {
                 // Cap body size to keep bad clients from filling RAM.
@@ -272,9 +465,54 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
             return 0;
     }
 
+    if (why == LWS_CALLBACK_CLOSED_HTTP) {
+            // Client disconnected mid-upload: don't leak the handle or leave a
+            // half-written archive sitting in the temp dir forever.
+            if (pss != nullptr && pss->uploadFile != nullptr) {
+                std::fclose(pss->uploadFile);
+                std::remove(pss->uploadPath);
+                pss->uploadFile = nullptr;
+            }
+            return lws_callback_http_dummy(wsi, why, user, in, len);
+    }
+
     if (why == LWS_CALLBACK_HTTP_BODY_COMPLETION) {
             if (pss == nullptr || server == nullptr || !pss->isApi)
                 return lws_callback_http_dummy(wsi, why, user, in, len);
+            if (pss->isUpload) {
+                if (pss->uploadFile != nullptr) {
+                    std::fclose(pss->uploadFile);
+                    pss->uploadFile = nullptr;
+                }
+                if (pss->isWavUpload) {
+                    int songIndex = -1, trackIndex = -1;
+                    std::string fileName;
+                    server->takeTrackImportTarget(songIndex, trackIndex, fileName);
+
+                    // Rename to the original filename (sanitized) so the
+                    // archive entry importWavForTrackAsync creates ends up
+                    // "Audio/kick.wav" instead of a generic temp name --
+                    // best-effort, falls back to the temp path as-is.
+                    std::string finalPath = pss->uploadPath;
+                    if (!fileName.empty()) {
+                        const std::filesystem::path dir =
+                            std::filesystem::path(pss->uploadPath).parent_path();
+                        const std::filesystem::path renamed =
+                            dir / (std::to_string(reinterpret_cast<uintptr_t>(wsi)) + "-"
+                                   + sanitizeUploadFileName(fileName));
+                        std::error_code ec;
+                        std::filesystem::rename(pss->uploadPath, renamed, ec);
+                        if (!ec)
+                            finalPath = renamed.string();
+                    }
+                    server->enqueueCommand(WebCommand{WebCommandKind::BuilderTrackImportWavUpload, songIndex,
+                                                      static_cast<double>(trackIndex), finalPath, ""});
+                } else {
+                    server->enqueueCommand(
+                        WebCommand{WebCommandKind::LoadProjectFromPath, 0, 0.0, std::string(pss->uploadPath)});
+                }
+                return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+            }
             const char* body = pss->body.empty() ? "" : pss->body.data();
             const size_t bodyLen = pss->body.size();
             if (server->handleHttpApi(wsi, pss->path, pss->method, body, bodyLen))
@@ -513,14 +751,56 @@ std::string WebServer::buildStateJson() const {
       << "\"playing\":" << (snap.playing ? "true" : "false") << ","
       << "\"hardwareAlarm\":" << (snap.hardwareAlarm ? "true" : "false") << ","
       << "\"songIndex\":" << snap.songIndex << ","
-      << "\"songCount\":" << snap.songCount << ",";
+      << "\"songCount\":" << snap.songCount << ","
+      << "\"statusMessage\":\"" << jsonEscape(snap.statusMessage) << "\","
+      << "\"busy\":" << (snap.busy ? "true" : "false") << ",";
 
     o << "\"songs\":[";
     for (size_t i = 0; i < snap.songs.size(); ++i) {
         if (i) o << ",";
-        o << "{\"name\":\"" << jsonEscape(snap.songs[i].name) << "\","
-          << "\"bpm\":" << finiteOrZero(snap.songs[i].bpm) << ","
-          << "\"mode\":\"" << (snap.songs[i].autoplay ? "auto" : "wait") << "\"}";
+        const auto& song = snap.songs[i];
+        o << "{\"name\":\"" << jsonEscape(song.name) << "\","
+          << "\"bpm\":" << finiteOrZero(song.bpm) << ","
+          << "\"mode\":\"" << (song.autoplay ? "auto" : "wait") << "\","
+          << "\"tsNum\":" << song.tsNum << ","
+          << "\"tsDen\":" << song.tsDen << ","
+          << "\"click\":" << (song.click ? "true" : "false") << ","
+          << "\"clickBusId\":\"" << jsonEscape(song.clickBusId) << "\",";
+
+        o << "\"tracks\":[";
+        for (size_t j = 0; j < song.tracks.size(); ++j) {
+            if (j) o << ",";
+            const auto& t = song.tracks[j];
+            o << "{\"id\":\"" << jsonEscape(t.id) << "\","
+              << "\"name\":\"" << jsonEscape(t.name) << "\","
+              << "\"busId\":\"" << jsonEscape(t.busId) << "\","
+              << "\"file\":\"" << jsonEscape(t.file) << "\","
+              << "\"gainDb\":" << finiteOrZero(t.gainDb) << ","
+              << "\"pan\":" << finiteOrZero(t.pan) << ","
+              << "\"mute\":" << (t.mute ? "true" : "false") << ","
+              << "\"solo\":" << (t.solo ? "true" : "false") << ","
+              << "\"sendsCount\":" << t.sendsCount << "}";
+        }
+        o << "],";
+
+        o << "\"events\":[";
+        for (size_t j = 0; j < song.events.size(); ++j) {
+            if (j) o << ",";
+            const auto& e = song.events[j];
+            o << "{\"id\":\"" << jsonEscape(e.id) << "\","
+              << "\"type\":\"" << jsonEscape(e.type) << "\","
+              << "\"timeSeconds\":" << finiteOrZero(e.timeSeconds) << ","
+              << "\"triggerOnLoad\":" << (e.triggerOnLoad ? "true" : "false") << ","
+              << "\"latencyMs\":" << finiteOrZero(e.latencyMs) << ","
+              << "\"midiChannel\":" << e.midiChannel << ","
+              << "\"midiProgram\":" << e.midiProgram << ","
+              << "\"midiCC\":" << e.midiCC << ","
+              << "\"midiCCValue\":" << e.midiCCValue << ","
+              << "\"midiNote\":" << e.midiNote << ","
+              << "\"midiVelocity\":" << e.midiVelocity << ","
+              << "\"httpUrl\":\"" << jsonEscape(e.httpUrl) << "\"}";
+        }
+        o << "]}";
     }
     o << "],";
 
@@ -560,6 +840,7 @@ std::string WebServer::buildStateJson() const {
           << "\"solo\":" << (b.solo ? "true" : "false") << ","
           << "\"isAux\":" << (b.isAux ? "true" : "false") << ","
           << "\"startChannel\":" << b.startChannel << ","
+          << "\"channels\":" << b.channels << ","
           << "\"peakDb\":" << finiteOrZero(b.peakDb) << "}";
     }
     o << "],";
@@ -612,6 +893,33 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             return true;
         }
         cmd = {mixerCommandKindForPath(path), idx, value};
+    } else if (std::strcmp(path, "/api/v1/project/new") == 0) {
+        cmd = {WebCommandKind::NewProject, 0};
+    } else if (std::strcmp(path, "/api/v1/project/load-dialog") == 0) {
+        cmd = {WebCommandKind::OpenLoadDialog, 0};
+    } else if (std::strcmp(path, "/api/v1/project/save") == 0) {
+        cmd = {WebCommandKind::SaveProject, 0};
+    } else if (std::strcmp(path, "/api/v1/project/save-as") == 0) {
+        cmd = {WebCommandKind::SaveProjectAs, 0};
+    } else if (std::strcmp(path, "/api/v1/project/export") == 0) {
+        beginExport();
+        cmd = {WebCommandKind::ExportProjectForDownload, 0};
+    } else if (WebCommandKind builderKind; builderCommandKindForPath(path, builderKind)) {
+        if (builderKind == WebCommandKind::BuilderTrackImportWavBegin) {
+            const std::string s(body, bodyLen);
+            std::string songRaw, indexRaw, fileNameRaw;
+            int songIndex = -1, trackIndex = -1;
+            if (findJsonField(s, "\"songIndex\"", songRaw))
+                try { songIndex = std::stoi(songRaw); } catch (...) {}
+            if (findJsonField(s, "\"index\"", indexRaw))
+                try { trackIndex = std::stoi(indexRaw); } catch (...) {}
+            std::string fileName;
+            if (findJsonField(s, "\"fileName\"", fileNameRaw) && fileNameRaw.size() >= 2
+                && fileNameRaw.front() == '"' && fileNameRaw.back() == '"')
+                fileName = fileNameRaw.substr(1, fileNameRaw.size() - 2);
+            beginTrackImport(songIndex, trackIndex, fileName);
+        }
+        cmd = {builderKind, 0, 0.0, "", std::string(body, bodyLen)};
     } else {
         ok = false;
     }
@@ -642,6 +950,91 @@ int WebServer::serveStatic(struct lws* wsi, const char* path) {
             return writeHttpResponse(wsi, HTTP_STATUS_OK, asset.mimeType, asset.data, asset.length);
     }
     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "text/plain", "not found", 9);
+}
+
+void WebServer::beginExport() {
+    std::lock_guard<std::mutex> lock(exportMutex);
+    exportReady = false;
+    exportFilePath.clear();
+    exportFileName.clear();
+}
+
+void WebServer::completeExport(std::string filePath, std::string fileName) {
+    std::lock_guard<std::mutex> lock(exportMutex);
+    exportFilePath = std::move(filePath);
+    exportFileName = std::move(fileName);
+    exportReady = true;
+}
+
+void WebServer::failExport() {
+    std::lock_guard<std::mutex> lock(exportMutex);
+    exportReady = false;
+    exportFilePath.clear();
+    exportFileName.clear();
+}
+
+void WebServer::beginTrackImport(int songIndex, int trackIndex, std::string fileName) {
+    std::lock_guard<std::mutex> lock(importMutex);
+    pendingImportSongIndex = songIndex;
+    pendingImportTrackIndex = trackIndex;
+    pendingImportFileName = std::move(fileName);
+}
+
+void WebServer::takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName) {
+    std::lock_guard<std::mutex> lock(importMutex);
+    songIndex = pendingImportSongIndex;
+    trackIndex = pendingImportTrackIndex;
+    fileName = pendingImportFileName;
+    pendingImportSongIndex = -1;
+    pendingImportTrackIndex = -1;
+    pendingImportFileName.clear();
+}
+
+int WebServer::serveExportStatus(struct lws* wsi) {
+    bool ready = false;
+    std::string name;
+    {
+        std::lock_guard<std::mutex> lock(exportMutex);
+        ready = exportReady;
+        name = exportFileName;
+    }
+    std::ostringstream o;
+    o << "{\"ready\":" << (ready ? "true" : "false") << ",\"fileName\":\"" << jsonEscape(name) << "\"}";
+    const std::string json = o.str();
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+}
+
+int WebServer::serveExportDownload(struct lws* wsi) {
+    std::string path, name;
+    bool ready = false;
+    {
+        std::lock_guard<std::mutex> lock(exportMutex);
+        ready = exportReady;
+        path = exportFilePath;
+        name = exportFileName;
+    }
+    if (!ready) {
+        return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
+                                 "{\"error\":\"not ready\"}", 21);
+    }
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        failExport();
+        return writeHttpResponse(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "application/json",
+                                 "{\"error\":\"missing file\"}", 24);
+    }
+    std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    // One-shot: the polled export-status/download handshake is meant for a
+    // single click-to-download, not a reusable link.
+    std::remove(path.c_str());
+    failExport();
+
+    const std::string disposition = "attachment; filename=\"" + name + "\"";
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/zip", bytes.data(), bytes.size(),
+                             disposition.c_str());
 }
 
 } // namespace resoset

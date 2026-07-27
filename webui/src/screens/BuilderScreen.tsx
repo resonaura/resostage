@@ -1,83 +1,730 @@
-import { Card, Chip } from "@heroui/react";
-import type { WebUiState } from "../lib/types";
+import { useEffect, useRef, useState } from "react";
+import { Button, Card, Slider } from "@heroui/react";
+import { ChevronDown, ChevronUp, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { builder } from "../lib/api";
+import type { EventTypeWire, SongEventRow, SongRow, SongTrackRow, WebUiState } from "../lib/types";
 
-// Read-only project structure mirror -- structural editing (songs/tracks/
-// busses/events) stays on the desktop Builder tab; this remote has no
-// mutation endpoints for it (see MixerScreen's note).
-export function BuilderScreen({ state }: { state: WebUiState }) {
+type Tab = "songs" | "tracks" | "events" | "busses";
+
+const inputCls =
+  "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
+const labelCls = "text-[11px] font-semibold uppercase tracking-wide text-foreground/50";
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4">
-      <Card>
-        <Card.Header>
-          <Card.Title>{state.projectName || "No project"}</Card.Title>
-          <Card.Description>
-            {state.songCount} song{state.songCount === 1 ? "" : "s"} &middot; edit structure on the desktop
-            Builder tab
-          </Card.Description>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-1">
-          {state.songs.map((s, i) => (
-            <div
-              key={i}
-              className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm ${
-                i === state.songIndex ? "bg-accent/10" : ""
+    <div className="flex flex-col gap-1">
+      <span className={labelCls}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function ToggleRow({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => (
+        <Button
+          key={o.value}
+          size="sm"
+          variant={value === o.value ? "secondary" : "outline"}
+          onPress={() => onChange(o.value)}
+        >
+          {o.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function ListPanel({
+  title,
+  rows,
+  selected,
+  onSelect,
+  onAdd,
+  onRemove,
+  onMove,
+  emptyHint,
+}: {
+  title: string;
+  rows: { key: string; label: string; sub?: string; active?: boolean }[];
+  selected: number;
+  onSelect: (i: number) => void;
+  onAdd: () => void;
+  onRemove: () => void;
+  onMove: (delta: number) => void;
+  emptyHint: string;
+}) {
+  return (
+    <Card className="flex w-full shrink-0 flex-col md:w-64">
+      <Card.Header className="flex flex-row items-center justify-between">
+        <Card.Title className="text-sm">{title}</Card.Title>
+        <div className="flex gap-1">
+          <Button size="sm" variant="outline" isIconOnly aria-label="Add" onPress={onAdd}>
+            <Plus size={14} />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            isIconOnly
+            aria-label="Remove"
+            isDisabled={selected < 0}
+            onPress={onRemove}
+          >
+            <Trash2 size={14} />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            isIconOnly
+            aria-label="Move up"
+            isDisabled={selected <= 0}
+            onPress={() => onMove(-1)}
+          >
+            <ChevronUp size={14} />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            isIconOnly
+            aria-label="Move down"
+            isDisabled={selected < 0 || selected >= rows.length - 1}
+            onPress={() => onMove(1)}
+          >
+            <ChevronDown size={14} />
+          </Button>
+        </div>
+      </Card.Header>
+      <Card.Content className="flex max-h-80 flex-col gap-0.5 overflow-y-auto p-2">
+        {rows.length === 0 ? (
+          <div className="p-3 text-sm text-foreground/40">{emptyHint}</div>
+        ) : (
+          rows.map((r, i) => (
+            <button
+              key={r.key}
+              onClick={() => onSelect(i)}
+              className={`flex flex-col items-start rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                i === selected ? "bg-accent/15 text-foreground" : "text-foreground/70 hover:bg-default/20"
               }`}
             >
               <span>
-                {i === state.songIndex ? "▶ " : ""}
-                {i + 1}. {s.name}
+                {r.active ? "▶ " : ""}
+                {r.label}
               </span>
-              <span className="text-xs text-foreground/50">
-                {s.bpm.toFixed(1)} bpm &middot; {s.mode === "auto" ? "auto" : "wait"}
-              </span>
-            </div>
-          ))}
-        </Card.Content>
-      </Card>
+              {r.sub && <span className="text-xs text-foreground/40">{r.sub}</span>}
+            </button>
+          ))
+        )}
+      </Card.Content>
+    </Card>
+  );
+}
 
-      <Card>
-        <Card.Header>
-          <Card.Title>Tracks ({state.tracks.length})</Card.Title>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-1">
-          {state.tracks.map((t) => (
-            <div key={t.id} className="flex items-center justify-between rounded-lg px-3 py-2 text-sm">
-              <span>
-                {t.name || t.id} &rarr; {t.busId || "?"}
-              </span>
-              <span className="flex items-center gap-2 text-xs text-foreground/50">
-                {t.gainDb.toFixed(1)} dB
-                {t.mute && <Chip size="sm" color="danger">M</Chip>}
-                {t.solo && <Chip size="sm" color="warning">S</Chip>}
-                sends: {t.sends}
-              </span>
-            </div>
-          ))}
-        </Card.Content>
-      </Card>
+function GainSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <Field label={`${label} (${value.toFixed(1)} dB)`}>
+      <Slider value={value} onChange={(v) => onChange(Array.isArray(v) ? v[0] : v)} minValue={-60} maxValue={12} step={0.1}>
+        <Slider.Track className="h-1.5 w-full rounded-full bg-default/40">
+          <Slider.Fill className="h-full rounded-full bg-accent" />
+          <Slider.Thumb className="size-3.5 rounded-full border-2 border-background bg-accent" />
+        </Slider.Track>
+      </Slider>
+    </Field>
+  );
+}
 
-      <Card>
-        <Card.Header>
-          <Card.Title>Busses ({state.busses.length})</Card.Title>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-1">
-          {state.busses.map((b) => (
-            <div key={b.id} className="flex items-center justify-between rounded-lg px-3 py-2 text-sm">
-              <span>
+function PanSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <Field label={`Pan (${value.toFixed(2)})`}>
+      <Slider value={value} onChange={(v) => onChange(Array.isArray(v) ? v[0] : v)} minValue={-1} maxValue={1} step={0.01}>
+        <Slider.Track className="h-1.5 w-full rounded-full bg-default/40">
+          <Slider.Fill className="h-full rounded-full bg-foreground/40" />
+          <Slider.Thumb className="size-3.5 rounded-full border-2 border-background bg-foreground/70" />
+        </Slider.Track>
+      </Slider>
+    </Field>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Songs
+// ---------------------------------------------------------------------------
+
+function SongEditor({ song, index, busses }: { song: SongRow; index: number; busses: WebUiState["busses"] }) {
+  const [name, setName] = useState(song.name);
+  const [bpm, setBpm] = useState(song.bpm);
+  const [mode, setMode] = useState<"auto" | "wait">(song.mode);
+  const [tsNum, setTsNum] = useState(song.tsNum);
+  const [tsDen, setTsDen] = useState(song.tsDen);
+  const [click, setClick] = useState(song.click);
+  const [clickBusId, setClickBusId] = useState(song.clickBusId);
+
+  return (
+    <Card className="flex-1">
+      <Card.Header>
+        <Card.Title className="text-sm">Song {index + 1}</Card.Title>
+      </Card.Header>
+      <Card.Content className="flex flex-col gap-3">
+        <Field label="Name">
+          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="BPM">
+          <input
+            type="number"
+            step={0.1}
+            className={inputCls}
+            value={bpm}
+            onChange={(e) => setBpm(Number(e.target.value))}
+          />
+        </Field>
+        <Field label="End mode">
+          <ToggleRow
+            options={[
+              { value: "wait", label: "Wait for trigger" },
+              { value: "auto", label: "Autoplay next" },
+            ]}
+            value={mode}
+            onChange={(v) => setMode(v as "auto" | "wait")}
+          />
+        </Field>
+        <div className="flex gap-3">
+          <Field label="Time sig num">
+            <input
+              type="number"
+              className={inputCls}
+              value={tsNum}
+              onChange={(e) => setTsNum(Number(e.target.value))}
+            />
+          </Field>
+          <Field label="Time sig den">
+            <input
+              type="number"
+              className={inputCls}
+              value={tsDen}
+              onChange={(e) => setTsDen(Number(e.target.value))}
+            />
+          </Field>
+        </div>
+        <Field label="Built-in click">
+          <ToggleRow
+            options={[
+              { value: "off", label: "Off" },
+              { value: "on", label: "On" },
+            ]}
+            value={click ? "on" : "off"}
+            onChange={(v) => setClick(v === "on")}
+          />
+        </Field>
+        {click && (
+          <Field label="Click bus">
+            <select className={inputCls} value={clickBusId} onChange={(e) => setClickBusId(e.target.value)}>
+              {busses.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name || b.id}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <Button
+          variant="primary"
+          onPress={() =>
+            builder.songUpdate({ index, name, bpm, mode, tsNum, tsDen, click, clickBusId })
+          }
+        >
+          Apply song settings
+        </Button>
+      </Card.Content>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tracks
+// ---------------------------------------------------------------------------
+
+function TrackEditor({
+  track,
+  songIndex,
+  index,
+  busses,
+  busy,
+}: {
+  track: SongTrackRow;
+  songIndex: number;
+  index: number;
+  busses: WebUiState["busses"];
+  busy: boolean;
+}) {
+  const [name, setName] = useState(track.name);
+  const [busId, setBusId] = useState(track.busId);
+  const [gainDb, setGainDb] = useState(track.gainDb);
+  const [pan, setPan] = useState(track.pan);
+  const [mute, setMute] = useState(track.mute);
+  const [solo, setSolo] = useState(track.solo);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <Card className="flex-1">
+      <Card.Header>
+        <Card.Title className="text-sm">Track {index + 1}</Card.Title>
+        <Card.Description className="truncate text-xs">{track.file || "(no audio yet)"}</Card.Description>
+      </Card.Header>
+      <Card.Content className="flex flex-col gap-3">
+        <Field label="Name">
+          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Route to bus">
+          <select className={inputCls} value={busId} onChange={(e) => setBusId(e.target.value)}>
+            <option value="">(none -- sends only)</option>
+            {busses.map((b) => (
+              <option key={b.id} value={b.id}>
                 {b.name || b.id}
-                {b.isAux && (
-                  <Chip size="sm" color="accent" className="ml-2">
-                    AUX
-                  </Chip>
-                )}
-              </span>
-              <span className="text-xs text-foreground/50">
-                out {b.startChannel} &middot; {b.gainDb.toFixed(1)} dB
-              </span>
-            </div>
-          ))}
-        </Card.Content>
-      </Card>
+              </option>
+            ))}
+          </select>
+        </Field>
+        <GainSlider label="Gain" value={gainDb} onChange={setGainDb} />
+        <PanSlider value={pan} onChange={setPan} />
+        <div className="flex gap-1.5">
+          <Button size="sm" variant={mute ? "danger" : "outline"} onPress={() => setMute(!mute)}>
+            Mute
+          </Button>
+          <Button size="sm" variant={solo ? "secondary" : "outline"} onPress={() => setSolo(!solo)}>
+            Solo
+          </Button>
+        </div>
+        <Button
+          variant="primary"
+          onPress={() => builder.trackUpdate({ songIndex, index, name, busId, gainDb, pan, mute, solo })}
+        >
+          Apply track
+        </Button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".wav"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void builder.trackImportWav(songIndex, index, file);
+          }}
+        />
+        <Button
+          variant="outline"
+          isDisabled={busy}
+          onPress={() => fileInputRef.current?.click()}
+        >
+          {busy ? <Loader2 size={14} className="mr-1.5 inline-block animate-spin" /> : <Upload size={14} className="mr-1.5 inline-block" />}
+          Import WAV&hellip;
+        </Button>
+      </Card.Content>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+const EVENT_TYPES: { value: EventTypeWire; label: string }[] = [
+  { value: "programChange", label: "Program Change" },
+  { value: "cc", label: "CC" },
+  { value: "noteOn", label: "Note On" },
+  { value: "noteOff", label: "Note Off" },
+  { value: "http", label: "HTTP" },
+  { value: "dmx", label: "DMX" },
+];
+
+function EventEditor({ event, songIndex, index }: { event: SongEventRow; songIndex: number; index: number }) {
+  const [type, setType] = useState<EventTypeWire>(event.type);
+  const [timeSeconds, setTimeSeconds] = useState(event.timeSeconds);
+  const [triggerOnLoad, setTriggerOnLoad] = useState(event.triggerOnLoad);
+  const [latencyMs, setLatencyMs] = useState(event.latencyMs);
+  const [midiChannel, setMidiChannel] = useState(event.midiChannel);
+  const [midiProgram, setMidiProgram] = useState(event.midiProgram);
+  const [midiCC, setMidiCC] = useState(event.midiCC);
+  const [midiCCValue, setMidiCCValue] = useState(event.midiCCValue);
+  const [midiNote, setMidiNote] = useState(event.midiNote);
+  const [midiVelocity, setMidiVelocity] = useState(event.midiVelocity);
+  const [httpUrl, setHttpUrl] = useState(event.httpUrl);
+
+  const isMidi = type === "programChange" || type === "cc" || type === "noteOn" || type === "noteOff";
+
+  return (
+    <Card className="flex-1">
+      <Card.Header>
+        <Card.Title className="text-sm">Event {index + 1}</Card.Title>
+      </Card.Header>
+      <Card.Content className="flex flex-col gap-3">
+        <Field label="Type">
+          <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as EventTypeWire)}>
+            {EVENT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Time (s)">
+          <input
+            type="number"
+            step={0.001}
+            className={inputCls}
+            value={timeSeconds}
+            onChange={(e) => setTimeSeconds(Number(e.target.value))}
+          />
+        </Field>
+        <Field label="Trigger on load">
+          <ToggleRow
+            options={[
+              { value: "off", label: "Off" },
+              { value: "on", label: "On" },
+            ]}
+            value={triggerOnLoad ? "on" : "off"}
+            onChange={(v) => setTriggerOnLoad(v === "on")}
+          />
+        </Field>
+        <Field label="Latency comp (ms)">
+          <input
+            type="number"
+            className={inputCls}
+            value={latencyMs}
+            onChange={(e) => setLatencyMs(Number(e.target.value))}
+          />
+        </Field>
+
+        {isMidi && (
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="MIDI ch">
+              <input
+                type="number"
+                min={1}
+                max={16}
+                className={inputCls}
+                value={midiChannel}
+                onChange={(e) => setMidiChannel(Number(e.target.value))}
+              />
+            </Field>
+            {type === "programChange" && (
+              <Field label="Program">
+                <input
+                  type="number"
+                  className={inputCls}
+                  value={midiProgram}
+                  onChange={(e) => setMidiProgram(Number(e.target.value))}
+                />
+              </Field>
+            )}
+            {type === "cc" && (
+              <>
+                <Field label="CC #">
+                  <input
+                    type="number"
+                    className={inputCls}
+                    value={midiCC}
+                    onChange={(e) => setMidiCC(Number(e.target.value))}
+                  />
+                </Field>
+                <Field label="CC value">
+                  <input
+                    type="number"
+                    className={inputCls}
+                    value={midiCCValue}
+                    onChange={(e) => setMidiCCValue(Number(e.target.value))}
+                  />
+                </Field>
+              </>
+            )}
+            {(type === "noteOn" || type === "noteOff") && (
+              <>
+                <Field label="Note">
+                  <input
+                    type="number"
+                    className={inputCls}
+                    value={midiNote}
+                    onChange={(e) => setMidiNote(Number(e.target.value))}
+                  />
+                </Field>
+                <Field label="Velocity">
+                  <input
+                    type="number"
+                    className={inputCls}
+                    value={midiVelocity}
+                    onChange={(e) => setMidiVelocity(Number(e.target.value))}
+                  />
+                </Field>
+              </>
+            )}
+          </div>
+        )}
+
+        {type === "http" && (
+          <Field label="HTTP URL">
+            <input className={inputCls} value={httpUrl} onChange={(e) => setHttpUrl(e.target.value)} />
+          </Field>
+        )}
+
+        <Button
+          variant="primary"
+          onPress={() =>
+            builder.eventUpdate({
+              songIndex,
+              index,
+              type,
+              timeSeconds,
+              triggerOnLoad,
+              latencyMs,
+              midiChannel,
+              midiProgram,
+              midiCC,
+              midiCCValue,
+              midiNote,
+              midiVelocity,
+              httpUrl,
+            })
+          }
+        >
+          Apply event
+        </Button>
+      </Card.Content>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Busses
+// ---------------------------------------------------------------------------
+
+function BusEditor({ bus, index }: { bus: WebUiState["busses"][number]; index: number }) {
+  const [name, setName] = useState(bus.name);
+  const [channels, setChannels] = useState(bus.channels);
+  const [startChannel, setStartChannel] = useState(bus.startChannel);
+  const [gainDb, setGainDb] = useState(bus.gainDb);
+  const [mute, setMute] = useState(bus.mute);
+  const [solo, setSolo] = useState(bus.solo);
+  const [isAux, setIsAux] = useState(bus.isAux);
+
+  return (
+    <Card className="flex-1">
+      <Card.Header>
+        <Card.Title className="text-sm">Bus {index + 1}</Card.Title>
+      </Card.Header>
+      <Card.Content className="flex flex-col gap-3">
+        <Field label="Name">
+          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Width">
+          <ToggleRow
+            options={[
+              { value: "1", label: "Mono" },
+              { value: "2", label: "Stereo" },
+            ]}
+            value={String(channels)}
+            onChange={(v) => setChannels(Number(v))}
+          />
+        </Field>
+        <Field label="Start channel (0-based)">
+          <input
+            type="number"
+            min={0}
+            className={inputCls}
+            value={startChannel}
+            onChange={(e) => setStartChannel(Number(e.target.value))}
+          />
+        </Field>
+        <GainSlider label="Gain" value={gainDb} onChange={setGainDb} />
+        <div className="flex gap-1.5">
+          <Button size="sm" variant={mute ? "danger" : "outline"} onPress={() => setMute(!mute)}>
+            Mute
+          </Button>
+          <Button size="sm" variant={solo ? "secondary" : "outline"} onPress={() => setSolo(!solo)}>
+            Solo
+          </Button>
+          <Button size="sm" variant={isAux ? "secondary" : "outline"} onPress={() => setIsAux(!isAux)}>
+            Aux bus
+          </Button>
+        </div>
+        <Button
+          variant="primary"
+          onPress={() => builder.busUpdate({ index, name, channels, startChannel, gainDb, mute, solo, isAux })}
+        >
+          Apply bus
+        </Button>
+      </Card.Content>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Root
+// ---------------------------------------------------------------------------
+
+export function BuilderScreen({ state }: { state: WebUiState }) {
+  const [tab, setTab] = useState<Tab>("songs");
+  const [songContext, setSongContext] = useState(0);
+  const [selected, setSelected] = useState(-1);
+
+  useEffect(() => {
+    if (state.songIndex >= 0) setSongContext(state.songIndex);
+  }, [state.songCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => setSelected(-1), [tab]);
+
+  const song = state.songs[songContext] as SongRow | undefined;
+
+  if (!state.projectName) {
+    return <div className="p-6 text-sm text-foreground/50">No project loaded.</div>;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {state.busy && (
+        <div className="flex items-center gap-2 rounded-lg bg-warning/15 px-3 py-2 text-sm text-warning">
+          <Loader2 size={14} className="animate-spin" />
+          Import in progress&hellip; the app is busy.
+        </div>
+      )}
+
+      <div className="flex gap-1.5">
+        {(["songs", "tracks", "events", "busses"] as Tab[]).map((t) => (
+          <Button key={t} size="sm" variant={tab === t ? "secondary" : "outline"} onPress={() => setTab(t)}>
+            {t[0].toUpperCase() + t.slice(1)}
+          </Button>
+        ))}
+      </div>
+
+      {(tab === "tracks" || tab === "events") && (
+        <Field label="Song context">
+          <select
+            className={inputCls}
+            value={songContext}
+            onChange={(e) => {
+              setSongContext(Number(e.target.value));
+              setSelected(-1);
+            }}
+          >
+            {state.songs.map((s, i) => (
+              <option key={i} value={i}>
+                {i + 1}. {s.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      <div className="flex flex-col gap-4 md:flex-row">
+        {tab === "songs" && (
+          <>
+            <ListPanel
+              title="Songs"
+              rows={state.songs.map((s, i) => ({
+                key: String(i),
+                label: `${i + 1}. ${s.name}`,
+                sub: `${s.bpm.toFixed(1)} bpm`,
+                active: i === state.songIndex,
+              }))}
+              selected={selected}
+              onSelect={setSelected}
+              onAdd={() => builder.songAdd()}
+              onRemove={() => selected >= 0 && builder.songRemove(selected)}
+              onMove={(d) => selected >= 0 && builder.songMove(selected, d)}
+              emptyHint="No songs yet."
+            />
+            {selected >= 0 && state.songs[selected] && (
+              <SongEditor key={selected} song={state.songs[selected]} index={selected} busses={state.busses} />
+            )}
+          </>
+        )}
+
+        {tab === "tracks" && song && (
+          <>
+            <ListPanel
+              title="Tracks"
+              rows={song.tracks.map((t) => ({
+                key: t.id,
+                label: t.name || t.id,
+                sub: `→ ${t.busId || "(sends only)"} · ${t.gainDb.toFixed(1)} dB${t.mute ? " · M" : ""}`,
+              }))}
+              selected={selected}
+              onSelect={setSelected}
+              onAdd={() => builder.trackAdd(songContext)}
+              onRemove={() => selected >= 0 && builder.trackRemove(songContext, selected)}
+              onMove={(d) => selected >= 0 && builder.trackMove(songContext, selected, d)}
+              emptyHint="No tracks in this song yet."
+            />
+            {selected >= 0 && song.tracks[selected] && (
+              <TrackEditor
+                key={`${songContext}-${selected}`}
+                track={song.tracks[selected]}
+                songIndex={songContext}
+                index={selected}
+                busses={state.busses}
+                busy={state.busy}
+              />
+            )}
+          </>
+        )}
+
+        {tab === "events" && song && (
+          <>
+            <ListPanel
+              title="Events"
+              rows={song.events.map((e) => ({
+                key: e.id,
+                label: `${e.timeSeconds.toFixed(2)}s -- ${e.id}`,
+                sub: e.triggerOnLoad ? "(on load)" : undefined,
+              }))}
+              selected={selected}
+              onSelect={setSelected}
+              onAdd={() => builder.eventAdd(songContext)}
+              onRemove={() => selected >= 0 && builder.eventRemove(songContext, selected)}
+              onMove={(d) => selected >= 0 && builder.eventMove(songContext, selected, d)}
+              emptyHint="No events in this song yet."
+            />
+            {selected >= 0 && song.events[selected] && (
+              <EventEditor
+                key={`${songContext}-${selected}`}
+                event={song.events[selected]}
+                songIndex={songContext}
+                index={selected}
+              />
+            )}
+          </>
+        )}
+
+        {tab === "busses" && (
+          <>
+            <ListPanel
+              title="Busses"
+              rows={state.busses.map((b) => ({
+                key: b.id,
+                label: b.name || b.id,
+                sub: `ch ${b.startChannel} · ${b.gainDb.toFixed(1)} dB${b.isAux ? " · AUX" : ""}`,
+              }))}
+              selected={selected}
+              onSelect={setSelected}
+              onAdd={() => builder.busAdd()}
+              onRemove={() => selected >= 0 && builder.busRemove(selected)}
+              onMove={(d) => selected >= 0 && builder.busMove(selected, d)}
+              emptyHint="No busses."
+            />
+            {selected >= 0 && state.busses[selected] && (
+              <BusEditor key={selected} bus={state.busses[selected]} index={selected} />
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
