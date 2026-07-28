@@ -54,6 +54,16 @@ export interface RegionRow {
   fadeOutSeconds: number;
 }
 
+// Structural marker (Intro/Verse/Chorus/Bridge/Outro/Solo/custom). A point,
+// not a range -- the region a marker covers is implicitly "from here to the
+// next marker (or song end)".
+export interface SectionRow {
+  id: string;
+  name: string;
+  startSeconds: number;
+  colorIndex: number;
+}
+
 export interface SongRow {
   name: string;
   bpm: number;
@@ -67,6 +77,7 @@ export interface SongRow {
   tracks: SongTrackRow[];
   regions?: RegionRow[];
   events: SongEventRow[];
+  sections?: SectionRow[];
 }
 
 export interface MeterRow {

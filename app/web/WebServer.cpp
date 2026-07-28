@@ -254,6 +254,9 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/event/remove", WebCommandKind::BuilderEventRemove},
     {"/api/v1/builder/event/move", WebCommandKind::BuilderEventMove},
     {"/api/v1/builder/event/update", WebCommandKind::BuilderEventUpdate},
+    {"/api/v1/builder/section/add", WebCommandKind::BuilderSectionAdd},
+    {"/api/v1/builder/section/remove", WebCommandKind::BuilderSectionRemove},
+    {"/api/v1/builder/section/update", WebCommandKind::BuilderSectionUpdate},
     {"/api/v1/settings/audio-device", WebCommandKind::SetAudioOutputDevice},
     {"/api/v1/settings/sample-rate", WebCommandKind::SetSampleRate},
     {"/api/v1/settings/buffer-size", WebCommandKind::SetBufferSize},
@@ -898,6 +901,17 @@ std::string WebServer::buildStateJson() const {
               << "\"midiNote\":" << e.midiNote << ","
               << "\"midiVelocity\":" << e.midiVelocity << ","
               << "\"httpUrl\":\"" << jsonEscape(e.httpUrl) << "\"}";
+        }
+        o << "],";
+
+        o << "\"sections\":[";
+        for (size_t j = 0; j < song.sections.size(); ++j) {
+            if (j) o << ",";
+            const auto& sec = song.sections[j];
+            o << "{\"id\":\"" << jsonEscape(sec.id) << "\","
+              << "\"name\":\"" << jsonEscape(sec.name) << "\","
+              << "\"startSeconds\":" << finiteOrZero(sec.startSeconds) << ","
+              << "\"colorIndex\":" << sec.colorIndex << "}";
         }
         o << "]}";
     }

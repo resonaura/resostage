@@ -518,6 +518,9 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderEventRemove: builderEventRemove(cmd.json); break;
             case WebCommandKind::BuilderEventMove: builderEventMove(cmd.json); break;
             case WebCommandKind::BuilderEventUpdate: builderEventUpdate(cmd.json); break;
+            case WebCommandKind::BuilderSectionAdd: builderSectionAdd(cmd.json); break;
+            case WebCommandKind::BuilderSectionRemove: builderSectionRemove(cmd.json); break;
+            case WebCommandKind::BuilderSectionUpdate: builderSectionUpdate(cmd.json); break;
             // Settings parity -- see MainComponentSettings.cpp.
             case WebCommandKind::SetAudioOutputDevice: settingsSetAudioOutputDevice(cmd.json); break;
             case WebCommandKind::SetSampleRate: settingsSetSampleRate(cmd.json); break;
@@ -690,6 +693,16 @@ void MainComponent::publishWebState() {
             er.midiVelocity = e.midiVelocity;
             er.httpUrl = e.httpUrl;
             row.events.push_back(std::move(er));
+        }
+
+        row.sections.reserve(song.sections.size());
+        for (const SongSection& sec : song.sections) {
+            WebUiState::SongRow::SectionRow sr;
+            sr.id = sec.id;
+            sr.name = sec.name;
+            sr.startSeconds = sec.startSeconds;
+            sr.colorIndex = sec.colorIndex;
+            row.sections.push_back(std::move(sr));
         }
 
         state.songs.push_back(std::move(row));

@@ -373,6 +373,102 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
 
 
 
+// Structural song markers (Intro/Verse/Chorus/Bridge/Outro/Solo/custom) --
+// web-command equivalent of TimelineView.cpp's section-marker ruler
+// (addSectionAt/showSectionContextMenu). Identity is by `sectionId` (like
+// regions), not positional index (like events), since repositioning a
+// marker is just a startSeconds update, not a swap.
+void MainComponent::builderSectionAdd(const std::string& json) {
+    simdjson::dom::element doc;
+    int songIndex = -1;
+    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !engine.isProjectLoaded())
+        return;
+    Project& proj = engine.project();
+    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
+        return;
+    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
+
+    std::vector<std::string> used;
+    for (const auto& sec : s.sections)
+        used.push_back(sec.id);
+
+    SongSection sec;
+    sec.id = makeUniqueId("sec", used);
+    std::string name;
+    sec.name = getString(doc, "name", name) ? name : "Section";
+    getDouble(doc, "startSeconds", sec.startSeconds);
+    sec.startSeconds = std::max(0.0, sec.startSeconds);
+    sec.colorIndex = static_cast<int>(s.sections.size());
+    s.sections.push_back(std::move(sec));
+    std::sort(s.sections.begin(), s.sections.end(),
+              [](const SongSection& a, const SongSection& b) { return a.startSeconds < b.startSeconds; });
+
+    builderPanel.refresh();
+    builderPanel.onProjectEdited();
+    setStatus("Section added");
+}
+
+void MainComponent::builderSectionRemove(const std::string& json) {
+    simdjson::dom::element doc;
+    int songIndex = -1;
+    std::string sectionId;
+    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "sectionId", sectionId)
+        || !engine.isProjectLoaded())
+        return;
+    Project& proj = engine.project();
+    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
+        return;
+    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
+
+    auto it = std::remove_if(s.sections.begin(), s.sections.end(),
+                              [&](const SongSection& sec) { return sec.id == sectionId; });
+    if (it != s.sections.end()) {
+        s.sections.erase(it, s.sections.end());
+        builderPanel.refresh();
+        builderPanel.onProjectEdited();
+        setStatus("Section removed");
+    }
+}
+
+void MainComponent::builderSectionUpdate(const std::string& json) {
+    simdjson::dom::element doc;
+    int songIndex = -1;
+    std::string sectionId;
+    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "sectionId", sectionId)
+        || !engine.isProjectLoaded())
+        return;
+    Project& proj = engine.project();
+    if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
+        return;
+    SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
+
+    SongSection* secPtr = nullptr;
+    for (auto& sec : s.sections) {
+        if (sec.id == sectionId) {
+            secPtr = &sec;
+            break;
+        }
+    }
+    if (!secPtr) return;
+
+    std::string strVal;
+    double numVal;
+    int intVal;
+    if (getString(doc, "name", strVal)) secPtr->name = strVal;
+    if (getDouble(doc, "startSeconds", numVal)) secPtr->startSeconds = std::max(0.0, numVal);
+    if (getInt(doc, "colorIndex", intVal)) secPtr->colorIndex = intVal;
+
+    // Re-sort after a position change (drag) -- matches TimelineView.cpp's
+    // own post-drag sort, and keeps "jump to next/last section" navigation
+    // (which walks this vector in order) correct without its own re-sort.
+    std::sort(s.sections.begin(), s.sections.end(),
+              [](const SongSection& a, const SongSection& b) { return a.startSeconds < b.startSeconds; });
+
+    builderPanel.refresh();
+    builderPanel.onProjectEdited();
+    setStatus("Section updated");
+}
+
 void MainComponent::setTrackSendFromJson(const std::string& json) {
     simdjson::dom::element doc;
     int trackIndex = -1;

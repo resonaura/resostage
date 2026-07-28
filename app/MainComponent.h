@@ -165,6 +165,9 @@ private:
     void builderEventRemove(const std::string& json);
     void builderEventMove(const std::string& json);
     void builderEventUpdate(const std::string& json);
+    void builderSectionAdd(const std::string& json);
+    void builderSectionRemove(const std::string& json);
+    void builderSectionUpdate(const std::string& json);
 
     // Settings parity for the web UI -- see MainComponentSettings.cpp.
     // Mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent callbacks and

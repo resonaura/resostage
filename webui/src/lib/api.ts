@@ -326,6 +326,21 @@ export const builder = {
     midiVelocity: number;
     httpUrl: string;
   }) => post("/api/v1/builder/event/update", patch),
+
+  // Structural song markers (Intro/Verse/Chorus/Bridge/Outro/Solo/custom).
+  // Identity is by sectionId (like regions), not positional index (like
+  // events) -- repositioning a marker (drag) is just a startSeconds update.
+  sectionAdd: (songIndex: number, startSeconds: number, name?: string) =>
+    post("/api/v1/builder/section/add", { songIndex, startSeconds, name }),
+  sectionRemove: (songIndex: number, sectionId: string) =>
+    post("/api/v1/builder/section/remove", { songIndex, sectionId }),
+  sectionUpdate: (patch: {
+    songIndex: number;
+    sectionId: string;
+    name?: string;
+    startSeconds?: number;
+    colorIndex?: number;
+  }) => post("/api/v1/builder/section/update", patch),
 };
 
 // Settings parity -- mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent

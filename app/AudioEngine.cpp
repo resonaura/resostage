@@ -1842,6 +1842,34 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     transportTelemetry.running.store(playing.load(std::memory_order_relaxed), std::memory_order_relaxed);
 
     if (!playing.load(std::memory_order_acquire)) {
+        // Declick tail: the first silent callback right after a Stop/Pause
+        // ramps the last real output sample on each channel down to zero
+        // instead of a hard cut -- see kStopDeclickSamples' doc comment.
+        if (wasPlayingLastCallback) {
+            stopDeclickRemaining = kStopDeclickSamples;
+            if (static_cast<int>(lastOutputSample.size()) < numOutputChannels)
+                lastOutputSample.resize(static_cast<size_t>(numOutputChannels), 0.0f);
+        }
+        wasPlayingLastCallback = false;
+
+        if (stopDeclickRemaining > 0) {
+            const int declickSamples = std::min(numSamples, stopDeclickRemaining);
+            for (int ch = 0; ch < numOutputChannels; ++ch) {
+                if (outputChannelData[ch] == nullptr)
+                    continue;
+                const float start = (static_cast<size_t>(ch) < lastOutputSample.size())
+                                        ? lastOutputSample[static_cast<size_t>(ch)]
+                                        : 0.0f;
+                for (int i = 0; i < declickSamples; ++i) {
+                    const int remaining = stopDeclickRemaining - i;
+                    const float g = static_cast<float>(remaining)
+                                     / static_cast<float>(kStopDeclickSamples);
+                    outputChannelData[ch][i] = start * g;
+                }
+            }
+            stopDeclickRemaining -= declickSamples;
+        }
+
         // See metersSilencedSinceStop's doc comment: without this, meters
         // hold their last playing-state value forever instead of dropping to
         // silence once transport stops.
@@ -1859,9 +1887,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             clickMeterFrame.write(silent);
             metersSilencedSinceStop = true;
         }
+        // Keep this live even while stopped. The underrun check above
+        // already skips itself while !clockRunning, so it wouldn't fire
+        // *now* either way -- but if left stale from before Stop/Pause,
+        // the gap computed on the very first callback after Play resumes
+        // would span the *entire pause*, tripping a false underrun the
+        // instant transport restarts. A genuine dropout is still caught
+        // (the gap is measured from here, not from further back).
+        lastCallbackHostNanos = hostTimeNanos;
         return;
     }
     metersSilencedSinceStop = false;
+    wasPlayingLastCallback = true;
 
     // Gapless / restage handoff: keep outputs silent and do not touch rings
     // until the message thread has reset the playhead to match the new song.
@@ -2308,6 +2345,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             pendingSongEndAction = SongEndAction::None;
         }
     }
+
+    // Remember each physical channel's final sample so a Stop/Pause that
+    // lands on the very next callback has something real to declick from
+    // (see kStopDeclickSamples' doc comment) instead of ramping from silence
+    // (which would just BE silence -- no click to avoid, but also no smooth
+    // fade of whatever was actually still sounding).
+    if (static_cast<int>(lastOutputSample.size()) < numOutputChannels)
+        lastOutputSample.resize(static_cast<size_t>(numOutputChannels), 0.0f);
+    for (int ch = 0; ch < numOutputChannels; ++ch)
+        if (outputChannelData[ch] != nullptr && numSamples > 0)
+            lastOutputSample[static_cast<size_t>(ch)] = outputChannelData[ch][numSamples - 1];
 }
 
 void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,

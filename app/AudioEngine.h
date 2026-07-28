@@ -415,6 +415,22 @@ private:
     SongEndAction pendingSongEndAction = SongEndAction::None;
     size_t pendingSongEndTargetSong = static_cast<size_t>(-1);
 
+    // Declick tail for a user-initiated Stop/Pause (AudioEngine::stop(), not
+    // the natural-song-end path above): stop()/pause sets `playing` false
+    // synchronously from the message thread with no foreknowledge of when
+    // that'll land in the audio thread, unlike song-end's pre-armed fade --
+    // so instead of ramping the upcoming (already-silent) block, this ramps
+    // the *last actual output sample* on each physical channel down to zero
+    // over a short window the first time the render callback observes
+    // `!playing` right after observing it true, avoiding the hard,
+    // audible cut a bare `if (!playing) return;` would otherwise produce.
+    // ~5.8ms @ 48kHz -- long enough to be a fade, short enough nobody
+    // perceives Stop as sluggish. Audio-thread-owned only.
+    static constexpr int kStopDeclickSamples = 256;
+    std::vector<float> lastOutputSample; // one per physical channel, resized on demand
+    int stopDeclickRemaining = 0;
+    bool wasPlayingLastCallback = false;
+
     // Message-thread-owned. Discriminates "the project's MIDI clock has
     // never been started" from song-local playhead position, so play() can
     // tell a genuine transport start (send MIDI Start/0xFA) apart from a

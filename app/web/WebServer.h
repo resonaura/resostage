@@ -116,6 +116,13 @@ enum class WebCommandKind : uint8_t {
     BuilderEventRemove,
     BuilderEventMove,
     BuilderEventUpdate,
+    // Song structural markers (Intro/Verse/Chorus/.../custom) -- identity is
+    // by `sectionId` (like regions), not positional index (like events),
+    // since repositioning is just a startSeconds update, not a swap. See
+    // MainComponentBuilder.cpp's builderSection*().
+    BuilderSectionAdd,
+    BuilderSectionRemove,
+    BuilderSectionUpdate,
     // Settings parity -- audio device/sample-rate/buffer-size, MIDI I/O
     // device selection, keybindings. Same raw-JSON-passthrough routing as
     // the Builder commands above; handled in MainComponentSettings.cpp.
@@ -251,6 +258,18 @@ struct WebUiState {
             std::string httpUrl;
         };
         std::vector<EventRow> events;
+
+        // Structural markers (Intro/Verse/Chorus/Bridge/Outro/Solo/custom) --
+        // mirrors the native TimelineView.cpp's section-marker ruler. Points,
+        // not ranges: the region a marker covers is implicitly "from here to
+        // the next marker (or song end)".
+        struct SectionRow {
+            std::string id;
+            std::string name;
+            double startSeconds = 0.0;
+            int colorIndex = 0;
+        };
+        std::vector<SectionRow> sections;
     };
     std::vector<SongRow> songs;
 
