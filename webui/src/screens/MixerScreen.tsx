@@ -97,7 +97,6 @@ const GAIN_MIN = -60;
 const GAIN_MAX = 12;
 
 function GainFader({
-  accent,
   gainDb,
   onChange,
   defaultValue = 0,
@@ -284,7 +283,6 @@ function SendArcKnob({
   if (!dragging.current && localValue !== value) setLocalValue(value);
 
   const norm = Math.max(0, Math.min(1, (localValue - min) / (max - min)));
-  const angle = -135 + norm * 270;
   const radius = 9;
   const strokeWidth = 2.5;
   const circumference = 2 * Math.PI * radius;

@@ -311,12 +311,6 @@ function ConnectionBadge({
       : status === "connecting"
         ? "bg-warning"
         : "bg-danger";
-  const label =
-    status === "live"
-      ? "live"
-      : status === "connecting"
-        ? "connecting…"
-        : "reconnecting…";
   return (
     <div className="flex items-center gap-1.5 text-xs text-foreground/60">
       <span className={`inline-block h-2 w-2 rounded-full ${color}`} />

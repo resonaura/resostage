@@ -14,6 +14,7 @@ import type {
   AllPeaksResponse,
   PeakLevelData,
   PeaksResponse,
+  RegionRow,
   SongRow,
   TrackRow,
   WebUiState,
