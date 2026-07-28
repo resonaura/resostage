@@ -155,7 +155,8 @@ MainComponent::MainComponent()
     setWantsKeyboardFocus(true);
     setSize(1280, 800);
     setMode(Mode::Web);
-    startTimerHz(30);
+    // 60 Hz keeps gapless UI notify / fallback snappy without much cost.
+    startTimerHz(60);
 }
 
 MainComponent::~MainComponent() {
@@ -329,10 +330,22 @@ void MainComponent::timerCallback() {
     if (mode == Mode::Mixer)
         mixerPanel.refreshMeters();
 
-    // Gapless AutoplayNext: audio thread freezes at song end and queues the
-    // next index; we promote the precached song without a Stop/Play round-trip.
+    // Gapless AutoplayNext:
+    //  1) Audio thread may already have promoted the precache in-callback
+    //     (consumeGaplessUiNotify) -- only refresh UI.
+    //  2) Else promote from message thread (consumeGaplessAdvance), also
+    //     woken via callAsync so we don't wait a full 30 Hz timer tick.
     size_t gaplessNext = 0;
-    if (engine.consumeGaplessAdvance(gaplessNext)) {
+    if (engine.consumeGaplessUiNotify(gaplessNext)) {
+        playerPanel.selectSongRow(static_cast<int>(gaplessNext));
+        playerPanel.refreshProject();
+        mixerPanel.refreshStructure();
+        builderPanel.refresh();
+        if (gaplessNext < engine.project().songs.size())
+            setStatus("Gapless -> " + juce::String(engine.project().songs[gaplessNext].name));
+        // Kick precache for song+2 on the message thread.
+        (void)engine.consumeAutoAdvancePending();
+    } else if (engine.consumeGaplessAdvance(gaplessNext)) {
         std::string error;
         if (engine.switchToSongGapless(gaplessNext, error)) {
             playerPanel.selectSongRow(static_cast<int>(gaplessNext));
@@ -344,9 +357,8 @@ void MainComponent::timerCallback() {
             setStatus("Gapless switch failed: " + juce::String(error));
             engine.stop();
         }
-        (void)engine.consumeAutoAdvancePending(); // clear legacy flag if set
+        (void)engine.consumeAutoAdvancePending();
     } else if (engine.consumeAutoAdvancePending()) {
-        // Fallback (e.g. older path): stop/select/play.
         const size_t next = engine.currentSongIndex() + 1;
         goToSong(static_cast<int>(next));
         engine.play();

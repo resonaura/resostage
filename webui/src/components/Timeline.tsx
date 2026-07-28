@@ -18,8 +18,6 @@ const EVENT_LANE_HEIGHT = 24;
 const RULER_HEIGHT = 32;
 const MIN_PX_PER_SEC = 4;
 const MAX_PX_PER_SEC = 400;
-const SEEK_THROTTLE_MS = 60;
-
 const TRACK_COLORS = [
   "#0091ff",
   "#30d158",
@@ -1255,30 +1253,28 @@ export function Timeline({
         : localSeconds;
     const clampedAbs = songStart + clampedLocal;
 
-    // Optimistic absolute needle moves immediately for both same-song and
-    // cross-song scrubs (one continuous timeline).
+    // Optimistic absolute needle moves immediately (one continuous timeline).
     setPlayheadAbsoluteSec(clampedAbs);
 
+    // Engine seeks only on commit (pointer up). Mid-drag same-song seeks used
+    // to restage every 60ms and produced the "chirp then stop then play" glitch.
+    if (!commit) return;
+
     if (songIndex !== state.songIndex) {
-      // Restage is heavier -- only commit on pointer up / click, not mid-drag.
-      if (commit) {
-        void transport.seek(clampedLocal, songIndex);
-      }
+      void transport.seek(clampedLocal, songIndex);
       return;
     }
-
-    const now = Date.now();
-    if (commit || now - lastSeekAt.current >= SEEK_THROTTLE_MS) {
-      lastSeekAt.current = now;
-      void transport.seek(clampedLocal);
-    }
+    lastSeekAt.current = Date.now();
+    void transport.seek(clampedLocal);
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!hasSongs) return;
     dragging.current = true;
     (e.target as Element).setPointerCapture?.(e.pointerId);
-    seekFromClientX(e.clientX, true);
+    // Optimistic needle only on down -- committing a full seek here AND on
+    // pointerup caused a stop→play blip (audio for 1ms, silence, then play).
+    seekFromClientX(e.clientX, false);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return;
@@ -1287,6 +1283,7 @@ export function Timeline({
   const onPointerUp = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
+    // Single commit on release.
     seekFromClientX(e.clientX, true);
   };
 

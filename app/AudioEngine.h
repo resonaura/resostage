@@ -96,8 +96,8 @@ public:
 
     // Gapless AutoplayNext handoff: promotes the precached next song without
     // going through Stop, restarts the timeline at 0, keeps PLAYING. Message
-    // thread only. Gap is bounded by the caller's poll interval (~1 frame at
-    // 30–60 Hz when the next song was already precached).
+    // thread only (also invoked via callAsync right after an audio-thread
+    // promote fails / for UI refresh after audio-thread promote succeeds).
     bool switchToSongGapless(size_t songIndex, std::string& error);
 
     void play();
@@ -106,17 +106,20 @@ public:
 
     // Seeks to `seconds` (clamped to [0, target song length]) within
     // `songIndex` -- defaults to the current song, but may target any other
-    // song, enabling cross-song scrub/seek. Restages streams so both forward
-    // and backward seeks are correct (StreamingTrackBuffer only
-    // fast-forwards), then resumes playback if it was running -- including
-    // across a song change, unlike selectSong()/goToSong() which always
-    // stops. Message-thread only.
+    // song, enabling cross-song scrub/seek. Same-song seeks hard-seek the
+    // active streams in place (no Stop/restage), so scrubbing no longer
+    // clicks through a stop→play glitch. Cross-song still restages.
+    // Message-thread only.
     bool seekToSeconds(double seconds, std::string& error, size_t songIndex = static_cast<size_t>(-1));
 
     // Message-thread-only: true when the audio thread finished a song in
     // AutoplayNext mode. Prefer consumeGaplessAdvance + switchToSongGapless.
     bool consumeAutoAdvancePending() { return autoAdvancePending.exchange(false, std::memory_order_acq_rel); }
     bool consumeGaplessAdvance(size_t& outSongIndex);
+    // UI-only: song index that the audio thread already gapless-promoted
+    // (streams+clock already at 0). Message thread should refresh panels
+    // without calling switchToSongGapless again.
+    bool consumeGaplessUiNotify(size_t& outSongIndex);
 
     // Aux-send matrix API (message thread). Takes an explicit songIndex --
     // NOT tied to whichever song happens to be staged/playing -- so editing
@@ -415,6 +418,7 @@ private:
     std::vector<uint8_t> eventFiredFlags; // parallel to current song's events; reset per selectSong()/play()
     std::atomic<bool> autoAdvancePending{false};
     std::atomic<int> pendingGaplessSong{-1}; // >=0 => message thread should gapless-switch
+    std::atomic<int> pendingGaplessUiNotify{-1}; // audio-thread promote done; UI only
     std::vector<ProjectLoader::ExtraFile> pendingPeakCacheExtras;
 
     std::atomic<bool> playing{false};
@@ -427,6 +431,10 @@ private:
     // song at the OLD playhead (end of previous song), queue a massive skip,
     // and the next song would audibly start mid-file.
     std::atomic<bool> streamHandoff{false};
+
+    // Audio-thread gapless promote when precache is warm (no message-thread wait).
+    bool tryGaplessPromoteOnAudioThread(size_t nextSongIndex);
+    void resetMetersSilent();
 
     double currentSampleRate = 48000.0;
     int currentBlockSize = 512;

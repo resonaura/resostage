@@ -1243,6 +1243,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         }
 
         // Streams + playhead are coherent at 0 -- audio may read again.
+        resetMetersSilent();
         streamHandoff.store(false, std::memory_order_release);
     }
 
@@ -1269,6 +1270,124 @@ bool AudioEngine::consumeGaplessAdvance(size_t& outSongIndex) {
     if (pending < 0)
         return false;
     outSongIndex = static_cast<size_t>(pending);
+    return true;
+}
+
+bool AudioEngine::consumeGaplessUiNotify(size_t& outSongIndex) {
+    const int pending = pendingGaplessUiNotify.exchange(-1, std::memory_order_acq_rel);
+    if (pending < 0)
+        return false;
+    outSongIndex = static_cast<size_t>(pending);
+    return true;
+}
+
+void AudioEngine::resetMetersSilent() {
+    const MeterFrame silent{};
+    for (auto& m : trackMeters)
+        if (m != nullptr)
+            m->write(silent);
+    for (size_t i = 0; i < busMeters.size(); ++i) {
+        if (i < busLoudnessMeters.size())
+            busLoudnessMeters[i].reset();
+        if (busMeters[i] != nullptr)
+            busMeters[i]->write(silent);
+    }
+}
+
+bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
+    if (!projectLoaded || nextSongIndex >= loader.project().songs.size())
+        return false;
+    if (!streaming.tryPromotePrecached(nextSongIndex))
+        return false;
+
+    const SongDef& song = loader.project().songs[nextSongIndex];
+
+    // Length from the just-promoted buffers (device domain).
+    int64_t newLen = 0;
+    {
+        StreamingEngine::ActiveSongHandle activeSong = streaming.acquireActiveSong();
+        if (activeSong) {
+            for (const std::string& trackId : trackIdByIndex) {
+                if (StreamingTrackBuffer* buf = activeSong.track(trackId))
+                    newLen = std::max(newLen, buf->totalFrames());
+            }
+        }
+    }
+
+    // Click routing for the new song (same fields the message-thread path sets).
+    int newClickTarget = -1;
+    float newClickGain = 1.0f;
+    std::vector<int> newClickSends;
+    std::vector<float> newClickSendGains;
+    const bool newClickEnabled = song.builtInClickEnabled;
+    auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty()
+                                            ? (busses.empty() ? "" : busses.front().id)
+                                            : song.builtInClickBusId);
+    if (clickBusIt != busIndexById.end()) {
+        newClickTarget = static_cast<int>(clickBusIt->second);
+        newClickGain = dbToGain(song.builtInClickGainDb);
+    }
+    for (const TrackSendDef& cs : song.builtInClickSends) {
+        if (!cs.enabled)
+            continue;
+        auto it = busIndexById.find(cs.busId);
+        if (it == busIndexById.end())
+            continue;
+        newClickSends.push_back(static_cast<int>(it->second));
+        newClickSendGains.push_back(dbToGain(cs.gainDb));
+    }
+
+    // Apply under the same mutex the render path holds, so the first post-
+    // handoff callback sees a coherent song 0 / click / length snapshot.
+    // We already hold nothing here (called from the render path before the
+    // routeLock section finishes fade) -- try_lock; if contended, fall back.
+    std::unique_lock<std::recursive_mutex> lock(routingMutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        // Streams already promoted -- leave streamHandoff true and ask the
+        // message thread to finish state via switchToSongGapless.
+        pendingGaplessSong.store(static_cast<int>(nextSongIndex), std::memory_order_release);
+        return false;
+    }
+
+    currentSong = nextSongIndex;
+    currentSongLengthFrames = newLen;
+    eventFiredFlags.assign(song.events.size(), 0);
+    clickTargetBusIndex = newClickTarget;
+    clickGainLinear = newClickGain;
+    clickSendBusIndices = std::move(newClickSends);
+    clickSendGainLinears = std::move(newClickSendGains);
+    isClickEnabled = newClickEnabled;
+    if (newClickTarget >= 0)
+        clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+
+    clock.stop();
+    hwSamplePosition.store(0, std::memory_order_relaxed);
+    underrunFadeOutRemaining = 0;
+    underrunFadeOutLength = 0;
+    lastCallbackWasUnderrun = false;
+    lastCallbackHostNanos = 0;
+    pendingSongEndAction = SongEndAction::None;
+    recoveryFadeInLength = 256;
+    recoveryFadeInRemaining = 256;
+    outputHeldSilent = false;
+    clock.start(currentSampleRate, 0);
+    playing.store(true, std::memory_order_release);
+    transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
+    transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
+    transportTelemetry.running.store(true, std::memory_order_relaxed);
+    resetMetersSilent();
+    streamHandoff.store(false, std::memory_order_release);
+
+    midiDispatcher.setClockBpm(song.bpm);
+    pendingGaplessUiNotify.store(static_cast<int>(nextSongIndex), std::memory_order_release);
+    autoAdvancePending.store(false, std::memory_order_release);
+
+    // Precache the song after this one (message thread will also try; best-effort).
+    if (nextSongIndex + 1 < loader.project().songs.size()) {
+        const int64_t ringCapacityFrames = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
+        // Cannot safely open files on the audio thread -- leave precache to UI tick.
+        (void)ringCapacityFrames;
+    }
     return true;
 }
 
@@ -1354,11 +1473,16 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
         return false;
     }
 
-    // Restage from the start of the target song so the disk stream can catch
-    // up to any absolute position (StreamingTrackBuffer only fast-forwards).
-    // Do not re-fire on_load MIDI/PC — seek is not a song change.
-    if (!selectSong(targetSong, error, /*fireOnLoadEvents=*/false))
-        return false;
+    const bool sameSong = (targetSong == currentSong);
+
+    // Cross-song: full restage (StreamingTrackBuffer is forward-only per open).
+    // Same-song: hard-seek in place WITHOUT stop/play -- scrub used to call
+    // selectSong (which stops) then restart, producing a one-buffer "blip
+    // then silence then play" glitch on every drag.
+    if (!sameSong) {
+        if (!selectSong(targetSong, error, /*fireOnLoadEvents=*/false))
+            return false;
+    }
 
     double maxSec = currentSongLengthSeconds();
     if (maxSec <= 0.0)
@@ -1366,13 +1490,12 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
     seconds = std::clamp(seconds, 0.0, maxSec);
     const int64_t sample = static_cast<int64_t>(seconds * currentSampleRate);
 
-    // Synchronously park every stem at `sample` BEFORE the transport clock
-    // (and therefore the built-in click, which is pure math on the playhead)
-    // resumes. Async ring catch-up after seek used to leave the click
-    // ticking at the new position while WAVs were still silence/skipping --
-    // audible as "scrub and the metronome desyncs from the tracks".
-    if (!streaming.seekActiveSongTo(sample, error))
+    // Mute stream reads while we re-park the rings at `sample`.
+    streamHandoff.store(true, std::memory_order_release);
+    if (!streaming.seekActiveSongTo(sample, error)) {
+        streamHandoff.store(false, std::memory_order_release);
         return false;
+    }
 
     // Mark past events as already fired so seek doesn't re-trigger them.
     const Project& proj = loader.project();
@@ -1389,48 +1512,51 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
         }
     }
 
-    // Same hwSamplePosition invariant as play()/gapless selectSongInternal:
-    // MasterClock re-anchors to this free-run counter every callback.
-    // Also re-arm a short fade-in so the scrub edge itself isn't a click.
     {
         std::lock_guard<std::recursive_mutex> lock(routingMutex);
         hwSamplePosition.store(sample, std::memory_order_relaxed);
         underrunFadeOutRemaining = 0;
         underrunFadeOutLength = 0;
         outputHeldSilent = false;
-        recoveryFadeInLength = kUnderrunFadeSamples;
-        recoveryFadeInRemaining = kUnderrunFadeSamples;
+        // Very short edge on scrub (same-song) so it doesn't feel like a stop.
+        const int fadeIn = sameSong ? 64 : kUnderrunFadeSamples;
+        recoveryFadeInLength = fadeIn;
+        recoveryFadeInRemaining = fadeIn;
         pendingSongEndAction = SongEndAction::None;
         lastCallbackWasUnderrun = false;
         lastCallbackHostNanos = 0;
         clock.start(currentSampleRate, sample);
         transportTelemetry.playheadSamples.store(sample, std::memory_order_relaxed);
         transportTelemetry.playheadSeconds.store(seconds, std::memory_order_relaxed);
+        resetMetersSilent();
 
-        if (wasPlaying) {
-            playing.store(true, std::memory_order_release);
-            transportTelemetry.running.store(true, std::memory_order_relaxed);
+        if (wasPlaying || sameSong) {
+            // sameSong keeps transport running across the seek; cross-song
+            // restores prior wasPlaying after restage.
+            if (wasPlaying) {
+                playing.store(true, std::memory_order_release);
+                transportTelemetry.running.store(true, std::memory_order_relaxed);
+            } else {
+                clock.stop();
+                playing.store(false, std::memory_order_release);
+                transportTelemetry.running.store(false, std::memory_order_relaxed);
+            }
         } else {
             clock.stop();
             transportTelemetry.running.store(false, std::memory_order_relaxed);
         }
+        streamHandoff.store(false, std::memory_order_release);
     }
 
     if (wasPlaying && targetSong < proj.songs.size()) {
-        // Seeking is a relocate, not a fresh transport start: tell
-        // followers the new absolute position via Song Position Pointer
-        // (in MIDI-beats/16th-notes since Start, driven by the GLOBAL
-        // cumulative position, not this song's local position -- see
-        // globalBeatsElapsed()'s doc comment), then Continue (not Start)
-        // so phase-since-Start isn't reset. selectSong() above already
-        // went through stop() -> midiDispatcher.stopClock() (0xFC), so
-        // the net wire sequence for a seek-while-playing is the standard
-        // Stop -> SPP -> Continue.
         const double globalBeats = globalBeatsElapsed();
-        const long long sixteenths = std::llround(globalBeats * 4.0); // SPP unit = 16th notes
+        const long long sixteenths = std::llround(globalBeats * 4.0);
         const uint16_t midiBeats16 = static_cast<uint16_t>(std::clamp<long long>(sixteenths, 0, 16383));
         midiDispatcher.sendSongPositionPointer(midiBeats16);
-        midiDispatcher.continueClock(proj.songs[targetSong].bpm);
+        if (sameSong)
+            midiDispatcher.continueClock(proj.songs[targetSong].bpm);
+        else
+            midiDispatcher.continueClock(proj.songs[targetSong].bpm);
     }
     return true;
 }
@@ -1845,6 +1971,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
+    // During micro-fades / holds the physical outs are ramped, but meters used
+    // to read the UN-faded busScratch and flash a full-scale peak (visible as
+    // a pegged master meter with no audible click). Skip metering while
+    // ramping so the UI tracks what you actually hear.
+    const bool meteringMuted = (underrunFadeOutRemaining > 0 || recoveryFadeInRemaining > 0
+                                || outputHeldSilent);
+
     // Pass 3: bus scratch buffers -> metering + physical outputs.
     for (const BusOutput& out : snap->outputs) {
         if (out.busIndex >= busses.size())
@@ -1852,13 +1985,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         const int scratchOffset = static_cast<int>(out.busIndex) * 2;
         const int channels = std::min(2, out.channelCount);
 
-        if (out.busIndex < busLoudnessMeters.size()) {
+        if (!meteringMuted && out.busIndex < busLoudnessMeters.size()) {
             const float* meterChannels[2] = {
                 busScratch.getReadPointer(scratchOffset),
                 channels > 1 ? busScratch.getReadPointer(scratchOffset + 1) : busScratch.getReadPointer(scratchOffset)};
             busLoudnessMeters[out.busIndex].processBlock(meterChannels, numSamples);
             if (out.busIndex < busMeters.size() && busMeters[out.busIndex] != nullptr)
                 busMeters[out.busIndex]->write(busLoudnessMeters[out.busIndex].currentFrame());
+        } else if (meteringMuted && out.busIndex < busMeters.size() && busMeters[out.busIndex] != nullptr) {
+            busMeters[out.busIndex]->write(MeterFrame{});
         }
 
         if (out.mute)
@@ -1923,19 +2058,34 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     if (pendingSongEndAction != SongEndAction::None && underrunFadeOutRemaining == 0
         && playheadSample >= currentSongLengthFrames) {
         if (pendingSongEndAction == SongEndAction::GaplessAdvance) {
-            // Freeze clock at end, keep PLAYING flag, ask the message thread
-            // to promote the precached next song immediately. Deliberately no
-            // MIDI call here: the clock keeps ticking continuously through a
-            // gapless transition; tempo is retuned in place afterward.
-            clock.stop();
-            pendingGaplessSong.store(static_cast<int>(pendingSongEndTargetSong), std::memory_order_release);
-            autoAdvancePending.store(true, std::memory_order_release); // legacy alias
+            const size_t nextIdx = pendingSongEndTargetSong;
+            pendingSongEndAction = SongEndAction::None;
+            // Prefer in-callback promote of the warm precache: no 30 Hz timer
+            // wait, no multi-file re-open -- just shared_ptr swap + playhead 0.
+            // Falls back to message-thread switchToSongGapless if precache miss.
+            streamHandoff.store(true, std::memory_order_release);
+            if (!tryGaplessPromoteOnAudioThread(nextIdx)) {
+                clock.stop();
+                pendingGaplessSong.store(static_cast<int>(nextIdx), std::memory_order_release);
+                autoAdvancePending.store(true, std::memory_order_release);
+                // Don't wait for the 30 Hz UI timer -- finish handoff on the
+                // next message-thread turn so the silence gap stays ~1–2 ms.
+                juce::MessageManager::callAsync([this, nextIdx]() {
+                    if (pendingGaplessSong.load(std::memory_order_acquire) < 0)
+                        return; // already consumed / audio-thread finished
+                    size_t idx = nextIdx;
+                    if (!consumeGaplessAdvance(idx))
+                        idx = nextIdx;
+                    std::string err;
+                    (void)switchToSongGapless(idx, err);
+                });
+            }
         } else {
             midiDispatcher.stopClock();
             playing.store(false, std::memory_order_release);
             clock.stop();
+            pendingSongEndAction = SongEndAction::None;
         }
-        pendingSongEndAction = SongEndAction::None;
     }
 }
 

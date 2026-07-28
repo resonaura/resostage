@@ -95,6 +95,15 @@ public:
     // already stop()s first). Returns false if any buffer fails to seek.
     bool seekActiveSongTo(int64_t deviceFrame, std::string& error);
 
+    // Audio-thread-safe: if `songIndex` is already precached, atomically
+    // promote it to active and return true. No disk I/O, no allocation beyond
+    // shared_ptr refcount. Used for sample-accurate AutoplayNext handoff
+    // without waiting for the message-thread timer (~30 Hz).
+    bool tryPromotePrecached(size_t songIndex);
+
+    // True when a precache for `songIndex` is ready to promote.
+    bool hasPrecacheFor(size_t songIndex) const;
+
     // Audio-thread-only. Never allocates (atomic refcount op).
     ActiveSongHandle acquireActiveSong();
 
@@ -119,7 +128,7 @@ private:
 
     std::shared_ptr<StagedSong> active; // accessed via std::atomic_load/store
 
-    std::mutex precacheMutex;
+    mutable std::mutex precacheMutex;
     std::unique_ptr<StagedSong> precached;
 };
 

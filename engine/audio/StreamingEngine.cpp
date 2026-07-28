@@ -139,6 +139,21 @@ bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error) 
     return true;
 }
 
+bool StreamingEngine::tryPromotePrecached(size_t songIndex) {
+    std::lock_guard<std::mutex> lock(precacheMutex);
+    if (precached == nullptr || precached->songIndex != songIndex)
+        return false;
+    std::atomic_store_explicit(&active, std::shared_ptr<StagedSong>(std::move(precached)),
+                               std::memory_order_release);
+    precached.reset();
+    return true;
+}
+
+bool StreamingEngine::hasPrecacheFor(size_t songIndex) const {
+    std::lock_guard<std::mutex> lock(precacheMutex);
+    return precached != nullptr && precached->songIndex == songIndex;
+}
+
 StreamingEngine::ActiveSongHandle StreamingEngine::acquireActiveSong() {
     ActiveSongHandle handle;
     handle.staged = std::atomic_load_explicit(&active, std::memory_order_acquire);
