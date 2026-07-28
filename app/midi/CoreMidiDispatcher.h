@@ -16,7 +16,11 @@ enum class MidiCommandKind : uint8_t {
     NoteOff,
     ControlChange,
     ProgramChange,
-    ClockTick, // 0xF8 realtime message, no data bytes
+    ClockTick,           // 0xF8 realtime message, no data bytes
+    Start,               // 0xFA realtime message, no data bytes
+    Continue,            // 0xFB realtime message, no data bytes
+    Stop,                // 0xFC realtime message, no data bytes
+    SongPositionPointer, // 0xF2, 2 data bytes (14-bit MIDI-beat count, LSB/MSB)
 };
 
 struct MidiCommand {
@@ -64,10 +68,29 @@ public:
     bool enqueue(const MidiCommand& cmd);
 
     // 24 PPQN MIDI Beat Clock, phase-locked to originHostTimeNanos (typically
-    // the moment playback started, i.e. MasterClock's start anchor).
+    // the moment playback started, i.e. MasterClock's start anchor). Also
+    // emits MIDI Start (0xFA) and resets the tick index/phase -- only call
+    // this for an actual transport start from fully stopped, never for a
+    // song-to-song gapless transition or a resume from pause (use
+    // continueClock() for those).
     void startClock(double bpm, uint64_t originHostTimeNanos);
+    // Resumes a previously-stopped clock (e.g. after pause, or after a seek)
+    // WITHOUT resetting the tick index/phase, and emits MIDI Continue (0xFB).
+    void continueClock(double bpm);
+    // Stops the clock and emits MIDI Stop (0xFC). Do not call this for a
+    // gapless song-to-song transition -- the clock should keep ticking
+    // continuously through those; use setClockBpm() instead.
     void stopClock();
+    // Live in-place tempo change: no MIDI message of its own (it's a rate
+    // change, not a transport event), no phase discontinuity for the next
+    // unsent tick. Use this for a gapless song transition to a different bpm.
     void setClockBpm(double bpm);
+    // Song Position Pointer (0xF2): tells followers the absolute position, in
+    // MIDI-beats (sixteenth notes) since Start, ahead of a Continue after a
+    // seek/relocate. 14-bit value (masked internally) -- see the call site in
+    // AudioEngine::seekToSeconds() for the real-world ~68-minute ceiling this
+    // implies at typical tempos.
+    void sendSongPositionPointer(uint16_t midiBeats);
 
 private:
     void workerThreadLoop();
@@ -86,6 +109,14 @@ private:
     std::atomic<double> clockBpm{120.0};
     std::atomic<uint64_t> clockOriginHostTimeNanos{0};
     uint64_t clockNextTickIndex = 0; // worker-thread-owned only
+
+    // Set by continueClock()/setClockBpm() (any thread), consumed only by
+    // pumpClock() on the worker thread (which owns clockNextTickIndex) --
+    // this indirection is what lets those two calls retime the clock without
+    // directly touching the worker-owned tick index from another thread.
+    std::atomic<bool> pendingContinueReanchor{false};
+    std::atomic<bool> pendingTempoReanchor{false};
+    double lastAnchoredBpm = 120.0; // worker-thread-owned only
 };
 
 } // namespace resoset

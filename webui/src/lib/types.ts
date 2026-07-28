@@ -165,6 +165,9 @@ export interface WebUiState {
   projectName: string;
   songName: string;
   playheadSeconds: number;
+  /** Cumulative whole-project position (does not reset at song boundaries). */
+  globalPlayheadSeconds: number;
+  globalBeatsElapsed: number;
   sampleRate: number;
   drift: number;
   bpm: number;
@@ -186,6 +189,8 @@ export const emptyState: WebUiState = {
   projectName: "",
   songName: "",
   playheadSeconds: 0,
+  globalPlayheadSeconds: 0,
+  globalBeatsElapsed: 0,
   sampleRate: 48000,
   drift: 1,
   bpm: 0,

@@ -50,6 +50,19 @@ function barBeat(seconds: number, bpm: number, tsNum: number): string {
   return `${bar} | ${beat}`;
 }
 
+// Cumulative whole-project bar|beat from an already-accumulated beat count
+// (see AudioEngine::globalBeatsElapsed). Bar-wraps using the *current* song's
+// time signature -- if an earlier song had a different signature, its beats
+// don't necessarily land on a bar boundary under the current one; inherent
+// to any cross-time-signature cumulative bar counter, not a bug.
+function globalBarBeat(beatsElapsed: number, tsNum: number): string {
+  if (!Number.isFinite(beatsElapsed) || beatsElapsed < 0 || tsNum <= 0) return "—";
+  const beatsPerBar = Math.max(1, tsNum);
+  const bar = Math.floor(beatsElapsed / beatsPerBar) + 1;
+  const beat = (Math.floor(beatsElapsed) % beatsPerBar) + 1;
+  return `${bar} | ${beat}`;
+}
+
 
 
 // Single sparkline SVG renderer (no pinging animations, clean solid line)
@@ -325,6 +338,16 @@ export function PlayerScreen({
               {song ? barBeat(displaySeconds, song.bpm, song.tsNum) : "—"}
             </span>
             <span className="text-[11px] text-foreground/30">bar | beat</span>
+          </div>
+          {/* Absolute whole-project position (not song-relative) -- small/gray by design */}
+          <div className="mt-0.5 flex items-baseline gap-1.5 opacity-60">
+            <span className="font-mono text-[10px] tabular-nums text-foreground/35">
+              {formatTime(state.globalPlayheadSeconds)}
+            </span>
+            <span className="font-mono text-[10px] tabular-nums text-foreground/35">
+              {song ? globalBarBeat(state.globalBeatsElapsed, song.tsNum) : "—"}
+            </span>
+            <span className="text-[9px] text-foreground/25">abs</span>
           </div>
         </div>
 

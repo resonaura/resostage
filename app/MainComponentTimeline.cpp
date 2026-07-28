@@ -54,8 +54,17 @@ void MainComponent::transportSeek(const std::string& json) {
     if (parser.parse(json).get(doc) || !getDouble(doc, "seconds", seconds))
         return;
 
+    // Optional cross-song seek: absent "songIndex" means "seek within the
+    // currently staged song", matching seekToSeconds()'s default-argument
+    // sentinel -- see Timeline.tsx's seekFromClientX for the drag-across-
+    // song-boundaries case this exists for.
+    int songIndexField = -1;
+    const size_t targetSong = getInt(doc, "songIndex", songIndexField) && songIndexField >= 0
+                                   ? static_cast<size_t>(songIndexField)
+                                   : static_cast<size_t>(-1);
+
     std::string error;
-    if (!engine.seekToSeconds(seconds, error)) {
+    if (!engine.seekToSeconds(seconds, error, targetSong)) {
         setStatus("Seek failed: " + juce::String(error));
         return;
     }

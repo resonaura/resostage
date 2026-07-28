@@ -130,16 +130,52 @@ bool CoreMidiDispatcher::enqueue(const MidiCommand& cmd) {
 void CoreMidiDispatcher::startClock(double bpm, uint64_t originHostTimeNanos) {
     clockBpm.store(bpm, std::memory_order_relaxed);
     clockOriginHostTimeNanos.store(originHostTimeNanos, std::memory_order_relaxed);
-    clockNextTickIndex = 0;
+    clockNextTickIndex = 0; // safe: every call site calls this only after a stopClock()
+    pendingContinueReanchor.store(false, std::memory_order_relaxed);
+    pendingTempoReanchor.store(false, std::memory_order_relaxed);
+    lastAnchoredBpm = bpm;
     clockActive.store(true, std::memory_order_release);
+
+    MidiCommand cmd;
+    cmd.kind = MidiCommandKind::Start;
+    cmd.targetHostTimeNanos = originHostTimeNanos;
+    enqueue(cmd);
+}
+
+void CoreMidiDispatcher::continueClock(double bpm) {
+    clockBpm.store(bpm, std::memory_order_relaxed);
+    pendingContinueReanchor.store(true, std::memory_order_relaxed);
+    clockActive.store(true, std::memory_order_release);
+
+    MidiCommand cmd;
+    cmd.kind = MidiCommandKind::Continue;
+    cmd.targetHostTimeNanos = nowNanos();
+    enqueue(cmd);
 }
 
 void CoreMidiDispatcher::stopClock() {
     clockActive.store(false, std::memory_order_release);
+
+    MidiCommand cmd;
+    cmd.kind = MidiCommandKind::Stop;
+    cmd.targetHostTimeNanos = nowNanos();
+    enqueue(cmd);
 }
 
 void CoreMidiDispatcher::setClockBpm(double bpm) {
     clockBpm.store(bpm, std::memory_order_relaxed);
+    pendingTempoReanchor.store(true, std::memory_order_relaxed);
+}
+
+void CoreMidiDispatcher::sendSongPositionPointer(uint16_t midiBeats) {
+    midiBeats &= 0x3FFF; // 14-bit value -- see the header doc comment for the wraparound ceiling
+
+    MidiCommand cmd;
+    cmd.kind = MidiCommandKind::SongPositionPointer;
+    cmd.data1 = static_cast<uint8_t>(midiBeats & 0x7F);
+    cmd.data2 = static_cast<uint8_t>((midiBeats >> 7) & 0x7F);
+    cmd.targetHostTimeNanos = nowNanos();
+    enqueue(cmd);
 }
 
 void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
@@ -154,6 +190,10 @@ void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
         case MidiCommandKind::ControlChange: statusByte = static_cast<uint8_t>(0xB0 | (cmd.channel & 0x0F)); break;
         case MidiCommandKind::ProgramChange: statusByte = static_cast<uint8_t>(0xC0 | (cmd.channel & 0x0F)); numDataBytes = 1; break;
         case MidiCommandKind::ClockTick: statusByte = 0xF8; numDataBytes = 0; break;
+        case MidiCommandKind::Start: statusByte = 0xFA; numDataBytes = 0; break;
+        case MidiCommandKind::Continue: statusByte = 0xFB; numDataBytes = 0; break;
+        case MidiCommandKind::Stop: statusByte = 0xFC; numDataBytes = 0; break;
+        case MidiCommandKind::SongPositionPointer: statusByte = 0xF2; numDataBytes = 2; break;
     }
 
     Byte buffer[3];
@@ -182,10 +222,30 @@ void CoreMidiDispatcher::pumpClock() {
     const double bpm = clockBpm.load(std::memory_order_relaxed);
     if (bpm <= 0.0)
         return;
-    const uint64_t origin = clockOriginHostTimeNanos.load(std::memory_order_relaxed);
-
     // 24 PPQN: one tick every (60s / bpm / 24) seconds.
     const double tickIntervalNanos = (60.0 / bpm / 24.0) * 1.0e9;
+
+    // Reanchor origin in response to continueClock()/setClockBpm(), without
+    // touching clockNextTickIndex (this thread owns it exclusively, so no
+    // race with the atomic flags set from other threads). Only affects ticks
+    // not yet submitted -- ticks already inside the lookahead window keep
+    // playing at the tempo they were scheduled with.
+    if (pendingContinueReanchor.exchange(false, std::memory_order_acq_rel)) {
+        // Resume promptly "now", keeping the tick INDEX (phase-since-Start) unchanged.
+        const uint64_t newOrigin = nowNanos() - static_cast<uint64_t>(static_cast<double>(clockNextTickIndex) * tickIntervalNanos);
+        clockOriginHostTimeNanos.store(newOrigin, std::memory_order_relaxed);
+    } else if (pendingTempoReanchor.exchange(false, std::memory_order_acq_rel)) {
+        // Preserve the absolute time of the next unsent tick; only the
+        // interval to subsequent ticks changes -- no jump for that next tick.
+        const double oldInterval = (60.0 / lastAnchoredBpm / 24.0) * 1.0e9;
+        const uint64_t oldOrigin = clockOriginHostTimeNanos.load(std::memory_order_relaxed);
+        const uint64_t nextTickTime = oldOrigin + static_cast<uint64_t>(static_cast<double>(clockNextTickIndex) * oldInterval);
+        const uint64_t newOrigin = nextTickTime - static_cast<uint64_t>(static_cast<double>(clockNextTickIndex) * tickIntervalNanos);
+        clockOriginHostTimeNanos.store(newOrigin, std::memory_order_relaxed);
+    }
+    lastAnchoredBpm = bpm;
+
+    const uint64_t origin = clockOriginHostTimeNanos.load(std::memory_order_relaxed);
 
     // Schedule ticks that fall within a 200ms lookahead window, matching the
     // "pre-schedule ahead of time" pattern -- CoreMIDI's own timestamp

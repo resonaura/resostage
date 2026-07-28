@@ -25,8 +25,11 @@ export const transport = {
   // Mirrors TimelineView.cpp's click/drag-to-seek (AudioEngine::
   // seekToSeconds) -- restages the song, so the caller should throttle
   // repeated calls during a drag gesture (same reason the native timeline
-  // does) rather than firing on every pointermove.
-  seek: (seconds: number) => post("/api/v1/transport/seek", { seconds }),
+  // does) rather than firing on every pointermove. `songIndex` is optional:
+  // pass it to seek into a *different* song in one atomic call (preserves
+  // playback state), instead of a separate select() + seek() pair.
+  seek: (seconds: number, songIndex?: number) =>
+    post("/api/v1/transport/seek", songIndex !== undefined ? { seconds, songIndex } : { seconds }),
 };
 
 // Per-track peak-overview waveform data for the currently-staged song (see

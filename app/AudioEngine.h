@@ -104,10 +104,14 @@ public:
     void stop();
     bool isPlaying() const { return playing.load(std::memory_order_acquire); }
 
-    // Seeks the current song to `seconds` (clamped to [0, song length]).
-    // Restages streams so both forward and backward seeks are correct, then
-    // resumes playback if it was running. Message-thread only.
-    bool seekToSeconds(double seconds, std::string& error);
+    // Seeks to `seconds` (clamped to [0, target song length]) within
+    // `songIndex` -- defaults to the current song, but may target any other
+    // song, enabling cross-song scrub/seek. Restages streams so both forward
+    // and backward seeks are correct (StreamingTrackBuffer only
+    // fast-forwards), then resumes playback if it was running -- including
+    // across a song change, unlike selectSong()/goToSong() which always
+    // stops. Message-thread only.
+    bool seekToSeconds(double seconds, std::string& error, size_t songIndex = static_cast<size_t>(-1));
 
     // Message-thread-only: true when the audio thread finished a song in
     // AutoplayNext mode. Prefer consumeGaplessAdvance + switchToSongGapless.
@@ -169,6 +173,18 @@ public:
     // Rebuild global bus list after Builder adds/removes busses (message thread).
     void rebuildBussesFromProject();
     double currentSongLengthSeconds() const;
+
+    // Cumulative "whole project" position: sums every prior song's authored
+    // duration (regardless of whether it's ever been staged/played this
+    // session) plus the current song's elapsed position. Freezes on
+    // pause/stop exactly like clock.currentSeconds() does, since it's built
+    // directly on top of it. Message-thread-only (not audio-thread safe --
+    // walks proj.songs and touches the peak cache mutex).
+    double globalPlayheadSeconds() const;
+    // Same cumulative position expressed in quarter-note beats, applying each
+    // song's own bpm over its own span. Feeds both the UI's absolute
+    // bar|beat readout and CoreMidiDispatcher's Song Position Pointer.
+    double globalBeatsElapsed() const;
 
     // Imports a filesystem WAV into the open .rsnraset as Audio/<name>, points
     // the given song's track at it, rewrites the archive, reopens, restages
@@ -323,11 +339,38 @@ private:
     size_t currentSong = 0;
     int64_t currentSongLengthFrames = 0; // 0 = unknown/no tracks
 
+    // Region::durationSeconds == 0 means "full file", not zero seconds -- for
+    // that case the real length comes from the peak cache (same one
+    // cachedPeaksForFile()/ensureAllSongPeaksBuilt() maintain project-wide),
+    // not from raw region metadata. Returns 0.0 if that file hasn't been
+    // peak-built yet (global timeline readout catches up once it is).
+    double regionEffectiveDurationSeconds(const Region& r) const;
+    // A song's authored length = the furthest region end across its tracks.
+    double songAuthoredDurationSeconds(const SongDef& song) const;
+
     // Underrun micro-fade (spec: 128-sample fade-out on dropout, fade-in on recovery).
     static constexpr int kUnderrunFadeSamples = 128;
     int underrunFadeOutRemaining = 0;
     int recoveryFadeInRemaining = 0;
     bool lastCallbackWasUnderrun = false;
+
+    // Song-end fade-out: armed the moment the playhead reaches the end of the
+    // current song, but the actual transition (gapless advance / stop) is
+    // deferred until the 512-sample fade-out ramp has fully applied to real
+    // audio -- see the arm/commit split in audioDeviceIOCallbackWithContext().
+    // Audio-thread-owned only, like the underrun fade counters above.
+    enum class SongEndAction : uint8_t { None, GaplessAdvance, StopTransport };
+    static constexpr int kSongEndFadeSamples = 512;
+    SongEndAction pendingSongEndAction = SongEndAction::None;
+    size_t pendingSongEndTargetSong = static_cast<size_t>(-1);
+
+    // Message-thread-owned. Discriminates "the project's MIDI clock has
+    // never been started" from song-local playhead position, so play() can
+    // tell a genuine transport start (send MIDI Start/0xFA) apart from a
+    // resume-from-pause or seek-to-song-start (send MIDI Continue/0xFB
+    // instead) -- see AudioEngine::play()'s doc comment. Reset on every
+    // loadProject()/newProject().
+    bool midiClockEverStarted = false;
 
     // Audio-thread-only: the render callback returns immediately while
     // !playing, which otherwise means trackMeters/busMeters just keep

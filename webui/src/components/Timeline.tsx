@@ -1024,14 +1024,14 @@ export function Timeline({
 
     if (songIndex !== state.songIndex) {
       // A click landed in a different song's segment -- only act on
-      // release/click (never mid-drag), since selecting restages the song
-      // (heavier than a same-song seek, and mid-drag would restage repeatedly).
+      // release/click (never mid-drag), since restaging the song is heavier
+      // than a same-song seek and mid-drag would restage repeatedly. A
+      // single atomic seek(seconds, songIndex) call (rather than a separate
+      // select() + seek() pair) both avoids a round-trip race and preserves
+      // playback state across the boundary -- select() alone always stops.
       if (commit) {
         setPlayheadSec(localSeconds);
-        void (async () => {
-          await transport.select(songIndex);
-          await transport.seek(localSeconds);
-        })();
+        void transport.seek(localSeconds, songIndex);
       }
       return;
     }

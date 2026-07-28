@@ -819,6 +819,8 @@ std::string WebServer::buildStateJson() const {
       << "\"projectName\":\"" << jsonEscape(snap.projectName) << "\","
       << "\"songName\":\"" << jsonEscape(snap.songName) << "\","
       << "\"playheadSeconds\":" << finiteOrZero(snap.playheadSeconds) << ","
+      << "\"globalPlayheadSeconds\":" << finiteOrZero(snap.globalPlayheadSeconds) << ","
+      << "\"globalBeatsElapsed\":" << finiteOrZero(snap.globalBeatsElapsed) << ","
       << "\"sampleRate\":" << finiteOrZero(snap.sampleRate) << ","
       << "\"drift\":" << finiteOrZero(snap.driftFactor) << ","
       << "\"bpm\":" << finiteOrZero(snap.bpm) << ","

@@ -482,6 +482,41 @@ double AudioEngine::currentSongLengthSeconds() const {
     return static_cast<double>(currentSongLengthFrames) / currentSampleRate;
 }
 
+double AudioEngine::regionEffectiveDurationSeconds(const Region& r) const {
+    if (r.durationSeconds > 0.0)
+        return r.durationSeconds;
+    const PeakOverview* pk = cachedPeaksForFile(r.file);
+    return pk != nullptr ? pk->durationSeconds : 0.0;
+}
+
+double AudioEngine::songAuthoredDurationSeconds(const SongDef& song) const {
+    double maxEnd = 0.0;
+    for (const Region& r : song.regions)
+        maxEnd = std::max(maxEnd, r.startSeconds + regionEffectiveDurationSeconds(r));
+    return maxEnd;
+}
+
+double AudioEngine::globalPlayheadSeconds() const {
+    if (!projectLoaded || currentSong == static_cast<size_t>(-1))
+        return 0.0;
+    const Project& proj = loader.project();
+    double offset = 0.0;
+    for (size_t i = 0; i < currentSong && i < proj.songs.size(); ++i)
+        offset += songAuthoredDurationSeconds(proj.songs[i]);
+    return offset + clock.currentSeconds();
+}
+
+double AudioEngine::globalBeatsElapsed() const {
+    if (!projectLoaded || currentSong == static_cast<size_t>(-1) || currentSong >= loader.project().songs.size())
+        return 0.0;
+    const Project& proj = loader.project();
+    double beats = 0.0;
+    for (size_t i = 0; i < currentSong; ++i)
+        beats += songAuthoredDurationSeconds(proj.songs[i]) * (proj.songs[i].bpm / 60.0);
+    beats += clock.currentSeconds() * (proj.songs[currentSong].bpm / 60.0);
+    return beats;
+}
+
 void AudioEngine::ensureTrackMeters(size_t count) {
     trackMeters.resize(count);
     for (size_t i = 0; i < count; ++i) {
@@ -790,6 +825,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     trackScratch.clear();
     trackMeters.clear();
     projectLoaded = true;
+    midiClockEverStarted = false; // a new project's MIDI clock hasn't started yet -- next play() sends 0xFA, not 0xFB
     peakOverviewSessionCache.clear(); // different archive -- same file path could mean different audio
 
     // stop() above only freezes the playhead at wherever it was (so a normal
@@ -835,6 +871,7 @@ void AudioEngine::newProject(const std::string& name) {
 
     buildBusListFromProject();
     projectLoaded = true;
+    midiClockEverStarted = false;
 
     if (!loader.project().songs.empty()) {
         std::string err;
@@ -976,8 +1013,8 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
                                      bool gaplessKeepPlaying) {
     if (!gaplessKeepPlaying)
         stop();
-    else
-        midiDispatcher.stopClock();
+    // else: leave the MIDI clock running -- continuous across the gapless
+    // boundary; setClockBpm() below retunes it in place, no Stop/Start.
 
     if (!projectLoaded) {
         error = "No project loaded";
@@ -1067,7 +1104,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
         transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
         transportTelemetry.running.store(true, std::memory_order_relaxed);
-        midiDispatcher.startClock(song.bpm, SystemMonotonicClock{}.nowNanos());
+        midiDispatcher.setClockBpm(song.bpm); // smooth retune, no phase reset/Stop/Start
     } else {
 
         clock.stop();
@@ -1132,8 +1169,20 @@ void AudioEngine::play() {
     clock.start(currentSampleRate, startSample);
 
     const Project& proj = loader.project();
-    if (currentSong < proj.songs.size())
-        midiDispatcher.startClock(proj.songs[currentSong].bpm, SystemMonotonicClock{}.nowNanos());
+    if (currentSong < proj.songs.size()) {
+        const double bpm = proj.songs[currentSong].bpm;
+        // First transport start this project -> MIDI Start (0xFA), fresh
+        // phase. Every later play() (resume from pause/stop, anywhere in the
+        // project) -> MIDI Continue (0xFB), preserving phase -- deliberately
+        // NOT keyed on `startSample <= 0`, since seeking to the very start of
+        // e.g. song 3 mid-project must not look like a whole-set restart.
+        if (!midiClockEverStarted) {
+            midiDispatcher.startClock(bpm, SystemMonotonicClock{}.nowNanos());
+            midiClockEverStarted = true;
+        } else {
+            midiDispatcher.continueClock(bpm);
+        }
+    }
 
     playing.store(true, std::memory_order_release);
 }
@@ -1154,19 +1203,23 @@ void AudioEngine::stop() {
     transportTelemetry.running.store(false, std::memory_order_relaxed);
 }
 
-bool AudioEngine::seekToSeconds(double seconds, std::string& error) {
+bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songIndex) {
     if (!projectLoaded || currentSong == static_cast<size_t>(-1)) {
         error = "No song selected";
         return false;
     }
 
     const bool wasPlaying = playing.load(std::memory_order_acquire);
-    const size_t songIndex = currentSong;
+    const size_t targetSong = (songIndex == static_cast<size_t>(-1)) ? currentSong : songIndex;
+    if (targetSong >= loader.project().songs.size()) {
+        error = "Song index out of range";
+        return false;
+    }
 
-    // Restage from the start of the song so the disk stream can catch up to
-    // any absolute position (StreamingTrackBuffer only fast-forwards).
+    // Restage from the start of the target song so the disk stream can catch
+    // up to any absolute position (StreamingTrackBuffer only fast-forwards).
     // Do not re-fire on_load MIDI/PC — seek is not a song change.
-    if (!selectSong(songIndex, error, /*fireOnLoadEvents=*/false))
+    if (!selectSong(targetSong, error, /*fireOnLoadEvents=*/false))
         return false;
 
     double maxSec = currentSongLengthSeconds();
@@ -1177,8 +1230,8 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error) {
 
     // Mark past events as already fired so seek doesn't re-trigger them.
     const Project& proj = loader.project();
-    if (songIndex < proj.songs.size()) {
-        const SongDef& song = proj.songs[songIndex];
+    if (targetSong < proj.songs.size()) {
+        const SongDef& song = proj.songs[targetSong];
         eventFiredFlags.assign(song.events.size(), 0);
         for (size_t i = 0; i < song.events.size(); ++i) {
             const TimelineEvent& ev = song.events[i];
@@ -1195,8 +1248,22 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error) {
     transportTelemetry.playheadSeconds.store(seconds, std::memory_order_relaxed);
 
     if (wasPlaying) {
-        if (songIndex < proj.songs.size())
-            midiDispatcher.startClock(proj.songs[songIndex].bpm, SystemMonotonicClock{}.nowNanos());
+        if (targetSong < proj.songs.size()) {
+            // Seeking is a relocate, not a fresh transport start: tell
+            // followers the new absolute position via Song Position Pointer
+            // (in MIDI-beats/16th-notes since Start, driven by the GLOBAL
+            // cumulative position, not this song's local position -- see
+            // globalBeatsElapsed()'s doc comment), then Continue (not Start)
+            // so phase-since-Start isn't reset. selectSong() above already
+            // went through stop() -> midiDispatcher.stopClock() (0xFC), so
+            // the net wire sequence for a seek-while-playing is the standard
+            // Stop -> SPP -> Continue.
+            const double globalBeats = globalBeatsElapsed();
+            const long long sixteenths = std::llround(globalBeats * 4.0); // SPP unit = 16th notes
+            const uint16_t midiBeats16 = static_cast<uint16_t>(std::clamp<long long>(sixteenths, 0, 16383));
+            midiDispatcher.sendSongPositionPointer(midiBeats16);
+            midiDispatcher.continueClock(proj.songs[targetSong].bpm);
+        }
         playing.store(true, std::memory_order_release);
         transportTelemetry.running.store(true, std::memory_order_relaxed);
     } else {
@@ -1417,23 +1484,29 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         fireDueEvents(song, blockStartSeconds, blockEndSeconds, hostTimeNanos);
 
         if (currentSongLengthFrames > 0 && playheadSample >= currentSongLengthFrames) {
-            midiDispatcher.stopClock();
-            if (song.playbackMode == PlaybackMode::AutoplayNext && currentSong + 1 < proj.songs.size()) {
-                // Gapless path: freeze clock at end, keep PLAYING flag, ask the
-                // message thread to promote the precached next song immediately.
-                clock.stop();
-                pendingGaplessSong.store(static_cast<int>(currentSong + 1), std::memory_order_release);
-                autoAdvancePending.store(true, std::memory_order_release); // legacy alias
-            } else {
-                playing.store(false, std::memory_order_release);
-                clock.stop();
+            // Arm phase only -- do NOT return here. The actual transition
+            // (gapless advance / stop) is deferred to the commit phase below,
+            // once the fade-out ramp has fully applied to real audio (see
+            // AudioEngine.h's SongEndAction doc comment). Falling through to
+            // the normal Pass 1-3 mixing below is safe at any point past the
+            // song's end: StreamingTrackBuffer::read() always returns silence
+            // once a track is exhausted, since trackScratch is .clear()-ed
+            // before every read() call.
+            if (pendingSongEndAction == SongEndAction::None) {
+                if (underrunFadeOutRemaining <= 0)
+                    underrunFadeOutRemaining = kSongEndFadeSamples;
+                pendingSongEndAction = (song.playbackMode == PlaybackMode::AutoplayNext
+                                         && currentSong + 1 < proj.songs.size())
+                                            ? SongEndAction::GaplessAdvance
+                                            : SongEndAction::StopTransport;
+                pendingSongEndTargetSong = currentSong + 1;
             }
-            if (underrunFadeOutRemaining <= 0) {
-                underrunFadeOutRemaining = 512;
-            }
-            return;
+        } else {
+            // Playhead is back within bounds (new song staged, resumed from
+            // 0, seek) -- self-heal so a later end-of-song replay re-arms
+            // correctly instead of being stuck from a stale prior pass.
+            pendingSongEndAction = SongEndAction::None;
         }
-
     }
 
     // Pass 1: pull this block's audio from each track's stream exactly once
@@ -1602,6 +1675,25 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
+    // Commit phase: only once the song-end fade-out ramp has fully applied to
+    // real audio (armed above) do we actually perform the transition. This
+    // guarantees the ramp is never truncated regardless of audio buffer size.
+    if (pendingSongEndAction != SongEndAction::None && underrunFadeOutRemaining == 0) {
+        if (pendingSongEndAction == SongEndAction::GaplessAdvance) {
+            // Freeze clock at end, keep PLAYING flag, ask the message thread
+            // to promote the precached next song immediately. Deliberately no
+            // MIDI call here: the clock keeps ticking continuously through a
+            // gapless transition; tempo is retuned in place afterward.
+            clock.stop();
+            pendingGaplessSong.store(static_cast<int>(pendingSongEndTargetSong), std::memory_order_release);
+            autoAdvancePending.store(true, std::memory_order_release); // legacy alias
+        } else {
+            midiDispatcher.stopClock();
+            playing.store(false, std::memory_order_release);
+            clock.stop();
+        }
+        pendingSongEndAction = SongEndAction::None;
+    }
 }
 
 void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,

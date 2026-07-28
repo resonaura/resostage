@@ -125,6 +125,11 @@ struct WebUiState {
     std::string projectName;
     std::string songName;
     double playheadSeconds = 0.0;
+    // Cumulative whole-project position (AudioEngine::globalPlayheadSeconds/
+    // globalBeatsElapsed) -- unlike playheadSeconds above, this does not
+    // reset at song boundaries. Freezes on pause/stop like playheadSeconds does.
+    double globalPlayheadSeconds = 0.0;
+    double globalBeatsElapsed = 0.0;
     double sampleRate = 48000.0;
     double driftFactor = 1.0;
     double bpm = 0.0;

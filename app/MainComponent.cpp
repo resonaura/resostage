@@ -577,6 +577,8 @@ void MainComponent::publishWebState() {
     const auto health = engine.health().sample();
 
     state.playheadSeconds = transport.playheadSeconds.load(std::memory_order_relaxed);
+    state.globalPlayheadSeconds = engine.globalPlayheadSeconds();
+    state.globalBeatsElapsed = engine.globalBeatsElapsed();
     state.sampleRate = transport.sampleRate.load(std::memory_order_relaxed);
     state.driftFactor = transport.driftFactor.load(std::memory_order_relaxed);
     state.playing = transport.running.load(std::memory_order_relaxed);
