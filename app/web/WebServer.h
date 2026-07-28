@@ -44,6 +44,11 @@ enum class WebCommandKind : uint8_t {
     // (turning a knob up from its floor implicitly creates the send). Always
     // targets engine.currentSongIndex(), same as the other mixer commands.
     SetTrackSend,
+    // Actually erases a track's TrackSendDef for a bus (as opposed to
+    // SetTrackSend'ing its gain down to the UI's floor, which leaves the
+    // send record in place) -- `json` carries {trackIndex, busId}. See
+    // AudioEngine::removeTrackSend()/MainComponent::removeTrackSendFromJson().
+    RemoveTrackSend,
     // Project lifecycle parity -- see app/web/WebServer.cpp's
     // isMixerCommandPath-style routing and MainComponent::drainWebCommands().
     // New/OpenLoadDialog/SaveProject/SaveProjectAs just call the exact same
@@ -108,6 +113,10 @@ enum class WebCommandKind : uint8_t {
     // own doc comment gives (seek restages the song, so hammering it on
     // every mouse-move would be wasteful).
     Seek,
+    // Answers the in-webview "Unsaved Changes" quit prompt (see
+    // WebUiState::quitConfirmPending / MainComponent::confirmQuitIfUnsaved).
+    // `arg`: 0 = Cancel, 1 = Save, 2 = Don't Save.
+    QuitDecision,
 };
 
 struct WebCommand {
@@ -154,6 +163,10 @@ struct WebUiState {
     // import. The web UI disables Builder edits while this is set, same as
     // the native BusyOverlay blocking all input.
     bool busy = false;
+    // True while MainComponent::confirmQuitIfUnsaved() is waiting on the
+    // user's Save/Don't Save/Cancel answer -- the web UI shows a ConfirmDialog
+    // and replies with WebCommandKind::QuitDecision.
+    bool quitConfirmPending = false;
 
     struct SongRow {
         std::string name;

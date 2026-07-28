@@ -1143,11 +1143,28 @@ void BuilderPanel::removeItem() {
                 return; // keep at least one bus
             const std::string removedId = proj.busses[static_cast<size_t>(selectedItemRow)].id;
             proj.busses.erase(proj.busses.begin() + selectedItemRow);
-            // Retarget tracks that pointed at the removed bus.
+            // Retarget tracks that pointed at the removed bus, and drop any
+            // TrackSendDef/click-send that depended on it -- otherwise those
+            // rows dangle on a bus id that no longer exists (harmless to the
+            // audio engine, which skips unresolvable send bus ids, but dead
+            // weight in the project and a send the UI could never turn back
+            // on). Mirrors MainComponent::builderBusRemove() (the web-command
+            // equivalent of this same list action).
             const std::string fallback = proj.busses.front().id;
-            for (auto& tr : proj.tracks)
+            auto dropsRemovedSend = [&removedId](const TrackSendDef& s) { return s.busId == removedId; };
+            for (auto& tr : proj.tracks) {
                 if (tr.busId == removedId)
                     tr.busId = fallback;
+                tr.sends.erase(std::remove_if(tr.sends.begin(), tr.sends.end(), dropsRemovedSend),
+                                tr.sends.end());
+            }
+            for (auto& song : proj.songs) {
+                if (song.builtInClickBusId == removedId)
+                    song.builtInClickBusId = fallback;
+                song.builtInClickSends.erase(
+                    std::remove_if(song.builtInClickSends.begin(), song.builtInClickSends.end(), dropsRemovedSend),
+                    song.builtInClickSends.end());
+            }
             selectedItemRow = std::min(selectedItemRow, static_cast<int>(proj.busses.size()) - 1);
             break;
         }

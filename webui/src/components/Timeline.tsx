@@ -1618,13 +1618,25 @@ export function Timeline({
     // Empty-lane click (regions stopPropagation) clears region selection.
     if (!readOnly) setSelectedRegionKeys([]);
     dragging.current = true;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    // Capture on currentTarget (the stable element the handler is bound to),
+    // not e.target -- capturing a transient child (a region block, a ruler
+    // tick) that later unmounts mid-drag silently ends the capture without
+    // ever firing pointerup, leaving dragging.current stuck true so plain
+    // mouse hover afterwards kept dragging the playhead.
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     // Optimistic needle only on down -- committing a full seek here AND on
     // pointerup caused a stop→play blip (audio for 1ms, silence, then play).
     seekFromClientX(e.clientX, false);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return;
+    // Defensive: if the button was released without us seeing pointerup
+    // (lost capture, event swallowed elsewhere), stop dragging instead of
+    // following mere hover.
+    if (e.buttons === 0) {
+      dragging.current = false;
+      return;
+    }
     seekFromClientX(e.clientX, false);
   };
   const onPointerUp = (e: React.PointerEvent) => {
@@ -1632,6 +1644,9 @@ export function Timeline({
     dragging.current = false;
     // Single commit on release.
     seekFromClientX(e.clientX, true);
+  };
+  const onPointerCancelOrLost = () => {
+    dragging.current = false;
   };
 
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
@@ -1691,42 +1706,42 @@ export function Timeline({
   ]);
 
   const currentSongIdx = state.songIndex >= 0 ? state.songIndex : 0;
-  const currentSongOffset = songOffsets[currentSongIdx] ?? 0;
-  const currentSongDuration = songLengths[currentSongIdx] ?? 120;
-  // Song-local readout for the badge -- derived from the single absolute clock.
-  const playheadSec = Math.max(
-    0,
-    Math.min(playheadAbsoluteSec - currentSongOffset, currentSongDuration),
-  );
 
   const prevSongIdxRef = useRef(currentSongIdx);
 
-  // Auto-scroll timeline to keep playhead in view during playback or on song change
+  // Auto-scroll timeline to keep playhead in view -- ONLY while actually
+  // playing. A user-driven scrub/drag (or a song switch while paused) moves
+  // playheadAbsoluteSec/currentSongIdx too, but must never yank the user's
+  // scroll position out from under them; only live playback earns that.
   useEffect(() => {
+    if (!state.playing) {
+      // Keep the song-change tracker current so resuming playback right
+      // after a paused song switch doesn't read as a stale transition.
+      prevSongIdxRef.current = currentSongIdx;
+      return;
+    }
     if (!scrollRef.current) return;
     const scroller = scrollRef.current;
     const playheadPx = playheadAbsoluteSec * pxPerSec;
     const currentLeft = scroller.scrollLeft;
     const viewWidth = scroller.clientWidth || 1000;
 
-    if (state.playing || prevSongIdxRef.current !== currentSongIdx) {
-      const songChanged = prevSongIdxRef.current !== currentSongIdx;
-      prevSongIdxRef.current = currentSongIdx;
-      const rightMargin = 120;
-      const leftMargin = 40;
+    const songChanged = prevSongIdxRef.current !== currentSongIdx;
+    prevSongIdxRef.current = currentSongIdx;
+    const rightMargin = 120;
+    const leftMargin = 40;
 
-      if (
-        songChanged ||
-        playheadPx > currentLeft + viewWidth - rightMargin ||
-        playheadPx < currentLeft + leftMargin
-      ) {
-        const targetLeft = Math.max(0, playheadPx - viewWidth * 0.25);
-        scroller.scrollLeft = targetLeft;
-        setScrollState({
-          scrollLeft: targetLeft,
-          viewportWidth: viewWidth,
-        });
-      }
+    if (
+      songChanged ||
+      playheadPx > currentLeft + viewWidth - rightMargin ||
+      playheadPx < currentLeft + leftMargin
+    ) {
+      const targetLeft = Math.max(0, playheadPx - viewWidth * 0.25);
+      scroller.scrollLeft = targetLeft;
+      setScrollState({
+        scrollLeft: targetLeft,
+        viewportWidth: viewWidth,
+      });
     }
   }, [
     state.playing,
@@ -1961,6 +1976,8 @@ export function Timeline({
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
+                onPointerCancel={onPointerCancelOrLost}
+                onLostPointerCapture={onPointerCancelOrLost}
               >
                 {songs.map((song, i) => {
                   const left = Math.round(songOffsets[i] * pxPerSec);
@@ -2009,6 +2026,8 @@ export function Timeline({
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
+                onPointerCancel={onPointerCancelOrLost}
+                onLostPointerCapture={onPointerCancelOrLost}
               >
                 <div className="relative" style={{ width: contentWidth }}>
                   {songs.flatMap((song, i) =>
@@ -2046,6 +2065,8 @@ export function Timeline({
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
+                onPointerCancel={onPointerCancelOrLost}
+                onLostPointerCapture={onPointerCancelOrLost}
               >
                 {/* Beat/bar vertical grid canvas, per song (Viewport Sliced) */}
                 {songs.map((song, i) => (
@@ -2114,20 +2135,18 @@ export function Timeline({
                         );
                         if (trackRegions.length === 0) return null;
 
+                        // Per-region entries (allPeaks) are keyed by region
+                        // id; the coarser per-track fallback (peaks, used
+                        // only for the staged song before allPeaks arrives)
+                        // is keyed by track id and shared across a track's
+                        // regions. Resolved per-region below so a track with
+                        // more than one region (e.g. after a split) doesn't
+                        // have every region but one render the wrong -- or
+                        // no -- waveform.
                         const peaksForSong =
                           allPeaks?.songs[i]?.tracks ??
                           (i === state.songIndex ? peaks?.tracks : undefined);
-                        const peakEntry = peaksForSong?.find(
-                          (p) =>
-                            (p as { trackId?: string }).trackId === track?.id ||
-                            p.id === track?.id ||
-                            trackRegions.some((r) => p.id === r.id),
-                        );
                         const segDuration = songLengths[i];
-                        const primary = trackRegions[0];
-                        const peaksLoading =
-                          Boolean(primary?.file) &&
-                          (!peakEntry || peakEntry.levels.length === 0);
 
                         const snapSec = (sec: number) => {
                           if (!snapToGrid || song.bpm <= 0) return sec;
@@ -2150,10 +2169,16 @@ export function Timeline({
                           };
                         };
 
-                        const fileDuration =
-                          peakEntry?.durationSeconds ??
-                          primary?.durationSeconds ??
-                          segDuration;
+                        const peakEntryFor = (r: RegionRow) =>
+                          peaksForSong?.find((p) => {
+                            const withTrackId = p as { trackId?: string };
+                            // allPeaks entries carry trackId and are keyed
+                            // by region id; match this exact region.
+                            if (withTrackId.trackId !== undefined)
+                              return p.id === r.id;
+                            // peaks fallback is keyed by track id only.
+                            return p.id === track?.id;
+                          });
 
                         return (
                           <div
@@ -2175,6 +2200,15 @@ export function Timeline({
                                 8,
                                 geom.duration * pxPerSec,
                               );
+
+                              const peakEntry = peakEntryFor(songRegion);
+                              const peaksLoading =
+                                Boolean(songRegion.file) &&
+                                (!peakEntry || peakEntry.levels.length === 0);
+                              const fileDuration =
+                                peakEntry?.durationSeconds ??
+                                songRegion.durationSeconds ??
+                                segDuration;
 
                               // Viewport slice relative to this region box
                               // (peaks are drawn only inside the clipped region).
@@ -2458,7 +2492,7 @@ export function Timeline({
                 )}
               </div>
 
-              {/* 4. Sticky Playhead (Handle badge sits stickily on Ruler, needle spans full height) */}
+              {/* 4. Sticky Playhead (Handle triangle sits stickily on Ruler, needle spans full height) */}
               <div
                 className="pointer-events-none absolute top-0 z-30 flex flex-col items-center bottom-0"
                 style={{
@@ -2466,19 +2500,20 @@ export function Timeline({
                   transform: "translateX(-50%)",
                 }}
               >
-                {/* Sticky Playhead Handle badge resting on Ruler */}
+                {/* Sticky Playhead Handle resting on Ruler */}
                 <div
                   className="sticky top-0 z-30 pointer-events-auto flex flex-col items-center cursor-col-resize select-none -mt-0.5"
                   onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerCancelOrLost}
+                  onLostPointerCapture={onPointerCancelOrLost}
                 >
-                  <div className="flex items-center justify-center rounded bg-danger px-1 py-0.5 text-[9px] font-mono font-bold text-white shadow-md">
-                    {formatTimeShort(playheadSec)}
-                  </div>
-                  <div className="-mt-[3px] h-2 w-2 rotate-45 bg-danger" />
+                  <div className="h-2 w-2 rotate-45 bg-[#fff]" />
                 </div>
 
-                {/* Red playhead needle extending through the entire height */}
-                <div className="flex-1 w-[1.5px] bg-danger shadow-[0_0_4px_rgba(255,59,48,0.6)]" />
+                {/* Playhead needle extending through the entire height */}
+                <div className="flex-1 w-[1.5px] bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
               </div>
             </div>
           </div>

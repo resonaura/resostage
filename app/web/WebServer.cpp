@@ -261,6 +261,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/settings/output-channels", WebCommandKind::SetOutputChannels},
     {"/api/v1/transport/seek", WebCommandKind::Seek},
     {"/api/v1/mixer/track/send", WebCommandKind::SetTrackSend},
+    {"/api/v1/mixer/track/send/remove", WebCommandKind::RemoveTrackSend},
 };
 
 bool builderCommandKindForPath(const char* path, WebCommandKind& outKind) {
@@ -836,7 +837,8 @@ std::string WebServer::buildStateJson() const {
       << "\"songIndex\":" << snap.songIndex << ","
       << "\"songCount\":" << snap.songCount << ","
       << "\"statusMessage\":\"" << jsonEscape(snap.statusMessage) << "\","
-      << "\"busy\":" << (snap.busy ? "true" : "false") << ",";
+      << "\"busy\":" << (snap.busy ? "true" : "false") << ","
+      << "\"quitConfirmPending\":" << (snap.quitConfirmPending ? "true" : "false") << ",";
 
     o << "\"songs\":[";
     for (size_t i = 0; i < snap.songs.size(); ++i) {
@@ -1076,6 +1078,14 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     } else if (std::strcmp(path, "/api/v1/project/export") == 0) {
         beginExport();
         cmd = {WebCommandKind::ExportProjectForDownload, 0};
+    } else if (std::strcmp(path, "/api/v1/project/quit-decision") == 0) {
+        const int choice = parseSelectIndex(body, bodyLen);
+        if (choice < 0) {
+            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
+                              "{\"error\":\"missing index\"}", 28);
+            return true;
+        }
+        cmd = {WebCommandKind::QuitDecision, choice};
     } else if (WebCommandKind builderKind; builderCommandKindForPath(path, builderKind)) {
         if (builderKind == WebCommandKind::BuilderTrackImportWavBegin) {
             const std::string s(body, bodyLen);

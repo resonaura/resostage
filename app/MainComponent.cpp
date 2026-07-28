@@ -416,6 +416,7 @@ void MainComponent::drainWebCommands() {
                 engine.setBusSolo(idx, cmd.value != 0.0);
                 break;
             case WebCommandKind::SetTrackSend: setTrackSendFromJson(cmd.json); break;
+            case WebCommandKind::RemoveTrackSend: removeTrackSendFromJson(cmd.json); break;
             // Project lifecycle parity -- see WebCommandKind's doc comment.
             // New/Load-dialog/Save/Save-As go through the exact same methods
             // the native top-bar buttons call; any native dialog they pop
@@ -522,6 +523,9 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetOutputChannels: settingsSetOutputChannels(cmd.json); break;
             // Timeline parity -- see MainComponentTimeline.cpp.
             case WebCommandKind::Seek: transportSeek(cmd.json); break;
+            // Answers the in-webview "Unsaved Changes" dialog raised by
+            // confirmQuitIfUnsaved() below (arg: 0=Cancel, 1=Save, 2=Don't Save).
+            case WebCommandKind::QuitDecision: handleQuitDecision(cmd.arg); break;
         }
     }
 }
@@ -532,32 +536,35 @@ void MainComponent::confirmQuitIfUnsaved(std::function<void(bool)> onDecision) {
         return;
     }
 
-    juce::String projectName = juce::String(engine.project().name);
-    if (projectName.isEmpty())
-        projectName = "Untitled Project";
+    // Ask inside the webview (React ConfirmDialog) rather than a native
+    // AlertWindow -- the web UI is the single primary surface now, so switch
+    // to it if some other native tab happened to be showing. publishWebState()
+    // mirrors awaitingQuitDecision as WebUiState::quitConfirmPending; the
+    // answer comes back as WebCommandKind::QuitDecision, handled below in
+    // handleQuitDecision().
+    setMode(Mode::Web);
+    awaitingQuitDecision = true;
+    pendingQuitDecision = std::move(onDecision);
+    publishWebState();
+}
 
-    juce::AlertWindow::showAsync(
-        juce::MessageBoxOptions()
-            .withIconType(juce::MessageBoxIconType::WarningIcon)
-            .withTitle("Unsaved Changes")
-            .withMessage("Do you want to save changes to '" + projectName + "' before quitting?")
-            .withButton("Save")
-            .withButton("Don't Save")
-            .withButton("Cancel")
-            .withAssociatedComponent(this),
-        [this, onDecision](int choice) {
-            if (choice == 1) { // Save
-                saveProjectClicked(engine.isDraftProject(), [this, onDecision](bool ok) {
-                    if (ok) engine.clearDirty();
-                    if (onDecision) onDecision(ok);
-                });
-            } else if (choice == 2) { // Don't Save
-                if (onDecision) onDecision(true);
-            } else { // Cancel
-                if (onDecision) onDecision(false);
-            }
-        }
-    );
+void MainComponent::handleQuitDecision(int choice) {
+    if (!awaitingQuitDecision)
+        return;
+    awaitingQuitDecision = false;
+    auto onDecision = std::move(pendingQuitDecision);
+    pendingQuitDecision = nullptr;
+
+    if (choice == 1) { // Save
+        saveProjectClicked(engine.isDraftProject(), [this, onDecision](bool ok) {
+            if (ok) engine.clearDirty();
+            if (onDecision) onDecision(ok);
+        });
+    } else if (choice == 2) { // Don't Save
+        if (onDecision) onDecision(true);
+    } else { // Cancel
+        if (onDecision) onDecision(false);
+    }
 }
 
 void MainComponent::checkAndOfferAutosaveRecovery() {
@@ -624,6 +631,7 @@ void MainComponent::publishWebState() {
                           : static_cast<int>(engine.currentSongIndex());
     state.statusMessage = statusLabel.getText().toStdString();
     state.busy = engine.isBusy();
+    state.quitConfirmPending = awaitingQuitDecision;
 
     state.songs.reserve(proj.songs.size());
     for (const SongDef& song : proj.songs) {

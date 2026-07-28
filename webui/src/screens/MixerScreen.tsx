@@ -1,7 +1,11 @@
 import { ScrollShadow, Slider } from "@heroui/react";
-import { AnimatePresence, motion } from "framer-motion";
 import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import {
+  ContextMenu,
+  ContextMenuDivider,
+  ContextMenuItem,
+} from "../components/ContextMenu";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { builder, mixer } from "../lib/api";
 import { useLiveValue } from "../lib/optimistic";
@@ -145,6 +149,52 @@ function GainFader({
   );
 }
 
+function formatDbReadout(v: number): string {
+  if (v <= -100) return "-inf";
+  return v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1);
+}
+
+// Logic Pro-style channel-strip readout: fader value on the left (plain,
+// static), held peak on the right. The peak box latches red and keeps the
+// loudest value seen -- forever, unlike the meter's own quick-decaying peak
+// needle -- until clicked, which takes the box back to showing the current
+// live level (and re-latches on the next clip). Same "click to clear"
+// convention as LevelMeterBar's own clip band.
+function GainPeakReadout({ gainDb, peakDb }: { gainDb: number; peakDb: number }) {
+  const [heldPeak, setHeldPeak] = useState(peakDb);
+  const heldRef = useRef(heldPeak);
+  heldRef.current = heldPeak;
+
+  useEffect(() => {
+    if (peakDb > heldRef.current) setHeldPeak(peakDb);
+  }, [peakDb]);
+
+  const clipped = heldPeak > 0;
+
+  return (
+    <div className="flex w-full gap-1 text-[10px] font-mono font-semibold tabular-nums">
+      <div
+        className="flex-1 rounded bg-black/40 px-1 py-0.5 text-center text-foreground/80"
+        title="Fader value"
+      >
+        {formatDbReadout(gainDb)}
+      </div>
+      <button
+        type="button"
+        onClick={() => setHeldPeak(peakDb)}
+        title="Peak hold (dB) — click to show current level"
+        className={`flex-1 rounded px-1 py-0.5 text-center transition-colors ${
+          clipped
+            ? "bg-danger text-white"
+            : "bg-black/40 text-foreground/80 hover:bg-black/55"
+        }`}
+      >
+        {formatDbReadout(heldPeak)}
+      </button>
+    </div>
+  );
+}
+
 function Knob({
   value,
   min,
@@ -264,6 +314,7 @@ function SendArcKnob({
   busColor,
   title,
   onChange,
+  onContextMenu,
 }: {
   value: number;
   min?: number;
@@ -271,6 +322,7 @@ function SendArcKnob({
   busColor: string;
   title?: string;
   onChange: (val: number) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const [localValue, setLocalValue] = useState(value);
   const dragging = useRef(false);
@@ -341,6 +393,7 @@ function SendArcKnob({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onContextMenu={onContextMenu}
       onDoubleClick={() => {
         setLocalValue(SEND_FLOOR_DB);
         onChange(SEND_FLOOR_DB);
@@ -402,12 +455,24 @@ function SendKnobs({
   sends,
   trackIndex,
   onSendChange,
+  onRemoveSend,
 }: {
   auxBusses: BusRow[];
   sends: { busId: string; gainDb: number }[];
   trackIndex: number;
   onSendChange?: (busId: string, gainDb: number) => void;
+  // Real per-track sends only (see mixer.removeTrackSend) -- click sends
+  // (onSendChange set) are a different, song-scoped structure with their own
+  // `enabled` flag instead of true removal, so this stays undefined there.
+  onRemoveSend?: (busId: string) => void;
 }) {
+  const [removeMenu, setRemoveMenu] = useState<{
+    x: number;
+    y: number;
+    busId: string;
+    busName: string;
+  } | null>(null);
+
   if (auxBusses.length === 0) return null;
   return (
     <div className="flex w-full flex-col gap-1 border-t border-default/20 py-1">
@@ -430,16 +495,47 @@ function SendKnobs({
               min={SEND_FLOOR_DB}
               max={6}
               busColor="rgba(255,255,255,0.9)"
-              title={`Send to ${bus.name || bus.id}`}
+              title={`Send to ${bus.name || bus.id} (right-click to remove)`}
               onChange={(v) =>
                 onSendChange
                   ? onSendChange(bus.id, v)
                   : mixer.setTrackSend(trackIndex, bus.id, v)
               }
+              onContextMenu={
+                onRemoveSend && existing
+                  ? (e) => {
+                      e.preventDefault();
+                      setRemoveMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        busId: bus.id,
+                        busName: bus.name || bus.id,
+                      });
+                    }
+                  : undefined
+              }
             />
           </div>
         );
       })}
+      {removeMenu && onRemoveSend && (
+        <ContextMenu
+          x={removeMenu.x}
+          y={removeMenu.y}
+          width={150}
+          onClose={() => setRemoveMenu(null)}
+        >
+          <ContextMenuItem
+            danger
+            onClick={() => {
+              onRemoveSend(removeMenu.busId);
+              setRemoveMenu(null);
+            }}
+          >
+            Remove Send to {removeMenu.busName}
+          </ContextMenuItem>
+        </ContextMenu>
+      )}
     </div>
   );
 }
@@ -754,6 +850,7 @@ function ChannelStrip({
     values: { busId: string; gainDb: number }[];
     trackIndex: number;
     onSendChange?: (busId: string, gainDb: number) => void;
+    onRemoveSend?: (busId: string) => void;
   };
   // Mono/stereo toggle + Master-vs-Direct-Output routing. Bus strips only
   // (every bus except Master -- see BusDestinationRouting).
@@ -771,7 +868,6 @@ function ChannelStrip({
   onMute: () => void;
   onSolo: () => void;
 }) {
-  const formatDb = (v: number) => (v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1));
   const formatPan = (p: number) => {
     if (Math.abs(p) < 0.05) return "C";
     if (p < 0) return `L${Math.round(-p * 100)}`;
@@ -859,6 +955,15 @@ function ChannelStrip({
         <div className="h-2" />
       )}
 
+      {/* Gain / Peak readout (Logic-style pair: fader value left, held peak
+          right -- right box latches red and holds the loudest peak seen
+          until clicked, same "click to clear" convention as the meter's own
+          clip latch). Sits above the fader + meter, mirrors Logic Pro. */}
+      <GainPeakReadout
+        gainDb={gainDb}
+        peakDb={Math.max(peakDbL ?? peakDb ?? -100, peakDbR ?? peakDb ?? -100)}
+      />
+
       {/* Fader & Meter Section */}
       <div className="flex min-h-0 flex-1 items-center justify-center gap-2 py-2">
         <GainFader gainDb={gainDb} accent={color} onChange={onGain} />
@@ -871,11 +976,6 @@ function ChannelStrip({
           showValue={false}
           barClassName="h-full w-1.5"
         />
-      </div>
-
-      {/* Gain readout */}
-      <div className="text-[10px] font-mono text-foreground/70 font-medium mb-1">
-        {formatDb(gainDb)} dB
       </div>
 
       {/* Mute & Solo buttons */}
@@ -899,6 +999,7 @@ function ChannelStrip({
           sends={sends.values}
           trackIndex={sends.trackIndex}
           onSendChange={sends.onSendChange}
+          onRemoveSend={sends.onRemoveSend}
         />
       )}
     </div>
@@ -948,7 +1049,12 @@ function TrackStrip({
         onMonoChange: (m) => void mixer.setTrackMono(index, m),
         onDirectOutput: (mono, ch) => onDirectOutput(index, mono, ch),
       }}
-      sends={{ auxBusses, values: t.sends, trackIndex: index }}
+      sends={{
+        auxBusses,
+        values: t.sends,
+        trackIndex: index,
+        onRemoveSend: (busId) => void mixer.removeTrackSend(index, busId),
+      }}
       gainDb={t.gainDb ?? 0}
       pan={t.pan ?? 0}
       peakDb={peakDb}
@@ -1136,33 +1242,6 @@ interface TrackMenuState {
   index: number;
 }
 
-function MenuItem({
-  children,
-  danger = false,
-  disabled = false,
-  onClick,
-}: {
-  children: React.ReactNode;
-  danger?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`flex w-full items-center px-3 py-1.5 text-left transition-colors disabled:opacity-30 disabled:cursor-default ${
-        danger
-          ? "text-danger hover:bg-danger/10"
-          : "text-foreground/80 hover:bg-default/20"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 // Right-click menu for a mixer track strip. Everything here is backed by
 // APIs that already exist (builder.trackMove/trackUpdate/trackRemove,
 // mixer.setTrack*) -- no new backend routes needed. Rename uses an inline
@@ -1208,129 +1287,93 @@ function TrackContextMenu({
   };
 
   return (
-    <>
-      <div
-        className="fixed inset-0 z-40"
-        onClick={onClose}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          onClose();
-        }}
-      />
-      <AnimatePresence>
-        <motion.div
-          key="track-ctx-menu"
-          initial={{ opacity: 0, scale: 0.94, y: -4 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.94 }}
-          transition={{ duration: 0.12, ease: "easeOut" }}
-          className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
-          ref={(el) => {
-            if (!el) return;
-            // Keep menu fully visible inside the webview viewport.
-            const pad = 8;
-            const r = el.getBoundingClientRect();
-            let x = menu.x;
-            let y = menu.y;
-            if (x + r.width > window.innerWidth - pad)
-              x = Math.max(pad, window.innerWidth - r.width - pad);
-            if (y + r.height > window.innerHeight - pad)
-              y = Math.max(pad, window.innerHeight - r.height - pad);
-            if (x < pad) x = pad;
-            if (y < pad) y = pad;
-            el.style.left = `${x}px`;
-            el.style.top = `${y}px`;
+    <ContextMenu x={menu.x} y={menu.y} onClose={onClose}>
+      {renaming ? (
+        <form
+          className="px-2 py-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            commitRename();
           }}
-          style={{ left: menu.x, top: menu.y }}
         >
-          {renaming ? (
-            <form
-              className="px-2 py-1.5"
-              onSubmit={(e) => {
-                e.preventDefault();
-                commitRename();
-              }}
-            >
-              <input
-                autoFocus
-                value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") onClose();
-                }}
-                className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
-              />
-            </form>
-          ) : (
-            <MenuItem onClick={() => setRenaming(true)}>
-              Rename Track...
-            </MenuItem>
-          )}
-          <MenuItem
-            onClick={() =>
-              act(() => void builder.trackMove(songIndex, menu.index, -1))
-            }
-          >
-            Move Left
-          </MenuItem>
-          <MenuItem
-            onClick={() =>
-              act(() => void builder.trackMove(songIndex, menu.index, 1))
-            }
-          >
-            Move Right
-          </MenuItem>
-          <div className="my-1 h-px bg-default/20" />
-          <MenuItem
-            onClick={() =>
-              act(() => {
-                void mixer.setTrackGain(menu.index, 0);
-                void mixer.setTrackPan(menu.index, 0);
-              })
-            }
-          >
-            Reset Gain & Pan
-          </MenuItem>
-          <MenuItem
-            onClick={() =>
-              act(() => {
-                void mixer.setTrackMute(menu.index, false);
-                void mixer.setTrackSolo(menu.index, false);
-              })
-            }
-          >
-            Clear Mute & Solo
-          </MenuItem>
-          <MenuItem
-            disabled={track.sends.length === 0}
-            onClick={() =>
-              act(() => {
-                for (const s of track.sends)
-                  void mixer.setTrackSend(menu.index, s.busId, SEND_FLOOR_DB);
-              })
-            }
-          >
-            Clear All Sends
-          </MenuItem>
-          <div className="my-1 h-px bg-default/20" />
-          <MenuItem
-            danger
-            onClick={() =>
-              act(() => {
-                if (
-                  window.confirm(
-                    `Remove track "${track.name || track.id}"? This can't be undone.`,
-                  )
-                )
-                  void builder.trackRemove(songIndex, menu.index);
-              })
-            }
-          >
-            Remove Track
-          </MenuItem>
-        </motion.div>
-      </AnimatePresence>
-    </>
+          <input
+            autoFocus
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onClose();
+            }}
+            className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
+          />
+        </form>
+      ) : (
+        <ContextMenuItem onClick={() => setRenaming(true)}>
+          Rename Track...
+        </ContextMenuItem>
+      )}
+      <ContextMenuItem
+        onClick={() =>
+          act(() => void builder.trackMove(songIndex, menu.index, -1))
+        }
+      >
+        Move Left
+      </ContextMenuItem>
+      <ContextMenuItem
+        onClick={() =>
+          act(() => void builder.trackMove(songIndex, menu.index, 1))
+        }
+      >
+        Move Right
+      </ContextMenuItem>
+      <ContextMenuDivider />
+      <ContextMenuItem
+        onClick={() =>
+          act(() => {
+            void mixer.setTrackGain(menu.index, 0);
+            void mixer.setTrackPan(menu.index, 0);
+          })
+        }
+      >
+        Reset Gain & Pan
+      </ContextMenuItem>
+      <ContextMenuItem
+        onClick={() =>
+          act(() => {
+            void mixer.setTrackMute(menu.index, false);
+            void mixer.setTrackSolo(menu.index, false);
+          })
+        }
+      >
+        Clear Mute & Solo
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={track.sends.length === 0}
+        onClick={() =>
+          act(() => {
+            for (const s of track.sends)
+              void mixer.removeTrackSend(menu.index, s.busId);
+          })
+        }
+      >
+        Remove All Sends
+      </ContextMenuItem>
+      <ContextMenuDivider />
+      <ContextMenuItem
+        danger
+        onClick={() =>
+          act(() => {
+            if (
+              window.confirm(
+                `Remove track "${track.name || track.id}"? This can't be undone.`,
+              )
+            )
+              void builder.trackRemove(songIndex, menu.index);
+          })
+        }
+      >
+        Remove Track
+      </ContextMenuItem>
+    </ContextMenu>
   );
 }
 
@@ -1369,103 +1412,70 @@ function BusContextMenu({
   };
 
   return (
-    <>
-      <div
-        className="fixed inset-0 z-40"
-        onClick={onClose}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          onClose();
-        }}
-      />
-      <AnimatePresence>
-        <motion.div
-          key="bus-ctx-menu"
-          initial={{ opacity: 0, scale: 0.94, y: -4 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.94 }}
-          transition={{ duration: 0.12, ease: "easeOut" }}
-          className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
-          ref={(el) => {
-            if (!el) return;
-            const pad = 8;
-            const r = el.getBoundingClientRect();
-            let x = menu.x;
-            let y = menu.y;
-            if (x + r.width > window.innerWidth - pad)
-              x = Math.max(pad, window.innerWidth - r.width - pad);
-            if (y + r.height > window.innerHeight - pad)
-              y = Math.max(pad, window.innerHeight - r.height - pad);
-            if (x < pad) x = pad;
-            if (y < pad) y = pad;
-            el.style.left = `${x}px`;
-            el.style.top = `${y}px`;
+    <ContextMenu x={menu.x} y={menu.y} onClose={onClose}>
+      {renaming ? (
+        <form
+          className="px-2 py-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            commitRename();
           }}
-          style={{ left: menu.x, top: menu.y }}
         >
-          {renaming ? (
-            <form
-              className="px-2 py-1.5"
-              onSubmit={(e) => {
-                e.preventDefault();
-                commitRename();
-              }}
-            >
-              <input
-                autoFocus
-                value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") onClose();
-                }}
-                className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
-              />
-            </form>
-          ) : (
-            <MenuItem onClick={() => setRenaming(true)}>Rename Bus...</MenuItem>
-          )}
-          <MenuItem
+          <input
+            autoFocus
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onClose();
+            }}
+            className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
+          />
+        </form>
+      ) : (
+        <ContextMenuItem onClick={() => setRenaming(true)}>
+          Rename Bus...
+        </ContextMenuItem>
+      )}
+      <ContextMenuItem
+        onClick={() =>
+          act(() => {
+            void mixer.setBusGain(menu.index, 0);
+          })
+        }
+      >
+        Reset Gain
+      </ContextMenuItem>
+      <ContextMenuItem
+        onClick={() =>
+          act(() => {
+            void mixer.setBusMute(menu.index, false);
+            void mixer.setBusSolo(menu.index, false);
+          })
+        }
+      >
+        Clear Mute & Solo
+      </ContextMenuItem>
+      {bus.id !== "main" && (
+        <>
+          <ContextMenuDivider />
+          <ContextMenuItem
+            danger
             onClick={() =>
               act(() => {
-                void mixer.setBusGain(menu.index, 0);
+                if (
+                  window.confirm(
+                    `Remove bus "${bus.name || bus.id}"? This can't be undone.`,
+                  )
+                )
+                  void builder.busRemove(menu.index);
               })
             }
           >
-            Reset Gain
-          </MenuItem>
-          <MenuItem
-            onClick={() =>
-              act(() => {
-                void mixer.setBusMute(menu.index, false);
-                void mixer.setBusSolo(menu.index, false);
-              })
-            }
-          >
-            Clear Mute & Solo
-          </MenuItem>
-          {bus.id !== "main" && (
-            <>
-              <div className="my-1 h-px bg-default/20" />
-              <MenuItem
-                danger
-                onClick={() =>
-                  act(() => {
-                    if (
-                      window.confirm(
-                        `Remove bus "${bus.name || bus.id}"? This can't be undone.`,
-                      )
-                    )
-                      void builder.busRemove(menu.index);
-                  })
-                }
-              >
-                Remove Bus
-              </MenuItem>
-            </>
-          )}
-        </motion.div>
-      </AnimatePresence>
-    </>
+            Remove Bus
+          </ContextMenuItem>
+        </>
+      )}
+    </ContextMenu>
   );
 }
 

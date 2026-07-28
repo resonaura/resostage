@@ -200,6 +200,8 @@ export interface WebUiState {
   songCount: number;
   statusMessage: string;
   busy: boolean;
+  /** True while the native app is waiting on a Save/Don't Save/Cancel answer before quitting. */
+  quitConfirmPending: boolean;
   songs: SongRow[];
   meters: MeterRow[];
   tracks: TrackRow[];
@@ -228,6 +230,7 @@ export const emptyState: WebUiState = {
   songCount: 0,
   statusMessage: "",
   busy: false,
+  quitConfirmPending: false,
   songs: [],
   meters: [],
   tracks: [],

@@ -407,6 +407,28 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
     mixerPanel.refreshStructure();
 }
 
+void MainComponent::removeTrackSendFromJson(const std::string& json) {
+    simdjson::dom::element doc;
+    int trackIndex = -1;
+    std::string busId;
+    if (!parseJson(json, doc) || !getInt(doc, "trackIndex", trackIndex) || !getString(doc, "busId", busId)
+        || !engine.isProjectLoaded())
+        return;
+    const size_t idx = static_cast<size_t>(trackIndex);
+    const size_t songIdx = engine.currentSongIndex();
+    const TrackDef* t = engine.trackDefAt(idx);
+    if (t == nullptr)
+        return;
+
+    for (size_t si = 0; si < t->sends.size(); ++si) {
+        if (t->sends[si].busId == busId) {
+            engine.removeTrackSend(songIdx, idx, si);
+            mixerPanel.refreshStructure();
+            return;
+        }
+    }
+}
+
 void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath) {
     if (songIndex < 0 || trackIndex < 0) {
         std::remove(tempWavPath.c_str());
@@ -474,9 +496,30 @@ void MainComponent::builderBusRemove(const std::string& json) {
     const std::string removedId = proj.busses[static_cast<size_t>(index)].id;
     proj.busses.erase(proj.busses.begin() + index);
     const std::string fallback = proj.busses.front().id;
-    for (auto& tr : proj.tracks)
+
+    // Anything that *depends* on the removed bus needs to be untangled, not
+    // just the tracks that had it as their primary output above: a dangling
+    // TrackSendDef/click-send referencing a bus id that no longer exists is
+    // silently skipped by AudioEngine's routing build (see busIndexById
+    // lookups there), so it wouldn't crash or misroute audio -- but it'd sit
+    // in the project forever as dead weight, and sendsCount/UI would keep
+    // showing a send that can never do anything. Drop those send rows
+    // outright instead of leaving them dangling or silently re-pointing them
+    // at some other bus (which would be a surprising routing change).
+    auto dropsRemovedSend = [&removedId](const TrackSendDef& s) { return s.busId == removedId; };
+    for (auto& tr : proj.tracks) {
         if (tr.busId == removedId)
             tr.busId = fallback;
+        tr.sends.erase(std::remove_if(tr.sends.begin(), tr.sends.end(), dropsRemovedSend),
+                        tr.sends.end());
+    }
+    for (auto& song : proj.songs) {
+        if (song.builtInClickBusId == removedId)
+            song.builtInClickBusId = fallback;
+        song.builtInClickSends.erase(
+            std::remove_if(song.builtInClickSends.begin(), song.builtInClickSends.end(), dropsRemovedSend),
+            song.builtInClickSends.end());
+    }
 
     builderPanel.refresh();
     builderPanel.onProjectEdited();

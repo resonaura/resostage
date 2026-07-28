@@ -116,6 +116,12 @@ export const mixer = {
   // needed. See MainComponent::setTrackSendFromJson().
   setTrackSend: (trackIndex: number, busId: string, gainDb: number) =>
     post("/api/v1/mixer/track/send", { trackIndex, busId, gainDb }),
+  // Actually erases the track's TrackSendDef for busId (as opposed to
+  // setTrackSend'ing it down to SEND_FLOOR_DB, which just silences it but
+  // leaves the send entry -- and its sendsCount -- in place). See
+  // MainComponent::removeTrackSendFromJson()/AudioEngine::removeTrackSend().
+  removeTrackSend: (trackIndex: number, busId: string) =>
+    post("/api/v1/mixer/track/send/remove", { trackIndex, busId }),
 };
 
 // Project lifecycle. New/loadDialog/save/saveAs just ask the native app to
@@ -126,11 +132,17 @@ export const mixer = {
 // no such window: a normal <input type=file> upload, and a poll-until-ready
 // then <a download> for the reverse direction (avoids ever blocking the
 // server's single lws thread on the save that produces the download).
+const QUIT_DECISION_INDEX = { cancel: 0, save: 1, discard: 2 } as const;
+
 export const project = {
   new: () => post("/api/v1/project/new"),
   loadDialog: () => post("/api/v1/project/load-dialog"),
   save: () => post("/api/v1/project/save"),
   saveAs: () => post("/api/v1/project/save-as"),
+  // Answers the in-webview "Unsaved Changes" quit prompt (WebUiState.
+  // quitConfirmPending) -- see WebCommandKind::QuitDecision.
+  resolveQuit: (choice: "save" | "discard" | "cancel") =>
+    post("/api/v1/project/quit-decision", { index: QUIT_DECISION_INDEX[choice] }),
 
   async upload(file: File): Promise<void> {
     try {

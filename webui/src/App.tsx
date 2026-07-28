@@ -222,7 +222,31 @@ export default function App() {
       <footer className="shrink-0 border-t border-default/60 px-4 py-1.5 text-center text-xs text-foreground/40">
         {state.statusMessage || "ResoStage remote · mirrors desktop state"}
       </footer>
+
+      <QuitConfirmDialog state={state} />
     </div>
+  );
+}
+
+// Native quit was requested while the project has unsaved changes --
+// MainComponent::confirmQuitIfUnsaved() is blocked waiting on our answer
+// (see WebUiState.quitConfirmPending / WebCommandKind::QuitDecision). Only
+// meaningful when embedded in the app's own webview; a plain LAN browser tab
+// can still see this state but has no window to actually quit.
+function QuitConfirmDialog({ state }: { state: WebUiState }) {
+  return (
+    <ConfirmDialog
+      open={state.quitConfirmPending}
+      title="Unsaved Changes"
+      message={`Do you want to save changes to '${state.projectName || "Untitled Project"}' before quitting?`}
+      confirmLabel="Save"
+      cancelLabel="Cancel"
+      thirdLabel="Don't Save"
+      danger
+      onConfirm={() => void project.resolveQuit("save")}
+      onThird={() => void project.resolveQuit("discard")}
+      onCancel={() => void project.resolveQuit("cancel")}
+    />
   );
 }
 

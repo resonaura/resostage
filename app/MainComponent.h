@@ -76,6 +76,12 @@ private:
     BusyOverlay busyOverlay;
     bool wasBusyLastTick = false;
 
+    // Unsaved-changes quit prompt, answered inside the webview -- see
+    // confirmQuitIfUnsaved()/handleQuitDecision() in MainComponent.cpp and
+    // WebUiState::quitConfirmPending.
+    bool awaitingQuitDecision = false;
+    std::function<void(bool)> pendingQuitDecision;
+
     Mode mode = Mode::Web; // always the default landing view -- see setMode(Mode::Web) in the constructor
     std::unordered_map<std::string, std::string> keyBindings = {
         {"play", "space"},
@@ -96,6 +102,10 @@ private:
     // like BuilderPanel's folder-import flow chain "save first, then
     // continue" instead of leaving the user at a dead end.
     void saveProjectClicked(bool saveAs, std::function<void(bool)> onDone = nullptr);
+    // Resolves the in-webview "Unsaved Changes" dialog raised by
+    // confirmQuitIfUnsaved() (0=Cancel, 1=Save, 2=Don't Save) -- see
+    // WebCommandKind::QuitDecision.
+    void handleQuitDecision(int choice);
     void applyProjectBindings();
     void performAction(const std::string& action);
     // If no song is currently staged and the project has at least one,
@@ -140,6 +150,7 @@ private:
     void builderRegionRemove(const std::string& json);
     void builderRegionUpdate(const std::string& json);
     void setTrackSendFromJson(const std::string& json);
+    void removeTrackSendFromJson(const std::string& json);
     void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath);
     void builderBusAdd();
     void builderBusRemove(const std::string& json);
