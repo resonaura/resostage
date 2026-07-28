@@ -1483,15 +1483,22 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         const double blockEndSeconds = static_cast<double>(playheadSample + numSamples) / currentSampleRate;
         fireDueEvents(song, blockStartSeconds, blockEndSeconds, hostTimeNanos);
 
-        if (currentSongLengthFrames > 0 && playheadSample >= currentSongLengthFrames) {
-            // Arm phase only -- do NOT return here. The actual transition
-            // (gapless advance / stop) is deferred to the commit phase below,
-            // once the fade-out ramp has fully applied to real audio (see
-            // AudioEngine.h's SongEndAction doc comment). Falling through to
-            // the normal Pass 1-3 mixing below is safe at any point past the
-            // song's end: StreamingTrackBuffer::read() always returns silence
-            // once a track is exhausted, since trackScratch is .clear()-ed
-            // before every read() call.
+        // Arm as soon as the fade window (kSongEndFadeSamples before the real
+        // end) first overlaps this block -- NOT once we're already past the
+        // end. StreamingTrackBuffer::read() only starts returning silence
+        // once the ring truly runs dry, which can happen mid-block; arming
+        // reactively (checking playheadSample >= currentSongLengthFrames)
+        // means the block that actually contains the real hard cutoff (real
+        // audio for the first `got` samples, then abrupt zero for the rest,
+        // since trackScratch is .clear()-ed before every read()) has already
+        // gone by, fully unramped, before we ever notice -- that abrupt
+        // in-block step is the crackle, and by the time we react the ramp
+        // only has already-silent audio left to multiply, doing nothing.
+        // Starting the ramp `kSongEndFadeSamples` early guarantees gain has
+        // decayed to ~0 by the time the real cutoff sample arrives, so the
+        // step lands on already-near-silent audio and is inaudible.
+        const int64_t fadeArmSample = currentSongLengthFrames - kSongEndFadeSamples;
+        if (currentSongLengthFrames > 0 && playheadSample + numSamples >= fadeArmSample) {
             if (pendingSongEndAction == SongEndAction::None) {
                 if (underrunFadeOutRemaining <= 0)
                     underrunFadeOutRemaining = kSongEndFadeSamples;
@@ -1675,10 +1682,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
-    // Commit phase: only once the song-end fade-out ramp has fully applied to
-    // real audio (armed above) do we actually perform the transition. This
-    // guarantees the ramp is never truncated regardless of audio buffer size.
-    if (pendingSongEndAction != SongEndAction::None && underrunFadeOutRemaining == 0) {
+    // Commit phase: only once the song-end fade-out ramp has fully applied AND
+    // the playhead has actually reached the song's real end do we perform the
+    // transition. Requiring both (not just the ramp counter reaching 0) means
+    // a song shorter than the fade window can't trigger the transition before
+    // its own real audio has finished playing.
+    if (pendingSongEndAction != SongEndAction::None && underrunFadeOutRemaining == 0
+        && playheadSample >= currentSongLengthFrames) {
         if (pendingSongEndAction == SongEndAction::GaplessAdvance) {
             // Freeze clock at end, keep PLAYING flag, ask the message thread
             // to promote the precached next song immediately. Deliberately no

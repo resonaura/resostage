@@ -354,11 +354,16 @@ private:
     int recoveryFadeInRemaining = 0;
     bool lastCallbackWasUnderrun = false;
 
-    // Song-end fade-out: armed the moment the playhead reaches the end of the
-    // current song, but the actual transition (gapless advance / stop) is
-    // deferred until the 512-sample fade-out ramp has fully applied to real
-    // audio -- see the arm/commit split in audioDeviceIOCallbackWithContext().
-    // Audio-thread-owned only, like the underrun fade counters above.
+    // Song-end fade-out: armed kSongEndFadeSamples *before* the real end of
+    // the current song (not once already past it) -- StreamingTrackBuffer's
+    // ring can run dry mid-block, producing an unramped hard cutoff to
+    // silence within a single block if we only react after the fact. Starting
+    // the ramp early guarantees gain has already decayed to ~0 by the time
+    // that real cutoff sample arrives. The actual transition (gapless advance
+    // / stop) is deferred until both the ramp has fully applied AND the
+    // playhead has genuinely reached the end -- see the arm/commit split in
+    // audioDeviceIOCallbackWithContext(). Audio-thread-owned only, like the
+    // underrun fade counters above.
     enum class SongEndAction : uint8_t { None, GaplessAdvance, StopTransport };
     static constexpr int kSongEndFadeSamples = 512;
     SongEndAction pendingSongEndAction = SongEndAction::None;
