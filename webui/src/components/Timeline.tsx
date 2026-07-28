@@ -521,12 +521,23 @@ function Ruler({
   songLength,
   bpm,
   tsNum,
+  scrollLeft = 0,
+  viewportWidth,
 }: {
   pxPerSec: number;
   contentWidth: number;
   songLength: number;
   bpm: number;
   tsNum: number;
+  /** Viewport-slice the tick loop the same way BeatGrid does -- without
+   * this, generating marks from t=0 through the whole song, capped at a
+   * fixed mark count, means a long song zoomed in far enough (minorStepSec
+   * shrinks, so far more ticks are needed to reach the same song length)
+   * exhausts the cap before ever reaching the marks that would fall to the
+   * right of wherever the cap ran out -- the ruler and its labels just stop
+   * rendering partway across. */
+  scrollLeft?: number;
+  viewportWidth?: number;
 }) {
   const { majorStepSec, minorStepSec, isBeatGrid, barSec } = useMemo(
     () => getTickConfig(pxPerSec, bpm, tsNum),
@@ -536,13 +547,25 @@ function Ruler({
   const marks = useMemo(() => {
     const list: { x: number; major: boolean; label?: string }[] = [];
     if (minorStepSec <= 0 || majorStepSec <= 0) return list;
-    const limit = songLength + majorStepSec;
-    // Hard cap so a bad step never floods the DOM.
-    const maxMarks = 400;
+
+    const startTime = Math.max(0, scrollLeft / pxPerSec);
+    const endTime = Math.min(
+      songLength + majorStepSec,
+      viewportWidth != null
+        ? (scrollLeft + viewportWidth) / pxPerSec + minorStepSec
+        : songLength + majorStepSec,
+    );
+    const startTick = Math.floor(startTime / minorStepSec) * minorStepSec;
+
+    // Hard cap so a bad step never floods the DOM -- viewport-slicing above
+    // already bounds this to roughly one screen's worth of ticks, this is
+    // just a safety net for a pathologically wide viewport.
+    const maxMarks = 2000;
     let n = 0;
 
-    for (let t = 0; t <= limit && n < maxMarks; t += minorStepSec) {
+    for (let t = startTick; t <= endTime && n < maxMarks; t += minorStepSec) {
       const rounded = Math.round(t / minorStepSec) * minorStepSec;
+      if (rounded < 0) continue;
       const x = Math.round(rounded * pxPerSec);
       if (x > contentWidth + 8) break;
 
@@ -572,6 +595,8 @@ function Ruler({
     minorStepSec,
     isBeatGrid,
     barSec,
+    scrollLeft,
+    viewportWidth,
   ]);
 
   return (
@@ -1941,7 +1966,10 @@ export function Timeline({
                           index={row.headerIndex}
                           color={row.color}
                           verticalZoom={verticalZoom}
-                          anySolo={state.tracks.some((t) => t.solo)}
+                          anySolo={
+                            (state.clickSolo ?? false) ||
+                            state.tracks.some((t) => t.solo)
+                          }
                         />
                       ) : (
                         <TimelineRowLabel
@@ -2013,6 +2041,11 @@ export function Timeline({
                         songLength={songLengths[i]}
                         bpm={song.bpm}
                         tsNum={song.tsNum}
+                        scrollLeft={Math.max(
+                          0,
+                          scrollState.scrollLeft - songOffsets[i] * pxPerSec,
+                        )}
+                        viewportWidth={scrollState.viewportWidth}
                       />
                     </div>
                   );

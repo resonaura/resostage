@@ -102,6 +102,14 @@ public:
 
     void play();
     void stop();
+    // "Stop" transport button (distinct from stop() above, which is really
+    // Pause -- freezes in place so a following play() resumes, used by the
+    // Play/Pause toggle). First call halts playback and rewinds the current
+    // song to its own start; a second call while already sitting at that
+    // start instead rewinds all the way to the very beginning of the whole
+    // project (song 0, position 0) -- same two-stage convention as most DAW
+    // transports' Stop button. Message-thread only.
+    void stopToStart();
     bool isPlaying() const { return playing.load(std::memory_order_acquire); }
 
     // Seeks to `seconds` (clamped to [0, target song length]) within
@@ -170,6 +178,11 @@ public:
     void setBusGainDb(size_t busIndex, double gainDb);
     void setBusMute(size_t busIndex, bool mute);
     void setBusSolo(size_t busIndex, bool solo);
+    // Soloing the metronome joins the same solo group as track solo -- every
+    // regular track goes silent exactly as if one of them had solo engaged
+    // (see publishRoutingSnapshot()'s anyTrackSolo). Project-global, like
+    // click gain/pan.
+    void setClickSolo(bool solo);
     void setBusOutputChannel(size_t busIndex, int startChannel);
     // Full rebuild of routing from the current Project state (after Builder edits).
     void republishRouting();
@@ -433,6 +446,19 @@ private:
     // from song.builtInClickSends in refreshClickState(); parallel arrays.
     std::vector<int> clickSendBusIndices;
     std::vector<float> clickSendGainLinears;
+    // Dezippered click SEND gains (audio thread only) -- parallel to
+    // clickSendBusIndices/clickSendGainLinears, indexed by the same `si`.
+    // Without this, a click send-gain change (or the track-send-style
+    // "turn a knob up from the floor" move) was an unramped hard per-block
+    // jump, unlike every other gain path here (track gain/pan/sends, and the
+    // click's own main-bus target) which already go through an exponential
+    // dezipper.
+    struct ClickSendSmooth {
+        float gL = 1.0f;
+        float gR = 1.0f;
+        bool inited = false;
+    };
+    std::vector<ClickSendSmooth> clickSendSmooth;
     std::vector<float> clickScratch;
     // Dedicated click strip meter (pre-bus mix); never shares the destination bus meter.
     SeqLock<MeterFrame> clickMeterFrame;

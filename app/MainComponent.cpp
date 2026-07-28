@@ -92,7 +92,7 @@ MainComponent::MainComponent()
 
     // Transport wiring for Player
     playerPanel.onPlay = [this] { togglePlayback(); };
-    playerPanel.onStop = [this] { engine.stop(); };
+    playerPanel.onStop = [this] { stopToStartClicked(); };
     playerPanel.onNext = [this] { nextSong(); };
     playerPanel.onPrev = [this] { prevSong(); };
     playerPanel.onSelectSong = [this](int i) { goToSong(i); };
@@ -384,6 +384,7 @@ void MainComponent::drainWebCommands() {
         switch (cmd.kind) {
             case WebCommandKind::Play: engine.play(); break;
             case WebCommandKind::Stop: engine.stop(); break;
+            case WebCommandKind::StopToStart: stopToStartClicked(); break;
             case WebCommandKind::Next: nextSong(); break;
             case WebCommandKind::Prev: prevSong(); break;
             case WebCommandKind::SelectSong: goToSong(cmd.arg); break;
@@ -415,8 +416,12 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetBusSolo:
                 engine.setBusSolo(idx, cmd.value != 0.0);
                 break;
+            case WebCommandKind::SetClickSolo:
+                engine.setClickSolo(cmd.value != 0.0);
+                break;
             case WebCommandKind::SetTrackSend: setTrackSendFromJson(cmd.json); break;
             case WebCommandKind::RemoveTrackSend: removeTrackSendFromJson(cmd.json); break;
+            case WebCommandKind::SetProjectName: setProjectNameFromJson(cmd.json); break;
             // Project lifecycle parity -- see WebCommandKind's doc comment.
             // New/Load-dialog/Save/Save-As go through the exact same methods
             // the native top-bar buttons call; any native dialog they pop
@@ -617,6 +622,7 @@ void MainComponent::publishWebState() {
     state.projectName = proj.name;
     state.clickGainDb = proj.builtInClickGainDb;
     state.clickPan = proj.builtInClickPan;
+    state.clickSolo = proj.builtInClickSolo;
     if (const auto* clickM = engine.clickMeter()) {
         MeterFrame frame;
         if (clickM->read(frame)) {
@@ -968,6 +974,18 @@ void MainComponent::togglePlayback() {
         engine.stop();
     else
         engine.play();
+}
+
+void MainComponent::stopToStartClicked() {
+    engine.stopToStart();
+    // stopToStart() may have jumped to a different song (song 0) -- keep
+    // native panels in sync the same way goToSong() does, unconditionally
+    // (cheap, and correct whether or not the song actually changed).
+    const int index = static_cast<int>(engine.currentSongIndex());
+    playerPanel.selectSongRow(index);
+    playerPanel.refreshProject();
+    mixerPanel.refreshStructure();
+    builderPanel.refresh();
 }
 
 void MainComponent::setStatus(const juce::String& text) {

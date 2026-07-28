@@ -13,6 +13,11 @@ const PEAK_DECAY_DB_PER_SEC = 50;
 const CLIP_BAND_PCT = 6;
 
 const DEFAULT_ACCENT = "#34c759";
+/** Single source of truth for "clipping" red -- anything else showing a clip
+ * indicator (e.g. MixerScreen's GainPeakReadout box) should import this
+ * instead of hardcoding its own shade, so the two always match exactly. */
+export const CLIP_COLOR = "#ff3b30";
+export const CLIP_GLOW = "0 0 4px rgba(255,59,48,0.7)";
 
 function normFor(db: number): number {
   return Math.max(
@@ -127,18 +132,66 @@ function useMeterBallistics(db: number): {
   };
 }
 
+// Shared, "held forever" clip state -- distinct from useMeterBallistics'
+// own per-channel clip latch (which is fine for a standalone meter, but
+// callers wiring a meter together with something else that should clip/clear
+// in lockstep -- e.g. MixerScreen's GainPeakReadout box next to the L/R
+// bars -- need one clip flag both sides agree on). `maxDb` should be
+// max(dbL, dbR): either channel clipping counts.
+export function useChannelClipHold(maxDb: number): {
+  clipped: boolean;
+  heldPeakDb: number;
+  clear: () => void;
+} {
+  const [clipped, setClipped] = useState(false);
+  const [heldPeakDb, setHeldPeakDb] = useState(FLOOR_DB);
+  const clippedRef = useRef(false);
+  const heldRef = useRef(FLOOR_DB);
+  clippedRef.current = clipped;
+  heldRef.current = heldPeakDb;
+
+  useEffect(() => {
+    if (maxDb > 0) {
+      if (!clippedRef.current) {
+        setClipped(true);
+        setHeldPeakDb(maxDb);
+      } else if (maxDb > heldRef.current) {
+        setHeldPeakDb(maxDb);
+      }
+    }
+  }, [maxDb]);
+
+  return { clipped, heldPeakDb, clear: () => setClipped(false) };
+}
+
 function ChannelBar({
   db,
   vertical,
   className,
   accent,
+  clipLatched: clipLatchedOverride,
+  onClear,
 }: {
   db: number;
   vertical: boolean;
   className?: string;
   accent: string;
+  /** Externally controlled clip state -- see useChannelClipHold. When
+   * provided, overrides this bar's own internal latch for display so it
+   * stays in lockstep with whatever else shares the same clip state. */
+  clipLatched?: boolean;
+  /** Called on click instead of the internal clearClip -- lets a shared
+   * clip state clear everywhere at once. */
+  onClear?: () => void;
 }) {
-  const { display, peak, clipLatched, clearClip } = useMeterBallistics(db);
+  const {
+    display,
+    peak,
+    clipLatched: internalClipLatched,
+    clearClip: internalClearClip,
+  } = useMeterBallistics(db);
+  const clipLatched = clipLatchedOverride ?? internalClipLatched;
+  const clearClip = onClear ?? internalClearClip;
   const fillPct = normFor(display) * 100;
   const peakPct = normFor(peak) * 100;
   const fill = useMemo(() => meterFill(accent), [accent]);
@@ -198,8 +251,8 @@ function ChannelBar({
             style={{
               height: `${CLIP_BAND_PCT}%`,
               minHeight: 3,
-              background: "#ff3b30",
-              boxShadow: "0 0 4px rgba(255,59,48,0.7)",
+              background: CLIP_COLOR,
+              boxShadow: CLIP_GLOW,
             }}
           />
         ) : (
@@ -208,8 +261,8 @@ function ChannelBar({
             style={{
               width: `${CLIP_BAND_PCT}%`,
               minWidth: 3,
-              background: "#ff3b30",
-              boxShadow: "0 0 4px rgba(255,59,48,0.7)",
+              background: CLIP_COLOR,
+              boxShadow: CLIP_GLOW,
             }}
           />
         ))}
@@ -232,6 +285,12 @@ interface LevelMeterBarProps {
   barClassName?: string;
   /** Force mono single bar (default: stereo). */
   mono?: boolean;
+  /** See useChannelClipHold -- when provided, both L and R bars (and mono's
+   * single bar) share this clip state instead of latching independently, so
+   * they clear together with each other and with anything else wired to the
+   * same shared state (e.g. MixerScreen's GainPeakReadout). */
+  clipLatched?: boolean;
+  onClearClip?: () => void;
 }
 
 export function LevelMeterBar({
@@ -245,6 +304,8 @@ export function LevelMeterBar({
   showValue = true,
   barClassName,
   mono = false,
+  clipLatched,
+  onClearClip,
 }: LevelMeterBarProps) {
   const left = dbL ?? db;
   const right = dbR ?? db;
@@ -265,6 +326,8 @@ export function LevelMeterBar({
           vertical={vertical}
           className={barClassName}
           accent={accent}
+          clipLatched={clipLatched}
+          onClear={onClearClip}
         />
       ) : (
         <div
@@ -281,6 +344,8 @@ export function LevelMeterBar({
             className={
               barClassName ?? (vertical ? "h-full w-1.5" : "h-1.5 w-full")
             }
+            clipLatched={clipLatched}
+            onClear={onClearClip}
           />
           <ChannelBar
             db={right}
@@ -289,6 +354,8 @@ export function LevelMeterBar({
             className={
               barClassName ?? (vertical ? "h-full w-1.5" : "h-1.5 w-full")
             }
+            clipLatched={clipLatched}
+            onClear={onClearClip}
           />
         </div>
       )}

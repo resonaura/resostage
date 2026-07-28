@@ -6,7 +6,12 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "../components/ContextMenu";
-import { LevelMeterBar } from "../components/LevelMeterBar";
+import {
+  CLIP_COLOR,
+  CLIP_GLOW,
+  LevelMeterBar,
+  useChannelClipHold,
+} from "../components/LevelMeterBar";
 import { builder, mixer } from "../lib/api";
 import { useLiveValue } from "../lib/optimistic";
 import type { BusRow, SettingsState, TrackRow, WebUiState } from "../lib/types";
@@ -155,21 +160,26 @@ function formatDbReadout(v: number): string {
 }
 
 // Logic Pro-style channel-strip readout: fader value on the left (plain,
-// static), held peak on the right. The peak box latches red and keeps the
-// loudest value seen -- forever, unlike the meter's own quick-decaying peak
-// needle -- until clicked, which takes the box back to showing the current
-// live level (and re-latches on the next clip). Same "click to clear"
-// convention as LevelMeterBar's own clip band.
-function GainPeakReadout({ gainDb, peakDb }: { gainDb: number; peakDb: number }) {
-  const [heldPeak, setHeldPeak] = useState(peakDb);
-  const heldRef = useRef(heldPeak);
-  heldRef.current = heldPeak;
-
-  useEffect(() => {
-    if (peakDb > heldRef.current) setHeldPeak(peakDb);
-  }, [peakDb]);
-
-  const clipped = heldPeak > 0;
+// static), actual level on the right. The right box normally tracks the
+// live level (average of L/R) and updates continuously; the moment either
+// channel clips (>0 dBFS) it latches red and freezes on the loudest peak
+// seen, same "held forever until clicked" convention as LevelMeterBar's own
+// clip band -- and shares that exact clip state (see useChannelClipHold)
+// so clicking either one clears both together.
+function GainPeakReadout({
+  gainDb,
+  liveAvgDb,
+  clipped,
+  heldPeakDb,
+  onClear,
+}: {
+  gainDb: number;
+  liveAvgDb: number;
+  clipped: boolean;
+  heldPeakDb: number;
+  onClear: () => void;
+}) {
+  const shownDb = clipped ? heldPeakDb : liveAvgDb;
 
   return (
     <div className="flex w-full gap-1 text-[10px] font-mono font-semibold tabular-nums">
@@ -181,15 +191,20 @@ function GainPeakReadout({ gainDb, peakDb }: { gainDb: number; peakDb: number })
       </div>
       <button
         type="button"
-        onClick={() => setHeldPeak(peakDb)}
-        title="Peak hold (dB) — click to show current level"
+        onClick={onClear}
+        title={
+          clipped
+            ? "Peak hold (dB) — click to clear and show the current level"
+            : "Current level (dB, avg L/R)"
+        }
         className={`flex-1 rounded px-1 py-0.5 text-center transition-colors ${
           clipped
-            ? "bg-danger text-white"
+            ? "text-white"
             : "bg-black/40 text-foreground/80 hover:bg-black/55"
         }`}
+        style={clipped ? { background: CLIP_COLOR, boxShadow: CLIP_GLOW } : undefined}
       >
-        {formatDbReadout(heldPeak)}
+        {formatDbReadout(shownDb)}
       </button>
     </div>
   );
@@ -876,6 +891,13 @@ function ChannelStrip({
 
   const isDimmed = !!anySoloInGroup && !solo;
 
+  // Shared clip state for this strip's meter + Logic-style peak readout box
+  // (see useChannelClipHold) -- one flag both pieces render from and both
+  // can clear, instead of latching red independently of each other.
+  const stripLeftDb = peakDbL ?? peakDb ?? -100;
+  const stripRightDb = peakDbR ?? peakDb ?? -100;
+  const stripClip = useChannelClipHold(Math.max(stripLeftDb, stripRightDb));
+
   return (
     <div
       className={`flex h-full min-h-0 w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-background-secondary p-2 select-none transition-opacity duration-300 ${
@@ -955,13 +977,15 @@ function ChannelStrip({
         <div className="h-2" />
       )}
 
-      {/* Gain / Peak readout (Logic-style pair: fader value left, held peak
-          right -- right box latches red and holds the loudest peak seen
-          until clicked, same "click to clear" convention as the meter's own
-          clip latch). Sits above the fader + meter, mirrors Logic Pro. */}
+      {/* Gain / Peak readout (Logic-style pair: fader value left, actual
+          level right). The right box and the meter below it share one clip
+          state (useChannelClipHold) so clicking either clears both. */}
       <GainPeakReadout
         gainDb={gainDb}
-        peakDb={Math.max(peakDbL ?? peakDb ?? -100, peakDbR ?? peakDb ?? -100)}
+        liveAvgDb={(stripLeftDb + stripRightDb) / 2}
+        clipped={stripClip.clipped}
+        heldPeakDb={stripClip.heldPeakDb}
+        onClear={stripClip.clear}
       />
 
       {/* Fader & Meter Section */}
@@ -969,12 +993,14 @@ function ChannelStrip({
         <GainFader gainDb={gainDb} accent={color} onChange={onGain} />
         <LevelMeterBar
           db={peakDb ?? -100}
-          dbL={peakDbL ?? peakDb ?? -100}
-          dbR={peakDbR ?? peakDb ?? -100}
+          dbL={stripLeftDb}
+          dbR={stripRightDb}
           accent={color}
           vertical={true}
           showValue={false}
           barClassName="h-full w-1.5"
+          clipLatched={stripClip.clipped}
+          onClearClip={stripClip.clear}
         />
       </div>
 
@@ -1072,7 +1098,7 @@ function TrackStrip({
 }
 
 function MetronomeStrip({ state }: { state: WebUiState }) {
-  const [clickSolo, setClickSolo] = useState(false);
+  const clickSolo = state.clickSolo ?? false;
 
   const hasSongs = state.songs.length > 0;
   const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
@@ -1179,7 +1205,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       onGain={(v) => patchSong({ clickGainDb: v })}
       onPan={(v) => patchSong({ clickPan: v })}
       onMute={toggleMetronomeMute}
-      onSolo={() => setClickSolo(!clickSolo)}
+      onSolo={() => void mixer.setClickSolo(!clickSolo)}
     />
   );
 }
@@ -1595,7 +1621,10 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     });
   }
 
-  const anyTrackSolo = state.tracks.some((tr) => tr.solo);
+  // Metronome solo joins the same solo group as track solo -- see
+  // AudioEngine::setClickSolo(). Regular tracks dim exactly as if one of
+  // them (rather than the click) had solo engaged.
+  const anyTrackSolo = (state.clickSolo ?? false) || state.tracks.some((tr) => tr.solo);
   const anyAuxSolo = auxBusses.some((b) => b.solo);
 
   return (

@@ -451,9 +451,9 @@ export function PlayerScreen({
           </Button>
           <button
             type="button"
-            onClick={() => transport.stop()}
+            onClick={() => void transport.stopToStart()}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-danger/20 bg-danger/10 text-danger/60 transition-colors hover:bg-danger/20 hover:text-danger"
-            title="Stop"
+            title="Stop (press again at song start to jump to project start)"
           >
             <Square size={16} />
           </button>

@@ -182,6 +182,8 @@ export interface WebUiState {
   clickGainDb: number;
   /** Project-global metronome pan (-1..+1). */
   clickPan?: number;
+  /** Metronome solo -- joins the same solo group as track solo. */
+  clickSolo?: boolean;
   /** Metronome-only peak (not the bus it routes into). */
   clickPeakDb?: number;
   clickPeakDbL?: number;
@@ -214,6 +216,7 @@ export const emptyState: WebUiState = {
   projectName: "",
   clickGainDb: -6,
   clickPan: 0,
+  clickSolo: false,
   clickPeakDb: -100,
   clickPeakDbL: -100,
   clickPeakDbR: -100,

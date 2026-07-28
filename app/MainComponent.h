@@ -118,6 +118,10 @@ private:
     void nextSong();
     void prevSong();
     void togglePlayback();
+    // Dedicated "Stop" transport button -- see AudioEngine::stopToStart()'s
+    // doc comment. Distinct from togglePlayback()'s Pause, which still just
+    // freezes in place.
+    void stopToStartClicked();
     void setStatus(const juce::String& text);
     void onProjectLoaded();
     void publishWebState();
@@ -151,6 +155,7 @@ private:
     void builderRegionUpdate(const std::string& json);
     void setTrackSendFromJson(const std::string& json);
     void removeTrackSendFromJson(const std::string& json);
+    void setProjectNameFromJson(const std::string& json);
     void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath);
     void builderBusAdd();
     void builderBusRemove(const std::string& json);

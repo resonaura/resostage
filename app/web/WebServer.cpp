@@ -208,6 +208,7 @@ bool isMixerCommandPath(const char* path) {
         "/api/v1/track/gain", "/api/v1/track/pan",  "/api/v1/track/mute", "/api/v1/track/solo",
         "/api/v1/track/mono",
         "/api/v1/bus/gain",   "/api/v1/bus/mute",   "/api/v1/bus/solo",
+        "/api/v1/click/solo",
     };
     for (const char* p : kPaths)
         if (std::strcmp(path, p) == 0)
@@ -223,7 +224,8 @@ WebCommandKind mixerCommandKindForPath(const char* path) {
     if (std::strcmp(path, "/api/v1/track/mono") == 0) return WebCommandKind::SetTrackMono;
     if (std::strcmp(path, "/api/v1/bus/gain") == 0) return WebCommandKind::SetBusGain;
     if (std::strcmp(path, "/api/v1/bus/mute") == 0) return WebCommandKind::SetBusMute;
-    return WebCommandKind::SetBusSolo; // "/api/v1/bus/solo" -- last remaining option per isMixerCommandPath's list
+    if (std::strcmp(path, "/api/v1/bus/solo") == 0) return WebCommandKind::SetBusSolo;
+    return WebCommandKind::SetClickSolo; // "/api/v1/click/solo" -- last remaining option per isMixerCommandPath's list
 }
 
 // Builder and Settings paths carry their whole payload as a raw JSON
@@ -262,6 +264,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/transport/seek", WebCommandKind::Seek},
     {"/api/v1/mixer/track/send", WebCommandKind::SetTrackSend},
     {"/api/v1/mixer/track/send/remove", WebCommandKind::RemoveTrackSend},
+    {"/api/v1/project/name", WebCommandKind::SetProjectName},
 };
 
 bool builderCommandKindForPath(const char* path, WebCommandKind& outKind) {
@@ -822,6 +825,7 @@ std::string WebServer::buildStateJson() const {
       << "\"projectName\":\"" << jsonEscape(snap.projectName) << "\","
       << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
       << "\"clickPan\":" << finiteOrZero(snap.clickPan) << ","
+      << "\"clickSolo\":" << (snap.clickSolo ? "true" : "false") << ","
       << "\"clickPeakDb\":" << finiteOrZero(snap.clickPeakDb) << ","
       << "\"clickPeakDbL\":" << finiteOrZero(snap.clickPeakDbL) << ","
       << "\"clickPeakDbR\":" << finiteOrZero(snap.clickPeakDbR) << ","
@@ -1046,6 +1050,8 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::Play, 0};
     } else if (std::strcmp(path, "/api/v1/transport/stop") == 0) {
         cmd = {WebCommandKind::Stop, 0};
+    } else if (std::strcmp(path, "/api/v1/transport/stop-to-start") == 0) {
+        cmd = {WebCommandKind::StopToStart, 0};
     } else if (std::strcmp(path, "/api/v1/transport/next") == 0) {
         cmd = {WebCommandKind::Next, 0};
     } else if (std::strcmp(path, "/api/v1/transport/prev") == 0) {

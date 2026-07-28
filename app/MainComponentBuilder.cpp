@@ -407,6 +407,22 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
     mixerPanel.refreshStructure();
 }
 
+void MainComponent::setProjectNameFromJson(const std::string& json) {
+    simdjson::dom::element doc;
+    std::string name;
+    if (!parseJson(json, doc) || !getString(doc, "name", name) || !engine.isProjectLoaded())
+        return;
+    name.erase(0, name.find_first_not_of(" \t"));
+    name.erase(name.find_last_not_of(" \t") + 1);
+    if (name.empty())
+        return;
+
+    engine.project().name = name;
+    engine.markDirty();
+    projectTitle.setText(juce::String(name), juce::dontSendNotification);
+    setStatus("Project renamed to '" + juce::String(name) + "'");
+}
+
 void MainComponent::removeTrackSendFromJson(const std::string& json) {
     simdjson::dom::element doc;
     int trackIndex = -1;

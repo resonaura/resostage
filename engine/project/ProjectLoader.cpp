@@ -776,6 +776,10 @@ bool ProjectLoader::loadAutosave(std::string& error) {
     if (!doc["builtInClickPan"].get(clickPan))
         proj.builtInClickPan = std::clamp(clickPan, -1.0, 1.0);
 
+    bool clickSolo = false;
+    if (!doc["builtInClickSolo"].get(clickSolo))
+        proj.builtInClickSolo = clickSolo;
+
     simdjson::dom::array bussesArr;
     if (!doc["busses"].get(bussesArr)) {
         for (simdjson::dom::element busEl : bussesArr) {
@@ -888,6 +892,10 @@ bool ProjectLoader::reparseProject(std::string& error) {
     double clickPan = 0.0;
     if (!doc["builtInClickPan"].get(clickPan))
         proj.builtInClickPan = std::clamp(clickPan, -1.0, 1.0);
+
+    bool clickSolo = false;
+    if (!doc["builtInClickSolo"].get(clickSolo))
+        proj.builtInClickSolo = clickSolo;
 
     simdjson::dom::array bussesArr;
     if (!doc["busses"].get(bussesArr)) {

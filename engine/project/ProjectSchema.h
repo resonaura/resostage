@@ -170,6 +170,11 @@ struct Project {
     double builtInClickGainDb = -6.0;
     // Project-global metronome pan (-1..+1). Same for every song.
     double builtInClickPan = 0.0;
+    // Soloing the metronome joins the same solo group as TrackDef::solo --
+    // when true, every regular track is silenced exactly as if one of them
+    // (rather than the click) had solo engaged. See AudioEngine::
+    // publishRoutingSnapshot()'s anyTrackSolo.
+    bool builtInClickSolo = false;
     std::vector<BusDef> busses;
     std::vector<TrackDef> tracks;
     std::vector<SongDef> songs;

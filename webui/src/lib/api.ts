@@ -18,7 +18,14 @@ async function post(path: string, body?: unknown): Promise<void> {
 
 export const transport = {
   play: () => post("/api/v1/transport/play"),
+  // Pause -- freezes in place, resumed by play(). Used by the Play/Pause
+  // toggle + spacebar. See AudioEngine::stop()'s doc comment.
   stop: () => post("/api/v1/transport/stop"),
+  // Dedicated "Stop" button -- see AudioEngine::stopToStart(): first press
+  // rewinds the current song to its start, a second press (already there)
+  // rewinds to the very start of the whole project. Distinct from stop()
+  // above, which never moves the playhead.
+  stopToStart: () => post("/api/v1/transport/stop-to-start"),
   next: () => post("/api/v1/transport/next"),
   prev: () => post("/api/v1/transport/prev"),
   select: (index: number) => post("/api/v1/transport/select", { index }),
@@ -110,6 +117,11 @@ export const mixer = {
     post("/api/v1/bus/mute", { index, value }),
   setBusSolo: (index: number, value: boolean) =>
     post("/api/v1/bus/solo", { index, value }),
+  // Metronome solo -- joins the same solo group as setTrackSolo, silencing
+  // every regular track exactly as if one of them had solo engaged. See
+  // AudioEngine::setClickSolo(). `index` is unused (server ignores it).
+  setClickSolo: (value: boolean) =>
+    post("/api/v1/click/solo", { index: 0, value }),
   // Ableton-style send knob: find-or-create this track's send to busId at
   // gainDb. Matches native MixerStrip::onSendChanged -- turning a knob up
   // from its floor implicitly creates the send, no separate "add" call
@@ -139,6 +151,12 @@ export const project = {
   loadDialog: () => post("/api/v1/project/load-dialog"),
   save: () => post("/api/v1/project/save"),
   saveAs: () => post("/api/v1/project/save-as"),
+  // Renames the loaded project directly (Project::name), independent of
+  // any file path a save/export happens to use -- see WebCommandKind::
+  // SetProjectName. Needed because a plain-browser "download" Save As can't
+  // otherwise drive the archive's internal name at all (JS never learns the
+  // filename the user picked in the OS's own save sheet).
+  setName: (name: string) => post("/api/v1/project/name", { name }),
   // Answers the in-webview "Unsaved Changes" quit prompt (WebUiState.
   // quitConfirmPending) -- see WebCommandKind::QuitDecision.
   resolveQuit: (choice: "save" | "discard" | "cancel") =>

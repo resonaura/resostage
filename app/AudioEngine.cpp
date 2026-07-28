@@ -626,7 +626,7 @@ void AudioEngine::publishRoutingSnapshot() {
     if (currentSong >= proj.songs.size())
         return;
 
-    bool anyTrackSolo = false;
+    bool anyTrackSolo = proj.builtInClickSolo;
     for (size_t i = 0; i < proj.tracks.size() && i < trackIdByIndex.size(); ++i)
         if (proj.tracks[i].solo)
             anyTrackSolo = true;
@@ -825,6 +825,11 @@ void AudioEngine::setBusSolo(size_t busIndex, bool solo) {
     publishRoutingSnapshot();
 }
 
+void AudioEngine::setClickSolo(bool solo) {
+    loader.project().builtInClickSolo = solo;
+    publishRoutingSnapshot();
+}
+
 void AudioEngine::refreshClickState() {
     std::lock_guard<std::recursive_mutex> lock(routingMutex);
 
@@ -896,6 +901,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     trackIdByIndex.clear();
     trackScratch.clear();
     trackGainSmooth.clear();
+    clickSendSmooth.clear();
     trackMeters.clear();
     projectLoaded = true;
     midiClockEverStarted = false; // a new project's MIDI clock hasn't started yet -- next play() sends 0xFA, not 0xFB
@@ -1078,6 +1084,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     trackIdByIndex.clear();
     trackScratch.clear();
     trackGainSmooth.clear();
+    clickSendSmooth.clear();
     trackMeters.clear();
 
     const auto& projTracks = loader.project().tracks;
@@ -1507,6 +1514,35 @@ void AudioEngine::stop() {
     transportTelemetry.playheadSamples.store(clock.currentSamplePosition(), std::memory_order_relaxed);
     transportTelemetry.playheadSeconds.store(clock.currentSeconds(), std::memory_order_relaxed);
     transportTelemetry.running.store(false, std::memory_order_relaxed);
+}
+
+void AudioEngine::stopToStart() {
+    if (!projectLoaded || currentSong == static_cast<size_t>(-1)) {
+        stop();
+        return;
+    }
+
+    // A few ms of tolerance so a seek that landed a handful of samples off
+    // zero (rounding in seconds<->sample conversion) still counts as "at the
+    // start" on the second press, rather than requiring bit-exact 0.
+    const int64_t epsilonSamples = static_cast<int64_t>(currentSampleRate * 0.05);
+    const bool atSongStart = clock.currentSamplePosition() <= epsilonSamples;
+
+    if (atSongStart && currentSong != 0) {
+        // Second press (already at this song's start): rewind to the very
+        // beginning of the whole project. selectSong() halts playback itself.
+        std::string error;
+        selectSong(0, error);
+        return;
+    }
+
+    // First press (or already at the project's own start): halt, then
+    // rewind the current song to 0. stop() first so seekToSeconds's
+    // wasPlaying capture reads false and the result is a genuine stop, not
+    // "seek while still playing".
+    stop();
+    std::string error;
+    seekToSeconds(0.0, error);
 }
 
 bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songIndex) {
@@ -2099,7 +2135,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 }
             }
 
-            // Send buses (aux monitor mixes) — send gain × pan balance
+            // Send buses (aux monitor mixes) — send gain × pan balance,
+            // dezippered per-send the same ~10ms exponential way as every
+            // other gain path (see the track-route smoother above), so
+            // moving a click send knob doesn't zipper/click.
+            if (clickSendSmooth.size() < clickSendBusIndices.size())
+                clickSendSmooth.resize(clickSendBusIndices.size());
             for (size_t si = 0; si < clickSendBusIndices.size(); ++si) {
                 const int sendBusIdx = clickSendBusIndices[si];
                 if (static_cast<size_t>(sendBusIdx) >= busses.size())
@@ -2108,14 +2149,24 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 if (scratchOffset + 2 > scratchChannels)
                     continue;
                 const float sendGain = clickSendGainLinears[si];
-                const float sGL =
+                const float sendTargetGL =
                     sendGain * (1.0f - std::max(0.0f, clickPan));
-                const float sGR =
+                const float sendTargetGR =
                     sendGain * (1.0f + std::min(0.0f, clickPan));
+
+                ClickSendSmooth& sm = clickSendSmooth[si];
+                if (!sm.inited) {
+                    sm.gL = sendTargetGL;
+                    sm.gR = sendTargetGR;
+                    sm.inited = true;
+                }
+
                 for (int i = 0; i < numSamples; ++i) {
+                    sm.gL += a * (sendTargetGL - sm.gL);
+                    sm.gR += a * (sendTargetGR - sm.gR);
                     const float s = clickScratch[static_cast<size_t>(i)];
-                    busScratch.addSample(scratchOffset + 0, i, s * sGL);
-                    busScratch.addSample(scratchOffset + 1, i, s * sGR);
+                    busScratch.addSample(scratchOffset + 0, i, s * sm.gL);
+                    busScratch.addSample(scratchOffset + 1, i, s * sm.gR);
                 }
             }
 
@@ -2623,6 +2674,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     trackIdByIndex.clear();
     trackScratch.clear();
     trackGainSmooth.clear();
+    clickSendSmooth.clear();
     trackMeters.clear();
     trackPeaks.clear();
 

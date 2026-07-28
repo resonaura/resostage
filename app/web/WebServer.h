@@ -22,7 +22,13 @@ namespace resoset {
 // thread itself -- that would race with AudioEngine/JUCE state.
 enum class WebCommandKind : uint8_t {
     Play,
+    // Pause -- freezes in place, resumed by Play (see AudioEngine::stop()'s
+    // doc comment). Used by the Play/Pause toggle button + spacebar.
     Stop,
+    // Dedicated "Stop" button -- see AudioEngine::stopToStart(): first press
+    // rewinds the current song to its start, a second press (already there)
+    // rewinds to the very start of the whole project.
+    StopToStart,
     Next,
     Prev,
     SelectSong,
@@ -37,6 +43,10 @@ enum class WebCommandKind : uint8_t {
     SetBusGain,
     SetBusMute,
     SetBusSolo,
+    // Metronome solo -- joins the same solo group as SetTrackSolo (see
+    // AudioEngine::setClickSolo()). `value` is the boolean (0.0/1.0), `arg`
+    // unused.
+    SetClickSolo,
     // Ableton-style per-track send routing -- `json` carries
     // {trackIndex, busId, gainDb}. Mirrors MixerPanel.cpp's onSendChanged:
     // find the track's existing TrackSendDef for busId and update its gain,
@@ -66,6 +76,15 @@ enum class WebCommandKind : uint8_t {
     SaveProjectAs,
     LoadProjectFromPath,
     ExportProjectForDownload,
+    // Renames the loaded project directly (`json` carries {name}) -- unlike
+    // Save/SaveAs, this doesn't touch the file on disk, just Project::name.
+    // Exists so the project's displayed name is never *only* an implicit
+    // side effect of whichever file path a save dialog happened to produce
+    // (which a plain-browser "download" Save As can't drive at all, since
+    // JS never learns what filename the user picked in the OS's own save
+    // sheet) -- the header's name field is directly editable instead. See
+    // MainComponent::setProjectNameFromJson().
+    SetProjectName,
     // Builder structural-edit parity -- one kind per BuilderPanel operation
     // (Songs/Tracks/Busses/Events x Add/Remove/Move/Update). `json` carries
     // the raw POST body verbatim; WebServer does no field parsing for these,
@@ -137,6 +156,9 @@ struct WebUiState {
     double clickGainDb = -6.0;
     // Project-global metronome pan (-1..+1).
     double clickPan = 0.0;
+    // Metronome solo -- joins the same solo group as track solo (see
+    // AudioEngine::setClickSolo()).
+    bool clickSolo = false;
     // Metronome-only peak (not the destination bus). Mono source → L=R.
     float clickPeakDb = -144.0f;
     float clickPeakDbL = -144.0f;
