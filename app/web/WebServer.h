@@ -33,6 +33,7 @@ enum class WebCommandKind : uint8_t {
     SetTrackPan,
     SetTrackMute,
     SetTrackSolo,
+    SetTrackMono,
     SetBusGain,
     SetBusMute,
     SetBusSolo,

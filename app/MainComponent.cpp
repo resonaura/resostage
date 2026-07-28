@@ -403,6 +403,9 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetTrackSolo:
                 engine.setTrackSolo(engine.currentSongIndex(), idx, cmd.value != 0.0);
                 break;
+            case WebCommandKind::SetTrackMono:
+                engine.setTrackMono(engine.currentSongIndex(), idx, cmd.value != 0.0);
+                break;
             case WebCommandKind::SetBusGain:
                 engine.setBusGainDb(idx, cmd.value);
                 break;

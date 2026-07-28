@@ -318,6 +318,17 @@ private:
     std::unordered_map<std::string, size_t> busIndexById;
 
     std::vector<std::string> trackIdByIndex; // rebuilt per selectSong(); index matches RoutingSnapshot::TrackRoute::trackIndex
+    // Audio-thread only dezippers for pan/gain/mono so live knob moves don't
+    // hard-jump coefficients (clicks). Indexed by trackIndex * kSmoothBusSlots + busIndex
+    // so main vs aux routes (different send gains) don't fight one smoother.
+    static constexpr size_t kSmoothBusSlots = 32;
+    struct TrackGainSmooth {
+        float gL = 1.0f;
+        float gR = 1.0f;
+        float monoMix = 0.0f; // 0 = stereo, 1 = mono sum
+        bool inited = false;
+    };
+    std::vector<TrackGainSmooth> trackGainSmooth;
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> busMeters;
     std::vector<LoudnessMeter> busLoudnessMeters;
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> trackMeters;

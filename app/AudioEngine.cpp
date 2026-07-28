@@ -893,6 +893,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
     trackScratch.clear();
+    trackGainSmooth.clear();
     trackMeters.clear();
     projectLoaded = true;
     midiClockEverStarted = false; // a new project's MIDI clock hasn't started yet -- next play() sends 0xFA, not 0xFB
@@ -1074,6 +1075,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
     trackScratch.clear();
+    trackGainSmooth.clear();
     trackMeters.clear();
 
     const auto& projTracks = loader.project().tracks;
@@ -1997,29 +1999,48 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             srcR = srcL;
 
         const float g = route.gainLinear * route.sendGainLinear;
-        // Balance-style pan (L/R attenuation) for mono and stereo sources.
-        const float gL = g * (1.0f - std::max(0.0f, route.pan));
-        const float gR = g * (1.0f + std::min(0.0f, route.pan));
+        // Balance-style pan targets (L/R attenuation).
+        const float targetGL = g * (1.0f - std::max(0.0f, route.pan));
+        const float targetGR = g * (1.0f + std::min(0.0f, route.pan));
         // Force-mono track flag or mono file → sum L+R, then pan into bus.
-        const bool asMono = route.forceMono || trackChannels < 2;
+        const float targetMono =
+            (route.forceMono || trackChannels < 2) ? 1.0f : 0.0f;
 
-        if (!asMono && trackChannels >= 2 && busChannels >= 2) {
-            for (int i = 0; i < numSamples; ++i) {
-                busScratch.addSample(scratchOffset + 0, i, srcL[i] * gL);
-                busScratch.addSample(scratchOffset + 1, i, srcR[i] * gR);
-            }
-        } else {
-            for (int i = 0; i < numSamples; ++i) {
-                const float mono =
-                    asMono && trackChannels >= 2
-                        ? 0.5f * (srcL[i] + srcR[i])
-                        : srcL[i];
-                if (busChannels >= 2) {
-                    busScratch.addSample(scratchOffset + 0, i, mono * gL);
-                    busScratch.addSample(scratchOffset + 1, i, mono * gR);
-                } else {
-                    busScratch.addSample(scratchOffset + 0, i, mono * g);
-                }
+        const size_t smoothIdx =
+            static_cast<size_t>(route.trackIndex) * kSmoothBusSlots
+            + static_cast<size_t>(route.busIndex % kSmoothBusSlots);
+        if (smoothIdx >= trackGainSmooth.size())
+            trackGainSmooth.resize(smoothIdx + 1);
+        TrackGainSmooth& sm = trackGainSmooth[smoothIdx];
+        if (!sm.inited) {
+            sm.gL = targetGL;
+            sm.gR = targetGR;
+            sm.monoMix = targetMono;
+            sm.inited = true;
+        }
+
+        // ~10 ms exponential dezipper (avoids pan/gain/mono hard jumps → clicks).
+        const float sr = static_cast<float>(std::max(1.0, currentSampleRate));
+        const float a = 1.0f - std::exp(-1.0f / (0.010f * sr));
+
+        for (int i = 0; i < numSamples; ++i) {
+            sm.gL += a * (targetGL - sm.gL);
+            sm.gR += a * (targetGR - sm.gR);
+            sm.monoMix += a * (targetMono - sm.monoMix);
+
+            const float lIn = srcL[i];
+            const float rIn = srcR[i];
+            const float mid = 0.5f * (lIn + rIn);
+            // Crossfade stereo ↔ mono sum so the mono toggle doesn't click.
+            const float preL = lIn + sm.monoMix * (mid - lIn);
+            const float preR = rIn + sm.monoMix * (mid - rIn);
+
+            if (busChannels >= 2) {
+                busScratch.addSample(scratchOffset + 0, i, preL * sm.gL);
+                busScratch.addSample(scratchOffset + 1, i, preR * sm.gR);
+            } else {
+                busScratch.addSample(
+                    scratchOffset + 0, i, 0.5f * (preL * sm.gL + preR * sm.gR));
             }
         }
     }
@@ -2573,6 +2594,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
     trackScratch.clear();
+    trackGainSmooth.clear();
     trackMeters.clear();
     trackPeaks.clear();
 

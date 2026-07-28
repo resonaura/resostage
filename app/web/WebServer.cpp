@@ -206,6 +206,7 @@ bool parseIndexAndValue(const char* body, size_t len, int& outIndex, double& out
 bool isMixerCommandPath(const char* path) {
     static const char* const kPaths[] = {
         "/api/v1/track/gain", "/api/v1/track/pan",  "/api/v1/track/mute", "/api/v1/track/solo",
+        "/api/v1/track/mono",
         "/api/v1/bus/gain",   "/api/v1/bus/mute",   "/api/v1/bus/solo",
     };
     for (const char* p : kPaths)
@@ -219,6 +220,7 @@ WebCommandKind mixerCommandKindForPath(const char* path) {
     if (std::strcmp(path, "/api/v1/track/pan") == 0) return WebCommandKind::SetTrackPan;
     if (std::strcmp(path, "/api/v1/track/mute") == 0) return WebCommandKind::SetTrackMute;
     if (std::strcmp(path, "/api/v1/track/solo") == 0) return WebCommandKind::SetTrackSolo;
+    if (std::strcmp(path, "/api/v1/track/mono") == 0) return WebCommandKind::SetTrackMono;
     if (std::strcmp(path, "/api/v1/bus/gain") == 0) return WebCommandKind::SetBusGain;
     if (std::strcmp(path, "/api/v1/bus/mute") == 0) return WebCommandKind::SetBusMute;
     return WebCommandKind::SetBusSolo; // "/api/v1/bus/solo" -- last remaining option per isMixerCommandPath's list
