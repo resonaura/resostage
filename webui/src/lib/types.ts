@@ -52,6 +52,9 @@ export interface RegionRow {
   gainDb: number;
   fadeInSeconds: number;
   fadeOutSeconds: number;
+  /** Fade curvature [-1, 1]: 0 linear, + ease-in, − ease-out. */
+  fadeInCurve?: number;
+  fadeOutCurve?: number;
 }
 
 // Structural marker (Intro/Verse/Chorus/Bridge/Outro/Solo/custom). A point,

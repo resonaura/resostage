@@ -802,6 +802,8 @@ void MainComponent::publishWebState() {
             rr.gainDb = r.gainDb;
             rr.fadeInSeconds = r.fadeInSeconds;
             rr.fadeOutSeconds = r.fadeOutSeconds;
+            rr.fadeInCurve = r.fadeInCurve;
+            rr.fadeOutCurve = r.fadeOutCurve;
             row.regions.push_back(std::move(rr));
         }
 
@@ -1023,8 +1025,13 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
                 onDone(false);
             return;
         }
+        // Always write a .rsnraset path (chooser may return bare name).
+        juce::File target = file;
+        if (!target.hasFileExtension(".rsnraset"))
+            target = target.withFileExtension(".rsnraset");
+
         std::string error;
-        if (!engine.saveProject(file.getFullPathName().toStdString(), error)) {
+        if (!engine.saveProject(target.getFullPathName().toStdString(), error)) {
             setStatus("Save failed: " + juce::String(error));
             if (onDone)
                 onDone(false);
@@ -1034,7 +1041,10 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
         playerPanel.refreshProject();
         mixerPanel.refreshStructure();
         builderPanel.refresh();
-        setStatus("Saved " + file.getFileName());
+        setStatus("Saved " + target.getFileName());
+        // Push status into the web UI immediately so the Save button can
+        // briefly show "Saved" (statusMessage is mirrored every tick too).
+        publishWebState();
         if (onDone)
             onDone(true);
     };
@@ -1045,6 +1055,8 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
     const bool hasRealSaveLocation = !engine.projectPath().empty() && !engine.isDraftProject();
 
     if (!saveAs && hasRealSaveLocation) {
+        // Overwrite the open project in place (engine.saveProject already
+        // uses a temp+".new" swap so the open zip handle is safe).
         doSave(juce::File(engine.projectPath()));
         return;
     }
@@ -1053,7 +1065,10 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
         "Save .rsnraset project",
         hasRealSaveLocation ? juce::File(engine.projectPath()) : juce::File(),
         "*.rsnraset");
-    const auto flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+    // warnAboutOverwriting: OS dialog asks before replacing an existing
+    // path; engine then does a safe directory-container replace.
+    const auto flags = juce::FileBrowserComponent::saveMode
+                       | juce::FileBrowserComponent::canSelectFiles
                        | juce::FileBrowserComponent::warnAboutOverwriting;
     fileChooser->launchAsync(flags, [doSave](const juce::FileChooser& fc) {
         doSave(fc.getResult());

@@ -23,6 +23,16 @@ float dbToGain(double db) {
     return static_cast<float>(std::pow(10.0, db / 20.0));
 }
 
+// Fade shape: curve in [-1, +1], 0 = linear. Positive → ease-in (slow start),
+// negative → ease-out (fast start). Used for region fade-in/out envelopes.
+float shapedFadeGain(float t01, double curve) {
+    const float t = std::clamp(t01, 0.0f, 1.0f);
+    if (std::abs(curve) < 1.0e-6)
+        return t;
+    const float exp = std::pow(2.0f, static_cast<float>(curve) * 2.0f); // 0.25..4
+    return std::pow(t, exp);
+}
+
 // A few seconds of lookahead is enough to absorb realistic disk-I/O
 // slowness and short audio-callback stalls without an audible gap; large
 // stalls beyond this are handled by StreamingTrackBuffer's catch-up skip
@@ -904,6 +914,11 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     clickSendSmooth.clear();
     trackMeters.clear();
     projectLoaded = true;
+    // A user-chosen / loaded archive is never a draft -- without this, a
+    // prior newProject()'s usingDraftArchive=true leaked across Load and
+    // made plain Save always open the file picker (hasRealSaveLocation
+    // requires !isDraftProject()).
+    usingDraftArchive = false;
     midiClockEverStarted = false; // a new project's MIDI clock hasn't started yet -- next play() sends 0xFA, not 0xFB
     peakOverviewSessionCache.clear(); // different archive -- same file path could mean different audio
 
@@ -1967,6 +1982,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // buffer once per block -- see StreamingTrackBuffer's class comment).
     // trackScratch is always sized under routingMutex (which we hold). Defensive
     // size check still guards a future mismatch if block size grows mid-run.
+    //
+    // Region windowing: streams are region-keyed (see StreamingEngine::stageSong).
+    // We map the song playhead into the source file via
+    //   fileFrame = playhead - regionStart + sourceOffset
+    // and force silence outside [start, start+duration). Without this the
+    // file kept playing after the clip's visual end, then hit EOF and
+    // flashed meters. Fades + region gain are applied sample-accurately here.
     for (size_t t = 0; t < trackIdByIndex.size(); ++t) {
         if (t >= trackScratch.size())
             break;
@@ -1975,7 +1997,34 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             continue;
         scratch.clear();
 
-        StreamingTrackBuffer* buf = activeSong.track(trackIdByIndex[t]);
+        const std::string& trackId = trackIdByIndex[t];
+        const Region* reg = nullptr;
+        if (currentSong < proj.songs.size()) {
+            const SongDef& song = proj.songs[currentSong];
+            const double blockT0 = static_cast<double>(playheadSample) / currentSampleRate;
+            const double blockT1 = static_cast<double>(playheadSample + numSamples) / currentSampleRate;
+            const Region* fallback = nullptr;
+            for (const Region& r : song.regions) {
+                if (r.trackId != trackId)
+                    continue;
+                if (fallback == nullptr)
+                    fallback = &r;
+                const double dur = regionEffectiveDurationSeconds(r);
+                const double end = r.startSeconds + dur;
+                if (blockT1 > r.startSeconds && blockT0 < end) {
+                    reg = &r;
+                    break;
+                }
+            }
+            if (reg == nullptr)
+                reg = fallback;
+        }
+
+        StreamingTrackBuffer* buf = nullptr;
+        if (reg != nullptr)
+            buf = activeSong.region(reg->id);
+        if (buf == nullptr)
+            buf = activeSong.track(trackId);
         if (buf == nullptr)
             continue;
 
@@ -1983,7 +2032,81 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         float* ptrs[2] = {scratch.getWritePointer(0), trackChannels > 1 ? scratch.getWritePointer(1) : scratch.getWritePointer(0)};
         if (ptrs[0] == nullptr)
             continue;
-        buf->read(ptrs, numSamples, playheadSample);
+
+        const double sr = std::max(1.0, currentSampleRate);
+        const int64_t regStart = reg != nullptr
+            ? static_cast<int64_t>(std::llround(reg->startSeconds * sr)) : 0;
+        const double regDurSec = reg != nullptr ? regionEffectiveDurationSeconds(*reg) : 0.0;
+        const int64_t regLen = reg != nullptr
+            ? std::max<int64_t>(0, static_cast<int64_t>(std::llround(regDurSec * sr))) : 0;
+        const int64_t regEnd = regStart + regLen;
+        const int64_t srcOff = reg != nullptr
+            ? static_cast<int64_t>(std::llround(reg->sourceOffsetSeconds * sr)) : 0;
+        const int64_t fadeInN = reg != nullptr
+            ? static_cast<int64_t>(std::llround(std::max(0.0, reg->fadeInSeconds) * sr)) : 0;
+        const int64_t fadeOutN = reg != nullptr
+            ? static_cast<int64_t>(std::llround(std::max(0.0, reg->fadeOutSeconds) * sr)) : 0;
+        const float regGain = reg != nullptr ? dbToGain(reg->gainDb) : 1.0f;
+        const double fadeInCurve = reg != nullptr ? reg->fadeInCurve : 0.0;
+        const double fadeOutCurve = reg != nullptr ? reg->fadeOutCurve : 0.0;
+
+        const bool fullyOutside = reg != nullptr
+            && (playheadSample + numSamples <= regStart || playheadSample >= regEnd);
+
+        if (!fullyOutside) {
+            // Map song timeline → source file frames for this region.
+            // filePos for sample i = (playheadSample + i) - regStart + srcOff.
+            // When the block starts before the region, leave leading silence
+            // and only pull the overlapping tail from file position srcOff.
+            const int64_t filePosAtStart = playheadSample - regStart + srcOff;
+            if (filePosAtStart >= 0) {
+                buf->read(ptrs, numSamples, filePosAtStart);
+            } else {
+                const int lead = static_cast<int>(std::min<int64_t>(
+                    numSamples, -filePosAtStart));
+                const int tail = numSamples - lead;
+                if (tail > 0) {
+                    float* tailPtrs[2] = {
+                        ptrs[0] != nullptr ? ptrs[0] + lead : nullptr,
+                        trackChannels > 1 && ptrs[1] != nullptr ? ptrs[1] + lead
+                                                               : (ptrs[0] != nullptr ? ptrs[0] + lead : nullptr)};
+                    // Read into a contiguous temp on the stack for small
+                    // blocks — but tailPtrs already point into scratch which
+                    // is cleared, so reading straight into the offset works
+                    // only if StreamingTrackBuffer writes from index 0 of the
+                    // pointers we pass (it does).
+                    buf->read(tailPtrs, tail, srcOff);
+                }
+            }
+
+            // Window + fades + region gain (sample-accurate at edges).
+            if (reg != nullptr) {
+                for (int i = 0; i < numSamples; ++i) {
+                    const int64_t absS = playheadSample + i;
+                    float g = 0.0f;
+                    if (absS >= regStart && absS < regEnd && regLen > 0) {
+                        g = regGain;
+                        const int64_t into = absS - regStart;
+                        if (fadeInN > 0 && into < fadeInN) {
+                            const float t = static_cast<float>(into + 1) / static_cast<float>(fadeInN);
+                            g *= shapedFadeGain(t, fadeInCurve);
+                        }
+                        if (fadeOutN > 0 && into >= regLen - fadeOutN) {
+                            const float remain = static_cast<float>(regLen - into);
+                            const float t = remain / static_cast<float>(fadeOutN);
+                            g *= shapedFadeGain(t, fadeOutCurve);
+                        }
+                    }
+                    for (int ch = 0; ch < trackChannels; ++ch) {
+                        float* p = ptrs[ch];
+                        if (p != nullptr)
+                            p[i] *= g;
+                    }
+                }
+            }
+        }
+        // else: leave scratch cleared (silence) -- do not pull from the stream
+        // past the clip end (that was the meter-flash path).
 
         // Peak meter after fader/pan (and mono sum when forceMono / mono file).
         if (t < trackMeters.size() && trackMeters[t] != nullptr) {

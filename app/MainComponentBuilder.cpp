@@ -308,8 +308,11 @@ void MainComponent::builderRegionAdd(const std::string& json) {
     getDouble(doc, "gainDb", reg.gainDb);
     getDouble(doc, "fadeInSeconds", reg.fadeInSeconds);
     getDouble(doc, "fadeOutSeconds", reg.fadeOutSeconds);
+    getDouble(doc, "fadeInCurve", reg.fadeInCurve);
+    getDouble(doc, "fadeOutCurve", reg.fadeOutCurve);
 
     s.regions.push_back(std::move(reg));
+    engine.markDirty();
     builderPanel.refresh();
     builderPanel.onProjectEdited();
     setStatus("Region added");
@@ -363,9 +366,21 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
     if (getDouble(doc, "sourceOffsetSeconds", numVal)) regPtr->sourceOffsetSeconds = numVal;
     if (getDouble(doc, "durationSeconds", numVal)) regPtr->durationSeconds = numVal;
     if (getDouble(doc, "gainDb", numVal)) regPtr->gainDb = numVal;
-    if (getDouble(doc, "fadeInSeconds", numVal)) regPtr->fadeInSeconds = numVal;
-    if (getDouble(doc, "fadeOutSeconds", numVal)) regPtr->fadeOutSeconds = numVal;
+    if (getDouble(doc, "fadeInSeconds", numVal)) regPtr->fadeInSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "fadeOutSeconds", numVal)) regPtr->fadeOutSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "fadeInCurve", numVal))
+        regPtr->fadeInCurve = std::clamp(numVal, -1.0, 1.0);
+    if (getDouble(doc, "fadeOutCurve", numVal))
+        regPtr->fadeOutCurve = std::clamp(numVal, -1.0, 1.0);
 
+    // Keep fades from exceeding the clip length (each side ≤ half duration).
+    if (regPtr->durationSeconds > 0.0) {
+        const double maxFade = std::max(0.0, regPtr->durationSeconds * 0.5);
+        regPtr->fadeInSeconds = std::min(regPtr->fadeInSeconds, maxFade);
+        regPtr->fadeOutSeconds = std::min(regPtr->fadeOutSeconds, maxFade);
+    }
+
+    engine.markDirty();
     builderPanel.refresh();
     builderPanel.onProjectEdited();
     setStatus("Region updated");

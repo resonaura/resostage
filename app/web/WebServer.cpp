@@ -136,6 +136,16 @@ double finiteOrZero(double v) {
     return std::isfinite(v) ? v : 0.0;
 }
 
+// Meter levels: non-finite / absurd values must NOT become 0.0 (0 dBFS =
+// full-scale bar flash). Floor them instead.
+double finiteOrDbFloor(double v) {
+    if (!std::isfinite(v) || v < -144.0)
+        return -144.0;
+    if (v > 24.0)
+        return 24.0;
+    return v;
+}
+
 // Minimal body parse for {"index": N}. Avoids a JSON dependency for one field.
 int parseSelectIndex(const char* body, size_t len) {
     if (body == nullptr || len == 0)
@@ -832,9 +842,9 @@ std::string WebServer::buildStateJson() const {
       << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
       << "\"clickPan\":" << finiteOrZero(snap.clickPan) << ","
       << "\"clickSolo\":" << (snap.clickSolo ? "true" : "false") << ","
-      << "\"clickPeakDb\":" << finiteOrZero(snap.clickPeakDb) << ","
-      << "\"clickPeakDbL\":" << finiteOrZero(snap.clickPeakDbL) << ","
-      << "\"clickPeakDbR\":" << finiteOrZero(snap.clickPeakDbR) << ","
+      << "\"clickPeakDb\":" << finiteOrDbFloor(snap.clickPeakDb) << ","
+      << "\"clickPeakDbL\":" << finiteOrDbFloor(snap.clickPeakDbL) << ","
+      << "\"clickPeakDbR\":" << finiteOrDbFloor(snap.clickPeakDbR) << ","
       << "\"songName\":\"" << jsonEscape(snap.songName) << "\","
       << "\"playheadSeconds\":" << finiteOrZero(snap.playheadSeconds) << ","
       << "\"globalPlayheadSeconds\":" << finiteOrZero(snap.globalPlayheadSeconds) << ","
@@ -886,7 +896,9 @@ std::string WebServer::buildStateJson() const {
               << "\"durationSeconds\":" << finiteOrZero(r.durationSeconds) << ","
               << "\"gainDb\":" << finiteOrZero(r.gainDb) << ","
               << "\"fadeInSeconds\":" << finiteOrZero(r.fadeInSeconds) << ","
-              << "\"fadeOutSeconds\":" << finiteOrZero(r.fadeOutSeconds) << "}";
+              << "\"fadeOutSeconds\":" << finiteOrZero(r.fadeOutSeconds) << ","
+              << "\"fadeInCurve\":" << finiteOrZero(r.fadeInCurve) << ","
+              << "\"fadeOutCurve\":" << finiteOrZero(r.fadeOutCurve) << "}";
         }
         o << "],";
 
@@ -926,9 +938,9 @@ std::string WebServer::buildStateJson() const {
     for (size_t i = 0; i < snap.meters.size(); ++i) {
         if (i) o << ",";
         o << "{\"id\":\"" << jsonEscape(snap.meters[i].id) << "\","
-          << "\"peakDb\":" << finiteOrZero(snap.meters[i].peakDb) << ","
-          << "\"peakDbL\":" << finiteOrZero(snap.meters[i].peakDbL) << ","
-          << "\"peakDbR\":" << finiteOrZero(snap.meters[i].peakDbR) << ","
+          << "\"peakDb\":" << finiteOrDbFloor(snap.meters[i].peakDb) << ","
+          << "\"peakDbL\":" << finiteOrDbFloor(snap.meters[i].peakDbL) << ","
+          << "\"peakDbR\":" << finiteOrDbFloor(snap.meters[i].peakDbR) << ","
           << "\"shortTermLufs\":" << finiteOrZero(snap.meters[i].shortTermLufs) << "}";
     }
     o << "],";
@@ -952,9 +964,9 @@ std::string WebServer::buildStateJson() const {
               << "\"gainDb\":" << finiteOrZero(t.sends[si].gainDb) << "}";
         }
         o << "],"
-          << "\"peakDb\":" << finiteOrZero(t.peakDb) << ","
-          << "\"peakDbL\":" << finiteOrZero(t.peakDbL) << ","
-          << "\"peakDbR\":" << finiteOrZero(t.peakDbR) << "}";
+          << "\"peakDb\":" << finiteOrDbFloor(t.peakDb) << ","
+          << "\"peakDbL\":" << finiteOrDbFloor(t.peakDbL) << ","
+          << "\"peakDbR\":" << finiteOrDbFloor(t.peakDbR) << "}";
     }
     o << "],";
 
@@ -970,9 +982,9 @@ std::string WebServer::buildStateJson() const {
           << "\"isAux\":" << (b.isAux ? "true" : "false") << ","
           << "\"startChannel\":" << b.startChannel << ","
           << "\"channels\":" << b.channels << ","
-          << "\"peakDb\":" << finiteOrZero(b.peakDb) << ","
-          << "\"peakDbL\":" << finiteOrZero(b.peakDbL) << ","
-          << "\"peakDbR\":" << finiteOrZero(b.peakDbR) << "}";
+          << "\"peakDb\":" << finiteOrDbFloor(b.peakDb) << ","
+          << "\"peakDbL\":" << finiteOrDbFloor(b.peakDbL) << ","
+          << "\"peakDbR\":" << finiteOrDbFloor(b.peakDbR) << "}";
     }
     o << "],";
 

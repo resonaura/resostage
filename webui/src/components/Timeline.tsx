@@ -52,6 +52,84 @@ const TRACK_COLORS = [
 
 const HANDLE_PX = 8; // px width of trim handle hit area
 
+/** SVG fade triangle with curved edge driven by curve ∈ [-1, 1]. */
+function FadeCurveOverlay({
+  side,
+  widthPx,
+  heightPct,
+  curve,
+  color,
+  readOnly,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+}: {
+  side: "in" | "out";
+  widthPx: number;
+  heightPct: number;
+  curve: number;
+  color: string;
+  readOnly: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onPointerMove: (e: React.PointerEvent) => void;
+  onPointerUp: (e: React.PointerEvent) => void;
+}) {
+  const steps = 12;
+  const exp = Math.pow(2, (curve || 0) * 2); // 0.25..4
+  const pts: string[] = [];
+  if (side === "in") {
+    pts.push("0,100");
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const g = Math.pow(t, exp);
+      pts.push(`${(t * 100).toFixed(1)},${(100 - g * 100).toFixed(1)}`);
+    }
+    pts.push("100,100");
+  } else {
+    pts.push("0,100");
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const g = Math.pow(1 - t, exp);
+      pts.push(`${(t * 100).toFixed(1)},${(100 - g * 100).toFixed(1)}`);
+    }
+    pts.push("100,100");
+  }
+  return (
+    <div
+      className={`absolute top-0 bottom-0 ${side === "in" ? "left-0" : "right-0"} ${
+        readOnly
+          ? "pointer-events-none"
+          : "pointer-events-auto cursor-ns-resize"
+      }`}
+      style={{ width: widthPx, height: `${heightPct}%` }}
+      title={
+        side === "in"
+          ? "Drag vertically to reshape fade-in curve"
+          : "Drag vertically to reshape fade-out curve"
+      }
+      onPointerDown={readOnly ? undefined : onPointerDown}
+      onPointerMove={readOnly ? undefined : onPointerMove}
+      onPointerUp={readOnly ? undefined : onPointerUp}
+    >
+      <svg
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        className="h-full w-full pointer-events-none"
+      >
+        <polygon points={pts.join(" ")} fill={color} opacity={0.28} />
+        <polyline
+          points={pts.slice(1, -1).join(" ")}
+          fill="none"
+          stroke={color}
+          strokeWidth="2"
+          vectorEffect="non-scaling-stroke"
+          opacity={0.85}
+        />
+      </svg>
+    </div>
+  );
+}
+
 // ── Region UI state (mute overlay; geometry lives in project RegionRow) ──
 interface RegionUiState {
   muted: boolean;
@@ -701,7 +779,9 @@ function SectionMarkerLane({
     value: number;
   } | null>(null);
 
-  const resolveSongAt = (absSeconds: number): { songIndex: number; localSeconds: number } => {
+  const resolveSongAt = (
+    absSeconds: number,
+  ): { songIndex: number; localSeconds: number } => {
     for (let i = 0; i < songOffsets.length; i++) {
       const start = songOffsets[i];
       const end = start + songLengths[i];
@@ -711,19 +791,35 @@ function SectionMarkerLane({
     return { songIndex: -1, localSeconds: 0 };
   };
 
-  const openMenuAt = (e: React.MouseEvent, existing?: { songIndex: number; sectionId: string }) => {
+  const openMenuAt = (
+    e: React.MouseEvent,
+    existing?: { songIndex: number; sectionId: string },
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     if (readOnly) return;
     if (existing) {
-      setMenu({ x: e.clientX, y: e.clientY, songIndex: existing.songIndex, startSeconds: 0, sectionId: existing.sectionId });
+      setMenu({
+        x: e.clientX,
+        y: e.clientY,
+        songIndex: existing.songIndex,
+        startSeconds: 0,
+        sectionId: existing.sectionId,
+      });
       return;
     }
     const rect = laneRef.current?.getBoundingClientRect();
-    const absSeconds = rect ? Math.max(0, (e.clientX - rect.left) / pxPerSec) : 0;
+    const absSeconds = rect
+      ? Math.max(0, (e.clientX - rect.left) / pxPerSec)
+      : 0;
     const { songIndex, localSeconds } = resolveSongAt(absSeconds);
     if (songIndex < 0) return;
-    setMenu({ x: e.clientX, y: e.clientY, songIndex, startSeconds: localSeconds });
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      songIndex,
+      startSeconds: localSeconds,
+    });
   };
 
   const closeMenu = () => {
@@ -735,7 +831,11 @@ function SectionMarkerLane({
   const applyPreset = (name: string) => {
     if (!menu) return;
     if (menu.sectionId) {
-      void builder.sectionUpdate({ songIndex: menu.songIndex, sectionId: menu.sectionId, name });
+      void builder.sectionUpdate({
+        songIndex: menu.songIndex,
+        sectionId: menu.sectionId,
+        name,
+      });
     } else {
       void builder.sectionAdd(menu.songIndex, menu.startSeconds, name);
     }
@@ -762,7 +862,12 @@ function SectionMarkerLane({
   ) => {
     if (readOnly) return;
     e.stopPropagation();
-    dragMetaRef.current = { songIndex, sectionId, startX: e.clientX, origStart };
+    dragMetaRef.current = {
+      songIndex,
+      sectionId,
+      startX: e.clientX,
+      origStart,
+    };
     setLiveDrag({ songIndex, sectionId, value: origStart });
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -772,7 +877,11 @@ function SectionMarkerLane({
     const dSec = (e.clientX - meta.startX) / pxPerSec;
     const songLen = songLengths[meta.songIndex] ?? 0;
     const value = Math.max(0, Math.min(songLen, meta.origStart + dSec));
-    setLiveDrag({ songIndex: meta.songIndex, sectionId: meta.sectionId, value });
+    setLiveDrag({
+      songIndex: meta.songIndex,
+      sectionId: meta.sectionId,
+      value,
+    });
   };
   const onDragEnd = (e: React.PointerEvent) => {
     const meta = dragMetaRef.current;
@@ -799,7 +908,8 @@ function SectionMarkerLane({
     >
       {songs.map((song, i) =>
         (song.sections ?? []).map((sec: SectionRow) => {
-          const isDragging = liveDrag?.songIndex === i && liveDrag?.sectionId === sec.id;
+          const isDragging =
+            liveDrag?.songIndex === i && liveDrag?.sectionId === sec.id;
           const startSeconds = isDragging ? liveDrag!.value : sec.startSeconds;
           const left = (songOffsets[i] + startSeconds) * pxPerSec;
           const color = TRACK_COLORS[sec.colorIndex % TRACK_COLORS.length];
@@ -812,7 +922,9 @@ function SectionMarkerLane({
               onPointerDown={(e) => beginDrag(e, i, sec.id, sec.startSeconds)}
               onPointerMove={onDragMove}
               onPointerUp={onDragEnd}
-              onContextMenu={(e) => openMenuAt(e, { songIndex: i, sectionId: sec.id })}
+              onContextMenu={(e) =>
+                openMenuAt(e, { songIndex: i, sectionId: sec.id })
+              }
             >
               <div className="h-full w-px" style={{ background: color }} />
               <div
@@ -1523,31 +1635,103 @@ export function Timeline({
   );
 
   // Live geometry while dragging (committed to project on pointer up).
+  // Kept until live state.songs catches up — REST returns before the
+  // engine applies the update, so clearing the draft in .finally() caused
+  // a one-frame snap-back to the old size.
   const [regionGeomDraft, setRegionGeomDraft] = useState<
     Record<
       RegionSelKey,
-      { start: number; sourceOffset: number; duration: number }
+      {
+        start: number;
+        sourceOffset: number;
+        duration: number;
+        fadeIn?: number;
+        fadeOut?: number;
+        fadeInCurve?: number;
+        fadeOutCurve?: number;
+      }
     >
   >({});
   const regionGeomDraftRef = useRef(regionGeomDraft);
   regionGeomDraftRef.current = regionGeomDraft;
 
+  // Drop draft once project state reflects it (or the region vanished).
+  useEffect(() => {
+    const drafts = regionGeomDraftRef.current;
+    const keys = Object.keys(drafts) as RegionSelKey[];
+    if (keys.length === 0) return;
+    const eps = 0.02;
+    setRegionGeomDraft((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const key of Object.keys(next) as RegionSelKey[]) {
+        const d = next[key];
+        const hit = lookupRegion(state.songs, key);
+        if (!hit) {
+          delete next[key];
+          changed = true;
+          continue;
+        }
+        const r = hit.region;
+        const dur =
+          r.durationSeconds > 0
+            ? r.durationSeconds
+            : Math.max(0.05, d.duration);
+        const matches =
+          Math.abs(r.startSeconds - d.start) < eps &&
+          Math.abs(r.sourceOffsetSeconds - d.sourceOffset) < eps &&
+          Math.abs(dur - d.duration) < eps &&
+          (d.fadeIn === undefined ||
+            Math.abs((r.fadeInSeconds ?? 0) - d.fadeIn) < eps) &&
+          (d.fadeOut === undefined ||
+            Math.abs((r.fadeOutSeconds ?? 0) - d.fadeOut) < eps) &&
+          (d.fadeInCurve === undefined ||
+            Math.abs((r.fadeInCurve ?? 0) - d.fadeInCurve) < 0.05) &&
+          (d.fadeOutCurve === undefined ||
+            Math.abs((r.fadeOutCurve ?? 0) - d.fadeOutCurve) < 0.05);
+        if (matches) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      regionGeomDraftRef.current = next;
+      return next;
+    });
+  }, [state.songs]);
+
   // Region drag state — keyed by selection id, stores project geometry
-  type RegionDragMode = "move" | "trimStart" | "trimEnd";
+  type RegionDragMode =
+    | "move"
+    | "trimStart"
+    | "trimEnd"
+    | "fadeIn"
+    | "fadeOut"
+    | "fadeInCurve"
+    | "fadeOutCurve";
   type RegionGeom = {
     start: number;
     sourceOffset: number;
     duration: number;
+    fadeIn: number;
+    fadeOut: number;
+    fadeInCurve: number;
+    fadeOutCurve: number;
   };
   const regionDragRef = useRef<{
     key: RegionSelKey;
     mode: RegionDragMode;
     startX: number;
+    startY: number;
     songIndex: number;
     regionId: string;
     origStart: number;
     origSourceOffset: number;
     origDuration: number;
+    origFadeIn: number;
+    origFadeOut: number;
+    origFadeInCurve: number;
+    origFadeOutCurve: number;
     maxEnd: number; // song length
     /** Last live geometry during drag (committed on pointer up). */
     lastGeom: RegionGeom;
@@ -2440,18 +2624,25 @@ export function Timeline({
                           return Math.round(sec / beatSec) * beatSec;
                         };
 
-                        const effectiveGeom = (r: RegionRow) => {
+                        const effectiveGeom = (r: RegionRow): RegionGeom => {
                           const draft = regionGeomDraft[regionSelKey(i, r.id)];
-                          if (draft) return draft;
-                          const start = r.startSeconds;
+                          const start = draft?.start ?? r.startSeconds;
                           const duration =
-                            r.durationSeconds > 0
+                            draft?.duration ??
+                            (r.durationSeconds > 0
                               ? r.durationSeconds
-                              : Math.max(0.05, segDuration - start);
+                              : Math.max(0.05, segDuration - start));
                           return {
                             start,
-                            sourceOffset: r.sourceOffsetSeconds,
+                            sourceOffset:
+                              draft?.sourceOffset ?? r.sourceOffsetSeconds,
                             duration,
+                            fadeIn: draft?.fadeIn ?? r.fadeInSeconds ?? 0,
+                            fadeOut: draft?.fadeOut ?? r.fadeOutSeconds ?? 0,
+                            fadeInCurve:
+                              draft?.fadeInCurve ?? r.fadeInCurve ?? 0,
+                            fadeOutCurve:
+                              draft?.fadeOutCurve ?? r.fadeOutCurve ?? 0,
                           };
                         };
 
@@ -2523,21 +2714,31 @@ export function Timeline({
                                 mode: RegionDragMode,
                               ) => {
                                 e.stopPropagation();
+                                e.preventDefault();
                                 selectRegion(thisRegionSelKey, e);
                                 const orig: RegionGeom = {
                                   start: geom.start,
                                   sourceOffset: geom.sourceOffset,
                                   duration: geom.duration,
+                                  fadeIn: geom.fadeIn,
+                                  fadeOut: geom.fadeOut,
+                                  fadeInCurve: geom.fadeInCurve,
+                                  fadeOutCurve: geom.fadeOutCurve,
                                 };
                                 regionDragRef.current = {
                                   key: thisRegionSelKey,
                                   mode,
                                   startX: e.clientX,
+                                  startY: e.clientY,
                                   songIndex: i,
                                   regionId: songRegion.id,
                                   origStart: orig.start,
                                   origSourceOffset: orig.sourceOffset,
                                   origDuration: orig.duration,
+                                  origFadeIn: orig.fadeIn,
+                                  origFadeOut: orig.fadeOut,
+                                  origFadeInCurve: orig.fadeInCurve,
+                                  origFadeOutCurve: orig.fadeOutCurve,
                                   maxEnd: segDuration,
                                   lastGeom: orig,
                                 };
@@ -2546,10 +2747,23 @@ export function Timeline({
                                 ).setPointerCapture(e.pointerId);
                               };
 
+                              const baseGeom = (
+                                rd: NonNullable<typeof regionDragRef.current>,
+                              ): RegionGeom => ({
+                                start: rd.origStart,
+                                sourceOffset: rd.origSourceOffset,
+                                duration: rd.origDuration,
+                                fadeIn: rd.origFadeIn,
+                                fadeOut: rd.origFadeOut,
+                                fadeInCurve: rd.origFadeInCurve,
+                                fadeOutCurve: rd.origFadeOutCurve,
+                              });
+
                               const onDragMove = (e: React.PointerEvent) => {
                                 const rd = regionDragRef.current;
                                 if (!rd || rd.key !== thisRegionSelKey) return;
                                 const dSec = (e.clientX - rd.startX) / pxPerSec;
+                                const dY = e.clientY - rd.startY;
 
                                 if (rd.mode === "move") {
                                   const maxStart = Math.max(
@@ -2564,9 +2778,8 @@ export function Timeline({
                                     ),
                                   );
                                   writeGeomDraft(thisRegionSelKey, {
+                                    ...baseGeom(rd),
                                     start: nextStart,
-                                    sourceOffset: rd.origSourceOffset,
-                                    duration: rd.origDuration,
                                   });
                                   return;
                                 }
@@ -2583,6 +2796,7 @@ export function Timeline({
                                     ),
                                   );
                                   writeGeomDraft(thisRegionSelKey, {
+                                    ...baseGeom(rd),
                                     start: rd.origStart + delta,
                                     sourceOffset: rd.origSourceOffset + delta,
                                     duration: rd.origDuration - delta,
@@ -2590,61 +2804,102 @@ export function Timeline({
                                   return;
                                 }
 
-                                // trimEnd: snap the *end* time, not duration.
-                                const rawEnd =
-                                  rd.origStart + rd.origDuration + dSec;
-                                const snappedEnd = snapSec(rawEnd);
-                                const nextDur = Math.max(
-                                  0.05,
-                                  Math.min(
-                                    rd.maxEnd - rd.origStart,
-                                    snappedEnd - rd.origStart,
-                                  ),
-                                );
-                                writeGeomDraft(thisRegionSelKey, {
-                                  start: rd.origStart,
-                                  sourceOffset: rd.origSourceOffset,
-                                  duration: nextDur,
-                                });
+                                if (rd.mode === "trimEnd") {
+                                  const rawEnd =
+                                    rd.origStart + rd.origDuration + dSec;
+                                  const snappedEnd = snapSec(rawEnd);
+                                  const nextDur = Math.max(
+                                    0.05,
+                                    Math.min(
+                                      rd.maxEnd - rd.origStart,
+                                      snappedEnd - rd.origStart,
+                                    ),
+                                  );
+                                  writeGeomDraft(thisRegionSelKey, {
+                                    ...baseGeom(rd),
+                                    duration: nextDur,
+                                  });
+                                  return;
+                                }
+
+                                if (rd.mode === "fadeIn") {
+                                  const maxFade = rd.origDuration * 0.5;
+                                  const next = Math.max(
+                                    0,
+                                    Math.min(maxFade, rd.origFadeIn + dSec),
+                                  );
+                                  writeGeomDraft(thisRegionSelKey, {
+                                    ...baseGeom(rd),
+                                    fadeIn: next,
+                                  });
+                                  return;
+                                }
+
+                                if (rd.mode === "fadeOut") {
+                                  const maxFade = rd.origDuration * 0.5;
+                                  // Dragging left edge of fade-out to the left increases fade.
+                                  const next = Math.max(
+                                    0,
+                                    Math.min(maxFade, rd.origFadeOut - dSec),
+                                  );
+                                  writeGeomDraft(thisRegionSelKey, {
+                                    ...baseGeom(rd),
+                                    fadeOut: next,
+                                  });
+                                  return;
+                                }
+
+                                if (rd.mode === "fadeInCurve") {
+                                  // Vertical drag reshapes the curve (−1..+1).
+                                  const next = Math.max(
+                                    -1,
+                                    Math.min(1, rd.origFadeInCurve - dY / 40),
+                                  );
+                                  writeGeomDraft(thisRegionSelKey, {
+                                    ...baseGeom(rd),
+                                    fadeInCurve: next,
+                                  });
+                                  return;
+                                }
+
+                                if (rd.mode === "fadeOutCurve") {
+                                  const next = Math.max(
+                                    -1,
+                                    Math.min(1, rd.origFadeOutCurve - dY / 40),
+                                  );
+                                  writeGeomDraft(thisRegionSelKey, {
+                                    ...baseGeom(rd),
+                                    fadeOutCurve: next,
+                                  });
+                                }
                               };
 
                               const onDragUp = (e: React.PointerEvent) => {
                                 const rd = regionDragRef.current;
                                 if (!rd || rd.key !== thisRegionSelKey) return;
-                                const finalGeom = rd.lastGeom ??
-                                  regionGeomDraftRef.current[
-                                    thisRegionSelKey
-                                  ] ?? {
-                                    start: rd.origStart,
-                                    sourceOffset: rd.origSourceOffset,
-                                    duration: rd.origDuration,
-                                  };
-                                // Keep draft until project state catches up so
-                                // the region doesn't snap back mid-flight.
+                                const finalGeom: RegionGeom =
+                                  rd.lastGeom ?? baseGeom(rd);
+                                // Keep draft until state.songs matches (useEffect above).
                                 writeGeomDraft(thisRegionSelKey, finalGeom);
-                                void builder
-                                  .regionUpdate({
-                                    songIndex: i,
-                                    regionId: songRegion.id,
-                                    startSeconds: finalGeom.start,
-                                    sourceOffsetSeconds: finalGeom.sourceOffset,
-                                    durationSeconds: finalGeom.duration,
-                                  })
-                                  .finally(() => {
-                                    // Drop draft once committed; live state owns geometry.
-                                    setRegionGeomDraft((prev) => {
-                                      if (!(thisRegionSelKey in prev))
-                                        return prev;
-                                      const next = { ...prev };
-                                      delete next[thisRegionSelKey];
-                                      regionGeomDraftRef.current = next;
-                                      return next;
-                                    });
-                                  });
+                                void builder.regionUpdate({
+                                  songIndex: i,
+                                  regionId: songRegion.id,
+                                  startSeconds: finalGeom.start,
+                                  sourceOffsetSeconds: finalGeom.sourceOffset,
+                                  durationSeconds: finalGeom.duration,
+                                  fadeInSeconds: finalGeom.fadeIn,
+                                  fadeOutSeconds: finalGeom.fadeOut,
+                                  fadeInCurve: finalGeom.fadeInCurve,
+                                  fadeOutCurve: finalGeom.fadeOutCurve,
+                                });
                                 regionDragRef.current = null;
-                                (
-                                  e.currentTarget as HTMLElement
-                                ).releasePointerCapture(e.pointerId);
+                                try {
+                                  (
+                                    e.currentTarget as HTMLElement
+                                  ).releasePointerCapture(e.pointerId);
+                                } catch {
+                                  /* already released */
+                                }
                               };
 
                               return (
@@ -2733,8 +2988,47 @@ export function Timeline({
                                         peaks…
                                       </div>
                                     )}
+
+                                    {/* Fade-in / fade-out overlays (curve shape). */}
+                                    {geom.fadeIn > 0.001 && (
+                                      <FadeCurveOverlay
+                                        side="in"
+                                        widthPx={Math.max(
+                                          4,
+                                          geom.fadeIn * pxPerSec,
+                                        )}
+                                        heightPct={100}
+                                        curve={geom.fadeInCurve}
+                                        color={row.color}
+                                        readOnly={readOnly}
+                                        onPointerDown={(e) =>
+                                          beginDrag(e, "fadeInCurve")
+                                        }
+                                        onPointerMove={onDragMove}
+                                        onPointerUp={onDragUp}
+                                      />
+                                    )}
+                                    {geom.fadeOut > 0.001 && (
+                                      <FadeCurveOverlay
+                                        side="out"
+                                        widthPx={Math.max(
+                                          4,
+                                          geom.fadeOut * pxPerSec,
+                                        )}
+                                        heightPct={100}
+                                        curve={geom.fadeOutCurve}
+                                        color={row.color}
+                                        readOnly={readOnly}
+                                        onPointerDown={(e) =>
+                                          beginDrag(e, "fadeOutCurve")
+                                        }
+                                        onPointerMove={onDragMove}
+                                        onPointerUp={onDragUp}
+                                      />
+                                    )}
                                   </div>
 
+                                  {/* Trim handles (full height, left/right edge). */}
                                   {!readOnly && (
                                     <div
                                       className="absolute top-1 bottom-1 rounded-l-md cursor-ew-resize z-10"
@@ -2762,6 +3056,49 @@ export function Timeline({
                                       title="Drag to trim end"
                                       onPointerDown={(e) =>
                                         beginDrag(e, "trimEnd")
+                                      }
+                                      onPointerMove={onDragMove}
+                                      onPointerUp={onDragUp}
+                                    />
+                                  )}
+                                  {/* Fade length handles — top-left / top-right of clip.
+                                      Drag horizontally to set fade-in / fade-out duration. */}
+                                  {!readOnly && regionWidth > 24 && (
+                                    <div
+                                      className="absolute z-20 h-3 w-3 cursor-ew-resize rounded-sm border border-white/70"
+                                      style={{
+                                        left:
+                                          leftPx +
+                                          Math.max(
+                                            2,
+                                            geom.fadeIn * pxPerSec - 4,
+                                          ),
+                                        top: 2,
+                                        background: row.color,
+                                      }}
+                                      title="Drag to set fade-in length"
+                                      onPointerDown={(e) =>
+                                        beginDrag(e, "fadeIn")
+                                      }
+                                      onPointerMove={onDragMove}
+                                      onPointerUp={onDragUp}
+                                    />
+                                  )}
+                                  {!readOnly && regionWidth > 24 && (
+                                    <div
+                                      className="absolute z-20 h-3 w-3 cursor-ew-resize rounded-sm border border-white/70"
+                                      style={{
+                                        left:
+                                          leftPx +
+                                          regionWidth -
+                                          Math.max(2, geom.fadeOut * pxPerSec) -
+                                          4,
+                                        top: 2,
+                                        background: row.color,
+                                      }}
+                                      title="Drag to set fade-out length"
+                                      onPointerDown={(e) =>
+                                        beginDrag(e, "fadeOut")
                                       }
                                       onPointerMove={onDragMove}
                                       onPointerUp={onDragUp}

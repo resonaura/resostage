@@ -27,6 +27,12 @@ struct Region {
     double gainDb = 0.0;
     double fadeInSeconds = 0.0;
     double fadeOutSeconds = 0.0;
+    // Fade curvature in [-1, +1]: 0 = linear, negative = ease-out (fast
+    // start), positive = ease-in (slow start). Matches the Editor's
+    // "drag the fade curve" control; ignored when the corresponding
+    // fade*Seconds is 0.
+    double fadeInCurve = 0.0;
+    double fadeOutCurve = 0.0;
 };
 
 struct TrackDef {

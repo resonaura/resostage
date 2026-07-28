@@ -412,6 +412,20 @@ function ProjectNameField({ state }: { state: WebUiState }) {
 function ProjectMenu({ state }: { state: WebUiState }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [confirmNew, setConfirmNew] = useState(false);
+  const [saveLabel, setSaveLabel] = useState("Save");
+  const saveFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Flash "Saved" whenever the native status bar reports a successful save.
+  useEffect(() => {
+    const msg = state.statusMessage ?? "";
+    if (!/^Saved\b/i.test(msg)) return;
+    setSaveLabel("Saved");
+    if (saveFlashTimer.current) clearTimeout(saveFlashTimer.current);
+    saveFlashTimer.current = setTimeout(() => setSaveLabel("Save"), 1800);
+    return () => {
+      if (saveFlashTimer.current) clearTimeout(saveFlashTimer.current);
+    };
+  }, [state.statusMessage]);
 
   const handleNew = () => {
     if (
@@ -438,10 +452,40 @@ function ProjectMenu({ state }: { state: WebUiState }) {
     if (file) void project.upload(file);
   };
 
-  const handleSave = () =>
-    void (IS_EMBEDDED ? project.save() : project.exportAndDownload());
-  const handleSaveAs = () =>
-    void (IS_EMBEDDED ? project.saveAs() : project.exportAndDownload());
+  const handleSave = () => {
+    if (IS_EMBEDDED) void project.save();
+    else void project.exportAndDownload();
+  };
+  const handleSaveAs = () => {
+    if (IS_EMBEDDED) void project.saveAs();
+    else void project.exportAndDownload();
+  };
+
+  // ⌘S / Ctrl+S → Save, ⇧⌘S → Save As (skip when typing in inputs).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      )
+        return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (e.key === "s" || e.key === "S") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) handleSaveAs();
+        else handleSave();
+      }
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", onKey, { capture: true });
+  }, []);
 
   return (
     <div className="flex items-center gap-1.5">
@@ -458,13 +502,21 @@ function ProjectMenu({ state }: { state: WebUiState }) {
       <Button size="sm" variant="outline" onPress={handleLoad}>
         {IS_EMBEDDED ? "Load…" : "Upload…"}
       </Button>
-      <Button size="sm" variant="outline" onPress={handleSave}>
-        {IS_EMBEDDED ? "Save" : "Download"}
-      </Button>
-      {IS_EMBEDDED && (
-        <Button size="sm" variant="outline" onPress={handleSaveAs}>
-          Save As&hellip;
+      <span title={IS_EMBEDDED ? "Save (⌘S)" : "Download project"}>
+        <Button
+          size="sm"
+          variant={saveLabel === "Saved" ? "primary" : "outline"}
+          onPress={handleSave}
+        >
+          {IS_EMBEDDED ? saveLabel : "Download"}
         </Button>
+      </span>
+      {IS_EMBEDDED && (
+        <span title="Save As (⇧⌘S)">
+          <Button size="sm" variant="outline" onPress={handleSaveAs}>
+            Save As&hellip;
+          </Button>
+        </span>
       )}
       <ConfirmDialog
         open={confirmNew}

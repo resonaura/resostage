@@ -251,6 +251,8 @@ struct WebUiState {
             double gainDb = 0.0;
             double fadeInSeconds = 0.0;
             double fadeOutSeconds = 0.0;
+            double fadeInCurve = 0.0;
+            double fadeOutCurve = 0.0;
         };
         std::vector<RegionRow> regions;
 
