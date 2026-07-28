@@ -88,6 +88,13 @@ public:
     // actually becomes current).
     void precacheSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames, double deviceSampleRate);
 
+    // Message-thread-only. Hard-seeks every buffer of the currently active
+    // staged song to `deviceFrame` (sample-accurate, sync). Holds
+    // projectLoaderMutex so the I/O thread cannot race the re-open/skip.
+    // Must be called with playback not consuming these buffers (seek path
+    // already stop()s first). Returns false if any buffer fails to seek.
+    bool seekActiveSongTo(int64_t deviceFrame, std::string& error);
+
     // Audio-thread-only. Never allocates (atomic refcount op).
     ActiveSongHandle acquireActiveSong();
 

@@ -33,10 +33,54 @@ constexpr double kRingBufferSeconds = 4.0;
 // ~/Library/Application Support/ResoStage/Drafts/draft_<timestamp>.rsnraset
 // (platform-appropriate equivalent elsewhere). Auto-created for every
 // newProject() so imports have somewhere real to write to immediately,
-// without forcing a manual Save As first. Deliberately never auto-deleted
-// except on successful promotion to a real Save As location (see
-// AudioEngine::saveProject) -- an abandoned draft from a crash or a quit
-// without saving is a recoverable backup, not litter.
+// without forcing a manual Save As first. Rotated on every launch / new
+// draft (keep the most recent kMaxRetainedDrafts; drop *.new / tmp leftovers).
+// Successful Save As still promotes the active draft out of this folder.
+constexpr int kMaxRetainedDrafts = 3;
+
+void purgeStaleDrafts(const juce::File& draftsDir, const juce::String& keepPath = {}) {
+    if (!draftsDir.isDirectory())
+        return;
+
+    struct Entry {
+        juce::File file;
+        juce::int64 modTime = 0;
+        bool isCompleteDraft = false;
+    };
+    std::vector<Entry> complete;
+    const juce::String keepFull = keepPath.isNotEmpty()
+                                      ? juce::File(keepPath).getFullPathName()
+                                      : juce::String();
+
+    for (const auto& f : draftsDir.findChildFiles(
+             juce::File::findFilesAndDirectories, false)) {
+        const juce::String name = f.getFileName();
+        const juce::String full = f.getFullPathName();
+        // Crash/write leftovers from the old archivePath+".new" path and
+        // partial renames -- never useful, always reclaim.
+        if (name.contains(".new") || name.contains("tmp-writing") || name.endsWithIgnoreCase(".tmp")) {
+            f.deleteRecursively();
+            continue;
+        }
+        if (!name.startsWith("draft_") || !name.endsWithIgnoreCase(".rsnraset")) {
+            // Unknown junk under Drafts/ -- leave alone (user may have put something here).
+            continue;
+        }
+        if (keepFull.isNotEmpty() && full == keepFull)
+            continue;
+        Entry e;
+        e.file = f;
+        e.modTime = f.getLastModificationTime().toMilliseconds();
+        e.isCompleteDraft = true;
+        complete.push_back(std::move(e));
+    }
+
+    std::sort(complete.begin(), complete.end(),
+              [](const Entry& a, const Entry& b) { return a.modTime > b.modTime; });
+    for (size_t i = static_cast<size_t>(kMaxRetainedDrafts); i < complete.size(); ++i)
+        complete[i].file.deleteRecursively();
+}
+
 bool makeDraftArchivePath(std::string& outPath, std::string& error) {
     // JUCE's userApplicationDataDirectory maps to ~/Library on macOS, not
     // ~/Library/Application Support -- append that segment explicitly to
@@ -53,6 +97,9 @@ bool makeDraftArchivePath(std::string& outPath, std::string& error) {
         error = result.getErrorMessage().toStdString();
         return false;
     }
+    // Rotate before allocating a new timestamped draft so a crashy session
+    // of "New Project" clicks can't fill the disk again.
+    purgeStaleDrafts(draftsDir);
     const juce::String filename = "draft_" + juce::String(juce::Time::getCurrentTime().toMilliseconds()) + ".rsnraset";
     outPath = draftsDir.getChildFile(filename).getFullPathName().toStdString();
     return true;
@@ -60,6 +107,17 @@ bool makeDraftArchivePath(std::string& outPath, std::string& error) {
 } // namespace
 
 AudioEngine::AudioEngine() {
+    // Reclaim disk from previous sessions even if the user never hits New
+    // Project this launch (makeDraftArchivePath also rotates on create).
+    {
+        const juce::File userData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+#if JUCE_MAC
+        const juce::File appSupport = userData.getChildFile("Application Support");
+#else
+        const juce::File appSupport = userData;
+#endif
+        purgeStaleDrafts(appSupport.getChildFile("ResoStage").getChildFile("Drafts"));
+    }
     deviceManagerInstance.addAudioCallback(this);
     deviceManagerInstance.addChangeListener(this);
     midiDispatcher.start();
@@ -1028,6 +1086,10 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     }
     const SongDef& song = proj.songs[songIndex];
 
+    // Promote/open streams first -- atomic shared_ptr swap inside stageSong,
+    // safe concurrent with the audio thread holding a previous ActiveSongHandle.
+    // Keep this OUTSIDE routingMutex: cold open can do disk I/O and must not
+    // stall the audio callback for tens of ms (which itself causes underruns).
     const int64_t ringCapacityFrames = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
     if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error))
         return false;
@@ -1047,36 +1109,30 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         newTrackIds.push_back(trackDef.id);
     }
 
-    trackIdByIndex = std::move(newTrackIds);
-    trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
-    ensureTrackMeters(trackIdByIndex.size());
-    ensureScratchSizes();
-
-    // Song length = longest track (frames at the song's native/device sample
-    // rate), used to detect song end for playback-mode handling below.
-    currentSongLengthFrames = 0;
+    // Song length from the (already published) active staged song.
+    int64_t newSongLengthFrames = 0;
     {
         StreamingEngine::ActiveSongHandle activeSong = streaming.acquireActiveSong();
         if (activeSong) {
-            for (const std::string& trackId : trackIdByIndex) {
+            for (const std::string& trackId : newTrackIds) {
                 if (StreamingTrackBuffer* buf = activeSong.track(trackId))
-                    currentSongLengthFrames = std::max(currentSongLengthFrames, buf->totalFrames());
+                    newSongLengthFrames = std::max(newSongLengthFrames, buf->totalFrames());
             }
         }
     }
 
-    eventFiredFlags.assign(song.events.size(), 0);
-
-    clickTargetBusIndex = -1;
-    clickSendBusIndices.clear();
-    clickSendGainLinears.clear();
-    isClickEnabled = song.builtInClickEnabled;
-
-    auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty() ? (busses.empty() ? "" : busses.front().id) : song.builtInClickBusId);
+    // Prepare click routing offline, publish under the lock below.
+    int newClickTarget = -1;
+    float newClickGain = 1.0f;
+    std::vector<int> newClickSends;
+    std::vector<float> newClickSendGains;
+    const bool newClickEnabled = song.builtInClickEnabled;
+    auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty()
+                                            ? (busses.empty() ? "" : busses.front().id)
+                                            : song.builtInClickBusId);
     if (clickBusIt != busIndexById.end()) {
-        clickTargetBusIndex = static_cast<int>(clickBusIt->second);
-        clickGainLinear = dbToGain(song.builtInClickGainDb);
-        clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+        newClickTarget = static_cast<int>(clickBusIt->second);
+        newClickGain = dbToGain(song.builtInClickGainDb);
     }
     for (const TrackSendDef& cs : song.builtInClickSends) {
         if (!cs.enabled)
@@ -1084,34 +1140,96 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         auto it = busIndexById.find(cs.busId);
         if (it == busIndexById.end())
             continue;
-        clickSendBusIndices.push_back(static_cast<int>(it->second));
-        clickSendGainLinears.push_back(dbToGain(cs.gainDb));
+        newClickSends.push_back(static_cast<int>(it->second));
+        newClickSendGains.push_back(dbToGain(cs.gainDb));
     }
 
-    currentSong = songIndex;
-    publishRoutingSnapshot();
-    rebuildTrackPeaks();
+    // CRITICAL: every field the audio thread reads under routingMutex must
+    // flip atomically relative to that lock. The previous code reassigned
+    // trackScratch to a vector of EMPTY AudioBuffers *outside* the lock,
+    // then called ensureScratchSizes() which blocked on the mutex -- so the
+    // audio callback could (and did) try_to_lock successfully, read a null
+    // getWritePointer/getReadPointer from a 0-channel buffer, and SIGSEGV
+    // (see crash: audioDeviceIOCallbackWithContext @ busScratch.addSample
+    // with srcL == nullptr, while the message thread was stuck in
+    // ensureScratchSizes during gapless switchToSongGapless).
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
 
-    // Reset playhead to the start of the newly staged song.
-    clock.start(currentSampleRate, 0);
-    underrunFadeOutRemaining = 0;
-    recoveryFadeInRemaining = 512; // soft 512-sample (~10ms) edge between songs
-    lastCallbackWasUnderrun = false;
+        trackIdByIndex = std::move(newTrackIds);
+        trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
+        ensureTrackMeters(trackIdByIndex.size());
+        // Inline ensureScratchSizes body while we already hold the lock
+        // (recursive_mutex would allow re-entry, but keep it explicit).
+        {
+            const int busChannels = std::max<int>(2, static_cast<int>(busses.size()) * 2);
+            const int samples = std::max(currentBlockSize, 1);
+            busScratch.setSize(busChannels, samples, false, false, true);
+            for (auto& scratch : trackScratch)
+                scratch.setSize(2, samples, false, false, true);
+            clickScratch.assign(static_cast<size_t>(samples), 0.0f);
+        }
 
-    if (gaplessKeepPlaying) {
-        // Stay in PLAYING: restart timeline at 0 without a stop/start gap.
-        playing.store(true, std::memory_order_release);
-        transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
-        transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
-        transportTelemetry.running.store(true, std::memory_order_relaxed);
-        midiDispatcher.setClockBpm(song.bpm); // smooth retune, no phase reset/Stop/Start
-    } else {
+        currentSongLengthFrames = newSongLengthFrames;
+        eventFiredFlags.assign(song.events.size(), 0);
 
+        clickTargetBusIndex = newClickTarget;
+        clickGainLinear = newClickGain;
+        clickSendBusIndices = std::move(newClickSends);
+        clickSendGainLinears = std::move(newClickSendGains);
+        isClickEnabled = newClickEnabled;
+        if (newClickTarget >= 0)
+            clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+
+        currentSong = songIndex;
+
+        // Publish routing while still holding routingMutex (recursive).
+        publishRoutingSnapshot();
+
+        // Reset playhead + micro-fade state under the same lock the audio
+        // thread uses for the whole mix/fade path, so it can never observe
+        // "hold cleared, fade-in not yet armed" or a half-updated song.
+        //
+        // Sequence matters for MasterClock: stop first so the audio thread's
+        // onAudioCallback becomes a no-op (it only re-anchors while
+        // clock.isRunning()), THEN zero the free-run counter, THEN start at 0.
+        // free-running fetch_add while stopped was the other half of the
+        // gapless playhead-jump race.
         clock.stop();
-        transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
-        transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
-        transportTelemetry.running.store(false, std::memory_order_relaxed);
+        hwSamplePosition.store(0, std::memory_order_relaxed);
+        underrunFadeOutRemaining = 0;
+        underrunFadeOutLength = 0;
+        lastCallbackWasUnderrun = false;
+        lastCallbackHostNanos = 0;
+        pendingSongEndAction = SongEndAction::None;
+        // Soft edge into the new song (~43ms). Fade-in is preferred over
+        // outputHeldSilent in the render path so the first audible samples
+        // always ramp from 0 even if hold is still latched.
+        recoveryFadeInLength = kSongEndFadeSamples;
+        recoveryFadeInRemaining = kSongEndFadeSamples;
+        outputHeldSilent = false;
+
+        if (gaplessKeepPlaying) {
+            // Stay in PLAYING: restart timeline at 0 without a stop/start gap.
+            clock.start(currentSampleRate, 0);
+            playing.store(true, std::memory_order_release);
+            transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
+            transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
+            transportTelemetry.running.store(true, std::memory_order_relaxed);
+        } else {
+            // Anchor frozen at 0; play() will start the clock later.
+            clock.start(currentSampleRate, 0);
+            clock.stop();
+            transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
+            transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
+            transportTelemetry.running.store(false, std::memory_order_relaxed);
+        }
     }
+
+    if (gaplessKeepPlaying)
+        midiDispatcher.setClockBpm(song.bpm); // smooth retune, no phase reset/Stop/Start
+
+    rebuildTrackPeaks();
 
     if (fireOnLoadEventsFlag)
         fireOnLoadEvents(song);
@@ -1228,6 +1346,14 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
     seconds = std::clamp(seconds, 0.0, maxSec);
     const int64_t sample = static_cast<int64_t>(seconds * currentSampleRate);
 
+    // Synchronously park every stem at `sample` BEFORE the transport clock
+    // (and therefore the built-in click, which is pure math on the playhead)
+    // resumes. Async ring catch-up after seek used to leave the click
+    // ticking at the new position while WAVs were still silence/skipping --
+    // audible as "scrub and the metronome desyncs from the tracks".
+    if (!streaming.seekActiveSongTo(sample, error))
+        return false;
+
     // Mark past events as already fired so seek doesn't re-trigger them.
     const Project& proj = loader.project();
     if (targetSong < proj.songs.size()) {
@@ -1243,32 +1369,48 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
         }
     }
 
-    clock.start(currentSampleRate, sample);
-    transportTelemetry.playheadSamples.store(sample, std::memory_order_relaxed);
-    transportTelemetry.playheadSeconds.store(seconds, std::memory_order_relaxed);
+    // Same hwSamplePosition invariant as play()/gapless selectSongInternal:
+    // MasterClock re-anchors to this free-run counter every callback.
+    // Also re-arm a short fade-in so the scrub edge itself isn't a click.
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        hwSamplePosition.store(sample, std::memory_order_relaxed);
+        underrunFadeOutRemaining = 0;
+        underrunFadeOutLength = 0;
+        outputHeldSilent = false;
+        recoveryFadeInLength = kUnderrunFadeSamples;
+        recoveryFadeInRemaining = kUnderrunFadeSamples;
+        pendingSongEndAction = SongEndAction::None;
+        lastCallbackWasUnderrun = false;
+        lastCallbackHostNanos = 0;
+        clock.start(currentSampleRate, sample);
+        transportTelemetry.playheadSamples.store(sample, std::memory_order_relaxed);
+        transportTelemetry.playheadSeconds.store(seconds, std::memory_order_relaxed);
 
-    if (wasPlaying) {
-        if (targetSong < proj.songs.size()) {
-            // Seeking is a relocate, not a fresh transport start: tell
-            // followers the new absolute position via Song Position Pointer
-            // (in MIDI-beats/16th-notes since Start, driven by the GLOBAL
-            // cumulative position, not this song's local position -- see
-            // globalBeatsElapsed()'s doc comment), then Continue (not Start)
-            // so phase-since-Start isn't reset. selectSong() above already
-            // went through stop() -> midiDispatcher.stopClock() (0xFC), so
-            // the net wire sequence for a seek-while-playing is the standard
-            // Stop -> SPP -> Continue.
-            const double globalBeats = globalBeatsElapsed();
-            const long long sixteenths = std::llround(globalBeats * 4.0); // SPP unit = 16th notes
-            const uint16_t midiBeats16 = static_cast<uint16_t>(std::clamp<long long>(sixteenths, 0, 16383));
-            midiDispatcher.sendSongPositionPointer(midiBeats16);
-            midiDispatcher.continueClock(proj.songs[targetSong].bpm);
+        if (wasPlaying) {
+            playing.store(true, std::memory_order_release);
+            transportTelemetry.running.store(true, std::memory_order_relaxed);
+        } else {
+            clock.stop();
+            transportTelemetry.running.store(false, std::memory_order_relaxed);
         }
-        playing.store(true, std::memory_order_release);
-        transportTelemetry.running.store(true, std::memory_order_relaxed);
-    } else {
-        clock.stop();
-        transportTelemetry.running.store(false, std::memory_order_relaxed);
+    }
+
+    if (wasPlaying && targetSong < proj.songs.size()) {
+        // Seeking is a relocate, not a fresh transport start: tell
+        // followers the new absolute position via Song Position Pointer
+        // (in MIDI-beats/16th-notes since Start, driven by the GLOBAL
+        // cumulative position, not this song's local position -- see
+        // globalBeatsElapsed()'s doc comment), then Continue (not Start)
+        // so phase-since-Start isn't reset. selectSong() above already
+        // went through stop() -> midiDispatcher.stopClock() (0xFC), so
+        // the net wire sequence for a seek-while-playing is the standard
+        // Stop -> SPP -> Continue.
+        const double globalBeats = globalBeatsElapsed();
+        const long long sixteenths = std::llround(globalBeats * 4.0); // SPP unit = 16th notes
+        const uint16_t midiBeats16 = static_cast<uint16_t>(std::clamp<long long>(sixteenths, 0, 16383));
+        midiDispatcher.sendSongPositionPointer(midiBeats16);
+        midiDispatcher.continueClock(proj.songs[targetSong].bpm);
     }
     return true;
 }
@@ -1410,30 +1552,60 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     const uint64_t hostTimeNanos = (context.hostTimeNs != nullptr)
                                         ? SystemMonotonicClock::ticksToNanos(*context.hostTimeNs)
                                         : SystemMonotonicClock{}.nowNanos();
-    const int64_t hwPos = hwSamplePosition.fetch_add(numSamples, std::memory_order_relaxed);
-    clock.onAudioCallback(hostTimeNanos, hwPos);
+    // Sample-accurate render playhead for THIS block. Driven by the free-run
+    // hardware counter (incremented once per callback while the transport
+    // clock is running), NOT by MasterClock's wall-clock free-run projection.
+    // Using the wall-clock value here used to let WAV reads and the built-in
+    // click diverge under PI-loop gamma corrections / host-time jitter --
+    // the click is pure math on playheadSample while stems come from disk at
+    // the same index, so they must share a single, sample-locked position.
+    // MasterClock still tracks wall-clock for UI/MIDI fail-safe telemetry.
+    int64_t renderPlayheadSample = clock.currentSamplePosition();
+    const bool clockRunning = clock.isRunning();
+    if (clockRunning) {
+        // Only advance the free-run hardware counter while the transport
+        // clock is running. Free-running across Stop / the gapless song-end
+        // hold raced a concurrent message-thread store(0)+start(0) and
+        // re-anchored song B's playhead to a multi-million-sample value.
+        const int64_t hwPos = hwSamplePosition.fetch_add(numSamples, std::memory_order_relaxed);
+        clock.onAudioCallback(hostTimeNanos, hwPos);
+        renderPlayheadSample = hwPos;
+    }
 
     systemHealth.noteAudioCallback();
     // Underrun heuristic: gap between consecutive callbacks more than 2.5x the
     // expected block duration (or an explicit simulateUnderrun stall).
+    // Skip while the transport clock is stopped -- gapless handoff deliberately
+    // parks the clock for a few blocks and must not look like a dropout.
     bool underrunThisCallback = false;
-    if (lastCallbackHostNanos != 0 && currentSampleRate > 0.0 && numSamples > 0) {
+    if (clockRunning && lastCallbackHostNanos != 0 && currentSampleRate > 0.0 && numSamples > 0) {
         const double expectedNs = (static_cast<double>(numSamples) / currentSampleRate) * 1.0e9;
         const double gapNs = static_cast<double>(hostTimeNanos - lastCallbackHostNanos);
         if (gapNs > expectedNs * 2.5 || stallMs > 0.0) {
             systemHealth.noteUnderrun();
             underrunThisCallback = true;
+            underrunFadeOutLength = kUnderrunFadeSamples;
             underrunFadeOutRemaining = kUnderrunFadeSamples;
         }
     }
     // After an underrun gap, start a short fade-in so recovery isn't a click.
-    if (lastCallbackWasUnderrun && !underrunThisCallback)
+    if (lastCallbackWasUnderrun && !underrunThisCallback) {
+        outputHeldSilent = false;
+        recoveryFadeInLength = kUnderrunFadeSamples;
         recoveryFadeInRemaining = kUnderrunFadeSamples;
+    }
     lastCallbackWasUnderrun = underrunThisCallback;
-    lastCallbackHostNanos = hostTimeNanos;
+    if (clockRunning)
+        lastCallbackHostNanos = hostTimeNanos;
 
-    transportTelemetry.playheadSamples.store(clock.currentSamplePosition(), std::memory_order_relaxed);
-    transportTelemetry.playheadSeconds.store(clock.currentSeconds(), std::memory_order_relaxed);
+    // Telemetry prefers the sample-accurate render position while playing so
+    // the UI playhead tracks the actual audio, not a wall-clock estimate.
+    const int64_t telemetrySamples = clockRunning ? renderPlayheadSample : clock.currentSamplePosition();
+    const double telemetrySeconds = (currentSampleRate > 0.0)
+                                        ? static_cast<double>(telemetrySamples) / currentSampleRate
+                                        : clock.currentSeconds();
+    transportTelemetry.playheadSamples.store(telemetrySamples, std::memory_order_relaxed);
+    transportTelemetry.playheadSeconds.store(telemetrySeconds, std::memory_order_relaxed);
     transportTelemetry.sampleRate.store(clock.sampleRate(), std::memory_order_relaxed);
     transportTelemetry.driftFactor.store(clock.driftFactor(), std::memory_order_relaxed);
     transportTelemetry.running.store(playing.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -1473,7 +1645,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     if (!activeSong)
         return;
 
-    const int64_t playheadSample = clock.currentSamplePosition();
+    const int64_t playheadSample = renderPlayheadSample;
 
     const Project& proj = loader.project();
     if (currentSong < proj.songs.size()) {
@@ -1500,27 +1672,33 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         const int64_t fadeArmSample = currentSongLengthFrames - kSongEndFadeSamples;
         if (currentSongLengthFrames > 0 && playheadSample + numSamples >= fadeArmSample) {
             if (pendingSongEndAction == SongEndAction::None) {
-                if (underrunFadeOutRemaining <= 0)
+                if (underrunFadeOutRemaining <= 0) {
+                    underrunFadeOutLength = kSongEndFadeSamples;
                     underrunFadeOutRemaining = kSongEndFadeSamples;
+                }
                 pendingSongEndAction = (song.playbackMode == PlaybackMode::AutoplayNext
                                          && currentSong + 1 < proj.songs.size())
                                             ? SongEndAction::GaplessAdvance
                                             : SongEndAction::StopTransport;
                 pendingSongEndTargetSong = currentSong + 1;
             }
-        } else {
-            // Playhead is back within bounds (new song staged, resumed from
-            // 0, seek) -- self-heal so a later end-of-song replay re-arms
-            // correctly instead of being stuck from a stale prior pass.
-            pendingSongEndAction = SongEndAction::None;
         }
+        // Deliberately do NOT clear pendingSongEndAction when playhead is
+        // briefly before fadeArmSample: that used to self-heal mid-handoff
+        // and drop a GaplessAdvance. Fresh songs reset it in selectSongInternal.
     }
 
     // Pass 1: pull this block's audio from each track's stream exactly once
     // (a track may feed multiple busses, but must only be read from its ring
     // buffer once per block -- see StreamingTrackBuffer's class comment).
+    // trackScratch is always sized under routingMutex (which we hold). Defensive
+    // size check still guards a future mismatch if block size grows mid-run.
     for (size_t t = 0; t < trackIdByIndex.size(); ++t) {
+        if (t >= trackScratch.size())
+            break;
         juce::AudioBuffer<float>& scratch = trackScratch[t];
+        if (scratch.getNumChannels() < 1 || scratch.getNumSamples() < numSamples)
+            continue;
         scratch.clear();
 
         StreamingTrackBuffer* buf = activeSong.track(trackIdByIndex[t]);
@@ -1529,6 +1707,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
         const int trackChannels = std::min(2, buf->numChannels());
         float* ptrs[2] = {scratch.getWritePointer(0), trackChannels > 1 ? scratch.getWritePointer(1) : scratch.getWritePointer(0)};
+        if (ptrs[0] == nullptr)
+            continue;
         buf->read(ptrs, numSamples, playheadSample);
 
         // Lightweight peak-only track meter for the Mixer UI (no LUFS on tracks).
@@ -1558,7 +1738,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (buf == nullptr)
             continue;
 
+        if (route.trackIndex >= trackScratch.size())
+            continue;
         const juce::AudioBuffer<float>& trackBuf = trackScratch[route.trackIndex];
+        if (trackBuf.getNumChannels() < 1 || trackBuf.getNumSamples() < numSamples)
+            continue;
         const int trackChannels = std::min(2, buf->numChannels());
         const int busChannels = std::min(2, busses[route.busIndex].channelCount);
         const int scratchOffset = static_cast<int>(route.busIndex) * 2;
@@ -1566,7 +1750,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             continue;
 
         const float* srcL = trackBuf.getReadPointer(0);
+        if (srcL == nullptr)
+            continue;
         const float* srcR = trackChannels > 1 ? trackBuf.getReadPointer(1) : srcL;
+        if (srcR == nullptr)
+            srcR = srcL;
 
         const float g = route.gainLinear * route.sendGainLinear;
         if (trackChannels >= 2 && busChannels >= 2) {
@@ -1662,19 +1850,39 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
-    // Spec micro-fade: 512-sample linear fade-out after underrun/song end and
-    // fade-in on new song start. Applied to the summed physical outputs only.
-    if (underrunFadeOutRemaining > 0 || recoveryFadeInRemaining > 0) {
-        constexpr float kFadeLen = 512.0f;
+    // Spec micro-fade on the summed physical outputs:
+    //   - linear fade-out on underrun / song-end (length = whatever armed it)
+    //   - linear fade-in on recovery / new song start (PREFERRED over hold,
+    //     so selectSongInternal can leave outputHeldSilent set while arming
+    //     the ramp and the audio thread never sees a full-gain step)
+    //   - HOLD at silence after song-end fade reaches 0 until fade-in arms
+    //     (without this, g snaps back to 1.0 mid-block -- the crack)
+    if (underrunFadeOutRemaining > 0 || recoveryFadeInRemaining > 0 || outputHeldSilent) {
+        const float fadeOutLen = static_cast<float>(
+            underrunFadeOutLength > 0 ? underrunFadeOutLength : kSongEndFadeSamples);
+        const float fadeInLen = static_cast<float>(
+            recoveryFadeInLength > 0 ? recoveryFadeInLength : kSongEndFadeSamples);
         for (int i = 0; i < numSamples; ++i) {
             float g = 1.0f;
             if (underrunFadeOutRemaining > 0) {
-                g = static_cast<float>(underrunFadeOutRemaining) / kFadeLen;
+                g = static_cast<float>(underrunFadeOutRemaining) / fadeOutLen;
                 --underrunFadeOutRemaining;
+                if (underrunFadeOutRemaining == 0
+                    && pendingSongEndAction != SongEndAction::None) {
+                    // Song-end ramp finished: stay silent across the rest of
+                    // this block, the remaining real audio until true EOF,
+                    // and the message-thread gap before the next song is
+                    // staged. Cleared / overridden by fade-in in selectSongInternal.
+                    outputHeldSilent = true;
+                }
             } else if (recoveryFadeInRemaining > 0) {
-                const int done = static_cast<int>(kFadeLen) - recoveryFadeInRemaining;
-                g = static_cast<float>(done + 1) / kFadeLen;
+                const int done = recoveryFadeInLength - recoveryFadeInRemaining;
+                g = static_cast<float>(done + 1) / fadeInLen;
                 --recoveryFadeInRemaining;
+                if (recoveryFadeInRemaining == 0)
+                    outputHeldSilent = false;
+            } else if (outputHeldSilent) {
+                g = 0.0f;
             }
             for (int ch = 0; ch < numOutputChannels; ++ch)
                 if (outputChannelData[ch] != nullptr)
@@ -2209,13 +2417,21 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
     Project projectSnapshot = loader.project();
     const std::string defaultBusId = projectSnapshot.busses.front().id;
     const std::string archivePath = loader.archivePath();
+    // Container (directory) format must be updated in place: saveAsWithExtras
+    // would otherwise write a whole second directory tree at archivePath+
+    // ".new", and finishAsyncImport's std::rename() onto the already-existing,
+    // non-empty archivePath directory fails with ENOTEMPTY -- unlike the
+    // legacy single-file .zip format, where renaming a temp file over the
+    // final path is the safe, atomic way to do it. Mirrors
+    // importWavForTrackAsync's identical isContainer check.
+    const bool isContainer = loader.isDirectoryContainer();
 
     if (importThread.joinable())
         importThread.join();
     busyImporting.store(true, std::memory_order_release);
 
     importThread = std::thread([this, folderPath, songName, bpm, tsNumerator, tsDenominator, wavPaths, songId,
-                                 defaultBusId, archivePath, projectSnapshot, songToRestore, wasPlaying,
+                                 defaultBusId, archivePath, isContainer, projectSnapshot, songToRestore, wasPlaying,
                                  onComplete]() mutable {
         std::string error;
 
@@ -2311,7 +2527,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
         }
 
         bool writeOk = false;
-        const std::string tempOut = archivePath + ".new";
+        const std::string tempOut = isContainer ? archivePath : (archivePath + ".new");
         if (readOk) {
             projectSnapshot.songs.push_back(std::move(song));
             for (auto& pe : peakExtras)

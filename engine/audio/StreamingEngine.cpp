@@ -119,6 +119,26 @@ void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_
     precached = std::move(staged);
 }
 
+bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error) {
+    std::shared_ptr<StagedSong> s = std::atomic_load_explicit(&active, std::memory_order_acquire);
+    if (s == nullptr) {
+        error = "No active song to seek";
+        return false;
+    }
+    // Serialize against ioThreadLoop's refill of active + precached.
+    std::lock_guard<std::mutex> lock(projectLoaderMutex);
+    for (auto& buf : s->buffers) {
+        if (buf == nullptr)
+            continue;
+        std::string bufError;
+        if (!buf->hardSeekTo(deviceFrame, bufError)) {
+            error = bufError;
+            return false;
+        }
+    }
+    return true;
+}
+
 StreamingEngine::ActiveSongHandle StreamingEngine::acquireActiveSong() {
     ActiveSongHandle handle;
     handle.staged = std::atomic_load_explicit(&active, std::memory_order_acquire);

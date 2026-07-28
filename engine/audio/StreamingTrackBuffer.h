@@ -57,6 +57,16 @@ public:
     // i.e. this track will never produce anything more.
     bool refill();
 
+    // Message/IO-thread-only (never the audio callback). Re-opens the stem at
+    // byte 0 and fast-forwards the source so the next read() at `deviceFrame`
+    // returns the correct audio with no async catch-up gap. Without this,
+    // seek leaves the click (pure math on the new playhead) immediately in
+    // the right place while stems still skip on the background thread -- the
+    // metronome "runs away" from the WAVs until the skip finishes.
+    // Call only while the audio thread is not consuming this buffer (transport
+    // stopped / under StreamingEngine's projectLoaderMutex with playback off).
+    bool hardSeekTo(int64_t deviceFrame, std::string& error);
+
     // Audio-thread-only. Reads up to numFrames frames, resynchronizing first
     // if `expectedPosition` (absolute frames since song start, per
     // MasterClock) has moved ahead of this track's tracked position. Returns
@@ -72,6 +82,12 @@ private:
     ProjectLoader::StreamCursor cursor;
     WavStreamDecoder decoder;
     AudioRingBuffer ring;
+
+    // Retained so hardSeekTo can re-open without the caller re-passing them.
+    const ProjectLoader* openLoader = nullptr;
+    std::string openArchivePath;
+    int64_t openRingCapacityFrames = 0;
+    double openDeviceSampleRate = 0.0;
 
     std::atomic<int64_t> readPosition{0};      // audio-thread-owned; bg thread may read for diagnostics
     std::atomic<int64_t> pendingSkipFrames{0}; // frames the bg thread still needs to discard-at-source

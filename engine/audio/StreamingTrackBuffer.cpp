@@ -7,6 +7,11 @@ namespace resoset {
 
 bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& archivePath, int64_t ringCapacityFrames,
                                  double deviceSampleRate, std::string& error) {
+    openLoader = &loader;
+    openArchivePath = archivePath;
+    openRingCapacityFrames = ringCapacityFrames;
+    openDeviceSampleRate = deviceSampleRate;
+
     cursor = loader.openStream(archivePath, error);
     if (!cursor.isValid())
         return false;
@@ -31,6 +36,53 @@ bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& 
     haveLastNativeSample = false;
     nativePhase = 0.0;
 
+    return true;
+}
+
+bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
+    if (openLoader == nullptr || openArchivePath.empty()) {
+        error = "hardSeekTo: buffer was never opened";
+        return false;
+    }
+    if (deviceFrame < 0)
+        deviceFrame = 0;
+
+    // Full re-open: decoder/cursor are forward-only, so any position (forward
+    // OR back) is reached by rewinding to the data chunk start then skipping.
+    if (!open(*openLoader, openArchivePath, openRingCapacityFrames, openDeviceSampleRate, error))
+        return false;
+
+    if (deviceFrame > 0) {
+        pendingSkipFrames.store(deviceFrame, std::memory_order_release);
+        // Drain the skip on this thread (caller holds projectLoaderMutex so
+        // the I/O thread cannot race us). Container-format skip is an fseek;
+        // even multi-minute seeks are typically milliseconds.
+        int guard = 0;
+        while (pendingSkipFrames.load(std::memory_order_acquire) > 0
+               && !sourceExhausted.load(std::memory_order_acquire)
+               && guard++ < 1000000) {
+            refill();
+        }
+        if (pendingSkipFrames.load(std::memory_order_acquire) > 0
+            && !sourceExhausted.load(std::memory_order_acquire)) {
+            error = "hardSeekTo: skip did not complete for " + openArchivePath;
+            return false;
+        }
+    }
+
+    // Source cursor is now at deviceFrame (or EOF). Advertise that position
+    // so the audio thread will not queue a second skip on the first read.
+    readPosition.store(deviceFrame, std::memory_order_release);
+    pendingSkipFrames.store(0, std::memory_order_release);
+
+    // Prime the ring so the first post-seek callback has real audio instead
+    // of a silence gap (during which the sample-locked click would still
+    // tick -- the audible "metronome ran away" symptom).
+    for (int i = 0; i < 8 && !sourceExhausted.load(std::memory_order_acquire); ++i) {
+        if (ring.framesFree() <= 0)
+            break;
+        refill();
+    }
     return true;
 }
 

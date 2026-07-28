@@ -65,6 +65,49 @@ void MainComponent::builderSongAdd(const std::string& json) {
     setStatus("Song added");
 }
 
+void MainComponent::builderSongImportFolder(const std::string& json) {
+    simdjson::dom::element doc;
+    std::string path;
+    if (!parseJson(json, doc) || !getString(doc, "path", path) || path.empty()) {
+        // No path provided -- this is the native UI's own button, which has
+        // no other way to name a folder; show the native picker as before.
+        builderPanel.importSongFolderClicked();
+        return;
+    }
+
+    // Fast (header-only reads), read-only -- fine to do synchronously before
+    // handing off to importSongFromFolderAsync's background thread.
+    std::vector<std::string> wavPaths;
+    double scannedBpm = 0.0;
+    std::string scanError;
+    if (!engine.scanFolderForImport(path, wavPaths, scannedBpm, scanError)) {
+        setStatus("Import scan failed: " + juce::String(scanError));
+        return;
+    }
+
+    std::string name;
+    if (!getString(doc, "name", name) || name.empty())
+        name = juce::File(path).getFileName().toStdString();
+    double bpm = 0.0;
+    if (!getDouble(doc, "bpm", bpm) || bpm <= 0.0)
+        bpm = scannedBpm > 0.0 ? scannedBpm : 120.0;
+    int tsNum = 4, tsDen = 4;
+    getInt(doc, "tsNum", tsNum);
+    getInt(doc, "tsDen", tsDen);
+
+    setStatus("Importing '" + juce::String(name) + "' (" + juce::String(static_cast<int>(wavPaths.size()))
+              + " file(s))...");
+    engine.importSongFromFolderAsync(path, name, bpm, tsNum, tsDen, [this](bool ok, std::string error) {
+        if (!ok) {
+            setStatus("Song import failed: " + juce::String(error));
+            return;
+        }
+        builderPanel.refresh();
+        builderPanel.onProjectEdited();
+        setStatus("Song imported");
+    });
+}
+
 void MainComponent::builderSongRemove(const std::string& json) {
     simdjson::dom::element doc;
     int index = -1;

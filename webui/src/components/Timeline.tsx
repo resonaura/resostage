@@ -1,9 +1,16 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/react";
-import { Grid3X3, ZoomIn, ZoomOut, ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronUp, Grid3X3, ZoomIn, ZoomOut } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fetchWaveformRaw, mixer, transport } from "../lib/api";
 import { useLiveValue, useOptimisticSeek } from "../lib/optimistic";
-import type { AllPeaksResponse, PeakLevelData, PeaksResponse, SongRow, TrackRow, WebUiState } from "../lib/types";
+import type {
+  AllPeaksResponse,
+  PeakLevelData,
+  PeaksResponse,
+  SongRow,
+  TrackRow,
+  WebUiState,
+} from "../lib/types";
 
 const SIDEBAR_WIDTH = 240;
 const LANE_HEIGHT = 56;
@@ -14,9 +21,18 @@ const MAX_PX_PER_SEC = 400;
 const SEEK_THROTTLE_MS = 60;
 
 const TRACK_COLORS = [
-  "#0091ff", "#30d158", "#ff9230", "#db34f2", "#ff375f",
-  "#00d2e0", "#ff4245", "#6d7cff", "#00dac3", "#3cd3fe",
-  "#ffd600", "#b78a66",
+  "#0091ff",
+  "#30d158",
+  "#ff9230",
+  "#db34f2",
+  "#ff375f",
+  "#00d2e0",
+  "#ff4245",
+  "#6d7cff",
+  "#00dac3",
+  "#3cd3fe",
+  "#ffd600",
+  "#b78a66",
 ];
 
 const HANDLE_PX = 8; // px width of trim handle hit area
@@ -28,7 +44,7 @@ interface RegionState {
   songIndex: number;
   trackName: string;
   trimStart: number; // seconds trimmed from left (≥ 0)
-  trimEnd: number;   // seconds trimmed from right (≥ 0)
+  trimEnd: number; // seconds trimmed from right (≥ 0)
   muted: boolean;
 }
 
@@ -42,7 +58,13 @@ interface Toast {
   message: string;
 }
 
-function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
+function ToastContainer({
+  toasts,
+  onDismiss,
+}: {
+  toasts: Toast[];
+  onDismiss: (id: number) => void;
+}) {
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] flex flex-col items-center gap-2 pointer-events-none">
       {toasts.map((t) => (
@@ -62,11 +84,11 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 
 const EVENT_COLORS: Record<string, string> = {
   programChange: "#30d158",
-  noteOn:        "#30d158",
-  noteOff:       "#30d158",
-  cc:            "#0091ff",
-  http:          "#ff9230",
-  dmx:           "#db34f2",
+  noteOn: "#30d158",
+  noteOff: "#30d158",
+  cc: "#0091ff",
+  http: "#ff9230",
+  dmx: "#db34f2",
 };
 
 // ------- Rotary Knob (Mixer Parity) -------------------------------------
@@ -127,7 +149,11 @@ function Knob({
     if (!dragging.current) return;
     const dy = startY.current - e.clientY;
     const range = max - min;
-    const next = Math.round(Math.max(min, Math.min(max, startValue.current + (dy / 100) * range)) * 100) / 100;
+    const next =
+      Math.round(
+        Math.max(min, Math.min(max, startValue.current + (dy / 100) * range)) *
+          100,
+      ) / 100;
     setLocalValue(next);
     scheduleCommit(next);
   };
@@ -155,7 +181,10 @@ function Knob({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onDoubleClick={() => { setLocalValue(defaultValue); onCommit(defaultValue); }}
+      onDoubleClick={() => {
+        setLocalValue(defaultValue);
+        onCommit(defaultValue);
+      }}
       className="relative shrink-0 cursor-ns-resize touch-none select-none rounded-full border border-default/60 bg-default/20 hover:border-default hover:bg-default/35 transition-colors"
       style={{ width: size, height: size }}
     >
@@ -189,7 +218,10 @@ function MiniSlider({
   accent: string;
   onChange: (v: number) => void;
 }) {
-  const percent = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  const percent = Math.max(
+    0,
+    Math.min(100, ((value - min) / (max - min)) * 100),
+  );
 
   return (
     <div className="relative flex-1 flex items-center h-3 select-none touch-none">
@@ -232,8 +264,12 @@ function TrackHeaderControl({
   color: string;
   verticalZoom: number;
 }) {
-  const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) => mixer.setTrackGain(index, v));
-  const [pan, setPan] = useLiveValue(track.pan ?? 0, (v) => mixer.setTrackPan(index, v));
+  const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) =>
+    mixer.setTrackGain(index, v),
+  );
+  const [pan, setPan] = useLiveValue(track.pan ?? 0, (v) =>
+    mixer.setTrackPan(index, v),
+  );
 
   const formatPan = (p: number) => {
     if (Math.abs(p) < 0.05) return "C";
@@ -263,7 +299,10 @@ function TrackHeaderControl({
 
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
           {/* Rotary Knob for Pan Balance */}
-          <div className="flex items-center gap-1" title={`Pan: ${formatPan(pan)}`}>
+          <div
+            className="flex items-center gap-1"
+            title={`Pan: ${formatPan(pan)}`}
+          >
             <Knob
               value={pan}
               min={-1}
@@ -310,7 +349,9 @@ function TrackHeaderControl({
 
       {/* Bottom Row: Mini Slider for Volume matching Track Color */}
       <div className="flex items-center gap-2 text-[9px] font-mono text-foreground/60">
-        <span className="shrink-0 text-foreground/40 text-[8px] uppercase tracking-wider font-semibold">Vol</span>
+        <span className="shrink-0 text-foreground/40 text-[8px] uppercase tracking-wider font-semibold">
+          Vol
+        </span>
         <MiniSlider
           value={gain}
           min={-60}
@@ -335,15 +376,24 @@ function getTickConfig(pxPerSec: number, bpm: number, tsNum: number) {
     const beatSec = 60 / bpm;
     const barSec = beatSec * Math.max(1, tsNum);
     const barsList = [1, 2, 4, 8, 16, 32, 64];
-    const majorBarStep = barsList.find((b) => b * barSec * pxPerSec >= minPxPerLabel) ?? 64;
+    const majorBarStep =
+      barsList.find((b) => b * barSec * pxPerSec >= minPxPerLabel) ?? 64;
     const majorStepSec = majorBarStep * barSec;
     const minorStepSec = majorBarStep === 1 ? beatSec : barSec;
     return { majorStepSec, minorStepSec, isBeatGrid: true, barSec, beatSec };
   } else {
     const secList = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
-    const majorStepSec = secList.find((s) => s * pxPerSec >= minPxPerLabel) ?? 300;
-    const minorStepSec = majorStepSec >= 60 ? 10 : majorStepSec >= 5 ? 1 : majorStepSec / 5;
-    return { majorStepSec, minorStepSec, isBeatGrid: false, barSec: 0, beatSec: 0 };
+    const majorStepSec =
+      secList.find((s) => s * pxPerSec >= minPxPerLabel) ?? 300;
+    const minorStepSec =
+      majorStepSec >= 60 ? 10 : majorStepSec >= 5 ? 1 : majorStepSec / 5;
+    return {
+      majorStepSec,
+      minorStepSec,
+      isBeatGrid: false,
+      barSec: 0,
+      beatSec: 0,
+    };
   }
 }
 
@@ -369,7 +419,7 @@ function Ruler({
 }) {
   const { majorStepSec, minorStepSec, isBeatGrid, barSec } = useMemo(
     () => getTickConfig(pxPerSec, bpm, tsNum),
-    [pxPerSec, bpm, tsNum]
+    [pxPerSec, bpm, tsNum],
   );
 
   const marks = useMemo(() => {
@@ -381,8 +431,10 @@ function Ruler({
       const x = Math.round(rounded * pxPerSec);
       if (x > contentWidth + 8) break;
 
-      const isMajor = Math.abs((rounded % majorStepSec) / majorStepSec) < 0.02 ||
-                      Math.abs(((rounded % majorStepSec) - majorStepSec) / majorStepSec) < 0.02;
+      const isMajor =
+        Math.abs((rounded % majorStepSec) / majorStepSec) < 0.02 ||
+        Math.abs(((rounded % majorStepSec) - majorStepSec) / majorStepSec) <
+          0.02;
 
       let label: string | undefined;
       if (isMajor) {
@@ -396,7 +448,15 @@ function Ruler({
       list.push({ x, major: isMajor, label });
     }
     return list;
-  }, [pxPerSec, contentWidth, songLength, majorStepSec, minorStepSec, isBeatGrid, barSec]);
+  }, [
+    pxPerSec,
+    contentWidth,
+    songLength,
+    majorStepSec,
+    minorStepSec,
+    isBeatGrid,
+    barSec,
+  ]);
 
   return (
     <div
@@ -412,7 +472,9 @@ function Ruler({
               position: "absolute",
               bottom: 0,
               left: 0,
-              background: major ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)",
+              background: major
+                ? "rgba(255,255,255,0.35)"
+                : "rgba(255,255,255,0.12)",
             }}
           />
           {label && (
@@ -425,7 +487,9 @@ function Ruler({
                 fontWeight: 600,
                 lineHeight: 1,
                 whiteSpace: "nowrap",
-                color: major ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.3)",
+                color: major
+                  ? "rgba(255,255,255,0.55)"
+                  : "rgba(255,255,255,0.3)",
               }}
             >
               {label}
@@ -452,7 +516,11 @@ function Ruler({
 // detail available without going finer than the zoom needs). Returns null
 // when even the finest cached level is coarser than the zoom needs, which
 // means the caller should fall back to a raw-sample fetch instead.
-function pickLevelForZoom(levels: PeakLevelData[], durationSeconds: number, pxPerSec: number): PeakLevelData | null {
+function pickLevelForZoom(
+  levels: PeakLevelData[],
+  durationSeconds: number,
+  pxPerSec: number,
+): PeakLevelData | null {
   if (levels.length === 0 || durationSeconds <= 0 || pxPerSec <= 0) return null;
   const pixelDurationSec = 1 / pxPerSec;
   const finestBins = levels[0].min.length || 1;
@@ -466,7 +534,13 @@ function pickLevelForZoom(levels: PeakLevelData[], durationSeconds: number, pxPe
   return best;
 }
 
-function cubicHermite(y0: number, y1: number, y2: number, y3: number, mu: number): number {
+function cubicHermite(
+  y0: number,
+  y1: number,
+  y2: number,
+  y3: number,
+  mu: number,
+): number {
   const mu2 = mu * mu;
   const a0 = y3 - y2 - y0 + y1;
   const a1 = y0 - y1 - a0;
@@ -501,9 +575,15 @@ function TrackWaveformLane({
   muted: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [rawWindow, setRawWindow] = useState<{ sampleRate: number; startSec: number; samples: number[] } | null>(null);
+  const [rawWindow, setRawWindow] = useState<{
+    sampleRate: number;
+    startSec: number;
+    samples: number[];
+  } | null>(null);
 
-  const needsRaw = pickLevelForZoom(levels, durationSeconds, pxPerSec) === null && levels.length > 0;
+  const needsRaw =
+    pickLevelForZoom(levels, durationSeconds, pxPerSec) === null &&
+    levels.length > 0;
 
   // Quantize the fetch range so panning by a pixel at a time doesn't refire
   // a network request every frame -- half-second buckets with a half-second
@@ -512,10 +592,14 @@ function TrackWaveformLane({
   const visibleStartSec = scrollLeft / pxPerSec;
   const visibleEndSec = (scrollLeft + viewportWidth) / pxPerSec;
   const quantStart = Math.max(0, Math.floor(visibleStartSec / 0.5) * 0.5 - 0.5);
-  const quantEnd = Math.min(durationSeconds, Math.ceil(visibleEndSec / 0.5) * 0.5 + 0.5);
+  const quantEnd = Math.min(
+    durationSeconds,
+    Math.ceil(visibleEndSec / 0.5) * 0.5 + 0.5,
+  );
 
   useEffect(() => {
-    if (!needsRaw || !regionFile || gestureActive || quantEnd <= quantStart) return;
+    if (!needsRaw || !regionFile || gestureActive || quantEnd <= quantStart)
+      return;
     let cancelled = false;
     const endSec = Math.min(quantEnd, quantStart + 9); // stay under the server's window cap
     fetchWaveformRaw(regionFile, quantStart, endSec)
@@ -530,7 +614,6 @@ function TrackWaveformLane({
   }, [needsRaw, regionFile, gestureActive, quantStart, quantEnd]);
 
   useLayoutEffect(() => {
-
     const canvas = canvasRef.current;
     if (!canvas || viewportWidth <= 0) return;
 
@@ -562,11 +645,14 @@ function TrackWaveformLane({
     ctx.globalAlpha = alpha;
 
     const isRawActive = needsRaw && rawWindow && rawWindow.samples.length > 1;
-    const level = pickLevelForZoom(levels, durationSeconds, pxPerSec) ?? levels[0];
+    const level =
+      pickLevelForZoom(levels, durationSeconds, pxPerSec) ?? levels[0];
 
     if (level && !isRawActive) {
       const bins = level.min.length;
-      const step = gestureActive ? Math.max(1, Math.floor(renderWidth / 200)) : 1;
+      const step = gestureActive
+        ? Math.max(1, Math.floor(renderWidth / 200))
+        : 1;
 
       // Build 1:1 aligned top and bottom vertices with range aggregation
       const topPoints: { x: number; y: number }[] = [];
@@ -578,8 +664,14 @@ function TrackWaveformLane({
         const tStartSec = (scrollLeft + x) / pxPerSec;
         const tEndSec = (scrollLeft + x + step) / pxPerSec;
 
-        const startBin = Math.max(0, Math.min(bins - 1, Math.floor((tStartSec / durationSeconds) * bins)));
-        const endBin = Math.max(startBin, Math.min(bins - 1, Math.floor((tEndSec / durationSeconds) * bins)));
+        const startBin = Math.max(
+          0,
+          Math.min(bins - 1, Math.floor((tStartSec / durationSeconds) * bins)),
+        );
+        const endBin = Math.max(
+          startBin,
+          Math.min(bins - 1, Math.floor((tEndSec / durationSeconds) * bins)),
+        );
 
         let maxV = -1;
         let minV = 1;
@@ -653,13 +745,16 @@ function TrackWaveformLane({
         ctx.fillStyle = color + "ee";
         ctx.fill();
       }
-
     }
 
     // Extreme zoom: true per-sample curve through the fetched raw window
     if (isRawActive && rawWindow) {
-      const windowEndSec = rawWindow.startSec + rawWindow.samples.length / rawWindow.sampleRate;
-      if (rawWindow.startSec <= visibleStartSec + 1e-6 && windowEndSec >= visibleEndSec - 1e-6) {
+      const windowEndSec =
+        rawWindow.startSec + rawWindow.samples.length / rawWindow.sampleRate;
+      if (
+        rawWindow.startSec <= visibleStartSec + 1e-6 &&
+        windowEndSec >= visibleEndSec - 1e-6
+      ) {
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.8;
         ctx.beginPath();
@@ -688,18 +783,41 @@ function TrackWaveformLane({
     }
 
     ctx.globalAlpha = 1;
-  }, [levels, durationSeconds, needsRaw, rawWindow, gestureActive, verticalZoom, contentWidth, scrollLeft,
-      viewportWidth, pxPerSec, color, muted, visibleStartSec, visibleEndSec]);
+  }, [
+    levels,
+    durationSeconds,
+    needsRaw,
+    rawWindow,
+    gestureActive,
+    verticalZoom,
+    contentWidth,
+    scrollLeft,
+    viewportWidth,
+    pxPerSec,
+    color,
+    muted,
+    visibleStartSec,
+    visibleEndSec,
+  ]);
 
   return (
     <div
       className="relative flex items-center border-b border-default/15 bg-default/10"
-      style={{ width: contentWidth, height: LANE_HEIGHT * verticalZoom, opacity: muted ? 0.4 : 1 }}
+      style={{
+        width: contentWidth,
+        height: LANE_HEIGHT * verticalZoom,
+        opacity: muted ? 0.4 : 1,
+      }}
     >
       {levels.length === 0 ? (
         <div
           className="absolute inset-x-0"
-          style={{ top: "50%", height: 1, transform: "translateY(-50%)", background: color + "55" }}
+          style={{
+            top: "50%",
+            height: 1,
+            transform: "translateY(-50%)",
+            background: color + "55",
+          }}
         />
       ) : (
         <canvas
@@ -711,7 +829,6 @@ function TrackWaveformLane({
     </div>
   );
 }
-
 
 // ------- Timeline (continuous multi-song arrangement) -------------------
 
@@ -737,20 +854,33 @@ function buildRows(currentTracks: TrackRow[], songs: SongRow[]): TimelineRow[] {
     if (seen.has(name)) return;
     seen.add(name);
     trackIdToRowName.set(t.id, name);
-    rows.push({ name, color: TRACK_COLORS[i % TRACK_COLORS.length], headerIndex: i });
+    rows.push({
+      name,
+      color: TRACK_COLORS[i % TRACK_COLORS.length],
+      headerIndex: i,
+    });
   });
   for (const s of songs) {
     for (const r of s.regions ?? []) {
       const name = trackIdToRowName.get(r.trackId) ?? r.trackId;
       if (seen.has(name)) continue;
       seen.add(name);
-      rows.push({ name, color: TRACK_COLORS[rows.length % TRACK_COLORS.length], headerIndex: null });
+      rows.push({
+        name,
+        color: TRACK_COLORS[rows.length % TRACK_COLORS.length],
+        headerIndex: null,
+      });
     }
   }
   return rows;
 }
 
-function songDurationSeconds(song: SongRow, peaksForSong: { id: string; trackId?: string; durationSeconds: number }[] | undefined): number {
+function songDurationSeconds(
+  song: SongRow,
+  peaksForSong:
+    | { id: string; trackId?: string; durationSeconds: number }[]
+    | undefined,
+): number {
   let max = 0;
   for (const r of song.regions ?? []) {
     if (r.durationSeconds) max = Math.max(max, r.durationSeconds);
@@ -766,14 +896,28 @@ function songDurationSeconds(song: SongRow, peaksForSong: { id: string; trackId?
 
 // Read-only sidebar row for a track that only exists in a non-staged song --
 // no mixer controls, since there's no staged track index to drive them with.
-function TimelineRowLabel({ name, color, verticalZoom }: { name: string; color: string; verticalZoom: number }) {
+function TimelineRowLabel({
+  name,
+  color,
+  verticalZoom,
+}: {
+  name: string;
+  color: string;
+  verticalZoom: number;
+}) {
   return (
     <div
       className="flex items-center gap-2 border-b border-default/15 px-3 py-1.5 select-none bg-surface/20 opacity-60"
       style={{ height: LANE_HEIGHT * verticalZoom }}
     >
-      <span className="h-3.5 w-2 shrink-0 rounded-sm" style={{ background: color }} />
-      <span className="truncate text-xs font-medium text-foreground/60" title={name}>
+      <span
+        className="h-3.5 w-2 shrink-0 rounded-sm"
+        style={{ background: color }}
+      />
+      <span
+        className="truncate text-xs font-medium text-foreground/60"
+        title={name}
+      >
         {name}
       </span>
     </div>
@@ -803,10 +947,16 @@ export function Timeline({
   const pendingScrollLeftRef = useRef<number | null>(null);
 
   const [scrollTopY, setScrollTopY] = useState(0);
-  const [scrollState, setScrollState] = useState({ scrollLeft: 0, viewportWidth: 1000 });
+  const [scrollState, setScrollState] = useState({
+    scrollLeft: 0,
+    viewportWidth: 1000,
+  });
 
-  const [playheadSec, setPlayheadSec] = useOptimisticSeek(state.playheadSeconds, state.songIndex);
-
+  const [playheadSec, setPlayheadSec] = useOptimisticSeek(
+    state.playheadSeconds,
+    `${state.projectName}:${state.songIndex}`,
+    state.playing,
+  );
 
   // Snap-to-grid toggle
   const [snapToGrid, setSnapToGrid] = useState(true);
@@ -829,11 +979,16 @@ export function Timeline({
   const showToast = (message: string) => {
     const id = ++toastCounterRef.current;
     setToasts((prev) => [...prev, { id, message }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500);
+    setTimeout(
+      () => setToasts((prev) => prev.filter((t) => t.id !== id)),
+      3500,
+    );
   };
 
   // Region state (frontend-only until backend API exists)
-  const [regions, setRegions] = useState<Map<RegionKey, RegionState>>(new Map());
+  const [regions, setRegions] = useState<Map<RegionKey, RegionState>>(
+    new Map(),
+  );
 
   // Region drag state
   type RegionDragMode = "move" | "trimStart" | "trimEnd";
@@ -849,14 +1004,32 @@ export function Timeline({
 
   const getRegion = (songIndex: number, trackName: string): RegionState => {
     const key = regionKey(songIndex, trackName);
-    return regions.get(key) ?? { songIndex, trackName, trimStart: 0, trimEnd: 0, muted: false };
+    return (
+      regions.get(key) ?? {
+        songIndex,
+        trackName,
+        trimStart: 0,
+        trimEnd: 0,
+        muted: false,
+      }
+    );
   };
 
-  const setRegion = (songIndex: number, trackName: string, patch: Partial<RegionState>) => {
+  const setRegion = (
+    songIndex: number,
+    trackName: string,
+    patch: Partial<RegionState>,
+  ) => {
     const key = regionKey(songIndex, trackName);
     setRegions((prev) => {
       const next = new Map(prev);
-      const existing = prev.get(key) ?? { songIndex, trackName, trimStart: 0, trimEnd: 0, muted: false };
+      const existing = prev.get(key) ?? {
+        songIndex,
+        trackName,
+        trimStart: 0,
+        trimEnd: 0,
+        muted: false,
+      };
       next.set(key, { ...existing, ...patch });
       return next;
     });
@@ -885,30 +1058,44 @@ export function Timeline({
       offsets.push(acc);
       acc += len;
     }
-    return { songLengths: lengths, songOffsets: offsets, totalLength: Math.max(acc, 120) };
+    return {
+      songLengths: lengths,
+      songOffsets: offsets,
+      totalLength: Math.max(acc, 120),
+    };
   }, [songs, allPeaks, peaks, state.songIndex]);
 
   const contentWidth = Math.max(1, Math.round(totalLength * pxPerSec));
 
-  const rows = useMemo(() => buildRows(state.tracks, songs), [state.tracks, songs]);
+  const rows = useMemo(
+    () => buildRows(state.tracks, songs),
+    [state.tracks, songs],
+  );
 
   const applyZoomAt = (nextPxPerSec: number, focusClientX?: number) => {
     const scroller = scrollRef.current;
     if (!scroller) return;
 
     const oldPx = pxPerSecRef.current;
-    const clampedNext = Math.max(MIN_PX_PER_SEC, Math.min(MAX_PX_PER_SEC, nextPxPerSec));
+    const clampedNext = Math.max(
+      MIN_PX_PER_SEC,
+      Math.min(MAX_PX_PER_SEC, nextPxPerSec),
+    );
     if (Math.abs(clampedNext - oldPx) < 0.001) return;
 
     const k = clampedNext / oldPx;
     const rect = scroller.getBoundingClientRect();
 
-    let focusX = typeof focusClientX === "number" ? focusClientX - rect.left : rect.width / 2;
+    let focusX =
+      typeof focusClientX === "number"
+        ? focusClientX - rect.left
+        : rect.width / 2;
     if (focusX < 0 || focusX > rect.width) focusX = rect.width / 2;
 
-    const currentScrollLeft = pendingScrollLeftRef.current !== null
-      ? pendingScrollLeftRef.current
-      : scroller.scrollLeft;
+    const currentScrollLeft =
+      pendingScrollLeftRef.current !== null
+        ? pendingScrollLeftRef.current
+        : scroller.scrollLeft;
 
     const newScrollLeftWanted = k * (currentScrollLeft + focusX) - focusX;
 
@@ -923,8 +1110,14 @@ export function Timeline({
     if (scrollRef.current) {
       const scroller = scrollRef.current;
       if (pendingScrollLeftRef.current !== null) {
-        const maxLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-        const targetScrollLeft = Math.max(0, Math.min(maxLeft, pendingScrollLeftRef.current));
+        const maxLeft = Math.max(
+          0,
+          scroller.scrollWidth - scroller.clientWidth,
+        );
+        const targetScrollLeft = Math.max(
+          0,
+          Math.min(maxLeft, pendingScrollLeftRef.current),
+        );
         scroller.scrollLeft = targetScrollLeft;
         setScrollState({
           scrollLeft: targetScrollLeft,
@@ -988,22 +1181,42 @@ export function Timeline({
       lastScale = 1.0;
     };
 
-    el.addEventListener("wheel", handleWheel, { capture: true, passive: false });
-    el.addEventListener("gesturestart", handleGestureStart as any, { capture: true, passive: false });
-    el.addEventListener("gesturechange", handleGestureChange as any, { capture: true, passive: false });
-    el.addEventListener("gestureend", handleGestureEnd as any, { capture: true, passive: false });
+    el.addEventListener("wheel", handleWheel, {
+      capture: true,
+      passive: false,
+    });
+    el.addEventListener("gesturestart", handleGestureStart as any, {
+      capture: true,
+      passive: false,
+    });
+    el.addEventListener("gesturechange", handleGestureChange as any, {
+      capture: true,
+      passive: false,
+    });
+    el.addEventListener("gestureend", handleGestureEnd as any, {
+      capture: true,
+      passive: false,
+    });
 
     return () => {
       el.removeEventListener("wheel", handleWheel, { capture: true });
-      el.removeEventListener("gesturestart", handleGestureStart as any, { capture: true });
-      el.removeEventListener("gesturechange", handleGestureChange as any, { capture: true });
-      el.removeEventListener("gestureend", handleGestureEnd as any, { capture: true });
+      el.removeEventListener("gesturestart", handleGestureStart as any, {
+        capture: true,
+      });
+      el.removeEventListener("gesturechange", handleGestureChange as any, {
+        capture: true,
+      });
+      el.removeEventListener("gestureend", handleGestureEnd as any, {
+        capture: true,
+      });
     };
   }, []);
 
   // Maps an absolute (whole-timeline) second offset to whichever song
   // segment contains it, plus the position within that song.
-  const resolveSong = (absSeconds: number): { songIndex: number; localSeconds: number } => {
+  const resolveSong = (
+    absSeconds: number,
+  ): { songIndex: number; localSeconds: number } => {
     for (let i = 0; i < songs.length; i++) {
       const start = songOffsets[i];
       const end = start + songLengths[i];
@@ -1072,7 +1285,10 @@ export function Timeline({
   const currentSongIdx = state.songIndex >= 0 ? state.songIndex : 0;
   const currentSongOffset = songOffsets[currentSongIdx] ?? 0;
   const currentSongDuration = songLengths[currentSongIdx] ?? 120;
-  const safePlayheadSec = Math.max(0, Math.min(playheadSec, currentSongDuration));
+  const safePlayheadSec = Math.max(
+    0,
+    Math.min(playheadSec, currentSongDuration),
+  );
   const playheadAbsoluteSec = currentSongOffset + safePlayheadSec;
 
   const prevSongIdxRef = useRef(currentSongIdx);
@@ -1091,7 +1307,11 @@ export function Timeline({
       const rightMargin = 120;
       const leftMargin = 40;
 
-      if (songChanged || playheadPx > currentLeft + viewWidth - rightMargin || playheadPx < currentLeft + leftMargin) {
+      if (
+        songChanged ||
+        playheadPx > currentLeft + viewWidth - rightMargin ||
+        playheadPx < currentLeft + leftMargin
+      ) {
         const targetLeft = Math.max(0, playheadPx - viewWidth * 0.25);
         scroller.scrollLeft = targetLeft;
         setScrollState({
@@ -1100,22 +1320,32 @@ export function Timeline({
         });
       }
     }
-  }, [state.playing, currentSongIdx, Math.floor(playheadAbsoluteSec), pxPerSec]);
-
-
+  }, [
+    state.playing,
+    currentSongIdx,
+    Math.floor(playheadAbsoluteSec),
+    pxPerSec,
+  ]);
 
   // ── Toolbar ──────────────────────────────────────────────────────────────
   return (
-    <div ref={containerRef} className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-surface/60">
+    <div
+      ref={containerRef}
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-surface/60"
+    >
       {/* Toast overlay */}
-      <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
+      <ToastContainer
+        toasts={toasts}
+        onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+      />
 
       {/* Toolbar */}
       <div className="flex shrink-0 items-center justify-between border-b border-default/30 px-3 py-1.5 bg-surface/80 z-20">
         <span className="text-xs font-semibold uppercase tracking-wide text-foreground/40">
           Timeline
           <span className="ml-2 font-normal lowercase text-foreground/25">
-            {songs.length} song{songs.length === 1 ? "" : "s"} &middot; {formatTimeShort(totalLength)}
+            {songs.length} song{songs.length === 1 ? "" : "s"} &middot;{" "}
+            {formatTimeShort(totalLength)}
           </span>
         </span>
         <div className="flex items-center gap-1">
@@ -1212,7 +1442,12 @@ export function Timeline({
                         verticalZoom={verticalZoom}
                       />
                     ) : (
-                      <TimelineRowLabel key={row.name} name={row.name} color={row.color} verticalZoom={verticalZoom} />
+                      <TimelineRowLabel
+                        key={row.name}
+                        name={row.name}
+                        color={row.color}
+                        verticalZoom={verticalZoom}
+                      />
                     ),
                   )
                 )}
@@ -1243,20 +1478,33 @@ export function Timeline({
                   const left = Math.round(songOffsets[i] * pxPerSec);
                   const isActive = i === state.songIndex;
                   return (
-                    <div key={i} className="absolute top-0" style={{ left, height: RULER_HEIGHT }}>
-                      {i > 0 && <div className="absolute left-0 top-0 h-full w-px bg-default/40" />}
+                    <div
+                      key={i}
+                      className="absolute top-0"
+                      style={{ left, height: RULER_HEIGHT }}
+                    >
+                      {i > 0 && (
+                        <div className="absolute left-0 top-0 h-full w-px bg-default/40" />
+                      )}
                       <div
                         className={`absolute -top-px left-1.5 z-10 truncate rounded-b px-1 text-[8px] font-bold uppercase tracking-wide ${
-                          isActive ? "bg-accent text-accent-foreground" : "bg-default/30 text-foreground/50"
+                          isActive
+                            ? "bg-accent text-accent-foreground"
+                            : "bg-default/30 text-foreground/50"
                         }`}
-                        style={{ maxWidth: Math.max(20, songLengths[i] * pxPerSec - 6) }}
+                        style={{
+                          maxWidth: Math.max(20, songLengths[i] * pxPerSec - 6),
+                        }}
                         title={song.name}
                       >
                         {i + 1}. {song.name}
                       </div>
                       <Ruler
                         pxPerSec={pxPerSec}
-                        contentWidth={Math.max(1, Math.round(songLengths[i] * pxPerSec))}
+                        contentWidth={Math.max(
+                          1,
+                          Math.round(songLengths[i] * pxPerSec),
+                        )}
                         songLength={songLengths[i]}
                         bpm={song.bpm}
                         tsNum={song.tsNum}
@@ -1280,7 +1528,8 @@ export function Timeline({
                       .filter((e) => !e.triggerOnLoad)
                       .map((e) => {
                         const color = EVENT_COLORS[e.type] ?? "#8e8e93";
-                        const left = (songOffsets[i] + e.timeSeconds) * pxPerSec - 5;
+                        const left =
+                          (songOffsets[i] + e.timeSeconds) * pxPerSec - 5;
                         return (
                           <div
                             key={`${i}:${e.id}`}
@@ -1288,7 +1537,10 @@ export function Timeline({
                             style={{ left }}
                             title={`${song.name}: ${e.id} (${e.type}) @ ${e.timeSeconds.toFixed(2)}s`}
                           >
-                            <div className="h-3 w-px" style={{ background: color + "aa" }} />
+                            <div
+                              className="h-3 w-px"
+                              style={{ background: color + "aa" }}
+                            />
                             <div
                               className="h-1.5 w-1.5 rounded-full"
                               style={{ background: color }}
@@ -1316,8 +1568,14 @@ export function Timeline({
                   >
                     <BeatGrid
                       pxPerSec={pxPerSec}
-                      contentWidth={Math.max(1, Math.round(songLengths[i] * pxPerSec))}
-                      scrollLeft={Math.max(0, scrollState.scrollLeft - songOffsets[i] * pxPerSec)}
+                      contentWidth={Math.max(
+                        1,
+                        Math.round(songLengths[i] * pxPerSec),
+                      )}
+                      scrollLeft={Math.max(
+                        0,
+                        scrollState.scrollLeft - songOffsets[i] * pxPerSec,
+                      )}
                       viewportWidth={scrollState.viewportWidth}
                       songLength={songLengths[i]}
                       bpm={song.bpm}
@@ -1332,34 +1590,77 @@ export function Timeline({
                   </div>
                 ) : (
                   rows.map((row) => (
-                    <div key={row.name} className="relative border-b border-default/15 bg-default/5" style={{ width: contentWidth, height: LANE_HEIGHT * verticalZoom }}>
+                    <div
+                      key={row.name}
+                      className="relative border-b border-default/15 bg-default/5"
+                      style={{
+                        width: contentWidth,
+                        height: LANE_HEIGHT * verticalZoom,
+                      }}
+                    >
                       {songs.map((song, i) => {
                         const segStart = songOffsets[i] * pxPerSec;
-                        const segWidth = Math.max(1, Math.round(songLengths[i] * pxPerSec));
+                        const segWidth = Math.max(
+                          1,
+                          Math.round(songLengths[i] * pxPerSec),
+                        );
                         const segEnd = segStart + segWidth;
-                        const viewStart = Math.max(segStart, scrollState.scrollLeft);
-                        const viewEnd = Math.min(segEnd, scrollState.scrollLeft + scrollState.viewportWidth);
+                        const viewStart = Math.max(
+                          segStart,
+                          scrollState.scrollLeft,
+                        );
+                        const viewEnd = Math.min(
+                          segEnd,
+                          scrollState.scrollLeft + scrollState.viewportWidth,
+                        );
                         if (viewEnd <= viewStart) return null;
 
-                        const track = state.tracks.find((t) => (t.name || t.id) === row.name || t.id === row.name);
-                        const songRegion = song.regions?.find((r) => Boolean(r.file) && (r.trackId === track?.id || r.trackId === row.name));
+                        const track = state.tracks.find(
+                          (t) =>
+                            (t.name || t.id) === row.name || t.id === row.name,
+                        );
+                        const songRegion = song.regions?.find(
+                          (r) =>
+                            Boolean(r.file) &&
+                            (r.trackId === track?.id || r.trackId === row.name),
+                        );
                         if (!songRegion || !songRegion.file) return null;
 
-
-                        const peaksForSong = allPeaks?.songs[i]?.tracks ?? (i === state.songIndex ? peaks?.tracks : undefined);
-                        const peakEntry = peaksForSong?.find((p) => (p as any).trackId === track?.id || p.id === track?.id || p.id === songRegion?.id);
-                        const peaksLoading = (songRegion?.file && (!peakEntry || peakEntry.levels.length === 0));
+                        const peaksForSong =
+                          allPeaks?.songs[i]?.tracks ??
+                          (i === state.songIndex ? peaks?.tracks : undefined);
+                        const peakEntry = peaksForSong?.find(
+                          (p) =>
+                            (p as any).trackId === track?.id ||
+                            p.id === track?.id ||
+                            p.id === songRegion?.id,
+                        );
+                        const peaksLoading =
+                          songRegion?.file &&
+                          (!peakEntry || peakEntry.levels.length === 0);
                         const regionData = getRegion(i, row.name);
                         const segDuration = songLengths[i];
 
                         // Trim clamped within segment
-                        const trimStart = Math.max(0, Math.min(regionData.trimStart, segDuration - 0.1));
-                        const trimEnd = Math.max(0, Math.min(regionData.trimEnd, segDuration - trimStart - 0.1));
+                        const trimStart = Math.max(
+                          0,
+                          Math.min(regionData.trimStart, segDuration - 0.1),
+                        );
+                        const trimEnd = Math.max(
+                          0,
+                          Math.min(
+                            regionData.trimEnd,
+                            segDuration - trimStart - 0.1,
+                          ),
+                        );
                         const trimStartPx = trimStart * pxPerSec;
                         const trimEndPx = trimEnd * pxPerSec;
                         const regionLeft = segStart + trimStartPx;
                         void regionLeft;
-                        const regionWidth = Math.max(8, segWidth - trimStartPx - trimEndPx);
+                        const regionWidth = Math.max(
+                          8,
+                          segWidth - trimStartPx - trimEndPx,
+                        );
 
                         // Snap helper: snap seconds to nearest beat (if BPM known)
                         const snapSec = (sec: number) => {
@@ -1369,7 +1670,11 @@ export function Timeline({
                         };
 
                         return (
-                          <div key={i} className="absolute top-0" style={{ left: segStart }}>
+                          <div
+                            key={i}
+                            className="absolute top-0"
+                            style={{ left: segStart }}
+                          >
                             {/* Waveform canvas (underlayer) */}
                             <TrackWaveformLane
                               levels={peakEntry?.levels ?? []}
@@ -1399,9 +1704,14 @@ export function Timeline({
                               title={`${row.name} – Song ${i + 1}: ${song.name}`}
                               onPointerDown={(e) => {
                                 // Don't interfere with the handle hit zones below
-                                const rect = e.currentTarget.getBoundingClientRect();
+                                const rect =
+                                  e.currentTarget.getBoundingClientRect();
                                 const localX = e.clientX - rect.left;
-                                if (localX < HANDLE_PX || localX > regionWidth - HANDLE_PX) return;
+                                if (
+                                  localX < HANDLE_PX ||
+                                  localX > regionWidth - HANDLE_PX
+                                )
+                                  return;
                                 e.stopPropagation();
                                 // Mark region drag (move)
                                 regionDragRef.current = {
@@ -1417,50 +1727,92 @@ export function Timeline({
                               }}
                               onPointerMove={(e) => {
                                 const rd = regionDragRef.current;
-                                if (!rd || rd.key !== regionKey(i, row.name) || rd.mode !== "move") return;
+                                if (
+                                  !rd ||
+                                  rd.key !== regionKey(i, row.name) ||
+                                  rd.mode !== "move"
+                                )
+                                  return;
                                 const dx = e.clientX - rd.startX;
                                 const dSec = dx / pxPerSec;
 
                                 // Check if drag crosses into a different song with different BPM
-                                const absX = segStart + trimStartPx + (rd.origTrimStart + dSec) * pxPerSec;
+                                const absX =
+                                  segStart +
+                                  trimStartPx +
+                                  (rd.origTrimStart + dSec) * pxPerSec;
                                 // find which song the pointer is currently in
-                                const pointerAbsSec = (scrollState.scrollLeft + e.clientX - (scrollRef.current?.getBoundingClientRect().left ?? 0)) / pxPerSec;
-                                const targetSongIdx = songOffsets.findIndex((offset, idx) =>
-                                  pointerAbsSec >= offset && pointerAbsSec < offset + songLengths[idx]
+                                const pointerAbsSec =
+                                  (scrollState.scrollLeft +
+                                    e.clientX -
+                                    (scrollRef.current?.getBoundingClientRect()
+                                      .left ?? 0)) /
+                                  pxPerSec;
+                                const targetSongIdx = songOffsets.findIndex(
+                                  (offset, idx) =>
+                                    pointerAbsSec >= offset &&
+                                    pointerAbsSec < offset + songLengths[idx],
                                 );
                                 void absX; // silence lint
-                                if (targetSongIdx !== -1 && targetSongIdx !== rd.songIndex) {
+                                if (
+                                  targetSongIdx !== -1 &&
+                                  targetSongIdx !== rd.songIndex
+                                ) {
                                   const srcBpm = songs[rd.songIndex]?.bpm ?? 0;
                                   const dstBpm = songs[targetSongIdx]?.bpm ?? 0;
                                   if (Math.abs(srcBpm - dstBpm) > 0.1) {
                                     showToast(
-                                      `Can't move region here — tempo differs (${srcBpm.toFixed(1)} BPM → ${dstBpm.toFixed(1)} BPM)`
+                                      `Can't move region here — tempo differs (${srcBpm.toFixed(1)} BPM → ${dstBpm.toFixed(1)} BPM)`,
                                     );
                                     return;
                                   }
                                 }
 
                                 // Only allow movement within same song
-                                if (targetSongIdx !== -1 && targetSongIdx !== rd.songIndex) return;
+                                if (
+                                  targetSongIdx !== -1 &&
+                                  targetSongIdx !== rd.songIndex
+                                )
+                                  return;
 
-                                const rawNewTrimStart = Math.max(0, rd.origTrimStart + dSec);
+                                const rawNewTrimStart = Math.max(
+                                  0,
+                                  rd.origTrimStart + dSec,
+                                );
                                 const newTrimStart = snapSec(rawNewTrimStart);
-                                const newTrimEnd = Math.max(0, rd.maxDuration - newTrimStart - (rd.maxDuration - rd.origTrimStart - rd.origTrimEnd));
+                                const newTrimEnd = Math.max(
+                                  0,
+                                  rd.maxDuration -
+                                    newTrimStart -
+                                    (rd.maxDuration -
+                                      rd.origTrimStart -
+                                      rd.origTrimEnd),
+                                );
                                 setRegion(i, row.name, {
-                                  trimStart: Math.min(newTrimStart, rd.maxDuration - 0.1),
+                                  trimStart: Math.min(
+                                    newTrimStart,
+                                    rd.maxDuration - 0.1,
+                                  ),
                                   trimEnd: Math.max(0, newTrimEnd),
                                 });
                               }}
                               onPointerUp={(e) => {
-                                if (regionDragRef.current?.key === regionKey(i, row.name)) {
+                                if (
+                                  regionDragRef.current?.key ===
+                                  regionKey(i, row.name)
+                                ) {
                                   regionDragRef.current = null;
-                                  e.currentTarget.releasePointerCapture(e.pointerId);
+                                  e.currentTarget.releasePointerCapture(
+                                    e.pointerId,
+                                  );
                                 }
                               }}
                               onContextMenu={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                setRegion(i, row.name, { muted: !regionData.muted });
+                                setRegion(i, row.name, {
+                                  muted: !regionData.muted,
+                                });
                               }}
                             >
                               {/* Region label */}
@@ -1468,7 +1820,8 @@ export function Timeline({
                                 className="absolute top-0.5 left-2 text-[9px] font-semibold truncate max-w-[80%] pointer-events-none select-none"
                                 style={{ color: row.color, opacity: 0.8 }}
                               >
-                                {regionData.muted ? "[M] " : ""}{row.name}
+                                {regionData.muted ? "[M] " : ""}
+                                {row.name}
                               </div>
                               {/* Peaks loading indicator */}
                               {peaksLoading && regionWidth > 40 && (
@@ -1505,17 +1858,33 @@ export function Timeline({
                               }}
                               onPointerMove={(e) => {
                                 const rd = regionDragRef.current;
-                                if (!rd || rd.key !== regionKey(i, row.name) || rd.mode !== "trimStart") return;
+                                if (
+                                  !rd ||
+                                  rd.key !== regionKey(i, row.name) ||
+                                  rd.mode !== "trimStart"
+                                )
+                                  return;
                                 const dx = e.clientX - rd.startX;
                                 const dSec = dx / pxPerSec;
-                                const maxTrim = rd.maxDuration - rd.origTrimEnd - 0.1;
-                                const rawNew = Math.max(0, Math.min(maxTrim, rd.origTrimStart + dSec));
-                                setRegion(i, row.name, { trimStart: snapSec(rawNew) });
+                                const maxTrim =
+                                  rd.maxDuration - rd.origTrimEnd - 0.1;
+                                const rawNew = Math.max(
+                                  0,
+                                  Math.min(maxTrim, rd.origTrimStart + dSec),
+                                );
+                                setRegion(i, row.name, {
+                                  trimStart: snapSec(rawNew),
+                                });
                               }}
                               onPointerUp={(e) => {
-                                if (regionDragRef.current?.key === regionKey(i, row.name)) {
+                                if (
+                                  regionDragRef.current?.key ===
+                                  regionKey(i, row.name)
+                                ) {
                                   regionDragRef.current = null;
-                                  e.currentTarget.releasePointerCapture(e.pointerId);
+                                  e.currentTarget.releasePointerCapture(
+                                    e.pointerId,
+                                  );
                                 }
                               }}
                             />
@@ -1544,17 +1913,33 @@ export function Timeline({
                               }}
                               onPointerMove={(e) => {
                                 const rd = regionDragRef.current;
-                                if (!rd || rd.key !== regionKey(i, row.name) || rd.mode !== "trimEnd") return;
+                                if (
+                                  !rd ||
+                                  rd.key !== regionKey(i, row.name) ||
+                                  rd.mode !== "trimEnd"
+                                )
+                                  return;
                                 const dx = e.clientX - rd.startX;
                                 const dSec = dx / pxPerSec;
-                                const maxTrim = rd.maxDuration - rd.origTrimStart - 0.1;
-                                const rawNew = Math.max(0, Math.min(maxTrim, rd.origTrimEnd - dSec));
-                                setRegion(i, row.name, { trimEnd: snapSec(rawNew) });
+                                const maxTrim =
+                                  rd.maxDuration - rd.origTrimStart - 0.1;
+                                const rawNew = Math.max(
+                                  0,
+                                  Math.min(maxTrim, rd.origTrimEnd - dSec),
+                                );
+                                setRegion(i, row.name, {
+                                  trimEnd: snapSec(rawNew),
+                                });
                               }}
                               onPointerUp={(e) => {
-                                if (regionDragRef.current?.key === regionKey(i, row.name)) {
+                                if (
+                                  regionDragRef.current?.key ===
+                                  regionKey(i, row.name)
+                                ) {
                                   regionDragRef.current = null;
-                                  e.currentTarget.releasePointerCapture(e.pointerId);
+                                  e.currentTarget.releasePointerCapture(
+                                    e.pointerId,
+                                  );
                                 }
                               }}
                             />
@@ -1588,7 +1973,6 @@ export function Timeline({
                 {/* Red playhead needle extending through the entire height */}
                 <div className="flex-1 w-[1.5px] bg-danger shadow-[0_0_4px_rgba(255,59,48,0.6)]" />
               </div>
-
             </div>
           </div>
         </div>
@@ -1619,7 +2003,7 @@ function BeatGrid({
 
   const { majorStepSec, minorStepSec } = useMemo(
     () => getTickConfig(pxPerSec, bpm, tsNum),
-    [pxPerSec, bpm, tsNum]
+    [pxPerSec, bpm, tsNum],
   );
 
   useLayoutEffect(() => {
@@ -1647,7 +2031,10 @@ function BeatGrid({
 
     if (minorStepSec > 0) {
       const startTime = Math.max(0, scrollLeft / pxPerSec);
-      const endTime = Math.min(songLength + minorStepSec, (scrollLeft + viewportWidth) / pxPerSec);
+      const endTime = Math.min(
+        songLength + minorStepSec,
+        (scrollLeft + viewportWidth) / pxPerSec,
+      );
       const startTick = Math.floor(startTime / minorStepSec) * minorStepSec;
       const eps = minorStepSec * 0.01;
 
@@ -1658,10 +2045,16 @@ function BeatGrid({
         if (canvasX < 0 || canvasX > renderWidth) continue;
 
         const isMajor =
-          Math.abs(((rounded % majorStepSec) + majorStepSec) % majorStepSec) < eps ||
-          Math.abs(((rounded % majorStepSec) + majorStepSec) % majorStepSec - majorStepSec) < eps;
+          Math.abs(((rounded % majorStepSec) + majorStepSec) % majorStepSec) <
+            eps ||
+          Math.abs(
+            (((rounded % majorStepSec) + majorStepSec) % majorStepSec) -
+              majorStepSec,
+          ) < eps;
 
-        ctx.strokeStyle = isMajor ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.03)";
+        ctx.strokeStyle = isMajor
+          ? "rgba(255,255,255,0.09)"
+          : "rgba(255,255,255,0.03)";
         ctx.lineWidth = isMajor ? 1.5 : 1;
         ctx.beginPath();
         ctx.moveTo(canvasX, 0);
@@ -1669,7 +2062,15 @@ function BeatGrid({
         ctx.stroke();
       }
     }
-  }, [pxPerSec, contentWidth, scrollLeft, viewportWidth, songLength, majorStepSec, minorStepSec]);
+  }, [
+    pxPerSec,
+    contentWidth,
+    scrollLeft,
+    viewportWidth,
+    songLength,
+    majorStepSec,
+    minorStepSec,
+  ]);
 
   return (
     <canvas
@@ -1679,4 +2080,3 @@ function BeatGrid({
     />
   );
 }
-

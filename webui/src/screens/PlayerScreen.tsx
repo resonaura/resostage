@@ -1,11 +1,26 @@
 import { Button, ScrollShadow } from "@heroui/react";
-import { ChevronDown } from "lucide-react";
-import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
+import {
+  ChevronDown,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  Square,
+} from "lucide-react";
 import { useState } from "react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
-import type { AllPeaksResponse, ClickSendRow, PeaksResponse, WebUiState } from "../lib/types";
+import {
+  useOptimisticGlobalPlayhead,
+  useOptimisticSeek,
+} from "../lib/optimistic";
+import type {
+  AllPeaksResponse,
+  ClickSendRow,
+  PeaksResponse,
+  WebUiState,
+} from "../lib/types";
 
 function MetronomeIcon({
   size = 16,
@@ -56,14 +71,13 @@ function barBeat(seconds: number, bpm: number, tsNum: number): string {
 // don't necessarily land on a bar boundary under the current one; inherent
 // to any cross-time-signature cumulative bar counter, not a bug.
 function globalBarBeat(beatsElapsed: number, tsNum: number): string {
-  if (!Number.isFinite(beatsElapsed) || beatsElapsed < 0 || tsNum <= 0) return "—";
+  if (!Number.isFinite(beatsElapsed) || beatsElapsed < 0 || tsNum <= 0)
+    return "—";
   const beatsPerBar = Math.max(1, tsNum);
   const bar = Math.floor(beatsElapsed / beatsPerBar) + 1;
   const beat = (Math.floor(beatsElapsed) % beatsPerBar) + 1;
   return `${bar} | ${beat}`;
 }
-
-
 
 // Single sparkline SVG renderer (no pinging animations, clean solid line)
 function Sparkline({
@@ -253,7 +267,7 @@ export function PlayerScreen({
     if (existing) {
       // Toggle enabled flag
       newSends = (s.clickSends ?? []).map((cs) =>
-        cs.busId === busId ? { ...cs, enabled: !cs.enabled } : cs
+        cs.busId === busId ? { ...cs, enabled: !cs.enabled } : cs,
       );
     } else {
       // Add new send at unity gain, enabled
@@ -275,7 +289,19 @@ export function PlayerScreen({
     });
   };
 
-  const displaySeconds = state.playheadSeconds;
+  // Optimistic + rAF-smoothed clocks: update immediately on seek / song change
+  // and advance at 60fps while playing instead of waiting for the ~30 Hz WS.
+  const songKey = `${state.projectName}:${state.songIndex}`;
+  const [displaySeconds] = useOptimisticSeek(
+    state.playheadSeconds,
+    songKey,
+    state.playing,
+  );
+  const displayGlobalSeconds = useOptimisticGlobalPlayhead(
+    state.globalPlayheadSeconds,
+    state.playing,
+    state.projectName,
+  );
 
   const song =
     state.songIndex >= 0 && state.songs[state.songIndex]
@@ -342,10 +368,24 @@ export function PlayerScreen({
           {/* Absolute whole-project position (not song-relative) -- small/gray by design */}
           <div className="mt-0.5 flex items-baseline gap-1.5 opacity-60">
             <span className="font-mono text-[10px] tabular-nums text-foreground/35">
-              {formatTime(state.globalPlayheadSeconds)}
+              {formatTime(displayGlobalSeconds)}
             </span>
             <span className="font-mono text-[10px] tabular-nums text-foreground/35">
-              {song ? globalBarBeat(state.globalBeatsElapsed, song.tsNum) : "—"}
+              {song
+                ? globalBarBeat(
+                    // Reconstruct beats from smoothed global seconds using the
+                    // current song's bpm as a local approximation for the
+                    // fractional tail (prior songs already baked into the
+                    // server's globalBeatsElapsed baseline via the WS delta).
+                    state.globalBeatsElapsed +
+                      Math.max(
+                        0,
+                        displayGlobalSeconds - state.globalPlayheadSeconds,
+                      ) *
+                        ((song.bpm > 0 ? song.bpm : 120) / 60),
+                    song.tsNum,
+                  )
+                : "—"}
             </span>
             <span className="text-[9px] text-foreground/25">abs</span>
           </div>
@@ -442,7 +482,10 @@ export function PlayerScreen({
               }`}
               title="Click send routing"
             >
-              <ChevronDown size={12} className={`transition-transform ${clickSendsOpen ? "rotate-180" : ""}`} />
+              <ChevronDown
+                size={12}
+                className={`transition-transform ${clickSendsOpen ? "rotate-180" : ""}`}
+              />
             </button>
             {/* Popover: 1-to-1 track parity with Output Bus select + Aux Sends list */}
             {clickSendsOpen && (
@@ -451,7 +494,9 @@ export function PlayerScreen({
                   <span className="text-[10px] font-bold uppercase tracking-wider text-foreground/50">
                     Click Routing
                   </span>
-                  <span className="text-[10px] font-mono text-accent">Metronome</span>
+                  <span className="text-[10px] font-mono text-accent">
+                    Metronome
+                  </span>
                 </div>
 
                 {/* Primary Destination Bus Select (1-to-1 like track output) */}
@@ -478,10 +523,14 @@ export function PlayerScreen({
                     Aux Sends
                   </div>
                   {auxBusses.length === 0 ? (
-                    <div className="text-[10px] text-foreground/30 py-1">No Aux buses</div>
+                    <div className="text-[10px] text-foreground/30 py-1">
+                      No Aux buses
+                    </div>
                   ) : (
                     auxBusses.map((bus) => {
-                      const send = (song?.clickSends ?? []).find((cs) => cs.busId === bus.id);
+                      const send = (song?.clickSends ?? []).find(
+                        (cs) => cs.busId === bus.id,
+                      );
                       const isActive = send?.enabled === true;
                       return (
                         <div
@@ -492,7 +541,9 @@ export function PlayerScreen({
                             type="button"
                             onClick={() => toggleClickSend(bus.id)}
                             className={`flex items-center gap-1.5 text-xs font-medium truncate ${
-                              isActive ? "text-accent" : "text-foreground/50 hover:text-foreground"
+                              isActive
+                                ? "text-accent"
+                                : "text-foreground/50 hover:text-foreground"
                             }`}
                           >
                             <span
@@ -500,7 +551,9 @@ export function PlayerScreen({
                                 isActive ? "bg-accent" : "bg-default/40"
                               }`}
                             />
-                            <span className="truncate">{bus.name || bus.id}</span>
+                            <span className="truncate">
+                              {bus.name || bus.id}
+                            </span>
                           </button>
                           <button
                             type="button"
@@ -598,7 +651,10 @@ export function PlayerScreen({
           <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
             Bus meters
           </div>
-          <ScrollShadow orientation="horizontal" className="flex min-h-0 flex-1 items-center justify-center gap-6 p-4">
+          <ScrollShadow
+            orientation="horizontal"
+            className="flex min-h-0 flex-1 items-center justify-center gap-6 p-4"
+          >
             {state.meters.length === 0 ? (
               <div className="py-4 text-center text-sm text-foreground/40">
                 No busses.
@@ -606,7 +662,8 @@ export function PlayerScreen({
             ) : (
               state.meters.map((m) => {
                 const busObj = state.busses.find((b) => b.id === m.id);
-                const displayName = busObj?.name || (m.id === "main" ? "Main" : m.id);
+                const displayName =
+                  busObj?.name || (m.id === "main" ? "Main" : m.id);
                 return (
                   <div
                     key={m.id}

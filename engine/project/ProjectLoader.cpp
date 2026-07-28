@@ -426,15 +426,41 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
         }
     }
 
-    // Write extra files (e.g. newly imported WAVs or generated peak .rpk files)
+    // Write extra files (e.g. newly imported WAVs or generated peak .rpk files).
+    // Fail hard on a short/failed write: a 0-byte "Audio/foo.wav" later surfaces
+    // as "Truncated RIFF header" on selectSong and leaves the project looking
+    // like "No song selected" with no useful recovery path.
     for (const auto& ex : extraFiles) {
         if (ex.archivePath.empty() || ex.archivePath == "project.json")
             continue;
         fs::path extraDest = dest / ex.archivePath;
         fs::create_directories(extraDest.parent_path(), ec);
-        std::ofstream ofs(extraDest, std::ios::binary);
-        if (ofs.is_open()) {
-            ofs.write(reinterpret_cast<const char*>(ex.data.data()), ex.data.size());
+        std::ofstream ofs(extraDest, std::ios::binary | std::ios::trunc);
+        if (!ofs.is_open()) {
+            error = "Failed to open for write: " + extraDest.string();
+            return false;
+        }
+        if (!ex.data.empty()) {
+            ofs.write(reinterpret_cast<const char*>(ex.data.data()),
+                      static_cast<std::streamsize>(ex.data.size()));
+        }
+        ofs.flush();
+        if (!ofs) {
+            error = "Failed to write " + extraDest.string()
+                    + " (" + std::to_string(ex.data.size()) + " bytes)";
+            ofs.close();
+            fs::remove(extraDest, ec);
+            return false;
+        }
+        ofs.close();
+        // Defence-in-depth against silent disk-full truncation.
+        const auto written = fs::file_size(extraDest, ec);
+        if (ec || written != ex.data.size()) {
+            error = "Size mismatch writing " + extraDest.string()
+                    + " (expected " + std::to_string(ex.data.size())
+                    + ", got " + std::to_string(static_cast<uint64_t>(written)) + ")";
+            fs::remove(extraDest, ec);
+            return false;
         }
     }
 

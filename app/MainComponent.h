@@ -122,6 +122,13 @@ private:
     // builderPanel.onProjectEdited()/onRoutingEdited() hooks the native
     // Builder tab already uses to refresh everything else.
     void builderSongAdd(const std::string& json);
+    // "path"-driven variant of the native import-folder button, for remote/
+    // scripted clients that can reference a folder already on this machine's
+    // filesystem directly (same reasoning as LoadProjectFromPath existing
+    // alongside the native-FileChooser-based OpenLoadDialog). Falls back to
+    // the native picker (builderPanel.importSongFolderClicked()) when no
+    // "path" field is present, so the native UI's own button is unaffected.
+    void builderSongImportFolder(const std::string& json);
     void builderSongRemove(const std::string& json);
     void builderSongMove(const std::string& json);
     void builderSongUpdate(const std::string& json);

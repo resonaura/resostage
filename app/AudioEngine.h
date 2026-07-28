@@ -351,8 +351,20 @@ private:
     // Underrun micro-fade (spec: 128-sample fade-out on dropout, fade-in on recovery).
     static constexpr int kUnderrunFadeSamples = 128;
     int underrunFadeOutRemaining = 0;
+    // Length the current fade-out was armed with -- gain is remaining/length,
+    // so underrun (128) and song-end (512) ramps both reach true zero instead
+    // of sharing a hard-coded divisor that made underrun start at ~0.25.
+    int underrunFadeOutLength = 0;
     int recoveryFadeInRemaining = 0;
+    int recoveryFadeInLength = 0;
     bool lastCallbackWasUnderrun = false;
+    // After a song-end (or underrun) fade-out reaches 0, hold the physical
+    // outputs at silence until the next song's fade-in is armed. Without this
+    // the per-sample fade loop falls back to g=1.0 for the rest of the block
+    // (and every subsequent block until playhead hits the true end) -- which
+    // is the loud crack heard on AutoplayNext song boundaries whenever the
+    // buffer size is not a clean multiple of the fade length.
+    bool outputHeldSilent = false;
 
     // Song-end fade-out: armed kSongEndFadeSamples *before* the real end of
     // the current song (not once already past it) -- StreamingTrackBuffer's
@@ -365,7 +377,11 @@ private:
     // audioDeviceIOCallbackWithContext(). Audio-thread-owned only, like the
     // underrun fade counters above.
     enum class SongEndAction : uint8_t { None, GaplessAdvance, StopTransport };
-    static constexpr int kSongEndFadeSamples = 512;
+    // ~43ms @ 48kHz. Longer than a typical device block (256–1024) so the
+    // song-end ramp cannot finish mid-block and leave residual full-gain
+    // samples, and the gapless fade-in is long enough to hide a cold ring
+    // fill or a non-zero-crossing attack at the top of the next song.
+    static constexpr int kSongEndFadeSamples = 2048;
     SongEndAction pendingSongEndAction = SongEndAction::None;
     size_t pendingSongEndTargetSong = static_cast<size_t>(-1);
 
