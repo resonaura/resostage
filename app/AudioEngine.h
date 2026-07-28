@@ -420,6 +420,13 @@ private:
     std::atomic<bool> playing{false};
     std::atomic<int64_t> hwSamplePosition{0};
     std::atomic<double> simulatedStallMs{0.0};
+    // Set for the brief window of a gapless promote (or any mid-playback
+    // restage) between "new streams are active" and "playhead has been
+    // reset to 0 / seek target". While true the audio callback emits silence
+    // and does NOT touch stream rings -- otherwise it would read the new
+    // song at the OLD playhead (end of previous song), queue a massive skip,
+    // and the next song would audibly start mid-file.
+    std::atomic<bool> streamHandoff{false};
 
     double currentSampleRate = 48000.0;
     int currentBlockSize = 512;

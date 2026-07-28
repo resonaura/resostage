@@ -97,9 +97,18 @@ void MainComponent::maybePublishPeaks() {
     if (songIdx == lastPeaksPublishSongIndex && lastPeaksPublishComplete)
         return; // nothing new since the last publish
 
+    // While peaks are still streaming in, republish at most ~2 Hz -- full
+    // pyramid JSON for multi-track multi-minute songs is multi-MB of text
+    // and was burning ~one core on the message thread after every import.
+    const juce::uint32 nowMs = juce::Time::getMillisecondCounter();
+    if (songIdx == lastPeaksPublishSongIndex && !complete
+        && (nowMs - lastPeaksPublishMs) < 500)
+        return;
+
     webServer.publishPeaks(buildPeaksJson());
     lastPeaksPublishSongIndex = songIdx;
     lastPeaksPublishComplete = complete;
+    lastPeaksPublishMs = nowMs;
 }
 
 std::string MainComponent::buildPeaksJson() const {
@@ -122,7 +131,12 @@ std::string MainComponent::buildPeaksJson() const {
 void MainComponent::maybePublishAllPeaks() {
     if (!engine.isProjectLoaded())
         return;
-    engine.ensureAllSongPeaksBuilt();
+
+    // Kick the background sweep only until everything is cached. Calling
+    // ensureAllSongPeaksBuilt() every 30 Hz after completion was cheap, but
+    // the file-count walk + repeated publishAllPeaks below was not.
+    if (!lastAllPeaksComplete)
+        engine.ensureAllSongPeaksBuilt();
 
     int totalFiles = 0, builtFiles = 0;
     for (const auto& song : engine.project().songs) {
@@ -134,13 +148,18 @@ void MainComponent::maybePublishAllPeaks() {
                 ++builtFiles;
         }
     }
-    const bool complete = builtFiles == totalFiles;
+    const bool complete = (totalFiles == 0) || (builtFiles == totalFiles);
     if (builtFiles == lastAllPeaksBuiltCount && complete == lastAllPeaksComplete)
         return; // nothing new since the last publish
+
+    const juce::uint32 nowMs = juce::Time::getMillisecondCounter();
+    if (!complete && (nowMs - lastAllPeaksPublishMs) < 500)
+        return; // throttle incomplete multi-MB JSON rebuilds
 
     webServer.publishAllPeaks(buildAllPeaksJson());
     lastAllPeaksBuiltCount = builtFiles;
     lastAllPeaksComplete = complete;
+    lastAllPeaksPublishMs = nowMs;
 }
 
 std::string MainComponent::buildAllPeaksJson() const {

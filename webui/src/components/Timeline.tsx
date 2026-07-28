@@ -2,7 +2,7 @@ import { Button } from "@heroui/react";
 import { ChevronDown, ChevronUp, Grid3X3, ZoomIn, ZoomOut } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fetchWaveformRaw, mixer, transport } from "../lib/api";
-import { useLiveValue, useOptimisticSeek } from "../lib/optimistic";
+import { useContinuousPlayhead, useLiveValue } from "../lib/optimistic";
 import type {
   AllPeaksResponse,
   PeakLevelData,
@@ -952,10 +952,13 @@ export function Timeline({
     viewportWidth: 1000,
   });
 
-  const [playheadSec, setPlayheadSec] = useOptimisticSeek(
-    state.playheadSeconds,
-    `${state.projectName}:${state.songIndex}`,
+  // ONE continuous absolute clock for the whole project. Song-local time is
+  // derived below -- never a second independent rAF loop keyed on songIndex
+  // (that reset/fought across gapless boundaries and felt like two timelines).
+  const [playheadAbsoluteSec, setPlayheadAbsoluteSec] = useContinuousPlayhead(
+    state.globalPlayheadSeconds,
     state.playing,
+    state.projectName,
   );
 
   // Snap-to-grid toggle
@@ -1052,8 +1055,13 @@ export function Timeline({
     for (let i = 0; i < songs.length; i++) {
       const fromAll = allPeaks?.songs[i]?.tracks;
       const fromCurrent = i === state.songIndex ? peaks?.tracks : undefined;
-      let len = songDurationSeconds(songs[i], fromAll ?? fromCurrent);
-      if (len < 5) len = 60; // minimum duration so track lanes are readable before audio load
+      // Use real authored duration for seek math. A fake 60s floor used to
+      // skew songOffsets when peaks/regions weren't ready yet, so scrubbing
+      // into song N landed at the wrong localSeconds.
+      const len = Math.max(
+        1,
+        songDurationSeconds(songs[i], fromAll ?? fromCurrent),
+      );
       lengths.push(len);
       offsets.push(acc);
       acc += len;
@@ -1229,31 +1237,40 @@ export function Timeline({
   const seekFromClientX = (clientX: number, commit = false) => {
     const bodyEl = timelineBodyRef.current;
     if (!bodyEl || songs.length === 0) return;
+    // timelineBodyRef is the full-width content inside the scroller -- its
+    // getBoundingClientRect().left already shifts with scrollLeft. Adding
+    // scrollLeft again double-counted and scrub landed far from the cursor.
     const rect = bodyEl.getBoundingClientRect();
     const x = clientX - rect.left;
-    const absSeconds = Math.max(0, x / pxPerSec);
+    const absSeconds = Math.max(0, x / pxPerSecRef.current);
     const { songIndex, localSeconds } = resolveSong(absSeconds);
     if (songIndex < 0) return;
 
+    // Clamp into the resolved song's authored length so we never seek past EOF.
+    const songLen = songLengths[songIndex] ?? 0;
+    const songStart = songOffsets[songIndex] ?? 0;
+    const clampedLocal =
+      songLen > 0
+        ? Math.min(localSeconds, Math.max(0, songLen - 0.01))
+        : localSeconds;
+    const clampedAbs = songStart + clampedLocal;
+
+    // Optimistic absolute needle moves immediately for both same-song and
+    // cross-song scrubs (one continuous timeline).
+    setPlayheadAbsoluteSec(clampedAbs);
+
     if (songIndex !== state.songIndex) {
-      // A click landed in a different song's segment -- only act on
-      // release/click (never mid-drag), since restaging the song is heavier
-      // than a same-song seek and mid-drag would restage repeatedly. A
-      // single atomic seek(seconds, songIndex) call (rather than a separate
-      // select() + seek() pair) both avoids a round-trip race and preserves
-      // playback state across the boundary -- select() alone always stops.
+      // Restage is heavier -- only commit on pointer up / click, not mid-drag.
       if (commit) {
-        setPlayheadSec(localSeconds);
-        void transport.seek(localSeconds, songIndex);
+        void transport.seek(clampedLocal, songIndex);
       }
       return;
     }
 
-    setPlayheadSec(localSeconds);
     const now = Date.now();
     if (commit || now - lastSeekAt.current >= SEEK_THROTTLE_MS) {
       lastSeekAt.current = now;
-      void transport.seek(localSeconds);
+      void transport.seek(clampedLocal);
     }
   };
 
@@ -1285,11 +1302,11 @@ export function Timeline({
   const currentSongIdx = state.songIndex >= 0 ? state.songIndex : 0;
   const currentSongOffset = songOffsets[currentSongIdx] ?? 0;
   const currentSongDuration = songLengths[currentSongIdx] ?? 120;
-  const safePlayheadSec = Math.max(
+  // Song-local readout for the badge -- derived from the single absolute clock.
+  const playheadSec = Math.max(
     0,
-    Math.min(playheadSec, currentSongDuration),
+    Math.min(playheadAbsoluteSec - currentSongOffset, currentSongDuration),
   );
-  const playheadAbsoluteSec = currentSongOffset + safePlayheadSec;
 
   const prevSongIdxRef = useRef(currentSongIdx);
 

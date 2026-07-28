@@ -11,10 +11,7 @@ import { useState } from "react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
-import {
-  useOptimisticGlobalPlayhead,
-  useOptimisticSeek,
-} from "../lib/optimistic";
+import { useContinuousPlayhead } from "../lib/optimistic";
 import type {
   AllPeaksResponse,
   ClickSendRow,
@@ -289,15 +286,9 @@ export function PlayerScreen({
     });
   };
 
-  // Optimistic + rAF-smoothed clocks: update immediately on seek / song change
-  // and advance at 60fps while playing instead of waiting for the ~30 Hz WS.
-  const songKey = `${state.projectName}:${state.songIndex}`;
-  const [displaySeconds] = useOptimisticSeek(
-    state.playheadSeconds,
-    songKey,
-    state.playing,
-  );
-  const displayGlobalSeconds = useOptimisticGlobalPlayhead(
+  // ONE continuous absolute clock for transport. Song-local is derived from
+  // the current song's offset so gapless boundaries don't reset a second clock.
+  const [displayGlobalSeconds] = useContinuousPlayhead(
     state.globalPlayheadSeconds,
     state.playing,
     state.projectName,
@@ -308,13 +299,36 @@ export function PlayerScreen({
       ? state.songs[state.songIndex]
       : null;
 
+  // Match Timeline's duration math so local clock and needle agree.
+  let songOffset = 0;
   let songLength = 0;
-  if (peaks && peaks.tracks) {
+  if (state.songs.length > 0 && state.songIndex >= 0) {
+    for (let i = 0; i < state.songs.length; i++) {
+      const fromAll = allPeaks?.songs[i]?.tracks;
+      const fromCurrent = i === state.songIndex ? peaks?.tracks : undefined;
+      let len = 0;
+      for (const r of state.songs[i].regions ?? []) {
+        if (r.durationSeconds) len = Math.max(len, r.durationSeconds);
+      }
+      for (const p of fromAll ?? fromCurrent ?? []) {
+        if (p.durationSeconds) len = Math.max(len, p.durationSeconds);
+      }
+      len = Math.max(len, 1);
+      if (i === state.songIndex) {
+        songLength = len;
+        break;
+      }
+      songOffset += len;
+    }
+  }
+  if (songLength <= 0 && peaks?.tracks) {
     for (const tr of peaks.tracks) {
       if (tr && tr.durationSeconds > songLength)
         songLength = tr.durationSeconds;
     }
   }
+  // Song-local = absolute − offset of current song (one timeline, not two).
+  const displaySeconds = Math.max(0, displayGlobalSeconds - songOffset);
 
   const currentClickBus =
     hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]?.clickBusId

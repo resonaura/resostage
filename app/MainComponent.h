@@ -181,6 +181,11 @@ private:
     std::string buildAllPeaksJson() const;
     int lastAllPeaksBuiltCount = -1;
     bool lastAllPeaksComplete = false;
+    // Throttle incomplete peak-JSON rebuilds. Peak pyramids for multi-minute
+    // stems are huge; republishing them at the full 30 Hz timer rate after
+    // an import pegs a whole core on the message thread for no UI benefit.
+    juce::uint32 lastPeaksPublishMs = 0;
+    juce::uint32 lastAllPeaksPublishMs = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

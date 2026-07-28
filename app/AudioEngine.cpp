@@ -1086,13 +1086,29 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     }
     const SongDef& song = proj.songs[songIndex];
 
+    // While streams swap + playhead resets, audio must not read the new
+    // rings at the old absolute sample position (see streamHandoff doc).
+    // Gapless keeps playing=true across the handoff, so this flag is the
+    // only thing that prevents a multi-minute skip into the next song.
+    const bool handoff = gaplessKeepPlaying || playing.load(std::memory_order_acquire);
+    if (handoff)
+        streamHandoff.store(true, std::memory_order_release);
+
     // Promote/open streams first -- atomic shared_ptr swap inside stageSong,
     // safe concurrent with the audio thread holding a previous ActiveSongHandle.
     // Keep this OUTSIDE routingMutex: cold open can do disk I/O and must not
     // stall the audio callback for tens of ms (which itself causes underruns).
     const int64_t ringCapacityFrames = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
-    if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error))
+    if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error)) {
+        streamHandoff.store(false, std::memory_order_release);
         return false;
+    }
+
+    // Deliberately NO hardSeekTo(0) on the gapless path: streamHandoff
+    // already prevents the audio thread from reading rings between promote
+    // and playhead-reset, and precached buffers are still at frame 0. A
+    // full re-open+prime of every multi-100MB stem was the multi-tens-of-ms
+    // "prolag" between songs.
 
     // Validate track -> bus assignments before staging UI/routing state.
     // An empty busId is valid and deliberate: a "sends-only" track with no
@@ -1202,11 +1218,12 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         lastCallbackWasUnderrun = false;
         lastCallbackHostNanos = 0;
         pendingSongEndAction = SongEndAction::None;
-        // Soft edge into the new song (~43ms). Fade-in is preferred over
-        // outputHeldSilent in the render path so the first audible samples
-        // always ramp from 0 even if hold is still latched.
-        recoveryFadeInLength = kSongEndFadeSamples;
-        recoveryFadeInRemaining = kSongEndFadeSamples;
+        // Soft edge into the new song. Gapless uses a short fade (~5ms @ 48k)
+        // so the handoff doesn't feel like a hole; non-gapless keeps the
+        // longer edge for cold starts / scrub landings.
+        const int fadeIn = gaplessKeepPlaying ? 256 : kSongEndFadeSamples;
+        recoveryFadeInLength = fadeIn;
+        recoveryFadeInRemaining = fadeIn;
         outputHeldSilent = false;
 
         if (gaplessKeepPlaying) {
@@ -1224,6 +1241,9 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
             transportTelemetry.running.store(false, std::memory_order_relaxed);
         }
+
+        // Streams + playhead are coherent at 0 -- audio may read again.
+        streamHandoff.store(false, std::memory_order_release);
     }
 
     if (gaplessKeepPlaying)
@@ -1630,6 +1650,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         return;
     }
     metersSilencedSinceStop = false;
+
+    // Gapless / restage handoff: keep outputs silent and do not touch rings
+    // until the message thread has reset the playhead to match the new song.
+    if (streamHandoff.load(std::memory_order_acquire))
+        return;
 
     const std::shared_ptr<const RoutingSnapshot> snap = routing.acquireForRender();
     if (snap == nullptr || busses.empty())
