@@ -145,6 +145,14 @@ export interface KeybindingRow {
   key: string;
 }
 
+export interface MidiBindingRow {
+  action: string;
+  /** "note" | "cc" | "" when unbound */
+  trigger: string;
+  channel: number;
+  number: number;
+}
+
 export interface SettingsState {
   currentOutputDevice: string;
   outputDevices: string[];
@@ -157,6 +165,9 @@ export interface SettingsState {
   midiOutputs: string[];
   midiInputs: string[];
   keybindings: KeybindingRow[];
+  midiBindings?: MidiBindingRow[];
+  /** Non-empty while MIDI-learn is armed for this action. */
+  midiLearnAction?: string;
 }
 
 // One pyramid level of a track's peak overview -- parallel arrays (not
@@ -215,6 +226,12 @@ export interface WebUiState {
   busy: boolean;
   /** True while the native app is waiting on a Save/Don't Save/Cancel answer before quitting. */
   quitConfirmPending: boolean;
+  /**
+   * Mode-switch request from keyboard/MIDI (`player`/`mixer`/`editor`/`settings`).
+   * `uiTabSeq` increments on every request so re-selecting the active tab still applies.
+   */
+  uiTab?: string;
+  uiTabSeq?: number;
   songs: SongRow[];
   meters: MeterRow[];
   tracks: TrackRow[];
@@ -245,6 +262,8 @@ export const emptyState: WebUiState = {
   statusMessage: "",
   busy: false,
   quitConfirmPending: false,
+  uiTab: "",
+  uiTabSeq: 0,
   songs: [],
   meters: [],
   tracks: [],
@@ -270,5 +289,7 @@ export const emptyState: WebUiState = {
     midiOutputs: [],
     midiInputs: [],
     keybindings: [],
+    midiBindings: [],
+    midiLearnAction: "",
   },
 };

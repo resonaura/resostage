@@ -1,0 +1,35 @@
+{
+  "name": "resoset",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ResoStage — stage playback engine + web UI",
+  "type": "module",
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "kill": "node scripts/dev.mjs kill",
+    "start": "node scripts/dev.mjs start",
+    "restart": "node scripts/dev.mjs restart",
+    "ui": "node scripts/dev.mjs ui",
+    "build:ui": "node scripts/dev.mjs ui",
+    "ui:dev": "pnpm --dir webui dev",
+    "ui:lint": "pnpm --dir webui lint",
+    "rebuild": "node scripts/dev.mjs rebuild",
+    "build": "node scripts/dev.mjs rebuild",
+    "rebuild:run": "node scripts/dev.mjs rebuild:run",
+    "dev": "node scripts/dev.mjs rebuild:run",
+    "app": "node scripts/dev.mjs app",
+    "build:app": "node scripts/dev.mjs app",
+    "app:run": "node scripts/dev.mjs app:run",
+    "build:app:run": "node scripts/dev.mjs app:run",
+    "test": "node scripts/dev.mjs test",
+    "lint": "node scripts/dev.mjs lint",
+    "typecheck": "pnpm --dir webui exec tsc -b --pretty false",
+    "configure": "node scripts/dev.mjs configure",
+    "clean": "node scripts/dev.mjs clean",
+    "clean:all": "node scripts/dev.mjs clean --ui",
+    "scripts": "node scripts/dev.mjs help"
+  }
+}

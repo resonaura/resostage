@@ -160,7 +160,9 @@ export const project = {
   // Answers the in-webview "Unsaved Changes" quit prompt (WebUiState.
   // quitConfirmPending) -- see WebCommandKind::QuitDecision.
   resolveQuit: (choice: "save" | "discard" | "cancel") =>
-    post("/api/v1/project/quit-decision", { index: QUIT_DECISION_INDEX[choice] }),
+    post("/api/v1/project/quit-decision", {
+      index: QUIT_DECISION_INDEX[choice],
+    }),
 
   async upload(file: File): Promise<void> {
     try {
@@ -362,4 +364,11 @@ export const settings = {
   // list's "whole BigInteger bitmask" semantics.
   setOutputChannels: (channels: number[]) =>
     post("/api/v1/settings/output-channels", { channels }),
+  /** Arm MIDI-learn for `action` -- next Note On / CC from the remote is bound. */
+  midiLearn: (action: string) =>
+    post("/api/v1/settings/midi-learn", { action }),
+  midiLearnCancel: () => post("/api/v1/settings/midi-learn-cancel", {}),
+  /** Drop any MIDI mapping for `action`. */
+  midiClear: (action: string) =>
+    post("/api/v1/settings/midi-clear", { action }),
 };

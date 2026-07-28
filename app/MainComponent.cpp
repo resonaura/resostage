@@ -122,7 +122,7 @@ MainComponent::MainComponent()
     };
     midiInput.onRawMessage = [this](MidiTriggerType type, int channel, int number) {
         juce::MessageManager::callAsync([this, type, channel, number] {
-            settingsPanel.handleMidiLearn(type, channel, number);
+            handleMidiLearnMessage(type, channel, number);
         });
     };
 
@@ -291,19 +291,25 @@ void MainComponent::resized() {
 }
 
 bool MainComponent::keyPressed(const juce::KeyPress& key) {
-    // Global transport bindings work in every mode.
+    // Global bindings (transport / mode / section) work in every mode.
+    // Mode switches used to be hard-coded 1..4; they're now regular
+    // keybindings (defaults f1..f4) so Settings can rebind them.
     for (const auto& [action, description] : keyBindings) {
         if (key == juce::KeyPress::createFromDescription(juce::String(description))) {
             performAction(action);
             return true;
         }
     }
-    // Quick mode switches
-    if (key.getTextCharacter() == '1') { setMode(Mode::Player); return true; }
-    if (key.getTextCharacter() == '2') { setMode(Mode::Mixer); return true; }
-    if (key.getTextCharacter() == '3') { setMode(Mode::Builder); return true; }
-    if (key.getTextCharacter() == '4') { setMode(Mode::Settings); return true; }
     return false;
+}
+
+void MainComponent::requestUiTab(const std::string& tab) {
+    uiTabRequest = tab;
+    ++uiTabSeq;
+    // Keep the webview visible so the React tab change is what the user sees
+    // (legacy native panels still exist as a fallback but aren't the primary UI).
+    if (mode != Mode::Web)
+        setMode(Mode::Web);
 }
 
 void MainComponent::performAction(const std::string& action) {
@@ -315,6 +321,123 @@ void MainComponent::performAction(const std::string& action) {
         nextSong();
     else if (action == "prev")
         prevSong();
+    else if (action == "mode_player")
+        requestUiTab("player");
+    else if (action == "mode_mixer")
+        requestUiTab("mixer");
+    else if (action == "mode_editor")
+        requestUiTab("editor");
+    else if (action == "mode_settings")
+        requestUiTab("settings");
+    else if (action == "section_prev")
+        jumpToSectionRelative(-1);
+    else if (action == "section_next")
+        jumpToSectionRelative(+1);
+    else if (action == "section_last")
+        jumpToLastSection();
+}
+
+void MainComponent::jumpToSectionRelative(int delta) {
+    if (!engine.isProjectLoaded() || delta == 0)
+        return;
+    const Project& proj = engine.project();
+    const size_t songIdx = engine.currentSongIndex();
+    if (songIdx >= proj.songs.size())
+        return;
+    const auto& sections = proj.songs[songIdx].sections;
+    if (sections.empty())
+        return;
+
+    // Sorted copy by start time -- markers aren't required to be authored
+    // in order, and "prev/next" only make sense along the timeline.
+    std::vector<const SongSection*> ordered;
+    ordered.reserve(sections.size());
+    for (const auto& s : sections)
+        ordered.push_back(&s);
+    std::sort(ordered.begin(), ordered.end(),
+              [](const SongSection* a, const SongSection* b) {
+                  return a->startSeconds < b->startSeconds;
+              });
+
+    const double playhead = engine.transport().playheadSeconds.load(std::memory_order_relaxed);
+    // Small epsilon so landing exactly on a marker still counts as "at" it
+    // (prev then jumps to the previous one rather than re-seeking here).
+    constexpr double kEps = 0.05;
+
+    int at = -1;
+    for (int i = 0; i < static_cast<int>(ordered.size()); ++i) {
+        if (playhead + kEps >= ordered[static_cast<size_t>(i)]->startSeconds)
+            at = i;
+    }
+
+    int target = at + delta;
+    if (delta < 0 && at < 0)
+        target = 0; // before first marker: prev snaps to the first
+    if (target < 0 || target >= static_cast<int>(ordered.size()))
+        return;
+
+    std::string error;
+    if (!engine.seekToSeconds(ordered[static_cast<size_t>(target)]->startSeconds, error))
+        setStatus("Section seek failed: " + juce::String(error));
+    else
+        setStatus("Section: " + juce::String(ordered[static_cast<size_t>(target)]->name));
+}
+
+void MainComponent::jumpToLastSection() {
+    if (!engine.isProjectLoaded())
+        return;
+    const Project& proj = engine.project();
+    const size_t songIdx = engine.currentSongIndex();
+    if (songIdx >= proj.songs.size())
+        return;
+    const auto& sections = proj.songs[songIdx].sections;
+    if (sections.empty())
+        return;
+
+    const SongSection* last = &sections.front();
+    for (const auto& s : sections) {
+        if (s.startSeconds >= last->startSeconds)
+            last = &s;
+    }
+    std::string error;
+    if (!engine.seekToSeconds(last->startSeconds, error))
+        setStatus("Section seek failed: " + juce::String(error));
+    else
+        setStatus("Section: " + juce::String(last->name));
+}
+
+void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to16, int number) {
+    // Legacy SettingsPanel learn (its own learningMappingIndex).
+    settingsPanel.handleMidiLearn(type, channel1to16, number);
+
+    // Web UI learn: one-shot arm for a named action.
+    if (midiLearnAction.empty())
+        return;
+    const std::string action = midiLearnAction;
+    midiLearnAction.clear();
+
+    auto& mappings = engine.project().midiMappings;
+    MidiMapping* existing = nullptr;
+    for (auto& m : mappings) {
+        if (m.action == action) {
+            existing = &m;
+            break;
+        }
+    }
+    if (existing == nullptr) {
+        mappings.push_back(MidiMapping{});
+        existing = &mappings.back();
+        existing->action = action;
+    }
+    existing->triggerType = type;
+    existing->channel = channel1to16;
+    existing->number = number;
+    applyProjectBindings();
+    settingsPanel.refreshBindings();
+    setStatus("MIDI learn: " + juce::String(action)
+              + " <- ch" + juce::String(channel1to16)
+              + (type == MidiTriggerType::ControlChange ? " CC" : " note")
+              + juce::String(number));
 }
 
 void MainComponent::timerCallback() {
@@ -529,6 +652,9 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetMidiInput: settingsSetMidiInput(cmd.json); break;
             case WebCommandKind::SetKeybinding: settingsSetKeybinding(cmd.json); break;
             case WebCommandKind::SetOutputChannels: settingsSetOutputChannels(cmd.json); break;
+            case WebCommandKind::MidiLearn: settingsMidiLearn(cmd.json); break;
+            case WebCommandKind::MidiLearnCancel: settingsMidiLearnCancel(); break;
+            case WebCommandKind::MidiClear: settingsMidiClear(cmd.json); break;
             // Timeline parity -- see MainComponentTimeline.cpp.
             case WebCommandKind::Seek: transportSeek(cmd.json); break;
             // Answers the in-webview "Unsaved Changes" dialog raised by
@@ -641,6 +767,8 @@ void MainComponent::publishWebState() {
     state.statusMessage = statusLabel.getText().toStdString();
     state.busy = engine.isBusy();
     state.quitConfirmPending = awaitingQuitDecision;
+    state.uiTab = uiTabRequest;
+    state.uiTabSeq = uiTabSeq;
 
     state.songs.reserve(proj.songs.size());
     for (const SongDef& song : proj.songs) {

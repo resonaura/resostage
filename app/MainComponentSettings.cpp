@@ -9,6 +9,8 @@
 #include "MainComponent.h"
 #include "web/BuilderJson.h"
 
+#include <algorithm>
+
 namespace resoset {
 
 using namespace builder_json;
@@ -20,7 +22,30 @@ bool parseJson(const std::string& json, simdjson::dom::element& out) {
     return !parser.parse(json).get(out);
 }
 
-constexpr const char* kActions[] = {"play", "stop", "next", "prev"};
+// Canonical action catalogue for the web Settings UI (and the seed list
+// mirrored into Project::keybindings). Keep in sync with
+// SettingsPanel::kActions / MainComponent::keyBindings defaults.
+constexpr const char* kActions[] = {
+    "play",
+    "stop",
+    "next",
+    "prev",
+    "mode_player",
+    "mode_mixer",
+    "mode_editor",
+    "mode_settings",
+    "section_prev",
+    "section_next",
+    "section_last",
+};
+
+bool isKnownAction(const std::string& action) {
+    for (const char* a : kActions) {
+        if (action == a)
+            return true;
+    }
+    return false;
+}
 
 } // namespace
 
@@ -63,6 +88,23 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
         kb.key = (it != bindings.end()) ? it->second : "";
         out.keybindings.push_back(std::move(kb));
     }
+
+    // One MIDI row per known action (empty number/channel when unbound) so
+    // the Settings UI can show Learn/Clear next to every shortcut.
+    for (const char* action : kActions) {
+        WebUiState::SettingsRow::MidiBinding mb;
+        mb.action = action;
+        for (const auto& m : engine.project().midiMappings) {
+            if (m.action != action)
+                continue;
+            mb.trigger = (m.triggerType == MidiTriggerType::ControlChange) ? "cc" : "note";
+            mb.channel = m.channel;
+            mb.number = m.number;
+            break;
+        }
+        out.midiBindings.push_back(std::move(mb));
+    }
+    out.midiLearnAction = midiLearnAction;
 }
 
 void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
@@ -156,13 +198,50 @@ void MainComponent::settingsSetKeybinding(const std::string& json) {
     std::string action, key;
     if (!parseJson(json, doc) || !getString(doc, "action", action) || !getString(doc, "key", key))
         return;
-    if (action.empty() || key.empty())
+    if (action.empty() || key.empty() || !isKnownAction(action))
         return;
 
     engine.project().keybindings[action] = key;
     applyProjectBindings();
     settingsPanel.refreshBindings();
     setStatus("Keybinding: " + juce::String(action) + " -> " + juce::String(key));
+}
+
+void MainComponent::settingsMidiLearn(const std::string& json) {
+    simdjson::dom::element doc;
+    std::string action;
+    if (!parseJson(json, doc) || !getString(doc, "action", action))
+        return;
+    if (!isKnownAction(action))
+        return;
+    midiLearnAction = action;
+    setStatus("MIDI learn armed: " + juce::String(action) + " -- press a pad/CC");
+}
+
+void MainComponent::settingsMidiLearnCancel() {
+    if (midiLearnAction.empty())
+        return;
+    midiLearnAction.clear();
+    setStatus("MIDI learn cancelled");
+}
+
+void MainComponent::settingsMidiClear(const std::string& json) {
+    simdjson::dom::element doc;
+    std::string action;
+    if (!parseJson(json, doc) || !getString(doc, "action", action))
+        return;
+    auto& mappings = engine.project().midiMappings;
+    const auto before = mappings.size();
+    mappings.erase(std::remove_if(mappings.begin(), mappings.end(),
+                                  [&](const MidiMapping& m) { return m.action == action; }),
+                   mappings.end());
+    if (mappings.size() == before)
+        return;
+    if (midiLearnAction == action)
+        midiLearnAction.clear();
+    applyProjectBindings();
+    settingsPanel.refreshBindings();
+    setStatus("MIDI cleared: " + juce::String(action));
 }
 
 } // namespace resoset

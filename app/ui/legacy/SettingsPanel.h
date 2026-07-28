@@ -65,7 +65,21 @@ private:
     juce::Viewport lowerViewport;
     juce::Component lowerContent;
 
-    static constexpr const char* kActions[] = {"play", "stop", "next", "prev"};
+    // Keep in sync with MainComponentSettings.cpp's kActions and
+    // MainComponent::keyBindings defaults (transport + mode + sections).
+    static constexpr const char* kActions[] = {
+        "play",
+        "stop",
+        "next",
+        "prev",
+        "mode_player",
+        "mode_mixer",
+        "mode_editor",
+        "mode_settings",
+        "section_prev",
+        "section_next",
+        "section_last",
+    };
 
     juce::Label keybindHeader;
     struct KeybindRow {

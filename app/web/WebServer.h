@@ -133,6 +133,12 @@ enum class WebCommandKind : uint8_t {
     SetMidiInput,
     SetKeybinding,
     SetOutputChannels,
+    // MIDI learn / clear for a named action (see Project::midiMappings).
+    // Learn arms the next Note On / CC from the remote input; Clear drops
+    // any existing mapping for that action. Both take JSON { "action": "..." }.
+    MidiLearn,
+    MidiLearnCancel,
+    MidiClear,
     // Timeline parity -- `value` is the target position in seconds. Mirrors
     // TimelineView.cpp's click/drag-to-seek (see AudioEngine::seekToSeconds);
     // the frontend throttles drag updates itself, same reason TimelineView's
@@ -196,6 +202,11 @@ struct WebUiState {
     // user's Save/Don't Save/Cancel answer -- the web UI shows a ConfirmDialog
     // and replies with WebCommandKind::QuitDecision.
     bool quitConfirmPending = false;
+    // Mode-switch request for the web UI tabs (player/mixer/editor/settings).
+    // Set by performAction("mode_*") from keyboard or MIDI; uiTabSeq bumps on
+    // every request so re-selecting the active tab still fires a React effect.
+    std::string uiTab;
+    uint64_t uiTabSeq = 0;
 
     struct SongRow {
         std::string name;
@@ -357,6 +368,17 @@ struct WebUiState {
             std::string key;
         };
         std::vector<Keybinding> keybindings;
+        // Per-action MIDI remote bindings (Project::midiMappings, keyed by
+        // action for the Settings UI). channel 0 = any channel.
+        struct MidiBinding {
+            std::string action;
+            std::string trigger; // "note" | "cc"
+            int channel = 0;
+            int number = 0;
+        };
+        std::vector<MidiBinding> midiBindings;
+        // Non-empty while the web UI has armed MIDI-learn for this action.
+        std::string midiLearnAction;
     };
     SettingsRow settings;
 };

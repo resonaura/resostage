@@ -1,7 +1,7 @@
 import { Card } from "@heroui/react";
 import { useEffect, useState } from "react";
 import { settings as settingsApi } from "../lib/api";
-import type { WebUiState } from "../lib/types";
+import type { MidiBindingRow, WebUiState } from "../lib/types";
 
 function formatBytes(n: number): string {
   if (!n || n <= 0) return "0 B";
@@ -49,9 +49,16 @@ function Field({
 // Best-effort mirror of juce::KeyPress::getTextDescription()'s format
 // ("cmd + p", "space", "escape", ...) -- covers the common single-key and
 // simple-modifier-combo rebinds; exotic combos may need a manual nudge.
-function keyEventToDescription(e: KeyboardEvent): string | null {
+export function keyEventToDescription(e: KeyboardEvent): string | null {
   if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return null; // wait for a real key
-  if (e.key === "Escape") return "__cancel__";
+  if (
+    e.key === "Escape" &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    !e.altKey &&
+    !e.shiftKey
+  )
+    return "__cancel__";
 
   const parts: string[] = [];
   if (e.metaKey) parts.push("cmd");
@@ -69,6 +76,11 @@ function keyEventToDescription(e: KeyboardEvent): string | null {
     Tab: "tab",
     Backspace: "backspace",
     Delete: "delete",
+    Home: "home",
+    End: "end",
+    PageUp: "page up",
+    PageDown: "page down",
+    Escape: "escape",
   };
   let key =
     named[e.key] ??
@@ -79,12 +91,42 @@ function keyEventToDescription(e: KeyboardEvent): string | null {
   return parts.join(" + ");
 }
 
-function KeybindingRow({
+/** Human labels for the action catalogue (transport / mode / sections). */
+const ACTION_LABELS: Record<string, string> = {
+  play: "Play / Pause",
+  stop: "Stop (pause in place)",
+  next: "Next song",
+  prev: "Previous song",
+  mode_player: "Mode: Player",
+  mode_mixer: "Mode: Mixer",
+  mode_editor: "Mode: Editor",
+  mode_settings: "Mode: Settings",
+  section_prev: "Previous section",
+  section_next: "Next section",
+  section_last: "Last section",
+};
+
+function actionLabel(action: string): string {
+  return ACTION_LABELS[action] ?? action.replace(/_/g, " ");
+}
+
+function formatMidi(mb: MidiBindingRow | undefined): string {
+  if (!mb || !mb.trigger) return "(unbound)";
+  const ch = mb.channel > 0 ? `ch${mb.channel} ` : "any ";
+  if (mb.trigger === "cc") return `${ch}CC ${mb.number}`;
+  return `${ch}note ${mb.number}`;
+}
+
+function BindingRow({
   action,
-  current,
+  currentKey,
+  midi,
+  learning,
 }: {
   action: string;
-  current: string;
+  currentKey: string;
+  midi?: MidiBindingRow;
+  learning: boolean;
 }) {
   const [listening, setListening] = useState(false);
 
@@ -92,6 +134,7 @@ function KeybindingRow({
     if (!listening) return;
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       const desc = keyEventToDescription(e);
       setListening(false);
       if (desc && desc !== "__cancel__")
@@ -102,26 +145,74 @@ function KeybindingRow({
       window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [listening, action]);
 
+  const midiBound = Boolean(midi?.trigger);
+
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-default/10 px-3 py-2">
-      <span className="text-sm capitalize">{action}</span>
-      <button
-        onClick={() => setListening(true)}
-        className={`rounded-lg border px-3 py-1 text-sm ${
-          listening
-            ? "border-accent bg-accent/10 text-accent"
-            : "border-default/60 bg-default/20 hover:bg-default/30"
-        }`}
-      >
-        {listening ? "Press a key… (Esc cancels)" : current || "(unbound)"}
-      </button>
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-default/10 px-3 py-2">
+      <span className="min-w-[10rem] text-sm">{actionLabel(action)}</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          onClick={() => setListening(true)}
+          className={`rounded-lg border px-3 py-1 text-sm tabular-nums ${
+            listening
+              ? "border-accent bg-accent/10 text-accent"
+              : "border-default/60 bg-default/20 hover:bg-default/30"
+          }`}
+          title="Click, then press a key (Esc cancels)"
+        >
+          {listening ? "Press a key…" : currentKey || "(unbound)"}
+        </button>
+        <button
+          onClick={() => {
+            if (learning) void settingsApi.midiLearnCancel();
+            else void settingsApi.midiLearn(action);
+          }}
+          className={`rounded-lg border px-3 py-1 text-sm ${
+            learning
+              ? "border-accent bg-accent/10 text-accent"
+              : "border-default/60 bg-default/20 hover:bg-default/30"
+          }`}
+          title="Arm MIDI learn — press a pad or CC on the remote input"
+        >
+          {learning ? "Listening MIDI…" : formatMidi(midi)}
+        </button>
+        {midiBound && !learning && (
+          <button
+            onClick={() => void settingsApi.midiClear(action)}
+            className="rounded-lg border border-default/40 px-2 py-1 text-xs text-foreground/60 hover:bg-default/20"
+            title="Clear MIDI binding"
+          >
+            Clear MIDI
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
+const ACTION_GROUPS: { title: string; actions: string[] }[] = [
+  {
+    title: "Transport",
+    actions: ["play", "stop", "next", "prev"],
+  },
+  {
+    title: "Modes",
+    actions: ["mode_player", "mode_mixer", "mode_editor", "mode_settings"],
+  },
+  {
+    title: "Song sections",
+    actions: ["section_prev", "section_next", "section_last"],
+  },
+];
+
 export function SettingsScreen({ state }: { state: WebUiState }) {
   const h = state.health;
   const s = state.settings;
+  const keyByAction = new Map(s.keybindings.map((kb) => [kb.action, kb.key]));
+  const midiByAction = new Map(
+    (s.midiBindings ?? []).map((mb) => [mb.action, mb]),
+  );
+  const learningAction = s.midiLearnAction ?? "";
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -263,19 +354,43 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
 
       <Card>
         <Card.Header>
-          <Card.Title>Keyboard shortcuts</Card.Title>
+          <Card.Title>Keyboard & MIDI shortcuts</Card.Title>
           <Card.Description>
-            Click a binding, then press a key (Esc cancels)
+            Click a key binding and press a key (Esc cancels). Click a MIDI
+            binding, then press a pad/CC on the remote input to learn.
           </Card.Description>
         </Card.Header>
-        <Card.Content className="flex flex-col gap-1.5">
-          {s.keybindings.map((kb) => (
-            <KeybindingRow
-              key={kb.action}
-              action={kb.action}
-              current={kb.key}
-            />
+        <Card.Content className="flex flex-col gap-4">
+          {ACTION_GROUPS.map((group) => (
+            <div key={group.title} className="flex flex-col gap-1.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-foreground/50">
+                {group.title}
+              </div>
+              {group.actions.map((action) => (
+                <BindingRow
+                  key={action}
+                  action={action}
+                  currentKey={keyByAction.get(action) ?? ""}
+                  midi={midiByAction.get(action)}
+                  learning={learningAction === action}
+                />
+              ))}
+            </div>
           ))}
+          {/* Any extra actions from the backend not in the static groups */}
+          {s.keybindings
+            .filter(
+              (kb) => !ACTION_GROUPS.some((g) => g.actions.includes(kb.action)),
+            )
+            .map((kb) => (
+              <BindingRow
+                key={kb.action}
+                action={kb.action}
+                currentKey={kb.key}
+                midi={midiByAction.get(kb.action)}
+                learning={learningAction === kb.action}
+              />
+            ))}
         </Card.Content>
       </Card>
 

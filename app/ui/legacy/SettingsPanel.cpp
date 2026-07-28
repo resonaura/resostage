@@ -17,7 +17,7 @@ void styleEdit(juce::TextEditor& e) {
     e.setJustification(juce::Justification::centred);
 }
 
-constexpr int kActionCount = 4;
+constexpr int kActionCount = 11; // must match SettingsPanel::kActions length
 
 } // namespace
 

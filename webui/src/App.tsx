@@ -23,6 +23,7 @@ import { SettingsScreen } from "./screens/SettingsScreen";
 // (always-dark) desktop app, so it defaults to dark rather than following
 // system preference.
 import { transport } from "./lib/api";
+import { keyEventToDescription } from "./screens/SettingsScreen";
 
 function useForcedDarkTheme() {
   useEffect(() => {
@@ -32,11 +33,28 @@ function useForcedDarkTheme() {
   }, []);
 }
 
-function useGlobalHotkeys(state: WebUiState) {
+/** Match a key event against a juce-style description ("space", "cmd + p", "f1"). */
+function eventMatchesBinding(e: KeyboardEvent, description: string): boolean {
+  if (!description) return false;
+  // During capture, Escape is reported as __cancel__ -- for live matching
+  // treat plain Escape as the "escape" binding instead.
+  let desc = keyEventToDescription(e);
+  if (desc === "__cancel__") desc = "escape";
+  if (!desc) return false;
+  return desc === description.toLowerCase();
+}
+
+function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
   const playingRef = useRef(state.playing);
   playingRef.current = state.playing;
   const playheadRef = useRef(state.playheadSeconds);
   playheadRef.current = state.playheadSeconds;
+  const bindingsRef = useRef(state.settings.keybindings);
+  bindingsRef.current = state.settings.keybindings;
+  const songsRef = useRef(state.songs);
+  songsRef.current = state.songs;
+  const songIndexRef = useRef(state.songIndex);
+  songIndexRef.current = state.songIndex;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -51,15 +69,63 @@ function useGlobalHotkeys(state: WebUiState) {
         return;
       }
 
-      if (e.code === "Space") {
+      // Configurable project keybindings first (transport / mode / sections).
+      for (const kb of bindingsRef.current) {
+        if (!eventMatchesBinding(e, kb.key)) continue;
         e.preventDefault();
         e.stopPropagation();
-        if (playingRef.current) {
-          void transport.stop();
-        } else {
-          void transport.play();
+        switch (kb.action) {
+          case "play":
+            if (playingRef.current) void transport.stop();
+            else void transport.play();
+            break;
+          case "stop":
+            void transport.stop();
+            break;
+          case "next":
+            void transport.next();
+            break;
+          case "prev":
+            void transport.prev();
+            break;
+          case "mode_player":
+            setTab("player");
+            break;
+          case "mode_mixer":
+            setTab("mixer");
+            break;
+          case "mode_editor":
+            setTab("editor");
+            break;
+          case "mode_settings":
+            setTab("settings");
+            break;
+          case "section_prev":
+          case "section_next":
+          case "section_last":
+            jumpSection(
+              kb.action,
+              songsRef.current,
+              songIndexRef.current,
+              playheadRef.current,
+            );
+            break;
+          default:
+            break;
         }
-      } else if (e.key >= "1" && e.key <= "9") {
+        return;
+      }
+
+      // Built-in conveniences that aren't rebindable yet: digit song pick,
+      // nudge seek. Mode keys used to collide with 1..4; modes now default
+      // to F1..F4 so song select can keep 1..9.
+      if (
+        e.key >= "1" &&
+        e.key <= "9" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
         const songIdx = parseInt(e.key, 10) - 1;
         e.preventDefault();
         e.stopPropagation();
@@ -80,14 +146,61 @@ function useGlobalHotkeys(state: WebUiState) {
     return () => {
       window.removeEventListener("keydown", handleKeyDown, { capture: true });
     };
-  }, []);
+  }, [setTab]);
+}
+
+function jumpSection(
+  action: string,
+  songs: WebUiState["songs"],
+  songIndex: number,
+  playhead: number,
+) {
+  if (songIndex < 0 || songIndex >= songs.length) return;
+  const sections = [...(songs[songIndex].sections ?? [])].sort(
+    (a, b) => a.startSeconds - b.startSeconds,
+  );
+  if (sections.length === 0) return;
+
+  const eps = 0.05;
+  if (action === "section_last") {
+    void transport.seek(sections[sections.length - 1].startSeconds);
+    return;
+  }
+
+  let at = -1;
+  for (let i = 0; i < sections.length; i++) {
+    if (playhead + eps >= sections[i].startSeconds) at = i;
+  }
+
+  if (action === "section_prev") {
+    const target = at < 0 ? 0 : at - 1;
+    if (target >= 0) void transport.seek(sections[target].startSeconds);
+    return;
+  }
+  if (action === "section_next") {
+    const target = at + 1;
+    if (target < sections.length)
+      void transport.seek(sections[target].startSeconds);
+  }
 }
 
 export default function App() {
   useForcedDarkTheme();
   const { state, status, cpuHistory, ramHistory } = useLiveState();
-  useGlobalHotkeys(state);
   const [tab, setTab] = useState("player");
+  useGlobalHotkeys(state, setTab);
+
+  // MIDI / native mode_* actions publish uiTab + uiTabSeq; apply them here
+  // so a footswitch can flip screens the same way a keybinding does.
+  const lastUiTabSeq = useRef(0);
+  useEffect(() => {
+    const seq = state.uiTabSeq ?? 0;
+    if (seq === 0 || seq === lastUiTabSeq.current) return;
+    lastUiTabSeq.current = seq;
+    const t = state.uiTab;
+    if (t === "player" || t === "mixer" || t === "editor" || t === "settings")
+      setTab(t);
+  }, [state.uiTab, state.uiTabSeq]);
 
   // ── Shared timeline state (DRY: both Player and Editor use the same peaks + zoom) ──
   const [peaks, setPeaks] = useState<PeaksResponse | null>(null);
@@ -261,7 +374,8 @@ function ProjectNameField({ state }: { state: WebUiState }) {
   const commit = () => {
     const name = draft.trim();
     setEditing(false);
-    if (name.length > 0 && name !== state.projectName) void project.setName(name);
+    if (name.length > 0 && name !== state.projectName)
+      void project.setName(name);
   };
 
   if (editing) {

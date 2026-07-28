@@ -83,12 +83,31 @@ private:
     std::function<void(bool)> pendingQuitDecision;
 
     Mode mode = Mode::Web; // always the default landing view -- see setMode(Mode::Web) in the constructor
+    // Default keybindings -- also seeded into Project::keybindings on load
+    // (try_emplace so a saved project wins). Mode / section actions are
+    // configurable in Settings and fire from both keyboard and MIDI learn.
     std::unordered_map<std::string, std::string> keyBindings = {
         {"play", "space"},
         {"stop", "escape"},
         {"next", "n"},
         {"prev", "p"},
+        {"mode_player", "f1"},
+        {"mode_mixer", "f2"},
+        {"mode_editor", "f3"},
+        {"mode_settings", "f4"},
+        {"section_prev", "["},
+        {"section_next", "]"},
+        {"section_last", "end"},
     };
+    // One-shot UI tab request for the embedded web UI (and any remote browser
+    // clients). Bumped whenever a mode_* action fires so re-selecting the
+    // already-active tab still triggers a React effect.
+    std::string uiTabRequest;
+    uint64_t uiTabSeq = 0;
+    // When non-empty, the next Note On / CC from the MIDI remote is written
+    // into Project::midiMappings for this action (web MIDI-learn). Cleared
+    // after a hit or an explicit cancel.
+    std::string midiLearnAction;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     void timerCallback() override;
@@ -108,6 +127,11 @@ private:
     void handleQuitDecision(int choice);
     void applyProjectBindings();
     void performAction(const std::string& action);
+    // Seek helpers for section_* actions -- sections are points sorted by
+    // startSeconds; "prev/next" are relative to the current playhead.
+    void jumpToSectionRelative(int delta);
+    void jumpToLastSection();
+    void requestUiTab(const std::string& tab);
     // If no song is currently staged and the project has at least one,
     // stages the first song -- called after project load and after any
     // structural edit (e.g. importing the first song into an empty
@@ -179,7 +203,16 @@ private:
     void settingsSetMidiInput(const std::string& json);
     void settingsSetKeybinding(const std::string& json);
     void settingsSetOutputChannels(const std::string& json);
+    // Arm / cancel MIDI-learn for a named action, or clear an existing
+    // mapping. See MainComponentSettings.cpp.
+    void settingsMidiLearn(const std::string& json);
+    void settingsMidiLearnCancel();
+    void settingsMidiClear(const std::string& json);
     void populateSettingsState(WebUiState::SettingsRow& out);
+    // Called from CoreMidiInputListener::onRawMessage (already marshalled to
+    // the message thread) -- feeds both the legacy SettingsPanel learn UI and
+    // the web UI's midiLearnAction arm.
+    void handleMidiLearnMessage(MidiTriggerType type, int channel1to16, int number);
 
     // Timeline parity for the web UI -- see MainComponentTimeline.cpp.
     void transportSeek(const std::string& json);

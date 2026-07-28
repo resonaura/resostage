@@ -264,6 +264,9 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/settings/midi-input", WebCommandKind::SetMidiInput},
     {"/api/v1/settings/keybinding", WebCommandKind::SetKeybinding},
     {"/api/v1/settings/output-channels", WebCommandKind::SetOutputChannels},
+    {"/api/v1/settings/midi-learn", WebCommandKind::MidiLearn},
+    {"/api/v1/settings/midi-learn-cancel", WebCommandKind::MidiLearnCancel},
+    {"/api/v1/settings/midi-clear", WebCommandKind::MidiClear},
     {"/api/v1/transport/seek", WebCommandKind::Seek},
     {"/api/v1/mixer/track/send", WebCommandKind::SetTrackSend},
     {"/api/v1/mixer/track/send/remove", WebCommandKind::RemoveTrackSend},
@@ -845,7 +848,9 @@ std::string WebServer::buildStateJson() const {
       << "\"songCount\":" << snap.songCount << ","
       << "\"statusMessage\":\"" << jsonEscape(snap.statusMessage) << "\","
       << "\"busy\":" << (snap.busy ? "true" : "false") << ","
-      << "\"quitConfirmPending\":" << (snap.quitConfirmPending ? "true" : "false") << ",";
+      << "\"quitConfirmPending\":" << (snap.quitConfirmPending ? "true" : "false") << ","
+      << "\"uiTab\":\"" << jsonEscape(snap.uiTab) << "\","
+      << "\"uiTabSeq\":" << snap.uiTabSeq << ",";
 
     o << "\"songs\":[";
     for (size_t i = 0; i < snap.songs.size(); ++i) {
@@ -1043,7 +1048,17 @@ std::string WebServer::buildStateJson() const {
         o << "{\"action\":\"" << jsonEscape(s.keybindings[i].action) << "\","
           << "\"key\":\"" << jsonEscape(s.keybindings[i].key) << "\"}";
     }
-    o << "]"
+    o << "],"
+      << "\"midiBindings\":[";
+    for (size_t i = 0; i < s.midiBindings.size(); ++i) {
+        if (i) o << ",";
+        o << "{\"action\":\"" << jsonEscape(s.midiBindings[i].action) << "\","
+          << "\"trigger\":\"" << jsonEscape(s.midiBindings[i].trigger) << "\","
+          << "\"channel\":" << s.midiBindings[i].channel << ","
+          << "\"number\":" << s.midiBindings[i].number << "}";
+    }
+    o << "],"
+      << "\"midiLearnAction\":\"" << jsonEscape(s.midiLearnAction) << "\""
       << "}"
       << "}";
 
