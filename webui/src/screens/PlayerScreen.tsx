@@ -142,12 +142,9 @@ function SystemHealthWidget({
   ramHistory: number[];
 }) {
   const h = state.health;
-  const coreCount =
-    typeof navigator !== "undefined" && navigator.hardwareConcurrency
-      ? navigator.hardwareConcurrency
-      : 10;
+  // Match Activity Monitor process % (can exceed 100% on multi-core work).
   const rawCpu = h?.cpuPercent ?? 0;
-  const cpuVal = Math.min(100, Math.max(0, rawCpu / coreCount));
+  const cpuVal = Math.max(0, rawCpu);
   const ramVal = (h?.rssBytes ?? 0) / (1024 * 1024);
 
   return (
@@ -159,7 +156,7 @@ function SystemHealthWidget({
         gradientId="cpuGrad"
         label="CPU"
         valueText={`${cpuVal.toFixed(1)}%`}
-        maxMinVal={25}
+        maxMinVal={100}
       />
 
       {/* Graph 2: RAM (Purple Color #a855f7) */}
@@ -169,7 +166,7 @@ function SystemHealthWidget({
         gradientId="ramGrad"
         label="RAM"
         valueText={`${ramVal.toFixed(0)} MB`}
-        maxMinVal={200}
+        maxMinVal={500}
       />
 
       {/* Status details */}
@@ -357,7 +354,7 @@ export function PlayerScreen({
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       {/* ── 1. Top Transport bar ──────────────────────────────── */}
-      <div className="flex shrink-0 items-stretch gap-0 overflow-hidden rounded-xl border border-default/30 bg-surface/80">
+      <div className="flex shrink-0 items-stretch gap-0 overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
         {/* Clock + bar/beat */}
         <div className="flex flex-col justify-center border-r border-default/30 px-5 py-2.5">
           <div
@@ -601,7 +598,7 @@ export function PlayerScreen({
       {/* ── 2. Middle: Setlist + Bus meters (flex layout, max 40% meters width) ─ */}
       <div className="flex h-[210px] shrink-0 gap-3">
         {/* Setlist (occupies all remaining available width) */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-default/30 bg-surface/60">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
           <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
             Setlist
           </div>
@@ -661,7 +658,7 @@ export function PlayerScreen({
         </div>
 
         {/* Bus meters — Vertical meters (Capped at max 40% screen width) */}
-        <div className="flex min-h-0 max-w-[40%] shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-surface/60">
+        <div className="flex min-h-0 max-w-[40%] shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
           <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
             Bus meters
           </div>
@@ -734,6 +731,7 @@ export function PlayerScreen({
           allPeaks={allPeaks}
           pxPerSec={pxPerSec}
           setPxPerSec={setPxPerSec}
+          readOnly
         />
       </div>
     </div>

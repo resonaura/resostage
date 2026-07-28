@@ -1,19 +1,49 @@
+import { Button, Card, ScrollShadow, Slider } from "@heroui/react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Gauge,
+  Loader2,
+  Plus,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Button, Card, Slider, ScrollShadow } from "@heroui/react";
-import { ChevronDown, ChevronUp, Gauge, Loader2, Plus, Trash2, Upload } from "lucide-react";
-import { builder } from "../lib/api";
-import type { AllPeaksResponse, EventTypeWire, PeaksResponse, RegionRow, SongEventRow, SongRow, TrackRow, WebUiState } from "../lib/types";
-import { ImportStemsModal, executeStemImport, autoDetectStemMappings, autoDetectSongName, autoDetectBpm } from "../components/ImportStemsModal";
+import {
+  ImportStemsModal,
+  autoDetectBpm,
+  autoDetectSongName,
+  autoDetectStemMappings,
+  executeStemImport,
+} from "../components/ImportStemsModal";
 import { Timeline } from "../components/Timeline";
+import { builder } from "../lib/api";
+import type {
+  AllPeaksResponse,
+  EventTypeWire,
+  PeaksResponse,
+  RegionRow,
+  SongEventRow,
+  SongRow,
+  TrackRow,
+  WebUiState,
+} from "../lib/types";
 
 // ─── Re-export tab type ────────────────────────────────────────────────────
 type EditorTab = "timeline" | "songs" | "tracks" | "events" | "busses";
 
 const inputCls =
   "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
-const labelCls = "text-[11px] font-semibold uppercase tracking-wide text-foreground/50";
+const labelCls =
+  "text-[11px] font-semibold uppercase tracking-wide text-foreground/50";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1">
       <span className={labelCls}>{label}</span>
@@ -74,12 +104,23 @@ function ListPanel({
         <Card.Title className="text-sm">{title}</Card.Title>
         <div className="flex gap-1">
           {onImport && (
-            <Button size="sm" variant="outline" aria-label="Import Song Folder…" onPress={onImport}>
+            <Button
+              size="sm"
+              variant="outline"
+              aria-label="Import Song Folder…"
+              onPress={onImport}
+            >
               <Upload size={14} className="mr-1" />
               Import…
             </Button>
           )}
-          <Button size="sm" variant="outline" isIconOnly aria-label="Add" onPress={onAdd}>
+          <Button
+            size="sm"
+            variant="outline"
+            isIconOnly
+            aria-label="Add"
+            onPress={onAdd}
+          >
             <Plus size={14} />
           </Button>
           <Button
@@ -115,7 +156,10 @@ function ListPanel({
         </div>
       </Card.Header>
       <Card.Content className="flex min-h-0 flex-1 flex-col p-0">
-        <ScrollShadow orientation="vertical" className="flex min-h-0 flex-1 flex-col gap-0.5 p-2">
+        <ScrollShadow
+          orientation="vertical"
+          className="flex min-h-0 flex-1 flex-col gap-0.5 p-2"
+        >
           {rows.length === 0 ? (
             <div className="p-3 text-sm text-foreground/40">{emptyHint}</div>
           ) : (
@@ -124,14 +168,18 @@ function ListPanel({
                 key={r.key}
                 onClick={() => onSelect(i)}
                 className={`flex flex-col items-start rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                  i === selected ? "bg-accent/15 text-foreground" : "text-foreground/70 hover:bg-default/20"
+                  i === selected
+                    ? "bg-accent/15 text-foreground"
+                    : "text-foreground/70 hover:bg-default/20"
                 }`}
               >
                 <span>
                   {r.active ? "▶ " : ""}
                   {r.label}
                 </span>
-                {r.sub && <span className="text-xs text-foreground/40">{r.sub}</span>}
+                {r.sub && (
+                  <span className="text-xs text-foreground/40">{r.sub}</span>
+                )}
               </button>
             ))
           )}
@@ -149,10 +197,24 @@ function EmptyDetailPanel() {
   );
 }
 
-function GainSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function GainSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
   return (
     <Field label={`${label} (${value.toFixed(1)} dB)`}>
-      <Slider value={value} onChange={(v) => onChange(Array.isArray(v) ? v[0] : v)} minValue={-60} maxValue={12} step={0.1}>
+      <Slider
+        value={value}
+        onChange={(v) => onChange(Array.isArray(v) ? v[0] : v)}
+        minValue={-60}
+        maxValue={12}
+        step={0.1}
+      >
         <Slider.Track className="h-1.5 w-full rounded-full bg-default/40">
           <Slider.Fill className="h-full rounded-full bg-accent" />
           <Slider.Thumb className="size-3.5 rounded-full border-2 border-background bg-accent" />
@@ -162,10 +224,22 @@ function GainSlider({ label, value, onChange }: { label: string; value: number; 
   );
 }
 
-function PanSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+function PanSlider({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
   return (
     <Field label={`Pan (${value.toFixed(2)})`}>
-      <Slider value={value} onChange={(v) => onChange(Array.isArray(v) ? v[0] : v)} minValue={-1} maxValue={1} step={0.01}>
+      <Slider
+        value={value}
+        onChange={(v) => onChange(Array.isArray(v) ? v[0] : v)}
+        minValue={-1}
+        maxValue={1}
+        step={0.01}
+      >
         <Slider.Track className="h-1.5 w-full rounded-full bg-default/40">
           <Slider.Fill className="h-full rounded-full bg-foreground/40" />
           <Slider.Thumb className="size-3.5 rounded-full border-2 border-background bg-foreground/70" />
@@ -190,9 +264,16 @@ function SongEditor({ song, index }: { song: SongRow; index: number }) {
         <Card.Title className="text-sm">Song {index + 1}</Card.Title>
       </Card.Header>
       <Card.Content className="flex min-h-0 flex-1 flex-col p-0">
-        <ScrollShadow orientation="vertical" className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+        <ScrollShadow
+          orientation="vertical"
+          className="flex min-h-0 flex-1 flex-col gap-3 p-4"
+        >
           <Field label="Name">
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+            <input
+              className={inputCls}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </Field>
           <Field label="BPM">
             <input
@@ -261,20 +342,157 @@ function SongEditor({ song, index }: { song: SongRow; index: number }) {
 
 // ─── Tracks ────────────────────────────────────────────────────────────────
 
+function formatRegionSub(r: RegionRow): string {
+  const file = r.file ? r.file.replace(/^Audio\//, "") : "(no file)";
+  const dur =
+    r.durationSeconds > 0 ? `${r.durationSeconds.toFixed(2)}s` : "full";
+  return `@ ${r.startSeconds.toFixed(2)}s · ${dur} · ${file}`;
+}
+
+function RegionEditor({
+  region,
+  songIndex,
+}: {
+  region: RegionRow;
+  songIndex: number;
+}) {
+  const [startSeconds, setStartSeconds] = useState(region.startSeconds);
+  const [sourceOffsetSeconds, setSourceOffsetSeconds] = useState(
+    region.sourceOffsetSeconds,
+  );
+  const [durationSeconds, setDurationSeconds] = useState(
+    region.durationSeconds,
+  );
+  const [gainDb, setGainDb] = useState(region.gainDb);
+  const [fadeInSeconds, setFadeInSeconds] = useState(region.fadeInSeconds);
+  const [fadeOutSeconds, setFadeOutSeconds] = useState(region.fadeOutSeconds);
+
+  // Re-sync local fields when selection / project push changes this region.
+  useEffect(() => {
+    setStartSeconds(region.startSeconds);
+    setSourceOffsetSeconds(region.sourceOffsetSeconds);
+    setDurationSeconds(region.durationSeconds);
+    setGainDb(region.gainDb);
+    setFadeInSeconds(region.fadeInSeconds);
+    setFadeOutSeconds(region.fadeOutSeconds);
+  }, [
+    region.id,
+    region.startSeconds,
+    region.sourceOffsetSeconds,
+    region.durationSeconds,
+    region.gainDb,
+    region.fadeInSeconds,
+    region.fadeOutSeconds,
+  ]);
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-default/30 bg-default/10 p-3">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-xs font-semibold text-foreground/80">
+          Region {region.id}
+        </span>
+        <span className="truncate text-[11px] text-foreground/45">
+          {region.file || "(no file)"}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Start (s)">
+          <input
+            type="number"
+            step={0.001}
+            min={0}
+            className={inputCls}
+            value={startSeconds}
+            onChange={(e) => setStartSeconds(Number(e.target.value))}
+          />
+        </Field>
+        <Field label="Duration (s, 0 = full)">
+          <input
+            type="number"
+            step={0.001}
+            min={0}
+            className={inputCls}
+            value={durationSeconds}
+            onChange={(e) => setDurationSeconds(Number(e.target.value))}
+          />
+        </Field>
+        <Field label="Source offset (s)">
+          <input
+            type="number"
+            step={0.001}
+            min={0}
+            className={inputCls}
+            value={sourceOffsetSeconds}
+            onChange={(e) => setSourceOffsetSeconds(Number(e.target.value))}
+          />
+        </Field>
+        <Field label="Gain (dB)">
+          <input
+            type="number"
+            step={0.1}
+            className={inputCls}
+            value={gainDb}
+            onChange={(e) => setGainDb(Number(e.target.value))}
+          />
+        </Field>
+        <Field label="Fade in (s)">
+          <input
+            type="number"
+            step={0.001}
+            min={0}
+            className={inputCls}
+            value={fadeInSeconds}
+            onChange={(e) => setFadeInSeconds(Number(e.target.value))}
+          />
+        </Field>
+        <Field label="Fade out (s)">
+          <input
+            type="number"
+            step={0.001}
+            min={0}
+            className={inputCls}
+            value={fadeOutSeconds}
+            onChange={(e) => setFadeOutSeconds(Number(e.target.value))}
+          />
+        </Field>
+      </div>
+      <Button
+        size="sm"
+        variant="primary"
+        onPress={() =>
+          void builder.regionUpdate({
+            songIndex,
+            regionId: region.id,
+            startSeconds,
+            sourceOffsetSeconds,
+            durationSeconds,
+            gainDb,
+            fadeInSeconds,
+            fadeOutSeconds,
+          })
+        }
+      >
+        Apply region
+      </Button>
+    </div>
+  );
+}
+
 function TrackEditor({
   track,
   songIndex,
   index,
   busses,
   busy,
-  region,
+  regions,
 }: {
   track: TrackRow;
   songIndex: number;
   index: number;
   busses: WebUiState["busses"];
   busy: boolean;
-  region?: RegionRow;
+  /** All regions on this track for the current song context. */
+  regions: RegionRow[];
 }) {
   const [name, setName] = useState(track.name);
   const [busId, setBusId] = useState(track.busId);
@@ -283,21 +501,79 @@ function TrackEditor({
   const [mute, setMute] = useState(track.mute);
   const [solo, setSolo] = useState(track.solo);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(
+    regions[0]?.id ?? null,
+  );
+
+  // Keep selection valid when region list changes (add/remove/song switch).
+  useEffect(() => {
+    if (regions.length === 0) {
+      setSelectedRegionId(null);
+      return;
+    }
+    if (!selectedRegionId || !regions.some((r) => r.id === selectedRegionId)) {
+      setSelectedRegionId(regions[0].id);
+    }
+  }, [regions, selectedRegionId]);
+
+  const selectedRegion = regions.find((r) => r.id === selectedRegionId) ?? null;
+
+  const addRegionFromTemplate = () => {
+    const template = regions.find((r) => r.file) ?? regions[0];
+    if (!template?.file) {
+      // No existing clip in archive — import creates the first region.
+      fileInputRef.current?.click();
+      return;
+    }
+    let lastEnd = 0;
+    for (const r of regions) {
+      const dur = r.durationSeconds > 0 ? r.durationSeconds : 0;
+      lastEnd = Math.max(lastEnd, r.startSeconds + dur);
+    }
+    void builder.regionAdd({
+      songIndex,
+      trackId: track.id,
+      file: template.file,
+      startSeconds: lastEnd,
+      sourceOffsetSeconds: 0,
+      durationSeconds: template.durationSeconds,
+      gainDb: 0,
+      fadeInSeconds: 0,
+      fadeOutSeconds: 0,
+    });
+  };
+
+  const removeSelectedRegion = () => {
+    if (!selectedRegion) return;
+    void builder.regionRemove(songIndex, selectedRegion.id);
+  };
 
   return (
     <Card className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <Card.Header className="shrink-0">
-        <Card.Title className="text-sm">Track {index + 1}: {track.name || track.id}</Card.Title>
+        <Card.Title className="text-sm">
+          Track {index + 1}: {track.name || track.id}
+        </Card.Title>
         <Card.Description className="truncate text-xs">
-          {region?.file ? `Audio clip: ${region.file}` : "(no audio region for current song)"}
+          {regions.length === 0
+            ? "(no audio regions for current song)"
+            : `${regions.length} region${regions.length === 1 ? "" : "s"} on this song`}
         </Card.Description>
       </Card.Header>
       <Card.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <Field label="Name">
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            className={inputCls}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </Field>
         <Field label="Route to bus">
-          <select className={inputCls} value={busId} onChange={(e) => setBusId(e.target.value)}>
+          <select
+            className={inputCls}
+            value={busId}
+            onChange={(e) => setBusId(e.target.value)}
+          >
             <option value="">(none -- sends only)</option>
             {busses.map((b) => (
               <option key={b.id} value={b.id}>
@@ -309,16 +585,35 @@ function TrackEditor({
         <GainSlider label="Gain" value={gainDb} onChange={setGainDb} />
         <PanSlider value={pan} onChange={setPan} />
         <div className="flex gap-1.5">
-          <Button size="sm" variant={mute ? "danger" : "outline"} onPress={() => setMute(!mute)}>
+          <Button
+            size="sm"
+            variant={mute ? "danger" : "outline"}
+            onPress={() => setMute(!mute)}
+          >
             Mute
           </Button>
-          <Button size="sm" variant={solo ? "secondary" : "outline"} onPress={() => setSolo(!solo)}>
+          <Button
+            size="sm"
+            variant={solo ? "secondary" : "outline"}
+            onPress={() => setSolo(!solo)}
+          >
             Solo
           </Button>
         </div>
         <Button
           variant="primary"
-          onPress={() => builder.trackUpdate({ songIndex, index, name, busId, gainDb, pan, mute, solo })}
+          onPress={() =>
+            builder.trackUpdate({
+              songIndex,
+              index,
+              name,
+              busId,
+              gainDb,
+              pan,
+              mute,
+              solo,
+            })
+          }
         >
           Apply track
         </Button>
@@ -339,9 +634,82 @@ function TrackEditor({
           isDisabled={busy}
           onPress={() => fileInputRef.current?.click()}
         >
-          {busy ? <Loader2 size={14} className="mr-1.5 inline-block animate-spin" /> : <Upload size={14} className="mr-1.5 inline-block" />}
+          {busy ? (
+            <Loader2 size={14} className="mr-1.5 inline-block animate-spin" />
+          ) : (
+            <Upload size={14} className="mr-1.5 inline-block" />
+          )}
           Import WAV&hellip;
         </Button>
+        <p className="text-[10px] leading-snug text-foreground/40">
+          Import WAV creates or replaces the first region on this track for the
+          current song. Use Add region (or ⌘T split on the timeline) for
+          additional clips that share the same file.
+        </p>
+
+        {/* ── Regions for this track / song ─────────────────────────── */}
+        <div className="mt-1 flex flex-col gap-2 border-t border-default/25 pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className={labelCls}>Regions (this song)</span>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                isIconOnly
+                aria-label="Add region"
+                onPress={addRegionFromTemplate}
+              >
+                <Plus size={14} />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                isIconOnly
+                aria-label="Remove region"
+                isDisabled={!selectedRegion}
+                onPress={removeSelectedRegion}
+              >
+                <Trash2 size={14} />
+              </Button>
+            </div>
+          </div>
+
+          {regions.length === 0 ? (
+            <div className="rounded-lg bg-default/10 px-3 py-2 text-xs text-foreground/40">
+              No regions yet. Import a WAV or add a region after import.
+            </div>
+          ) : (
+            <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto rounded-lg border border-default/25 p-1">
+              {regions.map((r, i) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setSelectedRegionId(r.id)}
+                  className={`flex flex-col items-start rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+                    r.id === selectedRegionId
+                      ? "bg-accent/15 text-foreground"
+                      : "text-foreground/70 hover:bg-default/20"
+                  }`}
+                >
+                  <span className="font-medium">
+                    {i + 1}. {r.id}
+                  </span>
+                  <span className="truncate text-[10px] text-foreground/45">
+                    {formatRegionSub(r)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {selectedRegion && (
+            <RegionEditor
+              key={selectedRegion.id}
+              region={selectedRegion}
+              songIndex={songIndex}
+            />
+          )}
+        </div>
       </Card.Content>
     </Card>
   );
@@ -358,7 +726,15 @@ const EVENT_TYPES: { value: EventTypeWire; label: string }[] = [
   { value: "dmx", label: "DMX" },
 ];
 
-function EventEditor({ event, songIndex, index }: { event: SongEventRow; songIndex: number; index: number }) {
+function EventEditor({
+  event,
+  songIndex,
+  index,
+}: {
+  event: SongEventRow;
+  songIndex: number;
+  index: number;
+}) {
   const [type, setType] = useState<EventTypeWire>(event.type);
   const [timeSeconds, setTimeSeconds] = useState(event.timeSeconds);
   const [triggerOnLoad, setTriggerOnLoad] = useState(event.triggerOnLoad);
@@ -371,7 +747,11 @@ function EventEditor({ event, songIndex, index }: { event: SongEventRow; songInd
   const [midiVelocity, setMidiVelocity] = useState(event.midiVelocity);
   const [httpUrl, setHttpUrl] = useState(event.httpUrl);
 
-  const isMidi = type === "programChange" || type === "cc" || type === "noteOn" || type === "noteOff";
+  const isMidi =
+    type === "programChange" ||
+    type === "cc" ||
+    type === "noteOn" ||
+    type === "noteOff";
 
   return (
     <Card className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -380,7 +760,11 @@ function EventEditor({ event, songIndex, index }: { event: SongEventRow; songInd
       </Card.Header>
       <Card.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <Field label="Type">
-          <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as EventTypeWire)}>
+          <select
+            className={inputCls}
+            value={type}
+            onChange={(e) => setType(e.target.value as EventTypeWire)}
+          >
             {EVENT_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
@@ -483,7 +867,11 @@ function EventEditor({ event, songIndex, index }: { event: SongEventRow; songInd
 
         {type === "http" && (
           <Field label="HTTP URL">
-            <input className={inputCls} value={httpUrl} onChange={(e) => setHttpUrl(e.target.value)} />
+            <input
+              className={inputCls}
+              value={httpUrl}
+              onChange={(e) => setHttpUrl(e.target.value)}
+            />
           </Field>
         )}
 
@@ -516,7 +904,13 @@ function EventEditor({ event, songIndex, index }: { event: SongEventRow; songInd
 
 // ─── Busses ─────────────────────────────────────────────────────────────────
 
-function BusEditor({ bus, index }: { bus: WebUiState["busses"][number]; index: number }) {
+function BusEditor({
+  bus,
+  index,
+}: {
+  bus: WebUiState["busses"][number];
+  index: number;
+}) {
   const [name, setName] = useState(bus.name);
   const [channels, setChannels] = useState(bus.channels);
   const [startChannel, setStartChannel] = useState(bus.startChannel);
@@ -532,7 +926,11 @@ function BusEditor({ bus, index }: { bus: WebUiState["busses"][number]; index: n
       </Card.Header>
       <Card.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <Field label="Name">
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            className={inputCls}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </Field>
         <Field label="Width">
           <ToggleRow
@@ -555,19 +953,42 @@ function BusEditor({ bus, index }: { bus: WebUiState["busses"][number]; index: n
         </Field>
         <GainSlider label="Gain" value={gainDb} onChange={setGainDb} />
         <div className="flex gap-1.5">
-          <Button size="sm" variant={mute ? "danger" : "outline"} onPress={() => setMute(!mute)}>
+          <Button
+            size="sm"
+            variant={mute ? "danger" : "outline"}
+            onPress={() => setMute(!mute)}
+          >
             Mute
           </Button>
-          <Button size="sm" variant={solo ? "secondary" : "outline"} onPress={() => setSolo(!solo)}>
+          <Button
+            size="sm"
+            variant={solo ? "secondary" : "outline"}
+            onPress={() => setSolo(!solo)}
+          >
             Solo
           </Button>
-          <Button size="sm" variant={isAux ? "secondary" : "outline"} onPress={() => setIsAux(!isAux)}>
+          <Button
+            size="sm"
+            variant={isAux ? "secondary" : "outline"}
+            onPress={() => setIsAux(!isAux)}
+          >
             Aux bus
           </Button>
         </div>
         <Button
           variant="primary"
-          onPress={() => builder.busUpdate({ index, name, channels, startChannel, gainDb, mute, solo, isAux })}
+          onPress={() =>
+            builder.busUpdate({
+              index,
+              name,
+              channels,
+              startChannel,
+              gainDb,
+              mute,
+              solo,
+              isAux,
+            })
+          }
         >
           Apply bus
         </Button>
@@ -615,11 +1036,12 @@ export function EditorScreen({
   };
 
   const handleFolderChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const allFiles = Array.from(e.target.files ?? []).filter((f) =>
-      f.name.toLowerCase().endsWith(".wav") ||
-      f.name.toLowerCase().endsWith(".mp3") ||
-      f.name.toLowerCase().endsWith(".aif") ||
-      f.name.toLowerCase().endsWith(".flac")
+    const allFiles = Array.from(e.target.files ?? []).filter(
+      (f) =>
+        f.name.toLowerCase().endsWith(".wav") ||
+        f.name.toLowerCase().endsWith(".mp3") ||
+        f.name.toLowerCase().endsWith(".aif") ||
+        f.name.toLowerCase().endsWith(".flac"),
     );
     e.target.value = "";
     if (allFiles.length === 0) return;
@@ -671,10 +1093,10 @@ export function EditorScreen({
     }
   };
 
-
-
   if (!state.projectName) {
-    return <div className="p-6 text-sm text-foreground/50">No project loaded.</div>;
+    return (
+      <div className="p-6 text-sm text-foreground/50">No project loaded.</div>
+    );
   }
 
   const TABS: { id: EditorTab; label: string }[] = [
@@ -708,8 +1130,15 @@ export function EditorScreen({
       <div className="flex shrink-0 items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5">
           {TABS.map((t) => (
-            <Button key={t.id} size="sm" variant={tab === t.id ? "secondary" : "outline"} onPress={() => setTab(t.id)}>
-              {t.id === "timeline" && <Gauge size={13} className="mr-1 inline-block" />}
+            <Button
+              key={t.id}
+              size="sm"
+              variant={tab === t.id ? "secondary" : "outline"}
+              onPress={() => setTab(t.id)}
+            >
+              {t.id === "timeline" && (
+                <Gauge size={13} className="mr-1 inline-block" />
+              )}
               {t.label}
             </Button>
           ))}
@@ -783,7 +1212,11 @@ export function EditorScreen({
                 emptyHint="No songs yet."
               />
               {selected >= 0 && state.songs[selected] ? (
-                <SongEditor key={selected} song={state.songs[selected]} index={selected} />
+                <SongEditor
+                  key={selected}
+                  song={state.songs[selected]}
+                  index={selected}
+                />
               ) : (
                 <EmptyDetailPanel />
               )}
@@ -795,20 +1228,32 @@ export function EditorScreen({
               <ListPanel
                 title="Global Tracks"
                 rows={state.tracks.map((t) => {
-                  const region = song?.regions?.find((r) => r.trackId === t.id);
+                  const trackRegions = (song?.regions ?? []).filter(
+                    (r) => r.trackId === t.id,
+                  );
+                  const n = trackRegions.length;
+                  const firstFile = trackRegions.find((r) => r.file)?.file;
                   return {
                     key: t.id,
                     label: t.name || t.id,
-                    sub: `→ ${t.busId || "(sends only)"} · ${t.gainDb.toFixed(1)} dB${
-                      region?.file ? ` · Clip: ${region.file.replace(/^Audio\//, "")}` : ""
+                    sub: `→ ${t.busId || "(sends only)"} · ${t.gainDb.toFixed(1)} dB · ${
+                      n === 0
+                        ? "no regions"
+                        : n === 1
+                          ? `1 region${firstFile ? `: ${firstFile.replace(/^Audio\//, "")}` : ""}`
+                          : `${n} regions`
                     }`,
                   };
                 })}
                 selected={selected}
                 onSelect={setSelected}
                 onAdd={() => builder.trackAdd(songContext)}
-                onRemove={() => selected >= 0 && builder.trackRemove(songContext, selected)}
-                onMove={(d) => selected >= 0 && builder.trackMove(songContext, selected, d)}
+                onRemove={() =>
+                  selected >= 0 && builder.trackRemove(songContext, selected)
+                }
+                onMove={(d) =>
+                  selected >= 0 && builder.trackMove(songContext, selected, d)
+                }
                 emptyHint="No project tracks yet."
               />
               {selected >= 0 && state.tracks[selected] ? (
@@ -819,7 +1264,9 @@ export function EditorScreen({
                   index={selected}
                   busses={state.busses}
                   busy={state.busy}
-                  region={song?.regions?.find((r) => r.trackId === state.tracks[selected].id)}
+                  regions={(song?.regions ?? []).filter(
+                    (r) => r.trackId === state.tracks[selected].id,
+                  )}
                 />
               ) : (
                 <EmptyDetailPanel />
@@ -839,8 +1286,12 @@ export function EditorScreen({
                 selected={selected}
                 onSelect={setSelected}
                 onAdd={() => builder.eventAdd(songContext)}
-                onRemove={() => selected >= 0 && builder.eventRemove(songContext, selected)}
-                onMove={(d) => selected >= 0 && builder.eventMove(songContext, selected, d)}
+                onRemove={() =>
+                  selected >= 0 && builder.eventRemove(songContext, selected)
+                }
+                onMove={(d) =>
+                  selected >= 0 && builder.eventMove(songContext, selected, d)
+                }
                 emptyHint="No events in this song yet."
               />
               {selected >= 0 && song.events[selected] ? (
@@ -873,7 +1324,11 @@ export function EditorScreen({
                 emptyHint="No busses yet."
               />
               {selected >= 0 && state.busses[selected] ? (
-                <BusEditor key={selected} bus={state.busses[selected]} index={selected} />
+                <BusEditor
+                  key={selected}
+                  bus={state.busses[selected]}
+                  index={selected}
+                />
               ) : (
                 <EmptyDetailPanel />
               )}

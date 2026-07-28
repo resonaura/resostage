@@ -123,6 +123,8 @@ struct WebCommand {
 // audio callback.
 struct WebUiState {
     std::string projectName;
+    // Project-global metronome level (dB). Same for every song.
+    double clickGainDb = -6.0;
     std::string songName;
     double playheadSeconds = 0.0;
     // Cumulative whole-project position (AudioEngine::globalPlayheadSeconds/
@@ -161,6 +163,7 @@ struct WebUiState {
         int tsDen = 4;
         bool click = false;
         std::string clickBusId;
+        double clickGainDb = -6.0;
         // click sends: extra buses (aux monitor mixes) the metronome feeds.
         struct ClickSendRow { std::string busId; double gainDb = 0.0; bool enabled = true; };
         std::vector<ClickSendRow> clickSends;

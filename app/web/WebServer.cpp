@@ -817,6 +817,7 @@ std::string WebServer::buildStateJson() const {
 
     o << "{"
       << "\"projectName\":\"" << jsonEscape(snap.projectName) << "\","
+      << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
       << "\"songName\":\"" << jsonEscape(snap.songName) << "\","
       << "\"playheadSeconds\":" << finiteOrZero(snap.playheadSeconds) << ","
       << "\"globalPlayheadSeconds\":" << finiteOrZero(snap.globalPlayheadSeconds) << ","
@@ -842,6 +843,7 @@ std::string WebServer::buildStateJson() const {
           << "\"tsDen\":" << song.tsDen << ","
           << "\"click\":" << (song.click ? "true" : "false") << ","
           << "\"clickBusId\":\"" << jsonEscape(song.clickBusId) << "\","
+          << "\"clickGainDb\":" << finiteOrZero(song.clickGainDb) << ","
           << "\"clickSends\":[";
         for (size_t ci = 0; ci < song.clickSends.size(); ++ci) {
             if (ci) o << ",";

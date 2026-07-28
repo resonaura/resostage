@@ -829,7 +829,8 @@ void AudioEngine::refreshClickState() {
     auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty() ? (busses.empty() ? "" : busses.front().id) : song.builtInClickBusId);
     if (clickBusIt != busIndexById.end()) {
         clickTargetBusIndex = static_cast<int>(clickBusIt->second);
-        clickGainLinear = dbToGain(song.builtInClickGainDb);
+        // Gain is project-global (same level for every song).
+        clickGainLinear = dbToGain(loader.project().builtInClickGainDb);
         clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
     }
     for (const TrackSendDef& cs : song.builtInClickSends) {
@@ -953,6 +954,15 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
         return false;
     }
 
+    // Keep the displayed project name in sync with the file the user just
+    // chose -- otherwise New Project → Save As "MyShow.rsnraset" forever
+    // shows/stores name "New Project".
+    {
+        const juce::String stem = juce::File(path).getFileNameWithoutExtension();
+        if (stem.isNotEmpty())
+            loader.project().name = stem.toStdString();
+    }
+
     const size_t songToRestore = currentSong;
     const bool wasPlaying = playing.load(std::memory_order_acquire);
 
@@ -969,9 +979,26 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     // close/replace/reopen sequence as overwriteOpen rather than the
     // save-a-copy branch below.
     const bool promotingDraft = usingDraftArchive && !overwriteOpen;
+    // Save As to a different non-draft path: switch the working archive to
+    // the new location (what users expect from Save As), not leave the old
+    // path open while a silent copy sits elsewhere.
+    const bool switchingToNewPath = !overwriteOpen && !promotingDraft;
     const std::string oldDraftPath = usingDraftArchive ? loader.archivePath() : std::string();
     Project snapshot = loader.project(); // keep metadata if open fails after close
     std::string sourcePath = loader.archivePath();
+
+    namespace fs = std::filesystem;
+    auto replacePath = [](const std::string& from, const std::string& to, std::string& err) -> bool {
+        std::error_code ec;
+        // .rsnraset is a directory container -- std::remove fails on non-empty dirs.
+        fs::remove_all(to, ec);
+        fs::rename(from, to, ec);
+        if (ec) {
+            err = "Failed to replace archive: " + ec.message();
+            return false;
+        }
+        return true;
+    };
 
     if (overwriteOpen || promotingDraft) {
         // saveAs needs a reader open to copy Audio/* -- clone via a temporary
@@ -982,11 +1009,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             return false;
 
         loader.close();
-        // Atomically-ish replace original with .new
-        std::remove(path.c_str());
-        if (std::rename(tempOut.c_str(), path.c_str()) != 0) {
-            error = "Failed to replace original archive after save";
-            // Best effort: try to reopen whatever still exists.
+        if (!replacePath(tempOut, path, error)) {
             (void)loader.open(sourcePath, error);
             projectLoaded = loader.isOpen();
             if (projectLoaded)
@@ -998,31 +1021,37 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             projectLoaded = false;
             return false;
         }
-        // Preserve in-memory edits that may have raced? We closed after saveAs
-        // which already serialized the live project -- re-open reloads that.
         if (promotingDraft) {
             usingDraftArchive = false;
-            if (!oldDraftPath.empty() && oldDraftPath != path)
-                std::remove(oldDraftPath.c_str()); // clean up the now-orphaned draft
+            if (!oldDraftPath.empty() && oldDraftPath != path) {
+                std::error_code ec;
+                fs::remove_all(oldDraftPath, ec);
+            }
+        }
+    } else if (switchingToNewPath) {
+        // Save As: write destination, then make it the active working archive.
+        if (!loader.saveAsWithExtras(path, pendingPeakCacheExtras, error, &snapshot))
+            return false;
+        loader.close();
+        if (!loader.open(path, error)) {
+            projectLoaded = false;
+            return false;
+        }
+        usingDraftArchive = false;
+        if (!oldDraftPath.empty() && oldDraftPath != path) {
+            std::error_code ec;
+            fs::remove_all(oldDraftPath, ec);
         }
     } else {
         if (!loader.saveAsWithExtras(path, pendingPeakCacheExtras, error))
             return false;
 
         if (!loader.isOpen()) {
-            // No source archive was open (first save of a project created via
-            // newProject(), never loaded from disk) -- open the file we just
-            // wrote so archivePath() is populated and subsequent streaming /
-            // WAV-import calls have a real zip handle to read Audio/* back
-            // from, instead of silently having nothing to stream from.
             if (!loader.open(path, error)) {
                 projectLoaded = false;
                 return false;
             }
         }
-        // Otherwise keep the current archive open for continued editing of
-        // the source; if the user wanted save-as-and-switch they can load
-        // the new path.
         (void)snapshot;
     }
 
@@ -1148,7 +1177,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
                                             : song.builtInClickBusId);
     if (clickBusIt != busIndexById.end()) {
         newClickTarget = static_cast<int>(clickBusIt->second);
-        newClickGain = dbToGain(song.builtInClickGainDb);
+        newClickGain = dbToGain(loader.project().builtInClickGainDb);
     }
     for (const TrackSendDef& cs : song.builtInClickSends) {
         if (!cs.enabled)
@@ -1325,7 +1354,7 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
                                             : song.builtInClickBusId);
     if (clickBusIt != busIndexById.end()) {
         newClickTarget = static_cast<int>(clickBusIt->second);
-        newClickGain = dbToGain(song.builtInClickGainDb);
+        newClickGain = dbToGain(loader.project().builtInClickGainDb);
     }
     for (const TrackSendDef& cs : song.builtInClickSends) {
         if (!cs.enabled)

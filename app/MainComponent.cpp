@@ -13,6 +13,13 @@ MainComponent::MainComponent()
       builderPanel(engine),
       settingsPanel(engine, midiInput) {
     engine.deviceManager().initialiseWithDefaultDevices(0, 2);
+    // Prefer 48 kHz for stage playback (matches project schema default and
+    // most concert audio interfaces). Fall back silently if the device rejects it.
+    {
+        auto setup = engine.deviceManager().getAudioDeviceSetup();
+        setup.sampleRate = 48000.0;
+        (void)engine.deviceManager().setAudioDeviceSetup(setup, true);
+    }
 
     appTitle.setText("RESOSTAGE", juce::dontSendNotification);
     appTitle.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
@@ -598,6 +605,7 @@ void MainComponent::publishWebState() {
 
     const Project& proj = engine.project();
     state.projectName = proj.name;
+    state.clickGainDb = proj.builtInClickGainDb;
     state.songCount = static_cast<int>(proj.songs.size());
     state.songIndex = (engine.currentSongIndex() == static_cast<size_t>(-1))
                           ? -1
@@ -615,6 +623,8 @@ void MainComponent::publishWebState() {
         row.tsDen = song.timeSignature.denominator;
         row.click = song.builtInClickEnabled;
         row.clickBusId = song.builtInClickBusId;
+        // Global click level (same for every song row for API convenience).
+        row.clickGainDb = proj.builtInClickGainDb;
         for (const TrackSendDef& cs : song.builtInClickSends) {
             WebUiState::SongRow::ClickSendRow csr;
             csr.busId = cs.busId;

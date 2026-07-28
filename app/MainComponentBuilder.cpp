@@ -165,6 +165,9 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     if (getInt(doc, "tsDen", intVal)) s.timeSignature.denominator = intVal;
     if (getBool(doc, "click", boolVal)) s.builtInClickEnabled = boolVal;
     if (getString(doc, "clickBusId", strVal)) s.builtInClickBusId = strVal;
+    // Click gain is project-global (not per-song).
+    if (getDouble(doc, "clickGainDb", numVal))
+        proj.builtInClickGainDb = numVal;
 
     // clickSends: full replacement when present (web sends the entire array)
     simdjson::dom::array clickSendsArr;
@@ -184,11 +187,11 @@ void MainComponent::builderSongUpdate(const std::string& json) {
         }
     }
 
-    if (index == static_cast<int>(engine.currentSongIndex())) {
-        engine.refreshClickState();
-    } else {
+    // Click gain is project-global -- always refresh live click even if this
+    // song isn't the staged one.
+    engine.refreshClickState();
+    if (index != static_cast<int>(engine.currentSongIndex()))
         goToSong(index);
-    }
     builderPanel.refresh();
     builderPanel.onProjectEdited();
     setStatus("Song updated");

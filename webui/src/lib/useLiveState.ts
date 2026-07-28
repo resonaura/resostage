@@ -7,11 +7,18 @@ export type ConnectionStatus = "connecting" | "live" | "reconnecting";
 export function useLiveState() {
   const [state, setState] = useState<WebUiState>(emptyState);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const [cpuHistory, setCpuHistory] = useState<number[]>(() => Array(30).fill(0));
-  const [ramHistory, setRamHistory] = useState<number[]>(() => Array(30).fill(0));
+  const [cpuHistory, setCpuHistory] = useState<number[]>(() =>
+    Array(30).fill(0),
+  );
+  const [ramHistory, setRamHistory] = useState<number[]>(() =>
+    Array(30).fill(0),
+  );
 
   const reconnectMsRef = useRef(500);
-  const latestHealthRef = useRef<{ cpu: number; ram: number }>({ cpu: 0, ram: 0 });
+  const latestHealthRef = useRef<{ cpu: number; ram: number }>({
+    cpu: 0,
+    ram: 0,
+  });
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -32,11 +39,8 @@ export function useLiveState() {
           setState(parsed);
 
           if (parsed.health) {
-            const cores =
-              typeof navigator !== "undefined" && navigator.hardwareConcurrency
-                ? navigator.hardwareConcurrency
-                : 10;
-            const targetCpu = Math.min(100, Math.max(0, (parsed.health.cpuPercent ?? 0) / cores));
+            // Keep process CPU as 1-core % (same as Activity Monitor / table).
+            const targetCpu = Math.max(0, parsed.health.cpuPercent ?? 0);
             const targetRam = (parsed.health.rssBytes ?? 0) / (1024 * 1024);
             latestHealthRef.current = { cpu: targetCpu, ram: targetRam };
           }

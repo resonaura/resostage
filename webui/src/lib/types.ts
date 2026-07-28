@@ -1,7 +1,13 @@
 // Mirrors WebServer::buildStateJson() in app/web/WebServer.cpp exactly --
 // keep these two in sync by hand (there's no shared schema generator yet).
 
-export type EventTypeWire = "programChange" | "cc" | "noteOn" | "noteOff" | "http" | "dmx";
+export type EventTypeWire =
+  | "programChange"
+  | "cc"
+  | "noteOn"
+  | "noteOff"
+  | "http"
+  | "dmx";
 
 export interface SongTrackRow {
   id: string;
@@ -56,6 +62,7 @@ export interface SongRow {
   tsDen: number;
   click: boolean;
   clickBusId: string;
+  clickGainDb?: number;
   clickSends: ClickSendRow[];
   tracks: SongTrackRow[];
   regions?: RegionRow[];
@@ -163,6 +170,8 @@ export interface AllPeaksResponse {
 
 export interface WebUiState {
   projectName: string;
+  /** Project-global metronome level (dB). */
+  clickGainDb: number;
   songName: string;
   playheadSeconds: number;
   /** Cumulative whole-project position (does not reset at song boundaries). */
@@ -187,6 +196,7 @@ export interface WebUiState {
 
 export const emptyState: WebUiState = {
   projectName: "",
+  clickGainDb: -6,
   songName: "",
   playheadSeconds: 0,
   globalPlayheadSeconds: 0,

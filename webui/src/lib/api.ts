@@ -29,7 +29,10 @@ export const transport = {
   // pass it to seek into a *different* song in one atomic call (preserves
   // playback state), instead of a separate select() + seek() pair.
   seek: (seconds: number, songIndex?: number) =>
-    post("/api/v1/transport/seek", songIndex !== undefined ? { seconds, songIndex } : { seconds }),
+    post(
+      "/api/v1/transport/seek",
+      songIndex !== undefined ? { seconds, songIndex } : { seconds },
+    ),
 };
 
 // Per-track peak-overview waveform data for the currently-staged song (see
@@ -64,14 +67,14 @@ const rawWaveformCache = new Map<string, WaveformRawResponse>();
 export async function fetchWaveformRaw(
   file: string,
   startSec: number,
-  endSec: number
+  endSec: number,
 ): Promise<WaveformRawResponse> {
   const cacheKey = `${file}:${startSec.toFixed(2)}:${endSec.toFixed(2)}`;
   if (rawWaveformCache.has(cacheKey)) {
     return rawWaveformCache.get(cacheKey)!;
   }
   const url = apiUrl(
-    `/api/v1/player/waveform-raw?file=${encodeURIComponent(file)}&start=${startSec}&end=${endSec}`
+    `/api/v1/player/waveform-raw?file=${encodeURIComponent(file)}&start=${startSec}&end=${endSec}`,
   );
   const res = await fetch(url);
   const data = (await res.json()) as WaveformRawResponse;
@@ -87,17 +90,24 @@ export async function fetchWaveformRaw(
 // commands. See AudioEngine::setTrackGainDb et al. and
 // MainComponent::drainWebCommands() for the C++ side.
 export const mixer = {
-  setTrackGain: (index: number, value: number) => post("/api/v1/track/gain", { index, value }),
-  setTrackPan: (index: number, value: number) => post("/api/v1/track/pan", { index, value }),
-  setTrackMute: (index: number, value: boolean) => post("/api/v1/track/mute", { index, value }),
-  setTrackSolo: (index: number, value: boolean) => post("/api/v1/track/solo", { index, value }),
+  setTrackGain: (index: number, value: number) =>
+    post("/api/v1/track/gain", { index, value }),
+  setTrackPan: (index: number, value: number) =>
+    post("/api/v1/track/pan", { index, value }),
+  setTrackMute: (index: number, value: boolean) =>
+    post("/api/v1/track/mute", { index, value }),
+  setTrackSolo: (index: number, value: boolean) =>
+    post("/api/v1/track/solo", { index, value }),
   // Bus assignment for the track's main output -- matches the MixerStrip
   // outputBusBox in the native UI. Empty busId = "(sends only)".
   setTrackBus: (index: number, busId: string) =>
     builder.trackUpdate({ index, busId }),
-  setBusGain: (index: number, value: number) => post("/api/v1/bus/gain", { index, value }),
-  setBusMute: (index: number, value: boolean) => post("/api/v1/bus/mute", { index, value }),
-  setBusSolo: (index: number, value: boolean) => post("/api/v1/bus/solo", { index, value }),
+  setBusGain: (index: number, value: number) =>
+    post("/api/v1/bus/gain", { index, value }),
+  setBusMute: (index: number, value: boolean) =>
+    post("/api/v1/bus/mute", { index, value }),
+  setBusSolo: (index: number, value: boolean) =>
+    post("/api/v1/bus/solo", { index, value }),
   // Ableton-style send knob: find-or-create this track's send to busId at
   // gainDb. Matches native MixerStrip::onSendChanged -- turning a knob up
   // from its floor implicitly creates the send, no separate "add" call
@@ -122,7 +132,10 @@ export const project = {
 
   async upload(file: File): Promise<void> {
     try {
-      await fetch(apiUrl("/api/v1/project/upload"), { method: "POST", body: file });
+      await fetch(apiUrl("/api/v1/project/upload"), {
+        method: "POST",
+        body: file,
+      });
     } catch {
       // Best-effort, matches post() -- surfaced via statusMessage instead.
     }
@@ -165,7 +178,8 @@ export const builder = {
   songAdd: (noSeed = false) => post("/api/v1/builder/song/add", { noSeed }),
   songImportFolder: () => post("/api/v1/builder/song/import-folder"),
   songRemove: (index: number) => post("/api/v1/builder/song/remove", { index }),
-  songMove: (index: number, delta: number) => post("/api/v1/builder/song/move", { index, delta }),
+  songMove: (index: number, delta: number) =>
+    post("/api/v1/builder/song/move", { index, delta }),
   songUpdate: (patch: {
     index: number;
     name: string;
@@ -175,10 +189,12 @@ export const builder = {
     tsDen: number;
     click: boolean;
     clickBusId: string;
+    clickGainDb?: number;
     clickSends: { busId: string; gainDb: number; enabled: boolean }[];
   }) => post("/api/v1/builder/song/update", patch),
 
-  trackAdd: (songIndex: number) => post("/api/v1/builder/track/add", { songIndex }),
+  trackAdd: (songIndex: number) =>
+    post("/api/v1/builder/track/add", { songIndex }),
   trackRemove: (songIndex: number, index: number) =>
     post("/api/v1/builder/track/remove", { songIndex, index }),
   trackMove: (songIndex: number, index: number, delta: number) =>
@@ -220,10 +236,21 @@ export const builder = {
     fadeOutSeconds?: number;
   }) => post("/api/v1/builder/region/update", patch),
 
-  async trackImportWav(songIndex: number, index: number, file: File): Promise<void> {
-    await post("/api/v1/builder/track/import-wav/begin", { songIndex, index, fileName: file.name });
+  async trackImportWav(
+    songIndex: number,
+    index: number,
+    file: File,
+  ): Promise<void> {
+    await post("/api/v1/builder/track/import-wav/begin", {
+      songIndex,
+      index,
+      fileName: file.name,
+    });
     try {
-      await fetch(apiUrl("/api/v1/builder/track/import-wav/upload"), { method: "POST", body: file });
+      await fetch(apiUrl("/api/v1/builder/track/import-wav/upload"), {
+        method: "POST",
+        body: file,
+      });
     } catch {
       // Best-effort -- surfaced via statusMessage.
     }
@@ -231,7 +258,8 @@ export const builder = {
 
   busAdd: () => post("/api/v1/builder/bus/add"),
   busRemove: (index: number) => post("/api/v1/builder/bus/remove", { index }),
-  busMove: (index: number, delta: number) => post("/api/v1/builder/bus/move", { index, delta }),
+  busMove: (index: number, delta: number) =>
+    post("/api/v1/builder/bus/move", { index, delta }),
   busUpdate: (patch: {
     index: number;
     name: string;
@@ -243,7 +271,8 @@ export const builder = {
     isAux: boolean;
   }) => post("/api/v1/builder/bus/update", patch),
 
-  eventAdd: (songIndex: number) => post("/api/v1/builder/event/add", { songIndex }),
+  eventAdd: (songIndex: number) =>
+    post("/api/v1/builder/event/add", { songIndex }),
   eventRemove: (songIndex: number, index: number) =>
     post("/api/v1/builder/event/remove", { songIndex, index }),
   eventMove: (songIndex: number, index: number, delta: number) =>
@@ -268,14 +297,20 @@ export const builder = {
 // Settings parity -- mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent
 // callbacks and MIDI/keybinding row handlers. See MainComponentSettings.cpp.
 export const settings = {
-  setAudioOutputDevice: (name: string) => post("/api/v1/settings/audio-device", { name }),
-  setSampleRate: (value: number) => post("/api/v1/settings/sample-rate", { value }),
-  setBufferSize: (value: number) => post("/api/v1/settings/buffer-size", { value }),
-  setMidiOutput: (name: string) => post("/api/v1/settings/midi-output", { name }),
+  setAudioOutputDevice: (name: string) =>
+    post("/api/v1/settings/audio-device", { name }),
+  setSampleRate: (value: number) =>
+    post("/api/v1/settings/sample-rate", { value }),
+  setBufferSize: (value: number) =>
+    post("/api/v1/settings/buffer-size", { value }),
+  setMidiOutput: (name: string) =>
+    post("/api/v1/settings/midi-output", { name }),
   setMidiInput: (name: string) => post("/api/v1/settings/midi-input", { name }),
-  setKeybinding: (action: string, key: string) => post("/api/v1/settings/keybinding", { action, key }),
+  setKeybinding: (action: string, key: string) =>
+    post("/api/v1/settings/keybinding", { action, key }),
   // `channels` is the full list of active channel indices (0-based) -- the
   // caller sends the complete set every time, matching the native checkbox
   // list's "whole BigInteger bitmask" semantics.
-  setOutputChannels: (channels: number[]) => post("/api/v1/settings/output-channels", { channels }),
+  setOutputChannels: (channels: number[]) =>
+    post("/api/v1/settings/output-channels", { channels }),
 };

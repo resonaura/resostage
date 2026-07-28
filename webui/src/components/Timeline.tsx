@@ -1,7 +1,7 @@
-import { Button } from "@heroui/react";
-import { ChevronDown, ChevronUp, Grid3X3, ZoomIn, ZoomOut } from "lucide-react";
+import { Button, Slider } from "@heroui/react";
+import { Copy, Grid3X3, Scissors, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { fetchWaveformRaw, mixer, transport } from "../lib/api";
+import { builder, fetchWaveformRaw, mixer, transport } from "../lib/api";
 import { useContinuousPlayhead, useLiveValue } from "../lib/optimistic";
 import type {
   AllPeaksResponse,
@@ -11,12 +11,13 @@ import type {
   TrackRow,
   WebUiState,
 } from "../lib/types";
+import { LevelMeterBar } from "./LevelMeterBar";
 
 const SIDEBAR_WIDTH = 240;
 const LANE_HEIGHT = 56;
 const EVENT_LANE_HEIGHT = 24;
 const RULER_HEIGHT = 32;
-const MIN_PX_PER_SEC = 4;
+const MIN_PX_PER_SEC = 0.25; // allow zoom-out until whole set fits (no H-scroll)
 const MAX_PX_PER_SEC = 400;
 const TRACK_COLORS = [
   "#0091ff",
@@ -35,20 +36,52 @@ const TRACK_COLORS = [
 
 const HANDLE_PX = 8; // px width of trim handle hit area
 
-// ── Region model (frontend-only until backend exposes a regions API) ──────
-// Each waveform segment per song per track is treated as one Region.
-// The user can trim its start/end within the segment and move it.
-interface RegionState {
-  songIndex: number;
-  trackName: string;
-  trimStart: number; // seconds trimmed from left (≥ 0)
-  trimEnd: number; // seconds trimmed from right (≥ 0)
+// ── Region UI state (mute overlay; geometry lives in project RegionRow) ──
+interface RegionUiState {
   muted: boolean;
 }
 
-type RegionKey = string; // `${songIndex}:${trackName}`
-const regionKey = (songIndex: number, trackName: string): RegionKey =>
-  `${songIndex}:${trackName}`;
+/** Stable id for a project region block (selection + drag + mute). */
+type RegionSelKey = string; // `${songIndex}:${regionId}`
+const regionSelKey = (songIndex: number, regionId: string): RegionSelKey =>
+  `${songIndex}:${regionId}`;
+
+interface RegionClipboardEntry {
+  songIndex: number;
+  trackId: string;
+  file: string;
+  startSeconds: number;
+  sourceOffsetSeconds: number;
+  durationSeconds: number;
+  gainDb: number;
+  fadeInSeconds: number;
+  fadeOutSeconds: number;
+}
+
+function lookupRegion(
+  songs: SongRow[],
+  key: RegionSelKey,
+): { songIndex: number; region: RegionRow } | null {
+  const colon = key.indexOf(":");
+  if (colon < 0) return null;
+  const songIndex = Number(key.slice(0, colon));
+  const regionId = key.slice(colon + 1);
+  if (!Number.isFinite(songIndex) || songIndex < 0 || songIndex >= songs.length)
+    return null;
+  const region = songs[songIndex]?.regions?.find((r) => r.id === regionId);
+  if (!region) return null;
+  return { songIndex, region };
+}
+
+function allRegionSelKeys(songs: SongRow[]): RegionSelKey[] {
+  const keys: RegionSelKey[] = [];
+  songs.forEach((song, si) => {
+    for (const r of song.regions ?? []) {
+      if (r.file && r.id) keys.push(regionSelKey(si, r.id));
+    }
+  });
+  return keys;
+}
 
 // ── Inline Toast ──────────────────────────────────────────────────────────
 interface Toast {
@@ -208,6 +241,7 @@ function MiniSlider({
   step = 0.5,
   accent,
   onChange,
+  defaultValue = 0,
 }: {
   value: number;
   min: number;
@@ -215,6 +249,7 @@ function MiniSlider({
   step?: number;
   accent: string;
   onChange: (v: number) => void;
+  defaultValue?: number;
 }) {
   const percent = Math.max(
     0,
@@ -222,7 +257,15 @@ function MiniSlider({
   );
 
   return (
-    <div className="relative flex-1 flex items-center h-3 select-none touch-none">
+    <div
+      className="relative flex-1 flex items-center h-3 select-none touch-none"
+      title="Double-click to reset"
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onChange(defaultValue);
+      }}
+    >
       <input
         type="range"
         min={min}
@@ -256,11 +299,13 @@ function TrackHeaderControl({
   index,
   color,
   verticalZoom,
+  anySolo = false,
 }: {
   track: TrackRow;
   index: number;
   color: string;
   verticalZoom: number;
+  anySolo?: boolean;
 }) {
   const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) =>
     mixer.setTrackGain(index, v),
@@ -275,10 +320,14 @@ function TrackHeaderControl({
     return `R${Math.round(p * 100)}`;
   };
 
+  const isDimmed = anySolo && !track.solo;
+
   return (
     <div
-      className="flex flex-col justify-between border-b border-default/15 px-3 py-1.5 select-none bg-surface/40 hover:bg-surface/70 transition-colors"
-      style={{ height: LANE_HEIGHT * verticalZoom }}
+      className={`flex flex-col justify-between border-b border-default/15 px-3 py-1.5 select-none transition-opacity duration-300 bg-surface/40 hover:bg-surface/70 ${
+        isDimmed ? "opacity-35" : "opacity-100"
+      }`}
+      style={{ height: Math.max(28, LANE_HEIGHT * verticalZoom) }}
     >
       {/* Top Row: Color indicator, Track Name, Pan Knob & Value, Mute & Solo */}
       <div className="flex items-center gap-2 min-w-0">
@@ -287,13 +336,21 @@ function TrackHeaderControl({
           style={{ background: color, opacity: track.mute ? 0.35 : 1 }}
         />
         <span
-          className={`truncate text-xs font-semibold text-foreground/90 ${
+          className={`truncate text-xs font-semibold text-foreground/90 flex-1 min-w-0 ${
             track.mute ? "line-through opacity-40" : ""
           }`}
           title={track.name || track.id}
         >
           {track.name || track.id}
         </span>
+        <div className="h-8 w-1.5 shrink-0">
+          <LevelMeterBar
+            db={track.peakDb ?? -100}
+            vertical
+            showValue={false}
+            barClassName="h-full w-full"
+          />
+        </div>
 
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
           {/* Rotary Knob for Pan Balance */}
@@ -315,14 +372,16 @@ function TrackHeaderControl({
             </span>
           </div>
 
-          {/* Mute Button */}
+          {/* Mute Button -- blinks when soloed-out (same as mixer) */}
           <button
             type="button"
             onClick={() => mixer.setTrackMute(index, !track.mute)}
             className={`h-5.5 w-5.5 rounded text-[10px] font-bold transition-all shadow-sm ${
               track.mute
                 ? "bg-danger text-white scale-105"
-                : "bg-default/20 text-foreground/50 hover:bg-default/35 hover:text-foreground"
+                : isDimmed
+                  ? "bg-danger/80 text-white animate-pulse"
+                  : "bg-default/20 text-foreground/50 hover:bg-default/35 hover:text-foreground"
             }`}
             title="Mute"
           >
@@ -369,30 +428,73 @@ function TrackHeaderControl({
 // ------- Dynamic Ruler Tick Configuration -------------------------------
 
 function getTickConfig(pxPerSec: number, bpm: number, tsNum: number) {
+  // Majors: labels stay readable (~70px). Minors: denser grid as long as
+  // strokes are ≥ ~4px apart — never collapse to majors-only until zoom-out
+  // is extreme enough that even major/4 is too tight.
   const minPxPerLabel = 70;
+  const minPxPerMinor = 4;
+
+  /** Densest candidate ≤ major that still clears minPxPerMinor. */
+  const pickMinor = (major: number, candidates: number[]) => {
+    const sorted = [...candidates]
+      .filter((s) => s > 0 && s <= major + 1e-12)
+      .sort((a, b) => a - b);
+    for (const c of sorted) {
+      if (c * pxPerSec >= minPxPerMinor) return c;
+    }
+    return major;
+  };
+
   if (bpm > 1) {
     const beatSec = 60 / bpm;
     const barSec = beatSec * Math.max(1, tsNum);
-    const barsList = [1, 2, 4, 8, 16, 32, 64];
-    const majorBarStep =
-      barsList.find((b) => b * barSec * pxPerSec >= minPxPerLabel) ?? 64;
+    let majorBarStep = 1;
+    while (
+      majorBarStep < 1_000_000 &&
+      majorBarStep * barSec * pxPerSec < minPxPerLabel
+    ) {
+      majorBarStep *= 2;
+    }
     const majorStepSec = majorBarStep * barSec;
-    const minorStepSec = majorBarStep === 1 ? beatSec : barSec;
-    return { majorStepSec, minorStepSec, isBeatGrid: true, barSec, beatSec };
-  } else {
-    const secList = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
-    const majorStepSec =
-      secList.find((s) => s * pxPerSec >= minPxPerLabel) ?? 300;
-    const minorStepSec =
-      majorStepSec >= 60 ? 10 : majorStepSec >= 5 ? 1 : majorStepSec / 5;
-    return {
+    // Intermediate levels: beats, bars, 1/8…1/2 of major (always have mid lines).
+    const minorStepSec = pickMinor(majorStepSec, [
+      beatSec,
+      barSec,
+      majorStepSec / 8,
+      majorStepSec / 4,
+      majorStepSec / 2,
       majorStepSec,
-      minorStepSec,
-      isBeatGrid: false,
-      barSec: 0,
-      beatSec: 0,
-    };
+    ]);
+    return { majorStepSec, minorStepSec, isBeatGrid: true, barSec, beatSec };
   }
+
+  const secList = [
+    0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600,
+    7200, 14400,
+  ];
+  let majorStepSec =
+    secList.find((s) => s * pxPerSec >= minPxPerLabel) ??
+    (() => {
+      let s = 14400;
+      while (s * pxPerSec < minPxPerLabel && s < 1e9) s *= 2;
+      return s;
+    })();
+  const minorStepSec = pickMinor(majorStepSec, [
+    majorStepSec / 10,
+    majorStepSec / 8,
+    majorStepSec / 6,
+    majorStepSec / 5,
+    majorStepSec / 4,
+    majorStepSec / 2,
+    majorStepSec,
+  ]);
+  return {
+    majorStepSec,
+    minorStepSec,
+    isBeatGrid: false,
+    barSec: 0,
+    beatSec: 0,
+  };
 }
 
 function formatTimeShort(sec: number): string {
@@ -422,28 +524,33 @@ function Ruler({
 
   const marks = useMemo(() => {
     const list: { x: number; major: boolean; label?: string }[] = [];
+    if (minorStepSec <= 0 || majorStepSec <= 0) return list;
     const limit = songLength + majorStepSec;
+    // Hard cap so a bad step never floods the DOM.
+    const maxMarks = 400;
+    let n = 0;
 
-    for (let t = 0; t <= limit; t += minorStepSec) {
+    for (let t = 0; t <= limit && n < maxMarks; t += minorStepSec) {
       const rounded = Math.round(t / minorStepSec) * minorStepSec;
       const x = Math.round(rounded * pxPerSec);
       if (x > contentWidth + 8) break;
 
+      const phase = ((rounded % majorStepSec) + majorStepSec) % majorStepSec;
       const isMajor =
-        Math.abs((rounded % majorStepSec) / majorStepSec) < 0.02 ||
-        Math.abs(((rounded % majorStepSec) - majorStepSec) / majorStepSec) <
-          0.02;
+        phase < majorStepSec * 0.02 || phase > majorStepSec * 0.98;
 
       let label: string | undefined;
       if (isMajor) {
         if (isBeatGrid && barSec > 0) {
           const barNum = Math.round(rounded / barSec) + 1;
+          // At coarse zoom majorStep is many bars — show bar number, not every bar.
           label = `${barNum}`;
         } else {
           label = formatTimeShort(rounded);
         }
       }
       list.push({ x, major: isMajor, label });
+      n += 1;
     }
     return list;
   }, [
@@ -458,7 +565,7 @@ function Ruler({
 
   return (
     <div
-      className="relative select-none border-b border-default/30 bg-surface/95 shrink-0"
+      className="relative select-none border-b border-default/30 bg-background-tertiary shrink-0"
       style={{ height: RULER_HEIGHT, width: contentWidth }}
     >
       {marks.map(({ x, major, label }, idx) => (
@@ -471,8 +578,8 @@ function Ruler({
               bottom: 0,
               left: 0,
               background: major
-                ? "rgba(255,255,255,0.35)"
-                : "rgba(255,255,255,0.12)",
+                ? "rgba(255,255,255,0.18)"
+                : "rgba(255,255,255,0.06)",
             }}
           />
           {label && (
@@ -486,8 +593,8 @@ function Ruler({
                 lineHeight: 1,
                 whiteSpace: "nowrap",
                 color: major
-                  ? "rgba(255,255,255,0.55)"
-                  : "rgba(255,255,255,0.3)",
+                  ? "rgba(255,255,255,0.38)"
+                  : "rgba(255,255,255,0.18)",
               }}
             >
               {label}
@@ -559,6 +666,10 @@ function TrackWaveformLane({
   pxPerSec,
   color,
   muted,
+  /** Offset into the source file (region trim / split). */
+  sourceOffsetSec = 0,
+  /** When true, no lane chrome — meant to sit inside a clipped region. */
+  embedded = false,
 }: {
   levels: PeakLevelData[];
   durationSeconds: number;
@@ -571,6 +682,8 @@ function TrackWaveformLane({
   pxPerSec: number;
   color: string;
   muted: boolean;
+  sourceOffsetSec?: number;
+  embedded?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rawWindow, setRawWindow] = useState<{
@@ -586,9 +699,10 @@ function TrackWaveformLane({
   // Quantize the fetch range so panning by a pixel at a time doesn't refire
   // a network request every frame -- half-second buckets with a half-second
   // margin on each side comfortably cover a viewport's worth of scrolling
-  // between refetches.
-  const visibleStartSec = scrollLeft / pxPerSec;
-  const visibleEndSec = (scrollLeft + viewportWidth) / pxPerSec;
+  // between refetches. Times are in *source file* seconds.
+  const visibleStartSec = sourceOffsetSec + scrollLeft / pxPerSec;
+  const visibleEndSec =
+    sourceOffsetSec + (scrollLeft + viewportWidth) / pxPerSec;
   const quantStart = Math.max(0, Math.floor(visibleStartSec / 0.5) * 0.5 - 0.5);
   const quantEnd = Math.min(
     durationSeconds,
@@ -659,8 +773,9 @@ function TrackWaveformLane({
       const rmsBotPoints: { x: number; y: number }[] = [];
 
       for (let x = 0; x <= renderWidth; x += step) {
-        const tStartSec = (scrollLeft + x) / pxPerSec;
-        const tEndSec = (scrollLeft + x + step) / pxPerSec;
+        // Map lane-local time → source-file time (honours region trim/split).
+        const tStartSec = sourceOffsetSec + (scrollLeft + x) / pxPerSec;
+        const tEndSec = sourceOffsetSec + (scrollLeft + x + step) / pxPerSec;
 
         const startBin = Math.max(
           0,
@@ -692,6 +807,13 @@ function TrackWaveformLane({
 
         if (maxV === -1) maxV = 0;
         if (minV === 1) minV = 0;
+
+        // Past the end of the source file: draw silence so trimmed tails stay flat.
+        if (tStartSec >= durationSeconds) {
+          maxV = 0;
+          minV = 0;
+          rmsV = 0;
+        }
 
         const yTop = mid - maxV * halfH * verticalZoom;
         const yBot = mid - minV * halfH * verticalZoom;
@@ -759,7 +881,7 @@ function TrackWaveformLane({
         const { samples, sampleRate, startSec } = rawWindow;
         let first = true;
         for (let x = 0; x < renderWidth; ++x) {
-          const tSec = (scrollLeft + x) / pxPerSec;
+          const tSec = sourceOffsetSec + (scrollLeft + x) / pxPerSec;
           const exactIdx = (tSec - startSec) * sampleRate;
           const baseIdx = Math.floor(exactIdx);
           const mu = exactIdx - baseIdx;
@@ -794,18 +916,27 @@ function TrackWaveformLane({
     pxPerSec,
     color,
     muted,
+    sourceOffsetSec,
     visibleStartSec,
     visibleEndSec,
   ]);
 
   return (
     <div
-      className="relative flex items-center border-b border-default/15 bg-default/10"
-      style={{
-        width: contentWidth,
-        height: LANE_HEIGHT * verticalZoom,
-        opacity: muted ? 0.4 : 1,
-      }}
+      className={
+        embedded
+          ? "pointer-events-none absolute inset-0 flex items-center"
+          : "relative flex items-center border-b border-default/15 bg-default/10"
+      }
+      style={
+        embedded
+          ? { opacity: muted ? 0.4 : 1 }
+          : {
+              width: contentWidth,
+              height: LANE_HEIGHT * verticalZoom,
+              opacity: muted ? 0.4 : 1,
+            }
+      }
     >
       {levels.length === 0 ? (
         <div
@@ -820,8 +951,20 @@ function TrackWaveformLane({
       ) : (
         <canvas
           ref={canvasRef}
-          className="pointer-events-none absolute top-1 transition-opacity duration-300 ease-out"
-          style={{ left: scrollLeft }}
+          className={
+            embedded
+              ? "pointer-events-none absolute transition-opacity duration-300 ease-out"
+              : "pointer-events-none absolute top-1 transition-opacity duration-300 ease-out"
+          }
+          style={
+            embedded
+              ? {
+                  left: scrollLeft,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                }
+              : { left: scrollLeft }
+          }
         />
       )}
     </div>
@@ -928,12 +1071,15 @@ export function Timeline({
   allPeaks,
   pxPerSec,
   setPxPerSec,
+  readOnly = false,
 }: {
   state: WebUiState;
   peaks: PeaksResponse | null;
   allPeaks: AllPeaksResponse | null;
   pxPerSec: number;
   setPxPerSec: React.Dispatch<React.SetStateAction<number>>;
+  /** Player: no track sidebar, no region trim/edit. */
+  readOnly?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -986,52 +1132,173 @@ export function Timeline({
     );
   };
 
-  // Region state (frontend-only until backend API exists)
-  const [regions, setRegions] = useState<Map<RegionKey, RegionState>>(
+  // Region selection (editor only) for copy/delete/duplicate hotkeys.
+  const [selectedRegionKeys, setSelectedRegionKeys] = useState<RegionSelKey[]>(
+    [],
+  );
+  const clipboardRegions = useRef<RegionClipboardEntry[]>([]);
+
+  const selectRegion = (
+    key: RegionSelKey,
+    e: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean },
+  ) => {
+    if (e.metaKey || e.ctrlKey) {
+      setSelectedRegionKeys((prev) =>
+        prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key],
+      );
+      return;
+    }
+    if (e.shiftKey && selectedRegionKeys.length > 0) {
+      const all = allRegionSelKeys(state.songs);
+      const last = selectedRegionKeys[selectedRegionKeys.length - 1];
+      const a = all.indexOf(last);
+      const b = all.indexOf(key);
+      if (a >= 0 && b >= 0) {
+        const lo = Math.min(a, b);
+        const hi = Math.max(a, b);
+        setSelectedRegionKeys(all.slice(lo, hi + 1));
+        return;
+      }
+    }
+    setSelectedRegionKeys([key]);
+  };
+
+  const resolveSelectedRegions = (): RegionClipboardEntry[] => {
+    const out: RegionClipboardEntry[] = [];
+    for (const key of selectedRegionKeys) {
+      const hit = lookupRegion(state.songs, key);
+      if (!hit) continue;
+      const r = hit.region;
+      out.push({
+        songIndex: hit.songIndex,
+        trackId: r.trackId,
+        file: r.file,
+        startSeconds: r.startSeconds,
+        sourceOffsetSeconds: r.sourceOffsetSeconds,
+        durationSeconds: r.durationSeconds,
+        gainDb: r.gainDb,
+        fadeInSeconds: r.fadeInSeconds,
+        fadeOutSeconds: r.fadeOutSeconds,
+      });
+    }
+    return out;
+  };
+
+  const copySelectedRegions = () => {
+    clipboardRegions.current = resolveSelectedRegions();
+    if (clipboardRegions.current.length)
+      showToast(`Copied ${clipboardRegions.current.length} region(s)`);
+  };
+
+  const deleteSelectedRegions = () => {
+    if (selectedRegionKeys.length === 0) return;
+    for (const key of selectedRegionKeys) {
+      const hit = lookupRegion(state.songs, key);
+      if (hit) void builder.regionRemove(hit.songIndex, hit.region.id);
+    }
+    setSelectedRegionKeys([]);
+    showToast("Deleted region(s)");
+  };
+
+  const duplicateSelectedRegions = async () => {
+    const entries = resolveSelectedRegions();
+    for (const r of entries) {
+      await builder.regionAdd({
+        songIndex: r.songIndex,
+        trackId: r.trackId,
+        file: r.file,
+        startSeconds: r.startSeconds,
+        sourceOffsetSeconds: r.sourceOffsetSeconds,
+        durationSeconds: r.durationSeconds,
+        gainDb: r.gainDb,
+        fadeInSeconds: r.fadeInSeconds,
+        fadeOutSeconds: r.fadeOutSeconds,
+      });
+    }
+    if (entries.length) showToast(`Duplicated ${entries.length} region(s)`);
+  };
+
+  const pasteClipboardRegions = async () => {
+    if (clipboardRegions.current.length === 0) return;
+    for (const r of clipboardRegions.current) {
+      await builder.regionAdd({
+        songIndex: r.songIndex,
+        trackId: r.trackId,
+        file: r.file,
+        startSeconds: r.startSeconds,
+        sourceOffsetSeconds: r.sourceOffsetSeconds,
+        durationSeconds: r.durationSeconds,
+        gainDb: r.gainDb,
+        fadeInSeconds: r.fadeInSeconds,
+        fadeOutSeconds: r.fadeOutSeconds,
+      });
+    }
+    showToast(`Pasted ${clipboardRegions.current.length} region(s)`);
+  };
+
+  // Drop selection entries that no longer exist (delete / project reload).
+  useEffect(() => {
+    const valid = new Set(allRegionSelKeys(state.songs));
+    setSelectedRegionKeys((prev) => {
+      const next = prev.filter((k) => valid.has(k));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [state.songs]);
+
+  // Region UI state (mute); geometry is project-owned
+  const [regions, setRegions] = useState<Map<RegionSelKey, RegionUiState>>(
     new Map(),
   );
 
-  // Region drag state
+  // Live geometry while dragging (committed to project on pointer up).
+  const [regionGeomDraft, setRegionGeomDraft] = useState<
+    Record<
+      RegionSelKey,
+      { start: number; sourceOffset: number; duration: number }
+    >
+  >({});
+  const regionGeomDraftRef = useRef(regionGeomDraft);
+  regionGeomDraftRef.current = regionGeomDraft;
+
+  // Region drag state — keyed by selection id, stores project geometry
   type RegionDragMode = "move" | "trimStart" | "trimEnd";
+  type RegionGeom = {
+    start: number;
+    sourceOffset: number;
+    duration: number;
+  };
   const regionDragRef = useRef<{
-    key: RegionKey;
+    key: RegionSelKey;
     mode: RegionDragMode;
     startX: number;
-    origTrimStart: number;
-    origTrimEnd: number;
     songIndex: number;
-    maxDuration: number;
+    regionId: string;
+    origStart: number;
+    origSourceOffset: number;
+    origDuration: number;
+    maxEnd: number; // song length
+    /** Last live geometry during drag (committed on pointer up). */
+    lastGeom: RegionGeom;
   } | null>(null);
 
-  const getRegion = (songIndex: number, trackName: string): RegionState => {
-    const key = regionKey(songIndex, trackName);
-    return (
-      regions.get(key) ?? {
-        songIndex,
-        trackName,
-        trimStart: 0,
-        trimEnd: 0,
-        muted: false,
-      }
-    );
+  const writeGeomDraft = (key: RegionSelKey, geom: RegionGeom) => {
+    // Sync ref immediately so pointer-up in the same frame sees the value
+    // (setState alone would lag one render and drop the resize).
+    const next = { ...regionGeomDraftRef.current, [key]: geom };
+    regionGeomDraftRef.current = next;
+    setRegionGeomDraft(next);
+    if (regionDragRef.current?.key === key) {
+      regionDragRef.current.lastGeom = geom;
+    }
   };
 
-  const setRegion = (
-    songIndex: number,
-    trackName: string,
-    patch: Partial<RegionState>,
-  ) => {
-    const key = regionKey(songIndex, trackName);
+  const getRegionUi = (key: RegionSelKey): RegionUiState =>
+    regions.get(key) ?? { muted: false };
+
+  const setRegionUi = (key: RegionSelKey, patch: Partial<RegionUiState>) => {
     setRegions((prev) => {
       const next = new Map(prev);
-      const existing = prev.get(key) ?? {
-        songIndex,
-        trackName,
-        trimStart: 0,
-        trimEnd: 0,
-        muted: false,
-      };
-      next.set(key, { ...existing, ...patch });
+      next.set(key, { ...getRegionUi(key), ...patch });
       return next;
     });
   };
@@ -1070,6 +1337,73 @@ export function Timeline({
       totalLength: Math.max(acc, 120),
     };
   }, [songs, allPeaks, peaks, state.songIndex]);
+
+  /** Split selected region(s) at the absolute playhead (Logic-style ⌘T). */
+  const splitSelectedAtPlayhead = async () => {
+    if (selectedRegionKeys.length === 0) {
+      showToast("Select a region to trim");
+      return;
+    }
+    let splitCount = 0;
+    for (const key of selectedRegionKeys) {
+      const hit = lookupRegion(state.songs, key);
+      if (!hit) continue;
+      const { songIndex, region: r } = hit;
+      const songStart = songOffsets[songIndex] ?? 0;
+      const songLen = songLengths[songIndex] ?? 0;
+      const localPlayhead = playheadAbsoluteSec - songStart;
+      if (localPlayhead < 0 || (songLen > 0 && localPlayhead > songLen))
+        continue;
+
+      // Effective bounds: duration 0 means full remaining song length.
+      const regionStart = r.startSeconds;
+      const regionDur =
+        r.durationSeconds > 0
+          ? r.durationSeconds
+          : Math.max(0.05, songLen - regionStart);
+      const regionEnd = regionStart + regionDur;
+
+      // Playhead must sit strictly inside the region (min stub ~50ms each side).
+      if (
+        localPlayhead <= regionStart + 0.05 ||
+        localPlayhead >= regionEnd - 0.05
+      )
+        continue;
+
+      const leftDur = localPlayhead - regionStart;
+      const rightDur = regionEnd - localPlayhead;
+      const rightSourceOffset = r.sourceOffsetSeconds + leftDur;
+
+      await builder.regionUpdate({
+        songIndex,
+        regionId: r.id,
+        durationSeconds: leftDur,
+        fadeOutSeconds: 0,
+      });
+      await builder.regionAdd({
+        songIndex,
+        trackId: r.trackId,
+        file: r.file,
+        startSeconds: localPlayhead,
+        sourceOffsetSeconds: rightSourceOffset,
+        durationSeconds: rightDur,
+        gainDb: r.gainDb,
+        fadeInSeconds: 0,
+        fadeOutSeconds: r.fadeOutSeconds,
+      });
+      splitCount += 1;
+    }
+    if (splitCount === 0) {
+      showToast("Playhead is not inside the selected region");
+    } else {
+      showToast(
+        splitCount === 1
+          ? "Trimmed region at playhead"
+          : `Trimmed ${splitCount} regions at playhead`,
+      );
+      setSelectedRegionKeys([]);
+    }
+  };
 
   const contentWidth = Math.max(1, Math.round(totalLength * pxPerSec));
 
@@ -1270,6 +1604,8 @@ export function Timeline({
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!hasSongs) return;
+    // Empty-lane click (regions stopPropagation) clears region selection.
+    if (!readOnly) setSelectedRegionKeys([]);
     dragging.current = true;
     (e.target as Element).setPointerCapture?.(e.pointerId);
     // Optimistic needle only on down -- committing a full seek here AND on
@@ -1295,6 +1631,53 @@ export function Timeline({
       viewportWidth: e.currentTarget.clientWidth,
     });
   };
+
+  // Editor hotkeys: region copy / paste / delete / select-all.
+  useEffect(() => {
+    if (readOnly) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable)
+      )
+        return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === "a") {
+        e.preventDefault();
+        setSelectedRegionKeys(allRegionSelKeys(state.songs));
+      } else if (mod && e.key === "c") {
+        e.preventDefault();
+        copySelectedRegions();
+      } else if (mod && e.key === "v") {
+        e.preventDefault();
+        void pasteClipboardRegions();
+      } else if (mod && e.key === "d") {
+        e.preventDefault();
+        void duplicateSelectedRegions();
+      } else if (mod && e.key === "t") {
+        e.preventDefault();
+        void splitSelectedAtPlayhead();
+      } else if (e.key === "Backspace" || e.key === "Delete") {
+        if (selectedRegionKeys.length === 0) return;
+        e.preventDefault();
+        deleteSelectedRegions();
+      } else if (e.key === "Escape") {
+        setSelectedRegionKeys([]);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    readOnly,
+    selectedRegionKeys,
+    state.songs,
+    playheadAbsoluteSec,
+    songOffsets,
+    songLengths,
+  ]);
 
   const currentSongIdx = state.songIndex >= 0 ? state.songIndex : 0;
   const currentSongOffset = songOffsets[currentSongIdx] ?? 0;
@@ -1345,7 +1728,7 @@ export function Timeline({
   return (
     <div
       ref={containerRef}
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-surface/60"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary"
     >
       {/* Toast overlay */}
       <ToastContainer
@@ -1354,16 +1737,51 @@ export function Timeline({
       />
 
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center justify-between border-b border-default/30 px-3 py-1.5 bg-surface/80 z-20">
-        <span className="text-xs font-semibold uppercase tracking-wide text-foreground/40">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default/30 px-3 py-1.5 bg-background-secondary z-20">
+        <span className="text-xs font-semibold uppercase tracking-wide text-foreground/40 shrink-0">
           Timeline
           <span className="ml-2 font-normal lowercase text-foreground/25">
             {songs.length} song{songs.length === 1 ? "" : "s"} &middot;{" "}
             {formatTimeShort(totalLength)}
           </span>
         </span>
-        <div className="flex items-center gap-1">
-          {/* Snap-to-grid toggle */}
+
+        <div className="flex items-center gap-1 ml-auto">
+          {!readOnly && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                isIconOnly
+                aria-label="Copy selected regions (⌘C)"
+                isDisabled={selectedRegionKeys.length === 0}
+                onPress={copySelectedRegions}
+              >
+                <Copy size={13} />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                isIconOnly
+                aria-label="Delete selected regions (⌫)"
+                isDisabled={selectedRegionKeys.length === 0}
+                onPress={deleteSelectedRegions}
+              >
+                <Trash2 size={13} />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                isIconOnly
+                aria-label="Trim/split selected regions at playhead (⌘T)"
+                isDisabled={selectedRegionKeys.length === 0}
+                onPress={() => void splitSelectedAtPlayhead()}
+              >
+                <Scissors size={13} />
+              </Button>
+              <div className="w-px h-4 bg-default/30 mx-0.5" />
+            </>
+          )}
           <Button
             size="sm"
             variant={snapToGrid ? "secondary" : "outline"}
@@ -1373,43 +1791,89 @@ export function Timeline({
           >
             <Grid3X3 size={13} />
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            isIconOnly
-            aria-label="Zoom out"
-            onPress={() => applyZoomAt(pxPerSec / 1.5)}
-          >
-            <ZoomOut size={14} />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            isIconOnly
-            aria-label="Zoom in"
-            onPress={() => applyZoomAt(pxPerSec * 1.5)}
-          >
-            <ZoomIn size={14} />
-          </Button>
-          <div className="w-px h-4 bg-default/30 mx-0.5" />
-          <Button
-            size="sm"
-            variant="outline"
-            isIconOnly
-            aria-label="Zoom lanes vertically out"
-            onPress={() => setVerticalZoom((v) => Math.max(0.3, v / 1.3))}
-          >
-            <ChevronDown size={14} />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            isIconOnly
-            aria-label="Zoom lanes vertically in"
-            onPress={() => setVerticalZoom((v) => Math.min(4, v * 1.3))}
-          >
-            <ChevronUp size={14} />
-          </Button>
+
+          {/* H / V zoom — narrow, right side; thumb hit padding 1rem */}
+          <div className="flex items-center gap-1.5 ml-1 w-[17.5rem] shrink-0">
+            <span
+              className="text-[9px] uppercase text-foreground/35 shrink-0"
+              title="Horizontal zoom (time)"
+            >
+              H
+            </span>
+            <Slider
+              aria-label="Horizontal zoom"
+              minValue={0}
+              maxValue={1}
+              step={0.001}
+              value={Math.max(
+                0,
+                Math.min(
+                  1,
+                  Math.log(pxPerSec / MIN_PX_PER_SEC) /
+                    Math.log(MAX_PX_PER_SEC / MIN_PX_PER_SEC),
+                ),
+              )}
+              onChange={(v) => {
+                const t = Array.isArray(v) ? v[0] : v;
+                const next =
+                  MIN_PX_PER_SEC * Math.pow(MAX_PX_PER_SEC / MIN_PX_PER_SEC, t);
+                applyZoomAt(next);
+              }}
+              className="flex-1 min-w-0"
+            >
+              <Slider.Track
+                style={{
+                  borderLeftColor: "var(--default)",
+                  background: "var(--background)",
+                }}
+              >
+                <Slider.Fill style={{ background: "var(--default)" }} />
+                <Slider.Thumb
+                  style={
+                    {
+                      boxSizing: "border-box",
+                      background: "var(--default)",
+                    } as any
+                  }
+                />
+              </Slider.Track>
+            </Slider>
+            <span
+              className="text-[9px] uppercase text-foreground/35 shrink-0"
+              title="Vertical zoom (lane height)"
+            >
+              V
+            </span>
+            <Slider
+              aria-label="Vertical zoom"
+              minValue={0.3}
+              maxValue={4}
+              step={0.01}
+              value={verticalZoom}
+              onChange={(v) => {
+                const z = Array.isArray(v) ? v[0] : v;
+                setVerticalZoom(z);
+              }}
+              className="flex-1  min-w-0"
+            >
+              <Slider.Track
+                style={{
+                  borderLeftColor: "var(--default)",
+                  background: "var(--background)",
+                }}
+              >
+                <Slider.Fill style={{ background: "var(--default)" }} />
+                <Slider.Thumb
+                  style={
+                    {
+                      boxSizing: "border-box",
+                      background: "var(--default)",
+                    } as any
+                  }
+                />
+              </Slider.Track>
+            </Slider>
+          </div>
         </div>
       </div>
 
@@ -1419,55 +1883,58 @@ export function Timeline({
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {/* Fixed Left Sidebar with Track Controls */}
-          <div
-            className="shrink-0 flex flex-col border-r border-default/30 bg-surface z-20 select-none"
-            style={{ width: SIDEBAR_WIDTH }}
-          >
-            {/* Ruler spacer header */}
+          {/* Fixed Left Sidebar with Track Controls (editor only) */}
+          {!readOnly && (
             <div
-              className="shrink-0 border-b border-default/30 px-2.5 text-[10px] font-bold uppercase tracking-wider text-foreground/40 flex items-center bg-surface"
-              style={{ height: RULER_HEIGHT }}
+              className="shrink-0 flex flex-col border-r border-default/30 bg-background-secondary z-20 select-none"
+              style={{ width: SIDEBAR_WIDTH }}
             >
-              SONGS
-            </div>
-            {/* Event lane spacer */}
-            <div
-              className="shrink-0 border-b border-default/30 px-2.5 text-[9px] font-bold uppercase text-foreground/25 flex items-center bg-surface/40"
-              style={{ height: EVENT_LANE_HEIGHT }}
-            >
-              Events
-            </div>
-            {/* Track controls list (scrolls vertically in sync with right timeline) */}
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <div style={{ transform: `translateY(-${scrollTopY}px)` }}>
-                {rows.length === 0 ? (
-                  <div className="flex h-20 items-center justify-center px-2 text-[10px] text-foreground/40">
-                    No tracks
-                  </div>
-                ) : (
-                  rows.map((row) =>
-                    row.headerIndex !== null ? (
-                      <TrackHeaderControl
-                        key={row.name}
-                        track={state.tracks[row.headerIndex]}
-                        index={row.headerIndex}
-                        color={row.color}
-                        verticalZoom={verticalZoom}
-                      />
-                    ) : (
-                      <TimelineRowLabel
-                        key={row.name}
-                        name={row.name}
-                        color={row.color}
-                        verticalZoom={verticalZoom}
-                      />
-                    ),
-                  )
-                )}
+              {/* Ruler spacer header */}
+              <div
+                className="shrink-0 border-b border-default/30 px-2.5 text-[10px] font-bold uppercase tracking-wider text-foreground/40 flex items-center bg-background-tertiary"
+                style={{ height: RULER_HEIGHT }}
+              >
+                SONGS
+              </div>
+              {/* Event lane spacer */}
+              <div
+                className="shrink-0 border-b border-default/30 px-2.5 text-[9px] font-bold uppercase text-foreground/25 flex items-center bg-background-tertiary"
+                style={{ height: EVENT_LANE_HEIGHT }}
+              >
+                Events
+              </div>
+              {/* Track controls list (scrolls vertically in sync with right timeline) */}
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <div style={{ transform: `translateY(-${scrollTopY}px)` }}>
+                  {rows.length === 0 ? (
+                    <div className="flex h-20 items-center justify-center px-2 text-[10px] text-foreground/40">
+                      No tracks
+                    </div>
+                  ) : (
+                    rows.map((row) =>
+                      row.headerIndex !== null ? (
+                        <TrackHeaderControl
+                          key={row.name}
+                          track={state.tracks[row.headerIndex]}
+                          index={row.headerIndex}
+                          color={row.color}
+                          verticalZoom={verticalZoom}
+                          anySolo={state.tracks.some((t) => t.solo)}
+                        />
+                      ) : (
+                        <TimelineRowLabel
+                          key={row.name}
+                          name={row.name}
+                          color={row.color}
+                          verticalZoom={verticalZoom}
+                        />
+                      ),
+                    )
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Right Scrollable Timeline View (Horizontally & Vertically) */}
           <div
@@ -1482,7 +1949,7 @@ export function Timeline({
             >
               {/* 1. Sticky Ruler Header -- one segment per song, each with its own bpm/time-signature grid */}
               <div
-                className="sticky top-0 z-20 bg-surface/95 shrink-0 cursor-col-resize touch-none relative"
+                className="sticky top-0 z-20 bg-background-secondary shrink-0 cursor-col-resize touch-none relative"
                 style={{ width: contentWidth, height: RULER_HEIGHT }}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
@@ -1633,330 +2100,349 @@ export function Timeline({
                           (t) =>
                             (t.name || t.id) === row.name || t.id === row.name,
                         );
-                        const songRegion = song.regions?.find(
+                        const trackRegions = (song.regions ?? []).filter(
                           (r) =>
                             Boolean(r.file) &&
                             (r.trackId === track?.id || r.trackId === row.name),
                         );
-                        if (!songRegion || !songRegion.file) return null;
+                        if (trackRegions.length === 0) return null;
 
                         const peaksForSong =
                           allPeaks?.songs[i]?.tracks ??
                           (i === state.songIndex ? peaks?.tracks : undefined);
                         const peakEntry = peaksForSong?.find(
                           (p) =>
-                            (p as any).trackId === track?.id ||
+                            (p as { trackId?: string }).trackId === track?.id ||
                             p.id === track?.id ||
-                            p.id === songRegion?.id,
+                            trackRegions.some((r) => p.id === r.id),
                         );
-                        const peaksLoading =
-                          songRegion?.file &&
-                          (!peakEntry || peakEntry.levels.length === 0);
-                        const regionData = getRegion(i, row.name);
                         const segDuration = songLengths[i];
+                        const primary = trackRegions[0];
+                        const peaksLoading =
+                          Boolean(primary?.file) &&
+                          (!peakEntry || peakEntry.levels.length === 0);
 
-                        // Trim clamped within segment
-                        const trimStart = Math.max(
-                          0,
-                          Math.min(regionData.trimStart, segDuration - 0.1),
-                        );
-                        const trimEnd = Math.max(
-                          0,
-                          Math.min(
-                            regionData.trimEnd,
-                            segDuration - trimStart - 0.1,
-                          ),
-                        );
-                        const trimStartPx = trimStart * pxPerSec;
-                        const trimEndPx = trimEnd * pxPerSec;
-                        const regionLeft = segStart + trimStartPx;
-                        void regionLeft;
-                        const regionWidth = Math.max(
-                          8,
-                          segWidth - trimStartPx - trimEndPx,
-                        );
-
-                        // Snap helper: snap seconds to nearest beat (if BPM known)
                         const snapSec = (sec: number) => {
                           if (!snapToGrid || song.bpm <= 0) return sec;
                           const beatSec = 60 / song.bpm;
                           return Math.round(sec / beatSec) * beatSec;
                         };
 
+                        const effectiveGeom = (r: RegionRow) => {
+                          const draft = regionGeomDraft[regionSelKey(i, r.id)];
+                          if (draft) return draft;
+                          const start = r.startSeconds;
+                          const duration =
+                            r.durationSeconds > 0
+                              ? r.durationSeconds
+                              : Math.max(0.05, segDuration - start);
+                          return {
+                            start,
+                            sourceOffset: r.sourceOffsetSeconds,
+                            duration,
+                          };
+                        };
+
+                        const fileDuration =
+                          peakEntry?.durationSeconds ??
+                          primary?.durationSeconds ??
+                          segDuration;
+
                         return (
                           <div
                             key={i}
-                            className="absolute top-0"
-                            style={{ left: segStart }}
+                            className="absolute top-0 bottom-0"
+                            style={{ left: segStart, width: segWidth }}
                           >
-                            {/* Waveform canvas (underlayer) */}
-                            <TrackWaveformLane
-                              levels={peakEntry?.levels ?? []}
-                              durationSeconds={peakEntry?.durationSeconds ?? 0}
-                              regionFile={songRegion?.file}
-                              gestureActive={gestureActive}
-                              verticalZoom={verticalZoom}
-                              contentWidth={segWidth}
-                              scrollLeft={viewStart - segStart}
-                              viewportWidth={viewEnd - viewStart}
-                              pxPerSec={pxPerSec}
-                              color={row.color}
-                              muted={(track?.mute ?? false) || regionData.muted}
-                            />
+                            {trackRegions.map((songRegion) => {
+                              const thisRegionSelKey = regionSelKey(
+                                i,
+                                songRegion.id,
+                              );
+                              const isRegionSelected =
+                                selectedRegionKeys.includes(thisRegionSelKey);
+                              const regionUi = getRegionUi(thisRegionSelKey);
+                              const geom = effectiveGeom(songRegion);
+                              const leftPx = geom.start * pxPerSec;
+                              const regionWidth = Math.max(
+                                8,
+                                geom.duration * pxPerSec,
+                              );
 
-                            {/* Region block overlay */}
-                            <div
-                              className="absolute top-1 bottom-1 rounded-md pointer-events-auto"
-                              style={{
-                                left: trimStartPx,
-                                width: regionWidth,
-                                border: `1.5px solid ${row.color}55`,
-                                background: `${row.color}12`,
-                                cursor: "grab",
-                                opacity: regionData.muted ? 0.4 : 1,
-                              }}
-                              title={`${row.name} – Song ${i + 1}: ${song.name}`}
-                              onPointerDown={(e) => {
-                                // Don't interfere with the handle hit zones below
-                                const rect =
-                                  e.currentTarget.getBoundingClientRect();
-                                const localX = e.clientX - rect.left;
-                                if (
-                                  localX < HANDLE_PX ||
-                                  localX > regionWidth - HANDLE_PX
-                                )
-                                  return;
+                              // Viewport slice relative to this region box
+                              // (peaks are drawn only inside the clipped region).
+                              const regionAbsLeft = segStart + leftPx;
+                              const regionAbsRight =
+                                regionAbsLeft + regionWidth;
+                              const regViewStart = Math.max(
+                                regionAbsLeft,
+                                viewStart,
+                              );
+                              const regViewEnd = Math.min(
+                                regionAbsRight,
+                                viewEnd,
+                              );
+                              const regScrollLeft = Math.max(
+                                0,
+                                regViewStart - regionAbsLeft,
+                              );
+                              const regViewportWidth = Math.max(
+                                0,
+                                regViewEnd - regViewStart,
+                              );
+
+                              const beginDrag = (
+                                e: React.PointerEvent,
+                                mode: RegionDragMode,
+                              ) => {
                                 e.stopPropagation();
-                                // Mark region drag (move)
-                                regionDragRef.current = {
-                                  key: regionKey(i, row.name),
-                                  mode: "move",
-                                  startX: e.clientX,
-                                  origTrimStart: trimStart,
-                                  origTrimEnd: trimEnd,
-                                  songIndex: i,
-                                  maxDuration: segDuration,
+                                selectRegion(thisRegionSelKey, e);
+                                const orig: RegionGeom = {
+                                  start: geom.start,
+                                  sourceOffset: geom.sourceOffset,
+                                  duration: geom.duration,
                                 };
-                                e.currentTarget.setPointerCapture(e.pointerId);
-                              }}
-                              onPointerMove={(e) => {
-                                const rd = regionDragRef.current;
-                                if (
-                                  !rd ||
-                                  rd.key !== regionKey(i, row.name) ||
-                                  rd.mode !== "move"
-                                )
-                                  return;
-                                const dx = e.clientX - rd.startX;
-                                const dSec = dx / pxPerSec;
+                                regionDragRef.current = {
+                                  key: thisRegionSelKey,
+                                  mode,
+                                  startX: e.clientX,
+                                  songIndex: i,
+                                  regionId: songRegion.id,
+                                  origStart: orig.start,
+                                  origSourceOffset: orig.sourceOffset,
+                                  origDuration: orig.duration,
+                                  maxEnd: segDuration,
+                                  lastGeom: orig,
+                                };
+                                (
+                                  e.currentTarget as HTMLElement
+                                ).setPointerCapture(e.pointerId);
+                              };
 
-                                // Check if drag crosses into a different song with different BPM
-                                const absX =
-                                  segStart +
-                                  trimStartPx +
-                                  (rd.origTrimStart + dSec) * pxPerSec;
-                                // find which song the pointer is currently in
-                                const pointerAbsSec =
-                                  (scrollState.scrollLeft +
-                                    e.clientX -
-                                    (scrollRef.current?.getBoundingClientRect()
-                                      .left ?? 0)) /
-                                  pxPerSec;
-                                const targetSongIdx = songOffsets.findIndex(
-                                  (offset, idx) =>
-                                    pointerAbsSec >= offset &&
-                                    pointerAbsSec < offset + songLengths[idx],
-                                );
-                                void absX; // silence lint
-                                if (
-                                  targetSongIdx !== -1 &&
-                                  targetSongIdx !== rd.songIndex
-                                ) {
-                                  const srcBpm = songs[rd.songIndex]?.bpm ?? 0;
-                                  const dstBpm = songs[targetSongIdx]?.bpm ?? 0;
-                                  if (Math.abs(srcBpm - dstBpm) > 0.1) {
-                                    showToast(
-                                      `Can't move region here — tempo differs (${srcBpm.toFixed(1)} BPM → ${dstBpm.toFixed(1)} BPM)`,
-                                    );
-                                    return;
-                                  }
+                              const onDragMove = (e: React.PointerEvent) => {
+                                const rd = regionDragRef.current;
+                                if (!rd || rd.key !== thisRegionSelKey) return;
+                                const dSec = (e.clientX - rd.startX) / pxPerSec;
+
+                                if (rd.mode === "move") {
+                                  const maxStart = Math.max(
+                                    0,
+                                    rd.maxEnd - rd.origDuration,
+                                  );
+                                  const nextStart = Math.max(
+                                    0,
+                                    Math.min(
+                                      maxStart,
+                                      snapSec(rd.origStart + dSec),
+                                    ),
+                                  );
+                                  writeGeomDraft(thisRegionSelKey, {
+                                    start: nextStart,
+                                    sourceOffset: rd.origSourceOffset,
+                                    duration: rd.origDuration,
+                                  });
+                                  return;
                                 }
 
-                                // Only allow movement within same song
-                                if (
-                                  targetSongIdx !== -1 &&
-                                  targetSongIdx !== rd.songIndex
-                                )
+                                if (rd.mode === "trimStart") {
+                                  const maxDelta = rd.origDuration - 0.05;
+                                  const rawStart = rd.origStart + dSec;
+                                  const snappedStart = snapSec(rawStart);
+                                  const delta = Math.max(
+                                    -rd.origStart,
+                                    Math.min(
+                                      maxDelta,
+                                      snappedStart - rd.origStart,
+                                    ),
+                                  );
+                                  writeGeomDraft(thisRegionSelKey, {
+                                    start: rd.origStart + delta,
+                                    sourceOffset: rd.origSourceOffset + delta,
+                                    duration: rd.origDuration - delta,
+                                  });
                                   return;
+                                }
 
-                                const rawNewTrimStart = Math.max(
-                                  0,
-                                  rd.origTrimStart + dSec,
-                                );
-                                const newTrimStart = snapSec(rawNewTrimStart);
-                                const newTrimEnd = Math.max(
-                                  0,
-                                  rd.maxDuration -
-                                    newTrimStart -
-                                    (rd.maxDuration -
-                                      rd.origTrimStart -
-                                      rd.origTrimEnd),
-                                );
-                                setRegion(i, row.name, {
-                                  trimStart: Math.min(
-                                    newTrimStart,
-                                    rd.maxDuration - 0.1,
+                                // trimEnd: snap the *end* time, not duration.
+                                const rawEnd =
+                                  rd.origStart + rd.origDuration + dSec;
+                                const snappedEnd = snapSec(rawEnd);
+                                const nextDur = Math.max(
+                                  0.05,
+                                  Math.min(
+                                    rd.maxEnd - rd.origStart,
+                                    snappedEnd - rd.origStart,
                                   ),
-                                  trimEnd: Math.max(0, newTrimEnd),
+                                );
+                                writeGeomDraft(thisRegionSelKey, {
+                                  start: rd.origStart,
+                                  sourceOffset: rd.origSourceOffset,
+                                  duration: nextDur,
                                 });
-                              }}
-                              onPointerUp={(e) => {
-                                if (
-                                  regionDragRef.current?.key ===
-                                  regionKey(i, row.name)
-                                ) {
-                                  regionDragRef.current = null;
-                                  e.currentTarget.releasePointerCapture(
-                                    e.pointerId,
-                                  );
-                                }
-                              }}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setRegion(i, row.name, {
-                                  muted: !regionData.muted,
-                                });
-                              }}
-                            >
-                              {/* Region label */}
-                              <div
-                                className="absolute top-0.5 left-2 text-[9px] font-semibold truncate max-w-[80%] pointer-events-none select-none"
-                                style={{ color: row.color, opacity: 0.8 }}
-                              >
-                                {regionData.muted ? "[M] " : ""}
-                                {row.name}
-                              </div>
-                              {/* Peaks loading indicator */}
-                              {peaksLoading && regionWidth > 40 && (
-                                <div
-                                  className="absolute bottom-0.5 left-2 text-[8px] pointer-events-none select-none animate-pulse"
-                                  style={{ color: row.color, opacity: 0.5 }}
-                                >
-                                  peaks…
+                              };
+
+                              const onDragUp = (e: React.PointerEvent) => {
+                                const rd = regionDragRef.current;
+                                if (!rd || rd.key !== thisRegionSelKey) return;
+                                const finalGeom = rd.lastGeom ??
+                                  regionGeomDraftRef.current[
+                                    thisRegionSelKey
+                                  ] ?? {
+                                    start: rd.origStart,
+                                    sourceOffset: rd.origSourceOffset,
+                                    duration: rd.origDuration,
+                                  };
+                                // Keep draft until project state catches up so
+                                // the region doesn't snap back mid-flight.
+                                writeGeomDraft(thisRegionSelKey, finalGeom);
+                                void builder
+                                  .regionUpdate({
+                                    songIndex: i,
+                                    regionId: songRegion.id,
+                                    startSeconds: finalGeom.start,
+                                    sourceOffsetSeconds: finalGeom.sourceOffset,
+                                    durationSeconds: finalGeom.duration,
+                                  })
+                                  .finally(() => {
+                                    // Drop draft once committed; live state owns geometry.
+                                    setRegionGeomDraft((prev) => {
+                                      if (!(thisRegionSelKey in prev))
+                                        return prev;
+                                      const next = { ...prev };
+                                      delete next[thisRegionSelKey];
+                                      regionGeomDraftRef.current = next;
+                                      return next;
+                                    });
+                                  });
+                                regionDragRef.current = null;
+                                (
+                                  e.currentTarget as HTMLElement
+                                ).releasePointerCapture(e.pointerId);
+                              };
+
+                              return (
+                                <div key={songRegion.id}>
+                                  <div
+                                    className={`absolute top-1 bottom-1 rounded-md overflow-hidden ${readOnly ? "pointer-events-none" : "pointer-events-auto"}`}
+                                    style={{
+                                      left: leftPx,
+                                      width: regionWidth,
+                                      border: isRegionSelected
+                                        ? `2px solid ${row.color}`
+                                        : `1.5px solid ${row.color}55`,
+                                      background: isRegionSelected
+                                        ? `${row.color}30`
+                                        : `${row.color}12`,
+                                      boxShadow: isRegionSelected
+                                        ? `0 0 0 1px ${row.color}aa, 0 0 10px ${row.color}44`
+                                        : undefined,
+                                      cursor: readOnly ? "default" : "grab",
+                                      opacity: regionUi.muted ? 0.4 : 1,
+                                      zIndex: isRegionSelected ? 2 : 1,
+                                    }}
+                                    title={`${row.name} – Song ${i + 1}: ${song.name}`}
+                                    onPointerDown={(e) => {
+                                      if (readOnly) return;
+                                      const rect =
+                                        e.currentTarget.getBoundingClientRect();
+                                      const localX = e.clientX - rect.left;
+                                      if (
+                                        localX < HANDLE_PX ||
+                                        localX > regionWidth - HANDLE_PX
+                                      )
+                                        return;
+                                      beginDrag(e, "move");
+                                    }}
+                                    onPointerMove={onDragMove}
+                                    onPointerUp={onDragUp}
+                                    onContextMenu={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      if (readOnly) return;
+                                      setRegionUi(thisRegionSelKey, {
+                                        muted: !regionUi.muted,
+                                      });
+                                    }}
+                                  >
+                                    {/* Peaks clipped to region bounds */}
+                                    {regViewportWidth > 0 && (
+                                      <TrackWaveformLane
+                                        levels={peakEntry?.levels ?? []}
+                                        durationSeconds={fileDuration}
+                                        regionFile={songRegion.file}
+                                        gestureActive={gestureActive}
+                                        verticalZoom={verticalZoom}
+                                        contentWidth={regionWidth}
+                                        scrollLeft={regScrollLeft}
+                                        viewportWidth={regViewportWidth}
+                                        pxPerSec={pxPerSec}
+                                        color={row.color}
+                                        muted={
+                                          (track?.mute ?? false) ||
+                                          regionUi.muted
+                                        }
+                                        sourceOffsetSec={geom.sourceOffset}
+                                        embedded
+                                      />
+                                    )}
+                                    <div
+                                      className="absolute top-0.5 left-2 text-[9px] font-semibold truncate max-w-[80%] pointer-events-none select-none"
+                                      style={{
+                                        color: row.color,
+                                        opacity: 0.8,
+                                      }}
+                                    >
+                                      {regionUi.muted ? "[M] " : ""}
+                                      {row.name}
+                                    </div>
+                                    {peaksLoading && regionWidth > 40 && (
+                                      <div
+                                        className="absolute bottom-0.5 left-2 text-[8px] pointer-events-none select-none animate-pulse"
+                                        style={{
+                                          color: row.color,
+                                          opacity: 0.5,
+                                        }}
+                                      >
+                                        peaks…
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {!readOnly && (
+                                    <div
+                                      className="absolute top-1 bottom-1 rounded-l-md cursor-ew-resize z-10"
+                                      style={{
+                                        left: leftPx,
+                                        width: HANDLE_PX,
+                                        background: `${row.color}99`,
+                                      }}
+                                      title="Drag to trim start"
+                                      onPointerDown={(e) =>
+                                        beginDrag(e, "trimStart")
+                                      }
+                                      onPointerMove={onDragMove}
+                                      onPointerUp={onDragUp}
+                                    />
+                                  )}
+                                  {!readOnly && (
+                                    <div
+                                      className="absolute top-1 bottom-1 rounded-r-md cursor-ew-resize z-10"
+                                      style={{
+                                        left: leftPx + regionWidth - HANDLE_PX,
+                                        width: HANDLE_PX,
+                                        background: `${row.color}99`,
+                                      }}
+                                      title="Drag to trim end"
+                                      onPointerDown={(e) =>
+                                        beginDrag(e, "trimEnd")
+                                      }
+                                      onPointerMove={onDragMove}
+                                      onPointerUp={onDragUp}
+                                    />
+                                  )}
                                 </div>
-                              )}
-                            </div>
-
-                            {/* Trim handle: LEFT edge */}
-                            <div
-                              className="absolute top-1 bottom-1 rounded-l-md cursor-ew-resize z-10"
-                              style={{
-                                left: trimStartPx,
-                                width: HANDLE_PX,
-                                background: `${row.color}99`,
-                              }}
-                              title="Drag to trim start"
-                              onPointerDown={(e) => {
-                                e.stopPropagation();
-                                regionDragRef.current = {
-                                  key: regionKey(i, row.name),
-                                  mode: "trimStart",
-                                  startX: e.clientX,
-                                  origTrimStart: trimStart,
-                                  origTrimEnd: trimEnd,
-                                  songIndex: i,
-                                  maxDuration: segDuration,
-                                };
-                                e.currentTarget.setPointerCapture(e.pointerId);
-                              }}
-                              onPointerMove={(e) => {
-                                const rd = regionDragRef.current;
-                                if (
-                                  !rd ||
-                                  rd.key !== regionKey(i, row.name) ||
-                                  rd.mode !== "trimStart"
-                                )
-                                  return;
-                                const dx = e.clientX - rd.startX;
-                                const dSec = dx / pxPerSec;
-                                const maxTrim =
-                                  rd.maxDuration - rd.origTrimEnd - 0.1;
-                                const rawNew = Math.max(
-                                  0,
-                                  Math.min(maxTrim, rd.origTrimStart + dSec),
-                                );
-                                setRegion(i, row.name, {
-                                  trimStart: snapSec(rawNew),
-                                });
-                              }}
-                              onPointerUp={(e) => {
-                                if (
-                                  regionDragRef.current?.key ===
-                                  regionKey(i, row.name)
-                                ) {
-                                  regionDragRef.current = null;
-                                  e.currentTarget.releasePointerCapture(
-                                    e.pointerId,
-                                  );
-                                }
-                              }}
-                            />
-
-                            {/* Trim handle: RIGHT edge */}
-                            <div
-                              className="absolute top-1 bottom-1 rounded-r-md cursor-ew-resize z-10"
-                              style={{
-                                left: trimStartPx + regionWidth - HANDLE_PX,
-                                width: HANDLE_PX,
-                                background: `${row.color}99`,
-                              }}
-                              title="Drag to trim end"
-                              onPointerDown={(e) => {
-                                e.stopPropagation();
-                                regionDragRef.current = {
-                                  key: regionKey(i, row.name),
-                                  mode: "trimEnd",
-                                  startX: e.clientX,
-                                  origTrimStart: trimStart,
-                                  origTrimEnd: trimEnd,
-                                  songIndex: i,
-                                  maxDuration: segDuration,
-                                };
-                                e.currentTarget.setPointerCapture(e.pointerId);
-                              }}
-                              onPointerMove={(e) => {
-                                const rd = regionDragRef.current;
-                                if (
-                                  !rd ||
-                                  rd.key !== regionKey(i, row.name) ||
-                                  rd.mode !== "trimEnd"
-                                )
-                                  return;
-                                const dx = e.clientX - rd.startX;
-                                const dSec = dx / pxPerSec;
-                                const maxTrim =
-                                  rd.maxDuration - rd.origTrimStart - 0.1;
-                                const rawNew = Math.max(
-                                  0,
-                                  Math.min(maxTrim, rd.origTrimEnd - dSec),
-                                );
-                                setRegion(i, row.name, {
-                                  trimEnd: snapSec(rawNew),
-                                });
-                              }}
-                              onPointerUp={(e) => {
-                                if (
-                                  regionDragRef.current?.key ===
-                                  regionKey(i, row.name)
-                                ) {
-                                  regionDragRef.current = null;
-                                  e.currentTarget.releasePointerCapture(
-                                    e.pointerId,
-                                  );
-                                }
-                              }}
-                            />
+                              );
+                            })}
                           </div>
                         );
                       })}
@@ -2043,37 +2529,40 @@ function BeatGrid({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, renderWidth, height);
 
-    if (minorStepSec > 0) {
+    if (minorStepSec > 0 && majorStepSec > 0) {
       const startTime = Math.max(0, scrollLeft / pxPerSec);
       const endTime = Math.min(
         songLength + minorStepSec,
         (scrollLeft + viewportWidth) / pxPerSec,
       );
       const startTick = Math.floor(startTime / minorStepSec) * minorStepSec;
-      const eps = minorStepSec * 0.01;
+      const eps = Math.max(minorStepSec * 0.01, 1e-9);
+      // Cap strokes per frame so extreme zoom-out never melts the canvas.
+      const maxStrokes = 500;
+      let strokes = 0;
 
-      for (let t = startTick; t <= endTime; t += minorStepSec) {
+      for (
+        let t = startTick;
+        t <= endTime && strokes < maxStrokes;
+        t += minorStepSec
+      ) {
         const rounded = Math.round(t / minorStepSec) * minorStepSec;
         const globalX = Math.round(rounded * pxPerSec);
         const canvasX = globalX - scrollLeft;
         if (canvasX < 0 || canvasX > renderWidth) continue;
 
-        const isMajor =
-          Math.abs(((rounded % majorStepSec) + majorStepSec) % majorStepSec) <
-            eps ||
-          Math.abs(
-            (((rounded % majorStepSec) + majorStepSec) % majorStepSec) -
-              majorStepSec,
-          ) < eps;
+        const phase = ((rounded % majorStepSec) + majorStepSec) % majorStepSec;
+        const isMajor = phase < eps || Math.abs(phase - majorStepSec) < eps;
 
         ctx.strokeStyle = isMajor
-          ? "rgba(255,255,255,0.09)"
-          : "rgba(255,255,255,0.03)";
+          ? "rgba(255,255,255,0.05)"
+          : "rgba(255,255,255,0.015)";
         ctx.lineWidth = isMajor ? 1.5 : 1;
         ctx.beginPath();
         ctx.moveTo(canvasX, 0);
         ctx.lineTo(canvasX, height);
         ctx.stroke();
+        strokes += 1;
       }
     }
   }, [

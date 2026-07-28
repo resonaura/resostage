@@ -43,21 +43,7 @@ uint64_t processRssBytes() {
     return static_cast<uint64_t>(info.phys_footprint);
 }
 
-uint64_t processCpuTimeNanos() {
-    task_thread_times_info_data_t times{};
-    mach_msg_type_number_t count = TASK_THREAD_TIMES_INFO_COUNT;
-    if (task_info(mach_task_self(), TASK_THREAD_TIMES_INFO,
-                  reinterpret_cast<task_info_t>(&times), &count) != KERN_SUCCESS)
-        return 0;
-
-    const uint64_t userNs = static_cast<uint64_t>(times.user_time.seconds) * 1'000'000'000ull
-                          + static_cast<uint64_t>(times.user_time.microseconds) * 1000ull;
-    const uint64_t sysNs = static_cast<uint64_t>(times.system_time.seconds) * 1'000'000'000ull
-                         + static_cast<uint64_t>(times.system_time.microseconds) * 1000ull;
-    return userNs + sysNs;
-}
-
-// --- Child-process discovery via libproc ---
+// --- Related-process discovery via libproc ---
 
 struct ProcMetrics {
     std::string name;
@@ -86,32 +72,61 @@ bool getProcMetrics(int pid, ProcMetrics& out) {
     return true;
 }
 
-// Discover PIDs whose parent is our main process.
-// Refreshed every ~10 seconds to pick up any spawned helpers.
-std::vector<int> discoverChildPids(int mainPid) {
-    std::vector<int> children;
-    // proc_listpids returns the number of PIDs actually written.
+// Cumulative CPU time for THIS process via the same libproc path we use for
+// helpers. TASK_THREAD_TIMES_INFO only covers currently-running threads and
+// chronically under-reports the main process vs Activity Monitor.
+uint64_t processCpuTimeNanos() {
+    ProcMetrics m;
+    if (getProcMetrics(getpid(), m))
+        return m.cpuTimeNanos;
+    return 0;
+}
+
+// Discover related helper PIDs: direct children (and grandchildren) of our
+// process -- WebKit networking/GPU helpers for the embedded webview show up
+// here, not just the main ResoStage binary.
+std::vector<int> discoverRelatedPids(int mainPid) {
+    std::vector<int> related;
     constexpr int kMaxPids = 4096;
     int pidBuf[kMaxPids]{};
     int numPids = proc_listpids(PROC_ALL_PIDS, 0, pidBuf, sizeof(pidBuf));
     if (numPids <= 0)
-        return children;
+        return related;
 
-    const int count = numPids / sizeof(int);
+    // Build parent map once.
+    std::unordered_map<int, int> parentOf;
+    const int count = numPids / static_cast<int>(sizeof(int));
     for (int i = 0; i < count; ++i) {
         const int pid = pidBuf[i];
-        if (pid <= 0 || pid == mainPid)
+        if (pid <= 0)
             continue;
-
         struct proc_bsdinfo bsd{};
-        int ret = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsd, sizeof(bsd));
-        if (ret != sizeof(bsd))
+        if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsd, sizeof(bsd)) != sizeof(bsd))
             continue;
-
-        if (bsd.pbi_ppid == mainPid)
-            children.push_back(pid);
+        parentOf[pid] = static_cast<int>(bsd.pbi_ppid);
     }
-    return children;
+
+    auto isDescendant = [&](int pid) {
+        // Walk up a few levels to catch WebKit XPC helpers under the app.
+        for (int depth = 0; depth < 4 && pid > 0; ++depth) {
+            auto it = parentOf.find(pid);
+            if (it == parentOf.end())
+                return false;
+            if (it->second == mainPid)
+                return true;
+            pid = it->second;
+        }
+        return false;
+    };
+
+    for (const auto& [pid, ppid] : parentOf) {
+        (void)ppid;
+        if (pid == mainPid)
+            continue;
+        if (isDescendant(pid))
+            related.push_back(pid);
+    }
+    return related;
 }
 
 } // namespace
@@ -133,32 +148,38 @@ SystemHealthSnapshot SystemHealth::sample() const {
     // Refresh child PID list every 10 seconds.
     constexpr uint64_t kChildRefreshNanos = 10'000'000'000ull;
     if (lastChildRefreshNanos == 0 || (wallNow - lastChildRefreshNanos) >= kChildRefreshNanos) {
-        childPids = discoverChildPids(getpid());
+        childPids = discoverRelatedPids(getpid());
         lastChildRefreshNanos = wallNow;
     }
 
-    // --- Collect metrics for main process + children ---
+    // --- Collect metrics for main process + WebKit/helpers ---
     const int mainPid = getpid();
     std::vector<ProcessHealthEntry> entries;
     entries.reserve(1 + childPids.size());
 
-    // Main process
+    // Main process -- same metric source as helpers so % matches the table.
     {
         ProcessHealthEntry e;
         e.pid = mainPid;
-        e.name = "resoset";
-        e.rssBytes = processRssBytes();
+        ProcMetrics m;
+        if (getProcMetrics(mainPid, m)) {
+            e.name = m.name.empty() ? "ResoStage" : m.name;
+            e.rssBytes = m.rssBytes;
+        } else {
+            e.name = "ResoStage";
+            e.rssBytes = processRssBytes();
+        }
         entries.push_back(std::move(e));
     }
 
-    // Children
+    // Helpers (WebKit networking / GPU / WebContent, etc.)
     for (int childPid : childPids) {
         ProcMetrics m;
         if (!getProcMetrics(childPid, m))
             continue;
         ProcessHealthEntry e;
         e.pid = childPid;
-        e.name = std::move(m.name);
+        e.name = m.name.empty() ? ("pid-" + std::to_string(childPid)) : std::move(m.name);
         e.rssBytes = m.rssBytes;
         entries.push_back(std::move(e));
     }

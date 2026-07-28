@@ -123,7 +123,7 @@ export function LevelMeterBar({
         type="button"
         onClick={() => setClipLatched(false)}
         title={clipLatched ? "Clipped -- click to reset" : undefined}
-        className={`relative overflow-hidden rounded-md bg-default/20 ${
+        className={`relative overflow-hidden rounded-md bg-background ${
           barClassName ?? (vertical ? "h-24 w-4" : "h-3 w-full")
         }`}
       >

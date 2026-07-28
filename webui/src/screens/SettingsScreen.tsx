@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { Card } from "@heroui/react";
+import { useEffect, useState } from "react";
 import { settings as settingsApi } from "../lib/api";
 import type { WebUiState } from "../lib/types";
 
@@ -18,7 +18,9 @@ function formatBytes(n: number): string {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-default/30 p-3">
-      <div className="text-[11px] uppercase tracking-wide text-foreground/50">{label}</div>
+      <div className="text-[11px] uppercase tracking-wide text-foreground/50">
+        {label}
+      </div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
     </div>
   );
@@ -26,9 +28,16 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const selectCls =
   "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
-const labelCls = "text-[11px] font-semibold uppercase tracking-wide text-foreground/50";
+const labelCls =
+  "text-[11px] font-semibold uppercase tracking-wide text-foreground/50";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1">
       <span className={labelCls}>{label}</span>
@@ -61,14 +70,22 @@ function keyEventToDescription(e: KeyboardEvent): string | null {
     Backspace: "backspace",
     Delete: "delete",
   };
-  let key = named[e.key] ?? (e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase());
+  let key =
+    named[e.key] ??
+    (e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase());
   if (/^f\d{1,2}$/.test(key)) key = key; // function keys already lowercase e.g. "f1"
 
   parts.push(key);
   return parts.join(" + ");
 }
 
-function KeybindingRow({ action, current }: { action: string; current: string }) {
+function KeybindingRow({
+  action,
+  current,
+}: {
+  action: string;
+  current: string;
+}) {
   const [listening, setListening] = useState(false);
 
   useEffect(() => {
@@ -77,10 +94,12 @@ function KeybindingRow({ action, current }: { action: string; current: string })
       e.preventDefault();
       const desc = keyEventToDescription(e);
       setListening(false);
-      if (desc && desc !== "__cancel__") void settingsApi.setKeybinding(action, desc);
+      if (desc && desc !== "__cancel__")
+        void settingsApi.setKeybinding(action, desc);
     };
     window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [listening, action]);
 
   return (
@@ -115,11 +134,16 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
             <select
               className={selectCls}
               value={s.currentOutputDevice}
-              onChange={(e) => void settingsApi.setAudioOutputDevice(e.target.value)}
+              onChange={(e) =>
+                void settingsApi.setAudioOutputDevice(e.target.value)
+              }
             >
-              {s.currentOutputDevice && !s.outputDevices.includes(s.currentOutputDevice) && (
-                <option value={s.currentOutputDevice}>{s.currentOutputDevice}</option>
-              )}
+              {s.currentOutputDevice &&
+                !s.outputDevices.includes(s.currentOutputDevice) && (
+                  <option value={s.currentOutputDevice}>
+                    {s.currentOutputDevice}
+                  </option>
+                )}
               {s.outputDevices.map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -132,7 +156,9 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
               <select
                 className={selectCls}
                 value={s.sampleRate}
-                onChange={(e) => void settingsApi.setSampleRate(Number(e.target.value))}
+                onChange={(e) =>
+                  void settingsApi.setSampleRate(Number(e.target.value))
+                }
               >
                 {s.availableSampleRates.map((r) => (
                   <option key={r} value={r}>
@@ -145,7 +171,9 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
               <select
                 className={selectCls}
                 value={s.bufferSize}
-                onChange={(e) => void settingsApi.setBufferSize(Number(e.target.value))}
+                onChange={(e) =>
+                  void settingsApi.setBufferSize(Number(e.target.value))
+                }
               >
                 {s.availableBufferSizes.map((b) => (
                   <option key={b} value={b}>
@@ -166,7 +194,11 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
                       onClick={() => {
                         const activeIndices = s.outputChannelNames
                           .map((_, idx) => idx)
-                          .filter((idx) => (idx === i ? !active : (s.activeOutputChannels[idx] ?? false)));
+                          .filter((idx) =>
+                            idx === i
+                              ? !active
+                              : (s.activeOutputChannels[idx] ?? false),
+                          );
                         void settingsApi.setOutputChannels(activeIndices);
                       }}
                       className={`rounded-lg border px-3 py-1.5 text-sm ${
@@ -194,7 +226,9 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
             <select
               className={selectCls}
               defaultValue=""
-              onChange={(e) => e.target.value && void settingsApi.setMidiOutput(e.target.value)}
+              onChange={(e) =>
+                e.target.value && void settingsApi.setMidiOutput(e.target.value)
+              }
             >
               <option value="" disabled>
                 Select MIDI output…
@@ -210,7 +244,9 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
             <select
               className={selectCls}
               defaultValue=""
-              onChange={(e) => e.target.value && void settingsApi.setMidiInput(e.target.value)}
+              onChange={(e) =>
+                e.target.value && void settingsApi.setMidiInput(e.target.value)
+              }
             >
               <option value="" disabled>
                 Select MIDI remote…
@@ -228,11 +264,17 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
       <Card>
         <Card.Header>
           <Card.Title>Keyboard shortcuts</Card.Title>
-          <Card.Description>Click a binding, then press a key (Esc cancels)</Card.Description>
+          <Card.Description>
+            Click a binding, then press a key (Esc cancels)
+          </Card.Description>
         </Card.Header>
         <Card.Content className="flex flex-col gap-1.5">
           {s.keybindings.map((kb) => (
-            <KeybindingRow key={kb.action} action={kb.action} current={kb.key} />
+            <KeybindingRow
+              key={kb.action}
+              action={kb.action}
+              current={kb.key}
+            />
           ))}
         </Card.Content>
       </Card>
@@ -244,27 +286,23 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
         <Card.Content className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Stat
-              label="CPU (total)"
-              value={`${Math.min(
-                100,
-                Math.max(
-                  0,
-                  (h.cpuPercent ?? 0) /
-                    (typeof navigator !== "undefined" && navigator.hardwareConcurrency
-                      ? navigator.hardwareConcurrency
-                      : 10),
-                ),
-              ).toFixed(1)}%`}
+              label="CPU (app, 1-core %)"
+              value={`${Math.max(0, h.cpuPercent ?? 0).toFixed(1)}%`}
             />
-            <Stat label="RAM (total RSS)" value={formatBytes(h.rssBytes)} />
-            <Stat label="Free RAM" value={formatBytes(h.freeBytes)} />
+            <Stat label="RAM (app RSS)" value={formatBytes(h.rssBytes)} />
+            <Stat label="Free system RAM" value={formatBytes(h.freeBytes)} />
             <Stat label="Underruns" value={String(h.underrunCount)} />
-            <Stat label="Audio callbacks" value={String(h.audioCallbackCount)} />
+            <Stat
+              label="Audio callbacks"
+              value={String(h.audioCallbackCount)}
+            />
             <Stat label="Web clients" value={String(h.webClientCount)} />
           </div>
           {(h.processes?.length ?? 0) > 0 && (
             <div className="rounded-lg bg-default/30 p-3">
-              <div className="mb-2 text-xs font-medium uppercase text-default-500">Per-process breakdown</div>
+              <div className="mb-2 text-xs font-medium uppercase text-default-500">
+                Per-process (incl. WebKit helpers)
+              </div>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-default-500">
@@ -277,10 +315,18 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
                 <tbody>
                   {(h.processes ?? []).map((p) => (
                     <tr key={p.pid} className="border-t border-default/20">
-                      <td className="py-1 pr-3 font-mono text-xs">{p.name || "—"}</td>
-                      <td className="py-1 pr-3 text-right font-mono text-xs">{p.pid}</td>
-                      <td className="py-1 pr-3 text-right">{formatBytes(p.rssBytes)}</td>
-                      <td className="py-1 text-right">{p.cpuPercent.toFixed(1)}%</td>
+                      <td className="py-1 pr-3 font-mono text-xs">
+                        {p.name || "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right font-mono text-xs">
+                        {p.pid}
+                      </td>
+                      <td className="py-1 pr-3 text-right">
+                        {formatBytes(p.rssBytes)}
+                      </td>
+                      <td className="py-1 text-right">
+                        {p.cpuPercent.toFixed(1)}%
+                      </td>
                     </tr>
                   ))}
                 </tbody>

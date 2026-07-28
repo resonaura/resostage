@@ -763,6 +763,11 @@ bool ProjectLoader::loadAutosave(std::string& error) {
     (void)doc["sampleRate"].get(sampleRate);
     proj.sampleRate = sampleRate;
 
+    double clickGainDb = -6.0;
+    const bool hadProjectClickGain = !doc["builtInClickGainDb"].get(clickGainDb);
+    if (hadProjectClickGain)
+        proj.builtInClickGainDb = clickGainDb;
+
     simdjson::dom::array bussesArr;
     if (!doc["busses"].get(bussesArr)) {
         for (simdjson::dom::element busEl : bussesArr) {
@@ -787,6 +792,16 @@ bool ProjectLoader::loadAutosave(std::string& error) {
             SongDef song;
             if (!parseSong(songEl, song, error, proj)) return false;
             proj.songs.push_back(std::move(song));
+        }
+    }
+
+    // Migrate legacy per-song click gain → project-global when missing.
+    if (!hadProjectClickGain) {
+        for (const auto& s : proj.songs) {
+            if (s.builtInClickEnabled || s.builtInClickGainDb != -6.0) {
+                proj.builtInClickGainDb = s.builtInClickGainDb;
+                break;
+            }
         }
     }
 
@@ -857,6 +872,11 @@ bool ProjectLoader::reparseProject(std::string& error) {
     (void)doc["sampleRate"].get(sampleRate);
     proj.sampleRate = sampleRate;
 
+    double clickGainDb = -6.0;
+    const bool hadProjectClickGain = !doc["builtInClickGainDb"].get(clickGainDb);
+    if (hadProjectClickGain)
+        proj.builtInClickGainDb = clickGainDb;
+
     simdjson::dom::array bussesArr;
     if (!doc["busses"].get(bussesArr)) {
         for (simdjson::dom::element busEl : bussesArr) {
@@ -897,6 +917,15 @@ bool ProjectLoader::reparseProject(std::string& error) {
             if (!parseSong(songEl, song, error, proj))
                 return false;
             proj.songs.push_back(std::move(song));
+        }
+    }
+
+    if (!hadProjectClickGain) {
+        for (const auto& s : proj.songs) {
+            if (s.builtInClickEnabled || s.builtInClickGainDb != -6.0) {
+                proj.builtInClickGainDb = s.builtInClickGainDb;
+                break;
+            }
         }
     }
 

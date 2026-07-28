@@ -163,6 +163,9 @@ struct Project {
     int formatVersion = 1;
     std::string name;
     double sampleRate = 48000.0;
+    // Global metronome level -- shared across all songs (not per-song).
+    // SongDef::builtInClickGainDb is kept for backward-compat load migration.
+    double builtInClickGainDb = -6.0;
     std::vector<BusDef> busses;
     std::vector<TrackDef> tracks;
     std::vector<SongDef> songs;

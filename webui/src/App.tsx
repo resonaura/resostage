@@ -1,13 +1,21 @@
-import { useEffect, useRef, useState } from "react";
 import { Button, Tabs } from "@heroui/react";
-import { AlertTriangle, Gauge, Music4, Radio, Settings2, Sliders } from "lucide-react";
-import { useLiveState } from "./lib/useLiveState";
+import {
+  AlertTriangle,
+  Gauge,
+  Music4,
+  Radio,
+  Settings2,
+  Sliders,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { fetchAllPeaks, fetchPeaks, project } from "./lib/api";
 import { IS_EMBEDDED } from "./lib/embedded";
 import type { AllPeaksResponse, PeaksResponse, WebUiState } from "./lib/types";
-import { PlayerScreen } from "./screens/PlayerScreen";
-import { MixerScreen } from "./screens/MixerScreen";
+import { useLiveState } from "./lib/useLiveState";
 import { EditorScreen } from "./screens/EditorScreen";
+import { MixerScreen } from "./screens/MixerScreen";
+import { PlayerScreen } from "./screens/PlayerScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
 // HeroUI v3 has no provider -- theme is CSS-driven via a class/data-theme
@@ -101,7 +109,9 @@ export default function App() {
       }
     };
     void poll();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [state.projectName, state.songIndex]);
 
   // All-song peaks (for the multi-song timeline)
@@ -116,7 +126,9 @@ export default function App() {
       }
     };
     void poll();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [state.projectName, state.songs.length]);
 
   return (
@@ -128,7 +140,7 @@ export default function App() {
         </div>
       )}
 
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-default/60 bg-surface px-4 py-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-default/60 bg-background px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-accent">
           <Radio size={16} />
           ResoStage
@@ -140,33 +152,40 @@ export default function App() {
         <ConnectionBadge status={status} />
       </header>
 
-      <Tabs selectedKey={tab} onSelectionChange={(k) => setTab(String(k))} className="flex min-h-0 flex-1 flex-col">
+      <Tabs
+        selectedKey={tab}
+        onSelectionChange={(k) => setTab(String(k))}
+        className="flex min-h-0 flex-1 flex-col"
+      >
         <Tabs.ListContainer className="shrink-0 border-b border-default/30 px-2 bg-transparent">
           <Tabs.List aria-label="Sections" className="bg-transparent">
             <Tabs.Tab id="player">
               <Music4 size={15} className="mr-1.5 inline-block" />
               Player
-              <Tabs.Indicator />
+              <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
             <Tabs.Tab id="mixer">
               <Sliders size={15} className="mr-1.5 inline-block" />
               Mixer
-              <Tabs.Indicator />
+              <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
             <Tabs.Tab id="editor">
               <Gauge size={15} className="mr-1.5 inline-block" />
               Editor
-              <Tabs.Indicator />
+              <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
             <Tabs.Tab id="settings">
               <Settings2 size={15} className="mr-1.5 inline-block" />
               Settings
-              <Tabs.Indicator />
+              <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
           </Tabs.List>
         </Tabs.ListContainer>
 
-        <Tabs.Panel id="player" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+        <Tabs.Panel
+          id="player"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+        >
           <PlayerScreen
             state={state}
             cpuHistory={cpuHistory}
@@ -177,10 +196,16 @@ export default function App() {
             setPxPerSec={setPxPerSec}
           />
         </Tabs.Panel>
-        <Tabs.Panel id="mixer" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+        <Tabs.Panel
+          id="mixer"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+        >
           <MixerScreen state={state} />
         </Tabs.Panel>
-        <Tabs.Panel id="editor" className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+        <Tabs.Panel
+          id="editor"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+        >
           <EditorScreen
             state={state}
             peaks={peaks}
@@ -203,11 +228,14 @@ export default function App() {
 
 function ProjectMenu({ state }: { state: WebUiState }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [confirmNew, setConfirmNew] = useState(false);
 
   const handleNew = () => {
-    if (state.songCount > 0 && !window.confirm(
-      "Start a new project? This discards the current project's unsaved in-memory state (any file already on disk is untouched)."
-    )) {
+    if (
+      state.songCount > 0 ||
+      (state.projectName && state.projectName !== "New Project")
+    ) {
+      setConfirmNew(true);
       return;
     }
     void project.new();
@@ -227,8 +255,10 @@ function ProjectMenu({ state }: { state: WebUiState }) {
     if (file) void project.upload(file);
   };
 
-  const handleSave = () => void (IS_EMBEDDED ? project.save() : project.exportAndDownload());
-  const handleSaveAs = () => void (IS_EMBEDDED ? project.saveAs() : project.exportAndDownload());
+  const handleSave = () =>
+    void (IS_EMBEDDED ? project.save() : project.exportAndDownload());
+  const handleSaveAs = () =>
+    void (IS_EMBEDDED ? project.saveAs() : project.exportAndDownload());
 
   return (
     <div className="flex items-center gap-1.5">
@@ -253,17 +283,43 @@ function ProjectMenu({ state }: { state: WebUiState }) {
           Save As&hellip;
         </Button>
       )}
+      <ConfirmDialog
+        open={confirmNew}
+        title="Unsaved changes"
+        message="Start a new project? This discards the current project's unsaved in-memory state (any file already on disk is untouched)."
+        confirmLabel="New Project"
+        cancelLabel="Cancel"
+        danger
+        onCancel={() => setConfirmNew(false)}
+        onConfirm={() => {
+          setConfirmNew(false);
+          void project.new();
+        }}
+      />
     </div>
   );
 }
 
-function ConnectionBadge({ status }: { status: "connecting" | "live" | "reconnecting" }) {
-  const color = status === "live" ? "bg-success" : status === "connecting" ? "bg-warning" : "bg-danger";
-  const label = status === "live" ? "live" : status === "connecting" ? "connecting…" : "reconnecting…";
+function ConnectionBadge({
+  status,
+}: {
+  status: "connecting" | "live" | "reconnecting";
+}) {
+  const color =
+    status === "live"
+      ? "bg-success"
+      : status === "connecting"
+        ? "bg-warning"
+        : "bg-danger";
+  const label =
+    status === "live"
+      ? "live"
+      : status === "connecting"
+        ? "connecting…"
+        : "reconnecting…";
   return (
     <div className="flex items-center gap-1.5 text-xs text-foreground/60">
       <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
-      {label}
     </div>
   );
 }

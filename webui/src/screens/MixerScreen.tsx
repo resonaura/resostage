@@ -100,37 +100,49 @@ function GainFader({
   accent,
   gainDb,
   onChange,
+  defaultValue = 0,
 }: {
   gainDb: number;
   accent?: string;
   onChange: (v: number) => void;
+  defaultValue?: number;
 }) {
   const [value, handleChange] = useLiveValue(gainDb, onChange);
   return (
-    <Slider
-      value={value}
-      onChange={(v) => handleChange(Array.isArray(v) ? v[0] : v)}
-      minValue={GAIN_MIN}
-      maxValue={GAIN_MAX}
-      step={0.1}
-      orientation="vertical"
-      aria-label="Gain"
+    <div
       className="h-full"
+      title="Double-click to reset"
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleChange(defaultValue);
+      }}
     >
-      <Slider.Track
-        className="relative h-full w-2.5 rounded-full bg-background/50"
-        style={{ borderBottomColor: accent }}
+      <Slider
+        value={value}
+        onChange={(v) => handleChange(Array.isArray(v) ? v[0] : v)}
+        minValue={GAIN_MIN}
+        maxValue={GAIN_MAX}
+        step={0.1}
+        orientation="vertical"
+        aria-label="Gain"
+        className="h-full"
       >
-        <Slider.Fill style={{ backgroundColor: accent }} />
-        <Slider.Thumb
-          style={{
-            backgroundColor: "white",
-            width: "0.2rem",
-            padding: "0.4rem",
-          }}
-        />
-      </Slider.Track>
-    </Slider>
+        <Slider.Track
+          className="relative h-full w-2.5 rounded-full bg-background/50"
+          style={{ borderBottomColor: "var(--surface)" }}
+        >
+          <Slider.Fill style={{ backgroundColor: "var(--surface)" }} />
+          <Slider.Thumb
+            style={
+              {
+                backgroundColor: "var(--surface)",
+              } as any
+            }
+          />
+        </Slider.Track>
+      </Slider>
+    </div>
   );
 }
 
@@ -344,8 +356,18 @@ function SendArcKnob({
         onChange(newVal);
       }}
     >
-      <svg width={24} height={24} className="transform -rotate-90">
-        {/* Track Arc */}
+      {/*
+        SVG stroke starts at 3 o'clock; rotate +135° so dash begins at SW
+        (CSS rotate(-135°) / 7:30) and sweeps 270° CW to SE (CSS +135°),
+        matching the white indicator. rotate(-135°) was 90° off.
+      */}
+      <svg
+        width={24}
+        height={24}
+        viewBox="0 0 24 24"
+        className="overflow-visible"
+        style={{ transform: "rotate(135deg)" }}
+      >
         <circle
           cx={12}
           cy={12}
@@ -356,13 +378,12 @@ function SendArcKnob({
           strokeDasharray={`${arcLength} ${circumference}`}
           strokeLinecap="round"
         />
-        {/* Filled Arc colored by busColor */}
         <circle
           cx={12}
           cy={12}
           r={radius}
           fill="none"
-          stroke={busColor}
+          stroke={busColor || "#ff9230"}
           strokeWidth={strokeWidth}
           strokeDasharray={`${arcLength} ${circumference}`}
           strokeDashoffset={strokeDashoffset}
@@ -374,13 +395,6 @@ function SendArcKnob({
           }}
         />
       </svg>
-      {/* Knob Indicator Dot */}
-      <div
-        className="absolute w-1 h-1 rounded-full bg-white pointer-events-none"
-        style={{
-          transform: `rotate(${angle}deg) translateY(-7px)`,
-        }}
-      />
     </div>
   );
 }
@@ -399,10 +413,9 @@ function SendKnobs({
   if (auxBusses.length === 0) return null;
   return (
     <div className="flex w-full flex-col gap-1 border-t border-default/20 py-1">
-      {auxBusses.map((bus, idx) => {
+      {auxBusses.map((bus) => {
         const existing = sends.find((s) => s.busId === bus.id);
         const value = existing?.gainDb ?? SEND_FLOOR_DB;
-        const color = colorForIndex(idx);
         return (
           <div
             key={bus.id}
@@ -410,7 +423,7 @@ function SendKnobs({
           >
             <span
               className="truncate text-[9px] font-mono font-medium max-w-[48px]"
-              style={{ color }}
+              style={{ color: "#ff9230" }}
               title={bus.name || bus.id}
             >
               {bus.name || bus.id}
@@ -419,7 +432,7 @@ function SendKnobs({
               value={value}
               min={SEND_FLOOR_DB}
               max={6}
-              busColor={color}
+              busColor="#ff9230"
               title={`Send to ${bus.name || bus.id}`}
               onChange={(v) =>
                 onSendChange
@@ -563,7 +576,9 @@ function BusDestinationRouting({
           <button
             type="button"
             className="flex items-center justify-center p-1 text-foreground/70 transition-colors hover:text-foreground mx-auto"
-            title={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
+            title={
+              stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"
+            }
             onClick={() => updateBusChannels(stereo ? 1 : 2, bus.startChannel)}
           >
             <MonoStereoIcon stereo={stereo} />
@@ -653,7 +668,6 @@ function BusDestinationRouting({
     </div>
   );
 }
-
 
 function StripButton({
   active,
@@ -758,7 +772,7 @@ function ChannelStrip({
 
   return (
     <div
-      className={`flex h-full min-h-0 w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-background-tertiary p-2 select-none transition-opacity duration-300 ${
+      className={`flex h-full min-h-0 w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-background-secondary p-2 select-none transition-opacity duration-300 ${
         isDimmed ? "opacity-35" : "opacity-100"
       }`}
     >
@@ -931,7 +945,6 @@ function TrackStrip({
 }
 
 function MetronomeStrip({ state }: { state: WebUiState }) {
-  const [clickGain, setClickGain] = useState(0);
   const [clickPan, setClickPan] = useState(0);
   const [clickSolo, setClickSolo] = useState(false);
 
@@ -941,42 +954,41 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   const isMetronomeOn = currentSong ? currentSong.click : false;
   const currentClickBus =
     currentSong?.clickBusId || state.busses[0]?.id || "main";
+  // Project-global click level (not per-song).
+  const clickGain = state.clickGainDb ?? -6;
 
   const clickBusMeter = state.meters.find((m) => m.id === currentClickBus);
   const auxBusses = state.busses.filter((b) => b.isAux);
   const clickSends = currentSong?.clickSends ?? [];
 
+  const patchSong = (partial: {
+    click?: boolean;
+    clickBusId?: string;
+    clickGainDb?: number;
+    clickSends?: typeof clickSends;
+  }) => {
+    if (!hasSongs || !currentSong) return;
+    void builder.songUpdate({
+      index: songIdx,
+      name: currentSong.name,
+      bpm: currentSong.bpm,
+      mode: currentSong.mode,
+      tsNum: currentSong.tsNum,
+      tsDen: currentSong.tsDen,
+      click: partial.click ?? currentSong.click,
+      clickBusId:
+        (partial.clickBusId ?? currentSong.clickBusId) || currentClickBus,
+      clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? -6,
+      clickSends: partial.clickSends ?? currentSong.clickSends ?? [],
+    });
+  };
+
   const toggleMetronomeMute = () => {
-    const nextState = !isMetronomeOn;
-    if (hasSongs && currentSong) {
-      void builder.songUpdate({
-        index: songIdx,
-        name: currentSong.name,
-        bpm: currentSong.bpm,
-        mode: currentSong.mode,
-        tsNum: currentSong.tsNum,
-        tsDen: currentSong.tsDen,
-        click: nextState,
-        clickBusId: currentSong.clickBusId || currentClickBus,
-        clickSends: currentSong.clickSends ?? [],
-      });
-    }
+    patchSong({ click: !isMetronomeOn });
   };
 
   const changeClickBus = (busId: string) => {
-    if (hasSongs && currentSong) {
-      void builder.songUpdate({
-        index: songIdx,
-        name: currentSong.name,
-        bpm: currentSong.bpm,
-        mode: currentSong.mode,
-        tsNum: currentSong.tsNum,
-        tsDen: currentSong.tsDen,
-        click: currentSong.click,
-        clickBusId: busId,
-        clickSends: currentSong.clickSends ?? [],
-      });
-    }
+    patchSong({ clickBusId: busId });
   };
 
   const handleClickSendChange = (busId: string, gainDb: number) => {
@@ -990,17 +1002,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
     } else {
       updatedSends = [...clickSends, { busId, gainDb, enabled: gainDb > -59 }];
     }
-    void builder.songUpdate({
-      index: songIdx,
-      name: currentSong.name,
-      bpm: currentSong.bpm,
-      mode: currentSong.mode,
-      tsNum: currentSong.tsNum,
-      tsDen: currentSong.tsDen,
-      click: currentSong.click,
-      clickBusId: currentSong.clickBusId,
-      clickSends: updatedSends,
-    });
+    patchSong({ clickSends: updatedSends });
   };
 
   return (
@@ -1034,7 +1036,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       peakDb={isMetronomeOn ? clickBusMeter?.peakDb : -100}
       mute={!isMetronomeOn}
       solo={clickSolo}
-      onGain={(v) => setClickGain(v)}
+      onGain={(v) => patchSong({ clickGainDb: v })}
       onPan={(v) => setClickPan(v)}
       onMute={toggleMetronomeMute}
       onSolo={() => setClickSolo(!clickSolo)}
@@ -1184,6 +1186,22 @@ function TrackContextMenu({
           exit={{ opacity: 0, scale: 0.94 }}
           transition={{ duration: 0.12, ease: "easeOut" }}
           className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
+          ref={(el) => {
+            if (!el) return;
+            // Keep menu fully visible inside the webview viewport.
+            const pad = 8;
+            const r = el.getBoundingClientRect();
+            let x = menu.x;
+            let y = menu.y;
+            if (x + r.width > window.innerWidth - pad)
+              x = Math.max(pad, window.innerWidth - r.width - pad);
+            if (y + r.height > window.innerHeight - pad)
+              y = Math.max(pad, window.innerHeight - r.height - pad);
+            if (x < pad) x = pad;
+            if (y < pad) y = pad;
+            el.style.left = `${x}px`;
+            el.style.top = `${y}px`;
+          }}
           style={{ left: menu.x, top: menu.y }}
         >
           {renaming ? (
@@ -1329,6 +1347,21 @@ function BusContextMenu({
           exit={{ opacity: 0, scale: 0.94 }}
           transition={{ duration: 0.12, ease: "easeOut" }}
           className="fixed z-50 w-48 overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
+          ref={(el) => {
+            if (!el) return;
+            const pad = 8;
+            const r = el.getBoundingClientRect();
+            let x = menu.x;
+            let y = menu.y;
+            if (x + r.width > window.innerWidth - pad)
+              x = Math.max(pad, window.innerWidth - r.width - pad);
+            if (y + r.height > window.innerHeight - pad)
+              y = Math.max(pad, window.innerHeight - r.height - pad);
+            if (x < pad) x = pad;
+            if (y < pad) y = pad;
+            el.style.left = `${x}px`;
+            el.style.top = `${y}px`;
+          }}
           style={{ left: menu.x, top: menu.y }}
         >
           {renaming ? (
@@ -1527,7 +1560,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
       </div>
 
       {/* Mixer Console Container: Scrollable Tracks on Left, Separator, Fixed Metronome/Master/Aux on Right */}
-      <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-default/30 bg-background-secondary p-3">
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-default/30 bg-background p-3">
         {state.tracks.length === 0 && state.busses.length === 0 ? (
           <div className="flex h-full w-full items-center justify-center px-4 py-6 text-center text-sm text-foreground/40">
             No tracks staged in this project.
