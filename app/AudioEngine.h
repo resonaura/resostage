@@ -277,6 +277,8 @@ public:
     // Per-bus / per-track telemetry for the UI to poll.
     const SeqLock<MeterFrame>* busMeterAt(size_t index) const;
     const SeqLock<MeterFrame>* trackMeterAt(size_t index) const;
+    /** Peak of the metronome only (not the bus it is routed into). */
+    const SeqLock<MeterFrame>* clickMeter() const { return &clickMeterFrame; }
 
     bool isBusMuted(size_t busIndex) const;
     bool isBusSoloed(size_t busIndex) const;
@@ -415,6 +417,8 @@ private:
     std::vector<int> clickSendBusIndices;
     std::vector<float> clickSendGainLinears;
     std::vector<float> clickScratch;
+    // Dedicated click strip meter (pre-bus mix); never shares the destination bus meter.
+    SeqLock<MeterFrame> clickMeterFrame;
     std::vector<uint8_t> eventFiredFlags; // parallel to current song's events; reset per selectSong()/play()
     std::atomic<bool> autoAdvancePending{false};
     std::atomic<int> pendingGaplessSong{-1}; // >=0 => message thread should gapless-switch

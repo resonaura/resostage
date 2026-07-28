@@ -965,9 +965,16 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   // Project-global click level (not per-song).
   const clickGain = state.clickGainDb ?? -6;
 
-  const clickBusMeter = state.meters.find((m) => m.id === currentClickBus);
   const auxBusses = state.busses.filter((b) => b.isAux);
   const clickSends = currentSong?.clickSends ?? [];
+  // Dedicated click meter — never the destination bus (master) peaks.
+  const clickPeak = isMetronomeOn ? (state.clickPeakDb ?? -100) : -100;
+  const clickPeakL = isMetronomeOn
+    ? (state.clickPeakDbL ?? state.clickPeakDb ?? -100)
+    : -100;
+  const clickPeakR = isMetronomeOn
+    ? (state.clickPeakDbR ?? state.clickPeakDb ?? -100)
+    : -100;
 
   const patchSong = (partial: {
     click?: boolean;
@@ -1041,13 +1048,9 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       }}
       gainDb={clickGain}
       pan={clickPan}
-      peakDb={isMetronomeOn ? clickBusMeter?.peakDb : -100}
-      peakDbL={
-        isMetronomeOn ? (clickBusMeter?.peakDbL ?? clickBusMeter?.peakDb) : -100
-      }
-      peakDbR={
-        isMetronomeOn ? (clickBusMeter?.peakDbR ?? clickBusMeter?.peakDb) : -100
-      }
+      peakDb={clickPeak}
+      peakDbL={clickPeakL}
+      peakDbR={clickPeakR}
       mute={!isMetronomeOn}
       solo={clickSolo}
       onGain={(v) => patchSong({ clickGainDb: v })}

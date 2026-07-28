@@ -1321,6 +1321,7 @@ void AudioEngine::resetMetersSilent() {
         if (busMeters[i] != nullptr)
             busMeters[i]->write(silent);
     }
+    clickMeterFrame.write(silent);
 }
 
 bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
@@ -1800,6 +1801,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 if (busMeters[i] != nullptr)
                     busMeters[i]->write(silent);
             }
+            clickMeterFrame.write(silent);
             metersSilencedSinceStop = true;
         }
         return;
@@ -1948,14 +1950,16 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             srcR = srcL;
 
         const float g = route.gainLinear * route.sendGainLinear;
+        // Balance-style pan (L/R attenuation). Was previously only applied on the
+        // mono-source branch, so stereo stems ignored pan entirely.
+        const float gL = g * (1.0f - std::max(0.0f, route.pan));
+        const float gR = g * (1.0f + std::min(0.0f, route.pan));
         if (trackChannels >= 2 && busChannels >= 2) {
             for (int i = 0; i < numSamples; ++i) {
-                busScratch.addSample(scratchOffset + 0, i, srcL[i] * g);
-                busScratch.addSample(scratchOffset + 1, i, srcR[i] * g);
+                busScratch.addSample(scratchOffset + 0, i, srcL[i] * gL);
+                busScratch.addSample(scratchOffset + 1, i, srcR[i] * gR);
             }
         } else {
-            const float gL = g * (1.0f - std::max(0.0f, route.pan));
-            const float gR = g * (1.0f + std::min(0.0f, route.pan));
             for (int i = 0; i < numSamples; ++i) {
                 const float mono = srcL[i];
                 if (busChannels >= 2) {
@@ -1968,6 +1972,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
+    // During micro-fades / holds the physical outs are ramped, but meters used
+    // to read the UN-faded busScratch and flash a full-scale peak (visible as
+    // a pegged master meter with no audible click). Skip metering while
+    // ramping so the UI tracks what you actually hear.
+    const bool meteringMuted = (underrunFadeOutRemaining > 0 || recoveryFadeInRemaining > 0
+                                || outputHeldSilent);
+
     // Built-in click generator: mixed directly into its target bus's scratch
     // region (mono summed to both channels), same as any other source, so it
     // participates in metering and physical output routing normally.
@@ -1978,7 +1989,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (clickScratch.size() < static_cast<size_t>(numSamples))
             clickScratch.resize(static_cast<size_t>(numSamples), 0.0f);
         clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
-
 
         if (isClickEnabled) {
             // Main target bus
@@ -2008,15 +2018,34 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     busScratch.addSample(scratchOffset + 1, i, v);
                 }
             }
-        }
-    }
 
-    // During micro-fades / holds the physical outs are ramped, but meters used
-    // to read the UN-faded busScratch and flash a full-scale peak (visible as
-    // a pegged master meter with no audible click). Skip metering while
-    // ramping so the UI tracks what you actually hear.
-    const bool meteringMuted = (underrunFadeOutRemaining > 0 || recoveryFadeInRemaining > 0
-                                || outputHeldSilent);
+            // Click strip meter: only the metronome (post strip gain), never the
+            // destination bus sum (master/main would otherwise steal the strip).
+            if (!meteringMuted) {
+                float peak = 0.0f;
+                for (int i = 0; i < numSamples; ++i) {
+                    const float v = std::abs(
+                        clickScratch[static_cast<size_t>(i)] * clickGainLinear);
+                    if (v > peak)
+                        peak = v;
+                }
+                MeterFrame frame;
+                const float db =
+                    peak > 1.0e-9f ? 20.0f * std::log10(peak) : -144.0f;
+                frame.peakDb = db;
+                frame.peakDbL = db;
+                frame.peakDbR = db;
+                frame.truePeakDb = db;
+                clickMeterFrame.write(frame);
+            } else {
+                clickMeterFrame.write(MeterFrame{});
+            }
+        } else {
+            clickMeterFrame.write(MeterFrame{});
+        }
+    } else {
+        clickMeterFrame.write(MeterFrame{});
+    }
 
     // Pass 3: bus scratch buffers -> metering + physical outputs.
     for (const BusOutput& out : snap->outputs) {

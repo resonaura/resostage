@@ -606,6 +606,14 @@ void MainComponent::publishWebState() {
     const Project& proj = engine.project();
     state.projectName = proj.name;
     state.clickGainDb = proj.builtInClickGainDb;
+    if (const auto* clickM = engine.clickMeter()) {
+        MeterFrame frame;
+        if (clickM->read(frame)) {
+            state.clickPeakDb = frame.peakDb;
+            state.clickPeakDbL = frame.peakDbL;
+            state.clickPeakDbR = frame.peakDbR;
+        }
+    }
     state.songCount = static_cast<int>(proj.songs.size());
     state.songIndex = (engine.currentSongIndex() == static_cast<size_t>(-1))
                           ? -1

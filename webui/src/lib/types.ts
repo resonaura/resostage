@@ -178,6 +178,10 @@ export interface WebUiState {
   projectName: string;
   /** Project-global metronome level (dB). */
   clickGainDb: number;
+  /** Metronome-only peak (not the bus it routes into). */
+  clickPeakDb?: number;
+  clickPeakDbL?: number;
+  clickPeakDbR?: number;
   songName: string;
   playheadSeconds: number;
   /** Cumulative whole-project position (does not reset at song boundaries). */
@@ -203,6 +207,9 @@ export interface WebUiState {
 export const emptyState: WebUiState = {
   projectName: "",
   clickGainDb: -6,
+  clickPeakDb: -100,
+  clickPeakDbL: -100,
+  clickPeakDbR: -100,
   songName: "",
   playheadSeconds: 0,
   globalPlayheadSeconds: 0,
