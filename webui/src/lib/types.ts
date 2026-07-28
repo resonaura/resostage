@@ -72,6 +72,8 @@ export interface SongRow {
 export interface MeterRow {
   id: string;
   peakDb: number;
+  peakDbL?: number;
+  peakDbR?: number;
   shortTermLufs: number;
 }
 
@@ -90,6 +92,8 @@ export interface TrackRow {
   solo: boolean;
   sends: TrackSendRow[];
   peakDb: number;
+  peakDbL?: number;
+  peakDbR?: number;
 }
 
 export interface BusRow {
@@ -102,6 +106,8 @@ export interface BusRow {
   startChannel: number;
   channels: number;
   peakDb: number;
+  peakDbL?: number;
+  peakDbR?: number;
 }
 
 export interface ProcessHealthEntry {

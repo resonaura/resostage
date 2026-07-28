@@ -683,6 +683,8 @@ void MainComponent::publishWebState() {
             MeterFrame frame;
             if (meter->read(frame)) {
                 m.peakDb = frame.peakDb;
+                m.peakDbL = frame.peakDbL;
+                m.peakDbR = frame.peakDbR;
                 m.shortTermLufs = frame.shortTermLufs;
             }
         }
@@ -707,8 +709,11 @@ void MainComponent::publishWebState() {
 
         if (const auto* meter = engine.trackMeterAt(i)) {
             MeterFrame frame;
-            if (meter->read(frame))
+            if (meter->read(frame)) {
                 tr.peakDb = frame.peakDb;
+                tr.peakDbL = frame.peakDbL;
+                tr.peakDbR = frame.peakDbR;
+            }
         }
         state.tracks.push_back(std::move(tr));
     }
@@ -728,8 +733,11 @@ void MainComponent::publishWebState() {
         }
         if (const auto* meter = engine.busMeterAt(i)) {
             MeterFrame frame;
-            if (meter->read(frame))
+            if (meter->read(frame)) {
                 br.peakDb = frame.peakDb;
+                br.peakDbL = frame.peakDbL;
+                br.peakDbR = frame.peakDbR;
+            }
         }
         state.busses.push_back(std::move(br));
     }

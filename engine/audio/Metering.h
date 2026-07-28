@@ -107,6 +107,8 @@ private:
     int64_t relativeGateBlockCount = 0;
 
     float currentPeakDb = -144.0f;
+    float currentPeakDbL = -144.0f;
+    float currentPeakDbR = -144.0f;
     float currentTruePeakDb = -144.0f;
     float currentMomentaryLufs = -144.0f;
     float currentShortTermLufs = -144.0f;

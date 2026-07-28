@@ -1893,14 +1893,25 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
         // Lightweight peak-only track meter for the Mixer UI (no LUFS on tracks).
         if (t < trackMeters.size() && trackMeters[t] != nullptr) {
-            float peak = 0.0f;
-            for (int ch = 0; ch < trackChannels; ++ch) {
+            auto peakOf = [&](int ch) -> float {
+                if (ch >= trackChannels)
+                    return 0.0f;
                 const float* s = scratch.getReadPointer(ch);
+                float peak = 0.0f;
                 for (int i = 0; i < numSamples; ++i)
                     peak = std::max(peak, std::abs(s[i]));
-            }
+                return peak;
+            };
+            const float peakL = peakOf(0);
+            const float peakR = trackChannels > 1 ? peakOf(1) : peakL;
+            const float peak = std::max(peakL, peakR);
+            auto toDb = [](float p) -> float {
+                return p > 1.0e-9f ? 20.0f * std::log10(p) : -144.0f;
+            };
             MeterFrame frame;
-            frame.peakDb = peak > 1.0e-9f ? 20.0f * std::log10(peak) : -144.0f;
+            frame.peakDb = toDb(peak);
+            frame.peakDbL = toDb(peakL);
+            frame.peakDbR = toDb(peakR);
             frame.truePeakDb = frame.peakDb;
             trackMeters[t]->write(frame);
         }

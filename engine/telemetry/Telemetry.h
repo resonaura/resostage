@@ -9,7 +9,9 @@ namespace resoset {
 // audio thread's Metering pass and consumed by UI/web threads via SeqLock<MeterFrame>.
 // Trivially copyable, as required by SeqLock.
 struct MeterFrame {
-    float peakDb = -144.0f;
+    float peakDb = -144.0f;   // max(L, R) — mono / legacy consumers
+    float peakDbL = -144.0f;  // left-channel sample peak this block
+    float peakDbR = -144.0f;  // right-channel sample peak (mono: same as L)
     float truePeakDb = -144.0f;
     float momentaryLufs = -144.0f;  // ~400ms window
     float shortTermLufs = -144.0f;  // 3s window

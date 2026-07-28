@@ -383,7 +383,7 @@ function SendArcKnob({
           cy={12}
           r={radius}
           fill="none"
-          stroke={busColor || "#ff9230"}
+          stroke={busColor || "rgba(255,255,255,0.9)"}
           strokeWidth={strokeWidth}
           strokeDasharray={`${arcLength} ${circumference}`}
           strokeDashoffset={strokeDashoffset}
@@ -422,8 +422,7 @@ function SendKnobs({
             className="flex items-center justify-between gap-1 w-full px-0.5"
           >
             <span
-              className="truncate text-[9px] font-mono font-medium max-w-[48px]"
-              style={{ color: "#ff9230" }}
+              className="truncate text-[9px] font-mono font-medium max-w-[48px] text-foreground/70"
               title={bus.name || bus.id}
             >
               {bus.name || bus.id}
@@ -432,7 +431,7 @@ function SendKnobs({
               value={value}
               min={SEND_FLOOR_DB}
               max={6}
-              busColor="#ff9230"
+              busColor="rgba(255,255,255,0.9)"
               title={`Send to ${bus.name || bus.id}`}
               onChange={(v) =>
                 onSendChange
@@ -719,6 +718,8 @@ function ChannelStrip({
   gainDb,
   pan,
   peakDb,
+  peakDbL,
+  peakDbR,
   mute,
   solo,
   anySoloInGroup,
@@ -753,6 +754,8 @@ function ChannelStrip({
   gainDb: number;
   pan: number | null;
   peakDb: number | undefined;
+  peakDbL?: number;
+  peakDbR?: number;
   mute: boolean;
   solo: boolean;
   anySoloInGroup?: boolean;
@@ -834,7 +837,7 @@ function ChannelStrip({
             min={-1}
             max={1}
             defaultValue={0}
-            accent={color}
+            accent="rgba(255,255,255,0.9)"
             onCommit={onPan}
             size={24}
             title="Pan"
@@ -852,9 +855,12 @@ function ChannelStrip({
         <GainFader gainDb={gainDb} accent={color} onChange={onGain} />
         <LevelMeterBar
           db={peakDb ?? -100}
+          dbL={peakDbL ?? peakDb ?? -100}
+          dbR={peakDbR ?? peakDb ?? -100}
+          accent={color}
           vertical={true}
           showValue={false}
-          barClassName="h-full w-2"
+          barClassName="h-full w-1.5"
         />
       </div>
 
@@ -916,6 +922,8 @@ function TrackStrip({
   const color = colorForIndex(index);
   const busMeter = meters.find((m) => m.id === t.busId);
   const peakDb = t.peakDb ?? busMeter?.peakDb;
+  const peakDbL = t.peakDbL ?? busMeter?.peakDbL ?? peakDb;
+  const peakDbR = t.peakDbR ?? busMeter?.peakDbR ?? peakDb;
 
   return (
     <ChannelStrip
@@ -933,6 +941,8 @@ function TrackStrip({
       gainDb={t.gainDb ?? 0}
       pan={t.pan ?? 0}
       peakDb={peakDb}
+      peakDbL={peakDbL}
+      peakDbR={peakDbR}
       mute={t.mute}
       solo={t.solo}
       anySoloInGroup={anySoloInGroup}
@@ -1034,6 +1044,12 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       gainDb={clickGain}
       pan={clickPan}
       peakDb={isMetronomeOn ? clickBusMeter?.peakDb : -100}
+      peakDbL={
+        isMetronomeOn ? (clickBusMeter?.peakDbL ?? clickBusMeter?.peakDb) : -100
+      }
+      peakDbR={
+        isMetronomeOn ? (clickBusMeter?.peakDbR ?? clickBusMeter?.peakDb) : -100
+      }
       mute={!isMetronomeOn}
       solo={clickSolo}
       onGain={(v) => patchSong({ clickGainDb: v })}
@@ -1062,7 +1078,10 @@ function BusStrip({
   anySoloInGroup?: boolean;
 }) {
   const meter = meters.find((m) => m.id === b.id);
-  const color = isMaster ? "#ff375f" : "#ff9230";
+  const color = isMaster ? "#0091ff" : "#ff9230";
+  const peakDb = meter?.peakDb ?? b.peakDb;
+  const peakDbL = meter?.peakDbL ?? b.peakDbL ?? peakDb;
+  const peakDbR = meter?.peakDbR ?? b.peakDbR ?? peakDb;
 
   return (
     <ChannelStrip
@@ -1071,7 +1090,9 @@ function BusStrip({
       color={color}
       gainDb={b.gainDb ?? 0}
       pan={null}
-      peakDb={meter?.peakDb ?? b.peakDb}
+      peakDb={peakDb}
+      peakDbL={peakDbL}
+      peakDbR={peakDbR}
       mute={b.mute}
       solo={b.solo}
       anySoloInGroup={anySoloInGroup}

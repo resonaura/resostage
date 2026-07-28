@@ -440,7 +440,7 @@ export function PlayerScreen({
           {/* Play button: Standard accent styling without hardcoded custom green */}
           <Button
             variant="secondary"
-            className="flex h-9 px-4 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent/80 transition-colors"
+            className="flex h-9 px-4 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold bg-accent/20 text-accent hover:bg-accent/80 transition-colors"
             onPress={() =>
               state.playing ? transport.stop() : transport.play()
             }
@@ -617,7 +617,7 @@ export function PlayerScreen({
                       key={i}
                       type="button"
                       onClick={() => transport.select(i)}
-                      className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-default/20 ${
+                      className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-${isActive ? "accent/20" : "default/20"} ${
                         isActive ? "bg-accent/8" : ""
                       }`}
                     >
@@ -671,10 +671,21 @@ export function PlayerScreen({
                 No busses.
               </div>
             ) : (
-              state.meters.map((m) => {
+              state.meters.map((m, mi) => {
                 const busObj = state.busses.find((b) => b.id === m.id);
                 const displayName =
                   busObj?.name || (m.id === "main" ? "Main" : m.id);
+                const isMaster =
+                  busObj?.name?.toLowerCase() === "master" ||
+                  m.id === "main" ||
+                  m.id === "master";
+                const accent = isMaster
+                  ? "#0091ff"
+                  : busObj?.isAux
+                    ? "#ff9230"
+                    : ["#30d158", "#ff9230", "#db34f2", "#00d2e0", "#ffd600"][
+                        mi % 5
+                      ];
                 return (
                   <div
                     key={m.id}
@@ -682,7 +693,7 @@ export function PlayerScreen({
                   >
                     {/* Bus name */}
                     <div
-                      className="truncate text-xs font-semibold text-foreground/80 max-w-[72px]"
+                      className="truncate text-center text-xs font-semibold text-foreground/80 w-[72px]"
                       title={displayName}
                     >
                       {displayName}
@@ -690,10 +701,13 @@ export function PlayerScreen({
                     <div className="flex h-full min-h-0 flex-1 items-center justify-center">
                       <LevelMeterBar
                         db={m.peakDb}
+                        dbL={m.peakDbL ?? m.peakDb}
+                        dbR={m.peakDbR ?? m.peakDb}
+                        accent={accent}
                         vertical={true}
                         showValue={false}
                         className="h-full"
-                        barClassName="h-full w-3.5"
+                        barClassName="h-full w-1.5"
                       />
                     </div>
                     <div className="text-center text-[10px] tabular-nums text-foreground/50">

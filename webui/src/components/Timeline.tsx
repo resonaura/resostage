@@ -1,5 +1,12 @@
 import { Button, Slider } from "@heroui/react";
-import { Copy, Grid3X3, Scissors, Trash2 } from "lucide-react";
+import {
+  Copy,
+  Grid3X3,
+  MoveHorizontalIcon,
+  MoveVerticalIcon,
+  Scissors,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { builder, fetchWaveformRaw, mixer, transport } from "../lib/api";
 import { useContinuousPlayhead, useLiveValue } from "../lib/optimistic";
@@ -343,12 +350,15 @@ function TrackHeaderControl({
         >
           {track.name || track.id}
         </span>
-        <div className="h-8 w-1.5 shrink-0">
+        <div className="h-8 w-3 shrink-0">
           <LevelMeterBar
             db={track.peakDb ?? -100}
+            dbL={track.peakDbL ?? track.peakDb ?? -100}
+            dbR={track.peakDbR ?? track.peakDb ?? -100}
+            accent={color}
             vertical
             showValue={false}
-            barClassName="h-full w-full"
+            barClassName="h-full w-1"
           />
         </div>
 
@@ -1746,7 +1756,7 @@ export function Timeline({
           </span>
         </span>
 
-        <div className="flex items-center gap-1 ml-auto">
+        <div className="flex items-center gap-1 ml-auto h-7">
           {!readOnly && (
             <>
               <Button
@@ -1780,26 +1790,25 @@ export function Timeline({
                 <Scissors size={13} />
               </Button>
               <div className="w-px h-4 bg-default/30 mx-0.5" />
+              <Button
+                size="sm"
+                variant={snapToGrid ? "primary" : "outline"}
+                isIconOnly
+                aria-label={
+                  snapToGrid ? "Snap to grid: ON" : "Snap to grid: OFF"
+                }
+                onPress={() => setSnapToGrid((v) => !v)}
+              >
+                <Grid3X3 size={13} />
+              </Button>
             </>
           )}
-          <Button
-            size="sm"
-            variant={snapToGrid ? "secondary" : "outline"}
-            isIconOnly
-            aria-label={snapToGrid ? "Snap to grid: ON" : "Snap to grid: OFF"}
-            onPress={() => setSnapToGrid((v) => !v)}
-          >
-            <Grid3X3 size={13} />
-          </Button>
 
           {/* H / V zoom — narrow, right side; thumb hit padding 1rem */}
           <div className="flex items-center gap-1.5 ml-1 w-[17.5rem] shrink-0">
-            <span
-              className="text-[9px] uppercase text-foreground/35 shrink-0"
-              title="Horizontal zoom (time)"
-            >
-              H
-            </span>
+            <MoveHorizontalIcon
+              style={{ opacity: 0.2, width: "16px", height: "16px" }}
+            />
             <Slider
               aria-label="Horizontal zoom"
               minValue={0}
@@ -1819,7 +1828,7 @@ export function Timeline({
                   MIN_PX_PER_SEC * Math.pow(MAX_PX_PER_SEC / MIN_PX_PER_SEC, t);
                 applyZoomAt(next);
               }}
-              className="flex-1 min-w-0"
+              className="flex-1 min-w-0 -mt-1"
             >
               <Slider.Track
                 style={{
@@ -1838,12 +1847,9 @@ export function Timeline({
                 />
               </Slider.Track>
             </Slider>
-            <span
-              className="text-[9px] uppercase text-foreground/35 shrink-0"
-              title="Vertical zoom (lane height)"
-            >
-              V
-            </span>
+            <MoveVerticalIcon
+              style={{ opacity: 0.2, width: "16px", height: "16px" }}
+            />
             <Slider
               aria-label="Vertical zoom"
               minValue={0.3}
@@ -1854,7 +1860,7 @@ export function Timeline({
                 const z = Array.isArray(v) ? v[0] : v;
                 setVerticalZoom(z);
               }}
-              className="flex-1  min-w-0"
+              className="flex-1 min-w-0 -mt-1"
             >
               <Slider.Track
                 style={{

@@ -193,6 +193,8 @@ void LoudnessMeter::reset() {
     relativeGateBlockCount = 0;
 
     currentPeakDb = -144.0f;
+    currentPeakDbL = -144.0f;
+    currentPeakDbR = -144.0f;
     currentTruePeakDb = -144.0f;
     currentMomentaryLufs = -144.0f;
     currentShortTermLufs = -144.0f;
@@ -204,6 +206,8 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
         return;
 
     float peakLinear = 0.0f;
+    float peakLinearL = 0.0f;
+    float peakLinearR = 0.0f;
     float truePeakLinear = 0.0f;
 
     const int chs = std::min(channelCount, std::min(static_cast<int>(truePeakEstimators.size()), static_cast<int>(kFilters.size())));
@@ -213,8 +217,14 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
         if (in == nullptr)
             continue;
 
+        float chPeak = 0.0f;
         for (int i = 0; i < numSamples; ++i)
-            peakLinear = std::max(peakLinear, std::abs(in[i]));
+            chPeak = std::max(chPeak, std::abs(in[i]));
+        peakLinear = std::max(peakLinear, chPeak);
+        if (ch == 0)
+            peakLinearL = chPeak;
+        else if (ch == 1)
+            peakLinearR = chPeak;
 
         truePeakLinear = std::max(truePeakLinear, truePeakEstimators[static_cast<size_t>(ch)].processBlock(in, numSamples));
 
@@ -228,9 +238,15 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
         sumSquaresPerChannel[static_cast<size_t>(ch)] = sumSq;
     }
 
+    // Mono sources: mirror L into R so stereo meters stay balanced.
+    if (chs < 2)
+        peakLinearR = peakLinearL;
+
     // Block-level peak capture (this render block's peak), not an all-time max,
     // so the meter reflects current signal level rather than latching forever.
     currentPeakDb = linearToDb(peakLinear);
+    currentPeakDbL = linearToDb(peakLinearL);
+    currentPeakDbR = linearToDb(peakLinearR);
     currentTruePeakDb = linearToDb(truePeakLinear);
 
     samplesAccumulated += numSamples;
@@ -294,6 +310,8 @@ void LoudnessMeter::finishHop(double hopMeanSquareEnergy) {
 MeterFrame LoudnessMeter::currentFrame() const {
     MeterFrame frame;
     frame.peakDb = currentPeakDb;
+    frame.peakDbL = currentPeakDbL;
+    frame.peakDbR = currentPeakDbR;
     frame.truePeakDb = currentTruePeakDb;
     frame.momentaryLufs = currentMomentaryLufs;
     frame.shortTermLufs = currentShortTermLufs;

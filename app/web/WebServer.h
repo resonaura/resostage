@@ -215,6 +215,8 @@ struct WebUiState {
     struct MeterRow {
         std::string id;
         float peakDb = -144.0f;
+        float peakDbL = -144.0f;
+        float peakDbR = -144.0f;
         float shortTermLufs = -144.0f;
     };
     std::vector<MeterRow> meters;
@@ -233,6 +235,8 @@ struct WebUiState {
         };
         std::vector<SendRow> sends;
         float peakDb = -144.0f;
+        float peakDbL = -144.0f;
+        float peakDbR = -144.0f;
     };
     std::vector<TrackRow> tracks;
 
@@ -246,6 +250,8 @@ struct WebUiState {
         int startChannel = 0;
         int channels = 2;
         float peakDb = -144.0f;
+        float peakDbL = -144.0f;
+        float peakDbR = -144.0f;
     };
     std::vector<BusRow> busses;
 

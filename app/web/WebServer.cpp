@@ -896,6 +896,8 @@ std::string WebServer::buildStateJson() const {
         if (i) o << ",";
         o << "{\"id\":\"" << jsonEscape(snap.meters[i].id) << "\","
           << "\"peakDb\":" << finiteOrZero(snap.meters[i].peakDb) << ","
+          << "\"peakDbL\":" << finiteOrZero(snap.meters[i].peakDbL) << ","
+          << "\"peakDbR\":" << finiteOrZero(snap.meters[i].peakDbR) << ","
           << "\"shortTermLufs\":" << finiteOrZero(snap.meters[i].shortTermLufs) << "}";
     }
     o << "],";
@@ -918,7 +920,9 @@ std::string WebServer::buildStateJson() const {
               << "\"gainDb\":" << finiteOrZero(t.sends[si].gainDb) << "}";
         }
         o << "],"
-          << "\"peakDb\":" << finiteOrZero(t.peakDb) << "}";
+          << "\"peakDb\":" << finiteOrZero(t.peakDb) << ","
+          << "\"peakDbL\":" << finiteOrZero(t.peakDbL) << ","
+          << "\"peakDbR\":" << finiteOrZero(t.peakDbR) << "}";
     }
     o << "],";
 
@@ -934,7 +938,9 @@ std::string WebServer::buildStateJson() const {
           << "\"isAux\":" << (b.isAux ? "true" : "false") << ","
           << "\"startChannel\":" << b.startChannel << ","
           << "\"channels\":" << b.channels << ","
-          << "\"peakDb\":" << finiteOrZero(b.peakDb) << "}";
+          << "\"peakDb\":" << finiteOrZero(b.peakDb) << ","
+          << "\"peakDbL\":" << finiteOrZero(b.peakDbL) << ","
+          << "\"peakDbR\":" << finiteOrZero(b.peakDbR) << "}";
     }
     o << "],";
 
