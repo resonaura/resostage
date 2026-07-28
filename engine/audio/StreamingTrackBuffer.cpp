@@ -2,8 +2,29 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <limits>
 
 namespace resoset {
+
+namespace {
+
+// Cap catch-up skip size so a runaway playhead-vs-EOF gap (audio thread
+// keeps advancing after a stem is exhausted) can never overflow size_t
+// when converted to a byte count, or ask the zip cursor to skip terabytes
+// of archive data in one go. ~60s of 48kHz is plenty for real underruns.
+constexpr int64_t kMaxSkipDeviceFrames = 48000 * 60;
+
+void zeroPlanar(float* const* outChannels, int channels, int64_t numFrames) {
+    if (outChannels == nullptr || numFrames <= 0)
+        return;
+    for (int ch = 0; ch < channels; ++ch) {
+        if (outChannels[ch] != nullptr)
+            std::fill(outChannels[ch], outChannels[ch] + numFrames, 0.0f);
+    }
+}
+
+} // namespace
 
 bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& archivePath, int64_t ringCapacityFrames,
                                  double deviceSampleRate, std::string& error) {
@@ -89,22 +110,49 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
 bool StreamingTrackBuffer::refill() {
     const int bpf = decoder.bytesPerFrame();
 
+    // Once the source is known dead, never service skip demand or try to
+    // decode again -- pendingSkipFrames can pile up to billions of samples
+    // if the song playhead keeps running past this stem's EOF (other tracks
+    // still playing). Converting that to a byte count used to overflow /
+    // pull random archive bytes and push denormal/garbage floats that
+    // metered as +400..+700 dBFS across every bus.
+    if (sourceExhausted.load(std::memory_order_acquire)) {
+        pendingSkipFrames.store(0, std::memory_order_release);
+        return ring.framesAvailable() > 0;
+    }
+
     int64_t skip = pendingSkipFrames.load(std::memory_order_acquire);
     if (skip > 0 && bpf > 0) {
+        // Bound the skip so a pathological gap cannot overflow size_t or
+        // hang the IO thread on a multi-terabyte zip seek.
+        skip = std::min(skip, kMaxSkipDeviceFrames);
+
         // `skip` is in the OUTPUT (device) domain; convert to native frames
         // before skipping bytes in the source. When resampleRatio == 1.0
         // (no resampling needed) this is a no-op multiply/divide, so the
         // common case behaves exactly as before.
-        const int64_t nativeFramesWanted =
-            static_cast<int64_t>(static_cast<double>(skip) * resampleRatio + 0.5);
-        const size_t bytesToSkip = static_cast<size_t>(std::max<int64_t>(nativeFramesWanted, 1)) * static_cast<size_t>(bpf);
+        const double nativeWantedD =
+            static_cast<double>(skip) * std::max(resampleRatio, 1e-12);
+        // Clamp before casting: on 32-bit size_t hosts a multi-minute skip
+        // at high channel/bit-depth could otherwise wrap the byte count.
+        constexpr double kMaxNativeFrames = static_cast<double>(1LL << 28); // ~256M frames
+        const int64_t nativeFramesWanted = static_cast<int64_t>(
+            std::min(std::max(nativeWantedD, 1.0), kMaxNativeFrames) + 0.5);
+        const uint64_t bytesToSkipU =
+            static_cast<uint64_t>(nativeFramesWanted) * static_cast<uint64_t>(bpf);
+        const size_t bytesToSkip = static_cast<size_t>(
+            std::min(bytesToSkipU, static_cast<uint64_t>(std::numeric_limits<size_t>::max() / 4)));
         const size_t skippedBytes = cursor.skip(bytesToSkip);
-        const int64_t nativeFramesSkipped = static_cast<int64_t>(skippedBytes) / bpf;
+        const int64_t nativeFramesSkipped =
+            bpf > 0 ? static_cast<int64_t>(skippedBytes) / bpf : 0;
 
         if (nativeFramesSkipped > 0) {
             const int64_t deviceFramesSkipped = std::max<int64_t>(
-                1, static_cast<int64_t>(static_cast<double>(nativeFramesSkipped) / resampleRatio + 0.5));
-            pendingSkipFrames.fetch_sub(std::min(skip, deviceFramesSkipped), std::memory_order_acq_rel);
+                1, static_cast<int64_t>(static_cast<double>(nativeFramesSkipped)
+                                        / std::max(resampleRatio, 1e-12) + 0.5));
+            const int64_t pending = pendingSkipFrames.load(std::memory_order_relaxed);
+            pendingSkipFrames.store(std::max<int64_t>(0, pending - deviceFramesSkipped),
+                                    std::memory_order_release);
             // The cursor just jumped -- any buffered-but-unconsumed native
             // frames and interpolation phase are for the wrong position now.
             nativeChunkFrames = 0;
@@ -224,27 +272,64 @@ bool StreamingTrackBuffer::refill() {
         ring.push(readPtrs.data(), written);
     }
 
-    if (exhausted && written == 0) {
+    if (exhausted) {
+        // Mark dead whether or not we pushed a final partial chunk -- the
+        // next refill must not keep trying to decode past EOF.
         sourceExhausted.store(true, std::memory_order_release);
-        return ring.framesAvailable() > 0;
+        if (written == 0)
+            return ring.framesAvailable() > 0;
     }
     return true;
 }
 
 int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames, int64_t expectedPosition) {
+    const int channels = decoder.numChannels();
+    if (numFrames <= 0)
+        return 0;
+
     const int64_t currentPos = readPosition.load(std::memory_order_relaxed);
+    const bool dead = sourceExhausted.load(std::memory_order_acquire)
+                      && ring.framesAvailable() <= 0;
+
+    // Stem already finished and ring is dry: pure silence, position follows
+    // the playhead. Do NOT queue skip demand -- after EOF the song playhead
+    // (other tracks / click / song length) keeps advancing, and each
+    // callback's gap would otherwise grow without bound (see refill()).
+    if (dead) {
+        zeroPlanar(outChannels, channels, numFrames);
+        // expectedPosition is the START of this block; after a full block of
+        // silence we sit at expectedPosition + numFrames (or current+num if
+        // the playhead somehow rewound).
+        const int64_t endPos =
+            (expectedPosition > currentPos ? expectedPosition : currentPos) + numFrames;
+        readPosition.store(endPos, std::memory_order_relaxed);
+        return 0;
+    }
 
     if (expectedPosition > currentPos) {
         const int64_t gap = expectedPosition - currentPos;
         const int64_t discarded = ring.discard(gap);
         const int64_t stillNeeded = gap - discarded;
-        if (stillNeeded > 0)
-            pendingSkipFrames.fetch_add(stillNeeded, std::memory_order_acq_rel);
+        if (stillNeeded > 0) {
+            // Cap so a single stall cannot enqueue an unbounded skip.
+            const int64_t add = std::min(stillNeeded, kMaxSkipDeviceFrames);
+            pendingSkipFrames.fetch_add(add, std::memory_order_acq_rel);
+        }
         readPosition.store(expectedPosition, std::memory_order_relaxed);
     }
 
     const int64_t got = ring.pop(outChannels, numFrames);
     readPosition.fetch_add(got, std::memory_order_relaxed);
+
+    // Past EOF with a partial final pop: absorb the silent remainder into
+    // our position so the next callback does not re-queue a catch-up skip
+    // for frames we already treated as silence. Mid-stream underruns still
+    // leave position lagging (got only) so the next gap correctly queues a
+    // real skip of the missing source audio.
+    if (got < numFrames && sourceExhausted.load(std::memory_order_acquire)
+        && ring.framesAvailable() <= 0) {
+        readPosition.fetch_add(numFrames - got, std::memory_order_relaxed);
+    }
     return got;
 }
 

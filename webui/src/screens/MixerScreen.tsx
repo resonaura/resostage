@@ -155,8 +155,10 @@ function GainFader({
 }
 
 function formatDbReadout(v: number): string {
-  if (v <= -100) return "-inf";
-  return v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1);
+  if (!Number.isFinite(v) || v <= -100) return "-inf";
+  // Clamp display so a backend glitch can't render "+463.0" on the strip.
+  const c = Math.max(-100, Math.min(24, v));
+  return c > 0 ? `+${c.toFixed(1)}` : c.toFixed(1);
 }
 
 // Logic Pro-style channel-strip readout: fader value on the left (plain,
@@ -202,7 +204,9 @@ function GainPeakReadout({
             ? "text-white"
             : "bg-black/40 text-foreground/80 hover:bg-black/55"
         }`}
-        style={clipped ? { background: CLIP_COLOR, boxShadow: CLIP_GLOW } : undefined}
+        style={
+          clipped ? { background: CLIP_COLOR, boxShadow: CLIP_GLOW } : undefined
+        }
       >
         {formatDbReadout(shownDb)}
       </button>
@@ -1624,7 +1628,8 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   // Metronome solo joins the same solo group as track solo -- see
   // AudioEngine::setClickSolo(). Regular tracks dim exactly as if one of
   // them (rather than the click) had solo engaged.
-  const anyTrackSolo = (state.clickSolo ?? false) || state.tracks.some((tr) => tr.solo);
+  const anyTrackSolo =
+    (state.clickSolo ?? false) || state.tracks.some((tr) => tr.solo);
   const anyAuxSolo = auxBusses.some((b) => b.solo);
 
   return (

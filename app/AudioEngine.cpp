@@ -2007,8 +2007,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 }
             }
 
+            // Same floor/ceiling as Metering.cpp::linearToDb -- a single
+            // non-finite or absurd sample must not peg the strip at +400 dB.
             auto toDb = [](float p) -> float {
-                return p > 1.0e-9f ? 20.0f * std::log10(p) : -144.0f;
+                if (!(p > 1.0e-9f) || !std::isfinite(p))
+                    return -144.0f;
+                constexpr float kMaxLinear = 32.0f;
+                const float c = std::min(p, kMaxLinear);
+                return 20.0f * std::log10(c);
+            };
+            auto finiteSample = [](float s) -> float {
+                return std::isfinite(s) ? s : 0.0f;
             };
 
             if (silenced) {
@@ -2020,8 +2029,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 float peakL = 0.0f;
                 float peakR = 0.0f;
                 for (int i = 0; i < numSamples; ++i) {
-                    const float l = sL != nullptr ? sL[i] : 0.0f;
-                    const float r = sR != nullptr ? sR[i] : l;
+                    const float l = finiteSample(sL != nullptr ? sL[i] : 0.0f);
+                    const float r = finiteSample(sR != nullptr ? sR[i] : l);
                     if (forceMono) {
                         const float m = 0.5f * (l + r);
                         peakL = std::max(peakL, std::abs(m * gL));

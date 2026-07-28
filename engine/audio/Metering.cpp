@@ -9,9 +9,13 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 
 float linearToDb(double linear) {
-    if (linear <= 1.0e-10)
+    if (!(linear > 1.0e-10) || !std::isfinite(linear))
         return -144.0f;
-    return static_cast<float>(20.0 * std::log10(linear));
+    // Hard-cap so a single garbage sample (e.g. float-decoded zip garbage
+    // after an EOF skip overflow) can never report +400 dBFS into the UI.
+    constexpr double kMaxLinear = 32.0; // ~+30 dBFS -- above any real true-peak
+    const double clamped = std::min(linear, kMaxLinear);
+    return static_cast<float>(20.0 * std::log10(clamped));
 }
 
 float energyToLufs(double meanSquareEnergy) {
@@ -218,8 +222,12 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
             continue;
 
         float chPeak = 0.0f;
-        for (int i = 0; i < numSamples; ++i)
-            chPeak = std::max(chPeak, std::abs(in[i]));
+        for (int i = 0; i < numSamples; ++i) {
+            const float s = in[i];
+            if (!std::isfinite(s))
+                continue;
+            chPeak = std::max(chPeak, std::abs(s));
+        }
         peakLinear = std::max(peakLinear, chPeak);
         if (ch == 0)
             peakLinearL = chPeak;

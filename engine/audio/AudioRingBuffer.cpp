@@ -1,6 +1,7 @@
 #include "AudioRingBuffer.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace resoset {
 
@@ -42,8 +43,23 @@ int64_t AudioRingBuffer::pop(float* const* outChannels, int64_t numFrames) {
 
     for (int64_t i = 0; i < toRead; ++i) {
         const int64_t slot = (r + i) % capacityFramesValue;
-        for (int ch = 0; ch < channelCount; ++ch)
-            outChannels[ch][i] = storage[static_cast<size_t>(ch)][static_cast<size_t>(slot)];
+        for (int ch = 0; ch < channelCount; ++ch) {
+            if (outChannels[ch] != nullptr)
+                outChannels[ch][i] = storage[static_cast<size_t>(ch)][static_cast<size_t>(slot)];
+        }
+    }
+
+    // Underrun tail: always zero the unfilled portion. Callers often clear
+    // the whole destination first, but zeroing here means a short pop can
+    // never leave stale garbage (or half-written previous block data) for
+    // metering / mix to treat as signal -- which used to flash insane
+    // peakDb values (+400..+700) when a stem hit EOF mid-song.
+    if (toRead < numFrames) {
+        for (int ch = 0; ch < channelCount; ++ch) {
+            if (outChannels[ch] == nullptr)
+                continue;
+            std::fill(outChannels[ch] + toRead, outChannels[ch] + numFrames, 0.0f);
+        }
     }
 
     readIndex.store(r + toRead, std::memory_order_release);
