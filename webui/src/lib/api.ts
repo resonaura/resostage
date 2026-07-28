@@ -192,6 +192,7 @@ export const builder = {
     click: boolean;
     clickBusId: string;
     clickGainDb?: number;
+    clickPan?: number;
     clickSends: { busId: string; gainDb: number; enabled: boolean }[];
   }) => post("/api/v1/builder/song/update", patch),
 

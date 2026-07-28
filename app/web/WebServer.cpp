@@ -820,6 +820,7 @@ std::string WebServer::buildStateJson() const {
     o << "{"
       << "\"projectName\":\"" << jsonEscape(snap.projectName) << "\","
       << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
+      << "\"clickPan\":" << finiteOrZero(snap.clickPan) << ","
       << "\"clickPeakDb\":" << finiteOrZero(snap.clickPeakDb) << ","
       << "\"clickPeakDbL\":" << finiteOrZero(snap.clickPeakDbL) << ","
       << "\"clickPeakDbR\":" << finiteOrZero(snap.clickPeakDbR) << ","

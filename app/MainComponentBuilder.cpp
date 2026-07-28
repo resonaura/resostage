@@ -165,9 +165,11 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     if (getInt(doc, "tsDen", intVal)) s.timeSignature.denominator = intVal;
     if (getBool(doc, "click", boolVal)) s.builtInClickEnabled = boolVal;
     if (getString(doc, "clickBusId", strVal)) s.builtInClickBusId = strVal;
-    // Click gain is project-global (not per-song).
+    // Click gain/pan are project-global (not per-song).
     if (getDouble(doc, "clickGainDb", numVal))
         proj.builtInClickGainDb = numVal;
+    if (getDouble(doc, "clickPan", numVal))
+        proj.builtInClickPan = std::clamp(numVal, -1.0, 1.0);
 
     // clickSends: full replacement when present (web sends the entire array)
     simdjson::dom::array clickSendsArr;

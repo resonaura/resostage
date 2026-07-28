@@ -772,6 +772,10 @@ bool ProjectLoader::loadAutosave(std::string& error) {
     if (hadProjectClickGain)
         proj.builtInClickGainDb = clickGainDb;
 
+    double clickPan = 0.0;
+    if (!doc["builtInClickPan"].get(clickPan))
+        proj.builtInClickPan = std::clamp(clickPan, -1.0, 1.0);
+
     simdjson::dom::array bussesArr;
     if (!doc["busses"].get(bussesArr)) {
         for (simdjson::dom::element busEl : bussesArr) {
@@ -880,6 +884,10 @@ bool ProjectLoader::reparseProject(std::string& error) {
     const bool hadProjectClickGain = !doc["builtInClickGainDb"].get(clickGainDb);
     if (hadProjectClickGain)
         proj.builtInClickGainDb = clickGainDb;
+
+    double clickPan = 0.0;
+    if (!doc["builtInClickPan"].get(clickPan))
+        proj.builtInClickPan = std::clamp(clickPan, -1.0, 1.0);
 
     simdjson::dom::array bussesArr;
     if (!doc["busses"].get(bussesArr)) {

@@ -609,6 +609,7 @@ void MainComponent::publishWebState() {
     const Project& proj = engine.project();
     state.projectName = proj.name;
     state.clickGainDb = proj.builtInClickGainDb;
+    state.clickPan = proj.builtInClickPan;
     if (const auto* clickM = engine.clickMeter()) {
         MeterFrame frame;
         if (clickM->read(frame)) {

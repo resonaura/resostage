@@ -966,7 +966,6 @@ function TrackStrip({
 }
 
 function MetronomeStrip({ state }: { state: WebUiState }) {
-  const [clickPan, setClickPan] = useState(0);
   const [clickSolo, setClickSolo] = useState(false);
 
   const hasSongs = state.songs.length > 0;
@@ -975,8 +974,9 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   const isMetronomeOn = currentSong ? currentSong.click : false;
   const currentClickBus =
     currentSong?.clickBusId || state.busses[0]?.id || "main";
-  // Project-global click level (not per-song).
+  // Project-global click level / pan (not per-song).
   const clickGain = state.clickGainDb ?? -6;
+  const clickPan = state.clickPan ?? 0;
 
   const auxBusses = state.busses.filter((b) => b.isAux);
   const clickSends = currentSong?.clickSends ?? [];
@@ -993,6 +993,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
     click?: boolean;
     clickBusId?: string;
     clickGainDb?: number;
+    clickPan?: number;
     clickSends?: typeof clickSends;
   }) => {
     if (!hasSongs || !currentSong) return;
@@ -1007,6 +1008,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       clickBusId:
         (partial.clickBusId ?? currentSong.clickBusId) || currentClickBus,
       clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? -6,
+      clickPan: partial.clickPan ?? state.clickPan ?? 0,
       clickSends: partial.clickSends ?? currentSong.clickSends ?? [],
     });
   };
@@ -1069,7 +1071,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       mute={!isMetronomeOn}
       solo={clickSolo}
       onGain={(v) => patchSong({ clickGainDb: v })}
-      onPan={(v) => setClickPan(v)}
+      onPan={(v) => patchSong({ clickPan: v })}
       onMute={toggleMetronomeMute}
       onSolo={() => setClickSolo(!clickSolo)}
     />

@@ -180,6 +180,8 @@ export interface WebUiState {
   projectName: string;
   /** Project-global metronome level (dB). */
   clickGainDb: number;
+  /** Project-global metronome pan (-1..+1). */
+  clickPan?: number;
   /** Metronome-only peak (not the bus it routes into). */
   clickPeakDb?: number;
   clickPeakDbL?: number;
@@ -209,6 +211,7 @@ export interface WebUiState {
 export const emptyState: WebUiState = {
   projectName: "",
   clickGainDb: -6,
+  clickPan: 0,
   clickPeakDb: -100,
   clickPeakDbL: -100,
   clickPeakDbR: -100,

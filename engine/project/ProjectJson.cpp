@@ -72,6 +72,9 @@ std::string serializeProjectJson(const Project& project) {
     o << "  \"builtInClickGainDb\": ";
     writeNumber(o, project.builtInClickGainDb);
     o << ",\n";
+    o << "  \"builtInClickPan\": ";
+    writeNumber(o, project.builtInClickPan);
+    o << ",\n";
 
     o << "  \"busses\": [\n";
     for (size_t i = 0; i < project.busses.size(); ++i) {

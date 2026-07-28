@@ -126,6 +126,8 @@ struct WebUiState {
     std::string projectName;
     // Project-global metronome level (dB). Same for every song.
     double clickGainDb = -6.0;
+    // Project-global metronome pan (-1..+1).
+    double clickPan = 0.0;
     // Metronome-only peak (not the destination bus). Mono source → L=R.
     float clickPeakDb = -144.0f;
     float clickPeakDbL = -144.0f;

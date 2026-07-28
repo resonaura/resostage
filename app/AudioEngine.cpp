@@ -840,8 +840,10 @@ void AudioEngine::refreshClickState() {
     auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty() ? (busses.empty() ? "" : busses.front().id) : song.builtInClickBusId);
     if (clickBusIt != busIndexById.end()) {
         clickTargetBusIndex = static_cast<int>(clickBusIt->second);
-        // Gain is project-global (same level for every song).
+        // Gain/pan are project-global (same for every song).
         clickGainLinear = dbToGain(loader.project().builtInClickGainDb);
+        clickPan = static_cast<float>(
+            std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
         clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
     }
     for (const TrackSendDef& cs : song.builtInClickSends) {
@@ -1233,6 +1235,8 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
 
         clickTargetBusIndex = newClickTarget;
         clickGainLinear = newClickGain;
+        clickPan = static_cast<float>(
+            std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
         clickSendBusIndices = std::move(newClickSends);
         clickSendGainLinears = std::move(newClickSendGains);
         isClickEnabled = newClickEnabled;
@@ -1397,6 +1401,8 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     eventFiredFlags.assign(song.events.size(), 0);
     clickTargetBusIndex = newClickTarget;
     clickGainLinear = newClickGain;
+    clickPan = static_cast<float>(
+        std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
     clickSendBusIndices = std::move(newClickSends);
     clickSendGainLinears = std::move(newClickSendGains);
     isClickEnabled = newClickEnabled;
@@ -2064,19 +2070,36 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
 
         if (isClickEnabled) {
+            // Balance pan on the mono click (same law as track pan).
+            const float targetGL =
+                clickGainLinear * (1.0f - std::max(0.0f, clickPan));
+            const float targetGR =
+                clickGainLinear * (1.0f + std::min(0.0f, clickPan));
+            if (!clickSmoothInited) {
+                clickSmoothGL = targetGL;
+                clickSmoothGR = targetGR;
+                clickSmoothInited = true;
+            }
+            const float sr = static_cast<float>(std::max(1.0, currentSampleRate));
+            const float a = 1.0f - std::exp(-1.0f / (0.010f * sr));
+
             // Main target bus
             if (clickActive) {
                 const int scratchOffset = clickTargetBusIndex * 2;
                 if (scratchOffset + 2 <= scratchChannels) {
                     for (int i = 0; i < numSamples; ++i) {
-                        const float v = clickScratch[static_cast<size_t>(i)] * clickGainLinear;
-                        busScratch.addSample(scratchOffset + 0, i, v);
-                        busScratch.addSample(scratchOffset + 1, i, v);
+                        clickSmoothGL += a * (targetGL - clickSmoothGL);
+                        clickSmoothGR += a * (targetGR - clickSmoothGR);
+                        const float s = clickScratch[static_cast<size_t>(i)];
+                        busScratch.addSample(
+                            scratchOffset + 0, i, s * clickSmoothGL);
+                        busScratch.addSample(
+                            scratchOffset + 1, i, s * clickSmoothGR);
                     }
                 }
             }
 
-            // Send buses (aux monitor mixes)
+            // Send buses (aux monitor mixes) — send gain × pan balance
             for (size_t si = 0; si < clickSendBusIndices.size(); ++si) {
                 const int sendBusIdx = clickSendBusIndices[si];
                 if (static_cast<size_t>(sendBusIdx) >= busses.size())
@@ -2085,30 +2108,35 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 if (scratchOffset + 2 > scratchChannels)
                     continue;
                 const float sendGain = clickSendGainLinears[si];
+                const float sGL =
+                    sendGain * (1.0f - std::max(0.0f, clickPan));
+                const float sGR =
+                    sendGain * (1.0f + std::min(0.0f, clickPan));
                 for (int i = 0; i < numSamples; ++i) {
-                    const float v = clickScratch[static_cast<size_t>(i)] * sendGain;
-                    busScratch.addSample(scratchOffset + 0, i, v);
-                    busScratch.addSample(scratchOffset + 1, i, v);
+                    const float s = clickScratch[static_cast<size_t>(i)];
+                    busScratch.addSample(scratchOffset + 0, i, s * sGL);
+                    busScratch.addSample(scratchOffset + 1, i, s * sGR);
                 }
             }
 
-            // Click strip meter: only the metronome (post strip gain), never the
-            // destination bus sum (master/main would otherwise steal the strip).
+            // Click strip meter: metronome only, post gain+pan (L/R balance).
             if (!meteringMuted) {
-                float peak = 0.0f;
+                float peakL = 0.0f;
+                float peakR = 0.0f;
                 for (int i = 0; i < numSamples; ++i) {
-                    const float v = std::abs(
-                        clickScratch[static_cast<size_t>(i)] * clickGainLinear);
-                    if (v > peak)
-                        peak = v;
+                    const float s =
+                        std::abs(clickScratch[static_cast<size_t>(i)]);
+                    peakL = std::max(peakL, s * clickSmoothGL);
+                    peakR = std::max(peakR, s * clickSmoothGR);
                 }
+                auto toDb = [](float p) -> float {
+                    return p > 1.0e-9f ? 20.0f * std::log10(p) : -144.0f;
+                };
                 MeterFrame frame;
-                const float db =
-                    peak > 1.0e-9f ? 20.0f * std::log10(peak) : -144.0f;
-                frame.peakDb = db;
-                frame.peakDbL = db;
-                frame.peakDbR = db;
-                frame.truePeakDb = db;
+                frame.peakDb = toDb(std::max(peakL, peakR));
+                frame.peakDbL = toDb(peakL);
+                frame.peakDbR = toDb(peakR);
+                frame.truePeakDb = frame.peakDb;
                 clickMeterFrame.write(frame);
             } else {
                 clickMeterFrame.write(MeterFrame{});

@@ -423,6 +423,11 @@ private:
     ClickGenerator clickGenerator;
     int clickTargetBusIndex = -1;
     float clickGainLinear = 1.0f;
+    float clickPan = 0.0f; // -1..+1, project-global
+    // Dezippered click strip gains (audio thread only).
+    float clickSmoothGL = 1.0f;
+    float clickSmoothGR = 1.0f;
+    bool clickSmoothInited = false;
     bool isClickEnabled = false;
     // Additional send destinations for the click (monitor mixes). Resolved
     // from song.builtInClickSends in refreshClickState(); parallel arrays.

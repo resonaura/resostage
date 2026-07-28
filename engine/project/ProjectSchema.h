@@ -168,6 +168,8 @@ struct Project {
     // Global metronome level -- shared across all songs (not per-song).
     // SongDef::builtInClickGainDb is kept for backward-compat load migration.
     double builtInClickGainDb = -6.0;
+    // Project-global metronome pan (-1..+1). Same for every song.
+    double builtInClickPan = 0.0;
     std::vector<BusDef> busses;
     std::vector<TrackDef> tracks;
     std::vector<SongDef> songs;
