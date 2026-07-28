@@ -656,6 +656,7 @@ void AudioEngine::publishRoutingSnapshot() {
             route.pan = trackPan;
             route.mute = trackSilenced;
             route.isAuxSend = false;
+            route.forceMono = trackDef.mono;
             snapshot->routes.push_back(route);
         }
 
@@ -680,6 +681,7 @@ void AudioEngine::publishRoutingSnapshot() {
             route.sendGainLinear = dbToGain(send.gainDb);
             route.pan = trackPan;
             route.isAuxSend = true;
+            route.forceMono = trackDef.mono;
             snapshot->routes.push_back(route);
         }
     }
@@ -725,6 +727,15 @@ void AudioEngine::setTrackPan(size_t songIndex, size_t trackIndex, double pan) {
     if (t == nullptr)
         return;
     t->pan = std::clamp(pan, -1.0, 1.0);
+    publishRoutingSnapshot();
+}
+
+void AudioEngine::setTrackMono(size_t songIndex, size_t trackIndex, bool mono) {
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
+    if (t == nullptr)
+        return;
+    t->mono = mono;
     publishRoutingSnapshot();
 }
 
@@ -1893,29 +1904,65 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             continue;
         buf->read(ptrs, numSamples, playheadSample);
 
-        // Lightweight peak-only track meter for the Mixer UI (no LUFS on tracks).
+        // Peak meter after fader/pan (and mono sum when forceMono / mono file).
         if (t < trackMeters.size() && trackMeters[t] != nullptr) {
-            auto peakOf = [&](int ch) -> float {
-                if (ch >= trackChannels)
-                    return 0.0f;
-                const float* s = scratch.getReadPointer(ch);
-                float peak = 0.0f;
-                for (int i = 0; i < numSamples; ++i)
-                    peak = std::max(peak, std::abs(s[i]));
-                return peak;
-            };
-            const float peakL = peakOf(0);
-            const float peakR = trackChannels > 1 ? peakOf(1) : peakL;
-            const float peak = std::max(peakL, peakR);
+            float gL = 1.0f;
+            float gR = 1.0f;
+            bool forceMono = trackChannels < 2;
+            bool silenced = true;
+            if (snap != nullptr) {
+                for (const TrackRoute& route : snap->routes) {
+                    if (route.trackIndex != t)
+                        continue;
+                    if (!route.isAuxSend || silenced) {
+                        silenced = route.mute;
+                        forceMono = forceMono || route.forceMono;
+                        const float g = route.gainLinear * route.sendGainLinear;
+                        gL = g * (1.0f - std::max(0.0f, route.pan));
+                        gR = g * (1.0f + std::min(0.0f, route.pan));
+                        if (!route.isAuxSend)
+                            break;
+                    }
+                }
+            }
+
             auto toDb = [](float p) -> float {
                 return p > 1.0e-9f ? 20.0f * std::log10(p) : -144.0f;
             };
-            MeterFrame frame;
-            frame.peakDb = toDb(peak);
-            frame.peakDbL = toDb(peakL);
-            frame.peakDbR = toDb(peakR);
-            frame.truePeakDb = frame.peakDb;
-            trackMeters[t]->write(frame);
+
+            if (silenced) {
+                trackMeters[t]->write(MeterFrame{});
+            } else {
+                const float* sL = scratch.getReadPointer(0);
+                const float* sR =
+                    trackChannels > 1 ? scratch.getReadPointer(1) : sL;
+                float peakL = 0.0f;
+                float peakR = 0.0f;
+                for (int i = 0; i < numSamples; ++i) {
+                    const float l = sL != nullptr ? sL[i] : 0.0f;
+                    const float r = sR != nullptr ? sR[i] : l;
+                    if (forceMono) {
+                        const float m = 0.5f * (l + r);
+                        peakL = std::max(peakL, std::abs(m * gL));
+                        peakR = std::max(peakR, std::abs(m * gR));
+                    } else {
+                        peakL = std::max(peakL, std::abs(l * gL));
+                        peakR = std::max(peakR, std::abs(r * gR));
+                    }
+                }
+                // Mono strip: show the same post-fader mono peak on both bars
+                // when pan is centre; with pan, L/R already reflect balance.
+                if (forceMono && std::abs(gL - gR) < 1.0e-6f) {
+                    const float p = std::max(peakL, peakR);
+                    peakL = peakR = p;
+                }
+                MeterFrame frame;
+                frame.peakDb = toDb(std::max(peakL, peakR));
+                frame.peakDbL = toDb(peakL);
+                frame.peakDbR = toDb(peakR);
+                frame.truePeakDb = frame.peakDb;
+                trackMeters[t]->write(frame);
+            }
         }
     }
 
@@ -1950,18 +1997,23 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             srcR = srcL;
 
         const float g = route.gainLinear * route.sendGainLinear;
-        // Balance-style pan (L/R attenuation). Was previously only applied on the
-        // mono-source branch, so stereo stems ignored pan entirely.
+        // Balance-style pan (L/R attenuation) for mono and stereo sources.
         const float gL = g * (1.0f - std::max(0.0f, route.pan));
         const float gR = g * (1.0f + std::min(0.0f, route.pan));
-        if (trackChannels >= 2 && busChannels >= 2) {
+        // Force-mono track flag or mono file → sum L+R, then pan into bus.
+        const bool asMono = route.forceMono || trackChannels < 2;
+
+        if (!asMono && trackChannels >= 2 && busChannels >= 2) {
             for (int i = 0; i < numSamples; ++i) {
                 busScratch.addSample(scratchOffset + 0, i, srcL[i] * gL);
                 busScratch.addSample(scratchOffset + 1, i, srcR[i] * gR);
             }
         } else {
             for (int i = 0; i < numSamples; ++i) {
-                const float mono = srcL[i];
+                const float mono =
+                    asMono && trackChannels >= 2
+                        ? 0.5f * (srcL[i] + srcR[i])
+                        : srcL[i];
                 if (busChannels >= 2) {
                     busScratch.addSample(scratchOffset + 0, i, mono * gL);
                     busScratch.addSample(scratchOffset + 1, i, mono * gR);

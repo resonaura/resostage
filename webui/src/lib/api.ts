@@ -98,6 +98,8 @@ export const mixer = {
     post("/api/v1/track/mute", { index, value }),
   setTrackSolo: (index: number, value: boolean) =>
     post("/api/v1/track/solo", { index, value }),
+  setTrackMono: (index: number, mono: boolean) =>
+    builder.trackUpdate({ index, mono }),
   // Bus assignment for the track's main output -- matches the MixerStrip
   // outputBusBox in the native UI. Empty busId = "(sends only)".
   setTrackBus: (index: number, busId: string) =>
@@ -208,7 +210,10 @@ export const builder = {
     pan?: number;
     mute?: boolean;
     solo?: boolean;
+    mono?: boolean;
   }) => post("/api/v1/builder/track/update", patch),
+  setTrackMono: (index: number, mono: boolean) =>
+    post("/api/v1/builder/track/update", { index, mono }),
 
   regionAdd: (patch: {
     songIndex: number;

@@ -16,6 +16,8 @@ struct TrackRoute {
     float pan = 0.0f;            // -1..+1, applied when the destination bus has 2 channels
     bool mute = false;
     bool isAuxSend = false;
+    // Force mono sum of the track before pan (TrackDef.mono).
+    bool forceMono = false;
 };
 
 // A bus's assignment to a contiguous range of physical output channels.

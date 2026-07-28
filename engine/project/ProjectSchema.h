@@ -37,6 +37,8 @@ struct TrackDef {
     double pan = 0.0; // -1..+1
     bool mute = false;
     bool solo = false; // if any track is soloed, non-solo tracks are silenced
+    // Force mono: stereo regions are summed L+R → mono before pan/send.
+    bool mono = false;
     std::vector<TrackSendDef> sends; // aux matrix rows for this track
 };
 

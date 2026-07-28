@@ -233,6 +233,7 @@ struct WebUiState {
         double pan = 0.0;
         bool mute = false;
         bool solo = false;
+        bool mono = false;
         struct SendRow {
             std::string busId;
             double gainDb = 0.0;

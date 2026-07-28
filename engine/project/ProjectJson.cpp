@@ -106,6 +106,7 @@ std::string serializeProjectJson(const Project& project) {
         o << ",\n";
         o << "      \"mute\": " << (t.mute ? "true" : "false") << ",\n";
         o << "      \"solo\": " << (t.solo ? "true" : "false") << ",\n";
+        o << "      \"mono\": " << (t.mono ? "true" : "false") << ",\n";
         o << "      \"sends\": [\n";
         for (size_t si = 0; si < t.sends.size(); ++si) {
             const TrackSendDef& send = t.sends[si];

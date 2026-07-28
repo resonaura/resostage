@@ -117,6 +117,10 @@ bool parseTrack(const simdjson::dom::element& trackEl, TrackDef& track, std::str
     (void)trackEl["solo"].get(solo);
     track.solo = solo;
 
+    bool mono = false;
+    (void)trackEl["mono"].get(mono);
+    track.mono = mono;
+
     simdjson::dom::array sendsArr;
     if (!trackEl["sends"].get(sendsArr)) {
         for (simdjson::dom::element sendEl : sendsArr) {

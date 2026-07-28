@@ -448,17 +448,20 @@ function TrackOutputRouting({
   busId,
   busses,
   settings,
+  mono,
+  onMonoChange,
   onBusSelect,
   onDirectOutput,
 }: {
   busId: string;
   busses: BusRow[];
   settings: SettingsState;
+  mono: boolean;
+  onMonoChange: (mono: boolean) => void;
   onBusSelect: (id: string) => void;
   onDirectOutput: (mono: boolean, startChannel: number) => void;
 }) {
   const [directOutputOpen, setDirectOutputOpen] = useState(false);
-  const [mono, setMono] = useState(false);
 
   const options = directOutputOptions(settings, !mono);
   const currentValue = directOutputOpen
@@ -469,15 +472,19 @@ function TrackOutputRouting({
 
   return (
     <div className="w-full my-1 flex flex-col items-center gap-1.5">
-      {/* Mono/Stereo toggle ALWAYS at top with vertical spacing */}
+      {/* Mono/Stereo: forces mono sum of the track for mix + meters */}
       <div className="w-full flex items-center justify-center my-0.5">
         <button
           type="button"
           className="flex items-center justify-center p-1 text-foreground/70 transition-colors hover:text-foreground mx-auto"
-          title={mono ? "Mono (click for stereo)" : "Stereo (click for mono)"}
+          title={
+            mono
+              ? "Mono — click for stereo"
+              : "Stereo — click for mono (sum L+R)"
+          }
           onClick={() => {
             const nextMono = !mono;
-            setMono(nextMono);
+            onMonoChange(nextMono);
             if (directOutputOpen) {
               const newOptions = directOutputOptions(settings, !nextMono);
               if (newOptions.length > 0) {
@@ -737,6 +744,8 @@ function ChannelStrip({
   // only -- doesn't apply to bus/master/click strips.
   directOutput?: {
     settings: SettingsState;
+    mono: boolean;
+    onMonoChange: (mono: boolean) => void;
     onDirectOutput: (mono: boolean, startChannel: number) => void;
   };
   // Ableton-style send knob row, one per aux bus. Track strips only.
@@ -803,6 +812,8 @@ function ChannelStrip({
           busId={busId || ""}
           busses={busses}
           settings={directOutput.settings}
+          mono={directOutput.mono}
+          onMonoChange={directOutput.onMonoChange}
           onBusSelect={onBusSelect}
           onDirectOutput={directOutput.onDirectOutput}
         />
@@ -933,6 +944,8 @@ function TrackStrip({
       onBusSelect={(bId) => mixer.setTrackBus(index, bId)}
       directOutput={{
         settings,
+        mono: Boolean(t.mono),
+        onMonoChange: (m) => void mixer.setTrackMono(index, m),
         onDirectOutput: (mono, ch) => onDirectOutput(index, mono, ch),
       }}
       sends={{ auxBusses, values: t.sends, trackIndex: index }}
@@ -1030,6 +1043,8 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       onBusSelect={changeClickBus}
       directOutput={{
         settings: state.settings,
+        mono: false,
+        onMonoChange: () => {},
         onDirectOutput: (_mono, startChannel) => {
           const mainBusses = state.busses.filter((b) => !b.isAux);
           const existing = mainBusses.find(

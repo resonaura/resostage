@@ -265,12 +265,14 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
     if (getDouble(doc, "pan", numVal)) t.pan = numVal;
     if (getBool(doc, "mute", boolVal)) t.mute = boolVal;
     if (getBool(doc, "solo", boolVal)) t.solo = boolVal;
+    if (getBool(doc, "mono", boolVal)) t.mono = boolVal;
 
     engine.setTrackGainDb(0, static_cast<size_t>(index), t.gainDb);
     engine.setTrackPan(0, static_cast<size_t>(index), t.pan);
     engine.setTrackBusId(0, static_cast<size_t>(index), t.busId);
     engine.setTrackMute(0, static_cast<size_t>(index), t.mute);
     engine.setTrackSolo(0, static_cast<size_t>(index), t.solo);
+    engine.setTrackMono(0, static_cast<size_t>(index), t.mono);
 
     builderPanel.refresh();
     builderPanel.onProjectEdited();

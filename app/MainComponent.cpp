@@ -712,6 +712,7 @@ void MainComponent::publishWebState() {
         tr.pan = def.pan;
         tr.mute = def.mute;
         tr.solo = def.solo;
+        tr.mono = def.mono;
         for (const auto& send : def.sends)
             tr.sends.push_back({send.busId, send.gainDb});
 

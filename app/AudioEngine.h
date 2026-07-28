@@ -165,6 +165,7 @@ public:
     void setTrackPan(size_t songIndex, size_t trackIndex, double pan);
     void setTrackMute(size_t songIndex, size_t trackIndex, bool mute);
     void setTrackSolo(size_t songIndex, size_t trackIndex, bool solo);
+    void setTrackMono(size_t songIndex, size_t trackIndex, bool mono);
     void setTrackBusId(size_t songIndex, size_t trackIndex, const std::string& busId);
     void setBusGainDb(size_t busIndex, double gainDb);
     void setBusMute(size_t busIndex, bool mute);

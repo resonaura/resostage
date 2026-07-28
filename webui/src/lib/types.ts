@@ -90,6 +90,8 @@ export interface TrackRow {
   pan: number;
   mute: boolean;
   solo: boolean;
+  /** Force mono sum of the stem before pan/sends. */
+  mono?: boolean;
   sends: TrackSendRow[];
   peakDb: number;
   peakDbL?: number;

@@ -916,6 +916,7 @@ std::string WebServer::buildStateJson() const {
           << "\"pan\":" << finiteOrZero(t.pan) << ","
           << "\"mute\":" << (t.mute ? "true" : "false") << ","
           << "\"solo\":" << (t.solo ? "true" : "false") << ","
+          << "\"mono\":" << (t.mono ? "true" : "false") << ","
           << "\"sends\":[";
         for (size_t si = 0; si < t.sends.size(); ++si) {
             if (si) o << ",";
