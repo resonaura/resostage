@@ -48,7 +48,12 @@ public:
 
     bool refill();
     bool hardSeekTo(int64_t deviceFrame, std::string& error);
+    // Cheap rewind to frame 0 for hopscotch: re-open stream + re-parse header,
+    // keep existing ring storage (reset indices). Prefer this over treating
+    // every promote as a cold openUnlocked.
+    bool softRewindToStart(std::string& error);
     int64_t read(float* const* outChannels, int64_t numFrames, int64_t expectedPosition);
+    int64_t currentReadPosition() const { return readPosition.load(std::memory_order_relaxed); }
 
     bool isExhausted() const {
         if (residentActive.load(std::memory_order_acquire)) {
@@ -61,14 +66,21 @@ public:
     int64_t framesAvailable() const {
         if (residentActive.load(std::memory_order_acquire))
             return ring.capacity() > 0 ? ring.capacity() : preferredLength;
+        if (!ringReady.load(std::memory_order_acquire))
+            return 0;
         return ring.framesAvailable();
     }
     int64_t framesFree() const {
         if (residentActive.load(std::memory_order_acquire))
             return 0;
+        if (!ringReady.load(std::memory_order_acquire))
+            return openRingCapacityFrames; // not allocated yet — fully free
         return ring.framesFree();
     }
-    int64_t ringCapacity() const { return ring.capacity(); }
+    int64_t ringCapacity() const {
+        const int64_t c = ring.capacity();
+        return c > 0 ? c : openRingCapacityFrames;
+    }
     bool sourceIsExhausted() const {
         if (residentActive.load(std::memory_order_acquire))
             return true;
@@ -84,11 +96,16 @@ public:
             return false;
         if (hasPendingSkip())
             return true;
+        if (!sourceIsExhausted() && !ringReady.load(std::memory_order_acquire))
+            return true; // need first-time ring alloc + fill (on IO thread)
         return !sourceIsExhausted() && ring.framesFree() > 0;
     }
 
 private:
     void closeDiskCursorUnlocked();
+    // Allocates ring storage if still deferred (message-thread stageSong only
+    // opens headers; IO/prime threads call this on first refill).
+    void ensureRingReadyUnlocked();
     bool openUnlocked(const ProjectLoader& loader, const std::string& archivePath,
                       int64_t ringCapacityFrames, double deviceSampleRate, std::string& error);
     // Decode [deviceStart, +deviceFrames) via a private stream (does not touch
@@ -114,6 +131,9 @@ private:
     std::atomic<int64_t> pendingSkipFrames{0};
     std::atomic<bool> sourceExhausted{false};
     std::atomic<bool> residentLoadInFlight{false};
+    // false until ensureRingReadyUnlocked() — keeps stageSong off the huge
+    // zeroed float alloc so song hops stay on the message-thread budget.
+    std::atomic<bool> ringReady{false};
 
     std::vector<std::vector<float>> refillScratch;
     std::vector<float*> refillWritePtrs;

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <thread>
 
 namespace resoset {
 
@@ -27,7 +28,6 @@ void applyWindowFromRegion(StreamingTrackBuffer& buf, const Region& region, doub
 
     int64_t len = sourceAvail;
     if (region.loop) {
-        // Loop body only once — engine wraps file positions on read.
         len = sourceAvail;
     } else if (region.durationSeconds > 0.0) {
         const int64_t durFrames =
@@ -55,14 +55,17 @@ void StreamingEngine::start(const ProjectLoader* loader, std::function<void()> o
     projectLoader = loader;
     ioThreadStartHook = std::move(onIoThreadStart);
     ioThreadStopHook = std::move(onIoThreadStop);
+    warmGeneration_.fetch_add(1, std::memory_order_acq_rel);
+    {
+        std::lock_guard<std::mutex> lock(precacheMutex);
+        warmByIndex.clear();
+        warmLru.clear();
+        precached.reset();
+    }
+    std::atomic_store_explicit(&active, std::shared_ptr<StagedSong>{}, std::memory_order_release);
     running.store(true, std::memory_order_release);
     ioThread = std::thread([this] { ioWorkerLoop(0); });
-    // Second feeder: directory containers have independent FILE* — real parallel
-    // refill. For ZIP, worker 1 still runs but serializes on the same mutex
-    // (harmless extra waiter; primary work stays on worker 0 when contended).
     ioThread2 = std::thread([this] { ioWorkerLoop(1); });
-    // RAM residency is slow (full source-window decode). Never do it on
-    // stageSong — a dedicated thread promotes stems after playback is live.
     residentThread = std::thread([this] { residentThreadLoop(); });
 }
 
@@ -74,11 +77,104 @@ void StreamingEngine::stop() {
         ioThread2.join();
     if (residentThread.joinable())
         residentThread.join();
+    {
+        std::lock_guard<std::mutex> lock(precacheMutex);
+        warmByIndex.clear();
+        warmLru.clear();
+        precached.reset();
+    }
+    std::atomic_store_explicit(&active, std::shared_ptr<StagedSong>{}, std::memory_order_release);
+    projectLoader = nullptr;
+    warmGeneration_.fetch_add(1, std::memory_order_acq_rel);
 }
 
 void StreamingEngine::applyRegionWindow(StreamingTrackBuffer& buf, const Region& region,
                                         double deviceSampleRate) const {
     applyWindowFromRegion(buf, region, deviceSampleRate);
+}
+
+void StreamingEngine::putWarmLocked(std::shared_ptr<StagedSong> song, bool needsRewind) {
+    if (song == nullptr)
+        return;
+    const size_t idx = song->songIndex;
+    // Drop RAM-resident windows on parked songs so hopscotch doesn't pin
+    // multi-GB of audio for songs the user left.
+    for (auto& b : song->buffers) {
+        if (b)
+            b->releaseResident();
+    }
+    if (needsRewind)
+        song->readyAtStart.store(false, std::memory_order_release);
+    warmByIndex[idx] = std::move(song);
+    warmLru.erase(std::remove(warmLru.begin(), warmLru.end(), idx), warmLru.end());
+    warmLru.push_back(idx);
+    while (warmByIndex.size() > kWarmCacheMax && !warmLru.empty()) {
+        const size_t victim = warmLru.front();
+        warmLru.erase(warmLru.begin());
+        warmByIndex.erase(victim);
+        if (precached && precached->songIndex == victim)
+            precached.reset();
+    }
+    if (precached && warmByIndex.find(precached->songIndex) == warmByIndex.end())
+        precached.reset();
+}
+
+std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::takeWarmLocked(size_t songIndex) {
+    auto it = warmByIndex.find(songIndex);
+    if (it == warmByIndex.end())
+        return nullptr;
+    auto s = std::move(it->second);
+    warmByIndex.erase(it);
+    warmLru.erase(std::remove(warmLru.begin(), warmLru.end(), songIndex), warmLru.end());
+    if (precached && precached->songIndex == songIndex)
+        precached.reset();
+    return s;
+}
+
+bool StreamingEngine::hasWarmLocked(size_t songIndex) const {
+    return warmByIndex.find(songIndex) != warmByIndex.end()
+           || (precached != nullptr && precached->songIndex == songIndex);
+}
+
+void StreamingEngine::resetSongToStart(StagedSong& staged) {
+    // Soft rewind to frame 0 (keeps ring storage). Prefer dir path without
+    // holding the global zip mutex across every stem.
+    const bool dir = projectLoader != nullptr && projectLoader->isDirectoryContainer();
+    auto resetOne = [](StreamingTrackBuffer& buf) {
+        std::string err;
+        (void)buf.softRewindToStart(err);
+    };
+    if (dir) {
+        for (auto& b : staged.buffers)
+            if (b)
+                resetOne(*b);
+    } else {
+        std::lock_guard<std::mutex> lock(projectLoaderMutex);
+        for (auto& b : staged.buffers)
+            if (b)
+                resetOne(*b);
+    }
+    staged.readyAtStart.store(false, std::memory_order_release);
+}
+
+static bool songHeadHasAudio(const StreamingEngine::StagedSong& staged, double minSeconds,
+                             double deviceSampleRate) {
+    if (deviceSampleRate <= 0.0)
+        deviceSampleRate = 48000.0;
+    const int64_t need = static_cast<int64_t>(std::max(0.0, minSeconds) * deviceSampleRate);
+    if (staged.buffers.empty())
+        return true;
+    for (const auto& buf : staged.buffers) {
+        if (buf == nullptr)
+            continue;
+        if (buf->isResident())
+            continue;
+        if (buf->isExhausted())
+            continue;
+        if (buf->framesAvailable() < need)
+            return false;
+    }
+    return true;
 }
 
 void StreamingEngine::recountResidentBytes() {
@@ -88,21 +184,21 @@ void StreamingEngine::recountResidentBytes() {
             if (b && b->isResident())
                 used += b->residentBytes();
     }
-    std::shared_ptr<StagedSong> pc;
     {
         std::lock_guard<std::mutex> lock(precacheMutex);
-        pc = precached;
-    }
-    if (pc != nullptr) {
-        for (const auto& b : pc->buffers)
-            if (b && b->isResident())
-                used += b->residentBytes();
+        for (const auto& [idx, song] : warmByIndex) {
+            (void)idx;
+            if (song == nullptr)
+                continue;
+            for (const auto& b : song->buffers)
+                if (b && b->isResident())
+                    used += b->residentBytes();
+        }
     }
     residentBytesUsed.store(used, std::memory_order_relaxed);
 }
 
 bool StreamingEngine::residentizeOneBuffer(StagedSong& staged, size_t& budgetRemaining) {
-    // Prefer smallest non-resident window first (more stems fit).
     StreamingTrackBuffer* best = nullptr;
     size_t bestBytes = std::numeric_limits<size_t>::max();
     for (auto& b : staged.buffers) {
@@ -121,8 +217,6 @@ bool StreamingEngine::residentizeOneBuffer(StagedSong& staged, size_t& budgetRem
 
     size_t got = 0;
     std::string err;
-    // Caller must keep `staged` alive (shared_ptr) for the whole decode.
-    // Do NOT hold precacheMutex / stage locks across this — decode is slow.
     const bool dir = projectLoader != nullptr && projectLoader->isDirectoryContainer();
     bool ok = false;
     if (dir) {
@@ -138,8 +232,6 @@ bool StreamingEngine::residentizeOneBuffer(StagedSong& staged, size_t& budgetRem
 
 void StreamingEngine::residentThreadLoop() {
     while (running.load(std::memory_order_acquire)) {
-        // Skip work while epoch is spinning (rapid hopscotch) — wait for
-        // stageSong to settle so we don't burn CPU decoding abandoned songs.
         const uint64_t epochBefore = stageEpoch_.load(std::memory_order_acquire);
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
         if (stageEpoch_.load(std::memory_order_acquire) != epochBefore) {
@@ -152,9 +244,6 @@ void StreamingEngine::residentThreadLoop() {
         size_t remain = budget > used ? budget - used : 0;
         bool didWork = false;
 
-        // Active first — hold shared_ptr for the whole side-channel decode.
-        // tryLoadResident no longer mutates live cursor/ring until publish,
-        // so audio can keep streaming that stem safely.
         if (remain > 0) {
             if (auto s = std::atomic_load_explicit(&active, std::memory_order_acquire)) {
                 if (residentizeOneBuffer(*s, remain)) {
@@ -167,21 +256,27 @@ void StreamingEngine::residentThreadLoop() {
         if (!didWork) {
             used = residentBytesUsed.load(std::memory_order_relaxed);
             remain = budget > used ? budget - used : 0;
-            std::shared_ptr<StagedSong> pc;
+            std::shared_ptr<StagedSong> warm;
             {
                 std::lock_guard<std::mutex> lock(precacheMutex);
-                pc = precached;
+                // Prefer newest warm (LRU back).
+                if (!warmLru.empty()) {
+                    auto it = warmByIndex.find(warmLru.back());
+                    if (it != warmByIndex.end())
+                        warm = it->second;
+                } else if (precached != nullptr) {
+                    warm = precached;
+                }
             }
-            if (pc != nullptr && remain > 0) {
-                if (residentizeOneBuffer(*pc, remain)) {
+            if (warm != nullptr && remain > 0) {
+                if (residentizeOneBuffer(*warm, remain)) {
                     didWork = true;
                     recountResidentBytes();
                 }
             }
         }
 
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(didWork ? 15 : 40));
+        std::this_thread::sleep_for(std::chrono::milliseconds(didWork ? 15 : 40));
     }
 }
 
@@ -189,6 +284,8 @@ void StreamingEngine::dropPrecacheUnless(size_t expectedNext) {
     std::lock_guard<std::mutex> lock(precacheMutex);
     if (precached != nullptr && precached->songIndex != expectedNext)
         precached.reset();
+    // Keep warm LRU otherwise — hopscotch depends on it.
+    (void)expectedNext;
 }
 
 void StreamingEngine::refillActiveSlice(StagedSong& s, int workerIndex, int workerCount, bool& urgent,
@@ -243,13 +340,12 @@ void StreamingEngine::refillActiveSlice(StagedSong& s, int workerIndex, int work
                     ++sinceYield;
                     progress = true;
                     if (!dirContainer && sinceYield >= kMutexYieldEveryRefills)
-                        return; // drop lock
+                        return;
                 }
             }
         };
 
         if (dirContainer) {
-            // Independent FILE* — no shared zip mutex for refill.
             doPass();
         } else {
             std::lock_guard<std::mutex> lock(projectLoaderMutex);
@@ -277,30 +373,54 @@ void StreamingEngine::ioWorkerLoop(int workerIndex) {
                 refillActiveSlice(*s, workerIndex, 2, urgent, hungry);
         }
 
-        // Only worker 0 services precache (avoids double-refill races).
+        // Worker 0: rewind parked songs to frame 0 + top-up rings so the next
+        // promote is a pure atomic swap (readyAtStart).
         if (workerIndex == 0 && !urgent) {
-            std::lock_guard<std::mutex> pcLock(precacheMutex);
-            if (precached != nullptr) {
-                const bool dirContainer =
-                    projectLoader != nullptr && projectLoader->isDirectoryContainer();
-                int budget = hungry ? kMaxPrecacheBurstHungry : kMaxPrecacheBurstHealthy;
-                auto refillPc = [&] {
-                    for (auto& buf : precached->buffers) {
-                        if (buf == nullptr || budget <= 0)
-                            continue;
-                        if (buf->isResident())
-                            continue;
-                        if (buf->wantsRefill()) {
-                            buf->refill();
-                            --budget;
-                        }
+            std::vector<std::shared_ptr<StagedSong>> warmSnap;
+            {
+                std::lock_guard<std::mutex> pcLock(precacheMutex);
+                warmSnap.reserve(warmByIndex.size());
+                for (auto it = warmLru.rbegin(); it != warmLru.rend(); ++it) {
+                    auto w = warmByIndex.find(*it);
+                    if (w != warmByIndex.end() && w->second)
+                        warmSnap.push_back(w->second);
+                }
+            }
+            const bool dirContainer =
+                projectLoader != nullptr && projectLoader->isDirectoryContainer();
+            int budget = hungry ? kMaxPrecacheBurstHungry : kMaxPrecacheBurstHealthy;
+            for (auto& song : warmSnap) {
+                if (song == nullptr || budget <= 0)
+                    break;
+                if (!song->readyAtStart.load(std::memory_order_acquire)) {
+                    // Soft-rewind once, then fill head. Message thread must
+                    // never wait on this path.
+                    resetSongToStart(*song);
+                    if (dirContainer) {
+                        primeBuffersLocked(*song, 0.25, 48000.0, 0.08);
+                    } else {
+                        std::lock_guard<std::mutex> zipLock(projectLoaderMutex);
+                        primeBuffersLocked(*song, 0.25, 48000.0, 0.08);
                     }
-                };
-                if (dirContainer)
-                    refillPc();
-                else {
-                    std::lock_guard<std::mutex> zipLock(projectLoaderMutex);
-                    refillPc();
+                    if (songHeadHasAudio(*song, 0.12, 48000.0))
+                        song->readyAtStart.store(true, std::memory_order_release);
+                    budget = 0; // one song per tick — keep active feeder responsive
+                    continue;
+                }
+                for (auto& buf : song->buffers) {
+                    if (buf == nullptr || budget <= 0)
+                        continue;
+                    if (buf->isResident())
+                        continue;
+                    if (buf->wantsRefill()) {
+                        if (dirContainer) {
+                            buf->refill();
+                        } else {
+                            std::lock_guard<std::mutex> zipLock(projectLoaderMutex);
+                            buf->refill();
+                        }
+                        --budget;
+                    }
                 }
             }
         }
@@ -354,140 +474,235 @@ void StreamingEngine::primeBuffersLocked(StagedSong& staged, double minSeconds, 
     }
 }
 
-bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
-                                double deviceSampleRate, std::string& error, double primeSeconds,
-                                double primeMaxWait) {
-    // FAST PATH ONLY. Bump epoch so deferred precache jobs for other songs abandon.
-    stageEpoch_.fetch_add(1, std::memory_order_acq_rel);
-
-    // Promote path: take precache without holding the mutex during prime.
-    {
-        std::shared_ptr<StagedSong> promoted;
-        {
-            std::lock_guard<std::mutex> lock(precacheMutex);
-            if (precached != nullptr && precached->songIndex == songIndex) {
-                promoted = std::move(precached);
-                precached.reset();
-            }
-        }
-        if (promoted) {
-            if (primeMaxWait > 0.0 && primeSeconds > 0.0) {
-                std::lock_guard<std::mutex> zipLock(projectLoaderMutex);
-                primeBuffersLocked(*promoted, primeSeconds, deviceSampleRate, primeMaxWait);
-            }
-            std::atomic_store_explicit(&active, promoted, std::memory_order_release);
-            recountResidentBytes();
-            return true;
-        }
-    }
-
-    // Cold stage: drop a stale precache that is not the sequential neighbour.
-    {
-        std::lock_guard<std::mutex> lock(precacheMutex);
-        if (precached != nullptr && precached->songIndex != songIndex + 1)
-            precached.reset();
-    }
-
+std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::openSongCold(
+    size_t songIndex, const SongDef& song, int64_t ringCapacityFrames, double deviceSampleRate,
+    std::string& error, uint64_t epoch, bool requireEpochMatch) {
     auto staged = std::make_shared<StagedSong>();
     staged->songIndex = songIndex;
 
-    // Directory packages: each open is an independent fopen — open stems
-    // without holding the zip mutex across the whole song (serial open was a
-    // major "first song click lag" cost with many regions).
     const bool dirContainer =
         projectLoader != nullptr && projectLoader->isDirectoryContainer();
+
+    // Parallel header-open for directory packages (independent FILE*).
+    if (dirContainer && song.regions.size() > 2) {
+        std::vector<const Region*> regions;
+        regions.reserve(song.regions.size());
+        for (const auto& r : song.regions) {
+            if (!r.file.empty())
+                regions.push_back(&r);
+        }
+        const int n = static_cast<int>(regions.size());
+        std::vector<std::unique_ptr<StreamingTrackBuffer>> bufs(static_cast<size_t>(n));
+        std::vector<std::string> errs(static_cast<size_t>(n));
+        std::vector<char> ok(static_cast<size_t>(n), 0);
+        std::atomic<int> next{0};
+        const unsigned workers = std::min(4u, std::max(1u, std::thread::hardware_concurrency()));
+        auto worker = [&] {
+            while (true) {
+                if (requireEpochMatch
+                    && epoch != stageEpoch_.load(std::memory_order_acquire))
+                    return;
+                const int i = next.fetch_add(1, std::memory_order_relaxed);
+                if (i >= n)
+                    return;
+                auto buf = std::make_unique<StreamingTrackBuffer>();
+                std::string openError;
+                if (projectLoader != nullptr
+                    && buf->open(*projectLoader, regions[static_cast<size_t>(i)]->file,
+                                 ringCapacityFrames, deviceSampleRate, openError)) {
+                    applyRegionWindow(*buf, *regions[static_cast<size_t>(i)], deviceSampleRate);
+                    bufs[static_cast<size_t>(i)] = std::move(buf);
+                    ok[static_cast<size_t>(i)] = 1;
+                } else {
+                    errs[static_cast<size_t>(i)] = openError.empty() ? "open failed" : openError;
+                }
+            }
+        };
+        std::vector<std::thread> pool;
+        pool.reserve(workers);
+        for (unsigned w = 0; w < workers; ++w)
+            pool.emplace_back(worker);
+        for (auto& t : pool)
+            t.join();
+
+        if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire)) {
+            error = "abandoned";
+            return nullptr;
+        }
+        for (int i = 0; i < n; ++i) {
+            if (!ok[static_cast<size_t>(i)] || bufs[static_cast<size_t>(i)] == nullptr) {
+                error = "Region '" + regions[static_cast<size_t>(i)]->id + "': "
+                        + errs[static_cast<size_t>(i)];
+                return nullptr;
+            }
+            staged->byId[regions[static_cast<size_t>(i)]->id] = bufs[static_cast<size_t>(i)].get();
+            staged->byId[regions[static_cast<size_t>(i)]->trackId] =
+                bufs[static_cast<size_t>(i)].get();
+            staged->buffers.push_back(std::move(bufs[static_cast<size_t>(i)]));
+        }
+        return staged;
+    }
 
     for (const Region& regionDef : song.regions) {
         if (regionDef.file.empty())
             continue;
+        if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire)) {
+            error = "abandoned";
+            return nullptr;
+        }
         auto buf = std::make_unique<StreamingTrackBuffer>();
         std::string openError;
-        bool ok = false;
+        bool opened = false;
         if (dirContainer) {
-            // No shared mz_zip — parallel-safe vs IO refill of other songs.
-            ok = projectLoader != nullptr
-                 && buf->open(*projectLoader, regionDef.file, ringCapacityFrames, deviceSampleRate,
-                              openError);
+            opened = projectLoader != nullptr
+                     && buf->open(*projectLoader, regionDef.file, ringCapacityFrames,
+                                  deviceSampleRate, openError);
         } else {
             std::lock_guard<std::mutex> lock(projectLoaderMutex);
-            ok = projectLoader != nullptr
-                 && buf->open(*projectLoader, regionDef.file, ringCapacityFrames, deviceSampleRate,
-                              openError);
+            opened = projectLoader != nullptr
+                     && buf->open(*projectLoader, regionDef.file, ringCapacityFrames,
+                                  deviceSampleRate, openError);
         }
-        if (!ok) {
+        if (!opened) {
             error = "Region '" + regionDef.id + "': "
                     + (openError.empty() ? "no project loader" : openError);
-            return false;
+            return nullptr;
         }
         applyRegionWindow(*buf, regionDef, deviceSampleRate);
         staged->byId[regionDef.id] = buf.get();
         staged->byId[regionDef.trackId] = buf.get();
         staged->buffers.push_back(std::move(buf));
     }
+    return staged;
+}
 
-    if (primeMaxWait > 0.0 && primeSeconds > 0.0) {
-        std::lock_guard<std::mutex> lock(projectLoaderMutex);
-        primeBuffersLocked(*staged, primeSeconds, deviceSampleRate, primeMaxWait);
+bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
+                                double deviceSampleRate, std::string& error, double primeSeconds,
+                                double primeMaxWait) {
+    stageEpoch_.fetch_add(1, std::memory_order_acq_rel);
+
+    // Park current active into warm LRU so returning is free.
+    if (auto prev = std::atomic_load_explicit(&active, std::memory_order_acquire)) {
+        if (prev->songIndex != songIndex) {
+            std::lock_guard<std::mutex> lock(precacheMutex);
+            putWarmLocked(prev);
+        }
     }
+
+    // Promote from warm cache / sequential precache.
+    {
+        std::shared_ptr<StagedSong> promoted;
+        {
+            std::lock_guard<std::mutex> lock(precacheMutex);
+            promoted = takeWarmLocked(songIndex);
+            if (promoted == nullptr && precached != nullptr && precached->songIndex == songIndex) {
+                promoted = std::move(precached);
+                precached.reset();
+            }
+        }
+        if (promoted) {
+            // Ideal path: IO already rewound + primed this song → pure swap.
+            const bool instant = promoted->readyAtStart.load(std::memory_order_acquire)
+                                 && songHeadHasAudio(*promoted, 0.05, deviceSampleRate);
+            if (!instant) {
+                resetSongToStart(*promoted);
+                // Keep prime tiny / skip when stopped — IO tops up after swap.
+                if (primeMaxWait > 0.0 && primeSeconds > 0.0
+                    && !songHeadHasAudio(*promoted, 0.05, deviceSampleRate)) {
+                    const double wait = std::min(primeMaxWait, 0.02);
+                    const bool dir =
+                        projectLoader != nullptr && projectLoader->isDirectoryContainer();
+                    if (dir) {
+                        primeBuffersLocked(*promoted, std::min(primeSeconds, 0.1), deviceSampleRate,
+                                           wait);
+                    } else {
+                        std::lock_guard<std::mutex> zipLock(projectLoaderMutex);
+                        primeBuffersLocked(*promoted, std::min(primeSeconds, 0.1), deviceSampleRate,
+                                           wait);
+                    }
+                }
+            }
+            promoted->readyAtStart.store(false, std::memory_order_release); // will be mid-play
+            std::atomic_store_explicit(&active, promoted, std::memory_order_release);
+            recountResidentBytes();
+            return true;
+        }
+    }
+
+    const uint64_t epoch = stageEpoch_.load(std::memory_order_acquire);
+    auto staged = openSongCold(songIndex, song, ringCapacityFrames, deviceSampleRate, error, epoch,
+                               /*requireEpochMatch=*/true);
+    if (staged == nullptr)
+        return false;
+
+    // Cold open: only micro-prime while keep-playing so first blocks aren't
+    // silent. Cap wait hard — rings fill on IO after the swap.
+    if (primeMaxWait > 0.0 && primeSeconds > 0.0) {
+        const double wait = std::min(primeMaxWait, 0.02);
+        const bool dir = projectLoader != nullptr && projectLoader->isDirectoryContainer();
+        if (dir) {
+            primeBuffersLocked(*staged, std::min(primeSeconds, 0.1), deviceSampleRate, wait);
+        } else {
+            std::lock_guard<std::mutex> lock(projectLoaderMutex);
+            primeBuffersLocked(*staged, std::min(primeSeconds, 0.1), deviceSampleRate, wait);
+        }
+    }
+    staged->readyAtStart.store(false, std::memory_order_release);
     std::atomic_store_explicit(&active, staged, std::memory_order_release);
     recountResidentBytes();
     return true;
 }
 
 void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
-                                   double deviceSampleRate, uint64_t epoch) {
-    // Abandon if user already staged another song while we were queued.
-    if (epoch != stageEpoch_.load(std::memory_order_acquire))
+                                   double deviceSampleRate, uint64_t epoch, bool requireEpochMatch) {
+    if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire))
         return;
 
     {
         std::lock_guard<std::mutex> lock(precacheMutex);
-        if (precached != nullptr && precached->songIndex == songIndex)
-            return; // already the right neighbour
-    }
-
-    auto staged = std::make_shared<StagedSong>();
-    staged->songIndex = songIndex;
-    for (const Region& regionDef : song.regions) {
-        if (regionDef.file.empty())
-            continue;
-        // Bail mid-open if user hopped again.
-        if (epoch != stageEpoch_.load(std::memory_order_acquire))
+        if (hasWarmLocked(songIndex))
             return;
-        auto buf = std::make_unique<StreamingTrackBuffer>();
-        std::string openError;
-        {
-            std::lock_guard<std::mutex> lock(projectLoaderMutex);
-            if (projectLoader == nullptr
-                || !buf->open(*projectLoader, regionDef.file, ringCapacityFrames, deviceSampleRate,
-                              openError))
+        if (auto a = std::atomic_load_explicit(&active, std::memory_order_acquire)) {
+            if (a->songIndex == songIndex)
                 return;
-            applyRegionWindow(*buf, regionDef, deviceSampleRate);
         }
-        staged->byId[regionDef.id] = buf.get();
-        staged->byId[regionDef.trackId] = buf.get();
-        staged->buffers.push_back(std::move(buf));
     }
 
-    if (epoch != stageEpoch_.load(std::memory_order_acquire))
+    std::string err;
+    auto staged = openSongCold(songIndex, song, ringCapacityFrames, deviceSampleRate, err, epoch,
+                               requireEpochMatch);
+    if (staged == nullptr)
         return;
 
+    if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire))
+        return;
+
+    // Light prime into warm rings (IO thread continues).
     {
-        std::lock_guard<std::mutex> lock(projectLoaderMutex);
-        if (epoch != stageEpoch_.load(std::memory_order_acquire))
-            return;
-        primeBuffersLocked(*staged, /*minSeconds=*/0.2, deviceSampleRate,
-                           /*maxWaitSeconds=*/0.08);
+        const bool dir = projectLoader != nullptr && projectLoader->isDirectoryContainer();
+        if (dir) {
+            primeBuffersLocked(*staged, 0.15, deviceSampleRate, 0.05);
+        } else {
+            std::lock_guard<std::mutex> lock(projectLoaderMutex);
+            if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire))
+                return;
+            primeBuffersLocked(*staged, 0.15, deviceSampleRate, 0.05);
+        }
     }
 
-    if (epoch != stageEpoch_.load(std::memory_order_acquire))
+    if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire))
         return;
 
     std::lock_guard<std::mutex> lock(precacheMutex);
-    // Final check under lock — do not clobber a newer precache from a later epoch.
-    if (epoch != stageEpoch_.load(std::memory_order_acquire))
+    if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire))
         return;
-    precached = std::move(staged);
+    if (hasWarmLocked(songIndex))
+        return;
+    // Background open: already at frame 0 with a light prime — ready to promote.
+    const bool ready = songHeadHasAudio(*staged, 0.08, deviceSampleRate);
+    staged->readyAtStart.store(ready, std::memory_order_release);
+    precached = staged; // "next" alias for gapless helpers
+    putWarmLocked(std::move(staged), /*needsRewind=*/!ready);
 }
 
 bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error, double primeMaxWait) {
@@ -509,7 +724,6 @@ bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error, 
             return false;
         }
     }
-    // Optional short prime — skip when stopped (primeMaxWait == 0).
     if (primeMaxWait > 0.0)
         primeBuffersLocked(*s, std::min(0.25, primeMaxWait * 4.0), deviceSr, primeMaxWait);
     return true;
@@ -519,12 +733,20 @@ bool StreamingEngine::isPrecacheWarm(size_t songIndex, double minSeconds, double
     if (deviceSampleRate <= 0.0)
         deviceSampleRate = 48000.0;
     const int64_t need = static_cast<int64_t>(std::max(0.0, minSeconds) * deviceSampleRate);
-    std::lock_guard<std::mutex> lock(precacheMutex);
-    if (precached == nullptr || precached->songIndex != songIndex)
+    std::shared_ptr<StagedSong> song;
+    {
+        std::lock_guard<std::mutex> lock(precacheMutex);
+        auto it = warmByIndex.find(songIndex);
+        if (it != warmByIndex.end())
+            song = it->second;
+        else if (precached && precached->songIndex == songIndex)
+            song = precached;
+    }
+    if (song == nullptr)
         return false;
-    if (precached->buffers.empty())
+    if (song->buffers.empty())
         return true;
-    for (const auto& buf : precached->buffers) {
+    for (const auto& buf : song->buffers) {
         if (buf == nullptr)
             continue;
         if (buf->isResident())
@@ -541,30 +763,44 @@ bool StreamingEngine::tryPromotePrecached(size_t songIndex) {
     std::shared_ptr<StagedSong> promoted;
     {
         std::lock_guard<std::mutex> lock(precacheMutex);
-        if (precached == nullptr || precached->songIndex != songIndex)
+        promoted = takeWarmLocked(songIndex);
+        if (promoted == nullptr && precached != nullptr && precached->songIndex == songIndex) {
+            promoted = std::move(precached);
+            precached.reset();
+        }
+        if (promoted == nullptr)
             return false;
 
         constexpr double kMinWarmSeconds = 0.25;
         double deviceSr = 48000.0;
-        for (const auto& buf : precached->buffers) {
+        for (const auto& buf : promoted->buffers) {
             if (buf != nullptr && buf->deviceSampleRate() > 0.0) {
                 deviceSr = buf->deviceSampleRate();
                 break;
             }
         }
         const int64_t need = static_cast<int64_t>(kMinWarmSeconds * deviceSr);
-        for (const auto& buf : precached->buffers) {
+        for (const auto& buf : promoted->buffers) {
             if (buf == nullptr)
                 continue;
             if (buf->isResident())
                 continue;
             if (buf->isExhausted())
                 continue;
-            if (buf->framesAvailable() < need)
+            if (buf->framesAvailable() < need) {
+                // Not warm enough — put back and fail.
+                putWarmLocked(promoted);
                 return false;
+            }
         }
-        promoted = std::move(precached);
-        precached.reset();
+    }
+
+    // Park previous active.
+    if (auto prev = std::atomic_load_explicit(&active, std::memory_order_acquire)) {
+        if (prev->songIndex != songIndex) {
+            std::lock_guard<std::mutex> lock(precacheMutex);
+            putWarmLocked(prev);
+        }
     }
 
     size_t used = 0;
@@ -572,15 +808,13 @@ bool StreamingEngine::tryPromotePrecached(size_t songIndex) {
         if (b && b->isResident())
             used += b->residentBytes();
     residentBytesUsed.store(used, std::memory_order_relaxed);
-    // Gapless promote: epoch not bumped here — message thread will stage/select
-    // and bump when it fully commits; audio-thread path only swaps active.
     std::atomic_store_explicit(&active, std::move(promoted), std::memory_order_release);
     return true;
 }
 
 bool StreamingEngine::hasPrecacheFor(size_t songIndex) const {
     std::lock_guard<std::mutex> lock(precacheMutex);
-    return precached != nullptr && precached->songIndex == songIndex;
+    return hasWarmLocked(songIndex);
 }
 
 bool StreamingEngine::primeActiveSong(double minSeconds, double deviceSampleRate, double maxWaitSeconds) {
@@ -607,6 +841,7 @@ StreamingEngine::BufferHealth StreamingEngine::activeBufferHealth(double deviceS
     double sum = 0.0;
     int64_t minFrames = std::numeric_limits<int64_t>::max();
     const int64_t urgentFrames = static_cast<int64_t>(1.0 * deviceSampleRate);
+    int counted = 0;
 
     for (const auto& buf : s->buffers) {
         if (buf == nullptr)
@@ -615,9 +850,9 @@ StreamingEngine::BufferHealth StreamingEngine::activeBufferHealth(double deviceS
         if (buf->isResident()) {
             ++h.residentTracks;
             h.residentBytes += buf->residentBytes();
-            // Treat as "infinite" buffer for min — use a large sentinel for avg.
             const double sec = 3600.0;
             sum += sec;
+            ++counted;
             continue;
         }
         ++h.streamingTracks;
@@ -626,23 +861,22 @@ StreamingEngine::BufferHealth StreamingEngine::activeBufferHealth(double deviceS
         const int64_t av = buf->framesAvailable();
         minFrames = std::min(minFrames, av);
         sum += static_cast<double>(av) / deviceSampleRate;
+        ++counted;
         if (av < urgentFrames)
             h.urgent = true;
     }
-
-    if (h.trackCount > 0)
-        h.avgBufferedSeconds = sum / static_cast<double>(h.trackCount);
-    if (minFrames != std::numeric_limits<int64_t>::max())
-        h.minBufferedSeconds = static_cast<double>(minFrames) / deviceSampleRate;
-    else if (h.residentTracks == h.trackCount && h.trackCount > 0)
-        h.minBufferedSeconds = 3600.0; // all RAM
+    if (counted > 0) {
+        h.avgBufferedSeconds = sum / static_cast<double>(counted);
+        if (minFrames != std::numeric_limits<int64_t>::max())
+            h.minBufferedSeconds = static_cast<double>(minFrames) / deviceSampleRate;
+    }
     return h;
 }
 
 StreamingEngine::ActiveSongHandle StreamingEngine::acquireActiveSong() {
-    ActiveSongHandle handle;
-    handle.staged = std::atomic_load_explicit(&active, std::memory_order_acquire);
-    return handle;
+    ActiveSongHandle h;
+    h.staged = std::atomic_load_explicit(&active, std::memory_order_acquire);
+    return h;
 }
 
 } // namespace resoset

@@ -1208,10 +1208,14 @@ void MainComponent::goToSong(int index) {
         setStatus("Song select failed: " + juce::String(error));
         return;
     }
-    playerPanel.selectSongRow(index);
-    playerPanel.refreshProject();
-    mixerPanel.refreshStructure();
-    builderPanel.refresh();
+    // Native panel rebuilds are expensive; skip them while the Web UI is the
+    // live surface (default). SPA state comes over WS/telemetry already.
+    if (mode != Mode::Web) {
+        playerPanel.selectSongRow(index);
+        playerPanel.refreshProject();
+        mixerPanel.refreshStructure();
+        builderPanel.refresh();
+    }
     if (index >= 0 && index < static_cast<int>(engine.project().songs.size()))
         setStatus("Song: " + juce::String(engine.project().songs[static_cast<size_t>(index)].name));
 }

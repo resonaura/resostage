@@ -6,9 +6,23 @@
 namespace resoset {
 
 void AudioRingBuffer::prepare(int channels, int64_t capacityFrames) {
-    channelCount = std::max(0, channels);
-    capacityFramesValue = std::max<int64_t>(0, capacityFrames);
-    storage.assign(static_cast<size_t>(channelCount), std::vector<float>(static_cast<size_t>(capacityFramesValue), 0.0f));
+    channels = std::max(0, channels);
+    capacityFrames = std::max<int64_t>(0, capacityFrames);
+    // Reuse existing storage when size matches — zeroing 8s of stereo float
+    // per stem was a major cost of every song hop / hardSeek re-open.
+    if (channelCount == channels && capacityFramesValue == capacityFrames
+        && storage.size() == static_cast<size_t>(channels)
+        && (channels == 0
+            || (!storage.empty()
+                && storage[0].size() == static_cast<size_t>(capacityFrames)))) {
+        writeIndex.store(0, std::memory_order_relaxed);
+        readIndex.store(0, std::memory_order_relaxed);
+        return;
+    }
+    channelCount = channels;
+    capacityFramesValue = capacityFrames;
+    storage.assign(static_cast<size_t>(channelCount),
+                   std::vector<float>(static_cast<size_t>(capacityFramesValue), 0.0f));
     writeIndex.store(0, std::memory_order_relaxed);
     readIndex.store(0, std::memory_order_relaxed);
 }

@@ -41,7 +41,9 @@ float shapedFadeGain(float t01, double curve) {
 // tracks * ch * rate * seconds * 4B — e.g. 16 stereo 48 kHz × 8 s ≈ 50 MB.
 // Metronome does not use this path (pure synth). Beyond this window,
 // StreamingTrackBuffer catch-up skip still resyncs after silence holes.
-constexpr double kRingBufferSeconds = 8.0;
+// 5s headroom is enough for dual IO feeders; was 8s and made every ring
+// alloc on first refill (or first keep-playing prime) multi-100ms with many stems.
+constexpr double kRingBufferSeconds = 5.0;
 
 // Play prime is intentionally short (see play()) — long waits freezes UI on
 // song switch. Rings + async RAM residency fill in the background.
@@ -996,6 +998,32 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
 
     streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
     clearDirty();
+    // Background-open every song into the warm LRU so the first hopscotch
+    // after load isn't a cold stage. Does not require stageEpoch match —
+    // only aborts if the project is replaced (warmGeneration).
+    {
+        const uint64_t warmGen = streaming.warmGeneration();
+        const int64_t ringCap = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
+        const double sr = currentSampleRate;
+        const size_t songCount = loader.project().songs.size();
+        for (size_t i = 0; i < songCount; ++i) {
+            juce::MessageManager::callAsync([this, i, ringCap, sr, warmGen] {
+                if (!projectLoaded)
+                    return;
+                if (streaming.warmGeneration() != warmGen)
+                    return;
+                const Project& p = loader.project();
+                if (i >= p.songs.size())
+                    return;
+                if (streaming.hasPrecacheFor(i))
+                    return;
+                if (currentSong == i)
+                    return; // already active
+                streaming.precacheSong(i, p.songs[i], ringCap, sr,
+                                       /*epoch=*/0, /*requireEpochMatch=*/false);
+            });
+        }
+    }
     return true;
 }
 
@@ -1499,9 +1527,11 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // only (IO workers fill before Play). Keep-playing hops prime briefly so
     // the first post-switch blocks aren't silent.
     // Keep prime waits short: long message-thread blocks made hopscotch lag.
+    // Keep-playing: only micro-prime (stageSong also caps wait). Prefer
+    // readyAtStart warm promote with zero message-thread wait.
     const bool needPrime = wasPlaying;
-    const double primeSec = needPrime ? 0.15 : 0.0;
-    const double primeWait = needPrime ? 0.04 : 0.0;
+    const double primeSec = needPrime ? 0.1 : 0.0;
+    const double primeWait = needPrime ? 0.02 : 0.0;
     if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error, primeSec,
                              primeWait)) {
         streamHandoff.store(false, std::memory_order_release);
@@ -1666,30 +1696,36 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     if (fireOnLoadEventsFlag)
         fireOnLoadEvents(song);
 
-    // Precache only the sequential neighbour (AutoplayNext / Next button).
-    // Random hops (song 0 → 7) do cold stage; we never keep filling a stale
-    // "next" for a song the user left. Epoch aborts in-flight jobs if the
-    // user hopscotches before this async runs.
-    if (songIndex + 1 < proj.songs.size()) {
-        const size_t nextIdx = songIndex + 1;
+    // Warm neighbours (±1) into the stage LRU so hopscotch / Next / Prev
+    // promote instead of cold-opening. Epoch-matched so a newer hop aborts
+    // stale jobs; completed entries stay until LRU eviction.
+    {
         const int64_t ringCap = ringCapacityFrames;
         const double sr = currentSampleRate;
         const uint64_t epoch = streaming.stageEpoch();
-        juce::MessageManager::callAsync([this, nextIdx, ringCap, sr, epoch] {
-            if (!projectLoaded)
-                return;
-            if (streaming.stageEpoch() != epoch)
-                return; // user already staged another song
-            const Project& p = loader.project();
-            if (currentSong + 1 != nextIdx || nextIdx >= p.songs.size())
-                return;
-            if (streaming.hasPrecacheFor(nextIdx))
-                return;
-            streaming.precacheSong(nextIdx, p.songs[nextIdx], ringCap, sr, epoch);
-        });
-    } else {
-        // Last song — nothing sequential to keep warm.
-        streaming.dropPrecacheUnless(static_cast<size_t>(-1));
+        auto scheduleWarm = [this, ringCap, sr, epoch](size_t idx) {
+            juce::MessageManager::callAsync([this, idx, ringCap, sr, epoch] {
+                if (!projectLoaded)
+                    return;
+                if (streaming.stageEpoch() != epoch)
+                    return;
+                const Project& p = loader.project();
+                if (idx >= p.songs.size())
+                    return;
+                if (streaming.hasPrecacheFor(idx))
+                    return;
+                // Still on a song where this neighbour is useful.
+                if (currentSong != idx
+                    && currentSong + 1 != idx
+                    && (currentSong == 0 || currentSong - 1 != idx))
+                    return;
+                streaming.precacheSong(idx, p.songs[idx], ringCap, sr, epoch);
+            });
+        };
+        if (songIndex + 1 < proj.songs.size())
+            scheduleWarm(songIndex + 1);
+        if (songIndex > 0)
+            scheduleWarm(songIndex - 1);
     }
 
     return true;
