@@ -190,9 +190,10 @@ SystemHealthSnapshot SystemHealth::sample() const {
     const uint64_t wallAbs = mach_absolute_time();
     const uint64_t wallNow = absTimeToNanos(wallAbs);
 
-    // Throttle full sample to ~2 Hz.
+    // Throttle full sample to 1 Hz (CPU% is a wall-time delta — faster
+    // sampling just makes the number jitter without more signal).
     if (lastWallNanos != 0 && wallNow >= lastWallNanos
-        && (wallNow - lastWallNanos) < 500'000'000ull) {
+        && (wallNow - lastWallNanos) < 1'000'000'000ull) {
         cachedSnapshot.underrunCount = underrunCount.load(std::memory_order_relaxed);
         cachedSnapshot.audioCallbackCount = audioCallbackCount.load(std::memory_order_relaxed);
         cachedSnapshot.webClientCount = webClientCount.load(std::memory_order_relaxed);

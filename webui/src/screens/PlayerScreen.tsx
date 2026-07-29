@@ -142,10 +142,14 @@ function SystemHealthWidget({
   ramHistory: number[];
 }) {
   const h = state.health;
-  // Match Activity Monitor process % (can exceed 100% on multi-core work).
-  const rawCpu = h?.cpuPercent ?? 0;
-  const cpuVal = Math.max(0, rawCpu);
-  const ramVal = (h?.rssBytes ?? 0) / (1024 * 1024);
+  // Numbers track the 1 Hz history sample (not every telemetry frame) so
+  // the readout doesn't jitter between SystemHealth samples.
+  const cpuVal = Math.max(
+    0,
+    cpuHistory[cpuHistory.length - 1] ?? h?.cpuPercent ?? 0,
+  );
+  const ramVal =
+    ramHistory[ramHistory.length - 1] ?? (h?.rssBytes ?? 0) / (1024 * 1024);
 
   return (
     <div className="flex shrink-0 items-center gap-4 border-l border-default/30 px-4 py-2 tabular-nums">

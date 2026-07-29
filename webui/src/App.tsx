@@ -12,7 +12,8 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { fetchAllPeaks, fetchPeaks, project } from "./lib/api";
 import { IS_EMBEDDED } from "./lib/embedded";
 import type { AllPeaksResponse, PeaksResponse, WebUiState } from "./lib/types";
-import { useLiveState } from "./lib/useLiveState";
+import { SHOW_TRANSPORT_LABEL } from "./lib/devFlags";
+import { useLiveState, type TransportKind } from "./lib/useLiveState";
 import { EditorScreen } from "./screens/EditorScreen";
 import { MixerScreen } from "./screens/MixerScreen";
 import { PlayerScreen } from "./screens/PlayerScreen";
@@ -189,7 +190,8 @@ export default function App() {
   const [tab, setTab] = useState("player");
   // Tell the backend which SPA tab is active so WS frames only carry that
   // page's heavy arrays (transport/time always included).
-  const { state, status, cpuHistory, ramHistory } = useLiveState(tab);
+  const { state, status, transport, cpuHistory, ramHistory } =
+    useLiveState(tab);
   useGlobalHotkeys(state, setTab);
 
   // MIDI / native mode_* actions publish uiTab + uiTabSeq; apply them here
@@ -262,7 +264,7 @@ export default function App() {
         </div>
         <ProjectNameField state={state} />
         <ProjectMenu state={state} />
-        <ConnectionBadge status={status} />
+        <ConnectionBadge status={status} transport={transport} />
       </header>
 
       <Tabs
@@ -576,8 +578,10 @@ function ProjectMenu({ state }: { state: WebUiState }) {
 
 function ConnectionBadge({
   status,
+  transport,
 }: {
   status: "connecting" | "live" | "reconnecting";
+  transport: TransportKind;
 }) {
   const color =
     status === "live"
@@ -585,9 +589,18 @@ function ConnectionBadge({
       : status === "connecting"
         ? "bg-warning"
         : "bg-danger";
+  // Protocol label is a dev aid. Flip SHOW_TRANSPORT_LABEL in
+  // lib/devFlags.ts to hide for production. (Live state is always WS —
+  // full-frame JUCE emit was too expensive at 30 Hz.)
+  const label = SHOW_TRANSPORT_LABEL && transport !== "none" ? "WS" : null;
   return (
     <div className="flex items-center gap-1.5 text-xs text-foreground/60">
       <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
+      {label != null && (
+        <span className="font-mono text-[10px] uppercase tracking-wide text-foreground/40">
+          {label}
+        </span>
+      )}
     </div>
   );
 }

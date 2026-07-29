@@ -4,6 +4,8 @@ import { pushLiveLevels } from "./liveLevels";
 import { emptyState, type WebUiState } from "./types";
 
 export type ConnectionStatus = "connecting" | "live" | "reconnecting";
+/** Live-state transport. Currently always WS (see note in connect effect). */
+export type TransportKind = "ws" | "none";
 
 /**
  * Merge a partial WS snapshot into the previous state. The server only
@@ -14,6 +16,9 @@ export type ConnectionStatus = "connecting" | "live" | "reconnecting";
  * Meter peaks are NOT max-merged here — that would be fake hold. Live
  * levels go through pushLiveLevels() on every frame so ballistics see
  * the true signal including brief silence between metronome hits.
+ *
+ * Health cpu/ram numbers are frozen here and only applied on the 1 Hz
+ * sample tick so the Player widget doesn't jitter.
  */
 function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
   return {
@@ -25,9 +30,15 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
     busses: next.busses ?? prev.busses,
     health: next.health
       ? {
+          // Keep underrun/client counters live; freeze cpu/ram until 1 Hz tick.
           ...prev.health,
-          ...next.health,
-          processes: next.health.processes ?? prev.health.processes ?? [],
+          underrunCount: next.health.underrunCount ?? prev.health.underrunCount,
+          audioCallbackCount:
+            next.health.audioCallbackCount ?? prev.health.audioCallbackCount,
+          webClientCount:
+            next.health.webClientCount ?? prev.health.webClientCount,
+          freeBytes: next.health.freeBytes ?? prev.health.freeBytes,
+          processes: prev.health.processes ?? [],
         }
       : prev.health,
     settings: next.settings
@@ -82,6 +93,7 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
 export function useLiveState(view: string = "player") {
   const [state, setState] = useState<WebUiState>(emptyState);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [transport, setTransport] = useState<TransportKind>("none");
   const [cpuHistory, setCpuHistory] = useState<number[]>(() =>
     Array(30).fill(0),
   );
@@ -139,10 +151,15 @@ export function useLiveState(view: string = "player") {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
+    // Live state always goes over WebSocket — even inside the embedded
+    // webview. JUCE emitEvent/evaluateJavascript for full multi-KB frames at
+    // 30 Hz was unusably expensive (UI freeze). Native bridge is only a good
+    // fit for small discrete RPCs, not telemetry dumps.
     const connect = () => {
       if (cancelled) return;
       ws = new WebSocket(wsUrl(), "resoset");
       wsRef.current = ws;
+      setTransport("ws");
 
       ws.onopen = () => {
         reconnectMsRef.current = 500;
@@ -198,9 +215,19 @@ export function useLiveState(view: string = "player") {
 
     connect();
 
+    // 1 Hz: sparkline history + freeze CPU/RAM numbers into React state.
     const sampleInterval = setInterval(() => {
-      setCpuHistory((prev) => [...prev.slice(1), latestHealthRef.current.cpu]);
-      setRamHistory((prev) => [...prev.slice(1), latestHealthRef.current.ram]);
+      const sample = latestHealthRef.current;
+      setCpuHistory((prev) => [...prev.slice(1), sample.cpu]);
+      setRamHistory((prev) => [...prev.slice(1), sample.ram]);
+      setState((prev) => ({
+        ...prev,
+        health: {
+          ...prev.health,
+          cpuPercent: sample.cpu,
+          rssBytes: sample.ram * 1024 * 1024,
+        },
+      }));
     }, 1000);
 
     return () => {
@@ -213,5 +240,5 @@ export function useLiveState(view: string = "player") {
     };
   }, []);
 
-  return { state, status, cpuHistory, ramHistory };
+  return { state, status, transport, cpuHistory, ramHistory };
 }

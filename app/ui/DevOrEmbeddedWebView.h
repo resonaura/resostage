@@ -9,6 +9,10 @@ namespace resoset {
 // the embedded WebServer is serving (the last `pnpm build` output, baked
 // into the binary via EmbeddedAssets.h) when the dev server isn't reachable
 // (e.g. a packaged release running on stage, with no `pnpm dev` around).
+//
+// Live state always uses WebSockets (same path as a remote browser tab).
+// Pushing full 30 Hz UI snapshots through JUCE emitEvent/evaluateJavascript
+// was tried and is far too expensive for multi-KB JSON frames.
 class DevOrEmbeddedWebView final : public juce::WebBrowserComponent {
 public:
     explicit DevOrEmbeddedWebView(juce::String fallbackUrl)
