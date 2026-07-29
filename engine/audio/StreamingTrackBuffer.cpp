@@ -345,6 +345,15 @@ bool StreamingTrackBuffer::softRewindToStart(std::string& error) {
         return true;
     }
 
+    // Already sitting at the start with ring headroom — do NOT wipe the ring.
+    // That wipe was the "slight lag" after every hop (silence until re-fill).
+    if (readPosition.load(std::memory_order_relaxed) == 0
+        && pendingSkipFrames.load(std::memory_order_relaxed) == 0
+        && !sourceExhausted.load(std::memory_order_acquire)
+        && framesAvailable() > 0) {
+        return true;
+    }
+
     std::lock_guard<std::mutex> lock(diskIoMutex);
     if (residentActive.load(std::memory_order_relaxed)) {
         readPosition.store(preferredStart, std::memory_order_release);
@@ -354,6 +363,14 @@ bool StreamingTrackBuffer::softRewindToStart(std::string& error) {
     if (openLoader == nullptr || openArchivePath.empty()) {
         error = "softRewindToStart: buffer was never opened";
         return false;
+    }
+
+    // Re-check under lock after the fast path above.
+    if (readPosition.load(std::memory_order_relaxed) == 0
+        && pendingSkipFrames.load(std::memory_order_relaxed) == 0
+        && !sourceExhausted.load(std::memory_order_relaxed)
+        && ringReady.load(std::memory_order_relaxed) && ring.framesAvailable() > 0) {
+        return true;
     }
 
     // Fast path (directory containers): fseek to cached data payload — no

@@ -150,7 +150,8 @@ bool StreamingEngine::hasWarmLocked(size_t songIndex) const {
 
 void StreamingEngine::resetSongToStart(StagedSong& staged) {
     // Soft rewind unique file buffers (same stem may appear on multiple regions).
-    // Directory: fseek to data payload — microseconds per file.
+    // Directory: fseek to data payload — microseconds per file. Skips wipe if
+    // already at frame 0 with ring data (see softRewindToStart).
     std::unordered_map<StreamingTrackBuffer*, bool> seen;
     auto resetOne = [](StreamingTrackBuffer& buf) {
         std::string err;
@@ -172,6 +173,31 @@ void StreamingEngine::resetSongToStart(StagedSong& staged) {
         run();
     }
     staged.readyAtStart.store(false, std::memory_order_release);
+}
+
+void StreamingEngine::fillHeadOnce(StagedSong& staged) {
+    // After a real rewind the ring is empty — one refill pass so the first
+    // audio blocks aren't silent (no timed wait).
+    std::unordered_map<StreamingTrackBuffer*, bool> seen;
+    const bool dir = projectLoader != nullptr && projectLoader->isDirectoryContainer();
+    auto run = [&] {
+        for (auto& b : staged.buffers) {
+            if (b == nullptr || seen.count(b.get()))
+                continue;
+            seen[b.get()] = true;
+            if (b->isResident())
+                continue;
+            // A few chunks ≈ tens of ms of audio head, still message-thread cheap.
+            for (int n = 0; n < 4 && b->wantsRefill(); ++n)
+                b->refill();
+        }
+    };
+    if (dir) {
+        run();
+    } else {
+        std::lock_guard<std::mutex> lock(projectLoaderMutex);
+        run();
+    }
 }
 
 static bool songHeadHasAudio(const StreamingEngine::StagedSong& staged, double minSeconds,
@@ -601,17 +627,23 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
         }
     }
 
+    bool needFill = false;
     if (next == nullptr) {
         next = bindSongToPool(songIndex, song, ringCapacityFrames, deviceSampleRate, error,
                               /*openMissing=*/true);
         if (next == nullptr)
             return false;
-        // Snap shared stems to frame 0 for the new song timeline (dir=fseek).
+        // Snap shared stems to frame 0 (no-op if already there with ring data).
         resetSongToStart(*next);
+        needFill = true;
     } else if (!next->readyAtStart.load(std::memory_order_acquire)) {
         resetSongToStart(*next);
+        needFill = true;
     }
-    // readyAtStart: pure map swap — same as flipping regions inside a song.
+    // readyAtStart: pure map swap — rings already have head audio.
+    // After a real wipe/rewind, push one head-fill so first blocks aren't silent.
+    if (needFill)
+        fillHeadOnce(*next);
 
     if (muteBeforeSwap != nullptr)
         muteBeforeSwap->store(true, std::memory_order_release);

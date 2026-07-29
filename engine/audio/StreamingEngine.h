@@ -143,6 +143,8 @@ private:
     std::shared_ptr<StagedSong> takeWarmLocked(size_t songIndex);
     bool hasWarmLocked(size_t songIndex) const;
     void resetSongToStart(StagedSong& staged);
+    // One non-blocking refill pass per unique buffer (fills head after rewind).
+    void fillHeadOnce(StagedSong& staged);
 
     // Bind song regions to pooled file buffers (open only missing paths).
     std::shared_ptr<StagedSong> bindSongToPool(size_t songIndex, const SongDef& song,
