@@ -43,12 +43,8 @@ float shapedFadeGain(float t01, double curve) {
 // StreamingTrackBuffer catch-up skip still resyncs after silence holes.
 constexpr double kRingBufferSeconds = 8.0;
 
-// Before transport starts, try to have at least this much real audio in
-// every active ring so the first seconds never underrun into empty buffers.
-// Aim for enough real audio that a brief post-Play disk stall cannot empty
-// the rings before the IO thread's first few ticks (adaptive sleep 1–2 ms).
-constexpr double kPlayPrimeSeconds = 2.0;
-constexpr double kPlayPrimeMaxWaitSeconds = 0.75;
+// Play prime is intentionally short (see play()) — long waits freezes UI on
+// song switch. Rings + async RAM residency fill in the background.
 
 // Shared I/O-thread hooks: elevate disk/CPU priority, then join CoreAudio
 // workgroup; leave workgroup on exit (required — see AudioWorkgroup.h).
@@ -1607,8 +1603,31 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     if (fireOnLoadEventsFlag)
         fireOnLoadEvents(song);
 
-    if (songIndex + 1 < proj.songs.size())
-        streaming.precacheSong(songIndex + 1, proj.songs[songIndex + 1], ringCapacityFrames, currentSampleRate);
+    // Precache only the sequential neighbour (AutoplayNext / Next button).
+    // Random hops (song 0 → 7) do cold stage; we never keep filling a stale
+    // "next" for a song the user left. Epoch aborts in-flight jobs if the
+    // user hopscotches before this async runs.
+    if (songIndex + 1 < proj.songs.size()) {
+        const size_t nextIdx = songIndex + 1;
+        const int64_t ringCap = ringCapacityFrames;
+        const double sr = currentSampleRate;
+        const uint64_t epoch = streaming.stageEpoch();
+        juce::MessageManager::callAsync([this, nextIdx, ringCap, sr, epoch] {
+            if (!projectLoaded)
+                return;
+            if (streaming.stageEpoch() != epoch)
+                return; // user already staged another song
+            const Project& p = loader.project();
+            if (currentSong + 1 != nextIdx || nextIdx >= p.songs.size())
+                return;
+            if (streaming.hasPrecacheFor(nextIdx))
+                return;
+            streaming.precacheSong(nextIdx, p.songs[nextIdx], ringCap, sr, epoch);
+        });
+    } else {
+        // Last song — nothing sequential to keep warm.
+        streaming.dropPrecacheUnless(static_cast<size_t>(-1));
+    }
 
     return true;
 }
@@ -1764,11 +1783,9 @@ void AudioEngine::play() {
     if (startSample <= 0)
         std::fill(eventFiredFlags.begin(), eventFiredFlags.end(), 0);
 
-    // Titanic mode: don't start the clock into empty rings. Best-effort
-    // prime under the zip lock (I/O thread waits on the same mutex). Timeout
-    // so a dead disk cannot freeze Play forever; rings keep filling after.
-    (void)streaming.primeActiveSong(kPlayPrimeSeconds, currentSampleRate,
-                                    kPlayPrimeMaxWaitSeconds);
+    // Brief prime only — long waits froze Play after song switch. IO workers
+    // + async RAM residency keep filling after the clock starts.
+    (void)streaming.primeActiveSong(0.4, currentSampleRate, 0.15);
 
     // Reset the raw hardware sample counter BEFORE (re)starting MasterClock.
     // hwSamplePosition free-runs continuously since the audio device

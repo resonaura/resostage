@@ -23,6 +23,10 @@ namespace resoset {
 // Smart preload: only each region's used source window is considered for RAM
 // (not timeline emptiness, not unused file tails). Budget shared active-first,
 // remainder for next-song precache. Oversized stems keep streaming rings.
+//
+// CRITICAL: stageSong / precacheSong never decode full windows on the message
+// thread — that caused 1–2s freezes on song switch. Residency is filled by a
+// dedicated background thread after rings are already live.
 class StreamingEngine {
 public:
     // Soft cap for RAM-resident audio (active + next). ~512 MiB default.
@@ -73,16 +77,25 @@ public:
         return residentBudgetBytes.load(std::memory_order_relaxed);
     }
 
+    // Bumps stageEpoch so in-flight deferred precache jobs abandon themselves
+    // when the user jumps songs rapidly (10-song hopscotch).
+    uint64_t stageEpoch() const { return stageEpoch_.load(std::memory_order_acquire); }
+
     bool stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames, double deviceSampleRate,
                    std::string& error);
 
-    void precacheSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames, double deviceSampleRate);
+    // Open+prime next song. `epoch` must match stageEpoch() at commit time or
+    // the result is discarded (stale after a later selectSong).
+    void precacheSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
+                      double deviceSampleRate, uint64_t epoch);
 
     bool seekActiveSongTo(int64_t deviceFrame, std::string& error);
 
     bool tryPromotePrecached(size_t songIndex);
     bool hasPrecacheFor(size_t songIndex) const;
     bool isPrecacheWarm(size_t songIndex, double minSeconds, double deviceSampleRate) const;
+    // Drop precache if it is not for `expectedNext` (wrong neighbour after a jump).
+    void dropPrecacheUnless(size_t expectedNext);
 
     bool primeActiveSong(double minSeconds, double deviceSampleRate, double maxWaitSeconds);
     double minActiveBufferedSeconds(double deviceSampleRate) const;
@@ -97,17 +110,22 @@ public:
     }
 
 private:
-    void ioThreadLoop();
     void ioWorkerLoop(int workerIndex);
+    void residentThreadLoop();
     void primeBuffersLocked(StagedSong& staged, double minSeconds, double deviceSampleRate,
                             double maxWaitSeconds);
     void applyRegionWindow(StreamingTrackBuffer& buf, const Region& region, double deviceSampleRate) const;
-    void residentizeSong(StagedSong& staged, size_t budgetBytes, size_t& usedBytes);
+    // Convert at most one non-resident stem on `staged` into RAM (budget-aware).
+    // Returns true if a stem was converted (or already full). Used by the
+    // background resident thread only — never from stageSong().
+    bool residentizeOneBuffer(StagedSong& staged, size_t& budgetRemaining);
+    void recountResidentBytes();
     void refillActiveSlice(StagedSong& s, int workerIndex, int workerCount, bool& urgent, bool& hungry);
 
     const ProjectLoader* projectLoader = nullptr;
     std::thread ioThread;
     std::thread ioThread2; // second feeder (directory containers / parallel refill)
+    std::thread residentThread; // slow RAM promotion; never blocks song switch
     std::atomic<bool> running{false};
     std::function<void()> ioThreadStartHook;
     std::function<void()> ioThreadStopHook;
@@ -116,11 +134,15 @@ private:
 
     std::shared_ptr<StagedSong> active;
 
+    // shared_ptr so resident thread can decode without holding precacheMutex
+    // for the whole duration (mutex only for pointer swap).
     mutable std::mutex precacheMutex;
-    std::unique_ptr<StagedSong> precached;
+    std::shared_ptr<StagedSong> precached;
 
     std::atomic<size_t> residentBudgetBytes{kDefaultResidentBudgetBytes};
     std::atomic<size_t> residentBytesUsed{0};
+    // Incremented on every stageSong; deferred precache must match.
+    std::atomic<uint64_t> stageEpoch_{0};
 };
 
 } // namespace resoset

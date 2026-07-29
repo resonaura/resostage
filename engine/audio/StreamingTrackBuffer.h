@@ -5,22 +5,22 @@
 #include "WavStreamDecoder.h"
 
 #include <atomic>
+#include <mutex>
 #include <string>
 #include <vector>
 
 namespace resoset {
 
-// Streams one audio stem from a .rsnraset archive entry into a bounded SPSC
-// ring buffer — or, when budget allows, holds the *used source window* in RAM
-// so mid-song disk I/O is zero for that stem.
+// Streams one stem into an SPSC ring, or holds a *used source window* in RAM.
 //
-// Smart residency: only the region’s sourceOffset..sourceOffset+usedLength is
-// loaded (not timeline silence before the clip, not unused tail of a long WAV).
-// Looping clips load the loopable body once; AudioEngine maps wraps on read.
-//
-// Two roles:
-//   - Background I/O: open(), refill(), tryLoadResident(), hardSeekTo()
-//   - Audio thread: read() — never blocks/allocates
+// Concurrency contract (hardened for hopscotch + background residency):
+//  - Audio thread: read() only. Never blocks, never takes diskIoMutex on the
+//    resident path; ring path is SPSC vs refill under diskIoMutex.
+//  - IO / resident threads: open/refill/hardSeek/tryLoadResident under
+//    diskIoMutex where they touch cursor/ring.
+//  - tryLoadResident decodes via a *side* stream into temporary storage, then
+//    publishes with a single atomic store of residentActive — it never calls
+//    open() on the live object mid-playback (that used to race read/refill).
 class StreamingTrackBuffer {
 public:
     bool open(const ProjectLoader& loader, const std::string& archivePath, int64_t ringCapacityFrames,
@@ -35,28 +35,23 @@ public:
                    : decoder.totalFrames();
     }
 
-    // Preferred RAM window in device frames (set by StreamingEngine from Region).
-    // Defaults to full file after open.
     void setPreferredResidentWindow(int64_t deviceStart, int64_t deviceLength);
     int64_t preferredResidentStart() const { return preferredStart; }
     int64_t preferredResidentLength() const { return preferredLength; }
     size_t estimatedResidentBytes() const;
 
-    // Decode preferred (or explicit) window into RAM. Closes the disk cursor on
-    // success so the file handle is free. Fails soft if over maxBytes.
+    // Side-channel load → atomic publish. Safe while audio reads this buffer.
     bool tryLoadResident(size_t maxBytes, size_t& outBytes, std::string& error);
-    bool isResident() const { return residentActive; }
+    bool isResident() const { return residentActive.load(std::memory_order_acquire); }
     size_t residentBytes() const { return residentByteCount; }
     void releaseResident();
 
     bool refill();
-
     bool hardSeekTo(int64_t deviceFrame, std::string& error);
-
     int64_t read(float* const* outChannels, int64_t numFrames, int64_t expectedPosition);
 
     bool isExhausted() const {
-        if (residentActive) {
+        if (residentActive.load(std::memory_order_acquire)) {
             const int64_t pos = readPosition.load(std::memory_order_relaxed);
             return pos >= residentStart + residentLength;
         }
@@ -64,30 +59,28 @@ public:
     }
 
     int64_t framesAvailable() const {
-        if (residentActive) {
-            // Report "full ring" so IO prioritization treats us as healthy.
+        if (residentActive.load(std::memory_order_acquire))
             return ring.capacity() > 0 ? ring.capacity() : preferredLength;
-        }
         return ring.framesAvailable();
     }
     int64_t framesFree() const {
-        if (residentActive)
+        if (residentActive.load(std::memory_order_acquire))
             return 0;
         return ring.framesFree();
     }
     int64_t ringCapacity() const { return ring.capacity(); }
     bool sourceIsExhausted() const {
-        if (residentActive)
-            return true; // no more disk work
+        if (residentActive.load(std::memory_order_acquire))
+            return true;
         return sourceExhausted.load(std::memory_order_acquire);
     }
     bool hasPendingSkip() const {
-        if (residentActive)
+        if (residentActive.load(std::memory_order_acquire))
             return false;
         return pendingSkipFrames.load(std::memory_order_acquire) > 0;
     }
     bool wantsRefill() const {
-        if (residentActive)
+        if (residentActive.load(std::memory_order_acquire))
             return false;
         if (hasPendingSkip())
             return true;
@@ -95,12 +88,22 @@ public:
     }
 
 private:
-    void closeDiskCursor();
-    bool decodeIntoResident(int64_t deviceStart, int64_t deviceFrames, std::string& error);
+    void closeDiskCursorUnlocked();
+    bool openUnlocked(const ProjectLoader& loader, const std::string& archivePath,
+                      int64_t ringCapacityFrames, double deviceSampleRate, std::string& error);
+    // Decode [deviceStart, +deviceFrames) via a private stream (does not touch
+    // this->cursor / this->ring / this->decoder).
+    bool decodeWindowSideChannel(int64_t deviceStart, int64_t deviceFrames,
+                                 std::vector<std::vector<float>>& outPlanar, int64_t& outFrames,
+                                 std::string& error) const;
 
     ProjectLoader::StreamCursor cursor;
     WavStreamDecoder decoder;
     AudioRingBuffer ring;
+
+    // Serializes open/refill/hardSeek/commit-resident against each other.
+    // Never held on the audio-thread read() hot path when resident.
+    mutable std::mutex diskIoMutex;
 
     const ProjectLoader* openLoader = nullptr;
     std::string openArchivePath;
@@ -110,6 +113,7 @@ private:
     std::atomic<int64_t> readPosition{0};
     std::atomic<int64_t> pendingSkipFrames{0};
     std::atomic<bool> sourceExhausted{false};
+    std::atomic<bool> residentLoadInFlight{false};
 
     std::vector<std::vector<float>> refillScratch;
     std::vector<float*> refillWritePtrs;
@@ -124,16 +128,15 @@ private:
     bool haveLastNativeSample = false;
     double nativePhase = 0.0;
 
-    // Preferred window (device domain) for smart preload.
     int64_t preferredStart = 0;
-    int64_t preferredLength = 0; // 0 = unknown / full file after open
+    int64_t preferredLength = 0;
 
-    // RAM residency (planar device-rate samples for [residentStart, +length)).
-    bool residentActive = false;
+    // Published once; immutable after residentActive becomes true.
+    std::atomic<bool> residentActive{false};
     int64_t residentStart = 0;
     int64_t residentLength = 0;
     size_t residentByteCount = 0;
-    std::vector<std::vector<float>> residentData; // [ch][frame]
+    std::vector<std::vector<float>> residentData;
 };
 
 } // namespace resoset

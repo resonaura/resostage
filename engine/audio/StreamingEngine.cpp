@@ -61,6 +61,9 @@ void StreamingEngine::start(const ProjectLoader* loader, std::function<void()> o
     // refill. For ZIP, worker 1 still runs but serializes on the same mutex
     // (harmless extra waiter; primary work stays on worker 0 when contended).
     ioThread2 = std::thread([this] { ioWorkerLoop(1); });
+    // RAM residency is slow (full source-window decode). Never do it on
+    // stageSong — a dedicated thread promotes stems after playback is live.
+    residentThread = std::thread([this] { residentThreadLoop(); });
 }
 
 void StreamingEngine::stop() {
@@ -69,6 +72,8 @@ void StreamingEngine::stop() {
         ioThread.join();
     if (ioThread2.joinable())
         ioThread2.join();
+    if (residentThread.joinable())
+        residentThread.join();
 }
 
 void StreamingEngine::applyRegionWindow(StreamingTrackBuffer& buf, const Region& region,
@@ -76,44 +81,114 @@ void StreamingEngine::applyRegionWindow(StreamingTrackBuffer& buf, const Region&
     applyWindowFromRegion(buf, region, deviceSampleRate);
 }
 
-void StreamingEngine::residentizeSong(StagedSong& staged, size_t budgetBytes, size_t& usedBytes) {
-    usedBytes = 0;
-    if (budgetBytes == 0 || staged.buffers.empty())
-        return;
+void StreamingEngine::recountResidentBytes() {
+    size_t used = 0;
+    if (auto s = std::atomic_load_explicit(&active, std::memory_order_acquire)) {
+        for (const auto& b : s->buffers)
+            if (b && b->isResident())
+                used += b->residentBytes();
+    }
+    std::shared_ptr<StagedSong> pc;
+    {
+        std::lock_guard<std::mutex> lock(precacheMutex);
+        pc = precached;
+    }
+    if (pc != nullptr) {
+        for (const auto& b : pc->buffers)
+            if (b && b->isResident())
+                used += b->residentBytes();
+    }
+    residentBytesUsed.store(used, std::memory_order_relaxed);
+}
 
-    struct Cand {
-        StreamingTrackBuffer* buf = nullptr;
-        size_t bytes = 0;
-    };
-    std::vector<Cand> cands;
-    cands.reserve(staged.buffers.size());
+bool StreamingEngine::residentizeOneBuffer(StagedSong& staged, size_t& budgetRemaining) {
+    // Prefer smallest non-resident window first (more stems fit).
+    StreamingTrackBuffer* best = nullptr;
+    size_t bestBytes = std::numeric_limits<size_t>::max();
     for (auto& b : staged.buffers) {
         if (b == nullptr || b->isResident())
             continue;
-        Cand c;
-        c.buf = b.get();
-        c.bytes = b->estimatedResidentBytes();
-        // Empty window still "resident" cheaply.
-        cands.push_back(c);
-    }
-    // Smallest first → more stems go RAM-resident (smart under "lots of emptiness"
-    // after windowing: short used clips win over multi-minute full stems).
-    std::sort(cands.begin(), cands.end(),
-              [](const Cand& a, const Cand& b) { return a.bytes < b.bytes; });
-
-    for (const Cand& c : cands) {
-        if (c.buf == nullptr)
+        const size_t need = b->estimatedResidentBytes();
+        if (need > budgetRemaining && need > 0)
             continue;
-        const size_t need = c.bytes;
-        if (need > budgetBytes - usedBytes && need > 0)
-            continue; // leave this stem streaming
-        size_t got = 0;
-        std::string err;
-        if (c.buf->tryLoadResident(budgetBytes - usedBytes, got, err)) {
-            usedBytes += got;
+        if (need < bestBytes) {
+            bestBytes = need;
+            best = b.get();
         }
-        // On failure keep streaming ring — no hard error.
     }
+    if (best == nullptr)
+        return false;
+
+    size_t got = 0;
+    std::string err;
+    // Caller must keep `staged` alive (shared_ptr) for the whole decode.
+    // Do NOT hold precacheMutex / stage locks across this — decode is slow.
+    const bool dir = projectLoader != nullptr && projectLoader->isDirectoryContainer();
+    bool ok = false;
+    if (dir) {
+        ok = best->tryLoadResident(budgetRemaining, got, err);
+    } else {
+        std::lock_guard<std::mutex> lock(projectLoaderMutex);
+        ok = best->tryLoadResident(budgetRemaining, got, err);
+    }
+    if (ok && got <= budgetRemaining)
+        budgetRemaining -= got;
+    return ok;
+}
+
+void StreamingEngine::residentThreadLoop() {
+    while (running.load(std::memory_order_acquire)) {
+        // Skip work while epoch is spinning (rapid hopscotch) — wait for
+        // stageSong to settle so we don't burn CPU decoding abandoned songs.
+        const uint64_t epochBefore = stageEpoch_.load(std::memory_order_acquire);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        if (stageEpoch_.load(std::memory_order_acquire) != epochBefore) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        }
+
+        const size_t budget = residentBudgetBytes.load(std::memory_order_relaxed);
+        size_t used = residentBytesUsed.load(std::memory_order_relaxed);
+        size_t remain = budget > used ? budget - used : 0;
+        bool didWork = false;
+
+        // Active first — hold shared_ptr for the whole side-channel decode.
+        // tryLoadResident no longer mutates live cursor/ring until publish,
+        // so audio can keep streaming that stem safely.
+        if (remain > 0) {
+            if (auto s = std::atomic_load_explicit(&active, std::memory_order_acquire)) {
+                if (residentizeOneBuffer(*s, remain)) {
+                    didWork = true;
+                    recountResidentBytes();
+                }
+            }
+        }
+
+        if (!didWork) {
+            used = residentBytesUsed.load(std::memory_order_relaxed);
+            remain = budget > used ? budget - used : 0;
+            std::shared_ptr<StagedSong> pc;
+            {
+                std::lock_guard<std::mutex> lock(precacheMutex);
+                pc = precached;
+            }
+            if (pc != nullptr && remain > 0) {
+                if (residentizeOneBuffer(*pc, remain)) {
+                    didWork = true;
+                    recountResidentBytes();
+                }
+            }
+        }
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(didWork ? 15 : 40));
+    }
+}
+
+void StreamingEngine::dropPrecacheUnless(size_t expectedNext) {
+    std::lock_guard<std::mutex> lock(precacheMutex);
+    if (precached != nullptr && precached->songIndex != expectedNext)
+        precached.reset();
 }
 
 void StreamingEngine::refillActiveSlice(StagedSong& s, int workerIndex, int workerCount, bool& urgent,
@@ -281,28 +356,38 @@ void StreamingEngine::primeBuffersLocked(StagedSong& staged, double minSeconds, 
 
 bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
                                 double deviceSampleRate, std::string& error) {
-    const size_t budget = residentBudgetBytes.load(std::memory_order_relaxed);
+    // FAST PATH ONLY. Bump epoch so deferred precache jobs for other songs abandon.
+    stageEpoch_.fetch_add(1, std::memory_order_acq_rel);
 
+    // Promote path: take precache without holding the mutex during prime.
     {
-        std::lock_guard<std::mutex> lock(precacheMutex);
-        if (precached != nullptr && precached->songIndex == songIndex) {
-            auto promoted = std::shared_ptr<StagedSong>(std::move(precached));
-            size_t used = 0;
-            for (auto& b : promoted->buffers)
-                if (b && b->isResident())
-                    used += b->residentBytes();
-            // Fill any stems that were only ring-primed during precache.
+        std::shared_ptr<StagedSong> promoted;
+        {
+            std::lock_guard<std::mutex> lock(precacheMutex);
+            if (precached != nullptr && precached->songIndex == songIndex) {
+                promoted = std::move(precached);
+                precached.reset();
+            }
+        }
+        if (promoted) {
             {
                 std::lock_guard<std::mutex> zipLock(projectLoaderMutex);
-                size_t add = 0;
-                residentizeSong(*promoted, budget > used ? budget - used : 0, add);
-                used += add;
-                primeBuffersLocked(*promoted, 1.0, deviceSampleRate, 0.35);
+                primeBuffersLocked(*promoted, /*minSeconds=*/0.35, deviceSampleRate,
+                                   /*maxWaitSeconds=*/0.12);
             }
-            residentBytesUsed.store(used, std::memory_order_relaxed);
             std::atomic_store_explicit(&active, promoted, std::memory_order_release);
+            recountResidentBytes();
             return true;
         }
+    }
+
+    // Cold stage: jumping to a song that was not the warm "next". Drop a
+    // stale precache that belongs to a different neighbour (e.g. user was on
+    // song 0 with precache=1, then jumps to 7 — do not keep filling song 1).
+    {
+        std::lock_guard<std::mutex> lock(precacheMutex);
+        if (precached != nullptr && precached->songIndex != songIndex + 1)
+            precached.reset();
     }
 
     auto staged = std::make_shared<StagedSong>();
@@ -328,25 +413,38 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
         staged->buffers.push_back(std::move(buf));
     }
 
-    size_t used = 0;
     {
         std::lock_guard<std::mutex> lock(projectLoaderMutex);
-        // Active song gets the full budget first.
-        residentizeSong(*staged, budget, used);
-        primeBuffersLocked(*staged, 1.0, deviceSampleRate, 0.5);
+        primeBuffersLocked(*staged, /*minSeconds=*/0.35, deviceSampleRate,
+                           /*maxWaitSeconds=*/0.12);
     }
-    residentBytesUsed.store(used, std::memory_order_relaxed);
+    // Old active shared_ptr drops here when store replaces it — RAM/rings freed
+    // once the audio thread releases its ActiveSongHandle (one block later).
     std::atomic_store_explicit(&active, staged, std::memory_order_release);
+    recountResidentBytes();
     return true;
 }
 
 void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
-                                   double deviceSampleRate) {
-    auto staged = std::make_unique<StagedSong>();
+                                   double deviceSampleRate, uint64_t epoch) {
+    // Abandon if user already staged another song while we were queued.
+    if (epoch != stageEpoch_.load(std::memory_order_acquire))
+        return;
+
+    {
+        std::lock_guard<std::mutex> lock(precacheMutex);
+        if (precached != nullptr && precached->songIndex == songIndex)
+            return; // already the right neighbour
+    }
+
+    auto staged = std::make_shared<StagedSong>();
     staged->songIndex = songIndex;
     for (const Region& regionDef : song.regions) {
         if (regionDef.file.empty())
             continue;
+        // Bail mid-open if user hopped again.
+        if (epoch != stageEpoch_.load(std::memory_order_acquire))
+            return;
         auto buf = std::make_unique<StreamingTrackBuffer>();
         std::string openError;
         {
@@ -362,18 +460,24 @@ void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_
         staged->buffers.push_back(std::move(buf));
     }
 
-    // Next song gets only leftover budget after active residency.
-    size_t activeUsed = residentBytesUsed.load(std::memory_order_relaxed);
-    const size_t budget = residentBudgetBytes.load(std::memory_order_relaxed);
-    const size_t remain = budget > activeUsed ? budget - activeUsed : 0;
-    size_t pcUsed = 0;
+    if (epoch != stageEpoch_.load(std::memory_order_acquire))
+        return;
+
     {
         std::lock_guard<std::mutex> lock(projectLoaderMutex);
-        residentizeSong(*staged, remain, pcUsed);
-        primeBuffersLocked(*staged, 0.5, deviceSampleRate, 0.2);
+        if (epoch != stageEpoch_.load(std::memory_order_acquire))
+            return;
+        primeBuffersLocked(*staged, /*minSeconds=*/0.2, deviceSampleRate,
+                           /*maxWaitSeconds=*/0.08);
     }
 
+    if (epoch != stageEpoch_.load(std::memory_order_acquire))
+        return;
+
     std::lock_guard<std::mutex> lock(precacheMutex);
+    // Final check under lock — do not clobber a newer precache from a later epoch.
+    if (epoch != stageEpoch_.load(std::memory_order_acquire))
+        return;
     precached = std::move(staged);
 }
 
@@ -396,7 +500,8 @@ bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error) 
             return false;
         }
     }
-    primeBuffersLocked(*s, 1.5, deviceSr, 0.4);
+    // Short prime — resident stems need nothing; streaming ones get ~0.2s.
+    primeBuffersLocked(*s, 0.5, deviceSr, 0.15);
     return true;
 }
 
@@ -423,39 +528,43 @@ bool StreamingEngine::isPrecacheWarm(size_t songIndex, double minSeconds, double
 }
 
 bool StreamingEngine::tryPromotePrecached(size_t songIndex) {
-    std::lock_guard<std::mutex> lock(precacheMutex);
-    if (precached == nullptr || precached->songIndex != songIndex)
-        return false;
-
-    constexpr double kMinWarmSeconds = 0.25;
-    double deviceSr = 48000.0;
-    for (const auto& buf : precached->buffers) {
-        if (buf != nullptr && buf->deviceSampleRate() > 0.0) {
-            deviceSr = buf->deviceSampleRate();
-            break;
-        }
-    }
-    const int64_t need = static_cast<int64_t>(kMinWarmSeconds * deviceSr);
-    for (const auto& buf : precached->buffers) {
-        if (buf == nullptr)
-            continue;
-        if (buf->isResident())
-            continue;
-        if (buf->isExhausted())
-            continue;
-        if (buf->framesAvailable() < need)
+    std::shared_ptr<StagedSong> promoted;
+    {
+        std::lock_guard<std::mutex> lock(precacheMutex);
+        if (precached == nullptr || precached->songIndex != songIndex)
             return false;
+
+        constexpr double kMinWarmSeconds = 0.25;
+        double deviceSr = 48000.0;
+        for (const auto& buf : precached->buffers) {
+            if (buf != nullptr && buf->deviceSampleRate() > 0.0) {
+                deviceSr = buf->deviceSampleRate();
+                break;
+            }
+        }
+        const int64_t need = static_cast<int64_t>(kMinWarmSeconds * deviceSr);
+        for (const auto& buf : precached->buffers) {
+            if (buf == nullptr)
+                continue;
+            if (buf->isResident())
+                continue;
+            if (buf->isExhausted())
+                continue;
+            if (buf->framesAvailable() < need)
+                return false;
+        }
+        promoted = std::move(precached);
+        precached.reset();
     }
 
     size_t used = 0;
-    for (auto& b : precached->buffers)
+    for (auto& b : promoted->buffers)
         if (b && b->isResident())
             used += b->residentBytes();
     residentBytesUsed.store(used, std::memory_order_relaxed);
-
-    std::atomic_store_explicit(&active, std::shared_ptr<StagedSong>(std::move(precached)),
-                               std::memory_order_release);
-    precached.reset();
+    // Gapless promote: epoch not bumped here — message thread will stage/select
+    // and bump when it fully commits; audio-thread path only swaps active.
+    std::atomic_store_explicit(&active, std::move(promoted), std::memory_order_release);
     return true;
 }
 

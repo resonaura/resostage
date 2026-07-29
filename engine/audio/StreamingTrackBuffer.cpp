@@ -22,9 +22,11 @@ void zeroPlanar(float* const* outChannels, int channels, int64_t numFrames) {
 
 } // namespace
 
-bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& archivePath,
-                                int64_t ringCapacityFrames, double deviceSampleRate, std::string& error) {
+bool StreamingTrackBuffer::openUnlocked(const ProjectLoader& loader, const std::string& archivePath,
+                                        int64_t ringCapacityFrames, double deviceSampleRate,
+                                        std::string& error) {
     releaseResident();
+
     openLoader = &loader;
     openArchivePath = archivePath;
     openRingCapacityFrames = ringCapacityFrames;
@@ -42,6 +44,7 @@ bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& 
     readPosition.store(0, std::memory_order_relaxed);
     pendingSkipFrames.store(0, std::memory_order_relaxed);
     sourceExhausted.store(false, std::memory_order_relaxed);
+    residentLoadInFlight.store(false, std::memory_order_relaxed);
     refillScratch.clear();
     refillWritePtrs.clear();
     refillReadPtrs.clear();
@@ -62,8 +65,13 @@ bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& 
     const size_t ch = static_cast<size_t>(std::max(0, decoder.numChannels()));
     refillWritePtrs.resize(ch, nullptr);
     refillReadPtrs.resize(ch, nullptr);
-
     return true;
+}
+
+bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& archivePath,
+                                int64_t ringCapacityFrames, double deviceSampleRate, std::string& error) {
+    std::lock_guard<std::mutex> lock(diskIoMutex);
+    return openUnlocked(loader, archivePath, ringCapacityFrames, deviceSampleRate, error);
 }
 
 void StreamingTrackBuffer::setPreferredResidentWindow(int64_t deviceStart, int64_t deviceLength) {
@@ -83,166 +91,231 @@ size_t StreamingTrackBuffer::estimatedResidentBytes() const {
     return static_cast<size_t>(ch) * static_cast<size_t>(len) * sizeof(float);
 }
 
-void StreamingTrackBuffer::closeDiskCursor() {
+void StreamingTrackBuffer::closeDiskCursorUnlocked() {
     cursor = ProjectLoader::StreamCursor{};
 }
 
 void StreamingTrackBuffer::releaseResident() {
-    residentActive = false;
+    residentActive.store(false, std::memory_order_release);
     residentStart = 0;
     residentLength = 0;
     residentByteCount = 0;
     residentData.clear();
 }
 
-bool StreamingTrackBuffer::decodeIntoResident(int64_t deviceStart, int64_t deviceFrames, std::string& error) {
-    if (deviceFrames <= 0) {
-        error = "empty resident window";
-        return false;
-    }
-    if (openLoader == nullptr || openArchivePath.empty()) {
-        error = "no loader";
+bool StreamingTrackBuffer::decodeWindowSideChannel(int64_t deviceStart, int64_t deviceFrames,
+                                                   std::vector<std::vector<float>>& outPlanar,
+                                                   int64_t& outFrames, std::string& error) const {
+    outFrames = 0;
+    outPlanar.clear();
+    if (openLoader == nullptr || openArchivePath.empty() || deviceFrames <= 0) {
+        error = "invalid side-channel load";
         return false;
     }
 
-    // Preserve preferred window across re-open (open() resets it to full file).
-    const int64_t keepStart = preferredStart;
-    const int64_t keepLen = preferredLength;
-    std::string openErr;
-    if (!open(*openLoader, openArchivePath, openRingCapacityFrames, openDeviceSampleRate, openErr)) {
-        error = openErr;
+    // Fully independent stream — never touches this->cursor / ring / decoder.
+    ProjectLoader::StreamCursor sideCursor = openLoader->openStream(openArchivePath, error);
+    if (!sideCursor.isValid())
         return false;
-    }
-    preferredStart = keepStart;
-    preferredLength = keepLen;
 
-    const int channels = decoder.numChannels();
+    WavStreamDecoder sideDec;
+    auto readFn = [&sideCursor](void* buf, size_t bufSize) { return sideCursor.read(buf, bufSize); };
+    if (!sideDec.parseHeader(readFn, error))
+        return false;
+
+    const int channels = sideDec.numChannels();
     if (channels <= 0) {
         error = "no channels";
         return false;
     }
 
-    if (deviceStart > 0) {
-        pendingSkipFrames.store(deviceStart, std::memory_order_release);
-        int guard = 0;
-        while (pendingSkipFrames.load(std::memory_order_acquire) > 0
-               && !sourceExhausted.load(std::memory_order_acquire)
-               && guard++ < 1000000) {
-            refill();
-            ring.reset(); // discard any accidental decode after skip drained
+    const double ratio = (openDeviceSampleRate > 0.0 && sideDec.sampleRate() > 0.0)
+                             ? sideDec.sampleRate() / openDeviceSampleRate
+                             : 1.0;
+    const int bpf = sideDec.bytesPerFrame();
+
+    // Skip to window start (device domain → native bytes).
+    if (deviceStart > 0 && bpf > 0) {
+        const double nativeWantedD =
+            static_cast<double>(deviceStart) * std::max(ratio, 1e-12);
+        const int64_t nativeFrames = static_cast<int64_t>(std::max(nativeWantedD, 0.0) + 0.5);
+        const size_t bytesToSkip =
+            static_cast<size_t>(std::min<uint64_t>(
+                static_cast<uint64_t>(nativeFrames) * static_cast<uint64_t>(bpf),
+                static_cast<uint64_t>(std::numeric_limits<size_t>::max() / 4)));
+        (void)sideCursor.skip(bytesToSkip);
+    }
+
+    outPlanar.assign(static_cast<size_t>(channels),
+                     std::vector<float>(static_cast<size_t>(deviceFrames), 0.0f));
+
+    if (std::abs(ratio - 1.0) < 1e-6) {
+        // Fast path: decode directly into outPlanar.
+        std::vector<float*> ptrs(static_cast<size_t>(channels));
+        for (int c = 0; c < channels; ++c)
+            ptrs[static_cast<size_t>(c)] = outPlanar[static_cast<size_t>(c)].data();
+
+        int64_t got = 0;
+        std::vector<float> scratch;
+        while (got < deviceFrames) {
+            const int64_t chunk = std::min(deviceFrames - got, kRefillChunkFrames);
+            std::vector<float*> chunkPtrs(static_cast<size_t>(channels));
+            for (int c = 0; c < channels; ++c)
+                chunkPtrs[static_cast<size_t>(c)] =
+                    outPlanar[static_cast<size_t>(c)].data() + got;
+            const int64_t n = sideDec.decodeFrames(readFn, chunkPtrs.data(), chunk);
+            if (n <= 0)
+                break;
+            got += n;
+            if (n < chunk)
+                break;
         }
-        if (pendingSkipFrames.load(std::memory_order_acquire) > 0) {
-            error = "failed to skip to resident window start";
+        if (got <= 0) {
+            error = "no audio in side-channel load";
+            outPlanar.clear();
             return false;
         }
-    }
-
-    residentData.assign(static_cast<size_t>(channels),
-                        std::vector<float>(static_cast<size_t>(deviceFrames), 0.0f));
-
-    int64_t got = 0;
-    auto readFn = [this](void* buf, size_t bufSize) { return cursor.read(buf, bufSize); };
-
-    while (got < deviceFrames) {
-        const int64_t chunk = std::min(deviceFrames - got, kRefillChunkFrames);
-        std::vector<float*> chunkPtrs(static_cast<size_t>(channels));
-        for (int c = 0; c < channels; ++c)
-            chunkPtrs[static_cast<size_t>(c)] =
-                residentData[static_cast<size_t>(c)].data() + got;
-
-        int64_t decoded = 0;
-        if (std::abs(resampleRatio - 1.0) < 1e-6) {
-            if (refillScratch.size() != static_cast<size_t>(channels)
-                || static_cast<int64_t>(refillScratch[0].size()) < chunk) {
-                refillScratch.assign(static_cast<size_t>(channels),
-                                     std::vector<float>(static_cast<size_t>(chunk)));
-            }
-            if (refillWritePtrs.size() != static_cast<size_t>(channels))
-                refillWritePtrs.assign(static_cast<size_t>(channels), nullptr);
-            for (size_t i = 0; i < static_cast<size_t>(channels); ++i)
-                refillWritePtrs[i] = refillScratch[i].data();
-            decoded = decoder.decodeFrames(readFn, refillWritePtrs.data(), chunk);
-            if (decoded <= 0)
-                break;
-            for (int c = 0; c < channels; ++c)
-                std::memcpy(chunkPtrs[static_cast<size_t>(c)],
-                            refillScratch[static_cast<size_t>(c)].data(),
-                            static_cast<size_t>(decoded) * sizeof(float));
-        } else {
-            ring.reset();
-            int spins = 0;
-            while (ring.framesAvailable() < chunk
-                   && !sourceExhausted.load(std::memory_order_acquire)
-                   && spins++ < 10000) {
-                if (!refill())
-                    break;
-            }
-            decoded = ring.pop(chunkPtrs.data(), chunk);
-            if (decoded <= 0)
-                break;
+        if (got < deviceFrames) {
+            for (auto& ch : outPlanar)
+                ch.resize(static_cast<size_t>(got));
         }
-        got += decoded;
-        if (decoded < chunk)
-            break;
+        outFrames = got;
+        return true;
     }
 
-    if (got <= 0) {
-        error = "no audio decoded for resident window";
-        residentData.clear();
+    // Resample path: decode native chunks and linear-interpolate to device frames.
+    std::vector<std::vector<float>> nativeChunk(
+        static_cast<size_t>(channels), std::vector<float>(static_cast<size_t>(kRefillChunkFrames)));
+    std::vector<float*> nativePtrs(static_cast<size_t>(channels));
+    for (int c = 0; c < channels; ++c)
+        nativePtrs[static_cast<size_t>(c)] = nativeChunk[static_cast<size_t>(c)].data();
+
+    int64_t nativeChunkFrames = 0;
+    int64_t nativeReadIdx = 0;
+    std::vector<float> lastSample(static_cast<size_t>(channels), 0.0f);
+    bool haveLast = false;
+    double phase = 0.0;
+    int64_t written = 0;
+    bool exhausted = false;
+
+    while (written < deviceFrames) {
+        if (nativeReadIdx >= nativeChunkFrames) {
+            nativeChunkFrames = sideDec.decodeFrames(readFn, nativePtrs.data(), kRefillChunkFrames);
+            nativeReadIdx = 0;
+            if (nativeChunkFrames <= 0) {
+                exhausted = true;
+                break;
+            }
+        }
+        while (phase >= 1.0 && nativeReadIdx < nativeChunkFrames) {
+            for (int c = 0; c < channels; ++c)
+                lastSample[static_cast<size_t>(c)] =
+                    nativeChunk[static_cast<size_t>(c)][static_cast<size_t>(nativeReadIdx)];
+            haveLast = true;
+            ++nativeReadIdx;
+            phase -= 1.0;
+        }
+        if (nativeReadIdx >= nativeChunkFrames)
+            continue;
+        for (int c = 0; c < channels; ++c) {
+            const float a = haveLast ? lastSample[static_cast<size_t>(c)]
+                                     : nativeChunk[static_cast<size_t>(c)][static_cast<size_t>(nativeReadIdx)];
+            const float b =
+                nativeChunk[static_cast<size_t>(c)][static_cast<size_t>(nativeReadIdx)];
+            outPlanar[static_cast<size_t>(c)][static_cast<size_t>(written)] =
+                static_cast<float>(a + (b - a) * phase);
+        }
+        ++written;
+        phase += ratio;
+    }
+    (void)exhausted;
+    if (written <= 0) {
+        error = "no resampled audio in side-channel load";
+        outPlanar.clear();
         return false;
     }
-
-    if (got < deviceFrames) {
-        for (auto& chv : residentData)
-            chv.resize(static_cast<size_t>(got));
+    if (written < deviceFrames) {
+        for (auto& ch : outPlanar)
+            ch.resize(static_cast<size_t>(written));
     }
-
-    residentStart = deviceStart;
-    residentLength = got;
-    residentByteCount = static_cast<size_t>(channels) * static_cast<size_t>(got) * sizeof(float);
-    residentActive = true;
-    sourceExhausted.store(true, std::memory_order_release);
-    pendingSkipFrames.store(0, std::memory_order_release);
-    ring.reset();
-    closeDiskCursor();
+    outFrames = written;
     return true;
 }
 
 bool StreamingTrackBuffer::tryLoadResident(size_t maxBytes, size_t& outBytes, std::string& error) {
     outBytes = 0;
-    if (residentActive) {
+    if (residentActive.load(std::memory_order_acquire)) {
         outBytes = residentByteCount;
         return true;
     }
+    // One load at a time per buffer (resident thread + accidental double call).
+    bool expected = false;
+    if (!residentLoadInFlight.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        error = "resident load already in flight";
+        return false;
+    }
+
+    struct ClearInFlight {
+        std::atomic<bool>& f;
+        ~ClearInFlight() { f.store(false, std::memory_order_release); }
+    } clear{residentLoadInFlight};
+
     int64_t start = preferredStart;
     int64_t len = preferredLength;
     if (len <= 0)
         len = std::max<int64_t>(0, totalFrames() - start);
+
     if (len <= 0) {
-        // Empty clip — mark resident silence, no disk.
-        residentActive = true;
+        std::lock_guard<std::mutex> lock(diskIoMutex);
+        if (residentActive.load(std::memory_order_relaxed)) {
+            outBytes = residentByteCount;
+            return true;
+        }
         residentStart = start;
         residentLength = 0;
         residentByteCount = 0;
+        residentData.clear();
+        closeDiskCursorUnlocked();
         sourceExhausted.store(true, std::memory_order_release);
-        closeDiskCursor();
+        pendingSkipFrames.store(0, std::memory_order_release);
+        residentActive.store(true, std::memory_order_release);
         return true;
     }
+
     const size_t need = estimatedResidentBytes();
-    if (need == 0) {
-        const int ch = std::max(1, decoder.numChannels());
-        if (static_cast<size_t>(ch) * static_cast<size_t>(len) * sizeof(float) > maxBytes) {
-            error = "resident window exceeds budget";
-            return false;
-        }
-    } else if (need > maxBytes) {
+    if (need > maxBytes && need > 0) {
         error = "resident window exceeds budget";
         return false;
     }
 
-    if (!decodeIntoResident(start, len, error))
+    // Heavy work: side stream only — live ring/cursor keep serving audio.
+    std::vector<std::vector<float>> temp;
+    int64_t got = 0;
+    if (!decodeWindowSideChannel(start, len, temp, got, error))
         return false;
-    outBytes = residentByteCount;
+
+    // Publish without tearing the live ring under the audio thread.
+    // We intentionally do NOT ring.reset() — stale ring is ignored once
+    // residentActive is true; audio only uses residentData after the store.
+    {
+        std::lock_guard<std::mutex> lock(diskIoMutex);
+        if (residentActive.load(std::memory_order_relaxed)) {
+            outBytes = residentByteCount;
+            return true;
+        }
+        residentData = std::move(temp);
+        residentStart = start;
+        residentLength = got;
+        residentByteCount =
+            static_cast<size_t>(std::max(0, decoder.numChannels())) * static_cast<size_t>(got)
+            * sizeof(float);
+        closeDiskCursorUnlocked();
+        sourceExhausted.store(true, std::memory_order_release);
+        pendingSkipFrames.store(0, std::memory_order_release);
+        // Publish last — audio acquires this before reading residentData.
+        residentActive.store(true, std::memory_order_release);
+        outBytes = residentByteCount;
+    }
     return true;
 }
 
@@ -250,10 +323,15 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
     if (deviceFrame < 0)
         deviceFrame = 0;
 
-    if (residentActive) {
-        // Random-access RAM — no disk, no re-open.
+    if (residentActive.load(std::memory_order_acquire)) {
         readPosition.store(deviceFrame, std::memory_order_release);
         pendingSkipFrames.store(0, std::memory_order_release);
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(diskIoMutex);
+    if (residentActive.load(std::memory_order_relaxed)) {
+        readPosition.store(deviceFrame, std::memory_order_release);
         return true;
     }
 
@@ -262,8 +340,14 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
         return false;
     }
 
-    if (!open(*openLoader, openArchivePath, openRingCapacityFrames, openDeviceSampleRate, error))
+    // Seek only while streamHandoff/stop — re-open unlocked body under our lock.
+    const int64_t keepPrefStart = preferredStart;
+    const int64_t keepPrefLen = preferredLength;
+    if (!openUnlocked(*openLoader, openArchivePath, openRingCapacityFrames, openDeviceSampleRate,
+                      error))
         return false;
+    preferredStart = keepPrefStart;
+    preferredLength = keepPrefLen > 0 ? keepPrefLen : preferredLength;
 
     if (deviceFrame > 0) {
         pendingSkipFrames.store(deviceFrame, std::memory_order_release);
@@ -271,7 +355,32 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
         while (pendingSkipFrames.load(std::memory_order_acquire) > 0
                && !sourceExhausted.load(std::memory_order_acquire)
                && guard++ < 1000000) {
-            refill();
+            const int bpf = decoder.bytesPerFrame();
+            int64_t skip = pendingSkipFrames.load(std::memory_order_acquire);
+            if (skip <= 0 || bpf <= 0)
+                break;
+            skip = std::min(skip, kMaxSkipDeviceFrames);
+            const double nativeWantedD =
+                static_cast<double>(skip) * std::max(resampleRatio, 1e-12);
+            const int64_t nativeFramesWanted =
+                static_cast<int64_t>(std::max(nativeWantedD, 1.0) + 0.5);
+            const size_t bytesToSkip = static_cast<size_t>(std::min(
+                static_cast<uint64_t>(nativeFramesWanted) * static_cast<uint64_t>(bpf),
+                static_cast<uint64_t>(std::numeric_limits<size_t>::max() / 4)));
+            const size_t skippedBytes = cursor.skip(bytesToSkip);
+            const int64_t nativeFramesSkipped =
+                bpf > 0 ? static_cast<int64_t>(skippedBytes) / bpf : 0;
+            if (nativeFramesSkipped > 0) {
+                const int64_t deviceFramesSkipped = std::max<int64_t>(
+                    1, static_cast<int64_t>(static_cast<double>(nativeFramesSkipped)
+                                            / std::max(resampleRatio, 1e-12) + 0.5));
+                const int64_t pending = pendingSkipFrames.load(std::memory_order_relaxed);
+                pendingSkipFrames.store(std::max<int64_t>(0, pending - deviceFramesSkipped),
+                                        std::memory_order_release);
+            } else {
+                sourceExhausted.store(true, std::memory_order_release);
+                pendingSkipFrames.store(0, std::memory_order_release);
+            }
         }
         if (pendingSkipFrames.load(std::memory_order_acquire) > 0
             && !sourceExhausted.load(std::memory_order_acquire)) {
@@ -282,19 +391,16 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
 
     readPosition.store(deviceFrame, std::memory_order_release);
     pendingSkipFrames.store(0, std::memory_order_release);
-
-    const double sr = openDeviceSampleRate > 0.0 ? openDeviceSampleRate : 48000.0;
-    const int64_t primeTarget = static_cast<int64_t>(sr * 1.5);
-    for (int i = 0; i < 32 && wantsRefill(); ++i) {
-        if (ring.framesAvailable() >= primeTarget)
-            break;
-        refill();
-    }
+    // Ring prime left to IO workers (keeps seek snappy under load).
     return true;
 }
 
 bool StreamingTrackBuffer::refill() {
-    if (residentActive)
+    if (residentActive.load(std::memory_order_acquire))
+        return false;
+
+    std::lock_guard<std::mutex> lock(diskIoMutex);
+    if (residentActive.load(std::memory_order_relaxed))
         return false;
 
     const int bpf = decoder.bytesPerFrame();
@@ -342,6 +448,10 @@ bool StreamingTrackBuffer::refill() {
     }
 
     if (sourceExhausted.load(std::memory_order_acquire))
+        return ring.framesAvailable() > 0;
+
+    // Cursor may have been closed after resident publish.
+    if (!cursor.isValid())
         return ring.framesAvailable() > 0;
 
     const int64_t free = ring.framesFree();
@@ -433,8 +543,8 @@ int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames,
     if (numFrames <= 0)
         return 0;
 
-    if (residentActive) {
-        // Random-access RAM path — never underruns, never queues disk skip.
+    // Resident path: lock-free after publish (data immutable).
+    if (residentActive.load(std::memory_order_acquire)) {
         if (expectedPosition < 0)
             expectedPosition = 0;
         readPosition.store(expectedPosition, std::memory_order_relaxed);
@@ -459,6 +569,8 @@ int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames,
         return numFrames;
     }
 
+    // Streaming ring path (may race a just-published resident — then next
+    // block takes the resident path; this block is still valid ring data).
     const int64_t currentPos = readPosition.load(std::memory_order_relaxed);
     const bool dead = sourceExhausted.load(std::memory_order_acquire)
                       && ring.framesAvailable() <= 0;
