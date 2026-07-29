@@ -215,6 +215,13 @@ export interface WebUiState {
   clickPeakDb?: number;
   clickPeakDbL?: number;
   clickPeakDbR?: number;
+  /** Stream feeder: min ring buffer seconds (non-resident stems). */
+  streamBufferMinSec?: number;
+  streamBufferAvgSec?: number;
+  streamResidentTracks?: number;
+  streamStreamingTracks?: number;
+  streamBufferUrgent?: boolean;
+  streamResidentMiB?: number;
   songName: string;
   playheadSeconds: number;
   /** Cumulative whole-project position (does not reset at song boundaries). */
@@ -253,6 +260,12 @@ export const emptyState: WebUiState = {
   clickPeakDb: -100,
   clickPeakDbL: -100,
   clickPeakDbR: -100,
+  streamBufferMinSec: 0,
+  streamBufferAvgSec: 0,
+  streamResidentTracks: 0,
+  streamStreamingTracks: 0,
+  streamBufferUrgent: false,
+  streamResidentMiB: 0,
   songName: "",
   playheadSeconds: 0,
   globalPlayheadSeconds: 0,

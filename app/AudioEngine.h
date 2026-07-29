@@ -250,14 +250,19 @@ public:
 
     // Unsaved changes / dirty state tracking for Logic Pro quit dialog & autosave
     bool hasUnsavedChanges() const { return unsavedChanges.load(std::memory_order_acquire); }
-    void markDirty() {
-        unsavedChanges.store(true, std::memory_order_release);
-        if (projectLoaded) {
-            std::string err;
-            loader.saveAutosave(err);
-        }
+    // While playing, autosave is deferred (disk thrash mid-show) and flushed
+    // on stop / next idle markDirty. See flushDeferredAutosave().
+    void markDirty();
+    void clearDirty() {
+        unsavedChanges.store(false, std::memory_order_release);
+        autosaveDeferred.store(false, std::memory_order_release);
     }
-    void clearDirty() { unsavedChanges.store(false, std::memory_order_release); }
+    void flushDeferredAutosave();
+
+    // Stream buffer / RAM-resident health for UI (not real-time critical).
+    StreamingEngine::BufferHealth streamBufferHealth() const {
+        return streaming.activeBufferHealth(currentSampleRate);
+    }
 
     // True from the moment an async import starts until its onComplete
 
@@ -535,6 +540,7 @@ private:
     std::atomic<bool> unsavedChanges{false};
     std::atomic<bool> busyImporting{false}; // see isBusy()
     std::atomic<bool> busySaving{false};    // see saveProjectAsync / isBusy()
+    std::atomic<bool> autosaveDeferred{false};
     std::thread importThread; // joined before starting a new import, and in ~AudioEngine()
     std::thread saveThread;   // joined in ~AudioEngine / before a new save
 

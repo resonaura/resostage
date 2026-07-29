@@ -765,6 +765,16 @@ void MainComponent::publishWebState() {
         state.clickPeakDbL = clickFrame.peakDbL;
         state.clickPeakDbR = clickFrame.peakDbR;
     }
+    {
+        const auto bh = engine.streamBufferHealth();
+        state.streamBufferMinSec = bh.minBufferedSeconds;
+        state.streamBufferAvgSec = bh.avgBufferedSeconds;
+        state.streamResidentTracks = bh.residentTracks;
+        state.streamStreamingTracks = bh.streamingTracks;
+        state.streamBufferUrgent = bh.urgent;
+        state.streamResidentMiB =
+            static_cast<double>(bh.residentBytes) / (1024.0 * 1024.0);
+    }
     state.songCount = static_cast<int>(proj.songs.size());
     state.songIndex = (engine.currentSongIndex() == static_cast<size_t>(-1))
                           ? -1

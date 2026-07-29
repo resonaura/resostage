@@ -973,7 +973,13 @@ std::string WebServer::buildStateJson(const char* view) const {
           << "\"clickSolo\":" << (snap.clickSolo ? "true" : "false") << ","
           << "\"clickPeakDb\":" << finiteOrDbFloor(snap.clickPeakDb) << ","
           << "\"clickPeakDbL\":" << finiteOrDbFloor(snap.clickPeakDbL) << ","
-          << "\"clickPeakDbR\":" << finiteOrDbFloor(snap.clickPeakDbR);
+          << "\"clickPeakDbR\":" << finiteOrDbFloor(snap.clickPeakDbR) << ","
+          << "\"streamBufferMinSec\":" << finiteOrZero(snap.streamBufferMinSec) << ","
+          << "\"streamBufferAvgSec\":" << finiteOrZero(snap.streamBufferAvgSec) << ","
+          << "\"streamResidentTracks\":" << snap.streamResidentTracks << ","
+          << "\"streamStreamingTracks\":" << snap.streamStreamingTracks << ","
+          << "\"streamBufferUrgent\":" << (snap.streamBufferUrgent ? "true" : "false") << ","
+          << "\"streamResidentMiB\":" << finiteOrZero(snap.streamResidentMiB);
     }
 
     if (wantSongs) {

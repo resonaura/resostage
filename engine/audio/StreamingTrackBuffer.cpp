@@ -9,10 +9,6 @@ namespace resoset {
 
 namespace {
 
-// Cap catch-up skip size so a runaway playhead-vs-EOF gap (audio thread
-// keeps advancing after a stem is exhausted) can never overflow size_t
-// when converted to a byte count, or ask the zip cursor to skip terabytes
-// of archive data in one go. ~60s of 48kHz is plenty for real underruns.
 constexpr int64_t kMaxSkipDeviceFrames = 48000 * 60;
 
 void zeroPlanar(float* const* outChannels, int channels, int64_t numFrames) {
@@ -26,8 +22,9 @@ void zeroPlanar(float* const* outChannels, int channels, int64_t numFrames) {
 
 } // namespace
 
-bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& archivePath, int64_t ringCapacityFrames,
-                                 double deviceSampleRate, std::string& error) {
+bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& archivePath,
+                                int64_t ringCapacityFrames, double deviceSampleRate, std::string& error) {
+    releaseResident();
     openLoader = &loader;
     openArchivePath = archivePath;
     openRingCapacityFrames = ringCapacityFrames;
@@ -59,8 +56,9 @@ bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& 
     haveLastNativeSample = false;
     nativePhase = 0.0;
 
-    // Pre-size pointer scratch so refill() never heap-allocates mid-stream
-    // (malloc under memory pressure is a classic "SSD fine, audio dies" path).
+    preferredStart = 0;
+    preferredLength = totalFrames();
+
     const size_t ch = static_cast<size_t>(std::max(0, decoder.numChannels()));
     refillWritePtrs.resize(ch, nullptr);
     refillReadPtrs.resize(ch, nullptr);
@@ -68,24 +66,207 @@ bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& 
     return true;
 }
 
+void StreamingTrackBuffer::setPreferredResidentWindow(int64_t deviceStart, int64_t deviceLength) {
+    preferredStart = std::max<int64_t>(0, deviceStart);
+    preferredLength = std::max<int64_t>(0, deviceLength);
+    if (preferredLength <= 0)
+        preferredLength = std::max<int64_t>(0, totalFrames() - preferredStart);
+}
+
+size_t StreamingTrackBuffer::estimatedResidentBytes() const {
+    const int ch = std::max(0, decoder.numChannels());
+    int64_t len = preferredLength;
+    if (len <= 0)
+        len = std::max<int64_t>(0, totalFrames() - preferredStart);
+    if (ch <= 0 || len <= 0)
+        return 0;
+    return static_cast<size_t>(ch) * static_cast<size_t>(len) * sizeof(float);
+}
+
+void StreamingTrackBuffer::closeDiskCursor() {
+    cursor = ProjectLoader::StreamCursor{};
+}
+
+void StreamingTrackBuffer::releaseResident() {
+    residentActive = false;
+    residentStart = 0;
+    residentLength = 0;
+    residentByteCount = 0;
+    residentData.clear();
+}
+
+bool StreamingTrackBuffer::decodeIntoResident(int64_t deviceStart, int64_t deviceFrames, std::string& error) {
+    if (deviceFrames <= 0) {
+        error = "empty resident window";
+        return false;
+    }
+    if (openLoader == nullptr || openArchivePath.empty()) {
+        error = "no loader";
+        return false;
+    }
+
+    // Preserve preferred window across re-open (open() resets it to full file).
+    const int64_t keepStart = preferredStart;
+    const int64_t keepLen = preferredLength;
+    std::string openErr;
+    if (!open(*openLoader, openArchivePath, openRingCapacityFrames, openDeviceSampleRate, openErr)) {
+        error = openErr;
+        return false;
+    }
+    preferredStart = keepStart;
+    preferredLength = keepLen;
+
+    const int channels = decoder.numChannels();
+    if (channels <= 0) {
+        error = "no channels";
+        return false;
+    }
+
+    if (deviceStart > 0) {
+        pendingSkipFrames.store(deviceStart, std::memory_order_release);
+        int guard = 0;
+        while (pendingSkipFrames.load(std::memory_order_acquire) > 0
+               && !sourceExhausted.load(std::memory_order_acquire)
+               && guard++ < 1000000) {
+            refill();
+            ring.reset(); // discard any accidental decode after skip drained
+        }
+        if (pendingSkipFrames.load(std::memory_order_acquire) > 0) {
+            error = "failed to skip to resident window start";
+            return false;
+        }
+    }
+
+    residentData.assign(static_cast<size_t>(channels),
+                        std::vector<float>(static_cast<size_t>(deviceFrames), 0.0f));
+
+    int64_t got = 0;
+    auto readFn = [this](void* buf, size_t bufSize) { return cursor.read(buf, bufSize); };
+
+    while (got < deviceFrames) {
+        const int64_t chunk = std::min(deviceFrames - got, kRefillChunkFrames);
+        std::vector<float*> chunkPtrs(static_cast<size_t>(channels));
+        for (int c = 0; c < channels; ++c)
+            chunkPtrs[static_cast<size_t>(c)] =
+                residentData[static_cast<size_t>(c)].data() + got;
+
+        int64_t decoded = 0;
+        if (std::abs(resampleRatio - 1.0) < 1e-6) {
+            if (refillScratch.size() != static_cast<size_t>(channels)
+                || static_cast<int64_t>(refillScratch[0].size()) < chunk) {
+                refillScratch.assign(static_cast<size_t>(channels),
+                                     std::vector<float>(static_cast<size_t>(chunk)));
+            }
+            if (refillWritePtrs.size() != static_cast<size_t>(channels))
+                refillWritePtrs.assign(static_cast<size_t>(channels), nullptr);
+            for (size_t i = 0; i < static_cast<size_t>(channels); ++i)
+                refillWritePtrs[i] = refillScratch[i].data();
+            decoded = decoder.decodeFrames(readFn, refillWritePtrs.data(), chunk);
+            if (decoded <= 0)
+                break;
+            for (int c = 0; c < channels; ++c)
+                std::memcpy(chunkPtrs[static_cast<size_t>(c)],
+                            refillScratch[static_cast<size_t>(c)].data(),
+                            static_cast<size_t>(decoded) * sizeof(float));
+        } else {
+            ring.reset();
+            int spins = 0;
+            while (ring.framesAvailable() < chunk
+                   && !sourceExhausted.load(std::memory_order_acquire)
+                   && spins++ < 10000) {
+                if (!refill())
+                    break;
+            }
+            decoded = ring.pop(chunkPtrs.data(), chunk);
+            if (decoded <= 0)
+                break;
+        }
+        got += decoded;
+        if (decoded < chunk)
+            break;
+    }
+
+    if (got <= 0) {
+        error = "no audio decoded for resident window";
+        residentData.clear();
+        return false;
+    }
+
+    if (got < deviceFrames) {
+        for (auto& chv : residentData)
+            chv.resize(static_cast<size_t>(got));
+    }
+
+    residentStart = deviceStart;
+    residentLength = got;
+    residentByteCount = static_cast<size_t>(channels) * static_cast<size_t>(got) * sizeof(float);
+    residentActive = true;
+    sourceExhausted.store(true, std::memory_order_release);
+    pendingSkipFrames.store(0, std::memory_order_release);
+    ring.reset();
+    closeDiskCursor();
+    return true;
+}
+
+bool StreamingTrackBuffer::tryLoadResident(size_t maxBytes, size_t& outBytes, std::string& error) {
+    outBytes = 0;
+    if (residentActive) {
+        outBytes = residentByteCount;
+        return true;
+    }
+    int64_t start = preferredStart;
+    int64_t len = preferredLength;
+    if (len <= 0)
+        len = std::max<int64_t>(0, totalFrames() - start);
+    if (len <= 0) {
+        // Empty clip — mark resident silence, no disk.
+        residentActive = true;
+        residentStart = start;
+        residentLength = 0;
+        residentByteCount = 0;
+        sourceExhausted.store(true, std::memory_order_release);
+        closeDiskCursor();
+        return true;
+    }
+    const size_t need = estimatedResidentBytes();
+    if (need == 0) {
+        const int ch = std::max(1, decoder.numChannels());
+        if (static_cast<size_t>(ch) * static_cast<size_t>(len) * sizeof(float) > maxBytes) {
+            error = "resident window exceeds budget";
+            return false;
+        }
+    } else if (need > maxBytes) {
+        error = "resident window exceeds budget";
+        return false;
+    }
+
+    if (!decodeIntoResident(start, len, error))
+        return false;
+    outBytes = residentByteCount;
+    return true;
+}
+
 bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
+    if (deviceFrame < 0)
+        deviceFrame = 0;
+
+    if (residentActive) {
+        // Random-access RAM — no disk, no re-open.
+        readPosition.store(deviceFrame, std::memory_order_release);
+        pendingSkipFrames.store(0, std::memory_order_release);
+        return true;
+    }
+
     if (openLoader == nullptr || openArchivePath.empty()) {
         error = "hardSeekTo: buffer was never opened";
         return false;
     }
-    if (deviceFrame < 0)
-        deviceFrame = 0;
 
-    // Full re-open: decoder/cursor are forward-only, so any position (forward
-    // OR back) is reached by rewinding to the data chunk start then skipping.
     if (!open(*openLoader, openArchivePath, openRingCapacityFrames, openDeviceSampleRate, error))
         return false;
 
     if (deviceFrame > 0) {
         pendingSkipFrames.store(deviceFrame, std::memory_order_release);
-        // Drain the skip on this thread (caller holds projectLoaderMutex so
-        // the I/O thread cannot race us). Container-format skip is an fseek;
-        // even multi-minute seeks are typically milliseconds.
         int guard = 0;
         while (pendingSkipFrames.load(std::memory_order_acquire) > 0
                && !sourceExhausted.load(std::memory_order_acquire)
@@ -99,14 +280,9 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
         }
     }
 
-    // Source cursor is now at deviceFrame (or EOF). Advertise that position
-    // so the audio thread will not queue a second skip on the first read.
     readPosition.store(deviceFrame, std::memory_order_release);
     pendingSkipFrames.store(0, std::memory_order_release);
 
-    // Light prime only (~1.5s). Filling 75% of an 8s ring here used to block
-    // seek for seconds on a busy SSD; StreamingEngine::seekActiveSongTo /
-    // the IO thread finish the rest after return.
     const double sr = openDeviceSampleRate > 0.0 ? openDeviceSampleRate : 48000.0;
     const int64_t primeTarget = static_cast<int64_t>(sr * 1.5);
     for (int i = 0; i < 32 && wantsRefill(); ++i) {
@@ -118,14 +294,11 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
 }
 
 bool StreamingTrackBuffer::refill() {
+    if (residentActive)
+        return false;
+
     const int bpf = decoder.bytesPerFrame();
 
-    // Once the source is known dead, never service skip demand or try to
-    // decode again -- pendingSkipFrames can pile up to billions of samples
-    // if the song playhead keeps running past this stem's EOF (other tracks
-    // still playing). Converting that to a byte count used to overflow /
-    // pull random archive bytes and push denormal/garbage floats that
-    // metered as +400..+700 dBFS across every bus.
     if (sourceExhausted.load(std::memory_order_acquire)) {
         pendingSkipFrames.store(0, std::memory_order_release);
         return ring.framesAvailable() > 0;
@@ -133,19 +306,10 @@ bool StreamingTrackBuffer::refill() {
 
     int64_t skip = pendingSkipFrames.load(std::memory_order_acquire);
     if (skip > 0 && bpf > 0) {
-        // Bound the skip so a pathological gap cannot overflow size_t or
-        // hang the IO thread on a multi-terabyte zip seek.
         skip = std::min(skip, kMaxSkipDeviceFrames);
-
-        // `skip` is in the OUTPUT (device) domain; convert to native frames
-        // before skipping bytes in the source. When resampleRatio == 1.0
-        // (no resampling needed) this is a no-op multiply/divide, so the
-        // common case behaves exactly as before.
         const double nativeWantedD =
             static_cast<double>(skip) * std::max(resampleRatio, 1e-12);
-        // Clamp before casting: on 32-bit size_t hosts a multi-minute skip
-        // at high channel/bit-depth could otherwise wrap the byte count.
-        constexpr double kMaxNativeFrames = static_cast<double>(1LL << 28); // ~256M frames
+        constexpr double kMaxNativeFrames = static_cast<double>(1LL << 28);
         const int64_t nativeFramesWanted = static_cast<int64_t>(
             std::min(std::max(nativeWantedD, 1.0), kMaxNativeFrames) + 0.5);
         const uint64_t bytesToSkipU =
@@ -163,30 +327,15 @@ bool StreamingTrackBuffer::refill() {
             const int64_t pending = pendingSkipFrames.load(std::memory_order_relaxed);
             pendingSkipFrames.store(std::max<int64_t>(0, pending - deviceFramesSkipped),
                                     std::memory_order_release);
-            // The cursor just jumped -- any buffered-but-unconsumed native
-            // frames and interpolation phase are for the wrong position now.
             nativeChunkFrames = 0;
             nativeChunkReadIdx = 0;
             haveLastNativeSample = false;
             nativePhase = 0.0;
         } else {
-            // Source exhausted while trying to skip past it.
             sourceExhausted.store(true, std::memory_order_release);
             pendingSkipFrames.store(0, std::memory_order_release);
         }
 
-        // Stop here only if there's still skip left to service (partial
-        // progress) -- otherwise fall through to attempt a decode in this
-        // SAME call. Returning unconditionally right after any skip service
-        // (even a fully-drained one) used to starve playback indefinitely:
-        // read()'s gap-detection queues fresh catch-up demand on every
-        // single audio callback whenever the ring is behind -- including
-        // during ordinary cold-start fill-up, not just genuine stalls --
-        // and since this function only ever did ONE of {skip, decode} per
-        // call, a background thread whose ~10ms tick can't strictly outpace
-        // the ~10.6ms audio callback rate (very plausible with several real
-        // tracks each adding per-tick overhead) would perpetually find fresh
-        // skip demand waiting and never reach the decode branch at all.
         if (pendingSkipFrames.load(std::memory_order_relaxed) > 0
             || sourceExhausted.load(std::memory_order_relaxed))
             return true;
@@ -209,31 +358,24 @@ bool StreamingTrackBuffer::refill() {
         refillReadPtrs.assign(channels, nullptr);
 
     if (std::abs(resampleRatio - 1.0) < 1e-6) {
-        // Fast path: source already matches the device rate, no resampling.
         if (refillScratch.size() != channels
             || (channels > 0 && static_cast<int64_t>(refillScratch[0].size()) < toDecode)) {
             refillScratch.assign(channels, std::vector<float>(static_cast<size_t>(toDecode)));
         }
-
         for (size_t i = 0; i < channels; ++i)
             refillWritePtrs[i] = refillScratch[i].data();
 
         const int64_t got = decoder.decodeFrames(readFn, refillWritePtrs.data(), toDecode);
-
         if (got == 0) {
             sourceExhausted.store(true, std::memory_order_release);
             return ring.framesAvailable() > 0;
         }
-
         for (size_t i = 0; i < channels; ++i)
             refillReadPtrs[i] = refillScratch[i].data();
         ring.push(refillReadPtrs.data(), got);
         return true;
     }
 
-    // Resampling path: linear-interpolate native-rate decoded audio into
-    // `toDecode` output (device-rate) frames. See the header comment on
-    // resampleRatio for the state this carries across calls.
     if (refillScratch.size() != channels
         || (channels > 0 && static_cast<int64_t>(refillScratch[0].size()) < toDecode)) {
         refillScratch.assign(channels, std::vector<float>(static_cast<size_t>(toDecode)));
@@ -243,7 +385,6 @@ bool StreamingTrackBuffer::refill() {
     bool exhausted = false;
     while (written < toDecode) {
         if (nativeChunkReadIdx >= nativeChunkFrames) {
-            // Need a fresh chunk of native-rate audio.
             if (nativeChunk.size() != channels)
                 nativeChunk.assign(channels, std::vector<float>(static_cast<size_t>(kRefillChunkFrames)));
             for (size_t i = 0; i < channels; ++i)
@@ -255,9 +396,6 @@ bool StreamingTrackBuffer::refill() {
                 break;
             }
         }
-
-        // Consume whole native frames until nativePhase is back in [0, 1) --
-        // each consumed frame becomes the new interpolation anchor.
         while (nativePhase >= 1.0 && nativeChunkReadIdx < nativeChunkFrames) {
             for (size_t ch = 0; ch < channels; ++ch)
                 lastNativeSample[ch] = nativeChunk[ch][static_cast<size_t>(nativeChunkReadIdx)];
@@ -266,11 +404,7 @@ bool StreamingTrackBuffer::refill() {
             nativePhase -= 1.0;
         }
         if (nativeChunkReadIdx >= nativeChunkFrames)
-            continue; // chunk drained (possibly mid-consumption) -- refill and keep going
-
-        // Interpolate between lastNativeSample (or, for the very first
-        // sample of the track, nativeChunk[readIdx] itself -- phase is 0.0
-        // there anyway) and the next unconsumed native frame.
+            continue;
         for (size_t ch = 0; ch < channels; ++ch) {
             const float a = haveLastNativeSample ? lastNativeSample[ch]
                                                   : nativeChunk[ch][static_cast<size_t>(nativeChunkReadIdx)];
@@ -286,10 +420,7 @@ bool StreamingTrackBuffer::refill() {
             refillReadPtrs[i] = refillScratch[i].data();
         ring.push(refillReadPtrs.data(), written);
     }
-
     if (exhausted) {
-        // Mark dead whether or not we pushed a final partial chunk -- the
-        // next refill must not keep trying to decode past EOF.
         sourceExhausted.store(true, std::memory_order_release);
         if (written == 0)
             return ring.framesAvailable() > 0;
@@ -302,19 +433,38 @@ int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames,
     if (numFrames <= 0)
         return 0;
 
+    if (residentActive) {
+        // Random-access RAM path — never underruns, never queues disk skip.
+        if (expectedPosition < 0)
+            expectedPosition = 0;
+        readPosition.store(expectedPosition, std::memory_order_relaxed);
+
+        for (int64_t i = 0; i < numFrames; ++i) {
+            const int64_t absPos = expectedPosition + i;
+            const int64_t rel = absPos - residentStart;
+            if (rel >= 0 && rel < residentLength) {
+                for (int ch = 0; ch < channels; ++ch) {
+                    if (outChannels[ch] != nullptr)
+                        outChannels[ch][i] =
+                            residentData[static_cast<size_t>(ch)][static_cast<size_t>(rel)];
+                }
+            } else {
+                for (int ch = 0; ch < channels; ++ch) {
+                    if (outChannels[ch] != nullptr)
+                        outChannels[ch][i] = 0.0f;
+                }
+            }
+        }
+        readPosition.store(expectedPosition + numFrames, std::memory_order_relaxed);
+        return numFrames;
+    }
+
     const int64_t currentPos = readPosition.load(std::memory_order_relaxed);
     const bool dead = sourceExhausted.load(std::memory_order_acquire)
                       && ring.framesAvailable() <= 0;
 
-    // Stem already finished and ring is dry: pure silence, position follows
-    // the playhead. Do NOT queue skip demand -- after EOF the song playhead
-    // (other tracks / click / song length) keeps advancing, and each
-    // callback's gap would otherwise grow without bound (see refill()).
     if (dead) {
         zeroPlanar(outChannels, channels, numFrames);
-        // expectedPosition is the START of this block; after a full block of
-        // silence we sit at expectedPosition + numFrames (or current+num if
-        // the playhead somehow rewound).
         const int64_t endPos =
             (expectedPosition > currentPos ? expectedPosition : currentPos) + numFrames;
         readPosition.store(endPos, std::memory_order_relaxed);
@@ -326,7 +476,6 @@ int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames,
         const int64_t discarded = ring.discard(gap);
         const int64_t stillNeeded = gap - discarded;
         if (stillNeeded > 0) {
-            // Cap so a single stall cannot enqueue an unbounded skip.
             const int64_t add = std::min(stillNeeded, kMaxSkipDeviceFrames);
             pendingSkipFrames.fetch_add(add, std::memory_order_acq_rel);
         }
@@ -336,11 +485,6 @@ int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames,
     const int64_t got = ring.pop(outChannels, numFrames);
     readPosition.fetch_add(got, std::memory_order_relaxed);
 
-    // Past EOF with a partial final pop: absorb the silent remainder into
-    // our position so the next callback does not re-queue a catch-up skip
-    // for frames we already treated as silence. Mid-stream underruns still
-    // leave position lagging (got only) so the next gap correctly queues a
-    // real skip of the missing source audio.
     if (got < numFrames && sourceExhausted.load(std::memory_order_acquire)
         && ring.framesAvailable() <= 0) {
         readPosition.fetch_add(numFrames - got, std::memory_order_relaxed);

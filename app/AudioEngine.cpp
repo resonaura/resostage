@@ -1045,15 +1045,35 @@ void AudioEngine::newProject(const std::string& name) {
 }
 
 
+void AudioEngine::markDirty() {
+    unsavedChanges.store(true, std::memory_order_release);
+    if (!projectLoaded)
+        return;
+    // Mid-show: don't thrash the same SSD as stem refill. Flush on stop.
+    if (playing.load(std::memory_order_acquire)) {
+        autosaveDeferred.store(true, std::memory_order_release);
+        return;
+    }
+    std::string err;
+    loader.saveAutosave(err);
+    autosaveDeferred.store(false, std::memory_order_release);
+}
+
+void AudioEngine::flushDeferredAutosave() {
+    if (!autosaveDeferred.exchange(false, std::memory_order_acq_rel))
+        return;
+    if (!projectLoaded || !unsavedChanges.load(std::memory_order_acquire))
+        return;
+    std::string err;
+    loader.saveAutosave(err);
+}
+
 bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     if (!projectLoaded) {
         error = "No project loaded";
         return false;
     }
 
-    // Keep the displayed project name in sync with the file the user just
-    // chose -- otherwise New Project → Save As "MyShow.rsnraset" forever
-    // shows/stores name "New Project".
     {
         const juce::String stem = juce::File(path).getFileNameWithoutExtension();
         if (stem.isNotEmpty())
@@ -1062,32 +1082,19 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
 
     const size_t songToRestore = currentSong;
     const bool wasPlaying = playing.load(std::memory_order_acquire);
-
-    stop();
-    joinPendingPeakBuilds();
-    streaming.stop();
-
-    // If overwriting the open archive, we must release the zip handle first.
     const bool overwriteOpen = (path == loader.archivePath());
-    // Saving a draft to a different, user-chosen path is a "promote the
-    // draft" operation (subsequent edits should go to the real file the user
-    // just picked, not the invisible draft), not a "keep editing the old
-    // source, export a copy elsewhere" operation -- so it follows the same
-    // close/replace/reopen sequence as overwriteOpen rather than the
-    // save-a-copy branch below.
     const bool promotingDraft = usingDraftArchive && !overwriteOpen;
-    // Save As to a different non-draft path: switch the working archive to
-    // the new location (what users expect from Save As), not leave the old
-    // path open while a silent copy sits elsewhere.
     const bool switchingToNewPath = !overwriteOpen && !promotingDraft;
     const std::string oldDraftPath = usingDraftArchive ? loader.archivePath() : std::string();
-    Project snapshot = loader.project(); // keep metadata if open fails after close
+    Project snapshot = loader.project();
     std::string sourcePath = loader.archivePath();
+    const bool isContainer = loader.isDirectoryContainer();
+    const bool playThroughOk =
+        isContainer && !promotingDraft && overwriteOpen && wasPlaying;
 
     namespace fs = std::filesystem;
     auto replacePath = [](const std::string& from, const std::string& to, std::string& err) -> bool {
         std::error_code ec;
-        // .rsnraset is a directory container -- std::remove fails on non-empty dirs.
         fs::remove_all(to, ec);
         fs::rename(from, to, ec);
         if (ec) {
@@ -1097,12 +1104,46 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
         return true;
     };
 
+    // ── Play-through overwrite (directory package, same path, while playing) ──
+    if (playThroughOk) {
+        const std::string tempOut = path + ".saving";
+        if (!loader.saveAsWithExtras(tempOut, pendingPeakCacheExtras, error, &snapshot))
+            return false;
+        const std::string aside = path + ".play-old";
+        std::error_code ec;
+        fs::remove_all(aside, ec);
+        fs::rename(path, aside, ec);
+        if (ec) {
+            fs::remove_all(tempOut, ec);
+            error = "Failed to park live package: " + ec.message();
+            return false;
+        }
+        fs::rename(tempOut, path, ec);
+        if (ec) {
+            std::error_code ec2;
+            fs::rename(aside, path, ec2);
+            fs::remove_all(tempOut, ec2);
+            error = "Failed to install saved package: " + ec.message();
+            return false;
+        }
+        fs::remove_all(aside, ec);
+        if (ec)
+            staleSavePackages.push_back(aside);
+        usingDraftArchive = false;
+        clearDirty();
+        clearAutosave();
+        return true;
+    }
+
+    // ── Classic path: stop / write / reopen / restage ──
+    stop();
+    joinPendingPeakBuilds();
+    streaming.stop();
+    purgeStaleSavePackages();
+
     if (overwriteOpen || promotingDraft) {
-        // saveAs needs a reader open to copy Audio/* -- clone via a temporary
-        // source path strategy: saveAs to .new, close, replace, reopen.
-        // Include any newly computed peak-cache files so next open is free.
         const std::string tempOut = path + ".new";
-        if (!loader.saveAsWithExtras(tempOut, pendingPeakCacheExtras, error))
+        if (!loader.saveAsWithExtras(tempOut, pendingPeakCacheExtras, error, &snapshot))
             return false;
 
         loader.close();
@@ -1125,7 +1166,6 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             }
         }
     } else if (switchingToNewPath) {
-        // Save As: write destination, then make it the active working archive.
         if (!loader.saveAsWithExtras(path, pendingPeakCacheExtras, error, &snapshot))
             return false;
         loader.close();
@@ -1139,7 +1179,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             fs::remove_all(oldDraftPath, ec);
         }
     } else {
-        if (!loader.saveAsWithExtras(path, pendingPeakCacheExtras, error))
+        if (!loader.saveAsWithExtras(path, pendingPeakCacheExtras, error, &snapshot))
             return false;
 
         if (!loader.isOpen()) {
@@ -1148,7 +1188,6 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
                 return false;
             }
         }
-        (void)snapshot;
     }
 
     buildBusListFromProject();
@@ -1164,9 +1203,8 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
 
     const auto& projTracks = loader.project().tracks;
     if (!projTracks.empty()) {
-        for (const auto& t : projTracks) {
+        for (const auto& t : projTracks)
             trackIdByIndex.push_back(t.id);
-        }
         trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
         ensureTrackMeters(trackIdByIndex.size());
         ensureScratchSizes();
@@ -1781,8 +1819,8 @@ void AudioEngine::stop() {
     transportTelemetry.playheadSamples.store(clock.currentSamplePosition(), std::memory_order_relaxed);
     transportTelemetry.playheadSeconds.store(clock.currentSeconds(), std::memory_order_relaxed);
     transportTelemetry.running.store(false, std::memory_order_relaxed);
-    // Stop does not restage streams (resume keeps the same FILE*). Stale
-    // save packages are purged on selectSong / load / streaming.stop paths.
+    // Flush autosave that was deferred during play (SSD stays free mid-show).
+    flushDeferredAutosave();
 }
 
 void AudioEngine::stopToStart() {

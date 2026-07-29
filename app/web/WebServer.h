@@ -177,6 +177,13 @@ struct WebUiState {
     float clickPeakDb = -144.0f;
     float clickPeakDbL = -144.0f;
     float clickPeakDbR = -144.0f;
+    // Stream feeder health (min ring / RAM-resident stems).
+    double streamBufferMinSec = 0.0;
+    double streamBufferAvgSec = 0.0;
+    int streamResidentTracks = 0;
+    int streamStreamingTracks = 0;
+    bool streamBufferUrgent = false;
+    double streamResidentMiB = 0.0;
     std::string songName;
     double playheadSeconds = 0.0;
     // Cumulative whole-project position (AudioEngine::globalPlayheadSeconds/
