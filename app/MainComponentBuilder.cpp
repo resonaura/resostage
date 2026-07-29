@@ -621,7 +621,8 @@ void MainComponent::builderBusRemove(const std::string& json) {
                         tr.sends.end());
     }
     for (auto& song : proj.songs) {
-        if (song.builtInClickBusId == removedId)
+        // Only re-point a real bus assignment. Empty = Sends Only — leave it.
+        if (!song.builtInClickBusId.empty() && song.builtInClickBusId == removedId)
             song.builtInClickBusId = fallback;
         song.builtInClickSends.erase(
             std::remove_if(song.builtInClickSends.begin(), song.builtInClickSends.end(), dropsRemovedSend),
@@ -662,7 +663,12 @@ void MainComponent::builderBusUpdate(const std::string& json) {
     int intVal;
     bool boolVal;
     if (getString(doc, "name", strVal)) b.name = strVal;
-    if (getInt(doc, "channels", intVal)) b.channels = (intVal >= 2) ? 2 : 1;
+    bool channelsChanged = false;
+    if (getInt(doc, "channels", intVal)) {
+        const int nextCh = (intVal >= 2) ? 2 : 1;
+        channelsChanged = (b.channels != nextCh);
+        b.channels = nextCh;
+    }
     if (getInt(doc, "startChannel", intVal)) b.output.startChannel = intVal;
     if (getDouble(doc, "gainDb", numVal)) b.gainDb = numVal;
     if (getBool(doc, "mute", boolVal)) b.mute = boolVal;
@@ -670,10 +676,18 @@ void MainComponent::builderBusUpdate(const std::string& json) {
     if (getBool(doc, "isAux", boolVal)) b.isAux = boolVal;
 
     const auto idx = static_cast<size_t>(index);
-    engine.setBusGainDb(idx, b.gainDb);
-    engine.setBusMute(idx, b.mute);
-    engine.setBusSolo(idx, b.solo);
-    engine.setBusOutputChannel(idx, b.output.startChannel);
+    // Channel-count lives on LoadedBus (used when summing tracks into a mono
+    // vs stereo bus scratch). startChannel/gain/mute publish via routing
+    // snapshot. Rebuild when channels change so both stay in lockstep; that
+    // also keeps multi-bus Ext. Out same-channel summing honest.
+    if (channelsChanged) {
+        engine.rebuildBussesFromProject();
+    } else {
+        engine.setBusGainDb(idx, b.gainDb);
+        engine.setBusMute(idx, b.mute);
+        engine.setBusSolo(idx, b.solo);
+        engine.setBusOutputChannel(idx, b.output.startChannel);
+    }
     notifyRoutingChanged();
     setStatus("Bus updated");
 }

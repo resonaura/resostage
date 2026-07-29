@@ -914,15 +914,31 @@ void AudioEngine::refreshClickState() {
     clickSendGainLinears.clear();
     isClickEnabled = song.builtInClickEnabled;
 
-    auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty() ? (busses.empty() ? "" : busses.front().id) : song.builtInClickBusId);
-    if (clickBusIt != busIndexById.end()) {
-        clickTargetBusIndex = static_cast<int>(clickBusIt->second);
-        // Gain/pan are project-global (same for every song).
-        clickGainLinear = dbToGain(loader.project().builtInClickGainDb);
-        clickPan = static_cast<float>(
-            std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
-        clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+    // Gain/pan are project-global (same for every song). Always refresh so
+    // Sends Only still has a level even without a main target bus.
+    clickGainLinear = dbToGain(loader.project().builtInClickGainDb);
+    clickPan = static_cast<float>(
+        std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
+
+    // Empty builtInClickBusId = Sends Only (no main target). Do NOT fall
+    // back to the first bus -- that made "Sends Only" unselectable.
+    if (!song.builtInClickBusId.empty()) {
+        auto clickBusIt = busIndexById.find(song.builtInClickBusId);
+        if (clickBusIt != busIndexById.end())
+            clickTargetBusIndex = static_cast<int>(clickBusIt->second);
     }
+
+    // Full tempo + meter grid (numerator = strong/weak period, denominator =
+    // beat unit). Playhead-locked render keeps bar 1 = accented downbeat.
+    const double prevBpm = clickGenerator.currentBpm();
+    const int prevBpb = clickGenerator.currentBeatsPerBar();
+    const int prevUnit = clickGenerator.currentBeatUnit();
+    if (currentSampleRate > 0.0) {
+        clickGenerator.prepare(currentSampleRate, song.bpm,
+                               song.timeSignature.numerator,
+                               song.timeSignature.denominator);
+    }
+
     for (const TrackSendDef& cs : song.builtInClickSends) {
         if (!cs.enabled)
             continue;
@@ -932,6 +948,37 @@ void AudioEngine::refreshClickState() {
         clickSendBusIndices.push_back(static_cast<int>(it->second));
         clickSendGainLinears.push_back(dbToGain(cs.gainDb));
     }
+
+    // Live songUpdate of bpm/meter while playing: keep MIDI clock + SPP in
+    // step with the new click grid. Skip pure gain/pan/bus routing edits.
+    const bool tempoOrMeterChanged =
+        std::abs(prevBpm - song.bpm) > 1.0e-9
+        || prevBpb != song.timeSignature.numerator
+        || prevUnit != song.timeSignature.denominator;
+    if (tempoOrMeterChanged && playing.load(std::memory_order_relaxed))
+        syncMidiTransportToCurrentSong(/*sendContinue=*/false);
+}
+
+void AudioEngine::syncMidiTransportToCurrentSong(bool sendContinue) {
+    if (!projectLoaded || currentSong == static_cast<size_t>(-1)
+        || currentSong >= loader.project().songs.size())
+        return;
+    const SongDef& song = loader.project().songs[currentSong];
+    // Tempo matches project beat BPM (same unit as the click + UI bar|beat).
+    midiDispatcher.setClockBpm(song.bpm);
+
+    // Song Position Pointer: absolute MIDI-beats (sixteenth notes) since the
+    // project start. globalBeatsElapsed folds each prior song at its own bpm,
+    // then the current song at the current playhead -- same cumulative beat
+    // counter the UI absolute bar|beat readout uses.
+    const double globalBeats = globalBeatsElapsed();
+    const long long sixteenths = std::llround(globalBeats * 4.0);
+    const uint16_t midiBeats16 =
+        static_cast<uint16_t>(std::clamp<long long>(sixteenths, 0, 16383));
+    midiDispatcher.sendSongPositionPointer(midiBeats16);
+
+    if (sendContinue)
+        midiDispatcher.continueClock(song.bpm);
 }
 
 void AudioEngine::setBusOutputChannel(size_t busIndex, int startChannel) {
@@ -1501,7 +1548,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         std::string seekErr;
         (void)streaming.seekActiveSongTo(0, seekErr, /*primeMaxWait=*/0.0);
         if (wasPlaying)
-            midiDispatcher.setClockBpm(song.bpm);
+            syncMidiTransportToCurrentSong(/*sendContinue=*/false);
         if (fireOnLoadEventsFlag)
             fireOnLoadEvents(song);
         return true;
@@ -1560,17 +1607,16 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     }
 
     // Prepare click routing offline, publish under the lock below.
+    // Empty builtInClickBusId = Sends Only (no main target bus).
     int newClickTarget = -1;
-    float newClickGain = 1.0f;
+    float newClickGain = dbToGain(loader.project().builtInClickGainDb);
     std::vector<int> newClickSends;
     std::vector<float> newClickSendGains;
     const bool newClickEnabled = song.builtInClickEnabled;
-    auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty()
-                                            ? (busses.empty() ? "" : busses.front().id)
-                                            : song.builtInClickBusId);
-    if (clickBusIt != busIndexById.end()) {
-        newClickTarget = static_cast<int>(clickBusIt->second);
-        newClickGain = dbToGain(loader.project().builtInClickGainDb);
+    if (!song.builtInClickBusId.empty()) {
+        auto clickBusIt = busIndexById.find(song.builtInClickBusId);
+        if (clickBusIt != busIndexById.end())
+            newClickTarget = static_cast<int>(clickBusIt->second);
     }
     for (const TrackSendDef& cs : song.builtInClickSends) {
         if (!cs.enabled)
@@ -1625,8 +1671,13 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         clickSendBusIndices = std::move(newClickSends);
         clickSendGainLinears = std::move(newClickSendGains);
         isClickEnabled = newClickEnabled;
-        if (newClickTarget >= 0)
-            clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+        // Retarget full tempo + meter grid. Playhead resets to 0 below →
+        // next render is bar 1 / strong downbeat under the new signature.
+        if (currentSampleRate > 0.0) {
+            clickGenerator.prepare(currentSampleRate, song.bpm,
+                                   song.timeSignature.numerator,
+                                   song.timeSignature.denominator);
+        }
 
         currentSong = songIndex;
 
@@ -1678,7 +1729,9 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     }
 
     if (wasPlaying)
-        midiDispatcher.setClockBpm(song.bpm); // smooth retune, no phase reset/Stop/Start
+        // Tempo retune + SPP for the new cumulative position / meter grid.
+        // No Start/Stop/Continue -- clock keeps ticking through the hop.
+        syncMidiTransportToCurrentSong(/*sendContinue=*/false);
 
     // Defer non-audio work so the handoff returns immediately (SPA already
     // updated optimistically). Peaks / on-load MIDI / warm must not block.
@@ -1793,17 +1846,16 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     }
 
     // Click routing for the new song (same fields the message-thread path sets).
+    // Empty builtInClickBusId = Sends Only (no main target bus).
     int newClickTarget = -1;
-    float newClickGain = 1.0f;
+    float newClickGain = dbToGain(loader.project().builtInClickGainDb);
     std::vector<int> newClickSends;
     std::vector<float> newClickSendGains;
     const bool newClickEnabled = song.builtInClickEnabled;
-    auto clickBusIt = busIndexById.find(song.builtInClickBusId.empty()
-                                            ? (busses.empty() ? "" : busses.front().id)
-                                            : song.builtInClickBusId);
-    if (clickBusIt != busIndexById.end()) {
-        newClickTarget = static_cast<int>(clickBusIt->second);
-        newClickGain = dbToGain(loader.project().builtInClickGainDb);
+    if (!song.builtInClickBusId.empty()) {
+        auto clickBusIt = busIndexById.find(song.builtInClickBusId);
+        if (clickBusIt != busIndexById.end())
+            newClickTarget = static_cast<int>(clickBusIt->second);
     }
     for (const TrackSendDef& cs : song.builtInClickSends) {
         if (!cs.enabled)
@@ -1837,8 +1889,12 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     clickSendBusIndices = std::move(newClickSends);
     clickSendGainLinears = std::move(newClickSendGains);
     isClickEnabled = newClickEnabled;
-    if (newClickTarget >= 0)
-        clickGenerator.prepare(currentSampleRate, song.bpm, song.timeSignature.numerator);
+    // Gapless hop: new BPM + full meter; playhead 0 = strong downbeat.
+    if (currentSampleRate > 0.0) {
+        clickGenerator.prepare(currentSampleRate, song.bpm,
+                               song.timeSignature.numerator,
+                               song.timeSignature.denominator);
+    }
 
     clock.stop();
     hwSamplePosition.store(0, std::memory_order_relaxed);
@@ -1858,7 +1914,9 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     resetMetersSilent();
     streamHandoff.store(false, std::memory_order_release);
 
-    midiDispatcher.setClockBpm(song.bpm);
+    // MIDI: live tempo retune + Song Position so followers match the new
+    // cumulative beat position under the new song's grid.
+    syncMidiTransportToCurrentSong(/*sendContinue=*/false);
     pendingGaplessUiNotify.store(static_cast<int>(nextSongIndex), std::memory_order_release);
     autoAdvancePending.store(false, std::memory_order_release);
 
@@ -2064,14 +2122,9 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
     }
 
     if (wasPlaying && targetSong < proj.songs.size()) {
-        const double globalBeats = globalBeatsElapsed();
-        const long long sixteenths = std::llround(globalBeats * 4.0);
-        const uint16_t midiBeats16 = static_cast<uint16_t>(std::clamp<long long>(sixteenths, 0, 16383));
-        midiDispatcher.sendSongPositionPointer(midiBeats16);
-        if (sameSong)
-            midiDispatcher.continueClock(proj.songs[targetSong].bpm);
-        else
-            midiDispatcher.continueClock(proj.songs[targetSong].bpm);
+        // Seek/relocate: SPP + Continue so followers jump with us. BPM/TS of
+        // the (possibly new) song already applied via selectSong path above.
+        syncMidiTransportToCurrentSong(/*sendContinue=*/true);
     }
     return true;
 }
@@ -2330,7 +2383,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     metersSilencedSinceStop = false;
     wasPlayingLastCallback = true;
 
-    // Gapless / restage handoff: keep outputs silent and do not touch rings
+    // Gapless / restage handoff: keep outs silent and do not touch rings
     // until the message thread has reset the playhead to match the new song.
     if (streamHandoff.load(std::memory_order_acquire))
         return;
@@ -2733,18 +2786,21 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     const bool meteringMuted = (underrunFadeOutRemaining > 0 || recoveryFadeInRemaining > 0
                                 || outputHeldSilent);
 
-    // Built-in click generator: mixed directly into its target bus's scratch
-    // region (mono summed to both channels), same as any other source, so it
-    // participates in metering and physical output routing normally.
-    // Also mixed into every send bus from builtInClickSends (monitor mixes).
-    const bool clickActive = clickTargetBusIndex >= 0 && static_cast<size_t>(clickTargetBusIndex) < busses.size();
+    // Built-in click: sample-locked to song playhead so strong (bar 1) /
+    // weak beats follow the current song's BPM + time-signature numerator.
+    // Empty clickTargetBusIndex = Sends Only -- still audible via sends.
+    // Physical outs of those busses sum with `+=`, so master + aux + click
+    // sharing the same Ext. Out channel all stack correctly.
+    const bool clickActive = clickTargetBusIndex >= 0
+        && static_cast<size_t>(clickTargetBusIndex) < busses.size();
     const bool clickHasSends = !clickSendBusIndices.empty();
-    if (clickActive || clickHasSends) {
+    if (isClickEnabled && (clickActive || clickHasSends)) {
         if (clickScratch.size() < static_cast<size_t>(numSamples))
             clickScratch.resize(static_cast<size_t>(numSamples), 0.0f);
+        // playheadSample == 0 → beat 0 → accented downbeat under current meter.
         clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
 
-        if (isClickEnabled) {
+        {
             // Balance pan on the mono click (same law as track pan).
             const float targetGL =
                 clickGainLinear * (1.0f - std::max(0.0f, clickPan));
@@ -2837,10 +2893,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
                 clickMeterFrame.write(MeterFrame{});
             }
-        } else {
-            clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
-            clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
-            clickMeterFrame.write(MeterFrame{});
         }
     } else {
         clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);

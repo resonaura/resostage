@@ -1119,8 +1119,9 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
   const currentSong = hasSongs ? state.songs[songIdx] : null;
   const isMetronomeOn = currentSong ? currentSong.click : false;
-  const currentClickBus =
-    currentSong?.clickBusId || state.busses[0]?.id || "main";
+  // Empty clickBusId = Sends Only. Do NOT coerce "" to the first bus — that
+  // made Sends Only unselectable (falsy "" fell back to main every patch).
+  const currentClickBus = currentSong ? (currentSong.clickBusId ?? "") : "";
   // Project-global click level / pan (not per-song).
   const clickGain = state.clickGainDb ?? -6;
   const clickPan = state.clickPan ?? 0;
@@ -1149,6 +1150,12 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
     clickSends?: typeof clickSends;
   }) => {
     if (!hasSongs || !currentSong) return;
+    // Preserve empty string for Sends Only — only fall back when the field
+    // is omitted (undefined), never when it is intentionally "".
+    const nextClickBusId =
+      partial.clickBusId !== undefined
+        ? partial.clickBusId
+        : (currentSong.clickBusId ?? "");
     void builder.songUpdate({
       index: songIdx,
       name: currentSong.name,
@@ -1157,8 +1164,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       tsNum: currentSong.tsNum,
       tsDen: currentSong.tsDen,
       click: partial.click ?? currentSong.click,
-      clickBusId:
-        (partial.clickBusId ?? currentSong.clickBusId) || currentClickBus,
+      clickBusId: nextClickBusId,
       clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? -6,
       clickPan: partial.clickPan ?? state.clickPan ?? 0,
       clickSends: partial.clickSends ?? currentSong.clickSends ?? [],
@@ -1200,8 +1206,10 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
         mono: false,
         onMonoChange: () => {},
         onDirectOutput: (_mono, startChannel) => {
-          const mainBusses = state.busses.filter((b) => !b.isAux);
-          const existing = mainBusses.find(
+          // Route click onto any bus (main or aux) already on this physical
+          // pair so Ext. Out same-channel stacks with master/sends via the
+          // engine's physical-out `+=` sum. Prefer exact startChannel match.
+          const existing = state.busses.find(
             (b) => b.startChannel === startChannel,
           );
           if (existing) {

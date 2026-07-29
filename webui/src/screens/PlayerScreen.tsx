@@ -244,12 +244,12 @@ export function PlayerScreen({
   const toggleMetronome = () => {
     const nextState = !isMetronomeOn;
     setMetronomeOverride(nextState);
-    const defaultClickBus = state.busses[0]?.id || "main";
 
     if (hasSongs) {
       const idx = state.songIndex >= 0 ? state.songIndex : 0;
       const s = state.songs[idx];
       if (s) {
+        // Preserve empty clickBusId (Sends Only) — never coerce "" → main.
         void builder.songUpdate({
           index: idx,
           name: s.name,
@@ -258,7 +258,7 @@ export function PlayerScreen({
           tsNum: s.tsNum,
           tsDen: s.tsDen,
           click: nextState,
-          clickBusId: s.clickBusId || defaultClickBus,
+          clickBusId: s.clickBusId ?? "",
           clickSends: (s.clickSends ?? []).map((cs) => ({
             busId: cs.busId,
             gainDb: cs.gainDb,
@@ -346,10 +346,11 @@ export function PlayerScreen({
   // Song-local = absolute − offset of current song (one timeline, not two).
   const displaySeconds = Math.max(0, displayGlobalSeconds - songOffset);
 
+  // Empty string = Sends Only (must not fall back to main via falsy ||).
   const currentClickBus =
-    hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]?.clickBusId
-      ? state.songs[state.songIndex].clickBusId
-      : state.busses[0]?.id || "main";
+    hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]
+      ? (state.songs[state.songIndex].clickBusId ?? "")
+      : (state.busses[0]?.id ?? "");
   const auxBusses = state.busses.filter((b) => b.isAux);
 
   const changeClickBus = (busId: string) => {
@@ -357,6 +358,7 @@ export function PlayerScreen({
     const idx = state.songIndex >= 0 ? state.songIndex : 0;
     const s = state.songs[idx];
     if (!s) return;
+    // busId may be "" for Sends Only.
     void builder.songUpdate({
       index: idx,
       name: s.name,
@@ -535,8 +537,18 @@ export function PlayerScreen({
                     Output Bus
                   </label>
                   <select
-                    value={currentClickBus}
-                    onChange={(e) => changeClickBus(e.target.value)}
+                    value={
+                      currentClickBus === ""
+                        ? "__sends_only__"
+                        : currentClickBus
+                    }
+                    onChange={(e) =>
+                      changeClickBus(
+                        e.target.value === "__sends_only__"
+                          ? ""
+                          : e.target.value,
+                      )
+                    }
                     className="w-full rounded-md border border-default/40 bg-default/20 px-2 py-1 text-xs text-foreground focus:outline-none"
                   >
                     {state.busses.map((bus) => (
@@ -544,6 +556,7 @@ export function PlayerScreen({
                         {bus.name || bus.id}
                       </option>
                     ))}
+                    <option value="__sends_only__">Sends Only</option>
                   </select>
                 </div>
 

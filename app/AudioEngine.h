@@ -201,6 +201,11 @@ public:
     void refreshClickState();
     // Rebuild global bus list after Builder adds/removes busses (message thread).
     void rebuildBussesFromProject();
+    // Push current song BPM + Song Position Pointer to MIDI clock followers.
+    // Call after song hop / seek / live bpm edit while transport is live.
+    // sendContinue=true also emits 0xFB (seek/resume); false is tempo+SPP only
+    // (gapless hop -- clock already running).
+    void syncMidiTransportToCurrentSong(bool sendContinue = false);
     double currentSongLengthSeconds() const;
 
     // Cumulative "whole project" position: sums every prior song's authored
@@ -478,8 +483,11 @@ private:
     // redo that write every callback for as long as playback stays stopped.
     bool metersSilencedSinceStop = false;
 
-    // Built-in click generator routing for the current song; disabled (-1)
-    // unless the song has builtInClickEnabled and a resolvable target bus.
+    // Built-in click generator. Sample-locked to the song playhead so strong
+    // (bar 1) / weak beats follow the current song's BPM + time signature.
+    // Song hops retarget the grid (bpm/tsNum/tsDen); playhead 0 = downbeat.
+    // clickTargetBusIndex == -1 means "Sends Only" (empty builtInClickBusId) --
+    // click still mixes into clickSendBusIndices when those are set.
     ClickGenerator clickGenerator;
     int clickTargetBusIndex = -1;
     float clickGainLinear = 1.0f;
