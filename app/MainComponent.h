@@ -158,6 +158,9 @@ private:
     juce::uint32 lastPeaksPublishMs = 0;
     juce::uint32 lastAllPeaksPublishMs = 0;
 
+    bool wasHardwareAlarm = false;
+    int startupTicks = 0;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
 

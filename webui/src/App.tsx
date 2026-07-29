@@ -26,6 +26,12 @@ import { SettingsScreen } from "./screens/SettingsScreen";
 import { transport } from "./lib/api";
 import { keyEventToDescription } from "./screens/SettingsScreen";
 
+interface ToastNotification {
+  id: string;
+  title: string;
+  message: string;
+}
+
 function useForcedDarkTheme() {
   useEffect(() => {
     const root = document.documentElement;
@@ -34,17 +40,6 @@ function useForcedDarkTheme() {
   }, []);
 }
 
-function useDismissLoadingOverlay() {
-  useEffect(() => {
-    const overlay = document.getElementById("loading-overlay");
-    if (!overlay) return;
-    overlay.classList.add("loading-overlay-hidden");
-    const timer = setTimeout(() => {
-      overlay.remove();
-    }, 220);
-    return () => clearTimeout(timer);
-  }, []);
-}
 
 /** Match a key event against a juce-style description ("space", "cmd + p", "f1"). */
 function eventMatchesBinding(e: KeyboardEvent, description: string): boolean {
@@ -199,7 +194,6 @@ function jumpSection(
 
 export default function App() {
   useForcedDarkTheme();
-  useDismissLoadingOverlay();
   const [tab, setTab] = useState("player");
   // Tell the backend which SPA tab is active so WS frames only carry that
   // page's heavy arrays (transport/time always included).
@@ -261,14 +255,41 @@ export default function App() {
     };
   }, [state.projectName, state.songs.length]);
 
+  // Hardware alarm toast notifications (post-startup only)
+  const [toastNotifications, setToastNotifications] = useState<ToastNotification[]>([]);
+  const isInitialLoadRef = useRef(true);
+  const prevAlarmRef = useRef(state.hardwareAlarm);
+
+  useEffect(() => {
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+      prevAlarmRef.current = state.hardwareAlarm;
+      return;
+    }
+
+    if (!prevAlarmRef.current && state.hardwareAlarm) {
+      const id = Date.now().toString();
+      setToastNotifications((prev) => [
+        ...prev,
+        {
+          id,
+          title: "Audio Device Error",
+          message: "AUDIO DEVICE DISCONNECTED -- fell back to default output",
+        },
+      ]);
+
+      const timer = setTimeout(() => {
+        setToastNotifications((prev) => prev.filter((t) => t.id !== id));
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    }
+
+    prevAlarmRef.current = state.hardwareAlarm;
+  }, [state.hardwareAlarm]);
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      {state.hardwareAlarm && (
-        <div className="flex items-center justify-center gap-2 bg-danger px-3 py-2 text-sm font-semibold text-danger-foreground">
-          <AlertTriangle size={16} />
-          AUDIO DEVICE DISCONNECTED -- fell back to default output
-        </div>
-      )}
 
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-default/60 bg-background px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-accent">
@@ -385,6 +406,37 @@ export default function App() {
       </footer>
 
       <QuitConfirmDialog state={state} />
+
+      {toastNotifications.length > 0 && (
+        <div className="fixed bottom-5 right-5 z-[300] flex flex-col gap-2.5 max-w-sm pointer-events-none">
+          {toastNotifications.map((toast) => (
+            <div
+              key={toast.id}
+              onClick={() => setToastNotifications((prev) => prev.filter((t) => t.id !== toast.id))}
+              className="pointer-events-auto flex items-start gap-3 rounded-xl border border-danger/40 bg-surface/95 p-3.5 text-foreground shadow-2xl backdrop-blur-md transition-all cursor-pointer hover:border-danger"
+              style={{ animation: "fadeInUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }}
+            >
+              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-danger/20 text-danger">
+                <AlertTriangle size={15} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-danger uppercase tracking-wider">{toast.title}</p>
+                <p className="text-xs text-foreground/90 font-medium leading-relaxed mt-0.5">{toast.message}</p>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setToastNotifications((prev) => prev.filter((t) => t.id !== toast.id));
+                }}
+                className="text-foreground/40 hover:text-foreground text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

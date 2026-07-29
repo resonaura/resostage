@@ -27,7 +27,7 @@ MainComponent::MainComponent() {
     alarmBanner.setText("AUDIO DEVICE DISCONNECTED -- fell back to default output",
                         juce::dontSendNotification);
     alarmBanner.setVisible(false);
-    addAndMakeVisible(alarmBanner);
+    addChildComponent(alarmBanner);
 
     midiInput.onAction = [this](const std::string& action) {
         juce::MessageManager::callAsync([this, action] { performAction(action); });
@@ -297,12 +297,17 @@ void MainComponent::timerCallback() {
         return;
     }
 
-    const auto& transport = engine.transport();
-    const bool alarm = transport.hardwareAlarm.load(std::memory_order_relaxed);
-    if (alarmBanner.isVisible() != alarm) {
-        alarmBanner.setVisible(alarm);
+    if (alarmBanner.isVisible()) {
+        alarmBanner.setVisible(false);
         resized();
     }
+
+    const bool alarm = engine.transport().hardwareAlarm.load(std::memory_order_relaxed);
+    if (!wasHardwareAlarm && alarm && startupTicks > 10) {
+        setStatus("AUDIO DEVICE DISCONNECTED -- fell back to default output");
+    }
+    wasHardwareAlarm = alarm;
+    if (startupTicks <= 10) ++startupTicks;
 
     // Gapless AutoplayNext:
     //  1) Audio thread may already have promoted the precache in-callback
