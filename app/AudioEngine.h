@@ -108,6 +108,10 @@ public:
     // promote fails / for UI refresh after audio-thread promote succeeds).
     bool switchToSongGapless(size_t songIndex, std::string& error);
 
+    // Background-open current±1 into the warm LRU so the next hop / AutoplayNext
+    // boundary can audio-thread promote (no streamHandoff silence).
+    void warmNeighbourSongs();
+
     void play();
     void stop();
     // "Stop" transport button (distinct from stop() above, which is really

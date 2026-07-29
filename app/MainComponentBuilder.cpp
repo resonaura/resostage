@@ -5,7 +5,7 @@
 // payload (see WebCommand::json, parsed with simdjson via BuilderJson.h)
 // instead of native widget state. Kept in its own translation unit so
 // MainComponent.cpp doesn't balloon; these are still MainComponent member
-// functions with full access to `engine`/`builderPanel`/etc.
+// functions with full access to engine / web-command handlers.
 
 #include "MainComponent.h"
 #include "web/BuilderJson.h"
@@ -60,8 +60,7 @@ void MainComponent::builderSongAdd(const std::string& json) {
     proj.songs.push_back(std::move(song));
 
     goToSong(static_cast<int>(proj.songs.size()) - 1);
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Song added");
 }
 
@@ -71,7 +70,7 @@ void MainComponent::builderSongImportFolder(const std::string& json) {
     if (!parseJson(json, doc) || !getString(doc, "path", path) || path.empty()) {
         // No path provided -- this is the native UI's own button, which has
         // no other way to name a folder; show the native picker as before.
-        builderPanel.importSongFolderClicked();
+        importSongFolderNative();
         return;
     }
 
@@ -102,8 +101,7 @@ void MainComponent::builderSongImportFolder(const std::string& json) {
             setStatus("Song import failed: " + juce::String(error));
             return;
         }
-        builderPanel.refresh();
-        builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
         setStatus("Song imported");
     });
 }
@@ -120,8 +118,7 @@ void MainComponent::builderSongRemove(const std::string& json) {
     proj.songs.erase(proj.songs.begin() + index);
     if (!proj.songs.empty())
         goToSong(std::min(index, static_cast<int>(proj.songs.size()) - 1));
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Song removed");
 }
 
@@ -139,8 +136,7 @@ void MainComponent::builderSongMove(const std::string& json) {
 
     std::swap(proj.songs[static_cast<size_t>(index)], proj.songs[static_cast<size_t>(to)]);
     goToSong(to);
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
 }
 
 void MainComponent::builderSongUpdate(const std::string& json) {
@@ -194,8 +190,7 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     engine.refreshClickState();
     if (index != static_cast<int>(engine.currentSongIndex()))
         goToSong(index);
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Song updated");
 }
 
@@ -212,9 +207,7 @@ void MainComponent::builderTrackAdd(const std::string& json) {
     track.name = "New Track";
     track.busId = proj.busses.empty() ? "main" : proj.busses.front().id;
     proj.tracks.push_back(track);
-
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Track added");
 }
 
@@ -228,8 +221,7 @@ void MainComponent::builderTrackRemove(const std::string& json) {
         return;
 
     proj.tracks.erase(proj.tracks.begin() + index);
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Track removed");
 }
 
@@ -244,8 +236,7 @@ void MainComponent::builderTrackMove(const std::string& json) {
         return;
 
     std::swap(proj.tracks[static_cast<size_t>(index)], proj.tracks[static_cast<size_t>(to)]);
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
 }
 
 void MainComponent::builderTrackUpdate(const std::string& json) {
@@ -275,9 +266,7 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
     engine.setTrackMute(0, static_cast<size_t>(index), t.mute);
     engine.setTrackSolo(0, static_cast<size_t>(index), t.solo);
     engine.setTrackMono(0, static_cast<size_t>(index), t.mono);
-
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
 }
 
 void MainComponent::builderRegionAdd(const std::string& json) {
@@ -314,8 +303,7 @@ void MainComponent::builderRegionAdd(const std::string& json) {
 
     s.regions.push_back(std::move(reg));
     engine.markDirty();
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Region added");
 }
 
@@ -333,8 +321,7 @@ void MainComponent::builderRegionRemove(const std::string& json) {
     auto it = std::remove_if(s.regions.begin(), s.regions.end(), [&](const Region& r) { return r.id == regionId; });
     if (it != s.regions.end()) {
         s.regions.erase(it, s.regions.end());
-        builderPanel.refresh();
-        builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
         setStatus("Region removed");
     }
 }
@@ -385,8 +372,7 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
     }
 
     engine.markDirty();
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Region updated");
 }
 
@@ -421,9 +407,7 @@ void MainComponent::builderSectionAdd(const std::string& json) {
     s.sections.push_back(std::move(sec));
     std::sort(s.sections.begin(), s.sections.end(),
               [](const SongSection& a, const SongSection& b) { return a.startSeconds < b.startSeconds; });
-
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Section added");
 }
 
@@ -443,8 +427,7 @@ void MainComponent::builderSectionRemove(const std::string& json) {
                               [&](const SongSection& sec) { return sec.id == sectionId; });
     if (it != s.sections.end()) {
         s.sections.erase(it, s.sections.end());
-        builderPanel.refresh();
-        builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
         setStatus("Section removed");
     }
 }
@@ -482,9 +465,7 @@ void MainComponent::builderSectionUpdate(const std::string& json) {
     // (which walks this vector in order) correct without its own re-sort.
     std::sort(s.sections.begin(), s.sections.end(),
               [](const SongSection& a, const SongSection& b) { return a.startSeconds < b.startSeconds; });
-
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Section updated");
 }
 
@@ -510,7 +491,7 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
             TrackSendDef updated = t->sends[si];
             updated.gainDb = gainDb;
             engine.setTrackSend(songIdx, idx, si, updated);
-            mixerPanel.refreshStructure();
+    notifyRoutingChanged();
             return;
         }
     }
@@ -519,7 +500,7 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
     newSend.gainDb = gainDb;
     newSend.enabled = true;
     engine.addTrackSend(songIdx, idx, newSend);
-    mixerPanel.refreshStructure();
+    notifyRoutingChanged();
 }
 
 void MainComponent::setProjectNameFromJson(const std::string& json) {
@@ -534,7 +515,6 @@ void MainComponent::setProjectNameFromJson(const std::string& json) {
 
     engine.project().name = name;
     engine.markDirty();
-    projectTitle.setText(juce::String(name), juce::dontSendNotification);
     setStatus("Project renamed to '" + juce::String(name) + "'");
 }
 
@@ -554,7 +534,7 @@ void MainComponent::removeTrackSendFromJson(const std::string& json) {
     for (size_t si = 0; si < t->sends.size(); ++si) {
         if (t->sends[si].busId == busId) {
             engine.removeTrackSend(songIdx, idx, si);
-            mixerPanel.refreshStructure();
+    notifyRoutingChanged();
             return;
         }
     }
@@ -586,9 +566,7 @@ void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, c
             setStatus("Import failed: " + juce::String(error));
             return;
         }
-        builderPanel.refresh();
-        if (builderPanel.onProjectEdited)
-            builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
         setStatus("WAV imported");
     });
 }
@@ -609,9 +587,7 @@ void MainComponent::builderBusAdd() {
         nextCh = std::max(nextCh, b.output.startChannel + b.channels);
     bus.output.startChannel = nextCh;
     proj.busses.push_back(std::move(bus));
-
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Bus added");
 }
 
@@ -651,9 +627,7 @@ void MainComponent::builderBusRemove(const std::string& json) {
             std::remove_if(song.builtInClickSends.begin(), song.builtInClickSends.end(), dropsRemovedSend),
             song.builtInClickSends.end());
     }
-
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Bus removed");
 }
 
@@ -670,8 +644,7 @@ void MainComponent::builderBusMove(const std::string& json) {
         return;
 
     std::swap(proj.busses[static_cast<size_t>(index)], proj.busses[static_cast<size_t>(to)]);
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
 }
 
 void MainComponent::builderBusUpdate(const std::string& json) {
@@ -701,9 +674,7 @@ void MainComponent::builderBusUpdate(const std::string& json) {
     engine.setBusMute(idx, b.mute);
     engine.setBusSolo(idx, b.solo);
     engine.setBusOutputChannel(idx, b.output.startChannel);
-
-    builderPanel.refresh();
-    mixerPanel.refreshStructure();
+    notifyRoutingChanged();
     setStatus("Bus updated");
 }
 
@@ -727,9 +698,7 @@ void MainComponent::builderEventAdd(const std::string& json) {
     ev.midiChannel = 1;
     ev.midiProgram = 0;
     s.events.push_back(std::move(ev));
-
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Event added");
 }
 
@@ -747,8 +716,7 @@ void MainComponent::builderEventRemove(const std::string& json) {
         return;
 
     s.events.erase(s.events.begin() + index);
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Event removed");
 }
 
@@ -768,8 +736,7 @@ void MainComponent::builderEventMove(const std::string& json) {
         return;
 
     std::swap(s.events[static_cast<size_t>(index)], s.events[static_cast<size_t>(to)]);
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
 }
 
 void MainComponent::builderEventUpdate(const std::string& json) {
@@ -801,9 +768,7 @@ void MainComponent::builderEventUpdate(const std::string& json) {
     if (getInt(doc, "midiNote", intVal)) e.midiNote = intVal;
     if (getInt(doc, "midiVelocity", intVal)) e.midiVelocity = intVal;
     if (getString(doc, "httpUrl", strVal)) e.httpUrl = strVal;
-
-    builderPanel.refresh();
-    builderPanel.onProjectEdited();
+    notifyProjectStructureChanged();
     setStatus("Event updated");
 }
 

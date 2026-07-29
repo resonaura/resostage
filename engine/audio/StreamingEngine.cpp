@@ -677,16 +677,17 @@ void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_
     if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire))
         return;
 
-    // Light prime into warm rings (IO thread continues).
+    // Prime a useful head so gapless audio-thread promote has audio ready.
+    // (Previously ~0.15s prime while tryPromote required 0.25s → always miss.)
     {
         const bool dir = projectLoader != nullptr && projectLoader->isDirectoryContainer();
         if (dir) {
-            primeBuffersLocked(*staged, 0.15, deviceSampleRate, 0.05);
+            primeBuffersLocked(*staged, 0.4, deviceSampleRate, 0.15);
         } else {
             std::lock_guard<std::mutex> lock(projectLoaderMutex);
             if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire))
                 return;
-            primeBuffersLocked(*staged, 0.15, deviceSampleRate, 0.05);
+            primeBuffersLocked(*staged, 0.4, deviceSampleRate, 0.15);
         }
     }
 
@@ -698,11 +699,10 @@ void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_
         return;
     if (hasWarmLocked(songIndex))
         return;
-    // Background open: already at frame 0 with a light prime — ready to promote.
-    const bool ready = songHeadHasAudio(*staged, 0.08, deviceSampleRate);
-    staged->readyAtStart.store(ready, std::memory_order_release);
+    // Fresh open is at frame 0 — always eligible for instant audio-thread promote.
+    staged->readyAtStart.store(true, std::memory_order_release);
     precached = staged; // "next" alias for gapless helpers
-    putWarmLocked(std::move(staged), /*needsRewind=*/!ready);
+    putWarmLocked(std::move(staged), /*needsRewind=*/false);
 }
 
 bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error, double primeMaxWait) {
@@ -760,6 +760,13 @@ bool StreamingEngine::isPrecacheWarm(size_t songIndex, double minSeconds, double
 }
 
 bool StreamingEngine::tryPromotePrecached(size_t songIndex) {
+    // AUDIO THREAD — pointer swaps + short mutex only. No disk I/O, no prime.
+    //
+    // Previously required 0.25s headroom while precache only primed ~0.15s, so
+    // gapless AutoplayNext *always* failed promote → message-thread
+    // switchToSongGapless under streamHandoff (audible multi-100ms silence).
+    // If the next song is in the warm cache at all, promote it; IO tops rings
+    // and the short recovery fade-in covers a thin head.
     std::shared_ptr<StagedSong> promoted;
     {
         std::lock_guard<std::mutex> lock(precacheMutex);
@@ -770,36 +777,13 @@ bool StreamingEngine::tryPromotePrecached(size_t songIndex) {
         }
         if (promoted == nullptr)
             return false;
-
-        constexpr double kMinWarmSeconds = 0.25;
-        double deviceSr = 48000.0;
-        for (const auto& buf : promoted->buffers) {
-            if (buf != nullptr && buf->deviceSampleRate() > 0.0) {
-                deviceSr = buf->deviceSampleRate();
-                break;
-            }
-        }
-        const int64_t need = static_cast<int64_t>(kMinWarmSeconds * deviceSr);
-        for (const auto& buf : promoted->buffers) {
-            if (buf == nullptr)
-                continue;
-            if (buf->isResident())
-                continue;
-            if (buf->isExhausted())
-                continue;
-            if (buf->framesAvailable() < need) {
-                // Not warm enough — put back and fail.
-                putWarmLocked(promoted);
-                return false;
-            }
-        }
     }
 
-    // Park previous active.
+    // Park previous active for hopscotch return (needsRewind — was mid-play).
     if (auto prev = std::atomic_load_explicit(&active, std::memory_order_acquire)) {
         if (prev->songIndex != songIndex) {
             std::lock_guard<std::mutex> lock(precacheMutex);
-            putWarmLocked(prev);
+            putWarmLocked(prev, /*needsRewind=*/true);
         }
     }
 
@@ -808,6 +792,8 @@ bool StreamingEngine::tryPromotePrecached(size_t songIndex) {
         if (b && b->isResident())
             used += b->residentBytes();
     residentBytesUsed.store(used, std::memory_order_relaxed);
+    // Consumed as the new live song — no longer "ready parked at start".
+    promoted->readyAtStart.store(false, std::memory_order_release);
     std::atomic_store_explicit(&active, std::move(promoted), std::memory_order_release);
     return true;
 }

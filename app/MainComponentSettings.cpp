@@ -258,7 +258,6 @@ void MainComponent::settingsSetKeybinding(const std::string& json) {
 
     engine.project().keybindings[action] = key;
     applyProjectBindings();
-    settingsPanel.refreshBindings();
     setStatus("Keybinding: " + juce::String(action) + " -> " + juce::String(key));
 }
 
@@ -295,7 +294,6 @@ void MainComponent::settingsMidiClear(const std::string& json) {
     if (midiLearnAction == action)
         midiLearnAction.clear();
     applyProjectBindings();
-    settingsPanel.refreshBindings();
     setStatus("MIDI cleared: " + juce::String(action));
 }
 

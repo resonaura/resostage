@@ -1,6 +1,6 @@
 #include "MainComponent.h"
 #include "platform/MacTouchBar.h"
-#include "ui/legacy/UiColors.h"
+#include "ui/UiColors.h"
 #include "web/BuilderJson.h"
 
 #include <algorithm>
@@ -10,11 +10,7 @@
 
 namespace resoset {
 
-MainComponent::MainComponent()
-    : playerPanel(engine),
-      mixerPanel(engine),
-      builderPanel(engine),
-      settingsPanel(engine, midiInput) {
+MainComponent::MainComponent() {
     engine.deviceManager().initialiseWithDefaultDevices(0, 2);
     // Prefer 48 kHz for stage playback (matches project schema default and
     // most concert audio interfaces). Fall back silently if the device rejects it.
@@ -24,101 +20,14 @@ MainComponent::MainComponent()
         (void)engine.deviceManager().setAudioDeviceSetup(setup, true);
     }
 
-    appTitle.setText("RESOSTAGE", juce::dontSendNotification);
-    appTitle.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
-    appTitle.setColour(juce::Label::textColourId, ui::accent());
-    addAndMakeVisible(appTitle);
-
-    projectTitle.setText("No project", juce::dontSendNotification);
-    projectTitle.setColour(juce::Label::textColourId, ui::text());
-    projectTitle.setFont(juce::Font(juce::FontOptions(14.0f)));
-    addAndMakeVisible(projectTitle);
-
-    newButton.setColour(juce::TextButton::buttonColourId, ui::panelAlt());
-    newButton.setColour(juce::TextButton::textColourOffId, ui::text());
-    newButton.onClick = [this] { newProjectClicked(); };
-    addAndMakeVisible(newButton);
-
-    loadButton.setColour(juce::TextButton::buttonColourId, ui::panelAlt());
-    loadButton.setColour(juce::TextButton::textColourOffId, ui::text());
-    loadButton.onClick = [this] { loadProjectClicked(); };
-    addAndMakeVisible(loadButton);
-
-    saveButton.setColour(juce::TextButton::buttonColourId, ui::panelAlt());
-    saveButton.setColour(juce::TextButton::textColourOffId, ui::text());
-    saveButton.onClick = [this] { saveProjectClicked(false); };
-    addAndMakeVisible(saveButton);
-
-    saveAsButton.setColour(juce::TextButton::buttonColourId, ui::panelAlt());
-    saveAsButton.setColour(juce::TextButton::textColourOffId, ui::text());
-    saveAsButton.onClick = [this] { saveProjectClicked(true); };
-    addAndMakeVisible(saveAsButton);
-
-    styleModeTab(webTab, Mode::Web);
-    styleModeTab(playerTab, Mode::Player);
-    styleModeTab(mixerTab, Mode::Mixer);
-    styleModeTab(builderTab, Mode::Builder);
-    styleModeTab(settingsTab, Mode::Settings);
-    webTab.setRadioGroupId(7);
-    playerTab.setRadioGroupId(7);
-    mixerTab.setRadioGroupId(7);
-    builderTab.setRadioGroupId(7);
-    settingsTab.setRadioGroupId(7);
-    webTab.setClickingTogglesState(true);
-    playerTab.setClickingTogglesState(true);
-    mixerTab.setClickingTogglesState(true);
-    builderTab.setClickingTogglesState(true);
-    settingsTab.setClickingTogglesState(true);
-    webTab.setToggleState(true, juce::dontSendNotification);
-    webTab.onClick = [this] { setMode(Mode::Web); };
-    playerTab.onClick = [this] { setMode(Mode::Player); };
-    mixerTab.onClick = [this] { setMode(Mode::Mixer); };
-    builderTab.onClick = [this] { setMode(Mode::Builder); };
-    settingsTab.onClick = [this] { setMode(Mode::Settings); };
-    addAndMakeVisible(webTab);
-    addAndMakeVisible(playerTab);
-    addAndMakeVisible(mixerTab);
-    addAndMakeVisible(builderTab);
-    addAndMakeVisible(settingsTab);
-
-    statusLabel.setColour(juce::Label::textColourId, ui::muted());
-    statusLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
-    addAndMakeVisible(statusLabel);
-
     alarmBanner.setJustificationType(juce::Justification::centred);
     alarmBanner.setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold)));
     alarmBanner.setColour(juce::Label::textColourId, juce::Colours::white);
     alarmBanner.setColour(juce::Label::backgroundColourId, ui::alarm());
-    alarmBanner.setText("AUDIO DEVICE DISCONNECTED -- fell back to default output", juce::dontSendNotification);
+    alarmBanner.setText("AUDIO DEVICE DISCONNECTED -- fell back to default output",
+                        juce::dontSendNotification);
     alarmBanner.setVisible(false);
     addAndMakeVisible(alarmBanner);
-
-    // Transport wiring for Player
-    playerPanel.onPlay = [this] { togglePlayback(); };
-    playerPanel.onStop = [this] { stopToStartClicked(); };
-    playerPanel.onNext = [this] { nextSong(); };
-    playerPanel.onPrev = [this] { prevSong(); };
-    playerPanel.onSelectSong = [this](int i) { goToSong(i); };
-
-    builderPanel.onSelectSong = [this](int i) { goToSong(i); };
-    builderPanel.onRequestSaveAs = [this](std::function<void(bool)> onDone) {
-        saveProjectClicked(true, std::move(onDone));
-    };
-    builderPanel.onProjectEdited = [this] {
-        engine.rebuildBussesFromProject();
-        ensureSongSelected(); // e.g. importing the first song into an empty project
-        playerPanel.refreshProject();
-        mixerPanel.refreshStructure();
-        builderPanel.refresh();
-        setStatus("Project structure updated");
-    };
-    builderPanel.onRoutingEdited = [this] {
-        mixerPanel.refreshStructure();
-        setStatus("Routing updated");
-    };
-
-    settingsPanel.onSimulateUnderrun = [this] { engine.simulateUnderrun(500.0); };
-    settingsPanel.onBindingsChanged = [this] { applyProjectBindings(); };
 
     midiInput.onAction = [this](const std::string& action) {
         juce::MessageManager::callAsync([this, action] { performAction(action); });
@@ -129,23 +38,12 @@ MainComponent::MainComponent()
         });
     };
 
-    addChildComponent(mixerPanel);
-    addChildComponent(playerPanel);
-    addChildComponent(builderPanel);
-    addChildComponent(settingsPanel);
     addChildComponent(busyOverlay);
 
     // Start with a real, empty, editable project rather than a "load
-    // something first" placeholder state -- the Builder is immediately
-    // usable to add songs/tracks/busses, and Save As creates the .rsnraset
-    // the first time it's needed.
+    // something first" placeholder -- SPA Builder is immediately usable.
     engine.newProject();
-
-    // Seed engine.project().keybindings with the compiled-in defaults (so
-    // SettingsPanel's rebind UI has something real to show) and sync the
-    // MIDI mapping table.
     applyProjectBindings();
-    settingsPanel.refreshBindings();
     onProjectLoaded();
 
     std::string webError;
@@ -155,19 +53,14 @@ MainComponent::MainComponent()
         setStatus("Web server failed: " + juce::String(webError));
     }
 
-    // Web UI is the default landing view -- always prefers the Vite dev
-    // server (webui/, :2900) when it's running, falls back to the embedded
-    // build the line above just started serving otherwise.
+    // Prefer Vite dev server (:2900) when running; fall back to embedded assets.
     webView = std::make_unique<DevOrEmbeddedWebView>(
         "http://localhost:" + juce::String(kWebPort) + "/");
-    addChildComponent(*webView);
+    addAndMakeVisible(*webView);
 
     setWantsKeyboardFocus(true);
     setSize(1280, 800);
-    setMode(Mode::Web);
-    // Match WebServer::kTelemetryHz (30): one publish → one prebuilt WS frame
-    // generation → one outbound tick. Higher rates only burned CPU serializing
-    // the same state the socket would coalesce away.
+    // Match WebServer::kTelemetryHz (30).
     startTimerHz(WebServer::kTelemetryHz);
 }
 
@@ -176,123 +69,19 @@ MainComponent::~MainComponent() {
     webServer.stop();
 }
 
-void MainComponent::styleModeTab(juce::TextButton& b, Mode /*m*/) {
-    b.setColour(juce::TextButton::buttonColourId, ui::panel());
-    b.setColour(juce::TextButton::buttonOnColourId, ui::accent());
-    b.setColour(juce::TextButton::textColourOffId, ui::muted());
-    b.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-}
-
-void MainComponent::setMode(Mode m) {
-    mode = m;
-    const bool isWeb = (m == Mode::Web);
-    if (webView != nullptr)
-        webView->setVisible(isWeb);
-    playerPanel.setVisible(m == Mode::Player);
-    mixerPanel.setVisible(m == Mode::Mixer);
-    builderPanel.setVisible(m == Mode::Builder);
-    settingsPanel.setVisible(m == Mode::Settings);
-
-    const bool showNativeHeader = !isWeb;
-    appTitle.setVisible(showNativeHeader);
-    projectTitle.setVisible(showNativeHeader);
-    newButton.setVisible(showNativeHeader);
-    loadButton.setVisible(showNativeHeader);
-    saveButton.setVisible(showNativeHeader);
-    saveAsButton.setVisible(showNativeHeader);
-    webTab.setVisible(showNativeHeader);
-    playerTab.setVisible(showNativeHeader);
-    mixerTab.setVisible(showNativeHeader);
-    builderTab.setVisible(showNativeHeader);
-    settingsTab.setVisible(showNativeHeader);
-    statusLabel.setVisible(showNativeHeader);
-
-    webTab.setToggleState(isWeb, juce::dontSendNotification);
-    playerTab.setToggleState(m == Mode::Player, juce::dontSendNotification);
-    mixerTab.setToggleState(m == Mode::Mixer, juce::dontSendNotification);
-    builderTab.setToggleState(m == Mode::Builder, juce::dontSendNotification);
-    settingsTab.setToggleState(m == Mode::Settings, juce::dontSendNotification);
-
-    if (m == Mode::Mixer)
-        mixerPanel.refreshStructure();
-    if (m == Mode::Builder)
-        builderPanel.refresh();
-    if (m == Mode::Player)
-        playerPanel.refreshProject();
-    if (m == Mode::Settings)
-        settingsPanel.refreshMidiLists();
-
-    resized();
-    repaint();
-    if (isShowing())
-        grabKeyboardFocus();
-}
-
 void MainComponent::paint(juce::Graphics& g) {
     g.fillAll(ui::bg());
-    if (mode == Mode::Web) {
-        return;
-    }
-    // Top bar background
-    g.setColour(ui::panel());
-    g.fillRect(0, 0, getWidth(), 52);
-    g.setColour(ui::border());
-    g.drawHorizontalLine(52, 0.0f, static_cast<float>(getWidth()));
-    // Bottom status bar
-    g.setColour(ui::panel());
-    g.fillRect(0, getHeight() - 28, getWidth(), 28);
-    g.setColour(ui::border());
-    g.drawHorizontalLine(getHeight() - 28, 0.0f, static_cast<float>(getWidth()));
 }
 
 void MainComponent::resized() {
-    busyOverlay.setBounds(getLocalBounds());
-
-    if (mode == Mode::Web) {
-        if (webView != nullptr)
-            webView->setBounds(getLocalBounds());
-        return;
-    }
-
     auto r = getLocalBounds();
-
-    auto top = r.removeFromTop(52).reduced(10, 8);
-    appTitle.setBounds(top.removeFromLeft(120));
-    top.removeFromLeft(12);
-    saveAsButton.setBounds(top.removeFromRight(90));
-    top.removeFromRight(4);
-    saveButton.setBounds(top.removeFromRight(64));
-    top.removeFromRight(4);
-    loadButton.setBounds(top.removeFromRight(72));
-    top.removeFromRight(4);
-    newButton.setBounds(top.removeFromRight(56));
-    top.removeFromRight(8);
-    settingsTab.setBounds(top.removeFromRight(84));
-    top.removeFromRight(4);
-    builderTab.setBounds(top.removeFromRight(84));
-    top.removeFromRight(4);
-    mixerTab.setBounds(top.removeFromRight(84));
-    top.removeFromRight(4);
-    playerTab.setBounds(top.removeFromRight(84));
-    top.removeFromRight(4);
-    webTab.setBounds(top.removeFromRight(84));
-    top.removeFromRight(16);
-    projectTitle.setBounds(top);
-
-    auto bottom = r.removeFromBottom(28).reduced(10, 4);
-    statusLabel.setBounds(bottom);
-
     if (alarmBanner.isVisible())
         alarmBanner.setBounds(r.removeFromTop(28));
     else
         alarmBanner.setBounds({});
-
     if (webView != nullptr)
         webView->setBounds(r);
-    playerPanel.setBounds(r);
-    mixerPanel.setBounds(r);
-    builderPanel.setBounds(r);
-    settingsPanel.setBounds(r);
+    busyOverlay.setBounds(getLocalBounds());
 }
 
 bool MainComponent::keyPressed(const juce::KeyPress& key) {
@@ -352,10 +141,6 @@ void MainComponent::handleTouchBarTab(const std::string& tabId) {
 void MainComponent::requestUiTab(const std::string& tab) {
     uiTabRequest = tab;
     ++uiTabSeq;
-    // Keep the webview visible so the React tab change is what the user sees
-    // (legacy native panels still exist as a fallback but aren't the primary UI).
-    if (mode != Mode::Web)
-        setMode(Mode::Web);
     std::string id = tab;
     if (id == "builder")
         id = "editor";
@@ -459,9 +244,6 @@ void MainComponent::jumpToLastSection() {
 }
 
 void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to16, int number) {
-    // Legacy SettingsPanel learn (its own learningMappingIndex).
-    settingsPanel.handleMidiLearn(type, channel1to16, number);
-
     // Web UI learn: one-shot arm for a named action.
     if (midiLearnAction.empty())
         return;
@@ -485,7 +267,6 @@ void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to1
     existing->channel = channel1to16;
     existing->number = number;
     applyProjectBindings();
-    settingsPanel.refreshBindings();
     setStatus("MIDI learn: " + juce::String(action)
               + " <- ch" + juce::String(channel1to16)
               + (type == MidiTriggerType::ControlChange ? " CC" : " note")
@@ -509,35 +290,27 @@ void MainComponent::timerCallback() {
     }
 
     const auto& transport = engine.transport();
-    alarmBanner.setVisible(transport.hardwareAlarm.load(std::memory_order_relaxed));
-
-    playerPanel.refreshTransport();
-    if (mode == Mode::Mixer)
-        mixerPanel.refreshMeters();
+    const bool alarm = transport.hardwareAlarm.load(std::memory_order_relaxed);
+    if (alarmBanner.isVisible() != alarm) {
+        alarmBanner.setVisible(alarm);
+        resized();
+    }
 
     // Gapless AutoplayNext:
     //  1) Audio thread may already have promoted the precache in-callback
-    //     (consumeGaplessUiNotify) -- only refresh UI.
-    //  2) Else promote from message thread (consumeGaplessAdvance), also
-    //     woken via callAsync so we don't wait a full 30 Hz timer tick.
+    //     (consumeGaplessUiNotify) -- SPA follows via telemetry.
+    //  2) Else promote from message thread (consumeGaplessAdvance).
     size_t gaplessNext = 0;
     if (engine.consumeGaplessUiNotify(gaplessNext)) {
-        playerPanel.selectSongRow(static_cast<int>(gaplessNext));
-        playerPanel.refreshProject();
-        mixerPanel.refreshStructure();
-        builderPanel.refresh();
         if (gaplessNext < engine.project().songs.size())
             setStatus("Gapless -> " + juce::String(engine.project().songs[gaplessNext].name));
-        // Kick precache for song+2 on the message thread.
         (void)engine.consumeAutoAdvancePending();
+        engine.warmNeighbourSongs();
     } else if (engine.consumeGaplessAdvance(gaplessNext)) {
         std::string error;
         if (engine.switchToSongGapless(gaplessNext, error)) {
-            playerPanel.selectSongRow(static_cast<int>(gaplessNext));
-            playerPanel.refreshProject();
-            mixerPanel.refreshStructure();
-            builderPanel.refresh();
             setStatus("Gapless -> " + juce::String(engine.project().songs[gaplessNext].name));
+            engine.warmNeighbourSongs();
         } else {
             setStatus("Gapless switch failed: " + juce::String(error));
             engine.stop();
@@ -647,7 +420,6 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::NewProject:
                 engine.newProject();
                 applyProjectBindings();
-                settingsPanel.refreshBindings();
                 onProjectLoaded();
                 setStatus("New project -- add songs in Builder, then Save As to create the .rsnraset file");
                 break;
@@ -665,7 +437,6 @@ void MainComponent::drainWebCommands() {
                 const bool loaded = engine.loadProject(cmd.path, error);
                 if (loaded) {
                     applyProjectBindings();
-                    settingsPanel.refreshBindings();
                     onProjectLoaded();
                     setStatus("Loaded '" + juce::String(engine.project().name) + "' (uploaded from browser)");
                     if (!engine.project().songs.empty())
@@ -760,13 +531,9 @@ void MainComponent::confirmQuitIfUnsaved(std::function<void(bool)> onDecision) {
         return;
     }
 
-    // Ask inside the webview (React ConfirmDialog) rather than a native
-    // AlertWindow -- the web UI is the single primary surface now, so switch
-    // to it if some other native tab happened to be showing. publishWebState()
-    // mirrors awaitingQuitDecision as WebUiState::quitConfirmPending; the
-    // answer comes back as WebCommandKind::QuitDecision, handled below in
-    // handleQuitDecision().
-    setMode(Mode::Web);
+    // Ask inside the webview (React ConfirmDialog). publishWebState() mirrors
+    // awaitingQuitDecision as WebUiState::quitConfirmPending; the answer comes
+    // back as WebCommandKind::QuitDecision.
     awaitingQuitDecision = true;
     pendingQuitDecision = std::move(onDecision);
     publishWebState();
@@ -864,7 +631,7 @@ void MainComponent::publishWebState() {
     state.songIndex = (engine.currentSongIndex() == static_cast<size_t>(-1))
                           ? -1
                           : static_cast<int>(engine.currentSongIndex());
-    state.statusMessage = statusLabel.getText().toStdString();
+    state.statusMessage = lastStatusMessage;
     state.busy = engine.isBusy();
     state.quitConfirmPending = awaitingQuitDecision;
     state.uiTab = uiTabRequest;
@@ -1036,11 +803,7 @@ void MainComponent::publishWebState() {
 }
 
 void MainComponent::applyProjectBindings() {
-    // engine.project().keybindings is the single source of truth that
-    // SettingsPanel's rebind UI reads/writes directly. Backfill any action
-    // missing from it (fresh project, or one saved before a given action
-    // existed) with the compiled-in default so the Settings panel never
-    // shows "(unbound)" for something that's actually working via fallback.
+    // Backfill missing actions with compiled-in defaults; project file wins.
     for (const auto& [action, description] : keyBindings)
         engine.project().keybindings.try_emplace(action, description);
 
@@ -1053,7 +816,6 @@ void MainComponent::newProjectClicked() {
     auto doNew = [this] {
         engine.newProject();
         applyProjectBindings();
-        settingsPanel.refreshBindings();
         onProjectLoaded();
         setStatus("New project -- add songs in Builder, then Save As to create the .rsnraset file");
     };
@@ -1101,7 +863,6 @@ void MainComponent::loadProjectClicked() {
         }
 
         applyProjectBindings();
-        settingsPanel.refreshBindings();
         onProjectLoaded();
         setStatus("Loaded '" + juce::String(engine.project().name) + "' | "
                   + juce::String(static_cast<int>(engine.project().songs.size())) + " songs | "
@@ -1145,10 +906,6 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
                         onDone(false);
                     return;
                 }
-                projectTitle.setText(juce::String(engine.project().name), juce::dontSendNotification);
-                playerPanel.refreshProject();
-                mixerPanel.refreshStructure();
-                builderPanel.refresh();
                 setStatus("Saved " + name);
                 publishWebState();
                 if (onDone)
@@ -1183,12 +940,7 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
 }
 
 void MainComponent::onProjectLoaded() {
-    projectTitle.setText(juce::String(engine.project().name), juce::dontSendNotification);
     ensureSongSelected();
-    playerPanel.refreshProject();
-    mixerPanel.refreshStructure();
-    builderPanel.refresh();
-    settingsPanel.refreshMidiLists();
 }
 
 void MainComponent::ensureSongSelected() {
@@ -1197,9 +949,7 @@ void MainComponent::ensureSongSelected() {
     if (engine.project().songs.empty())
         return;
     std::string error;
-    if (!engine.selectSong(0, error))
-        return; // best-effort; UI just stays empty and the user can pick manually
-    playerPanel.selectSongRow(0);
+    (void)engine.selectSong(0, error); // best-effort
 }
 
 void MainComponent::goToSong(int index) {
@@ -1207,14 +957,6 @@ void MainComponent::goToSong(int index) {
     if (!engine.selectSong(static_cast<size_t>(index), error)) {
         setStatus("Song select failed: " + juce::String(error));
         return;
-    }
-    // Native panel rebuilds are expensive; skip them while the Web UI is the
-    // live surface (default). SPA state comes over WS/telemetry already.
-    if (mode != Mode::Web) {
-        playerPanel.selectSongRow(index);
-        playerPanel.refreshProject();
-        mixerPanel.refreshStructure();
-        builderPanel.refresh();
     }
     if (index >= 0 && index < static_cast<int>(engine.project().songs.size()))
         setStatus("Song: " + juce::String(engine.project().songs[static_cast<size_t>(index)].name));
@@ -1245,18 +987,114 @@ void MainComponent::togglePlayback() {
 
 void MainComponent::stopToStartClicked() {
     engine.stopToStart();
-    // stopToStart() may have jumped to a different song (song 0) -- keep
-    // native panels in sync the same way goToSong() does, unconditionally
-    // (cheap, and correct whether or not the song actually changed).
-    const int index = static_cast<int>(engine.currentSongIndex());
-    playerPanel.selectSongRow(index);
-    playerPanel.refreshProject();
-    mixerPanel.refreshStructure();
-    builderPanel.refresh();
 }
 
 void MainComponent::setStatus(const juce::String& text) {
-    statusLabel.setText(text, juce::dontSendNotification);
+    lastStatusMessage = text.toStdString();
+}
+
+void MainComponent::notifyProjectStructureChanged() {
+    engine.rebuildBussesFromProject();
+    ensureSongSelected();
+    setStatus("Project structure updated");
+}
+
+void MainComponent::notifyRoutingChanged() {
+    // SPA picks up routing from the next telemetry frame.
+}
+
+void MainComponent::importSongFolderNative() {
+    if (!engine.isProjectLoaded())
+        return;
+
+    auto startPicker = [this] {
+        folderChooser = std::make_unique<juce::FileChooser>(
+            "Select a song's stem folder (one .wav per track)", juce::File(), "*");
+        const auto flags = juce::FileBrowserComponent::openMode
+                           | juce::FileBrowserComponent::canSelectDirectories;
+        folderChooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
+            const auto folder = fc.getResult();
+            if (folder == juce::File() || !folder.isDirectory())
+                return;
+
+            std::vector<std::string> wavPaths;
+            double detectedBpm = 0.0;
+            std::string scanError;
+            if (!engine.scanFolderForImport(folder.getFullPathName().toStdString(), wavPaths,
+                                            detectedBpm, scanError)) {
+                setStatus("Import scan failed: " + juce::String(scanError));
+                return;
+            }
+
+            importSongDialog = std::make_unique<juce::AlertWindow>(
+                "Import Song From Folder",
+                juce::String(static_cast<int>(wavPaths.size())) + " .wav file(s) found in \""
+                    + folder.getFileName() + "\". One track per file.",
+                juce::MessageBoxIconType::NoIcon);
+            importSongDialog->addTextEditor("name", folder.getFileName(), "Song name:");
+            importSongDialog->addTextEditor(
+                "bpm", juce::String(detectedBpm > 0.0 ? detectedBpm : 120.0, 1), "Tempo (BPM):");
+            importSongDialog->addTextEditor("tsNum", "4", "Time signature numerator:");
+            importSongDialog->addTextEditor("tsDen", "4", "Time signature denominator:");
+            importSongDialog->addButton("Import", 1, juce::KeyPress(juce::KeyPress::returnKey));
+            importSongDialog->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+            const juce::String folderPath = folder.getFullPathName();
+            importSongDialog->enterModalState(
+                true,
+                juce::ModalCallbackFunction::create([this, folderPath](int result) {
+                    if (importSongDialog == nullptr)
+                        return;
+                    if (result != 1) {
+                        importSongDialog.reset();
+                        return;
+                    }
+                    const std::string name =
+                        importSongDialog->getTextEditorContents("name").toStdString();
+                    const double bpm =
+                        importSongDialog->getTextEditorContents("bpm").getDoubleValue();
+                    const int tsNum =
+                        importSongDialog->getTextEditorContents("tsNum").getIntValue();
+                    const int tsDen =
+                        importSongDialog->getTextEditorContents("tsDen").getIntValue();
+                    importSongDialog.reset();
+
+                    setStatus("Importing song folder…");
+                    engine.importSongFromFolderAsync(
+                        folderPath.toStdString(), name, bpm, tsNum, tsDen,
+                        [this](bool ok, std::string error) {
+                            if (!ok) {
+                                setStatus("Song import failed: " + juce::String(error));
+                                return;
+                            }
+                            notifyProjectStructureChanged();
+                            setStatus("Song imported");
+                        });
+                }),
+                false);
+        });
+    };
+
+    if (!engine.projectPath().empty()) {
+        startPicker();
+        return;
+    }
+
+    // Need an on-disk archive before import can write audio.
+    auto options = juce::MessageBoxOptions::makeOptionsOkCancel(
+        juce::MessageBoxIconType::InfoIcon,
+        "Save project first",
+        "This project hasn't been saved yet. Imported audio needs an archive to live in -- "
+        "save it now, and the import will continue automatically.",
+        "Save As...", "Cancel", this);
+    juce::NativeMessageBox::showAsync(options, [this, startPicker](int result) {
+        if (result != 1)
+            return;
+        saveProjectClicked(true, [startPicker](bool saved) {
+            if (saved)
+                startPicker();
+        });
+    });
 }
 
 } // namespace resoset

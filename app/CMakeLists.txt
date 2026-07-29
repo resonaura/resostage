@@ -17,11 +17,6 @@ target_sources(ResoStage PRIVATE
   platform/AudioWorkgroup.cpp
   platform/ProcessPriority.cpp
   web/WebServer.cpp
-  ui/legacy/PlayerPanel.cpp
-  ui/legacy/MixerPanel.cpp
-  ui/legacy/BuilderPanel.cpp
-  ui/legacy/SettingsPanel.cpp
-  ui/legacy/TimelineView.cpp
 )
 
 if(APPLE)

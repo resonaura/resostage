@@ -2,7 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-#include "ui/legacy/UiColors.h"
+#include "ui/UiColors.h"
 
 namespace resoset {
 

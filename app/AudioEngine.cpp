@@ -1696,39 +1696,55 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     if (fireOnLoadEventsFlag)
         fireOnLoadEvents(song);
 
-    // Warm neighbours (±1) into the stage LRU so hopscotch / Next / Prev
-    // promote instead of cold-opening. Epoch-matched so a newer hop aborts
-    // stale jobs; completed entries stay until LRU eviction.
-    {
-        const int64_t ringCap = ringCapacityFrames;
-        const double sr = currentSampleRate;
-        const uint64_t epoch = streaming.stageEpoch();
-        auto scheduleWarm = [this, ringCap, sr, epoch](size_t idx) {
-            juce::MessageManager::callAsync([this, idx, ringCap, sr, epoch] {
-                if (!projectLoaded)
-                    return;
-                if (streaming.stageEpoch() != epoch)
-                    return;
-                const Project& p = loader.project();
-                if (idx >= p.songs.size())
-                    return;
-                if (streaming.hasPrecacheFor(idx))
-                    return;
-                // Still on a song where this neighbour is useful.
-                if (currentSong != idx
-                    && currentSong + 1 != idx
-                    && (currentSong == 0 || currentSong - 1 != idx))
-                    return;
-                streaming.precacheSong(idx, p.songs[idx], ringCap, sr, epoch);
-            });
-        };
-        if (songIndex + 1 < proj.songs.size())
-            scheduleWarm(songIndex + 1);
-        if (songIndex > 0)
-            scheduleWarm(songIndex - 1);
-    }
+    warmNeighbourSongs();
 
     return true;
+}
+
+void AudioEngine::warmNeighbourSongs() {
+    if (!projectLoaded)
+        return;
+    const Project& proj = loader.project();
+    if (proj.songs.empty() || currentSong >= proj.songs.size())
+        return;
+    const int64_t ringCap = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
+    const double sr = currentSampleRate;
+    const uint64_t epoch = streaming.stageEpoch();
+    const size_t cur = currentSong;
+
+    auto scheduleWarm = [this, ringCap, sr, epoch, cur](size_t idx) {
+        juce::MessageManager::callAsync([this, idx, ringCap, sr, epoch, cur] {
+            if (!projectLoaded)
+                return;
+            // Allow warm to finish even after a later hop (epoch mismatch)
+            // only if this song is still a neighbour of *wherever we are now*
+            // OR still matches the epoch (same session of hops).
+            const Project& p = loader.project();
+            if (idx >= p.songs.size())
+                return;
+            if (streaming.hasPrecacheFor(idx))
+                return;
+            if (currentSong == idx)
+                return;
+            const bool stillNeighbour =
+                (currentSong + 1 == idx) || (currentSong > 0 && currentSong - 1 == idx);
+            const bool sameEpoch = streaming.stageEpoch() == epoch;
+            // Prefer sequential next always (gapless critical path).
+            const bool isNextOfCur = (cur + 1 == idx);
+            if (!stillNeighbour && !sameEpoch && !isNextOfCur)
+                return;
+            streaming.precacheSong(idx, p.songs[idx], ringCap, sr, epoch,
+                                   /*requireEpochMatch=*/false);
+        });
+    };
+
+    if (cur + 1 < proj.songs.size())
+        scheduleWarm(cur + 1);
+    if (cur > 0)
+        scheduleWarm(cur - 1);
+    // Also warm song+2 after gapless so the following boundary is ready.
+    if (cur + 2 < proj.songs.size())
+        scheduleWarm(cur + 2);
 }
 
 bool AudioEngine::switchToSongGapless(size_t songIndex, std::string& error) {
@@ -2928,19 +2944,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             // Falls back to message-thread switchToSongGapless if precache miss.
             streamHandoff.store(true, std::memory_order_release);
             if (!tryGaplessPromoteOnAudioThread(nextIdx)) {
+                // Warm miss: message-thread stage. Keep handoff silent until
+                // done — callAsync immediately (don't wait 30 Hz timer).
                 clock.stop();
                 pendingGaplessSong.store(static_cast<int>(nextIdx), std::memory_order_release);
                 autoAdvancePending.store(true, std::memory_order_release);
-                // Don't wait for the 30 Hz UI timer -- finish handoff on the
-                // next message-thread turn so the silence gap stays ~1–2 ms.
                 juce::MessageManager::callAsync([this, nextIdx]() {
                     if (pendingGaplessSong.load(std::memory_order_acquire) < 0)
-                        return; // already consumed / audio-thread finished
+                        return;
                     size_t idx = nextIdx;
                     if (!consumeGaplessAdvance(idx))
                         idx = nextIdx;
                     std::string err;
                     (void)switchToSongGapless(idx, err);
+                    warmNeighbourSongs();
                 });
             }
         } else {

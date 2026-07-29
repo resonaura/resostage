@@ -1,8 +1,4 @@
-// Timeline parity for the web UI: click/drag-to-seek and per-track peak
-// overview data (waveform bars). Mirrors TimelineView.cpp's seek handling
-// (see PlayerPanel.cpp's onSeekRequest) and reuses the exact same
-// AudioEngine::trackPeaksAt() data the native ClipTrimEditor/TimelineView
-// already render from -- no separate client-side audio decode needed.
+// Timeline parity for the SPA: seek + peak-overview JSON for waveforms.
 
 #include "MainComponent.h"
 #include "web/BuilderJson.h"
@@ -68,7 +64,6 @@ void MainComponent::transportSeek(const std::string& json) {
         setStatus("Seek failed: " + juce::String(error));
         return;
     }
-    playerPanel.refreshTransport();
     // seekToSeconds restages the song (see its own doc comment), which
     // kicks off a fresh background peak build same as any other song
     // (re)selection -- make sure the next tick's maybePublishPeaks() notices.
