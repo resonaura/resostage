@@ -176,8 +176,10 @@ void StreamingEngine::resetSongToStart(StagedSong& staged) {
 }
 
 void StreamingEngine::fillHeadOnce(StagedSong& staged) {
-    // After a real rewind the ring is empty — one refill pass so the first
-    // audio blocks aren't silent (no timed wait).
+    // Tiny head only (~4096 frames ≈ 85ms @ 48k). Old 4×16k×N-stems path
+    // was tens of ms on the message thread even with warm file pool — that
+    // delay is the "still lags on every hop" feel (shared stems always rewind).
+    constexpr int64_t kHopHeadFrames = 4096;
     std::unordered_map<StreamingTrackBuffer*, bool> seen;
     const bool dir = projectLoader != nullptr && projectLoader->isDirectoryContainer();
     auto run = [&] {
@@ -187,9 +189,10 @@ void StreamingEngine::fillHeadOnce(StagedSong& staged) {
             seen[b.get()] = true;
             if (b->isResident())
                 continue;
-            // A few chunks ≈ tens of ms of audio head, still message-thread cheap.
-            for (int n = 0; n < 4 && b->wantsRefill(); ++n)
-                b->refill();
+            if (b->framesAvailable() >= kHopHeadFrames)
+                continue;
+            if (b->wantsRefill())
+                (void)b->refill(kHopHeadFrames);
         }
     };
     if (dir) {
@@ -627,23 +630,21 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
         }
     }
 
+    // Shared file-pool stems usually need a rewind (left mid-file by the
+    // previous song). Do fseek-only first; fill AFTER the active flip so the
+    // switch commits immediately (user isn't stuck hearing the old song).
     bool needFill = false;
     if (next == nullptr) {
         next = bindSongToPool(songIndex, song, ringCapacityFrames, deviceSampleRate, error,
                               /*openMissing=*/true);
         if (next == nullptr)
             return false;
-        // Snap shared stems to frame 0 (no-op if already there with ring data).
-        resetSongToStart(*next);
+        resetSongToStart(*next); // no-op if already at 0 with ring data
         needFill = true;
     } else if (!next->readyAtStart.load(std::memory_order_acquire)) {
         resetSongToStart(*next);
         needFill = true;
     }
-    // readyAtStart: pure map swap — rings already have head audio.
-    // After a real wipe/rewind, push one head-fill so first blocks aren't silent.
-    if (needFill)
-        fillHeadOnce(*next);
 
     if (muteBeforeSwap != nullptr)
         muteBeforeSwap->store(true, std::memory_order_release);
@@ -652,11 +653,15 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
         std::atomic_load_explicit(&active, std::memory_order_acquire);
     next->readyAtStart.store(false, std::memory_order_release);
     std::atomic_store_explicit(&active, next, std::memory_order_release);
-    // Keep previous *map* warm for hopscotch (files stay in pool either way).
     if (prev != nullptr && prev->songIndex != songIndex) {
         std::lock_guard<std::mutex> lock(precacheMutex);
         putWarmLocked(std::move(prev), /*needsRewind=*/true);
     }
+    // Under handoff silence: push a tiny head so the first unmuted blocks
+    // have audio. Keep this after the flip so hop latency ≠ decode time.
+    if (needFill)
+        fillHeadOnce(*next);
+
     recountResidentBytes();
     return true;
 }

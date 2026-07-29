@@ -55,11 +55,10 @@ MainComponent::MainComponent() {
 
     // SelectSong / Play / etc. used to wait for the 30 Hz timer (up to ~33 ms).
     // Wake the message thread immediately so hops feel instant.
+    // Do NOT publishWebState here — full multi-view JSON rebuild is heavy and
+    // was still on the hop critical path; the 30 Hz timer publishes soon after.
     webServer.setUrgentCommandHook([this] {
-        juce::MessageManager::callAsync([this] {
-            drainWebCommands();
-            publishWebState();
-        });
+        juce::MessageManager::callAsync([this] { drainWebCommands(); });
     });
 
     // Prefer Vite dev server (:2900) when running; fall back to embedded assets.

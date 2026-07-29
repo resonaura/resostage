@@ -478,7 +478,7 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
     return true;
 }
 
-bool StreamingTrackBuffer::refill() {
+bool StreamingTrackBuffer::refill(int64_t maxDeviceFrames) {
     if (residentActive.load(std::memory_order_acquire))
         return false;
 
@@ -543,7 +543,11 @@ bool StreamingTrackBuffer::refill() {
     if (free <= 0)
         return true;
 
-    const int64_t toDecode = std::min(free, kRefillChunkFrames);
+    // maxDeviceFrames <= 0 → historical full chunk; hop head-fill passes ~4k.
+    const int64_t chunkCap = maxDeviceFrames > 0
+                                 ? std::min(kRefillChunkFrames, maxDeviceFrames)
+                                 : kRefillChunkFrames;
+    const int64_t toDecode = std::min(free, chunkCap);
     const size_t channels = static_cast<size_t>(decoder.numChannels());
     auto readFn = [this](void* buf, size_t bufSize) { return cursor.read(buf, bufSize); };
 

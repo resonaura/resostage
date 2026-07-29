@@ -46,7 +46,9 @@ public:
     size_t residentBytes() const { return residentByteCount; }
     void releaseResident();
 
-    bool refill();
+    // Decode up to maxDeviceFrames into the ring (capped by free space).
+    // Default matches historical chunk size; hop head-fill uses a small limit.
+    bool refill(int64_t maxDeviceFrames = 0);
     bool hardSeekTo(int64_t deviceFrame, std::string& error);
     // Cheap rewind to frame 0 for hopscotch: re-open stream + re-parse header,
     // keep existing ring storage (reset indices). Prefer this over treating

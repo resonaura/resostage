@@ -1649,10 +1649,9 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         lastCallbackWasUnderrun = false;
         lastCallbackHostNanos = 0;
         pendingSongEndAction = SongEndAction::None;
-        // Soft edge into the new song. Keep-playing (gapless or setlist hop
-        // while live) uses a short fade (~5ms @ 48k); stopped cold-stage
-        // keeps the longer edge for scrub landings / first Play.
-        const int fadeIn = wasPlaying ? 256 : kSongEndFadeSamples;
+        // Short edge only — long kSongEndFadeSamples on cold stage made hops
+        // feel like a ramp delay even when stems were already open.
+        const int fadeIn = wasPlaying ? 128 : 256;
         recoveryFadeInLength = fadeIn;
         recoveryFadeInRemaining = fadeIn;
         outputHeldSilent = false;
