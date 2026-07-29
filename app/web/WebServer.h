@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -413,7 +414,13 @@ public:
     int clientCount() const { return clients.load(std::memory_order_relaxed); }
 
     // Message-thread: publish the latest UI snapshot for remote clients.
+    // Pre-serializes one JSON blob per SPA view so the WS thread only copies
+    // a string at a fixed cadence (no rebuild/lock contention on send).
     void publishState(const WebUiState& state);
+
+    // Fixed outbound WS telemetry rate (Hz). All clients tick at this rate.
+    static constexpr int kTelemetryHz = 30;
+    static constexpr int kTelemetryPeriodUs = 1'000'000 / kTelemetryHz;
 
     // Message-thread: drain one remote command (if any). Returns false if empty.
     bool pollCommand(WebCommand& out);
@@ -467,6 +474,8 @@ private:
     // (player/mixer/editor/settings). Transport/time/status always included.
     // Empty / "all" → full snapshot (REST /api/v1/state).
     std::string buildStateJson(const char* view = nullptr) const;
+    // lws thread: grab prebuilt frame for a view (empty if none yet).
+    std::shared_ptr<const std::string> cachedFrameForView(const char* view) const;
     void enqueueCommand(WebCommand cmd);
     bool handleHttpApi(struct lws* wsi, const char* path, const char* method, const char* body, size_t bodyLen);
     int serveStatic(struct lws* wsi, const char* path);
@@ -490,6 +499,19 @@ private:
 
     mutable std::mutex stateMutex;
     WebUiState state;
+
+    // Pre-serialized frames, rebuilt in publishState() on the message thread.
+    // WS service thread only does shared_ptr copy + lws_write — no ostringstream.
+    struct FrameCache {
+        std::shared_ptr<const std::string> player;
+        std::shared_ptr<const std::string> mixer;
+        std::shared_ptr<const std::string> editor;
+        std::shared_ptr<const std::string> settings;
+        std::shared_ptr<const std::string> all; // REST full snapshot
+        uint64_t generation = 0;
+    };
+    mutable std::mutex frameMutex;
+    FrameCache frames;
 
     moodycamel::ReaderWriterQueue<WebCommand> commands{64};
 

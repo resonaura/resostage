@@ -24,10 +24,12 @@ namespace resoset {
 
 namespace {
 
-// Max WS text frame we will send. Was 16 KB and silently dropped larger
-// snapshots (looked like "delayed" state). View-filtered payloads are much
-// smaller; this cap is a safety net for huge projects on the editor view.
+// Max WS text frame we will send. View-filtered payloads are typically a few
+// KB; this is a safety net for huge editor projects.
 constexpr size_t kWsTxMax = 512 * 1024;
+
+// Fixed telemetry period — same for every client, every view.
+constexpr int kTelemetryPeriodUs = WebServer::kTelemetryPeriodUs;
 
 // Which SPA tab the client is showing -- drives buildStateJson() so we only
 // push fields that page needs (transport/time always).
@@ -516,7 +518,11 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
 
                 if (!isPost) {
                     if (std::strcmp(uri, "/api/v1/state") == 0) {
-                        const std::string json = server->buildStateJson();
+                        // Prefer prebuilt full frame; fall back to live build.
+                        auto frame = server->cachedFrameForView("all");
+                        const std::string json = frame && !frame->empty()
+                            ? *frame
+                            : server->buildStateJson("all");
                         return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
                                                  json.c_str(), json.size());
                     }
@@ -650,11 +656,13 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
                 return -1;
             pss->server = server;
             pss->wsi = wsi;
-            pss->writePending = true;
+            pss->writePending = false;
+            pss->view = ClientView::Player;
             server->onClientOpened();
-            // ~30 FPS telemetry.
-            lws_set_timer_usecs(wsi, 33 * 1000);
-            lws_callback_on_writable(wsi);
+            // Fixed cadence for every client (see WebServer::kTelemetryHz).
+            lws_set_timer_usecs(wsi, kTelemetryPeriodUs);
+            // First frame on the next timer tick so all clients stay phase-
+            // aligned to their own 30 Hz clock from connect.
             return 0;
     }
 
@@ -666,9 +674,12 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
 
     if (why == LWS_CALLBACK_TIMER) {
             if (pss != nullptr) {
+                // Always arm exactly one write per period. If the previous
+                // write is still pending (slow client), drop that slot —
+                // next tick sends the latest prebuilt frame (never backlog).
                 pss->writePending = true;
                 lws_callback_on_writable(wsi);
-                lws_set_timer_usecs(wsi, 33 * 1000);
+                lws_set_timer_usecs(wsi, kTelemetryPeriodUs);
             }
             return 0;
     }
@@ -685,13 +696,15 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
                 case ClientView::Settings: viewName = "settings"; break;
                 case ClientView::Player: default: viewName = "player"; break;
             }
-            const std::string json = server->buildStateJson(viewName);
-            if (json.empty() || json.size() + LWS_PRE > kWsTxMax)
+            // Hot path: only a shared_ptr copy of a pre-serialized frame.
+            // No mutex-held ostringstream, no per-client rebuild.
+            const auto frame = server->cachedFrameForView(viewName);
+            if (!frame || frame->empty() || frame->size() + LWS_PRE > kWsTxMax)
                 return 0;
 
-            std::vector<uint8_t> buf(LWS_PRE + json.size());
-            std::memcpy(buf.data() + LWS_PRE, json.data(), json.size());
-            const int n = lws_write(wsi, buf.data() + LWS_PRE, json.size(), LWS_WRITE_TEXT);
+            std::vector<uint8_t> buf(LWS_PRE + frame->size());
+            std::memcpy(buf.data() + LWS_PRE, frame->data(), frame->size());
+            const int n = lws_write(wsi, buf.data() + LWS_PRE, frame->size(), LWS_WRITE_TEXT);
             if (n < 0)
                 return -1;
             return 0;
@@ -708,12 +721,8 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
                 && viewRaw.size() >= 2 && viewRaw.front() == '"' && viewRaw.back() == '"') {
                 if (pss != nullptr)
                     pss->view = parseClientView(viewRaw.substr(1, viewRaw.size() - 2));
-                // Push a frame immediately for the new view so the UI doesn't
-                // wait up to one timer tick with stale/partial data.
-                if (pss != nullptr) {
-                    pss->writePending = true;
-                    lws_callback_on_writable(wsi);
-                }
+                // View change takes effect on the next fixed timer tick —
+                // keeps cadence uniform (no burst frames).
                 return 0;
             }
             if (msg.find("\"play\"") != std::string::npos)
@@ -823,16 +832,60 @@ void WebServer::stop() {
 
 void WebServer::serviceLoop() {
     while (!stopRequested.load(std::memory_order_acquire)) {
-        // timeout 50ms so we notice stopRequested promptly even without cancel.
-        const int n = lws_service(context, 50);
+        // 5ms poll: snappy timer delivery without spinning. Was 50ms which
+        // alone added up to half a frame of jitter on top of the 33ms period.
+        const int n = lws_service(context, 5);
         if (n < 0)
             break;
     }
 }
 
 void WebServer::publishState(const WebUiState& next) {
-    std::lock_guard<std::mutex> lock(stateMutex);
-    state = next;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        state = next;
+    }
+
+    // No connected SPA — skip the serialize work. REST /api/v1/state falls
+    // back to a live buildStateJson("all") if the cache is empty.
+    if (clients.load(std::memory_order_relaxed) <= 0)
+        return;
+
+    // Serialize once per publish on the message thread. The WS service thread
+    // only does shared_ptr copies of these strings — rebuild cost no longer
+    // scales with client count and no longer blocks lws_service.
+    //
+    // Note: each buildStateJson re-copies `state` under the mutex; at 30 Hz
+    // with a single client that is still far cheaper than rebuilding per
+    // WS writable (the previous path).
+    auto player = std::make_shared<const std::string>(buildStateJson("player"));
+    auto mixer = std::make_shared<const std::string>(buildStateJson("mixer"));
+    auto editor = std::make_shared<const std::string>(buildStateJson("editor"));
+    auto settings = std::make_shared<const std::string>(buildStateJson("settings"));
+    auto all = std::make_shared<const std::string>(buildStateJson("all"));
+
+    {
+        std::lock_guard<std::mutex> lock(frameMutex);
+        frames.player = std::move(player);
+        frames.mixer = std::move(mixer);
+        frames.editor = std::move(editor);
+        frames.settings = std::move(settings);
+        frames.all = std::move(all);
+        ++frames.generation;
+    }
+}
+
+std::shared_ptr<const std::string> WebServer::cachedFrameForView(const char* view) const {
+    std::lock_guard<std::mutex> lock(frameMutex);
+    if (view == nullptr || view[0] == '\0' || std::strcmp(view, "all") == 0)
+        return frames.all;
+    if (std::strcmp(view, "mixer") == 0)
+        return frames.mixer;
+    if (std::strcmp(view, "editor") == 0 || std::strcmp(view, "builder") == 0)
+        return frames.editor;
+    if (std::strcmp(view, "settings") == 0)
+        return frames.settings;
+    return frames.player;
 }
 
 bool WebServer::pollCommand(WebCommand& out) {

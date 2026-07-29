@@ -2521,6 +2521,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             }
 
             // Click strip meter: metronome only, post gain+pan (L/R balance).
+            // True block peak only — no artificial hold. UI lag is handled by
+            // delivering every telemetry frame's levels to the meter ballistics
+            // path without dropping intermediate WS frames.
             if (!meteringMuted) {
                 float peakL = 0.0f;
                 float peakR = 0.0f;
@@ -2531,7 +2534,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     peakR = std::max(peakR, s * clickSmoothGR);
                 }
                 auto toDb = [](float p) -> float {
-                    return p > 1.0e-9f ? 20.0f * std::log10(p) : -144.0f;
+                    if (!(p > 1.0e-9f) || !std::isfinite(p))
+                        return -144.0f;
+                    return 20.0f * std::log10(std::min(p, 32.0f));
                 };
                 MeterFrame frame;
                 frame.peakDb = toDb(std::max(peakL, peakR));

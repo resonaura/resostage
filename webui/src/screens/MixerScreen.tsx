@@ -13,6 +13,7 @@ import {
   useChannelClipHold,
 } from "../components/LevelMeterBar";
 import { builder, mixer } from "../lib/api";
+import { getLiveLevels } from "../lib/liveLevels";
 import { useLiveValue } from "../lib/optimistic";
 import type { BusRow, SettingsState, TrackRow, WebUiState } from "../lib/types";
 
@@ -840,6 +841,9 @@ function ChannelStrip({
   peakDb,
   peakDbL,
   peakDbR,
+  getLiveDb,
+  getLiveDbL,
+  getLiveDbR,
   mute,
   solo,
   anySoloInGroup,
@@ -879,6 +883,10 @@ function ChannelStrip({
   peakDb: number | undefined;
   peakDbL?: number;
   peakDbR?: number;
+  /** Live peak getters (no frame drop) — used for metronome / meters. */
+  getLiveDb?: () => number;
+  getLiveDbL?: () => number;
+  getLiveDbR?: () => number;
   mute: boolean;
   solo: boolean;
   anySoloInGroup?: boolean;
@@ -999,6 +1007,9 @@ function ChannelStrip({
           db={peakDb ?? -100}
           dbL={stripLeftDb}
           dbR={stripRightDb}
+          getLiveDb={getLiveDb}
+          getLiveDbL={getLiveDbL}
+          getLiveDbR={getLiveDbR}
           accent={color}
           vertical={true}
           showValue={false}
@@ -1117,6 +1128,8 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   const auxBusses = state.busses.filter((b) => b.isAux);
   const clickSends = currentSong?.clickSends ?? [];
   // Dedicated click meter — never the destination bus (master) peaks.
+  // Fallbacks from coalesced React state; live getters below feed ballistics
+  // every paint so short ticks aren't dropped by rAF state coalesce.
   const clickPeak = isMetronomeOn ? (state.clickPeakDb ?? -100) : -100;
   const clickPeakL = isMetronomeOn
     ? (state.clickPeakDbL ?? state.clickPeakDb ?? -100)
@@ -1124,6 +1137,12 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   const clickPeakR = isMetronomeOn
     ? (state.clickPeakDbR ?? state.clickPeakDb ?? -100)
     : -100;
+  const getLiveClick = () =>
+    isMetronomeOn ? getLiveLevels().clickPeakDb : -100;
+  const getLiveClickL = () =>
+    isMetronomeOn ? getLiveLevels().clickPeakDbL : -100;
+  const getLiveClickR = () =>
+    isMetronomeOn ? getLiveLevels().clickPeakDbR : -100;
 
   const patchSong = (partial: {
     click?: boolean;
@@ -1204,6 +1223,9 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       peakDb={clickPeak}
       peakDbL={clickPeakL}
       peakDbR={clickPeakR}
+      getLiveDb={getLiveClick}
+      getLiveDbL={getLiveClickL}
+      getLiveDbR={getLiveClickR}
       mute={!isMetronomeOn}
       solo={clickSolo}
       onGain={(v) => patchSong({ clickGainDb: v })}

@@ -66,7 +66,12 @@ interface ChannelBallistics {
   clipLatched: boolean;
 }
 
-function useMeterBallistics(db: number): {
+function useMeterBallistics(
+  db: number,
+  /** Optional live getter — read every paint so brief peaks (metronome)
+   * are never lost when React state is rAF-coalesced. */
+  getLiveDb?: () => number,
+): {
   display: number;
   peak: number;
   clipLatched: boolean;
@@ -77,6 +82,8 @@ function useMeterBallistics(db: number): {
   const [clipLatched, setClipLatched] = useState(false);
   const dbRef = useRef(db);
   dbRef.current = db;
+  const getLiveRef = useRef(getLiveDb);
+  getLiveRef.current = getLiveDb;
   const anim = useRef<ChannelBallistics & { lastT: number }>({
     display: FLOOR_DB,
     peak: FLOOR_DB,
@@ -92,7 +99,10 @@ function useMeterBallistics(db: number): {
       const dt = s.lastT > 0 ? Math.min(0.25, (t - s.lastT) / 1000) : 1 / 30;
       s.lastT = t;
 
-      const target = Math.max(dbRef.current, FLOOR_DB);
+      const live = getLiveRef.current?.();
+      const raw =
+        live !== undefined && Number.isFinite(live) ? live : dbRef.current;
+      const target = Math.max(raw, FLOOR_DB);
       s.display =
         target >= s.display
           ? target
@@ -172,6 +182,7 @@ export function useChannelClipHold(maxDb: number): {
 
 function ChannelBar({
   db,
+  getLiveDb,
   vertical,
   className,
   accent,
@@ -179,6 +190,7 @@ function ChannelBar({
   onClear,
 }: {
   db: number;
+  getLiveDb?: () => number;
   vertical: boolean;
   className?: string;
   accent: string;
@@ -195,7 +207,7 @@ function ChannelBar({
     peak,
     clipLatched: internalClipLatched,
     clearClip: internalClearClip,
-  } = useMeterBallistics(db);
+  } = useMeterBallistics(db, getLiveDb);
   const clipLatched = clipLatchedOverride ?? internalClipLatched;
   const clearClip = onClear ?? internalClearClip;
   const fillPct = normFor(display) * 100;
@@ -281,6 +293,10 @@ interface LevelMeterBarProps {
   db: number;
   dbL?: number;
   dbR?: number;
+  /** Live getters — ballistics poll these every paint (no frame drop). */
+  getLiveDb?: () => number;
+  getLiveDbL?: () => number;
+  getLiveDbR?: () => number;
   /** Track/bus colour for the level fill. */
   accent?: string;
   label?: string;
@@ -303,6 +319,9 @@ export function LevelMeterBar({
   db,
   dbL,
   dbR,
+  getLiveDb,
+  getLiveDbL,
+  getLiveDbR,
   accent = DEFAULT_ACCENT,
   label,
   vertical = true,
@@ -316,6 +335,8 @@ export function LevelMeterBar({
   const left = dbL ?? db;
   const right = dbR ?? db;
   const maxDb = Math.max(left, right);
+  const getLeft = getLiveDbL ?? getLiveDb;
+  const getRight = getLiveDbR ?? getLiveDb;
 
   return (
     <div
@@ -329,6 +350,7 @@ export function LevelMeterBar({
       {mono ? (
         <ChannelBar
           db={db}
+          getLiveDb={getLiveDb ?? getLeft}
           vertical={vertical}
           className={barClassName}
           accent={accent}
@@ -345,6 +367,7 @@ export function LevelMeterBar({
         >
           <ChannelBar
             db={left}
+            getLiveDb={getLeft}
             vertical={vertical}
             accent={accent}
             className={
@@ -355,6 +378,7 @@ export function LevelMeterBar({
           />
           <ChannelBar
             db={right}
+            getLiveDb={getRight}
             vertical={vertical}
             accent={accent}
             className={

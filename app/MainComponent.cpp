@@ -162,8 +162,10 @@ MainComponent::MainComponent()
     setWantsKeyboardFocus(true);
     setSize(1280, 800);
     setMode(Mode::Web);
-    // 60 Hz keeps gapless UI notify / fallback snappy without much cost.
-    startTimerHz(60);
+    // Match WebServer::kTelemetryHz (30): one publish → one prebuilt WS frame
+    // generation → one outbound tick. Higher rates only burned CPU serializing
+    // the same state the socket would coalesce away.
+    startTimerHz(WebServer::kTelemetryHz);
 }
 
 MainComponent::~MainComponent() {
@@ -450,7 +452,10 @@ void MainComponent::timerCallback() {
     }
     if (busyNow) {
         busyOverlay.advanceSpinner(12.0f); // ~30Hz timer -> one full turn in ~1s
-        return; // nothing underneath should update while blocked/mid-import
+        // Still push status/busy so the web UI can show "Saving…" etc.
+        drainWebCommands();
+        publishWebState();
+        return;
     }
 
     const auto& transport = engine.transport();

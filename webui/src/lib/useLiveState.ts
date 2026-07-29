@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "./backend";
+import { pushLiveLevels } from "./liveLevels";
 import { emptyState, type WebUiState } from "./types";
 
 export type ConnectionStatus = "connecting" | "live" | "reconnecting";
@@ -9,6 +10,10 @@ export type ConnectionStatus = "connecting" | "live" | "reconnecting";
  * includes arrays relevant to the active SPA tab (see WebServer::
  * buildStateJson(view)); omitted keys keep their previous values so tab
  * switches don't blank out the UI before the next full-for-view frame.
+ *
+ * Meter peaks are NOT max-merged here — that would be fake hold. Live
+ * levels go through pushLiveLevels() on every frame so ballistics see
+ * the true signal including brief silence between metronome hits.
  */
 function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
   return {
@@ -29,7 +34,6 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
       ? {
           ...prev.settings,
           ...next.settings,
-          // Don't wipe device lists when the server sent a keybindings-only stub.
           outputDevices: next.settings.outputDevices?.length
             ? next.settings.outputDevices
             : prev.settings.outputDevices,
@@ -78,7 +82,31 @@ export function useLiveState(view: string = "player") {
   const viewRef = useRef(view);
   viewRef.current = view;
 
-  // Tell the server which tab is active so it can filter the telemetry.
+  // Structural state is rAF-coalesced (latest wins). Meter levels are pushed
+  // on every frame into liveLevels so short impulses (metronome) are never
+  // dropped by coalesce.
+  const pendingRawRef = useRef<string | null>(null);
+  const rafRef = useRef<number>(0);
+
+  const flushPending = () => {
+    rafRef.current = 0;
+    const raw = pendingRawRef.current;
+    pendingRawRef.current = null;
+    if (raw == null) return;
+    try {
+      const parsed = JSON.parse(raw) as Partial<WebUiState>;
+      setState((prev) => mergeState(prev, parsed));
+      if (parsed.health) {
+        latestHealthRef.current = {
+          cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
+          ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
+        };
+      }
+    } catch {
+      // ignore malformed
+    }
+  };
+
   useEffect(() => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -103,7 +131,6 @@ export function useLiveState(view: string = "player") {
       ws.onopen = () => {
         reconnectMsRef.current = 500;
         setStatus("live");
-        // Scope immediately so the first frames aren't the full dump.
         try {
           ws?.send(JSON.stringify({ view: viewRef.current }));
         } catch {
@@ -111,17 +138,30 @@ export function useLiveState(view: string = "player") {
         }
       };
       ws.onmessage = (ev) => {
+        const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
+        // 1) Levels: every frame, immediately (no drop).
         try {
-          const parsed = JSON.parse(ev.data) as Partial<WebUiState>;
-          setState((prev) => mergeState(prev, parsed));
-
+          const parsed = JSON.parse(raw) as Partial<WebUiState>;
+          pushLiveLevels({
+            clickPeakDb: parsed.clickPeakDb,
+            clickPeakDbL: parsed.clickPeakDbL,
+            clickPeakDbR: parsed.clickPeakDbR,
+            tracks: parsed.tracks,
+            meters: parsed.meters,
+          });
           if (parsed.health) {
-            const targetCpu = Math.max(0, parsed.health.cpuPercent ?? 0);
-            const targetRam = (parsed.health.rssBytes ?? 0) / (1024 * 1024);
-            latestHealthRef.current = { cpu: targetCpu, ram: targetRam };
+            latestHealthRef.current = {
+              cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
+              ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
+            };
           }
         } catch {
-          // ignore malformed frames
+          // ignore
+        }
+        // 2) Full React state: coalesce to paint rate.
+        pendingRawRef.current = raw;
+        if (!rafRef.current) {
+          rafRef.current = requestAnimationFrame(flushPending);
         }
       };
       ws.onerror = () => {
@@ -151,6 +191,7 @@ export function useLiveState(view: string = "player") {
       cancelled = true;
       clearInterval(sampleInterval);
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
       ws?.close();
       wsRef.current = null;
     };
