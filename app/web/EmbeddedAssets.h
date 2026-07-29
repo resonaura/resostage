@@ -2,10 +2,10 @@
 
 // Static assets served from the embedded WebServer -- GENERATED FILE, do not
 // hand-edit. Regenerate with:
-//   cd webui && pnpm build && node scripts/embed.mjs
+//   cd ui && pnpm build && node scripts/embed.mjs
 // (or `pnpm build:embed` for both in one step)
 //
-// Source: webui/ (pnpm + vite + react + typescript + heroui v3 + tailwind
+// Source: ui/ (pnpm + vite + react + typescript + heroui v3 + tailwind
 // v4 + framer-motion + lucide-react). Dev workflow: MainComponent's
 // embedded webview tries http://localhost:2900 (the Vite dev server) first
 // and falls back to this baked-in build when that's unreachable.

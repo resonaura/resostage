@@ -36,7 +36,7 @@ const COMMANDS = {
     },
   },
   ui: {
-    desc: "Build webui + embed into EmbeddedAssets.h",
+    desc: "Build ui + embed into EmbeddedAssets.h",
     run: () => buildUi(),
   },
   rebuild: {
@@ -73,7 +73,7 @@ const COMMANDS = {
     run: () => runTests(),
   },
   lint: {
-    desc: "oxlint + tsc for webui",
+    desc: "oxlint + tsc for ui",
     run: () => lintAll(),
   },
   configure: {
@@ -81,7 +81,7 @@ const COMMANDS = {
     run: () => configure(),
   },
   clean: {
-    desc: "Remove build/ (pass --ui to also wipe webui/dist)",
+    desc: "Remove build/ (pass --ui to also wipe ui/dist)",
     run: (args) => clean({ ui: args.includes("--ui") || args.includes("ui") }),
   },
   help: {

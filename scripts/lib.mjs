@@ -181,7 +181,7 @@ export function startApp() {
 
 export function buildUi() {
   log("Building web UI + embedding assets...");
-  run("pnpm", ["build:embed"], { cwd: join(ROOT, "webui") });
+  run("pnpm", ["build:embed"], { cwd: join(ROOT, "ui") });
   ok("Web UI embedded -> app/web/EmbeddedAssets.h");
 }
 
@@ -205,16 +205,14 @@ export function runTests() {
 
 export function lintAll() {
   let failed = false;
-  log("Lint webui (oxlint)...");
-  if (
-    run("pnpm", ["lint"], { cwd: join(ROOT, "webui"), allowFail: true }) !== 0
-  ) {
+  log("Lint ui (oxlint)...");
+  if (run("pnpm", ["lint"], { cwd: join(ROOT, "ui"), allowFail: true }) !== 0) {
     failed = true;
   }
-  log("Typecheck webui (tsc)...");
+  log("Typecheck ui (tsc)...");
   if (
     run("pnpm", ["exec", "tsc", "-b", "--pretty", "false"], {
-      cwd: join(ROOT, "webui"),
+      cwd: join(ROOT, "ui"),
       allowFail: true,
     }) !== 0
   ) {
@@ -246,11 +244,11 @@ export function clean({ ui = false } = {}) {
     log(`No build dir at ${BUILD_DIR}`);
   }
   if (ui) {
-    const dist = join(ROOT, "webui", "dist");
+    const dist = join(ROOT, "ui", "dist");
     if (existsSync(dist)) {
-      log("Removing webui/dist...");
+      log("Removing ui/dist...");
       run("rm", ["-rf", dist]);
-      ok("Removed webui/dist");
+      ok("Removed ui/dist");
     }
   }
 }

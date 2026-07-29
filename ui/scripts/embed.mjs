@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Regenerates app/web/EmbeddedAssets.h from the last `pnpm build` output
-// (webui/dist/, a normal multi-file Vite build -- index.html + hashed
+// (ui/dist/, a normal multi-file Vite build -- index.html + hashed
 // assets/*.js + assets/*.css, plus whatever images/fonts/etc. get added
 // later). Walks the whole dist/ tree and embeds every file under its real
 // path; WebServer::serveStatic() looks each one up and serves it with the
@@ -10,9 +10,9 @@
 // a local dev-workflow step, not part of the CMake build graph, so the C++
 // build never needs Node/pnpm to be present (the shipped binary embeds
 // whatever the developer last built and committed).
-import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dirname, join, extname, relative, sep } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const distDir = join(here, "..", "dist");
@@ -40,7 +40,16 @@ const MIME_TYPES = {
 // else (images, fonts, ...) is embedded as a byte array instead, since raw
 // strings can't safely hold arbitrary binary (embedded NULs, no length other
 // than strlen, delimiter collisions with binary noise).
-const TEXT_EXTENSIONS = new Set([".html", ".js", ".mjs", ".css", ".json", ".svg", ".map", ".txt"]);
+const TEXT_EXTENSIONS = new Set([
+  ".html",
+  ".js",
+  ".mjs",
+  ".css",
+  ".json",
+  ".svg",
+  ".map",
+  ".txt",
+]);
 
 function walk(dir) {
   const out = [];
@@ -54,12 +63,23 @@ function walk(dir) {
 }
 
 function pickDelimiter(source, used) {
-  const candidates = ["HTML", "JS", "CSS", "TXT", "ASSET0", "ASSET1", "ASSET2", "ASSET3"];
+  const candidates = [
+    "HTML",
+    "JS",
+    "CSS",
+    "TXT",
+    "ASSET0",
+    "ASSET1",
+    "ASSET2",
+    "ASSET3",
+  ];
   for (const d of candidates) {
     if (used.has(d)) continue;
     if (!source.includes(`)${d}"`)) return d;
   }
-  throw new Error("Could not find a safe raw-string delimiter for an embedded asset.");
+  throw new Error(
+    "Could not find a safe raw-string delimiter for an embedded asset.",
+  );
 }
 
 function identifierFor(index) {
@@ -87,9 +107,11 @@ files.forEach((absPath, i) => {
     const delim = pickDelimiter(text, usedDelimiters);
     usedDelimiters.add(delim);
     dataDecls.push(
-      `#if defined(__clang__) || defined(__GNUC__)\n#pragma GCC diagnostic push\n#pragma GCC diagnostic ignored "-Woverlength-strings"\n#endif\ninline constexpr char ${ident}[] = R"${delim}(${text})${delim}";\n#if defined(__clang__) || defined(__GNUC__)\n#pragma GCC diagnostic pop\n#endif`
+      `#if defined(__clang__) || defined(__GNUC__)\n#pragma GCC diagnostic push\n#pragma GCC diagnostic ignored "-Woverlength-strings"\n#endif\ninline constexpr char ${ident}[] = R"${delim}(${text})${delim}";\n#if defined(__clang__) || defined(__GNUC__)\n#pragma GCC diagnostic pop\n#endif`,
     );
-    manifestEntries.push(`    { "${relPath}", "${mime}", ${ident}, sizeof(${ident}) - 1 },`);
+    manifestEntries.push(
+      `    { "${relPath}", "${mime}", ${ident}, sizeof(${ident}) - 1 },`,
+    );
   } else {
     // Plain `char` array, not `unsigned char*` -- reinterpret_cast isn't a
     // constant expression, so mixing char/unsigned char pointer types here
@@ -101,7 +123,9 @@ files.forEach((absPath, i) => {
       .map((b) => (b > 127 ? b - 256 : b))
       .join(",");
     dataDecls.push(`inline constexpr char ${ident}[] = {${values}};`);
-    manifestEntries.push(`    { "${relPath}", "${mime}", ${ident}, sizeof(${ident}) },`);
+    manifestEntries.push(
+      `    { "${relPath}", "${mime}", ${ident}, sizeof(${ident}) },`,
+    );
   }
 });
 
@@ -109,10 +133,10 @@ const header = `#pragma once
 
 // Static assets served from the embedded WebServer -- GENERATED FILE, do not
 // hand-edit. Regenerate with:
-//   cd webui && pnpm build && node scripts/embed.mjs
+//   cd ui && pnpm build && node scripts/embed.mjs
 // (or \`pnpm build:embed\` for both in one step)
 //
-// Source: webui/ (pnpm + vite + react + typescript + heroui v3 + tailwind
+// Source: ui/ (pnpm + vite + react + typescript + heroui v3 + tailwind
 // v4 + framer-motion + lucide-react). Dev workflow: MainComponent's
 // embedded webview tries http://localhost:2900 (the Vite dev server) first
 // and falls back to this baked-in build when that's unreachable.
@@ -144,4 +168,6 @@ inline constexpr const char* kIndexHtmlPath = "/index.html";
 
 writeFileSync(outPath, header, "utf8");
 const totalKb = files.reduce((sum, f) => sum + statSync(f).size, 0) / 1024;
-console.log(`Wrote ${outPath} (${files.length} asset(s), ${totalKb.toFixed(1)} KB total)`);
+console.log(
+  `Wrote ${outPath} (${files.length} asset(s), ${totalKb.toFixed(1)} KB total)`,
+);

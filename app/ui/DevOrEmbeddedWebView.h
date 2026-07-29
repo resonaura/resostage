@@ -9,7 +9,7 @@
 
 namespace resostage {
 
-// Always prefers the Vite dev server (webui/, port 2900) when it's running
+// Always prefers the Vite dev server (ui/, port 2900) when it's running
 // -- live HMR while iterating on the web UI -- and falls back to whatever
 // the embedded WebServer is serving (the last `pnpm build` output, baked
 // into the binary via EmbeddedAssets.h) when the dev server isn't reachable
@@ -101,7 +101,7 @@ private:
 
     // The `?embedded=1` marker lets the SPA tell "I'm running inside this
     // app's own webview" apart from "I'm a plain LAN/localhost browser tab" --
-    // see webui/src/lib/embedded.ts. It's how a file-picker/save action
+    // see ui/src/lib/embedded.ts. It's how a file-picker/save action
     // decides between driving the native FileChooser (same on-screen window
     // either way) versus a browser upload/download, which is the only option
     // a remote tab has.
