@@ -940,7 +940,11 @@ std::string WebServer::buildStateJson(const char* view) const {
     const bool wantClick = all || isPlayer || isMixer;
     const bool wantHealth = all || isPlayer || isSettings;
     const bool wantHealthProcs = all || isSettings;
-    const bool wantSettingsFull = all || isSettings || isMixer; // mixer needs channel names
+    // Always ship full device/MIDI lists. They are tiny (~1–2 KB) and omitting
+    // them on non-settings views left the SPA with empty selects forever when
+    // the first hydrated frame had no lists and merge refused to "clear" later.
+    const bool wantSettingsFull = true;
+    (void)isSettings; // still used for midiBindings detail below
 
     std::ostringstream o;
     o.setf(std::ios::fixed);
@@ -1206,18 +1210,6 @@ std::string WebServer::buildStateJson(const char* view) const {
             o << "\"" << jsonEscape(s.midiInputs[i]) << "\"";
         }
         o << "],";
-    } else {
-        // Stubs so the client type stays happy without shipping full lists.
-        o << "\"currentOutputDevice\":\"\","
-          << "\"outputDevices\":[],"
-          << "\"sampleRate\":0,"
-          << "\"availableSampleRates\":[],"
-          << "\"bufferSize\":0,"
-          << "\"availableBufferSizes\":[],"
-          << "\"outputChannelNames\":[],"
-          << "\"activeOutputChannels\":[],"
-          << "\"midiOutputs\":[],"
-          << "\"midiInputs\":[],";
     }
     o << "\"keybindings\":[";
     for (size_t i = 0; i < s.keybindings.size(); ++i) {

@@ -50,18 +50,70 @@ bool isKnownAction(const std::string& action) {
 } // namespace
 
 void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
-    auto& dm = engine.deviceManager();
-    const auto setup = dm.getAudioDeviceSetup();
-    out.currentOutputDevice = setup.outputDeviceName.toStdString();
-    out.sampleRate = setup.sampleRate;
-    out.bufferSize = setup.bufferSize;
+    // Fresh vectors every call (publishWebState builds a new WebUiState, but
+    // be explicit so a reused SettingsRow can never accumulate stale names).
+    out = WebUiState::SettingsRow{};
 
-    if (auto* type = dm.getCurrentDeviceTypeObject()) {
-        const auto names = type->getDeviceNames(false);
+    auto& dm = engine.deviceManager();
+
+    // Touch the device-type list (JUCE lazy-creates types on first access)
+    // then rescan so hot-plug names appear.
+    (void)dm.getAvailableDeviceTypes();
+    for (auto* type : dm.getAvailableDeviceTypes()) {
+        if (type != nullptr)
+            type->scanForDevices();
+    }
+
+    // Prefer the currently selected type's names first.
+    if (auto* curType = dm.getCurrentDeviceTypeObject()) {
+        const auto names = curType->getDeviceNames(/*wantInputNames=*/false);
         for (const auto& n : names)
             out.outputDevices.push_back(n.toStdString());
     }
+    // Then any other types (aggregate, no dups).
+    {
+        juce::StringArray seen;
+        for (const auto& s : out.outputDevices)
+            seen.add(juce::String(s));
+        for (auto* type : dm.getAvailableDeviceTypes()) {
+            if (type == nullptr || type == dm.getCurrentDeviceTypeObject())
+                continue;
+            const auto names = type->getDeviceNames(false);
+            for (const auto& n : names) {
+                if (seen.contains(n))
+                    continue;
+                seen.add(n);
+                out.outputDevices.push_back(n.toStdString());
+            }
+        }
+    }
+
+    const auto setup = dm.getAudioDeviceSetup();
+    out.currentOutputDevice = setup.outputDeviceName.toStdString();
+    if (out.currentOutputDevice.empty()) {
+        if (auto* dev = dm.getCurrentAudioDevice())
+            out.currentOutputDevice = dev->getName().toStdString();
+    }
+    // Always list the active device even if scan returned nothing.
+    if (!out.currentOutputDevice.empty()) {
+        bool found = false;
+        for (const auto& d : out.outputDevices) {
+            if (d == out.currentOutputDevice) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            out.outputDevices.insert(out.outputDevices.begin(), out.currentOutputDevice);
+    }
+
+    out.sampleRate = setup.sampleRate;
+    out.bufferSize = setup.bufferSize;
     if (auto* device = dm.getCurrentAudioDevice()) {
+        if (out.sampleRate <= 0.0)
+            out.sampleRate = device->getCurrentSampleRate();
+        if (out.bufferSize <= 0)
+            out.bufferSize = device->getCurrentBufferSizeSamples();
         for (double r : device->getAvailableSampleRates())
             out.availableSampleRates.push_back(r);
         for (int b : device->getAvailableBufferSizes())
@@ -74,6 +126,11 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
             out.activeOutputChannels.push_back(active[i]);
         }
     }
+    // Fallback so selects are never blank when the device is open.
+    if (out.availableSampleRates.empty() && out.sampleRate > 0.0)
+        out.availableSampleRates.push_back(out.sampleRate);
+    if (out.availableBufferSizes.empty() && out.bufferSize > 0)
+        out.availableBufferSizes.push_back(out.bufferSize);
 
     for (const auto& n : engine.midi().availableDestinationNames())
         out.midiOutputs.push_back(n);
@@ -89,8 +146,6 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
         out.keybindings.push_back(std::move(kb));
     }
 
-    // One MIDI row per known action (empty number/channel when unbound) so
-    // the Settings UI can show Learn/Clear next to every shortcut.
     for (const char* action : kActions) {
         WebUiState::SettingsRow::MidiBinding mb;
         mb.action = action;

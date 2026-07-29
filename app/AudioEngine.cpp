@@ -1440,7 +1440,14 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // Keep this OUTSIDE routingMutex: cold open can do disk I/O and must not
     // stall the audio callback for tens of ms (which itself causes underruns).
     const int64_t ringCapacityFrames = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
-    if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error)) {
+    // Selecting a song while stopped: skip ring prime entirely — open headers
+    // only (IO workers fill before Play). Gapless/playing handoff still primes
+    // briefly so the first post-switch blocks aren't silent.
+    const bool needPrime = gaplessKeepPlaying || playing.load(std::memory_order_acquire);
+    const double primeSec = needPrime ? 0.25 : 0.0;
+    const double primeWait = needPrime ? 0.08 : 0.0;
+    if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error, primeSec,
+                             primeWait)) {
         streamHandoff.store(false, std::memory_order_release);
         return false;
     }

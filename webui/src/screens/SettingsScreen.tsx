@@ -214,8 +214,41 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
   );
   const learningAction = s.midiLearnAction ?? "";
 
+  const outputDevices =
+    s.outputDevices.length > 0
+      ? s.outputDevices
+      : s.currentOutputDevice
+        ? [s.currentOutputDevice]
+        : [];
+  const sampleRates =
+    s.availableSampleRates.length > 0
+      ? s.availableSampleRates
+      : s.sampleRate > 0
+        ? [s.sampleRate]
+        : [];
+  const bufferSizes =
+    s.availableBufferSizes.length > 0
+      ? s.availableBufferSizes
+      : s.bufferSize > 0
+        ? [s.bufferSize]
+        : [];
+
+  const devicesEmpty =
+    outputDevices.length === 0 &&
+    sampleRates.length === 0 &&
+    (s.midiOutputs?.length ?? 0) === 0;
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      {devicesEmpty && (
+        <Card>
+          <Card.Content className="py-3 text-sm text-warning">
+            Waiting for audio/MIDI device list from the app… If this stays
+            empty, restart ResoStage (the native backend on :2899 must be
+            running).
+          </Card.Content>
+        </Card>
+      )}
       <Card>
         <Card.Header>
           <Card.Title>Audio device</Card.Title>
@@ -224,18 +257,21 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
           <Field label="Output device">
             <select
               className={selectCls}
-              value={s.currentOutputDevice}
+              value={s.currentOutputDevice || outputDevices[0] || ""}
               onChange={(e) =>
                 void settingsApi.setAudioOutputDevice(e.target.value)
               }
             >
+              {outputDevices.length === 0 && (
+                <option value="">No devices reported</option>
+              )}
               {s.currentOutputDevice &&
-                !s.outputDevices.includes(s.currentOutputDevice) && (
+                !outputDevices.includes(s.currentOutputDevice) && (
                   <option value={s.currentOutputDevice}>
                     {s.currentOutputDevice}
                   </option>
                 )}
-              {s.outputDevices.map((d) => (
+              {outputDevices.map((d) => (
                 <option key={d} value={d}>
                   {d}
                 </option>
@@ -246,12 +282,13 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
             <Field label="Sample rate">
               <select
                 className={selectCls}
-                value={s.sampleRate}
+                value={s.sampleRate || sampleRates[0] || ""}
                 onChange={(e) =>
                   void settingsApi.setSampleRate(Number(e.target.value))
                 }
               >
-                {s.availableSampleRates.map((r) => (
+                {sampleRates.length === 0 && <option value="">—</option>}
+                {sampleRates.map((r) => (
                   <option key={r} value={r}>
                     {r.toLocaleString()} Hz
                   </option>
@@ -261,12 +298,13 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
             <Field label="Buffer size">
               <select
                 className={selectCls}
-                value={s.bufferSize}
+                value={s.bufferSize || bufferSizes[0] || ""}
                 onChange={(e) =>
                   void settingsApi.setBufferSize(Number(e.target.value))
                 }
               >
-                {s.availableBufferSizes.map((b) => (
+                {bufferSizes.length === 0 && <option value="">—</option>}
+                {bufferSizes.map((b) => (
                   <option key={b} value={b}>
                     {b} samples
                   </option>

@@ -355,7 +355,8 @@ void StreamingEngine::primeBuffersLocked(StagedSong& staged, double minSeconds, 
 }
 
 bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
-                                double deviceSampleRate, std::string& error) {
+                                double deviceSampleRate, std::string& error, double primeSeconds,
+                                double primeMaxWait) {
     // FAST PATH ONLY. Bump epoch so deferred precache jobs for other songs abandon.
     stageEpoch_.fetch_add(1, std::memory_order_acq_rel);
 
@@ -370,10 +371,9 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
             }
         }
         if (promoted) {
-            {
+            if (primeMaxWait > 0.0 && primeSeconds > 0.0) {
                 std::lock_guard<std::mutex> zipLock(projectLoaderMutex);
-                primeBuffersLocked(*promoted, /*minSeconds=*/0.35, deviceSampleRate,
-                                   /*maxWaitSeconds=*/0.12);
+                primeBuffersLocked(*promoted, primeSeconds, deviceSampleRate, primeMaxWait);
             }
             std::atomic_store_explicit(&active, promoted, std::memory_order_release);
             recountResidentBytes();
@@ -381,9 +381,7 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
         }
     }
 
-    // Cold stage: jumping to a song that was not the warm "next". Drop a
-    // stale precache that belongs to a different neighbour (e.g. user was on
-    // song 0 with precache=1, then jumps to 7 — do not keep filling song 1).
+    // Cold stage: drop a stale precache that is not the sequential neighbour.
     {
         std::lock_guard<std::mutex> lock(precacheMutex);
         if (precached != nullptr && precached->songIndex != songIndex + 1)
@@ -392,34 +390,45 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
 
     auto staged = std::make_shared<StagedSong>();
     staged->songIndex = songIndex;
+
+    // Directory packages: each open is an independent fopen — open stems
+    // without holding the zip mutex across the whole song (serial open was a
+    // major "first song click lag" cost with many regions).
+    const bool dirContainer =
+        projectLoader != nullptr && projectLoader->isDirectoryContainer();
+
     for (const Region& regionDef : song.regions) {
         if (regionDef.file.empty())
             continue;
         auto buf = std::make_unique<StreamingTrackBuffer>();
         std::string openError;
-        {
+        bool ok = false;
+        if (dirContainer) {
+            // No shared mz_zip — parallel-safe vs IO refill of other songs.
+            ok = projectLoader != nullptr
+                 && buf->open(*projectLoader, regionDef.file, ringCapacityFrames, deviceSampleRate,
+                              openError);
+        } else {
             std::lock_guard<std::mutex> lock(projectLoaderMutex);
-            if (projectLoader == nullptr
-                || !buf->open(*projectLoader, regionDef.file, ringCapacityFrames, deviceSampleRate,
-                              openError)) {
-                error = "Region '" + regionDef.id + "': "
-                        + (openError.empty() ? "no project loader" : openError);
-                return false;
-            }
-            applyRegionWindow(*buf, regionDef, deviceSampleRate);
+            ok = projectLoader != nullptr
+                 && buf->open(*projectLoader, regionDef.file, ringCapacityFrames, deviceSampleRate,
+                              openError);
         }
+        if (!ok) {
+            error = "Region '" + regionDef.id + "': "
+                    + (openError.empty() ? "no project loader" : openError);
+            return false;
+        }
+        applyRegionWindow(*buf, regionDef, deviceSampleRate);
         staged->byId[regionDef.id] = buf.get();
         staged->byId[regionDef.trackId] = buf.get();
         staged->buffers.push_back(std::move(buf));
     }
 
-    {
+    if (primeMaxWait > 0.0 && primeSeconds > 0.0) {
         std::lock_guard<std::mutex> lock(projectLoaderMutex);
-        primeBuffersLocked(*staged, /*minSeconds=*/0.35, deviceSampleRate,
-                           /*maxWaitSeconds=*/0.12);
+        primeBuffersLocked(*staged, primeSeconds, deviceSampleRate, primeMaxWait);
     }
-    // Old active shared_ptr drops here when store replaces it — RAM/rings freed
-    // once the audio thread releases its ActiveSongHandle (one block later).
     std::atomic_store_explicit(&active, staged, std::memory_order_release);
     recountResidentBytes();
     return true;

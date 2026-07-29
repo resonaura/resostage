@@ -4,11 +4,14 @@
 #include <mach/mach.h>
 #include <mach/mach_host.h>
 #include <mach/task_info.h>
+#include <mach/thread_act.h>
 #include <sys/proc_info.h>
+#include <sys/resource.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
 
 #include <chrono>
+#include <cstring>
 #include <unordered_map>
 
 namespace resoset {
@@ -32,18 +35,23 @@ uint64_t systemFreeMemoryBytes() {
         return 0;
 
     const uint64_t pageSize = static_cast<uint64_t>(vm_kernel_page_size);
-    return (static_cast<uint64_t>(vmstat.free_count) + static_cast<uint64_t>(vmstat.inactive_count)) * pageSize;
+    // free + inactive + speculative ≈ "available" like Activity Monitor.
+    return (static_cast<uint64_t>(vmstat.free_count)
+            + static_cast<uint64_t>(vmstat.inactive_count)
+            + static_cast<uint64_t>(vmstat.speculative_count))
+           * pageSize;
 }
 
-uint64_t processRssBytes() {
+// phys_footprint matches Activity Monitor "Memory" for the app better than
+// classic resident_size (includes compressed / purgable accounting).
+uint64_t processPhysFootprintBytes() {
     task_vm_info_data_t info{};
     mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
-    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS)
+    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count)
+        != KERN_SUCCESS)
         return 0;
     return static_cast<uint64_t>(info.phys_footprint);
 }
-
-// --- Related-process discovery via libproc ---
 
 struct ProcMetrics {
     std::string name;
@@ -51,40 +59,65 @@ struct ProcMetrics {
     uint64_t cpuTimeNanos = 0;
 };
 
-// Get RSS + CPU time for an arbitrary PID via proc_pidinfo.
-// Returns false if the process no longer exists or can't be inspected.
+// Accurate multi-thread CPU: sum of ALL threads in this task (user+system).
+// TASK_THREAD_TIMES_INFO only covers live threads at sample time and
+// under-reports; rusage_info is better for whole-process cumulative time.
+uint64_t selfTaskCpuTimeNanos() {
+    // Prefer rusage_info_v6 (nanoseconds, all threads ever for this process).
+    rusage_info_v6 ru{};
+    if (proc_pid_rusage(getpid(), RUSAGE_INFO_V6, reinterpret_cast<rusage_info_t*>(&ru)) == 0) {
+        return static_cast<uint64_t>(ru.ri_user_time) + static_cast<uint64_t>(ru.ri_system_time);
+    }
+    // Fallback: sum THREAD_BASIC_INFO for every current thread.
+    thread_act_array_t threads = nullptr;
+    mach_msg_type_number_t threadCount = 0;
+    if (task_threads(mach_task_self(), &threads, &threadCount) != KERN_SUCCESS)
+        return 0;
+    uint64_t total = 0;
+    for (mach_msg_type_number_t i = 0; i < threadCount; ++i) {
+        thread_basic_info_data_t info{};
+        mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+        if (thread_info(threads[i], THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&info),
+                        &count)
+            == KERN_SUCCESS) {
+            total += static_cast<uint64_t>(info.user_time.seconds) * 1'000'000'000ull
+                     + static_cast<uint64_t>(info.user_time.microseconds) * 1'000ull;
+            total += static_cast<uint64_t>(info.system_time.seconds) * 1'000'000'000ull
+                     + static_cast<uint64_t>(info.system_time.microseconds) * 1'000ull;
+        }
+        mach_port_deallocate(mach_task_self(), threads[i]);
+    }
+    vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(threads),
+                  sizeof(thread_t) * threadCount);
+    return total;
+}
+
 bool getProcMetrics(int pid, ProcMetrics& out) {
-    // CPU times
-    struct proc_taskinfo pti{};
-    int ret = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &pti, sizeof(pti));
-    if (ret != sizeof(pti))
-        return false;
+    // CPU: rusage_info is the ground truth for multi-threaded processes.
+    rusage_info_v6 ru{};
+    if (proc_pid_rusage(pid, RUSAGE_INFO_V6, reinterpret_cast<rusage_info_t*>(&ru)) == 0) {
+        out.cpuTimeNanos =
+            static_cast<uint64_t>(ru.ri_user_time) + static_cast<uint64_t>(ru.ri_system_time);
+        // ri_phys_footprint when available.
+        out.rssBytes = static_cast<uint64_t>(ru.ri_phys_footprint);
+        if (out.rssBytes == 0)
+            out.rssBytes = static_cast<uint64_t>(ru.ri_resident_size);
+    } else {
+        struct proc_taskinfo pti{};
+        if (proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &pti, sizeof(pti)) != sizeof(pti))
+            return false;
+        // pti times are absolute-time units on some SDKs — prefer rusage path.
+        out.cpuTimeNanos = static_cast<uint64_t>(pti.pti_total_user)
+                           + static_cast<uint64_t>(pti.pti_total_system);
+        out.rssBytes = static_cast<uint64_t>(pti.pti_resident_size);
+    }
 
-    out.cpuTimeNanos = static_cast<uint64_t>(pti.pti_total_user)
-                     + static_cast<uint64_t>(pti.pti_total_system);
-    out.rssBytes = static_cast<uint64_t>(pti.pti_resident_size);
-
-    // Process name
     char nameBuf[256]{};
     proc_name(pid, nameBuf, sizeof(nameBuf));
     out.name = nameBuf;
-
     return true;
 }
 
-// Cumulative CPU time for THIS process via the same libproc path we use for
-// helpers. TASK_THREAD_TIMES_INFO only covers currently-running threads and
-// chronically under-reports the main process vs Activity Monitor.
-uint64_t processCpuTimeNanos() {
-    ProcMetrics m;
-    if (getProcMetrics(getpid(), m))
-        return m.cpuTimeNanos;
-    return 0;
-}
-
-// Discover related helper PIDs: direct children (and grandchildren) of our
-// process -- WebKit networking/GPU helpers for the embedded webview show up
-// here, not just the main ResoStage binary.
 std::vector<int> discoverRelatedPids(int mainPid) {
     std::vector<int> related;
     constexpr int kMaxPids = 4096;
@@ -93,7 +126,6 @@ std::vector<int> discoverRelatedPids(int mainPid) {
     if (numPids <= 0)
         return related;
 
-    // Build parent map once.
     std::unordered_map<int, int> parentOf;
     const int count = numPids / static_cast<int>(sizeof(int));
     for (int i = 0; i < count; ++i) {
@@ -107,8 +139,7 @@ std::vector<int> discoverRelatedPids(int mainPid) {
     }
 
     auto isDescendant = [&](int pid) {
-        // Walk up a few levels to catch WebKit XPC helpers under the app.
-        for (int depth = 0; depth < 4 && pid > 0; ++depth) {
+        for (int depth = 0; depth < 6 && pid > 0; ++depth) {
             auto it = parentOf.find(pid);
             if (it == parentOf.end())
                 return false;
@@ -137,42 +168,42 @@ SystemHealthSnapshot SystemHealth::sample() const {
             std::chrono::steady_clock::now().time_since_epoch())
             .count());
 
-    // Throttle to 1 Hz.
-    if (lastWallNanos != 0 && wallNow >= lastWallNanos && (wallNow - lastWallNanos) < 1'000'000'000ull) {
+    // Throttle full sample to ~2 Hz (UI graphs don't need more).
+    if (lastWallNanos != 0 && wallNow >= lastWallNanos
+        && (wallNow - lastWallNanos) < 500'000'000ull) {
         cachedSnapshot.underrunCount = underrunCount.load(std::memory_order_relaxed);
         cachedSnapshot.audioCallbackCount = audioCallbackCount.load(std::memory_order_relaxed);
         cachedSnapshot.webClientCount = webClientCount.load(std::memory_order_relaxed);
         return cachedSnapshot;
     }
 
-    // Refresh child PID list every 10 seconds.
-    constexpr uint64_t kChildRefreshNanos = 10'000'000'000ull;
+    constexpr uint64_t kChildRefreshNanos = 5'000'000'000ull;
     if (lastChildRefreshNanos == 0 || (wallNow - lastChildRefreshNanos) >= kChildRefreshNanos) {
         childPids = discoverRelatedPids(getpid());
         lastChildRefreshNanos = wallNow;
     }
 
-    // --- Collect metrics for main process + WebKit/helpers ---
     const int mainPid = getpid();
     std::vector<ProcessHealthEntry> entries;
     entries.reserve(1 + childPids.size());
 
-    // Main process -- same metric source as helpers so % matches the table.
     {
         ProcessHealthEntry e;
         e.pid = mainPid;
         ProcMetrics m;
         if (getProcMetrics(mainPid, m)) {
             e.name = m.name.empty() ? "ResoStage" : m.name;
-            e.rssBytes = m.rssBytes;
+            // Prefer phys_footprint for self (Activity Monitor "Memory").
+            e.rssBytes = processPhysFootprintBytes();
+            if (e.rssBytes == 0)
+                e.rssBytes = m.rssBytes;
         } else {
             e.name = "ResoStage";
-            e.rssBytes = processRssBytes();
+            e.rssBytes = processPhysFootprintBytes();
         }
         entries.push_back(std::move(e));
     }
 
-    // Helpers (WebKit networking / GPU / WebContent, etc.)
     for (int childPid : childPids) {
         ProcMetrics m;
         if (!getProcMetrics(childPid, m))
@@ -184,14 +215,14 @@ SystemHealthSnapshot SystemHealth::sample() const {
         entries.push_back(std::move(e));
     }
 
-    // --- CPU percentage: per-process delta tracking ---
-    // Collect current CPU time for each process.
     std::unordered_map<int, uint64_t> cpuNowByPid;
     double totalCpuPercent = 0.0;
     {
-        uint64_t mainCpu = processCpuTimeNanos();
+        // Self: sum of all threads via rusage / task_threads.
+        const uint64_t mainCpu = selfTaskCpuTimeNanos();
         cpuNowByPid[mainPid] = mainCpu;
         uint64_t totalCpuNow = mainCpu;
+
         for (size_t i = 1; i < entries.size(); ++i) {
             ProcMetrics m;
             if (getProcMetrics(entries[i].pid, m)) {
@@ -200,7 +231,6 @@ SystemHealthSnapshot SystemHealth::sample() const {
             }
         }
 
-        // Per-process CPU% from delta.
         const double dWall = static_cast<double>(wallNow - lastWallNanos);
         if (lastWallNanos != 0 && dWall > 0.0) {
             for (auto& e : entries) {
@@ -209,28 +239,36 @@ SystemHealthSnapshot SystemHealth::sample() const {
                 if (it != cpuNowByPid.end() && prev != prevCpuByPid.end()
                     && it->second >= prev->second) {
                     const double dCpu = static_cast<double>(it->second - prev->second);
+                    // Multi-core: can exceed 100% (matches Activity Monitor process %).
                     e.cpuPercent = (dCpu / dWall) * 100.0;
                 }
             }
-        }
 
-        // Total CPU%.
-        if (lastWallNanos != 0 && dWall > 0.0) {
             uint64_t totalPrevCpu = 0;
-            for (const auto& [pid, prev] : prevCpuByPid)
+            for (const auto& [pid, prev] : prevCpuByPid) {
+                (void)pid;
                 totalPrevCpu += prev;
-            if (totalCpuNow >= totalPrevCpu) {
+            }
+            // Only sum PIDs still present, avoid counting dead helpers forever.
+            uint64_t prevSumAlive = 0;
+            for (const auto& e : entries) {
+                auto prev = prevCpuByPid.find(e.pid);
+                if (prev != prevCpuByPid.end())
+                    prevSumAlive += prev->second;
+            }
+            if (totalCpuNow >= prevSumAlive && prevSumAlive > 0) {
+                const double dCpu = static_cast<double>(totalCpuNow - prevSumAlive);
+                totalCpuPercent = (dCpu / dWall) * 100.0;
+            } else if (totalCpuNow >= totalPrevCpu && lastWallNanos != 0) {
                 const double dCpu = static_cast<double>(totalCpuNow - totalPrevCpu);
                 totalCpuPercent = (dCpu / dWall) * 100.0;
             }
         }
 
-        // Save for next sample.
         prevCpuByPid = std::move(cpuNowByPid);
         lastCpuNanos = totalCpuNow;
     }
 
-    // --- Build snapshot ---
     SystemHealthSnapshot snap;
     snap.processes = std::move(entries);
     snap.totalCpuPercent = totalCpuPercent;

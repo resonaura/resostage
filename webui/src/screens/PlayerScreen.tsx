@@ -156,7 +156,7 @@ function SystemHealthWidget({
         gradientId="cpuGrad"
         label="CPU"
         valueText={`${cpuVal.toFixed(1)}%`}
-        maxMinVal={100}
+        maxMinVal={Math.max(100, Math.ceil(cpuVal / 100) * 100)}
       />
 
       {/* Graph 2: RAM (Purple Color #a855f7) */}

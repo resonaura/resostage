@@ -81,8 +81,10 @@ public:
     // when the user jumps songs rapidly (10-song hopscotch).
     uint64_t stageEpoch() const { return stageEpoch_.load(std::memory_order_acquire); }
 
+    // `primeSeconds` / `primeMaxWait`: ring warm-up on stage. Pass 0 / 0 to
+    // skip (instant select when not playing — IO workers fill before Play).
     bool stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames, double deviceSampleRate,
-                   std::string& error);
+                   std::string& error, double primeSeconds = 0.35, double primeMaxWait = 0.12);
 
     // Open+prime next song. `epoch` must match stageEpoch() at commit time or
     // the result is discarded (stale after a later selectSong).

@@ -33,7 +33,21 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
     settings: next.settings
       ? {
           ...prev.settings,
-          ...next.settings,
+          // Only overwrite fields that are actually present & meaningful.
+          // Server omits device lists on non-settings views; never treat
+          // missing/empty as "clear the UI".
+          ...(next.settings.currentOutputDevice !== undefined &&
+          next.settings.currentOutputDevice !== ""
+            ? { currentOutputDevice: next.settings.currentOutputDevice }
+            : {}),
+          ...(next.settings.sampleRate !== undefined &&
+          next.settings.sampleRate > 0
+            ? { sampleRate: next.settings.sampleRate }
+            : {}),
+          ...(next.settings.bufferSize !== undefined &&
+          next.settings.bufferSize > 0
+            ? { bufferSize: next.settings.bufferSize }
+            : {}),
           outputDevices: next.settings.outputDevices?.length
             ? next.settings.outputDevices
             : prev.settings.outputDevices,
@@ -58,6 +72,8 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
           keybindings: next.settings.keybindings ?? prev.settings.keybindings,
           midiBindings:
             next.settings.midiBindings ?? prev.settings.midiBindings,
+          midiLearnAction:
+            next.settings.midiLearnAction ?? prev.settings.midiLearnAction,
         }
       : prev.settings,
   };
