@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <thread>
 #include <vector>
@@ -107,6 +108,7 @@ private:
     void workerThreadLoop();
     void sendCommand(const MidiCommand& cmd);
     void pumpClock();
+    void drainPendingVirtualCommands();
 
     MIDIClientRef client = 0;
     MIDIPortRef outputPort = 0;
@@ -115,6 +117,13 @@ private:
     // thread (enable/disableVirtualSource) -- MIDIEndpointRef is just a
     // UInt32, so a plain atomic is enough, no mutex needed.
     std::atomic<MIDIEndpointRef> virtualSource{0};
+    // Future-dated commands (clock ticks) waiting for their nominal time to
+    // arrive before being handed to MIDIReceived -- see sendCommand()'s doc
+    // comment for why the virtual-source path can't just submit ahead of
+    // time the way MIDISend does. Worker-thread-owned only (pushed in
+    // sendCommand, drained in drainPendingVirtualCommands, both only ever
+    // called from workerThreadLoop), so no locking needed.
+    std::deque<MidiCommand> pendingVirtualCommands;
 
     moodycamel::ReaderWriterQueue<MidiCommand> queue{1024};
     std::thread worker;

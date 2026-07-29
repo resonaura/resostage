@@ -5,6 +5,7 @@
 #include "WavStreamDecoder.h"
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -19,7 +20,7 @@ namespace resoset {
 //  - IO / resident threads: open/refill/hardSeek/tryLoadResident under
 //    diskIoMutex where they touch cursor/ring.
 //  - tryLoadResident decodes via a *side* stream into temporary storage, then
-//    publishes with a single atomic store of residentActive — it never calls
+//    publishes an immutable shared window atomically — it never calls
 //    open() on the live object mid-playback (that used to race read/refill).
 class StreamingTrackBuffer {
 public:
@@ -42,8 +43,11 @@ public:
 
     // Side-channel load → atomic publish. Safe while audio reads this buffer.
     bool tryLoadResident(size_t maxBytes, size_t& outBytes, std::string& error);
-    bool isResident() const { return residentActive.load(std::memory_order_acquire); }
-    size_t residentBytes() const { return residentByteCount; }
+    bool isResident() const { return residentSnapshot() != nullptr; }
+    size_t residentBytes() const {
+        const auto window = residentSnapshot();
+        return window != nullptr ? window->byteCount : 0;
+    }
     void releaseResident();
 
     // Decode up to maxDeviceFrames into the ring (capped by free space).
@@ -58,22 +62,22 @@ public:
     int64_t currentReadPosition() const { return readPosition.load(std::memory_order_relaxed); }
 
     bool isExhausted() const {
-        if (residentActive.load(std::memory_order_acquire)) {
+        if (const auto window = residentSnapshot()) {
             const int64_t pos = readPosition.load(std::memory_order_relaxed);
-            return pos >= residentStart + residentLength;
+            return pos >= window->start + window->length;
         }
         return sourceExhausted.load(std::memory_order_acquire) && ring.framesAvailable() == 0;
     }
 
     int64_t framesAvailable() const {
-        if (residentActive.load(std::memory_order_acquire))
+        if (residentSnapshot() != nullptr)
             return ring.capacity() > 0 ? ring.capacity() : preferredLength;
         if (!ringReady.load(std::memory_order_acquire))
             return 0;
         return ring.framesAvailable();
     }
     int64_t framesFree() const {
-        if (residentActive.load(std::memory_order_acquire))
+        if (residentSnapshot() != nullptr)
             return 0;
         if (!ringReady.load(std::memory_order_acquire))
             return openRingCapacityFrames; // not allocated yet — fully free
@@ -84,17 +88,17 @@ public:
         return c > 0 ? c : openRingCapacityFrames;
     }
     bool sourceIsExhausted() const {
-        if (residentActive.load(std::memory_order_acquire))
+        if (residentSnapshot() != nullptr)
             return true;
         return sourceExhausted.load(std::memory_order_acquire);
     }
     bool hasPendingSkip() const {
-        if (residentActive.load(std::memory_order_acquire))
+        if (residentSnapshot() != nullptr)
             return false;
         return pendingSkipFrames.load(std::memory_order_acquire) > 0;
     }
     bool wantsRefill() const {
-        if (residentActive.load(std::memory_order_acquire))
+        if (residentSnapshot() != nullptr)
             return false;
         if (hasPendingSkip())
             return true;
@@ -104,6 +108,15 @@ public:
     }
 
 private:
+    struct ResidentWindow {
+        int64_t start = 0;
+        int64_t length = 0;
+        size_t byteCount = 0;
+        std::vector<std::vector<float>> data;
+    };
+    std::shared_ptr<const ResidentWindow> residentSnapshot() const {
+        return std::atomic_load_explicit(&residentWindow, std::memory_order_acquire);
+    }
     void closeDiskCursorUnlocked();
     // Allocates ring storage if still deferred (message-thread stageSong only
     // opens headers; IO/prime threads call this on first refill).
@@ -156,12 +169,10 @@ private:
     int64_t preferredStart = 0;
     int64_t preferredLength = 0;
 
-    // Published once; immutable after residentActive becomes true.
-    std::atomic<bool> residentActive{false};
-    int64_t residentStart = 0;
-    int64_t residentLength = 0;
-    size_t residentByteCount = 0;
-    std::vector<std::vector<float>> residentData;
+    // Atomically published immutable snapshot. A reader holds its own shared
+    // pointer for the whole audio callback, so clearing/replacing a resident
+    // window on another thread cannot free data still being read.
+    std::shared_ptr<const ResidentWindow> residentWindow;
 };
 
 } // namespace resoset

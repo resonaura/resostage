@@ -43,6 +43,33 @@ uint64_t nowNanos() {
     return static_cast<uint64_t>((static_cast<__uint128_t>(ticks) * timebase.numer) / timebase.denom);
 }
 
+void buildMidiBytes(const MidiCommand& cmd, Byte (&buffer)[3], ByteCount& totalBytes) {
+    uint8_t statusByte = 0;
+    int numDataBytes = 2;
+    switch (cmd.kind) {
+        case MidiCommandKind::NoteOn: statusByte = static_cast<uint8_t>(0x90 | (cmd.channel & 0x0F)); break;
+        case MidiCommandKind::NoteOff: statusByte = static_cast<uint8_t>(0x80 | (cmd.channel & 0x0F)); break;
+        case MidiCommandKind::ControlChange: statusByte = static_cast<uint8_t>(0xB0 | (cmd.channel & 0x0F)); break;
+        case MidiCommandKind::ProgramChange: statusByte = static_cast<uint8_t>(0xC0 | (cmd.channel & 0x0F)); numDataBytes = 1; break;
+        case MidiCommandKind::ClockTick: statusByte = 0xF8; numDataBytes = 0; break;
+        case MidiCommandKind::Start: statusByte = 0xFA; numDataBytes = 0; break;
+        case MidiCommandKind::Continue: statusByte = 0xFB; numDataBytes = 0; break;
+        case MidiCommandKind::Stop: statusByte = 0xFC; numDataBytes = 0; break;
+        case MidiCommandKind::SongPositionPointer: statusByte = 0xF2; numDataBytes = 2; break;
+    }
+
+    buffer[0] = statusByte;
+    totalBytes = 1;
+    if (numDataBytes >= 1) {
+        buffer[1] = cmd.data1;
+        totalBytes = 2;
+    }
+    if (numDataBytes >= 2) {
+        buffer[2] = cmd.data2;
+        totalBytes = 3;
+    }
+}
+
 } // namespace
 
 CoreMidiDispatcher::CoreMidiDispatcher() {
@@ -210,31 +237,29 @@ void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
     if (!hasRealDestination && virtualSrc == 0)
         return;
 
-    uint8_t statusByte = 0;
-    int numDataBytes = 2;
-    switch (cmd.kind) {
-        case MidiCommandKind::NoteOn: statusByte = static_cast<uint8_t>(0x90 | (cmd.channel & 0x0F)); break;
-        case MidiCommandKind::NoteOff: statusByte = static_cast<uint8_t>(0x80 | (cmd.channel & 0x0F)); break;
-        case MidiCommandKind::ControlChange: statusByte = static_cast<uint8_t>(0xB0 | (cmd.channel & 0x0F)); break;
-        case MidiCommandKind::ProgramChange: statusByte = static_cast<uint8_t>(0xC0 | (cmd.channel & 0x0F)); numDataBytes = 1; break;
-        case MidiCommandKind::ClockTick: statusByte = 0xF8; numDataBytes = 0; break;
-        case MidiCommandKind::Start: statusByte = 0xFA; numDataBytes = 0; break;
-        case MidiCommandKind::Continue: statusByte = 0xFB; numDataBytes = 0; break;
-        case MidiCommandKind::Stop: statusByte = 0xFC; numDataBytes = 0; break;
-        case MidiCommandKind::SongPositionPointer: statusByte = 0xF2; numDataBytes = 2; break;
+    // MIDIReceived (the virtual-source path below) delivers synchronously
+    // the instant it's called -- unlike MIDISend, it has no future-timestamp
+    // delivery; CoreMIDI itself schedules a MIDISend's future MIDITimeStamp
+    // for real destinations. pumpClock() submits clock ticks up to 200ms
+    // ahead of their nominal time (fine for MIDISend), so pushing a
+    // future-dated tick straight through MIDIReceived here would land the
+    // whole lookahead window as one instantaneous burst instead of evenly
+    // spaced ticks -- which breaks a DAW's clock-derived tempo detection
+    // even though one-shot messages (Start/Continue/SPP, already "now") land
+    // fine. Defer future-dated ones instead; drainPendingVirtualCommands()
+    // (called every worker loop iteration, ~2ms) delivers each once its
+    // target time actually arrives.
+    const uint64_t now = nowNanos();
+    const bool deferToVirtual = virtualSrc != 0 && cmd.targetHostTimeNanos > now;
+    if (deferToVirtual) {
+        pendingVirtualCommands.push_back(cmd);
+        if (!hasRealDestination)
+            return;
     }
 
     Byte buffer[3];
-    buffer[0] = statusByte;
-    ByteCount totalBytes = 1;
-    if (numDataBytes >= 1) {
-        buffer[1] = cmd.data1;
-        totalBytes = 2;
-    }
-    if (numDataBytes >= 2) {
-        buffer[2] = cmd.data2;
-        totalBytes = 3;
-    }
+    ByteCount totalBytes = 0;
+    buildMidiBytes(cmd, buffer, totalBytes);
 
     MIDIPacketList packetList;
     MIDIPacket* packet = MIDIPacketListInit(&packetList);
@@ -244,14 +269,37 @@ void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
 
     if (hasRealDestination)
         MIDISend(outputPort, destination, &packetList);
-    // MIDIReceived ignores the packets' timestamps and delivers them
-    // immediately -- there's no scheduled-future-delivery API for virtual
-    // sources like there is for MIDISend, so a DAW listening on "ResoStage
-    // Sync" sees ticks land a bit closer to real time than the real
-    // destination's precisely-timestamped delivery. Fine for a test/sync
-    // aid; not a claim of matching accuracy.
-    if (virtualSrc != 0)
+    if (virtualSrc != 0 && !deferToVirtual)
         MIDIReceived(virtualSrc, &packetList);
+}
+
+void CoreMidiDispatcher::drainPendingVirtualCommands() {
+    if (pendingVirtualCommands.empty())
+        return;
+
+    const MIDIEndpointRef virtualSrc = virtualSource.load(std::memory_order_acquire);
+    if (virtualSrc == 0) {
+        // Disabled since these were queued -- drop rather than deliver to a
+        // disposed endpoint.
+        pendingVirtualCommands.clear();
+        return;
+    }
+
+    const uint64_t now = nowNanos();
+    while (!pendingVirtualCommands.empty() && pendingVirtualCommands.front().targetHostTimeNanos <= now) {
+        const MidiCommand cmd = pendingVirtualCommands.front();
+        pendingVirtualCommands.pop_front();
+
+        Byte buffer[3];
+        ByteCount totalBytes = 0;
+        buildMidiBytes(cmd, buffer, totalBytes);
+
+        MIDIPacketList packetList;
+        MIDIPacket* packet = MIDIPacketListInit(&packetList);
+        packet = MIDIPacketListAdd(&packetList, sizeof(packetList), packet, nanosToMachTicks(cmd.targetHostTimeNanos), totalBytes, buffer);
+        if (packet != nullptr)
+            MIDIReceived(virtualSrc, &packetList);
+    }
 }
 
 void CoreMidiDispatcher::pumpClock() {
@@ -314,6 +362,7 @@ void CoreMidiDispatcher::workerThreadLoop() {
             sendCommand(cmd);
 
         pumpClock();
+        drainPendingVirtualCommands();
 
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }

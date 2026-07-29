@@ -114,11 +114,11 @@ void StreamingTrackBuffer::closeDiskCursorUnlocked() {
 }
 
 void StreamingTrackBuffer::releaseResident() {
-    residentActive.store(false, std::memory_order_release);
-    residentStart = 0;
-    residentLength = 0;
-    residentByteCount = 0;
-    residentData.clear();
+    // Do not clear vector storage in place: an audio callback may already
+    // have acquired this window and be reading it. Its local shared_ptr keeps
+    // the old immutable allocation alive until that callback returns.
+    std::atomic_store_explicit(&residentWindow, std::shared_ptr<const ResidentWindow>{},
+                               std::memory_order_release);
 }
 
 bool StreamingTrackBuffer::decodeWindowSideChannel(int64_t deviceStart, int64_t deviceFrames,
@@ -262,8 +262,8 @@ bool StreamingTrackBuffer::decodeWindowSideChannel(int64_t deviceStart, int64_t 
 
 bool StreamingTrackBuffer::tryLoadResident(size_t maxBytes, size_t& outBytes, std::string& error) {
     outBytes = 0;
-    if (residentActive.load(std::memory_order_acquire)) {
-        outBytes = residentByteCount;
+    if (const auto window = residentSnapshot()) {
+        outBytes = window->byteCount;
         return true;
     }
     // One load at a time per buffer (resident thread + accidental double call).
@@ -285,18 +285,18 @@ bool StreamingTrackBuffer::tryLoadResident(size_t maxBytes, size_t& outBytes, st
 
     if (len <= 0) {
         std::lock_guard<std::mutex> lock(diskIoMutex);
-        if (residentActive.load(std::memory_order_relaxed)) {
-            outBytes = residentByteCount;
+        if (const auto window = residentSnapshot()) {
+            outBytes = window->byteCount;
             return true;
         }
-        residentStart = start;
-        residentLength = 0;
-        residentByteCount = 0;
-        residentData.clear();
+        auto window = std::make_shared<ResidentWindow>();
+        window->start = start;
         closeDiskCursorUnlocked();
         sourceExhausted.store(true, std::memory_order_release);
         pendingSkipFrames.store(0, std::memory_order_release);
-        residentActive.store(true, std::memory_order_release);
+        std::atomic_store_explicit(&residentWindow,
+                                   std::shared_ptr<const ResidentWindow>{std::move(window)},
+                                   std::memory_order_release);
         return true;
     }
 
@@ -314,31 +314,34 @@ bool StreamingTrackBuffer::tryLoadResident(size_t maxBytes, size_t& outBytes, st
 
     // Publish without tearing the live ring under the audio thread.
     // We intentionally do NOT ring.reset() — stale ring is ignored once
-    // residentActive is true; audio only uses residentData after the store.
+    // The resident window is immutable after its atomic publication.
     {
         std::lock_guard<std::mutex> lock(diskIoMutex);
-        if (residentActive.load(std::memory_order_relaxed)) {
-            outBytes = residentByteCount;
+        if (const auto window = residentSnapshot()) {
+            outBytes = window->byteCount;
             return true;
         }
-        residentData = std::move(temp);
-        residentStart = start;
-        residentLength = got;
-        residentByteCount =
+        auto window = std::make_shared<ResidentWindow>();
+        window->data = std::move(temp);
+        window->start = start;
+        window->length = got;
+        window->byteCount =
             static_cast<size_t>(std::max(0, decoder.numChannels())) * static_cast<size_t>(got)
             * sizeof(float);
         closeDiskCursorUnlocked();
         sourceExhausted.store(true, std::memory_order_release);
         pendingSkipFrames.store(0, std::memory_order_release);
-        // Publish last — audio acquires this before reading residentData.
-        residentActive.store(true, std::memory_order_release);
-        outBytes = residentByteCount;
+        // Publish last — audio acquires an owning snapshot before reading.
+        outBytes = window->byteCount;
+        std::atomic_store_explicit(&residentWindow,
+                                   std::shared_ptr<const ResidentWindow>{std::move(window)},
+                                   std::memory_order_release);
     }
     return true;
 }
 
 bool StreamingTrackBuffer::softRewindToStart(std::string& error) {
-    if (residentActive.load(std::memory_order_acquire)) {
+    if (residentSnapshot() != nullptr) {
         // Resident window stays; just snap the playhead to preferred start.
         readPosition.store(preferredStart, std::memory_order_release);
         pendingSkipFrames.store(0, std::memory_order_release);
@@ -355,7 +358,7 @@ bool StreamingTrackBuffer::softRewindToStart(std::string& error) {
     }
 
     std::lock_guard<std::mutex> lock(diskIoMutex);
-    if (residentActive.load(std::memory_order_relaxed)) {
+    if (residentSnapshot() != nullptr) {
         readPosition.store(preferredStart, std::memory_order_release);
         pendingSkipFrames.store(0, std::memory_order_release);
         return true;
@@ -406,7 +409,7 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
     if (deviceFrame < 0)
         deviceFrame = 0;
 
-    if (residentActive.load(std::memory_order_acquire)) {
+    if (residentSnapshot() != nullptr) {
         readPosition.store(deviceFrame, std::memory_order_release);
         pendingSkipFrames.store(0, std::memory_order_release);
         return true;
@@ -417,7 +420,7 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
         return softRewindToStart(error);
 
     std::lock_guard<std::mutex> lock(diskIoMutex);
-    if (residentActive.load(std::memory_order_relaxed)) {
+    if (residentSnapshot() != nullptr) {
         readPosition.store(deviceFrame, std::memory_order_release);
         return true;
     }
@@ -479,11 +482,11 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
 }
 
 bool StreamingTrackBuffer::refill(int64_t maxDeviceFrames) {
-    if (residentActive.load(std::memory_order_acquire))
+    if (residentSnapshot() != nullptr)
         return false;
 
     std::lock_guard<std::mutex> lock(diskIoMutex);
-    if (residentActive.load(std::memory_order_relaxed))
+    if (residentSnapshot() != nullptr)
         return false;
 
     ensureRingReadyUnlocked();
@@ -632,20 +635,21 @@ int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames,
     if (numFrames <= 0)
         return 0;
 
-    // Resident path: lock-free after publish (data immutable).
-    if (residentActive.load(std::memory_order_acquire)) {
+    // Resident path: lock-free after publish. Keep a local owner for the
+    // whole read: another thread may release or replace the window mid-block.
+    if (const auto window = residentSnapshot()) {
         if (expectedPosition < 0)
             expectedPosition = 0;
         readPosition.store(expectedPosition, std::memory_order_relaxed);
 
         for (int64_t i = 0; i < numFrames; ++i) {
             const int64_t absPos = expectedPosition + i;
-            const int64_t rel = absPos - residentStart;
-            if (rel >= 0 && rel < residentLength) {
+            const int64_t rel = absPos - window->start;
+            if (rel >= 0 && rel < window->length) {
                 for (int ch = 0; ch < channels; ++ch) {
                     if (outChannels[ch] != nullptr)
                         outChannels[ch][i] =
-                            residentData[static_cast<size_t>(ch)][static_cast<size_t>(rel)];
+                            window->data[static_cast<size_t>(ch)][static_cast<size_t>(rel)];
                 }
             } else {
                 for (int ch = 0; ch < channels; ++ch) {
