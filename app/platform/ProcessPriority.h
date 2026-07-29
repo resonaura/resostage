@@ -8,4 +8,10 @@ namespace resoset {
 // the QoS path on macOS). Call once at app startup from the main thread.
 void boostAppProcessPriority();
 
+// Call from the streaming I/O thread right after it starts: elevates CPU
+// scheduling QoS and disk I/O priority so WAV refill keeps up when the
+// machine is thrashing (Spotlight, Time Machine, Xcode, other apps).
+// Best-effort; never throws.
+void boostStreamingIoThreadPriority();
+
 } // namespace resoset

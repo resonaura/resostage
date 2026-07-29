@@ -482,8 +482,12 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
     jsonFile.write(json.data(), json.size());
     jsonFile.close();
 
-    const_cast<ProjectLoader*>(this)->impl->isContainerDir = true;
-    const_cast<ProjectLoader*>(this)->openArchivePath = path;
+    // Deliberately do NOT mutate openArchivePath / isContainerDir here.
+    // Async save writes to a temp package while streaming still holds live
+    // FILE* cursors into the open project; rewriting openArchivePath to the
+    // temp path used to redirect any new openStream() at a half-written tree
+    // and race the IO thread. Callers that want the destination as the live
+    // archive must close()+open() (or reopenArchiveKeepProject) themselves.
     return true;
 }
 

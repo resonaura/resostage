@@ -3,6 +3,7 @@
 #include "audio/PeakCache.h"
 #include "audio/WavMetadata.h"
 #include "platform/AudioWorkgroup.h"
+#include "platform/ProcessPriority.h"
 
 #include <algorithm>
 #include <cctype>
@@ -35,12 +36,29 @@ float shapedFadeGain(float t01, double curve) {
     return std::pow(t, exp);
 }
 
-// A few seconds of lookahead is enough to absorb realistic disk-I/O
-// slowness and short audio-callback stalls without an audible gap; large
-// stalls beyond this are handled by StreamingTrackBuffer's catch-up skip
-// (silence during the skip, correct resync afterward) rather than by
-// growing this buffer -- see StreamingTrackBuffer's class comment.
-constexpr double kRingBufferSeconds = 4.0;
+// Lookahead ring per stem. Larger = more resilience to SSD thrashing
+// (Spotlight, backups, Xcode) before an underrun; memory cost is
+// tracks * ch * rate * seconds * 4B — e.g. 16 stereo 48 kHz × 8 s ≈ 50 MB.
+// Metronome does not use this path (pure synth). Beyond this window,
+// StreamingTrackBuffer catch-up skip still resyncs after silence holes.
+constexpr double kRingBufferSeconds = 8.0;
+
+// Before transport starts, try to have at least this much real audio in
+// every active ring so the first seconds never underrun into empty buffers.
+// Aim for enough real audio that a brief post-Play disk stall cannot empty
+// the rings before the IO thread's first few ticks (adaptive sleep 1–2 ms).
+constexpr double kPlayPrimeSeconds = 2.0;
+constexpr double kPlayPrimeMaxWaitSeconds = 0.75;
+
+// Shared I/O-thread hooks: elevate disk/CPU priority, then join CoreAudio
+// workgroup; leave workgroup on exit (required — see AudioWorkgroup.h).
+void streamingIoThreadStart() {
+    boostStreamingIoThreadPriority();
+    joinCurrentThreadToDefaultOutputWorkgroup();
+}
+void streamingIoThreadStop() {
+    leaveCurrentThreadWorkgroupIfJoined();
+}
 
 // ~/Library/Application Support/ResoStage/Drafts/draft_<timestamp>.rsnraset
 // (platform-appropriate equivalent elsewhere). Auto-created for every
@@ -155,6 +173,7 @@ AudioEngine::~AudioEngine() {
     joinPendingPeakBuilds();
     stop();
     streaming.stop();
+    purgeStaleSavePackages();
     midiDispatcher.stop();
     eventDispatcher.stop();
     deviceManagerInstance.removeChangeListener(this);
@@ -946,6 +965,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     // streaming I/O thread, not these).
     joinPendingPeakBuilds();
     streaming.stop();
+    purgeStaleSavePackages();
 
     if (!loader.open(path, error))
         return false;
@@ -978,8 +998,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
         clock.stop();
     }
 
-    streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
-                    [] { leaveCurrentThreadWorkgroupIfJoined(); });
+    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
     clearDirty();
     return true;
 }
@@ -1021,8 +1040,7 @@ void AudioEngine::newProject(const std::string& name) {
         trackMeters.clear();
     }
 
-    streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
-                    [] { leaveCurrentThreadWorkgroupIfJoined(); });
+    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
     clearDirty();
 }
 
@@ -1092,8 +1110,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             (void)loader.open(sourcePath, error);
             projectLoaded = loader.isOpen();
             if (projectLoaded)
-                streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
-                    [] { leaveCurrentThreadWorkgroupIfJoined(); });
+                streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
             return false;
         }
         if (!loader.open(path, error)) {
@@ -1136,8 +1153,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
 
     buildBusListFromProject();
     projectLoaded = true;
-    streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
-                    [] { leaveCurrentThreadWorkgroupIfJoined(); });
+    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
 
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
@@ -1172,6 +1188,15 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     return true;
 }
 
+void AudioEngine::purgeStaleSavePackages() {
+    namespace fs = std::filesystem;
+    for (const auto& p : staleSavePackages) {
+        std::error_code ec;
+        fs::remove_all(p, ec);
+    }
+    staleSavePackages.clear();
+}
+
 void AudioEngine::saveProjectAsync(const std::string& path,
                                    std::function<void(bool success, std::string error)> onComplete) {
     if (!projectLoaded) {
@@ -1200,20 +1225,35 @@ void AudioEngine::saveProjectAsync(const std::string& path,
     const bool promotingDraft = usingDraftArchive && path != loader.archivePath();
     const std::string oldDraftPath = usingDraftArchive ? loader.archivePath() : std::string();
     const std::string sourcePath = loader.archivePath();
+    const bool isContainer = loader.isDirectoryContainer();
+    // Same-path overwrite of a directory package can swap under live FILE*
+    // cursors (they keep reading the old inodes). Save-As / draft promote /
+    // legacy ZIP still need a restage.
+    const bool playThroughOk = isContainer && !promotingDraft && path == sourcePath && wasPlaying;
     Project snapshot = loader.project();
     auto extras = pendingPeakCacheExtras;
     const std::string tempOut = path + ".saving";
 
-    // Heavy archive write off the message thread. Streaming keeps reading the
-    // open container (read-only copy of Audio/*); we only briefly stop it for
-    // the final atomic replace + reopen.
+    // Heavy archive write off the message thread. Directory packages copy via
+    // the filesystem (no shared zip handle). saveAsWithExtras no longer mutates
+    // openArchivePath, so streaming keeps the correct live path the whole time.
     saveThread = std::thread([this, path, tempOut, snapshot, extras, sourcePath, promotingDraft,
-                              oldDraftPath, songToRestore, wasPlaying, onComplete]() mutable {
+                              oldDraftPath, songToRestore, wasPlaying, playThroughOk, isContainer,
+                              onComplete]() mutable {
         std::string error;
-        const bool wrote = loader.saveAsWithExtras(tempOut, extras, error, &snapshot);
+        // Legacy ZIP shares mz_zip with streaming — serialize against IO.
+        bool wrote = false;
+        if (isContainer) {
+            wrote = loader.saveAsWithExtras(tempOut, extras, error, &snapshot);
+        } else {
+            streaming.withProjectLoaderLock([&] {
+                wrote = loader.saveAsWithExtras(tempOut, extras, error, &snapshot);
+            });
+        }
 
         juce::MessageManager::callAsync([this, wrote, error, path, tempOut, sourcePath, promotingDraft,
-                                         oldDraftPath, songToRestore, wasPlaying, onComplete]() {
+                                         oldDraftPath, songToRestore, wasPlaying, playThroughOk,
+                                         onComplete]() {
             namespace fs = std::filesystem;
             auto finish = [&](bool ok, const std::string& err) {
                 busySaving.store(false, std::memory_order_release);
@@ -1228,23 +1268,59 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                 return;
             }
 
-            // Brief streaming pause for the handle swap (UI already stayed
-            // responsive during the long copy above).
+            std::error_code ec;
+
+            if (playThroughOk) {
+                // ── Titanic save: keep playing across the package swap ──
+                // 1) rename live package aside (open FILE* keep old inodes)
+                // 2) rename temp into place
+                // 3) leave streaming alone; defer delete of the aside dir
+                const std::string aside = path + ".play-old";
+                fs::remove_all(aside, ec); // previous interrupted save
+                fs::rename(path, aside, ec);
+                if (ec) {
+                    fs::remove_all(tempOut, ec);
+                    finish(false, "Failed to park live package: " + ec.message());
+                    return;
+                }
+                fs::rename(tempOut, path, ec);
+                if (ec) {
+                    // Roll back so openArchivePath still matches on-disk.
+                    std::error_code ec2;
+                    fs::rename(aside, path, ec2);
+                    fs::remove_all(tempOut, ec2);
+                    finish(false, "Failed to install saved package: " + ec.message());
+                    return;
+                }
+                // Open stem FILE* still hold the old inodes after rename —
+                // unlinking the aside tree is safe (POSIX); free disk ASAP.
+                fs::remove_all(aside, ec);
+                if (ec)
+                    staleSavePackages.push_back(aside);
+                // openArchivePath already equals `path`.
+                usingDraftArchive = false;
+                clearDirty();
+                clearAutosave();
+                finish(true, {});
+                return;
+            }
+
+            // ── Classic path: stop streaming, replace, reopen, restage ──
+            const bool keepPlaying = wasPlaying;
+            stop();
             streaming.stop();
             joinPendingPeakBuilds();
+            purgeStaleSavePackages(); // safe: no open stem FDs into old packages
 
             loader.close();
-            std::error_code ec;
             fs::remove_all(path, ec);
             fs::rename(tempOut, path, ec);
             if (ec) {
-                // Try to recover the open archive.
                 std::string recoverErr;
                 (void)loader.open(sourcePath, recoverErr);
                 projectLoaded = loader.isOpen();
                 if (projectLoaded)
-                    streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
-                                    [] { leaveCurrentThreadWorkgroupIfJoined(); });
+                    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
                 finish(false, "Failed to replace archive: " + ec.message());
                 return;
             }
@@ -1262,8 +1338,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
 
             buildBusListFromProject();
             projectLoaded = true;
-            streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
-                            [] { leaveCurrentThreadWorkgroupIfJoined(); });
+            streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
 
             currentSong = static_cast<size_t>(-1);
             trackIdByIndex.clear();
@@ -1284,7 +1359,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
             if (songToRestore != static_cast<size_t>(-1)
                 && songToRestore < loader.project().songs.size()) {
                 std::string selectError;
-                if (selectSong(songToRestore, selectError) && wasPlaying)
+                if (selectSong(songToRestore, selectError) && keepPlaying)
                     play();
             }
             clearDirty();
@@ -1335,6 +1410,11 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         streamHandoff.store(false, std::memory_order_release);
         return false;
     }
+    // Previous song's StreamCursors are gone (or about to be after the audio
+    // thread drops its ActiveSongHandle). Safe to drop packages parked by a
+    // play-through save that could not be unlinked immediately.
+    if (!gaplessKeepPlaying)
+        purgeStaleSavePackages();
 
     // Deliberately NO hardSeekTo(0) on the gapless path: streamHandoff
     // already prevents the audio thread from reading rings between promote
@@ -1646,6 +1726,12 @@ void AudioEngine::play() {
     if (startSample <= 0)
         std::fill(eventFiredFlags.begin(), eventFiredFlags.end(), 0);
 
+    // Titanic mode: don't start the clock into empty rings. Best-effort
+    // prime under the zip lock (I/O thread waits on the same mutex). Timeout
+    // so a dead disk cannot freeze Play forever; rings keep filling after.
+    (void)streaming.primeActiveSong(kPlayPrimeSeconds, currentSampleRate,
+                                    kPlayPrimeMaxWaitSeconds);
+
     // Reset the raw hardware sample counter BEFORE (re)starting MasterClock.
     // hwSamplePosition free-runs continuously since the audio device
     // started, incrementing every callback regardless of `playing` (see
@@ -1695,6 +1781,8 @@ void AudioEngine::stop() {
     transportTelemetry.playheadSamples.store(clock.currentSamplePosition(), std::memory_order_relaxed);
     transportTelemetry.playheadSeconds.store(clock.currentSeconds(), std::memory_order_relaxed);
     transportTelemetry.running.store(false, std::memory_order_relaxed);
+    // Stop does not restage streams (resume keeps the same FILE*). Stale
+    // save packages are purged on selectSong / load / streaming.stop paths.
 }
 
 void AudioEngine::stopToStart() {
@@ -3044,8 +3132,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         // loader/streaming were never touched by the failed background
         // write -- just restart streaming (halted before the background
         // thread started) and report the error.
-        streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
-                        [] { leaveCurrentThreadWorkgroupIfJoined(); });
+        streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
         done(false, writeError);
         return;
     }
@@ -3063,8 +3150,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         (void)loader.reparseProject(reopenError);
         projectLoaded = loader.isOpen();
         if (projectLoaded)
-            streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
-                            [] { leaveCurrentThreadWorkgroupIfJoined(); });
+            streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
         done(false, "Failed to replace archive after import");
         return;
     }
@@ -3078,8 +3164,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     }
     projectLoaded = true;
     buildBusListFromProject();
-    streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
-                    [] { leaveCurrentThreadWorkgroupIfJoined(); });
+    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
 
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();

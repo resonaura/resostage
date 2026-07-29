@@ -538,6 +538,12 @@ private:
     std::thread importThread; // joined before starting a new import, and in ~AudioEngine()
     std::thread saveThread;   // joined in ~AudioEngine / before a new save
 
+    // After a play-through save, the previous package directory is still
+    // referenced by open stem FILE* inodes. Delete only when streams are
+    // restaged / stopped (see purgeStaleSavePackages).
+    std::vector<std::string> staleSavePackages;
+    void purgeStaleSavePackages();
+
 
     // Waveform-peak decoding is read-only UI feed, not playback-critical, so
     // it runs off the message thread on detached background threads

@@ -46,6 +46,8 @@ bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& 
     pendingSkipFrames.store(0, std::memory_order_relaxed);
     sourceExhausted.store(false, std::memory_order_relaxed);
     refillScratch.clear();
+    refillWritePtrs.clear();
+    refillReadPtrs.clear();
 
     resampleRatio = (deviceSampleRate > 0.0 && decoder.sampleRate() > 0.0)
                         ? decoder.sampleRate() / deviceSampleRate
@@ -56,6 +58,12 @@ bool StreamingTrackBuffer::open(const ProjectLoader& loader, const std::string& 
     lastNativeSample.assign(static_cast<size_t>(decoder.numChannels()), 0.0f);
     haveLastNativeSample = false;
     nativePhase = 0.0;
+
+    // Pre-size pointer scratch so refill() never heap-allocates mid-stream
+    // (malloc under memory pressure is a classic "SSD fine, audio dies" path).
+    const size_t ch = static_cast<size_t>(std::max(0, decoder.numChannels()));
+    refillWritePtrs.resize(ch, nullptr);
+    refillReadPtrs.resize(ch, nullptr);
 
     return true;
 }
@@ -96,11 +104,13 @@ bool StreamingTrackBuffer::hardSeekTo(int64_t deviceFrame, std::string& error) {
     readPosition.store(deviceFrame, std::memory_order_release);
     pendingSkipFrames.store(0, std::memory_order_release);
 
-    // Prime the ring so the first post-seek callback has real audio instead
-    // of a silence gap (during which the sample-locked click would still
-    // tick -- the audible "metronome ran away" symptom).
-    for (int i = 0; i < 8 && !sourceExhausted.load(std::memory_order_acquire); ++i) {
-        if (ring.framesFree() <= 0)
+    // Light prime only (~1.5s). Filling 75% of an 8s ring here used to block
+    // seek for seconds on a busy SSD; StreamingEngine::seekActiveSongTo /
+    // the IO thread finish the rest after return.
+    const double sr = openDeviceSampleRate > 0.0 ? openDeviceSampleRate : 48000.0;
+    const int64_t primeTarget = static_cast<int64_t>(sr * 1.5);
+    for (int i = 0; i < 32 && wantsRefill(); ++i) {
+        if (ring.framesAvailable() >= primeTarget)
             break;
         refill();
     }
@@ -193,32 +203,39 @@ bool StreamingTrackBuffer::refill() {
     const size_t channels = static_cast<size_t>(decoder.numChannels());
     auto readFn = [this](void* buf, size_t bufSize) { return cursor.read(buf, bufSize); };
 
+    if (refillWritePtrs.size() != channels)
+        refillWritePtrs.assign(channels, nullptr);
+    if (refillReadPtrs.size() != channels)
+        refillReadPtrs.assign(channels, nullptr);
+
     if (std::abs(resampleRatio - 1.0) < 1e-6) {
         // Fast path: source already matches the device rate, no resampling.
-        if (refillScratch.size() != channels || (channels > 0 && static_cast<int64_t>(refillScratch[0].size()) < toDecode)) {
+        if (refillScratch.size() != channels
+            || (channels > 0 && static_cast<int64_t>(refillScratch[0].size()) < toDecode)) {
             refillScratch.assign(channels, std::vector<float>(static_cast<size_t>(toDecode)));
         }
 
-        std::vector<float*> writePtrs(channels);
         for (size_t i = 0; i < channels; ++i)
-            writePtrs[i] = refillScratch[i].data();
+            refillWritePtrs[i] = refillScratch[i].data();
 
-        const int64_t got = decoder.decodeFrames(readFn, writePtrs.data(), toDecode);
+        const int64_t got = decoder.decodeFrames(readFn, refillWritePtrs.data(), toDecode);
 
         if (got == 0) {
             sourceExhausted.store(true, std::memory_order_release);
             return ring.framesAvailable() > 0;
         }
 
-        std::vector<const float*> readPtrs(writePtrs.begin(), writePtrs.end());
-        ring.push(readPtrs.data(), got);
+        for (size_t i = 0; i < channels; ++i)
+            refillReadPtrs[i] = refillScratch[i].data();
+        ring.push(refillReadPtrs.data(), got);
         return true;
     }
 
     // Resampling path: linear-interpolate native-rate decoded audio into
     // `toDecode` output (device-rate) frames. See the header comment on
     // resampleRatio for the state this carries across calls.
-    if (refillScratch.size() != channels || (channels > 0 && static_cast<int64_t>(refillScratch[0].size()) < toDecode)) {
+    if (refillScratch.size() != channels
+        || (channels > 0 && static_cast<int64_t>(refillScratch[0].size()) < toDecode)) {
         refillScratch.assign(channels, std::vector<float>(static_cast<size_t>(toDecode)));
     }
 
@@ -229,10 +246,9 @@ bool StreamingTrackBuffer::refill() {
             // Need a fresh chunk of native-rate audio.
             if (nativeChunk.size() != channels)
                 nativeChunk.assign(channels, std::vector<float>(static_cast<size_t>(kRefillChunkFrames)));
-            std::vector<float*> writePtrs(channels);
             for (size_t i = 0; i < channels; ++i)
-                writePtrs[i] = nativeChunk[i].data();
-            nativeChunkFrames = decoder.decodeFrames(readFn, writePtrs.data(), kRefillChunkFrames);
+                refillWritePtrs[i] = nativeChunk[i].data();
+            nativeChunkFrames = decoder.decodeFrames(readFn, refillWritePtrs.data(), kRefillChunkFrames);
             nativeChunkReadIdx = 0;
             if (nativeChunkFrames <= 0) {
                 exhausted = true;
@@ -266,10 +282,9 @@ bool StreamingTrackBuffer::refill() {
     }
 
     if (written > 0) {
-        std::vector<const float*> readPtrs(channels);
         for (size_t i = 0; i < channels; ++i)
-            readPtrs[i] = refillScratch[i].data();
-        ring.push(readPtrs.data(), written);
+            refillReadPtrs[i] = refillScratch[i].data();
+        ring.push(refillReadPtrs.data(), written);
     }
 
     if (exhausted) {

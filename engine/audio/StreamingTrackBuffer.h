@@ -44,6 +44,7 @@ public:
 
     int numChannels() const { return decoder.numChannels(); }
     double sourceSampleRate() const { return decoder.sampleRate(); }
+    double deviceSampleRate() const { return openDeviceSampleRate; }
     // Frame count in the OUTPUT (device) domain -- see open()'s doc comment.
     int64_t totalFrames() const {
         return resampleRatio > 0.0
@@ -78,6 +79,27 @@ public:
         return sourceExhausted.load(std::memory_order_acquire) && ring.framesAvailable() == 0;
     }
 
+    // Diagnostics / I/O prioritization (safe from I/O or message thread).
+    int64_t framesAvailable() const { return ring.framesAvailable(); }
+    int64_t framesFree() const { return ring.framesFree(); }
+    int64_t ringCapacity() const { return ring.capacity(); }
+    bool sourceIsExhausted() const {
+        return sourceExhausted.load(std::memory_order_acquire);
+    }
+    // Catch-up skip still outstanding — I/O must service this before decode
+    // of other healthy tracks, or the stem stays silent while click runs.
+    bool hasPendingSkip() const {
+        return pendingSkipFrames.load(std::memory_order_acquire) > 0;
+    }
+    // True when the ring still has room and the source can produce more,
+    // OR a skip still needs the zip cursor (even if the ring is full of
+    // nothing useful — skip is serviced before push).
+    bool wantsRefill() const {
+        if (hasPendingSkip())
+            return true;
+        return !sourceIsExhausted() && ring.framesFree() > 0;
+    }
+
 private:
     ProjectLoader::StreamCursor cursor;
     WavStreamDecoder decoder;
@@ -93,9 +115,13 @@ private:
     std::atomic<int64_t> pendingSkipFrames{0}; // frames the bg thread still needs to discard-at-source
     std::atomic<bool> sourceExhausted{false};
 
-    // Background-thread-only scratch decode target (reused across refill() calls).
+    // Background-thread-only scratch (reused across refill() — no per-call heap).
     std::vector<std::vector<float>> refillScratch;
-    static constexpr int64_t kRefillChunkFrames = 4096;
+    std::vector<float*> refillWritePtrs;
+    std::vector<const float*> refillReadPtrs;
+    // Larger chunks = fewer syscalls / better sequential SSD throughput under
+    // load. ~341 ms at 48 kHz; still small vs multi-second ring capacity.
+    static constexpr int64_t kRefillChunkFrames = 16384;
 
     // Background-thread-only linear-interpolation resampler state, native
     // (decoder) domain -> device domain. resampleRatio = nativeRate /

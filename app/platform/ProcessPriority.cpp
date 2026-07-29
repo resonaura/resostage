@@ -5,6 +5,8 @@
 
 #if defined(__APPLE__)
 #include <pthread/qos.h>
+// setiopolicy_np lives in this header on Darwin.
+#include <sys/resource.h>
 #endif
 
 namespace resoset {
@@ -27,6 +29,28 @@ void boostAppProcessPriority() {
 #if defined(PRIO_DARWIN_ROLE)
     (void)setpriority(PRIO_DARWIN_ROLE, 0, PRIO_DARWIN_ROLE_UI_FOCAL);
 #endif
+#endif
+}
+
+void boostStreamingIoThreadPriority() {
+#if defined(__APPLE__)
+    // Streaming refill is latency-critical for continuous playback but not
+    // the audio callback itself. USER_INITIATED beats Utility/Background
+    // (Spotlight, Time Machine, Photos) without fighting the UI thread for
+    // USER_INTERACTIVE cores the way a blanket Interactive would.
+    (void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+
+    // Prefer this thread's disk reads over background throttled I/O so a
+    // saturated SSD still services our WAV/zip refill first.
+    // IOPOL_IMPORTANT: high priority, not the reserved REALTIME class.
+#if defined(IOPOL_TYPE_DISK) && defined(IOPOL_SCOPE_THREAD) && defined(IOPOL_IMPORTANT)
+    (void)setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_IMPORTANT);
+#endif
+#else
+    // Do NOT call setpriority(PRIO_PROCESS) here — that would renice the
+    // whole process. Thread-level priority APIs differ by platform; leave
+    // as best-effort no-op outside Darwin until we have a portable path.
+    (void)0;
 #endif
 }
 

@@ -86,12 +86,15 @@ public:
 
     // Writes the in-memory Project as project.json into a new .rsnraset at
     // `path`, copying every non-project.json entry from the currently open
-    // archive (audio stems etc.). Safe to call for save-as or overwrite of a
-    // *different* path while the source archive is still open.
+    // archive (audio stems etc.). Pure write: does NOT change which archive
+    // this loader considers open (openArchivePath stays put). Callers that
+    // want to switch the live archive must close()+open() themselves.
     //
-    // To overwrite the currently open path, the caller must stop all stream
-    // readers, call close(), then open() the destination again afterward.
-    // Prefer AudioEngine::saveProject() which orchestrates that sequence.
+    // Directory containers: safe to call while StreamCursors are live (copy
+    // is filesystem-level; open FILE* keep reading their inodes).
+    // Legacy ZIP: extract races the shared mz_zip handle — stop streaming
+    // first, or only use from a thread that already owns exclusive access.
+    // Prefer AudioEngine::saveProjectAsync() for the full orchestration.
     bool saveAs(const std::string& path, std::string& error) const;
 
     // Like saveAs, but also injects/replaces archive entries (e.g. a newly
@@ -100,14 +103,8 @@ public:
     //
     // `projectOverride`, if non-null, is serialized into project.json INSTEAD
     // of the live project() -- lets a caller doing slow disk I/O on a
-    // background thread (reading source WAVs, writing the archive) work from
-    // a private snapshot (with e.g. a new song already appended) without
-    // ever touching the shared, message-thread-owned project() while that
-    // background work is in flight. Reading the currently-open archive's
-    // existing entries (impl->zip) is still required either way -- callers
-    // doing this off the message thread must ensure nothing else touches
-    // this ProjectLoader concurrently (e.g. StreamingEngine's I/O thread
-    // stopped first).
+    // background thread work from a private snapshot without touching the
+    // shared message-thread project().
     struct ExtraFile {
         std::string archivePath; // e.g. "Audio/kick.wav"
         std::vector<uint8_t> data;
@@ -143,4 +140,3 @@ private:
 };
 
 } // namespace resoset
-

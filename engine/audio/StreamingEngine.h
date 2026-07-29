@@ -95,14 +95,27 @@ public:
     // already stop()s first). Returns false if any buffer fails to seek.
     bool seekActiveSongTo(int64_t deviceFrame, std::string& error);
 
-    // Audio-thread-safe: if `songIndex` is already precached, atomically
-    // promote it to active and return true. No disk I/O, no allocation beyond
-    // shared_ptr refcount. Used for sample-accurate AutoplayNext handoff
-    // without waiting for the message-thread timer (~30 Hz).
+    // Audio-thread-safe: if `songIndex` is already precached AND warm enough
+    // (min ~0.25s audio in every non-exhausted ring, or empty song),
+    // atomically promote it to active and return true. No disk I/O. Cold
+    // precache returns false so the message thread can stageSong+prime.
     bool tryPromotePrecached(size_t songIndex);
 
     // True when a precache for `songIndex` is ready to promote.
     bool hasPrecacheFor(size_t songIndex) const;
+
+    // True when precache for songIndex has at least minSeconds in every
+    // non-exhausted ring (gapless readiness).
+    bool isPrecacheWarm(size_t songIndex, double minSeconds, double deviceSampleRate) const;
+
+    // Message-thread: block up to maxWaitSeconds filling active rings to at
+    // least minSeconds of audio (or high-water). Used before play() so we
+    // don't start into empty rings under disk pressure.
+    bool primeActiveSong(double minSeconds, double deviceSampleRate, double maxWaitSeconds);
+
+    // Approximate seconds of audio in the least-filled non-exhausted active
+    // ring (0 if none). Safe-ish diagnostic; not real-time critical.
+    double minActiveBufferedSeconds(double deviceSampleRate) const;
 
     // Audio-thread-only. Never allocates (atomic refcount op).
     ActiveSongHandle acquireActiveSong();
@@ -117,6 +130,9 @@ public:
 
 private:
     void ioThreadLoop();
+    // Caller must hold projectLoaderMutex.
+    void primeBuffersLocked(StagedSong& staged, double minSeconds, double deviceSampleRate,
+                            double maxWaitSeconds);
 
     const ProjectLoader* projectLoader = nullptr;
     std::thread ioThread;
