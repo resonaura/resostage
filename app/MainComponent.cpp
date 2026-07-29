@@ -757,13 +757,13 @@ void MainComponent::publishWebState() {
     state.clickGainDb = proj.builtInClickGainDb;
     state.clickPan = proj.builtInClickPan;
     state.clickSolo = proj.builtInClickSolo;
-    if (const auto* clickM = engine.clickMeter()) {
-        MeterFrame frame;
-        if (clickM->read(frame)) {
-            state.clickPeakDb = frame.peakDb;
-            state.clickPeakDbL = frame.peakDbL;
-            state.clickPeakDbR = frame.peakDbR;
-        }
+    // Interval max of rendered click peaks since last poll — captures every
+    // audible tick even when the impulse is shorter than the UI sample period.
+    {
+        const MeterFrame clickFrame = engine.consumeClickMeterInterval();
+        state.clickPeakDb = clickFrame.peakDb;
+        state.clickPeakDbL = clickFrame.peakDbL;
+        state.clickPeakDbR = clickFrame.peakDbR;
     }
     state.songCount = static_cast<int>(proj.songs.size());
     state.songIndex = (engine.currentSongIndex() == static_cast<size_t>(-1))

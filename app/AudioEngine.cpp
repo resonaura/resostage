@@ -201,6 +201,46 @@ const SeqLock<MeterFrame>* AudioEngine::trackMeterAt(size_t index) const {
     return trackMeters[index].get();
 }
 
+namespace {
+void atomicMaxFloat(std::atomic<float>& slot, float v) {
+    if (!(v > 0.0f) || !std::isfinite(v))
+        return;
+    float cur = slot.load(std::memory_order_relaxed);
+    while (v > cur
+           && !slot.compare_exchange_weak(cur, v, std::memory_order_relaxed,
+                                          std::memory_order_relaxed)) {
+        // cur updated by CAS failure
+    }
+}
+
+float linearPeakToDb(float p) {
+    if (!(p > 1.0e-9f) || !std::isfinite(p))
+        return -144.0f;
+    return 20.0f * std::log10(std::min(p, 32.0f));
+}
+} // namespace
+
+MeterFrame AudioEngine::consumeClickMeterInterval() {
+    // Take the max peak rendered since the previous UI poll, then clear.
+    const float peakL = clickPeakIntervalMaxL.exchange(0.0f, std::memory_order_relaxed);
+    const float peakR = clickPeakIntervalMaxR.exchange(0.0f, std::memory_order_relaxed);
+
+    // Echo last interval once: publish N carries real peak, publish N+1 still
+    // carries it if this interval was silent. WS client that only samples the
+    // later frame still sees the tick. Next silent interval clears delivery.
+    const float outL = std::max(peakL, clickPeakDeliveryL);
+    const float outR = std::max(peakR, clickPeakDeliveryR);
+    clickPeakDeliveryL = peakL;
+    clickPeakDeliveryR = peakR;
+
+    MeterFrame frame;
+    frame.peakDbL = linearPeakToDb(outL);
+    frame.peakDbR = linearPeakToDb(outR);
+    frame.peakDb = linearPeakToDb(std::max(outL, outR));
+    frame.truePeakDb = frame.peakDb;
+    return frame;
+}
+
 const std::string& AudioEngine::busNameAt(size_t index) const {
     static const std::string kEmpty;
     const auto& buses = loader.project().busses;
@@ -2521,9 +2561,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             }
 
             // Click strip meter: metronome only, post gain+pan (L/R balance).
-            // True block peak only — no artificial hold. UI lag is handled by
-            // delivering every telemetry frame's levels to the meter ballistics
-            // path without dropping intermediate WS frames.
+            // Also accumulate interval-max for the UI poller: a one-block
+            // impulse is often overwritten by silence before the next 30 Hz
+            // sample, so consumeClickMeterInterval() would otherwise miss it.
+            // That max is the true peak of what was rendered in the interval
+            // (not a post-silence display hold).
             if (!meteringMuted) {
                 float peakL = 0.0f;
                 float peakR = 0.0f;
@@ -2533,24 +2575,27 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     peakL = std::max(peakL, s * clickSmoothGL);
                     peakR = std::max(peakR, s * clickSmoothGR);
                 }
-                auto toDb = [](float p) -> float {
-                    if (!(p > 1.0e-9f) || !std::isfinite(p))
-                        return -144.0f;
-                    return 20.0f * std::log10(std::min(p, 32.0f));
-                };
+                atomicMaxFloat(clickPeakIntervalMaxL, peakL);
+                atomicMaxFloat(clickPeakIntervalMaxR, peakR);
                 MeterFrame frame;
-                frame.peakDb = toDb(std::max(peakL, peakR));
-                frame.peakDbL = toDb(peakL);
-                frame.peakDbR = toDb(peakR);
+                frame.peakDb = linearPeakToDb(std::max(peakL, peakR));
+                frame.peakDbL = linearPeakToDb(peakL);
+                frame.peakDbR = linearPeakToDb(peakR);
                 frame.truePeakDb = frame.peakDb;
                 clickMeterFrame.write(frame);
             } else {
+                clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
+                clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
                 clickMeterFrame.write(MeterFrame{});
             }
         } else {
+            clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
+            clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
             clickMeterFrame.write(MeterFrame{});
         }
     } else {
+        clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
+        clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
         clickMeterFrame.write(MeterFrame{});
     }
 

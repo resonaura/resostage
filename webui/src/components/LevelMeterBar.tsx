@@ -68,8 +68,10 @@ interface ChannelBallistics {
 
 function useMeterBallistics(
   db: number,
-  /** Optional live getter — read every paint so brief peaks (metronome)
-   * are never lost when React state is rAF-coalesced. */
+  /**
+   * Optional live sampler — called once per paint. For metronome, pass
+   * getClickPeaks()-based getters (pure read of the shared paint snapshot).
+   */
   getLiveDb?: () => number,
 ): {
   display: number;
@@ -99,6 +101,7 @@ function useMeterBallistics(
       const dt = s.lastT > 0 ? Math.min(0.25, (t - s.lastT) / 1000) : 1 / 30;
       s.lastT = t;
 
+      // Prefer live sampler (may consume interval-max). Fall back to prop.
       const live = getLiveRef.current?.();
       const raw =
         live !== undefined && Number.isFinite(live) ? live : dbRef.current;

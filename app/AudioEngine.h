@@ -302,6 +302,17 @@ public:
     const SeqLock<MeterFrame>* trackMeterAt(size_t index) const;
     /** Peak of the metronome only (not the bus it is routed into). */
     const SeqLock<MeterFrame>* clickMeter() const { return &clickMeterFrame; }
+    // Consume max click peak since the previous call (linear → MeterFrame dB).
+    // Message-thread UI poll: a single audio-block impulse would otherwise be
+    // overwritten by silence before the next 30 Hz sample, so the audio thread
+    // accumulates interval max and this clears it.
+    //
+    // Each non-zero interval peak is also echoed for one extra poll so a single
+    // skipped WS frame (client timer vs publish phase, or writePending drop)
+    // cannot erase an audible tick from the wire. Still the true rendered
+    // peak — not a post-silence display hold beyond that one-frame delivery
+    // redundancy.
+    MeterFrame consumeClickMeterInterval();
 
     bool isBusMuted(size_t busIndex) const;
     bool isBusSoloed(size_t busIndex) const;
@@ -487,6 +498,15 @@ private:
     std::vector<float> clickScratch;
     // Dedicated click strip meter (pre-bus mix); never shares the destination bus meter.
     SeqLock<MeterFrame> clickMeterFrame;
+    // Max sample peak (linear) since last consumeClickMeterInterval() — see
+    // that method's doc. Updated on the audio thread, exchanged on the message
+    // thread (atomic max via CAS).
+    std::atomic<float> clickPeakIntervalMaxL{0.0f};
+    std::atomic<float> clickPeakIntervalMaxR{0.0f};
+    // Message-thread only: previous interval's peak, re-published once so the
+    // next telemetry frame still carries a tick the WS client may have missed.
+    float clickPeakDeliveryL = 0.0f;
+    float clickPeakDeliveryR = 0.0f;
     std::vector<uint8_t> eventFiredFlags; // parallel to current song's events; reset per selectSong()/play()
     std::atomic<bool> autoAdvancePending{false};
     std::atomic<int> pendingGaplessSong{-1}; // >=0 => message thread should gapless-switch
