@@ -387,6 +387,31 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
               ))}
             </select>
           </Field>
+          <Field label="Virtual MIDI port (DAW sync test)">
+            <div className="flex flex-col gap-1.5">
+              <button
+                onClick={() =>
+                  void settingsApi.setMidiVirtualPort(
+                    !s.virtualMidiPortEnabled,
+                  )
+                }
+                className={`self-start rounded-lg border px-3 py-1.5 text-sm ${
+                  s.virtualMidiPortEnabled
+                    ? "border-accent bg-accent/15 text-accent"
+                    : "border-default/60 bg-default/10 text-foreground/50 hover:bg-default/20"
+                }`}
+              >
+                {s.virtualMidiPortEnabled
+                  ? "ResoStage Sync — enabled"
+                  : "Enable ResoStage Sync"}
+              </button>
+              <div className="text-xs text-foreground/40">
+                {s.virtualMidiPortEnabled
+                  ? "Select “ResoStage Sync” as a MIDI input in your DAW to receive the clock/Start/Stop/SPP."
+                  : "Creates a virtual MIDI port so you can test clock sync in a DAW without any hardware or IAC setup."}
+              </div>
+            </div>
+          </Field>
         </Card.Content>
       </Card>
 

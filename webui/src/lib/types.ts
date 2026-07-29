@@ -169,6 +169,8 @@ export interface SettingsState {
   activeOutputChannels: boolean[];
   midiOutputs: string[];
   midiInputs: string[];
+  /** Whether the "ResoStage Sync" virtual MIDI source is enabled (see settings.setMidiVirtualPort). */
+  virtualMidiPortEnabled: boolean;
   keybindings: KeybindingRow[];
   midiBindings?: MidiBindingRow[];
   /** Non-empty while MIDI-learn is armed for this action. */
@@ -306,6 +308,7 @@ export const emptyState: WebUiState = {
     activeOutputChannels: [],
     midiOutputs: [],
     midiInputs: [],
+    virtualMidiPortEnabled: false,
     keybindings: [],
     midiBindings: [],
     midiLearnAction: "",

@@ -57,6 +57,17 @@ public:
     void closeDestination();
     bool hasDestination() const { return destination != 0; }
 
+    // Creates a virtual CoreMIDI *source* named "ResoStage Sync" -- this is
+    // the "fake device" a DAW picks as its MIDI In to test clock/transport
+    // sync without any hardware or IAC bus setup. Distinct code path from
+    // openDestination()/MIDISend above: CoreMIDI sources and destinations
+    // are different endpoint kinds, so this is delivered via MIDIReceived,
+    // mirrored alongside the real destination send in sendCommand() --
+    // no other dispatcher/clock logic changes because of it.
+    bool enableVirtualSource(std::string& error);
+    void disableVirtualSource();
+    bool hasVirtualSource() const { return virtualSource.load(std::memory_order_relaxed) != 0; }
+
     // Starts the dedicated worker thread that drains the command queue and
     // services MIDI Beat Clock generation.
     void start();
@@ -100,6 +111,10 @@ private:
     MIDIClientRef client = 0;
     MIDIPortRef outputPort = 0;
     MIDIEndpointRef destination = 0;
+    // Read on the worker thread (sendCommand), written from the message
+    // thread (enable/disableVirtualSource) -- MIDIEndpointRef is just a
+    // UInt32, so a plain atomic is enough, no mutex needed.
+    std::atomic<MIDIEndpointRef> virtualSource{0};
 
     moodycamel::ReaderWriterQueue<MidiCommand> queue{1024};
     std::thread worker;

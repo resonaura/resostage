@@ -508,6 +508,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetBufferSize: settingsSetBufferSize(cmd.json); break;
             case WebCommandKind::SetMidiOutput: settingsSetMidiOutput(cmd.json); break;
             case WebCommandKind::SetMidiInput: settingsSetMidiInput(cmd.json); break;
+            case WebCommandKind::SetMidiVirtualPort: settingsSetMidiVirtualPort(cmd.json); break;
             case WebCommandKind::SetKeybinding: settingsSetKeybinding(cmd.json); break;
             case WebCommandKind::SetOutputChannels: settingsSetOutputChannels(cmd.json); break;
             case WebCommandKind::MidiLearn: settingsMidiLearn(cmd.json); break;

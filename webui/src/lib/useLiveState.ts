@@ -80,6 +80,9 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
           midiInputs: next.settings.midiInputs?.length
             ? next.settings.midiInputs
             : prev.settings.midiInputs,
+          virtualMidiPortEnabled:
+            next.settings.virtualMidiPortEnabled ??
+            prev.settings.virtualMidiPortEnabled,
           keybindings: next.settings.keybindings ?? prev.settings.keybindings,
           midiBindings:
             next.settings.midiBindings ?? prev.settings.midiBindings,

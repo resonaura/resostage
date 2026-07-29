@@ -54,6 +54,7 @@ CoreMidiDispatcher::CoreMidiDispatcher() {
 CoreMidiDispatcher::~CoreMidiDispatcher() {
     stop();
     closeDestination();
+    disableVirtualSource();
     if (outputPort != 0)
         MIDIPortDispose(outputPort);
     if (client != 0)
@@ -108,6 +109,31 @@ bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std
 
 void CoreMidiDispatcher::closeDestination() {
     destination = 0;
+}
+
+bool CoreMidiDispatcher::enableVirtualSource(std::string& error) {
+    if (virtualSource.load(std::memory_order_relaxed) != 0)
+        return true; // already enabled
+
+    if (client == 0) {
+        error = "CoreMIDI client not initialized";
+        return false;
+    }
+
+    MIDIEndpointRef source = 0;
+    const OSStatus status = MIDISourceCreate(client, CFSTR("ResoStage Sync"), &source);
+    if (status != noErr) {
+        error = "Failed to create virtual MIDI source (OSStatus " + std::to_string(status) + ")";
+        return false;
+    }
+    virtualSource.store(source, std::memory_order_release);
+    return true;
+}
+
+void CoreMidiDispatcher::disableVirtualSource() {
+    const MIDIEndpointRef source = virtualSource.exchange(0, std::memory_order_acq_rel);
+    if (source != 0)
+        MIDIEndpointDispose(source);
 }
 
 void CoreMidiDispatcher::start() {
@@ -179,7 +205,9 @@ void CoreMidiDispatcher::sendSongPositionPointer(uint16_t midiBeats) {
 }
 
 void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
-    if (destination == 0 || outputPort == 0)
+    const MIDIEndpointRef virtualSrc = virtualSource.load(std::memory_order_acquire);
+    const bool hasRealDestination = destination != 0 && outputPort != 0;
+    if (!hasRealDestination && virtualSrc == 0)
         return;
 
     uint8_t statusByte = 0;
@@ -211,8 +239,19 @@ void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
     MIDIPacketList packetList;
     MIDIPacket* packet = MIDIPacketListInit(&packetList);
     packet = MIDIPacketListAdd(&packetList, sizeof(packetList), packet, nanosToMachTicks(cmd.targetHostTimeNanos), totalBytes, buffer);
-    if (packet != nullptr)
+    if (packet == nullptr)
+        return;
+
+    if (hasRealDestination)
         MIDISend(outputPort, destination, &packetList);
+    // MIDIReceived ignores the packets' timestamps and delivers them
+    // immediately -- there's no scheduled-future-delivery API for virtual
+    // sources like there is for MIDISend, so a DAW listening on "ResoStage
+    // Sync" sees ticks land a bit closer to real time than the real
+    // destination's precisely-timestamped delivery. Fine for a test/sync
+    // aid; not a claim of matching accuracy.
+    if (virtualSrc != 0)
+        MIDIReceived(virtualSrc, &packetList);
 }
 
 void CoreMidiDispatcher::pumpClock() {

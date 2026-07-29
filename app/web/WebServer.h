@@ -132,6 +132,9 @@ enum class WebCommandKind : uint8_t {
     SetBufferSize,
     SetMidiOutput,
     SetMidiInput,
+    // Toggles CoreMidiDispatcher's virtual "ResoStage Sync" MIDI source on/
+    // off (see its doc comment) -- `json` carries { "enabled": bool }.
+    SetMidiVirtualPort,
     SetKeybinding,
     SetOutputChannels,
     // MIDI learn / clear for a named action (see Project::midiMappings).
@@ -374,6 +377,11 @@ struct WebUiState {
         std::vector<bool> activeOutputChannels;
         std::vector<std::string> midiOutputs;
         std::vector<std::string> midiInputs;
+        // Whether CoreMidiDispatcher's "ResoStage Sync" virtual source (see
+        // CoreMidiDispatcher::hasVirtualSource()) is currently enabled --
+        // lets a DAW pick it as a MIDI In to test clock/transport sync
+        // without any hardware or IAC bus setup.
+        bool virtualMidiPortEnabled = false;
         struct Keybinding {
             std::string action;
             std::string key;

@@ -136,6 +136,7 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
         out.midiOutputs.push_back(n);
     for (const auto& n : midiInput.availableSourceNames())
         out.midiInputs.push_back(n);
+    out.virtualMidiPortEnabled = engine.midi().hasVirtualSource();
 
     const auto& bindings = engine.project().keybindings;
     for (const char* action : kActions) {
@@ -225,6 +226,24 @@ void MainComponent::settingsSetMidiInput(const std::string& json) {
         setStatus("MIDI input failed: " + juce::String(error));
     else
         setStatus("MIDI input: " + juce::String(name));
+}
+
+void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
+    simdjson::dom::element doc;
+    bool enabled = false;
+    if (!parseJson(json, doc) || !getBool(doc, "enabled", enabled))
+        return;
+
+    if (enabled) {
+        std::string error;
+        if (!engine.midi().enableVirtualSource(error))
+            setStatus("Virtual MIDI port failed: " + juce::String(error));
+        else
+            setStatus("Virtual MIDI port enabled: ResoStage Sync");
+    } else {
+        engine.midi().disableVirtualSource();
+        setStatus("Virtual MIDI port disabled");
+    }
 }
 
 void MainComponent::settingsSetOutputChannels(const std::string& json) {
