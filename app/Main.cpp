@@ -1,6 +1,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "MainComponent.h"
+#include "platform/ProcessPriority.h"
 
 namespace resoset {
 
@@ -11,6 +12,9 @@ public:
     bool moreThanOneInstanceAllowed() override { return true; }
 
     void initialise(const juce::String&) override {
+        // Prefer high scheduling priority so audio stays solid when the
+        // rest of the system is thrashing (see ProcessPriority.cpp).
+        boostAppProcessPriority();
         mainWindow = std::make_unique<MainWindow>(getApplicationName());
     }
 

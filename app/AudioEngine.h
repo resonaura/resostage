@@ -75,6 +75,12 @@ public:
     // subsequent edits go to the real file, not the invisible draft) rather
     // than leaving the draft as the active archive.
     bool saveProject(const std::string& path, std::string& error);
+    // Non-blocking save: heavy archive write runs off the message thread so
+    // the UI stays responsive. onComplete(success, error) is always invoked
+    // on the message thread. isBusy() is true while a save is in flight.
+    // Callers should set a "Saving…" status before calling this.
+    void saveProjectAsync(const std::string& path,
+                          std::function<void(bool success, std::string error)> onComplete);
     const std::string& projectPath() const { return loader.archivePath(); }
 
     bool hasAutosave(std::string& outTimestamp) const { return loader.hasAutosave(outTimestamp); }
@@ -257,7 +263,10 @@ public:
 
     // fires. UI should disable further project-editing actions and show a
     // busy/spinner indicator while this is true.
-    bool isBusy() const { return busyImporting.load(std::memory_order_acquire); }
+    bool isBusy() const {
+        return busyImporting.load(std::memory_order_acquire)
+               || busySaving.load(std::memory_order_acquire);
+    }
 
     // Peak overview for timeline waveform (empty if not yet built / failed).
     const PeakOverview* trackPeaksAt(size_t index) const;
@@ -505,7 +514,9 @@ private:
     bool usingDraftArchive = false; // see isDraftProject()
     std::atomic<bool> unsavedChanges{false};
     std::atomic<bool> busyImporting{false}; // see isBusy()
+    std::atomic<bool> busySaving{false};    // see saveProjectAsync / isBusy()
     std::thread importThread; // joined before starting a new import, and in ~AudioEngine()
+    std::thread saveThread;   // joined in ~AudioEngine / before a new save
 
 
     // Waveform-peak decoding is read-only UI feed, not playback-critical, so

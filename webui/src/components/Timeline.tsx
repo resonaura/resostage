@@ -50,7 +50,8 @@ const TRACK_COLORS = [
   "#b78a66",
 ];
 
-const HANDLE_PX = 8; // px width of trim handle hit area
+/** Edge hit zone width (fade / trim / loop / duration). */
+const EDGE_PX = 12;
 
 /** SVG fade triangle with curved edge driven by curve ∈ [-1, 1]. */
 function FadeCurveOverlay({
@@ -75,7 +76,8 @@ function FadeCurveOverlay({
   onPointerUp: (e: React.PointerEvent) => void;
 }) {
   const steps = 12;
-  const exp = Math.pow(2, (curve || 0) * 2); // 0.25..4
+  // Match engine: exp = 2^(-curve*2). +curve → ease-out, −curve → ease-in.
+  const exp = Math.pow(2, -(curve || 0) * 2); // 4..0.25
   const pts: string[] = [];
   if (side === "in") {
     pts.push("0,100");
@@ -1649,6 +1651,7 @@ export function Timeline({
         fadeOut?: number;
         fadeInCurve?: number;
         fadeOutCurve?: number;
+        loop?: boolean;
       }
     >
   >({});
@@ -1688,7 +1691,8 @@ export function Timeline({
           (d.fadeInCurve === undefined ||
             Math.abs((r.fadeInCurve ?? 0) - d.fadeInCurve) < 0.05) &&
           (d.fadeOutCurve === undefined ||
-            Math.abs((r.fadeOutCurve ?? 0) - d.fadeOutCurve) < 0.05);
+            Math.abs((r.fadeOutCurve ?? 0) - d.fadeOutCurve) < 0.05) &&
+          (d.loop === undefined || Boolean(r.loop) === Boolean(d.loop));
         if (matches) {
           delete next[key];
           changed = true;
@@ -1703,10 +1707,10 @@ export function Timeline({
   // Region drag state — keyed by selection id, stores project geometry
   type RegionDragMode =
     | "move"
-    | "trimStart"
-    | "trimEnd"
-    | "fadeIn"
-    | "fadeOut"
+    | "trimStart" // left center/bottom: extend left into earlier source
+    | "trimEnd" // right bottom: set timeline duration
+    | "fadeIn" // left top
+    | "fadeOut" // right top
     | "fadeInCurve"
     | "fadeOutCurve";
   type RegionGeom = {
@@ -1717,6 +1721,7 @@ export function Timeline({
     fadeOut: number;
     fadeInCurve: number;
     fadeOutCurve: number;
+    loop: boolean;
   };
   const regionDragRef = useRef<{
     key: RegionSelKey;
@@ -1732,7 +1737,10 @@ export function Timeline({
     origFadeOut: number;
     origFadeInCurve: number;
     origFadeOutCurve: number;
+    origLoop: boolean;
     maxEnd: number; // song length
+    /** Remaining source length from sourceOffset (fileDuration - offset). */
+    maxSourceDur: number;
     /** Last live geometry during drag (committed on pointer up). */
     lastGeom: RegionGeom;
   } | null>(null);
@@ -2643,6 +2651,7 @@ export function Timeline({
                               draft?.fadeInCurve ?? r.fadeInCurve ?? 0,
                             fadeOutCurve:
                               draft?.fadeOutCurve ?? r.fadeOutCurve ?? 0,
+                            loop: draft?.loop ?? r.loop ?? false,
                           };
                         };
 
@@ -2709,6 +2718,11 @@ export function Timeline({
                                 regViewEnd - regViewStart,
                               );
 
+                              const maxSourceDur = Math.max(
+                                0.05,
+                                fileDuration - geom.sourceOffset,
+                              );
+
                               const beginDrag = (
                                 e: React.PointerEvent,
                                 mode: RegionDragMode,
@@ -2724,6 +2738,7 @@ export function Timeline({
                                   fadeOut: geom.fadeOut,
                                   fadeInCurve: geom.fadeInCurve,
                                   fadeOutCurve: geom.fadeOutCurve,
+                                  loop: geom.loop,
                                 };
                                 regionDragRef.current = {
                                   key: thisRegionSelKey,
@@ -2739,7 +2754,12 @@ export function Timeline({
                                   origFadeOut: orig.fadeOut,
                                   origFadeInCurve: orig.fadeInCurve,
                                   origFadeOutCurve: orig.fadeOutCurve,
+                                  origLoop: orig.loop,
                                   maxEnd: segDuration,
+                                  maxSourceDur: Math.max(
+                                    0.05,
+                                    fileDuration - orig.sourceOffset,
+                                  ),
                                   lastGeom: orig,
                                 };
                                 (
@@ -2757,7 +2777,46 @@ export function Timeline({
                                 fadeOut: rd.origFadeOut,
                                 fadeInCurve: rd.origFadeInCurve,
                                 fadeOutCurve: rd.origFadeOutCurve,
+                                loop: rd.origLoop,
                               });
+
+                              /** Hit-test left/right edge into DAW zones (thirds of height). */
+                              const edgeMode = (
+                                localX: number,
+                                localY: number,
+                                w: number,
+                                h: number,
+                              ): RegionDragMode | "loopToggle" | "move" => {
+                                const third = h / 3;
+                                if (localX < EDGE_PX) {
+                                  // Left: top = fade, center+bottom = trim start
+                                  return localY < third
+                                    ? "fadeIn"
+                                    : "trimStart";
+                                }
+                                if (localX > w - EDGE_PX) {
+                                  // Right: top = fade, mid = loop, bottom = duration
+                                  if (localY < third) return "fadeOut";
+                                  if (localY < third * 2) return "loopToggle";
+                                  return "trimEnd";
+                                }
+                                return "move";
+                              };
+
+                              const edgeCursor = (
+                                localX: number,
+                                localY: number,
+                                w: number,
+                                h: number,
+                              ): string => {
+                                const m = edgeMode(localX, localY, w, h);
+                                if (m === "fadeIn" || m === "fadeOut")
+                                  return "col-resize";
+                                if (m === "loopToggle") return "cell";
+                                if (m === "trimStart" || m === "trimEnd")
+                                  return "ew-resize";
+                                return "grab";
+                              };
 
                               const onDragMove = (e: React.PointerEvent) => {
                                 const rd = regionDragRef.current;
@@ -2785,15 +2844,16 @@ export function Timeline({
                                 }
 
                                 if (rd.mode === "trimStart") {
-                                  const maxDelta = rd.origDuration - 0.05;
-                                  const rawStart = rd.origStart + dSec;
-                                  const snappedStart = snapSec(rawStart);
+                                  // Stretch left into earlier source (only if
+                                  // sourceOffset > 0). Dragging left decreases
+                                  // start & sourceOffset, grows duration.
+                                  const maxLeft = rd.origSourceOffset; // can't go past file start
+                                  const rawDelta =
+                                    snapSec(rd.origStart + dSec) - rd.origStart;
+                                  // Negative delta = extend left
                                   const delta = Math.max(
-                                    -rd.origStart,
-                                    Math.min(
-                                      maxDelta,
-                                      snappedStart - rd.origStart,
-                                    ),
+                                    -maxLeft,
+                                    Math.min(rd.origDuration - 0.05, rawDelta),
                                   );
                                   writeGeomDraft(thisRegionSelKey, {
                                     ...baseGeom(rd),
@@ -2808,12 +2868,17 @@ export function Timeline({
                                   const rawEnd =
                                     rd.origStart + rd.origDuration + dSec;
                                   const snappedEnd = snapSec(rawEnd);
+                                  // Without loop: can't exceed remaining source.
+                                  // With loop: free up to song end.
+                                  const maxDur = rd.origLoop
+                                    ? rd.maxEnd - rd.origStart
+                                    : Math.min(
+                                        rd.maxEnd - rd.origStart,
+                                        rd.maxSourceDur,
+                                      );
                                   const nextDur = Math.max(
                                     0.05,
-                                    Math.min(
-                                      rd.maxEnd - rd.origStart,
-                                      snappedEnd - rd.origStart,
-                                    ),
+                                    Math.min(maxDur, snappedEnd - rd.origStart),
                                   );
                                   writeGeomDraft(thisRegionSelKey, {
                                     ...baseGeom(rd),
@@ -2837,7 +2902,7 @@ export function Timeline({
 
                                 if (rd.mode === "fadeOut") {
                                   const maxFade = rd.origDuration * 0.5;
-                                  // Dragging left edge of fade-out to the left increases fade.
+                                  // Dragging the right-top zone left increases fade-out.
                                   const next = Math.max(
                                     0,
                                     Math.min(maxFade, rd.origFadeOut - dSec),
@@ -2891,6 +2956,7 @@ export function Timeline({
                                   fadeOutSeconds: finalGeom.fadeOut,
                                   fadeInCurve: finalGeom.fadeInCurve,
                                   fadeOutCurve: finalGeom.fadeOutCurve,
+                                  loop: finalGeom.loop,
                                 });
                                 regionDragRef.current = null;
                                 try {
@@ -2900,6 +2966,56 @@ export function Timeline({
                                 } catch {
                                   /* already released */
                                 }
+                              };
+
+                              const onRegionPointerDown = (
+                                e: React.PointerEvent,
+                              ) => {
+                                if (readOnly) return;
+                                const rect =
+                                  e.currentTarget.getBoundingClientRect();
+                                const localX = e.clientX - rect.left;
+                                const localY = e.clientY - rect.top;
+                                const mode = edgeMode(
+                                  localX,
+                                  localY,
+                                  regionWidth,
+                                  rect.height,
+                                );
+                                if (mode === "loopToggle") {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  selectRegion(thisRegionSelKey, e);
+                                  const nextLoop = !geom.loop;
+                                  // Enabling loop frees duration past source;
+                                  // disabling clamps duration to source avail.
+                                  const nextDur = nextLoop
+                                    ? geom.duration
+                                    : Math.min(geom.duration, maxSourceDur);
+                                  const next: RegionGeom = {
+                                    ...geom,
+                                    loop: nextLoop,
+                                    duration: nextDur,
+                                  };
+                                  writeGeomDraft(thisRegionSelKey, next);
+                                  void builder.regionUpdate({
+                                    songIndex: i,
+                                    regionId: songRegion.id,
+                                    durationSeconds: next.duration,
+                                    loop: next.loop,
+                                  });
+                                  return;
+                                }
+                                // Trim-start only useful when there's earlier
+                                // source to pull (sourceOffset > 0).
+                                if (
+                                  mode === "trimStart" &&
+                                  geom.sourceOffset <= 0.0001
+                                ) {
+                                  beginDrag(e, "move");
+                                  return;
+                                }
+                                beginDrag(e, mode);
                               };
 
                               return (
@@ -2922,20 +3038,27 @@ export function Timeline({
                                       opacity: regionUi.muted ? 0.4 : 1,
                                       zIndex: isRegionSelected ? 2 : 1,
                                     }}
-                                    title={`${row.name} – Song ${i + 1}: ${song.name}`}
-                                    onPointerDown={(e) => {
+                                    title={`${row.name} – Song ${i + 1}: ${song.name}${geom.loop ? " [loop]" : ""}`}
+                                    onPointerDown={onRegionPointerDown}
+                                    onPointerMove={(e) => {
+                                      if (regionDragRef.current) {
+                                        onDragMove(e);
+                                        return;
+                                      }
+                                      // Hover cursor reflects edge zone.
                                       if (readOnly) return;
                                       const rect =
                                         e.currentTarget.getBoundingClientRect();
-                                      const localX = e.clientX - rect.left;
-                                      if (
-                                        localX < HANDLE_PX ||
-                                        localX > regionWidth - HANDLE_PX
-                                      )
-                                        return;
-                                      beginDrag(e, "move");
+                                      const c = edgeCursor(
+                                        e.clientX - rect.left,
+                                        e.clientY - rect.top,
+                                        regionWidth,
+                                        rect.height,
+                                      );
+                                      (
+                                        e.currentTarget as HTMLElement
+                                      ).style.cursor = c;
                                     }}
-                                    onPointerMove={onDragMove}
                                     onPointerUp={onDragUp}
                                     onContextMenu={(e) => {
                                       e.preventDefault();
@@ -2989,7 +3112,8 @@ export function Timeline({
                                       </div>
                                     )}
 
-                                    {/* Fade-in / fade-out overlays (curve shape). */}
+                                    {/* Fade overlays (curve only — no handle squares).
+                                        Edge zones on the parent set cursor + drag mode. */}
                                     {geom.fadeIn > 0.001 && (
                                       <FadeCurveOverlay
                                         side="in"
@@ -3026,84 +3150,64 @@ export function Timeline({
                                         onPointerUp={onDragUp}
                                       />
                                     )}
-                                  </div>
 
-                                  {/* Trim handles (full height, left/right edge). */}
-                                  {!readOnly && (
-                                    <div
-                                      className="absolute top-1 bottom-1 rounded-l-md cursor-ew-resize z-10"
-                                      style={{
-                                        left: leftPx,
-                                        width: HANDLE_PX,
-                                        background: `${row.color}99`,
-                                      }}
-                                      title="Drag to trim start"
-                                      onPointerDown={(e) =>
-                                        beginDrag(e, "trimStart")
-                                      }
-                                      onPointerMove={onDragMove}
-                                      onPointerUp={onDragUp}
-                                    />
-                                  )}
-                                  {!readOnly && (
-                                    <div
-                                      className="absolute top-1 bottom-1 rounded-r-md cursor-ew-resize z-10"
-                                      style={{
-                                        left: leftPx + regionWidth - HANDLE_PX,
-                                        width: HANDLE_PX,
-                                        background: `${row.color}99`,
-                                      }}
-                                      title="Drag to trim end"
-                                      onPointerDown={(e) =>
-                                        beginDrag(e, "trimEnd")
-                                      }
-                                      onPointerMove={onDragMove}
-                                      onPointerUp={onDragUp}
-                                    />
-                                  )}
-                                  {/* Fade length handles — top-left / top-right of clip.
-                                      Drag horizontally to set fade-in / fade-out duration. */}
-                                  {!readOnly && regionWidth > 24 && (
-                                    <div
-                                      className="absolute z-20 h-3 w-3 cursor-ew-resize rounded-sm border border-white/70"
-                                      style={{
-                                        left:
-                                          leftPx +
-                                          Math.max(
-                                            2,
-                                            geom.fadeIn * pxPerSec - 4,
-                                          ),
-                                        top: 2,
-                                        background: row.color,
-                                      }}
-                                      title="Drag to set fade-in length"
-                                      onPointerDown={(e) =>
-                                        beginDrag(e, "fadeIn")
-                                      }
-                                      onPointerMove={onDragMove}
-                                      onPointerUp={onDragUp}
-                                    />
-                                  )}
-                                  {!readOnly && regionWidth > 24 && (
-                                    <div
-                                      className="absolute z-20 h-3 w-3 cursor-ew-resize rounded-sm border border-white/70"
-                                      style={{
-                                        left:
-                                          leftPx +
-                                          regionWidth -
-                                          Math.max(2, geom.fadeOut * pxPerSec) -
-                                          4,
-                                        top: 2,
-                                        background: row.color,
-                                      }}
-                                      title="Drag to set fade-out length"
-                                      onPointerDown={(e) =>
-                                        beginDrag(e, "fadeOut")
-                                      }
-                                      onPointerMove={onDragMove}
-                                      onPointerUp={onDragUp}
-                                    />
-                                  )}
+                                    {/* Loop iteration notches (triangles top+bottom). */}
+                                    {geom.loop &&
+                                      maxSourceDur > 0.05 &&
+                                      geom.duration > maxSourceDur + 0.01 &&
+                                      Array.from({
+                                        length: Math.floor(
+                                          geom.duration / maxSourceDur,
+                                        ),
+                                      }).map((_, li) => {
+                                        const x =
+                                          (li + 1) * maxSourceDur * pxPerSec;
+                                        if (x <= 2 || x >= regionWidth - 2)
+                                          return null;
+                                        return (
+                                          <div
+                                            key={`loop-${li}`}
+                                            className="pointer-events-none absolute top-0 bottom-0 z-[3]"
+                                            style={{ left: x }}
+                                            title="Loop boundary"
+                                          >
+                                            <div
+                                              className="absolute left-1/2 top-0 -translate-x-1/2"
+                                              style={{
+                                                width: 0,
+                                                height: 0,
+                                                borderLeft:
+                                                  "4px solid transparent",
+                                                borderRight:
+                                                  "4px solid transparent",
+                                                borderTop: `6px solid ${row.color}`,
+                                                opacity: 0.9,
+                                              }}
+                                            />
+                                            <div
+                                              className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2"
+                                              style={{
+                                                background: row.color,
+                                                opacity: 0.4,
+                                              }}
+                                            />
+                                            <div
+                                              className="absolute left-1/2 bottom-0 -translate-x-1/2"
+                                              style={{
+                                                width: 0,
+                                                height: 0,
+                                                borderLeft:
+                                                  "4px solid transparent",
+                                                borderRight:
+                                                  "4px solid transparent",
+                                                borderBottom: `6px solid ${row.color}`,
+                                                opacity: 0.9,
+                                              }}
+                                            />
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
                                 </div>
                               );
                             })}

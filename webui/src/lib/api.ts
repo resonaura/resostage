@@ -258,6 +258,7 @@ export const builder = {
     fadeOutSeconds?: number;
     fadeInCurve?: number;
     fadeOutCurve?: number;
+    loop?: boolean;
   }) => post("/api/v1/builder/region/add", patch),
   regionRemove: (songIndex: number, regionId: string) =>
     post("/api/v1/builder/region/remove", { songIndex, regionId }),
@@ -274,6 +275,7 @@ export const builder = {
     fadeOutSeconds?: number;
     fadeInCurve?: number;
     fadeOutCurve?: number;
+    loop?: boolean;
   }) => post("/api/v1/builder/region/update", patch),
 
   async trackImportWav(

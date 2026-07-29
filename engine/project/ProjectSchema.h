@@ -27,12 +27,16 @@ struct Region {
     double gainDb = 0.0;
     double fadeInSeconds = 0.0;
     double fadeOutSeconds = 0.0;
-    // Fade curvature in [-1, +1]: 0 = linear, negative = ease-out (fast
-    // start), positive = ease-in (slow start). Matches the Editor's
-    // "drag the fade curve" control; ignored when the corresponding
-    // fade*Seconds is 0.
+    // Fade curvature in [-1, +1]: 0 = linear. Positive = ease-out (fast
+    // attack / more area late), negative = ease-in (slow attack). Applied
+    // as pow(t, 2^(-curve*2)) so the UI drag direction matches DAW feel.
     double fadeInCurve = 0.0;
     double fadeOutCurve = 0.0;
+    // When true, source audio from sourceOffset..(source end) is repeated
+    // to fill durationSeconds on the timeline (clip may be longer than the
+    // remaining source material). When false, timeline duration is clamped
+    // to the remaining source length and silence fills any overrun.
+    bool loop = false;
 };
 
 struct TrackDef {

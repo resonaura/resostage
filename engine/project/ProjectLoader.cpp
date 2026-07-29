@@ -84,6 +84,7 @@ bool parseRegion(const simdjson::dom::element& regEl, Region& reg, std::string& 
     (void)regEl["fadeOutSeconds"].get(reg.fadeOutSeconds);
     (void)regEl["fadeInCurve"].get(reg.fadeInCurve);
     (void)regEl["fadeOutCurve"].get(reg.fadeOutCurve);
+    (void)regEl["loop"].get(reg.loop);
 
     return true;
 }

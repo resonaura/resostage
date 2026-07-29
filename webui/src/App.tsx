@@ -186,8 +186,10 @@ function jumpSection(
 
 export default function App() {
   useForcedDarkTheme();
-  const { state, status, cpuHistory, ramHistory } = useLiveState();
   const [tab, setTab] = useState("player");
+  // Tell the backend which SPA tab is active so WS frames only carry that
+  // page's heavy arrays (transport/time always included).
+  const { state, status, cpuHistory, ramHistory } = useLiveState(tab);
   useGlobalHotkeys(state, setTab);
 
   // MIDI / native mode_* actions publish uiTab + uiTabSeq; apply them here
@@ -415,9 +417,13 @@ function ProjectMenu({ state }: { state: WebUiState }) {
   const [saveLabel, setSaveLabel] = useState("Save");
   const saveFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Flash "Saved" whenever the native status bar reports a successful save.
+  // Mirror native status: "Saving…" while busy, then flash "Saved".
   useEffect(() => {
     const msg = state.statusMessage ?? "";
+    if (/^Saving\b/i.test(msg) || state.busy) {
+      setSaveLabel("Saving…");
+      return;
+    }
     if (!/^Saved\b/i.test(msg)) return;
     setSaveLabel("Saved");
     if (saveFlashTimer.current) clearTimeout(saveFlashTimer.current);
@@ -425,7 +431,7 @@ function ProjectMenu({ state }: { state: WebUiState }) {
     return () => {
       if (saveFlashTimer.current) clearTimeout(saveFlashTimer.current);
     };
-  }, [state.statusMessage]);
+  }, [state.statusMessage, state.busy]);
 
   const handleNew = () => {
     if (

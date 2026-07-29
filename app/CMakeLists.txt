@@ -15,6 +15,7 @@ target_sources(ResoStage PRIVATE
   midi/CoreMidiInputListener.cpp
   events/EventDispatcher.cpp
   platform/AudioWorkgroup.cpp
+  platform/ProcessPriority.cpp
   web/WebServer.cpp
   ui/legacy/PlayerPanel.cpp
   ui/legacy/MixerPanel.cpp

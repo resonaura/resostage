@@ -23,13 +23,15 @@ float dbToGain(double db) {
     return static_cast<float>(std::pow(10.0, db / 20.0));
 }
 
-// Fade shape: curve in [-1, +1], 0 = linear. Positive → ease-in (slow start),
-// negative → ease-out (fast start). Used for region fade-in/out envelopes.
+// Fade shape: curve in [-1, +1], 0 = linear.
+// Positive → ease-out (fast start, slow end); negative → ease-in (slow start).
+// Exponent is 2^(-curve*2) so +1 → exp 0.25 (concave-up / ease-out feel)
+// and -1 → exp 4 (ease-in). Matches typical DAW fade-curve drag direction.
 float shapedFadeGain(float t01, double curve) {
     const float t = std::clamp(t01, 0.0f, 1.0f);
     if (std::abs(curve) < 1.0e-6)
         return t;
-    const float exp = std::pow(2.0f, static_cast<float>(curve) * 2.0f); // 0.25..4
+    const float exp = std::pow(2.0f, static_cast<float>(-curve) * 2.0f); // 4..0.25
     return std::pow(t, exp);
 }
 
@@ -141,6 +143,8 @@ AudioEngine::~AudioEngine() {
     // bounded, acceptable delay on quit.
     if (importThread.joinable())
         importThread.join();
+    if (saveThread.joinable())
+        saveThread.join();
     if (pendingFinishImport) {
         auto fn = std::move(pendingFinishImport);
         pendingFinishImport = nullptr;
@@ -1128,6 +1132,128 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     return true;
 }
 
+void AudioEngine::saveProjectAsync(const std::string& path,
+                                   std::function<void(bool success, std::string error)> onComplete) {
+    if (!projectLoaded) {
+        if (onComplete)
+            onComplete(false, "No project loaded");
+        return;
+    }
+    if (busySaving.exchange(true) || busyImporting.load(std::memory_order_acquire)) {
+        busySaving.store(false);
+        if (onComplete)
+            onComplete(false, "Already busy");
+        return;
+    }
+    if (saveThread.joinable())
+        saveThread.join();
+
+    // Update display name on the live project before snapshotting.
+    {
+        const juce::String stem = juce::File(path).getFileNameWithoutExtension();
+        if (stem.isNotEmpty())
+            loader.project().name = stem.toStdString();
+    }
+
+    const size_t songToRestore = currentSong;
+    const bool wasPlaying = playing.load(std::memory_order_acquire);
+    const bool promotingDraft = usingDraftArchive && path != loader.archivePath();
+    const std::string oldDraftPath = usingDraftArchive ? loader.archivePath() : std::string();
+    const std::string sourcePath = loader.archivePath();
+    Project snapshot = loader.project();
+    auto extras = pendingPeakCacheExtras;
+    const std::string tempOut = path + ".saving";
+
+    // Heavy archive write off the message thread. Streaming keeps reading the
+    // open container (read-only copy of Audio/*); we only briefly stop it for
+    // the final atomic replace + reopen.
+    saveThread = std::thread([this, path, tempOut, snapshot, extras, sourcePath, promotingDraft,
+                              oldDraftPath, songToRestore, wasPlaying, onComplete]() mutable {
+        std::string error;
+        const bool wrote = loader.saveAsWithExtras(tempOut, extras, error, &snapshot);
+
+        juce::MessageManager::callAsync([this, wrote, error, path, tempOut, sourcePath, promotingDraft,
+                                         oldDraftPath, songToRestore, wasPlaying, onComplete]() {
+            namespace fs = std::filesystem;
+            auto finish = [&](bool ok, const std::string& err) {
+                busySaving.store(false, std::memory_order_release);
+                if (onComplete)
+                    onComplete(ok, err);
+            };
+
+            if (!wrote) {
+                std::error_code ec;
+                fs::remove_all(tempOut, ec);
+                finish(false, error.empty() ? "Save failed" : error);
+                return;
+            }
+
+            // Brief streaming pause for the handle swap (UI already stayed
+            // responsive during the long copy above).
+            streaming.stop();
+            joinPendingPeakBuilds();
+
+            loader.close();
+            std::error_code ec;
+            fs::remove_all(path, ec);
+            fs::rename(tempOut, path, ec);
+            if (ec) {
+                // Try to recover the open archive.
+                std::string recoverErr;
+                (void)loader.open(sourcePath, recoverErr);
+                projectLoaded = loader.isOpen();
+                if (projectLoaded)
+                    streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
+                                    [] { leaveCurrentThreadWorkgroupIfJoined(); });
+                finish(false, "Failed to replace archive: " + ec.message());
+                return;
+            }
+
+            std::string openErr;
+            if (!loader.open(path, openErr)) {
+                projectLoaded = false;
+                finish(false, openErr);
+                return;
+            }
+            usingDraftArchive = false;
+            if (promotingDraft && !oldDraftPath.empty() && oldDraftPath != path) {
+                fs::remove_all(oldDraftPath, ec);
+            }
+
+            buildBusListFromProject();
+            projectLoaded = true;
+            streaming.start(&loader, [] { joinCurrentThreadToDefaultOutputWorkgroup(); },
+                            [] { leaveCurrentThreadWorkgroupIfJoined(); });
+
+            currentSong = static_cast<size_t>(-1);
+            trackIdByIndex.clear();
+            trackScratch.clear();
+            trackGainSmooth.clear();
+            clickSendSmooth.clear();
+            trackMeters.clear();
+            const auto& projTracks = loader.project().tracks;
+            if (!projTracks.empty()) {
+                for (const auto& t : projTracks)
+                    trackIdByIndex.push_back(t.id);
+                trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
+                ensureTrackMeters(trackIdByIndex.size());
+                ensureScratchSizes();
+                publishRoutingSnapshot();
+            }
+
+            if (songToRestore != static_cast<size_t>(-1)
+                && songToRestore < loader.project().songs.size()) {
+                std::string selectError;
+                if (selectSong(songToRestore, selectError) && wasPlaying)
+                    play();
+            }
+            clearDirty();
+            clearAutosave();
+            finish(true, {});
+        });
+    });
+}
+
 
 bool AudioEngine::selectSong(size_t songIndex, std::string& error, bool fireOnLoadEventsFlag) {
     return selectSongInternal(songIndex, error, fireOnLoadEventsFlag, /*gaplessKeepPlaying=*/false);
@@ -2049,52 +2175,107 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         const float regGain = reg != nullptr ? dbToGain(reg->gainDb) : 1.0f;
         const double fadeInCurve = reg != nullptr ? reg->fadeInCurve : 0.0;
         const double fadeOutCurve = reg != nullptr ? reg->fadeOutCurve : 0.0;
+        const bool loop = reg != nullptr && reg->loop;
+        // Available source frames from sourceOffset to end of file.
+        const int64_t totalSrc = buf->totalFrames();
+        const int64_t sourceAvail = std::max<int64_t>(0, totalSrc - srcOff);
 
         const bool fullyOutside = reg != nullptr
             && (playheadSample + numSamples <= regStart || playheadSample >= regEnd);
 
         if (!fullyOutside) {
             // Map song timeline → source file frames for this region.
-            // filePos for sample i = (playheadSample + i) - regStart + srcOff.
-            // When the block starts before the region, leave leading silence
-            // and only pull the overlapping tail from file position srcOff.
-            const int64_t filePosAtStart = playheadSample - regStart + srcOff;
-            if (filePosAtStart >= 0) {
+            // Non-loop: filePos = intoRegion + srcOff (silence past sourceAvail).
+            // Loop:     filePos = (intoRegion % sourceAvail) + srcOff so a
+            // clip longer than its source material cycles the content.
+            //
+            // When looping, consecutive samples may wrap -- we still do a
+            // single linear read for the common non-wrap case, then patch
+            // wrapped samples (rare within one block if sourceAvail is large).
+            const int64_t into0 = playheadSample - regStart; // may be negative before start
+            auto mapFilePos = [&](int64_t intoRegion) -> int64_t {
+                if (intoRegion < 0)
+                    return -1;
+                if (sourceAvail <= 0)
+                    return -1;
+                if (loop) {
+                    int64_t m = intoRegion % sourceAvail;
+                    if (m < 0) m += sourceAvail;
+                    return srcOff + m;
+                }
+                if (intoRegion >= sourceAvail)
+                    return -1;
+                return srcOff + intoRegion;
+            };
+
+            const int64_t filePosAtStart = mapFilePos(into0);
+            // Fast path: contiguous non-wrapping read for the whole block.
+            const bool wrapInBlock = loop && sourceAvail > 0
+                && into0 >= 0
+                && (into0 / sourceAvail) != ((into0 + numSamples - 1) / sourceAvail);
+
+            if (!wrapInBlock && filePosAtStart >= 0) {
                 buf->read(ptrs, numSamples, filePosAtStart);
-            } else {
-                const int lead = static_cast<int>(std::min<int64_t>(
-                    numSamples, -filePosAtStart));
+            } else if (!wrapInBlock && filePosAtStart < 0 && into0 + numSamples > 0) {
+                // Leading silence before region start.
+                const int lead = static_cast<int>(std::min<int64_t>(numSamples, -into0));
                 const int tail = numSamples - lead;
                 if (tail > 0) {
                     float* tailPtrs[2] = {
                         ptrs[0] != nullptr ? ptrs[0] + lead : nullptr,
                         trackChannels > 1 && ptrs[1] != nullptr ? ptrs[1] + lead
                                                                : (ptrs[0] != nullptr ? ptrs[0] + lead : nullptr)};
-                    // Read into a contiguous temp on the stack for small
-                    // blocks — but tailPtrs already point into scratch which
-                    // is cleared, so reading straight into the offset works
-                    // only if StreamingTrackBuffer writes from index 0 of the
-                    // pointers we pass (it does).
-                    buf->read(tailPtrs, tail, srcOff);
+                    const int64_t fp = mapFilePos(0);
+                    if (fp >= 0)
+                        buf->read(tailPtrs, tail, fp);
+                }
+            } else if (wrapInBlock || loop) {
+                // Contiguous segments of file frames (one seek per wrap).
+                int i = 0;
+                while (i < numSamples) {
+                    const int64_t fp0 = mapFilePos(into0 + i);
+                    if (fp0 < 0) {
+                        ++i;
+                        continue;
+                    }
+                    int j = i + 1;
+                    while (j < numSamples) {
+                        const int64_t fpj = mapFilePos(into0 + j);
+                        if (fpj != fp0 + (j - i))
+                            break;
+                        ++j;
+                    }
+                    float* segPtrs[2] = {
+                        ptrs[0] != nullptr ? ptrs[0] + i : nullptr,
+                        trackChannels > 1 && ptrs[1] != nullptr ? ptrs[1] + i
+                                                               : (ptrs[0] != nullptr ? ptrs[0] + i : nullptr)};
+                    buf->read(segPtrs, j - i, fp0);
+                    i = j;
                 }
             }
 
             // Window + fades + region gain (sample-accurate at edges).
+            // Non-loop past sourceAvail → silence even if still inside clip.
             if (reg != nullptr) {
                 for (int i = 0; i < numSamples; ++i) {
                     const int64_t absS = playheadSample + i;
                     float g = 0.0f;
                     if (absS >= regStart && absS < regEnd && regLen > 0) {
-                        g = regGain;
                         const int64_t into = absS - regStart;
-                        if (fadeInN > 0 && into < fadeInN) {
-                            const float t = static_cast<float>(into + 1) / static_cast<float>(fadeInN);
-                            g *= shapedFadeGain(t, fadeInCurve);
-                        }
-                        if (fadeOutN > 0 && into >= regLen - fadeOutN) {
-                            const float remain = static_cast<float>(regLen - into);
-                            const float t = remain / static_cast<float>(fadeOutN);
-                            g *= shapedFadeGain(t, fadeOutCurve);
+                        const bool hasSource = loop
+                            ? (sourceAvail > 0)
+                            : (into >= 0 && into < sourceAvail);
+                        if (hasSource) {
+                            g = regGain;
+                            if (fadeInN > 0 && into < fadeInN) {
+                                const float t = static_cast<float>(into + 1) / static_cast<float>(fadeInN);
+                                g *= shapedFadeGain(t, fadeInCurve);
+                            }
+                            if (fadeOutN > 0 && into >= regLen - fadeOutN) {
+                                const float remain = static_cast<float>(regLen - into);
+                                const float t = remain / static_cast<float>(fadeOutN);
+                                g *= shapedFadeGain(t, fadeOutCurve);
+                            }
                         }
                     }
                     for (int ch = 0; ch < trackChannels; ++ch) {

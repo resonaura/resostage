@@ -804,6 +804,7 @@ void MainComponent::publishWebState() {
             rr.fadeOutSeconds = r.fadeOutSeconds;
             rr.fadeInCurve = r.fadeInCurve;
             rr.fadeOutCurve = r.fadeOutCurve;
+            rr.loop = r.loop;
             row.regions.push_back(std::move(rr));
         }
 
@@ -1030,23 +1031,29 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
         if (!target.hasFileExtension(".rsnraset"))
             target = target.withFileExtension(".rsnraset");
 
-        std::string error;
-        if (!engine.saveProject(target.getFullPathName().toStdString(), error)) {
-            setStatus("Save failed: " + juce::String(error));
-            if (onDone)
-                onDone(false);
-            return;
-        }
-        projectTitle.setText(juce::String(engine.project().name), juce::dontSendNotification);
-        playerPanel.refreshProject();
-        mixerPanel.refreshStructure();
-        builderPanel.refresh();
-        setStatus("Saved " + target.getFileName());
-        // Push status into the web UI immediately so the Save button can
-        // briefly show "Saved" (statusMessage is mirrored every tick too).
+        // Immediate UI feedback -- heavy archive I/O runs off-thread so the
+        // message loop (and web UI) keep painting "Saving…".
+        setStatus("Saving " + target.getFileName() + "…");
         publishWebState();
-        if (onDone)
-            onDone(true);
+
+        engine.saveProjectAsync(target.getFullPathName().toStdString(),
+            [this, onDone, name = target.getFileName()](bool ok, std::string error) {
+                if (!ok) {
+                    setStatus("Save failed: " + juce::String(error));
+                    publishWebState();
+                    if (onDone)
+                        onDone(false);
+                    return;
+                }
+                projectTitle.setText(juce::String(engine.project().name), juce::dontSendNotification);
+                playerPanel.refreshProject();
+                mixerPanel.refreshStructure();
+                builderPanel.refresh();
+                setStatus("Saved " + name);
+                publishWebState();
+                if (onDone)
+                    onDone(true);
+            });
     };
 
     // A draft archive doesn't count as "already has a real save location" --

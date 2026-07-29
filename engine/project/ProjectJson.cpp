@@ -195,7 +195,8 @@ std::string serializeProjectJson(const Project& project) {
             o << ",\n";
             o << "          \"fadeOutCurve\": ";
             writeNumber(o, r.fadeOutCurve);
-            o << "\n";
+            o << ",\n";
+            o << "          \"loop\": " << (r.loop ? "true" : "false") << "\n";
             o << "        }" << (ri + 1 < validRegions.size() ? "," : "") << "\n";
         }
         o << "      ],\n";

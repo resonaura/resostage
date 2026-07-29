@@ -253,6 +253,7 @@ struct WebUiState {
             double fadeOutSeconds = 0.0;
             double fadeInCurve = 0.0;
             double fadeOutCurve = 0.0;
+            bool loop = false;
         };
         std::vector<RegionRow> regions;
 
@@ -462,7 +463,10 @@ private:
     friend int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
 
     void serviceLoop();
-    std::string buildStateJson() const;
+    // `view` filters the snapshot to the SPA tab the client is showing
+    // (player/mixer/editor/settings). Transport/time/status always included.
+    // Empty / "all" → full snapshot (REST /api/v1/state).
+    std::string buildStateJson(const char* view = nullptr) const;
     void enqueueCommand(WebCommand cmd);
     bool handleHttpApi(struct lws* wsi, const char* path, const char* method, const char* body, size_t bodyLen);
     int serveStatic(struct lws* wsi, const char* path);

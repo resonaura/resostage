@@ -24,14 +24,28 @@ namespace resoset {
 
 namespace {
 
-// lws requires LWS_PRE bytes of padding before every write buffer.
-constexpr size_t kWsTxMax = 16 * 1024;
+// Max WS text frame we will send. Was 16 KB and silently dropped larger
+// snapshots (looked like "delayed" state). View-filtered payloads are much
+// smaller; this cap is a safety net for huge projects on the editor view.
+constexpr size_t kWsTxMax = 512 * 1024;
+
+// Which SPA tab the client is showing -- drives buildStateJson() so we only
+// push fields that page needs (transport/time always).
+enum class ClientView : uint8_t { Player, Mixer, Editor, Settings };
 
 struct WsSession {
     WebServer* server = nullptr;
     struct lws* wsi = nullptr;
     bool writePending = false;
+    ClientView view = ClientView::Player;
 };
+
+ClientView parseClientView(const std::string& s) {
+    if (s == "mixer") return ClientView::Mixer;
+    if (s == "editor" || s == "builder") return ClientView::Editor;
+    if (s == "settings") return ClientView::Settings;
+    return ClientView::Player;
+}
 
 // Per-HTTP-transaction body accumulator for small REST POSTs. Upload
 // (/api/v1/project/upload) is the one path that bypasses `body` entirely --
@@ -664,8 +678,15 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
                 return 0;
             pss->writePending = false;
 
-            const std::string json = server->buildStateJson();
-            if (json.size() + LWS_PRE > kWsTxMax)
+            const char* viewName = "player";
+            switch (pss->view) {
+                case ClientView::Mixer: viewName = "mixer"; break;
+                case ClientView::Editor: viewName = "editor"; break;
+                case ClientView::Settings: viewName = "settings"; break;
+                case ClientView::Player: default: viewName = "player"; break;
+            }
+            const std::string json = server->buildStateJson(viewName);
+            if (json.empty() || json.size() + LWS_PRE > kWsTxMax)
                 return 0;
 
             std::vector<uint8_t> buf(LWS_PRE + json.size());
@@ -677,10 +698,24 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
     }
 
     if (why == LWS_CALLBACK_RECEIVE) {
-            // Optional: clients may send {"action":"play"} over WS too.
+            // Clients may send transport shortcuts or {"view":"mixer"} to
+            // scope the outbound telemetry to the active SPA tab.
             if (server == nullptr || in == nullptr || len == 0)
                 return 0;
             const std::string msg(static_cast<const char*>(in), len);
+            std::string viewRaw;
+            if (findJsonField(msg, "\"view\"", viewRaw)
+                && viewRaw.size() >= 2 && viewRaw.front() == '"' && viewRaw.back() == '"') {
+                if (pss != nullptr)
+                    pss->view = parseClientView(viewRaw.substr(1, viewRaw.size() - 2));
+                // Push a frame immediately for the new view so the UI doesn't
+                // wait up to one timer tick with stale/partial data.
+                if (pss != nullptr) {
+                    pss->writePending = true;
+                    lws_callback_on_writable(wsi);
+                }
+                return 0;
+            }
             if (msg.find("\"play\"") != std::string::npos)
                 server->enqueueCommand({WebCommandKind::Play, 0});
             else if (msg.find("\"stop\"") != std::string::npos)
@@ -826,25 +861,41 @@ void WebServer::broadcastWritable() {
     // Unused for now -- per-session timers drive telemetry.
 }
 
-std::string WebServer::buildStateJson() const {
+std::string WebServer::buildStateJson(const char* view) const {
     WebUiState snap;
     {
         std::lock_guard<std::mutex> lock(stateMutex);
         snap = state;
     }
 
+    // View scopes the heavy arrays. Transport / time / status always go out.
+    // REST calls with view=nullptr/"all" get the full snapshot.
+    const bool all = (view == nullptr || view[0] == '\0'
+                      || std::strcmp(view, "all") == 0);
+    const bool isPlayer = all || std::strcmp(view, "player") == 0;
+    const bool isMixer = all || std::strcmp(view, "mixer") == 0;
+    const bool isEditor = all || std::strcmp(view, "editor") == 0
+                          || std::strcmp(view, "builder") == 0;
+    const bool isSettings = all || std::strcmp(view, "settings") == 0;
+
+    // Songs: player + editor (timeline/hotkeys). Editor needs full detail.
+    const bool wantSongs = all || isPlayer || isEditor || isMixer;
+    const bool wantSongsFull = all || isEditor; // events, full region fades, clickSends
+    const bool wantMeters = all || isPlayer || isMixer;
+    const bool wantTracks = all || isPlayer || isMixer || isEditor;
+    const bool wantBusses = all || isPlayer || isMixer || isEditor;
+    const bool wantClick = all || isPlayer || isMixer;
+    const bool wantHealth = all || isPlayer || isSettings;
+    const bool wantHealthProcs = all || isSettings;
+    const bool wantSettingsFull = all || isSettings || isMixer; // mixer needs channel names
+
     std::ostringstream o;
     o.setf(std::ios::fixed);
     o.precision(3);
 
+    // ── Always: transport / time / status ──────────────────────────────
     o << "{"
       << "\"projectName\":\"" << jsonEscape(snap.projectName) << "\","
-      << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
-      << "\"clickPan\":" << finiteOrZero(snap.clickPan) << ","
-      << "\"clickSolo\":" << (snap.clickSolo ? "true" : "false") << ","
-      << "\"clickPeakDb\":" << finiteOrDbFloor(snap.clickPeakDb) << ","
-      << "\"clickPeakDbL\":" << finiteOrDbFloor(snap.clickPeakDbL) << ","
-      << "\"clickPeakDbR\":" << finiteOrDbFloor(snap.clickPeakDbR) << ","
       << "\"songName\":\"" << jsonEscape(snap.songName) << "\","
       << "\"playheadSeconds\":" << finiteOrZero(snap.playheadSeconds) << ","
       << "\"globalPlayheadSeconds\":" << finiteOrZero(snap.globalPlayheadSeconds) << ","
@@ -860,217 +911,272 @@ std::string WebServer::buildStateJson() const {
       << "\"busy\":" << (snap.busy ? "true" : "false") << ","
       << "\"quitConfirmPending\":" << (snap.quitConfirmPending ? "true" : "false") << ","
       << "\"uiTab\":\"" << jsonEscape(snap.uiTab) << "\","
-      << "\"uiTabSeq\":" << snap.uiTabSeq << ",";
+      << "\"uiTabSeq\":" << snap.uiTabSeq;
 
-    o << "\"songs\":[";
-    for (size_t i = 0; i < snap.songs.size(); ++i) {
-        if (i) o << ",";
-        const auto& song = snap.songs[i];
-        o << "{\"name\":\"" << jsonEscape(song.name) << "\","
-          << "\"bpm\":" << finiteOrZero(song.bpm) << ","
-          << "\"mode\":\"" << (song.autoplay ? "auto" : "wait") << "\","
-          << "\"tsNum\":" << song.tsNum << ","
-          << "\"tsDen\":" << song.tsDen << ","
-          << "\"click\":" << (song.click ? "true" : "false") << ","
-          << "\"clickBusId\":\"" << jsonEscape(song.clickBusId) << "\","
-          << "\"clickGainDb\":" << finiteOrZero(song.clickGainDb) << ","
-          << "\"clickSends\":[";
-        for (size_t ci = 0; ci < song.clickSends.size(); ++ci) {
-            if (ci) o << ",";
-            const auto& cs = song.clickSends[ci];
-            o << "{\"busId\":\"" << jsonEscape(cs.busId) << "\","
-              << "\"gainDb\":" << finiteOrZero(cs.gainDb) << ","
-              << "\"enabled\":" << (cs.enabled ? "true" : "false") << "}";
+    if (wantClick) {
+        o << ","
+          << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
+          << "\"clickPan\":" << finiteOrZero(snap.clickPan) << ","
+          << "\"clickSolo\":" << (snap.clickSolo ? "true" : "false") << ","
+          << "\"clickPeakDb\":" << finiteOrDbFloor(snap.clickPeakDb) << ","
+          << "\"clickPeakDbL\":" << finiteOrDbFloor(snap.clickPeakDbL) << ","
+          << "\"clickPeakDbR\":" << finiteOrDbFloor(snap.clickPeakDbR);
+    }
+
+    if (wantSongs) {
+        o << ",\"songs\":[";
+        for (size_t i = 0; i < snap.songs.size(); ++i) {
+            if (i) o << ",";
+            const auto& song = snap.songs[i];
+            o << "{\"name\":\"" << jsonEscape(song.name) << "\","
+              << "\"bpm\":" << finiteOrZero(song.bpm) << ","
+              << "\"mode\":\"" << (song.autoplay ? "auto" : "wait") << "\","
+              << "\"tsNum\":" << song.tsNum << ","
+              << "\"tsDen\":" << song.tsDen << ","
+              << "\"click\":" << (song.click ? "true" : "false") << ","
+              << "\"clickBusId\":\"" << jsonEscape(song.clickBusId) << "\","
+              << "\"clickGainDb\":" << finiteOrZero(song.clickGainDb) << ",";
+
+            if (wantSongsFull) {
+                o << "\"clickSends\":[";
+                for (size_t ci = 0; ci < song.clickSends.size(); ++ci) {
+                    if (ci) o << ",";
+                    const auto& cs = song.clickSends[ci];
+                    o << "{\"busId\":\"" << jsonEscape(cs.busId) << "\","
+                      << "\"gainDb\":" << finiteOrZero(cs.gainDb) << ","
+                      << "\"enabled\":" << (cs.enabled ? "true" : "false") << "}";
+                }
+                o << "],";
+            } else {
+                o << "\"clickSends\":[],";
+            }
+
+            // Regions: player needs bounds for timeline length; editor needs
+            // full fade/loop detail for the interactive editor.
+            o << "\"regions\":[";
+            for (size_t j = 0; j < song.regions.size(); ++j) {
+                if (j) o << ",";
+                const auto& r = song.regions[j];
+                o << "{\"id\":\"" << jsonEscape(r.id) << "\","
+                  << "\"trackId\":\"" << jsonEscape(r.trackId) << "\","
+                  << "\"file\":\"" << jsonEscape(r.file) << "\","
+                  << "\"startSeconds\":" << finiteOrZero(r.startSeconds) << ","
+                  << "\"sourceOffsetSeconds\":" << finiteOrZero(r.sourceOffsetSeconds) << ","
+                  << "\"durationSeconds\":" << finiteOrZero(r.durationSeconds) << ","
+                  << "\"gainDb\":" << finiteOrZero(r.gainDb);
+                if (wantSongsFull || isPlayer) {
+                    o << ",\"fadeInSeconds\":" << finiteOrZero(r.fadeInSeconds)
+                      << ",\"fadeOutSeconds\":" << finiteOrZero(r.fadeOutSeconds)
+                      << ",\"fadeInCurve\":" << finiteOrZero(r.fadeInCurve)
+                      << ",\"fadeOutCurve\":" << finiteOrZero(r.fadeOutCurve)
+                      << ",\"loop\":" << (r.loop ? "true" : "false");
+                }
+                o << "}";
+            }
+            o << "],";
+
+            if (wantSongsFull) {
+                o << "\"events\":[";
+                for (size_t j = 0; j < song.events.size(); ++j) {
+                    if (j) o << ",";
+                    const auto& e = song.events[j];
+                    o << "{\"id\":\"" << jsonEscape(e.id) << "\","
+                      << "\"type\":\"" << jsonEscape(e.type) << "\","
+                      << "\"timeSeconds\":" << finiteOrZero(e.timeSeconds) << ","
+                      << "\"triggerOnLoad\":" << (e.triggerOnLoad ? "true" : "false") << ","
+                      << "\"latencyMs\":" << finiteOrZero(e.latencyMs) << ","
+                      << "\"midiChannel\":" << e.midiChannel << ","
+                      << "\"midiProgram\":" << e.midiProgram << ","
+                      << "\"midiCC\":" << e.midiCC << ","
+                      << "\"midiCCValue\":" << e.midiCCValue << ","
+                      << "\"midiNote\":" << e.midiNote << ","
+                      << "\"midiVelocity\":" << e.midiVelocity << ","
+                      << "\"httpUrl\":\"" << jsonEscape(e.httpUrl) << "\"}";
+                }
+                o << "],";
+            } else {
+                o << "\"events\":[],";
+            }
+
+            // Sections always with songs (section hotkeys on every page).
+            o << "\"sections\":[";
+            for (size_t j = 0; j < song.sections.size(); ++j) {
+                if (j) o << ",";
+                const auto& sec = song.sections[j];
+                o << "{\"id\":\"" << jsonEscape(sec.id) << "\","
+                  << "\"name\":\"" << jsonEscape(sec.name) << "\","
+                  << "\"startSeconds\":" << finiteOrZero(sec.startSeconds) << ","
+                  << "\"colorIndex\":" << sec.colorIndex << "}";
+            }
+            o << "]}";
         }
-        o << "],";
+        o << "]";
+    }
 
-        o << "\"regions\":[";
-        for (size_t j = 0; j < song.regions.size(); ++j) {
-            if (j) o << ",";
-            const auto& r = song.regions[j];
-            o << "{\"id\":\"" << jsonEscape(r.id) << "\","
-              << "\"trackId\":\"" << jsonEscape(r.trackId) << "\","
-              << "\"file\":\"" << jsonEscape(r.file) << "\","
-              << "\"startSeconds\":" << finiteOrZero(r.startSeconds) << ","
-              << "\"sourceOffsetSeconds\":" << finiteOrZero(r.sourceOffsetSeconds) << ","
-              << "\"durationSeconds\":" << finiteOrZero(r.durationSeconds) << ","
-              << "\"gainDb\":" << finiteOrZero(r.gainDb) << ","
-              << "\"fadeInSeconds\":" << finiteOrZero(r.fadeInSeconds) << ","
-              << "\"fadeOutSeconds\":" << finiteOrZero(r.fadeOutSeconds) << ","
-              << "\"fadeInCurve\":" << finiteOrZero(r.fadeInCurve) << ","
-              << "\"fadeOutCurve\":" << finiteOrZero(r.fadeOutCurve) << "}";
+    if (wantMeters) {
+        o << ",\"meters\":[";
+        for (size_t i = 0; i < snap.meters.size(); ++i) {
+            if (i) o << ",";
+            o << "{\"id\":\"" << jsonEscape(snap.meters[i].id) << "\","
+              << "\"peakDb\":" << finiteOrDbFloor(snap.meters[i].peakDb) << ","
+              << "\"peakDbL\":" << finiteOrDbFloor(snap.meters[i].peakDbL) << ","
+              << "\"peakDbR\":" << finiteOrDbFloor(snap.meters[i].peakDbR) << ","
+              << "\"shortTermLufs\":" << finiteOrZero(snap.meters[i].shortTermLufs) << "}";
         }
-        o << "],";
+        o << "]";
+    }
 
-        o << "\"events\":[";
-        for (size_t j = 0; j < song.events.size(); ++j) {
-            if (j) o << ",";
-            const auto& e = song.events[j];
-            o << "{\"id\":\"" << jsonEscape(e.id) << "\","
-              << "\"type\":\"" << jsonEscape(e.type) << "\","
-              << "\"timeSeconds\":" << finiteOrZero(e.timeSeconds) << ","
-              << "\"triggerOnLoad\":" << (e.triggerOnLoad ? "true" : "false") << ","
-              << "\"latencyMs\":" << finiteOrZero(e.latencyMs) << ","
-              << "\"midiChannel\":" << e.midiChannel << ","
-              << "\"midiProgram\":" << e.midiProgram << ","
-              << "\"midiCC\":" << e.midiCC << ","
-              << "\"midiCCValue\":" << e.midiCCValue << ","
-              << "\"midiNote\":" << e.midiNote << ","
-              << "\"midiVelocity\":" << e.midiVelocity << ","
-              << "\"httpUrl\":\"" << jsonEscape(e.httpUrl) << "\"}";
+    if (wantTracks) {
+        o << ",\"tracks\":[";
+        for (size_t i = 0; i < snap.tracks.size(); ++i) {
+            if (i) o << ",";
+            const auto& t = snap.tracks[i];
+            o << "{\"id\":\"" << jsonEscape(t.id) << "\","
+              << "\"name\":\"" << jsonEscape(t.name) << "\","
+              << "\"busId\":\"" << jsonEscape(t.busId) << "\","
+              << "\"gainDb\":" << finiteOrZero(t.gainDb) << ","
+              << "\"pan\":" << finiteOrZero(t.pan) << ","
+              << "\"mute\":" << (t.mute ? "true" : "false") << ","
+              << "\"solo\":" << (t.solo ? "true" : "false") << ","
+              << "\"mono\":" << (t.mono ? "true" : "false") << ","
+              << "\"sends\":[";
+            if (isMixer || all) {
+                for (size_t si = 0; si < t.sends.size(); ++si) {
+                    if (si) o << ",";
+                    o << "{\"busId\":\"" << jsonEscape(t.sends[si].busId) << "\","
+                      << "\"gainDb\":" << finiteOrZero(t.sends[si].gainDb) << "}";
+                }
+            }
+            o << "],"
+              << "\"peakDb\":" << finiteOrDbFloor(t.peakDb) << ","
+              << "\"peakDbL\":" << finiteOrDbFloor(t.peakDbL) << ","
+              << "\"peakDbR\":" << finiteOrDbFloor(t.peakDbR) << "}";
         }
-        o << "],";
+        o << "]";
+    }
 
-        o << "\"sections\":[";
-        for (size_t j = 0; j < song.sections.size(); ++j) {
-            if (j) o << ",";
-            const auto& sec = song.sections[j];
-            o << "{\"id\":\"" << jsonEscape(sec.id) << "\","
-              << "\"name\":\"" << jsonEscape(sec.name) << "\","
-              << "\"startSeconds\":" << finiteOrZero(sec.startSeconds) << ","
-              << "\"colorIndex\":" << sec.colorIndex << "}";
+    if (wantBusses) {
+        o << ",\"busses\":[";
+        for (size_t i = 0; i < snap.busses.size(); ++i) {
+            if (i) o << ",";
+            const auto& b = snap.busses[i];
+            o << "{\"id\":\"" << jsonEscape(b.id) << "\","
+              << "\"name\":\"" << jsonEscape(b.name) << "\","
+              << "\"gainDb\":" << finiteOrZero(b.gainDb) << ","
+              << "\"mute\":" << (b.mute ? "true" : "false") << ","
+              << "\"solo\":" << (b.solo ? "true" : "false") << ","
+              << "\"isAux\":" << (b.isAux ? "true" : "false") << ","
+              << "\"startChannel\":" << b.startChannel << ","
+              << "\"channels\":" << b.channels << ","
+              << "\"peakDb\":" << finiteOrDbFloor(b.peakDb) << ","
+              << "\"peakDbL\":" << finiteOrDbFloor(b.peakDbL) << ","
+              << "\"peakDbR\":" << finiteOrDbFloor(b.peakDbR) << "}";
+        }
+        o << "]";
+    }
+
+    if (wantHealth) {
+        o << ",\"health\":{"
+          << "\"cpuPercent\":" << finiteOrZero(snap.cpuPercent) << ","
+          << "\"rssBytes\":" << snap.rssBytes << ","
+          << "\"freeBytes\":" << snap.freeBytes << ","
+          << "\"underrunCount\":" << snap.underrunCount << ","
+          << "\"audioCallbackCount\":" << snap.audioCallbackCount << ","
+          << "\"webClientCount\":" << snap.webClientCount << ","
+          << "\"processes\":[";
+        if (wantHealthProcs) {
+            for (size_t i = 0; i < snap.processes.size(); ++i) {
+                if (i) o << ",";
+                const auto& p = snap.processes[i];
+                o << "{\"pid\":" << p.pid
+                  << ",\"name\":\"" << jsonEscape(p.name) << "\""
+                  << ",\"rssBytes\":" << p.rssBytes
+                  << ",\"cpuPercent\":" << finiteOrZero(p.cpuPercent) << "}";
+            }
         }
         o << "]}";
     }
-    o << "],";
 
-    o << "\"meters\":[";
-    for (size_t i = 0; i < snap.meters.size(); ++i) {
-        if (i) o << ",";
-        o << "{\"id\":\"" << jsonEscape(snap.meters[i].id) << "\","
-          << "\"peakDb\":" << finiteOrDbFloor(snap.meters[i].peakDb) << ","
-          << "\"peakDbL\":" << finiteOrDbFloor(snap.meters[i].peakDbL) << ","
-          << "\"peakDbR\":" << finiteOrDbFloor(snap.meters[i].peakDbR) << ","
-          << "\"shortTermLufs\":" << finiteOrZero(snap.meters[i].shortTermLufs) << "}";
-    }
-    o << "],";
-
-    o << "\"tracks\":[";
-    for (size_t i = 0; i < snap.tracks.size(); ++i) {
-        if (i) o << ",";
-        const auto& t = snap.tracks[i];
-        o << "{\"id\":\"" << jsonEscape(t.id) << "\","
-          << "\"name\":\"" << jsonEscape(t.name) << "\","
-          << "\"busId\":\"" << jsonEscape(t.busId) << "\","
-          << "\"gainDb\":" << finiteOrZero(t.gainDb) << ","
-          << "\"pan\":" << finiteOrZero(t.pan) << ","
-          << "\"mute\":" << (t.mute ? "true" : "false") << ","
-          << "\"solo\":" << (t.solo ? "true" : "false") << ","
-          << "\"mono\":" << (t.mono ? "true" : "false") << ","
-          << "\"sends\":[";
-        for (size_t si = 0; si < t.sends.size(); ++si) {
-            if (si) o << ",";
-            o << "{\"busId\":\"" << jsonEscape(t.sends[si].busId) << "\","
-              << "\"gainDb\":" << finiteOrZero(t.sends[si].gainDb) << "}";
+    // Settings: always ship keybindings (global hotkeys). Full device/MIDI
+    // lists only on settings (and mixer, for channel routing labels).
+    const auto& s = snap.settings;
+    o << ",\"settings\":{";
+    if (wantSettingsFull) {
+        o << "\"currentOutputDevice\":\"" << jsonEscape(s.currentOutputDevice) << "\","
+          << "\"outputDevices\":[";
+        for (size_t i = 0; i < s.outputDevices.size(); ++i) {
+            if (i) o << ",";
+            o << "\"" << jsonEscape(s.outputDevices[i]) << "\"";
         }
         o << "],"
-          << "\"peakDb\":" << finiteOrDbFloor(t.peakDb) << ","
-          << "\"peakDbL\":" << finiteOrDbFloor(t.peakDbL) << ","
-          << "\"peakDbR\":" << finiteOrDbFloor(t.peakDbR) << "}";
+          << "\"sampleRate\":" << finiteOrZero(s.sampleRate) << ","
+          << "\"availableSampleRates\":[";
+        for (size_t i = 0; i < s.availableSampleRates.size(); ++i) {
+            if (i) o << ",";
+            o << finiteOrZero(s.availableSampleRates[i]);
+        }
+        o << "],"
+          << "\"bufferSize\":" << s.bufferSize << ","
+          << "\"availableBufferSizes\":[";
+        for (size_t i = 0; i < s.availableBufferSizes.size(); ++i) {
+            if (i) o << ",";
+            o << s.availableBufferSizes[i];
+        }
+        o << "],"
+          << "\"outputChannelNames\":[";
+        for (size_t i = 0; i < s.outputChannelNames.size(); ++i) {
+            if (i) o << ",";
+            o << "\"" << jsonEscape(s.outputChannelNames[i]) << "\"";
+        }
+        o << "],"
+          << "\"activeOutputChannels\":[";
+        for (size_t i = 0; i < s.activeOutputChannels.size(); ++i) {
+            if (i) o << ",";
+            o << (s.activeOutputChannels[i] ? "true" : "false");
+        }
+        o << "],"
+          << "\"midiOutputs\":[";
+        for (size_t i = 0; i < s.midiOutputs.size(); ++i) {
+            if (i) o << ",";
+            o << "\"" << jsonEscape(s.midiOutputs[i]) << "\"";
+        }
+        o << "],"
+          << "\"midiInputs\":[";
+        for (size_t i = 0; i < s.midiInputs.size(); ++i) {
+            if (i) o << ",";
+            o << "\"" << jsonEscape(s.midiInputs[i]) << "\"";
+        }
+        o << "],";
+    } else {
+        // Stubs so the client type stays happy without shipping full lists.
+        o << "\"currentOutputDevice\":\"\","
+          << "\"outputDevices\":[],"
+          << "\"sampleRate\":0,"
+          << "\"availableSampleRates\":[],"
+          << "\"bufferSize\":0,"
+          << "\"availableBufferSizes\":[],"
+          << "\"outputChannelNames\":[],"
+          << "\"activeOutputChannels\":[],"
+          << "\"midiOutputs\":[],"
+          << "\"midiInputs\":[],";
     }
-    o << "],";
-
-    o << "\"busses\":[";
-    for (size_t i = 0; i < snap.busses.size(); ++i) {
-        if (i) o << ",";
-        const auto& b = snap.busses[i];
-        o << "{\"id\":\"" << jsonEscape(b.id) << "\","
-          << "\"name\":\"" << jsonEscape(b.name) << "\","
-          << "\"gainDb\":" << finiteOrZero(b.gainDb) << ","
-          << "\"mute\":" << (b.mute ? "true" : "false") << ","
-          << "\"solo\":" << (b.solo ? "true" : "false") << ","
-          << "\"isAux\":" << (b.isAux ? "true" : "false") << ","
-          << "\"startChannel\":" << b.startChannel << ","
-          << "\"channels\":" << b.channels << ","
-          << "\"peakDb\":" << finiteOrDbFloor(b.peakDb) << ","
-          << "\"peakDbL\":" << finiteOrDbFloor(b.peakDbL) << ","
-          << "\"peakDbR\":" << finiteOrDbFloor(b.peakDbR) << "}";
-    }
-    o << "],";
-
-    o << "\"health\":{"
-      << "\"cpuPercent\":" << finiteOrZero(snap.cpuPercent) << ","
-      << "\"rssBytes\":" << snap.rssBytes << ","
-      << "\"freeBytes\":" << snap.freeBytes << ","
-      << "\"underrunCount\":" << snap.underrunCount << ","
-      << "\"audioCallbackCount\":" << snap.audioCallbackCount << ","
-      << "\"webClientCount\":" << snap.webClientCount << ","
-      << "\"processes\":[";
-    for (size_t i = 0; i < snap.processes.size(); ++i) {
-        if (i) o << ",";
-        const auto& p = snap.processes[i];
-        o << "{\"pid\":" << p.pid
-          << ",\"name\":\"" << jsonEscape(p.name) << "\""
-          << ",\"rssBytes\":" << p.rssBytes
-          << ",\"cpuPercent\":" << finiteOrZero(p.cpuPercent) << "}";
-    }
-    o << "]"
-      << "},";
-
-    const auto& s = snap.settings;
-    o << "\"settings\":{"
-      << "\"currentOutputDevice\":\"" << jsonEscape(s.currentOutputDevice) << "\","
-      << "\"outputDevices\":[";
-    for (size_t i = 0; i < s.outputDevices.size(); ++i) {
-        if (i) o << ",";
-        o << "\"" << jsonEscape(s.outputDevices[i]) << "\"";
-    }
-    o << "],"
-      << "\"sampleRate\":" << finiteOrZero(s.sampleRate) << ","
-      << "\"availableSampleRates\":[";
-    for (size_t i = 0; i < s.availableSampleRates.size(); ++i) {
-        if (i) o << ",";
-        o << finiteOrZero(s.availableSampleRates[i]);
-    }
-    o << "],"
-      << "\"bufferSize\":" << s.bufferSize << ","
-      << "\"availableBufferSizes\":[";
-    for (size_t i = 0; i < s.availableBufferSizes.size(); ++i) {
-        if (i) o << ",";
-        o << s.availableBufferSizes[i];
-    }
-    o << "],"
-      << "\"outputChannelNames\":[";
-    for (size_t i = 0; i < s.outputChannelNames.size(); ++i) {
-        if (i) o << ",";
-        o << "\"" << jsonEscape(s.outputChannelNames[i]) << "\"";
-    }
-    o << "],"
-      << "\"activeOutputChannels\":[";
-    for (size_t i = 0; i < s.activeOutputChannels.size(); ++i) {
-        if (i) o << ",";
-        o << (s.activeOutputChannels[i] ? "true" : "false");
-    }
-    o << "],"
-      << "\"midiOutputs\":[";
-    for (size_t i = 0; i < s.midiOutputs.size(); ++i) {
-        if (i) o << ",";
-        o << "\"" << jsonEscape(s.midiOutputs[i]) << "\"";
-    }
-    o << "],"
-      << "\"midiInputs\":[";
-    for (size_t i = 0; i < s.midiInputs.size(); ++i) {
-        if (i) o << ",";
-        o << "\"" << jsonEscape(s.midiInputs[i]) << "\"";
-    }
-    o << "],"
-      << "\"keybindings\":[";
+    o << "\"keybindings\":[";
     for (size_t i = 0; i < s.keybindings.size(); ++i) {
         if (i) o << ",";
         o << "{\"action\":\"" << jsonEscape(s.keybindings[i].action) << "\","
           << "\"key\":\"" << jsonEscape(s.keybindings[i].key) << "\"}";
     }
-    o << "],"
-      << "\"midiBindings\":[";
-    for (size_t i = 0; i < s.midiBindings.size(); ++i) {
-        if (i) o << ",";
-        o << "{\"action\":\"" << jsonEscape(s.midiBindings[i].action) << "\","
-          << "\"trigger\":\"" << jsonEscape(s.midiBindings[i].trigger) << "\","
-          << "\"channel\":" << s.midiBindings[i].channel << ","
-          << "\"number\":" << s.midiBindings[i].number << "}";
+    o << "],\"midiBindings\":[";
+    if (isSettings || all) {
+        for (size_t i = 0; i < s.midiBindings.size(); ++i) {
+            if (i) o << ",";
+            o << "{\"action\":\"" << jsonEscape(s.midiBindings[i].action) << "\","
+              << "\"trigger\":\"" << jsonEscape(s.midiBindings[i].trigger) << "\","
+              << "\"channel\":" << s.midiBindings[i].channel << ","
+              << "\"number\":" << s.midiBindings[i].number << "}";
+        }
     }
-    o << "],"
-      << "\"midiLearnAction\":\"" << jsonEscape(s.midiLearnAction) << "\""
+    o << "],\"midiLearnAction\":\"" << jsonEscape(s.midiLearnAction) << "\""
       << "}"
       << "}";
 

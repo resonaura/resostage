@@ -310,6 +310,7 @@ void MainComponent::builderRegionAdd(const std::string& json) {
     getDouble(doc, "fadeOutSeconds", reg.fadeOutSeconds);
     getDouble(doc, "fadeInCurve", reg.fadeInCurve);
     getDouble(doc, "fadeOutCurve", reg.fadeOutCurve);
+    getBool(doc, "loop", reg.loop);
 
     s.regions.push_back(std::move(reg));
     engine.markDirty();
@@ -372,6 +373,9 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
         regPtr->fadeInCurve = std::clamp(numVal, -1.0, 1.0);
     if (getDouble(doc, "fadeOutCurve", numVal))
         regPtr->fadeOutCurve = std::clamp(numVal, -1.0, 1.0);
+    bool boolVal = false;
+    if (getBool(doc, "loop", boolVal))
+        regPtr->loop = boolVal;
 
     // Keep fades from exceeding the clip length (each side ≤ half duration).
     if (regPtr->durationSeconds > 0.0) {
