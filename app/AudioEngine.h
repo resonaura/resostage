@@ -196,8 +196,9 @@ public:
     // click gain/pan.
     void setClickSolo(bool solo);
     void setBusOutputChannel(size_t busIndex, int startChannel);
-    // Safe wrapper around AudioDeviceManager::setAudioDeviceSetup that suppresses
-    // false-positive hardwareAlarm triggers during intentional device re-configuration.
+    // Safe wrapper around AudioDeviceManager::initialiseWithDefaultDevices and setAudioDeviceSetup
+    // that suppresses false-positive hardwareAlarm triggers during intentional device re-configuration.
+    juce::String initialiseDefaultDevices(int numInputChannels = 0, int numOutputChannels = 2);
     juce::String setAudioDeviceSetup(const juce::AudioDeviceManager::AudioDeviceSetup& setup, bool treatAsPreferred);
 
     // Full rebuild of routing from the current Project state (after Builder edits).

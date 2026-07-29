@@ -11,7 +11,7 @@
 namespace resoset {
 
 MainComponent::MainComponent() {
-    engine.deviceManager().initialiseWithDefaultDevices(0, 2);
+    engine.initialiseDefaultDevices(0, 2);
     // Prefer 48 kHz for stage playback (matches project schema default and
     // most concert audio interfaces). Fall back silently if the device rejects it.
     {

@@ -180,6 +180,18 @@ AudioEngine::~AudioEngine() {
     deviceManagerInstance.closeAudioDevice();
 }
 
+juce::String AudioEngine::initialiseDefaultDevices(int numInputChannels, int numOutputChannels) {
+    isChangingSetup.store(true, std::memory_order_relaxed);
+    const juce::String error = deviceManagerInstance.initialiseWithDefaultDevices(numInputChannels, numOutputChannels);
+    isChangingSetup.store(false, std::memory_order_relaxed);
+
+    if (auto* dev = deviceManagerInstance.getCurrentAudioDevice()) {
+        lastKnownDeviceName = dev->getName().toStdString();
+        transportTelemetry.hardwareAlarm.store(false, std::memory_order_relaxed);
+    }
+    return error;
+}
+
 juce::String AudioEngine::setAudioDeviceSetup(const juce::AudioDeviceManager::AudioDeviceSetup& setup, bool treatAsPreferred) {
     isChangingSetup.store(true, std::memory_order_relaxed);
     const juce::String error = deviceManagerInstance.setAudioDeviceSetup(setup, treatAsPreferred);
@@ -219,7 +231,9 @@ void AudioEngine::checkForDeviceLoss() {
     // where playback happened to stop.
     lastKnownDeviceName.clear();
     transportTelemetry.hardwareAlarm.store(true, std::memory_order_relaxed);
+    isChangingSetup.store(true, std::memory_order_relaxed);
     deviceManagerInstance.initialiseWithDefaultDevices(0, 2);
+    isChangingSetup.store(false, std::memory_order_relaxed);
 }
 
 const SeqLock<MeterFrame>* AudioEngine::busMeterAt(size_t index) const {
