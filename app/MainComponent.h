@@ -6,6 +6,7 @@
 #include "midi/CoreMidiInputListener.h"
 #include "ui/BusyOverlay.h"
 #include "ui/DevOrEmbeddedWebView.h"
+#include "ui/WebLoadingOverlay.h"
 #include "web/WebServer.h"
 
 #include <memory>
@@ -40,6 +41,7 @@ private:
     juce::Label alarmBanner;
     std::unique_ptr<DevOrEmbeddedWebView> webView;
     BusyOverlay busyOverlay;
+    WebLoadingOverlay webLoadingOverlay;
     bool wasBusyLastTick = false;
     // Mirrored into WebUiState::statusMessage (no native status bar anymore).
     std::string lastStatusMessage;

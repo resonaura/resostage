@@ -90,51 +90,6 @@ inline constexpr char kAssetData2[] = R"CSS(<!doctype html>
         width: 100%;
         height: 100%;
       }
-      #loading-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        background-color: #000 !important;
-        pointer-events: none;
-        z-index: 999999;
-        overflow: hidden !important;
-        opacity: 1;
-        visibility: visible;
-        transition: opacity 0.18s ease-out, visibility 0.18s ease-out;
-      }
-      #loading-overlay span {
-        display: inline-block;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        font-size: 13px;
-        font-weight: 600;
-        letter-spacing: 0.2em;
-        margin-right: -0.2em;
-        line-height: 1;
-        text-transform: uppercase;
-        color: #ffffff;
-        opacity: 0;
-        animation: fadeInLoadingText 0.15s ease-out forwards;
-        user-select: none;
-        -webkit-user-select: none;
-      }
-      @keyframes fadeInLoadingText {
-        from { opacity: 0; }
-        to   { opacity: 0.1; }
-      }
-      .loading-overlay-hidden {
-        opacity: 0 !important;
-        visibility: hidden !important;
-      }
     </style>
     <script type="module" crossorigin src="/assets/index-BxSd7QLx.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-DbxFDwOt.css">

@@ -41,6 +41,7 @@ function useForcedDarkTheme() {
 }
 
 
+
 /** Match a key event against a juce-style description ("space", "cmd + p", "f1"). */
 function eventMatchesBinding(e: KeyboardEvent, description: string): boolean {
   if (!description) return false;

@@ -20,10 +20,19 @@ namespace resoset {
 // was tried and is far too expensive for multi-KB JSON frames.
 class DevOrEmbeddedWebView final : public juce::WebBrowserComponent {
 public:
+    std::function<void()> onPageLoaded;
+
     explicit DevOrEmbeddedWebView(juce::String fallbackUrl)
         : embeddedFallbackUrl(std::move(fallbackUrl) + "?embedded=1") {
         setOpaque(true);
         goToURL(devServerUrl);
+    }
+
+    void pageFinishedLoading(const juce::String& url) override {
+        juce::WebBrowserComponent::pageFinishedLoading(url);
+        if (onPageLoaded) {
+            juce::MessageManager::callAsync(onPageLoaded);
+        }
     }
 
     void paint(juce::Graphics& g) override {

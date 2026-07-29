@@ -39,6 +39,7 @@ MainComponent::MainComponent() {
     };
 
     addChildComponent(busyOverlay);
+    webLoadingOverlay.startLoading();
 
     // Start with a real, empty, editable project rather than a "load
     // something first" placeholder -- SPA Builder is immediately usable.
@@ -64,7 +65,11 @@ MainComponent::MainComponent() {
     // Prefer Vite dev server (:2900) when running; fall back to embedded assets.
     webView = std::make_unique<DevOrEmbeddedWebView>(
         "http://localhost:" + juce::String(kWebPort) + "/");
+    webView->onPageLoaded = [this] {
+        webLoadingOverlay.dismiss();
+    };
     addAndMakeVisible(*webView);
+    addAndMakeVisible(webLoadingOverlay);
 
     setWantsKeyboardFocus(true);
     setSize(1280, 800);
@@ -90,6 +95,7 @@ void MainComponent::resized() {
     if (webView != nullptr)
         webView->setBounds(r);
     busyOverlay.setBounds(getLocalBounds());
+    webLoadingOverlay.setBounds(getLocalBounds());
 }
 
 bool MainComponent::keyPressed(const juce::KeyPress& key) {
@@ -282,6 +288,14 @@ void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to1
 }
 
 void MainComponent::timerCallback() {
+    if (!webLoadingOverlay.isDone()) {
+        webLoadingOverlay.tickAnimation();
+        webLoadingOverlay.toFront(false);
+        if (startupTicks > 90) { // Safety fallback (~3s)
+            webLoadingOverlay.dismiss();
+        }
+    }
+
     const bool busyNow = engine.isBusy();
     if (busyNow != wasBusyLastTick) {
         busyOverlay.setVisible(busyNow);
