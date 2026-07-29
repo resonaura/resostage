@@ -14,7 +14,7 @@
 #include <chrono>
 #include <unordered_map>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -302,4 +302,4 @@ SystemHealthSnapshot SystemHealth::sample() const {
     return snap;
 }
 
-} // namespace resoset
+} // namespace resostage

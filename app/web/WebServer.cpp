@@ -20,7 +20,7 @@
 #include <string_view>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -1594,4 +1594,4 @@ int WebServer::serveExportDownload(struct lws* wsi) {
                              disposition.c_str());
 }
 
-} // namespace resoset
+} // namespace resostage

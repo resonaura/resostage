@@ -16,7 +16,7 @@ struct lws_context;
 struct lws;
 struct lws_protocols;
 
-namespace resoset {
+namespace resostage {
 
 // Remote-control actions enqueued by the web/HTTP thread and drained on the
 // JUCE message thread (MainComponent timer). Never executed on the lws service
@@ -572,4 +572,4 @@ private:
     // The service thread owns a linked list of live WS sessions via user data.
 };
 
-} // namespace resoset
+} // namespace resostage

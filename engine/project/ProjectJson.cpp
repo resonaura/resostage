@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <sstream>
 
-namespace resoset {
+namespace resostage {
 
 std::string jsonEscapeString(const std::string& s) {
     std::string out;
@@ -280,4 +280,4 @@ std::string serializeProjectJson(const Project& project) {
     return o.str();
 }
 
-} // namespace resoset
+} // namespace resostage

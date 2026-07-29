@@ -1,6 +1,6 @@
 #pragma once
 
-namespace resoset {
+namespace resostage {
 
 // Joins the calling thread to the current default CoreAudio output device's
 // real-time IO workgroup (kAudioDevicePropertyIOThreadOSWorkgroup), so
@@ -40,4 +40,4 @@ bool joinCurrentThreadToDefaultOutputWorkgroup();
 // failed (no-op in that case). MUST be called before the thread returns/exits.
 void leaveCurrentThreadWorkgroupIfJoined();
 
-} // namespace resoset
+} // namespace resostage

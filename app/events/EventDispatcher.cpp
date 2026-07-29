@@ -14,7 +14,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -191,4 +191,4 @@ void EventDispatcher::workerThreadLoop() {
     leaveCurrentThreadWorkgroupIfJoined();
 }
 
-} // namespace resoset
+} // namespace resostage

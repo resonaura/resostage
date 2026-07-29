@@ -10,7 +10,7 @@
 #include <thread>
 #include <vector>
 
-using namespace resoset;
+using namespace resostage;
 
 namespace {
 

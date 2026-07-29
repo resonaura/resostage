@@ -8,7 +8,7 @@
 #include <optional>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 MainComponent::MainComponent() {
     engine.initialiseDefaultDevices(0, 2);
@@ -874,6 +874,28 @@ void MainComponent::newProjectClicked() {
     });
 }
 
+bool MainComponent::loadProjectFromPath(const juce::File& file) {
+    if (!file.exists())
+        return false;
+
+    std::string error;
+    if (!engine.loadProject(file.getFullPathName().toStdString(), error)) {
+        setStatus("Load failed: " + juce::String(error));
+        return false;
+    }
+
+    applyProjectBindings();
+    onProjectLoaded();
+    setStatus("Loaded '" + juce::String(engine.project().name) + "' | "
+              + juce::String(static_cast<int>(engine.project().songs.size())) + " songs | "
+              + juce::String(static_cast<int>(engine.busCount())) + " busses");
+
+    if (!engine.project().songs.empty())
+        goToSong(0);
+
+    return true;
+}
+
 void MainComponent::loadProjectClicked() {
     fileChooser = std::make_unique<juce::FileChooser>(
         "Select a .rsnraset project", juce::File(), "*.rsnraset");
@@ -1125,4 +1147,4 @@ void MainComponent::importSongFolderNative() {
     });
 }
 
-} // namespace resoset
+} // namespace resostage

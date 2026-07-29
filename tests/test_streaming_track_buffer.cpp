@@ -9,7 +9,7 @@
 #include <cstring>
 #include <vector>
 
-using namespace resoset;
+using namespace resostage;
 
 namespace {
 

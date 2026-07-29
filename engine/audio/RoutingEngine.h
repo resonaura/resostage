@@ -5,7 +5,7 @@
 #include <atomic>
 #include <memory>
 
-namespace resoset {
+namespace resostage {
 
 // Flat routing table published via atomic std::shared_ptr swap.
 //
@@ -55,4 +55,4 @@ private:
     std::shared_ptr<const RoutingSnapshot> active;
 };
 
-} // namespace resoset
+} // namespace resostage

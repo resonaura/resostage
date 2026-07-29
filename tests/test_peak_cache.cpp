@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-using namespace resoset;
+using namespace resostage;
 
 TEST_CASE("PeakCache serialize/deserialize round-trip") {
     PeakOverview ov;

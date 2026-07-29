@@ -12,7 +12,7 @@
 
 #include <cstddef>
 
-namespace resoset {
+namespace resostage {
 namespace embedded_assets {
 
 #if defined(__clang__) || defined(__GNUC__)
@@ -120,4 +120,4 @@ inline constexpr std::size_t kAssetCount = sizeof(kAssets) / sizeof(kAssets[0]);
 inline constexpr const char* kIndexHtmlPath = "/index.html";
 
 } // namespace embedded_assets
-} // namespace resoset
+} // namespace resostage

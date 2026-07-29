@@ -13,7 +13,7 @@
 #include <algorithm>
 #include <cstdio>
 
-namespace resoset {
+namespace resostage {
 
 using namespace builder_json;
 
@@ -782,4 +782,4 @@ void MainComponent::builderEventUpdate(const std::string& json) {
     setStatus("Event updated");
 }
 
-} // namespace resoset
+} // namespace resostage

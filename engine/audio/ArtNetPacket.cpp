@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace resoset {
+namespace resostage {
 
 std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data) {
     std::vector<uint8_t> packet;
@@ -63,4 +63,4 @@ bool parseArtDmxPacket(const uint8_t* packet, size_t size,
     return true;
 }
 
-} // namespace resoset
+} // namespace resostage

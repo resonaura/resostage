@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Streams one stem into an SPSC ring, or holds a *used source window* in RAM.
 //
@@ -175,4 +175,4 @@ private:
     std::shared_ptr<const ResidentWindow> residentWindow;
 };
 
-} // namespace resoset
+} // namespace resostage

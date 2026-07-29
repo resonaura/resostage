@@ -11,7 +11,7 @@
 
 #include <algorithm>
 
-namespace resoset {
+namespace resostage {
 
 using namespace builder_json;
 
@@ -316,4 +316,4 @@ void MainComponent::settingsMidiClear(const std::string& json) {
     setStatus("MIDI cleared: " + juce::String(action));
 }
 
-} // namespace resoset
+} // namespace resostage

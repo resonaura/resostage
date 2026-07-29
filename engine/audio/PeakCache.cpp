@@ -2,7 +2,7 @@
 
 #include <cstring>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 void appendU32(std::vector<uint8_t>& out, uint32_t v) {
@@ -159,4 +159,4 @@ ProjectLoader::ExtraFile PeakCache::makeCacheExtra(const PeakOverview& overview,
     return extra;
 }
 
-} // namespace resoset
+} // namespace resostage

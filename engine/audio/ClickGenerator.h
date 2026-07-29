@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace resoset {
+namespace resostage {
 
 // Synthesizes a metronome click (short decaying sine burst) at each beat,
 // with an accented (louder, higher-pitched) click on beat 1 of each bar.
@@ -51,4 +51,4 @@ private:
     int beatUnit = 4;
 };
 
-} // namespace resoset
+} // namespace resostage

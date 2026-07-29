@@ -3,7 +3,7 @@
 #include <functional>
 #include <string>
 
-namespace resoset {
+namespace resostage {
 
 // Optional macOS Touch Bar: screen/mode switcher.
 //
@@ -21,4 +21,4 @@ void installMacTouchBar(void* nsViewOrWindow, std::function<void(const std::stri
 void uninstallMacTouchBar(void* nsViewOrWindow);
 void setMacTouchBarActiveTab(void* nsViewOrWindow, const std::string& tabId);
 
-} // namespace resoset
+} // namespace resostage

@@ -1,4 +1,4 @@
-add_library(resoset_engine STATIC
+add_library(resostage_engine STATIC
   timing/MasterClock.cpp
   audio/RoutingEngine.cpp
   audio/Metering.cpp
@@ -17,9 +17,9 @@ add_library(resoset_engine STATIC
   telemetry/SystemHealth.cpp
 )
 
-target_include_directories(resoset_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(resostage_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(resoset_engine
+target_link_libraries(resostage_engine
   PUBLIC
     miniz
     simdjson
@@ -28,7 +28,7 @@ target_link_libraries(resoset_engine
 
 if(APPLE)
   find_library(ACCELERATE_FRAMEWORK Accelerate REQUIRED)
-  target_link_libraries(resoset_engine PUBLIC ${ACCELERATE_FRAMEWORK})
+  target_link_libraries(resostage_engine PUBLIC ${ACCELERATE_FRAMEWORK})
 endif()
 
-target_compile_features(resoset_engine PUBLIC cxx_std_20)
+target_compile_features(resostage_engine PUBLIC cxx_std_20)

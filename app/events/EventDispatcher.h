@@ -8,7 +8,7 @@
 #include <thread>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 struct HttpTriggerCommand {
     std::string url;
@@ -62,4 +62,4 @@ private:
     std::string artNetTargetAddress = "255.255.255.255";
 };
 
-} // namespace resoset
+} // namespace resostage

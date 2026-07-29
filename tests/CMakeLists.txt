@@ -1,4 +1,4 @@
-add_executable(resoset_engine_tests
+add_executable(resostage_engine_tests
   test_main.cpp
   test_master_clock.cpp
   test_routing_engine.cpp
@@ -18,7 +18,7 @@ add_executable(resoset_engine_tests
   test_audio_folder_import.cpp
 )
 
-target_link_libraries(resoset_engine_tests PRIVATE resoset_engine doctest)
-target_compile_features(resoset_engine_tests PRIVATE cxx_std_20)
+target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)
+target_compile_features(resostage_engine_tests PRIVATE cxx_std_20)
 
-add_test(NAME resoset_engine_tests COMMAND resoset_engine_tests)
+add_test(NAME resostage_engine_tests COMMAND resostage_engine_tests)

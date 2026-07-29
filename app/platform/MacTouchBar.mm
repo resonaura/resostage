@@ -12,11 +12,11 @@
 namespace {
 
 // Identifiers for NSTouchBar items.
-static NSString* const kTBPlayer = @"com.resoset.tb.player";
-static NSString* const kTBMixer = @"com.resoset.tb.mixer";
-static NSString* const kTBEditor = @"com.resoset.tb.editor";
-static NSString* const kTBSettings = @"com.resoset.tb.settings";
-static NSString* const kTBGroup = @"com.resoset.tb.screens";
+static NSString* const kTBPlayer = @"com.resostage.tb.player";
+static NSString* const kTBMixer = @"com.resostage.tb.mixer";
+static NSString* const kTBEditor = @"com.resostage.tb.editor";
+static NSString* const kTBSettings = @"com.resostage.tb.settings";
+static NSString* const kTBGroup = @"com.resostage.tb.screens";
 
 // Associated-object keys (static addresses as unique keys).
 static char kProviderKey;
@@ -94,7 +94,7 @@ static char kCallbackKey;
 
 @end
 
-namespace resoset {
+namespace resostage {
 namespace {
 
 NSWindow* windowFromHandle(void* nsViewOrWindow) {
@@ -158,16 +158,16 @@ void setMacTouchBarActiveTab(void* nsViewOrWindow, const std::string& tabId) {
     }
 }
 
-} // namespace resoset
+} // namespace resostage
 
 #else // !__APPLE__
 
 #include "MacTouchBar.h"
 
-namespace resoset {
+namespace resostage {
 void installMacTouchBar(void*, std::function<void(const std::string&)>) {}
 void uninstallMacTouchBar(void*) {}
 void setMacTouchBarActiveTab(void*, const std::string&) {}
-} // namespace resoset
+} // namespace resostage
 
 #endif

@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace resoset {
+namespace resostage {
 
 // Looks for an embedded tempo marker in a WAV file's RIFF metadata chunks.
 // DAWs typically don't write a structured numeric BPM field -- instead
@@ -31,4 +31,4 @@ bool parseBpmFromName(const std::string& name, double& outBpm);
 // never returns an empty string (falls back to the original input).
 std::string stripBpmSuffix(const std::string& name);
 
-} // namespace resoset
+} // namespace resostage

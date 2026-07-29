@@ -12,7 +12,7 @@
 #include <memory>
 #include <unordered_map>
 
-namespace resoset {
+namespace resostage {
 
 // App shell: full-window embedded SPA (Web UI) + blocking busy overlay.
 // All editing / transport / settings live in the React remote; there is no
@@ -31,6 +31,8 @@ public:
 
     void handleTouchBarTab(const std::string& tabId);
     void setTouchBarPeer(void* nsViewPeer);
+
+    bool loadProjectFromPath(const juce::File& file);
 
 private:
     AudioEngine engine;
@@ -166,4 +168,4 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
 
-} // namespace resoset
+} // namespace resostage

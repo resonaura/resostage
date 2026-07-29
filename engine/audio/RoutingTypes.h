@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // One (track -> bus) edge. A track may appear in multiple TrackRoute entries
 // (main bus + aux sends). Main routes use track gain/pan; aux sends multiply
@@ -37,4 +37,4 @@ struct RoutingSnapshot {
     uint32_t busCount = 0; // distinct busses referenced, for scratch-buffer sizing
 };
 
-} // namespace resoset
+} // namespace resostage

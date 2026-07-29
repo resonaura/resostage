@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Reads a .rsnraset container (ZIP: project.json + /Audio/*.wav) and parses its
 // metadata. WAV *format* decoding is done by WavStreamDecoder (also portable,
@@ -146,4 +146,4 @@ private:
     std::string openArchivePath;
 };
 
-} // namespace resoset
+} // namespace resostage

@@ -24,7 +24,7 @@ export const APP_BUNDLE =
   );
 export const APP_BINARY = join(APP_BUNDLE, "Contents", "MacOS", APP_NAME);
 export const TEST_BINARY =
-  process.env.TEST_BINARY || join(BUILD_DIR, "tests", "resoset_engine_tests");
+  process.env.TEST_BINARY || join(BUILD_DIR, "tests", "resostage_engine_tests");
 export const JOBS = Number(process.env.JOBS) || cpus().length || 4;
 
 export function log(msg) {
@@ -192,8 +192,8 @@ export function buildApp() {
 }
 
 export function buildTests() {
-  log("Building resoset_engine_tests...");
-  cmakeBuild("resoset_engine_tests");
+  log("Building resostage_engine_tests...");
+  cmakeBuild("resostage_engine_tests");
 }
 
 export function runTests() {

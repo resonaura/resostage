@@ -5,7 +5,7 @@
 #include <cstring>
 #include <limits>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -697,4 +697,4 @@ int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames,
     return got;
 }
 
-} // namespace resoset
+} // namespace resostage

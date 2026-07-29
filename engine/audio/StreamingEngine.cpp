@@ -6,7 +6,7 @@
 #include <limits>
 #include <thread>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -876,4 +876,4 @@ StreamingEngine::ActiveSongHandle StreamingEngine::acquireActiveSong() {
     return h;
 }
 
-} // namespace resoset
+} // namespace resostage

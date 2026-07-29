@@ -7,7 +7,7 @@
 
 #include <chrono>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -73,9 +73,9 @@ void buildMidiBytes(const MidiCommand& cmd, Byte (&buffer)[3], ByteCount& totalB
 } // namespace
 
 CoreMidiDispatcher::CoreMidiDispatcher() {
-    MIDIClientCreate(CFSTR("Resoset ResoStage"), nullptr, nullptr, &client);
+    MIDIClientCreate(CFSTR("ResoStage MIDI"), nullptr, nullptr, &client);
     if (client != 0)
-        MIDIOutputPortCreate(client, CFSTR("Resoset Output"), &outputPort);
+        MIDIOutputPortCreate(client, CFSTR("ResoStage Output"), &outputPort);
 }
 
 CoreMidiDispatcher::~CoreMidiDispatcher() {
@@ -401,4 +401,4 @@ void CoreMidiDispatcher::workerThreadLoop() {
     leaveCurrentThreadWorkgroupIfJoined();
 }
 
-} // namespace resoset
+} // namespace resostage

@@ -3,7 +3,7 @@
 #include <CoreAudio/CoreAudio.h>
 #include <os/workgroup.h>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 thread_local os_workgroup_t tlWorkgroup = nullptr;
@@ -52,4 +52,4 @@ void leaveCurrentThreadWorkgroupIfJoined() {
     tlWorkgroup = nullptr;
 }
 
-} // namespace resoset
+} // namespace resostage

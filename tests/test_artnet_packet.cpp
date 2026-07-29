@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include <vector>
 
-using namespace resoset;
+using namespace resostage;
 
 TEST_CASE("buildArtDmxPacket layout and round-trip parse") {
     std::vector<uint8_t> data = {1, 2, 3, 4, 255, 0, 128};

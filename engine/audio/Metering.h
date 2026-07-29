@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Direct-form II transposed biquad.
 class Biquad {
@@ -117,4 +117,4 @@ private:
     void finishHop(double hopMeanSquareEnergy);
 };
 
-} // namespace resoset
+} // namespace resostage

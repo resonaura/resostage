@@ -6,7 +6,7 @@
 #include <regex>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -110,4 +110,4 @@ std::string stripBpmSuffix(const std::string& name) {
     return stripped.empty() ? name : stripped;
 }
 
-} // namespace resoset
+} // namespace resostage

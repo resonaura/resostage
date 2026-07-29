@@ -1,6 +1,6 @@
 #include "RoutingEngine.h"
 
-namespace resoset {
+namespace resostage {
 
 RoutingEngine::RoutingEngine() = default;
 RoutingEngine::~RoutingEngine() = default;
@@ -14,4 +14,4 @@ std::shared_ptr<const RoutingSnapshot> RoutingEngine::acquireForRender() {
     return std::atomic_load_explicit(&active, std::memory_order_acquire);
 }
 
-} // namespace resoset
+} // namespace resostage

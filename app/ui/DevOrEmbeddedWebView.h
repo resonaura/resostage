@@ -7,7 +7,7 @@
 #include <objc/message.h>
 #endif
 
-namespace resoset {
+namespace resostage {
 
 // Always prefers the Vite dev server (webui/, port 2900) when it's running
 // -- live HMR while iterating on the web UI -- and falls back to whatever
@@ -110,4 +110,4 @@ private:
     bool triedFallback = false;
 };
 
-} // namespace resoset
+} // namespace resostage

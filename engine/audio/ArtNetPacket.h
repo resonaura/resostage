@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Builds a standard ArtDMX UDP payload (Art-Net 4 style OpCode 0x5000).
 // Universe is the 15-bit Port-Address (SubUni in low 8, Net in next 7).
@@ -29,4 +29,4 @@ bool parseArtDmxPacket(const uint8_t* packet, size_t size,
 
 static constexpr uint16_t kArtNetUdpPort = 6454;
 
-} // namespace resoset
+} // namespace resostage

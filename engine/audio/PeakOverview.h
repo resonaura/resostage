@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // One bin's summary at a given pyramid level: true signed min/max (not
 // abs-magnitude) so the drawn envelope reflects the real waveform shape and
@@ -62,4 +62,4 @@ struct PeakOverview {
     const PeakLevel* bestLevelForZoom(double samplesPerPixel) const;
 };
 
-} // namespace resoset
+} // namespace resostage

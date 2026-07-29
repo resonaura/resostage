@@ -119,7 +119,7 @@ const header = `#pragma once
 
 #include <cstddef>
 
-namespace resoset {
+namespace resostage {
 namespace embedded_assets {
 
 ${dataDecls.join("\n\n")}
@@ -139,7 +139,7 @@ inline constexpr std::size_t kAssetCount = sizeof(kAssets) / sizeof(kAssets[0]);
 inline constexpr const char* kIndexHtmlPath = "/index.html";
 
 } // namespace embedded_assets
-} // namespace resoset
+} // namespace resostage
 `;
 
 writeFileSync(outPath, header, "utf8");

@@ -6,7 +6,7 @@
 #include <memory>
 #include <thread>
 
-using namespace resoset;
+using namespace resostage;
 
 TEST_CASE("RoutingEngine starts empty and round-trips a single published snapshot") {
     RoutingEngine engine;

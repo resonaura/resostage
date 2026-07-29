@@ -2,7 +2,7 @@
 
 #include "telemetry/SystemHealth.h"
 
-using namespace resoset;
+using namespace resostage;
 
 TEST_CASE("SystemHealth samples process RSS and free RAM") {
     SystemHealth health;

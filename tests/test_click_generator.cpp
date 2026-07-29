@@ -6,7 +6,7 @@
 #include <cmath>
 #include <vector>
 
-using namespace resoset;
+using namespace resostage;
 
 namespace {
 // The click is a decaying sine burst, which starts at a zero-crossing (sin(0)==0

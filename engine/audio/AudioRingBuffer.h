@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Lock-free single-producer/single-consumer ring buffer of planar float audio
 // frames. The producer (background I/O thread) writes decoded frames; the
@@ -49,4 +49,4 @@ private:
     alignas(64) std::atomic<int64_t> readIndex{0};  // consumer-owned, monotonic
 };
 
-} // namespace resoset
+} // namespace resostage

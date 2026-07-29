@@ -5,7 +5,7 @@
 #include <atomic>
 #include <thread>
 
-using namespace resoset;
+using namespace resostage;
 
 namespace {
 

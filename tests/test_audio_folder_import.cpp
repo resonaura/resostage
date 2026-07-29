@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-using namespace resoset;
+using namespace resostage;
 
 TEST_CASE("Audio folder import verification test") {
     namespace fs = std::filesystem;

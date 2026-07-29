@@ -2,7 +2,7 @@
 
 #include "timing/MasterClock.h"
 
-using namespace resoset;
+using namespace resostage;
 
 namespace {
 class FakeClock final : public MonotonicClockSource {

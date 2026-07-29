@@ -1,7 +1,10 @@
 juce_add_gui_app(ResoStage
   PRODUCT_NAME "ResoStage"
-  COMPANY_NAME "Resoset"
-  BUNDLE_ID "com.resoset.resostage"
+  COMPANY_NAME "Resonaura"
+  BUNDLE_ID "com.resonaura.resostage"
+  PLIST_TO_MERGE "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+  DOCUMENT_TYPES
+    "ResoStage Project Package" "rsnraset" "com.resonaura.resostage.project" "Editor"
 )
 
 target_sources(ResoStage PRIVATE
@@ -33,7 +36,7 @@ target_compile_definitions(ResoStage
 
 target_link_libraries(ResoStage
   PRIVATE
-    resoset_engine
+    resostage_engine
     websockets
     juce::juce_audio_basics
     juce::juce_audio_devices

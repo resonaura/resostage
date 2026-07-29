@@ -1,6 +1,6 @@
 #pragma once
 
-namespace resoset {
+namespace resostage {
 
 // Raise this process / main thread scheduling priority so the audio path is
 // less likely to be preempted when the rest of the system is under load.
@@ -14,4 +14,4 @@ void boostAppProcessPriority();
 // Best-effort; never throws.
 void boostStreamingIoThreadPriority();
 
-} // namespace resoset
+} // namespace resostage

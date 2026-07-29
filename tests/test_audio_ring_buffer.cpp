@@ -6,7 +6,7 @@
 #include <thread>
 #include <vector>
 
-using namespace resoset;
+using namespace resostage;
 
 TEST_CASE("AudioRingBuffer push/pop round-trips within capacity") {
     AudioRingBuffer ring;

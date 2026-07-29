@@ -6,7 +6,7 @@
     #include <chrono>
 #endif
 
-namespace resoset {
+namespace resostage {
 
 uint64_t SystemMonotonicClock::ticksToNanos(uint64_t ticks) {
 #if defined(__APPLE__)
@@ -114,4 +114,4 @@ double MasterClock::currentSeconds() const {
     return static_cast<double>(currentSamplePosition()) / sr;
 }
 
-} // namespace resoset
+} // namespace resostage

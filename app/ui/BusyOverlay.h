@@ -4,7 +4,7 @@
 
 #include "ui/UiColors.h"
 
-namespace resoset {
+namespace resostage {
 
 // Full-window blocking overlay shown while AudioEngine::isBusy() (an async
 // import in flight). Intercepts all mouse input so nothing underneath can be
@@ -63,4 +63,4 @@ private:
     }
 };
 
-} // namespace resoset
+} // namespace resostage

@@ -8,7 +8,7 @@
 #include <thread>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Fixed-size worker pool for peak/waveform decode jobs. Replaces the old
 // pattern of spawning one raw std::thread per file: for a large project with
@@ -42,4 +42,4 @@ private:
     bool shuttingDown = false;
 };
 
-} // namespace resoset
+} // namespace resostage

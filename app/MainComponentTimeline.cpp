@@ -5,7 +5,7 @@
 
 #include <sstream>
 
-namespace resoset {
+namespace resostage {
 
 using namespace builder_json;
 
@@ -183,4 +183,4 @@ std::string MainComponent::buildAllPeaksJson() const {
     return o.str();
 }
 
-} // namespace resoset
+} // namespace resostage

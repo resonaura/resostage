@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Background I/O + optional RAM residency for active/warm song stems.
 //
@@ -186,4 +186,4 @@ private:
     std::atomic<uint64_t> warmGeneration_{0};
 };
 
-} // namespace resoset
+} // namespace resostage

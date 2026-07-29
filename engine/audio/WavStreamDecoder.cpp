@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -180,4 +180,4 @@ int64_t WavStreamDecoder::decodeFrames(const ReadFn& read, float* const* outChan
     return framesGot;
 }
 
-} // namespace resoset
+} // namespace resostage

@@ -9,10 +9,10 @@
 
 #if defined(__APPLE__)
 #include <Accelerate/Accelerate.h>
-#define RESOSET_HAVE_ACCELERATE 1
+#define RESOSTAGE_HAVE_ACCELERATE 1
 #endif
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -37,7 +37,7 @@ ChannelStats channelStats(const float* data, size_t n) {
     ChannelStats s{0.0f, 0.0f, 0.0};
     if (n == 0)
         return s;
-#if defined(RESOSET_HAVE_ACCELERATE)
+#if defined(RESOSTAGE_HAVE_ACCELERATE)
     vDSP_minv(data, 1, &s.minV, static_cast<vDSP_Length>(n));
     vDSP_maxv(data, 1, &s.maxV, static_cast<vDSP_Length>(n));
     float sumSqF = 0.0f;
@@ -256,5 +256,5 @@ const PeakLevel* PeakOverview::bestLevelForZoom(double samplesPerPixel) const {
     return best;
 }
 
-} // namespace resoset
+} // namespace resostage
 

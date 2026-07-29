@@ -3,7 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <algorithm>
 
-namespace resoset {
+namespace resostage {
 
 class WebLoadingOverlay final : public juce::Component {
 public:
@@ -62,4 +62,4 @@ private:
     float fadeAlpha = 0.0f;
 };
 
-} // namespace resoset
+} // namespace resostage

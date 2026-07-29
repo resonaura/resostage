@@ -3,7 +3,7 @@
 #include <atomic>
 #include <cstdint>
 
-namespace resoset {
+namespace resostage {
 
 // Per-meter-point snapshot (one instance per track or per bus), written by the
 // audio thread's Metering pass and consumed by UI/web threads via SeqLock<MeterFrame>.
@@ -31,4 +31,4 @@ struct TransportTelemetry {
     std::atomic<bool> hardwareAlarm{false}; // set by device hot-plug/failure handling (later milestone)
 };
 
-} // namespace resoset
+} // namespace resostage

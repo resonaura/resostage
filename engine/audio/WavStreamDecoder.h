@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Incremental WAV parser + PCM/float decoder, fed by a pull-based byte reader
 // (so it can be driven by ProjectLoader::StreamCursor in production, or an
@@ -53,4 +53,4 @@ private:
     std::vector<uint8_t> rawScratch; // reused decode scratch buffer (grows on demand)
 };
 
-} // namespace resoset
+} // namespace resostage

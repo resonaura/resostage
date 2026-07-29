@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Per-process resource entry.
 struct ProcessHealthEntry {
@@ -71,4 +71,4 @@ private:
     mutable std::unordered_map<int, uint64_t> prevCpuByPid;
 };
 
-} // namespace resoset
+} // namespace resostage

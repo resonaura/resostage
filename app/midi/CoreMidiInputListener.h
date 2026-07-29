@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // Opens a CoreMIDI input port and maps incoming Note On / Control Change
 // messages to named actions via the project's MidiMapping list (footswitch/
@@ -57,4 +57,4 @@ private:
     std::vector<MidiMapping> mappings;
 };
 
-} // namespace resoset
+} // namespace resostage

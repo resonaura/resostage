@@ -4,7 +4,7 @@
 
 #include <string>
 
-namespace resoset {
+namespace resostage {
 
 // Round-trip serializer for project.json. Used by ProjectLoader::save and tests.
 // Output is UTF-8 JSON without trailing newline requirements beyond a final \n.
@@ -16,4 +16,4 @@ std::string jsonEscapeString(const std::string& s);
 const char* eventTypeToString(EventType type);
 const char* playbackModeToString(PlaybackMode mode);
 
-} // namespace resoset
+} // namespace resostage

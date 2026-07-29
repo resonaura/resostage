@@ -15,7 +15,7 @@
 #include <string_view>
 #include <vector>
 
-namespace resoset::builder_json {
+namespace resostage::builder_json {
 
 // simdjson's `.get(out)` returns an error_code that's truthy on FAILURE
 // (mirrors the convention already used in engine/project/ProjectLoader.cpp).
@@ -90,4 +90,4 @@ inline std::string makeUniqueId(const std::string& prefix, const std::vector<std
     return prefix + "_x";
 }
 
-} // namespace resoset::builder_json
+} // namespace resostage::builder_json

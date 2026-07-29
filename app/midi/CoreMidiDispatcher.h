@@ -10,7 +10,7 @@
 #include <thread>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 enum class MidiCommandKind : uint8_t {
     NoteOn,
@@ -144,4 +144,4 @@ private:
     double lastAnchoredBpm = 120.0; // worker-thread-owned only
 };
 
-} // namespace resoset
+} // namespace resostage

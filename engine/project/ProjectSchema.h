@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // One aux send from a track into an Aux bus (post-fader by default).
 // Multiple sends let a stem feed FOH + drummer monitor + guitarist mono, etc.
@@ -192,4 +192,4 @@ struct Project {
     std::vector<MidiMapping> midiMappings;
 };
 
-} // namespace resoset
+} // namespace resostage

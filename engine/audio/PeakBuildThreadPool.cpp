@@ -3,7 +3,7 @@
 #include <atomic>
 #include <memory>
 
-namespace resoset {
+namespace resostage {
 
 PeakBuildThreadPool::PeakBuildThreadPool(size_t numThreads) {
     if (numThreads < 1)
@@ -68,4 +68,4 @@ void PeakBuildThreadPool::runBatchAndWait(std::vector<std::function<void()>> job
     doneCv->wait(lock, [&] { return remaining->load(std::memory_order_acquire) == 0; });
 }
 
-} // namespace resoset
+} // namespace resostage

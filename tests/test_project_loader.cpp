@@ -8,7 +8,7 @@
 #include <cstring>
 #include <string>
 
-using namespace resoset;
+using namespace resostage;
 
 namespace {
 

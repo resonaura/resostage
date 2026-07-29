@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 // On-disk peak overview format stored inside .rsnraset as
 //   Peaks/<sanitized-audio-path>.rpk
@@ -46,4 +46,4 @@ struct PeakCache {
                                                    const std::string& audioArchivePath);
 };
 
-} // namespace resoset
+} // namespace resostage

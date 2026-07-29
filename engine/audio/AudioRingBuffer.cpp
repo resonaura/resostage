@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace resoset {
+namespace resostage {
 
 void AudioRingBuffer::prepare(int channels, int64_t capacityFrames) {
     channels = std::max(0, channels);
@@ -103,4 +103,4 @@ void AudioRingBuffer::reset() {
     readIndex.store(writeIndex.load(std::memory_order_acquire), std::memory_order_release);
 }
 
-} // namespace resoset
+} // namespace resostage

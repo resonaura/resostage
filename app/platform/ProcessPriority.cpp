@@ -9,7 +9,7 @@
 #include <sys/resource.h>
 #endif
 
-namespace resoset {
+namespace resostage {
 
 void boostAppProcessPriority() {
 #if defined(__APPLE__)
@@ -54,4 +54,4 @@ void boostStreamingIoThreadPriority() {
 #endif
 }
 
-} // namespace resoset
+} // namespace resostage

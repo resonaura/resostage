@@ -2,7 +2,7 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 std::string cfStringToStd(CFStringRef ref) {
@@ -18,9 +18,9 @@ std::string cfStringToStd(CFStringRef ref) {
 } // namespace
 
 CoreMidiInputListener::CoreMidiInputListener() {
-    MIDIClientCreate(CFSTR("Resoset ResoStage Input"), nullptr, nullptr, &client);
+    MIDIClientCreate(CFSTR("ResoStage MIDI Input"), nullptr, nullptr, &client);
     if (client != 0)
-        MIDIInputPortCreate(client, CFSTR("Resoset Input"), &readProc, this, &inputPort);
+        MIDIInputPortCreate(client, CFSTR("ResoStage Input"), &readProc, this, &inputPort);
 }
 
 CoreMidiInputListener::~CoreMidiInputListener() {
@@ -152,4 +152,4 @@ void CoreMidiInputListener::handlePacketList(const MIDIPacketList* packetList) {
     }
 }
 
-} // namespace resoset
+} // namespace resostage

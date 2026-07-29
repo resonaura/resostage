@@ -16,7 +16,7 @@
 #include <thread>
 
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 float dbToGain(double db) {
@@ -3719,4 +3719,4 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
     });
 }
 
-} // namespace resoset
+} // namespace resostage

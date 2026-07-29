@@ -5,7 +5,7 @@
 #include <cstring>
 #include <type_traits>
 
-namespace resoset {
+namespace resostage {
 
 // Wait-free single-writer / multi-reader state exchange for POD-ish structs that
 // are too large to update with a single atomic store (e.g. multi-field metering
@@ -56,4 +56,4 @@ private:
     alignas(64) T storage{};
 };
 
-} // namespace resoset
+} // namespace resostage

@@ -13,7 +13,7 @@
 #include <iomanip>
 #include <sstream>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 
@@ -1007,4 +1007,4 @@ bool ProjectLoader::reparseProject(std::string& error) {
     return true;
 }
 
-} // namespace resoset
+} // namespace resostage

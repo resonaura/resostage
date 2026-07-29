@@ -28,7 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace resoset {
+namespace resostage {
 
 struct LoadedBus {
     std::string id;
@@ -637,4 +637,4 @@ private:
     std::string lastKnownDeviceName;
 };
 
-} // namespace resoset
+} // namespace resostage

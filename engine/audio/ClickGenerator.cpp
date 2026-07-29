@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace resoset {
+namespace resostage {
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
@@ -74,4 +74,4 @@ void ClickGenerator::render(float* outMono, int numFrames, int64_t startSample) 
     }
 }
 
-} // namespace resoset
+} // namespace resostage

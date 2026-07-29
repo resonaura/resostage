@@ -3,7 +3,7 @@
 #include <atomic>
 #include <cstdint>
 
-namespace resoset {
+namespace resostage {
 
 // Abstraction over a monotonic time source, in nanoseconds since an arbitrary epoch.
 // Production code uses mach_absolute_time() (macOS). Tests inject a fake source to
@@ -102,4 +102,4 @@ private:
     static constexpr double kMaxGammaDeviation = 0.02; // clamp +/-2% to prevent runaway correction
 };
 
-} // namespace resoset
+} // namespace resostage

@@ -4,7 +4,7 @@
 
 #include <array>
 
-namespace resoset {
+namespace resostage {
 namespace ui {
 
 // ---------------------------------------------------------------------------
@@ -128,4 +128,4 @@ inline juce::Colour meterGradientColor(float db) {
 }
 
 } // namespace ui
-} // namespace resoset
+} // namespace resostage

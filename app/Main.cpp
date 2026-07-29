@@ -4,7 +4,7 @@
 #include "platform/MacTouchBar.h"
 #include "platform/ProcessPriority.h"
 
-namespace resoset {
+namespace resostage {
 
 class ResoStageApplication final : public juce::JUCEApplication {
 public:
@@ -12,11 +12,33 @@ public:
     const juce::String getApplicationVersion() override { return "0.2.0"; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
-    void initialise(const juce::String&) override {
+    void initialise(const juce::String& commandLine) override {
         // Prefer high scheduling priority so audio stays solid when the
         // rest of the system is thrashing (see ProcessPriority.cpp).
         boostAppProcessPriority();
         mainWindow = std::make_unique<MainWindow>(getApplicationName());
+
+        const auto path = commandLine.unquoted().trim();
+        if (!path.isEmpty() && juce::File::isAbsolutePath(path)) {
+            const juce::File file(path);
+            if (file.exists()) {
+                if (auto* mc = mainWindow->getMainComponent()) {
+                    mc->loadProjectFromPath(file);
+                }
+            }
+        }
+    }
+
+    void anotherInstanceStarted(const juce::String& commandLine) override {
+        const auto path = commandLine.unquoted().trim();
+        if (!path.isEmpty() && juce::File::isAbsolutePath(path) && mainWindow != nullptr) {
+            const juce::File file(path);
+            if (file.exists()) {
+                if (auto* mc = mainWindow->getMainComponent()) {
+                    mc->loadProjectFromPath(file);
+                }
+            }
+        }
     }
 
     void shutdown() override {
@@ -104,7 +126,7 @@ private:
     std::unique_ptr<MainWindow> mainWindow;
 };
 
-} // namespace resoset
+} // namespace resostage
 
 
-START_JUCE_APPLICATION(resoset::ResoStageApplication)
+START_JUCE_APPLICATION(resostage::ResoStageApplication)
