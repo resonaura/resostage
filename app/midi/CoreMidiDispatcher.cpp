@@ -252,6 +252,9 @@ void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
     const uint64_t now = nowNanos();
     const bool deferToVirtual = virtualSrc != 0 && cmd.targetHostTimeNanos > now;
     if (deferToVirtual) {
+        // Clock ticks are generated in chronological order. Keep this as a
+        // deadline queue so the worker can sleep precisely until the first
+        // tick instead of polling every few milliseconds.
         pendingVirtualCommands.push_back(cmd);
         if (!hasRealDestination)
             return;
@@ -300,6 +303,10 @@ void CoreMidiDispatcher::drainPendingVirtualCommands() {
         if (packet != nullptr)
             MIDIReceived(virtualSrc, &packetList);
     }
+}
+
+uint64_t CoreMidiDispatcher::nextPendingVirtualDeadlineNanos() const {
+    return pendingVirtualCommands.empty() ? 0 : pendingVirtualCommands.front().targetHostTimeNanos;
 }
 
 void CoreMidiDispatcher::pumpClock() {
@@ -358,13 +365,32 @@ void CoreMidiDispatcher::workerThreadLoop() {
 
     while (running.load(std::memory_order_acquire)) {
         MidiCommand cmd;
-        while (queue.try_dequeue(cmd))
+        while (queue.try_dequeue(cmd)) {
+            // The 200 ms virtual-source queue must not leak clock ticks after
+            // Stop. A physical destination has already received its
+            // timestamped packets, but MIDIReceived has not.
+            if (cmd.kind == MidiCommandKind::Stop)
+                pendingVirtualCommands.clear();
             sendCommand(cmd);
+        }
 
         pumpClock();
         drainPendingVirtualCommands();
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        const uint64_t nextVirtualDeadline = nextPendingVirtualDeadlineNanos();
+        if (nextVirtualDeadline != 0) {
+            // MIDIReceived does not schedule future timestamps itself. The
+            // prior 2 ms polling loop meant each 24-PPQN tick could arrive
+            // up to a couple of milliseconds late; a DAW estimating tempo
+            // from adjacent clock intervals then visibly swung around the
+            // actual BPM. mach_wait_until uses the same host-time clock as
+            // the MIDI timestamps and wakes at this exact tick deadline.
+            mach_wait_until(nanosToMachTicks(nextVirtualDeadline));
+        } else {
+            // No virtual clock is pending: retain responsive queue servicing
+            // for regular MIDI output and transport commands.
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
     }
 
     // MUST happen before this thread returns/exits -- macOS's pthread TSD

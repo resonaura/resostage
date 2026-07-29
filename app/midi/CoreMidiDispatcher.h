@@ -109,6 +109,7 @@ private:
     void sendCommand(const MidiCommand& cmd);
     void pumpClock();
     void drainPendingVirtualCommands();
+    uint64_t nextPendingVirtualDeadlineNanos() const;
 
     MIDIClientRef client = 0;
     MIDIPortRef outputPort = 0;
