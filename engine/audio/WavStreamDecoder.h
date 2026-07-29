@@ -37,6 +37,11 @@ public:
     // actually decoded; 0 means the data chunk is exhausted (or EOF/error).
     int64_t decodeFrames(const ReadFn& read, float* const* outChannels, int64_t maxFrames);
 
+    // After the byte cursor has been seeked back to the start of the 'data'
+    // payload, call this so decodeFrames reads the full chunk again. No
+    // re-parse of the WAV header.
+    void resetDataCursor() { dataChunkBytesRemaining = dataChunkBytesTotal; }
+
 private:
     int channels = 0;
     double sampleRateHz = 0.0;

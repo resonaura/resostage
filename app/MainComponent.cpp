@@ -53,6 +53,15 @@ MainComponent::MainComponent() {
         setStatus("Web server failed: " + juce::String(webError));
     }
 
+    // SelectSong / Play / etc. used to wait for the 30 Hz timer (up to ~33 ms).
+    // Wake the message thread immediately so hops feel instant.
+    webServer.setUrgentCommandHook([this] {
+        juce::MessageManager::callAsync([this] {
+            drainWebCommands();
+            publishWebState();
+        });
+    });
+
     // Prefer Vite dev server (:2900) when running; fall back to embedded assets.
     webView = std::make_unique<DevOrEmbeddedWebView>(
         "http://localhost:" + juce::String(kWebPort) + "/");

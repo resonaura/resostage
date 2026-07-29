@@ -39,6 +39,8 @@ bool StreamingTrackBuffer::openUnlocked(const ProjectLoader& loader, const std::
     auto readFn = [this](void* buf, size_t bufSize) { return cursor.read(buf, bufSize); };
     if (!decoder.parseHeader(readFn, error))
         return false;
+    // Cache data payload offset for O(1) directory rewinds.
+    dataPayloadFileOffset = cursor.tell();
 
     readPosition.store(0, std::memory_order_relaxed);
     pendingSkipFrames.store(0, std::memory_order_relaxed);
@@ -354,9 +356,27 @@ bool StreamingTrackBuffer::softRewindToStart(std::string& error) {
         return false;
     }
 
+    // Fast path (directory containers): fseek to cached data payload — no
+    // fclose/fopen/parseHeader. This is what makes hopscotch feel instant.
+    if (dataPayloadFileOffset >= 0 && cursor.isValid() && cursor.seekAbsolute(dataPayloadFileOffset)) {
+        decoder.resetDataCursor();
+        if (ringReady.load(std::memory_order_relaxed))
+            ring.prepare(decoder.numChannels(), openRingCapacityFrames); // index reset / reuse
+        else
+            ensureRingReadyUnlocked();
+        readPosition.store(0, std::memory_order_relaxed);
+        pendingSkipFrames.store(0, std::memory_order_relaxed);
+        sourceExhausted.store(false, std::memory_order_relaxed);
+        nativeChunkFrames = 0;
+        nativeChunkReadIdx = 0;
+        haveLastNativeSample = false;
+        nativePhase = 0.0;
+        return true;
+    }
+
+    // Slow path (ZIP / first open / seek failed): full re-open.
     const int64_t keepPrefStart = preferredStart;
     const int64_t keepPrefLen = preferredLength;
-    // openUnlocked reuses ring storage when size matches (see above).
     if (!openUnlocked(*openLoader, openArchivePath, openRingCapacityFrames, openDeviceSampleRate,
                       error))
         return false;

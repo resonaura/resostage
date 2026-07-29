@@ -586,6 +586,19 @@ size_t ProjectLoader::StreamCursor::skip(size_t bytesToSkip) {
     return 0;
 }
 
+int64_t ProjectLoader::StreamCursor::tell() const {
+    if (!isValid() || impl->containerFile == nullptr)
+        return -1;
+    const long pos = std::ftell(impl->containerFile);
+    return pos < 0 ? -1 : static_cast<int64_t>(pos);
+}
+
+bool ProjectLoader::StreamCursor::seekAbsolute(int64_t offset) {
+    if (!isValid() || impl->containerFile == nullptr || offset < 0)
+        return false;
+    return std::fseek(impl->containerFile, static_cast<long>(offset), SEEK_SET) == 0;
+}
+
 ProjectLoader::StreamCursor ProjectLoader::openStream(const std::string& archivePath, std::string& error) const {
     StreamCursor cursor;
 

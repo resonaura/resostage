@@ -44,6 +44,13 @@ public:
         // Returns bytes actually skipped (less than requested at end-of-stream).
         size_t skip(size_t bytesToSkip);
 
+        // Directory-container only: current byte offset of the underlying FILE*
+        // (-1 if unavailable / ZIP iter). Used to cache the WAV 'data' payload
+        // start for O(1) soft-rewind without re-parsing the header.
+        int64_t tell() const;
+        // Directory-container only: absolute seek. Returns false for ZIP.
+        bool seekAbsolute(int64_t offset);
+
     private:
         friend class ProjectLoader;
         struct Impl;

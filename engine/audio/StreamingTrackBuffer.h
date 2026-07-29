@@ -126,6 +126,9 @@ private:
     std::string openArchivePath;
     int64_t openRingCapacityFrames = 0;
     double openDeviceSampleRate = 0.0;
+    // Byte offset of WAV 'data' payload after first parseHeader (directory
+    // FILE* only). Enables softRewind via fseek without re-opening/re-parsing.
+    int64_t dataPayloadFileOffset = -1;
 
     std::atomic<int64_t> readPosition{0};
     std::atomic<int64_t> pendingSkipFrames{0};

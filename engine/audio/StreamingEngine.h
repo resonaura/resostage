@@ -24,22 +24,23 @@ namespace resoset {
 // (not timeline emptiness, not unused file tails). Budget shared active-first,
 // remainder for warm-cache songs. Oversized stems keep streaming rings.
 //
-// CRITICAL: stageSong never allocates ring storage on the message thread
-// (StreamingTrackBuffer defers ring.prepare to first refill on IO threads).
-// A warm LRU of recently staged songs makes hopscotch promote-only.
+// Song switch is NOT a full teardown: open stems live in a process-wide
+// file-path pool (shared across songs). stageSong only rebinds region/track
+// → buffer maps, soft-rewinds (dir=fseek), and flips `active`. Same idea as
+// region playback inside a song — playhead/window change, not re-open.
 class StreamingEngine {
 public:
     // Soft cap for RAM-resident audio (active + warm). ~512 MiB default.
     static constexpr size_t kDefaultResidentBudgetBytes = 512ull * 1024ull * 1024ull;
-    // Keep this many non-active songs opened (headers + optional rings).
+    // Keep this many non-active *song maps* prebuilt for gapless promote.
     static constexpr size_t kWarmCacheMax = 5;
 
     struct StagedSong {
         size_t songIndex = static_cast<size_t>(-1);
-        std::vector<std::unique_ptr<StreamingTrackBuffer>> buffers;
+        // shared_ptr: same file may be held by active + warm + filePool.
+        std::vector<std::shared_ptr<StreamingTrackBuffer>> buffers;
         std::unordered_map<std::string, StreamingTrackBuffer*> byId;
-        // true after IO has soft-rewound stems to frame 0 and topped rings —
-        // promote is then a pure atomic pointer swap (no message-thread I/O).
+        // true when soft-rewound to frame 0 and lightly primed — gapless swap.
         std::atomic<bool> readyAtStart{false};
     };
 
@@ -89,10 +90,14 @@ public:
     // Bumped on start()/stop() — warm-all after load aborts if project changes.
     uint64_t warmGeneration() const { return warmGeneration_.load(std::memory_order_acquire); }
 
-    // `primeSeconds` / `primeMaxWait`: ring warm-up on stage. Pass 0 / 0 to
-    // skip (instant select when not playing — IO workers fill before Play).
+    // Prepare next song (warm promote or cold open — may take a while), then
+    // atomically flip `active`. If `muteBeforeSwap` is non-null it is set true
+    // only in the microseconds before the flip so the audio thread can mute
+    // without holding silence across a multi-100ms cold open.
+    // `primeSeconds` / `primeMaxWait` are ignored (kept for call-site compat).
     bool stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames, double deviceSampleRate,
-                   std::string& error, double primeSeconds = 0.35, double primeMaxWait = 0.12);
+                   std::string& error, double primeSeconds = 0.0, double primeMaxWait = 0.0,
+                   std::atomic<bool>* muteBeforeSwap = nullptr);
 
     // Open into warm LRU (not active). `epoch` must match stageEpoch at commit
     // unless `requireEpochMatch` is false (background warm-all after load).
@@ -139,12 +144,21 @@ private:
     bool hasWarmLocked(size_t songIndex) const;
     void resetSongToStart(StagedSong& staged);
 
-    // Build a cold staged song (open headers only). May run off message thread.
-    std::shared_ptr<StagedSong> openSongCold(size_t songIndex, const SongDef& song,
-                                             int64_t ringCapacityFrames, double deviceSampleRate,
-                                             std::string& error, uint64_t epoch, bool requireEpochMatch);
+    // Bind song regions to pooled file buffers (open only missing paths).
+    std::shared_ptr<StagedSong> bindSongToPool(size_t songIndex, const SongDef& song,
+                                               int64_t ringCapacityFrames, double deviceSampleRate,
+                                               std::string& error, bool openMissing);
+    // Get or open one stem by archive-relative path. Thread-safe.
+    std::shared_ptr<StreamingTrackBuffer> getOrOpenFile(const std::string& archivePath,
+                                                        int64_t ringCapacityFrames,
+                                                        double deviceSampleRate, std::string& error);
 
     const ProjectLoader* projectLoader = nullptr;
+    // File-path → open buffer for the life of the loaded project.
+    mutable std::mutex filePoolMutex;
+    std::unordered_map<std::string, std::shared_ptr<StreamingTrackBuffer>> filePool;
+    int64_t filePoolRingCapacity = 0;
+    double filePoolSampleRate = 0.0;
     std::thread ioThread;
     std::thread ioThread2;
     std::thread residentThread;

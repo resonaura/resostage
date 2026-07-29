@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <thread>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -1496,10 +1497,9 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             resetMetersSilent();
             streamHandoff.store(false, std::memory_order_release);
         }
-        // Seek streams to 0; brief prime only if still live so first blocks
-        // aren't silent. Stopped: no prime — IO workers fill before Play.
+        // Snap streams to 0 with no prime wait (fseek path is cheap).
         std::string seekErr;
-        (void)streaming.seekActiveSongTo(0, seekErr, wasPlaying ? 0.04 : 0.0);
+        (void)streaming.seekActiveSongTo(0, seekErr, /*primeMaxWait=*/0.0);
         if (wasPlaying)
             midiDispatcher.setClockBpm(song.bpm);
         if (fireOnLoadEventsFlag)
@@ -1509,31 +1509,14 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
 
     if (!wasPlaying)
         stop();
-    // else: leave transport live across the hop — setClockBpm() retunes in place.
+    // else: leave transport live — stageSong opens next while previous plays,
+    // then sets streamHandoff only for the microseconds of the active flip.
 
-    // While streams swap + playhead resets, audio must not read the new
-    // rings at the old absolute sample position (see streamHandoff doc).
-    // keep-playing hops hold this flag so the callback doesn't read old
-    // rings at a new song's playhead (or vice versa) mid-stage.
-    if (wasPlaying)
-        streamHandoff.store(true, std::memory_order_release);
-
-    // Promote/open streams first -- atomic shared_ptr swap inside stageSong,
-    // safe concurrent with the audio thread holding a previous ActiveSongHandle.
-    // Keep this OUTSIDE routingMutex: cold open can do disk I/O and must not
-    // stall the audio callback for tens of ms (which itself causes underruns).
     const int64_t ringCapacityFrames = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
-    // Selecting a song while stopped: skip ring prime entirely — open headers
-    // only (IO workers fill before Play). Keep-playing hops prime briefly so
-    // the first post-switch blocks aren't silent.
-    // Keep prime waits short: long message-thread blocks made hopscotch lag.
-    // Keep-playing: only micro-prime (stageSong also caps wait). Prefer
-    // readyAtStart warm promote with zero message-thread wait.
-    const bool needPrime = wasPlaying;
-    const double primeSec = needPrime ? 0.1 : 0.0;
-    const double primeWait = needPrime ? 0.02 : 0.0;
-    if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error, primeSec,
-                             primeWait)) {
+    // Pass streamHandoff so mute starts only at the swap, not during cold open.
+    if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error,
+                             /*primeSeconds=*/0.0, /*primeMaxWait=*/0.0,
+                             wasPlaying ? &streamHandoff : nullptr)) {
         streamHandoff.store(false, std::memory_order_release);
         return false;
     }
@@ -1611,18 +1594,25 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     {
         std::lock_guard<std::recursive_mutex> lock(routingMutex);
 
+        // Only rebuild scratch when track count / block size changed — full
+        // re-zero of every track buffer was pure lag on every song hop.
+        const bool tracksChanged = trackIdByIndex != newTrackIds;
         trackIdByIndex = std::move(newTrackIds);
-        trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
-        ensureTrackMeters(trackIdByIndex.size());
-        // Inline ensureScratchSizes body while we already hold the lock
-        // (recursive_mutex would allow re-entry, but keep it explicit).
+        if (tracksChanged || trackScratch.size() != trackIdByIndex.size()) {
+            trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
+            ensureTrackMeters(trackIdByIndex.size());
+        }
         {
             const int busChannels = std::max<int>(2, static_cast<int>(busses.size()) * 2);
             const int samples = std::max(currentBlockSize, 1);
-            busScratch.setSize(busChannels, samples, false, false, true);
-            for (auto& scratch : trackScratch)
-                scratch.setSize(2, samples, false, false, true);
-            clickScratch.assign(static_cast<size_t>(samples), 0.0f);
+            if (busScratch.getNumChannels() != busChannels || busScratch.getNumSamples() != samples)
+                busScratch.setSize(busChannels, samples, false, false, true);
+            for (auto& scratch : trackScratch) {
+                if (scratch.getNumChannels() != 2 || scratch.getNumSamples() != samples)
+                    scratch.setSize(2, samples, false, false, true);
+            }
+            if (static_cast<int>(clickScratch.size()) != samples)
+                clickScratch.assign(static_cast<size_t>(samples), 0.0f);
         }
 
         currentSongLengthFrames = newSongLengthFrames;
@@ -1691,12 +1681,18 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     if (wasPlaying)
         midiDispatcher.setClockBpm(song.bpm); // smooth retune, no phase reset/Stop/Start
 
-    rebuildTrackPeaks();
-
-    if (fireOnLoadEventsFlag)
-        fireOnLoadEvents(song);
-
-    warmNeighbourSongs();
+    // Defer non-audio work so the handoff returns immediately (SPA already
+    // updated optimistically). Peaks / on-load MIDI / warm must not block.
+    const size_t deferredSong = songIndex;
+    const bool deferredFire = fireOnLoadEventsFlag;
+    juce::MessageManager::callAsync([this, deferredSong, deferredFire] {
+        if (!projectLoaded || currentSong != deferredSong)
+            return;
+        rebuildTrackPeaks();
+        if (deferredFire && deferredSong < loader.project().songs.size())
+            fireOnLoadEvents(loader.project().songs[deferredSong]);
+        warmNeighbourSongs();
+    });
 
     return true;
 }
@@ -1709,16 +1705,14 @@ void AudioEngine::warmNeighbourSongs() {
         return;
     const int64_t ringCap = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
     const double sr = currentSampleRate;
-    const uint64_t epoch = streaming.stageEpoch();
     const size_t cur = currentSong;
 
-    auto scheduleWarm = [this, ringCap, sr, epoch, cur](size_t idx) {
-        juce::MessageManager::callAsync([this, idx, ringCap, sr, epoch, cur] {
+    // Open neighbours on a background thread — never on the message thread
+    // (precacheSong does fopen/parseHeader and used to stall song hops).
+    auto scheduleWarm = [this, ringCap, sr, cur](size_t idx) {
+        std::thread([this, idx, ringCap, sr, cur] {
             if (!projectLoaded)
                 return;
-            // Allow warm to finish even after a later hop (epoch mismatch)
-            // only if this song is still a neighbour of *wherever we are now*
-            // OR still matches the epoch (same session of hops).
             const Project& p = loader.project();
             if (idx >= p.songs.size())
                 return;
@@ -1726,23 +1720,21 @@ void AudioEngine::warmNeighbourSongs() {
                 return;
             if (currentSong == idx)
                 return;
+            // Still useful if we're near the original hop target.
             const bool stillNeighbour =
-                (currentSong + 1 == idx) || (currentSong > 0 && currentSong - 1 == idx);
-            const bool sameEpoch = streaming.stageEpoch() == epoch;
-            // Prefer sequential next always (gapless critical path).
-            const bool isNextOfCur = (cur + 1 == idx);
-            if (!stillNeighbour && !sameEpoch && !isNextOfCur)
+                (currentSong + 1 == idx) || (currentSong > 0 && currentSong - 1 == idx)
+                || (cur + 1 == idx) || (cur + 2 == idx) || (cur > 0 && cur - 1 == idx);
+            if (!stillNeighbour)
                 return;
-            streaming.precacheSong(idx, p.songs[idx], ringCap, sr, epoch,
+            streaming.precacheSong(idx, p.songs[idx], ringCap, sr, /*epoch=*/0,
                                    /*requireEpochMatch=*/false);
-        });
+        }).detach();
     };
 
     if (cur + 1 < proj.songs.size())
         scheduleWarm(cur + 1);
     if (cur > 0)
         scheduleWarm(cur - 1);
-    // Also warm song+2 after gapless so the following boundary is ready.
     if (cur + 2 < proj.songs.size())
         scheduleWarm(cur + 2);
 }
@@ -1898,9 +1890,9 @@ void AudioEngine::play() {
     if (startSample <= 0)
         std::fill(eventFiredFlags.begin(), eventFiredFlags.end(), 0);
 
-    // Brief prime only — long waits froze Play after song switch. IO workers
-    // + async RAM residency keep filling after the clock starts.
-    (void)streaming.primeActiveSong(0.4, currentSampleRate, 0.15);
+    // No blocking prime — IO workers fill; a long prime here made Play and
+    // post-switch resume feel like a half-second stall.
+    (void)streaming.primeActiveSong(0.0, currentSampleRate, 0.0);
 
     // Reset the raw hardware sample counter BEFORE (re)starting MasterClock.
     // hwSamplePosition free-runs continuously since the audio device

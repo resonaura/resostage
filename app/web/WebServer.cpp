@@ -897,7 +897,23 @@ bool WebServer::pollCommand(WebCommand& out) {
 }
 
 void WebServer::enqueueCommand(WebCommand cmd) {
-    commands.try_enqueue(cmd);
+    const WebCommandKind kind = cmd.kind;
+    commands.try_enqueue(std::move(cmd));
+    // Transport / setlist: wake the message thread immediately.
+    switch (kind) {
+        case WebCommandKind::Play:
+        case WebCommandKind::Stop:
+        case WebCommandKind::StopToStart:
+        case WebCommandKind::Next:
+        case WebCommandKind::Prev:
+        case WebCommandKind::SelectSong:
+        case WebCommandKind::Seek:
+            if (urgentCommandHook)
+                urgentCommandHook();
+            break;
+        default:
+            break;
+    }
 }
 
 void WebServer::noteClientView(const std::string& view) {

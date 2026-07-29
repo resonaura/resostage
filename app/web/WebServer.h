@@ -438,6 +438,12 @@ public:
     // Message-thread: drain one remote command (if any). Returns false if empty.
     bool pollCommand(WebCommand& out);
 
+    // Optional: fired from the HTTP/WS thread after enqueueing a latency-
+    // sensitive command (SelectSong / Play / Stop / Next / Prev / Seek).
+    // MainComponent uses this to callAsync(drain) so song hops don't wait
+    // for the next 30 Hz timer tick (~0–33 ms of dead latency).
+    void setUrgentCommandHook(std::function<void()> hook) { urgentCommandHook = std::move(hook); }
+
     // Message-thread: browser-download handshake for ExportProjectForDownload
     // (see WebCommandKind). beginExport() invalidates any previous export
     // before enqueueing the new one so a racing GET .../export-status can't
@@ -509,6 +515,7 @@ private:
     std::atomic<bool> stopRequested{false};
     std::atomic<uint16_t> boundPort{0};
     std::atomic<int> clients{0};
+    std::function<void()> urgentCommandHook;
 
     mutable std::mutex stateMutex;
     WebUiState state;
