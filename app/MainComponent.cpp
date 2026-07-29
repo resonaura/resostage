@@ -17,7 +17,7 @@ MainComponent::MainComponent() {
     {
         auto setup = engine.deviceManager().getAudioDeviceSetup();
         setup.sampleRate = 48000.0;
-        (void)engine.deviceManager().setAudioDeviceSetup(setup, true);
+        (void)engine.setAudioDeviceSetup(setup, true);
     }
 
     alarmBanner.setJustificationType(juce::Justification::centred);

@@ -172,7 +172,7 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.outputDeviceName = name;
     setup.useDefaultOutputChannels = true;
-    const juce::String error = engine.deviceManager().setAudioDeviceSetup(setup, true);
+    const juce::String error = engine.setAudioDeviceSetup(setup, true);
     setStatus(error.isEmpty() ? ("Audio output: " + juce::String(name)) : ("Audio device error: " + error));
 }
 
@@ -184,7 +184,7 @@ void MainComponent::settingsSetSampleRate(const std::string& json) {
 
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.sampleRate = value;
-    const juce::String error = engine.deviceManager().setAudioDeviceSetup(setup, true);
+    const juce::String error = engine.setAudioDeviceSetup(setup, true);
     setStatus(error.isEmpty() ? ("Sample rate: " + juce::String(value, 0) + " Hz")
                               : ("Sample rate error: " + error));
 }
@@ -197,7 +197,7 @@ void MainComponent::settingsSetBufferSize(const std::string& json) {
 
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.bufferSize = value;
-    const juce::String error = engine.deviceManager().setAudioDeviceSetup(setup, true);
+    const juce::String error = engine.setAudioDeviceSetup(setup, true);
     setStatus(error.isEmpty() ? ("Buffer size: " + juce::String(value) + " samples")
                               : ("Buffer size error: " + error));
 }
@@ -262,7 +262,7 @@ void MainComponent::settingsSetOutputChannels(const std::string& json) {
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.outputChannels = bits;
     setup.useDefaultOutputChannels = false;
-    const juce::String error = engine.deviceManager().setAudioDeviceSetup(setup, true);
+    const juce::String error = engine.setAudioDeviceSetup(setup, true);
     setStatus(error.isEmpty() ? juce::String("Output channels updated")
                               : ("Output channels error: " + error));
 }

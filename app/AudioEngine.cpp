@@ -180,11 +180,26 @@ AudioEngine::~AudioEngine() {
     deviceManagerInstance.closeAudioDevice();
 }
 
+juce::String AudioEngine::setAudioDeviceSetup(const juce::AudioDeviceManager::AudioDeviceSetup& setup, bool treatAsPreferred) {
+    isChangingSetup.store(true, std::memory_order_relaxed);
+    const juce::String error = deviceManagerInstance.setAudioDeviceSetup(setup, treatAsPreferred);
+    isChangingSetup.store(false, std::memory_order_relaxed);
+
+    if (auto* dev = deviceManagerInstance.getCurrentAudioDevice()) {
+        lastKnownDeviceName = dev->getName().toStdString();
+        transportTelemetry.hardwareAlarm.store(false, std::memory_order_relaxed);
+    }
+    return error;
+}
+
 void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster*) {
     checkForDeviceLoss();
 }
 
 void AudioEngine::checkForDeviceLoss() {
+    if (isChangingSetup.load(std::memory_order_relaxed))
+        return;
+
     auto* currentDevice = deviceManagerInstance.getCurrentAudioDevice();
     if (currentDevice != nullptr) {
         lastKnownDeviceName = currentDevice->getName().toStdString();
