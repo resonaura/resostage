@@ -719,8 +719,12 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             std::string viewRaw;
             if (findJsonField(msg, "\"view\"", viewRaw)
                 && viewRaw.size() >= 2 && viewRaw.front() == '"' && viewRaw.back() == '"') {
+                const std::string viewName = viewRaw.substr(1, viewRaw.size() - 2);
                 if (pss != nullptr)
-                    pss->view = parseClientView(viewRaw.substr(1, viewRaw.size() - 2));
+                    pss->view = parseClientView(viewName);
+                // Mirror into server so native UI (Touch Bar highlight) tracks
+                // the embedded SPA tab, not a hardcoded "player".
+                server->noteClientView(viewName);
                 // View change takes effect on the next fixed timer tick —
                 // keeps cadence uniform (no burst frames).
                 return 0;
@@ -894,6 +898,22 @@ bool WebServer::pollCommand(WebCommand& out) {
 
 void WebServer::enqueueCommand(WebCommand cmd) {
     commands.try_enqueue(cmd);
+}
+
+void WebServer::noteClientView(const std::string& view) {
+    // Normalize builder → editor (same SPA tab).
+    std::string v = view;
+    if (v == "builder")
+        v = "editor";
+    if (v != "player" && v != "mixer" && v != "editor" && v != "settings")
+        return;
+    std::lock_guard<std::mutex> lock(clientViewMutex);
+    clientView = std::move(v);
+}
+
+std::string WebServer::lastClientView() const {
+    std::lock_guard<std::mutex> lock(clientViewMutex);
+    return clientView;
 }
 
 void WebServer::onClientOpened() {

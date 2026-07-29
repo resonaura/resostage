@@ -1,6 +1,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "MainComponent.h"
+#include "platform/MacTouchBar.h"
 #include "platform/ProcessPriority.h"
 
 namespace resoset {
@@ -18,7 +19,11 @@ public:
         mainWindow = std::make_unique<MainWindow>(getApplicationName());
     }
 
-    void shutdown() override { mainWindow = nullptr; }
+    void shutdown() override {
+        if (mainWindow != nullptr)
+            mainWindow->teardownTouchBar();
+        mainWindow = nullptr;
+    }
 
     void systemRequestedQuit() override {
         if (mainWindow != nullptr && mainWindow->getMainComponent() != nullptr) {
@@ -46,13 +51,54 @@ private:
             setResizeLimits(960, 640, 10000, 10000);
             centreWithSize(getWidth(), getHeight());
             setVisible(true);
+
+            // Touch Bar (no-op on Macs without one / non-Apple builds).
+            // Install after visible so the NSWindow peer exists.
+            installTouchBarIfPossible();
+        }
+
+        ~MainWindow() override { teardownTouchBar(); }
+
+        void teardownTouchBar() {
+#if JUCE_MAC
+            if (touchBarPeer != nullptr) {
+                uninstallMacTouchBar(touchBarPeer);
+                touchBarPeer = nullptr;
+            }
+#endif
         }
 
         MainComponent* getMainComponent() const {
             return dynamic_cast<MainComponent*>(getContentComponent());
         }
 
-        void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
+        void closeButtonPressed() override {
+            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+        }
+
+    private:
+        void* touchBarPeer = nullptr; // NSView* from JUCE peer
+
+        void installTouchBarIfPossible() {
+#if JUCE_MAC
+            auto* peer = getPeer();
+            if (peer == nullptr)
+                return;
+            touchBarPeer = peer->getNativeHandle();
+            if (touchBarPeer == nullptr)
+                return;
+
+            installMacTouchBar(touchBarPeer, [this](const std::string& tabId) {
+                // Hop to message thread (Touch Bar callbacks can be AppKit).
+                juce::MessageManager::callAsync([this, tabId] {
+                    if (auto* mc = getMainComponent())
+                        mc->handleTouchBarTab(tabId);
+                });
+            });
+            if (auto* mc = getMainComponent())
+                mc->setTouchBarPeer(touchBarPeer);
+#endif
+        }
     };
 
     std::unique_ptr<MainWindow> mainWindow;

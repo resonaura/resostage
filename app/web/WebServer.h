@@ -420,6 +420,12 @@ public:
     uint16_t port() const { return boundPort.load(std::memory_order_relaxed); }
     int clientCount() const { return clients.load(std::memory_order_relaxed); }
 
+    // Last SPA tab reported by a WS client via {"view":"mixer"} (player/mixer/
+    // editor/settings). Used to keep the Touch Bar highlight in sync with the
+    // embedded web UI. Empty if never set.
+    std::string lastClientView() const;
+    void noteClientView(const std::string& view);
+
     // Message-thread: publish the latest UI snapshot for remote clients.
     // Pre-serializes one JSON blob per SPA view so the WS thread only copies
     // a string at a fixed cadence (no rebuild/lock contention on send).
@@ -519,6 +525,12 @@ private:
     };
     mutable std::mutex frameMutex;
     FrameCache frames;
+
+    // SPA tab last reported by embedded/remote clients (message-thread read).
+    // Empty until the first {"view":...} — do not default to "player" or the
+    // Touch Bar will keep fighting real tab switches.
+    mutable std::mutex clientViewMutex;
+    std::string clientView;
 
     moodycamel::ReaderWriterQueue<WebCommand> commands{64};
 

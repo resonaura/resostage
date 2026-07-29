@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "platform/MacTouchBar.h"
 #include "ui/legacy/UiColors.h"
 #include "web/BuilderJson.h"
 
@@ -305,6 +306,47 @@ bool MainComponent::keyPressed(const juce::KeyPress& key) {
     return false;
 }
 
+void MainComponent::setTouchBarPeer(void* nsViewPeer) {
+    touchBarPeer = nsViewPeer;
+    touchBarActiveTab.clear(); // force next sync to paint
+    lastSeenSpaView.clear();
+    // Prefer live SPA view if already reported; else leave unhighlighted until
+    // the first {"view":...} (do NOT force "player" — that stuck the highlight).
+    const std::string v = webServer.lastClientView();
+    if (!v.empty())
+        syncTouchBarToTab(v);
+}
+
+void MainComponent::syncTouchBarToTab(const std::string& tabId) {
+    if (touchBarPeer == nullptr)
+        return;
+    std::string id = tabId;
+    if (id == "builder")
+        id = "editor";
+    if (id != "player" && id != "mixer" && id != "editor" && id != "settings")
+        return;
+    if (id == touchBarActiveTab)
+        return;
+    touchBarActiveTab = id;
+#if JUCE_MAC
+    setMacTouchBarActiveTab(touchBarPeer, id);
+#endif
+}
+
+void MainComponent::handleTouchBarTab(const std::string& tabId) {
+    // Touch Bar switches SPA screens inside the primary web UI.
+    if (tabId == "player" || tabId == "mixer" || tabId == "editor" || tabId == "settings"
+        || tabId == "builder") {
+        const std::string id = tabId == "builder" ? "editor" : tabId;
+        // Optimistic highlight + remember so the timer won't snap back to an
+        // older lastClientView before the SPA echoes {"view":id}.
+        lastSeenSpaView = id;
+        syncTouchBarToTab(id);
+        webServer.noteClientView(id);
+        requestUiTab(id);
+    }
+}
+
 void MainComponent::requestUiTab(const std::string& tab) {
     uiTabRequest = tab;
     ++uiTabSeq;
@@ -312,6 +354,12 @@ void MainComponent::requestUiTab(const std::string& tab) {
     // (legacy native panels still exist as a fallback but aren't the primary UI).
     if (mode != Mode::Web)
         setMode(Mode::Web);
+    std::string id = tab;
+    if (id == "builder")
+        id = "editor";
+    lastSeenSpaView = id;
+    webServer.noteClientView(id);
+    syncTouchBarToTab(id);
 }
 
 void MainComponent::performAction(const std::string& action) {
@@ -500,6 +548,17 @@ void MainComponent::timerCallback() {
     }
 
     drainWebCommands();
+    // Touch Bar highlight follows the embedded SPA — but ONLY when the SPA
+    // actually reports a *new* view. Re-applying lastClientView every tick
+    // (default "player") was racing Touch Bar / hotkey switches and snapping
+    // the highlight back to Player before the SPA had sent its update.
+    {
+        const std::string spaView = webServer.lastClientView();
+        if (!spaView.empty() && spaView != lastSeenSpaView) {
+            lastSeenSpaView = spaView;
+            syncTouchBarToTab(spaView);
+        }
+    }
     publishWebState();
     maybePublishPeaks();
     maybePublishAllPeaks();

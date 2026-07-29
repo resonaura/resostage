@@ -31,6 +31,11 @@ public:
     void confirmQuitIfUnsaved(std::function<void(bool)> onDecision = nullptr);
     void checkAndOfferAutosaveRecovery();
 
+    // Touch Bar / external tab switcher (player | mixer | editor | settings).
+    void handleTouchBarTab(const std::string& tabId);
+    // Called by MainWindow after Touch Bar install — syncs highlight to SPA tab.
+    void setTouchBarPeer(void* nsViewPeer);
+
 private:
 
 
@@ -83,6 +88,14 @@ private:
     std::function<void(bool)> pendingQuitDecision;
 
     Mode mode = Mode::Web; // always the default landing view -- see setMode(Mode::Web) in the constructor
+
+    // Optional Touch Bar peer (NSView*). Highlight tracks embedded SPA tab.
+    void* touchBarPeer = nullptr;
+    std::string touchBarActiveTab;
+    // Last SPA view we already applied to the Touch Bar (change-detect only).
+    std::string lastSeenSpaView;
+    void syncTouchBarToTab(const std::string& tabId);
+
     // Default keybindings -- also seeded into Project::keybindings on load
     // (try_emplace so a saved project wins). Mode / section actions are
     // configurable in Settings and fire from both keyboard and MIDI learn.

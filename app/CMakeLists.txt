@@ -24,6 +24,10 @@ target_sources(ResoStage PRIVATE
   ui/legacy/TimelineView.cpp
 )
 
+if(APPLE)
+  target_sources(ResoStage PRIVATE platform/MacTouchBar.mm)
+endif()
+
 target_compile_definitions(ResoStage
   PRIVATE
     JUCE_WEB_BROWSER=1
@@ -62,6 +66,7 @@ if(APPLE)
     "-framework CoreMIDI"
     "-framework CoreFoundation"
     "-framework CoreAudio"
+    "-framework AppKit"
   )
 endif()
 

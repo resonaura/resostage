@@ -3,6 +3,7 @@
 #include <libproc.h>
 #include <mach/mach.h>
 #include <mach/mach_host.h>
+#include <mach/mach_time.h>
 #include <mach/task_info.h>
 #include <mach/thread_act.h>
 #include <sys/proc_info.h>
@@ -11,12 +12,28 @@
 #include <unistd.h>
 
 #include <chrono>
-#include <cstring>
 #include <unordered_map>
 
 namespace resoset {
 
 namespace {
+
+// rusage_info ri_user_time / ri_system_time are mach *absolute time* ticks
+// (not nanoseconds). Without timebase conversion CPU% is under-reported by
+// ~numer/denom (often ~40× on Apple Silicon) — that was the Activity
+// Monitor mismatch. Verified empirically against a busy loop.
+uint64_t absTimeToNanos(uint64_t abs) {
+    static mach_timebase_info_data_t tb{};
+    static bool inited = false;
+    if (!inited) {
+        mach_timebase_info(&tb);
+        inited = true;
+    }
+    if (tb.denom == 0)
+        return abs;
+    // abs * numer / denom, avoid overflow where possible.
+    return (abs / tb.denom) * tb.numer + ((abs % tb.denom) * tb.numer) / tb.denom;
+}
 
 uint64_t systemTotalMemoryBytes() {
     int mib[2] = {CTL_HW, HW_MEMSIZE};
@@ -35,15 +52,14 @@ uint64_t systemFreeMemoryBytes() {
         return 0;
 
     const uint64_t pageSize = static_cast<uint64_t>(vm_kernel_page_size);
-    // free + inactive + speculative ≈ "available" like Activity Monitor.
+    // free + inactive + speculative ≈ "Memory Available" style figure.
     return (static_cast<uint64_t>(vmstat.free_count)
             + static_cast<uint64_t>(vmstat.inactive_count)
             + static_cast<uint64_t>(vmstat.speculative_count))
            * pageSize;
 }
 
-// phys_footprint matches Activity Monitor "Memory" for the app better than
-// classic resident_size (includes compressed / purgable accounting).
+// Activity Monitor "Memory" column ≈ phys_footprint.
 uint64_t processPhysFootprintBytes() {
     task_vm_info_data_t info{};
     mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
@@ -59,16 +75,8 @@ struct ProcMetrics {
     uint64_t cpuTimeNanos = 0;
 };
 
-// Accurate multi-thread CPU: sum of ALL threads in this task (user+system).
-// TASK_THREAD_TIMES_INFO only covers live threads at sample time and
-// under-reports; rusage_info is better for whole-process cumulative time.
-uint64_t selfTaskCpuTimeNanos() {
-    // Prefer rusage_info_v6 (nanoseconds, all threads ever for this process).
-    rusage_info_v6 ru{};
-    if (proc_pid_rusage(getpid(), RUSAGE_INFO_V6, reinterpret_cast<rusage_info_t*>(&ru)) == 0) {
-        return static_cast<uint64_t>(ru.ri_user_time) + static_cast<uint64_t>(ru.ri_system_time);
-    }
-    // Fallback: sum THREAD_BASIC_INFO for every current thread.
+// Sum of all live threads (time_value is wall clock seconds+µs — already real time).
+uint64_t sumLiveThreadCpuNanos() {
     thread_act_array_t threads = nullptr;
     mach_msg_type_number_t threadCount = 0;
     if (task_threads(mach_task_self(), &threads, &threadCount) != KERN_SUCCESS)
@@ -92,13 +100,20 @@ uint64_t selfTaskCpuTimeNanos() {
     return total;
 }
 
+uint64_t selfTaskCpuTimeNanos() {
+    struct rusage_info_v6 ru{};
+    if (proc_pid_rusage(getpid(), RUSAGE_INFO_V6, reinterpret_cast<rusage_info_t*>(&ru)) == 0) {
+        return absTimeToNanos(ru.ri_user_time) + absTimeToNanos(ru.ri_system_time);
+    }
+    // Fallback: live threads only (under-counts terminated-but-billed time).
+    return sumLiveThreadCpuNanos();
+}
+
 bool getProcMetrics(int pid, ProcMetrics& out) {
-    // CPU: rusage_info is the ground truth for multi-threaded processes.
-    rusage_info_v6 ru{};
+    struct rusage_info_v6 ru{};
     if (proc_pid_rusage(pid, RUSAGE_INFO_V6, reinterpret_cast<rusage_info_t*>(&ru)) == 0) {
         out.cpuTimeNanos =
-            static_cast<uint64_t>(ru.ri_user_time) + static_cast<uint64_t>(ru.ri_system_time);
-        // ri_phys_footprint when available.
+            absTimeToNanos(ru.ri_user_time) + absTimeToNanos(ru.ri_system_time);
         out.rssBytes = static_cast<uint64_t>(ru.ri_phys_footprint);
         if (out.rssBytes == 0)
             out.rssBytes = static_cast<uint64_t>(ru.ri_resident_size);
@@ -106,9 +121,10 @@ bool getProcMetrics(int pid, ProcMetrics& out) {
         struct proc_taskinfo pti{};
         if (proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &pti, sizeof(pti)) != sizeof(pti))
             return false;
-        // pti times are absolute-time units on some SDKs — prefer rusage path.
-        out.cpuTimeNanos = static_cast<uint64_t>(pti.pti_total_user)
-                           + static_cast<uint64_t>(pti.pti_total_system);
+        // pti_total_* are also absolute-time ticks.
+        out.cpuTimeNanos =
+            absTimeToNanos(static_cast<uint64_t>(pti.pti_total_user))
+            + absTimeToNanos(static_cast<uint64_t>(pti.pti_total_system));
         out.rssBytes = static_cast<uint64_t>(pti.pti_resident_size);
     }
 
@@ -163,12 +179,18 @@ std::vector<int> discoverRelatedPids(int mainPid) {
 } // namespace
 
 SystemHealthSnapshot SystemHealth::sample() const {
-    const auto wallNow = static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count());
+    // Wall time: prefer mach_absolute_time (same clock domain as process times
+    // after conversion) for stable deltas under clock adjustments.
+    static mach_timebase_info_data_t tb{};
+    static bool tbInited = false;
+    if (!tbInited) {
+        mach_timebase_info(&tb);
+        tbInited = true;
+    }
+    const uint64_t wallAbs = mach_absolute_time();
+    const uint64_t wallNow = absTimeToNanos(wallAbs);
 
-    // Throttle full sample to ~2 Hz (UI graphs don't need more).
+    // Throttle full sample to ~2 Hz.
     if (lastWallNanos != 0 && wallNow >= lastWallNanos
         && (wallNow - lastWallNanos) < 500'000'000ull) {
         cachedSnapshot.underrunCount = underrunCount.load(std::memory_order_relaxed);
@@ -193,7 +215,6 @@ SystemHealthSnapshot SystemHealth::sample() const {
         ProcMetrics m;
         if (getProcMetrics(mainPid, m)) {
             e.name = m.name.empty() ? "ResoStage" : m.name;
-            // Prefer phys_footprint for self (Activity Monitor "Memory").
             e.rssBytes = processPhysFootprintBytes();
             if (e.rssBytes == 0)
                 e.rssBytes = m.rssBytes;
@@ -218,7 +239,6 @@ SystemHealthSnapshot SystemHealth::sample() const {
     std::unordered_map<int, uint64_t> cpuNowByPid;
     double totalCpuPercent = 0.0;
     {
-        // Self: sum of all threads via rusage / task_threads.
         const uint64_t mainCpu = selfTaskCpuTimeNanos();
         cpuNowByPid[mainPid] = mainCpu;
         uint64_t totalCpuNow = mainCpu;
@@ -239,17 +259,11 @@ SystemHealthSnapshot SystemHealth::sample() const {
                 if (it != cpuNowByPid.end() && prev != prevCpuByPid.end()
                     && it->second >= prev->second) {
                     const double dCpu = static_cast<double>(it->second - prev->second);
-                    // Multi-core: can exceed 100% (matches Activity Monitor process %).
+                    // 100% = one full logical core (Activity Monitor style).
                     e.cpuPercent = (dCpu / dWall) * 100.0;
                 }
             }
 
-            uint64_t totalPrevCpu = 0;
-            for (const auto& [pid, prev] : prevCpuByPid) {
-                (void)pid;
-                totalPrevCpu += prev;
-            }
-            // Only sum PIDs still present, avoid counting dead helpers forever.
             uint64_t prevSumAlive = 0;
             for (const auto& e : entries) {
                 auto prev = prevCpuByPid.find(e.pid);
@@ -258,9 +272,6 @@ SystemHealthSnapshot SystemHealth::sample() const {
             }
             if (totalCpuNow >= prevSumAlive && prevSumAlive > 0) {
                 const double dCpu = static_cast<double>(totalCpuNow - prevSumAlive);
-                totalCpuPercent = (dCpu / dWall) * 100.0;
-            } else if (totalCpuNow >= totalPrevCpu && lastWallNanos != 0) {
-                const double dCpu = static_cast<double>(totalCpuNow - totalPrevCpu);
                 totalCpuPercent = (dCpu / dWall) * 100.0;
             }
         }

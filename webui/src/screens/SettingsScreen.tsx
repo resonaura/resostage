@@ -439,10 +439,13 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
         <Card.Content className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Stat
-              label="CPU (app, 1-core %)"
+              label="CPU (app · 100%=1 core)"
               value={`${Math.max(0, h.cpuPercent ?? 0).toFixed(1)}%`}
             />
-            <Stat label="RAM (app RSS)" value={formatBytes(h.rssBytes)} />
+            <Stat
+              label="RAM (Memory / footprint)"
+              value={formatBytes(h.rssBytes)}
+            />
             <Stat label="Free system RAM" value={formatBytes(h.freeBytes)} />
             <Stat label="Underruns" value={String(h.underrunCount)} />
             <Stat
