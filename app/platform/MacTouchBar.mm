@@ -36,11 +36,13 @@ static char kCallbackKey;
     if (@available(macOS 10.12.2, *)) {
         NSTouchBar* bar = [[NSTouchBar alloc] init];
         bar.delegate = self;
+        // Left-aligned screens group; flexible space pushes system proxy right.
+        // (principalItemIdentifier would center the group — skip it.)
         bar.defaultItemIdentifiers = @[
             kTBGroup,
+            NSTouchBarItemIdentifierFlexibleSpace,
             NSTouchBarItemIdentifierOtherItemsProxy,
         ];
-        bar.principalItemIdentifier = kTBGroup;
         return bar;
     }
     return nil;
