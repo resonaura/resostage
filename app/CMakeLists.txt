@@ -1,10 +1,10 @@
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in" INFO_PLIST_CONTENT)
+
 juce_add_gui_app(ResoStage
   PRODUCT_NAME "ResoStage"
   COMPANY_NAME "Resonaura"
   BUNDLE_ID "com.resonaura.resostage"
-  PLIST_TO_MERGE "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
-  DOCUMENT_TYPES
-    "ResoStage Project Package" "rsnraset" "com.resonaura.resostage.project" "Editor"
+  PLIST_TO_MERGE "${INFO_PLIST_CONTENT}"
 )
 
 target_sources(ResoStage PRIVATE
