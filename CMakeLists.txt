@@ -58,7 +58,7 @@ if(RESOSTAGE_BUILD_APP)
   FetchContent_MakeAvailable(libwebsockets)
 endif()
 
-add_subdirectory(third_party)
+add_subdirectory(vendor)
 add_subdirectory(engine)
 
 if(RESOSTAGE_BUILD_APP)

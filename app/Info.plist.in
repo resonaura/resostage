@@ -9,6 +9,8 @@
 			<array>
 				<string>rsnraset</string>
 			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>file.icns</string>
 			<key>CFBundleTypeName</key>
 			<string>ResoStage Project Package</string>
 			<key>CFBundleTypeRole</key>
@@ -30,6 +32,8 @@
 			<string>com.resonaura.resostage.project</string>
 			<key>UTTypeDescription</key>
 			<string>ResoStage Project Package</string>
+			<key>UTTypeIconFile</key>
+			<string>file.icns</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>com.apple.package</string>
