@@ -95,9 +95,11 @@ public:
     bool isDraftProject() const { return usingDraftArchive; }
 
     // Stages the given song's tracks for streaming and publishes its
-    // routing. Stops playback first if currently playing. Fires the song's
-    // triggerOnLoad events when fireOnLoadEvents is true (disabled for seek
-    // restages so gear isn't re-programmed on every scrub). Precaches next song.
+    // routing. If already PLAYING, the new song starts immediately from 0
+    // (transport stays live — setlist hop while playing). If stopped, only
+    // stages. Fires the song's triggerOnLoad events when fireOnLoadEvents is
+    // true (disabled for seek restages so gear isn't re-programmed on every
+    // scrub). Precaches next song.
     bool selectSong(size_t songIndex, std::string& error, bool fireOnLoadEvents = true);
 
     // Gapless AutoplayNext handoff: promotes the precached next song without

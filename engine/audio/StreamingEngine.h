@@ -91,7 +91,9 @@ public:
     void precacheSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
                       double deviceSampleRate, uint64_t epoch);
 
-    bool seekActiveSongTo(int64_t deviceFrame, std::string& error);
+    // Snap active stems to deviceFrame. `primeMaxWait` caps any ring warm-up
+    // (0 = open/seek only — use when stopped; IO workers fill before Play).
+    bool seekActiveSongTo(int64_t deviceFrame, std::string& error, double primeMaxWait = 0.05);
 
     bool tryPromotePrecached(size_t songIndex);
     bool hasPrecacheFor(size_t songIndex) const;

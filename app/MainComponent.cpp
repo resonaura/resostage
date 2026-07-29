@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <optional>
+#include <vector>
 
 namespace resoset {
 
@@ -565,8 +567,45 @@ void MainComponent::timerCallback() {
 }
 
 void MainComponent::drainWebCommands() {
-    WebCommand cmd;
-    while (webServer.pollCommand(cmd)) {
+    // Drain the whole queue first. Rapid setlist clicks (or Next spam) used
+    // to enqueue N SelectSong commands and each did a full stageSong open —
+    // hopscotch felt like ~1s of "thinking". Coalesce consecutive song-nav
+    // into a single goToSong of the final target.
+    std::vector<WebCommand> batch;
+    {
+        WebCommand cmd;
+        while (webServer.pollCommand(cmd))
+            batch.push_back(std::move(cmd));
+    }
+    if (batch.empty())
+        return;
+
+    const auto isSongNav = [](WebCommandKind k) {
+        return k == WebCommandKind::SelectSong || k == WebCommandKind::Next
+               || k == WebCommandKind::Prev;
+    };
+
+    auto foldSongNav = [this](const WebCommand* begin, const WebCommand* end) -> int {
+        const int count = static_cast<int>(engine.project().songs.size());
+        int target = static_cast<int>(engine.currentSongIndex());
+        if (target < 0)
+            target = 0;
+        for (const WebCommand* p = begin; p != end; ++p) {
+            if (p->kind == WebCommandKind::SelectSong) {
+                target = p->arg;
+            } else if (p->kind == WebCommandKind::Next) {
+                if (count > 0)
+                    target = std::min(count - 1, target + 1);
+            } else if (p->kind == WebCommandKind::Prev) {
+                target = std::max(0, target - 1);
+            }
+        }
+        if (count > 0)
+            target = std::clamp(target, 0, count - 1);
+        return target;
+    };
+
+    auto dispatchOne = [this](const WebCommand& cmd) {
         const size_t idx = static_cast<size_t>(cmd.arg);
         switch (cmd.kind) {
             case WebCommandKind::Play: engine.play(); break;
@@ -575,10 +614,6 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::Next: nextSong(); break;
             case WebCommandKind::Prev: prevSong(); break;
             case WebCommandKind::SelectSong: goToSong(cmd.arg); break;
-            // Mixer parity commands -- same calls MixerPanel/MixerStrip make
-            // natively, just routed from the web client instead of a mouse
-            // drag. Track commands are always relative to whichever song is
-            // currently staged (matching MixerPanel's own convention).
             case WebCommandKind::SetTrackGain:
                 engine.setTrackGainDb(engine.currentSongIndex(), idx, cmd.value);
                 break;
@@ -609,12 +644,6 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetTrackSend: setTrackSendFromJson(cmd.json); break;
             case WebCommandKind::RemoveTrackSend: removeTrackSendFromJson(cmd.json); break;
             case WebCommandKind::SetProjectName: setProjectNameFromJson(cmd.json); break;
-            // Project lifecycle parity -- see WebCommandKind's doc comment.
-            // New/Load-dialog/Save/Save-As go through the exact same methods
-            // the native top-bar buttons call; any native dialog they pop
-            // shows in this same on-screen app window, which is correct
-            // whether the click originated from the embedded webview or the
-            // physical top-bar (same window either way).
             case WebCommandKind::NewProject:
                 engine.newProject();
                 applyProjectBindings();
@@ -632,13 +661,6 @@ void MainComponent::drainWebCommands() {
                 saveProjectClicked(true);
                 break;
             case WebCommandKind::LoadProjectFromPath: {
-                // Plain-browser upload path: bytes already landed in cmd.path
-                // (a temp file written by WebServer's upload handler) --
-                // load it exactly like a FileChooser result. Unlike WAV
-                // import, this temp file IS the working archive from now on
-                // (ProjectLoader streams tracks/peaks from it on demand, same
-                // as any user-picked .rsnraset) -- must NOT delete it on
-                // success, only if the load itself failed and it's dead weight.
                 std::string error;
                 const bool loaded = engine.loadProject(cmd.path, error);
                 if (loaded) {
@@ -655,11 +677,6 @@ void MainComponent::drainWebCommands() {
                 break;
             }
             case WebCommandKind::ExportProjectForDownload: {
-                // Plain-browser download path: write the current project to a
-                // temp file and hand it to WebServer so a polling GET
-                // .../export-status / .../download can pick it up -- avoids
-                // blocking the lws service thread on this (message-thread
-                // only) save.
                 if (!engine.isProjectLoaded()) {
                     webServer.failExport();
                     setStatus("Nothing to export -- no project loaded");
@@ -682,7 +699,6 @@ void MainComponent::drainWebCommands() {
                 }
                 break;
             }
-            // Builder structural-edit parity -- see MainComponentBuilder.cpp.
             case WebCommandKind::BuilderSongAdd: builderSongAdd(cmd.json); break;
             case WebCommandKind::BuilderSongImportFolder: builderSongImportFolder(cmd.json); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
@@ -693,7 +709,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderTrackMove: builderTrackMove(cmd.json); break;
             case WebCommandKind::BuilderTrackUpdate: builderTrackUpdate(cmd.json); break;
             case WebCommandKind::BuilderTrackImportWavBegin:
-                break; // bookkeeping only -- see WebServer::beginTrackImport()
+                break;
             case WebCommandKind::BuilderTrackImportWavUpload:
                 builderTrackImportWavUpload(cmd.arg, static_cast<int>(cmd.value), cmd.path);
                 break;
@@ -708,7 +724,6 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderSectionAdd: builderSectionAdd(cmd.json); break;
             case WebCommandKind::BuilderSectionRemove: builderSectionRemove(cmd.json); break;
             case WebCommandKind::BuilderSectionUpdate: builderSectionUpdate(cmd.json); break;
-            // Settings parity -- see MainComponentSettings.cpp.
             case WebCommandKind::SetAudioOutputDevice: settingsSetAudioOutputDevice(cmd.json); break;
             case WebCommandKind::SetSampleRate: settingsSetSampleRate(cmd.json); break;
             case WebCommandKind::SetBufferSize: settingsSetBufferSize(cmd.json); break;
@@ -719,12 +734,23 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::MidiLearn: settingsMidiLearn(cmd.json); break;
             case WebCommandKind::MidiLearnCancel: settingsMidiLearnCancel(); break;
             case WebCommandKind::MidiClear: settingsMidiClear(cmd.json); break;
-            // Timeline parity -- see MainComponentTimeline.cpp.
             case WebCommandKind::Seek: transportSeek(cmd.json); break;
-            // Answers the in-webview "Unsaved Changes" dialog raised by
-            // confirmQuitIfUnsaved() below (arg: 0=Cancel, 1=Save, 2=Don't Save).
             case WebCommandKind::QuitDecision: handleQuitDecision(cmd.arg); break;
         }
+    };
+
+    for (size_t i = 0; i < batch.size();) {
+        if (isSongNav(batch[i].kind)) {
+            size_t j = i + 1;
+            while (j < batch.size() && isSongNav(batch[j].kind))
+                ++j;
+            // One stage for the whole hopscotch run (Select/Next/Prev).
+            goToSong(foldSongNav(batch.data() + i, batch.data() + j));
+            i = j;
+            continue;
+        }
+        dispatchOne(batch[i]);
+        ++i;
     }
 }
 

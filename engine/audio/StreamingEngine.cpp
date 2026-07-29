@@ -490,7 +490,7 @@ void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_
     precached = std::move(staged);
 }
 
-bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error) {
+bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error, double primeMaxWait) {
     std::shared_ptr<StagedSong> s = std::atomic_load_explicit(&active, std::memory_order_acquire);
     if (s == nullptr) {
         error = "No active song to seek";
@@ -509,8 +509,9 @@ bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error) 
             return false;
         }
     }
-    // Short prime — resident stems need nothing; streaming ones get ~0.2s.
-    primeBuffersLocked(*s, 0.5, deviceSr, 0.15);
+    // Optional short prime — skip when stopped (primeMaxWait == 0).
+    if (primeMaxWait > 0.0)
+        primeBuffersLocked(*s, std::min(0.25, primeMaxWait * 4.0), deviceSr, primeMaxWait);
     return true;
 }
 

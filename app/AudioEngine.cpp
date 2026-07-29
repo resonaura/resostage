@@ -1405,16 +1405,14 @@ void AudioEngine::saveProjectAsync(const std::string& path,
 
 
 bool AudioEngine::selectSong(size_t songIndex, std::string& error, bool fireOnLoadEventsFlag) {
-    return selectSongInternal(songIndex, error, fireOnLoadEventsFlag, /*gaplessKeepPlaying=*/false);
+    // Setlist hop / Next while already PLAYING: keep transport live and start
+    // the new song from 0 (same keep-playing path as gapless AutoplayNext).
+    const bool keepPlaying = playing.load(std::memory_order_acquire);
+    return selectSongInternal(songIndex, error, fireOnLoadEventsFlag, keepPlaying);
 }
 
 bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool fireOnLoadEventsFlag,
                                      bool gaplessKeepPlaying) {
-    if (!gaplessKeepPlaying)
-        stop();
-    // else: leave the MIDI clock running -- continuous across the gapless
-    // boundary; setClockBpm() below retunes it in place, no Stop/Start.
-
     if (!projectLoaded) {
         error = "No project loaded";
         return false;
@@ -1427,12 +1425,69 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     }
     const SongDef& song = proj.songs[songIndex];
 
+    // Capture before any stop() — used for same-song restart + prime decisions.
+    const bool wasPlaying =
+        gaplessKeepPlaying || playing.load(std::memory_order_acquire);
+
+    // Already on this song (re-click / coalesced hop that landed where we
+    // are): rewind in place — never re-open every stem. That used to make
+    // "click current song" and rapid same-target coalescing feel laggy.
+    if (songIndex == currentSong) {
+        if (!wasPlaying)
+            stop();
+        else
+            streamHandoff.store(true, std::memory_order_release);
+
+        {
+            std::lock_guard<std::recursive_mutex> lock(routingMutex);
+            clock.stop();
+            hwSamplePosition.store(0, std::memory_order_relaxed);
+            underrunFadeOutRemaining = 0;
+            underrunFadeOutLength = 0;
+            lastCallbackWasUnderrun = false;
+            lastCallbackHostNanos = 0;
+            pendingSongEndAction = SongEndAction::None;
+            const int fadeIn = wasPlaying ? 256 : kSongEndFadeSamples;
+            recoveryFadeInLength = fadeIn;
+            recoveryFadeInRemaining = fadeIn;
+            outputHeldSilent = false;
+            eventFiredFlags.assign(song.events.size(), 0);
+            if (wasPlaying) {
+                clock.start(currentSampleRate, 0);
+                playing.store(true, std::memory_order_release);
+                transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
+                transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
+                transportTelemetry.running.store(true, std::memory_order_relaxed);
+            } else {
+                clock.start(currentSampleRate, 0);
+                clock.stop();
+                transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
+                transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
+                transportTelemetry.running.store(false, std::memory_order_relaxed);
+            }
+            resetMetersSilent();
+            streamHandoff.store(false, std::memory_order_release);
+        }
+        // Seek streams to 0; brief prime only if still live so first blocks
+        // aren't silent. Stopped: no prime — IO workers fill before Play.
+        std::string seekErr;
+        (void)streaming.seekActiveSongTo(0, seekErr, wasPlaying ? 0.04 : 0.0);
+        if (wasPlaying)
+            midiDispatcher.setClockBpm(song.bpm);
+        if (fireOnLoadEventsFlag)
+            fireOnLoadEvents(song);
+        return true;
+    }
+
+    if (!wasPlaying)
+        stop();
+    // else: leave transport live across the hop — setClockBpm() retunes in place.
+
     // While streams swap + playhead resets, audio must not read the new
     // rings at the old absolute sample position (see streamHandoff doc).
-    // Gapless keeps playing=true across the handoff, so this flag is the
-    // only thing that prevents a multi-minute skip into the next song.
-    const bool handoff = gaplessKeepPlaying || playing.load(std::memory_order_acquire);
-    if (handoff)
+    // keep-playing hops hold this flag so the callback doesn't read old
+    // rings at a new song's playhead (or vice versa) mid-stage.
+    if (wasPlaying)
         streamHandoff.store(true, std::memory_order_release);
 
     // Promote/open streams first -- atomic shared_ptr swap inside stageSong,
@@ -1441,11 +1496,12 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // stall the audio callback for tens of ms (which itself causes underruns).
     const int64_t ringCapacityFrames = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
     // Selecting a song while stopped: skip ring prime entirely — open headers
-    // only (IO workers fill before Play). Gapless/playing handoff still primes
-    // briefly so the first post-switch blocks aren't silent.
-    const bool needPrime = gaplessKeepPlaying || playing.load(std::memory_order_acquire);
-    const double primeSec = needPrime ? 0.25 : 0.0;
-    const double primeWait = needPrime ? 0.08 : 0.0;
+    // only (IO workers fill before Play). Keep-playing hops prime briefly so
+    // the first post-switch blocks aren't silent.
+    // Keep prime waits short: long message-thread blocks made hopscotch lag.
+    const bool needPrime = wasPlaying;
+    const double primeSec = needPrime ? 0.15 : 0.0;
+    const double primeWait = needPrime ? 0.04 : 0.0;
     if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error, primeSec,
                              primeWait)) {
         streamHandoff.store(false, std::memory_order_release);
@@ -1454,10 +1510,10 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // Previous song's StreamCursors are gone (or about to be after the audio
     // thread drops its ActiveSongHandle). Safe to drop packages parked by a
     // play-through save that could not be unlinked immediately.
-    if (!gaplessKeepPlaying)
+    if (!wasPlaying)
         purgeStaleSavePackages();
 
-    // Deliberately NO hardSeekTo(0) on the gapless path: streamHandoff
+    // Deliberately NO hardSeekTo(0) on the keep-playing path: streamHandoff
     // already prevents the audio thread from reading rings between promote
     // and playhead-reset, and precached buffers are still at frame 0. A
     // full re-open+prime of every multi-100MB stem was the multi-tens-of-ms
@@ -1573,15 +1629,15 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         lastCallbackWasUnderrun = false;
         lastCallbackHostNanos = 0;
         pendingSongEndAction = SongEndAction::None;
-        // Soft edge into the new song. Gapless uses a short fade (~5ms @ 48k)
-        // so the handoff doesn't feel like a hole; non-gapless keeps the
-        // longer edge for cold starts / scrub landings.
-        const int fadeIn = gaplessKeepPlaying ? 256 : kSongEndFadeSamples;
+        // Soft edge into the new song. Keep-playing (gapless or setlist hop
+        // while live) uses a short fade (~5ms @ 48k); stopped cold-stage
+        // keeps the longer edge for scrub landings / first Play.
+        const int fadeIn = wasPlaying ? 256 : kSongEndFadeSamples;
         recoveryFadeInLength = fadeIn;
         recoveryFadeInRemaining = fadeIn;
         outputHeldSilent = false;
 
-        if (gaplessKeepPlaying) {
+        if (wasPlaying) {
             // Stay in PLAYING: restart timeline at 0 without a stop/start gap.
             clock.start(currentSampleRate, 0);
             playing.store(true, std::memory_order_release);
@@ -1602,7 +1658,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         streamHandoff.store(false, std::memory_order_release);
     }
 
-    if (gaplessKeepPlaying)
+    if (wasPlaying)
         midiDispatcher.setClockBpm(song.bpm); // smooth retune, no phase reset/Stop/Start
 
     rebuildTrackPeaks();

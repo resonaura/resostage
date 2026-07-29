@@ -7,7 +7,7 @@ import {
   SkipForward,
   Square,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
@@ -221,6 +221,21 @@ export function PlayerScreen({
     null,
   );
   const [clickSendsOpen, setClickSendsOpen] = useState(false);
+  // Optimistic setlist highlight: flip immediately on click so hopscotch
+  // never waits for the ~30 Hz WS round-trip / stageSong to paint.
+  const [optimisticSongIndex, setOptimisticSongIndex] = useState<number | null>(
+    null,
+  );
+  useEffect(() => {
+    if (
+      optimisticSongIndex != null &&
+      state.songIndex === optimisticSongIndex
+    ) {
+      setOptimisticSongIndex(null);
+    }
+  }, [state.songIndex, optimisticSongIndex]);
+  const displaySongIndex =
+    optimisticSongIndex != null ? optimisticSongIndex : state.songIndex;
 
   const hasSongs = state.songs.length > 0;
   const isMetronomeOn =
@@ -615,12 +630,15 @@ export function PlayerScreen({
             ) : (
               <div className="flex flex-col divide-y divide-default/15">
                 {state.songs.map((s, i) => {
-                  const isActive = i === state.songIndex;
+                  const isActive = i === displaySongIndex;
                   return (
                     <button
                       key={i}
                       type="button"
-                      onClick={() => transport.select(i)}
+                      onClick={() => {
+                        setOptimisticSongIndex(i);
+                        void transport.select(i);
+                      }}
                       className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-${isActive ? "accent/20" : "default/20"} ${
                         isActive ? "bg-accent/8" : ""
                       }`}
