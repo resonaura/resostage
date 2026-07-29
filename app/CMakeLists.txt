@@ -4,7 +4,6 @@ juce_add_gui_app(ResoStage
   PRODUCT_NAME "ResoStage"
   COMPANY_NAME "Resonaura"
   BUNDLE_ID "com.resonaura.resostage"
-  ICON_BIG "${CMAKE_SOURCE_DIR}/icons/app.icns"
   PLIST_TO_MERGE "${INFO_PLIST_CONTENT}"
 )
 
@@ -25,9 +24,11 @@ target_sources(ResoStage PRIVATE
 
 if(APPLE)
   target_sources(ResoStage PRIVATE platform/MacTouchBar.mm)
+  set(APP_ICON "${CMAKE_SOURCE_DIR}/icons/app.icns")
   set(FILE_ICON "${CMAKE_SOURCE_DIR}/icons/file.icns")
-  set_source_files_properties(${FILE_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-  target_sources(ResoStage PRIVATE ${FILE_ICON})
+  set_source_files_properties(${APP_ICON} ${FILE_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+  target_sources(ResoStage PRIVATE ${APP_ICON} ${FILE_ICON})
+  set_target_properties(ResoStage PROPERTIES MACOSX_BUNDLE_ICON_FILE "app.icns")
 endif()
 
 target_compile_definitions(ResoStage
@@ -69,6 +70,7 @@ if(APPLE)
     "-framework CoreFoundation"
     "-framework CoreAudio"
     "-framework AppKit"
+    "-framework WebKit"
   )
 endif()
 

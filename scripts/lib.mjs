@@ -13,15 +13,15 @@ export const ROOT = join(__dirname, "..");
 export const BUILD_DIR = process.env.BUILD_DIR || join(ROOT, "build");
 export const BUILD_TYPE = process.env.BUILD_TYPE || "Debug";
 export const APP_NAME = "ResoStage";
-export const APP_BUNDLE =
-  process.env.APP_BUNDLE ||
-  join(
-    BUILD_DIR,
-    "app",
-    `${APP_NAME}_artefacts`,
-    BUILD_TYPE,
-    `${APP_NAME}.app`,
-  );
+export function getAppBundle() {
+  if (process.env.APP_BUNDLE) return process.env.APP_BUNDLE;
+  const directPath = join(BUILD_DIR, "app", `${APP_NAME}_artefacts`, `${APP_NAME}.app`);
+  if (existsSync(directPath)) return directPath;
+  const buildTypePath = join(BUILD_DIR, "app", `${APP_NAME}_artefacts`, BUILD_TYPE, `${APP_NAME}.app`);
+  if (existsSync(buildTypePath)) return buildTypePath;
+  return directPath;
+}
+export const APP_BUNDLE = getAppBundle();
 export const APP_BINARY = join(APP_BUNDLE, "Contents", "MacOS", APP_NAME);
 export const TEST_BINARY =
   process.env.TEST_BINARY || join(BUILD_DIR, "tests", "resostage_engine_tests");
@@ -167,6 +167,11 @@ export function startApp() {
   log(`Launching ${APP_BUNDLE}`);
   // macOS: `open` detaches cleanly; elsewhere spawn the binary detached.
   if (process.platform === "darwin") {
+    const lsregister =
+      "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister";
+    if (existsSync(lsregister)) {
+      run(lsregister, ["-f", APP_BUNDLE], { allowFail: true });
+    }
     run("open", [APP_BUNDLE]);
   } else {
     const child = spawn(APP_BINARY, [], {
