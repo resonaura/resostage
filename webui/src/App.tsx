@@ -34,6 +34,18 @@ function useForcedDarkTheme() {
   }, []);
 }
 
+function useDismissLoadingOverlay() {
+  useEffect(() => {
+    const overlay = document.getElementById("loading-overlay");
+    if (!overlay) return;
+    overlay.classList.add("loading-overlay-hidden");
+    const timer = setTimeout(() => {
+      overlay.remove();
+    }, 220);
+    return () => clearTimeout(timer);
+  }, []);
+}
+
 /** Match a key event against a juce-style description ("space", "cmd + p", "f1"). */
 function eventMatchesBinding(e: KeyboardEvent, description: string): boolean {
   if (!description) return false;
@@ -187,6 +199,7 @@ function jumpSection(
 
 export default function App() {
   useForcedDarkTheme();
+  useDismissLoadingOverlay();
   const [tab, setTab] = useState("player");
   // Tell the backend which SPA tab is active so WS frames only carry that
   // page's heavy arrays (transport/time always included).

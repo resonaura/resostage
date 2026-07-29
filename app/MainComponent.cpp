@@ -78,7 +78,7 @@ MainComponent::~MainComponent() {
 }
 
 void MainComponent::paint(juce::Graphics& g) {
-    g.fillAll(ui::bg());
+    g.fillAll(juce::Colours::black);
 }
 
 void MainComponent::resized() {

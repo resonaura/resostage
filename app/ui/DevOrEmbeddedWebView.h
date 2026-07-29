@@ -2,6 +2,11 @@
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
+#if JUCE_MAC
+#include <objc/runtime.h>
+#include <objc/message.h>
+#endif
+
 namespace resoset {
 
 // Always prefers the Vite dev server (webui/, port 2900) when it's running
@@ -17,7 +22,57 @@ class DevOrEmbeddedWebView final : public juce::WebBrowserComponent {
 public:
     explicit DevOrEmbeddedWebView(juce::String fallbackUrl)
         : embeddedFallbackUrl(std::move(fallbackUrl) + "?embedded=1") {
+        setOpaque(true);
         goToURL(devServerUrl);
+    }
+
+    void paint(juce::Graphics& g) override {
+        g.fillAll(juce::Colours::black);
+    }
+
+    void parentHierarchyChanged() override {
+        juce::WebBrowserComponent::parentHierarchyChanged();
+        applyNativeBlackBackground();
+    }
+
+    void resized() override {
+        juce::WebBrowserComponent::resized();
+        applyNativeBlackBackground();
+    }
+
+private:
+    void applyNativeBlackBackground() {
+#if JUCE_MAC
+        if (auto* peer = getPeer()) {
+            if (auto nsView = static_cast<id>(peer->getNativeHandle())) {
+                auto makeBlack = [](auto self, id view) -> void {
+                    if (view == nullptr) return;
+                    Class wkClass = objc_getClass("WKWebView");
+                    if (wkClass && ((bool (*)(id, SEL, Class))objc_msgSend)(view, sel_registerName("isKindOfClass:"), wkClass)) {
+                        id noVal = ((id (*)(Class, SEL, bool))objc_msgSend)(objc_getClass("NSNumber"), sel_registerName("numberWithBool:"), false);
+                        id keyDraws = ((id (*)(Class, SEL, const char*))objc_msgSend)(objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), "drawsBackground");
+                        ((void (*)(id, SEL, id, id))objc_msgSend)(view, sel_registerName("setValue:forKey:"), noVal, keyDraws);
+
+                        id blackColor = ((id (*)(Class, SEL))objc_msgSend)(objc_getClass("NSColor"), sel_registerName("blackColor"));
+                        id keyBg = ((id (*)(Class, SEL, const char*))objc_msgSend)(objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), "backgroundColor");
+                        ((void (*)(id, SEL, id, id))objc_msgSend)(view, sel_registerName("setValue:forKey:"), blackColor, keyBg);
+
+                        SEL selUnder = sel_registerName("setUnderPageBackgroundColor:");
+                        if (((bool (*)(id, SEL, SEL))objc_msgSend)(view, sel_registerName("respondsToSelector:"), selUnder)) {
+                            ((void (*)(id, SEL, id))objc_msgSend)(view, selUnder, blackColor);
+                        }
+                    }
+                    id subviews = ((id (*)(id, SEL))objc_msgSend)(view, sel_registerName("subviews"));
+                    std::size_t count = ((std::size_t (*)(id, SEL))objc_msgSend)(subviews, sel_registerName("count"));
+                    for (std::size_t i = 0; i < count; ++i) {
+                        id sub = ((id (*)(id, SEL, std::size_t))objc_msgSend)(subviews, sel_registerName("objectAtIndex:"), i);
+                        self(self, sub);
+                    }
+                };
+                makeBlack(makeBlack, nsView);
+            }
+        }
+#endif
     }
 
 private:
@@ -29,7 +84,9 @@ private:
             return true;
         }
         triedFallback = true;
-        goToURL(embeddedFallbackUrl);
+        juce::MessageManager::callAsync([this, url = embeddedFallbackUrl] {
+            goToURL(url);
+        });
         return false;
     }
 
