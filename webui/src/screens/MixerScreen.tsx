@@ -727,11 +727,17 @@ function BusDestinationRouting({
     );
   }
 
-  // Non-master bus (Sub-bus / Aux)
-  const isFollowingMaster =
+  // Non-master bus (Sub-bus / Aux).
+  // "Master" destination = same physical channels as the master bus (engine
+  // sums both with += on the hardware outs). "Ext. Out" = any hardware pair,
+  // including the same pair as master — that case must still sum, not replace.
+  const isFollowingMaster = Boolean(
     master &&
     bus.channels === master.channels &&
-    bus.startChannel === master.startChannel;
+    bus.startChannel === master.startChannel,
+  );
+  // Local UI mode: once the user opens Ext. Out, keep the channel picker
+  // visible even if they pick the same pair as master (isFollowingMaster).
   const [extOutputOpen, setExtOutputOpen] = useState(!isFollowingMaster);
 
   return (
@@ -753,8 +759,14 @@ function BusDestinationRouting({
         onChange={(e) => {
           if (e.target.value === EXT_OUTPUT_VALUE) {
             setExtOutputOpen(true);
+            // Prefer a free pair if one exists; otherwise keep current (may
+            // equal master — engine sums overlapping Ext. Outs).
             if (options.length > 0) {
-              updateBusChannels(bus.channels, options[0].startChannel);
+              const free = master
+                ? options.find((o) => o.startChannel !== master.startChannel)
+                : undefined;
+              const pick = free ?? options[0];
+              updateBusChannels(bus.channels, pick.startChannel);
             }
           } else {
             setExtOutputOpen(false);
@@ -762,7 +774,7 @@ function BusDestinationRouting({
           }
         }}
         className="w-full rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none"
-        title="Where this bus's signal goes"
+        title="Where this bus's signal goes (Master = same outs as master; both still sum)"
       >
         <option value="master">Master</option>
         <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
@@ -1604,12 +1616,20 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   // separate creation path.
   function requestAddSend() {
     const label = `Send ${auxBusses.length + 1}`;
+    // Prefer a free hardware pair when the interface has one; otherwise land
+    // on the master's pair so the send is audible on a 2-out device (engine
+    // sums overlapping Ext. Outs). nextOutputChannel() alone often returns
+    // ch 2 on stereo devices — silent until remapped.
+    const freeStart = nextOutputChannel();
+    const hwCount = state.settings.outputChannelNames?.length ?? 2;
+    const startChannel =
+      freeStart + 2 <= hwCount ? freeStart : (master?.startChannel ?? 0);
     queueBusJob((_busId, index) => {
       void builder.busUpdate({
         index,
         name: label,
         channels: 2,
-        startChannel: nextOutputChannel(),
+        startChannel,
         gainDb: 0,
         mute: false,
         solo: false,

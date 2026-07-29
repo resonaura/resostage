@@ -675,19 +675,15 @@ void MainComponent::builderBusUpdate(const std::string& json) {
     if (getBool(doc, "solo", boolVal)) b.solo = boolVal;
     if (getBool(doc, "isAux", boolVal)) b.isAux = boolVal;
 
-    const auto idx = static_cast<size_t>(index);
-    // Channel-count lives on LoadedBus (used when summing tracks into a mono
-    // vs stereo bus scratch). startChannel/gain/mute publish via routing
-    // snapshot. Rebuild when channels change so both stay in lockstep; that
-    // also keeps multi-bus Ext. Out same-channel summing honest.
-    if (channelsChanged) {
-        engine.rebuildBussesFromProject();
-    } else {
-        engine.setBusGainDb(idx, b.gainDb);
-        engine.setBusMute(idx, b.mute);
-        engine.setBusSolo(idx, b.solo);
-        engine.setBusOutputChannel(idx, b.output.startChannel);
-    }
+    // Always rebuild the live bus list from project so LoadedBus.channelCount
+    // stays in lockstep with BusDef.channels / startChannel. A stale
+    // channelCount of 0 used to make Pass 3 skip the physical write
+    // (channels = min(2, 0) == 0), which silenced any aux/send whose Ext. Out
+    // shared the master's hardware pair even though busScratch had signal.
+    // rebuildBussesFromProject also republishes the routing snapshot (gain/
+    // mute/solo/startChannel all read from project).
+    (void)channelsChanged;
+    engine.rebuildBussesFromProject();
     notifyRoutingChanged();
     setStatus("Bus updated");
 }

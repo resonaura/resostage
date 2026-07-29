@@ -2457,6 +2457,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // and force silence outside [start, start+duration). Without this the
     // file kept playing after the clip's visual end, then hit EOF and
     // flashed meters. Fades + region gain are applied sample-accurately here.
+    bool anyTrackSolo = proj.builtInClickSolo;
+    if (!anyTrackSolo) {
+        for (size_t si = 0; si < proj.tracks.size(); ++si) {
+            if (proj.tracks[si].solo) {
+                anyTrackSolo = true;
+                break;
+            }
+        }
+    }
     for (size_t t = 0; t < trackIdByIndex.size(); ++t) {
         if (t >= trackScratch.size())
             break;
@@ -2631,28 +2640,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // else: leave scratch cleared (silence) -- do not pull from the stream
         // past the clip end (that was the meter-flash path).
 
-        // Peak meter after fader/pan (and mono sum when forceMono / mono file).
+        // Strip peak meter: post track fader + pan (+ mono), NEVER derived from
+        // send routing. A Sends Only track with zero sends still has signal in
+        // the strip and must show it; send knobs only affect destinations.
         if (t < trackMeters.size() && trackMeters[t] != nullptr) {
-            float gL = 1.0f;
-            float gR = 1.0f;
-            bool forceMono = trackChannels < 2;
-            bool silenced = true;
-            if (snap != nullptr) {
-                for (const TrackRoute& route : snap->routes) {
-                    if (route.trackIndex != t)
-                        continue;
-                    if (!route.isAuxSend || silenced) {
-                        silenced = route.mute;
-                        forceMono = forceMono || route.forceMono;
-                        const float g = route.gainLinear * route.sendGainLinear;
-                        gL = g * (1.0f - std::max(0.0f, route.pan));
-                        gR = g * (1.0f + std::min(0.0f, route.pan));
-                        if (!route.isAuxSend)
-                            break;
-                    }
-                }
-            }
-
             // Same floor/ceiling as Metering.cpp::linearToDb -- a single
             // non-finite or absurd sample must not peg the strip at +400 dB.
             auto toDb = [](float p) -> float {
@@ -2665,6 +2656,22 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             auto finiteSample = [](float s) -> float {
                 return std::isfinite(s) ? s : 0.0f;
             };
+
+            float gL = 1.0f;
+            float gR = 1.0f;
+            bool forceMono = trackChannels < 2;
+            bool silenced = false;
+            if (t < proj.tracks.size()) {
+                const TrackDef& td = proj.tracks[t];
+                // Solo group: same rule as publishRoutingSnapshot (track mute
+                // or dimmed by another track/click solo).
+                silenced = td.mute || (anyTrackSolo && !td.solo);
+                const float g = dbToGain(td.gainDb);
+                const float pan = static_cast<float>(std::clamp(td.pan, -1.0, 1.0));
+                gL = g * (1.0f - std::max(0.0f, pan));
+                gR = g * (1.0f + std::min(0.0f, pan));
+                forceMono = forceMono || td.mono;
+            }
 
             if (silenced) {
                 trackMeters[t]->write(MeterFrame{});
@@ -2686,8 +2693,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                         peakR = std::max(peakR, std::abs(r * gR));
                     }
                 }
-                // Mono strip: show the same post-fader mono peak on both bars
-                // when pan is centre; with pan, L/R already reflect balance.
+                // Mono strip: same post-fader mono peak on both bars when pan
+                // is centre; with pan, L/R already reflect balance.
                 if (forceMono && std::abs(gL - gR) < 1.0e-6f) {
                     const float p = std::max(peakL, peakR);
                     peakL = peakR = p;
@@ -2720,7 +2727,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (trackBuf.getNumChannels() < 1 || trackBuf.getNumSamples() < numSamples)
             continue;
         const int trackChannels = std::min(2, buf->numChannels());
-        const int busChannels = std::min(2, busses[route.busIndex].channelCount);
+        // Prefer live LoadedBus channel count; never treat a bus as 0-ch
+        // (that skipped the mix and silenced sends on shared Ext. Outs).
+        int busChannels = std::min(2, busses[route.busIndex].channelCount);
+        if (busChannels < 1)
+            busChannels = 2;
         const int scratchOffset = static_cast<int>(route.busIndex) * 2;
         if (scratchOffset + busChannels > scratchChannels)
             continue;
@@ -2901,16 +2912,26 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     }
 
     // Pass 3: bus scratch buffers -> metering + physical outputs.
+    //
+    // Multiple busses may share the same Ext. Out pair (master + aux send on
+    // Out 1/2 is the common case). Every non-muted bus ALWAYS accumulates
+    // into the physical channel with += -- never replaces. Mono busses still
+    // feed their single channel; stereo feed L/R.
     for (const BusOutput& out : snap->outputs) {
         if (out.busIndex >= busses.size())
             continue;
         const int scratchOffset = static_cast<int>(out.busIndex) * 2;
-        const int channels = std::min(2, out.channelCount);
+        // Never treat a bus as 0-channel (would skip the physical write entirely
+        // and silence a send that shares the master's Ext. Out).
+        const int channels = std::max(1, std::min(2, out.channelCount));
+        if (scratchOffset + channels > scratchChannels)
+            continue;
 
         if (!meteringMuted && out.busIndex < busLoudnessMeters.size()) {
             const float* meterChannels[2] = {
                 busScratch.getReadPointer(scratchOffset),
-                channels > 1 ? busScratch.getReadPointer(scratchOffset + 1) : busScratch.getReadPointer(scratchOffset)};
+                channels > 1 ? busScratch.getReadPointer(scratchOffset + 1)
+                             : busScratch.getReadPointer(scratchOffset)};
             busLoudnessMeters[out.busIndex].processBlock(meterChannels, numSamples);
             if (out.busIndex < busMeters.size() && busMeters[out.busIndex] != nullptr)
                 busMeters[out.busIndex]->write(busLoudnessMeters[out.busIndex].currentFrame());
@@ -2921,14 +2942,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (out.mute)
             continue;
 
+        const float busGain = std::isfinite(out.gainLinear) ? out.gainLinear : 0.0f;
         for (int ch = 0; ch < channels; ++ch) {
             const int physicalCh = out.startChannel + ch;
-            if (physicalCh < 0 || physicalCh >= numOutputChannels || outputChannelData[physicalCh] == nullptr)
+            if (physicalCh < 0 || physicalCh >= numOutputChannels
+                || outputChannelData[physicalCh] == nullptr)
                 continue;
             const float* src = busScratch.getReadPointer(scratchOffset + ch);
+            if (src == nullptr)
+                continue;
             float* dst = outputChannelData[physicalCh];
             for (int i = 0; i < numSamples; ++i)
-                dst[i] += src[i] * out.gainLinear;
+                dst[i] += src[i] * busGain;
         }
     }
 
