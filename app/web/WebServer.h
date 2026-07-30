@@ -265,6 +265,7 @@ struct WebUiState {
             double fadeInCurve = 0.0;
             double fadeOutCurve = 0.0;
             bool loop = false;
+            double loopLengthSeconds = 0.0;
         };
         std::vector<RegionRow> regions;
 

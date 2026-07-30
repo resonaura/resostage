@@ -276,6 +276,7 @@ export const builder = {
     fadeInCurve?: number;
     fadeOutCurve?: number;
     loop?: boolean;
+    loopLengthSeconds?: number;
   }) => post("/api/v1/builder/region/update", patch),
 
   async trackImportWav(

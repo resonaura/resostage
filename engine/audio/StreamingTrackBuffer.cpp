@@ -284,20 +284,8 @@ bool StreamingTrackBuffer::tryLoadResident(size_t maxBytes, size_t& outBytes, st
         len = std::max<int64_t>(0, totalFrames() - start);
 
     if (len <= 0) {
-        std::lock_guard<std::mutex> lock(diskIoMutex);
-        if (const auto window = residentSnapshot()) {
-            outBytes = window->byteCount;
-            return true;
-        }
-        auto window = std::make_shared<ResidentWindow>();
-        window->start = start;
-        closeDiskCursorUnlocked();
-        sourceExhausted.store(true, std::memory_order_release);
-        pendingSkipFrames.store(0, std::memory_order_release);
-        std::atomic_store_explicit(&residentWindow,
-                                   std::shared_ptr<const ResidentWindow>{std::move(window)},
-                                   std::memory_order_release);
-        return true;
+        error = "totalFrames not available or file is empty";
+        return false;
     }
 
     const size_t need = estimatedResidentBytes();

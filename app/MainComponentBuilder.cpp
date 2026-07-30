@@ -363,6 +363,8 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
     bool boolVal = false;
     if (getBool(doc, "loop", boolVal))
         regPtr->loop = boolVal;
+    if (getDouble(doc, "loopLengthSeconds", numVal))
+        regPtr->loopLengthSeconds = std::max(0.0, numVal);
 
     // Keep fades from exceeding the clip length (each side ≤ half duration).
     if (regPtr->durationSeconds > 0.0) {

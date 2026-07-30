@@ -1069,7 +1069,8 @@ std::string WebServer::buildStateJson(const char* view) const {
                       << ",\"fadeOutSeconds\":" << finiteOrZero(r.fadeOutSeconds)
                       << ",\"fadeInCurve\":" << finiteOrZero(r.fadeInCurve)
                       << ",\"fadeOutCurve\":" << finiteOrZero(r.fadeOutCurve)
-                      << ",\"loop\":" << (r.loop ? "true" : "false");
+                      << ",\"loop\":" << (r.loop ? "true" : "false")
+                      << ",\"loopLengthSeconds\":" << finiteOrZero(r.loopLengthSeconds);
                 }
                 o << "}";
             }

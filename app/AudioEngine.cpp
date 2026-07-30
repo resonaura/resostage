@@ -2563,19 +2563,19 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // Available source frames from sourceOffset to end of file.
         const int64_t totalSrc = buf->totalFrames();
         const int64_t sourceAvail = std::max<int64_t>(0, totalSrc - srcOff);
+        const double regLoopLen = (reg != nullptr && reg->loopLengthSeconds > 0.0)
+            ? reg->loopLengthSeconds
+            : 0.0;
+        const int64_t loopLenN = regLoopLen > 0.0
+            ? static_cast<int64_t>(std::llround(regLoopLen * sr))
+            : sourceAvail;
+        const int64_t loopCycle = std::max<int64_t>(1, std::min(sourceAvail, loopLenN));
 
         const bool fullyOutside = reg != nullptr
             && (playheadSample + numSamples <= regStart || playheadSample >= regEnd);
 
         if (!fullyOutside) {
             // Map song timeline → source file frames for this region.
-            // Non-loop: filePos = intoRegion + srcOff (silence past sourceAvail).
-            // Loop:     filePos = (intoRegion % sourceAvail) + srcOff so a
-            // clip longer than its source material cycles the content.
-            //
-            // When looping, consecutive samples may wrap -- we still do a
-            // single linear read for the common non-wrap case, then patch
-            // wrapped samples (rare within one block if sourceAvail is large).
             const int64_t into0 = playheadSample - regStart; // may be negative before start
             auto mapFilePos = [&](int64_t intoRegion) -> int64_t {
                 if (intoRegion < 0)
@@ -2583,8 +2583,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 if (sourceAvail <= 0)
                     return -1;
                 if (loop) {
-                    int64_t m = intoRegion % sourceAvail;
-                    if (m < 0) m += sourceAvail;
+                    if (loopCycle <= 0) return -1;
+                    int64_t m = intoRegion % loopCycle;
+                    if (m < 0) m += loopCycle;
                     return srcOff + m;
                 }
                 if (intoRegion >= sourceAvail)
@@ -2594,9 +2595,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
             const int64_t filePosAtStart = mapFilePos(into0);
             // Fast path: contiguous non-wrapping read for the whole block.
-            const bool wrapInBlock = loop && sourceAvail > 0
+            const bool wrapInBlock = loop && loopCycle > 0
                 && into0 >= 0
-                && (into0 / sourceAvail) != ((into0 + numSamples - 1) / sourceAvail);
+                && (into0 / loopCycle) != ((into0 + numSamples - 1) / loopCycle);
 
             if (!wrapInBlock && filePosAtStart >= 0) {
                 buf->read(ptrs, numSamples, filePosAtStart);

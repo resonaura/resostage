@@ -19,22 +19,10 @@ constexpr int kMaxPrecacheBurstHungry = 2;
 constexpr int kMutexYieldEveryRefills = 8;
 
 void applyWindowFromRegion(StreamingTrackBuffer& buf, const Region& region, double deviceSampleRate) {
-    const double sr = deviceSampleRate > 0.0 ? deviceSampleRate : 48000.0;
+    (void)region;
+    (void)deviceSampleRate;
     const int64_t total = buf.totalFrames();
-    int64_t srcOff = static_cast<int64_t>(std::llround(std::max(0.0, region.sourceOffsetSeconds) * sr));
-    if (srcOff > total)
-        srcOff = total;
-    const int64_t sourceAvail = std::max<int64_t>(0, total - srcOff);
-
-    int64_t len = sourceAvail;
-    if (region.loop) {
-        len = sourceAvail;
-    } else if (region.durationSeconds > 0.0) {
-        const int64_t durFrames =
-            static_cast<int64_t>(std::llround(region.durationSeconds * sr));
-        len = std::min(sourceAvail, std::max<int64_t>(0, durFrames));
-    }
-    buf.setPreferredResidentWindow(srcOff, len);
+    buf.setPreferredResidentWindow(0, std::max<int64_t>(0, total));
 }
 
 } // namespace

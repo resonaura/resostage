@@ -1085,6 +1085,7 @@ function TrackWaveformLane({
   /** When true, no lane chrome — meant to sit inside a clipped region. */
   embedded = false,
   loop = false,
+  loopLengthSec = 0,
 }: {
   levels: PeakLevelData[];
   durationSeconds: number;
@@ -1100,6 +1101,7 @@ function TrackWaveformLane({
   sourceOffsetSec?: number;
   embedded?: boolean;
   loop?: boolean;
+  loopLengthSec?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rawWindow, setRawWindow] = useState<{
@@ -1189,6 +1191,9 @@ function TrackWaveformLane({
       const rmsBotPoints: { x: number; y: number }[] = [];
 
       const availSec = Math.max(0.01, durationSeconds - sourceOffsetSec);
+      const cycleSec = (loopLengthSec && loopLengthSec > 0)
+        ? loopLengthSec
+        : availSec;
 
       for (let x = 0; x <= renderWidth; x += step) {
         // Map lane-local time → source-file time (honours region trim/split & loop).
@@ -1198,13 +1203,13 @@ function TrackWaveformLane({
         let tStartSec = sourceOffsetSec + intoSecStart;
         let tEndSec = sourceOffsetSec + intoSecEnd;
 
-        if (loop && availSec > 0) {
-          let mStart = intoSecStart % availSec;
-          if (mStart < 0) mStart += availSec;
+        if (loop && cycleSec > 0) {
+          let mStart = intoSecStart % cycleSec;
+          if (mStart < 0) mStart += cycleSec;
           tStartSec = sourceOffsetSec + mStart;
 
-          let mEnd = intoSecEnd % availSec;
-          if (mEnd < 0) mEnd += availSec;
+          let mEnd = intoSecEnd % cycleSec;
+          if (mEnd < 0) mEnd += cycleSec;
           tEndSec = sourceOffsetSec + mEnd;
         }
 
@@ -1705,6 +1710,7 @@ export function Timeline({
         fadeInCurve?: number;
         fadeOutCurve?: number;
         loop?: boolean;
+        loopLengthSeconds?: number;
       }
     >
   >({});
@@ -1776,6 +1782,7 @@ export function Timeline({
     fadeInCurve: number;
     fadeOutCurve: number;
     loop: boolean;
+    loopLengthSeconds?: number;
   };
   const regionDragRef = useRef<{
     key: RegionSelKey;
@@ -1792,6 +1799,7 @@ export function Timeline({
     origFadeInCurve: number;
     origFadeOutCurve: number;
     origLoop: boolean;
+    origLoopLength: number;
     maxEnd: number; // song length
     /** Remaining source length from sourceOffset (fileDuration - offset). */
     maxSourceDur: number;
@@ -2715,6 +2723,8 @@ export function Timeline({
                             fadeOutCurve:
                               draft?.fadeOutCurve ?? r.fadeOutCurve ?? 0,
                             loop: draft?.loop ?? r.loop ?? false,
+                            loopLengthSeconds:
+                              draft?.loopLengthSeconds ?? r.loopLengthSeconds ?? 0,
                           };
                         };
 
@@ -2802,7 +2812,17 @@ export function Timeline({
                                   fadeInCurve: geom.fadeInCurve,
                                   fadeOutCurve: geom.fadeOutCurve,
                                   loop: geom.loop,
+                                  loopLengthSeconds: geom.loopLengthSeconds,
                                 };
+                                const origLoopLen =
+                                  mode === "loopTrim"
+                                    ? geom.loop &&
+                                      geom.loopLengthSeconds &&
+                                      geom.loopLengthSeconds > 0
+                                      ? geom.loopLengthSeconds
+                                      : geom.duration
+                                    : geom.loopLengthSeconds ?? 0;
+
                                 regionDragRef.current = {
                                   key: thisRegionSelKey,
                                   mode,
@@ -2818,6 +2838,7 @@ export function Timeline({
                                   origFadeInCurve: orig.fadeInCurve,
                                   origFadeOutCurve: orig.fadeOutCurve,
                                   origLoop: orig.loop,
+                                  origLoopLength: origLoopLen,
                                   maxEnd: segDuration,
                                   maxSourceDur: Math.max(
                                     0.05,
@@ -2841,6 +2862,7 @@ export function Timeline({
                                 fadeInCurve: rd.origFadeInCurve,
                                 fadeOutCurve: rd.origFadeOutCurve,
                                 loop: rd.origLoop,
+                                loopLengthSeconds: rd.origLoopLength,
                               });
 
                               /** Hit-test left/right edge into Logic Pro style zones. */
@@ -2939,12 +2961,17 @@ export function Timeline({
                                     0.05,
                                     Math.min(maxDur, snappedEnd - rd.origStart),
                                   );
+                                  const loopLen =
+                                    rd.origLoopLength > 0
+                                      ? rd.origLoopLength
+                                      : rd.origDuration;
                                   const isLooped =
-                                    nextDur > rd.maxSourceDur + 0.01;
+                                    nextDur > loopLen + 0.01;
                                   writeGeomDraft(thisRegionSelKey, {
                                     ...baseGeom(rd),
                                     duration: nextDur,
                                     loop: isLooped,
+                                    loopLengthSeconds: isLooped ? loopLen : 0,
                                   });
                                   return;
                                 }
@@ -2953,16 +2980,11 @@ export function Timeline({
                                   const rawEnd =
                                     rd.origStart + rd.origDuration + dSec;
                                   const snappedEnd = snapSec(rawEnd);
-                                  const isLooped =
-                                    rd.lastGeom?.loop ?? rd.origLoop;
-                                  // Without loop: can't exceed remaining source.
-                                  // With loop: free up to song end.
-                                  const maxDur = isLooped
-                                    ? rd.maxEnd - rd.origStart
-                                    : Math.min(
-                                        rd.maxEnd - rd.origStart,
-                                        rd.maxSourceDur,
-                                      );
+                                  // Standard trim never loops; capped to remaining source duration.
+                                  const maxDur = Math.min(
+                                    rd.maxEnd - rd.origStart,
+                                    rd.maxSourceDur,
+                                  );
                                   const nextDur = Math.max(
                                     0.05,
                                     Math.min(maxDur, snappedEnd - rd.origStart),
@@ -2970,6 +2992,8 @@ export function Timeline({
                                   writeGeomDraft(thisRegionSelKey, {
                                     ...baseGeom(rd),
                                     duration: nextDur,
+                                    loop: false,
+                                    loopLengthSeconds: 0,
                                   });
                                   return;
                                 }
@@ -3044,6 +3068,7 @@ export function Timeline({
                                   fadeInCurve: finalGeom.fadeInCurve,
                                   fadeOutCurve: finalGeom.fadeOutCurve,
                                   loop: finalGeom.loop,
+                                  loopLengthSeconds: finalGeom.loopLengthSeconds,
                                 });
                                 regionDragRef.current = null;
                                 try {
@@ -3157,6 +3182,7 @@ export function Timeline({
                                         sourceOffsetSec={geom.sourceOffset}
                                         embedded
                                         loop={geom.loop}
+                                        loopLengthSec={geom.loopLengthSeconds}
                                       />
                                     )}
                                     <div
@@ -3221,16 +3247,24 @@ export function Timeline({
                                     )}
 
                                     {/* Loop iteration notches (triangles top+bottom). */}
-                                    {geom.loop &&
-                                      maxSourceDur > 0.05 &&
-                                      geom.duration > maxSourceDur + 0.01 &&
-                                      Array.from({
+                                    {geom.loop && (() => {
+                                      const cycleLen =
+                                        geom.loopLengthSeconds &&
+                                        geom.loopLengthSeconds > 0
+                                          ? geom.loopLengthSeconds
+                                          : maxSourceDur;
+                                      if (
+                                        cycleLen <= 0.05 ||
+                                        geom.duration <= cycleLen + 0.01
+                                      )
+                                        return null;
+                                      return Array.from({
                                         length: Math.floor(
-                                          geom.duration / maxSourceDur,
+                                          geom.duration / cycleLen,
                                         ),
                                       }).map((_, li) => {
                                         const x =
-                                          (li + 1) * maxSourceDur * pxPerSec;
+                                          (li + 1) * cycleLen * pxPerSec;
                                         if (x <= 2 || x >= regionWidth - 2)
                                           return null;
                                         return (
@@ -3275,7 +3309,8 @@ export function Timeline({
                                             />
                                           </div>
                                         );
-                                      })}
+                                      });
+                                    })()}
                                   </div>
                                 </div>
                               );

@@ -37,6 +37,7 @@ struct Region {
     // remaining source material). When false, timeline duration is clamped
     // to the remaining source length and silence fills any overrun.
     bool loop = false;
+    double loopLengthSeconds = 0.0; // 0 = remaining source material from sourceOffset
 };
 
 struct TrackDef {

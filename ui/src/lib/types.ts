@@ -57,6 +57,7 @@ export interface RegionRow {
   fadeOutCurve?: number;
   /** When true, source content repeats to fill durationSeconds. */
   loop?: boolean;
+  loopLengthSeconds?: number;
 }
 
 // Structural marker (Intro/Verse/Chorus/Bridge/Outro/Solo/custom). A point,
