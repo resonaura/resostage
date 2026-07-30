@@ -141,10 +141,26 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
         void transport.select(songIdx);
       } else if (e.code === "ArrowLeft") {
         e.preventDefault();
-        void transport.seek(Math.max(0, playheadRef.current - 5));
+        const songs = songsRef.current;
+        const sIdx = songIndexRef.current;
+        const song = songs[sIdx];
+        const bpm = song?.bpm && song.bpm > 0 ? song.bpm : 120;
+        const tsNum = song?.tsNum && song.tsNum > 0 ? song.tsNum : 4;
+        const barSec = (60 / bpm) * tsNum;
+        const curBar = playheadRef.current / barSec;
+        const prevBarSec = Math.max(0, Math.floor(curBar - 0.01) * barSec);
+        void transport.seek(prevBarSec);
       } else if (e.code === "ArrowRight") {
         e.preventDefault();
-        void transport.seek(playheadRef.current + 5);
+        const songs = songsRef.current;
+        const sIdx = songIndexRef.current;
+        const song = songs[sIdx];
+        const bpm = song?.bpm && song.bpm > 0 ? song.bpm : 120;
+        const tsNum = song?.tsNum && song.tsNum > 0 ? song.tsNum : 4;
+        const barSec = (60 / bpm) * tsNum;
+        const curBar = playheadRef.current / barSec;
+        const nextBarSec = Math.floor(curBar + 1.01) * barSec;
+        void transport.seek(nextBarSec);
       } else if (e.code === "Home") {
         e.preventDefault();
         void transport.seek(0);

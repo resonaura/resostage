@@ -119,6 +119,7 @@ public:
     BufferHealth activeBufferHealth(double deviceSampleRate) const;
 
     ActiveSongHandle acquireActiveSong();
+    void updateRegionWindow(const Region& region, double deviceSampleRate = 0.0);
 
     template <typename Fn>
     void withProjectLoaderLock(Fn&& fn) {

@@ -648,6 +648,10 @@ double AudioEngine::regionEffectiveDurationSeconds(const Region& r) const {
     return pk != nullptr ? pk->durationSeconds : 0.0;
 }
 
+void AudioEngine::updateRegionWindow(const Region& r) {
+    streaming.updateRegionWindow(r, currentSampleRate);
+}
+
 double AudioEngine::songAuthoredDurationSeconds(const SongDef& song) const {
     double maxEnd = 0.0;
     for (const Region& r : song.regions)

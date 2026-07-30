@@ -371,6 +371,7 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
         regPtr->fadeOutSeconds = std::min(regPtr->fadeOutSeconds, maxFade);
     }
 
+    engine.updateRegionWindow(*regPtr);
     engine.markDirty();
     notifyProjectStructureChanged();
     setStatus("Region updated");

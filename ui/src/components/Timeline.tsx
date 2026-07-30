@@ -1,7 +1,7 @@
 import { Button, Slider } from "@heroui/react";
 import {
   Copy,
-  Grid3X3,
+  Magnet,
   MoveHorizontalIcon,
   MoveVerticalIcon,
   Scissors,
@@ -596,6 +596,24 @@ function getTickConfig(pxPerSec: number, bpm: number, tsNum: number) {
   };
 }
 
+function getSnapInterval(pxPerSec: number, bpm: number, tsNum: number): number {
+  if (bpm <= 0) return 1.0;
+  const tc = getTickConfig(pxPerSec, bpm, tsNum);
+  return tc.minorStepSec > 0 ? tc.minorStepSec : (60 / bpm);
+}
+
+function snapToGridSec(
+  sec: number,
+  pxPerSec: number,
+  bpm: number,
+  tsNum: number,
+  snapEnabled: boolean,
+): number {
+  if (!snapEnabled || bpm <= 0) return sec;
+  const interval = getSnapInterval(pxPerSec, bpm, tsNum);
+  return Math.round(sec / interval) * interval;
+}
+
 function formatTimeShort(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) sec = 0;
   const m = Math.floor(sec / 60);
@@ -754,6 +772,7 @@ function SectionMarkerLane({
   pxPerSec,
   contentWidth,
   readOnly,
+  snapToGrid = false,
 }: {
   songs: SongRow[];
   songOffsets: number[];
@@ -761,6 +780,7 @@ function SectionMarkerLane({
   pxPerSec: number;
   contentWidth: number;
   readOnly: boolean;
+  snapToGrid?: boolean;
 }) {
   const laneRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<SectionMenuState | null>(null);
@@ -816,11 +836,15 @@ function SectionMarkerLane({
       : 0;
     const { songIndex, localSeconds } = resolveSongAt(absSeconds);
     if (songIndex < 0) return;
+    const song = songs[songIndex];
+    const bpm = song?.bpm ?? 120;
+    const tsNum = song?.tsNum ?? 4;
+    const snappedLocal = snapToGridSec(localSeconds, pxPerSec, bpm, tsNum, snapToGrid);
     setMenu({
       x: e.clientX,
       y: e.clientY,
       songIndex,
-      startSeconds: localSeconds,
+      startSeconds: snappedLocal,
     });
   };
 
@@ -878,7 +902,11 @@ function SectionMarkerLane({
     if (!meta) return;
     const dSec = (e.clientX - meta.startX) / pxPerSec;
     const songLen = songLengths[meta.songIndex] ?? 0;
-    const value = Math.max(0, Math.min(songLen, meta.origStart + dSec));
+    const rawValue = Math.max(0, Math.min(songLen, meta.origStart + dSec));
+    const song = songs[meta.songIndex];
+    const bpm = song?.bpm ?? 120;
+    const tsNum = song?.tsNum ?? 4;
+    const value = snapToGridSec(rawValue, pxPerSec, bpm, tsNum, snapToGrid);
     setLiveDrag({
       songIndex: meta.songIndex,
       sectionId: meta.sectionId,
@@ -1056,6 +1084,7 @@ function TrackWaveformLane({
   sourceOffsetSec = 0,
   /** When true, no lane chrome — meant to sit inside a clipped region. */
   embedded = false,
+  loop = false,
 }: {
   levels: PeakLevelData[];
   durationSeconds: number;
@@ -1070,6 +1099,7 @@ function TrackWaveformLane({
   muted: boolean;
   sourceOffsetSec?: number;
   embedded?: boolean;
+  loop?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rawWindow, setRawWindow] = useState<{
@@ -1158,10 +1188,25 @@ function TrackWaveformLane({
       const rmsTopPoints: { x: number; y: number }[] = [];
       const rmsBotPoints: { x: number; y: number }[] = [];
 
+      const availSec = Math.max(0.01, durationSeconds - sourceOffsetSec);
+
       for (let x = 0; x <= renderWidth; x += step) {
-        // Map lane-local time → source-file time (honours region trim/split).
-        const tStartSec = sourceOffsetSec + (scrollLeft + x) / pxPerSec;
-        const tEndSec = sourceOffsetSec + (scrollLeft + x + step) / pxPerSec;
+        // Map lane-local time → source-file time (honours region trim/split & loop).
+        const intoSecStart = (scrollLeft + x) / pxPerSec;
+        const intoSecEnd = (scrollLeft + x + step) / pxPerSec;
+
+        let tStartSec = sourceOffsetSec + intoSecStart;
+        let tEndSec = sourceOffsetSec + intoSecEnd;
+
+        if (loop && availSec > 0) {
+          let mStart = intoSecStart % availSec;
+          if (mStart < 0) mStart += availSec;
+          tStartSec = sourceOffsetSec + mStart;
+
+          let mEnd = intoSecEnd % availSec;
+          if (mEnd < 0) mEnd += availSec;
+          tEndSec = sourceOffsetSec + mEnd;
+        }
 
         const startBin = Math.max(
           0,
@@ -1194,8 +1239,8 @@ function TrackWaveformLane({
         if (maxV === -1) maxV = 0;
         if (minV === 1) minV = 0;
 
-        // Past the end of the source file: draw silence so trimmed tails stay flat.
-        if (tStartSec >= durationSeconds) {
+        // Past the end of the source file (non-loop only): draw silence so trimmed tails stay flat.
+        if (!loop && tStartSec >= durationSeconds) {
           maxV = 0;
           minV = 0;
           rmsV = 0;
@@ -1636,6 +1681,14 @@ export function Timeline({
     new Map(),
   );
 
+  const [regionContextMenu, setRegionContextMenu] = useState<{
+    x: number;
+    y: number;
+    songIndex: number;
+    regionId: string;
+    selKey: RegionSelKey;
+  } | null>(null);
+
   // Live geometry while dragging (committed to project on pointer up).
   // Kept until live state.songs catches up — REST returns before the
   // engine applies the update, so clearing the draft in .finally() caused
@@ -1709,6 +1762,7 @@ export function Timeline({
     | "move"
     | "trimStart" // left center/bottom: extend left into earlier source
     | "trimEnd" // right bottom: set timeline duration
+    | "loopTrim" // right upper-middle: Logic Pro loop stretch handle
     | "fadeIn" // left top
     | "fadeOut" // right top
     | "fadeInCurve"
@@ -2042,13 +2096,18 @@ export function Timeline({
     const { songIndex, localSeconds } = resolveSong(absSeconds);
     if (songIndex < 0) return;
 
+    const targetSong = songs[songIndex];
+    const bpm = targetSong?.bpm ?? 120;
+    const tsNum = targetSong?.tsNum ?? 4;
+    const snappedLocal = snapToGridSec(localSeconds, pxPerSecRef.current, bpm, tsNum, snapToGrid);
+
     // Clamp into the resolved song's authored length so we never seek past EOF.
     const songLen = songLengths[songIndex] ?? 0;
     const songStart = songOffsets[songIndex] ?? 0;
     const clampedLocal =
       songLen > 0
-        ? Math.min(localSeconds, Math.max(0, songLen - 0.01))
-        : localSeconds;
+        ? Math.min(snappedLocal, Math.max(0, songLen - 0.01))
+        : snappedLocal;
     const clampedAbs = songStart + clampedLocal;
 
     // Optimistic absolute needle moves immediately (one continuous timeline).
@@ -2268,7 +2327,7 @@ export function Timeline({
                 }
                 onPress={() => setSnapToGrid((v) => !v)}
               >
-                <Grid3X3 size={13} />
+                <Magnet size={13} />
               </Button>
             </>
           )}
@@ -2495,6 +2554,7 @@ export function Timeline({
                 pxPerSec={pxPerSec}
                 contentWidth={contentWidth}
                 readOnly={readOnly}
+                snapToGrid={snapToGrid}
               />
 
               {/* 2. Event Marker Lane -- events from every song, each at its song's absolute offset */}
@@ -2626,11 +2686,14 @@ export function Timeline({
                           (i === state.songIndex ? peaks?.tracks : undefined);
                         const segDuration = songLengths[i];
 
-                        const snapSec = (sec: number) => {
-                          if (!snapToGrid || song.bpm <= 0) return sec;
-                          const beatSec = 60 / song.bpm;
-                          return Math.round(sec / beatSec) * beatSec;
-                        };
+                        const snapSec = (sec: number) =>
+                          snapToGridSec(
+                            sec,
+                            pxPerSec,
+                            song.bpm,
+                            song.tsNum ?? 4,
+                            snapToGrid,
+                          );
 
                         const effectiveGeom = (r: RegionRow): RegionGeom => {
                           const draft = regionGeomDraft[regionSelKey(i, r.id)];
@@ -2780,24 +2843,27 @@ export function Timeline({
                                 loop: rd.origLoop,
                               });
 
-                              /** Hit-test left/right edge into DAW zones (thirds of height). */
+                              /** Hit-test left/right edge into Logic Pro style zones. */
                               const edgeMode = (
                                 localX: number,
                                 localY: number,
                                 w: number,
                                 h: number,
-                              ): RegionDragMode | "loopToggle" | "move" => {
-                                const third = h / 3;
+                              ): RegionDragMode => {
+                                const qH = h * 0.25;
                                 if (localX < EDGE_PX) {
-                                  // Left: top = fade, center+bottom = trim start
-                                  return localY < third
+                                  // Left: top 25% = fade in, bottom 75% = trim start
+                                  return localY < qH
                                     ? "fadeIn"
                                     : "trimStart";
                                 }
                                 if (localX > w - EDGE_PX) {
-                                  // Right: top = fade, mid = loop, bottom = duration
-                                  if (localY < third) return "fadeOut";
-                                  if (localY < third * 2) return "loopToggle";
+                                  // Right Logic Pro style:
+                                  // - Top 25%: Fade Out
+                                  // - Upper-Middle (25%..65%): Loop Trim Handle
+                                  // - Bottom (65%..100%): Standard Trim End
+                                  if (localY < qH) return "fadeOut";
+                                  if (localY < h * 0.65) return "loopTrim";
                                   return "trimEnd";
                                 }
                                 return "move";
@@ -2812,7 +2878,7 @@ export function Timeline({
                                 const m = edgeMode(localX, localY, w, h);
                                 if (m === "fadeIn" || m === "fadeOut")
                                   return "col-resize";
-                                if (m === "loopToggle") return "cell";
+                                if (m === "loopTrim") return "alias";
                                 if (m === "trimStart" || m === "trimEnd")
                                   return "ew-resize";
                                 return "grab";
@@ -2864,13 +2930,34 @@ export function Timeline({
                                   return;
                                 }
 
+                                if (rd.mode === "loopTrim") {
+                                  const rawEnd =
+                                    rd.origStart + rd.origDuration + dSec;
+                                  const snappedEnd = snapSec(rawEnd);
+                                  const maxDur = rd.maxEnd - rd.origStart;
+                                  const nextDur = Math.max(
+                                    0.05,
+                                    Math.min(maxDur, snappedEnd - rd.origStart),
+                                  );
+                                  const isLooped =
+                                    nextDur > rd.maxSourceDur + 0.01;
+                                  writeGeomDraft(thisRegionSelKey, {
+                                    ...baseGeom(rd),
+                                    duration: nextDur,
+                                    loop: isLooped,
+                                  });
+                                  return;
+                                }
+
                                 if (rd.mode === "trimEnd") {
                                   const rawEnd =
                                     rd.origStart + rd.origDuration + dSec;
                                   const snappedEnd = snapSec(rawEnd);
+                                  const isLooped =
+                                    rd.lastGeom?.loop ?? rd.origLoop;
                                   // Without loop: can't exceed remaining source.
                                   // With loop: free up to song end.
-                                  const maxDur = rd.origLoop
+                                  const maxDur = isLooped
                                     ? rd.maxEnd - rd.origStart
                                     : Math.min(
                                         rd.maxEnd - rd.origStart,
@@ -2982,30 +3069,6 @@ export function Timeline({
                                   regionWidth,
                                   rect.height,
                                 );
-                                if (mode === "loopToggle") {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  selectRegion(thisRegionSelKey, e);
-                                  const nextLoop = !geom.loop;
-                                  // Enabling loop frees duration past source;
-                                  // disabling clamps duration to source avail.
-                                  const nextDur = nextLoop
-                                    ? geom.duration
-                                    : Math.min(geom.duration, maxSourceDur);
-                                  const next: RegionGeom = {
-                                    ...geom,
-                                    loop: nextLoop,
-                                    duration: nextDur,
-                                  };
-                                  writeGeomDraft(thisRegionSelKey, next);
-                                  void builder.regionUpdate({
-                                    songIndex: i,
-                                    regionId: songRegion.id,
-                                    durationSeconds: next.duration,
-                                    loop: next.loop,
-                                  });
-                                  return;
-                                }
                                 // Trim-start only useful when there's earlier
                                 // source to pull (sourceOffset > 0).
                                 if (
@@ -3064,8 +3127,13 @@ export function Timeline({
                                       e.preventDefault();
                                       e.stopPropagation();
                                       if (readOnly) return;
-                                      setRegionUi(thisRegionSelKey, {
-                                        muted: !regionUi.muted,
+                                      selectRegion(thisRegionSelKey, e);
+                                      setRegionContextMenu({
+                                        x: e.clientX,
+                                        y: e.clientY,
+                                        songIndex: i,
+                                        regionId: songRegion.id,
+                                        selKey: thisRegionSelKey,
                                       });
                                     }}
                                   >
@@ -3088,6 +3156,7 @@ export function Timeline({
                                         }
                                         sourceOffsetSec={geom.sourceOffset}
                                         embedded
+                                        loop={geom.loop}
                                       />
                                     )}
                                     <div
@@ -3246,6 +3315,53 @@ export function Timeline({
           </div>
         </div>
       )}
+
+      {regionContextMenu && (() => {
+        const song = songs[regionContextMenu.songIndex];
+        const songRegion = song?.regions?.find(
+          (r) => r.id === regionContextMenu.regionId,
+        );
+        if (!songRegion || !song) return null;
+
+        const regUi = getRegionUi(regionContextMenu.selKey);
+
+        return (
+          <ContextMenu
+            x={regionContextMenu.x}
+            y={regionContextMenu.y}
+            width={180}
+            onClose={() => setRegionContextMenu(null)}
+          >
+
+
+            <ContextMenuItem
+              onClick={() => {
+                setRegionUi(regionContextMenu.selKey, {
+                  muted: !regUi.muted,
+                });
+                setRegionContextMenu(null);
+              }}
+            >
+              {regUi.muted ? "Unmute Region" : "Mute Region"}
+            </ContextMenuItem>
+
+            <ContextMenuDivider />
+
+            <ContextMenuItem
+              danger
+              onClick={() => {
+                void builder.regionRemove(
+                  regionContextMenu.songIndex,
+                  regionContextMenu.regionId,
+                );
+                setRegionContextMenu(null);
+              }}
+            >
+              Delete Region
+            </ContextMenuItem>
+          </ContextMenu>
+        );
+      })()}
     </div>
   );
 }

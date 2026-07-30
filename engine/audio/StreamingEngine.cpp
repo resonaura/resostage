@@ -105,6 +105,14 @@ void StreamingEngine::applyRegionWindow(StreamingTrackBuffer& buf, const Region&
     applyWindowFromRegion(buf, region, deviceSampleRate);
 }
 
+void StreamingEngine::updateRegionWindow(const Region& region, double deviceSampleRate) {
+    if (auto handle = acquireActiveSong()) {
+        if (StreamingTrackBuffer* buf = handle.region(region.id)) {
+            applyWindowFromRegion(*buf, region, deviceSampleRate);
+        }
+    }
+}
+
 void StreamingEngine::putWarmLocked(std::shared_ptr<StagedSong> song, bool needsRewind) {
     if (song == nullptr)
         return;
