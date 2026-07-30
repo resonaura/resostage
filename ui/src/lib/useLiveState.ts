@@ -138,16 +138,23 @@ export function useLiveState(view: string = "player") {
     }
   };
 
-  useEffect(() => {
+  const sendView = (v: string) => {
+    console.log('[sendView]', v);
+    // POST is more reliable than WS for this — no dependency on WS state.
+    fetch('/api/v1/view', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ view: v }),
+    }).then(r => {
+      if (r.ok) console.log('[sendView] POST ok', v);
+    }).catch(e => console.warn('[sendView] POST fail', v, e));
+
+    // Also try WS if open (dual-path for redundancy).
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(JSON.stringify({ view }));
-      } catch {
-        // ignore
-      }
+      try { ws.send(JSON.stringify({ view: v })); console.log('[sendView] WS sent', v); } catch {}
     }
-  }, [view]);
+  };
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -170,7 +177,7 @@ export function useLiveState(view: string = "player") {
         try {
           ws?.send(JSON.stringify({ view: viewRef.current }));
         } catch {
-          // ignore
+          // safe to ignore — WS will retry on reconnect
         }
       };
       ws.onmessage = (ev) => {
@@ -243,5 +250,5 @@ export function useLiveState(view: string = "player") {
     };
   }, []);
 
-  return { state, status, transport, cpuHistory, ramHistory };
+  return { state, status, transport, cpuHistory, ramHistory, sendView };
 }

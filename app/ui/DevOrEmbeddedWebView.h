@@ -41,23 +41,24 @@ public:
 
     void parentHierarchyChanged() override {
         juce::WebBrowserComponent::parentHierarchyChanged();
-        applyNativeBlackBackground();
+        applyNativeWebViewSettings();
     }
 
     void resized() override {
         juce::WebBrowserComponent::resized();
-        applyNativeBlackBackground();
+        applyNativeWebViewSettings();
     }
 
 private:
-    void applyNativeBlackBackground() {
+    void applyNativeWebViewSettings() {
 #if JUCE_MAC
         if (auto* peer = getPeer()) {
             if (auto nsView = static_cast<id>(peer->getNativeHandle())) {
-                auto makeBlack = [](auto self, id view) -> void {
+                auto configureView = [](auto self, id view) -> void {
                     if (view == nullptr) return;
                     Class wkClass = objc_getClass("WKWebView");
                     if (wkClass && ((bool (*)(id, SEL, Class))objc_msgSend)(view, sel_registerName("isKindOfClass:"), wkClass)) {
+                        // ── Black background ──
                         id noVal = ((id (*)(Class, SEL, bool))objc_msgSend)(objc_getClass("NSNumber"), sel_registerName("numberWithBool:"), false);
                         id keyDraws = ((id (*)(Class, SEL, const char*))objc_msgSend)(objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), "drawsBackground");
                         ((void (*)(id, SEL, id, id))objc_msgSend)(view, sel_registerName("setValue:forKey:"), noVal, keyDraws);
@@ -70,6 +71,15 @@ private:
                         if (((bool (*)(id, SEL, SEL))objc_msgSend)(view, sel_registerName("respondsToSelector:"), selUnder)) {
                             ((void (*)(id, SEL, id))objc_msgSend)(view, selUnder, blackColor);
                         }
+
+                        // ── Web Inspector (inspect element) ──
+                        id conf = ((id (*)(id, SEL))objc_msgSend)(view, sel_registerName("configuration"));
+                        id prefs = ((id (*)(id, SEL))objc_msgSend)(conf, sel_registerName("preferences"));
+                        if (prefs != nullptr) {
+                            id yesVal = ((id (*)(Class, SEL, bool))objc_msgSend)(objc_getClass("NSNumber"), sel_registerName("numberWithBool:"), true);
+                            id keyDev = ((id (*)(Class, SEL, const char*))objc_msgSend)(objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), "developerExtrasEnabled");
+                            ((void (*)(id, SEL, id, id))objc_msgSend)(prefs, sel_registerName("setValue:forKey:"), yesVal, keyDev);
+                        }
                     }
                     id subviews = ((id (*)(id, SEL))objc_msgSend)(view, sel_registerName("subviews"));
                     std::size_t count = ((std::size_t (*)(id, SEL))objc_msgSend)(subviews, sel_registerName("count"));
@@ -78,7 +88,7 @@ private:
                         self(self, sub);
                     }
                 };
-                makeBlack(makeBlack, nsView);
+                configureView(configureView, nsView);
             }
         }
 #endif

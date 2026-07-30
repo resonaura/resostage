@@ -20,6 +20,12 @@ export default defineConfig({
   server: {
     port: DEV_PORT,
     strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:2899',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     outDir: 'dist',

@@ -197,7 +197,7 @@ export default function App() {
   const [tab, setTab] = useState("player");
   // Tell the backend which SPA tab is active so WS frames only carry that
   // page's heavy arrays (transport/time always included).
-  const { state, status, transport, cpuHistory, ramHistory } =
+  const { state, status, transport, cpuHistory, ramHistory, sendView } =
     useLiveState(tab);
   useGlobalHotkeys(state, setTab);
 
@@ -209,8 +209,10 @@ export default function App() {
     if (seq === 0 || seq === lastUiTabSeq.current) return;
     lastUiTabSeq.current = seq;
     const t = state.uiTab;
-    if (t === "player" || t === "mixer" || t === "editor" || t === "settings")
+    if (t === "player" || t === "mixer" || t === "editor" || t === "settings") {
       setTab(t);
+      sendView(t);
+    }
   }, [state.uiTab, state.uiTabSeq]);
 
   // ── Shared timeline state (DRY: both Player and Editor use the same peaks + zoom) ──
@@ -303,7 +305,11 @@ export default function App() {
 
       <Tabs
         selectedKey={tab}
-        onSelectionChange={(k) => setTab(String(k))}
+        onSelectionChange={(k) => {
+          const v = String(k);
+          setTab(v);
+          sendView(v);
+        }}
         className="flex min-h-0 flex-1 flex-col"
       >
         <Tabs.ListContainer className="shrink-0 border-b border-default/30 px-2 bg-transparent">

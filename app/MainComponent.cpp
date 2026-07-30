@@ -556,6 +556,8 @@ void MainComponent::timerCallback() {
             syncTouchBarToTab(spaView);
         }
     }
+
+
     publishWebState();
     maybePublishPeaks();
     maybePublishAllPeaks();

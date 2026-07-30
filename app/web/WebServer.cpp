@@ -723,10 +723,12 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             if (server == nullptr || in == nullptr || len == 0)
                 return 0;
             const std::string msg(static_cast<const char*>(in), len);
+            fprintf(stderr, "[WS] RECV '%.*s'\n", (int)len, (const char*)in);
             std::string viewRaw;
             if (findJsonField(msg, "\"view\"", viewRaw)
                 && viewRaw.size() >= 2 && viewRaw.front() == '"' && viewRaw.back() == '"') {
                 const std::string viewName = viewRaw.substr(1, viewRaw.size() - 2);
+                fprintf(stderr, "[WS] view-> '%s'\n", viewName.c_str());
                 if (pss != nullptr)
                     pss->view = parseClientView(viewName);
                 // Mirror into server so native UI (Touch Bar highlight) tracks
@@ -924,13 +926,12 @@ void WebServer::enqueueCommand(WebCommand cmd) {
 }
 
 void WebServer::noteClientView(const std::string& view) {
-    // Normalize builder → editor (same SPA tab).
     std::string v = view;
-    if (v == "builder")
-        v = "editor";
+    if (v == "builder") v = "editor";
     if (v != "player" && v != "mixer" && v != "editor" && v != "settings")
         return;
     std::lock_guard<std::mutex> lock(clientViewMutex);
+    fprintf(stderr, "[WS] noteClientView '%s' -> '%s'\n", view.c_str(), v.c_str());
     clientView = std::move(v);
 }
 
@@ -1339,6 +1340,21 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             return true;
         }
         cmd = {WebCommandKind::QuitDecision, choice};
+    } else if (std::strcmp(path, "/api/v1/view") == 0) {
+        const std::string s(body, bodyLen);
+        std::string viewRaw;
+        fprintf(stderr, "[HTTP] POST /api/v1/view body='%.*s'\n", (int)bodyLen, body);
+        if (findJsonField(s, "\"view\"", viewRaw) && viewRaw.size() >= 2
+            && viewRaw.front() == '"' && viewRaw.back() == '"') {
+            const std::string viewName = viewRaw.substr(1, viewRaw.size() - 2);
+            fprintf(stderr, "[HTTP] view-> '%s'\n", viewName.c_str());
+            noteClientView(viewName);
+            writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+        } else {
+            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
+                              "{\"error\":\"missing view\"}", 24);
+        }
+        return true;
     } else if (WebCommandKind builderKind; builderCommandKindForPath(path, builderKind)) {
         if (builderKind == WebCommandKind::BuilderTrackImportWavBegin) {
             const std::string s(body, bodyLen);
