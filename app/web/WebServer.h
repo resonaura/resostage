@@ -109,6 +109,9 @@ enum class WebCommandKind : uint8_t {
     // cap) and just needs to recall which track it was for.
     BuilderTrackImportWavBegin,
     BuilderTrackImportWavUpload,
+    BuilderRegionAdd,
+    BuilderRegionRemove,
+    BuilderRegionUpdate,
     BuilderBusAdd,
     BuilderBusRemove,
     BuilderBusMove,

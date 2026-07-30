@@ -19,10 +19,25 @@ constexpr int kMaxPrecacheBurstHungry = 2;
 constexpr int kMutexYieldEveryRefills = 8;
 
 void applyWindowFromRegion(StreamingTrackBuffer& buf, const Region& region, double deviceSampleRate) {
-    (void)region;
-    (void)deviceSampleRate;
+    if (deviceSampleRate <= 0.0)
+        deviceSampleRate = 48000.0;
     const int64_t total = buf.totalFrames();
-    buf.setPreferredResidentWindow(0, std::max<int64_t>(0, total));
+    const int64_t srcOff = static_cast<int64_t>(std::llround(std::max(0.0, region.sourceOffsetSeconds) * deviceSampleRate));
+    if (region.loop) {
+        const int64_t sourceAvail = std::max<int64_t>(0, total - srcOff);
+        const double loopLenD = region.loopLengthSeconds > 0.0 ? region.loopLengthSeconds : 0.0;
+        const int64_t loopLenN = loopLenD > 0.0
+            ? static_cast<int64_t>(std::llround(loopLenD * deviceSampleRate))
+            : sourceAvail;
+        const int64_t loopCycle = std::max<int64_t>(1, std::min(sourceAvail, loopLenN));
+        buf.setPreferredResidentWindow(srcOff, loopCycle);
+    } else if (region.durationSeconds > 0.0) {
+        const int64_t durLen = static_cast<int64_t>(std::llround(region.durationSeconds * deviceSampleRate));
+        buf.setPreferredResidentWindow(srcOff, durLen);
+    } else {
+        const int64_t len = std::max<int64_t>(0, total - srcOff);
+        buf.setPreferredResidentWindow(srcOff, len);
+    }
 }
 
 } // namespace
@@ -599,7 +614,11 @@ std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::bindSongToPool(
                 return nullptr;
             }
         }
+        const int64_t oldStart = buf->preferredResidentStart();
+        const int64_t oldLen = buf->preferredResidentLength();
         applyRegionWindow(*buf, *r, deviceSampleRate);
+        if (buf->isResident() && (buf->preferredResidentStart() != oldStart || buf->preferredResidentLength() != oldLen))
+            buf->releaseResident();
         staged->buffers.push_back(buf);
         staged->byId[r->id] = buf.get();
         staged->byId[r->trackId] = buf.get();
