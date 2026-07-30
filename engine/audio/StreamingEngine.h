@@ -155,6 +155,14 @@ private:
     std::shared_ptr<StreamingTrackBuffer> getOrOpenFile(const std::string& archivePath,
                                                         int64_t ringCapacityFrames,
                                                         double deviceSampleRate, std::string& error);
+    // Drops the whole file pool if the requested (ringCapacityFrames,
+    // deviceSampleRate) differs from what it was last opened with (device
+    // switch / live sample-rate change). Must run before ANY per-file pool
+    // lookup for the new request -- including bindSongToPool's own direct
+    // filePool lookup -- otherwise a file already resident in the pool from
+    // the previous rate would be silently reused with its stale resample
+    // ratio instead of being reopened.
+    void dropFilePoolIfRateChanged(int64_t ringCapacityFrames, double deviceSampleRate);
 
     const ProjectLoader* projectLoader = nullptr;
     // File-path → open buffer for the life of the loaded project.

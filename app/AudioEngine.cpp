@@ -652,6 +652,36 @@ void AudioEngine::updateRegionWindow(const Region& r) {
     streaming.updateRegionWindow(r, currentSampleRate);
 }
 
+void AudioEngine::resyncStreamingWindowsForCurrentSong() {
+    if (!projectLoaded || currentSong >= loader.project().songs.size())
+        return;
+    const SongDef& song = loader.project().songs[currentSong];
+    for (const Region& r : song.regions)
+        updateRegionWindow(r);
+}
+
+bool AudioEngine::undoTimelineEdit(std::string& appliedLabel) {
+    appliedLabel = projectHistory.undoLabel();
+    auto restored = projectHistory.undo();
+    if (!restored.has_value())
+        return false;
+    loader.project() = std::move(*restored);
+    resyncStreamingWindowsForCurrentSong();
+    markDirty();
+    return true;
+}
+
+bool AudioEngine::redoTimelineEdit(std::string& appliedLabel) {
+    appliedLabel = projectHistory.redoLabel();
+    auto restored = projectHistory.redo();
+    if (!restored.has_value())
+        return false;
+    loader.project() = std::move(*restored);
+    resyncStreamingWindowsForCurrentSong();
+    markDirty();
+    return true;
+}
+
 double AudioEngine::songAuthoredDurationSeconds(const SongDef& song) const {
     double maxEnd = 0.0;
     for (const Region& r : song.regions)
@@ -1049,6 +1079,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     if (!loader.open(path, error))
         return false;
 
+    projectHistory.clear(); // a freshly loaded document has no history of its own
     buildBusListFromProject();
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
@@ -1120,6 +1151,7 @@ void AudioEngine::newProject(const std::string& name) {
     loader.newProject(name);
     usingDraftArchive = false;
     peakOverviewSessionCache.clear();
+    projectHistory.clear(); // a freshly created document has no history of its own
 
     // Auto-create a draft archive immediately so WAV/song-folder imports
     // work right away. Best-effort: if this fails (disk full, permissions),
@@ -2251,7 +2283,14 @@ void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds, d
 }
 
 void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
-    currentSampleRate = device->getCurrentSampleRate();
+    const double newSampleRate = device->getCurrentSampleRate();
+    const bool rateChanged = projectLoaded && currentSampleRate > 0.0
+                              && std::abs(newSampleRate - currentSampleRate) > 1e-6;
+    // Capture before mutating currentSampleRate/clock -- this is the position
+    // to resume from once everything below is re-armed at the new rate.
+    const double previousPlayheadSeconds = clock.currentSeconds();
+
+    currentSampleRate = newSampleRate;
     currentBlockSize = device->getCurrentBufferSizeSamples();
     hwSamplePosition.store(0, std::memory_order_relaxed);
     lastCallbackHostNanos = 0;
@@ -2260,6 +2299,99 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
         meter.prepare(currentSampleRate, 2);
 
     ensureScratchSizes();
+
+    // Read-and-clear: whatever set this (audioDeviceStopped(), for either a
+    // deliberate reconfigure or a hot-unplug fail-safe recovery) wants
+    // playback resumed once this restart -- and any rate-change restage --
+    // is fully applied. Handled in the SAME deferred callback as the restage
+    // below (not a second, independently-scheduled callAsync) so resume
+    // deterministically runs after it, rather than racing it.
+    const bool shouldResume = resumeAfterDeviceRestart.exchange(false, std::memory_order_relaxed);
+
+    if (rateChanged) {
+        juce::MessageManager::callAsync([this, newSampleRate, previousPlayheadSeconds, shouldResume] {
+            handleSampleRateChanged(newSampleRate, previousPlayheadSeconds, shouldResume);
+        });
+    } else if (shouldResume) {
+        juce::MessageManager::callAsync([this] { play(); });
+    }
+}
+
+void AudioEngine::handleSampleRateChanged(double newSampleRate, double previousPlayheadSeconds, bool wasPlaying) {
+    // currentSampleRate may have moved again since this was scheduled (rapid
+    // back-to-back device restarts) -- only the callAsync for the latest
+    // rate should do the work; older ones are stale no-ops.
+    if (std::abs(currentSampleRate - newSampleRate) > 1e-6)
+        return;
+    if (!projectLoaded || currentSong >= loader.project().songs.size())
+        return;
+
+    const Project& proj = loader.project();
+    const SongDef& song = proj.songs[currentSong];
+
+    // Re-preps clickGenerator at currentSampleRate using this song's bpm/meter.
+    refreshClickState();
+
+    const int64_t newStartSample = static_cast<int64_t>(previousPlayheadSeconds * currentSampleRate);
+    // audioDeviceAboutToStart already reset hwSamplePosition to 0 for this
+    // restart, and the real IOProc can start calling onAudioCallback() again
+    // (audio thread) concurrently with this message-thread cascade, well
+    // before playing is set true again -- clock.onAudioCallback() runs
+    // regardless of `playing` and would otherwise drift-correct the anchor
+    // set below right back toward that stale near-zero hardware counter.
+    // Same fix play() already applies for the equivalent Stop->Play gap (see
+    // its comment): re-anchor hwSamplePosition to the same logical position
+    // BEFORE (re)starting the clock.
+    hwSamplePosition.store(newStartSample, std::memory_order_relaxed);
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        clock.start(currentSampleRate, newStartSample);
+        if (!wasPlaying)
+            clock.stop();
+    }
+
+    // Re-stage the current song at the new device rate: StreamingEngine
+    // drops and reopens its file pool whenever the requested rate differs
+    // from what it has cached (see StreamingEngine::getOrOpenFile), which
+    // recomputes every track/region's resample ratio -- covers a song whose
+    // stems have different native sample rates from each other too, since
+    // each buffer's ratio is computed independently against the new rate.
+    const int64_t ringCapacityFrames = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
+    std::string stageError;
+    if (!streaming.stageSong(currentSong, song, ringCapacityFrames, currentSampleRate, stageError,
+                             /*primeSeconds=*/0.0, /*primeMaxWait=*/0.0,
+                             wasPlaying ? &streamHandoff : nullptr)) {
+        streamHandoff.store(false, std::memory_order_release);
+        return;
+    }
+    std::string seekError;
+    streaming.seekActiveSongTo(newStartSample, seekError, /*primeMaxWait=*/wasPlaying ? 0.05 : 0.0);
+
+    // currentSongLengthFrames is in device-frame units against whatever rate
+    // it was last computed at (selectSongInternal, right after its own
+    // stageSong call) -- recompute it the same way now that every buffer has
+    // reopened at the new rate, or play()'s "resuming past the end" clamp
+    // would compare newStartSample (new-rate frames) against a stale
+    // old-rate frame count.
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        int64_t newSongLengthFrames = 0;
+        StreamingEngine::ActiveSongHandle activeSong = streaming.acquireActiveSong();
+        if (activeSong) {
+            for (const std::string& trackId : trackIdByIndex) {
+                if (StreamingTrackBuffer* buf = activeSong.track(trackId))
+                    newSongLengthFrames = std::max(newSongLengthFrames, buf->totalFrames());
+            }
+        }
+        currentSongLengthFrames = newSongLengthFrames;
+    }
+
+    // Resume transport now that the restage is fully applied -- play()
+    // itself re-reads clock.currentSamplePosition(), which clock.start()
+    // above already set to newStartSample, so this continues from the
+    // preserved position rather than wherever it happened to be mid-restage.
+    if (wasPlaying)
+        play();
 }
 
 void AudioEngine::audioDeviceStopped() {
@@ -2269,6 +2401,13 @@ void AudioEngine::audioDeviceStopped() {
     // AudioDeviceManager change notification -- the timeline should keep
     // advancing through that gap. An explicit user Stop goes through the
     // public stop() method instead, which does stop the clock.
+    //
+    // Capture whether transport was live BEFORE clearing it -- this is what
+    // audioDeviceAboutToStart uses to resume playback once the device (and
+    // any rate-change restage) is back up, so a deliberate device
+    // reconfiguration (or a hot-unplug recovery) doesn't silently leave a
+    // live performer paused.
+    resumeAfterDeviceRestart.store(playing.load(std::memory_order_acquire), std::memory_order_relaxed);
     playing.store(false, std::memory_order_release);
 }
 

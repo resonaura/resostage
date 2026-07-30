@@ -5,6 +5,7 @@
 #include "project/ProjectLoader.h"
 
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <thread>
@@ -28,7 +29,7 @@ void appendTag(std::vector<uint8_t>& b, const char* tag) {
     b.insert(b.end(), tag, tag + 4);
 }
 
-std::vector<uint8_t> makeSilentMonoWav16(int frames) {
+std::vector<uint8_t> makeSilentMonoWav16(int frames, uint32_t sampleRate = 48000) {
     const uint32_t dataSize = static_cast<uint32_t>(frames) * 2;
     std::vector<uint8_t> out;
     appendTag(out, "RIFF");
@@ -38,14 +39,37 @@ std::vector<uint8_t> makeSilentMonoWav16(int frames) {
     appendU32(out, 16);
     appendU16(out, 1);
     appendU16(out, 1);
-    appendU32(out, 48000);
-    appendU32(out, 48000 * 2);
+    appendU32(out, sampleRate);
+    appendU32(out, sampleRate * 2);
     appendU16(out, 2);
     appendU16(out, 16);
     appendTag(out, "data");
     appendU32(out, dataSize);
     out.resize(out.size() + dataSize, 0);
     return out;
+}
+
+// One song, two tracks with DIFFERENT native sample rates (44.1kHz and
+// 48kHz), one second each -- for the rate-change restage test below.
+std::string makeMixedRateArchive() {
+    const std::string path = std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp") +
+                              "/resoset_streaming_engine_mixed_rate_test.rsnraset";
+
+    mz_zip_archive zip;
+    std::memset(&zip, 0, sizeof(zip));
+    mz_zip_writer_init_file(&zip, path.c_str(), 0);
+
+    const std::string projectJson = R"({"formatVersion":1,"name":"t","sampleRate":48000,"busses":[],"songs":[]})";
+    mz_zip_writer_add_mem(&zip, "project.json", projectJson.data(), projectJson.size(), MZ_BEST_SPEED);
+
+    auto wav44100 = makeSilentMonoWav16(44100, 44100); // 1s @ 44.1kHz
+    auto wav48000 = makeSilentMonoWav16(48000, 48000); // 1s @ 48kHz
+    mz_zip_writer_add_mem(&zip, "Audio/a44100.wav", wav44100.data(), wav44100.size(), MZ_BEST_SPEED);
+    mz_zip_writer_add_mem(&zip, "Audio/b48000.wav", wav48000.data(), wav48000.size(), MZ_BEST_SPEED);
+
+    mz_zip_writer_finalize_archive(&zip);
+    mz_zip_writer_end(&zip);
+    return path;
 }
 
 // Two songs, one mono track each, in one archive.
@@ -146,4 +170,71 @@ TEST_CASE("StreamingEngine survives concurrent stageSong() and acquireActiveSong
 
     CHECK(stagesDone.load() > 0);
     CHECK(readsDone.load() > 0);
+}
+
+// Regression coverage for AudioEngine::handleSampleRateChanged: a live device
+// sample-rate change re-stages the currently active song at the new rate.
+// StreamingEngine::getOrOpenFile already drops and reopens its whole file
+// pool whenever the requested device rate differs from what it has cached --
+// this proves that restage recomputes EVERY track's resample ratio, not just
+// one, by using two tracks with different native rates (44.1kHz and 48kHz)
+// and re-staging the same song at a different device rate.
+TEST_CASE("StreamingEngine re-stages a song at a new device sample rate and every track recomputes its ratio") {
+    const std::string path = makeMixedRateArchive();
+
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(path, error));
+
+    TrackDef trackA;
+    trackA.id = "track_a";
+    TrackDef trackB;
+    trackB.id = "track_b";
+    loader.project().tracks = {trackA, trackB};
+
+    SongDef song;
+    song.id = "song";
+    Region regA;
+    regA.id = "reg_a";
+    regA.trackId = "track_a";
+    regA.file = "Audio/a44100.wav";
+    Region regB;
+    regB.id = "reg_b";
+    regB.trackId = "track_b";
+    regB.file = "Audio/b48000.wav";
+    song.regions = {regA, regB};
+
+    StreamingEngine engine;
+    engine.start(&loader);
+
+    std::string stageError;
+    REQUIRE(engine.stageSong(0, song, 8192, 44100.0, stageError));
+    {
+        StreamingEngine::ActiveSongHandle handle = engine.acquireActiveSong();
+        REQUIRE(handle);
+        StreamingTrackBuffer* bufA = handle.track("track_a");
+        StreamingTrackBuffer* bufB = handle.track("track_b");
+        REQUIRE(bufA != nullptr);
+        REQUIRE(bufB != nullptr);
+        CHECK(std::abs(bufA->totalFrames() - 44100) <= 1); // native == device rate, 1:1
+        CHECK(std::abs(bufB->totalFrames() - 44100) <= 1); // 48kHz source resampled DOWN to 44100 device frames
+    }
+
+    // Simulate a live device rate change to 48kHz: re-stage the SAME song at
+    // the new rate, exactly like handleSampleRateChanged does.
+    REQUIRE(engine.stageSong(0, song, 8192, 48000.0, stageError));
+    {
+        StreamingEngine::ActiveSongHandle handle = engine.acquireActiveSong();
+        REQUIRE(handle);
+        StreamingTrackBuffer* bufA = handle.track("track_a");
+        StreamingTrackBuffer* bufB = handle.track("track_b");
+        REQUIRE(bufA != nullptr);
+        REQUIRE(bufB != nullptr);
+        // Both buffers must have reopened and recomputed their ratio against
+        // the NEW device rate -- not still carrying the stale 44100 ratio.
+        CHECK(std::abs(bufA->totalFrames() - 48000) <= 1); // 44.1kHz source resampled UP to 48000 device frames
+        CHECK(std::abs(bufB->totalFrames() - 48000) <= 1); // native == device rate again, 1:1
+    }
+
+    engine.stop();
 }

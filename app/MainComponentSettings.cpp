@@ -10,6 +10,7 @@
 #include "web/BuilderJson.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace resostage {
 
@@ -182,11 +183,61 @@ void MainComponent::settingsSetSampleRate(const std::string& json) {
     if (!parseJson(json, doc) || !getDouble(doc, "value", value) || value <= 0.0)
         return;
 
+    // Pre-flight: reject unsupported rates immediately with a specific
+    // message instead of relying solely on JUCE's error string -- some
+    // drivers otherwise silently substitute the nearest supported rate
+    // rather than erroring (caught below too, but this avoids the round
+    // trip and gives a clearer message when the device already told us its
+    // supported list).
+    if (auto* device = engine.deviceManager().getCurrentAudioDevice()) {
+        const auto available = device->getAvailableSampleRates();
+        if (!available.isEmpty()) {
+            bool supported = false;
+            for (double r : available) {
+                if (std::abs(r - value) < 1e-6) {
+                    supported = true;
+                    break;
+                }
+            }
+            if (!supported) {
+                juce::String list;
+                for (double r : available)
+                    list << juce::String(r, 0) << " ";
+                setStatus("Sample rate " + juce::String(value, 0) + " Hz not supported by this device (available: "
+                          + list.trim() + " Hz)");
+                return;
+            }
+        }
+    }
+
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.sampleRate = value;
     const juce::String error = engine.setAudioDeviceSetup(setup, true);
-    setStatus(error.isEmpty() ? ("Sample rate: " + juce::String(value, 0) + " Hz")
-                              : ("Sample rate error: " + error));
+    if (!error.isEmpty()) {
+        // Rejected -- audioDeviceAboutToStart never fires with a new rate,
+        // so currentSampleRate/clock/clickGenerator/StreamingEngine stay
+        // untouched at the old (still working) rate.
+        setStatus("Sample rate error: " + error);
+        return;
+    }
+
+    // Post-change verification: an empty error string is not proof the
+    // requested rate actually took effect -- CoreAudio/JUCE can silently
+    // apply the nearest supported rate instead.
+    double actualRate = 0.0;
+    if (auto* device = engine.deviceManager().getCurrentAudioDevice())
+        actualRate = device->getCurrentSampleRate();
+    if (actualRate > 0.0 && std::abs(actualRate - value) > 1e-6) {
+        setStatus("Sample rate: requested " + juce::String(value, 0) + " Hz, device applied "
+                  + juce::String(actualRate, 0) + " Hz instead");
+    } else {
+        setStatus("Sample rate: " + juce::String(value, 0) + " Hz");
+    }
+    // Transport resume (if it was live before this reconfiguration) is
+    // handled centrally by AudioEngine::audioDeviceStopped()/
+    // audioDeviceAboutToStart() -- see resumeAfterDeviceRestart -- since
+    // that's the only place the restart's true ordering (stop, any
+    // rate-change restage, then resume) is guaranteed rather than raced.
 }
 
 void MainComponent::settingsSetBufferSize(const std::string& json) {

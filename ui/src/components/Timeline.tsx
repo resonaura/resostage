@@ -4,11 +4,19 @@ import {
   Magnet,
   MoveHorizontalIcon,
   MoveVerticalIcon,
+  Redo2,
   Scissors,
   Trash2,
+  Undo2,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { builder, fetchWaveformRaw, mixer, transport } from "../lib/api";
+import {
+  builder,
+  fetchWaveformRaw,
+  mixer,
+  timelineHistory,
+  transport,
+} from "../lib/api";
 import { useContinuousPlayhead, useLiveValue } from "../lib/optimistic";
 import type {
   AllPeaksResponse,
@@ -1628,9 +1636,12 @@ export function Timeline({
 
   const deleteSelectedRegions = () => {
     if (selectedRegionKeys.length === 0) return;
+    // Shared gestureId so the backend's undo history collapses this
+    // multi-region delete into ONE undo step instead of N.
+    const gestureId = crypto.randomUUID();
     for (const key of selectedRegionKeys) {
       const hit = lookupRegion(state.songs, key);
-      if (hit) void builder.regionRemove(hit.songIndex, hit.region.id);
+      if (hit) void builder.regionRemove(hit.songIndex, hit.region.id, gestureId);
     }
     setSelectedRegionKeys([]);
     showToast("Deleted region(s)");
@@ -1638,6 +1649,7 @@ export function Timeline({
 
   const duplicateSelectedRegions = async () => {
     const entries = resolveSelectedRegions();
+    const gestureId = crypto.randomUUID();
     for (const r of entries) {
       await builder.regionAdd({
         songIndex: r.songIndex,
@@ -1649,6 +1661,7 @@ export function Timeline({
         gainDb: r.gainDb,
         fadeInSeconds: r.fadeInSeconds,
         fadeOutSeconds: r.fadeOutSeconds,
+        gestureId,
       });
     }
     if (entries.length) showToast(`Duplicated ${entries.length} region(s)`);
@@ -1656,6 +1669,7 @@ export function Timeline({
 
   const pasteClipboardRegions = async () => {
     if (clipboardRegions.current.length === 0) return;
+    const gestureId = crypto.randomUUID();
     for (const r of clipboardRegions.current) {
       await builder.regionAdd({
         songIndex: r.songIndex,
@@ -1667,6 +1681,7 @@ export function Timeline({
         gainDb: r.gainDb,
         fadeInSeconds: r.fadeInSeconds,
         fadeOutSeconds: r.fadeOutSeconds,
+        gestureId,
       });
     }
     showToast(`Pasted ${clipboardRegions.current.length} region(s)`);
@@ -1871,6 +1886,10 @@ export function Timeline({
       return;
     }
     let splitCount = 0;
+    // Shared across every region split below (each split is itself a
+    // regionUpdate + regionAdd pair) so the whole multi-region split
+    // collapses into ONE undo step.
+    const gestureId = crypto.randomUUID();
     for (const key of selectedRegionKeys) {
       const hit = lookupRegion(state.songs, key);
       if (!hit) continue;
@@ -1905,6 +1924,7 @@ export function Timeline({
         regionId: r.id,
         durationSeconds: leftDur,
         fadeOutSeconds: 0,
+        gestureId,
       });
       await builder.regionAdd({
         songIndex,
@@ -1916,6 +1936,7 @@ export function Timeline({
         gainDb: r.gainDb,
         fadeInSeconds: 0,
         fadeOutSeconds: r.fadeOutSeconds,
+        gestureId,
       });
       splitCount += 1;
     }
@@ -2295,6 +2316,33 @@ export function Timeline({
         <div className="flex items-center gap-1 ml-auto h-7">
           {!readOnly && (
             <>
+              <Button
+                size="sm"
+                variant="outline"
+                isIconOnly
+                aria-label={
+                  state.undoLabel ? `Undo: ${state.undoLabel} (⌘Z)` : "Undo (⌘Z)"
+                }
+                isDisabled={!state.canUndo}
+                onPress={() => void timelineHistory.undo()}
+              >
+                <Undo2 size={13} />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                isIconOnly
+                aria-label={
+                  state.redoLabel
+                    ? `Redo: ${state.redoLabel} (⌘⇧Z)`
+                    : "Redo (⌘⇧Z)"
+                }
+                isDisabled={!state.canRedo}
+                onPress={() => void timelineHistory.redo()}
+              >
+                <Redo2 size={13} />
+              </Button>
+              <div className="w-px h-4 bg-default/30 mx-0.5" />
               <Button
                 size="sm"
                 variant="outline"

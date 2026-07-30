@@ -286,6 +286,8 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/section/add", WebCommandKind::BuilderSectionAdd},
     {"/api/v1/builder/section/remove", WebCommandKind::BuilderSectionRemove},
     {"/api/v1/builder/section/update", WebCommandKind::BuilderSectionUpdate},
+    {"/api/v1/timeline/undo", WebCommandKind::TimelineUndo},
+    {"/api/v1/timeline/redo", WebCommandKind::TimelineRedo},
     {"/api/v1/settings/audio-device", WebCommandKind::SetAudioOutputDevice},
     {"/api/v1/settings/sample-rate", WebCommandKind::SetSampleRate},
     {"/api/v1/settings/buffer-size", WebCommandKind::SetBufferSize},
@@ -1008,7 +1010,11 @@ std::string WebServer::buildStateJson(const char* view) const {
       << "\"busy\":" << (snap.busy ? "true" : "false") << ","
       << "\"quitConfirmPending\":" << (snap.quitConfirmPending ? "true" : "false") << ","
       << "\"uiTab\":\"" << jsonEscape(snap.uiTab) << "\","
-      << "\"uiTabSeq\":" << snap.uiTabSeq;
+      << "\"uiTabSeq\":" << snap.uiTabSeq << ","
+      << "\"canUndo\":" << (snap.canUndo ? "true" : "false") << ","
+      << "\"canRedo\":" << (snap.canRedo ? "true" : "false") << ","
+      << "\"undoLabel\":\"" << jsonEscape(snap.undoLabel) << "\","
+      << "\"redoLabel\":\"" << jsonEscape(snap.redoLabel) << "\"";
 
     if (wantClick) {
         o << ","

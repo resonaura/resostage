@@ -101,3 +101,51 @@ TEST_CASE("MasterClock stop() freezes the reported position") {
     CHECK(mc.currentSamplePosition() == frozen);
     CHECK_FALSE(mc.isRunning());
 }
+
+// Regression test for AudioEngine::handleSampleRateChanged (a live device
+// sample-rate change mid-playback): re-start()ing at a new rate with the
+// equivalent sample position must resume from ~the same wall-clock position,
+// not jump back to 0 -- otherwise a rate change would silently rewind the
+// playhead every time it happens.
+TEST_CASE("MasterClock re-start() at a new sample rate preserves the equivalent timeline position") {
+    FakeClock clock;
+    MasterClock mc(&clock);
+    mc.start(44100.0);
+
+    clock.advance(2'000'000'000ull); // +2s of wall-clock running at 44.1kHz
+    const double secondsBeforeRateChange = mc.currentSeconds();
+    CHECK(secondsBeforeRateChange == doctest::Approx(2.0).epsilon(0.01));
+
+    // Simulate the device restarting at 48kHz: re-derive the equivalent
+    // sample position at the new rate and re-start() with it, exactly like
+    // AudioEngine::handleSampleRateChanged does.
+    const int64_t newStartSample = static_cast<int64_t>(secondsBeforeRateChange * 48000.0);
+    mc.start(48000.0, newStartSample);
+
+    CHECK(mc.currentSeconds() == doctest::Approx(secondsBeforeRateChange).epsilon(0.01));
+    CHECK(mc.sampleRate() == 48000.0);
+
+    // And it keeps advancing correctly at the new rate afterward.
+    clock.advance(1'000'000'000ull); // +1s more
+    CHECK(mc.currentSeconds() == doctest::Approx(secondsBeforeRateChange + 1.0).epsilon(0.01));
+}
+
+TEST_CASE("MasterClock re-start() at a new sample rate while stopped stays stopped") {
+    // Mirrors the "clock.start(...); clock.stop();" idiom used elsewhere in
+    // AudioEngine.cpp to update the clock's cached rate without resuming
+    // playback -- handleSampleRateChanged uses the same pattern when the
+    // transport wasn't running at the time of the rate change.
+    FakeClock clock;
+    MasterClock mc(&clock);
+    mc.start(44100.0, 0);
+    mc.stop();
+    CHECK_FALSE(mc.isRunning());
+
+    mc.start(48000.0, 12345);
+    mc.stop();
+
+    CHECK_FALSE(mc.isRunning());
+    const int64_t frozen = mc.currentSamplePosition();
+    clock.advance(1'000'000'000ull);
+    CHECK(mc.currentSamplePosition() == frozen);
+}

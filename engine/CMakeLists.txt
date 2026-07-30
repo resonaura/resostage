@@ -14,6 +14,7 @@ add_library(resostage_engine STATIC
   audio/ArtNetPacket.cpp
   project/ProjectLoader.cpp
   project/ProjectJson.cpp
+  project/ProjectHistory.cpp
   telemetry/SystemHealth.cpp
 )
 

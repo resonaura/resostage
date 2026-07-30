@@ -525,6 +525,8 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderSectionAdd: builderSectionAdd(cmd.json); break;
             case WebCommandKind::BuilderSectionRemove: builderSectionRemove(cmd.json); break;
             case WebCommandKind::BuilderSectionUpdate: builderSectionUpdate(cmd.json); break;
+            case WebCommandKind::TimelineUndo: performTimelineUndo(); break;
+            case WebCommandKind::TimelineRedo: performTimelineRedo(); break;
             case WebCommandKind::SetAudioOutputDevice: settingsSetAudioOutputDevice(cmd.json); break;
             case WebCommandKind::SetSampleRate: settingsSetSampleRate(cmd.json); break;
             case WebCommandKind::SetBufferSize: settingsSetBufferSize(cmd.json); break;
@@ -667,6 +669,10 @@ void MainComponent::publishWebState() {
     state.quitConfirmPending = awaitingQuitDecision;
     state.uiTab = uiTabRequest;
     state.uiTabSeq = uiTabSeq;
+    state.canUndo = engine.canUndoTimeline();
+    state.canRedo = engine.canRedoTimeline();
+    state.undoLabel = engine.undoTimelineLabel();
+    state.redoLabel = engine.redoTimelineLabel();
 
     state.songs.reserve(proj.songs.size());
     for (const SongDef& song : proj.songs) {
@@ -1054,6 +1060,26 @@ void MainComponent::notifyProjectStructureChanged() {
 
 void MainComponent::notifyRoutingChanged() {
     // SPA picks up routing from the next telemetry frame.
+}
+
+void MainComponent::performTimelineUndo() {
+    std::string label;
+    if (engine.undoTimelineEdit(label)) {
+        notifyProjectStructureChanged(); // sets its own status first; overridden below
+        setStatus("Undo: " + juce::String(label));
+    } else {
+        setStatus("Nothing to undo");
+    }
+}
+
+void MainComponent::performTimelineRedo() {
+    std::string label;
+    if (engine.redoTimelineEdit(label)) {
+        notifyProjectStructureChanged();
+        setStatus("Redo: " + juce::String(label));
+    } else {
+        setStatus("Nothing to redo");
+    }
 }
 
 void MainComponent::importSongFolderNative() {

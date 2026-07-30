@@ -104,6 +104,12 @@ private:
     void notifyProjectStructureChanged();
     void notifyRoutingChanged();
 
+    // Shared by the WebCommandKind::TimelineUndo/Redo dispatch (web/remote)
+    // and performAction("undo"/"redo") (native hotkeys/MIDI) so both entry
+    // points share one implementation instead of duplicating it.
+    void performTimelineUndo();
+    void performTimelineRedo();
+
     // Native folder picker when web sends import without a path (rare).
     void importSongFolderNative();
 

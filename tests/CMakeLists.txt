@@ -9,6 +9,7 @@ add_executable(resostage_engine_tests
   test_streaming_track_buffer.cpp
   test_streaming_engine.cpp
   test_project_loader.cpp
+  test_project_history.cpp
   test_click_generator.cpp
   test_system_health.cpp
   test_peak_overview.cpp

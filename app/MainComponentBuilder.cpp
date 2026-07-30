@@ -301,7 +301,11 @@ void MainComponent::builderRegionAdd(const std::string& json) {
     getDouble(doc, "fadeOutCurve", reg.fadeOutCurve);
     getBool(doc, "loop", reg.loop);
 
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    engine.projectHistoryBeginEdit(gestureId, "Add region");
     s.regions.push_back(std::move(reg));
+    engine.projectHistoryCommitEdit();
     engine.markDirty();
     notifyProjectStructureChanged();
     setStatus("Region added");
@@ -320,7 +324,11 @@ void MainComponent::builderRegionRemove(const std::string& json) {
 
     auto it = std::remove_if(s.regions.begin(), s.regions.end(), [&](const Region& r) { return r.id == regionId; });
     if (it != s.regions.end()) {
+        std::string gestureId;
+        getString(doc, "gestureId", gestureId);
+        engine.projectHistoryBeginEdit(gestureId, "Remove region");
         s.regions.erase(it, s.regions.end());
+        engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
         setStatus("Region removed");
     }
@@ -345,6 +353,10 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
         }
     }
     if (!regPtr) return;
+
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    engine.projectHistoryBeginEdit(gestureId, "Edit region");
 
     std::string strVal;
     double numVal;
@@ -373,6 +385,7 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
         regPtr->fadeOutSeconds = std::min(regPtr->fadeOutSeconds, maxFade);
     }
 
+    engine.projectHistoryCommitEdit();
     engine.updateRegionWindow(*regPtr);
     engine.markDirty();
     notifyProjectStructureChanged();
@@ -407,9 +420,14 @@ void MainComponent::builderSectionAdd(const std::string& json) {
     getDouble(doc, "startSeconds", sec.startSeconds);
     sec.startSeconds = std::max(0.0, sec.startSeconds);
     sec.colorIndex = static_cast<int>(s.sections.size());
+
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    engine.projectHistoryBeginEdit(gestureId, "Add section");
     s.sections.push_back(std::move(sec));
     std::sort(s.sections.begin(), s.sections.end(),
               [](const SongSection& a, const SongSection& b) { return a.startSeconds < b.startSeconds; });
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Section added");
 }
@@ -429,7 +447,11 @@ void MainComponent::builderSectionRemove(const std::string& json) {
     auto it = std::remove_if(s.sections.begin(), s.sections.end(),
                               [&](const SongSection& sec) { return sec.id == sectionId; });
     if (it != s.sections.end()) {
+        std::string gestureId;
+        getString(doc, "gestureId", gestureId);
+        engine.projectHistoryBeginEdit(gestureId, "Remove section");
         s.sections.erase(it, s.sections.end());
+        engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
         setStatus("Section removed");
     }
@@ -456,6 +478,10 @@ void MainComponent::builderSectionUpdate(const std::string& json) {
     }
     if (!secPtr) return;
 
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    engine.projectHistoryBeginEdit(gestureId, "Edit section");
+
     std::string strVal;
     double numVal;
     int intVal;
@@ -468,6 +494,7 @@ void MainComponent::builderSectionUpdate(const std::string& json) {
     // (which walks this vector in order) correct without its own re-sort.
     std::sort(s.sections.begin(), s.sections.end(),
               [](const SongSection& a, const SongSection& b) { return a.startSeconds < b.startSeconds; });
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Section updated");
 }

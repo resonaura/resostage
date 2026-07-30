@@ -11,6 +11,7 @@
 #include "audio/StreamingEngine.h"
 #include "events/EventDispatcher.h"
 #include "midi/CoreMidiDispatcher.h"
+#include "project/ProjectHistory.h"
 #include "project/ProjectLoader.h"
 #include "project/ProjectSchema.h"
 #include "telemetry/SeqLock.h"
@@ -197,6 +198,30 @@ public:
     void setClickSolo(bool solo);
     void setBusOutputChannel(size_t busIndex, int startChannel);
     void updateRegionWindow(const Region& r);
+
+    // Timeline undo/redo (regions + sections). Wrap a single mutation like:
+    //   engine.projectHistoryBeginEdit(gestureId, "Move region");
+    //   ... mutate engine.project() in place ...
+    //   engine.projectHistoryCommitEdit();
+    // `gestureId` (optional, empty = always a new step) lets several
+    // begin/commit pairs collapse into one undo step for a single user
+    // gesture composed of multiple mutator calls (split/duplicate/paste/
+    // multi-delete). See ProjectHistory's doc comment for the full design.
+    void projectHistoryBeginEdit(const std::string& gestureId, const std::string& label) {
+        projectHistory.beginEdit(loader.project(), gestureId, label);
+    }
+    void projectHistoryCommitEdit() { projectHistory.commitEdit(loader.project()); }
+    bool canUndoTimeline() const { return projectHistory.canUndo(); }
+    bool canRedoTimeline() const { return projectHistory.canRedo(); }
+    std::string undoTimelineLabel() const { return projectHistory.undoLabel(); }
+    std::string redoTimelineLabel() const { return projectHistory.redoLabel(); }
+    // Applies the popped undo/redo step wholesale and re-syncs the
+    // currently active song's StreamingEngine region windows (mirrors what
+    // builderRegionUpdate already does per-region -- a no-op for regions
+    // belonging to a non-active song). Returns false ("nothing to undo/
+    // redo") without touching any state.
+    bool undoTimelineEdit(std::string& appliedLabel);
+    bool redoTimelineEdit(std::string& appliedLabel);
     // Safe wrapper around AudioDeviceManager::initialiseWithDefaultDevices and setAudioDeviceSetup
     // that suppresses false-positive hardwareAlarm triggers during intentional device re-configuration.
     juce::String initialiseDefaultDevices(int numInputChannels = 0, int numOutputChannels = 2);
@@ -358,6 +383,7 @@ private:
     juce::AudioDeviceManager deviceManagerInstance;
 
     ProjectLoader loader;
+    ProjectHistory projectHistory;
     MasterClock clock;
     RoutingEngine routing;
     StreamingEngine streaming;
@@ -556,6 +582,13 @@ private:
     double currentSampleRate = 48000.0;
     int currentBlockSize = 512;
     bool projectLoaded = false;
+    // Captures "was transport live" in audioDeviceStopped(), just before it
+    // clears `playing` -- any setAudioDeviceSetup-triggered restart (rate
+    // change, output device change, buffer size change) or a hot-unplug
+    // fail-safe recovery goes through this same stop/restart pair, so a
+    // single mechanism here covers resuming playback after all of them.
+    // Read-and-cleared (exchange) by the next audioDeviceAboutToStart.
+    std::atomic<bool> resumeAfterDeviceRestart{false};
     bool usingDraftArchive = false; // see isDraftProject()
     std::atomic<bool> unsavedChanges{false};
     std::atomic<bool> busyImporting{false}; // see isBusy()
@@ -602,6 +635,29 @@ private:
 
     void ensureScratchSizes();
     void buildBusListFromProject();
+
+    // Re-invokes updateRegionWindow() for every region of the currently
+    // staged/active song -- called after undoTimelineEdit()/redoTimelineEdit()
+    // wholesale-replaces the Project, since that bypasses the per-region
+    // updateRegionWindow() call builderRegionUpdate() normally makes.
+    void resyncStreamingWindowsForCurrentSong();
+
+    // Cascades a live device sample-rate change (detected in
+    // audioDeviceAboutToStart) through everything that caches the old rate:
+    // re-preps the click grid, re-arms MasterClock at the new rate while
+    // preserving the current timeline position, and re-stages the current
+    // song so every StreamingTrackBuffer reopens and recomputes its
+    // resample ratio against the new device rate (StreamingEngine already
+    // drops/reopens its file pool on a rate mismatch -- this just re-invokes
+    // that path, which nothing did before). Deferred via callAsync from
+    // audioDeviceAboutToStart since that callback isn't guaranteed to fire on
+    // the message thread for a driver-initiated (not Settings-triggered)
+    // rate change, and Project/StreamingEngine state must stay
+    // message-thread-only like everywhere else in this file. `wasPlaying`
+    // is the transport state captured in audioDeviceStopped() just before it
+    // cleared `playing` -- NOT a fresh read of `playing` here, which would
+    // always observe false by the time this runs.
+    void handleSampleRateChanged(double newSampleRate, double previousPlayheadSeconds, bool wasPlaying);
 
     void publishRoutingSnapshot(); // message-thread: build RoutingSnapshot from Project
     void ensureTrackMeters(size_t count);

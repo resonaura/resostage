@@ -127,6 +127,11 @@ enum class WebCommandKind : uint8_t {
     BuilderSectionAdd,
     BuilderSectionRemove,
     BuilderSectionUpdate,
+    // Timeline undo/redo (regions + sections of the currently loaded
+    // project). No JSON body needed. See ProjectHistory / AudioEngine::
+    // undoTimelineEdit()/redoTimelineEdit().
+    TimelineUndo,
+    TimelineRedo,
     // Settings parity -- audio device/sample-rate/buffer-size, MIDI I/O
     // device selection, keybindings. Same raw-JSON-passthrough routing as
     // the Builder commands above; handled in MainComponentSettings.cpp.
@@ -221,6 +226,14 @@ struct WebUiState {
     // every request so re-selecting the active tab still fires a React effect.
     std::string uiTab;
     uint64_t uiTabSeq = 0;
+    // Timeline undo/redo availability + a human label for the step that
+    // would be applied (e.g. "Move region") -- lets the web UI show
+    // disabled/enabled undo/redo buttons with a tooltip. See
+    // AudioEngine::canUndoTimeline()/undoTimelineLabel() etc.
+    bool canUndo = false;
+    bool canRedo = false;
+    std::string undoLabel;
+    std::string redoLabel;
 
     struct SongRow {
         std::string name;

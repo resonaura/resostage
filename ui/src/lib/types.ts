@@ -247,6 +247,11 @@ export interface WebUiState {
    */
   uiTab?: string;
   uiTabSeq?: number;
+  /** Timeline undo/redo availability + a human label for the step that would be applied. */
+  canUndo: boolean;
+  canRedo: boolean;
+  undoLabel: string;
+  redoLabel: string;
   songs: SongRow[];
   meters: MeterRow[];
   tracks: TrackRow[];
@@ -285,6 +290,10 @@ export const emptyState: WebUiState = {
   quitConfirmPending: false,
   uiTab: "",
   uiTabSeq: 0,
+  canUndo: false,
+  canRedo: false,
+  undoLabel: "",
+  redoLabel: "",
   songs: [],
   meters: [],
   tracks: [],

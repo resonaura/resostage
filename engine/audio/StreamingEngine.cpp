@@ -531,6 +531,17 @@ void StreamingEngine::primeBuffersLocked(StagedSong& staged, double minSeconds, 
     }
 }
 
+void StreamingEngine::dropFilePoolIfRateChanged(int64_t ringCapacityFrames, double deviceSampleRate) {
+    std::lock_guard<std::mutex> lock(filePoolMutex);
+    // Sample-rate / ring size change (device switch) → drop pool.
+    if (filePoolRingCapacity != ringCapacityFrames
+        || std::abs(filePoolSampleRate - deviceSampleRate) > 1e-6) {
+        filePool.clear();
+        filePoolRingCapacity = ringCapacityFrames;
+        filePoolSampleRate = deviceSampleRate;
+    }
+}
+
 std::shared_ptr<StreamingTrackBuffer> StreamingEngine::getOrOpenFile(
     const std::string& archivePath, int64_t ringCapacityFrames, double deviceSampleRate,
     std::string& error) {
@@ -539,15 +550,9 @@ std::shared_ptr<StreamingTrackBuffer> StreamingEngine::getOrOpenFile(
         return nullptr;
     }
 
+    dropFilePoolIfRateChanged(ringCapacityFrames, deviceSampleRate);
     {
         std::lock_guard<std::mutex> lock(filePoolMutex);
-        // Sample-rate / ring size change (device switch) → drop pool.
-        if (filePoolRingCapacity != ringCapacityFrames
-            || std::abs(filePoolSampleRate - deviceSampleRate) > 1e-6) {
-            filePool.clear();
-            filePoolRingCapacity = ringCapacityFrames;
-            filePoolSampleRate = deviceSampleRate;
-        }
         auto it = filePool.find(archivePath);
         if (it != filePool.end() && it->second != nullptr)
             return it->second;
@@ -585,6 +590,13 @@ std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::bindSongToPool(
     std::string& error, bool openMissing) {
     auto staged = std::make_shared<StagedSong>();
     staged->songIndex = songIndex;
+
+    // Must run before the per-region pool lookup below: otherwise a file
+    // already resident in the pool from a previous device rate would be
+    // reused as-is (stale resample ratio) instead of being reopened, since
+    // the lookup here is a direct filePool hit that bypasses getOrOpenFile's
+    // own rate-check for any file that's already known.
+    dropFilePoolIfRateChanged(ringCapacityFrames, deviceSampleRate);
 
     // Dedup paths first so multi-region same file opens once.
     std::vector<const Region*> regions;

@@ -246,6 +246,11 @@ export const builder = {
     mono?: boolean;
   }) => post("/api/v1/builder/track/update", patch),
 
+  // `gestureId`: pass the same id across several regionAdd/regionRemove/
+  // regionUpdate calls that belong to one user gesture (split/duplicate/
+  // paste/multi-select delete) so the backend's undo history collapses them
+  // into a single undo step instead of N. Leave unset for a normal
+  // single-region edit (always its own undo step). See ProjectHistory.h.
   regionAdd: (patch: {
     songIndex: number;
     trackId: string;
@@ -259,9 +264,10 @@ export const builder = {
     fadeInCurve?: number;
     fadeOutCurve?: number;
     loop?: boolean;
+    gestureId?: string;
   }) => post("/api/v1/builder/region/add", patch),
-  regionRemove: (songIndex: number, regionId: string) =>
-    post("/api/v1/builder/region/remove", { songIndex, regionId }),
+  regionRemove: (songIndex: number, regionId: string, gestureId?: string) =>
+    post("/api/v1/builder/region/remove", { songIndex, regionId, gestureId }),
   regionUpdate: (patch: {
     songIndex: number;
     regionId: string;
@@ -277,6 +283,7 @@ export const builder = {
     fadeOutCurve?: number;
     loop?: boolean;
     loopLengthSeconds?: number;
+    gestureId?: string;
   }) => post("/api/v1/builder/region/update", patch),
 
   async trackImportWav(
@@ -350,6 +357,13 @@ export const builder = {
     startSeconds?: number;
     colorIndex?: number;
   }) => post("/api/v1/builder/section/update", patch),
+};
+
+// Timeline undo/redo (regions + sections of the currently loaded project).
+// See ProjectHistory.h / AudioEngine::undoTimelineEdit()/redoTimelineEdit().
+export const timelineHistory = {
+  undo: () => post("/api/v1/timeline/undo"),
+  redo: () => post("/api/v1/timeline/redo"),
 };
 
 // Settings parity -- mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent
