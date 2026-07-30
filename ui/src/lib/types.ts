@@ -235,6 +235,8 @@ export interface WebUiState {
   bpm: number;
   playing: boolean;
   hardwareAlarm: boolean;
+  /** Monotonically incremented on every native keyDown (settings dot indicator). */
+  keyStrokeNonce: number;
   songIndex: number;
   songCount: number;
   statusMessage: string;
@@ -283,6 +285,7 @@ export const emptyState: WebUiState = {
   bpm: 0,
   playing: false,
   hardwareAlarm: false,
+  keyStrokeNonce: 0,
   songIndex: -1,
   songCount: 0,
   statusMessage: "",

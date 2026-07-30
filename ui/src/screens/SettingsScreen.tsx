@@ -1,5 +1,5 @@
 import { Card } from "@heroui/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 
@@ -95,6 +95,7 @@ export function keyEventToDescription(e: KeyboardEvent): string | null {
 const ACTION_LABELS: Record<string, string> = {
   play: "Play / Pause",
   stop: "Stop (pause in place)",
+  stop_to_start: "Full stop (return to start)",
   next: "Next song",
   prev: "Previous song",
   mode_player: "Mode: Player",
@@ -104,6 +105,8 @@ const ACTION_LABELS: Record<string, string> = {
   section_prev: "Previous section",
   section_next: "Next section",
   section_last: "Last section",
+  undo: "Undo (timeline)",
+  redo: "Redo (timeline)",
 };
 
 function actionLabel(action: string): string {
@@ -122,11 +125,15 @@ function BindingRow({
   currentKey,
   midi,
   learning,
+  dotVisible,
+  dotDelay,
 }: {
   action: string;
   currentKey: string;
   midi?: MidiBindingRow;
   learning: boolean;
+  dotVisible: boolean;
+  dotDelay?: number;
 }) {
   const [listening, setListening] = useState(false);
 
@@ -149,7 +156,15 @@ function BindingRow({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-default/10 px-3 py-2">
-      <span className="min-w-[10rem] text-sm">{actionLabel(action)}</span>
+      <div className="flex items-center gap-2">
+        <div
+          className={`h-2 w-2 rounded-full bg-accent transition-all duration-300 ${
+            dotVisible ? "scale-100 opacity-100" : "scale-0 opacity-0"
+          }`}
+          style={dotDelay != null ? { transitionDelay: `${dotDelay}ms` } : undefined}
+        />
+        <span className="min-w-[10rem] text-sm">{actionLabel(action)}</span>
+      </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <button
           onClick={() => setListening(true)}
@@ -193,7 +208,7 @@ function BindingRow({
 const ACTION_GROUPS: { title: string; actions: string[] }[] = [
   {
     title: "Transport",
-    actions: ["play", "stop", "next", "prev"],
+    actions: ["play", "stop", "stop_to_start", "next", "prev"],
   },
   {
     title: "Modes",
@@ -202,6 +217,10 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
   {
     title: "Song sections",
     actions: ["section_prev", "section_next", "section_last"],
+  },
+  {
+    title: "Timeline",
+    actions: ["undo", "redo"],
   },
 ];
 
@@ -213,6 +232,29 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
     (s.midiBindings ?? []).map((mb) => [mb.action, mb]),
   );
   const learningAction = s.midiLearnAction ?? "";
+
+  // Key-press indicator: briefly shows accent dots next to every binding.
+  // Uses keyStrokeNonce from the C++ side (MacKeyMonitor / keyPressed)
+  // since WKWebView swallows JS keydown events.
+  const [dotVisible, setDotVisible] = useState(false);
+  const dotTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    setDotVisible(true);
+    if (dotTimer.current) clearTimeout(dotTimer.current);
+    dotTimer.current = setTimeout(() => setDotVisible(false), 800);
+  }, [state.keyStrokeNonce]);
+
+  // Flat list for staggered dot delays
+  const allDotActions = [
+    ...ACTION_GROUPS.flatMap(g => g.actions),
+    ...s.keybindings
+      .filter(kb => !ACTION_GROUPS.some(g => g.actions.includes(kb.action)))
+      .map(kb => kb.action),
+  ];
+  const dotDelayFor = (action: string) => {
+    const idx = allDotActions.indexOf(action);
+    return idx >= 0 ? idx * 25 : 0;
+  };
 
   const outputDevices =
     s.outputDevices.length > 0
@@ -436,6 +478,8 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
                   currentKey={keyByAction.get(action) ?? ""}
                   midi={midiByAction.get(action)}
                   learning={learningAction === action}
+                  dotVisible={dotVisible}
+                  dotDelay={dotDelayFor(action)}
                 />
               ))}
             </div>
@@ -452,6 +496,8 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
                 currentKey={kb.key}
                 midi={midiByAction.get(kb.action)}
                 learning={learningAction === kb.action}
+                dotVisible={dotVisible}
+                dotDelay={dotDelayFor(kb.action)}
               />
             ))}
         </Card.Content>

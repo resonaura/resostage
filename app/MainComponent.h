@@ -11,6 +11,8 @@
 
 #include <memory>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace resostage {
 
@@ -45,6 +47,9 @@ private:
     BusyOverlay busyOverlay;
     WebLoadingOverlay webLoadingOverlay;
     bool wasBusyLastTick = false;
+    // When true, the SPA has a text/input/textarea focused so native hotkey
+    // processing is suppressed and keystrokes pass through for normal typing.
+    std::atomic<bool> editableFieldFocused{false};
     // Mirrored into WebUiState::statusMessage (no native status bar anymore).
     std::string lastStatusMessage;
 
@@ -68,6 +73,13 @@ private:
         {"section_prev", "["},
         {"section_next", "]"},
         {"section_last", "end"},
+        {"undo", "cmd + z"},
+        {"redo", "cmd + shift + z"},
+    };
+    // Additional bindings where the same action maps to multiple keys.
+    // These are checked in matchAndPerformAction after the main map.
+    std::vector<std::pair<std::string, std::string>> extraKeyBindings = {
+        {"stop_to_start", "0"},
     };
     std::string uiTabRequest;
     uint64_t uiTabSeq = 0;
@@ -109,6 +121,16 @@ private:
     // points share one implementation instead of duplicating it.
     void performTimelineUndo();
     void performTimelineRedo();
+
+    // Hotkey dispatch. On Mac the monitor passes macKeyCode/juceMods for
+    // physical-keyCode matching (cross-layout Cmd+Z etc.).
+    bool matchAndPerformAction(const juce::KeyPress& key,
+                               uint16_t macKeyCode = 0,
+                               int juceMods = 0);
+
+    // Convert a keybinding description ("cmd + z", "space") to Mac
+    // virtual keyCode + JUCE modifier mask. Returns (0, 0) on failure.
+    static std::pair<uint16_t, int> descriptionToMacKeyCode(const std::string& desc);
 
     // Native folder picker when web sends import without a path (rare).
     void importSongFolderNative();
@@ -170,6 +192,7 @@ private:
 
     bool wasHardwareAlarm = false;
     int startupTicks = 0;
+    int keyStrokeNonce_{0};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

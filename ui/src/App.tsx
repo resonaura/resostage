@@ -18,6 +18,7 @@ import { EditorScreen } from "./screens/EditorScreen";
 import { MixerScreen } from "./screens/MixerScreen";
 import { PlayerScreen } from "./screens/PlayerScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
+import { type ActionId, performAction } from "./lib/actions";
 
 // HeroUI v3 has no provider -- theme is CSS-driven via a class/data-theme
 // attribute on <html>. This app is a stage-side remote/mirror of the native
@@ -65,148 +66,130 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
   const songIndexRef = useRef(state.songIndex);
   songIndexRef.current = state.songIndex;
 
+  // When embedded in the native app, the MacKeyMonitor NSEvent handler
+  // processes all key bindings natively (play/stop/next/prev/mode/section/
+  // undo/redo). The frontend only handles hard-coded conveniences (digit
+  // song pick, arrow seek, Home) and sends the text-field focus signal so
+  // the native monitor can suppress hotkeys while the user types.
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT" ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-
-      // Configurable project keybindings first (transport / mode / sections).
-      for (const kb of bindingsRef.current) {
-        if (!eventMatchesBinding(e, kb.key)) continue;
-        e.preventDefault();
-        e.stopPropagation();
-        switch (kb.action) {
-          case "play":
-            if (playingRef.current) void transport.stop();
-            else void transport.play();
-            break;
-          case "stop":
-            void transport.stop();
-            break;
-          case "next":
-            void transport.next();
-            break;
-          case "prev":
-            void transport.prev();
-            break;
-          case "mode_player":
-            setTab("player");
-            break;
-          case "mode_mixer":
-            setTab("mixer");
-            break;
-          case "mode_editor":
-            setTab("editor");
-            break;
-          case "mode_settings":
-            setTab("settings");
-            break;
-          case "section_prev":
-          case "section_next":
-          case "section_last":
-            jumpSection(
-              kb.action,
-              songsRef.current,
-              songIndexRef.current,
-              playheadRef.current,
-            );
-            break;
-          default:
-            break;
+    if (!IS_EMBEDDED) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        const target = e.target as HTMLElement | null;
+        if (
+          target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT" ||
+            target.isContentEditable)
+        ) {
+          return;
         }
-        return;
-      }
 
-      // Built-in conveniences that aren't rebindable yet: digit song pick,
-      // nudge seek. Mode keys used to collide with 1..4; modes now default
-      // to F1..F4 so song select can keep 1..9.
-      if (
-        e.key >= "1" &&
-        e.key <= "9" &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey
-      ) {
-        const songIdx = parseInt(e.key, 10) - 1;
-        e.preventDefault();
-        e.stopPropagation();
-        void transport.select(songIdx);
-      } else if (e.code === "ArrowLeft") {
-        e.preventDefault();
-        const songs = songsRef.current;
-        const sIdx = songIndexRef.current;
-        const song = songs[sIdx];
-        const bpm = song?.bpm && song.bpm > 0 ? song.bpm : 120;
-        const tsNum = song?.tsNum && song.tsNum > 0 ? song.tsNum : 4;
-        const barSec = (60 / bpm) * tsNum;
-        const curBar = playheadRef.current / barSec;
-        const prevBarSec = Math.max(0, Math.floor(curBar - 0.01) * barSec);
-        void transport.seek(prevBarSec);
-      } else if (e.code === "ArrowRight") {
-        e.preventDefault();
-        const songs = songsRef.current;
-        const sIdx = songIndexRef.current;
-        const song = songs[sIdx];
-        const bpm = song?.bpm && song.bpm > 0 ? song.bpm : 120;
-        const tsNum = song?.tsNum && song.tsNum > 0 ? song.tsNum : 4;
-        const barSec = (60 / bpm) * tsNum;
-        const curBar = playheadRef.current / barSec;
-        const nextBarSec = Math.floor(curBar + 1.01) * barSec;
-        void transport.seek(nextBarSec);
-      } else if (e.code === "Home") {
-        e.preventDefault();
-        void transport.seek(0);
-      }
-    };
+        // Configurable project keybindings (transport / mode / sections / undo/redo).
+        for (const kb of bindingsRef.current) {
+          if (!eventMatchesBinding(e, kb.key)) continue;
+          e.preventDefault();
+          e.stopPropagation();
+          performAction(
+            kb.action as ActionId,
+            songsRef.current,
+            songIndexRef.current,
+            playheadRef.current,
+            setTab,
+            playingRef.current,
+          );
+          return;
+        }
 
-    window.addEventListener("keydown", handleKeyDown, { capture: true });
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown, { capture: true });
-    };
+        // Built-in conveniences that aren't rebindable yet.
+        if (
+          e.key >= "1" &&
+          e.key <= "9" &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey
+        ) {
+          const songIdx = parseInt(e.key, 10) - 1;
+          e.preventDefault();
+          e.stopPropagation();
+          void transport.select(songIdx);
+        } else if (e.code === "ArrowLeft") {
+          e.preventDefault();
+          const songs = songsRef.current;
+          const sIdx = songIndexRef.current;
+          const song = songs[sIdx];
+          const bpm = song?.bpm && song.bpm > 0 ? song.bpm : 120;
+          const tsNum = song?.tsNum && song.tsNum > 0 ? song.tsNum : 4;
+          const barSec = (60 / bpm) * tsNum;
+          const curBar = playheadRef.current / barSec;
+          const prevBarSec = Math.max(0, Math.floor(curBar - 0.01) * barSec);
+          void transport.seek(prevBarSec);
+        } else if (e.code === "ArrowRight") {
+          e.preventDefault();
+          const songs = songsRef.current;
+          const sIdx = songIndexRef.current;
+          const song = songs[sIdx];
+          const bpm = song?.bpm && song.bpm > 0 ? song.bpm : 120;
+          const tsNum = song?.tsNum && song.tsNum > 0 ? song.tsNum : 4;
+          const barSec = (60 / bpm) * tsNum;
+          const curBar = playheadRef.current / barSec;
+          const nextBarSec = Math.floor(curBar + 1.01) * barSec;
+          void transport.seek(nextBarSec);
+        } else if (e.code === "Home") {
+          e.preventDefault();
+          void transport.seek(0);
+        }
+      };
+
+      window.addEventListener("keydown", handleKeyDown, { capture: true });
+      return () => {
+        window.removeEventListener("keydown", handleKeyDown, { capture: true });
+      };
+    }
   }, [setTab]);
-}
 
-function jumpSection(
-  action: string,
-  songs: WebUiState["songs"],
-  songIndex: number,
-  playhead: number,
-) {
-  if (songIndex < 0 || songIndex >= songs.length) return;
-  const sections = [...(songs[songIndex].sections ?? [])].sort(
-    (a, b) => a.startSeconds - b.startSeconds,
-  );
-  if (sections.length === 0) return;
-
-  const eps = 0.05;
-  if (action === "section_last") {
-    void transport.seek(sections[sections.length - 1].startSeconds);
-    return;
-  }
-
-  let at = -1;
-  for (let i = 0; i < sections.length; i++) {
-    if (playhead + eps >= sections[i].startSeconds) at = i;
-  }
-
-  if (action === "section_prev") {
-    const target = at < 0 ? 0 : at - 1;
-    if (target >= 0) void transport.seek(sections[target].startSeconds);
-    return;
-  }
-  if (action === "section_next") {
-    const target = at + 1;
-    if (target < sections.length)
-      void transport.seek(sections[target].startSeconds);
-  }
+  // Text-field focus signal: tell the native side when an editable element
+  // is focused so MacKeyMonitor suppresses hotkeys (embedded only).
+  useEffect(() => {
+    if (!IS_EMBEDDED) return;
+    const sendFocus = (focused: boolean) => {
+      void fetch("/api/v1/ui/focus-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ focused }),
+      }).catch(() => {});
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      ) {
+        sendFocus(true);
+      }
+    };
+    const onFocusOut = (e: FocusEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      ) {
+        sendFocus(false);
+      }
+    };
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
 }
 
 export default function App() {

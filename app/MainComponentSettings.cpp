@@ -29,6 +29,7 @@ bool parseJson(const std::string& json, simdjson::dom::element& out) {
 constexpr const char* kActions[] = {
     "play",
     "stop",
+    "stop_to_start",
     "next",
     "prev",
     "mode_player",
@@ -38,6 +39,8 @@ constexpr const char* kActions[] = {
     "section_prev",
     "section_next",
     "section_last",
+    "undo",
+    "redo",
 };
 
 bool isKnownAction(const std::string& action) {

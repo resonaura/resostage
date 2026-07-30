@@ -18,17 +18,18 @@ namespace resostage {
 // keyDown at the application-event-stream level instead, independent of
 // which NSView currently has first-responder focus.
 //
-// `onKeyDown` receives a juce::KeyPress built to be comparable (via
-// operator==) against juce::KeyPress::createFromDescription(...) results,
-// matching the same description-string format Project::keybindings and the
-// Settings rebind UI already use. Return true to consume the event
-// (suppressing the WKWebView's own handling of it); false lets it pass
-// through untouched -- e.g. normal typing in a text field.
+// `onKeyDown` receives a juce::KeyPress (comparable via operator== against
+// juce::KeyPress::createFromDescription results) plus the raw Mac virtual
+// keyCode and the tracked modifier state in JUCE-modifier-flag format.
+// The extra params enable physical-keyCode matching for cross-layout
+// support (e.g., Cmd+Z on German QWERTZ where kVK_ANSI_Z produces 'y').
+// Return true to consume the event; false lets it pass through.
 //
 // A LOCAL monitor (not global) only fires while this app is the active
 // app -- exactly the desired "hotkeys work when the window is focused"
 // behavior, no separate focus check needed. No-op on non-Apple builds.
-void installMacKeyMonitor(std::function<bool(const juce::KeyPress&)> onKeyDown);
+using MacKeyCallback = std::function<bool(const juce::KeyPress&, uint16_t macKeyCode, int juceMods)>;
+void installMacKeyMonitor(MacKeyCallback onKeyDown);
 void uninstallMacKeyMonitor();
 
 } // namespace resostage

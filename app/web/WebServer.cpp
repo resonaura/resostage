@@ -303,6 +303,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/mixer/track/send", WebCommandKind::SetTrackSend},
     {"/api/v1/mixer/track/send/remove", WebCommandKind::RemoveTrackSend},
     {"/api/v1/project/name", WebCommandKind::SetProjectName},
+    {"/api/v1/ui/focus-state", WebCommandKind::UiFocusState},
 };
 
 bool builderCommandKindForPath(const char* path, WebCommandKind& outKind) {

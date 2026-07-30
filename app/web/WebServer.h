@@ -161,6 +161,7 @@ enum class WebCommandKind : uint8_t {
     // WebUiState::quitConfirmPending / MainComponent::confirmQuitIfUnsaved).
     // `arg`: 0 = Cancel, 1 = Save, 2 = Don't Save.
     QuitDecision,
+    UiFocusState,
 };
 
 struct WebCommand {
@@ -213,6 +214,11 @@ struct WebUiState {
     // window into the result of a fire-and-forget command (project loaded ok,
     // save failed, etc.) since REST POSTs here don't wait for the outcome.
     std::string statusMessage;
+    // Bumped on every native keyDown so the web UI can show brief visual
+    // feedback (settings indicator dots) despite WKWebView swallowing JS
+    // keydown events. Driven by MacKeyMonitor / keyPressed.
+    int keyStrokeNonce = 0;
+
     // Mirrors AudioEngine::isBusy() -- true during an async WAV/folder
     // import. The web UI disables Builder edits while this is set, same as
     // the native BusyOverlay blocking all input.

@@ -1,9 +1,11 @@
 #include "MainComponent.h"
+#include "platform/MacKeyMonitor.h"
 #include "platform/MacTouchBar.h"
 #include "ui/UiColors.h"
 #include "web/BuilderJson.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <optional>
 #include <vector>
@@ -73,12 +75,23 @@ MainComponent::MainComponent() {
 
     setWantsKeyboardFocus(true);
     setSize(1280, 800);
+
+#if JUCE_MAC
+    installMacKeyMonitor([this](const juce::KeyPress& key, uint16_t vk, int jm) -> bool {
+        ++keyStrokeNonce_;
+        return matchAndPerformAction(key, vk, jm);
+    });
+#endif
+
     // Match WebServer::kTelemetryHz (30).
     startTimerHz(WebServer::kTelemetryHz);
 }
 
 MainComponent::~MainComponent() {
     stopTimer();
+#if JUCE_MAC
+    uninstallMacKeyMonitor();
+#endif
     webServer.stop();
 }
 
@@ -99,16 +112,176 @@ void MainComponent::resized() {
 }
 
 bool MainComponent::keyPressed(const juce::KeyPress& key) {
-    // Global bindings (transport / mode / section) work in every mode.
-    // Mode switches used to be hard-coded 1..4; they're now regular
-    // keybindings (defaults f1..f4) so Settings can rebind them.
+    return matchAndPerformAction(key);
+}
+
+bool MainComponent::matchAndPerformAction(const juce::KeyPress& key,
+                                           uint16_t macKeyCode,
+                                           int juceMods) {
+    // When the SPA has an editable field focused, let keystrokes pass through
+    // for normal typing rather than treating them as hotkeys.
+    if (editableFieldFocused.load(std::memory_order_relaxed))
+        return false;
+
+    // Digit keys 1-9 select songs directly (0-indexed).
+    {
+        const auto kc = key.getKeyCode();
+        if (kc >= '1' && kc <= '9') {
+            goToSong(static_cast<int>(kc - '1'));
+            return true;
+        }
+    }
+
+    // Pass 1: standard character+modifier comparison (works for most keys
+    // on all layouts -- space, escape, brackets, function keys, etc.).
     for (const auto& [action, description] : keyBindings) {
         if (key == juce::KeyPress::createFromDescription(juce::String(description))) {
             performAction(action);
             return true;
         }
     }
+    // Also check extraKeyBindings (multi-key actions e.g. "0" for stop).
+    for (const auto& [action, description] : extraKeyBindings) {
+        if (key == juce::KeyPress::createFromDescription(juce::String(description))) {
+            performAction(action);
+            return true;
+        }
+    }
+    // Pass 2: physical Mac keyCode comparison (cross-layout support).
+    // Only triggered when called from the Mac NSEvent monitor
+    // (macKeyCode != 0). Matches letter-key bindings by virtual keyCode
+    // instead of character, so e.g. Cmd+Z on German QWERTZ (where
+    // kVK_ANSI_Z = 6 produces 'y') still triggers undo.
+    if (macKeyCode != 0) {
+        for (const auto& [action, description] : keyBindings) {
+            auto [expectedVk, expectedMods] = descriptionToMacKeyCode(description);
+            if (expectedVk != 0
+                && expectedVk == macKeyCode
+                && expectedMods == juceMods)
+            {
+                performAction(action);
+                return true;
+            }
+        }
+        for (const auto& [action, description] : extraKeyBindings) {
+            auto [expectedVk, expectedMods] = descriptionToMacKeyCode(description);
+            if (expectedVk != 0
+                && expectedVk == macKeyCode
+                && expectedMods == juceMods)
+            {
+                performAction(action);
+                return true;
+            }
+        }
+    }
+
     return false;
+}
+
+// static
+std::pair<uint16_t, int> MainComponent::descriptionToMacKeyCode(const std::string& desc) {
+    // Parse modifiers
+    int mods = 0;
+    std::string keyName;
+    {
+        size_t start = 0;
+        for (;;) {
+            size_t plus = desc.find('+', start);
+            if (plus == std::string::npos) {
+                keyName = desc.substr(start);
+                break;
+            }
+            std::string token = desc.substr(start, plus - start);
+            // trim
+            while (!token.empty() && (token.front() == ' ' || token.front() == '\t'))
+                token.erase(token.begin());
+            while (!token.empty() && (token.back() == ' ' || token.back() == '\t'))
+                token.pop_back();
+
+            for (char& c : token) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (token == "cmd" || token == "command")
+                mods |= juce::ModifierKeys::commandModifier;
+            else if (token == "shift")
+                mods |= juce::ModifierKeys::shiftModifier;
+            else if (token == "alt" || token == "option")
+                mods |= juce::ModifierKeys::altModifier;
+            else if (token == "ctrl" || token == "control")
+                mods |= juce::ModifierKeys::ctrlModifier;
+
+            start = plus + 1;
+        }
+        // trim keyName
+        while (!keyName.empty() && (keyName.front() == ' ' || keyName.front() == '\t'))
+            keyName.erase(keyName.begin());
+        while (!keyName.empty() && (keyName.back() == ' ' || keyName.back() == '\t'))
+            keyName.pop_back();
+    }
+
+    // Map key name to Apple virtual key code. Table covers all ANSI
+    // letter keys (fixed physical position across every Apple keyboard)
+    // plus common named keys used in default bindings.
+    uint16_t vk = 0;
+    if (keyName.length() == 1) {
+        char c = static_cast<char>(std::tolower(static_cast<unsigned char>(keyName[0])));
+        if (c >= 'a' && c <= 'z') {
+            // kVK_ANSI_A..kVK_ANSI_Z
+            static const uint16_t letterVk[] = {
+                0x00, 0x0B, 0x08, 0x02, 0x0E, 0x03, 0x05, 0x04,
+                0x22, 0x26, 0x28, 0x25, 0x2E, 0x2D, 0x1F, 0x23,
+                0x0C, 0x0F, 0x01, 0x11, 0x20, 0x09, 0x0D, 0x07,
+                0x10, 0x06
+            }; // a b c d e f g h i j k l m n o p q r s t u v w x y z
+            vk = letterVk[c - 'a'];
+        } else if (c >= '0' && c <= '9') {
+            static const uint16_t digitVk[] = {
+                0x1D, 0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1A, 0x1C, 0x19
+            }; // 0 1 2 3 4 5 6 7 8 9
+            vk = digitVk[c - '0'];
+        } else if (c == '[') vk = 33;
+        else if (c == ']') vk = 30;
+        else if (c == '-') vk = 27;
+        else if (c == '=') vk = 24;
+        else if (c == ';') vk = 41;
+        else if (c == '\'') vk = 39;
+        else if (c == ',') vk = 43;
+        else if (c == '.') vk = 47;
+        else if (c == '/') vk = 44;
+        else if (c == '`') vk = 50;
+        else if (c == '\\') vk = 42;
+    } else {
+        std::string lower;
+        lower.reserve(keyName.size());
+        for (char c : keyName) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+        if (lower == "space")                vk = 49;
+        else if (lower == "escape" || lower == "esc") vk = 53;
+        else if (lower == "f1")              vk = 122;
+        else if (lower == "f2")              vk = 120;
+        else if (lower == "f3")              vk = 99;
+        else if (lower == "f4")              vk = 118;
+        else if (lower == "f5")              vk = 96;
+        else if (lower == "f6")              vk = 97;
+        else if (lower == "f7")              vk = 98;
+        else if (lower == "f8")              vk = 100;
+        else if (lower == "f9")              vk = 101;
+        else if (lower == "f10")             vk = 109;
+        else if (lower == "f11")             vk = 103;
+        else if (lower == "f12")             vk = 111;
+        else if (lower == "end")             vk = 119;
+        else if (lower == "home")            vk = 115;
+        else if (lower == "pageup" || lower == "pgup") vk = 116;
+        else if (lower == "pagedown" || lower == "pgdn") vk = 121;
+        else if (lower == "left")            vk = 123;
+        else if (lower == "right")           vk = 124;
+        else if (lower == "down")            vk = 125;
+        else if (lower == "up")              vk = 126;
+        else if (lower == "return" || lower == "enter") vk = 36;
+        else if (lower == "tab")             vk = 48;
+        else if (lower == "backspace" || lower == "delete") vk = 51;
+        else if (lower == "forwarddelete")   vk = 117; // Fn+Delete / ForwardDelete
+    }
+
+    return {vk, mods};
 }
 
 void MainComponent::setTouchBarPeer(void* nsViewPeer) {
@@ -168,6 +341,8 @@ void MainComponent::performAction(const std::string& action) {
         togglePlayback();
     else if (action == "stop")
         engine.stop();
+    else if (action == "stop_to_start")
+        engine.stopToStart();
     else if (action == "next")
         nextSong();
     else if (action == "prev")
@@ -186,6 +361,10 @@ void MainComponent::performAction(const std::string& action) {
         jumpToSectionRelative(+1);
     else if (action == "section_last")
         jumpToLastSection();
+    else if (action == "undo")
+        performTimelineUndo();
+    else if (action == "redo")
+        performTimelineRedo();
 }
 
 void MainComponent::jumpToSectionRelative(int delta) {
@@ -540,6 +719,10 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::MidiClear: settingsMidiClear(cmd.json); break;
             case WebCommandKind::Seek: transportSeek(cmd.json); break;
             case WebCommandKind::QuitDecision: handleQuitDecision(cmd.arg); break;
+            case WebCommandKind::UiFocusState:
+                editableFieldFocused.store(cmd.json.find("\"focused\":true") != std::string::npos,
+                                           std::memory_order_relaxed);
+                break;
         }
     };
 
@@ -664,6 +847,7 @@ void MainComponent::publishWebState() {
     state.songIndex = (engine.currentSongIndex() == static_cast<size_t>(-1))
                           ? -1
                           : static_cast<int>(engine.currentSongIndex());
+    state.keyStrokeNonce = keyStrokeNonce_;
     state.statusMessage = lastStatusMessage;
     state.busy = engine.isBusy();
     state.quitConfirmPending = awaitingQuitDecision;
