@@ -1,6 +1,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "MainComponent.h"
+#include "platform/MacMenuBar.h"
 #include "platform/MacTouchBar.h"
 #include "platform/ProcessPriority.h"
 
@@ -17,6 +18,29 @@ public:
         // rest of the system is thrashing (see ProcessPriority.cpp).
         boostAppProcessPriority();
         mainWindow = std::make_unique<MainWindow>(getApplicationName());
+
+#if JUCE_MAC
+        // Defer menu installation: JUCE's own initialiseApp() calls
+        // initialiseMacMainMenu() right after our initialise() returns,
+        // which would replace our custom menu with a default Apple-only
+        // one.  callAsync ensures we install AFTER that JUCE setup.
+        juce::MessageManager::callAsync([this] {
+            const auto* bindings = (mainWindow && mainWindow->getMainComponent())
+                ? &mainWindow->getMainComponent()->getKeyBindings()
+                : nullptr;
+            installMacMenuBar([this](const std::string& action) {
+                if (action == "quit") {
+                    if (auto* mc = mainWindow->getMainComponent())
+                        mc->confirmQuitIfUnsaved([](bool canQuit) {
+                            if (canQuit) juce::JUCEApplication::quit();
+                        });
+                } else {
+                    if (auto* mc = mainWindow->getMainComponent())
+                        mc->performAction(action);
+                }
+            }, bindings);
+        });
+#endif
 
         const auto path = commandLine.unquoted().trim();
         if (!path.isEmpty() && juce::File::isAbsolutePath(path)) {

@@ -36,6 +36,12 @@ public:
 
     bool loadProjectFromPath(const juce::File& file);
 
+    /** Called from native menu bar and MacKeyMonitor hotkey dispatch. */
+    void performAction(const std::string& action);
+
+    /** Expose active key bindings for Mac menu bar update. */
+    const std::unordered_map<std::string, std::string>& getKeyBindings() const { return keyBindings; }
+
 private:
     AudioEngine engine;
     WebServer webServer;
@@ -96,7 +102,6 @@ private:
     void saveProjectClicked(bool saveAs, std::function<void(bool)> onDone = nullptr);
     void handleQuitDecision(int choice);
     void applyProjectBindings();
-    void performAction(const std::string& action);
     void jumpToSectionRelative(int delta);
     void jumpToLastSection();
     void requestUiTab(const std::string& tab);

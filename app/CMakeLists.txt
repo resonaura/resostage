@@ -24,7 +24,7 @@ target_sources(ResoStage PRIVATE
 )
 
 if(APPLE)
-  target_sources(ResoStage PRIVATE platform/MacTouchBar.mm platform/MacKeyMonitor.mm)
+  target_sources(ResoStage PRIVATE platform/MacTouchBar.mm platform/MacKeyMonitor.mm platform/MacMenuBar.mm)
   set(FILE_ICON "${CMAKE_SOURCE_DIR}/icons/file.icns")
   set_source_files_properties(${FILE_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   target_sources(ResoStage PRIVATE ${FILE_ICON})

@@ -7,6 +7,7 @@
 // still being full MainComponent member functions.
 
 #include "MainComponent.h"
+#include "platform/MacMenuBar.h"
 #include "web/BuilderJson.h"
 
 #include <algorithm>
@@ -331,6 +332,9 @@ void MainComponent::settingsSetKeybinding(const std::string& json) {
 
     engine.project().keybindings[action] = key;
     applyProjectBindings();
+#if JUCE_MAC
+    updateMacMenuKeyBindings(keyBindings);
+#endif
     setStatus("Keybinding: " + juce::String(action) + " -> " + juce::String(key));
 }
 

@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "platform/MacKeyMonitor.h"
+#include "platform/MacMenuBar.h"
 #include "platform/MacTouchBar.h"
 #include "ui/UiColors.h"
 #include "web/BuilderJson.h"
@@ -296,6 +297,8 @@ void MainComponent::setTouchBarPeer(void* nsViewPeer) {
 }
 
 void MainComponent::syncTouchBarToTab(const std::string& tabId) {
+    fprintf(stderr, "[TB] syncTouchBarToTab '%s' (peer=%p active='%s')\n",
+            tabId.c_str(), (void*)touchBarPeer, touchBarActiveTab.c_str());
     if (touchBarPeer == nullptr)
         return;
     std::string id = tabId;
@@ -307,17 +310,17 @@ void MainComponent::syncTouchBarToTab(const std::string& tabId) {
         return;
     touchBarActiveTab = id;
 #if JUCE_MAC
+    fprintf(stderr, "[TB] calling setMacTouchBarActiveTab('%s')\n", id.c_str());
     setMacTouchBarActiveTab(touchBarPeer, id);
 #endif
 }
 
 void MainComponent::handleTouchBarTab(const std::string& tabId) {
-    // Touch Bar switches SPA screens inside the primary web UI.
+    fprintf(stderr, "[TouchBar] handleTouchBarTab '%s'\n", tabId.c_str());
     if (tabId == "player" || tabId == "mixer" || tabId == "editor" || tabId == "settings"
         || tabId == "builder") {
         const std::string id = tabId == "builder" ? "editor" : tabId;
-        // Optimistic highlight + remember so the timer won't snap back to an
-        // older lastClientView before the SPA echoes {"view":id}.
+        fprintf(stderr, "[TouchBar] -> requestUiTab '%s', ++uiTabSeq\n", id.c_str());
         lastSeenSpaView = id;
         syncTouchBarToTab(id);
         webServer.noteClientView(id);
@@ -365,6 +368,16 @@ void MainComponent::performAction(const std::string& action) {
         performTimelineUndo();
     else if (action == "redo")
         performTimelineRedo();
+    else if (action == "new_project")
+        newProjectClicked();
+    else if (action == "open_project")
+        loadProjectClicked();
+    else if (action == "save_project")
+        saveProjectClicked(false);
+    else if (action == "save_project_as")
+        saveProjectClicked(true);
+    else if (action == "import_song_folder")
+        importSongFolderNative();
 }
 
 void MainComponent::jumpToSectionRelative(int delta) {
@@ -535,7 +548,10 @@ void MainComponent::timerCallback() {
     // the highlight back to Player before the SPA had sent its update.
     {
         const std::string spaView = webServer.lastClientView();
-        if (!spaView.empty() && spaView != lastSeenSpaView) {
+        fprintf(stderr, "[TB] timer: lastClientView='%s' lastSeen='%s' active='%s'\n",
+                spaView.c_str(), lastSeenSpaView.c_str(), touchBarActiveTab.c_str());
+        if (!spaView.empty() && (spaView != lastSeenSpaView || touchBarActiveTab.empty())) {
+            fprintf(stderr, "[TB] timer: syncTouchBarToTab('%s')\n", spaView.c_str());
             lastSeenSpaView = spaView;
             syncTouchBarToTab(spaView);
         }
@@ -593,35 +609,72 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::Next: nextSong(); break;
             case WebCommandKind::Prev: prevSong(); break;
             case WebCommandKind::SelectSong: goToSong(cmd.arg); break;
-            case WebCommandKind::SetTrackGain:
+            case WebCommandKind::SetTrackGain: {
+                engine.projectHistoryBeginEdit("tg" + std::to_string(idx), "Set Track Gain");
                 engine.setTrackGainDb(engine.currentSongIndex(), idx, cmd.value);
+                engine.projectHistoryCommitEdit();
                 break;
-            case WebCommandKind::SetTrackPan:
+            }
+            case WebCommandKind::SetTrackPan: {
+                engine.projectHistoryBeginEdit("tp" + std::to_string(idx), "Set Track Pan");
                 engine.setTrackPan(engine.currentSongIndex(), idx, cmd.value);
+                engine.projectHistoryCommitEdit();
                 break;
-            case WebCommandKind::SetTrackMute:
+            }
+            case WebCommandKind::SetTrackMute: {
+                engine.projectHistoryBeginEdit("", "Toggle Track Mute");
                 engine.setTrackMute(engine.currentSongIndex(), idx, cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
                 break;
-            case WebCommandKind::SetTrackSolo:
+            }
+            case WebCommandKind::SetTrackSolo: {
+                engine.projectHistoryBeginEdit("", "Toggle Track Solo");
                 engine.setTrackSolo(engine.currentSongIndex(), idx, cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
                 break;
-            case WebCommandKind::SetTrackMono:
+            }
+            case WebCommandKind::SetTrackMono: {
+                engine.projectHistoryBeginEdit("", "Toggle Track Mono");
                 engine.setTrackMono(engine.currentSongIndex(), idx, cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
                 break;
-            case WebCommandKind::SetBusGain:
+            }
+            case WebCommandKind::SetBusGain: {
+                engine.projectHistoryBeginEdit("bg" + std::to_string(idx), "Set Bus Gain");
                 engine.setBusGainDb(idx, cmd.value);
+                engine.projectHistoryCommitEdit();
                 break;
-            case WebCommandKind::SetBusMute:
+            }
+            case WebCommandKind::SetBusMute: {
+                engine.projectHistoryBeginEdit("", "Toggle Bus Mute");
                 engine.setBusMute(idx, cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
                 break;
-            case WebCommandKind::SetBusSolo:
+            }
+            case WebCommandKind::SetBusSolo: {
+                engine.projectHistoryBeginEdit("", "Toggle Bus Solo");
                 engine.setBusSolo(idx, cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
                 break;
-            case WebCommandKind::SetClickSolo:
+            }
+            case WebCommandKind::SetClickSolo: {
+                engine.projectHistoryBeginEdit("", "Toggle Click Solo");
                 engine.setClickSolo(cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
                 break;
-            case WebCommandKind::SetTrackSend: setTrackSendFromJson(cmd.json); break;
-            case WebCommandKind::RemoveTrackSend: removeTrackSendFromJson(cmd.json); break;
+            }
+            case WebCommandKind::SetTrackSend: {
+                engine.projectHistoryBeginEdit("", "Set Track Send");
+                setTrackSendFromJson(cmd.json);
+                engine.projectHistoryCommitEdit();
+                break;
+            }
+            case WebCommandKind::RemoveTrackSend: {
+                engine.projectHistoryBeginEdit("", "Remove Track Send");
+                removeTrackSendFromJson(cmd.json);
+                engine.projectHistoryCommitEdit();
+                break;
+            }
             case WebCommandKind::SetProjectName: setProjectNameFromJson(cmd.json); break;
             case WebCommandKind::NewProject:
                 engine.newProject();
@@ -857,6 +910,10 @@ void MainComponent::publishWebState() {
     state.canRedo = engine.canRedoTimeline();
     state.undoLabel = engine.undoTimelineLabel();
     state.redoLabel = engine.redoTimelineLabel();
+#if JUCE_MAC
+    updateMacMenuUndoRedo(state.canUndo, state.canRedo,
+                          state.undoLabel, state.redoLabel);
+#endif
 
     state.songs.reserve(proj.songs.size());
     for (const SongDef& song : proj.songs) {
@@ -1031,6 +1088,9 @@ void MainComponent::applyProjectBindings() {
     for (const auto& [action, description] : engine.project().keybindings)
         keyBindings[action] = description;
     midiInput.setMappings(engine.project().midiMappings);
+#if JUCE_MAC
+    updateMacMenuKeyBindings(keyBindings);
+#endif
 }
 
 void MainComponent::newProjectClicked() {
@@ -1250,6 +1310,7 @@ void MainComponent::performTimelineUndo() {
     std::string label;
     if (engine.undoTimelineEdit(label)) {
         notifyProjectStructureChanged(); // sets its own status first; overridden below
+        publishWebState();
         setStatus("Undo: " + juce::String(label));
     } else {
         setStatus("Nothing to undo");
@@ -1260,6 +1321,7 @@ void MainComponent::performTimelineRedo() {
     std::string label;
     if (engine.redoTimelineEdit(label)) {
         notifyProjectStructureChanged();
+        publishWebState();
         setStatus("Redo: " + juce::String(label));
     } else {
         setStatus("Nothing to redo");
