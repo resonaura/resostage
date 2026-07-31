@@ -1543,13 +1543,22 @@ export function Timeline({
     viewportWidth: 1000,
   });
 
+  // ZOOM-only flag feeding the playhead clock FREEZE below. Declared here so
+  // the clock hook can read it; the setter lives with the other gesture
+  // plumbing (see markZoomActiveRef).
+  const [zoomActive, setZoomActive] = useState(false);
+
   // ONE continuous absolute clock for the whole project. Song-local time is
   // derived below -- never a second independent rAF loop keyed on songIndex
   // (that reset/fought across gapless boundaries and felt like two timelines).
+  // `zoomActive` FREEZES the clock while a zoom gesture is in progress so the
+  // playhead marker holds still ("автостоп времени при зуме"); it resumes
+  // (and softly re-corrects toward the engine) the moment the zoom settles.
   const [playheadAbsoluteSec, setPlayheadAbsoluteSec] = useContinuousPlayhead(
     state.globalPlayheadSeconds,
     state.playing,
     state.projectName,
+    zoomActive,
   );
 
   // Snap-to-grid toggle
@@ -1602,6 +1611,19 @@ export function Timeline({
     gestureTimerRef.current = setTimeout(() => {
       gestureActiveNowRef.current = false;
       setGestureActive(false);
+    }, 250);
+  });
+  // ZOOM-only flag feeding the playhead clock FREEZE: while the user is
+  // zooming, the transport keeps playing but the timeline's clock must stand
+  // still so the playhead marker doesn't creep left-right against the
+  // zoom-focus anchor ("плейхед должен стоять на месте во время зума").
+  // Deliberately NOT set by manual horizontal scrolling -- looking around must
+  // never pause time, only a zoom gesture should.
+  const markZoomActiveRef = useRef(() => {
+    setZoomActive(true);
+    if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
+    gestureTimerRef.current = setTimeout(() => {
+      setZoomActive(false);
     }, 250);
   });
   // Set right before the auto-follow effect (or the zoom-focus effect)
@@ -2036,31 +2058,24 @@ export function Timeline({
     const k = clampedNext / oldPx;
     const rect = scroller.getBoundingClientRect();
 
-    // While "smooth" autofollow is live and the transport is playing, anchor
-    // the zoom at the playhead marker's CURRENT on-screen position instead of
-    // the cursor / viewport center. Smooth follow re-pins the playhead at 25%
-    // every frame, so a zoom focused anywhere else (cursor, center)
-    // immediately re-anchors once the gesture ends and visibly jumps.
-    // playheadScreenXRef is the marker's real screen X as written by the rAF
-    // loop each tick (document position minus the actual scrollLeft) --
-    // anchoring there keeps the playhead fixed at the same screen spot
-    // through and after the zoom, and stays correct even while follow is
-    // paused mid-gesture.
-    let focusX: number;
-    if (playingRef.current && followModeRef.current === "smooth") {
-      const markerX = playheadScreenXRef.current;
-      focusX =
-        markerX !== null
-          ? Math.max(0, Math.min(rect.width, markerX))
-          : rect.width / 2;
-    } else {
-      focusX =
-        typeof focusClientX === "number"
-          ? focusClientX - rect.left
-          : rect.width / 2;
-      if (focusX < 0 || focusX > rect.width) focusX = rect.width / 2;
-    }
+    // Anchor the zoom at the actual gesture focus -- the cursor for wheel-zoom,
+    // the pinch midpoint for pinch, the viewport center for the slider. The
+    // playhead is NOT pinned while zooming: it just sits at its natural
+    // document position (the rAF loop snaps it to px during a gesture), so
+    // whatever is under the cursor/fingers stays exactly under them through
+    // the zoom ("пинчится не совсем точно там где нужно"). The old
+    // marker-anchored pin drifted away from the pinch midpoint and landed
+    // somewhere else when the gesture ended.
+    let focusX =
+      typeof focusClientX === "number"
+        ? focusClientX - rect.left
+        : rect.width / 2;
+    if (focusX < 0 || focusX > rect.width) focusX = rect.width / 2;
 
+    // Base for the incremental zoom step: use the pending (not-yet-committed)
+    // target if the layout effect hasn't applied the previous step yet --
+    // otherwise rapid successive wheel/pinch steps would all read the stale
+    // DOM scrollLeft and lose the intermediate increments.
     const currentScrollLeft =
       pendingScrollLeftRef.current !== null
         ? pendingScrollLeftRef.current
@@ -2074,7 +2089,14 @@ export function Timeline({
     setPxPerSec(clampedNext);
   };
 
-  // Synchronize scroll position BEFORE browser paint to prevent 1-frame jitter or jumping
+  // Apply the zoom-focus scroll target AND the playhead marker in ONE atomic
+  // batch, synchronously before paint. This is the ONLY writer of scrollLeft
+  // during a zoom gesture: applyZoomAt only queues the target refs above, and
+  // the rAF loop's follow/reveal branches are disabled while a gesture is
+  // active (gestureActiveNowRef). A single writer keeps the timeline content
+  // and the marker in lockstep -- two writers (e.g. an earlier version also
+  // applying the pending value inside the rAF tick) fought each other and
+  // wobbled the whole timeline ("колбасит не только плейхед но и таймлайн").
   useLayoutEffect(() => {
     if (scrollRef.current) {
       const scroller = scrollRef.current;
@@ -2089,6 +2111,14 @@ export function Timeline({
         );
         programmaticScrollRef.current = true;
         scroller.scrollLeft = targetScrollLeft;
+        // Marker: same document position the rAF loop derives during a gesture
+        // (playheadAbsoluteSec * pxPerSec -- the clock is frozen while
+        // zooming). Writing it here, in the same commit as the scroll write,
+        // means the two can never land a frame apart.
+        const markerEl = playheadRef.current;
+        if (markerEl) {
+          markerEl.style.left = `${playheadAbsoluteSecRef.current * pxPerSecRef.current}px`;
+        }
         setScrollState({
           scrollLeft: targetScrollLeft,
           viewportWidth: scroller.clientWidth || 1000,
@@ -2118,6 +2148,7 @@ export function Timeline({
         e.preventDefault();
         e.stopPropagation();
         markGestureActiveRef.current();
+        markZoomActiveRef.current();
 
         const base = 2;
         const speed = e.deltaMode === 1 ? 0.14 : 0.0065;
@@ -2138,6 +2169,7 @@ export function Timeline({
       e.preventDefault();
       e.stopPropagation();
       markGestureActiveRef.current();
+      markZoomActiveRef.current();
       if (typeof e.scale === "number" && e.scale > 0) {
         const deltaScale = e.scale / lastScale;
         lastScale = e.scale;
@@ -2407,12 +2439,6 @@ export function Timeline({
   // song index is tracked through a ref) so a song change doesn't restart it
   // and lose the in-flight glide.
   const playheadRef = useRef<HTMLDivElement>(null);
-  // Marker's current on-screen X (document position minus scrollLeft),
-  // updated every tick. applyZoomAt reads it to anchor zooms at the playhead
-  // while smooth autofollow is live -- anchoring at the raw time-position
-  // instead picked up the EMA residual and made the playhead visibly jump
-  // mid-zoom ("дёргается при зуме всё-равно").
-  const playheadScreenXRef = useRef<number | null>(null);
   useEffect(() => {
     let raf = 0;
     // Engine-owned scrollLeft; null while idle (not following / not panning).
@@ -2534,11 +2560,13 @@ export function Timeline({
         // gesture is in progress) -- drop the follow anchor.
         engineScrollLeft = null;
         // Marker tracks the raw playhead at its natural document position.
-        // Snap instantly on a large jump (seek, song change, stop), while
-        // dragging the handle (must track the pointer 1:1 with zero added
-        // lag), and during a zoom gesture (must track the scale change in
-        // lockstep so it doesn't wobble against the zoom-focus scroll);
-        // ease only the small natural wobble during playback.
+        // No screen-pin during zoom: applyZoomAt anchors the scroll at the
+        // real gesture focus (cursor / pinch midpoint / center), and this
+        // loop snaps displayPx straight to px (gestureActiveNowRef is set
+        // during the gesture), so the marker rides the zoom-focus scroll
+        // exactly instead of being force-held at a screen X that fights it
+        // ("плейхед колбасит при зуме" / "когда завершаешь пинч то
+        // оказывается не там").
         displayPx =
           dragging.current
           || gestureActiveNowRef.current
@@ -2612,10 +2640,20 @@ export function Timeline({
       }
 
       lastRevealPx = px;
-      if (scroller) playheadScreenXRef.current = displayPx - scroller.scrollLeft;
 
+      // Write the marker EXCEPT while a zoom-focus scroll commit is pending.
+      // applyZoomAt updates pxPerSecRef.current synchronously, so px is
+      // already the NEW-scale position while the DOM scrollLeft is still the
+      // OLD one until the [pxPerSec] layout effect commits the atomic
+      // scroll+marker write. If this loop painted the marker here it would
+      // run one frame ahead of the scroll and the playhead would visibly
+      // wobble over the content ("всё ещё колбасит плейхед"). When the
+      // pending target is consumed, the DOM is consistent again and the loop
+      // resumes writing the marker itself.
       const m = playheadRef.current;
-      if (m) m.style.left = `${displayPx}px`;
+      if (m && pendingScrollLeftRef.current === null) {
+        m.style.left = `${displayPx}px`;
+      }
 
       raf = requestAnimationFrame(tick);
     };
@@ -2765,6 +2803,11 @@ export function Timeline({
                 const t = Array.isArray(v) ? v[0] : v;
                 const next =
                   MIN_PX_PER_SEC * Math.pow(MAX_PX_PER_SEC / MIN_PX_PER_SEC, t);
+                // Same treatment as a wheel/pinch zoom: pause auto-follow,
+                // freeze the clock, and anchor at the playhead so it stands
+                // still while the slider moves ("плейхед колбасит при зуме").
+                markGestureActiveRef.current();
+                markZoomActiveRef.current();
                 applyZoomAt(next);
               }}
               className="flex-1 min-w-0 -mt-1"

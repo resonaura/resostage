@@ -41,11 +41,15 @@ export function useLiveValue(
  * - `resetKey` should be the project identity only -- NOT songIndex -- so a
  *   gapless song change does not zero/reset the clock.
  * - `seekAbsolute(sec)` snaps immediately (scrub) and locks briefly.
+ * - `frozen` (e.g. while a zoom gesture is active) stops the clock dead in
+ *   its tracks so the playhead marker holds still; it resumes cleanly the
+ *   moment `frozen` drops and re-corrects toward the engine.
  */
 export function useContinuousPlayhead(
   serverAbsoluteSeconds: number,
   playing: boolean,
   resetKey?: unknown,
+  frozen = false,
 ): [absoluteSeconds: number, seekAbsolute: (v: number) => void] {
   const [absolute, setAbsolute] = useState(serverAbsoluteSeconds);
   const localRef = useRef(serverAbsoluteSeconds);
@@ -75,6 +79,10 @@ export function useContinuousPlayhead(
 
   // Server snapshots.
   useEffect(() => {
+    // While frozen (zoom gesture) don't let server corrections yank the
+    // clock -- it must stand still ("автостоп времени при зуме"). The resume
+    // path re-corrects after the gesture settles.
+    if (frozen) return;
     const seekLocked = Date.now() - lastSeekAt.current <= SEEK_LOCK_MS;
     if (seekLocked) {
       // During scrub lock, only release early if server is near our target.
@@ -96,11 +104,13 @@ export function useContinuousPlayhead(
       localRef.current = serverAbsoluteSeconds;
       setAbsolute(serverAbsoluteSeconds);
     }
-  }, [serverAbsoluteSeconds]);
+  }, [serverAbsoluteSeconds, frozen]);
 
   // rAF advance while playing.
   useEffect(() => {
-    if (!playing) {
+    if (!playing || frozen) {
+      // Frozen (zoom): hold the last value, and reset the frame timestamp so
+      // resuming starts a fresh dt (no jump).
       lastFrameTs.current = null;
       return;
     }
@@ -122,7 +132,7 @@ export function useContinuousPlayhead(
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, resetKey]);
+  }, [playing, frozen, resetKey]);
 
   const seekAbsolute = (v: number) => {
     const clamped = Math.max(0, v);
