@@ -1618,6 +1618,11 @@ export function Timeline({
   // vs. the effect's synchronous write don't line up), both of which read as
   // constant waveform/playhead jitter.
   const programmaticScrollRef = useRef(false);
+  // Last scrollLeft seen by onScrollSync, to tell a genuine HORIZONTAL user
+  // scroll apart from a vertical-only one. Vertical scrolling must NOT pause
+  // auto-follow (it doesn't fight the horizontal autoscroll) -- only a
+  // horizontal user scroll or a zoom gesture should.
+  const lastScrollLeftRef = useRef<number | null>(null);
 
   // Vertical zoom (buttons, not gestures)
   const [verticalZoom, setVerticalZoom] = useState(1.0);
@@ -2277,11 +2282,23 @@ export function Timeline({
       // could stomp a NEWER value the same effect already wrote on a later
       // frame; skip both the resync and the gesture-active mark.
       programmaticScrollRef.current = false;
+      lastScrollLeftRef.current = e.currentTarget.scrollLeft;
       return;
     }
-    markGestureActiveRef.current();
+    const left = e.currentTarget.scrollLeft;
+    // null means "no baseline yet" (mount / scroll-restore) -- that first
+    // event never counts as a user fight.
+    const movedHorizontally =
+      lastScrollLeftRef.current !== null && left !== lastScrollLeftRef.current;
+    lastScrollLeftRef.current = left;
+    // Vertical-only scroll (scrollTop changed, scrollLeft didn't) is not a
+    // user fight for the horizontal timeline -- don't pause auto-follow for
+    // it ("при вертикальном скролле стопается автоскролл").
+    if (movedHorizontally) {
+      markGestureActiveRef.current();
+    }
     setScrollState({
-      scrollLeft: e.currentTarget.scrollLeft,
+      scrollLeft: left,
       viewportWidth: e.currentTarget.clientWidth,
     });
   };
@@ -2346,8 +2363,6 @@ export function Timeline({
   // far more reliably than chaining one through the other's render cycle.
   const playheadAbsoluteSecRef = useRef(playheadAbsoluteSec);
   playheadAbsoluteSecRef.current = playheadAbsoluteSec;
-  const pxPerSecRefForFollow = useRef(pxPerSec);
-  pxPerSecRefForFollow.current = pxPerSec;
   const contentWidthRef = useRef(contentWidth);
   contentWidthRef.current = contentWidth;
   const followModeRef = useRef(followMode);
@@ -2402,7 +2417,7 @@ export function Timeline({
     let raf = 0;
     // Engine-owned scrollLeft; null while idle (not following / not panning).
     let engineScrollLeft: number | null = null;
-    let displayPx = playheadAbsoluteSecRef.current * pxPerSecRefForFollow.current;
+    let displayPx = playheadAbsoluteSecRef.current * pxPerSecRef.current;
     // Reveal-pan state: the scroll position being animated toward a reveal
     // target; null when no reveal is in flight.
     let revealScroll: number | null = null;
@@ -2421,7 +2436,12 @@ export function Timeline({
     if (marker) marker.style.left = `${displayPx}px`;
 
     const tick = () => {
-      const px = playheadAbsoluteSecRef.current * pxPerSecRefForFollow.current;
+      // pxPerSecRef.current (NOT a render-copied mirror): applyZoomAt writes
+      // it synchronously on every wheel/pinch tick, so this loop computes the
+      // playhead's document position with the zoom scale CURRENT the same
+      // frame the zoom-focus scroll is applied -- no one-frame stale-scale
+      // gap, which made the marker wobble left-right during a zoom gesture.
+      const px = playheadAbsoluteSecRef.current * pxPerSecRef.current;
       const songJumped = currentSongIdxRef.current !== lastSongIdx;
       lastSongIdx = currentSongIdxRef.current;
 
@@ -2514,11 +2534,15 @@ export function Timeline({
         // gesture is in progress) -- drop the follow anchor.
         engineScrollLeft = null;
         // Marker tracks the raw playhead at its natural document position.
-        // Snap instantly on a large jump (seek, song change, stop) or while
+        // Snap instantly on a large jump (seek, song change, stop), while
         // dragging the handle (must track the pointer 1:1 with zero added
-        // lag); ease only the small natural wobble during playback.
+        // lag), and during a zoom gesture (must track the scale change in
+        // lockstep so it doesn't wobble against the zoom-focus scroll);
+        // ease only the small natural wobble during playback.
         displayPx =
-          dragging.current || Math.abs(px - displayPx) > pxPerSecRefForFollow.current * 1.5
+          dragging.current
+          || gestureActiveNowRef.current
+          || Math.abs(px - displayPx) > pxPerSecRef.current * 1.5
             ? px
             : displayPx + (px - displayPx) * 0.25;
 
@@ -2537,7 +2561,7 @@ export function Timeline({
         // scroll, so this else-branch logic never runs for it.
         const jumped =
           songJumped
-          || Math.abs(px - lastRevealPx) > pxPerSecRefForFollow.current * 2.0;
+          || Math.abs(px - lastRevealPx) > pxPerSecRef.current * 2.0;
         const snapEdge =
           playingRef.current
           && followModeRef.current === "snap"
