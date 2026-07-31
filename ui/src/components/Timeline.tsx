@@ -1588,6 +1588,20 @@ export function Timeline({
     if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
     gestureTimerRef.current = setTimeout(() => setGestureActive(false), 250);
   });
+  // Set right before the auto-follow effect (or the zoom-focus effect)
+  // writes scroller.scrollLeft programmatically -- onScrollSync checks this
+  // to tell "we just scrolled ourselves" apart from a real user drag/wheel/
+  // scrollbar interaction. Native `scroll` events fire for BOTH; without
+  // this, continuous "smooth" auto-follow (writing scrollLeft every frame)
+  // kept re-triggering markGestureActiveRef on its own scroll events, so its
+  // 250ms settle timer never got a chance to fire and gestureActive was
+  // permanently stuck true during autofollow -- pinning every waveform to
+  // coarse/low-detail rendering (see WaveformLane's `gestureActive` checks)
+  // AND making onScrollSync's own setScrollState fight the auto-follow
+  // effect's synchronous one every frame (their async native-event timing
+  // vs. the effect's synchronous write don't line up), both of which read as
+  // constant waveform/playhead jitter.
+  const programmaticScrollRef = useRef(false);
 
   // Vertical zoom (buttons, not gestures)
   const [verticalZoom, setVerticalZoom] = useState(1.0);
@@ -2033,6 +2047,7 @@ export function Timeline({
           0,
           Math.min(maxLeft, pendingScrollLeftRef.current),
         );
+        programmaticScrollRef.current = true;
         scroller.scrollLeft = targetScrollLeft;
         setScrollState({
           scrollLeft: targetScrollLeft,
@@ -2219,8 +2234,17 @@ export function Timeline({
   };
 
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
-    markGestureActiveRef.current();
     setScrollTopY(e.currentTarget.scrollTop);
+    if (programmaticScrollRef.current) {
+      // Echo of our own auto-follow/zoom-focus write -- that effect already
+      // synced scrollState synchronously (see programmaticScrollRef's doc
+      // comment). Re-applying it here from a possibly-delayed native event
+      // could stomp a NEWER value the same effect already wrote on a later
+      // frame; skip both the resync and the gesture-active mark.
+      programmaticScrollRef.current = false;
+      return;
+    }
+    markGestureActiveRef.current();
     setScrollState({
       scrollLeft: e.currentTarget.scrollLeft,
       viewportWidth: e.currentTarget.clientWidth,
@@ -2277,32 +2301,67 @@ export function Timeline({
   const currentSongIdx = state.songIndex >= 0 ? state.songIndex : 0;
 
   const prevSongIdxRef = useRef(currentSongIdx);
+  const prevPlayingRef = useRef(state.playing);
+  // "smooth" follow's own damped scroll position -- see the useLayoutEffect
+  // below for why this exists (playheadAbsoluteSec has a small inherent
+  // wobble that's invisible on the playhead alone but very visible once the
+  // whole viewport mirrors it every frame).
+  const smoothScrollLeftRef = useRef<number | null>(null);
 
-  // Auto-scroll timeline to keep playhead in view -- ONLY while actually
-  // playing, and only when followMode isn't "off". A user-driven scrub/drag
-  // (or a song switch while paused) moves playheadAbsoluteSec/currentSongIdx
-  // too, but must never yank the user's scroll position out from under
-  // them; only live playback earns that.
+  // Auto-scroll timeline to keep the playhead in view.
   //
-  // "snap" jumps once the playhead nears the viewport edge (the original,
-  // only prior behavior -- effect re-runs roughly once/sec via the floored
-  // dependency below). "smooth" instead re-anchors the playhead at the same
-  // 25%-from-left position on EVERY render -- since playheadAbsoluteSec
-  // already updates every animation frame while playing (see
-  // useContinuousPlayhead), depending on it unfloored here is what turns
-  // this into a continuous per-frame glide instead of a periodic jump, with
-  // no separate rAF loop needed.
-  useEffect(() => {
-    if (!state.playing || followMode === "off") {
-      // Keep the song-change tracker current so resuming playback right
-      // after a paused song switch (or re-enabling follow) doesn't read as
-      // a stale transition.
-      prevSongIdxRef.current = currentSongIdx;
+  // Two kinds of trigger:
+  //  1. Continuous follow, ONLY while actually playing AND followMode isn't
+  //     "off" -- "snap" jumps once the playhead nears the viewport edge
+  //     (the original behavior); "smooth" re-anchors the playhead at the
+  //     same 25%-from-left position on EVERY render (playheadAbsoluteSec
+  //     already updates every animation frame while playing, see
+  //     useContinuousPlayhead, so depending on it unfloored is what turns
+  //     this into a continuous glide with no separate rAF loop needed).
+  //  2. A ONE-TIME reveal snap on a discrete transport event, regardless of
+  //     followMode/playing state: selecting a different song (even while
+  //     paused), or Stop/Full Stop (transport just went live->stopped,
+  //     which settles/resets the playhead). followMode="off" only opts out
+  //     of being continuously yanked around DURING playback -- a deliberate
+  //     song pick or a stop should still bring the playhead into view, same
+  //     as clicking an item in a list still scrolls to it even with
+  //     "autoscroll" off elsewhere in this app.
+  //
+  // useLayoutEffect, NOT useEffect: WaveformLane/BeatGrid are virtualized
+  // canvases positioned via `left: scrollLeft` from React state (not read
+  // live from the DOM), while `scroller.scrollLeft` below is a real native
+  // scroll applied immediately. useEffect fires AFTER the browser paints,
+  // so for one frame the native scroll would already have moved but the
+  // canvases' `left` offset (driven by the setScrollState below, which only
+  // takes effect on the NEXT render) would still reflect the previous
+  // position -- a visible one-frame desync every single frame in "smooth"
+  // mode, which is exactly the waveform/playhead "дёргаются" (jitter)
+  // reported. useLayoutEffect flushes the state update and its DOM
+  // consequences before paint, so scroll and canvas position land in the
+  // same frame.
+  useLayoutEffect(() => {
+    const songChanged = prevSongIdxRef.current !== currentSongIdx;
+    const justStopped = prevPlayingRef.current && !state.playing;
+    prevSongIdxRef.current = currentSongIdx;
+    prevPlayingRef.current = state.playing;
+
+    // Pause ALL auto-scroll (continuous follow and the discrete reveal
+    // alike) while the user is actively zooming or manually scrolling --
+    // gestureActive is only set by those two sources (wheel/pinch zoom, or a
+    // genuine user scroll event; see markGestureActiveRef/programmaticScrollRef).
+    // Fighting the user's own zoom-focus-point scroll adjustment for control
+    // of scrollLeft every frame was the other half of the reported jitter.
+    if (gestureActive) {
+      // The real scroll position almost certainly moved during the gesture
+      // (that's the whole point of zoom-at-focus-point); drop the "smooth"
+      // lerp anchor so follow resumes with a snap instead of gliding in from
+      // a now-stale pre-gesture position once the gesture ends.
+      smoothScrollLeftRef.current = null;
       return;
     }
+
     if (!scrollRef.current) return;
     const scroller = scrollRef.current;
-    const playheadPx = playheadAbsoluteSec * pxPerSec;
     const viewWidth = scroller.clientWidth || 1000;
     // Clamp to the SAME upper bound the browser enforces natively
     // (contentWidth - viewWidth). Without this, near the end of a song
@@ -2316,41 +2375,111 @@ export function Timeline({
     // after assignment (rather than trusting our own computed value) closes
     // the gap even if the browser clamps for some other reason too.
     const maxScrollLeft = Math.max(0, contentWidth - viewWidth);
-
-    if (followMode === "smooth") {
-      const targetLeft = Math.min(maxScrollLeft, Math.max(0, playheadPx - viewWidth * 0.25));
+    const snapTo = (px: number) => {
+      const targetLeft = Math.min(maxScrollLeft, Math.max(0, px - viewWidth * 0.25));
+      programmaticScrollRef.current = true;
       scroller.scrollLeft = targetLeft;
       setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
-      prevSongIdxRef.current = currentSongIdx;
+      smoothScrollLeftRef.current = scroller.scrollLeft;
+    };
+
+    if (state.playing && followMode !== "off") {
+      const playheadPx = playheadAbsoluteSec * pxPerSec;
+      if (followMode === "smooth") {
+        const targetLeft = Math.min(maxScrollLeft, Math.max(0, playheadPx - viewWidth * 0.25));
+        programmaticScrollRef.current = true;
+        if (songChanged || smoothScrollLeftRef.current === null) {
+          // Discrete jump (song just changed, or the first frame this
+          // effect runs in "smooth" mode): snap immediately rather than
+          // lerping in from a stale/absent starting position.
+          scroller.scrollLeft = targetLeft;
+        } else {
+          // Damped low-pass toward the target instead of a hard per-frame
+          // jump: playheadAbsoluteSec has a small inherent wobble
+          // (useContinuousPlayhead's own exponential correction continuously
+          // chasing the ~30Hz WS staircase of server updates) that's
+          // invisible on the playhead marker alone, but once the WHOLE
+          // viewport -- and therefore every waveform on screen -- mirrors it
+          // every frame, that same wobble reads as visible shake ("дрожжит
+          // плейхед и таймлайн"). A fixed-alpha exponential moving average
+          // filters out that fast jitter while still tracking genuine
+          // forward motion with only a barely-perceptible ~60-100ms lag.
+          const alpha = 0.25;
+          scroller.scrollLeft =
+            smoothScrollLeftRef.current + (targetLeft - smoothScrollLeftRef.current) * alpha;
+        }
+        smoothScrollLeftRef.current = scroller.scrollLeft;
+        setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
+        return;
+      }
+      // Not smooth-following right now -- reset so a later switch back to
+      // "smooth" starts with a snap instead of lerping from a stale ref.
+      smoothScrollLeftRef.current = null;
+      const currentLeft = scroller.scrollLeft;
+      const rightMargin = 120;
+      const leftMargin = 40;
+      if (
+        songChanged ||
+        playheadPx > currentLeft + viewWidth - rightMargin ||
+        playheadPx < currentLeft + leftMargin
+      ) {
+        snapTo(playheadPx);
+      }
       return;
     }
 
-    const currentLeft = scroller.scrollLeft;
-    const songChanged = prevSongIdxRef.current !== currentSongIdx;
-    prevSongIdxRef.current = currentSongIdx;
-    const rightMargin = 120;
-    const leftMargin = 40;
-
-    if (
-      songChanged ||
-      playheadPx > currentLeft + viewWidth - rightMargin ||
-      playheadPx < currentLeft + leftMargin
-    ) {
-      const targetLeft = Math.min(maxScrollLeft, Math.max(0, playheadPx - viewWidth * 0.25));
-      scroller.scrollLeft = targetLeft;
-      setScrollState({
-        scrollLeft: scroller.scrollLeft,
-        viewportWidth: viewWidth,
-      });
+    smoothScrollLeftRef.current = null;
+    // Not actively following playback: still reveal the playhead on a
+    // discrete event (see comment above) with a single snap, not continuous
+    // chasing. Uses state.globalPlayheadSeconds (the raw server value)
+    // rather than playheadAbsoluteSec -- that hook only re-syncs from the
+    // server via its own plain useEffect (fires AFTER paint), so on the very
+    // render where currentSongIdx first changes, playheadAbsoluteSec can
+    // still be one render behind (the previous song's position). At high
+    // zoom that stale-by-one-render offset multiplies into a large pixel
+    // error and lands the view somewhere clearly wrong instead of on the new
+    // song ("при зуме не скроллит туда") -- at low zoom the same error is a
+    // few pixels and goes unnoticed. state.globalPlayheadSeconds arrives in
+    // the same WebUiState snapshot as songIndex, so it's never stale here.
+    if (songChanged || justStopped) {
+      snapTo(state.globalPlayheadSeconds * pxPerSec);
     }
   }, [
     state.playing,
+    state.globalPlayheadSeconds,
     followMode,
     currentSongIdx,
-    followMode === "smooth" ? playheadAbsoluteSec : Math.floor(playheadAbsoluteSec),
+    state.playing && followMode === "smooth" ? playheadAbsoluteSec : Math.floor(playheadAbsoluteSec),
     pxPerSec,
     contentWidth,
+    gestureActive,
   ]);
+
+  // Smoothed DISPLAY-only playhead marker position. playheadAbsoluteSec
+  // itself stays raw/precise everywhere else (e.g. localPlayhead above, used
+  // for split-at-playhead) -- this is purely a rendering damper for the
+  // marker's own on-screen position, same idea and same fixed-alpha EMA as
+  // the scroll-follow smoothing above: useContinuousPlayhead's exponential
+  // correction has a small inherent wobble chasing the ~30Hz WS staircase of
+  // server updates, invisible on the marker alone at rest but reads as
+  // visible shake ("дрожжит плейхед") once it's animating every frame during
+  // playback. Snaps immediately on a large jump (seek/song change/stop)
+  // instead of lerping in from a stale position.
+  const displayPlayheadPxRef = useRef<number | null>(null);
+  const [displayPlayheadPx, setDisplayPlayheadPx] = useState(
+    () => playheadAbsoluteSec * pxPerSec,
+  );
+  useLayoutEffect(() => {
+    const target = playheadAbsoluteSec * pxPerSec;
+    const prev = displayPlayheadPxRef.current;
+    // A real seek/song-change moves many pixels in one tick; wobble from the
+    // correction filter is sub-pixel to a few px. viewWidth isn't available
+    // here, so use a fixed generous threshold in seconds-equivalent instead.
+    const isLargeJump = prev === null || Math.abs(target - prev) > pxPerSec * 1.5;
+    const next = isLargeJump ? target : prev + (target - prev) * 0.25;
+    displayPlayheadPxRef.current = next;
+    setDisplayPlayheadPx(next);
+  }, [playheadAbsoluteSec, pxPerSec]);
 
   // ── Toolbar ──────────────────────────────────────────────────────────────
   return (
@@ -3459,7 +3588,7 @@ export function Timeline({
               <div
                 className="pointer-events-none absolute top-0 z-30 flex flex-col items-center bottom-0"
                 style={{
-                  left: playheadAbsoluteSec * pxPerSec,
+                  left: displayPlayheadPx,
                   transform: "translateX(-50%)",
                 }}
               >

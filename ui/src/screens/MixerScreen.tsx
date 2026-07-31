@@ -1362,7 +1362,7 @@ function TrackContextMenu({
       <ConfirmDialog
         open
         title="Remove track"
-        message={`Remove track "${track.name || track.id}"? This can't be undone.`}
+        message={`Remove track "${track.name || track.id}"?`}
         confirmLabel="Remove"
         cancelLabel="Cancel"
         danger
@@ -1494,7 +1494,7 @@ function BusContextMenu({
       <ConfirmDialog
         open
         title="Remove bus"
-        message={`Remove bus "${bus.name || bus.id}"? This can't be undone.`}
+        message={`Remove bus "${bus.name || bus.id}"?`}
         confirmLabel="Remove"
         cancelLabel="Cancel"
         danger
