@@ -469,51 +469,13 @@ function QuitConfirmDialog({ state }: { state: WebUiState }) {
   );
 }
 
-// The project's name is otherwise only an implicit side effect of whichever
-// file path a save dialog produced -- and a plain-browser "download" Save As
-// can't drive that at all, since JS never learns the filename the user
-// picked in the OS's own save sheet (see lib/api.ts's project.setName doc).
-// Editing it directly here keeps the header an honest, always-current
-// reflection of "what project is this", independent of save/load plumbing.
+// Read-only -- naming a project is Save / Save As's job (the file path IS
+// the name), not a separately editable field that could drift from it.
 function ProjectNameField({ state }: { state: WebUiState }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(state.projectName);
-
-  const commit = () => {
-    const name = draft.trim();
-    setEditing(false);
-    if (name.length > 0 && name !== state.projectName)
-      void project.setName(name);
-  };
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-          else if (e.key === "Escape") setEditing(false);
-        }}
-        className="min-w-0 flex-1 rounded border border-default/40 bg-default/20 px-1.5 py-0.5 text-sm text-foreground focus:outline-none"
-      />
-    );
-  }
-
   return (
-    <button
-      type="button"
-      title="Click to rename project"
-      onClick={() => {
-        setDraft(state.projectName);
-        setEditing(true);
-      }}
-      className="min-w-0 flex-1 truncate rounded px-1.5 py-0.5 text-left text-sm text-foreground/70 hover:bg-default/15 hover:text-foreground"
-    >
+    <div className="min-w-0 flex-1 truncate px-1.5 py-0.5 text-left text-sm text-foreground/70">
       {state.projectName || "No project"}
-    </button>
+    </div>
   );
 }
 

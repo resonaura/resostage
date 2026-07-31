@@ -1626,9 +1626,16 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
 
     const int64_t ringCapacityFrames = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
     // Pass streamHandoff so mute starts only at the swap, not during cold open.
+    // asyncFill=true: a hard hop (song never opened before, e.g. jumping past
+    // the ±2-neighbour warm cache) must not block this message-thread call --
+    // see StreamingEngine::stageSong's doc comment. deferredMuteClear tells us
+    // stageSong handed clearing streamHandoff off to its background fill
+    // thread, so the unconditional clear below must be skipped for it.
+    bool deferredMuteClear = false;
     if (!streaming.stageSong(songIndex, song, ringCapacityFrames, currentSampleRate, error,
                              /*primeSeconds=*/0.0, /*primeMaxWait=*/0.0,
-                             wasPlaying ? &streamHandoff : nullptr)) {
+                             wasPlaying ? &streamHandoff : nullptr, /*asyncFill=*/true,
+                             &deferredMuteClear)) {
         streamHandoff.store(false, std::memory_order_release);
         return false;
     }
@@ -1788,9 +1795,13 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             transportTelemetry.running.store(false, std::memory_order_relaxed);
         }
 
-        // Streams + playhead are coherent at 0 -- audio may read again.
+        // Streams + playhead are coherent at 0 -- audio may read again. Skip
+        // when stageSong deferred clearing to its own background fill thread
+        // (hard hop) -- unmuting here would let the audio thread read a
+        // still-empty ring before that thread has decoded any head audio.
         resetMetersSilent();
-        streamHandoff.store(false, std::memory_order_release);
+        if (!deferredMuteClear)
+            streamHandoff.store(false, std::memory_order_release);
     }
 
     if (wasPlaying)

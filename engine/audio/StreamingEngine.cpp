@@ -640,10 +640,13 @@ std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::bindSongToPool(
 
 bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
                                 double deviceSampleRate, std::string& error, double primeSeconds,
-                                double primeMaxWait, std::atomic<bool>* muteBeforeSwap) {
+                                double primeMaxWait, std::atomic<bool>* muteBeforeSwap, bool asyncFill,
+                                bool* outDeferredMuteClear) {
     (void)primeSeconds;
     (void)primeMaxWait;
-    stageEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    if (outDeferredMuteClear != nullptr)
+        *outDeferredMuteClear = false;
+    const uint64_t myEpoch = stageEpoch_.fetch_add(1, std::memory_order_acq_rel) + 1;
 
     // Prefer a prebuilt warm map (gapless); else bind from file pool.
     // Only *missing* files are opened — shared stems stay open across songs.
@@ -686,8 +689,31 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
     }
     // Under handoff silence: push a tiny head so the first unmuted blocks
     // have audio. Keep this after the flip so hop latency ≠ decode time.
-    if (needFill)
-        fillHeadOnce(*next);
+    if (needFill) {
+        if (asyncFill) {
+            // Message thread must never wait on this path (see ioWorkerLoop's
+            // "Message thread must never wait on this path" rule) -- fill the
+            // head on a background thread instead of blocking the caller
+            // (and therefore the WS/HTTP command loop / whole UI) for however
+            // long the decode takes. `next`'s buffers are already `active` at
+            // this point and safe to touch off-thread -- the same contract
+            // the IO workers already rely on for refilling `active`/warm
+            // songs. Epoch-gated: if another stageSong has since started
+            // (rapid re-hop), this stale fill still completes harmlessly but
+            // must NOT clear a mute flag that the newer hop now owns.
+            if (outDeferredMuteClear != nullptr)
+                *outDeferredMuteClear = (muteBeforeSwap != nullptr);
+            std::shared_ptr<StagedSong> filling = next;
+            std::thread([this, filling, muteBeforeSwap, myEpoch] {
+                fillHeadOnce(*filling);
+                if (muteBeforeSwap != nullptr
+                    && stageEpoch_.load(std::memory_order_acquire) == myEpoch)
+                    muteBeforeSwap->store(false, std::memory_order_release);
+            }).detach();
+        } else {
+            fillHeadOnce(*next);
+        }
+    }
 
     recountResidentBytes();
     return true;

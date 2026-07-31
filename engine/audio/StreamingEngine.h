@@ -33,7 +33,17 @@ public:
     // Soft cap for RAM-resident audio (active + warm). ~512 MiB default.
     static constexpr size_t kDefaultResidentBudgetBytes = 512ull * 1024ull * 1024ull;
     // Keep this many non-active *song maps* prebuilt for gapless promote.
-    static constexpr size_t kWarmCacheMax = 5;
+    // A warm entry is cheap bookkeeping (a vector of shared_ptrs into the
+    // process-wide filePool + a small id map) -- the actual open file
+    // handles/ring buffers it points at are already retained by filePool for
+    // the whole session regardless of warm-cache membership (see filePool's
+    // doc comment), so evicting past this cap does NOT free that memory, it
+    // only means the next hop to that song has to re-rewind + re-fill its
+    // head (now off the message thread -- see stageSong's asyncFill) instead
+    // of being a zero-work atomic promote. Sized comfortably past a typical
+    // full live setlist (a dozen-plus songs) so "warm every song after load"
+    // (see AudioEngine::loadProject) doesn't immediately evict most of it.
+    static constexpr size_t kWarmCacheMax = 32;
 
     struct StagedSong {
         size_t songIndex = static_cast<size_t>(-1);
@@ -95,9 +105,27 @@ public:
     // only in the microseconds before the flip so the audio thread can mute
     // without holding silence across a multi-100ms cold open.
     // `primeSeconds` / `primeMaxWait` are ignored (kept for call-site compat).
+    //
+    // `asyncFill`: when the song wasn't already warm, the flip still happens
+    // synchronously/instantly, but the head-buffer decode (fillHeadOnce --
+    // real disk I/O + decode, previously done right here) is dispatched to a
+    // background thread instead of blocking the caller. This is what makes a
+    // "hard hop" (song whose stems were never opened, e.g. jumping around a
+    // 12-song setlist faster than the ±2-neighbour warm cache can keep up)
+    // return instantly instead of freezing the whole message thread -- and
+    // therefore the WS/HTTP command loop, i.e. the entire UI -- for however
+    // long the decode took (see ioWorkerLoop's own "message thread must never
+    // wait on this path" rule, which the old synchronous call broke). If
+    // `muteBeforeSwap` is set, it stays true until the background thread
+    // confirms real head audio, so a hard hop never unmutes into silence.
+    // `outDeferredMuteClear`, if non-null, is set true when clearing
+    // `*muteBeforeSwap` has been handed off to that background thread --
+    // callers must skip their own usual post-stage mute-clear in that case
+    // (see AudioEngine::selectSongInternal).
     bool stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames, double deviceSampleRate,
                    std::string& error, double primeSeconds = 0.0, double primeMaxWait = 0.0,
-                   std::atomic<bool>* muteBeforeSwap = nullptr);
+                   std::atomic<bool>* muteBeforeSwap = nullptr, bool asyncFill = false,
+                   bool* outDeferredMuteClear = nullptr);
 
     // Open into warm LRU (not active). `epoch` must match stageEpoch at commit
     // unless `requireEpochMatch` is false (background warm-all after load).
