@@ -1611,7 +1611,7 @@ export function Timeline({
     gestureTimerRef.current = setTimeout(() => {
       gestureActiveNowRef.current = false;
       setGestureActive(false);
-    }, 250);
+    }, 700);
   });
   // ZOOM-only flag feeding the playhead clock FREEZE: while the user is
   // zooming, the transport keeps playing but the timeline's clock must stand
@@ -1624,7 +1624,22 @@ export function Timeline({
     if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
     gestureTimerRef.current = setTimeout(() => {
       setZoomActive(false);
-    }, 250);
+    }, 700);
+  });
+  // Explicit end-of-gesture clear. The settle timer above is a fallback for
+  // when a gesturechange burst stalls (a slow pinch can emit events more
+  // sparsely than the timer window), but the browser ALSO fires gestureend /
+  // touchend when the fingers lift -- clearing here makes the end exact
+  // instead of waiting out the timer, and guarantees the zoom flag can't
+  // outlive the fingers ("пинч периодически прерывается" was the timer
+  // firing mid-gesture, flipping zoomActive off and unfreezing the clock
+  // while fingers were still down).
+  const endGestureRef = useRef(() => {
+    gestureActiveNowRef.current = false;
+    setGestureActive(false);
+    setZoomActive(false);
+    if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
+    gestureTimerRef.current = null;
   });
   // Set right before the auto-follow effect (or the zoom-focus effect)
   // writes scroller.scrollLeft programmatically -- onScrollSync checks this
@@ -2163,6 +2178,8 @@ export function Timeline({
       e.preventDefault();
       e.stopPropagation();
       lastScale = 1.0;
+      markGestureActiveRef.current();
+      markZoomActiveRef.current();
     };
 
     const handleGestureChange = (e: any) => {
@@ -2181,6 +2198,7 @@ export function Timeline({
       e.preventDefault();
       e.stopPropagation();
       lastScale = 1.0;
+      endGestureRef.current();
     };
 
     el.addEventListener("wheel", handleWheel, {
