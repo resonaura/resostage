@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "AppSettings.h"
 #include "AudioEngine.h"
 #include "midi/CoreMidiInputListener.h"
 #include "ui/BusyOverlay.h"
@@ -47,6 +48,13 @@ private:
     WebServer webServer;
     CoreMidiInputListener midiInput;
     static constexpr uint16_t kWebPort = 2899;
+
+    // Rig-wide preferences (hotkeys, MIDI bindings, audio/MIDI device setup)
+    // -- global across every project/set, loaded once at startup from
+    // Application Support (see AppSettings.h) and rewritten to disk on every
+    // change from the Settings screen. NOT part of Project/engine.project().
+    AppSettings appSettings;
+    void saveAppSettingsToDisk();
 
     juce::Label alarmBanner;
     std::unique_ptr<DevOrEmbeddedWebView> webView;
@@ -101,7 +109,7 @@ private:
     void loadProjectClicked();
     void saveProjectClicked(bool saveAs, std::function<void(bool)> onDone = nullptr);
     void handleQuitDecision(int choice);
-    void applyProjectBindings();
+    void applyGlobalBindings();
     void jumpToSectionRelative(int delta);
     void jumpToLastSection();
     void requestUiTab(const std::string& tab);
@@ -197,8 +205,14 @@ private:
 
     bool wasHardwareAlarm = false;
     int startupTicks = 0;
-    int keyStrokeNonce_{0};
-
+    // Bumped by performAction() every time it actually executes a recognized
+    // action -- native hotkey (MacKeyMonitor), MIDI (CoreMidiInputListener::
+    // onAction), and the macOS menu bar all funnel through that one method,
+    // so this single pair covers all three input paths without duplicating
+    // per-path tracking. SettingsScreen compares lastAction_ against each
+    // binding row to flash only the row that actually fired.
+    int lastActionNonce_{0};
+    std::string lastAction_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

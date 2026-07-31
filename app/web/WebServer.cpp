@@ -28,18 +28,35 @@ namespace {
 // KB; this is a safety net for huge editor projects.
 constexpr size_t kWsTxMax = 512 * 1024;
 
-// Fixed telemetry period — same for every client, every view.
+// Target telemetry period — every client starts here and recovers back
+// toward it; see kTelemetryMinPeriodUs / LWS_CALLBACK_TIMER for the adaptive
+// backoff that can slow an individual client down under backpressure.
 constexpr int kTelemetryPeriodUs = WebServer::kTelemetryPeriodUs;
+constexpr int kTelemetryMinPeriodUs = WebServer::kTelemetryMinPeriodUs;
 
 // Which SPA tab the client is showing -- drives buildStateJson() so we only
 // push fields that page needs (transport/time always).
 enum class ClientView : uint8_t { Player, Mixer, Editor, Settings };
+
+// Consecutive backpressure ticks (previous period's write never completed)
+// before backing this client off to half its rate. Kept short (~100ms at the
+// full 30Hz rate) so a real stall is caught fast.
+constexpr int kBackoffAfterConsecutiveDrops = 3;
+// Consecutive clean ticks before stepping the rate back up toward
+// kTelemetryHz. Kept long (~2s at 30Hz) relative to the backoff trigger so
+// a client hovering right at its capacity doesn't oscillate ("float")
+// between two rates every couple hundred ms.
+constexpr int kRecoverAfterConsecutiveOk = 60;
 
 struct WsSession {
     WebServer* server = nullptr;
     struct lws* wsi = nullptr;
     bool writePending = false;
     ClientView view = ClientView::Player;
+    // Adaptive per-client send period -- see LWS_CALLBACK_TIMER below.
+    int periodUs = kTelemetryPeriodUs;
+    int badStreak = 0;
+    int goodStreak = 0;
 };
 
 ClientView parseClientView(const std::string& s) {
@@ -665,11 +682,17 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             pss->wsi = wsi;
             pss->writePending = false;
             pss->view = ClientView::Player;
+            pss->periodUs = kTelemetryPeriodUs;
+            pss->badStreak = 0;
+            pss->goodStreak = 0;
             server->onClientOpened();
-            // Fixed cadence for every client (see WebServer::kTelemetryHz).
+            server->reportClientPeriodUs(pss->periodUs);
+            // Every client starts at the full target cadence (see
+            // WebServer::kTelemetryHz) and adapts from there -- see
+            // LWS_CALLBACK_TIMER below.
             lws_set_timer_usecs(wsi, kTelemetryPeriodUs);
             // First frame on the next timer tick so all clients stay phase-
-            // aligned to their own 30 Hz clock from connect.
+            // aligned to their own clock from connect.
             return 0;
     }
 
@@ -681,12 +704,35 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
 
     if (why == LWS_CALLBACK_TIMER) {
             if (pss != nullptr) {
+                // Adaptive backoff: pss->writePending still being true here
+                // means the write armed last period never actually completed
+                // -- SERVER_WRITEABLE hasn't fired since (OS send buffer
+                // still full), whether because the browser/JS main thread is
+                // too busy to drain the socket or the network/backend can't
+                // keep up. Either way, back this client off. Recover only
+                // after a long clean streak so a client hovering right at
+                // its capacity settles on one rate instead of oscillating.
+                if (pss->writePending) {
+                    pss->goodStreak = 0;
+                    if (++pss->badStreak >= kBackoffAfterConsecutiveDrops) {
+                        pss->badStreak = 0;
+                        pss->periodUs = std::min(pss->periodUs * 2, kTelemetryMinPeriodUs);
+                        server->reportClientPeriodUs(pss->periodUs);
+                    }
+                } else {
+                    pss->badStreak = 0;
+                    if (pss->periodUs > kTelemetryPeriodUs && ++pss->goodStreak >= kRecoverAfterConsecutiveOk) {
+                        pss->goodStreak = 0;
+                        pss->periodUs = std::max(pss->periodUs / 2, kTelemetryPeriodUs);
+                        server->reportClientPeriodUs(pss->periodUs);
+                    }
+                }
                 // Always arm exactly one write per period. If the previous
                 // write is still pending (slow client), drop that slot —
                 // next tick sends the latest prebuilt frame (never backlog).
                 pss->writePending = true;
                 lws_callback_on_writable(wsi);
-                lws_set_timer_usecs(wsi, kTelemetryPeriodUs);
+                lws_set_timer_usecs(wsi, pss->periodUs);
             }
             return 0;
     }
@@ -723,12 +769,10 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             if (server == nullptr || in == nullptr || len == 0)
                 return 0;
             const std::string msg(static_cast<const char*>(in), len);
-            fprintf(stderr, "[WS] RECV '%.*s'\n", (int)len, (const char*)in);
             std::string viewRaw;
             if (findJsonField(msg, "\"view\"", viewRaw)
                 && viewRaw.size() >= 2 && viewRaw.front() == '"' && viewRaw.back() == '"') {
                 const std::string viewName = viewRaw.substr(1, viewRaw.size() - 2);
-                fprintf(stderr, "[WS] view-> '%s'\n", viewName.c_str());
                 if (pss != nullptr)
                     pss->view = parseClientView(viewName);
                 // Mirror into server so native UI (Touch Bar highlight) tracks
@@ -931,7 +975,6 @@ void WebServer::noteClientView(const std::string& view) {
     if (v != "player" && v != "mixer" && v != "editor" && v != "settings")
         return;
     std::lock_guard<std::mutex> lock(clientViewMutex);
-    fprintf(stderr, "[WS] noteClientView '%s' -> '%s'\n", view.c_str(), v.c_str());
     clientView = std::move(v);
 }
 
@@ -942,6 +985,12 @@ std::string WebServer::lastClientView() const {
 
 void WebServer::onClientOpened() {
     clients.fetch_add(1, std::memory_order_relaxed);
+}
+
+void WebServer::reportClientPeriodUs(int periodUs) {
+    if (periodUs <= 0)
+        return;
+    effectiveTelemetryHz_.store(std::max(1, 1'000'000 / periodUs), std::memory_order_relaxed);
 }
 
 void WebServer::onClientClosed() {
@@ -1016,7 +1065,10 @@ std::string WebServer::buildStateJson(const char* view) const {
       << "\"canUndo\":" << (snap.canUndo ? "true" : "false") << ","
       << "\"canRedo\":" << (snap.canRedo ? "true" : "false") << ","
       << "\"undoLabel\":\"" << jsonEscape(snap.undoLabel) << "\","
-      << "\"redoLabel\":\"" << jsonEscape(snap.redoLabel) << "\"";
+      << "\"redoLabel\":\"" << jsonEscape(snap.redoLabel) << "\","
+      << "\"lastAction\":\"" << jsonEscape(snap.lastAction) << "\","
+      << "\"lastActionNonce\":" << snap.lastActionNonce << ","
+      << "\"wsHz\":" << effectiveTelemetryHz();
 
     if (wantClick) {
         o << ","
@@ -1343,11 +1395,9 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     } else if (std::strcmp(path, "/api/v1/view") == 0) {
         const std::string s(body, bodyLen);
         std::string viewRaw;
-        fprintf(stderr, "[HTTP] POST /api/v1/view body='%.*s'\n", (int)bodyLen, body);
         if (findJsonField(s, "\"view\"", viewRaw) && viewRaw.size() >= 2
             && viewRaw.front() == '"' && viewRaw.back() == '"') {
             const std::string viewName = viewRaw.substr(1, viewRaw.size() - 2);
-            fprintf(stderr, "[HTTP] view-> '%s'\n", viewName.c_str());
             noteClientView(viewName);
             writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
         } else {

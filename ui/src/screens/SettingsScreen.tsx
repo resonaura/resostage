@@ -114,7 +114,7 @@ function actionLabel(action: string): string {
 }
 
 function formatMidi(mb: MidiBindingRow | undefined): string {
-  if (!mb || !mb.trigger) return "(unbound)";
+  if (!mb || !mb.trigger) return "MIDI Learn";
   const ch = mb.channel > 0 ? `ch${mb.channel} ` : "any ";
   if (mb.trigger === "cc") return `${ch}CC ${mb.number}`;
   return `${ch}note ${mb.number}`;
@@ -125,15 +125,15 @@ function BindingRow({
   currentKey,
   midi,
   learning,
-  dotVisible,
-  dotDelay,
+  lastAction,
+  lastActionNonce,
 }: {
   action: string;
   currentKey: string;
   midi?: MidiBindingRow;
   learning: boolean;
-  dotVisible: boolean;
-  dotDelay?: number;
+  lastAction: string;
+  lastActionNonce: number;
 }) {
   const [listening, setListening] = useState(false);
 
@@ -152,6 +152,22 @@ function BindingRow({
       window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [listening, action]);
 
+  // Flash this row's dot only when IT was the action that just fired (native
+  // hotkey, MIDI, or menu bar -- see WebUiState.lastAction doc comment).
+  // Re-triggers on every nonce bump for this action, including repeats.
+  const [dotVisible, setDotVisible] = useState(false);
+  const dotTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (lastActionNonce === 0 || lastAction !== action) return;
+    setDotVisible(true);
+    if (dotTimer.current) clearTimeout(dotTimer.current);
+    dotTimer.current = setTimeout(() => setDotVisible(false), 500);
+    return () => {
+      if (dotTimer.current) clearTimeout(dotTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastActionNonce]);
+
   const midiBound = Boolean(midi?.trigger);
 
   return (
@@ -161,7 +177,6 @@ function BindingRow({
           className={`h-2 w-2 rounded-full bg-accent transition-all duration-300 ${
             dotVisible ? "scale-100 opacity-100" : "scale-0 opacity-0"
           }`}
-          style={dotDelay != null ? { transitionDelay: `${dotDelay}ms` } : undefined}
         />
         <span className="min-w-[10rem] text-sm">{actionLabel(action)}</span>
       </div>
@@ -232,29 +247,6 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
     (s.midiBindings ?? []).map((mb) => [mb.action, mb]),
   );
   const learningAction = s.midiLearnAction ?? "";
-
-  // Key-press indicator: briefly shows accent dots next to every binding.
-  // Uses keyStrokeNonce from the C++ side (MacKeyMonitor / keyPressed)
-  // since WKWebView swallows JS keydown events.
-  const [dotVisible, setDotVisible] = useState(false);
-  const dotTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    setDotVisible(true);
-    if (dotTimer.current) clearTimeout(dotTimer.current);
-    dotTimer.current = setTimeout(() => setDotVisible(false), 800);
-  }, [state.keyStrokeNonce]);
-
-  // Flat list for staggered dot delays
-  const allDotActions = [
-    ...ACTION_GROUPS.flatMap(g => g.actions),
-    ...s.keybindings
-      .filter(kb => !ACTION_GROUPS.some(g => g.actions.includes(kb.action)))
-      .map(kb => kb.action),
-  ];
-  const dotDelayFor = (action: string) => {
-    const idx = allDotActions.indexOf(action);
-    return idx >= 0 ? idx * 25 : 0;
-  };
 
   const outputDevices =
     s.outputDevices.length > 0
@@ -478,8 +470,8 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
                   currentKey={keyByAction.get(action) ?? ""}
                   midi={midiByAction.get(action)}
                   learning={learningAction === action}
-                  dotVisible={dotVisible}
-                  dotDelay={dotDelayFor(action)}
+                  lastAction={state.lastAction}
+                  lastActionNonce={state.lastActionNonce}
                 />
               ))}
             </div>
@@ -496,8 +488,8 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
                 currentKey={kb.key}
                 midi={midiByAction.get(kb.action)}
                 learning={learningAction === kb.action}
-                dotVisible={dotVisible}
-                dotDelay={dotDelayFor(kb.action)}
+                lastAction={state.lastAction}
+                lastActionNonce={state.lastActionNonce}
               />
             ))}
         </Card.Content>

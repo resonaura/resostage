@@ -142,27 +142,19 @@ void uninstallMacTouchBar(void* nsViewOrWindow) {
 }
 
 void setMacTouchBarActiveTab(void* nsViewOrWindow, const std::string& tabId) {
-    fprintf(stderr, "[TB] setMacTouchBarActiveTab('%s') peer=%p\n",
-            tabId.c_str(), nsViewOrWindow);
     if (tabId.empty())
         return;
     if (@available(macOS 10.12.2, *)) {
         NSWindow* window = windowFromHandle(nsViewOrWindow);
-        fprintf(stderr, "[TB]   window=%p\n", (void*)window);
         if (window == nil)
             return;
         ResoTouchBarProvider* provider =
             objc_getAssociatedObject(window, &kProviderKey);
-        fprintf(stderr, "[TB]   provider=%p\n", (void*)provider);
         if (provider == nil)
             return;
-        NSString* oldTab = provider.activeTabId;
         provider.activeTabId = [NSString stringWithUTF8String:tabId.c_str()];
-        fprintf(stderr, "[TB]   activeTabId '%s' -> '%s', rebuilding bar\n",
-                [oldTab UTF8String], [provider.activeTabId UTF8String]);
         // Rebuild so bezel highlight refreshes.
         window.touchBar = [provider makeTouchBar];
-        fprintf(stderr, "[TB]   bar replaced\n");
     }
 }
 

@@ -6,6 +6,7 @@
 // MainComponentBuilder.cpp: keeps MainComponent.cpp from ballooning while
 // still being full MainComponent member functions.
 
+#include "ActionCatalogue.h"
 #include "MainComponent.h"
 #include "platform/MacMenuBar.h"
 #include "web/BuilderJson.h"
@@ -22,34 +23,6 @@ namespace {
 bool parseJson(const std::string& json, simdjson::dom::element& out) {
     static simdjson::dom::parser parser;
     return !parser.parse(json).get(out);
-}
-
-// Canonical action catalogue for the web Settings UI (and the seed list
-// mirrored into Project::keybindings). Keep in sync with
-// SettingsPanel::kActions / MainComponent::keyBindings defaults.
-constexpr const char* kActions[] = {
-    "play",
-    "stop",
-    "stop_to_start",
-    "next",
-    "prev",
-    "mode_player",
-    "mode_mixer",
-    "mode_editor",
-    "mode_settings",
-    "section_prev",
-    "section_next",
-    "section_last",
-    "undo",
-    "redo",
-};
-
-bool isKnownAction(const std::string& action) {
-    for (const char* a : kActions) {
-        if (action == a)
-            return true;
-    }
-    return false;
 }
 
 } // namespace
@@ -143,8 +116,8 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
         out.midiInputs.push_back(n);
     out.virtualMidiPortEnabled = engine.midi().hasVirtualSource();
 
-    const auto& bindings = engine.project().keybindings;
-    for (const char* action : kActions) {
+    const auto& bindings = appSettings.keybindings;
+    for (const char* action : kActionIds) {
         WebUiState::SettingsRow::Keybinding kb;
         kb.action = action;
         const auto it = bindings.find(action);
@@ -152,10 +125,10 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
         out.keybindings.push_back(std::move(kb));
     }
 
-    for (const char* action : kActions) {
+    for (const char* action : kActionIds) {
         WebUiState::SettingsRow::MidiBinding mb;
         mb.action = action;
-        for (const auto& m : engine.project().midiMappings) {
+        for (const auto& m : appSettings.midiMappings) {
             if (m.action != action)
                 continue;
             mb.trigger = (m.triggerType == MidiTriggerType::ControlChange) ? "cc" : "note";
@@ -178,7 +151,14 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
     setup.outputDeviceName = name;
     setup.useDefaultOutputChannels = true;
     const juce::String error = engine.setAudioDeviceSetup(setup, true);
-    setStatus(error.isEmpty() ? ("Audio output: " + juce::String(name)) : ("Audio device error: " + error));
+    if (error.isEmpty()) {
+        appSettings.outputDeviceName = name;
+        appSettings.activeOutputChannels.clear(); // reset to the new device's default channels
+        saveAppSettingsToDisk();
+        setStatus("Audio output: " + juce::String(name));
+    } else {
+        setStatus("Audio device error: " + error);
+    }
 }
 
 void MainComponent::settingsSetSampleRate(const std::string& json) {
@@ -231,6 +211,8 @@ void MainComponent::settingsSetSampleRate(const std::string& json) {
     double actualRate = 0.0;
     if (auto* device = engine.deviceManager().getCurrentAudioDevice())
         actualRate = device->getCurrentSampleRate();
+    appSettings.sampleRate = actualRate > 0.0 ? actualRate : value;
+    saveAppSettingsToDisk();
     if (actualRate > 0.0 && std::abs(actualRate - value) > 1e-6) {
         setStatus("Sample rate: requested " + juce::String(value, 0) + " Hz, device applied "
                   + juce::String(actualRate, 0) + " Hz instead");
@@ -253,8 +235,13 @@ void MainComponent::settingsSetBufferSize(const std::string& json) {
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.bufferSize = value;
     const juce::String error = engine.setAudioDeviceSetup(setup, true);
-    setStatus(error.isEmpty() ? ("Buffer size: " + juce::String(value) + " samples")
-                              : ("Buffer size error: " + error));
+    if (error.isEmpty()) {
+        appSettings.bufferSize = value;
+        saveAppSettingsToDisk();
+        setStatus("Buffer size: " + juce::String(value) + " samples");
+    } else {
+        setStatus("Buffer size error: " + error);
+    }
 }
 
 void MainComponent::settingsSetMidiOutput(const std::string& json) {
@@ -264,10 +251,13 @@ void MainComponent::settingsSetMidiOutput(const std::string& json) {
         return;
 
     std::string error;
-    if (!engine.midi().openDestination(name, error))
+    if (!engine.midi().openDestination(name, error)) {
         setStatus("MIDI output failed: " + juce::String(error));
-    else
+    } else {
+        appSettings.midiOutputName = name;
+        saveAppSettingsToDisk();
         setStatus("MIDI output: " + juce::String(name));
+    }
 }
 
 void MainComponent::settingsSetMidiInput(const std::string& json) {
@@ -277,10 +267,13 @@ void MainComponent::settingsSetMidiInput(const std::string& json) {
         return;
 
     std::string error;
-    if (!midiInput.openSource(name, error))
+    if (!midiInput.openSource(name, error)) {
         setStatus("MIDI input failed: " + juce::String(error));
-    else
+    } else {
+        appSettings.midiInputName = name;
+        saveAppSettingsToDisk();
         setStatus("MIDI input: " + juce::String(name));
+    }
 }
 
 void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
@@ -291,14 +284,17 @@ void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
 
     if (enabled) {
         std::string error;
-        if (!engine.midi().enableVirtualSource(error))
+        if (!engine.midi().enableVirtualSource(error)) {
             setStatus("Virtual MIDI port failed: " + juce::String(error));
-        else
-            setStatus("Virtual MIDI port enabled: ResoStage Sync");
+            return;
+        }
+        setStatus("Virtual MIDI port enabled: ResoStage Sync");
     } else {
         engine.midi().disableVirtualSource();
         setStatus("Virtual MIDI port disabled");
     }
+    appSettings.virtualMidiPortEnabled = enabled;
+    saveAppSettingsToDisk();
 }
 
 void MainComponent::settingsSetOutputChannels(const std::string& json) {
@@ -318,8 +314,18 @@ void MainComponent::settingsSetOutputChannels(const std::string& json) {
     setup.outputChannels = bits;
     setup.useDefaultOutputChannels = false;
     const juce::String error = engine.setAudioDeviceSetup(setup, true);
-    setStatus(error.isEmpty() ? juce::String("Output channels updated")
-                              : ("Output channels error: " + error));
+    if (error.isEmpty()) {
+        appSettings.activeOutputChannels.clear();
+        for (simdjson::dom::element v : channels) {
+            int64_t idx = 0;
+            if (!v.get(idx) && idx >= 0)
+                appSettings.activeOutputChannels.push_back(static_cast<int>(idx));
+        }
+        saveAppSettingsToDisk();
+        setStatus("Output channels updated");
+    } else {
+        setStatus("Output channels error: " + error);
+    }
 }
 
 void MainComponent::settingsSetKeybinding(const std::string& json) {
@@ -327,11 +333,12 @@ void MainComponent::settingsSetKeybinding(const std::string& json) {
     std::string action, key;
     if (!parseJson(json, doc) || !getString(doc, "action", action) || !getString(doc, "key", key))
         return;
-    if (action.empty() || key.empty() || !isKnownAction(action))
+    if (action.empty() || key.empty() || !isKnownActionId(action))
         return;
 
-    engine.project().keybindings[action] = key;
-    applyProjectBindings();
+    appSettings.keybindings[action] = key;
+    applyGlobalBindings();
+    saveAppSettingsToDisk();
 #if JUCE_MAC
     updateMacMenuKeyBindings(keyBindings);
 #endif
@@ -343,7 +350,7 @@ void MainComponent::settingsMidiLearn(const std::string& json) {
     std::string action;
     if (!parseJson(json, doc) || !getString(doc, "action", action))
         return;
-    if (!isKnownAction(action))
+    if (!isKnownActionId(action))
         return;
     midiLearnAction = action;
     setStatus("MIDI learn armed: " + juce::String(action) + " -- press a pad/CC");
@@ -361,7 +368,7 @@ void MainComponent::settingsMidiClear(const std::string& json) {
     std::string action;
     if (!parseJson(json, doc) || !getString(doc, "action", action))
         return;
-    auto& mappings = engine.project().midiMappings;
+    auto& mappings = appSettings.midiMappings;
     const auto before = mappings.size();
     mappings.erase(std::remove_if(mappings.begin(), mappings.end(),
                                   [&](const MidiMapping& m) { return m.action == action; }),
@@ -370,7 +377,8 @@ void MainComponent::settingsMidiClear(const std::string& json) {
         return;
     if (midiLearnAction == action)
         midiLearnAction.clear();
-    applyProjectBindings();
+    applyGlobalBindings();
+    saveAppSettingsToDisk();
     setStatus("MIDI cleared: " + juce::String(action));
 }
 

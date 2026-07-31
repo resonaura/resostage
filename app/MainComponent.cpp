@@ -14,12 +14,31 @@
 namespace resostage {
 
 MainComponent::MainComponent() {
+    // Rig-wide preferences (hotkeys, MIDI bindings, device setup) load once
+    // here, before anything below needs them -- see AppSettings.h for why
+    // these live outside the project file.
+    appSettings = loadAppSettings();
+
     engine.initialiseDefaultDevices(0, 2);
-    // Prefer 48 kHz for stage playback (matches project schema default and
-    // most concert audio interfaces). Fall back silently if the device rejects it.
     {
         auto setup = engine.deviceManager().getAudioDeviceSetup();
-        setup.sampleRate = 48000.0;
+        // Saved device/channel preference wins; otherwise prefer 48 kHz for
+        // stage playback (matches project schema default and most concert
+        // audio interfaces). Fall back silently if the device rejects it.
+        if (!appSettings.outputDeviceName.empty()) {
+            setup.outputDeviceName = appSettings.outputDeviceName;
+            setup.useDefaultOutputChannels = appSettings.activeOutputChannels.empty();
+        }
+        setup.sampleRate = appSettings.sampleRate > 0.0 ? appSettings.sampleRate : 48000.0;
+        if (appSettings.bufferSize > 0)
+            setup.bufferSize = appSettings.bufferSize;
+        if (!appSettings.activeOutputChannels.empty()) {
+            juce::BigInteger bits;
+            for (int idx : appSettings.activeOutputChannels)
+                bits.setBit(idx);
+            setup.outputChannels = bits;
+            setup.useDefaultOutputChannels = false;
+        }
         (void)engine.setAudioDeviceSetup(setup, true);
     }
 
@@ -41,13 +60,29 @@ MainComponent::MainComponent() {
         });
     };
 
+    // Restore saved MIDI in/out/virtual-port preference (best-effort -- a
+    // footswitch that isn't plugged in yet just means these stay closed
+    // until the user picks something in Settings).
+    if (!appSettings.midiOutputName.empty()) {
+        std::string err;
+        (void)engine.midi().openDestination(appSettings.midiOutputName, err);
+    }
+    if (!appSettings.midiInputName.empty()) {
+        std::string err;
+        (void)midiInput.openSource(appSettings.midiInputName, err);
+    }
+    if (appSettings.virtualMidiPortEnabled) {
+        std::string err;
+        (void)engine.midi().enableVirtualSource(err);
+    }
+
     addChildComponent(busyOverlay);
     webLoadingOverlay.startLoading();
 
     // Start with a real, empty, editable project rather than a "load
     // something first" placeholder -- SPA Builder is immediately usable.
     engine.newProject();
-    applyProjectBindings();
+    applyGlobalBindings();
     onProjectLoaded();
 
     std::string webError;
@@ -79,7 +114,6 @@ MainComponent::MainComponent() {
 
 #if JUCE_MAC
     installMacKeyMonitor([this](const juce::KeyPress& key, uint16_t vk, int jm) -> bool {
-        ++keyStrokeNonce_;
         return matchAndPerformAction(key, vk, jm);
     });
 #endif
@@ -297,8 +331,6 @@ void MainComponent::setTouchBarPeer(void* nsViewPeer) {
 }
 
 void MainComponent::syncTouchBarToTab(const std::string& tabId) {
-    fprintf(stderr, "[TB] syncTouchBarToTab '%s' (peer=%p active='%s')\n",
-            tabId.c_str(), (void*)touchBarPeer, touchBarActiveTab.c_str());
     if (touchBarPeer == nullptr)
         return;
     std::string id = tabId;
@@ -310,17 +342,14 @@ void MainComponent::syncTouchBarToTab(const std::string& tabId) {
         return;
     touchBarActiveTab = id;
 #if JUCE_MAC
-    fprintf(stderr, "[TB] calling setMacTouchBarActiveTab('%s')\n", id.c_str());
     setMacTouchBarActiveTab(touchBarPeer, id);
 #endif
 }
 
 void MainComponent::handleTouchBarTab(const std::string& tabId) {
-    fprintf(stderr, "[TouchBar] handleTouchBarTab '%s'\n", tabId.c_str());
     if (tabId == "player" || tabId == "mixer" || tabId == "editor" || tabId == "settings"
         || tabId == "builder") {
         const std::string id = tabId == "builder" ? "editor" : tabId;
-        fprintf(stderr, "[TouchBar] -> requestUiTab '%s', ++uiTabSeq\n", id.c_str());
         lastSeenSpaView = id;
         syncTouchBarToTab(id);
         webServer.noteClientView(id);
@@ -340,6 +369,12 @@ void MainComponent::requestUiTab(const std::string& tab) {
 }
 
 void MainComponent::performAction(const std::string& action) {
+    // Covers native hotkey, MIDI, and menu bar dispatch alike (see field
+    // doc comment) -- publishWebState() mirrors this into WebUiState so
+    // SettingsScreen can flash the one binding row that actually fired.
+    lastAction_ = action;
+    ++lastActionNonce_;
+
     if (action == "play")
         togglePlayback();
     else if (action == "stop")
@@ -456,7 +491,7 @@ void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to1
     const std::string action = midiLearnAction;
     midiLearnAction.clear();
 
-    auto& mappings = engine.project().midiMappings;
+    auto& mappings = appSettings.midiMappings;
     MidiMapping* existing = nullptr;
     for (auto& m : mappings) {
         if (m.action == action) {
@@ -472,7 +507,8 @@ void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to1
     existing->triggerType = type;
     existing->channel = channel1to16;
     existing->number = number;
-    applyProjectBindings();
+    applyGlobalBindings();
+    saveAppSettingsToDisk();
     setStatus("MIDI learn: " + juce::String(action)
               + " <- ch" + juce::String(channel1to16)
               + (type == MidiTriggerType::ControlChange ? " CC" : " note")
@@ -548,10 +584,7 @@ void MainComponent::timerCallback() {
     // the highlight back to Player before the SPA had sent its update.
     {
         const std::string spaView = webServer.lastClientView();
-        fprintf(stderr, "[TB] timer: lastClientView='%s' lastSeen='%s' active='%s'\n",
-                spaView.c_str(), lastSeenSpaView.c_str(), touchBarActiveTab.c_str());
         if (!spaView.empty() && (spaView != lastSeenSpaView || touchBarActiveTab.empty())) {
-            fprintf(stderr, "[TB] timer: syncTouchBarToTab('%s')\n", spaView.c_str());
             lastSeenSpaView = spaView;
             syncTouchBarToTab(spaView);
         }
@@ -680,7 +713,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetProjectName: setProjectNameFromJson(cmd.json); break;
             case WebCommandKind::NewProject:
                 engine.newProject();
-                applyProjectBindings();
+                applyGlobalBindings();
                 onProjectLoaded();
                 setStatus("New project -- add songs in Builder, then Save As to create the .rsnraset file");
                 break;
@@ -697,7 +730,7 @@ void MainComponent::drainWebCommands() {
                 std::string error;
                 const bool loaded = engine.loadProject(cmd.path, error);
                 if (loaded) {
-                    applyProjectBindings();
+                    applyGlobalBindings();
                     onProjectLoaded();
                     setStatus("Loaded '" + juce::String(engine.project().name) + "' (uploaded from browser)");
                     if (!engine.project().songs.empty())
@@ -843,6 +876,10 @@ void MainComponent::checkAndOfferAutosaveRecovery() {
                 .withButton("Discard Auto-Save")
                 .withAssociatedComponent(this),
             [this](int choice) {
+                // AlertWindow::showAsync maps button X (0-based add order) to
+                // (X + 1) % numButtons, not a plain index: "Load Auto-Save"
+                // (added 1st) -> 1, "Load Saved Version" (2nd) -> 2,
+                // "Discard Auto-Save" (3rd) -> (2+1)%3 -> 0.
                 if (choice == 1) { // Load Auto-Save
                     std::string err;
                     if (engine.loadAutosave(err)) {
@@ -851,7 +888,7 @@ void MainComponent::checkAndOfferAutosaveRecovery() {
                     } else {
                         setStatus("Failed to load auto-save: " + juce::String(err));
                     }
-                } else if (choice == 3) { // Discard Auto-Save
+                } else if (choice == 0) { // Discard Auto-Save
                     engine.clearAutosave();
                 }
             }
@@ -902,7 +939,8 @@ void MainComponent::publishWebState() {
     state.songIndex = (engine.currentSongIndex() == static_cast<size_t>(-1))
                           ? -1
                           : static_cast<int>(engine.currentSongIndex());
-    state.keyStrokeNonce = keyStrokeNonce_;
+    state.lastAction = lastAction_;
+    state.lastActionNonce = lastActionNonce_;
     state.statusMessage = lastStatusMessage;
     state.busy = engine.isBusy();
     state.quitConfirmPending = awaitingQuitDecision;
@@ -1082,23 +1120,30 @@ void MainComponent::publishWebState() {
     webServer.publishState(state);
 }
 
-void MainComponent::applyProjectBindings() {
-    // Backfill missing actions with compiled-in defaults; project file wins.
+void MainComponent::applyGlobalBindings() {
+    // Global (Application Support), not per-project -- see AppSettings.h.
+    // Backfill missing actions with compiled-in defaults; saved settings win.
     for (const auto& [action, description] : keyBindings)
-        engine.project().keybindings.try_emplace(action, description);
+        appSettings.keybindings.try_emplace(action, description);
 
-    for (const auto& [action, description] : engine.project().keybindings)
+    for (const auto& [action, description] : appSettings.keybindings)
         keyBindings[action] = description;
-    midiInput.setMappings(engine.project().midiMappings);
+    midiInput.setMappings(appSettings.midiMappings);
 #if JUCE_MAC
     updateMacMenuKeyBindings(keyBindings);
 #endif
 }
 
+void MainComponent::saveAppSettingsToDisk() {
+    std::string error;
+    if (!saveAppSettings(appSettings, error))
+        setStatus("Failed to save settings: " + juce::String(error));
+}
+
 void MainComponent::newProjectClicked() {
     auto doNew = [this] {
         engine.newProject();
-        applyProjectBindings();
+        applyGlobalBindings();
         onProjectLoaded();
         setStatus("New project -- add songs in Builder, then Save As to create the .rsnraset file");
     };
@@ -1123,8 +1168,12 @@ void MainComponent::newProjectClicked() {
         "Start a new project?",
         "This discards the current project's unsaved state in memory (the file on disk, if any, is untouched). Continue?",
         "New Project", "Cancel", this);
+    // NativeMessageBox::showAsync uses ResultCodeMappingMode::plainIndex on
+    // all platforms: result == button's 0-based add order, NOT "1 == OK"
+    // like AlertWindow's showOkCancelBox. "New Project" was added first
+    // (button index 0), "Cancel" second (index 1).
     juce::NativeMessageBox::showAsync(options, [doNew](int result) {
-        if (result == 1)
+        if (result == 0)
             doNew();
     });
 }
@@ -1139,7 +1188,7 @@ bool MainComponent::loadProjectFromPath(const juce::File& file) {
         return false;
     }
 
-    applyProjectBindings();
+    applyGlobalBindings();
     onProjectLoaded();
     setStatus("Loaded '" + juce::String(engine.project().name) + "' | "
               + juce::String(static_cast<int>(engine.project().songs.size())) + " songs | "
@@ -1167,7 +1216,7 @@ void MainComponent::loadProjectClicked() {
             return;
         }
 
-        applyProjectBindings();
+        applyGlobalBindings();
         onProjectLoaded();
         setStatus("Loaded '" + juce::String(engine.project().name) + "' | "
                   + juce::String(static_cast<int>(engine.project().songs.size())) + " songs | "
@@ -1414,8 +1463,10 @@ void MainComponent::importSongFolderNative() {
         "This project hasn't been saved yet. Imported audio needs an archive to live in -- "
         "save it now, and the import will continue automatically.",
         "Save As...", "Cancel", this);
+    // See newProjectClicked()'s comment: showAsync's result is a plain
+    // 0-based button index ("Save As..." = 0, "Cancel" = 1), not "1 == OK".
     juce::NativeMessageBox::showAsync(options, [this, startPicker](int result) {
-        if (result != 1)
+        if (result != 0)
             return;
         saveProjectClicked(true, [startPicker](bool saved) {
             if (saved)

@@ -151,8 +151,6 @@ static NSMenuItem* makeSep() {
 
 void installMacMenuBar(MacMenuBarCallback onAction,
     const std::unordered_map<std::string, std::string>* initialBindings) {
-    fprintf(stderr, "[MenuBar] installMacMenuBar called, callback=%s\n",
-            onAction ? "valid" : "NULL");
     uninstallMacMenuBar();
     menuCallback = std::move(onAction);
     if (!menuCallback)
@@ -319,17 +317,13 @@ void uninstallMacMenuBar() {
 /// configured bindings. Called whenever settings change.
 void updateMacMenuKeyBindings(
     const std::unordered_map<std::string, std::string>& bindings) {
-    fprintf(stderr, "[MenuBar] updateMacMenuKeyBindings (%zu bindings, %lu dynamic items)\n",
-            bindings.size(), (unsigned long)[dynamicItems count]);
     for (NSString* action in dynamicItems) {
         NSMenuItem* item = [dynamicItems objectForKey:action];
         std::string key([action UTF8String]);
         auto it = bindings.find(key);
         if (it != bindings.end() && !it->second.empty()) {
-            fprintf(stderr, "[MenuBar]   %s -> '%s'\n", key.c_str(), it->second.c_str());
             setKeyEquivForBinding(item, it->second);
         } else {
-            fprintf(stderr, "[MenuBar]   %s -> (clear)\n", key.c_str());
             [item setKeyEquivalent:@""];
             [item setKeyEquivalentModifierMask:0];
         }
@@ -341,13 +335,13 @@ void updateMacMenuUndoRedo(bool canUndo, bool canRedo,
                             const std::string& redoLabel) {
     if (undoItem) {
         [undoItem setTitle:canUndo
-            ? [NSString stringWithUTF8String:undoLabel.c_str()]
+            ? [NSString stringWithFormat:@"Undo %s", undoLabel.c_str()]
             : @"Undo"];
         [undoItem setEnabled:canUndo];
     }
     if (redoItem) {
         [redoItem setTitle:canRedo
-            ? [NSString stringWithUTF8String:redoLabel.c_str()]
+            ? [NSString stringWithFormat:@"Redo %s", redoLabel.c_str()]
             : @"Redo"];
         [redoItem setEnabled:canRedo];
     }

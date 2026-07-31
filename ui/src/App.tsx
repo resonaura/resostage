@@ -300,7 +300,7 @@ export default function App() {
         </div>
         <ProjectNameField state={state} />
         <ProjectMenu state={state} />
-        <ConnectionBadge status={status} transport={transport} />
+        <ConnectionBadge status={status} transport={transport} wsHz={state.wsHz} />
       </header>
 
       <Tabs
@@ -650,9 +650,11 @@ function ProjectMenu({ state }: { state: WebUiState }) {
 function ConnectionBadge({
   status,
   transport,
+  wsHz,
 }: {
   status: "connecting" | "live" | "reconnecting";
   transport: TransportKind;
+  wsHz: number;
 }) {
   const color =
     status === "live"
@@ -662,8 +664,14 @@ function ConnectionBadge({
         : "bg-danger";
   // Protocol label is a dev aid. Flip SHOW_TRANSPORT_LABEL in
   // lib/devFlags.ts to hide for production. (Live state is always WS —
-  // full-frame JUCE emit was too expensive at 30 Hz.)
-  const label = SHOW_TRANSPORT_LABEL && transport !== "none" ? "WS" : null;
+  // full-frame JUCE emit was too expensive at 30 Hz.) wsHz is the backend's
+  // actual current send rate for this connection -- it adapts down under
+  // sustained write backpressure (see WebServer.cpp's LWS_CALLBACK_TIMER)
+  // and recovers slowly, so this reflects reality, not just the 30 Hz target.
+  const label =
+    SHOW_TRANSPORT_LABEL && transport !== "none"
+      ? `WS: ${wsHz > 0 ? wsHz : "--"} Hz`
+      : null;
   return (
     <div className="flex items-center gap-1.5 text-xs text-foreground/60">
       <span className={`inline-block h-2 w-2 rounded-full ${color}`} />

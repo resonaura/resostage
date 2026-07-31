@@ -139,20 +139,19 @@ export function useLiveState(view: string = "player") {
   };
 
   const sendView = (v: string) => {
-    console.log('[sendView]', v);
     // POST is more reliable than WS for this — no dependency on WS state.
     fetch('/api/v1/view', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ view: v }),
-    }).then(r => {
-      if (r.ok) console.log('[sendView] POST ok', v);
-    }).catch(e => console.warn('[sendView] POST fail', v, e));
+    }).catch(() => {
+      // Best-effort — the WS send below is the fallback path.
+    });
 
     // Also try WS if open (dual-path for redundancy).
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ view: v })); console.log('[sendView] WS sent', v); } catch {}
+      try { ws.send(JSON.stringify({ view: v })); } catch {}
     }
   };
 

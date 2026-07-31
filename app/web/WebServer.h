@@ -214,10 +214,14 @@ struct WebUiState {
     // window into the result of a fire-and-forget command (project loaded ok,
     // save failed, etc.) since REST POSTs here don't wait for the outcome.
     std::string statusMessage;
-    // Bumped on every native keyDown so the web UI can show brief visual
-    // feedback (settings indicator dots) despite WKWebView swallowing JS
-    // keydown events. Driven by MacKeyMonitor / keyPressed.
-    int keyStrokeNonce = 0;
+    // Bumped every time MainComponent::performAction() actually executes a
+    // recognized action -- native hotkey, MIDI, and the macOS menu bar all
+    // funnel through that one method, so this single pair covers all three
+    // input paths. The web UI (settings indicator dots) compares lastAction
+    // against each binding row to flash only the one that fired, using
+    // lastActionNonce to detect repeats of the same action.
+    std::string lastAction;
+    int lastActionNonce = 0;
 
     // Mirrors AudioEngine::isBusy() -- true during an async WAV/folder
     // import. The web UI disables Builder edits while this is set, same as
@@ -462,9 +466,23 @@ public:
     // a string at a fixed cadence (no rebuild/lock contention on send).
     void publishState(const WebUiState& state);
 
-    // Fixed outbound WS telemetry rate (Hz). All clients tick at this rate.
+    // Target outbound WS telemetry rate (Hz) -- the ceiling clients start at
+    // and recover back toward. Actual per-client rate is adaptive: see
+    // resosetWsCallback's LWS_CALLBACK_TIMER handler in WebServer.cpp, which
+    // backs a client off toward kTelemetryMinHz under sustained write
+    // backpressure (frontend too slow to drain the socket, or the network/
+    // backend can't keep up) and recovers only after a long clean streak, so
+    // the rate doesn't oscillate ("float") under borderline conditions.
     static constexpr int kTelemetryHz = 30;
     static constexpr int kTelemetryPeriodUs = 1'000'000 / kTelemetryHz;
+    static constexpr int kTelemetryMinHz = 6;
+    static constexpr int kTelemetryMinPeriodUs = 1'000'000 / kTelemetryMinHz;
+
+    // Effective rate of the most recently (re)throttled client, in Hz --
+    // embedded into the telemetry frame as "wsHz" so the UI can show the
+    // real current update rate instead of just assuming the fixed target.
+    int effectiveTelemetryHz() const { return effectiveTelemetryHz_.load(std::memory_order_relaxed); }
+    void reportClientPeriodUs(int periodUs);
 
     // Message-thread: drain one remote command (if any). Returns false if empty.
     bool pollCommand(WebCommand& out);
@@ -546,6 +564,9 @@ private:
     std::atomic<bool> stopRequested{false};
     std::atomic<uint16_t> boundPort{0};
     std::atomic<int> clients{0};
+    // See reportClientPeriodUs()/effectiveTelemetryHz() -- last-reported
+    // per-client send period, mirrored here as Hz for the telemetry frame.
+    std::atomic<int> effectiveTelemetryHz_{kTelemetryHz};
     std::function<void()> urgentCommandHook;
 
     mutable std::mutex stateMutex;

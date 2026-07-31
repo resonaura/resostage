@@ -14,6 +14,7 @@ target_sources(ResoStage PRIVATE
   MainComponentBuilder.cpp
   MainComponentSettings.cpp
   MainComponentTimeline.cpp
+  AppSettings.cpp
   AudioEngine.cpp
   midi/CoreMidiDispatcher.cpp
   midi/CoreMidiInputListener.cpp
