@@ -1619,10 +1619,18 @@ export function Timeline({
   // zoom-focus anchor ("плейхед должен стоять на месте во время зума").
   // Deliberately NOT set by manual horizontal scrolling -- looking around must
   // never pause time, only a zoom gesture should.
+  //
+  // Each of the two flags gets its OWN timer: they fire together during a
+  // pinch, and if they shared a single timer, markZoomActive's write would
+  // overwrite (clear) the timer that resets gestureActiveNowRef, so a pinch
+  // whose gestureend was lost would leave gestureActiveNowRef stuck true --
+  // which permanently disabled auto-scroll in EVERY follow mode
+  // ("автоскролл не пашет никакой теперь").
+  const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markZoomActiveRef = useRef(() => {
     setZoomActive(true);
-    if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
-    gestureTimerRef.current = setTimeout(() => {
+    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+    zoomTimerRef.current = setTimeout(() => {
       setZoomActive(false);
     }, 700);
   });
@@ -1640,6 +1648,8 @@ export function Timeline({
     setZoomActive(false);
     if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
     gestureTimerRef.current = null;
+    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+    zoomTimerRef.current = null;
   });
   // Set right before the auto-follow effect (or the zoom-focus effect)
   // writes scroller.scrollLeft programmatically -- onScrollSync checks this
@@ -1647,7 +1657,7 @@ export function Timeline({
   // scrollbar interaction. Native `scroll` events fire for BOTH; without
   // this, continuous "smooth" auto-follow (writing scrollLeft every frame)
   // kept re-triggering markGestureActiveRef on its own scroll events, so its
-  // 250ms settle timer never got a chance to fire and gestureActive was
+  // settle timer never got a chance to fire and gestureActive was
   // permanently stuck true during autofollow -- pinning every waveform to
   // coarse/low-detail rendering (see WaveformLane's `gestureActive` checks)
   // AND making onScrollSync's own setScrollState fight the auto-follow
