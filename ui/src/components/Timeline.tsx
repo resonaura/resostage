@@ -2335,8 +2335,6 @@ export function Timeline({
 
   const currentSongIdx = state.songIndex >= 0 ? state.songIndex : 0;
 
-  const prevSongIdxRef = useRef(currentSongIdx);
-
   // Refs kept fresh on every render so the rAF loops below (both the
   // "smooth" scroll-follow and the playhead-marker display damping) always
   // read the LATEST value without needing to restart when it changes --
@@ -2359,85 +2357,16 @@ export function Timeline({
   const currentSongIdxRef = useRef(currentSongIdx);
   currentSongIdxRef.current = currentSongIdx;
 
-  // Auto-scroll timeline to keep the playhead in view.
-  //
-  // This effect handles the "snap" follow mode: while actually playing and
-  // followMode === "snap", jump the scroll once the playhead nears the
-  // viewport edge (the original behavior). It deliberately bails out of
-  // "smooth" mode -- that one is driven by its own dedicated rAF loop below,
-  // fully decoupled from React's render cycle so it can't inherit any
-  // cross-render timing jitter.
-  //
-  // Playhead REVEALS on discrete events (song change, stop/full stop, far
-  // click-seek) are NOT here either -- the rAF loop detects a large playhead
-  // jump while not smoothly following and snaps the view to it (see below).
-  // followMode="off" only opts out of being continuously yanked around
-  // DURING playback; a deliberate song pick or a stop still brings the
-  // playhead into view, same as clicking an item in a list still scrolls to
-  // it even with "autoscroll" off elsewhere in this app.
-  useLayoutEffect(() => {
-    const songChanged = prevSongIdxRef.current !== currentSongIdx;
-    prevSongIdxRef.current = currentSongIdx;
-
-    // Pause ALL auto-scroll (continuous follow and the discrete reveal
-    // alike) while the user is actively zooming or manually scrolling --
-    // gestureActive is only set by those two sources (wheel/pinch zoom, or a
-    // genuine user scroll event; see markGestureActiveRef/programmaticScrollRef).
-    // Fighting the user's own zoom-focus-point scroll adjustment for control
-    // of scrollLeft every frame was the other half of the reported jitter.
-    if (gestureActive) return;
-    // "smooth" is handled entirely by its own rAF-loop effect below.
-    if (state.playing && followMode === "smooth") return;
-
-    if (!scrollRef.current) return;
-    const scroller = scrollRef.current;
-    const viewWidth = scroller.clientWidth || 1000;
-    // Clamp to the SAME upper bound the browser enforces natively
-    // (contentWidth - viewWidth). Without this, near the end of a song
-    // playheadPx - viewWidth*0.25 can exceed that bound: the browser
-    // silently clamps the real DOM scrollLeft, but scrollState.scrollLeft
-    // (used to position the WaveformLane/BeatGrid canvases via `left:
-    // scrollLeft`) ends up larger than the true scroll position, opening a
-    // blank gap on the left edge of the viewport until the next native
-    // `scroll` event resyncs state -- the "мигание" (blinking) reported
-    // specifically near song endings. Reading the DOM's scrollLeft back
-    // after assignment (rather than trusting our own computed value) closes
-    // the gap even if the browser clamps for some other reason too.
-    const maxScrollLeft = Math.max(0, contentWidth - viewWidth);
-    const snapTo = (px: number) => {
-      const targetLeft = Math.min(maxScrollLeft, Math.max(0, px - viewWidth * 0.25));
-      programmaticScrollRef.current = true;
-      scroller.scrollLeft = targetLeft;
-      setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
-    };
-
-    if (state.playing && followMode !== "off") {
-      const playheadPx = playheadAbsoluteSec * pxPerSec;
-      const currentLeft = scroller.scrollLeft;
-      const rightMargin = 120;
-      const leftMargin = 40;
-      if (
-        songChanged ||
-        playheadPx > currentLeft + viewWidth - rightMargin ||
-        playheadPx < currentLeft + leftMargin
-      ) {
-        snapTo(playheadPx);
-      }
-      return;
-    }
-
-    // Not following playback here -- reveals on song change / stop / far
-    // seek are handled by the rAF loop below (it sees the large playhead
-    // jump every frame and snaps the view to it).
-  }, [
-    state.playing,
-    followMode,
-    currentSongIdx,
-    Math.floor(playheadAbsoluteSec),
-    pxPerSec,
-    contentWidth,
-    gestureActive,
-  ]);
+  // Auto-scroll to keep the playhead in view lives ENTIRELY in the dedicated
+  // rAF loop below -- one code path for every follow mode, so every kind of
+  // move (continuous smooth follow, "snap"-mode edge pans, and reveals on
+  // song change / stop / far seek) is a smooth bounded-duration glide rather
+  // than a teleport. Driving it from React's render cycle instead is what
+  // produced the cross-render timing jitter fixed earlier. followMode="off"
+  // only opts out of being continuously yanked around DURING playback; a
+  // deliberate song pick or a stop still brings the playhead into view, same
+  // as clicking an item in a list still scrolls to it even with "autoscroll"
+  // off elsewhere in this app.
 
   // "smooth" follow's dedicated rAF loop -- fully decoupled from React's
   // render cycle (see the big effect above for why). playheadAbsoluteSec
@@ -2477,10 +2406,12 @@ export function Timeline({
     // Reveal-pan state: the scroll position being animated toward a reveal
     // target; null when no reveal is in flight.
     let revealScroll: number | null = null;
-    // Total distance of the current pan, captured at pan start (or when the
-    // target jumps further away). Drives the constant-speed `linear` term so a
-    // pan has a BOUNDED duration no matter how far away the target is.
+    // Pan engine state, captured by startPan() when a pan begins or when the
+    // target jumps further away mid-pan. panStartDist also decides the regime
+    // in glide(): real pan (ease-out curve) vs. follow wobble (exponential).
     let panStartDist = 0;
+    let panFrom = 0;
+    let panElapsedFrames = 0;
     // Last position the reveal logic compared against, to detect a LARGE
     // jump. Updating it every idle frame is what makes ordinary pauses and
     // manual scrolls never fire a reveal.
@@ -2510,42 +2441,53 @@ export function Timeline({
       const maxScrollLeft = Math.max(0, contentWidthRef.current - viewWidth);
       const target = Math.min(maxScrollLeft, Math.max(0, px - viewWidth * 0.25));
 
+      // Begin (or re-anchor) a pan from `fromPos` toward the current target.
+      const startPan = (fromPos: number) => {
+        panStartDist = Math.abs(target - fromPos);
+        panFrom = fromPos;
+        panElapsedFrames = 0;
+      };
+
       // Step `from` toward `target`. Two regimes:
-      //  - Tiny differences (normal follow wobble) settle exponentially
-      //    (alpha 0.25) so the clock jitter is filtered, not amplified.
-      //  - Bigger jumps pan with a BOUNDED duration (~0.3s at 60fps) rather
-      //    than a fixed pixels-per-frame cap -- the old cap was 15% of the
-      //    viewport per frame, so on a long timeline a song far away took
-      //    seconds to reach ("слишком медленно скроллит между песнями").
-      //    `linear` is the CONSTANT speed panStartDist/PAN_FRAMES (captured at
-      //    pan start, NOT recomputed from the shrinking distance -- using the
-      //    current dist made it an exponential decay that crawled for minutes
-      //    of timeline, which read as "медленный глайд при зуме"); when the
-      //    remaining distance drops below the step, snap to the target so the
-      //    tail can't drag on. `floor` keeps medium jumps from crawling.
+      //  - REAL PAN: a VARIABLE-ACCELERATION ease-out curve (start fast, then
+      //    decelerate into the target -- "сначала быстро а потом замедляться")
+      //    over a bounded ~PAN_FRAMES (~0.3s). The constant speed + hard snap
+      //    read as "резковато": it launched at full speed and slammed to a
+      //    stop. The curve finishes exactly at the target (f=1 -> next=target)
+      //    so there's no tail, and it stays bounded no matter how far the
+      //    target is -- even across minutes of timeline at heavy zoom.
+      //  - WOBBLE (panStartDist reset because we're at follow-jitter scale):
+      //    ease exponentially (alpha 0.25) so the WS-clock jitter is filtered,
+      //    not amplified, during continuous follow.
       const glide = (from: number) => {
         const diff = target - from;
         const dist = Math.abs(diff);
         if (dist < 0.5) return target;
         const PAN_FRAMES = 18; // ~0.3s
-        const ease = dist * 0.25;
-        const linear = panStartDist / PAN_FRAMES;
-        const floor = viewWidth * 0.06;
-        const step = Math.min(ease, Math.max(linear, floor));
-        if (step >= dist) return target;
-        return diff > 0 ? from + step : from - step;
+        if (panStartDist > viewWidth * 0.25 && panElapsedFrames < PAN_FRAMES) {
+          panElapsedFrames++;
+          const t = Math.min(1, panElapsedFrames / PAN_FRAMES);
+          const f = 1 - (1 - t) ** 3; // easeOutCubic
+          const next = panFrom + (target - panFrom) * f;
+          if (t >= 1) panStartDist = 0; // pan done -- back to wobble next frame
+          return next;
+        }
+        // Caught up (sub-10px, follow-jitter scale): drop the pan speed and
+        // go back to jitter-filtering ease.
+        if (dist < 10) panStartDist = 0;
+        return diff > 0 ? from + dist * 0.25 : from - dist * 0.25;
       };
 
       if (following && scroller) {
         revealScroll = null;
         if (engineScrollLeft === null) {
           engineScrollLeft = scroller.scrollLeft;
-          panStartDist = Math.abs(target - engineScrollLeft);
+          startPan(engineScrollLeft);
         } else {
           // Target jumped further away mid-pan (e.g. another song change) --
-          // re-anchor the constant speed so the pan restarts fast.
+          // re-anchor the ease-out curve so it restarts fast.
           const still = Math.abs(target - engineScrollLeft);
-          if (still > panStartDist) panStartDist = still;
+          if (still > panStartDist) startPan(engineScrollLeft);
         }
         engineScrollLeft = glide(engineScrollLeft);
         const before = scroller.scrollLeft;
@@ -2580,39 +2522,66 @@ export function Timeline({
             ? px
             : displayPx + (px - displayPx) * 0.25;
 
-        // Animated REVEAL: a large playhead jump while playback is stopped
-        // (song change, stop/full-stop reset, far seek) PANS the view to it
-        // instead of leaving it off-screen. Guarded against scrubbing
-        // (dragging), zooming (gesture), and manual scrolling (px doesn't
-        // move then, so lastRevealPx stays equal). While playing, the "snap"
-        // layout effect owns the scroll and "smooth" owns the follow branch
-        // above, so reveals are only this loop's job when stopped.
-        const needReveal =
-          !playingRef.current
-          && (songJumped || Math.abs(px - lastRevealPx) > pxPerSecRefForFollow.current * 2.0);
+        // Animated PANS (glide), unified for every follow mode and for
+        // playing and stopped alike. Three triggers, all gliding instead of
+        // teleporting ("глайд нужен не только в smooth", "не резко а плавно"):
+        //  - "snap"-mode edge: while playing and followMode==="snap", pan
+        //    once the playhead nears a viewport edge (the old behavior was a
+        //    hard jump in a React effect).
+        //  - Song change / stop / far seek in any mode: bring the new
+        //    playhead into view (previously only revealed while stopped).
+        //  - A pan already in flight continues (revealScroll !== null).
+        // Guarded against scrubbing (dragging), zooming (gesture), and
+        // manual scrolling (px doesn't move then, so lastRevealPx stays
+        // equal). While playing in "smooth" the follow branch above owns the
+        // scroll, so this else-branch logic never runs for it.
+        const jumped =
+          songJumped
+          || Math.abs(px - lastRevealPx) > pxPerSecRefForFollow.current * 2.0;
+        const snapEdge =
+          playingRef.current
+          && followModeRef.current === "snap"
+          && scroller
+          && !gestureActiveNowRef.current
+          && !dragging.current;
+        let overEdge = false;
+        if (snapEdge) {
+          const currentLeft = revealScroll ?? scroller!.scrollLeft;
+          overEdge =
+            px > currentLeft + viewWidth - 120 || px < currentLeft + 40;
+        }
+        const needPan = jumped || overEdge;
         if (
           scroller
           && !dragging.current
           && !gestureActiveNowRef.current
-          && (revealScroll !== null || needReveal)
+          && (revealScroll !== null || needPan)
         ) {
           if (revealScroll === null) {
-            revealScroll = scroller.scrollLeft;
-            panStartDist = Math.abs(target - revealScroll);
+            const startLeft = scroller.scrollLeft;
+            const d0 = Math.abs(target - startLeft);
+            // Already at the target (e.g. playhead pinned at the very end,
+            // where the 25% anchor clamps to maxScrollLeft) -- nothing to pan.
+            if (d0 >= 0.5) {
+              revealScroll = startLeft;
+              startPan(startLeft);
+            }
           } else {
             const still = Math.abs(target - revealScroll);
-            if (still > panStartDist) panStartDist = still;
+            if (still > panStartDist) startPan(revealScroll);
           }
-          revealScroll = glide(revealScroll);
-          const settled = Math.abs(target - revealScroll) < 0.5;
-          if (settled) revealScroll = target;
-          const before = scroller.scrollLeft;
-          scroller.scrollLeft = revealScroll;
-          if (Math.abs(before - scroller.scrollLeft) > 0.5) {
-            programmaticScrollRef.current = true;
+          if (revealScroll !== null) {
+            revealScroll = glide(revealScroll);
+            const settled = Math.abs(target - revealScroll) < 0.5;
+            if (settled) revealScroll = target;
+            const before = scroller.scrollLeft;
+            scroller.scrollLeft = revealScroll;
+            if (Math.abs(before - scroller.scrollLeft) > 0.5) {
+              programmaticScrollRef.current = true;
+            }
+            setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
+            if (settled) revealScroll = null;
           }
-          setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
-          if (settled) revealScroll = null;
         } else {
           revealScroll = null;
         }
