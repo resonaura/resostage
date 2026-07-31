@@ -2477,6 +2477,10 @@ export function Timeline({
     // Reveal-pan state: the scroll position being animated toward a reveal
     // target; null when no reveal is in flight.
     let revealScroll: number | null = null;
+    // Total distance of the current pan, captured at pan start (or when the
+    // target jumps further away). Drives the constant-speed `linear` term so a
+    // pan has a BOUNDED duration no matter how far away the target is.
+    let panStartDist = 0;
     // Last position the reveal logic compared against, to detect a LARGE
     // jump. Updating it every idle frame is what makes ordinary pauses and
     // manual scrolls never fire a reveal.
@@ -2506,20 +2510,43 @@ export function Timeline({
       const maxScrollLeft = Math.max(0, contentWidthRef.current - viewWidth);
       const target = Math.min(maxScrollLeft, Math.max(0, px - viewWidth * 0.25));
 
-      // Step `from` toward `target`: exponential ease near the target (kills
-      // the clock wobble) capped to a fraction of the viewport per frame
-      // (turns big jumps into a pan instead of a teleport).
+      // Step `from` toward `target`. Two regimes:
+      //  - Tiny differences (normal follow wobble) settle exponentially
+      //    (alpha 0.25) so the clock jitter is filtered, not amplified.
+      //  - Bigger jumps pan with a BOUNDED duration (~0.3s at 60fps) rather
+      //    than a fixed pixels-per-frame cap -- the old cap was 15% of the
+      //    viewport per frame, so on a long timeline a song far away took
+      //    seconds to reach ("слишком медленно скроллит между песнями").
+      //    `linear` is the CONSTANT speed panStartDist/PAN_FRAMES (captured at
+      //    pan start, NOT recomputed from the shrinking distance -- using the
+      //    current dist made it an exponential decay that crawled for minutes
+      //    of timeline, which read as "медленный глайд при зуме"); when the
+      //    remaining distance drops below the step, snap to the target so the
+      //    tail can't drag on. `floor` keeps medium jumps from crawling.
       const glide = (from: number) => {
         const diff = target - from;
-        const maxStep = viewWidth * 0.15;
-        let next = from + Math.max(-maxStep, Math.min(maxStep, diff * 0.25));
-        if (Math.abs(target - next) < 0.5) next = target;
-        return next;
+        const dist = Math.abs(diff);
+        if (dist < 0.5) return target;
+        const PAN_FRAMES = 18; // ~0.3s
+        const ease = dist * 0.25;
+        const linear = panStartDist / PAN_FRAMES;
+        const floor = viewWidth * 0.06;
+        const step = Math.min(ease, Math.max(linear, floor));
+        if (step >= dist) return target;
+        return diff > 0 ? from + step : from - step;
       };
 
       if (following && scroller) {
         revealScroll = null;
-        if (engineScrollLeft === null) engineScrollLeft = scroller.scrollLeft;
+        if (engineScrollLeft === null) {
+          engineScrollLeft = scroller.scrollLeft;
+          panStartDist = Math.abs(target - engineScrollLeft);
+        } else {
+          // Target jumped further away mid-pan (e.g. another song change) --
+          // re-anchor the constant speed so the pan restarts fast.
+          const still = Math.abs(target - engineScrollLeft);
+          if (still > panStartDist) panStartDist = still;
+        }
         engineScrollLeft = glide(engineScrollLeft);
         const before = scroller.scrollLeft;
         scroller.scrollLeft = engineScrollLeft;
@@ -2569,7 +2596,13 @@ export function Timeline({
           && !gestureActiveNowRef.current
           && (revealScroll !== null || needReveal)
         ) {
-          if (revealScroll === null) revealScroll = scroller.scrollLeft;
+          if (revealScroll === null) {
+            revealScroll = scroller.scrollLeft;
+            panStartDist = Math.abs(target - revealScroll);
+          } else {
+            const still = Math.abs(target - revealScroll);
+            if (still > panStartDist) panStartDist = still;
+          }
           revealScroll = glide(revealScroll);
           const settled = Math.abs(target - revealScroll) < 0.5;
           if (settled) revealScroll = target;
