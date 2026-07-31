@@ -238,3 +238,105 @@ TEST_CASE("StreamingEngine re-stages a song at a new device sample rate and ever
 
     engine.stop();
 }
+
+// Regression coverage for the song-hop latency fix: stageSong(asyncFill=true)
+// on a song whose stems were never opened before (a "hard hop") must return
+// without doing the head-decode inline, and must report deferredMuteClear so
+// the caller knows a background thread now owns clearing muteBeforeSwap.
+TEST_CASE("StreamingEngine::stageSong(asyncFill=true) defers head-fill off the caller and eventually clears mute") {
+    const std::string path = makeTwoSongArchive();
+
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(path, error));
+
+    TrackDef trackA;
+    trackA.id = "track_a";
+    loader.project().tracks = {trackA};
+
+    SongDef songA;
+    songA.id = "song_a";
+    Region regA;
+    regA.id = "reg_a";
+    regA.trackId = "track_a";
+    regA.file = "Audio/a.wav";
+    songA.regions = {regA};
+
+    StreamingEngine engine;
+    engine.start(&loader);
+
+    std::atomic<bool> mute{false};
+    bool deferredMuteClear = false;
+    std::string stageError;
+    REQUIRE(engine.stageSong(0, songA, 8192, 48000.0, stageError, 0.0, 0.0, &mute,
+                             /*asyncFill=*/true, &deferredMuteClear));
+
+    // This song was never opened before, so needFill was true -- the fill
+    // must have been handed off, not done inline.
+    CHECK(deferredMuteClear);
+
+    // The atomic flip is still synchronous/immediate even for a hard hop.
+    {
+        StreamingEngine::ActiveSongHandle handle = engine.acquireActiveSong();
+        REQUIRE(handle);
+        CHECK(handle.track("track_a") != nullptr);
+    }
+
+    // Bounded poll instead of a fixed sleep -- the background thread should
+    // clear the mute flag well within this window once it finishes decoding
+    // the (tiny, test-fixture) head chunk.
+    bool unmuted = false;
+    for (int i = 0; i < 500 && !unmuted; ++i) {
+        if (!mute.load(std::memory_order_acquire))
+            unmuted = true;
+        else
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(unmuted);
+
+    engine.stop();
+}
+
+// The synchronous (asyncFill=false, the default) path must keep behaving
+// exactly as before: fillHeadOnce runs inline, so mute is already cleared-
+// by-the-caller-convention (i.e. never auto-cleared by stageSong itself) and
+// deferredMuteClear is left false, matching every pre-existing call site that
+// doesn't pass asyncFill.
+TEST_CASE("StreamingEngine::stageSong defaults to synchronous fill and never defers mute-clear") {
+    const std::string path = makeTwoSongArchive();
+
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(path, error));
+
+    TrackDef trackA;
+    trackA.id = "track_a";
+    loader.project().tracks = {trackA};
+
+    SongDef songA;
+    songA.id = "song_a";
+    Region regA;
+    regA.id = "reg_a";
+    regA.trackId = "track_a";
+    regA.file = "Audio/a.wav";
+    songA.regions = {regA};
+
+    StreamingEngine engine;
+    engine.start(&loader);
+
+    std::atomic<bool> mute{false};
+    bool deferredMuteClear = true; // must be flipped back to false
+    std::string stageError;
+    REQUIRE(engine.stageSong(0, songA, 8192, 48000.0, stageError, 0.0, 0.0, &mute,
+                             /*asyncFill=*/false, &deferredMuteClear));
+
+    CHECK_FALSE(deferredMuteClear);
+    // stageSong sets mute true before the flip and -- in the synchronous
+    // path -- never clears it itself; that stays the CALLER's job (see every
+    // pre-existing call site's own streamHandoff.store(false, ...) after a
+    // successful stageSong()). A regression here would mean the new
+    // asyncFill plumbing leaked into the default path.
+    CHECK(mute.load());
+
+    engine.stop();
+}
