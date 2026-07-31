@@ -2032,21 +2032,22 @@ export function Timeline({
     const rect = scroller.getBoundingClientRect();
 
     // While "smooth" autofollow is live and the transport is playing, anchor
-    // the zoom at the playhead's CURRENT on-screen position instead of the
-    // cursor / viewport center. Smooth follow re-pins the playhead at 25%
+    // the zoom at the playhead marker's CURRENT on-screen position instead of
+    // the cursor / viewport center. Smooth follow re-pins the playhead at 25%
     // every frame, so a zoom focused anywhere else (cursor, center)
-    // immediately re-anchors once the gesture ends and visibly jumps --
-    // focusing the zoom at the playhead keeps it fixed at the same screen
-    // spot through and after the zoom. The playhead's screen X is derived
-    // from the actual scrollLeft, so it stays correct even while follow is
-    // paused mid-gesture (playhead still drifting under a frozen scroll).
+    // immediately re-anchors once the gesture ends and visibly jumps.
+    // playheadScreenXRef is the marker's real screen X as written by the rAF
+    // loop each tick (document position minus the actual scrollLeft) --
+    // anchoring there keeps the playhead fixed at the same screen spot
+    // through and after the zoom, and stays correct even while follow is
+    // paused mid-gesture.
     let focusX: number;
     if (playingRef.current && followModeRef.current === "smooth") {
-      const playheadScreenX =
-        pxPerSecRef.current * playheadAbsoluteSecRef.current - scroller.scrollLeft;
-      focusX = Number.isFinite(playheadScreenX)
-        ? Math.max(0, Math.min(rect.width, playheadScreenX))
-        : rect.width / 2;
+      const markerX = playheadScreenXRef.current;
+      focusX =
+        markerX !== null
+          ? Math.max(0, Math.min(rect.width, markerX))
+          : rect.width / 2;
     } else {
       focusX =
         typeof focusClientX === "number"
@@ -2355,6 +2356,8 @@ export function Timeline({
   followModeRef.current = followMode;
   const playingRef = useRef(state.playing);
   playingRef.current = state.playing;
+  const currentSongIdxRef = useRef(currentSongIdx);
+  currentSongIdxRef.current = currentSongIdx;
 
   // Auto-scroll timeline to keep the playhead in view.
   //
@@ -2451,29 +2454,41 @@ export function Timeline({
   // in the same tick as the scroll write makes the two atomic within a frame;
   // there is no React commit in between to desync them.
   //
-  // While actively smooth-following, the marker's document position is
-  // DERIVED from the scrollLeft this same tick just wrote --
-  // `scrollLeft + viewWidth*0.25` -- rather than computed as a second,
-  // independently-damped signal. That makes the two mathematically
-  // incapable of disagreeing (they're the same number, by construction),
-  // and it's what pins the marker at a fixed on-screen spot while only the
-  // content scrolls under it, same as a real DAW's continuous-scroll
-  // playhead.
+  // The loop owns a single animated scroll position and glides it toward the
+  // playhead-anchored target with a per-frame speed cap: normal follow eases
+  // at ~25%/frame (filtering the small clock wobble), while big jumps --
+  // song change, stop/full-stop reset, far seek -- PAN instead of teleporting
+  // ("при переключении песен хай плавно скроллится к нужной песне", "время
+  // стопилось якобы а потом оно с анимацией догоняло"). It runs ONCE (the
+  // song index is tracked through a ref) so a song change doesn't restart it
+  // and lose the in-flight glide.
   const playheadRef = useRef<HTMLDivElement>(null);
+  // Marker's current on-screen X (document position minus scrollLeft),
+  // updated every tick. applyZoomAt reads it to anchor zooms at the playhead
+  // while smooth autofollow is live -- anchoring at the raw time-position
+  // instead picked up the EMA residual and made the playhead visibly jump
+  // mid-zoom ("дёргается при зуме всё-равно").
+  const playheadScreenXRef = useRef<number | null>(null);
   useEffect(() => {
     let raf = 0;
-    let smoothScrollLeft: number | null = null;
+    // Engine-owned scrollLeft; null while idle (not following / not panning).
+    let engineScrollLeft: number | null = null;
     let displayPx = playheadAbsoluteSecRef.current * pxPerSecRefForFollow.current;
-    // Last scroll-reveal anchor. The reveal logic below compares the
-    // playhead against this to detect a LARGE jump while not smoothly
-    // following (song change, stop/full stop reset, far seek); updating it
-    // every idle frame is what makes ordinary pauses/scrolls never fire it.
+    // Reveal-pan state: the scroll position being animated toward a reveal
+    // target; null when no reveal is in flight.
+    let revealScroll: number | null = null;
+    // Last position the reveal logic compared against, to detect a LARGE
+    // jump. Updating it every idle frame is what makes ordinary pauses and
+    // manual scrolls never fire a reveal.
     let lastRevealPx = displayPx;
+    let lastSongIdx = currentSongIdxRef.current;
     const marker = playheadRef.current;
     if (marker) marker.style.left = `${displayPx}px`;
 
     const tick = () => {
       const px = playheadAbsoluteSecRef.current * pxPerSecRefForFollow.current;
+      const songJumped = currentSongIdxRef.current !== lastSongIdx;
+      lastSongIdx = currentSongIdxRef.current;
 
       // gestureActiveNowRef, NOT a React-state mirror: it's set synchronously
       // in the same tick as the wheel/pinch handler, so this rAF loop can
@@ -2482,49 +2497,53 @@ export function Timeline({
       // the playhead-anchor scroll target at the same instant applyZoomAt's
       // effect writes the zoom-focus target) was what made the playhead
       // visibly jump during a zoom gesture while autofollowing.
-      const isSmoothFollowing =
+      const following =
         playingRef.current
         && !gestureActiveNowRef.current
         && followModeRef.current === "smooth";
       const scroller = scrollRef.current;
-      if (isSmoothFollowing && scroller) {
-        const viewWidth = scroller.clientWidth || 1000;
-        const maxScrollLeft = Math.max(0, contentWidthRef.current - viewWidth);
-        const target = Math.min(maxScrollLeft, Math.max(0, px - viewWidth * 0.25));
-        if (smoothScrollLeft === null) {
-          // First tick of this loop (or resuming after a pause/gesture):
-          // snap immediately rather than lerping in from a stale/absent
-          // starting position.
-          smoothScrollLeft = target;
-        } else {
-          // Damped low-pass toward the target instead of a hard per-frame
-          // jump: playheadAbsoluteSec has a small inherent wobble
-          // (useContinuousPlayhead's own exponential correction continuously
-          // chasing the ~30Hz WS staircase of server updates), invisible on
-          // the marker alone but very visible once the whole viewport -- and
-          // therefore every waveform on screen -- mirrors it every frame.
-          smoothScrollLeft = smoothScrollLeft + (target - smoothScrollLeft) * 0.25;
+      const viewWidth = scroller ? scroller.clientWidth || 1000 : 1000;
+      const maxScrollLeft = Math.max(0, contentWidthRef.current - viewWidth);
+      const target = Math.min(maxScrollLeft, Math.max(0, px - viewWidth * 0.25));
+
+      // Step `from` toward `target`: exponential ease near the target (kills
+      // the clock wobble) capped to a fraction of the viewport per frame
+      // (turns big jumps into a pan instead of a teleport).
+      const glide = (from: number) => {
+        const diff = target - from;
+        const maxStep = viewWidth * 0.15;
+        let next = from + Math.max(-maxStep, Math.min(maxStep, diff * 0.25));
+        if (Math.abs(target - next) < 0.5) next = target;
+        return next;
+      };
+
+      if (following && scroller) {
+        revealScroll = null;
+        if (engineScrollLeft === null) engineScrollLeft = scroller.scrollLeft;
+        engineScrollLeft = glide(engineScrollLeft);
+        const before = scroller.scrollLeft;
+        scroller.scrollLeft = engineScrollLeft;
+        engineScrollLeft = scroller.scrollLeft; // re-read in case browser clamped it
+        if (Math.abs(before - engineScrollLeft) > 0.5) {
+          programmaticScrollRef.current = true;
         }
-        programmaticScrollRef.current = true;
-        scroller.scrollLeft = smoothScrollLeft;
-        smoothScrollLeft = scroller.scrollLeft; // re-read in case the browser clamped it
-        setScrollState({ scrollLeft: smoothScrollLeft, viewportWidth: viewWidth });
-        // At the very start/end of the timeline the desired scroll
-        // (px - viewWidth*0.25) clamps to 0/maxScrollLeft, so the playhead
-        // CANNOT sit at 25% -- deriving the marker from scrollLeft would draw
-        // it at 25% while its actual position is at the edge ("плейхед не
-        // там" when jumping to the boundaries). Show its true position there;
-        // anywhere else the derived pinned position is exact by construction.
+        setScrollState({ scrollLeft: engineScrollLeft, viewportWidth: viewWidth });
+        // Marker: pinned at 25% of the viewport whenever the playhead CAN sit
+        // there (desired scroll within bounds). At the very start/end of the
+        // timeline the desired scroll clamps to 0/maxScrollLeft, so the
+        // playhead can't be at 25% -- show its true position there ("плейхед
+        // не там" at the boundaries). During a song-change pan the marker
+        // stays pinned and the timeline slides under it, like a DAW's
+        // continuous-scroll playhead.
         const pinnedTarget = px - viewWidth * 0.25;
         displayPx =
           pinnedTarget >= 0 && pinnedTarget <= maxScrollLeft
-            ? smoothScrollLeft + viewWidth * 0.25
+            ? engineScrollLeft + viewWidth * 0.25
             : px;
       } else {
-        // Not actively smooth-scrolling this tick (paused, off/snap mode, or
-        // a gesture is in progress) -- drop the anchor so a later resume
-        // starts with a snap instead of gliding in from a stale position.
-        smoothScrollLeft = null;
+        // Not smoothly following this tick (paused, off/snap mode, or a
+        // gesture is in progress) -- drop the follow anchor.
+        engineScrollLeft = null;
         // Marker tracks the raw playhead at its natural document position.
         // Snap instantly on a large jump (seek, song change, stop) or while
         // dragging the handle (must track the pointer 1:1 with zero added
@@ -2534,32 +2553,41 @@ export function Timeline({
             ? px
             : displayPx + (px - displayPx) * 0.25;
 
-        // REVEAL: when the playhead makes a LARGE jump while not smoothly
-        // following (song change, stop/full-stop reset, far click-seek),
-        // snap the scroll to it instead of leaving it off-screen. Guarded
-        // against user scrolling (px doesn't move then, so lastRevealPx
-        // stays equal), scrubbing (dragging), and zooming (gesture).
-        // stop()/pause freezes the playhead in place, so the delta stays ~0
-        // and nothing yanks back ("резко возвращается не туда" -- that was
-        // the old reveal snapping to a server playhead that was a frame
-        // behind the local clock on every pause).
+        // Animated REVEAL: a large playhead jump while playback is stopped
+        // (song change, stop/full-stop reset, far seek) PANS the view to it
+        // instead of leaving it off-screen. Guarded against scrubbing
+        // (dragging), zooming (gesture), and manual scrolling (px doesn't
+        // move then, so lastRevealPx stays equal). While playing, the "snap"
+        // layout effect owns the scroll and "smooth" owns the follow branch
+        // above, so reveals are only this loop's job when stopped.
+        const needReveal =
+          !playingRef.current
+          && (songJumped || Math.abs(px - lastRevealPx) > pxPerSecRefForFollow.current * 2.0);
         if (
           scroller
           && !dragging.current
           && !gestureActiveNowRef.current
-          && Math.abs(px - lastRevealPx) > pxPerSecRefForFollow.current * 2.0
+          && (revealScroll !== null || needReveal)
         ) {
-          const viewWidth = scroller.clientWidth || 1000;
-          const maxScrollLeft = Math.max(0, contentWidthRef.current - viewWidth);
-          const target = Math.min(maxScrollLeft, Math.max(0, px - viewWidth * 0.25));
-          if (Math.abs(scroller.scrollLeft - target) > 0.5) {
+          if (revealScroll === null) revealScroll = scroller.scrollLeft;
+          revealScroll = glide(revealScroll);
+          const settled = Math.abs(target - revealScroll) < 0.5;
+          if (settled) revealScroll = target;
+          const before = scroller.scrollLeft;
+          scroller.scrollLeft = revealScroll;
+          if (Math.abs(before - scroller.scrollLeft) > 0.5) {
             programmaticScrollRef.current = true;
-            scroller.scrollLeft = target;
-            setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
           }
+          setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
+          if (settled) revealScroll = null;
+        } else {
+          revealScroll = null;
         }
-        lastRevealPx = px;
       }
+
+      lastRevealPx = px;
+      if (scroller) playheadScreenXRef.current = displayPx - scroller.scrollLeft;
+
       const m = playheadRef.current;
       if (m) m.style.left = `${displayPx}px`;
 
@@ -2567,7 +2595,7 @@ export function Timeline({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [currentSongIdx]);
+  }, []);
 
   // ── Toolbar ──────────────────────────────────────────────────────────────
   return (
