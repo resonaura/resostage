@@ -1,6 +1,9 @@
 import { Button, Slider } from "@heroui/react";
 import {
   Copy,
+  Locate,
+  LocateFixed,
+  LocateOff,
   Magnet,
   MoveHorizontalIcon,
   MoveVerticalIcon,
@@ -1552,6 +1555,31 @@ export function Timeline({
   // Snap-to-grid toggle
   const [snapToGrid, setSnapToGrid] = useState(true);
 
+  // Playhead autofollow: off (never auto-scroll) / snap (jump once the
+  // playhead nears the viewport edge -- the original, only prior behavior)
+  // / smooth (continuously re-anchor every frame so the view glides along
+  // with playback instead of jumping). Persisted across sessions since it's
+  // a per-user viewing preference, not project data.
+  type FollowMode = "off" | "snap" | "smooth";
+  const [followMode, setFollowMode] = useState<FollowMode>(() => {
+    try {
+      const saved = localStorage.getItem("resostage.timeline.followMode");
+      if (saved === "off" || saved === "snap" || saved === "smooth") return saved;
+    } catch {
+      // localStorage unavailable (e.g. private mode) -- fall through to default
+    }
+    return "snap";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("resostage.timeline.followMode", followMode);
+    } catch {
+      // best-effort persistence only
+    }
+  }, [followMode]);
+  const cycleFollowMode = () =>
+    setFollowMode((m) => (m === "off" ? "snap" : m === "snap" ? "smooth" : "off"));
+
   // Progressive rendering: track gesture activity for coarse→fine rendering
   const [gestureActive, setGestureActive] = useState(false);
   const gestureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2251,22 +2279,53 @@ export function Timeline({
   const prevSongIdxRef = useRef(currentSongIdx);
 
   // Auto-scroll timeline to keep playhead in view -- ONLY while actually
-  // playing. A user-driven scrub/drag (or a song switch while paused) moves
-  // playheadAbsoluteSec/currentSongIdx too, but must never yank the user's
-  // scroll position out from under them; only live playback earns that.
+  // playing, and only when followMode isn't "off". A user-driven scrub/drag
+  // (or a song switch while paused) moves playheadAbsoluteSec/currentSongIdx
+  // too, but must never yank the user's scroll position out from under
+  // them; only live playback earns that.
+  //
+  // "snap" jumps once the playhead nears the viewport edge (the original,
+  // only prior behavior -- effect re-runs roughly once/sec via the floored
+  // dependency below). "smooth" instead re-anchors the playhead at the same
+  // 25%-from-left position on EVERY render -- since playheadAbsoluteSec
+  // already updates every animation frame while playing (see
+  // useContinuousPlayhead), depending on it unfloored here is what turns
+  // this into a continuous per-frame glide instead of a periodic jump, with
+  // no separate rAF loop needed.
   useEffect(() => {
-    if (!state.playing) {
+    if (!state.playing || followMode === "off") {
       // Keep the song-change tracker current so resuming playback right
-      // after a paused song switch doesn't read as a stale transition.
+      // after a paused song switch (or re-enabling follow) doesn't read as
+      // a stale transition.
       prevSongIdxRef.current = currentSongIdx;
       return;
     }
     if (!scrollRef.current) return;
     const scroller = scrollRef.current;
     const playheadPx = playheadAbsoluteSec * pxPerSec;
-    const currentLeft = scroller.scrollLeft;
     const viewWidth = scroller.clientWidth || 1000;
+    // Clamp to the SAME upper bound the browser enforces natively
+    // (contentWidth - viewWidth). Without this, near the end of a song
+    // playheadPx - viewWidth*0.25 can exceed that bound: the browser
+    // silently clamps the real DOM scrollLeft, but scrollState.scrollLeft
+    // (used to position the WaveformLane/BeatGrid canvases via `left:
+    // scrollLeft`) ends up larger than the true scroll position, opening a
+    // blank gap on the left edge of the viewport until the next native
+    // `scroll` event resyncs state -- the "мигание" (blinking) reported
+    // specifically near song endings. Reading the DOM's scrollLeft back
+    // after assignment (rather than trusting our own computed value) closes
+    // the gap even if the browser clamps for some other reason too.
+    const maxScrollLeft = Math.max(0, contentWidth - viewWidth);
 
+    if (followMode === "smooth") {
+      const targetLeft = Math.min(maxScrollLeft, Math.max(0, playheadPx - viewWidth * 0.25));
+      scroller.scrollLeft = targetLeft;
+      setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
+      prevSongIdxRef.current = currentSongIdx;
+      return;
+    }
+
+    const currentLeft = scroller.scrollLeft;
     const songChanged = prevSongIdxRef.current !== currentSongIdx;
     prevSongIdxRef.current = currentSongIdx;
     const rightMargin = 120;
@@ -2277,18 +2336,20 @@ export function Timeline({
       playheadPx > currentLeft + viewWidth - rightMargin ||
       playheadPx < currentLeft + leftMargin
     ) {
-      const targetLeft = Math.max(0, playheadPx - viewWidth * 0.25);
+      const targetLeft = Math.min(maxScrollLeft, Math.max(0, playheadPx - viewWidth * 0.25));
       scroller.scrollLeft = targetLeft;
       setScrollState({
-        scrollLeft: targetLeft,
+        scrollLeft: scroller.scrollLeft,
         viewportWidth: viewWidth,
       });
     }
   }, [
     state.playing,
+    followMode,
     currentSongIdx,
-    Math.floor(playheadAbsoluteSec),
+    followMode === "smooth" ? playheadAbsoluteSec : Math.floor(playheadAbsoluteSec),
     pxPerSec,
+    contentWidth,
   ]);
 
   // ── Toolbar ──────────────────────────────────────────────────────────────
@@ -2387,6 +2448,29 @@ export function Timeline({
               </Button>
             </>
           )}
+
+          <div className="w-px h-4 bg-default/30 mx-0.5" />
+          <Button
+            size="sm"
+            variant={followMode === "off" ? "outline" : "primary"}
+            isIconOnly
+            aria-label={
+              followMode === "off"
+                ? "Playhead autofollow: off (click for standard)"
+                : followMode === "snap"
+                  ? "Playhead autofollow: standard (click for smooth)"
+                  : "Playhead autofollow: smooth (click to turn off)"
+            }
+            onPress={cycleFollowMode}
+          >
+            {followMode === "off" ? (
+              <LocateOff size={13} />
+            ) : followMode === "snap" ? (
+              <Locate size={13} />
+            ) : (
+              <LocateFixed size={13} />
+            )}
+          </Button>
 
           {/* H / V zoom — narrow, right side; thumb hit padding 1rem */}
           <div className="flex items-center gap-1.5 ml-1 w-[17.5rem] shrink-0">

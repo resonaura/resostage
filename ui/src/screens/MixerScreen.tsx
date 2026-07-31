@@ -6,6 +6,7 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "../components/ContextMenu";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
   CLIP_COLOR,
   CLIP_GLOW,
@@ -1314,11 +1315,11 @@ interface TrackMenuState {
 // Right-click menu for a mixer track strip. Everything here is backed by
 // APIs that already exist (builder.trackMove/trackUpdate/trackRemove,
 // mixer.setTrack*) -- no new backend routes needed. Rename uses an inline
-// text field rather than window.prompt(), since the embedded native
-// WebView's WKWebView backing isn't guaranteed to implement the JS prompt()
-// panel (window.confirm() already works elsewhere in this app and is used
-// here for the destructive Remove action, but prompt() is a separate,
-// less-commonly-implemented UIDelegate method).
+// text field rather than window.prompt(), and Remove uses the in-app
+// ConfirmDialog rather than window.confirm() -- the embedded native
+// WebView's WKWebView backing isn't guaranteed to implement either JS
+// dialog's UIDelegate method (this is what made "Remove Bus" silently do
+// nothing: window.confirm() returned falsy without ever showing a panel).
 function TrackContextMenu({
   menu,
   track,
@@ -1332,6 +1333,7 @@ function TrackContextMenu({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(track.name || track.id);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const act = (fn: () => void) => {
     fn();
@@ -1354,6 +1356,24 @@ function TrackContextMenu({
     }
     onClose();
   };
+
+  if (confirmRemove) {
+    return (
+      <ConfirmDialog
+        open
+        title="Remove track"
+        message={`Remove track "${track.name || track.id}"? This can't be undone.`}
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        danger
+        onCancel={onClose}
+        onConfirm={() => {
+          void builder.trackRemove(songIndex, menu.index);
+          onClose();
+        }}
+      />
+    );
+  }
 
   return (
     <ContextMenu x={menu.x} y={menu.y} onClose={onClose}>
@@ -1427,19 +1447,7 @@ function TrackContextMenu({
         Remove All Sends
       </ContextMenuItem>
       <ContextMenuDivider />
-      <ContextMenuItem
-        danger
-        onClick={() =>
-          act(() => {
-            if (
-              window.confirm(
-                `Remove track "${track.name || track.id}"? This can't be undone.`,
-              )
-            )
-              void builder.trackRemove(songIndex, menu.index);
-          })
-        }
-      >
+      <ContextMenuItem danger onClick={() => setConfirmRemove(true)}>
         Remove Track
       </ContextMenuItem>
     </ContextMenu>
@@ -1457,6 +1465,7 @@ function BusContextMenu({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(bus.name || bus.id);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const act = (fn: () => void) => {
     fn();
@@ -1479,6 +1488,24 @@ function BusContextMenu({
     }
     onClose();
   };
+
+  if (confirmRemove) {
+    return (
+      <ConfirmDialog
+        open
+        title="Remove bus"
+        message={`Remove bus "${bus.name || bus.id}"? This can't be undone.`}
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        danger
+        onCancel={onClose}
+        onConfirm={() => {
+          void builder.busRemove(menu.index);
+          onClose();
+        }}
+      />
+    );
+  }
 
   return (
     <ContextMenu x={menu.x} y={menu.y} onClose={onClose}>
@@ -1527,19 +1554,7 @@ function BusContextMenu({
       {bus.id !== "main" && (
         <>
           <ContextMenuDivider />
-          <ContextMenuItem
-            danger
-            onClick={() =>
-              act(() => {
-                if (
-                  window.confirm(
-                    `Remove bus "${bus.name || bus.id}"? This can't be undone.`,
-                  )
-                )
-                  void builder.busRemove(menu.index);
-              })
-            }
-          >
+          <ContextMenuItem danger onClick={() => setConfirmRemove(true)}>
             Remove Bus
           </ContextMenuItem>
         </>

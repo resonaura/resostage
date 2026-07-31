@@ -220,6 +220,18 @@ export default function App() {
   const [allPeaks, setAllPeaks] = useState<AllPeaksResponse | null>(null);
   const [pxPerSec, setPxPerSec] = useState(40);
 
+  // Total region count across every song -- changes exactly when a region is
+  // added/removed/split (peaks are keyed by file on the backend and a split
+  // is served from cache almost instantly, but the poll loops below only run
+  // for a bounded window after mount; without this, splitting a region more
+  // than ~15s after load left the new region's waveform stuck on stale data
+  // forever, since project name / song count / song index don't change on a
+  // split -- looking like the peaks needed a slow recompute when they didn't).
+  const totalRegionCount = state.songs.reduce(
+    (sum, s) => sum + (s.regions?.length ?? 0),
+    0,
+  );
+
   // Per-song peaks (current staged song)
   useEffect(() => {
     let cancelled = false;
@@ -238,7 +250,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [state.projectName, state.songIndex]);
+  }, [state.projectName, state.songIndex, totalRegionCount]);
 
   // All-song peaks (for the multi-song timeline)
   useEffect(() => {
@@ -255,7 +267,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [state.projectName, state.songs.length]);
+  }, [state.projectName, state.songs.length, totalRegionCount]);
 
   // Hardware alarm toast notifications (post-startup only)
   const [toastNotifications, setToastNotifications] = useState<ToastNotification[]>([]);

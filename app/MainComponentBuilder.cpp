@@ -206,7 +206,9 @@ void MainComponent::builderTrackAdd(const std::string& json) {
     track.id = makeUniqueId("trk", used);
     track.name = "New Track";
     track.busId = proj.busses.empty() ? "main" : proj.busses.front().id;
+    engine.projectHistoryBeginEdit("", "Add track");
     proj.tracks.push_back(track);
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Track added");
 }
@@ -220,7 +222,9 @@ void MainComponent::builderTrackRemove(const std::string& json) {
     if (index < 0 || index >= static_cast<int>(proj.tracks.size()))
         return;
 
+    engine.projectHistoryBeginEdit("", "Remove track");
     proj.tracks.erase(proj.tracks.begin() + index);
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Track removed");
 }
@@ -235,7 +239,9 @@ void MainComponent::builderTrackMove(const std::string& json) {
     if (index < 0 || index >= static_cast<int>(proj.tracks.size()) || to < 0 || to >= static_cast<int>(proj.tracks.size()))
         return;
 
+    engine.projectHistoryBeginEdit("", "Move track");
     std::swap(proj.tracks[static_cast<size_t>(index)], proj.tracks[static_cast<size_t>(to)]);
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
 }
 
@@ -248,6 +254,13 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
     if (index < 0 || index >= static_cast<int>(proj.tracks.size()))
         return;
     TrackDef& t = proj.tracks[static_cast<size_t>(index)];
+
+    // Covers every field this endpoint can touch, including the Mixer's
+    // "Direct Output" bus (re)assignment (see mixer.setTrackBus in api.ts) --
+    // the fast dedicated endpoints for gain/pan/mute/solo/mono already wrap
+    // their own history in MainComponent::drainWebCommands' dispatchOne, so
+    // this is what was missing for "any mixer action" to be undoable.
+    engine.projectHistoryBeginEdit("", "Edit track");
 
     std::string strVal;
     double numVal;
@@ -266,6 +279,8 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
     engine.setTrackMute(0, static_cast<size_t>(index), t.mute);
     engine.setTrackSolo(0, static_cast<size_t>(index), t.solo);
     engine.setTrackMono(0, static_cast<size_t>(index), t.mono);
+
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
 }
 
@@ -616,7 +631,9 @@ void MainComponent::builderBusAdd() {
     for (const auto& b : proj.busses)
         nextCh = std::max(nextCh, b.output.startChannel + b.channels);
     bus.output.startChannel = nextCh;
+    engine.projectHistoryBeginEdit("", "Add bus");
     proj.busses.push_back(std::move(bus));
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Bus added");
 }
@@ -630,6 +647,7 @@ void MainComponent::builderBusRemove(const std::string& json) {
     if (index < 0 || index >= static_cast<int>(proj.busses.size()) || proj.busses.size() <= 1)
         return; // keep at least one bus, matches BuilderPanel::removeItem()
 
+    engine.projectHistoryBeginEdit("", "Remove bus");
     const std::string removedId = proj.busses[static_cast<size_t>(index)].id;
     proj.busses.erase(proj.busses.begin() + index);
     const std::string fallback = proj.busses.front().id;
@@ -658,6 +676,7 @@ void MainComponent::builderBusRemove(const std::string& json) {
             std::remove_if(song.builtInClickSends.begin(), song.builtInClickSends.end(), dropsRemovedSend),
             song.builtInClickSends.end());
     }
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Bus removed");
 }
@@ -674,7 +693,9 @@ void MainComponent::builderBusMove(const std::string& json) {
         || to >= static_cast<int>(proj.busses.size()))
         return;
 
+    engine.projectHistoryBeginEdit("", "Move bus");
     std::swap(proj.busses[static_cast<size_t>(index)], proj.busses[static_cast<size_t>(to)]);
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
 }
 
@@ -687,6 +708,14 @@ void MainComponent::builderBusUpdate(const std::string& json) {
     if (index < 0 || index >= static_cast<int>(proj.busses.size()))
         return;
     BusDef& b = proj.busses[static_cast<size_t>(index)];
+
+    // Covers every field this endpoint can touch, including bus creation's
+    // follow-up configure step (queueBusJob in MixerScreen.tsx -- "Add Send"
+    // / "Direct Output" both create-then-immediately-busUpdate) and channel
+    // width / routing changes. The fast dedicated endpoints for gain/mute/
+    // solo already wrap their own history in dispatchOne; this covers the
+    // rest of what "any mixer action" needs.
+    engine.projectHistoryBeginEdit("", "Edit bus");
 
     std::string strVal;
     double numVal;
@@ -704,6 +733,8 @@ void MainComponent::builderBusUpdate(const std::string& json) {
     if (getBool(doc, "mute", boolVal)) b.mute = boolVal;
     if (getBool(doc, "solo", boolVal)) b.solo = boolVal;
     if (getBool(doc, "isAux", boolVal)) b.isAux = boolVal;
+
+    engine.projectHistoryCommitEdit();
 
     // Always rebuild the live bus list from project so LoadedBus.channelCount
     // stays in lockstep with BusDef.channels / startChannel. A stale
