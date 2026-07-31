@@ -66,85 +66,6 @@ interface ChannelBallistics {
   clipLatched: boolean;
 }
 
-function useMeterBallistics(
-  db: number,
-  /**
-   * Optional live sampler — called once per paint. For metronome, pass
-   * getClickPeaks()-based getters (pure read of the shared paint snapshot).
-   */
-  getLiveDb?: () => number,
-): {
-  display: number;
-  peak: number;
-  clipLatched: boolean;
-  clearClip: () => void;
-} {
-  const [display, setDisplay] = useState(FLOOR_DB);
-  const [peak, setPeak] = useState(FLOOR_DB);
-  const [clipLatched, setClipLatched] = useState(false);
-  const dbRef = useRef(db);
-  dbRef.current = db;
-  const getLiveRef = useRef(getLiveDb);
-  getLiveRef.current = getLiveDb;
-  const anim = useRef<ChannelBallistics & { lastT: number }>({
-    display: FLOOR_DB,
-    peak: FLOOR_DB,
-    holdRemaining: 0,
-    clipLatched: false,
-    lastT: 0,
-  });
-
-  useEffect(() => {
-    let raf = 0;
-    const tick = (t: number) => {
-      const s = anim.current;
-      const dt = s.lastT > 0 ? Math.min(0.25, (t - s.lastT) / 1000) : 1 / 30;
-      s.lastT = t;
-
-      // Prefer live sampler (may consume interval-max). Fall back to prop.
-      const live = getLiveRef.current?.();
-      const raw =
-        live !== undefined && Number.isFinite(live) ? live : dbRef.current;
-      const target = Math.max(raw, FLOOR_DB);
-      s.display =
-        target >= s.display
-          ? target
-          : Math.max(target, s.display - BAR_DECAY_DB_PER_SEC * dt);
-
-      if (target >= s.peak) {
-        s.peak = target;
-        s.holdRemaining = PEAK_HOLD_SECONDS;
-      } else if (s.holdRemaining > 0) {
-        s.holdRemaining -= dt;
-      } else {
-        s.peak = Math.max(target, s.peak - PEAK_DECAY_DB_PER_SEC * dt);
-      }
-
-      // Clip latch: only when over 0 dBFS; stays until user clicks.
-      if (target > 0 && !s.clipLatched) {
-        s.clipLatched = true;
-        setClipLatched(true);
-      }
-
-      setDisplay(s.display);
-      setPeak(s.peak);
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
-  return {
-    display,
-    peak,
-    clipLatched,
-    clearClip: () => {
-      anim.current.clipLatched = false;
-      setClipLatched(false);
-    },
-  };
-}
-
 // Shared, "held forever" clip state -- distinct from useMeterBallistics'
 // own per-channel clip latch (which is fine for a standalone meter, but
 // callers wiring a meter together with something else that should clip/clear
@@ -183,6 +104,11 @@ export function useChannelClipHold(maxDb: number): {
   return { clipped, heldPeakDb, clear: () => setClipped(false) };
 }
 
+// Glow around the clip band, drawn via ctx.shadow* to match the DOM
+// version's box-shadow (CLIP_GLOW: "0 0 4px rgba(255,59,48,0.7)").
+const CLIP_GLOW_BLUR_PX = 4;
+const CLIP_GLOW_COLOR = "rgba(255,59,48,0.7)";
+
 function ChannelBar({
   db,
   getLiveDb,
@@ -205,88 +131,161 @@ function ChannelBar({
    * clip state clear everywhere at once. */
   onClear?: () => void;
 }) {
-  const {
-    display,
-    peak,
-    clipLatched: internalClipLatched,
-    clearClip: internalClearClip,
-  } = useMeterBallistics(db, getLiveDb);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const dbRef = useRef(db);
+  dbRef.current = db;
+  const getLiveRef = useRef(getLiveDb);
+  getLiveRef.current = getLiveDb;
+  const verticalRef = useRef(vertical);
+  verticalRef.current = vertical;
+  const clipOverrideRef = useRef(clipLatchedOverride);
+  clipOverrideRef.current = clipLatchedOverride;
+
+  const [internalClipLatched, setInternalClipLatched] = useState(false);
   const clipLatched = clipLatchedOverride ?? internalClipLatched;
-  const clearClip = onClear ?? internalClearClip;
-  const fillPct = normFor(display) * 100;
-  const peakPct = normFor(peak) * 100;
+  const clearClip =
+    onClear ??
+    (() => {
+      anim.current.clipLatched = false;
+      setInternalClipLatched(false);
+    });
+
   const fill = useMemo(() => meterFill(accent), [accent]);
-  // Hide peak needle once it has fully decayed into the floor.
-  const showPeak = peak > RANGE_LOW_DB + 0.5 && peakPct > 0.2;
+  const fillRef = useRef(fill);
+  fillRef.current = fill;
+
+  const anim = useRef<ChannelBallistics & { lastT: number }>({
+    display: FLOOR_DB,
+    peak: FLOOR_DB,
+    holdRemaining: 0,
+    clipLatched: false,
+    lastT: 0,
+  });
+
+  // Draw loop: fully imperative canvas painting, no React state/re-render
+  // per frame -- this is the whole point of moving off DOM/CSS divs (each
+  // of which used to cost a React reconciliation + style/layout pass at
+  // 60fps, multiplied by every track/bus strip on screen at once).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+
+    let cssW = 0;
+    let cssH = 0;
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      cssW = rect.width;
+      cssH = rect.height;
+      // Retina-resolution backing store: bitmap size is CSS size * DPR,
+      // then every draw call below is issued in CSS pixels via the scaled
+      // transform so the math stays identical to the old percentage-based
+      // DOM layout.
+      canvas.width = Math.max(1, Math.round(cssW * dpr));
+      canvas.height = Math.max(1, Math.round(cssH * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+
+    let raf = 0;
+    const tick = (t: number) => {
+      const s = anim.current;
+      const dt = s.lastT > 0 ? Math.min(0.25, (t - s.lastT) / 1000) : 1 / 30;
+      s.lastT = t;
+
+      // Prefer live sampler (may consume interval-max). Fall back to prop.
+      const live = getLiveRef.current?.();
+      const raw =
+        live !== undefined && Number.isFinite(live) ? live : dbRef.current;
+      const target = Math.max(raw, FLOOR_DB);
+      s.display =
+        target >= s.display
+          ? target
+          : Math.max(target, s.display - BAR_DECAY_DB_PER_SEC * dt);
+
+      if (target >= s.peak) {
+        s.peak = target;
+        s.holdRemaining = PEAK_HOLD_SECONDS;
+      } else if (s.holdRemaining > 0) {
+        s.holdRemaining -= dt;
+      } else {
+        s.peak = Math.max(target, s.peak - PEAK_DECAY_DB_PER_SEC * dt);
+      }
+
+      // Clip latch: only when over 0 dBFS; stays until user clicks. Synced
+      // into React state (rare event, not per-frame) so the "click to
+      // clear" affordance/title can react to it.
+      if (target > 0 && !s.clipLatched) {
+        s.clipLatched = true;
+        setInternalClipLatched(true);
+      }
+
+      const v = verticalRef.current;
+      const fillPct = normFor(s.display);
+      const peakPct = normFor(s.peak);
+      const showPeak = s.peak > RANGE_LOW_DB + 0.5 && peakPct > 0.002;
+      const latched = clipOverrideRef.current ?? s.clipLatched;
+
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      // Level fill from bottom/left, same as the old height/width-clipped div.
+      if (fillPct > 0.0005) {
+        ctx.fillStyle = fillRef.current;
+        if (v) ctx.fillRect(0, cssH * (1 - fillPct), cssW, cssH * fillPct);
+        else ctx.fillRect(0, 0, cssW * fillPct, cssH);
+      }
+
+      // Peak hold needle (1 CSS px line, not a fill trail).
+      if (showPeak) {
+        ctx.fillStyle =
+          s.peak > 0 ? "rgba(255,59,48,0.95)" : "rgba(255,255,255,0.85)";
+        if (v) {
+          const y = cssH * (1 - peakPct);
+          ctx.fillRect(0, Math.min(cssH - 1, Math.max(0, y - 0.5)), cssW, 1);
+        } else {
+          const x = cssW * peakPct;
+          ctx.fillRect(Math.min(cssW - 1, Math.max(0, x - 0.5)), 0, 1, cssH);
+        }
+      }
+
+      // Clip / peak-high latch: ONLY the top/right band, never the whole bar.
+      if (latched) {
+        ctx.save();
+        ctx.shadowColor = CLIP_GLOW_COLOR;
+        ctx.shadowBlur = CLIP_GLOW_BLUR_PX;
+        ctx.fillStyle = CLIP_COLOR;
+        if (v) {
+          const bandH = Math.max(3, cssH * (CLIP_BAND_PCT / 100));
+          ctx.fillRect(0, 0, cssW, bandH);
+        } else {
+          const bandW = Math.max(3, cssW * (CLIP_BAND_PCT / 100));
+          ctx.fillRect(cssW - bandW, 0, bandW, cssH);
+        }
+        ctx.restore();
+      }
+
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, []);
 
   return (
     <button
       type="button"
       onClick={clearClip}
       title={clipLatched ? "Peak / clip — click to clear" : undefined}
-      className={`relative overflow-hidden rounded-[3px] bg-black/50 ${
+      className={`relative block overflow-hidden rounded-[3px] bg-black/50 ${
         className ?? (vertical ? "h-24 w-1.5" : "h-3 w-full")
       }`}
     >
-      {/* Level fill from bottom/left — height/width clip, no mask residue */}
-      {fillPct > 0.05 &&
-        (vertical ? (
-          <div
-            className="absolute bottom-0 left-0 right-0"
-            style={{ height: `${fillPct}%`, background: fill }}
-          />
-        ) : (
-          <div
-            className="absolute top-0 bottom-0 left-0"
-            style={{ width: `${fillPct}%`, background: fill }}
-          />
-        ))}
-
-      {/* Peak hold needle (not a fill trail) */}
-      {showPeak &&
-        (vertical ? (
-          <div
-            className="absolute left-0 right-0 h-px z-[5] pointer-events-none"
-            style={{
-              bottom: `calc(${peakPct}% - 0.5px)`,
-              background:
-                peak > 0 ? "rgba(255,59,48,0.95)" : "rgba(255,255,255,0.85)",
-            }}
-          />
-        ) : (
-          <div
-            className="absolute top-0 bottom-0 w-px z-[5] pointer-events-none"
-            style={{
-              left: `calc(${peakPct}% - 0.5px)`,
-              background:
-                peak > 0 ? "rgba(255,59,48,0.95)" : "rgba(255,255,255,0.85)",
-            }}
-          />
-        ))}
-
-      {/* Clip / peak-high latch: ONLY the top band, never the whole bar */}
-      {clipLatched &&
-        (vertical ? (
-          <div
-            className="absolute top-0 left-0 right-0 z-10 pointer-events-none"
-            style={{
-              height: `${CLIP_BAND_PCT}%`,
-              minHeight: 3,
-              background: CLIP_COLOR,
-              boxShadow: CLIP_GLOW,
-            }}
-          />
-        ) : (
-          <div
-            className="absolute top-0 bottom-0 right-0 z-10 pointer-events-none"
-            style={{
-              width: `${CLIP_BAND_PCT}%`,
-              minWidth: 3,
-              background: CLIP_COLOR,
-              boxShadow: CLIP_GLOW,
-            }}
-          />
-        ))}
+      <canvas ref={canvasRef} className="block h-full w-full" />
     </button>
   );
 }
