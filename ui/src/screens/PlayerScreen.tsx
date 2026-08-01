@@ -8,6 +8,7 @@ import {
   Square,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { FontIcon } from "../components/FontIcon";
 import { LevelMeterBar } from "../components/LevelMeterBar";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
@@ -18,32 +19,6 @@ import type {
   PeaksResponse,
   WebUiState,
 } from "../lib/types";
-
-function MetronomeIcon({
-  size = 16,
-  className = "",
-}: {
-  size?: number;
-  className?: string;
-}) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12 18v-7" />
-      <path d="M7 22l4-18h2l4 18H7z" />
-      <path d="M9 14h6" />
-    </svg>
-  );
-}
 
 function formatTime(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) sec = 0;
@@ -500,7 +475,7 @@ export function PlayerScreen({
               }`}
               title={isMetronomeOn ? "Metronome: ON" : "Metronome: OFF"}
             >
-              <MetronomeIcon size={16} />
+              <FontIcon name="metronome" size={16} />
               <span>Click</span>
             </button>
             {/* Send routing chevron */}

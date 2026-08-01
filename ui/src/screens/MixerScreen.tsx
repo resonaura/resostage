@@ -7,6 +7,7 @@ import {
   ContextMenuItem,
 } from "../components/ContextMenu";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FontIcon } from "../components/FontIcon";
 import {
   CLIP_COLOR,
   CLIP_GLOW,
@@ -841,6 +842,7 @@ function StripButton({
 
 function ChannelStrip({
   name,
+  icon,
   subtitle,
   color,
   busses,
@@ -866,6 +868,8 @@ function ChannelStrip({
   onSolo,
 }: {
   name: string;
+  /** Optional glyph shown next to the name (e.g. the metronome strip). */
+  icon?: React.ReactNode;
   subtitle?: string;
   color: string;
   busses?: BusRow[];
@@ -936,9 +940,10 @@ function ChannelStrip({
           style={{ backgroundColor: color }}
         />
         <div
-          className="truncate text-xs font-semibold text-foreground w-full"
+          className="flex items-center justify-center gap-1 truncate text-xs font-semibold text-foreground w-full"
           title={name}
         >
+          {icon}
           {name}
         </div>
         {subtitle && (
@@ -1209,6 +1214,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   return (
     <ChannelStrip
       name="Click"
+      icon={<FontIcon name="metronome" size={11} />}
       subtitle="Metronome"
       color="#ff9230"
       busses={state.busses}

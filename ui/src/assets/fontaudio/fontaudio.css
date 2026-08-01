@@ -1,0 +1,35 @@
+/* fontaudio (MIT License, Michelangelo Nottoli) -- https://github.com/fefanto/fontaudio
+   Only the two glyphs ResoStage actually uses; see FontIcon.tsx. Add more
+   `.icon-fad-<name>` blocks here (content codes from the upstream font's
+   fontaudio.css) if a future icon need arises -- don't bulk-copy the full
+   155-glyph sheet for icons nothing renders. */
+
+@font-face {
+  font-family: "fontaudio";
+  src:
+    url("./fontaudio.woff2") format("woff2"),
+    url("./fontaudio.woff") format("woff"),
+    url("./fontaudio.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+i[class^="icon-fad-"]:before,
+i[class*=" icon-fad-"]:before {
+  font-family: "fontaudio" !important;
+  font-style: normal;
+  font-weight: normal !important;
+  font-variant: normal;
+  line-height: 1;
+  text-transform: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.icon-fad-metronome:before {
+  content: "\f156";
+}
+.icon-fad-midiplug:before {
+  content: "\f158";
+}

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@heroui/styles";
+@import "./assets/fontaudio/fontaudio.css";
 
 html,
 body,

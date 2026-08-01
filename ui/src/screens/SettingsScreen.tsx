@@ -1,5 +1,6 @@
 import { Card } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
+import { FontIcon } from "../components/FontIcon";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 
@@ -199,14 +200,22 @@ function BindingRow({
             if (learning) void settingsApi.midiLearnCancel();
             else void settingsApi.midiLearn(action);
           }}
-          className={`rounded-lg border px-3 py-1 text-sm ${
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm ${
             learning
               ? "border-accent bg-accent/10 text-accent"
               : "border-default/60 bg-default/20 hover:bg-default/30"
           }`}
           title="Arm MIDI learn — press a pad or CC on the remote input"
+          aria-label={
+            learning
+              ? "Listening for MIDI"
+              : midiBound
+                ? formatMidi(midi)
+                : "MIDI Learn"
+          }
         >
-          {learning ? "Listening MIDI…" : formatMidi(midi)}
+          <FontIcon name="midiplug" size={13} />
+          {learning ? "Listening…" : midiBound ? formatMidi(midi) : null}
         </button>
         {midiBound && !learning && (
           <button
