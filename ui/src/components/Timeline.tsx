@@ -21,6 +21,7 @@ import {
   transport,
 } from "../lib/api";
 import { useContinuousPlayhead, useLiveValue } from "../lib/optimistic";
+import { isPositionVisible } from "../lib/timelineVisibility";
 import type {
   AllPeaksResponse,
   PeakLevelData,
@@ -2488,6 +2489,11 @@ export function Timeline({
     let lastSongIdx = currentSongIdxRef.current;
     const marker = playheadRef.current;
     if (marker) marker.style.left = `${displayPx}px`;
+    // This whole effect runs once per mount, and a HeroUI TabPanel fully
+    // unmounts its children while inactive (no shouldForceMount prop, see
+    // App.tsx's <Tabs.Panel> usages) -- so mounting IS "the user just
+    // switched to this tab". Consumed once, on the first tick, below.
+    let firstTick = true;
 
     const tick = () => {
       // pxPerSecRef.current (NOT a render-copied mirror): applyZoomAt writes
@@ -2615,9 +2621,22 @@ export function Timeline({
         // manual scrolling (px doesn't move then, so lastRevealPx stays
         // equal). While playing in "smooth" the follow branch above owns the
         // scroll, so this else-branch logic never runs for it.
+        // First tick after mount (== just switched to this tab, see
+        // `firstTick`'s doc comment): if the playhead isn't already inside
+        // the freshly-mounted scroller's default viewport, treat that as a
+        // jump too, so it gets the exact same reveal-pan animation a song
+        // change gets instead of sitting off-screen until the next real
+        // jump (or, if paused with follow off, forever). Guarded to fire at
+        // most once per mount regardless of whether a pan actually starts
+        // this tick (dragging/gesture below could still defer it a frame).
+        const notYetVisible =
+          firstTick
+          && !!scroller
+          && !isPositionVisible(px, scroller.scrollLeft, viewWidth);
         const jumped =
           songJumped
-          || Math.abs(px - lastRevealPx) > pxPerSecRef.current * 2.0;
+          || Math.abs(px - lastRevealPx) > pxPerSecRef.current * 2.0
+          || notYetVisible;
         const snapEdge =
           playingRef.current
           && followModeRef.current === "snap"
@@ -2668,6 +2687,7 @@ export function Timeline({
       }
 
       lastRevealPx = px;
+      firstTick = false;
 
       // Write the marker EXCEPT while a zoom-focus scroll commit is pending.
       // applyZoomAt updates pxPerSecRef.current synchronously, so px is

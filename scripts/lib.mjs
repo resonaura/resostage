@@ -206,6 +206,11 @@ export function runTests() {
   if (!existsSync(TEST_BINARY)) die(`Test binary missing: ${TEST_BINARY}`);
   log(`Running ${TEST_BINARY}`);
   run(TEST_BINARY, []);
+
+  log("Running ui tests (vitest)...");
+  if (run("pnpm", ["test"], { cwd: join(ROOT, "ui") }) !== 0) {
+    die("ui tests failed");
+  }
 }
 
 export function lintAll() {
