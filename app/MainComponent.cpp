@@ -375,6 +375,9 @@ void MainComponent::performAction(const std::string& action) {
     // SettingsScreen can flash the one binding row that actually fired.
     lastAction_ = action;
     ++lastActionNonce_;
+#if JUCE_MAC
+    flashMacMenuAction(action);
+#endif
 
     if (action == "play")
         togglePlayback();

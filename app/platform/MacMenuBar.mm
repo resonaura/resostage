@@ -50,14 +50,26 @@ NSMenuItem* openRecentItem = nil; // File > Open Recent, submenu rebuilt by upda
 // Menu items whose key equivalents are driven by user-configured keyBindings.
 static NSMutableDictionary* dynamicItems = nil;  // action → NSMenuItem
 
+// Every item with a real actionId (transport/mode/section/undo-redo/project
+// lifecycle/recent-projects alike) -- lookup table for flashMacMenuAction().
+// Broader than dynamicItems on purpose: flashing isn't about key-equivalent
+// syncing, so items with a fixed hardcoded shortcut (New/Open/Save…) still
+// belong here.
+static NSMutableDictionary* flashableItems = nil; // action → NSMenuItem
+static NSMutableDictionary* flashTimers = nil;    // action → pending-clear NSTimer
+
 static NSMenuItem* makeItem(NSString* title, NSString* actionId,
                              NSString* keyEq, NSEventModifierFlags modMask,
                              id tgt) {
     NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
                                                   action:@selector(menuAction:)
                                            keyEquivalent:keyEq ? keyEq : @""];
-    if (actionId)
+    if (actionId) {
         [item setRepresentedObject:actionId];
+        if (flashableItems == nil)
+            flashableItems = [[NSMutableDictionary alloc] init];
+        [flashableItems setObject:item forKey:actionId];
+    }
     if (modMask != 0)
         [item setKeyEquivalentModifierMask:modMask];
     [item setTarget:tgt];
@@ -115,6 +127,8 @@ static void setKeyEquivForBinding(NSMenuItem* item, const std::string& desc) {
     else if (key == "f4")       keyEq = @"\U0000F707";
     else if (key == "end")      keyEq = @"\U0000F72B";
     else if (key == "home")     keyEq = @"\U0000F729";
+    else if (key == "left")     keyEq = @"\U0000F702";
+    else if (key == "right")    keyEq = @"\U0000F703";
     else if (key == "pageup")   keyEq = @"\U0000F72C";
     else if (key == "pagedown") keyEq = @"\U0000F72D";
     else if (key == "delete")   keyEq = @"\u007F";
@@ -278,6 +292,11 @@ void installMacMenuBar(MacMenuBarCallback onAction,
                              nil, 0, tgt))];
         [m addItem:makeDynamicItem("section_next", makeItem(@"Next Section", @"section_next",
                              nil, 0, tgt))];
+        [m addItem:makeSep()];
+        [m addItem:makeDynamicItem("bar_prev", makeItem(@"Previous Bar", @"bar_prev",
+                             nil, 0, tgt))];
+        [m addItem:makeDynamicItem("bar_next", makeItem(@"Next Bar", @"bar_next",
+                             nil, 0, tgt))];
 
         NSMenuItem* parent = [[[NSMenuItem alloc]
             initWithTitle:@"Transport" action:nil keyEquivalent:@""] autorelease];
@@ -322,6 +341,13 @@ void uninstallMacMenuBar() {
     if (undoItem) { [undoItem release]; undoItem = nil; }
     if (redoItem) { [redoItem release]; redoItem = nil; }
     if (openRecentItem) { [openRecentItem release]; openRecentItem = nil; }
+    if (flashTimers) {
+        for (NSString* key in flashTimers)
+            [(NSTimer*)flashTimers[key] invalidate];
+        [flashTimers release];
+        flashTimers = nil;
+    }
+    if (flashableItems) { [flashableItems release]; flashableItems = nil; }
     if (globalTarget) { [globalTarget release]; globalTarget = nil; }
     if (dynamicItems) { [dynamicItems release]; dynamicItems = nil; }
     menuCallback = nullptr;
@@ -359,6 +385,37 @@ void updateMacMenuUndoRedo(bool canUndo, bool canRedo,
             : @"Redo"];
         [redoItem setEnabled:canRedo];
     }
+}
+
+void flashMacMenuAction(const std::string& actionId) {
+    if (flashableItems == nil)
+        return;
+    NSString* key = [NSString stringWithUTF8String:actionId.c_str()];
+    if ([flashableItems objectForKey:key] == nil)
+        return;
+
+    if (flashTimers == nil)
+        flashTimers = [[NSMutableDictionary alloc] init];
+    // A repeat trigger while still lit restarts the clear timer instead of
+    // flickering off and back on between presses.
+    NSTimer* existing = [flashTimers objectForKey:key];
+    if (existing != nil)
+        [existing invalidate];
+
+    [(NSMenuItem*)[flashableItems objectForKey:key] setState:NSControlStateValueOn];
+
+    NSTimer* timer = [NSTimer scheduledTimerWithTimeInterval:0.45
+                                                       repeats:NO
+                                                         block:^(NSTimer*) {
+        // Re-look-up rather than capture the item directly -- a menu rebuild
+        // (e.g. Open Recent repopulating) during the pending window would
+        // otherwise leave this clearing a stale, already-replaced NSMenuItem.
+        NSMenuItem* current = [flashableItems objectForKey:key];
+        if (current != nil)
+            [current setState:NSControlStateValueOff];
+        [flashTimers removeObjectForKey:key];
+    }];
+    [flashTimers setObject:timer forKey:key];
 }
 
 void updateMacMenuRecentProjects(

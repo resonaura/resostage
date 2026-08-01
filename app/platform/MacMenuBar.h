@@ -19,6 +19,14 @@ void updateMacMenuUndoRedo(bool canUndo, bool canRedo,
                             const std::string& undoLabel,
                             const std::string& redoLabel);
 
+// Briefly checkmarks the menu item for `actionId` (any item created with a
+// non-null actionId, not just the key-equivalent-syncable ones) so a
+// hotkey/MIDI/menu trigger is visibly acknowledged in the menu bar itself.
+// Auto-clears after a short delay; a repeat trigger while still lit just
+// restarts the timer rather than flickering off and back on. No-op if the
+// action has no corresponding menu item.
+void flashMacMenuAction(const std::string& actionId);
+
 // Rebuilds File > Open Recent from `recents` (most-recent-first, {path,
 // displayLabel} pairs). Each item dispatches action id "open_recent:<path>"
 // through the same callback passed to installMacMenuBar. An empty list
