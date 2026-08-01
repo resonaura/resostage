@@ -602,7 +602,11 @@ public:
     // backpressure (frontend too slow to drain the socket, or the network/
     // backend can't keep up) and recovers only after a long clean streak, so
     // the rate doesn't oscillate ("float") under borderline conditions.
-    static constexpr int kTelemetryHz = 30;
+    //
+    // 60 Hz halves the maximum telemetry lag vs. 30 Hz (17 ms vs. 33 ms),
+    // which matters for peaks (click/track) and the live light preview.
+    // The min floor stays at 6 Hz so backpressure recovery is unchanged.
+    static constexpr int kTelemetryHz = 60;
     static constexpr int kTelemetryPeriodUs = 1'000'000 / kTelemetryHz;
     static constexpr int kTelemetryMinHz = 6;
     static constexpr int kTelemetryMinPeriodUs = 1'000'000 / kTelemetryMinHz;
@@ -673,6 +677,7 @@ private:
     std::string buildStateJson(const char* view = nullptr) const;
     // lws thread: grab prebuilt frame for a view (empty if none yet).
     std::shared_ptr<const std::string> cachedFrameForView(const char* view) const;
+    std::shared_ptr<const std::vector<uint8_t>> cachedBinaryFrame() const;
     void enqueueCommand(WebCommand cmd);
     bool handleHttpApi(struct lws* wsi, const char* path, const char* method, const char* body, size_t bodyLen);
     int serveStatic(struct lws* wsi, const char* path);
@@ -709,6 +714,7 @@ private:
         std::shared_ptr<const std::string> editor;
         std::shared_ptr<const std::string> settings;
         std::shared_ptr<const std::string> all; // REST full snapshot
+        std::shared_ptr<const std::vector<uint8_t>> binary; // High-frequency telemetry (binary)
         uint64_t generation = 0;
     };
     mutable std::mutex frameMutex;

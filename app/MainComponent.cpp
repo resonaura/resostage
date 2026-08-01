@@ -1286,8 +1286,17 @@ void MainComponent::publishWebState() {
             return -144.0f;
         };
 
+        // Re-read the live transport position right before resolving light
+        // outputs.  The playhead was first sampled at the top of
+        // publishWebState() (line ~999), but by the time we reach here the
+        // JSON serialisation of all structural state has already run — on a
+        // loaded machine that can be several ms.  The LightEngine DMX thread
+        // always reads transport.playheadSeconds.load() live, so we must too
+        // in order to match its output instead of trailing behind it.
+        const double livePlayheadSec =
+            transport.playheadSeconds.load(std::memory_order_relaxed);
         const auto resolved = resolveLightOutputs(
-            proj.lightTracks, activeSong.lightCues, state.playheadSeconds, activeSong.bpm, sourceLevelDb);
+            proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
         state.lightOutput.reserve(resolved.size());
         for (const auto& r : resolved) {
             WebUiState::LightOutputRow lor;

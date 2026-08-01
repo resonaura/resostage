@@ -1,5 +1,5 @@
 import { apiUrl } from "./backend";
-import type { AllPeaksResponse, EventTypeWire, PeaksResponse } from "./types";
+import type { AllPeaksResponse, EventTypeWire, LightCueRow, PeaksResponse } from "./types";
 
 // Mirrors WebServer::handleHttpApi().
 async function post(path: string, body?: unknown): Promise<void> {
@@ -399,8 +399,20 @@ export const lighting = {
   trackUpdate: (patch: { index: number; name?: string; fixtureIds?: string[] }) =>
     post("/api/v1/lighting/track/update", patch),
 
-  cueAdd: (songIndex: number, trackId: string, startSeconds: number, durationSeconds = 2.0) =>
-    post("/api/v1/lighting/cue/add", { songIndex, trackId, startSeconds, durationSeconds }),
+  cueAdd: (
+    songIndex: number,
+    trackId: string,
+    startSeconds: number,
+    durationSeconds = 2.0,
+    extra?: Partial<LightCueRow> & { gestureId?: string },
+  ) =>
+    post("/api/v1/lighting/cue/add", {
+      songIndex,
+      trackId,
+      startSeconds,
+      durationSeconds,
+      ...extra,
+    }),
   cueRemove: (songIndex: number, cueId: string) =>
     post("/api/v1/lighting/cue/remove", { songIndex, cueId }),
   cueUpdate: (patch: {
@@ -425,6 +437,7 @@ export const lighting = {
     tempoSubdiv?: string;
     effectRateHz?: number;
     gradientPreset?: "solid" | "greenYellowRed";
+    gestureId?: string;
   }) => post("/api/v1/lighting/cue/update", patch),
 };
 

@@ -27,6 +27,7 @@ import { useContinuousPlayhead, useLiveValue } from "../lib/optimistic";
 import { isPositionVisible } from "../lib/timelineVisibility";
 import type {
   AllPeaksResponse,
+  LightCueRow,
   PeaksResponse,
   RegionRow,
   SectionRow,
@@ -1352,6 +1353,141 @@ export function Timeline({
   );
   const clipboardRegions = useRef<RegionClipboardEntry[]>([]);
 
+  // Light-cue clipboard (parallel to clipboardRegions for audio regions).
+  interface CueClipboardEntry extends LightCueRow {
+    songIndex: number;
+  }
+  const clipboardCues = useRef<CueClipboardEntry[]>([]);
+
+  // ── Light-cue editing actions (mirror of the audio-region equivalents) ──
+
+  const copySelectedCue = () => {
+    if (!cueSelection) return;
+    const cue = songs[cueSelection.songIndex]?.lightCues?.find(
+      (c) => c.id === cueSelection.cueId,
+    );
+    if (!cue) return;
+    clipboardCues.current = [{ ...cue, songIndex: cueSelection.songIndex }];
+    showToast("Copied light cue");
+  };
+
+  const deleteSelectedCue = () => {
+    if (!cueSelection) return;
+    void lighting.cueRemove(cueSelection.songIndex, cueSelection.cueId);
+    setCueSelection(null);
+    showToast("Deleted light cue");
+  };
+
+  const duplicateSelectedCue = async () => {
+    if (!cueSelection) return;
+    const cue = songs[cueSelection.songIndex]?.lightCues?.find(
+      (c) => c.id === cueSelection.cueId,
+    );
+    if (!cue) return;
+    await lighting.cueAdd(
+      cueSelection.songIndex,
+      cue.trackId,
+      cue.startSeconds,
+      cue.durationSeconds,
+      {
+        colorR: cue.colorR, colorG: cue.colorG, colorB: cue.colorB,
+        intensity: cue.intensity,
+        fadeInSeconds: cue.fadeInSeconds, fadeOutSeconds: cue.fadeOutSeconds,
+        label: cue.label,
+        effectType: cue.effectType, effectSourceType: cue.effectSourceType,
+        effectSourceId: cue.effectSourceId, effectIntensity: cue.effectIntensity,
+        tempoSync: cue.tempoSync, tempoSubdiv: cue.tempoSubdiv,
+        effectRateHz: cue.effectRateHz, gradientPreset: cue.gradientPreset,
+      },
+    );
+    showToast("Duplicated light cue");
+  };
+
+  const pasteClipboardCues = async () => {
+    const items = clipboardCues.current;
+    if (items.length === 0) return;
+    const gestureId = crypto.randomUUID();
+    for (const entry of items) {
+      await lighting.cueAdd(
+        entry.songIndex,
+        entry.trackId,
+        entry.startSeconds,
+        entry.durationSeconds,
+        {
+          colorR: entry.colorR, colorG: entry.colorG, colorB: entry.colorB,
+          intensity: entry.intensity,
+          fadeInSeconds: entry.fadeInSeconds, fadeOutSeconds: entry.fadeOutSeconds,
+          label: entry.label,
+          effectType: entry.effectType, effectSourceType: entry.effectSourceType,
+          effectSourceId: entry.effectSourceId, effectIntensity: entry.effectIntensity,
+          tempoSync: entry.tempoSync, tempoSubdiv: entry.tempoSubdiv,
+          effectRateHz: entry.effectRateHz, gradientPreset: entry.gradientPreset,
+          gestureId,
+        },
+      );
+    }
+    showToast(`Pasted ${items.length} light cue(s)`);
+  };
+
+  const splitSelectedCueAtPlayhead = async () => {
+    if (!cueSelection) {
+      showToast("Select a cue to trim");
+      return;
+    }
+    const cue = songs[cueSelection.songIndex]?.lightCues?.find(
+      (c) => c.id === cueSelection.cueId,
+    );
+    if (!cue) return;
+
+    const songStart = songOffsets[cueSelection.songIndex] ?? 0;
+    const localPlayhead = playheadAbsoluteSec - songStart;
+    const cueEnd = cue.startSeconds + cue.durationSeconds;
+
+    if (
+      localPlayhead <= cue.startSeconds + 0.05 ||
+      localPlayhead >= cueEnd - 0.05
+    ) {
+      showToast("Playhead is not inside the selected cue");
+      return;
+    }
+
+    const leftDur = localPlayhead - cue.startSeconds;
+    const rightDur = cueEnd - localPlayhead;
+    const gestureId = crypto.randomUUID();
+
+    // Trim left half (clear fade-out so it doesn't ramp through the cut).
+    await lighting.cueUpdate({
+      songIndex: cueSelection.songIndex,
+      cueId: cue.id,
+      durationSeconds: leftDur,
+      fadeOutSeconds: 0,
+      gestureId,
+    });
+
+    // Add right half with all cue properties, clearing the fade-in at the cut.
+    await lighting.cueAdd(
+      cueSelection.songIndex,
+      cue.trackId,
+      localPlayhead,
+      rightDur,
+      {
+        colorR: cue.colorR, colorG: cue.colorG, colorB: cue.colorB,
+        intensity: cue.intensity,
+        fadeInSeconds: 0, fadeOutSeconds: cue.fadeOutSeconds,
+        label: cue.label,
+        effectType: cue.effectType, effectSourceType: cue.effectSourceType,
+        effectSourceId: cue.effectSourceId, effectIntensity: cue.effectIntensity,
+        tempoSync: cue.tempoSync, tempoSubdiv: cue.tempoSubdiv,
+        effectRateHz: cue.effectRateHz, gradientPreset: cue.gradientPreset,
+        gestureId,
+      },
+    );
+
+    showToast("Split cue at playhead");
+    setCueSelection(null);
+  };
+
+
   const selectRegion = (
     key: RegionSelKey,
     e: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean },
@@ -2118,7 +2254,8 @@ export function Timeline({
     });
   };
 
-  // Editor hotkeys: region copy / paste / delete / select-all.
+  // Editor hotkeys: region copy / paste / delete / select-all (audio mode)
+  // and cue copy / paste / delete / split (light mode).
   useEffect(() => {
     if (readOnly) return;
     const onKey = (e: KeyboardEvent) => {
@@ -2131,33 +2268,60 @@ export function Timeline({
       )
         return;
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === "a") {
-        e.preventDefault();
-        setSelectedRegionKeys(allRegionSelKeys(state.songs));
-      } else if (mod && e.key === "c") {
-        e.preventDefault();
-        copySelectedRegions();
-      } else if (mod && e.key === "v") {
-        e.preventDefault();
-        void pasteClipboardRegions();
-      } else if (mod && e.key === "d") {
-        e.preventDefault();
-        void duplicateSelectedRegions();
-      } else if (mod && e.key === "t") {
-        e.preventDefault();
-        void splitSelectedAtPlayhead();
-      } else if (e.key === "Backspace" || e.key === "Delete") {
-        if (selectedRegionKeys.length === 0) return;
-        e.preventDefault();
-        deleteSelectedRegions();
-      } else if (e.key === "Escape") {
-        setSelectedRegionKeys([]);
+
+      if (effectiveViewMode === "light") {
+        // ── Light-cue hotkeys ──
+        if (mod && e.key === "c") {
+          e.preventDefault();
+          copySelectedCue();
+        } else if (mod && e.key === "v") {
+          e.preventDefault();
+          void pasteClipboardCues();
+        } else if (mod && e.key === "d") {
+          e.preventDefault();
+          void duplicateSelectedCue();
+        } else if (mod && e.key === "t") {
+          e.preventDefault();
+          void splitSelectedCueAtPlayhead();
+        } else if (e.key === "Backspace" || e.key === "Delete") {
+          if (!cueSelection) return;
+          e.preventDefault();
+          deleteSelectedCue();
+        } else if (e.key === "Escape") {
+          setCueSelection(null);
+        }
+      } else {
+        // ── Audio-region hotkeys ──
+        if (mod && e.key === "a") {
+          e.preventDefault();
+          setSelectedRegionKeys(allRegionSelKeys(state.songs));
+        } else if (mod && e.key === "c") {
+          e.preventDefault();
+          copySelectedRegions();
+        } else if (mod && e.key === "v") {
+          e.preventDefault();
+          void pasteClipboardRegions();
+        } else if (mod && e.key === "d") {
+          e.preventDefault();
+          void duplicateSelectedRegions();
+        } else if (mod && e.key === "t") {
+          e.preventDefault();
+          void splitSelectedAtPlayhead();
+        } else if (e.key === "Backspace" || e.key === "Delete") {
+          if (selectedRegionKeys.length === 0) return;
+          e.preventDefault();
+          deleteSelectedRegions();
+        } else if (e.key === "Escape") {
+          setSelectedRegionKeys([]);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [
     readOnly,
+    effectiveViewMode,
+    cueSelection,
     selectedRegionKeys,
     state.songs,
     playheadAbsoluteSec,
@@ -2519,9 +2683,21 @@ export function Timeline({
                 size="sm"
                 variant="outline"
                 isIconOnly
-                aria-label="Copy selected regions (⌘C)"
-                isDisabled={selectedRegionKeys.length === 0}
-                onPress={copySelectedRegions}
+                aria-label={
+                  effectiveViewMode === "light"
+                    ? "Copy selected cue (⌘C)"
+                    : "Copy selected regions (⌘C)"
+                }
+                isDisabled={
+                  effectiveViewMode === "light"
+                    ? !cueSelection
+                    : selectedRegionKeys.length === 0
+                }
+                onPress={
+                  effectiveViewMode === "light"
+                    ? copySelectedCue
+                    : copySelectedRegions
+                }
               >
                 <Copy size={13} />
               </Button>
@@ -2529,9 +2705,21 @@ export function Timeline({
                 size="sm"
                 variant="outline"
                 isIconOnly
-                aria-label="Delete selected regions (⌫)"
-                isDisabled={selectedRegionKeys.length === 0}
-                onPress={deleteSelectedRegions}
+                aria-label={
+                  effectiveViewMode === "light"
+                    ? "Delete selected cue (⌫)"
+                    : "Delete selected regions (⌫)"
+                }
+                isDisabled={
+                  effectiveViewMode === "light"
+                    ? !cueSelection
+                    : selectedRegionKeys.length === 0
+                }
+                onPress={
+                  effectiveViewMode === "light"
+                    ? deleteSelectedCue
+                    : deleteSelectedRegions
+                }
               >
                 <Trash2 size={13} />
               </Button>
@@ -2539,9 +2727,21 @@ export function Timeline({
                 size="sm"
                 variant="outline"
                 isIconOnly
-                aria-label="Trim/split selected regions at playhead (⌘T)"
-                isDisabled={selectedRegionKeys.length === 0}
-                onPress={() => void splitSelectedAtPlayhead()}
+                aria-label={
+                  effectiveViewMode === "light"
+                    ? "Split selected cue at playhead (⌘T)"
+                    : "Trim/split selected regions at playhead (⌘T)"
+                }
+                isDisabled={
+                  effectiveViewMode === "light"
+                    ? !cueSelection
+                    : selectedRegionKeys.length === 0
+                }
+                onPress={
+                  effectiveViewMode === "light"
+                    ? () => void splitSelectedCueAtPlayhead()
+                    : () => void splitSelectedAtPlayhead()
+                }
               >
                 <Scissors size={13} />
               </Button>

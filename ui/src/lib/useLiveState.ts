@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "./backend";
-import { pushLiveLevels } from "./liveLevels";
+import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds } from "./liveLevels";
 import { emptyState, type WebUiState } from "./types";
 
 export type ConnectionStatus = "connecting" | "live" | "reconnecting";
@@ -167,6 +167,7 @@ export function useLiveState(view: string = "player") {
     const connect = () => {
       if (cancelled) return;
       ws = new WebSocket(wsUrl(), "resoset");
+      ws.binaryType = "arraybuffer";
       wsRef.current = ws;
       setTransport("ws");
 
@@ -180,10 +181,19 @@ export function useLiveState(view: string = "player") {
         }
       };
       ws.onmessage = (ev) => {
+        if (ev.data instanceof ArrayBuffer) {
+          // 1) High-frequency zero-copy binary telemetry (peaks, playhead, lights)
+          pushLiveBinaryFrame(ev.data);
+          return;
+        }
+
         const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
-        // 1) Levels: every frame, immediately (no drop).
+        // 2) Structural JSON: levels fallback + React state update.
         try {
           const parsed = JSON.parse(raw) as Partial<WebUiState>;
+          if (parsed.meters) {
+            setMeterIds(parsed.meters.map((m) => m.id));
+          }
           pushLiveLevels({
             clickPeakDb: parsed.clickPeakDb,
             clickPeakDbL: parsed.clickPeakDbL,
@@ -200,7 +210,7 @@ export function useLiveState(view: string = "player") {
         } catch {
           // ignore
         }
-        // 2) Full React state: coalesce to paint rate.
+        // Full React state: coalesce to paint rate.
         pendingRawRef.current = raw;
         if (!rafRef.current) {
           rafRef.current = requestAnimationFrame(flushPending);

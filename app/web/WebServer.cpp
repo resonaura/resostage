@@ -52,6 +52,7 @@ struct WsSession {
     WebServer* server = nullptr;
     struct lws* wsi = nullptr;
     bool writePending = false;
+    bool sendBinaryNext = false;
     ClientView view = ClientView::Player;
     // Adaptive per-client send period -- see LWS_CALLBACK_TIMER below.
     int periodUs = kTelemetryPeriodUs;
@@ -64,6 +65,78 @@ ClientView parseClientView(const std::string& s) {
     if (s == "editor" || s == "builder") return ClientView::Editor;
     if (s == "settings") return ClientView::Settings;
     return ClientView::Player;
+}
+
+static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
+    const uint16_t numTracks = static_cast<uint16_t>(s.tracks.size());
+    const uint16_t numMeters = static_cast<uint16_t>(s.meters.size());
+    const uint16_t numLights = static_cast<uint16_t>(s.lightOutput.size());
+
+    const size_t totalSize = 24
+        + static_cast<size_t>(numTracks) * 8
+        + static_cast<size_t>(numMeters) * 8
+        + static_cast<size_t>(numLights) * 22;
+
+    std::vector<uint8_t> buf(totalSize);
+    uint8_t* p = buf.data();
+
+    const auto writeU16 = [&p](uint16_t val) {
+        std::memcpy(p, &val, 2);
+        p += 2;
+    };
+    const auto writeU8 = [&p](uint8_t val) {
+        *p++ = val;
+    };
+    const auto writeFloat = [&p](float val) {
+        std::memcpy(p, &val, 4);
+        p += 4;
+    };
+
+    writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
+    writeU8(1);       // Version 1
+    writeU8(0);       // Flags
+    writeFloat(static_cast<float>(s.playheadSeconds));
+    writeFloat(s.clickPeakDbL);
+    writeFloat(s.clickPeakDbR);
+    writeU16(numTracks);
+    writeU16(numMeters);
+    writeU16(numLights);
+    writeU16(0); // Reserved
+
+    for (const auto& tr : s.tracks) {
+        writeFloat(tr.peakDbL);
+        writeFloat(tr.peakDbR);
+    }
+
+    for (const auto& m : s.meters) {
+        writeFloat(m.peakDbL);
+        writeFloat(m.peakDbR);
+    }
+
+    const auto effectToByte = [](const std::string& type) -> uint8_t {
+        if (type == "meter") return 1;
+        if (type == "strobe") return 2;
+        if (type == "pulse") return 3;
+        if (type == "ripple") return 4;
+        if (type == "converge") return 5;
+        if (type == "gradientflow") return 6;
+        return 0;
+    };
+
+    for (uint16_t i = 0; i < numLights; ++i) {
+        const auto& lo = s.lightOutput[i];
+        writeU16(i);
+        writeU8(static_cast<uint8_t>(std::clamp(lo.r, 0, 255)));
+        writeU8(static_cast<uint8_t>(std::clamp(lo.g, 0, 255)));
+        writeU8(static_cast<uint8_t>(std::clamp(lo.b, 0, 255)));
+        writeU8(effectToByte(lo.effectType));
+        writeFloat(static_cast<float>(lo.intensity));
+        writeFloat(static_cast<float>(lo.meterLevel01));
+        writeFloat(static_cast<float>(lo.effectTSec));
+        writeFloat(static_cast<float>(lo.effectRateHz));
+    }
+
+    return buf;
 }
 
 // Per-HTTP-transaction body accumulator for small REST POSTs. Upload
@@ -740,6 +813,7 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
                 // write is still pending (slow client), drop that slot —
                 // next tick sends the latest prebuilt frame (never backlog).
                 pss->writePending = true;
+                pss->sendBinaryNext = true;
                 lws_callback_on_writable(wsi);
                 lws_set_timer_usecs(wsi, pss->periodUs);
             }
@@ -749,6 +823,22 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
     if (why == LWS_CALLBACK_SERVER_WRITEABLE) {
             if (pss == nullptr || server == nullptr || !pss->writePending)
                 return 0;
+
+            if (pss->sendBinaryNext) {
+                pss->sendBinaryNext = false;
+                const auto binFrame = server->cachedBinaryFrame();
+                if (binFrame && !binFrame->empty() && binFrame->size() + LWS_PRE <= kWsTxMax) {
+                    std::vector<uint8_t> buf(LWS_PRE + binFrame->size());
+                    std::memcpy(buf.data() + LWS_PRE, binFrame->data(), binFrame->size());
+                    const int n = lws_write(wsi, buf.data() + LWS_PRE, binFrame->size(), LWS_WRITE_BINARY);
+                    if (n < 0)
+                        return -1;
+                }
+                // Chain to send structural JSON frame next
+                lws_callback_on_writable(wsi);
+                return 0;
+            }
+
             pss->writePending = false;
 
             const char* viewName = "player";
@@ -929,6 +1019,7 @@ void WebServer::publishState(const WebUiState& next) {
     auto editor = std::make_shared<const std::string>(buildStateJson("editor"));
     auto settings = std::make_shared<const std::string>(buildStateJson("settings"));
     auto all = std::make_shared<const std::string>(buildStateJson("all"));
+    auto binary = std::make_shared<const std::vector<uint8_t>>(buildBinaryTelemetryFrame(next));
 
     {
         std::lock_guard<std::mutex> lock(frameMutex);
@@ -937,6 +1028,7 @@ void WebServer::publishState(const WebUiState& next) {
         frames.editor = std::move(editor);
         frames.settings = std::move(settings);
         frames.all = std::move(all);
+        frames.binary = std::move(binary);
         ++frames.generation;
     }
 }
@@ -952,6 +1044,11 @@ std::shared_ptr<const std::string> WebServer::cachedFrameForView(const char* vie
     if (std::strcmp(view, "settings") == 0)
         return frames.settings;
     return frames.player;
+}
+
+std::shared_ptr<const std::vector<uint8_t>> WebServer::cachedBinaryFrame() const {
+    std::lock_guard<std::mutex> lock(frameMutex);
+    return frames.binary;
 }
 
 bool WebServer::pollCommand(WebCommand& out) {

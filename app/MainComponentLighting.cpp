@@ -265,6 +265,26 @@ void MainComponent::lightingCueAdd(const std::string& json) {
     getDouble(doc, "durationSeconds", durationSeconds);
     cue.durationSeconds = std::max(0.1, durationSeconds);
 
+    int intVal = 0;
+    if (getInt(doc, "colorR", intVal)) cue.colorR = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "colorG", intVal)) cue.colorG = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "colorB", intVal)) cue.colorB = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    double numVal = 0.0;
+    if (getDouble(doc, "intensity", numVal)) cue.intensity = std::clamp(numVal, 0.0, 1.0);
+    if (getDouble(doc, "fadeInSeconds", numVal)) cue.fadeInSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "fadeOutSeconds", numVal)) cue.fadeOutSeconds = std::max(0.0, numVal);
+    std::string strVal;
+    if (getString(doc, "label", strVal)) cue.label = strVal;
+    if (getString(doc, "effectType", strVal)) cue.effectType = strVal;
+    if (getString(doc, "effectSourceType", strVal)) cue.effectSourceType = strVal;
+    if (getString(doc, "effectSourceId", strVal)) cue.effectSourceId = strVal;
+    if (getDouble(doc, "effectIntensity", numVal)) cue.effectIntensity = static_cast<float>(std::clamp(numVal, 0.0, 1.0));
+    bool boolVal = false;
+    if (getBool(doc, "tempoSync", boolVal)) cue.tempoSync = boolVal;
+    if (getString(doc, "tempoSubdiv", strVal)) cue.tempoSubdiv = strVal;
+    if (getDouble(doc, "effectRateHz", numVal)) cue.effectRateHz = static_cast<float>(std::max(0.01, numVal));
+    if (getString(doc, "gradientPreset", strVal)) cue.gradientPreset = strVal;
+
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Add light cue");

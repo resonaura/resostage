@@ -38,10 +38,48 @@ let displayClickR = FLOOR;
 
 let tracks: LiveLevels["tracks"] = [];
 let meters: LiveLevels["meters"] = [];
+let meterIds: string[] = [];
 let seq = 0;
+
+export type LiveLightOutput = {
+  fixtureIdx: number;
+  r: number;
+  g: number;
+  b: number;
+  effectType: string;
+  intensity: number;
+  meterLevel01: number;
+  effectTSec: number;
+  effectRateHz: number;
+};
+
+let liveLightOutputs: LiveLightOutput[] = [];
+let lightPlayheadSec = 0;
+
+const EFFECT_TYPES = ["none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow"];
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
+const lightListeners = new Set<Listener>();
+
+export function setMeterIds(ids: string[]) {
+  meterIds = ids;
+}
+
+export function getLivePlayheadSec(): number {
+  return lightPlayheadSec;
+}
+
+export function getLiveLightOutputs(): LiveLightOutput[] {
+  return liveLightOutputs;
+}
+
+export function subscribeLiveLightOutputs(listener: Listener): () => void {
+  lightListeners.add(listener);
+  return () => {
+    lightListeners.delete(listener);
+  };
+}
 
 let paintRaf = 0;
 
@@ -171,4 +209,81 @@ export function subscribeLiveLevels(listener: Listener): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
+  if (buffer.byteLength < 24) return;
+  const view = new DataView(buffer);
+  const magic = view.getUint16(0, true);
+  if (magic !== 0x5253) return;
+
+  const playheadSec = view.getFloat32(4, true);
+  const clickL = view.getFloat32(8, true);
+  const clickR = view.getFloat32(12, true);
+  const numTracks = view.getUint16(16, true);
+  const numMeters = view.getUint16(18, true);
+  const numLights = view.getUint16(20, true);
+
+  lightPlayheadSec = playheadSec;
+
+  latestClickL = clickL;
+  latestClickR = clickR;
+  latestClick = Math.max(clickL, clickR);
+  if (latestClick > pendingClickMax) pendingClickMax = latestClick;
+  if (clickL > pendingClickMaxL) pendingClickMaxL = clickL;
+  if (clickR > pendingClickMaxR) pendingClickMaxR = clickR;
+
+  let offset = 24;
+
+  const nextTracks: LiveLevels["tracks"] = [];
+  for (let i = 0; i < numTracks; i++) {
+    if (offset + 8 > buffer.byteLength) break;
+    const pL = view.getFloat32(offset, true);
+    const pR = view.getFloat32(offset + 4, true);
+    offset += 8;
+    nextTracks.push({ peakDb: Math.max(pL, pR), peakDbL: pL, peakDbR: pR });
+  }
+  tracks = nextTracks;
+
+  const nextMeters: LiveLevels["meters"] = [];
+  for (let i = 0; i < numMeters; i++) {
+    if (offset + 8 > buffer.byteLength) break;
+    const pL = view.getFloat32(offset, true);
+    const pR = view.getFloat32(offset + 4, true);
+    offset += 8;
+    const id = meterIds[i] ?? `meter-${i}`;
+    nextMeters.push({ id, peakDb: Math.max(pL, pR), peakDbL: pL, peakDbR: pR });
+  }
+  meters = nextMeters;
+
+  const nextLights: LiveLightOutput[] = [];
+  for (let i = 0; i < numLights; i++) {
+    if (offset + 22 > buffer.byteLength) break;
+    const fixtureIdx = view.getUint16(offset, true);
+    const r = view.getUint8(offset + 2);
+    const g = view.getUint8(offset + 3);
+    const b = view.getUint8(offset + 4);
+    const effIdx = view.getUint8(offset + 5);
+    const intensity = view.getFloat32(offset + 6, true);
+    const meterLevel01 = view.getFloat32(offset + 10, true);
+    const effectTSec = view.getFloat32(offset + 14, true);
+    const effectRateHz = view.getFloat32(offset + 18, true);
+    offset += 22;
+
+    nextLights.push({
+      fixtureIdx,
+      r, g, b,
+      effectType: EFFECT_TYPES[effIdx] ?? "none",
+      intensity,
+      meterLevel01,
+      effectTSec,
+      effectRateHz,
+    });
+  }
+  liveLightOutputs = nextLights;
+  for (const l of lightListeners) l();
+
+  seq += 1;
+  emit();
+  ensurePaintTicker();
 }
