@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { MoveHorizontal, MoveVertical, Wand2 } from "lucide-react";
 import { lighting } from "../../lib/api";
 import type { LightFixtureRow, LightingState, WebUiState } from "../../lib/types";
 import { ResoLightStage3D } from "./ResoLightStage3D";
-import { resolveLightCueValue } from "../../lib/lightCueInterpolation";
+import { computeFixturePreviewColors } from "../../lib/lightPreviewColors";
 
 const selectCls =
   "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
@@ -32,12 +33,6 @@ function autoLayoutPositions(fixtures: LightFixtureRow[]): { id: string; posX: n
     posX: (i - half) * spacing,
     posZ: 0,
   }));
-}
-
-// ─── Fixture orientation label ────────────────────────────────────────────
-
-function isHorizontalFixture(f: LightFixtureRow) {
-  return Math.abs((f.rotationYDeg % 360) - 180) < 5;
 }
 
 // ─── Fixture row ──────────────────────────────────────────────────────────
@@ -80,7 +75,7 @@ function FixtureItem({
         {fixture.name}
       </span>
       <span className="shrink-0 text-[9px] text-foreground/40 font-mono">
-        {fixture.ledCount}L · {isHorizontalFixture(fixture) ? "H" : "V"}
+        {fixture.ledCount}L · {fixture.mountedHorizontally ? "H" : "V"}
         {fixture.addressable ? " · addr" : ""}
       </span>
     </button>
@@ -88,7 +83,7 @@ function FixtureItem({
 }
 
 // ─── ProjectLightingPanel ─────────────────────────────────────────────────
-// Renamed from ProjectLightingCard since it no longer has a Card wrapper.
+// No Card wrapper -- SettingsScreen.tsx renders this inside its own Card.
 export function ProjectLightingPanel({
   li,
   state,
@@ -101,21 +96,18 @@ export function ProjectLightingPanel({
   );
   const selected = li.fixtures.find((f) => f.id === selectedFixtureId) ?? null;
 
-  // Live preview colors from current playhead
-  const songIndex = state.songIndex;
-  const song = state.songs[songIndex];
-  const playhead = state.playheadSeconds;
-
-  const previewColors: Record<string, { r: number; g: number; b: number; intensity: number }> = {};
-  if (li.enabled && song?.lightCues) {
-    for (const track of state.lightTracks) {
-      const trackCues = song.lightCues.filter((c) => c.trackId === track.id);
-      const val = resolveLightCueValue(trackCues, playhead);
-      for (const fixtureId of track.fixtureIds) {
-        previewColors[fixtureId] = val;
-      }
-    }
-  }
+  // Live preview colors from current playhead -- a fixture can be driven by
+  // more than one light track, so this goes through the shared resolver
+  // rather than the simpler one-track-per-fixture loop it used to be.
+  const song = state.songs[state.songIndex];
+  const previewColors = li.enabled
+    ? computeFixturePreviewColors(
+        li.fixtures,
+        state.lightTracks,
+        song?.lightCues ?? [],
+        state.playheadSeconds,
+      )
+    : {};
 
   return (
     <div className="flex flex-col gap-4">
@@ -187,10 +179,11 @@ export function ProjectLightingPanel({
                         void lighting.fixtureUpdate({ fixtureId: p.id, posX: p.posX, posZ: p.posZ });
                       }
                     }}
-                    className="rounded-lg border border-default/50 bg-default/20 px-3 py-1 text-xs font-medium text-foreground/70 hover:bg-default/35 transition-colors"
+                    className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/20 px-3 py-1 text-xs font-medium text-foreground/70 hover:bg-default/35 transition-colors"
                     title="Evenly spread all fixtures in a horizontal line"
                   >
-                    ⚙ Auto-layout
+                    <Wand2 size={12} />
+                    Auto-layout
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-3">
@@ -354,34 +347,40 @@ export function ProjectLightingPanel({
                     </Field>
                   </div>
 
-                  {/* Orientation toggle */}
-                  <Field label="Orientation">
+                  {/* Mount: standing vs. laid on its side -- a physical
+                      mount choice, independent of yaw (which way it faces). */}
+                  <Field label="Mount">
                     <div className="flex gap-2">
-                      {[
-                        { label: "⬆ Vertical", value: 0 },
-                        { label: "➡ Horizontal", value: 180 },
-                      ].map((opt) => {
-                        const isActive = Math.abs((selected.rotationYDeg % 360) - opt.value) < 5;
-                        return (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() =>
-                              void lighting.fixtureUpdate({
-                                fixtureId: selected.id,
-                                rotationYDeg: opt.value,
-                              })
-                            }
-                            className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                              isActive
-                                ? "border-accent bg-accent/20 text-accent"
-                                : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        );
-                      })}
+                      {(
+                        [
+                          { label: "Vertical", icon: MoveVertical, value: false },
+                          { label: "Horizontal", icon: MoveHorizontal, value: true },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.label}
+                          type="button"
+                          onClick={() =>
+                            void lighting.fixtureUpdate({
+                              fixtureId: selected.id,
+                              mountedHorizontally: opt.value,
+                            })
+                          }
+                          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                            selected.mountedHorizontally === opt.value
+                              ? "border-accent bg-accent/20 text-accent"
+                              : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
+                          }`}
+                        >
+                          <opt.icon size={13} />
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+
+                  <Field label="Yaw (°) -- which way it faces">
+                    <div className="flex gap-2">
                       {/* Custom rotation */}
                       <input
                         type="number"
@@ -506,6 +505,3 @@ export function ProjectLightingPanel({
     </div>
   );
 }
-
-// Keep backward-compatible named export for any old direct uses
-export { ProjectLightingPanel as ProjectLightingCard };

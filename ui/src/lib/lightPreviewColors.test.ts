@@ -18,6 +18,7 @@ function makeFixture(id: string): LightFixtureRow {
     posY: 0,
     posZ: 0,
     rotationYDeg: 0,
+    mountedHorizontally: false,
     dmxUniverse: 0,
     dmxStartChannel: 1,
     dmxChannelCount: 3,

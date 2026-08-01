@@ -137,7 +137,14 @@ struct LightFixture {
     double posX = 0.0;
     double posY = 0.0;
     double posZ = 0.0;
-    double rotationYDeg = 0.0; // yaw around the vertical axis
+    // Yaw around the vertical (world Y) axis -- which way the bar's face
+    // points. Independent of `mountedHorizontally`: a bar mounted flat can
+    // still yaw to point in any direction along the ground.
+    double rotationYDeg = 0.0;
+    // false = standing upright (the common case); true = laid on its side
+    // (e.g. a horizontal truss bar). A physically distinct mount, not a
+    // rotation value -- do not encode this as a magic rotationYDeg instead.
+    bool mountedHorizontally = false;
 
     // DmxGeneric fields.
     int dmxUniverse = 0;

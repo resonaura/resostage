@@ -1,6 +1,7 @@
 import { Canvas, useThree } from "@react-three/fiber";
 import { Grid, OrbitControls, Text } from "@react-three/drei";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Maximize2, MoveUp } from "lucide-react";
 import * as THREE from "three";
 import type { LightFixtureRow } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
@@ -107,18 +108,22 @@ export function ResoLightStage3D({
       {/* 3D Controls overlay */}
       <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
         <button
+          type="button"
           onClick={() => frameAllRef.current?.()}
-          className="rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 hover:bg-default/90 backdrop-blur-sm transition-colors"
+          className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-sm transition-colors hover:bg-default/90"
           title="Frame all fixtures"
         >
-          ⊞ Frame All
+          <Maximize2 size={12} />
+          Frame All
         </button>
         <button
+          type="button"
           onClick={() => topViewRef.current?.()}
-          className="rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 hover:bg-default/90 backdrop-blur-sm transition-colors"
+          className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-sm transition-colors hover:bg-default/90"
           title="Top-down view"
         >
-          ↑ Top View
+          <MoveUp size={12} />
+          Top View
         </button>
       </div>
 
@@ -229,17 +234,14 @@ function ResoLightBar({
     ? Math.max(0.08, previewColor.intensity)
     : 0.25;
 
-  // rotationYDeg doubles as horizontal-bar indicator (90°+ on Z)
-  // We interpret rotationYDeg >= 180 as "horizontal" bar for visual
-  const isHorizontal = Math.abs((fixture.rotationYDeg % 360) - 180) < 5;
-
-  // Addressable: show gradient mesh (3 segments top/mid/bot)
+  // Addressable: show a gradient stack (bright center, dimmer edges) so an
+  // addressable bar visually reads differently from a uniform one even at a
+  // glance, before any real per-LED meter data exists.
   const segments = fixture.addressable && previewColor ? 5 : 1;
   const segmentColors = useMemo(() => {
     if (!fixture.addressable || !previewColor || segments === 1) return null;
     return Array.from({ length: segments }, (_, i) => {
-      // Simple gradient: full color at center, dimmer at edges
-      const t = Math.abs((i / (segments - 1)) - 0.5) * 2; // 0=center, 1=edge
+      const t = Math.abs(i / (segments - 1) - 0.5) * 2; // 0=center, 1=edge
       const dimFactor = 1 - t * 0.4;
       return new THREE.Color(
         (previewColor.r / 255) * dimFactor,
@@ -249,59 +251,73 @@ function ResoLightBar({
     });
   }, [fixture.addressable, previewColor, segments]);
 
-  const barWidth = isHorizontal ? heightMeters : 0.08;
-  const barHeight = isHorizontal ? 0.08 : heightMeters;
-  const barDepth = 0.08;
-
+  // The bar mesh is ALWAYS built as a vertical box standing on its own
+  // origin (base at local y=0, tip at y=heightMeters) -- orientation is
+  // purely a matter of the two nested rotations below, never a change to
+  // the geometry itself. Composing "which way is it pointing" (yaw) and
+  // "is it standing or lying down" (roll) as two SEPARATE nested groups,
+  // each with a single-axis rotation, keeps the math unambiguous: the
+  // outer group yaws around world Y at the fixture's floor position (its
+  // local Z stays purely horizontal throughout), so the inner group's roll
+  // around that now-yawed local Z always correctly tips the bar down into
+  // the ground plane along the yawed direction -- one clean composition
+  // instead of swapping box dimensions AND rotating AND overloading yaw to
+  // mean "lying down" (which produced a squashed/near-square bar).
   return (
     <group
       position={[x, fixture.posY, z]}
-      rotation={[
-        isHorizontal ? Math.PI / 2 : 0,
-        THREE.MathUtils.degToRad(isHorizontal ? 0 : fixture.rotationYDeg),
-        0,
-      ]}
+      rotation={[0, THREE.MathUtils.degToRad(fixture.rotationYDeg), 0]}
     >
-      {segmentColors ? (
-        // Addressable: multiple glowing segments
-        segmentColors.map((segColor, idx) => {
-          const segH = heightMeters / segments;
-          const segY = idx * segH + segH / 2;
-          return (
-            <mesh
-              key={idx}
-              position={[0, segY, 0]}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                onPointerDownStart();
-              }}
-            >
-              <boxGeometry args={[barWidth, segH * 0.95, barDepth]} />
-              <meshStandardMaterial
-                color={segColor}
-                emissive={segColor}
-                emissiveIntensity={Math.max(0.08, previewColor!.intensity)}
-              />
-            </mesh>
-          );
-        })
-      ) : (
-        // Uniform bar
-        <mesh
-          position={[0, heightMeters / 2, 0]}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            onPointerDownStart();
-          }}
+      <group rotation={[0, 0, fixture.mountedHorizontally ? Math.PI / 2 : 0]}>
+        {segmentColors ? (
+          segmentColors.map((segColor, idx) => {
+            const segH = heightMeters / segments;
+            const segY = idx * segH + segH / 2;
+            return (
+              <mesh
+                key={idx}
+                position={[0, segY, 0]}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onPointerDownStart();
+                }}
+              >
+                <boxGeometry args={[0.08, segH * 0.95, 0.08]} />
+                <meshStandardMaterial
+                  color={segColor}
+                  emissive={segColor}
+                  emissiveIntensity={Math.max(0.08, previewColor!.intensity)}
+                />
+              </mesh>
+            );
+          })
+        ) : (
+          <mesh
+            position={[0, heightMeters / 2, 0]}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onPointerDownStart();
+            }}
+          >
+            <boxGeometry args={[0.08, heightMeters, 0.08]} />
+            <meshStandardMaterial
+              color={color}
+              emissive={color}
+              emissiveIntensity={emissiveIntensity}
+            />
+          </mesh>
+        )}
+
+        <Text
+          position={[0, heightMeters + 0.18, 0]}
+          fontSize={0.14}
+          color="#cbd5e1"
+          anchorX="center"
+          anchorY="bottom"
         >
-          <boxGeometry args={[barWidth, barHeight, barDepth]} />
-          <meshStandardMaterial
-            color={color}
-            emissive={color}
-            emissiveIntensity={emissiveIntensity}
-          />
-        </mesh>
-      )}
+          {fixture.name}
+        </Text>
+      </group>
 
       {editable && (
         <mesh position={[0, -0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -309,15 +325,6 @@ function ResoLightBar({
           <meshBasicMaterial color={selected ? "#38bdf8" : "#475569"} />
         </mesh>
       )}
-      <Text
-        position={[0, heightMeters + 0.18, 0]}
-        fontSize={0.14}
-        color="#cbd5e1"
-        anchorX="center"
-        anchorY="bottom"
-      >
-        {fixture.name}
-      </Text>
     </group>
   );
 }

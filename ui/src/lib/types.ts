@@ -167,7 +167,10 @@ export interface LightFixtureRow {
   posX: number;
   posY: number;
   posZ: number;
+  /** Yaw around the vertical axis -- independent of mountedHorizontally. */
   rotationYDeg: number;
+  /** false = standing upright, true = laid on its side (e.g. a truss bar). */
+  mountedHorizontally: boolean;
   dmxUniverse: number;
   dmxStartChannel: number;
   dmxChannelCount: number;

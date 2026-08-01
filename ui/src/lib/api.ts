@@ -384,6 +384,7 @@ export const lighting = {
     posY?: number;
     posZ?: number;
     rotationYDeg?: number;
+    mountedHorizontally?: boolean;
     gridColumn?: number;
     gridRow?: number;
     dmxUniverse?: number;

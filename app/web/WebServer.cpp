@@ -1296,6 +1296,7 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"posY\":" << finiteOrZero(f.posY) << ","
               << "\"posZ\":" << finiteOrZero(f.posZ) << ","
               << "\"rotationYDeg\":" << finiteOrZero(f.rotationYDeg) << ","
+              << "\"mountedHorizontally\":" << (f.mountedHorizontally ? "true" : "false") << ","
               << "\"dmxUniverse\":" << f.dmxUniverse << ","
               << "\"dmxStartChannel\":" << f.dmxStartChannel << ","
               << "\"dmxChannelCount\":" << f.dmxChannelCount << "}";

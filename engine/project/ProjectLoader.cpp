@@ -226,6 +226,7 @@ bool parseLightFixture(const simdjson::dom::element& fxEl, LightFixture& fx, std
     (void)fxEl["posY"].get(fx.posY);
     (void)fxEl["posZ"].get(fx.posZ);
     (void)fxEl["rotationYDeg"].get(fx.rotationYDeg);
+    (void)fxEl["mountedHorizontally"].get(fx.mountedHorizontally);
     if (!fxEl["dmxUniverse"].get(tmp)) fx.dmxUniverse = static_cast<int>(tmp);
     if (!fxEl["dmxStartChannel"].get(tmp)) fx.dmxStartChannel = static_cast<int>(tmp);
     if (!fxEl["dmxChannelCount"].get(tmp)) fx.dmxChannelCount = static_cast<int>(tmp);

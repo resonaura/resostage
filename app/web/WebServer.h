@@ -430,6 +430,7 @@ struct WebUiState {
         double posY = 0.0;
         double posZ = 0.0;
         double rotationYDeg = 0.0;
+        bool mountedHorizontally = false;
         int dmxUniverse = 0;
         int dmxStartChannel = 1;
         int dmxChannelCount = 3;

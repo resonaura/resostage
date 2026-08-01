@@ -133,10 +133,13 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     if (getString(doc, "name", strVal)) fx->name = strVal;
     if (getInt(doc, "ledCount", intVal)) fx->ledCount = std::max(1, intVal);
     if (getBool(doc, "addressable", boolVal)) fx->addressable = boolVal;
+    if (getInt(doc, "gridColumn", intVal)) fx->gridColumn = std::max(0, intVal);
+    if (getInt(doc, "gridRow", intVal)) fx->gridRow = std::max(0, intVal);
     if (getDouble(doc, "posX", numVal)) fx->posX = numVal;
     if (getDouble(doc, "posY", numVal)) fx->posY = numVal;
     if (getDouble(doc, "posZ", numVal)) fx->posZ = numVal;
     if (getDouble(doc, "rotationYDeg", numVal)) fx->rotationYDeg = numVal;
+    if (getBool(doc, "mountedHorizontally", boolVal)) fx->mountedHorizontally = boolVal;
     if (getInt(doc, "dmxUniverse", intVal)) fx->dmxUniverse = intVal;
     if (getInt(doc, "dmxStartChannel", intVal)) fx->dmxStartChannel = intVal;
     if (getInt(doc, "dmxChannelCount", intVal)) fx->dmxChannelCount = intVal;

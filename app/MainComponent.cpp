@@ -1224,6 +1224,7 @@ void MainComponent::publishWebState() {
         fr.posY = f.posY;
         fr.posZ = f.posZ;
         fr.rotationYDeg = f.rotationYDeg;
+        fr.mountedHorizontally = f.mountedHorizontally;
         fr.dmxUniverse = f.dmxUniverse;
         fr.dmxStartChannel = f.dmxStartChannel;
         fr.dmxChannelCount = f.dmxChannelCount;

@@ -1,6 +1,8 @@
+import { Card, Tabs } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
+import { Activity, FolderOpen, Lightbulb, Music3, SlidersHorizontal } from "lucide-react";
 import { FontIcon } from "../components/FontIcon";
-import { ProjectLightingPanel } from "../components/light/ProjectLightingCard";
+import { ProjectLightingPanel } from "../components/light/ProjectLightingPanel";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 
@@ -257,14 +259,17 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
 // ─── Tab definitions ──────────────────────────────────────────────────────
 type SettingsTab = "audio" | "midi" | "light" | "health";
 
-const SETTINGS_TABS: { id: SettingsTab; label: string; icon: string }[] = [
-  { id: "audio", label: "Audio", icon: "🎛" },
-  { id: "midi", label: "MIDI", icon: "🎹" },
-  { id: "light", label: "Light", icon: "💡" },
-  { id: "health", label: "Health", icon: "📊" },
+const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
+  { id: "audio", label: "Audio", icon: SlidersHorizontal },
+  { id: "midi", label: "MIDI", icon: Music3 },
+  { id: "light", label: "Light", icon: Lightbulb },
+  { id: "health", label: "Health", icon: Activity },
 ];
 
 // ─── Section wrapper ──────────────────────────────────────────────────────
+// Thin wrapper over HeroUI's Card so every tab keeps using the same compound
+// component the rest of the app does, without repeating the Header/Title/
+// Content boilerplate at every call site.
 function Section({
   title,
   description,
@@ -275,15 +280,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-default/30 bg-surface/40 overflow-hidden">
-      <div className="px-4 py-3 border-b border-default/20 bg-default/10">
-        <div className="text-sm font-semibold text-foreground">{title}</div>
+    <Card>
+      <Card.Header>
+        <Card.Title>{title}</Card.Title>
         {description && (
-          <div className="mt-0.5 text-xs text-foreground/50">{description}</div>
+          <p className="mt-0.5 text-xs text-foreground/50">{description}</p>
         )}
-      </div>
-      <div className="p-4 flex flex-col gap-3">{children}</div>
-    </div>
+      </Card.Header>
+      <Card.Content className="flex flex-col gap-3">{children}</Card.Content>
+    </Card>
   );
 }
 
@@ -608,8 +613,9 @@ function LightTab({ state }: { state: WebUiState }) {
     <div className="flex flex-col gap-4">
       {/* Project-level badge */}
       <div className="flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2">
-        <span className="text-xs text-accent font-semibold uppercase tracking-wide">
-          📁 Project-level setting
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-accent">
+          <FolderOpen size={12} />
+          Project-level setting
         </span>
         <span className="text-xs text-foreground/50">
           — saved with the project file, not global rig preferences
@@ -625,43 +631,38 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-0 h-full">
-      {/* Tab bar */}
-      <div className="flex shrink-0 gap-0 border-b border-default/30 mb-4">
-        {SETTINGS_TABS.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors select-none ${
-                isActive
-                  ? "text-foreground"
-                  : "text-foreground/50 hover:text-foreground/80"
-              }`}
-            >
-              <span>{tab.icon}</span>
-              <span>{tab.label}</span>
-              {tab.id === "light" && (
-                <span className="ml-1 rounded text-[9px] px-1 py-0.5 bg-accent/20 text-accent font-semibold uppercase tracking-wide">
-                  Project
-                </span>
-              )}
-              {isActive && (
-                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-accent rounded-t-full" />
-              )}
-            </button>
-          );
-        })}
-      </div>
+    <div className="mx-auto flex h-full max-w-3xl flex-col">
+      <Tabs
+        selectedKey={activeTab}
+        onSelectionChange={(k) => setActiveTab(String(k) as SettingsTab)}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <Tabs.ListContainer className="shrink-0 border-b border-default/30">
+          <Tabs.List aria-label="Settings sections">
+            {SETTINGS_TABS.map((tab) => (
+              <Tabs.Tab key={tab.id} id={tab.id}>
+                <tab.icon size={15} className="mr-1.5 inline-block" />
+                {tab.label}
+                {tab.id === "light" && (
+                  <span className="ml-1.5 rounded bg-accent/20 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">
+                    Project
+                  </span>
+                )}
+                <Tabs.Indicator className="bg-accent" />
+              </Tabs.Tab>
+            ))}
+          </Tabs.List>
+        </Tabs.ListContainer>
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-auto pb-6">
-        {activeTab === "audio" && <AudioTab state={state} />}
-        {activeTab === "midi" && <MidiTab state={state} />}
-        {activeTab === "light" && <LightTab state={state} />}
-        {activeTab === "health" && <HealthTab state={state} />}
-      </div>
+        {SETTINGS_TABS.map((tab) => (
+          <Tabs.Panel key={tab.id} id={tab.id} className="flex-1 overflow-auto pt-4 pb-6">
+            {tab.id === "audio" && <AudioTab state={state} />}
+            {tab.id === "midi" && <MidiTab state={state} />}
+            {tab.id === "light" && <LightTab state={state} />}
+            {tab.id === "health" && <HealthTab state={state} />}
+          </Tabs.Panel>
+        ))}
+      </Tabs>
     </div>
   );
 }

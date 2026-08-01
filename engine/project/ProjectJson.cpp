@@ -161,6 +161,7 @@ std::string serializeProjectJson(const Project& project) {
         o << "        \"posY\": "; writeNumber(o, f.posY); o << ",\n";
         o << "        \"posZ\": "; writeNumber(o, f.posZ); o << ",\n";
         o << "        \"rotationYDeg\": "; writeNumber(o, f.rotationYDeg); o << ",\n";
+        o << "        \"mountedHorizontally\": " << (f.mountedHorizontally ? "true" : "false") << ",\n";
         o << "        \"dmxUniverse\": " << f.dmxUniverse << ",\n";
         o << "        \"dmxStartChannel\": " << f.dmxStartChannel << ",\n";
         o << "        \"dmxChannelCount\": " << f.dmxChannelCount << "\n";
