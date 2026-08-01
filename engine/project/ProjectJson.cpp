@@ -47,6 +47,19 @@ const char* playbackModeToString(PlaybackMode mode) {
     return mode == PlaybackMode::AutoplayNext ? "autoplayNext" : "waitForTrigger";
 }
 
+const char* lightFixtureKindToString(LightFixture::Kind kind) {
+    return kind == LightFixture::Kind::DmxGeneric ? "dmxGeneric" : "resoLightBar";
+}
+
+const char* lightingKindToString(LightingKind kind) {
+    switch (kind) {
+        case LightingKind::ResoLight: return "resoLight";
+        case LightingKind::DmxGeneric: return "dmxGeneric";
+        case LightingKind::None: return "none";
+    }
+    return "none";
+}
+
 namespace {
 
 void writeNumber(std::ostringstream& o, double v) {
@@ -125,6 +138,50 @@ std::string serializeProjectJson(const Project& project) {
         }
         o << "      ]\n";
         o << "    }" << (i + 1 < project.tracks.size() ? "," : "") << "\n";
+    }
+    o << "  ],\n";
+
+    o << "  \"lighting\": {\n";
+    o << "    \"enabled\": " << (project.lighting.enabled ? "true" : "false") << ",\n";
+    o << "    \"kind\": \"" << lightingKindToString(project.lighting.kind) << "\",\n";
+    o << "    \"resoLightColumns\": " << project.lighting.resoLightColumns << ",\n";
+    o << "    \"resoLightRows\": " << project.lighting.resoLightRows << ",\n";
+    o << "    \"fixtures\": [\n";
+    for (size_t i = 0; i < project.lighting.fixtures.size(); ++i) {
+        const LightFixture& f = project.lighting.fixtures[i];
+        o << "      {\n";
+        o << "        \"id\": \"" << jsonEscapeString(f.id) << "\",\n";
+        o << "        \"name\": \"" << jsonEscapeString(f.name) << "\",\n";
+        o << "        \"kind\": \"" << lightFixtureKindToString(f.kind) << "\",\n";
+        o << "        \"gridColumn\": " << f.gridColumn << ",\n";
+        o << "        \"gridRow\": " << f.gridRow << ",\n";
+        o << "        \"ledCount\": " << f.ledCount << ",\n";
+        o << "        \"addressable\": " << (f.addressable ? "true" : "false") << ",\n";
+        o << "        \"posX\": "; writeNumber(o, f.posX); o << ",\n";
+        o << "        \"posY\": "; writeNumber(o, f.posY); o << ",\n";
+        o << "        \"posZ\": "; writeNumber(o, f.posZ); o << ",\n";
+        o << "        \"rotationYDeg\": "; writeNumber(o, f.rotationYDeg); o << ",\n";
+        o << "        \"dmxUniverse\": " << f.dmxUniverse << ",\n";
+        o << "        \"dmxStartChannel\": " << f.dmxStartChannel << ",\n";
+        o << "        \"dmxChannelCount\": " << f.dmxChannelCount << "\n";
+        o << "      }" << (i + 1 < project.lighting.fixtures.size() ? "," : "") << "\n";
+    }
+    o << "    ]\n";
+    o << "  },\n";
+
+    o << "  \"lightTracks\": [\n";
+    for (size_t i = 0; i < project.lightTracks.size(); ++i) {
+        const LightTrack& lt = project.lightTracks[i];
+        o << "    {\n";
+        o << "      \"id\": \"" << jsonEscapeString(lt.id) << "\",\n";
+        o << "      \"name\": \"" << jsonEscapeString(lt.name) << "\",\n";
+        o << "      \"fixtureIds\": [";
+        for (size_t fi = 0; fi < lt.fixtureIds.size(); ++fi) {
+            if (fi) o << ", ";
+            o << "\"" << jsonEscapeString(lt.fixtureIds[fi]) << "\"";
+        }
+        o << "]\n";
+        o << "    }" << (i + 1 < project.lightTracks.size() ? "," : "") << "\n";
     }
     o << "  ],\n";
 
@@ -246,6 +303,25 @@ std::string serializeProjectJson(const Project& project) {
             o << ",\n";
             o << "          \"colorIndex\": " << sec.colorIndex << "\n";
             o << "        }" << (sci + 1 < s.sections.size() ? "," : "") << "\n";
+        }
+        o << "      ],\n";
+
+        o << "      \"lightCues\": [\n";
+        for (size_t lci = 0; lci < s.lightCues.size(); ++lci) {
+            const LightCue& lc = s.lightCues[lci];
+            o << "        {\n";
+            o << "          \"id\": \"" << jsonEscapeString(lc.id) << "\",\n";
+            o << "          \"trackId\": \"" << jsonEscapeString(lc.trackId) << "\",\n";
+            o << "          \"startSeconds\": "; writeNumber(o, lc.startSeconds); o << ",\n";
+            o << "          \"durationSeconds\": "; writeNumber(o, lc.durationSeconds); o << ",\n";
+            o << "          \"colorR\": " << static_cast<int>(lc.colorR) << ",\n";
+            o << "          \"colorG\": " << static_cast<int>(lc.colorG) << ",\n";
+            o << "          \"colorB\": " << static_cast<int>(lc.colorB) << ",\n";
+            o << "          \"intensity\": "; writeNumber(o, lc.intensity); o << ",\n";
+            o << "          \"fadeInSeconds\": "; writeNumber(o, lc.fadeInSeconds); o << ",\n";
+            o << "          \"fadeOutSeconds\": "; writeNumber(o, lc.fadeOutSeconds); o << ",\n";
+            o << "          \"label\": \"" << jsonEscapeString(lc.label) << "\"\n";
+            o << "        }" << (lci + 1 < s.lightCues.size() ? "," : "") << "\n";
         }
         o << "      ]\n";
         o << "    }" << (si + 1 < project.songs.size() ? "," : "") << "\n";

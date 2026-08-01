@@ -197,6 +197,115 @@ bool parseEvent(const simdjson::dom::element& evEl, TimelineEvent& ev, std::stri
     return true;
 }
 
+bool parseLightFixtureKind(std::string_view s, LightFixture::Kind& kind) {
+    if (s == "resoLightBar") kind = LightFixture::Kind::ResoLightBar;
+    else if (s == "dmxGeneric") kind = LightFixture::Kind::DmxGeneric;
+    else return false;
+    return true;
+}
+
+bool parseLightFixture(const simdjson::dom::element& fxEl, LightFixture& fx, std::string& error) {
+    std::string_view idView, nameView;
+    if (fxEl["id"].get(idView) || fxEl["name"].get(nameView)) {
+        error = "Light fixture entry missing required 'id' or 'name'";
+        return false;
+    }
+    fx.id = std::string(idView);
+    fx.name = std::string(nameView);
+
+    std::string_view kindView;
+    if (!fxEl["kind"].get(kindView))
+        (void)parseLightFixtureKind(kindView, fx.kind); // unknown kind -- keep default
+
+    int64_t tmp = 0;
+    if (!fxEl["gridColumn"].get(tmp)) fx.gridColumn = static_cast<int>(tmp);
+    if (!fxEl["gridRow"].get(tmp)) fx.gridRow = static_cast<int>(tmp);
+    if (!fxEl["ledCount"].get(tmp)) fx.ledCount = static_cast<int>(tmp);
+    (void)fxEl["addressable"].get(fx.addressable);
+    (void)fxEl["posX"].get(fx.posX);
+    (void)fxEl["posY"].get(fx.posY);
+    (void)fxEl["posZ"].get(fx.posZ);
+    (void)fxEl["rotationYDeg"].get(fx.rotationYDeg);
+    if (!fxEl["dmxUniverse"].get(tmp)) fx.dmxUniverse = static_cast<int>(tmp);
+    if (!fxEl["dmxStartChannel"].get(tmp)) fx.dmxStartChannel = static_cast<int>(tmp);
+    if (!fxEl["dmxChannelCount"].get(tmp)) fx.dmxChannelCount = static_cast<int>(tmp);
+
+    return true;
+}
+
+bool parseLightingKind(std::string_view s, LightingKind& kind) {
+    if (s == "resoLight") kind = LightingKind::ResoLight;
+    else if (s == "dmxGeneric") kind = LightingKind::DmxGeneric;
+    else if (s == "none") kind = LightingKind::None;
+    else return false;
+    return true;
+}
+
+void parseLightingConfig(const simdjson::dom::element& liEl, LightingConfig& cfg) {
+    (void)liEl["enabled"].get(cfg.enabled);
+    std::string_view kindView;
+    if (!liEl["kind"].get(kindView))
+        (void)parseLightingKind(kindView, cfg.kind);
+    int64_t tmp = 0;
+    if (!liEl["resoLightColumns"].get(tmp)) cfg.resoLightColumns = static_cast<int>(tmp);
+    if (!liEl["resoLightRows"].get(tmp)) cfg.resoLightRows = static_cast<int>(tmp);
+
+    simdjson::dom::array fxArr;
+    if (!liEl["fixtures"].get(fxArr)) {
+        for (simdjson::dom::element fxEl : fxArr) {
+            LightFixture fx;
+            std::string fxError;
+            if (parseLightFixture(fxEl, fx, fxError))
+                cfg.fixtures.push_back(std::move(fx));
+        }
+    }
+}
+
+bool parseLightTrack(const simdjson::dom::element& ltEl, LightTrack& lt, std::string& error) {
+    std::string_view idView, nameView;
+    if (ltEl["id"].get(idView) || ltEl["name"].get(nameView)) {
+        error = "Light track entry missing required 'id' or 'name'";
+        return false;
+    }
+    lt.id = std::string(idView);
+    lt.name = std::string(nameView);
+
+    simdjson::dom::array fxIdsArr;
+    if (!ltEl["fixtureIds"].get(fxIdsArr)) {
+        for (simdjson::dom::element idEl : fxIdsArr) {
+            std::string_view v;
+            if (!idEl.get(v))
+                lt.fixtureIds.push_back(std::string(v));
+        }
+    }
+    return true;
+}
+
+bool parseLightCue(const simdjson::dom::element& lcEl, LightCue& lc, std::string& error) {
+    std::string_view idView, trackIdView;
+    if (lcEl["id"].get(idView) || lcEl["trackId"].get(trackIdView)) {
+        error = "Light cue entry missing required 'id' or 'trackId'";
+        return false;
+    }
+    lc.id = std::string(idView);
+    lc.trackId = std::string(trackIdView);
+
+    (void)lcEl["startSeconds"].get(lc.startSeconds);
+    (void)lcEl["durationSeconds"].get(lc.durationSeconds);
+    int64_t tmp = 0;
+    if (!lcEl["colorR"].get(tmp)) lc.colorR = static_cast<uint8_t>(tmp);
+    if (!lcEl["colorG"].get(tmp)) lc.colorG = static_cast<uint8_t>(tmp);
+    if (!lcEl["colorB"].get(tmp)) lc.colorB = static_cast<uint8_t>(tmp);
+    (void)lcEl["intensity"].get(lc.intensity);
+    (void)lcEl["fadeInSeconds"].get(lc.fadeInSeconds);
+    (void)lcEl["fadeOutSeconds"].get(lc.fadeOutSeconds);
+    std::string_view labelView;
+    if (!lcEl["label"].get(labelView))
+        lc.label = std::string(labelView);
+
+    return true;
+}
+
 bool parseSong(const simdjson::dom::element& songEl, SongDef& song, std::string& error, Project& project) {
     std::string_view idView, nameView;
     if (songEl["id"].get(idView) || songEl["name"].get(nameView)) {
@@ -316,6 +425,17 @@ bool parseSong(const simdjson::dom::element& songEl, SongDef& song, std::string&
             if (!secEl["colorIndex"].get(colorIdx))
                 section.colorIndex = static_cast<int>(colorIdx);
             song.sections.push_back(std::move(section));
+        }
+    }
+
+    // Optional -- absent in projects saved before lighting existed.
+    simdjson::dom::array lightCuesArr;
+    if (!songEl["lightCues"].get(lightCuesArr)) {
+        for (simdjson::dom::element lcEl : lightCuesArr) {
+            LightCue cue;
+            std::string cueError;
+            if (parseLightCue(lcEl, cue, cueError))
+                song.lightCues.push_back(std::move(cue));
         }
     }
 
@@ -818,6 +938,20 @@ bool ProjectLoader::loadAutosave(std::string& error) {
         }
     }
 
+    // Optional -- absent in projects saved before lighting existed.
+    simdjson::dom::element lightingEl;
+    if (!doc["lighting"].get(lightingEl))
+        parseLightingConfig(lightingEl, proj.lighting);
+    simdjson::dom::array lightTracksArr;
+    if (!doc["lightTracks"].get(lightTracksArr)) {
+        for (simdjson::dom::element ltEl : lightTracksArr) {
+            LightTrack lt;
+            std::string ltError;
+            if (parseLightTrack(ltEl, lt, ltError))
+                proj.lightTracks.push_back(std::move(lt));
+        }
+    }
+
     simdjson::dom::array songsArr;
     if (!doc["songs"].get(songsArr)) {
         for (simdjson::dom::element songEl : songsArr) {
@@ -947,6 +1081,20 @@ bool ProjectLoader::reparseProject(std::string& error) {
             t.name = tname;
             t.busId = "main";
             proj.tracks.push_back(std::move(t));
+        }
+    }
+
+    // Optional -- absent in projects saved before lighting existed.
+    simdjson::dom::element lightingEl;
+    if (!doc["lighting"].get(lightingEl))
+        parseLightingConfig(lightingEl, proj.lighting);
+    simdjson::dom::array lightTracksArr;
+    if (!doc["lightTracks"].get(lightTracksArr)) {
+        for (simdjson::dom::element ltEl : lightTracksArr) {
+            LightTrack lt;
+            std::string ltError;
+            if (parseLightTrack(ltEl, lt, ltError))
+                proj.lightTracks.push_back(std::move(lt));
         }
     }
 

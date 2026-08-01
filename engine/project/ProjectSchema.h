@@ -105,6 +105,96 @@ struct TimelineEvent {
     double latencyCompensationMs = 0.0;
 };
 
+// One physical light fixture in the rig -- project-level roster entry,
+// mirrors TrackDef's relationship to Region (fixtures are patched once here;
+// LightCue placements on a song's timeline reference a LightTrack, which in
+// turn references one or more fixtures it drives in unison).
+struct LightFixture {
+    std::string id;
+    std::string name;
+    enum class Kind {
+        // ResoStage's own product: a vertical LED bar, positioned in 3D via
+        // the settings-card editor. See RESTORE_POINT.md Feature 6.
+        ResoLightBar,
+        // Any third-party DMX/Art-Net fixture: a flat channel range, no
+        // fixture personality/profile system in Phase A (see RESTORE_POINT.md's
+        // "explicitly deferred" list) -- just enough to place cues that fire
+        // through the existing ArtNetPacket/EventDispatcher transport.
+        DmxGeneric,
+    };
+    Kind kind = Kind::ResoLightBar;
+
+    // ResoLightBar fields. Nominal position comes from (gridColumn, gridRow)
+    // when the rig is first sized in the settings card; (posX, posY, posZ)
+    // is the real placement the user drags to in the 3D editor and is what
+    // actually drives rendering -- grid indices are not re-derived from it.
+    int gridColumn = 0;
+    int gridRow = 0;
+    int ledCount = 30;
+    // true = every LED individually addressable (3 DMX channels each);
+    // false = one RGB triplet drives the whole bar uniformly.
+    bool addressable = true;
+    double posX = 0.0;
+    double posY = 0.0;
+    double posZ = 0.0;
+    double rotationYDeg = 0.0; // yaw around the vertical axis
+
+    // DmxGeneric fields.
+    int dmxUniverse = 0;
+    int dmxStartChannel = 1; // 1-based
+    int dmxChannelCount = 3;
+};
+
+enum class LightingKind {
+    None,
+    ResoLight,
+    DmxGeneric,
+};
+
+// Project-scoped (not rig-wide AppSettings -- this is per-show data, see
+// RESTORE_POINT.md Feature 6). Lives on Project, edited from Settings'
+// "Project" card. Disabled by default: an audio-only rig should see nothing
+// new anywhere in the UI.
+struct LightingConfig {
+    bool enabled = false;
+    LightingKind kind = LightingKind::None;
+    // Nominal ResoLight rig size (columns x rows of vertical bars) used to
+    // seed `fixtures` with a default layout; editing fixture count/position
+    // afterward doesn't retroactively resize this, it's a seed, not a
+    // constraint.
+    int resoLightColumns = 2;
+    int resoLightRows = 1;
+    std::vector<LightFixture> fixtures;
+};
+
+// A named row on the Light timeline -- project-level roster, mirrors
+// TrackDef/Region's relationship (LightCue placements below reference this
+// by id, the same way Region::trackId references TrackDef::id).
+struct LightTrack {
+    std::string id;
+    std::string name;
+    std::vector<std::string> fixtureIds; // LightFixture.id refs, driven in unison
+};
+
+// A single light cue block placed on a song's Light timeline. Color is
+// fixed for the cue's whole span; fadeIn/fadeOut ramp INTENSITY only (color
+// snaps to full value at t=0, matching how a dimmer fade normally works on
+// a lighting console -- see engine/lighting/LightCueInterpolation.h for the
+// exact envelope math and Phase A's simplifications).
+struct LightCue {
+    std::string id;
+    std::string trackId; // references LightTrack.id
+    double startSeconds = 0.0;
+    double durationSeconds = 1.0;
+    uint8_t colorR = 255;
+    uint8_t colorG = 255;
+    uint8_t colorB = 255;
+    double intensity = 1.0; // 0..1, the cue's own held-region intensity
+    double fadeInSeconds = 0.0;
+    double fadeOutSeconds = 0.0;
+    std::string label;
+};
+
 // A named structural marker on the timeline ruler (Intro/Verse/Chorus/
 // Bridge/Outro/Custom). Sections are points, not explicit ranges -- the
 // region a section covers is implicitly "from this marker to the next one
@@ -125,6 +215,7 @@ struct SongDef {
     std::vector<Region> regions;
     std::vector<TimelineEvent> events;
     std::vector<SongSection> sections;
+    std::vector<LightCue> lightCues;
 
     // Built-in programmatic click generator (see ClickGenerator). Separate
     // from and compatible with a user-supplied click.wav routed as an
@@ -191,6 +282,8 @@ struct Project {
     std::vector<SongDef> songs;
     KeyBindingMap keybindings;
     std::vector<MidiMapping> midiMappings;
+    LightingConfig lighting;
+    std::vector<LightTrack> lightTracks;
 };
 
 } // namespace resostage

@@ -271,6 +271,131 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     std::remove(outPath.c_str());
 }
 
+TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips through save/load") {
+    const std::string path = makeProjectArchive(kFullProjectJson);
+
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(path, error));
+
+    Project& p = loader.project();
+    p.lighting.enabled = true;
+    p.lighting.kind = LightingKind::ResoLight;
+    p.lighting.resoLightColumns = 3;
+    p.lighting.resoLightRows = 2;
+
+    LightFixture fx;
+    fx.id = "bar_1";
+    fx.name = "Bar 1";
+    fx.kind = LightFixture::Kind::ResoLightBar;
+    fx.gridColumn = 1;
+    fx.gridRow = 0;
+    fx.ledCount = 60;
+    fx.addressable = true;
+    fx.posX = 1.5;
+    fx.posY = 0.0;
+    fx.posZ = -2.25;
+    fx.rotationYDeg = 15.0;
+    p.lighting.fixtures.push_back(fx);
+
+    LightFixture generic;
+    generic.id = "mover_1";
+    generic.name = "House Left Mover";
+    generic.kind = LightFixture::Kind::DmxGeneric;
+    generic.dmxUniverse = 2;
+    generic.dmxStartChannel = 17;
+    generic.dmxChannelCount = 16;
+    p.lighting.fixtures.push_back(generic);
+
+    LightTrack track;
+    track.id = "lt_1";
+    track.name = "Front Wash";
+    track.fixtureIds = {"bar_1", "mover_1"};
+    p.lightTracks.push_back(track);
+
+    LightCue cue;
+    cue.id = "cue_1";
+    cue.trackId = "lt_1";
+    cue.startSeconds = 4.0;
+    cue.durationSeconds = 8.0;
+    cue.colorR = 200;
+    cue.colorG = 40;
+    cue.colorB = 10;
+    cue.intensity = 0.75;
+    cue.fadeInSeconds = 0.5;
+    cue.fadeOutSeconds = 1.0;
+    cue.label = "Chorus wash";
+    p.songs[0].lightCues.push_back(cue);
+
+    const std::string outPath =
+        std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp")
+        + "/resoset_lighting_roundtrip.rsnraset";
+    REQUIRE(loader.saveAs(outPath, error));
+
+    ProjectLoader loader2;
+    REQUIRE(loader2.open(outPath, error));
+    const Project& p2 = loader2.project();
+
+    CHECK(p2.lighting.enabled == true);
+    CHECK(p2.lighting.kind == LightingKind::ResoLight);
+    CHECK(p2.lighting.resoLightColumns == 3);
+    CHECK(p2.lighting.resoLightRows == 2);
+    REQUIRE(p2.lighting.fixtures.size() == 2);
+
+    const LightFixture& fx2 = p2.lighting.fixtures[0];
+    CHECK(fx2.id == "bar_1");
+    CHECK(fx2.name == "Bar 1");
+    CHECK(fx2.kind == LightFixture::Kind::ResoLightBar);
+    CHECK(fx2.gridColumn == 1);
+    CHECK(fx2.ledCount == 60);
+    CHECK(fx2.addressable == true);
+    CHECK(fx2.posX == doctest::Approx(1.5));
+    CHECK(fx2.posZ == doctest::Approx(-2.25));
+    CHECK(fx2.rotationYDeg == doctest::Approx(15.0));
+
+    const LightFixture& generic2 = p2.lighting.fixtures[1];
+    CHECK(generic2.kind == LightFixture::Kind::DmxGeneric);
+    CHECK(generic2.dmxUniverse == 2);
+    CHECK(generic2.dmxStartChannel == 17);
+    CHECK(generic2.dmxChannelCount == 16);
+
+    REQUIRE(p2.lightTracks.size() == 1);
+    CHECK(p2.lightTracks[0].id == "lt_1");
+    CHECK(p2.lightTracks[0].name == "Front Wash");
+    REQUIRE(p2.lightTracks[0].fixtureIds.size() == 2);
+    CHECK(p2.lightTracks[0].fixtureIds[0] == "bar_1");
+    CHECK(p2.lightTracks[0].fixtureIds[1] == "mover_1");
+
+    REQUIRE_FALSE(p2.songs.empty());
+    REQUIRE(p2.songs[0].lightCues.size() == 1);
+    const LightCue& cue2 = p2.songs[0].lightCues[0];
+    CHECK(cue2.trackId == "lt_1");
+    CHECK(cue2.startSeconds == doctest::Approx(4.0));
+    CHECK(cue2.durationSeconds == doctest::Approx(8.0));
+    CHECK(cue2.colorR == 200);
+    CHECK(cue2.colorG == 40);
+    CHECK(cue2.colorB == 10);
+    CHECK(cue2.intensity == doctest::Approx(0.75));
+    CHECK(cue2.fadeInSeconds == doctest::Approx(0.5));
+    CHECK(cue2.fadeOutSeconds == doctest::Approx(1.0));
+    CHECK(cue2.label == "Chorus wash");
+
+    std::remove(outPath.c_str());
+}
+
+TEST_CASE("lighting defaults to disabled/none with no fixtures for a project with no lighting section") {
+    const std::string path = makeProjectArchive(kFullProjectJson);
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(path, error));
+    const Project& p = loader.project();
+    CHECK(p.lighting.enabled == false);
+    CHECK(p.lighting.kind == LightingKind::None);
+    CHECK(p.lighting.fixtures.empty());
+    CHECK(p.lightTracks.empty());
+    CHECK(p.songs[0].lightCues.empty());
+}
+
 TEST_CASE("newProject creates an unsaved project that can be saved for the first time") {
     // Regression coverage for the "empty project on startup" path: before a
     // real .rsnraset ever existed on disk, saveAs()/saveAsWithExtras() used

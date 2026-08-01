@@ -15,5 +15,7 @@ std::string jsonEscapeString(const std::string& s);
 
 const char* eventTypeToString(EventType type);
 const char* playbackModeToString(PlaybackMode mode);
+const char* lightFixtureKindToString(LightFixture::Kind kind);
+const char* lightingKindToString(LightingKind kind);
 
 } // namespace resostage
