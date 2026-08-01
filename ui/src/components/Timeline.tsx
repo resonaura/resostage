@@ -1405,6 +1405,7 @@ export function Timeline({
         effectSourceId: cue.effectSourceId, effectIntensity: cue.effectIntensity,
         tempoSync: cue.tempoSync, tempoSubdiv: cue.tempoSubdiv,
         effectRateHz: cue.effectRateHz, gradientPreset: cue.gradientPreset,
+        gradientColors: cue.gradientColors,
       },
     );
     showToast("Duplicated light cue");

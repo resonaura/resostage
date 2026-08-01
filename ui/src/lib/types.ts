@@ -96,7 +96,8 @@ export interface LightCueRow {
   tempoSync: boolean;
   tempoSubdiv: string; // "2"|"1"|"1/2"|"1/3"|"1/4"|"1/6"|"1/8"|"1/16"|"1/32"|"1/64"
   effectRateHz: number; // used when tempoSync is false
-  gradientPreset: "solid" | "greenYellowRed" | "";
+  gradientPreset: "solid" | "greenYellowRed" | "custom" | "";
+  gradientColors?: string;
 }
 
 // Backend-authoritative resolved lamp state, one row per fixture currently

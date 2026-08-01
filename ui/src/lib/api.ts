@@ -436,7 +436,8 @@ export const lighting = {
     tempoSync?: boolean;
     tempoSubdiv?: string;
     effectRateHz?: number;
-    gradientPreset?: "solid" | "greenYellowRed";
+    gradientPreset?: "solid" | "greenYellowRed" | "custom";
+    gradientColors?: string;
     gestureId?: string;
   }) => post("/api/v1/lighting/cue/update", patch),
 };

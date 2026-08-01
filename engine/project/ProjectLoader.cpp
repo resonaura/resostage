@@ -317,6 +317,7 @@ bool parseLightCue(const simdjson::dom::element& lcEl, LightCue& lc, std::string
     if (!lcEl["effectRateHz"].get(effectRateHz))
         lc.effectRateHz = static_cast<float>(effectRateHz);
     if (!lcEl["gradientPreset"].get(sv)) lc.gradientPreset = std::string(sv);
+    if (!lcEl["gradientColors"].get(sv)) lc.gradientColors = std::string(sv);
 
     return true;
 }

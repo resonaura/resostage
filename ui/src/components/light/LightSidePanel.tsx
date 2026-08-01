@@ -304,17 +304,18 @@ const SUBDIVISIONS = [
 type TempoSubdiv = typeof SUBDIVISIONS[number];
 
 type SourceType = "bus" | "track";
-type GradientPreset = "solid" | "greenYellowRed";
+type GradientPreset = "solid" | "greenYellowRed" | "custom";
 
 const GRADIENT_META: Record<GradientPreset, string> = {
   solid: "Solid Color",
   greenYellowRed: "Green → Yellow → Red",
+  custom: "Custom palette",
 };
 
 function EffectPanel({
   effectType, effectSourceType, effectSourceId, effectIntensity, effectRate,
-  tempoSync, tempoSubdiv, gradientPreset, showGradient,
-  onType, onSourceType, onSourceId, onIntensity, onRate, onTempoSync, onTempoSubdiv, onGradientPreset,
+  tempoSync, tempoSubdiv, gradientPreset, gradientColors, showGradient,
+  onType, onSourceType, onSourceId, onIntensity, onRate, onTempoSync, onTempoSubdiv, onGradientPreset, onGradientColors,
   busses, tracks, bpm,
 }: {
   effectType: EffectType;
@@ -325,6 +326,7 @@ function EffectPanel({
   tempoSync: boolean;
   tempoSubdiv: TempoSubdiv;
   gradientPreset: GradientPreset;
+  gradientColors: string;
   /** Only meaningful (and only shown) when the effect is Meter and at least
    * one assigned fixture is addressable -- a non-addressable bar has no
    * per-LED concept for a gradient to apply to. */
@@ -337,6 +339,7 @@ function EffectPanel({
   onTempoSync: (v: boolean) => void;
   onTempoSubdiv: (v: TempoSubdiv) => void;
   onGradientPreset: (g: GradientPreset) => void;
+  onGradientColors: (colors: string) => void;
   busses: BusRow[];
   tracks: TrackRow[];
   bpm: number;
@@ -432,6 +435,16 @@ function EffectPanel({
                   </button>
                 ))}
               </div>
+              {gradientPreset === "custom" && (
+                <input
+                  type="text"
+                  value={gradientColors}
+                  onChange={(e) => onGradientColors(e.target.value)}
+                  placeholder="#ff0040,#7c3aed,#00e5ff"
+                  className="mt-1.5 w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-[10px] font-mono outline-none focus:border-accent"
+                  aria-label="Custom gradient stops"
+                />
+              )}
             </Field>
           )}
 
@@ -609,9 +622,9 @@ function TrackSettingsPanel({
 function CueSettingsPanel({
   cue, songIndex, busses, tracks, bpm, hasAddressableFixture,
   effectType, effectSourceType, effectSourceId, effectIntensity, effectRate,
-  tempoSync, tempoSubdiv, gradientPreset,
+  tempoSync, tempoSubdiv, gradientPreset, gradientColors,
   onEffectType, onEffectSourceType, onEffectSourceId, onEffectIntensity, onEffectRate,
-  onTempoSync, onTempoSubdiv, onGradientPreset,
+  onTempoSync, onTempoSubdiv, onGradientPreset, onGradientColors,
 }: {
   cue: LightCueRow;
   songIndex: number;
@@ -627,6 +640,7 @@ function CueSettingsPanel({
   tempoSync: boolean;
   tempoSubdiv: TempoSubdiv;
   gradientPreset: GradientPreset;
+  gradientColors: string;
   onEffectType: (t: EffectType) => void;
   onEffectSourceType: (t: SourceType) => void;
   onEffectSourceId: (id: string) => void;
@@ -635,6 +649,7 @@ function CueSettingsPanel({
   onTempoSync: (v: boolean) => void;
   onTempoSubdiv: (v: TempoSubdiv) => void;
   onGradientPreset: (g: GradientPreset) => void;
+  onGradientColors: (colors: string) => void;
 }) {
   const update = (patch: Omit<Parameters<typeof lighting.cueUpdate>[0], "songIndex" | "cueId">) =>
     void lighting.cueUpdate({ songIndex, cueId: cue.id, ...patch });
@@ -644,7 +659,7 @@ function CueSettingsPanel({
     onEffectType(t);
     update({
       effectType: t, effectSourceType, effectSourceId, effectIntensity,
-      tempoSync, tempoSubdiv, effectRateHz: effectRate, gradientPreset,
+      tempoSync, tempoSubdiv, effectRateHz: effectRate, gradientPreset, gradientColors,
     });
   };
   const handleEffectSourceType = (t: SourceType) => {
@@ -674,6 +689,10 @@ function CueSettingsPanel({
   const handleGradientPreset = (g: GradientPreset) => {
     onGradientPreset(g);
     update({ gradientPreset: g });
+  };
+  const handleGradientColors = (colors: string) => {
+    onGradientColors(colors);
+    update({ gradientColors: colors });
   };
 
   return (
@@ -720,11 +739,12 @@ function CueSettingsPanel({
           effectIntensity={effectIntensity} effectRate={effectRate}
           tempoSync={tempoSync} tempoSubdiv={tempoSubdiv}
           gradientPreset={gradientPreset}
-          showGradient={effectType === "meter" && hasAddressableFixture}
+          gradientColors={gradientColors}
+          showGradient={effectType !== "none" && hasAddressableFixture}
           onType={handleEffectType} onSourceType={handleEffectSourceType} onSourceId={handleEffectSourceId}
           onIntensity={handleEffectIntensity} onRate={handleEffectRate}
           onTempoSync={handleTempoSync} onTempoSubdiv={handleTempoSubdiv}
-          onGradientPreset={handleGradientPreset}
+          onGradientPreset={handleGradientPreset} onGradientColors={handleGradientColors}
           busses={busses} tracks={tracks} bpm={bpm}
         />
       </div>
@@ -772,6 +792,7 @@ export function LightSidePanel({
   const [tempoSync, setTempoSync] = useState(false);
   const [tempoSubdiv, setTempoSubdiv] = useState<TempoSubdiv>("1/4");
   const [gradientPreset, setGradientPreset] = useState<GradientPreset>("solid");
+  const [gradientColors, setGradientColors] = useState("");
 
   // BPM for the currently active song
   const currentSongIdx = selection?.type === "cue" ? selection.songIndex : 0;
@@ -791,6 +812,7 @@ export function LightSidePanel({
     setTempoSync(cue?.tempoSync ?? false);
     setTempoSubdiv((cue?.tempoSubdiv || "1/4") as TempoSubdiv);
     setGradientPreset((cue?.gradientPreset || "solid") as GradientPreset);
+    setGradientColors(cue?.gradientColors ?? "");
   }
 
   const hasAddressableFixture =
@@ -878,6 +900,7 @@ export function LightSidePanel({
                 tempoSync={tempoSync}
                 tempoSubdiv={tempoSubdiv}
                 gradientPreset={gradientPreset}
+                gradientColors={gradientColors}
                 onEffectType={setEffectType}
                 onEffectSourceType={setEffectSourceType}
                 onEffectSourceId={setEffectSourceId}
@@ -886,6 +909,7 @@ export function LightSidePanel({
                 onTempoSync={setTempoSync}
                 onTempoSubdiv={setTempoSubdiv}
                 onGradientPreset={setGradientPreset}
+                onGradientColors={setGradientColors}
               />
             </div>
 

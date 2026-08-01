@@ -378,6 +378,7 @@ struct WebUiState {
             std::string tempoSubdiv;
             double effectRateHz = 2.0;
             std::string gradientPreset;
+            std::string gradientColors;
         };
         std::vector<LightCueRow> lightCues;
     };

@@ -224,6 +224,9 @@ struct LightCue {
     // "solid" = the cue's own colorR/G/B for every lit LED.
     // "greenYellowRed" = classic VU coloring by position, ignores colorR/G/B.
     std::string gradientPreset = "solid";
+    // Optional user palette, three CSS-style #RRGGBB stops separated by
+    // commas. Empty means the selected built-in preset.
+    std::string gradientColors;
 };
 
 // A named structural marker on the timeline ruler (Intro/Verse/Chorus/
