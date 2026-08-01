@@ -130,7 +130,7 @@ struct LightFixture {
     // actually drives rendering -- grid indices are not re-derived from it.
     int gridColumn = 0;
     int gridRow = 0;
-    int ledCount = 30;
+    int ledCount = 120;
     // true = every LED individually addressable (3 DMX channels each);
     // false = one RGB triplet drives the whole bar uniformly.
     bool addressable = true;

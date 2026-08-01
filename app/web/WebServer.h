@@ -437,7 +437,7 @@ struct WebUiState {
         std::string kind; // "resoLightBar" | "dmxGeneric"
         int gridColumn = 0;
         int gridRow = 0;
-        int ledCount = 30;
+        int ledCount = 120;
         bool addressable = true;
         double posX = 0.0;
         double posY = 0.0;

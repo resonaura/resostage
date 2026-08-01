@@ -57,7 +57,7 @@ void regenerateResoLightFixtures(LightingConfig& cfg) {
             f.kind = LightFixture::Kind::ResoLightBar;
             f.gridColumn = col;
             f.gridRow = row;
-            f.ledCount = 30;
+            f.ledCount = 120;
             f.addressable = true;
             f.posX = col * kSpacingMeters;
             f.posY = 0.0;
