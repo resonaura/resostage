@@ -233,20 +233,26 @@ function ResoLightBar({
   // 1-LED or 500-LED fixture still renders as something sane on stage.
   const heightMeters = Math.min(3, Math.max(0.3, fixture.ledCount / 30));
 
+  // The scene's ambient + directional lights reflect off a mesh's diffuse
+  // `color` regardless of `emissive` -- so a fully-saturated diffuse color
+  // with only a low emissiveIntensity still reads as fairly bright (the
+  // "strobe/converge never really looks off" bug this fixes). Baking the
+  // resolved intensity straight into the diffuse color (not just emissive)
+  // means an LED at intensity 0 is actually black under any lighting, matching
+  // real DMX output where 0 intensity means 0 on the wire -- no artificial
+  // floor needed for "visibility", since a real blackout looks like nothing.
   const color = useMemo(() => {
     if (previewColor) {
       return new THREE.Color(
         previewColor.r / 255,
         previewColor.g / 255,
         previewColor.b / 255,
-      );
+      ).multiplyScalar(Math.max(0, Math.min(1, previewColor.intensity)));
     }
     return new THREE.Color(0.55, 0.58, 0.65);
   }, [previewColor]);
 
-  const emissiveIntensity = previewColor
-    ? Math.max(0.08, previewColor.intensity)
-    : 0.25;
+  const emissiveIntensity = previewColor ? 1 : 0.25;
 
   // Addressable fixtures only render a segmented per-LED pattern while
   // their active cue is genuinely Meter, Converge, or GradientFlow --

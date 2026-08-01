@@ -35,7 +35,7 @@ export const LIGHT_COLORS = [
 export const LIGHT_HINT_HEIGHT = 26;
 export const AUDIO_HINT_HEIGHT = 46;
 
-const CUE_EDGE_PX = 8;
+const CUE_EDGE_PX = 10;
 
 export interface CueSelKey {
   songIndex: number;
@@ -289,6 +289,14 @@ export function LightTrackLane({
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
 
+  // Which edge (if any) the pointer is currently hovering, per cue -- drives
+  // the ew-resize cursor. Tracked in React state rather than mutating
+  // e.currentTarget.style.cursor directly: this component re-renders on
+  // every drag/draft update, and React would silently stomp a manually-set
+  // inline cursor back to the static style prop's "grab" on the very next
+  // render, so the resize cursor never actually stuck.
+  const [hoverEdge, setHoverEdge] = useState<Record<string, "start" | "end" | null>>({});
+
   type CueDragMode = "move" | "trimStart" | "trimEnd";
   const dragRef = useRef<{
     key: string;
@@ -505,6 +513,7 @@ export function LightTrackLane({
                 pxPerSec,
               );
               const labelShown = Boolean(cue.label) && widthPx > 48;
+              const edge = hoverEdge[cue.id];
               return (
                 <div
                   key={cue.id}
@@ -512,16 +521,24 @@ export function LightTrackLane({
                   style={{
                     left: leftPx,
                     width: widthPx,
-                    background: `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`,
-                    opacity: Math.max(0.12, cue.intensity),
-                    clipPath: clip,
                     border: isSelected
                       ? `1.5px solid ${color}`
                       : `1px solid ${color}66`,
                     boxShadow: isSelected
                       ? `0 0 0 1px ${color}aa, 0 0 8px ${color}44`
                       : undefined,
-                    cursor: readOnly ? "default" : "grab",
+                    // No clipPath here -- it lives on the decorative fill
+                    // below. clip-path also clips pointer-event hit-testing
+                    // in modern browsers, so a faded cue's slanted top
+                    // corners used to silently swallow trim-handle clicks
+                    // right where CUE_EDGE_PX expects them. Keeping this
+                    // outer div a plain rectangle means the full box height
+                    // is always draggable/trimmable regardless of fades.
+                    cursor: readOnly
+                      ? "default"
+                      : edge
+                        ? "ew-resize"
+                        : "grab",
                     zIndex: isSelected ? 2 : 1,
                   }}
                   title={`${cue.label || cue.id} — Song ${i + 1}: ${song.name}`}
@@ -550,12 +567,22 @@ export function LightTrackLane({
                     }
                     const rect = e.currentTarget.getBoundingClientRect();
                     const localX = e.clientX - rect.left;
-                    (
-                      e.currentTarget as HTMLElement
-                    ).style.cursor =
-                      localX < CUE_EDGE_PX || localX > widthPx - CUE_EDGE_PX
-                        ? "ew-resize"
-                        : "grab";
+                    const next: "start" | "end" | null =
+                      localX < CUE_EDGE_PX
+                        ? "start"
+                        : localX > widthPx - CUE_EDGE_PX
+                          ? "end"
+                          : null;
+                    if (hoverEdge[cue.id] !== next)
+                      setHoverEdge((prev) => ({ ...prev, [cue.id]: next }));
+                  }}
+                  onPointerLeave={() => {
+                    if (hoverEdge[cue.id] !== undefined)
+                      setHoverEdge((prev) => {
+                        const next = { ...prev };
+                        delete next[cue.id];
+                        return next;
+                      });
                   }}
                   onPointerUp={readOnly ? undefined : onCueDragUp}
                   onPointerCancel={() => {
@@ -569,6 +596,37 @@ export function LightTrackLane({
                     setCtxMenu({ x: e.clientX, y: e.clientY, songIndex: i, cueId: cue.id });
                   }}
                 >
+                  {/* Decorative fill + fade slant -- pointer-events-none so
+                      clip-path here never affects the outer div's hit area. */}
+                  <div
+                    className="absolute inset-0 rounded-sm pointer-events-none"
+                    style={{
+                      background: `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`,
+                      opacity: Math.max(0.12, cue.intensity),
+                      clipPath: clip,
+                    }}
+                  />
+                  {/* Edge affordance -- a faint highlight over the trim
+                      hit-zone so it's visually discoverable, not just a
+                      cursor change. */}
+                  {!readOnly && (
+                    <>
+                      <div
+                        className="absolute top-0 bottom-0 left-0 pointer-events-none bg-white/0 transition-colors"
+                        style={{
+                          width: CUE_EDGE_PX,
+                          background: edge === "start" ? "rgba(255,255,255,0.35)" : undefined,
+                        }}
+                      />
+                      <div
+                        className="absolute top-0 bottom-0 right-0 pointer-events-none"
+                        style={{
+                          width: CUE_EDGE_PX,
+                          background: edge === "end" ? "rgba(255,255,255,0.35)" : undefined,
+                        }}
+                      />
+                    </>
+                  )}
                   {labelShown && (
                     <span
                       className="absolute top-0.5 left-2 truncate text-[9px] font-semibold pointer-events-none select-none"

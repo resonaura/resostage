@@ -2076,8 +2076,16 @@ export function Timeline({
     // Single commit on release.
     seekFromClientX(e.clientX, true);
   };
-  const onPointerCancelOrLost = () => {
+  const onPointerCancelOrLost = (e: React.PointerEvent) => {
+    if (!dragging.current) return;
     dragging.current = false;
+    // A drag can end via pointercancel/lostpointercapture instead of a clean
+    // pointerup (capture lost to a mid-drag re-render, a trackpad gesture
+    // reinterpretation, alt-tab mid-drag) -- still commit the seek, or the
+    // optimistic marker the user just dropped silently snaps back to the
+    // pre-drag position once optimistic.ts's reconciliation lock expires,
+    // making the drag look like it "didn't apply."
+    seekFromClientX(e.clientX, true);
   };
 
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
@@ -2726,10 +2734,13 @@ export function Timeline({
               </div>
               {/* Cross-mode hint strip spacer -- keeps sidebar rows aligned
                   with the body's LightHintStrip/AudioHintStrip above the
-                  lanes. In Light mode it labels the audio-reference strip;
-                  in Audio mode the (dimmed) light-content strip. */}
+                  lanes. In Light mode it labels the audio-reference strip
+                  (and doubles as the persistent "add track" control, since
+                  the scrolling track list below has nowhere else to put one
+                  once a first track already exists); in Audio mode the
+                  (dimmed) light-content strip. */}
               <div
-                className="shrink-0 border-b border-default/30 px-2.5 text-[9px] font-bold uppercase text-foreground/25 flex items-center bg-background-tertiary"
+                className="shrink-0 border-b border-default/30 px-2.5 text-[9px] font-bold uppercase text-foreground/25 flex items-center justify-between bg-background-tertiary"
                 style={{
                   height:
                     effectiveViewMode === "light"
@@ -2737,7 +2748,17 @@ export function Timeline({
                       : LIGHT_HINT_HEIGHT,
                 }}
               >
-                {effectiveViewMode === "light" ? "Audio ref" : "Light"}
+                <span>{effectiveViewMode === "light" ? "Audio ref" : "Light"}</span>
+                {effectiveViewMode === "light" && lightEnabled && (
+                  <button
+                    type="button"
+                    title="Add light track"
+                    className="flex items-center gap-0.5 rounded border border-default/40 bg-default/15 px-1 py-0.5 normal-case tracking-normal text-foreground/60 transition-colors hover:border-accent/60 hover:text-foreground"
+                    onClick={() => void lighting.trackAdd()}
+                  >
+                    <Plus size={10} /> Track
+                  </button>
+                )}
               </div>
               {/* No preview-strip spacer in light mode — preview is now in the side panel */}
               {/* Track controls list (scrolls vertically in sync with right timeline) */}
@@ -2750,15 +2771,9 @@ export function Timeline({
                         cues
                       </div>
                     ) : lightTracks.length === 0 ? (
-                      <div className="flex flex-col items-center gap-2 px-3 py-5 text-[10px] text-foreground/40">
+                      <div className="flex flex-col items-center gap-1 px-3 py-5 text-center text-[10px] text-foreground/40">
                         No light tracks
-                        <button
-                          type="button"
-                          className="flex items-center gap-1 rounded-md border border-default/40 bg-default/15 px-2 py-1 text-[10px] font-semibold text-foreground/70 transition-colors hover:border-accent/60 hover:text-foreground"
-                          onClick={() => void lighting.trackAdd()}
-                        >
-                          <Plus size={11} /> Add light track
-                        </button>
+                        <span>Use the Track button above to add one</span>
                       </div>
                     ) : (
                       lightTracks.map((t, i) => (
