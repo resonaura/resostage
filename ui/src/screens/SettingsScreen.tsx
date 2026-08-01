@@ -1,7 +1,6 @@
-import { Card } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
-import { ProjectLightingCard } from "../components/light/ProjectLightingCard";
+import { ProjectLightingPanel } from "../components/light/ProjectLightingCard";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 
@@ -255,15 +254,42 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
   },
 ];
 
-export function SettingsScreen({ state }: { state: WebUiState }) {
-  const h = state.health;
-  const s = state.settings;
-  const keyByAction = new Map(s.keybindings.map((kb) => [kb.action, kb.key]));
-  const midiByAction = new Map(
-    (s.midiBindings ?? []).map((mb) => [mb.action, mb]),
-  );
-  const learningAction = s.midiLearnAction ?? "";
+// ─── Tab definitions ──────────────────────────────────────────────────────
+type SettingsTab = "audio" | "midi" | "light" | "health";
 
+const SETTINGS_TABS: { id: SettingsTab; label: string; icon: string }[] = [
+  { id: "audio", label: "Audio", icon: "🎛" },
+  { id: "midi", label: "MIDI", icon: "🎹" },
+  { id: "light", label: "Light", icon: "💡" },
+  { id: "health", label: "Health", icon: "📊" },
+];
+
+// ─── Section wrapper ──────────────────────────────────────────────────────
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-default/30 bg-surface/40 overflow-hidden">
+      <div className="px-4 py-3 border-b border-default/20 bg-default/10">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        {description && (
+          <div className="mt-0.5 text-xs text-foreground/50">{description}</div>
+        )}
+      </div>
+      <div className="p-4 flex flex-col gap-3">{children}</div>
+    </div>
+  );
+}
+
+// ─── Audio Tab ────────────────────────────────────────────────────────────
+function AudioTab({ state }: { state: WebUiState }) {
+  const s = state.settings;
   const outputDevices =
     s.outputDevices.length > 0
       ? s.outputDevices
@@ -289,192 +315,190 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
     (s.midiOutputs?.length ?? 0) === 0;
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4">
+    <div className="flex flex-col gap-4">
       {devicesEmpty && (
-        <Card>
-          <Card.Content className="py-3 text-sm text-warning">
-            Waiting for audio/MIDI device list from the app… If this stays
-            empty, restart ResoStage (the native backend on :2899 must be
-            running).
-          </Card.Content>
-        </Card>
+        <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Waiting for audio/MIDI device list from the app… If this stays
+          empty, restart ResoStage (the native backend on :2899 must be
+          running).
+        </div>
       )}
-      <ProjectLightingCard li={state.lighting} />
-      <Card>
-        <Card.Header>
-          <Card.Title>Audio device</Card.Title>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-3">
-          <Field label="Output device">
-            <select
-              className={selectCls}
-              value={s.currentOutputDevice || outputDevices[0] || ""}
-              onChange={(e) =>
-                void settingsApi.setAudioOutputDevice(e.target.value)
-              }
-            >
-              {outputDevices.length === 0 && (
-                <option value="">No devices reported</option>
-              )}
-              {s.currentOutputDevice &&
-                !outputDevices.includes(s.currentOutputDevice) && (
-                  <option value={s.currentOutputDevice}>
-                    {s.currentOutputDevice}
-                  </option>
-                )}
-              {outputDevices.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Sample rate">
-              <select
-                className={selectCls}
-                value={s.sampleRate || sampleRates[0] || ""}
-                onChange={(e) =>
-                  void settingsApi.setSampleRate(Number(e.target.value))
-                }
-              >
-                {sampleRates.length === 0 && <option value="">—</option>}
-                {sampleRates.map((r) => (
-                  <option key={r} value={r}>
-                    {r.toLocaleString()} Hz
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Buffer size">
-              <select
-                className={selectCls}
-                value={s.bufferSize || bufferSizes[0] || ""}
-                onChange={(e) =>
-                  void settingsApi.setBufferSize(Number(e.target.value))
-                }
-              >
-                {bufferSizes.length === 0 && <option value="">—</option>}
-                {bufferSizes.map((b) => (
-                  <option key={b} value={b}>
-                    {b} samples
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          {s.outputChannelNames.length > 0 && (
-            <Field label="Active output channels">
-              <div className="flex flex-wrap gap-1.5">
-                {s.outputChannelNames.map((name, i) => {
-                  const active = s.activeOutputChannels[i] ?? false;
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => {
-                        const activeIndices = s.outputChannelNames
-                          .map((_, idx) => idx)
-                          .filter((idx) =>
-                            idx === i
-                              ? !active
-                              : (s.activeOutputChannels[idx] ?? false),
-                          );
-                        void settingsApi.setOutputChannels(activeIndices);
-                      }}
-                      className={`rounded-lg border px-3 py-1.5 text-sm ${
-                        active
-                          ? "border-accent bg-accent/15 text-accent"
-                          : "border-default/60 bg-default/10 text-foreground/50 hover:bg-default/20"
-                      }`}
-                    >
-                      {name}
-                    </button>
-                  );
-                })}
-              </div>
-            </Field>
-          )}
-        </Card.Content>
-      </Card>
 
-      <Card>
-        <Card.Header>
-          <Card.Title>MIDI</Card.Title>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-3">
-          <Field label="MIDI output (Live Stage / hardware)">
+      <Section title="Output Device">
+        <Field label="Output device">
+          <select
+            className={selectCls}
+            value={s.currentOutputDevice || outputDevices[0] || ""}
+            onChange={(e) =>
+              void settingsApi.setAudioOutputDevice(e.target.value)
+            }
+          >
+            {outputDevices.length === 0 && (
+              <option value="">No devices reported</option>
+            )}
+            {s.currentOutputDevice &&
+              !outputDevices.includes(s.currentOutputDevice) && (
+                <option value={s.currentOutputDevice}>
+                  {s.currentOutputDevice}
+                </option>
+              )}
+            {outputDevices.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Sample rate">
             <select
               className={selectCls}
-              defaultValue=""
+              value={s.sampleRate || sampleRates[0] || ""}
               onChange={(e) =>
-                e.target.value && void settingsApi.setMidiOutput(e.target.value)
+                void settingsApi.setSampleRate(Number(e.target.value))
               }
             >
-              <option value="" disabled>
-                Select MIDI output…
-              </option>
-              {s.midiOutputs.map((m) => (
-                <option key={m} value={m}>
-                  {m}
+              {sampleRates.length === 0 && <option value="">—</option>}
+              {sampleRates.map((r) => (
+                <option key={r} value={r}>
+                  {r.toLocaleString()} Hz
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="MIDI remote input (footswitch / pads)">
+          <Field label="Buffer size">
             <select
               className={selectCls}
-              defaultValue=""
+              value={s.bufferSize || bufferSizes[0] || ""}
               onChange={(e) =>
-                e.target.value && void settingsApi.setMidiInput(e.target.value)
+                void settingsApi.setBufferSize(Number(e.target.value))
               }
             >
-              <option value="" disabled>
-                Select MIDI remote…
-              </option>
-              {s.midiInputs.map((m) => (
-                <option key={m} value={m}>
-                  {m}
+              {bufferSizes.length === 0 && <option value="">—</option>}
+              {bufferSizes.map((b) => (
+                <option key={b} value={b}>
+                  {b} samples
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Virtual MIDI port (DAW sync test)">
-            <div className="flex flex-col gap-1.5">
-              <button
-                onClick={() =>
-                  void settingsApi.setMidiVirtualPort(
-                    !s.virtualMidiPortEnabled,
-                  )
-                }
-                className={`self-start rounded-lg border px-3 py-1.5 text-sm ${
-                  s.virtualMidiPortEnabled
-                    ? "border-accent bg-accent/15 text-accent"
-                    : "border-default/60 bg-default/10 text-foreground/50 hover:bg-default/20"
-                }`}
-              >
-                {s.virtualMidiPortEnabled
-                  ? "ResoStage Sync — enabled"
-                  : "Enable ResoStage Sync"}
-              </button>
-              <div className="text-xs text-foreground/40">
-                {s.virtualMidiPortEnabled
-                  ? "Select “ResoStage Sync” as a MIDI input in your DAW to receive the clock/Start/Stop/SPP."
-                  : "Creates a virtual MIDI port so you can test clock sync in a DAW without any hardware or IAC setup."}
-              </div>
+        </div>
+        {s.outputChannelNames.length > 0 && (
+          <Field label="Active output channels">
+            <div className="flex flex-wrap gap-1.5">
+              {s.outputChannelNames.map((name, i) => {
+                const active = s.activeOutputChannels[i] ?? false;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      const activeIndices = s.outputChannelNames
+                        .map((_, idx) => idx)
+                        .filter((idx) =>
+                          idx === i
+                            ? !active
+                            : (s.activeOutputChannels[idx] ?? false),
+                        );
+                      void settingsApi.setOutputChannels(activeIndices);
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-sm ${
+                      active
+                        ? "border-accent bg-accent/15 text-accent"
+                        : "border-default/60 bg-default/10 text-foreground/50 hover:bg-default/20"
+                    }`}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
             </div>
           </Field>
-        </Card.Content>
-      </Card>
+        )}
+      </Section>
+    </div>
+  );
+}
 
-      <Card>
-        <Card.Header>
-          <Card.Title>Keyboard & MIDI shortcuts</Card.Title>
-          <Card.Description>
-            Click a key binding and press a key (Esc cancels). Click a MIDI
-            binding, then press a pad/CC on the remote input to learn.
-          </Card.Description>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-4">
+// ─── MIDI Tab ─────────────────────────────────────────────────────────────
+function MidiTab({ state }: { state: WebUiState }) {
+  const s = state.settings;
+  const keyByAction = new Map(s.keybindings.map((kb) => [kb.action, kb.key]));
+  const midiByAction = new Map(
+    (s.midiBindings ?? []).map((mb) => [mb.action, mb]),
+  );
+  const learningAction = s.midiLearnAction ?? "";
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Section title="MIDI I/O">
+        <Field label="MIDI output (Live Stage / hardware)">
+          <select
+            className={selectCls}
+            defaultValue=""
+            onChange={(e) =>
+              e.target.value && void settingsApi.setMidiOutput(e.target.value)
+            }
+          >
+            <option value="" disabled>
+              Select MIDI output…
+            </option>
+            {s.midiOutputs.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="MIDI remote input (footswitch / pads)">
+          <select
+            className={selectCls}
+            defaultValue=""
+            onChange={(e) =>
+              e.target.value && void settingsApi.setMidiInput(e.target.value)
+            }
+          >
+            <option value="" disabled>
+              Select MIDI remote…
+            </option>
+            {s.midiInputs.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Virtual MIDI port (DAW sync test)">
+          <div className="flex flex-col gap-1.5">
+            <button
+              onClick={() =>
+                void settingsApi.setMidiVirtualPort(
+                  !s.virtualMidiPortEnabled,
+                )
+              }
+              className={`self-start rounded-lg border px-3 py-1.5 text-sm ${
+                s.virtualMidiPortEnabled
+                  ? "border-accent bg-accent/15 text-accent"
+                  : "border-default/60 bg-default/10 text-foreground/50 hover:bg-default/20"
+              }`}
+            >
+              {s.virtualMidiPortEnabled
+                ? "ResoStage Sync — enabled"
+                : "Enable ResoStage Sync"}
+            </button>
+            <div className="text-xs text-foreground/40">
+              {s.virtualMidiPortEnabled
+                ? "Select \u201cResoStage Sync\u201d as a MIDI input in your DAW to receive the clock/Start/Stop/SPP."
+                : "Creates a virtual MIDI port so you can test clock sync in a DAW without any hardware or IAC setup."}
+            </div>
+          </div>
+        </Field>
+      </Section>
+
+      <Section
+        title="Keyboard & MIDI Shortcuts"
+        description="Click a key binding and press a key (Esc cancels). Click a MIDI binding, then press a pad/CC on the remote input to learn."
+      >
+        <div className="flex flex-col gap-4">
           {ACTION_GROUPS.map((group) => (
             <div key={group.title} className="flex flex-col gap-1.5">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-foreground/50">
@@ -509,68 +533,135 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
                 lastActionNonce={state.lastActionNonce}
               />
             ))}
-        </Card.Content>
-      </Card>
+        </div>
+      </Section>
+    </div>
+  );
+}
 
-      <Card>
-        <Card.Header>
-          <Card.Title>System health</Card.Title>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Stat
-              label="CPU (app · 100%=1 core)"
-              value={`${Math.max(0, h.cpuPercent ?? 0).toFixed(1)}%`}
-            />
-            <Stat
-              label="RAM (Memory / footprint)"
-              value={formatBytes(h.rssBytes)}
-            />
-            <Stat label="Free system RAM" value={formatBytes(h.freeBytes)} />
-            <Stat label="Underruns" value={String(h.underrunCount)} />
-            <Stat
-              label="Audio callbacks"
-              value={String(h.audioCallbackCount)}
-            />
-            <Stat label="Web clients" value={String(h.webClientCount)} />
-          </div>
-          {(h.processes?.length ?? 0) > 0 && (
-            <div className="rounded-lg bg-default/30 p-3">
-              <div className="mb-2 text-xs font-medium uppercase text-default-500">
-                Per-process (incl. WebKit helpers)
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-default-500">
-                    <th className="pb-1 pr-3">Process</th>
-                    <th className="pb-1 pr-3 text-right">PID</th>
-                    <th className="pb-1 pr-3 text-right">RSS</th>
-                    <th className="pb-1 text-right">CPU</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(h.processes ?? []).map((p) => (
-                    <tr key={p.pid} className="border-t border-default/20">
-                      <td className="py-1 pr-3 font-mono text-xs">
-                        {p.name || "—"}
-                      </td>
-                      <td className="py-1 pr-3 text-right font-mono text-xs">
-                        {p.pid}
-                      </td>
-                      <td className="py-1 pr-3 text-right">
-                        {formatBytes(p.rssBytes)}
-                      </td>
-                      <td className="py-1 text-right">
-                        {p.cpuPercent.toFixed(1)}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+// ─── Health Tab ───────────────────────────────────────────────────────────
+function HealthTab({ state }: { state: WebUiState }) {
+  const h = state.health;
+  return (
+    <div className="flex flex-col gap-4">
+      <Section title="System Health">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Stat
+            label="CPU (app · 100%=1 core)"
+            value={`${Math.max(0, h.cpuPercent ?? 0).toFixed(1)}%`}
+          />
+          <Stat
+            label="RAM (Memory / footprint)"
+            value={formatBytes(h.rssBytes)}
+          />
+          <Stat label="Free system RAM" value={formatBytes(h.freeBytes)} />
+          <Stat label="Underruns" value={String(h.underrunCount)} />
+          <Stat
+            label="Audio callbacks"
+            value={String(h.audioCallbackCount)}
+          />
+          <Stat label="Web clients" value={String(h.webClientCount)} />
+        </div>
+        {(h.processes?.length ?? 0) > 0 && (
+          <div className="rounded-lg bg-default/30 p-3">
+            <div className="mb-2 text-xs font-medium uppercase text-default-500">
+              Per-process (incl. WebKit helpers)
             </div>
-          )}
-        </Card.Content>
-      </Card>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-default-500">
+                  <th className="pb-1 pr-3">Process</th>
+                  <th className="pb-1 pr-3 text-right">PID</th>
+                  <th className="pb-1 pr-3 text-right">RSS</th>
+                  <th className="pb-1 text-right">CPU</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(h.processes ?? []).map((p) => (
+                  <tr key={p.pid} className="border-t border-default/20">
+                    <td className="py-1 pr-3 font-mono text-xs">
+                      {p.name || "—"}
+                    </td>
+                    <td className="py-1 pr-3 text-right font-mono text-xs">
+                      {p.pid}
+                    </td>
+                    <td className="py-1 pr-3 text-right">
+                      {formatBytes(p.rssBytes)}
+                    </td>
+                    <td className="py-1 text-right">
+                      {p.cpuPercent.toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
+// ─── Light Tab ────────────────────────────────────────────────────────────
+function LightTab({ state }: { state: WebUiState }) {
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Project-level badge */}
+      <div className="flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2">
+        <span className="text-xs text-accent font-semibold uppercase tracking-wide">
+          📁 Project-level setting
+        </span>
+        <span className="text-xs text-foreground/50">
+          — saved with the project file, not global rig preferences
+        </span>
+      </div>
+      <ProjectLightingPanel li={state.lighting} state={state} />
+    </div>
+  );
+}
+
+// ─── Main SettingsScreen ──────────────────────────────────────────────────
+export function SettingsScreen({ state }: { state: WebUiState }) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-0 h-full">
+      {/* Tab bar */}
+      <div className="flex shrink-0 gap-0 border-b border-default/30 mb-4">
+        {SETTINGS_TABS.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`relative flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors select-none ${
+                isActive
+                  ? "text-foreground"
+                  : "text-foreground/50 hover:text-foreground/80"
+              }`}
+            >
+              <span>{tab.icon}</span>
+              <span>{tab.label}</span>
+              {tab.id === "light" && (
+                <span className="ml-1 rounded text-[9px] px-1 py-0.5 bg-accent/20 text-accent font-semibold uppercase tracking-wide">
+                  Project
+                </span>
+              )}
+              {isActive && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-accent rounded-t-full" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 overflow-auto pb-6">
+        {activeTab === "audio" && <AudioTab state={state} />}
+        {activeTab === "midi" && <MidiTab state={state} />}
+        {activeTab === "light" && <LightTab state={state} />}
+        {activeTab === "health" && <HealthTab state={state} />}
+      </div>
     </div>
   );
 }

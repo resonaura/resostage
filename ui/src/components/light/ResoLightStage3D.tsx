@@ -1,17 +1,86 @@
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import { Grid, OrbitControls, Text } from "@react-three/drei";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { LightFixtureRow } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
 
-// One shared 3D scene, two modes, so the "3D editor" (Settings' project
-// card) and the "live preview simulator" (Timeline's Light mode) render
-// identically -- see RESTORE_POINT.md Feature 6. `edit` lets the user
-// click-drag a bar across the ground plane to reposition it (X/Z only --
-// height/rotation are precise-entry fields in the surrounding panel, not a
-// 3D drag, since dragging vertically in a top-down-ish view is awkward
-// UX); `preview` is read-only and colors each bar from `previewColors`.
+// ─── Camera frame utility ─────────────────────────────────────────────────
+
+function FrameAllHelper({
+  fixtures,
+  triggerRef,
+}: {
+  fixtures: LightFixtureRow[];
+  triggerRef: React.MutableRefObject<(() => void) | null>;
+}) {
+  const { camera, controls } = useThree();
+
+  useEffect(() => {
+    triggerRef.current = () => {
+      if (fixtures.length === 0) {
+        camera.position.set(4, 3.5, 5);
+        if (controls) (controls as unknown as { target: THREE.Vector3 }).target.set(0, 1, 0);
+        camera.updateProjectionMatrix();
+        return;
+      }
+
+      const xs = fixtures.map((f) => f.posX);
+      const zs = fixtures.map((f) => f.posZ);
+      const ys = fixtures.map((f) => f.posY + Math.min(3, Math.max(0.3, f.ledCount / 30)));
+
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minZ = Math.min(...zs);
+      const maxZ = Math.max(...zs);
+      const maxY = Math.max(...ys);
+
+      const cx = (minX + maxX) / 2;
+      const cy = maxY / 2;
+      const cz = (minZ + maxZ) / 2;
+
+      const spread = Math.max(maxX - minX, maxZ - minZ, maxY, 3);
+
+      if (controls) {
+        (controls as unknown as { target: THREE.Vector3 }).target.set(cx, cy, cz);
+      }
+      camera.position.set(cx + spread * 0.8, cy + spread * 0.7, cz + spread * 1.2);
+      camera.updateProjectionMatrix();
+    };
+  }, [fixtures, camera, controls, triggerRef]);
+
+  return null;
+}
+
+function TopViewHelper({
+  triggerRef,
+  fixtures,
+}: {
+  triggerRef: React.MutableRefObject<(() => void) | null>;
+  fixtures: LightFixtureRow[];
+}) {
+  const { camera, controls } = useThree();
+
+  useEffect(() => {
+    triggerRef.current = () => {
+      const xs = fixtures.length ? fixtures.map((f) => f.posX) : [0];
+      const zs = fixtures.length ? fixtures.map((f) => f.posZ) : [0];
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+
+      if (controls) {
+        (controls as unknown as { target: THREE.Vector3 }).target.set(cx, 0, cz);
+      }
+      camera.position.set(cx, 12, cz + 0.001);
+      camera.updateProjectionMatrix();
+    };
+  }, [fixtures, camera, controls, triggerRef]);
+
+  return null;
+}
+
+// ─── Main component ───────────────────────────────────────────────────────
+
 export function ResoLightStage3D({
   mode,
   fixtures,
@@ -30,72 +99,99 @@ export function ResoLightStage3D({
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; z: number } | null>(null);
 
+  const frameAllRef = useRef<(() => void) | null>(null);
+  const topViewRef = useRef<(() => void) | null>(null);
+
   return (
-    <Canvas
-      camera={{ position: [4, 3.5, 5], fov: 50 }}
-      style={{ width: "100%", height: "100%" }}
-    >
-      <color attach="background" args={["#0b0f14"]} />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[5, 8, 4]} intensity={0.7} />
-      <Grid
-        args={[40, 40]}
-        cellColor="#1e293b"
-        sectionColor="#334155"
-        fadeDistance={28}
-        infiniteGrid
-      />
+    <div className="relative w-full h-full">
+      {/* 3D Controls overlay */}
+      <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
+        <button
+          onClick={() => frameAllRef.current?.()}
+          className="rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 hover:bg-default/90 backdrop-blur-sm transition-colors"
+          title="Frame all fixtures"
+        >
+          ⊞ Frame All
+        </button>
+        <button
+          onClick={() => topViewRef.current?.()}
+          className="rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 hover:bg-default/90 backdrop-blur-sm transition-colors"
+          title="Top-down view"
+        >
+          ↑ Top View
+        </button>
+      </div>
 
-      {/* Invisible ground plane -- drag raycast target for edit mode. */}
-      <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        visible={false}
-        onPointerMove={(e) => {
-          if (mode !== "edit" || dragId === null) return;
-          e.stopPropagation();
-          setDragPos({ x: e.point.x, z: e.point.z });
-        }}
-        onPointerUp={() => {
-          if (dragId !== null && dragPos !== null)
-            onFixtureMoved?.(dragId, dragPos.x, dragPos.z);
-          setDragId(null);
-          setDragPos(null);
-        }}
-        onPointerLeave={() => {
-          if (dragId !== null && dragPos !== null)
-            onFixtureMoved?.(dragId, dragPos.x, dragPos.z);
-          setDragId(null);
-          setDragPos(null);
-        }}
+      <Canvas
+        camera={{ position: [4, 3.5, 5], fov: 50 }}
+        style={{ width: "100%", height: "100%" }}
       >
-        <planeGeometry args={[200, 200]} />
-      </mesh>
+        <color attach="background" args={["#0b0f14"]} />
+        <ambientLight intensity={0.55} />
+        <directionalLight position={[5, 8, 4]} intensity={0.7} />
+        <Grid
+          args={[40, 40]}
+          cellColor="#1e293b"
+          sectionColor="#334155"
+          fadeDistance={28}
+          infiniteGrid
+        />
 
-      {fixtures.map((f) => {
-        const isDragging = dragId === f.id;
-        const x = isDragging && dragPos ? dragPos.x : f.posX;
-        const z = isDragging && dragPos ? dragPos.z : f.posZ;
-        return (
-          <ResoLightBar
-            key={f.id}
-            fixture={f}
-            x={x}
-            z={z}
-            selected={mode === "edit" && f.id === selectedFixtureId}
-            editable={mode === "edit"}
-            onPointerDownStart={() => {
-              onSelectFixture?.(f.id);
-              if (mode === "edit") setDragId(f.id);
-            }}
-            previewColor={previewColors?.[f.id]}
-          />
-        );
-      })}
+        {/* Invisible ground plane -- drag raycast target for edit mode. */}
+        <mesh
+          rotation={[-Math.PI / 2, 0, 0]}
+          visible={false}
+          onPointerMove={(e) => {
+            if (mode !== "edit" || dragId === null) return;
+            e.stopPropagation();
+            setDragPos({ x: e.point.x, z: e.point.z });
+          }}
+          onPointerUp={() => {
+            if (dragId !== null && dragPos !== null)
+              onFixtureMoved?.(dragId, dragPos.x, dragPos.z);
+            setDragId(null);
+            setDragPos(null);
+          }}
+          onPointerLeave={() => {
+            if (dragId !== null && dragPos !== null)
+              onFixtureMoved?.(dragId, dragPos.x, dragPos.z);
+            setDragId(null);
+            setDragPos(null);
+          }}
+        >
+          <planeGeometry args={[200, 200]} />
+        </mesh>
 
-      <OrbitControls makeDefault enabled={dragId === null} enableDamping={false} />
-    </Canvas>
+        {fixtures.map((f) => {
+          const isDragging = dragId === f.id;
+          const x = isDragging && dragPos ? dragPos.x : f.posX;
+          const z = isDragging && dragPos ? dragPos.z : f.posZ;
+          return (
+            <ResoLightBar
+              key={f.id}
+              fixture={f}
+              x={x}
+              z={z}
+              selected={mode === "edit" && f.id === selectedFixtureId}
+              editable={mode === "edit"}
+              onPointerDownStart={() => {
+                onSelectFixture?.(f.id);
+                if (mode === "edit") setDragId(f.id);
+              }}
+              previewColor={previewColors?.[f.id]}
+            />
+          );
+        })}
+
+        <OrbitControls makeDefault enabled={dragId === null} enableDamping={false} />
+        <FrameAllHelper fixtures={fixtures} triggerRef={frameAllRef} />
+        <TopViewHelper fixtures={fixtures} triggerRef={topViewRef} />
+      </Canvas>
+    </div>
   );
 }
+
+// ─── Single light bar ─────────────────────────────────────────────────────
 
 function ResoLightBar({
   fixture,
@@ -128,27 +224,85 @@ function ResoLightBar({
     }
     return new THREE.Color(0.55, 0.58, 0.65);
   }, [previewColor]);
-  const emissiveIntensity = previewColor ? Math.max(0.08, previewColor.intensity) : 0.25;
+
+  const emissiveIntensity = previewColor
+    ? Math.max(0.08, previewColor.intensity)
+    : 0.25;
+
+  // rotationYDeg doubles as horizontal-bar indicator (90°+ on Z)
+  // We interpret rotationYDeg >= 180 as "horizontal" bar for visual
+  const isHorizontal = Math.abs((fixture.rotationYDeg % 360) - 180) < 5;
+
+  // Addressable: show gradient mesh (3 segments top/mid/bot)
+  const segments = fixture.addressable && previewColor ? 5 : 1;
+  const segmentColors = useMemo(() => {
+    if (!fixture.addressable || !previewColor || segments === 1) return null;
+    return Array.from({ length: segments }, (_, i) => {
+      // Simple gradient: full color at center, dimmer at edges
+      const t = Math.abs((i / (segments - 1)) - 0.5) * 2; // 0=center, 1=edge
+      const dimFactor = 1 - t * 0.4;
+      return new THREE.Color(
+        (previewColor.r / 255) * dimFactor,
+        (previewColor.g / 255) * dimFactor,
+        (previewColor.b / 255) * dimFactor,
+      );
+    });
+  }, [fixture.addressable, previewColor, segments]);
+
+  const barWidth = isHorizontal ? heightMeters : 0.08;
+  const barHeight = isHorizontal ? 0.08 : heightMeters;
+  const barDepth = 0.08;
 
   return (
     <group
       position={[x, fixture.posY, z]}
-      rotation={[0, THREE.MathUtils.degToRad(fixture.rotationYDeg), 0]}
+      rotation={[
+        isHorizontal ? Math.PI / 2 : 0,
+        THREE.MathUtils.degToRad(isHorizontal ? 0 : fixture.rotationYDeg),
+        0,
+      ]}
     >
-      <mesh
-        position={[0, heightMeters / 2, 0]}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onPointerDownStart();
-        }}
-      >
-        <boxGeometry args={[0.08, heightMeters, 0.08]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={emissiveIntensity}
-        />
-      </mesh>
+      {segmentColors ? (
+        // Addressable: multiple glowing segments
+        segmentColors.map((segColor, idx) => {
+          const segH = heightMeters / segments;
+          const segY = idx * segH + segH / 2;
+          return (
+            <mesh
+              key={idx}
+              position={[0, segY, 0]}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                onPointerDownStart();
+              }}
+            >
+              <boxGeometry args={[barWidth, segH * 0.95, barDepth]} />
+              <meshStandardMaterial
+                color={segColor}
+                emissive={segColor}
+                emissiveIntensity={Math.max(0.08, previewColor!.intensity)}
+              />
+            </mesh>
+          );
+        })
+      ) : (
+        // Uniform bar
+        <mesh
+          position={[0, heightMeters / 2, 0]}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onPointerDownStart();
+          }}
+        >
+          <boxGeometry args={[barWidth, barHeight, barDepth]} />
+          <meshStandardMaterial
+            color={color}
+            emissive={color}
+            emissiveIntensity={emissiveIntensity}
+          />
+        </mesh>
+      )}
+
       {editable && (
         <mesh position={[0, -0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[0.12, selected ? 0.18 : 0.15, 24]} />

@@ -85,6 +85,12 @@ export interface LightCueRow {
   fadeInSeconds: number;
   fadeOutSeconds: number;
   label: string;
+  // ── Frontend-only audio-reactive effect fields (not persisted to C++ backend yet).
+  // These power the live 3D preview modulation only; the engine ignores them.
+  effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple";
+  effectBusId?: string;   // which bus/meter to read for audio-reactive effects
+  effectIntensity?: number; // 0-1 strength of the effect
+  effectRate?: number;    // strobe/pulse rate in Hz
 }
 
 export interface SongRow {

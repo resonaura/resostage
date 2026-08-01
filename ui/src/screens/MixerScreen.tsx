@@ -690,6 +690,20 @@ function BusDestinationRouting({
     });
   };
 
+  // Non-master bus (Sub-bus / Aux). "Master" destination = same physical
+  // channels as the master bus (engine sums both with += on the hardware
+  // outs). "Ext. Out" = any hardware pair, including the same pair as master —
+  // that case must still sum, not replace.
+  const isFollowingMaster = Boolean(
+    master &&
+    bus.channels === master.channels &&
+    bus.startChannel === master.startChannel,
+  );
+  // Local UI mode: once the user opens Ext. Out, keep the channel picker
+  // visible even if they pick the same pair as master (isFollowingMaster).
+  // Hoisted above the isMaster early return so the hook order is stable.
+  const [extOutputOpen, setExtOutputOpen] = useState(!isFollowingMaster);
+
   if (isMaster) {
     return (
       <div className="w-full my-1 flex flex-col items-center gap-1.5">
@@ -728,19 +742,6 @@ function BusDestinationRouting({
       </div>
     );
   }
-
-  // Non-master bus (Sub-bus / Aux).
-  // "Master" destination = same physical channels as the master bus (engine
-  // sums both with += on the hardware outs). "Ext. Out" = any hardware pair,
-  // including the same pair as master — that case must still sum, not replace.
-  const isFollowingMaster = Boolean(
-    master &&
-    bus.channels === master.channels &&
-    bus.startChannel === master.startChannel,
-  );
-  // Local UI mode: once the user opens Ext. Out, keep the channel picker
-  // visible even if they pick the same pair as master (isFollowingMaster).
-  const [extOutputOpen, setExtOutputOpen] = useState(!isFollowingMaster);
 
   return (
     <div className="w-full my-1 flex flex-col items-center gap-1.5">

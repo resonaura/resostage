@@ -384,6 +384,8 @@ export const lighting = {
     posY?: number;
     posZ?: number;
     rotationYDeg?: number;
+    gridColumn?: number;
+    gridRow?: number;
     dmxUniverse?: number;
     dmxStartChannel?: number;
     dmxChannelCount?: number;
