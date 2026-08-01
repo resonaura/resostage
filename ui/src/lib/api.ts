@@ -363,6 +363,58 @@ export const builder = {
   }) => post("/api/v1/builder/section/update", patch),
 };
 
+// Lighting rig config + fixture roster + Light-timeline tracks/cues -- see
+// MainComponentLighting.cpp and RESTORE_POINT.md Feature 6. Mirrors
+// `builder` above: same raw-JSON-passthrough routing, field parsing happens
+// server-side.
+export const lighting = {
+  setConfig: (patch: {
+    enabled?: boolean;
+    kind?: "none" | "resoLight" | "dmxGeneric";
+    resoLightColumns?: number;
+    resoLightRows?: number;
+  }) => post("/api/v1/lighting/config", patch),
+
+  fixtureUpdate: (patch: {
+    fixtureId: string;
+    name?: string;
+    ledCount?: number;
+    addressable?: boolean;
+    posX?: number;
+    posY?: number;
+    posZ?: number;
+    rotationYDeg?: number;
+    dmxUniverse?: number;
+    dmxStartChannel?: number;
+    dmxChannelCount?: number;
+  }) => post("/api/v1/lighting/fixture/update", patch),
+
+  trackAdd: () => post("/api/v1/lighting/track/add"),
+  trackRemove: (index: number) => post("/api/v1/lighting/track/remove", { index }),
+  trackMove: (index: number, delta: number) =>
+    post("/api/v1/lighting/track/move", { index, delta }),
+  trackUpdate: (patch: { index: number; name?: string; fixtureIds?: string[] }) =>
+    post("/api/v1/lighting/track/update", patch),
+
+  cueAdd: (songIndex: number, trackId: string, startSeconds: number, durationSeconds = 2.0) =>
+    post("/api/v1/lighting/cue/add", { songIndex, trackId, startSeconds, durationSeconds }),
+  cueRemove: (songIndex: number, cueId: string) =>
+    post("/api/v1/lighting/cue/remove", { songIndex, cueId }),
+  cueUpdate: (patch: {
+    songIndex: number;
+    cueId: string;
+    startSeconds?: number;
+    durationSeconds?: number;
+    colorR?: number;
+    colorG?: number;
+    colorB?: number;
+    intensity?: number;
+    fadeInSeconds?: number;
+    fadeOutSeconds?: number;
+    label?: string;
+  }) => post("/api/v1/lighting/cue/update", patch),
+};
+
 // Timeline undo/redo (regions + sections of the currently loaded project).
 // See ProjectHistory.h / AudioEngine::undoTimelineEdit()/redoTimelineEdit().
 export const timelineHistory = {

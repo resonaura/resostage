@@ -5,6 +5,7 @@
 #include "ui/UiColors.h"
 #include "web/BuilderJson.h"
 #include "timing/BarSeek.h"
+#include "project/ProjectJson.h"
 
 #include <algorithm>
 #include <cctype>
@@ -873,6 +874,15 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderSectionAdd: builderSectionAdd(cmd.json); break;
             case WebCommandKind::BuilderSectionRemove: builderSectionRemove(cmd.json); break;
             case WebCommandKind::BuilderSectionUpdate: builderSectionUpdate(cmd.json); break;
+            case WebCommandKind::SetLightingConfig: lightingSetConfig(cmd.json); break;
+            case WebCommandKind::LightFixtureUpdate: lightingFixtureUpdate(cmd.json); break;
+            case WebCommandKind::LightTrackAdd: lightingTrackAdd(cmd.json); break;
+            case WebCommandKind::LightTrackRemove: lightingTrackRemove(cmd.json); break;
+            case WebCommandKind::LightTrackMove: lightingTrackMove(cmd.json); break;
+            case WebCommandKind::LightTrackUpdate: lightingTrackUpdate(cmd.json); break;
+            case WebCommandKind::LightCueAdd: lightingCueAdd(cmd.json); break;
+            case WebCommandKind::LightCueRemove: lightingCueRemove(cmd.json); break;
+            case WebCommandKind::LightCueUpdate: lightingCueUpdate(cmd.json); break;
             case WebCommandKind::TimelineUndo: performTimelineUndo(); break;
             case WebCommandKind::TimelineRedo: performTimelineRedo(); break;
             case WebCommandKind::SetAudioOutputDevice: settingsSetAudioOutputDevice(cmd.json); break;
@@ -1102,6 +1112,23 @@ void MainComponent::publishWebState() {
             row.sections.push_back(std::move(sr));
         }
 
+        row.lightCues.reserve(song.lightCues.size());
+        for (const LightCue& lc : song.lightCues) {
+            WebUiState::SongRow::LightCueRow lcr;
+            lcr.id = lc.id;
+            lcr.trackId = lc.trackId;
+            lcr.startSeconds = lc.startSeconds;
+            lcr.durationSeconds = lc.durationSeconds;
+            lcr.colorR = lc.colorR;
+            lcr.colorG = lc.colorG;
+            lcr.colorB = lc.colorB;
+            lcr.intensity = lc.intensity;
+            lcr.fadeInSeconds = lc.fadeInSeconds;
+            lcr.fadeOutSeconds = lc.fadeOutSeconds;
+            lcr.label = lc.label;
+            row.lightCues.push_back(std::move(lcr));
+        }
+
         state.songs.push_back(std::move(row));
     }
 
@@ -1177,6 +1204,39 @@ void MainComponent::publishWebState() {
             }
         }
         state.busses.push_back(std::move(br));
+    }
+
+    state.lighting.enabled = proj.lighting.enabled;
+    state.lighting.kind = lightingKindToString(proj.lighting.kind);
+    state.lighting.resoLightColumns = proj.lighting.resoLightColumns;
+    state.lighting.resoLightRows = proj.lighting.resoLightRows;
+    state.lighting.fixtures.reserve(proj.lighting.fixtures.size());
+    for (const LightFixture& f : proj.lighting.fixtures) {
+        WebUiState::LightFixtureRow fr;
+        fr.id = f.id;
+        fr.name = f.name;
+        fr.kind = lightFixtureKindToString(f.kind);
+        fr.gridColumn = f.gridColumn;
+        fr.gridRow = f.gridRow;
+        fr.ledCount = f.ledCount;
+        fr.addressable = f.addressable;
+        fr.posX = f.posX;
+        fr.posY = f.posY;
+        fr.posZ = f.posZ;
+        fr.rotationYDeg = f.rotationYDeg;
+        fr.dmxUniverse = f.dmxUniverse;
+        fr.dmxStartChannel = f.dmxStartChannel;
+        fr.dmxChannelCount = f.dmxChannelCount;
+        state.lighting.fixtures.push_back(std::move(fr));
+    }
+
+    state.lightTracks.reserve(proj.lightTracks.size());
+    for (const LightTrack& lt : proj.lightTracks) {
+        WebUiState::LightTrackRow ltr;
+        ltr.id = lt.id;
+        ltr.name = lt.name;
+        ltr.fixtureIds = lt.fixtureIds;
+        state.lightTracks.push_back(std::move(ltr));
     }
 
     state.cpuPercent = health.totalCpuPercent;

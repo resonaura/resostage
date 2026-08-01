@@ -70,6 +70,23 @@ export interface SectionRow {
   colorIndex: number;
 }
 
+// A single light cue block placed on a song's Light timeline -- mirrors
+// SectionRow above. Color is fixed for the cue's span; fadeIn/fadeOut ramp
+// intensity only (see engine/lighting/LightCueInterpolation.h).
+export interface LightCueRow {
+  id: string;
+  trackId: string;
+  startSeconds: number;
+  durationSeconds: number;
+  colorR: number; // 0-255
+  colorG: number;
+  colorB: number;
+  intensity: number; // 0-1
+  fadeInSeconds: number;
+  fadeOutSeconds: number;
+  label: string;
+}
+
 export interface SongRow {
   name: string;
   bpm: number;
@@ -84,6 +101,7 @@ export interface SongRow {
   regions?: RegionRow[];
   events: SongEventRow[];
   sections?: SectionRow[];
+  lightCues?: LightCueRow[];
 }
 
 export interface MeterRow {
@@ -127,6 +145,40 @@ export interface BusRow {
   peakDb: number;
   peakDbL?: number;
   peakDbR?: number;
+}
+
+// One physical light fixture -- project-level roster entry, mirrors
+// TrackRow's relationship to SongTrackRow (fixtures are patched once here;
+// LightTrackRow groups fixtures for a Light-timeline row to drive in unison).
+export interface LightFixtureRow {
+  id: string;
+  name: string;
+  kind: "resoLightBar" | "dmxGeneric";
+  gridColumn: number;
+  gridRow: number;
+  ledCount: number;
+  addressable: boolean;
+  posX: number;
+  posY: number;
+  posZ: number;
+  rotationYDeg: number;
+  dmxUniverse: number;
+  dmxStartChannel: number;
+  dmxChannelCount: number;
+}
+
+export interface LightingState {
+  enabled: boolean;
+  kind: "none" | "resoLight" | "dmxGeneric";
+  resoLightColumns: number;
+  resoLightRows: number;
+  fixtures: LightFixtureRow[];
+}
+
+export interface LightTrackRow {
+  id: string;
+  name: string;
+  fixtureIds: string[];
 }
 
 export interface ProcessHealthEntry {
@@ -275,6 +327,9 @@ export interface WebUiState {
   meters: MeterRow[];
   tracks: TrackRow[];
   busses: BusRow[];
+  /** Project-scoped lighting rig config -- see Settings' "Project" card. Always shipped (tiny). */
+  lighting: LightingState;
+  lightTracks: LightTrackRow[];
   health: HealthState;
   settings: SettingsState;
 }
@@ -320,6 +375,14 @@ export const emptyState: WebUiState = {
   meters: [],
   tracks: [],
   busses: [],
+  lighting: {
+    enabled: false,
+    kind: "none",
+    resoLightColumns: 2,
+    resoLightRows: 1,
+    fixtures: [],
+  },
+  lightTracks: [],
   health: {
     cpuPercent: 0,
     rssBytes: 0,

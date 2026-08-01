@@ -303,6 +303,15 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/section/add", WebCommandKind::BuilderSectionAdd},
     {"/api/v1/builder/section/remove", WebCommandKind::BuilderSectionRemove},
     {"/api/v1/builder/section/update", WebCommandKind::BuilderSectionUpdate},
+    {"/api/v1/lighting/config", WebCommandKind::SetLightingConfig},
+    {"/api/v1/lighting/fixture/update", WebCommandKind::LightFixtureUpdate},
+    {"/api/v1/lighting/track/add", WebCommandKind::LightTrackAdd},
+    {"/api/v1/lighting/track/remove", WebCommandKind::LightTrackRemove},
+    {"/api/v1/lighting/track/move", WebCommandKind::LightTrackMove},
+    {"/api/v1/lighting/track/update", WebCommandKind::LightTrackUpdate},
+    {"/api/v1/lighting/cue/add", WebCommandKind::LightCueAdd},
+    {"/api/v1/lighting/cue/remove", WebCommandKind::LightCueRemove},
+    {"/api/v1/lighting/cue/update", WebCommandKind::LightCueUpdate},
     {"/api/v1/timeline/undo", WebCommandKind::TimelineUndo},
     {"/api/v1/timeline/redo", WebCommandKind::TimelineRedo},
     {"/api/v1/settings/audio-device", WebCommandKind::SetAudioOutputDevice},
@@ -1172,6 +1181,28 @@ std::string WebServer::buildStateJson(const char* view) const {
                   << "\"startSeconds\":" << finiteOrZero(sec.startSeconds) << ","
                   << "\"colorIndex\":" << sec.colorIndex << "}";
             }
+            o << "],";
+
+            // Light cues always with songs too -- small dataset, and the
+            // Player's Timeline needs them for its non-clickable audio-mode
+            // hint strip even though it never edits them (see RESTORE_POINT.md
+            // Feature 6).
+            o << "\"lightCues\":[";
+            for (size_t j = 0; j < song.lightCues.size(); ++j) {
+                if (j) o << ",";
+                const auto& lc = song.lightCues[j];
+                o << "{\"id\":\"" << jsonEscape(lc.id) << "\","
+                  << "\"trackId\":\"" << jsonEscape(lc.trackId) << "\","
+                  << "\"startSeconds\":" << finiteOrZero(lc.startSeconds) << ","
+                  << "\"durationSeconds\":" << finiteOrZero(lc.durationSeconds) << ","
+                  << "\"colorR\":" << lc.colorR << ","
+                  << "\"colorG\":" << lc.colorG << ","
+                  << "\"colorB\":" << lc.colorB << ","
+                  << "\"intensity\":" << finiteOrZero(lc.intensity) << ","
+                  << "\"fadeInSeconds\":" << finiteOrZero(lc.fadeInSeconds) << ","
+                  << "\"fadeOutSeconds\":" << finiteOrZero(lc.fadeOutSeconds) << ","
+                  << "\"label\":\"" << jsonEscape(lc.label) << "\"}";
+            }
             o << "]}";
         }
         o << "]";
@@ -1235,6 +1266,54 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"peakDb\":" << finiteOrDbFloor(b.peakDb) << ","
               << "\"peakDbL\":" << finiteOrDbFloor(b.peakDbL) << ","
               << "\"peakDbR\":" << finiteOrDbFloor(b.peakDbR) << "}";
+        }
+        o << "]";
+    }
+
+    // Lighting config + fixture roster -- always shipped, tiny like the
+    // settings device/MIDI lists (a handful of fixtures at most), and needed
+    // by the Settings project card, the Editor's Light-mode timeline, and
+    // Player's non-clickable light hint strip alike.
+    {
+        const auto& li = snap.lighting;
+        o << ",\"lighting\":{"
+          << "\"enabled\":" << (li.enabled ? "true" : "false") << ","
+          << "\"kind\":\"" << jsonEscape(li.kind) << "\","
+          << "\"resoLightColumns\":" << li.resoLightColumns << ","
+          << "\"resoLightRows\":" << li.resoLightRows << ","
+          << "\"fixtures\":[";
+        for (size_t i = 0; i < li.fixtures.size(); ++i) {
+            if (i) o << ",";
+            const auto& f = li.fixtures[i];
+            o << "{\"id\":\"" << jsonEscape(f.id) << "\","
+              << "\"name\":\"" << jsonEscape(f.name) << "\","
+              << "\"kind\":\"" << jsonEscape(f.kind) << "\","
+              << "\"gridColumn\":" << f.gridColumn << ","
+              << "\"gridRow\":" << f.gridRow << ","
+              << "\"ledCount\":" << f.ledCount << ","
+              << "\"addressable\":" << (f.addressable ? "true" : "false") << ","
+              << "\"posX\":" << finiteOrZero(f.posX) << ","
+              << "\"posY\":" << finiteOrZero(f.posY) << ","
+              << "\"posZ\":" << finiteOrZero(f.posZ) << ","
+              << "\"rotationYDeg\":" << finiteOrZero(f.rotationYDeg) << ","
+              << "\"dmxUniverse\":" << f.dmxUniverse << ","
+              << "\"dmxStartChannel\":" << f.dmxStartChannel << ","
+              << "\"dmxChannelCount\":" << f.dmxChannelCount << "}";
+        }
+        o << "]}";
+
+        o << ",\"lightTracks\":[";
+        for (size_t i = 0; i < snap.lightTracks.size(); ++i) {
+            if (i) o << ",";
+            const auto& lt = snap.lightTracks[i];
+            o << "{\"id\":\"" << jsonEscape(lt.id) << "\","
+              << "\"name\":\"" << jsonEscape(lt.name) << "\","
+              << "\"fixtureIds\":[";
+            for (size_t fi = 0; fi < lt.fixtureIds.size(); ++fi) {
+                if (fi) o << ",";
+                o << "\"" << jsonEscape(lt.fixtureIds[fi]) << "\"";
+            }
+            o << "]}";
         }
         o << "]";
     }

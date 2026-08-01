@@ -135,6 +135,25 @@ enum class WebCommandKind : uint8_t {
     BuilderSectionAdd,
     BuilderSectionRemove,
     BuilderSectionUpdate,
+    // Lighting parity -- see RESTORE_POINT.md Feature 6 and
+    // MainComponentLighting.cpp (mirrors the Builder handlers above:
+    // `json` carries the raw POST body, field parsing happens
+    // message-thread-side). SetLightingConfig also auto-resizes
+    // LightingConfig::fixtures to match a changed resoLightColumns/Rows
+    // (see MainComponentLighting.cpp's regenerateResoLightFixtures()) --
+    // LightFixtureUpdate then edits an individual fixture's real position/
+    // LED count/addressable flag from there (3D editor drag, settings-card
+    // per-fixture fields). LightCue has no Move -- like Region/Section,
+    // repositioning is just a startSeconds field in Update.
+    SetLightingConfig,
+    LightFixtureUpdate,
+    LightTrackAdd,
+    LightTrackRemove,
+    LightTrackMove,
+    LightTrackUpdate,
+    LightCueAdd,
+    LightCueRemove,
+    LightCueUpdate,
     // Timeline undo/redo (regions + sections of the currently loaded
     // project). No JSON body needed. See ProjectHistory / AudioEngine::
     // undoTimelineEdit()/redoTimelineEdit().
@@ -330,6 +349,24 @@ struct WebUiState {
             int colorIndex = 0;
         };
         std::vector<SectionRow> sections;
+
+        // Light cues placed on this song's Light timeline -- mirrors
+        // SectionRow's relationship above (color/intensity JSON-friendly
+        // as 0-255 ints, not the engine's uint8_t).
+        struct LightCueRow {
+            std::string id;
+            std::string trackId;
+            double startSeconds = 0.0;
+            double durationSeconds = 1.0;
+            int colorR = 255;
+            int colorG = 255;
+            int colorB = 255;
+            double intensity = 1.0;
+            double fadeInSeconds = 0.0;
+            double fadeOutSeconds = 0.0;
+            std::string label;
+        };
+        std::vector<LightCueRow> lightCues;
     };
     std::vector<SongRow> songs;
 
@@ -376,6 +413,42 @@ struct WebUiState {
         float peakDbR = -144.0f;
     };
     std::vector<BusRow> busses;
+
+    // Lighting rig config + fixture roster -- see RESTORE_POINT.md Feature 6
+    // and engine/project/ProjectSchema.h's LightingConfig/LightFixture.
+    // Project-scoped (mirrors proj.lighting), unlike AppSettings' rig-wide
+    // audio/MIDI fields in SettingsRow below.
+    struct LightFixtureRow {
+        std::string id;
+        std::string name;
+        std::string kind; // "resoLightBar" | "dmxGeneric"
+        int gridColumn = 0;
+        int gridRow = 0;
+        int ledCount = 30;
+        bool addressable = true;
+        double posX = 0.0;
+        double posY = 0.0;
+        double posZ = 0.0;
+        double rotationYDeg = 0.0;
+        int dmxUniverse = 0;
+        int dmxStartChannel = 1;
+        int dmxChannelCount = 3;
+    };
+    struct LightingRow {
+        bool enabled = false;
+        std::string kind = "none"; // "none" | "resoLight" | "dmxGeneric"
+        int resoLightColumns = 2;
+        int resoLightRows = 1;
+        std::vector<LightFixtureRow> fixtures;
+    };
+    LightingRow lighting;
+
+    struct LightTrackRow {
+        std::string id;
+        std::string name;
+        std::vector<std::string> fixtureIds;
+    };
+    std::vector<LightTrackRow> lightTracks;
 
     // Health -- combined totals across all app-related processes.
     double cpuPercent = 0.0;

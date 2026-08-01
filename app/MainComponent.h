@@ -184,6 +184,16 @@ private:
     void builderSectionRemove(const std::string& json);
     void builderSectionUpdate(const std::string& json);
 
+    void lightingSetConfig(const std::string& json);
+    void lightingFixtureUpdate(const std::string& json);
+    void lightingTrackAdd(const std::string& json);
+    void lightingTrackRemove(const std::string& json);
+    void lightingTrackMove(const std::string& json);
+    void lightingTrackUpdate(const std::string& json);
+    void lightingCueAdd(const std::string& json);
+    void lightingCueRemove(const std::string& json);
+    void lightingCueUpdate(const std::string& json);
+
     void settingsSetAudioOutputDevice(const std::string& json);
     void settingsSetSampleRate(const std::string& json);
     void settingsSetBufferSize(const std::string& json);
