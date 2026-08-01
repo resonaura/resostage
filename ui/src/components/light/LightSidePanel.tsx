@@ -18,6 +18,7 @@ import {
   Minus,
   Palette,
   Trash2,
+  TriangleAlert,
   Waves,
   X,
   Zap,
@@ -539,6 +540,13 @@ function TrackSettingsPanel({
           }
         />
       </Field>
+
+      {fixtures.length > 0 && track.fixtureIds.length === 0 && (
+        <div className="flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[10px] text-warning">
+          <TriangleAlert size={12} className="shrink-0" />
+          No fixtures checked below -- cues on this track won&apos;t drive anything yet.
+        </div>
+      )}
 
       <Field label="Assigned Fixtures">
         <div className="flex flex-col gap-1">

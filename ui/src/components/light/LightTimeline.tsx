@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { lighting } from "../../lib/api";
 import type {
   AllPeaksResponse,
@@ -644,9 +645,19 @@ export function LightTrackHeader({
       >
         {track.name}
       </span>
-      <span className="shrink-0 text-[9px] text-foreground/30 font-mono">
-        {track.fixtureIds.length}f
-      </span>
+      {track.fixtureIds.length === 0 ? (
+        <span
+          className="shrink-0 flex items-center gap-0.5 text-[9px] font-mono text-warning"
+          title="No fixtures assigned -- cues on this track won't drive anything until you check at least one fixture below"
+        >
+          <TriangleAlert size={10} />
+          0f
+        </span>
+      ) : (
+        <span className="shrink-0 text-[9px] text-foreground/30 font-mono">
+          {track.fixtureIds.length}f
+        </span>
+      )}
     </div>
   );
 }
