@@ -1,6 +1,7 @@
 import { Card } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
+import { ProjectLightingCard } from "../components/light/ProjectLightingCard";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 
@@ -298,6 +299,7 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
           </Card.Content>
         </Card>
       )}
+      <ProjectLightingCard li={state.lighting} />
       <Card>
         <Card.Header>
           <Card.Title>Audio device</Card.Title>
