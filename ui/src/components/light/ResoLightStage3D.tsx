@@ -268,7 +268,8 @@ function ResoLightBar({
     fixture.addressable && previewColor?.meterLevel01 !== undefined && previewColor.meterLevel01 > 0;
   const spatialEffectActive =
     fixture.addressable && !meterActive &&
-    (previewColor?.effectType === "converge" || previewColor?.effectType === "gradientflow");
+    (["converge", "gradientflow", "chase", "helix", "plasma", "twinkle", "sonicboom"] as const)
+      .includes(previewColor?.effectType as SpatialEffectType);
   // Capped/floored purely for render cost and visibility -- the real DMX
   // output still addresses every physical LED; this is just how many
   // discrete segments the 3D preview bothers to draw.
@@ -301,7 +302,7 @@ function ResoLightBar({
       });
     }
     if (spatialEffectActive) {
-      const type = previewColor!.effectType as "converge" | "gradientflow";
+      const type = previewColor!.effectType as SpatialEffectType;
       return Array.from({ length: totalSegments }, (_, i) => {
         const led = addressableEffectLedColor(
           i, totalSegments, type,

@@ -57,7 +57,7 @@ constexpr double kGradientFlowSpeedScale = 0.15;
 // from MasterClock::currentSeconds() so every fixture stays frame-perfect.
 
 struct EffectParams {
-    enum class Type { None, Meter, Strobe, Pulse, Ripple, Converge, GradientFlow } type{Type::None};
+    enum class Type { None, Meter, Strobe, Pulse, Ripple, Converge, GradientFlow, Chase, Helix, Plasma, Twinkle, SonicBoom } type{Type::None};
     float intensity    = 0.8f;   // 0..1 — depth of the effect
     float rateHz       = 2.0f;   // cycles per second (pre-computed from tempoSubdiv if synced)
     float audioLevel   = 0.0f;   // 0..1 peak level from the target bus (for Meter)
@@ -73,6 +73,11 @@ inline EffectParams::Type parseEffectType(const std::string& s) {
     if (s == "ripple")       return EffectParams::Type::Ripple;
     if (s == "converge")     return EffectParams::Type::Converge;
     if (s == "gradientflow") return EffectParams::Type::GradientFlow;
+    if (s == "chase")        return EffectParams::Type::Chase;
+    if (s == "helix")        return EffectParams::Type::Helix;
+    if (s == "plasma")       return EffectParams::Type::Plasma;
+    if (s == "twinkle")      return EffectParams::Type::Twinkle;
+    if (s == "sonicboom")    return EffectParams::Type::SonicBoom;
     return EffectParams::Type::None;
 }
 
@@ -82,13 +87,18 @@ inline EffectParams::Type parseEffectType(const std::string& s) {
 // run without re-deriving it from the cue list itself.
 inline const char* effectTypeToString(EffectParams::Type t) {
     switch (t) {
+        case EffectParams::Type::None:         return "none";
         case EffectParams::Type::Meter:        return "meter";
         case EffectParams::Type::Strobe:       return "strobe";
         case EffectParams::Type::Pulse:        return "pulse";
         case EffectParams::Type::Ripple:       return "ripple";
         case EffectParams::Type::Converge:     return "converge";
         case EffectParams::Type::GradientFlow: return "gradientflow";
-        default:                               return "none";
+        case EffectParams::Type::Chase:        return "chase";
+        case EffectParams::Type::Helix:        return "helix";
+        case EffectParams::Type::Plasma:       return "plasma";
+        case EffectParams::Type::Twinkle:      return "twinkle";
+        case EffectParams::Type::SonicBoom:    return "sonicboom";
     }
 }
 
@@ -147,7 +157,7 @@ inline LightCueValue applyEffect(LightCueValue base, const EffectParams& p) {
         }
         case EffectParams::Type::Ripple: {
             // Travelling wave starting at 0 for fixture 0 at tSec=0.
-            const float phaseOffset = p.fixtureIndex * 0.25f;
+            const float phaseOffset = static_cast<float>(p.fixtureIndex) * 0.25f;
             const float sine = static_cast<float>(
                 0.5 + 0.5 * std::sin(TAU * p.rateHz * std::max(0.0, p.tSec)
                                      - phaseOffset * TAU - TAU * 0.25));
@@ -179,7 +189,14 @@ inline LightCueValue applyEffect(LightCueValue base, const EffectParams& p) {
             level = p.intensity;
             break;
         }
-        default:
+        case EffectParams::Type::Chase:
+        case EffectParams::Type::Helix:
+        case EffectParams::Type::Plasma:
+        case EffectParams::Type::Twinkle:
+        case EffectParams::Type::SonicBoom:
+            level = p.intensity;
+            break;
+        case EffectParams::Type::None:
             break;
     }
 
@@ -211,10 +228,11 @@ inline void addressableEffectLedColor(int i, int totalLeds, EffectParams::Type t
     outG = baseG;
     outB = baseB;
     outLevel = 1.0;
+    constexpr double TAU = 6.283185307179586;
     const double t = totalLeds > 1 ? static_cast<double>(i) / (totalLeds - 1) : 0.0;
 
+    const double phase = std::fmod(std::max(0.0, tSec) * rateHz, 1.0);
     if (type == EffectParams::Type::Converge) {
-        const double phase = std::fmod(std::max(0.0, tSec) * rateHz, 1.0);
         const double bandPos = phase * 0.5;                // 0 (edge) .. 0.5 (centre)
         const double distFromEdge = std::min(t, 1.0 - t);   // 0 at either edge, 0.5 at centre
         constexpr double kBandWidth = 0.12;
@@ -222,6 +240,30 @@ inline void addressableEffectLedColor(int i, int totalLeds, EffectParams::Type t
     } else if (type == EffectParams::Type::GradientFlow) {
         const double hue = t + std::max(0.0, tSec) * rateHz * kGradientFlowSpeedScale;
         hsvToRgb(hue, 1.0, 1.0, outR, outG, outB);
+    } else if (type == EffectParams::Type::Chase) {
+        constexpr double kBandWidth = 0.16;
+        outLevel = std::clamp(1.0 - std::abs(t - phase) / kBandWidth, 0.0, 1.0);
+    } else if (type == EffectParams::Type::Helix) {
+        const double wave = 0.5 + 0.5 * std::sin(TAU * (t * 2.0 + phase));
+        outLevel = std::pow(wave, 3.0);
+        hsvToRgb(t + phase, 0.85, 1.0, outR, outG, outB);
+    } else if (type == EffectParams::Type::Plasma) {
+        const double field = 0.5 + 0.5 * (
+            std::sin(TAU * (t * 1.7 + phase)) +
+            std::sin(TAU * (t * 3.1 - phase)) +
+            std::sin(TAU * (t * 0.7 + phase * 2.0))) / 3.0;
+        hsvToRgb(field + phase * 0.35, 0.9, 0.35 + field * 0.65, outR, outG, outB);
+    } else if (type == EffectParams::Type::Twinkle) {
+        const int timeCell = static_cast<int>(std::floor(std::max(0.0, tSec) * rateHz * 3.0));
+        const uint32_t ledHash = static_cast<uint32_t>(i) * 1103515245u;
+        const uint32_t timeHash = static_cast<uint32_t>(timeCell) * 2654435761u;
+        const uint32_t h = ledHash ^ timeHash;
+        outLevel = (h & 1023u) < 60u ? 1.0 : 0.03;
+        hsvToRgb((h % 360u) / 360.0, 0.55, 1.0, outR, outG, outB);
+    } else if (type == EffectParams::Type::SonicBoom) {
+        constexpr double kBandWidth = 0.10;
+        const double radius = phase * 0.5;
+        outLevel = std::clamp(1.0 - std::abs(std::abs(t - 0.5) - radius) / kBandWidth, 0.0, 1.0);
     }
 }
 
@@ -288,4 +330,3 @@ inline LightCueValue resolveLightCueValue(const std::vector<LightCue>& cues,
 }
 
 } // namespace resostage
-

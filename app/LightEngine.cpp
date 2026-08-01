@@ -55,7 +55,7 @@ void writeDmxChannels(const ResolvedFixtureOutput& out,
     // presence as the "should this bar do a VU fill" signal.
     const bool meterActive = out.meterLevel01 > 0.0f;
     const bool spatialEffectActive = !meterActive &&
-        (out.effectType == EffectParams::Type::Converge || out.effectType == EffectParams::Type::GradientFlow);
+        out.effectType != EffectParams::Type::None;
     const int litCount = meterActive
         ? std::clamp(static_cast<int>(std::lround(out.meterLevel01 * leds)), 0, leds)
         : leds; // not metering: every LED "lit" at the resolved uniform color

@@ -279,7 +279,7 @@ function HslColorPicker({
 
 // ─── Audio effect selector (props-driven — state lives in LightSidePanel) ──
 
-type EffectType = "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow";
+type EffectType = "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom";
 
 const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React.ReactNode }> = {
   none:         { label: "None",     desc: "Static color, no modulation",                      icon: <Minus size={12} /> },
@@ -289,6 +289,11 @@ const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React
   ripple:       { label: "Ripple",   desc: "Travelling wave across fixtures left→right",         icon: <Waves size={12} /> },
   converge:     { label: "Converge", desc: "Lines race in from both ends and meet at the centre (addressable fixtures)", icon: <Merge size={12} /> },
   gradientflow: { label: "Gradient", desc: "Flowing rainbow shimmer along the bar (addressable fixtures)", icon: <Rainbow size={12} /> },
+  chase:        { label: "Chase",    desc: "Phase-locked bright runner travelling up the bar", icon: <Zap size={12} /> },
+  helix:        { label: "Helix",    desc: "Double-strand colour wave projected onto the bar", icon: <Waves size={12} /> },
+  plasma:       { label: "Plasma",   desc: "Liquid three-wave colour interference", icon: <Activity size={12} /> },
+  twinkle:      { label: "Twinkle",  desc: "Deterministic sparkling star field", icon: <Lightbulb size={12} /> },
+  sonicboom:    { label: "Boom",     desc: "Rhythmic wave expanding from the centre", icon: <Zap size={12} /> },
 };
 
 // ─── Tempo subdivisions ───────────────────────────────────────────────────
@@ -337,13 +342,14 @@ function EffectPanel({
   bpm: number;
 }) {
   const hasRate = effectType === "strobe" || effectType === "pulse" || effectType === "ripple"
-    || effectType === "converge" || effectType === "gradientflow";
+    || effectType === "converge" || effectType === "gradientflow" || effectType === "chase"
+    || effectType === "helix" || effectType === "plasma" || effectType === "twinkle" || effectType === "sonicboom";
   const sourceItems = effectSourceType === "track" ? tracks : busses;
   return (
     <div className="flex flex-col gap-3">
       <Field label="Audio Effect">
         <div className="grid grid-cols-4 gap-1">
-          {(["none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow"] as EffectType[]).map((et) => {
+          {(["none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow", "chase", "helix", "plasma", "twinkle", "sonicboom"] as EffectType[]).map((et) => {
             const meta = EFFECT_META[et];
             return (
               <button

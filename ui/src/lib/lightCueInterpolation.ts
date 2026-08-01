@@ -86,7 +86,7 @@ function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
   return [clamp255(rf), clamp255(gf), clamp255(bf)];
 }
 
-export type SpatialEffectType = "converge" | "gradientflow";
+export type SpatialEffectType = "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom";
 
 export interface AddressableLedColor {
   r: number;
@@ -115,8 +115,8 @@ export function addressableEffectLedColor(
 ): AddressableLedColor {
   const t = totalLeds > 1 ? i / (totalLeds - 1) : 0;
 
+  const phase = (Math.max(0, tSec) * rateHz) % 1;
   if (type === "converge") {
-    const phase = (Math.max(0, tSec) * rateHz) % 1;
     const bandPos = phase * 0.5; // 0 (edge) .. 0.5 (centre)
     const distFromEdge = Math.min(t, 1 - t); // 0 at either edge, 0.5 at centre
     const kBandWidth = 0.12;
@@ -124,8 +124,26 @@ export function addressableEffectLedColor(
     return { r: baseR, g: baseG, b: baseB, level };
   }
 
-  // gradientflow
-  const hue = t + Math.max(0, tSec) * rateHz * GRADIENT_FLOW_SPEED_SCALE;
-  const [r, g, b] = hsvToRgb(hue, 1, 1);
-  return { r, g, b, level: 1 };
+  if (type === "gradientflow") {
+    const [r, g, b] = hsvToRgb(t + Math.max(0, tSec) * rateHz * GRADIENT_FLOW_SPEED_SCALE, 1, 1);
+    return { r, g, b, level: 1 };
+  }
+  if (type === "chase") return { r: baseR, g: baseG, b: baseB, level: Math.max(0, Math.min(1, 1 - Math.abs(t - phase) / 0.16)) };
+  if (type === "helix") {
+    const [r, g, b] = hsvToRgb(t + phase, 0.85, 1);
+    return { r, g, b, level: Math.pow(0.5 + 0.5 * Math.sin(Math.PI * 2 * (t * 2 + phase)), 3) };
+  }
+  if (type === "plasma") {
+    const field = 0.5 + 0.5 * (Math.sin(Math.PI * 2 * (t * 1.7 + phase)) + Math.sin(Math.PI * 2 * (t * 3.1 - phase)) + Math.sin(Math.PI * 2 * (t * 0.7 + phase * 2))) / 3;
+    const [r, g, b] = hsvToRgb(field + phase * 0.35, 0.9, 0.35 + field * 0.65);
+    return { r, g, b, level: 1 };
+  }
+  if (type === "twinkle") {
+    const timeCell = Math.floor(Math.max(0, tSec) * rateHz * 3);
+    const h = ((i * 1103515245) ^ (timeCell * 2654435761)) >>> 0;
+    const [r, g, b] = hsvToRgb((h % 360) / 360, 0.55, 1);
+    return { r, g, b, level: (h & 1023) < 60 ? 1 : 0.03 };
+  }
+  const radius = phase * 0.5;
+  return { r: baseR, g: baseG, b: baseB, level: Math.max(0, Math.min(1, 1 - Math.abs(Math.abs(t - 0.5) - radius) / 0.10)) };
 }

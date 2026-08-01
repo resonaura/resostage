@@ -149,18 +149,38 @@ TEST_CASE("hsvToRgb: zero saturation is a grey scaled by value") {
 
 // ─── parseEffectType / effectTypeToString ─────────────────────────────────
 
-TEST_CASE("parseEffectType recognises converge and gradientflow") {
+TEST_CASE("parseEffectType recognises the addressable effect library") {
     CHECK(parseEffectType("converge") == EffectParams::Type::Converge);
     CHECK(parseEffectType("gradientflow") == EffectParams::Type::GradientFlow);
+    CHECK(parseEffectType("chase") == EffectParams::Type::Chase);
+    CHECK(parseEffectType("helix") == EffectParams::Type::Helix);
+    CHECK(parseEffectType("plasma") == EffectParams::Type::Plasma);
+    CHECK(parseEffectType("twinkle") == EffectParams::Type::Twinkle);
+    CHECK(parseEffectType("sonicboom") == EffectParams::Type::SonicBoom);
     CHECK(parseEffectType("bogus") == EffectParams::Type::None);
 }
 
 TEST_CASE("effectTypeToString round-trips every known type through parseEffectType") {
     for (auto type : {EffectParams::Type::None, EffectParams::Type::Meter, EffectParams::Type::Strobe,
                        EffectParams::Type::Pulse, EffectParams::Type::Ripple, EffectParams::Type::Converge,
-                       EffectParams::Type::GradientFlow}) {
+                       EffectParams::Type::GradientFlow, EffectParams::Type::Chase,
+                       EffectParams::Type::Helix, EffectParams::Type::Plasma,
+                       EffectParams::Type::Twinkle, EffectParams::Type::SonicBoom}) {
         CHECK(parseEffectType(effectTypeToString(type)) == type);
     }
+}
+
+TEST_CASE("addressable tempo effects begin on a deterministic beat phase") {
+    uint8_t r, g, b;
+    double first, repeated;
+    addressableEffectLedColor(4, 12, EffectParams::Type::Chase, 0.0, 2.0f,
+                              10, 20, 30, r, g, b, first);
+    // At exactly one whole cycle later the spatial output is bit-for-bit the
+    // same: this is the invariant that binds all tempo-synced cues to clock
+    // ticks instead of to an accumulated animation timer.
+    addressableEffectLedColor(4, 12, EffectParams::Type::Chase, 0.5, 2.0f,
+                              10, 20, 30, r, g, b, repeated);
+    CHECK(repeated == doctest::Approx(first));
 }
 
 // ─── applyEffect: Converge / GradientFlow whole-bar fallback ──────────────
