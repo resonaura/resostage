@@ -7,6 +7,7 @@
  *   2. Selected track settings.
  *   3. Selected cue settings (color, audio-reactive effect, fades).
  */
+import { Slider } from "@heroui/react";
 import { useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -44,6 +45,44 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className={labelCls}>{label}</span>
       {children}
     </div>
+  );
+}
+
+// Shared horizontal slider -- HeroUI's own Slider compound component
+// (same one MixerScreen.tsx uses for gain), not a hand-rolled <input
+// type=range>. Every plain 0..1-ish slider in this panel (intensity,
+// fades, effect depth/rate) goes through this one wrapper.
+function LabeledSlider({
+  label,
+  value,
+  onChange,
+  min = 0,
+  max = 1,
+  step = 0.01,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+}) {
+  return (
+    <Field label={label}>
+      <Slider
+        value={value}
+        onChange={(v) => onChange(Array.isArray(v) ? v[0] : v)}
+        minValue={min}
+        maxValue={max}
+        step={step}
+        aria-label={label}
+      >
+        <Slider.Track className="relative h-1.5 w-full rounded-full bg-default/30">
+          <Slider.Fill className="bg-accent" />
+          <Slider.Thumb className="h-3.5 w-3.5 rounded-full border-2 border-accent bg-background shadow" />
+        </Slider.Track>
+      </Slider>
+    </Field>
   );
 }
 
@@ -384,11 +423,12 @@ function EffectPanel({
             </Field>
           )}
 
-          <Field label={`Depth: ${Math.round(effectIntensity * 100)}%`}>
-            <input type="range" min={0} max={1} step={0.05}
-              value={effectIntensity} onChange={(e) => onIntensity(Number(e.target.value))}
-              className="w-full accent-accent" />
-          </Field>
+          <LabeledSlider
+            label={`Depth: ${Math.round(effectIntensity * 100)}%`}
+            value={effectIntensity}
+            onChange={onIntensity}
+            step={0.05}
+          />
 
           {hasRate && (
             <div className="flex flex-col gap-2">
@@ -429,9 +469,19 @@ function EffectPanel({
                   ))}
                 </div>
               ) : (
-                <input type="range" min={0.1} max={20} step={0.1}
-                  value={effectRate} onChange={(e) => onRate(Number(e.target.value))}
-                  className="w-full accent-accent" />
+                <Slider
+                  value={effectRate}
+                  onChange={(v) => onRate(Array.isArray(v) ? v[0] : v)}
+                  minValue={0.1}
+                  maxValue={20}
+                  step={0.1}
+                  aria-label="Effect rate (Hz)"
+                >
+                  <Slider.Track className="relative h-1.5 w-full rounded-full bg-default/30">
+                    <Slider.Fill className="bg-accent" />
+                    <Slider.Thumb className="h-3.5 w-3.5 rounded-full border-2 border-accent bg-background shadow" />
+                  </Slider.Track>
+                </Slider>
               )}
               <div className="text-[10px] text-foreground/35 text-right">
                 {tempoSync
@@ -622,25 +672,27 @@ function CueSettingsPanel({
           className={inputCls} onChange={(e) => update({ label: e.target.value })} />
       </Field>
 
-      <Field label={`Intensity: ${Math.round(cue.intensity * 100)}%`}>
-        <input type="range" min={0} max={1} step={0.01} value={cue.intensity}
-          onChange={(e) => update({ intensity: Number(e.target.value) })}
-          className="w-full accent-accent" />
-      </Field>
+      <LabeledSlider
+        label={`Intensity: ${Math.round(cue.intensity * 100)}%`}
+        value={cue.intensity}
+        onChange={(v) => update({ intensity: v })}
+      />
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label={`Fade In: ${cue.fadeInSeconds.toFixed(1)}s`}>
-          <input type="range" min={0} max={Math.min(cue.durationSeconds / 2, 10)} step={0.1}
-            value={cue.fadeInSeconds}
-            onChange={(e) => update({ fadeInSeconds: Number(e.target.value) })}
-            className="w-full accent-accent" />
-        </Field>
-        <Field label={`Fade Out: ${cue.fadeOutSeconds.toFixed(1)}s`}>
-          <input type="range" min={0} max={Math.min(cue.durationSeconds / 2, 10)} step={0.1}
-            value={cue.fadeOutSeconds}
-            onChange={(e) => update({ fadeOutSeconds: Number(e.target.value) })}
-            className="w-full accent-accent" />
-        </Field>
+        <LabeledSlider
+          label={`Fade In: ${cue.fadeInSeconds.toFixed(1)}s`}
+          value={cue.fadeInSeconds}
+          onChange={(v) => update({ fadeInSeconds: v })}
+          max={Math.min(cue.durationSeconds / 2, 10)}
+          step={0.1}
+        />
+        <LabeledSlider
+          label={`Fade Out: ${cue.fadeOutSeconds.toFixed(1)}s`}
+          value={cue.fadeOutSeconds}
+          onChange={(v) => update({ fadeOutSeconds: v })}
+          max={Math.min(cue.durationSeconds / 2, 10)}
+          step={0.1}
+        />
       </div>
 
       <div className="border-t border-default/20 pt-3">

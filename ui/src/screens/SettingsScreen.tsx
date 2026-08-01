@@ -85,10 +85,9 @@ export function keyEventToDescription(e: KeyboardEvent): string | null {
     PageDown: "page down",
     Escape: "escape",
   };
-  let key =
-    named[e.key] ??
-    (e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase());
-  if (/^f\d{1,2}$/.test(key)) key = key; // function keys already lowercase e.g. "f1"
+  // Function keys (F1-F12) already come through as "f1".."f12"; everything
+  // else just gets lowercased.
+  const key = named[e.key] ?? e.key.toLowerCase();
 
   parts.push(key);
   return parts.join(" + ");
