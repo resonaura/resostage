@@ -105,6 +105,8 @@ const ACTION_LABELS: Record<string, string> = {
   section_prev: "Previous section",
   section_next: "Next section",
   section_last: "Last section",
+  bar_prev: "Previous bar",
+  bar_next: "Next bar",
   undo: "Undo (timeline)",
   redo: "Redo (timeline)",
 };
@@ -232,6 +234,10 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
   {
     title: "Song sections",
     actions: ["section_prev", "section_next", "section_last"],
+  },
+  {
+    title: "Bar navigation",
+    actions: ["bar_prev", "bar_next"],
   },
   {
     title: "Timeline",

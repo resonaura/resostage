@@ -87,6 +87,8 @@ private:
         {"section_prev", "["},
         {"section_next", "]"},
         {"section_last", "end"},
+        {"bar_prev", "left"},
+        {"bar_next", "right"},
         {"undo", "cmd + z"},
         {"redo", "cmd + shift + z"},
     };
@@ -112,6 +114,7 @@ private:
     void applyGlobalBindings();
     void jumpToSectionRelative(int delta);
     void jumpToLastSection();
+    void jumpToBarRelative(int direction);
     void requestUiTab(const std::string& tab);
     void ensureSongSelected();
     void goToSong(int index);

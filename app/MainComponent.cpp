@@ -4,6 +4,7 @@
 #include "platform/MacTouchBar.h"
 #include "ui/UiColors.h"
 #include "web/BuilderJson.h"
+#include "timing/BarSeek.h"
 
 #include <algorithm>
 #include <cctype>
@@ -399,6 +400,10 @@ void MainComponent::performAction(const std::string& action) {
         jumpToSectionRelative(+1);
     else if (action == "section_last")
         jumpToLastSection();
+    else if (action == "bar_prev")
+        jumpToBarRelative(-1);
+    else if (action == "bar_next")
+        jumpToBarRelative(+1);
     else if (action == "undo")
         performTimelineUndo();
     else if (action == "redo")
@@ -482,6 +487,23 @@ void MainComponent::jumpToLastSection() {
         setStatus("Section seek failed: " + juce::String(error));
     else
         setStatus("Section: " + juce::String(last->name));
+}
+
+void MainComponent::jumpToBarRelative(int direction) {
+    if (!engine.isProjectLoaded() || direction == 0)
+        return;
+    const Project& proj = engine.project();
+    const size_t songIdx = engine.currentSongIndex();
+    if (songIdx >= proj.songs.size())
+        return;
+    const SongDef& song = proj.songs[songIdx];
+
+    const double playhead = engine.transport().playheadSeconds.load(std::memory_order_relaxed);
+    const double target = barSeekTargetSeconds(playhead, song.bpm, song.timeSignature.numerator, direction);
+
+    std::string error;
+    if (!engine.seekToSeconds(target, error))
+        setStatus("Bar seek failed: " + juce::String(error));
 }
 
 void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to16, int number) {

@@ -32,6 +32,8 @@ inline constexpr const char* kActionIds[] = {
     "section_prev",
     "section_next",
     "section_last",
+    "bar_prev",
+    "bar_next",
     "undo",
     "redo",
 };
