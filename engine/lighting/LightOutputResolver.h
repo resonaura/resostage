@@ -134,7 +134,19 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                 p.type = parseEffectType(activeCue->effectType);
                 p.intensity = activeCue->effectIntensity;
                 p.fixtureIndex = fixturePos;
-                p.tSec = std::max(0.0, tSec - activeCue->startSeconds);
+                // Tempo-synced effects phase-lock to the SONG's beat grid
+                // (t=0 is bar 1 beat 1, same convention BarSeek.h uses) so
+                // the rhythm lands on the actual music regardless of where
+                // the cue happens to start -- anchoring to the cue's own
+                // start instead would only look on-beat if the cue was
+                // placed exactly on a bar boundary, and would visibly drift
+                // otherwise. Free-rate (non-synced) effects have no beat
+                // grid to lock to, so they keep starting their own phase
+                // fresh at the cue's start, which is the more intuitive
+                // "this effect begins when the cue begins" behavior there.
+                p.tSec = activeCue->tempoSync
+                    ? std::max(0.0, tSec)
+                    : std::max(0.0, tSec - activeCue->startSeconds);
                 p.rateHz = activeCue->tempoSync
                     ? subdivToHz(activeCue->tempoSubdiv, bpm, activeCue->effectRateHz)
                     : activeCue->effectRateHz;

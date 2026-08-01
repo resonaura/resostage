@@ -130,6 +130,28 @@ TEST_CASE("resolveLightOutputs: a null source-level callback just leaves meterLe
     CHECK(out[0].meterLevel01 == doctest::Approx(0.0f));
 }
 
+TEST_CASE("resolveLightOutputs: tempo-synced effects phase-lock to absolute song time, not cue start") {
+    std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
+    std::vector<LightCue> cues = {makeCue("t1", 10.0, 20.0, "strobe")};
+    cues[0].tempoSync = true;
+    cues[0].tempoSubdiv = "1/4";
+    // A cue starting mid-beat (not on a bar boundary) must still phase-lock
+    // to the song's beat grid -- effectTSec should equal the absolute
+    // playhead time, not (playhead - cue start).
+    auto out = resolveLightOutputs(tracks, cues, 14.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].effectTSec == doctest::Approx(14.0));
+}
+
+TEST_CASE("resolveLightOutputs: free-rate (non-synced) effects stay relative to cue start") {
+    std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
+    std::vector<LightCue> cues = {makeCue("t1", 10.0, 20.0, "strobe")};
+    cues[0].tempoSync = false;
+    auto out = resolveLightOutputs(tracks, cues, 14.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].effectTSec == doctest::Approx(4.0)); // 14 - cue start (10)
+}
+
 TEST_CASE("resolveLightOutputs: forwards effect identity and phase for Converge/GradientFlow") {
     std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
     std::vector<LightCue> cues = {makeCue("t1", 10.0, 20.0, "converge")};
