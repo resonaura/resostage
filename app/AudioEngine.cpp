@@ -1161,7 +1161,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     }
     // Notify LightEngine of the newly loaded project.
     lightEngine.setProject(std::make_shared<Project>(loader.project()));
-    lightEngine.setSongIndex(0);
+    clock.setSongIndex(0);
     return true;
 }
 
@@ -1207,7 +1207,7 @@ void AudioEngine::newProject(const std::string& name) {
     clearDirty();
     // Notify LightEngine about the new (empty) project.
     lightEngine.setProject(std::make_shared<Project>(loader.project()));
-    lightEngine.setSongIndex(0);
+    clock.setSongIndex(0);
 }
 
 
