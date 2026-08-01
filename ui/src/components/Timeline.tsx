@@ -1162,6 +1162,10 @@ export function Timeline({
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineBodyRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  // Separate from generic wheel/pinch activity: a playhead drag is a direct
+  // manipulation of the transport and must synchronously suspend follow
+  // before React has time to render its state update.
+  const playheadDragActiveRef = useRef(false);
   const lastSeekAt = useRef(0);
   const pxPerSecRef = useRef(pxPerSec);
   pxPerSecRef.current = pxPerSec;
@@ -1325,7 +1329,10 @@ export function Timeline({
   // effect's synchronous one every frame (their async native-event timing
   // vs. the effect's synchronous write don't line up), both of which read as
   // constant waveform/playhead jitter.
-  const programmaticScrollRef = useRef(false);
+  // The exact horizontal value written by our follow/zoom loop.  A boolean
+  // was racy: a vertical native scroll event could consume it and make a
+  // later delayed horizontal echo look user-originated (or vice versa).
+  const programmaticScrollLeftRef = useRef<number | null>(null);
   // Last scrollLeft seen by onScrollSync, to tell a genuine HORIZONTAL user
   // scroll apart from a vertical-only one. Vertical scrolling must NOT pause
   // auto-follow (it doesn't fight the horizontal autoscroll) -- only a
@@ -1997,8 +2004,8 @@ export function Timeline({
           0,
           Math.min(maxLeft, pendingScrollLeftRef.current),
         );
-        programmaticScrollRef.current = true;
         scroller.scrollLeft = targetScrollLeft;
+        programmaticScrollLeftRef.current = scroller.scrollLeft;
         // Marker: same document position the rAF loop derives during a gesture
         // (playheadAbsoluteSec * pxPerSec -- the clock is frozen while
         // zooming). Writing it here, in the same commit as the scroll write,
@@ -2146,7 +2153,7 @@ export function Timeline({
     const clampedAbs = songStart + clampedLocal;
 
     // Optimistic absolute needle moves immediately (one continuous timeline).
-    setPlayheadAbsoluteSec(clampedAbs);
+    setPlayheadAbsoluteSec(clampedAbs, commit ? 2_000 : undefined);
 
     // Engine seeks only on commit (pointer up). Mid-drag same-song seeks used
     // to restage every 60ms and produced the "chirp then stop then play" glitch.
@@ -2185,6 +2192,7 @@ export function Timeline({
     // Empty-lane click (regions stopPropagation) clears region selection.
     if (!readOnly) setSelectedRegionKeys([]);
     dragging.current = true;
+    playheadDragActiveRef.current = true;
     // Capture on currentTarget (the stable element the handler is bound to),
     // not e.target -- capturing a transient child (a region block, a ruler
     // tick) that later unmounts mid-drag silently ends the capture without
@@ -2202,6 +2210,9 @@ export function Timeline({
     // following mere hover.
     if (e.buttons === 0) {
       dragging.current = false;
+      playheadDragActiveRef.current = false;
+      // Lost button state is still a completed drop; never discard it.
+      seekFromClientX(e.clientX, true);
       return;
     }
     seekFromClientX(e.clientX, false);
@@ -2209,12 +2220,14 @@ export function Timeline({
   const onPointerUp = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
+    playheadDragActiveRef.current = false;
     // Single commit on release.
     seekFromClientX(e.clientX, true);
   };
   const onPointerCancelOrLost = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
+    playheadDragActiveRef.current = false;
     // A drag can end via pointercancel/lostpointercapture instead of a clean
     // pointerup (capture lost to a mid-drag re-render, a trackpad gesture
     // reinterpretation, alt-tab mid-drag) -- still commit the seek, or the
@@ -2226,17 +2239,19 @@ export function Timeline({
 
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
     setScrollTopY(e.currentTarget.scrollTop);
-    if (programmaticScrollRef.current) {
+    const left = e.currentTarget.scrollLeft;
+    const programmedLeft = programmaticScrollLeftRef.current;
+    if (programmedLeft !== null && Math.abs(left - programmedLeft) < 0.5) {
       // Echo of our own auto-follow/zoom-focus write -- that effect already
       // synced scrollState synchronously (see programmaticScrollRef's doc
       // comment). Re-applying it here from a possibly-delayed native event
       // could stomp a NEWER value the same effect already wrote on a later
       // frame; skip both the resync and the gesture-active mark.
-      programmaticScrollRef.current = false;
       lastScrollLeftRef.current = e.currentTarget.scrollLeft;
       return;
     }
-    const left = e.currentTarget.scrollLeft;
+    // A true user horizontal move supersedes any delayed programmatic echo.
+    programmaticScrollLeftRef.current = null;
     // null means "no baseline yet" (mount / scroll-restore) -- that first
     // event never counts as a user fight.
     const movedHorizontally =
@@ -2433,6 +2448,7 @@ export function Timeline({
       const following =
         playingRef.current
         && !gestureActiveNowRef.current
+        && !playheadDragActiveRef.current
         && followModeRef.current === "smooth";
       const scroller = scrollRef.current;
       const viewWidth = scroller ? scroller.clientWidth || 1000 : 1000;
@@ -2492,7 +2508,7 @@ export function Timeline({
         scroller.scrollLeft = engineScrollLeft;
         engineScrollLeft = scroller.scrollLeft; // re-read in case browser clamped it
         if (Math.abs(before - engineScrollLeft) > 0.5) {
-          programmaticScrollRef.current = true;
+          programmaticScrollLeftRef.current = engineScrollLeft;
         }
         setScrollState({ scrollLeft: engineScrollLeft, viewportWidth: viewWidth });
         // Marker: pinned at 25% of the viewport whenever the playhead CAN sit
@@ -2594,7 +2610,7 @@ export function Timeline({
             const before = scroller.scrollLeft;
             scroller.scrollLeft = revealScroll;
             if (Math.abs(before - scroller.scrollLeft) > 0.5) {
-              programmaticScrollRef.current = true;
+              programmaticScrollLeftRef.current = scroller.scrollLeft;
             }
             setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
             if (settled) revealScroll = null;

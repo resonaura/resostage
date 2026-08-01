@@ -50,7 +50,7 @@ export function useContinuousPlayhead(
   playing: boolean,
   resetKey?: unknown,
   frozen = false,
-): [absoluteSeconds: number, seekAbsolute: (v: number) => void] {
+): [absoluteSeconds: number, seekAbsolute: (v: number, lockMs?: number) => void] {
   const [absolute, setAbsolute] = useState(serverAbsoluteSeconds);
   const localRef = useRef(serverAbsoluteSeconds);
   const serverRef = useRef(serverAbsoluteSeconds);
@@ -134,9 +134,15 @@ export function useContinuousPlayhead(
     return () => cancelAnimationFrame(raf);
   }, [playing, frozen, resetKey]);
 
-  const seekAbsolute = (v: number) => {
+  const seekAbsolute = (v: number, lockMs = SEEK_LOCK_MS) => {
     const clamped = Math.max(0, v);
-    lastSeekAt.current = Date.now();
+    // A released scrub must remain authoritative until the engine has had a
+    // chance to restage and publish its new transport position.  The old
+    // fixed 450ms window was shorter than a busy native seek plus one WS
+    // telemetry turn, so a stale live frame could visibly undo a valid drop.
+    // Callers use the default for a live drag and request the longer window
+    // only for its final committed position.
+    lastSeekAt.current = Date.now() + Math.max(0, lockMs - SEEK_LOCK_MS);
     localRef.current = clamped;
     setAbsolute(clamped);
     lastFrameTs.current = null;
