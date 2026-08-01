@@ -75,6 +75,11 @@ public:
     int64_t currentSamplePosition() const;
     double currentSeconds() const;
 
+    // Song index: set by transport when the active song changes; read by
+    // LightEngine (and any other subscriber) from any thread.
+    int  currentSongIndex() const { return songIndex.load(std::memory_order_acquire); }
+    void setSongIndex(int idx)    { songIndex.store(idx, std::memory_order_release); }
+
     double sampleRate() const { return sampleRateHz.load(std::memory_order_relaxed); }
     // Current drift-correction multiplier (diagnostics/telemetry only).
     double driftFactor() const { return gamma.load(std::memory_order_relaxed); }
@@ -94,6 +99,11 @@ private:
     // (single-writer), read from any thread.
     std::atomic<double> gamma{1.0};
     double integralError = 0.0; // owned by the writer (audio) thread only
+
+    // Active song index. Written from transport/message thread (setSongIndex),
+    // read from LightEngine thread (currentSongIndex). Relaxed store/acquire
+    // load matches the existing pattern for all other clock fields.
+    std::atomic<int> songIndex{0};
 
     // Conservative placeholder gains; tune against real CoreAudio callback jitter
     // once running on actual hardware.

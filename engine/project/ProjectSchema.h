@@ -193,6 +193,20 @@ struct LightCue {
     double fadeInSeconds = 0.0;
     double fadeOutSeconds = 0.0;
     std::string label;
+
+    // Audio-reactive effect. Processed by LightEngine in its dedicated thread;
+    // the UI preview mirrors these with an rAF loop for visual feedback only.
+    // "none" | "meter" | "strobe" | "pulse" | "ripple"
+    std::string effectType;
+    // Bus ID to read audio level from ("" = master mix / first bus).
+    std::string effectBusId;
+    float effectIntensity = 0.8f;  // 0..1 depth of the effect
+    // Rate control: either direct Hz or tempo-synced subdivision.
+    bool  tempoSync    = false;
+    // tempoSync=true: "2"|"1"|"1/2"|"1/3"|"1/4"|"1/6"|"1/8"|"1/16"|"1/32"|"1/64"
+    std::string tempoSubdiv = "1/4";
+    float effectRateHz = 2.0f;     // used when tempoSync=false
+
 };
 
 // A named structural marker on the timeline ruler (Intro/Verse/Chorus/

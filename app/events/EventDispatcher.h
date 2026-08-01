@@ -54,7 +54,8 @@ private:
     void sendDmx(const DmxTriggerCommand& cmd);
 
     moodycamel::ReaderWriterQueue<HttpTriggerCommand> httpQueue{256};
-    moodycamel::ReaderWriterQueue<DmxTriggerCommand> dmxQueue{256};
+    // 1024 slots: LightEngine sends ~44 packets/s × N universes continuously.
+    moodycamel::ReaderWriterQueue<DmxTriggerCommand> dmxQueue{1024};
     std::thread worker;
     std::atomic<bool> running{false};
 

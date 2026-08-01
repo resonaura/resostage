@@ -151,6 +151,28 @@ AudioEngine::AudioEngine() {
     deviceManagerInstance.addChangeListener(this);
     midiDispatcher.start();
     eventDispatcher.start();
+
+    // Start LightEngine: provide a bus-peak callback so the Meter effect can
+    // sample audio levels without touching the audio thread directly.
+    lightEngine.start(
+        clock,
+        eventDispatcher,
+        [this](const std::string& busId) -> float {
+            // Empty busId → use first bus (master mix).
+            size_t idx = 0;
+            if (!busId.empty()) {
+                auto it = busIndexById.find(busId);
+                if (it == busIndexById.end()) return -144.0f;
+                idx = it->second;
+            }
+            if (const auto* m = busMeterAt(idx)) {
+                MeterFrame f{};
+                m->read(f);
+                return f.peakDb;
+            }
+            return -144.0f;
+        }
+    );
 }
 
 AudioEngine::~AudioEngine() {
@@ -173,6 +195,7 @@ AudioEngine::~AudioEngine() {
     stop();
     streaming.stop();
     purgeStaleSavePackages();
+    lightEngine.stop();
     midiDispatcher.stop();
     eventDispatcher.stop();
     deviceManagerInstance.removeChangeListener(this);
@@ -1136,6 +1159,9 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
             });
         }
     }
+    // Notify LightEngine of the newly loaded project.
+    lightEngine.setProject(std::make_shared<Project>(loader.project()));
+    lightEngine.setSongIndex(0);
     return true;
 }
 
@@ -1179,6 +1205,9 @@ void AudioEngine::newProject(const std::string& name) {
 
     streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
     clearDirty();
+    // Notify LightEngine about the new (empty) project.
+    lightEngine.setProject(std::make_shared<Project>(loader.project()));
+    lightEngine.setSongIndex(0);
 }
 
 
@@ -1752,6 +1781,10 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         }
 
         currentSong = songIndex;
+        // Keep LightEngine in sync with the active song index and BPM so
+        // tempo-synced effects use the correct rate immediately.
+        clock.setSongIndex(static_cast<int>(songIndex));
+        lightEngine.setBpm(song.bpm);
 
         // Publish routing while still holding routingMutex (recursive).
         publishRoutingSnapshot();

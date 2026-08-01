@@ -335,8 +335,23 @@ void MainComponent::lightingCueUpdate(const std::string& json) {
     if (getDouble(doc, "fadeOutSeconds", numVal)) cue->fadeOutSeconds = std::max(0.0, numVal);
     if (getString(doc, "label", strVal)) cue->label = strVal;
 
+    // Audio-reactive effect fields.
+    if (getString(doc, "effectType", strVal)) cue->effectType = strVal;
+    if (getString(doc, "effectBusId", strVal)) cue->effectBusId = strVal;
+    if (getDouble(doc, "effectIntensity", numVal))
+        cue->effectIntensity = static_cast<float>(std::clamp(numVal, 0.0, 1.0));
+    bool boolVal = false;
+    if (getBool(doc, "tempoSync", boolVal)) cue->tempoSync = boolVal;
+    if (getString(doc, "tempoSubdiv", strVal)) cue->tempoSubdiv = strVal;
+    if (getDouble(doc, "effectRateHz", numVal))
+        cue->effectRateHz = static_cast<float>(std::max(0.01, numVal));
+
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
+
+    // Push an updated snapshot to LightEngine so changes take effect on the
+    // next DMX frame without waiting for a project reload.
+    engine.notifyLightEngineProjectChanged();
 }
 
 } // namespace resostage

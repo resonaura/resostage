@@ -17,6 +17,7 @@ target_sources(ResoStage PRIVATE
   MainComponentLighting.cpp
   AppSettings.cpp
   AudioEngine.cpp
+  LightEngine.cpp
   midi/CoreMidiDispatcher.cpp
   midi/CoreMidiInputListener.cpp
   events/EventDispatcher.cpp

@@ -10,6 +10,7 @@
 #include "audio/RoutingEngine.h"
 #include "audio/StreamingEngine.h"
 #include "events/EventDispatcher.h"
+#include "LightEngine.h"
 #include "midi/CoreMidiDispatcher.h"
 #include "project/ProjectHistory.h"
 #include "project/ProjectLoader.h"
@@ -158,6 +159,13 @@ public:
     Project& project() { return loader.project(); }
     bool isProjectLoaded() const { return projectLoaded; }
     size_t currentSongIndex() const { return currentSong; }
+
+    // Called by MainComponent after any in-place edit of Project data so the
+    // LightEngine thread picks up the change on the next DMX frame.
+    void notifyLightEngineProjectChanged() {
+        lightEngine.setProject(std::make_shared<Project>(loader.project()));
+    }
+
     size_t busCount() const { return busses.size(); }
     const std::string& busIdAt(size_t index) const { return busses[index].id; }
     const std::string& busNameAt(size_t index) const;
@@ -389,6 +397,7 @@ private:
     StreamingEngine streaming;
     CoreMidiDispatcher midiDispatcher;
     EventDispatcher eventDispatcher;
+    LightEngine lightEngine; // near-realtime dedicated DMX output thread
     TransportTelemetry transportTelemetry;
     SystemHealth systemHealth;
 

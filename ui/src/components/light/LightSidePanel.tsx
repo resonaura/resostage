@@ -2,11 +2,24 @@
  * LightSidePanel — правая боковая панель в Timeline Light mode.
  *
  * Содержит:
- *   1. Компактный 3D preview текущего состояния рига
- *   2. Настройки выделенного трека (кликабельный заголовок → раскрываются поля)
+ *   1. Компактный 3D preview (с live-модуляцией эффектов через rAF)
+ *   2. Настройки выделенного трека
  *   3. Настройки выделенного cue (цвета, эффекты, fades)
  */
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import {
+  Activity,
+  BarChart2,
+  Lightbulb,
+  Link2,
+  Link2Off,
+  Minus,
+  Palette,
+  Trash2,
+  Waves,
+  X,
+  Zap,
+} from "lucide-react";
 import { lighting } from "../../lib/api";
 import type {
   BusRow,
@@ -221,80 +234,86 @@ function HslColorPicker({
   );
 }
 
-// ─── Audio effect selector ────────────────────────────────────────────────
+// ─── Audio effect selector (props-driven — state lives in LightSidePanel) ──
 
 type EffectType = "none" | "meter" | "strobe" | "pulse" | "ripple";
 
-const EFFECT_DESCRIPTIONS: Record<EffectType, string> = {
-  none: "Static color, no modulation",
-  meter: "Brightness follows audio level (VU meter)",
-  strobe: "Rapid on/off flashes at set rate",
-  pulse: "Smooth brightness pulse synced to BPM",
-  ripple: "Travelling wave across fixtures left→right",
+const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React.ReactNode }> = {
+  none:   { label: "None",   desc: "Static color, no modulation",               icon: <Minus size={12} /> },
+  meter:  { label: "Meter",  desc: "Brightness follows audio level (VU meter)",  icon: <BarChart2 size={12} /> },
+  strobe: { label: "Strobe", desc: "Rapid on/off flashes at set rate",            icon: <Zap size={12} /> },
+  pulse:  { label: "Pulse",  desc: "Smooth brightness pulse",                     icon: <Activity size={12} /> },
+  ripple: { label: "Ripple", desc: "Travelling wave across fixtures left→right",  icon: <Waves size={12} /> },
 };
 
+// ─── Tempo subdivisions ───────────────────────────────────────────────────
+
+const SUBDIVISIONS = [
+  "2", "1", "1/2", "1/3", "1/4", "1/6", "1/8", "1/16", "1/32", "1/64",
+] as const;
+type TempoSubdiv = typeof SUBDIVISIONS[number];
+
 function EffectPanel({
-  cueId,
-  busses,
-  meters,
+  effectType, effectBusId, effectIntensity, effectRate,
+  tempoSync, tempoSubdiv,
+  onType, onBusId, onIntensity, onRate, onTempoSync, onTempoSubdiv,
+  busses, meters, bpm,
 }: {
-  cueId: string;
+  effectType: EffectType;
+  effectBusId: string;
+  effectIntensity: number;
+  effectRate: number;
+  tempoSync: boolean;
+  tempoSubdiv: TempoSubdiv;
+  onType: (t: EffectType) => void;
+  onBusId: (id: string) => void;
+  onIntensity: (v: number) => void;
+  onRate: (v: number) => void;
+  onTempoSync: (v: boolean) => void;
+  onTempoSubdiv: (v: TempoSubdiv) => void;
   busses: BusRow[];
   meters: MeterRow[];
+  bpm: number;
 }) {
-  // Frontend-only: not persisted to backend (engine ignores these fields).
-  const [effectType, setEffectType] = useState<EffectType>("none");
-  const [effectBusId, setEffectBusId] = useState("");
-  const [effectIntensity, setEffectIntensity] = useState(0.8);
-  const [effectRate, setEffectRate] = useState(2);
-
-  // Reset when cue changes
-  const prevCueId = useRef(cueId);
-  if (prevCueId.current !== cueId) {
-    prevCueId.current = cueId;
-    setEffectType("none");
-    setEffectBusId("");
-    setEffectIntensity(0.8);
-    setEffectRate(2);
-  }
-
-
+  const hasRate = effectType === "strobe" || effectType === "pulse" || effectType === "ripple";
   return (
     <div className="flex flex-col gap-3">
-      {/* Effect type pills */}
       <Field label="Audio Effect">
-        <div className="flex flex-wrap gap-1.5">
-          {(["none", "meter", "strobe", "pulse", "ripple"] as EffectType[]).map((et) => (
-            <button
-              key={et}
-              type="button"
-              title={EFFECT_DESCRIPTIONS[et]}
-              onClick={() => setEffectType(et)}
-              className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-                effectType === et
-                  ? "border-accent bg-accent/20 text-accent"
-                  : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
-              }`}
-            >
-              {et === "none" ? "— None" : et === "meter" ? "📊 Meter" : et === "strobe" ? "⚡ Strobe" : et === "pulse" ? "〜 Pulse" : "〰 Ripple"}
-            </button>
-          ))}
+        <div className="grid grid-cols-5 gap-1">
+          {(["none", "meter", "strobe", "pulse", "ripple"] as EffectType[]).map((et) => {
+            const meta = EFFECT_META[et];
+            return (
+              <button
+                key={et}
+                type="button"
+                title={meta.desc}
+                onClick={() => onType(et)}
+                className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
+                  effectType === et
+                    ? "border-accent bg-accent/20 text-accent"
+                    : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                }`}
+              >
+                {meta.icon}
+                <span>{meta.label}</span>
+              </button>
+            );
+          })}
         </div>
         {effectType !== "none" && (
           <div className="mt-1 text-[10px] text-foreground/40 italic">
-            {EFFECT_DESCRIPTIONS[effectType]}
+            {EFFECT_META[effectType].desc}
           </div>
         )}
       </Field>
 
       {effectType !== "none" && (
         <>
-          {/* Bus/source selector */}
-          <Field label="Audio Source (Bus)">
+          <Field label="Audio Source">
             <select
               className="w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-xs outline-none focus:border-accent"
               value={effectBusId}
-              onChange={(e) => setEffectBusId(e.target.value)}
+              onChange={(e) => onBusId(e.target.value)}
             >
               <option value="">— Master mix</option>
               {busses.map((bus) => {
@@ -310,37 +329,115 @@ function EffectPanel({
             </select>
           </Field>
 
-          {/* Intensity */}
-          <Field label={`Effect Intensity (${Math.round(effectIntensity * 100)}%)`}>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={effectIntensity}
-              onChange={(e) => setEffectIntensity(Number(e.target.value))}
-              className="w-full accent-accent"
-            />
+          <Field label={`Depth: ${Math.round(effectIntensity * 100)}%`}>
+            <input type="range" min={0} max={1} step={0.05}
+              value={effectIntensity} onChange={(e) => onIntensity(Number(e.target.value))}
+              className="w-full accent-accent" />
           </Field>
 
-          {/* Rate (for strobe/pulse/ripple) */}
-          {(effectType === "strobe" || effectType === "pulse" || effectType === "ripple") && (
-            <Field label={`Rate: ${effectRate.toFixed(1)} Hz`}>
-              <input
-                type="range"
-                min={0.1}
-                max={20}
-                step={0.1}
-                value={effectRate}
-                onChange={(e) => setEffectRate(Number(e.target.value))}
-                className="w-full accent-accent"
-              />
-            </Field>
+          {hasRate && (
+            <div className="flex flex-col gap-2">
+              {/* Tempo sync toggle */}
+              <div className="flex items-center justify-between">
+                <span className={labelCls}>Rate</span>
+                <button
+                  type="button"
+                  onClick={() => onTempoSync(!tempoSync)}
+                  title={tempoSync ? `Synced to tempo (${bpm.toFixed(0)} BPM)` : "Free rate — click to sync to tempo"}
+                  className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                    tempoSync
+                      ? "bg-accent/20 text-accent border border-accent/40"
+                      : "bg-default/10 text-foreground/40 border border-default/30 hover:text-foreground/70"
+                  }`}
+                >
+                  {tempoSync ? <Link2 size={10} /> : <Link2Off size={10} />}
+                  <span>{tempoSync ? `♩${bpm.toFixed(0)}` : "Free"}</span>
+                </button>
+              </div>
+
+              {tempoSync ? (
+                // Subdivision grid
+                <div className="grid grid-cols-5 gap-1">
+                  {SUBDIVISIONS.map((sub) => (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => onTempoSubdiv(sub)}
+                      className={`rounded py-1 text-[9px] font-mono font-medium border transition-colors ${
+                        tempoSubdiv === sub
+                          ? "border-accent bg-accent/20 text-accent"
+                          : "border-default/30 bg-default/10 text-foreground/50 hover:bg-default/20"
+                      }`}
+                    >
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <input type="range" min={0.1} max={20} step={0.1}
+                  value={effectRate} onChange={(e) => onRate(Number(e.target.value))}
+                  className="w-full accent-accent" />
+              )}
+              <div className="text-[10px] text-foreground/35 text-right">
+                {tempoSync
+                  ? `= ${(bpm / 60 / ({
+                      "2": 8, "1": 4, "1/2": 2, "1/3": 4/3, "1/4": 1,
+                      "1/6": 2/3, "1/8": 0.5, "1/16": 0.25, "1/32": 0.125, "1/64": 0.0625,
+                    }[tempoSubdiv] ?? 1)).toFixed(2)} Hz`
+                  : `${effectRate.toFixed(1)} Hz`}
+              </div>
+            </div>
           )}
         </>
       )}
     </div>
   );
+}
+
+
+// ─── Effect modulation (applied in rAF loop) ─────────────────────────────
+
+function applyEffect(
+  colors: Record<string, LightCueValue>,
+  effectType: EffectType,
+  effectIntensity: number,
+  effectRate: number,
+  effectBusId: string,
+  meters: MeterRow[],
+  fixtures: LightFixtureRow[],
+  tSec: number,
+): Record<string, LightCueValue> {
+  if (effectType === "none") return colors;
+  const TAU = Math.PI * 2;
+  const fixtureIds = fixtures.map((f) => f.id);
+
+  const getLevel = (fi: number): number => {
+    switch (effectType) {
+      case "meter": {
+        const meter = effectBusId
+          ? meters.find((m) => m.id === effectBusId)
+          : meters[0];
+        const db = meter?.peakDb ?? -100;
+        return Math.max(0, Math.min(1, (db + 60) / 60)) * effectIntensity;
+      }
+      case "strobe":
+        return ((Math.max(0, tSec) * effectRate) % 1 < 0.5 ? 1 : 0) * effectIntensity;
+      case "pulse":
+        return (0.5 + 0.5 * Math.sin(TAU * effectRate * Math.max(0, tSec) - TAU * 0.25)) * effectIntensity;
+      case "ripple": {
+        const offset = fi * 0.25;
+        return (0.5 + 0.5 * Math.sin(TAU * effectRate * Math.max(0, tSec) - offset * TAU - TAU * 0.25)) * effectIntensity;
+      }
+      default: return 1;
+    }
+  };
+
+  const result: Record<string, LightCueValue> = {};
+  for (const [id, val] of Object.entries(colors)) {
+    const fi = fixtureIds.indexOf(id);
+    result[id] = { ...val, intensity: val.intensity * getLevel(fi >= 0 ? fi : 0) };
+  }
+  return result;
 }
 
 // ─── Track Settings panel ─────────────────────────────────────────────────
@@ -364,9 +461,9 @@ function TrackSettingsPanel({
           <button
             type="button"
             onClick={onRequestClose}
-            className="text-foreground/40 hover:text-foreground text-xs"
+            className="rounded p-0.5 text-foreground/40 hover:text-foreground transition-colors"
           >
-            ✕
+            <X size={13} />
           </button>
         )}
       </div>
@@ -419,9 +516,10 @@ function TrackSettingsPanel({
           void lighting.trackRemove(index);
           onRequestClose?.();
         }}
-        className="self-start rounded-lg border border-danger/40 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20 transition-colors"
+        className="self-start flex items-center gap-1.5 rounded-lg border border-danger/40 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20 transition-colors"
       >
-        🗑 Remove Track
+        <Trash2 size={11} />
+        Remove Track
       </button>
     </div>
   );
@@ -430,88 +528,104 @@ function TrackSettingsPanel({
 // ─── Cue Settings panel ───────────────────────────────────────────────────
 
 function CueSettingsPanel({
-  cue,
-  songIndex,
-  busses,
-  meters,
+  cue, songIndex, busses, meters, bpm,
+  effectType, effectBusId, effectIntensity, effectRate,
+  tempoSync, tempoSubdiv,
+  onEffectType, onEffectBusId, onEffectIntensity, onEffectRate,
+  onTempoSync, onTempoSubdiv,
 }: {
   cue: LightCueRow;
   songIndex: number;
   busses: BusRow[];
   meters: MeterRow[];
+  bpm: number;
+  effectType: EffectType;
+  effectBusId: string;
+  effectIntensity: number;
+  effectRate: number;
+  tempoSync: boolean;
+  tempoSubdiv: TempoSubdiv;
+  onEffectType: (t: EffectType) => void;
+  onEffectBusId: (id: string) => void;
+  onEffectIntensity: (v: number) => void;
+  onEffectRate: (v: number) => void;
+  onTempoSync: (v: boolean) => void;
+  onTempoSubdiv: (v: TempoSubdiv) => void;
 }) {
   const update = (patch: Omit<Parameters<typeof lighting.cueUpdate>[0], "songIndex" | "cueId">) =>
     void lighting.cueUpdate({ songIndex, cueId: cue.id, ...patch });
 
+  // Persist effect changes to the backend immediately.
+  const handleEffectType = (t: EffectType) => {
+    onEffectType(t);
+    update({ effectType: t, effectBusId, effectIntensity, tempoSync, tempoSubdiv, effectRateHz: effectRate });
+  };
+  const handleEffectBusId = (id: string) => {
+    onEffectBusId(id);
+    update({ effectBusId: id });
+  };
+  const handleEffectIntensity = (v: number) => {
+    onEffectIntensity(v);
+    update({ effectIntensity: v });
+  };
+  const handleEffectRate = (v: number) => {
+    onEffectRate(v);
+    update({ effectRateHz: v });
+  };
+  const handleTempoSync = (v: boolean) => {
+    onTempoSync(v);
+    update({ tempoSync: v, tempoSubdiv });
+  };
+  const handleTempoSubdiv = (v: TempoSubdiv) => {
+    onTempoSubdiv(v);
+    update({ tempoSync: true, tempoSubdiv: v });
+  };
+
   return (
     <div className="flex flex-col gap-4">
-      {/* Color section */}
       <div>
         <div className={labelCls + " mb-2"}>Color</div>
         <HslColorPicker
-          r={cue.colorR}
-          g={cue.colorG}
-          b={cue.colorB}
+          r={cue.colorR} g={cue.colorG} b={cue.colorB}
           onChange={(r, g, b) => update({ colorR: r, colorG: g, colorB: b })}
         />
       </div>
 
-      {/* Label */}
       <Field label="Label">
-        <input
-          type="text"
-          value={cue.label}
-          placeholder="Cue label (optional)"
-          className={inputCls}
-          onChange={(e) => update({ label: e.target.value })}
-        />
+        <input type="text" value={cue.label} placeholder="Cue label (optional)"
+          className={inputCls} onChange={(e) => update({ label: e.target.value })} />
       </Field>
 
-      {/* Intensity */}
       <Field label={`Intensity: ${Math.round(cue.intensity * 100)}%`}>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={cue.intensity}
+        <input type="range" min={0} max={1} step={0.01} value={cue.intensity}
           onChange={(e) => update({ intensity: Number(e.target.value) })}
-          className="w-full accent-accent"
-        />
+          className="w-full accent-accent" />
       </Field>
 
-      {/* Fades */}
       <div className="grid grid-cols-2 gap-3">
         <Field label={`Fade In: ${cue.fadeInSeconds.toFixed(1)}s`}>
-          <input
-            type="range"
-            min={0}
-            max={Math.min(cue.durationSeconds / 2, 10)}
-            step={0.1}
+          <input type="range" min={0} max={Math.min(cue.durationSeconds / 2, 10)} step={0.1}
             value={cue.fadeInSeconds}
             onChange={(e) => update({ fadeInSeconds: Number(e.target.value) })}
-            className="w-full accent-accent"
-          />
+            className="w-full accent-accent" />
         </Field>
         <Field label={`Fade Out: ${cue.fadeOutSeconds.toFixed(1)}s`}>
-          <input
-            type="range"
-            min={0}
-            max={Math.min(cue.durationSeconds / 2, 10)}
-            step={0.1}
+          <input type="range" min={0} max={Math.min(cue.durationSeconds / 2, 10)} step={0.1}
             value={cue.fadeOutSeconds}
             onChange={(e) => update({ fadeOutSeconds: Number(e.target.value) })}
-            className="w-full accent-accent"
-          />
+            className="w-full accent-accent" />
         </Field>
       </div>
 
-      {/* Audio Effects */}
       <div className="border-t border-default/20 pt-3">
         <EffectPanel
-          cueId={cue.id}
-          busses={busses}
-          meters={meters}
+          effectType={effectType} effectBusId={effectBusId}
+          effectIntensity={effectIntensity} effectRate={effectRate}
+          tempoSync={tempoSync} tempoSubdiv={tempoSubdiv}
+          onType={handleEffectType} onBusId={handleEffectBusId}
+          onIntensity={handleEffectIntensity} onRate={handleEffectRate}
+          onTempoSync={handleTempoSync} onTempoSubdiv={handleTempoSubdiv}
+          busses={busses} meters={meters} bpm={bpm}
         />
       </div>
     </div>
@@ -547,12 +661,73 @@ export function LightSidePanel({
   previewColors: Record<string, LightCueValue>;
   onClearSelection: () => void;
 }) {
+  // ── Effect state (lifted here so it drives live 3D preview modulation) ──
+  const [effectType, setEffectType] = useState<EffectType>("none");
+  const [effectBusId, setEffectBusId] = useState("");
+  const [effectIntensity, setEffectIntensity] = useState(0.8);
+  const [effectRate, setEffectRate] = useState(2);
+  const [tempoSync, setTempoSync] = useState(false);
+  const [tempoSubdiv, setTempoSubdiv] = useState<TempoSubdiv>("1/4");
+
+  // BPM for the currently active song
+  const currentSongIdx = selection?.type === "cue" ? selection.songIndex : 0;
+  const currentBpm = state.songs[currentSongIdx]?.bpm ?? 120;
+
+  // Reset when cue changes
+  const prevCueId = useRef<string | null>(null);
+  const currentCueId = selection?.type === "cue" ? selection.cue.id : null;
+  if (prevCueId.current !== currentCueId) {
+    prevCueId.current = currentCueId;
+    setEffectType("none");
+    setEffectBusId("");
+    setEffectIntensity(0.8);
+    setEffectRate(2);
+    setTempoSync(false);
+    setTempoSubdiv("1/4");
+  }
+
+  // ── Animated preview with rAF loop ────────────────────────────────────
+  const [displayColors, setDisplayColors] = useState(previewColors);
+  const rafRef = useRef<number | null>(null);
+
+  const cueStart = selection?.type === "cue" ? selection.cue.startSeconds : 0;
+
+  // Keep mutable ref so rAF callback always reads the latest props
+  const latestRef = useRef({ effectType, effectBusId, effectIntensity, effectRate, previewColors, meters: state.meters, fixtures, cueStart, playing: state.playing, playheadSeconds: state.playheadSeconds });
+  latestRef.current = { effectType, effectBusId, effectIntensity, effectRate, previewColors, meters: state.meters, fixtures, cueStart, playing: state.playing, playheadSeconds: state.playheadSeconds };
+
+  useEffect(() => {
+    if (effectType === "none") {
+      if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+      setDisplayColors(previewColors);
+      return;
+    }
+    let alive = true;
+    const startWall = performance.now() / 1000;
+    const tick = () => {
+      if (!alive) return;
+      const { effectType: et, effectBusId: bid, effectIntensity: ei, effectRate: er, previewColors: pc, meters: m, fixtures: fx, cueStart: cs, playing: isPlaying, playheadSeconds: phSec } = latestRef.current;
+      // If transport is playing, anchor to actual timeline playhead position relative to cue start;
+      // if stopped, simulate forward time from selection start.
+      const timelineTime = isPlaying ? phSec : (cs + (performance.now() / 1000 - startWall));
+      const tRel = Math.max(0, timelineTime - cs);
+      setDisplayColors(applyEffect(pc, et, ei, er, bid, m, fx, tRel));
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { alive = false; if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectType]);
+
+  // Keep display in sync when no loop is running
+  useEffect(() => { if (effectType === "none") setDisplayColors(previewColors); }, [previewColors, effectType]);
+
   return (
     <div
       className="flex flex-col shrink-0 border-l border-default/30 bg-surface/30 overflow-hidden"
       style={{ width: 288 }}
     >
-      {/* 3D Preview */}
+      {/* 3D Preview — shows modulated colors when an effect is active */}
       <div
         className="shrink-0 border-b border-default/20 bg-[#0b0f14]"
         style={{ height: 200 }}
@@ -561,33 +736,31 @@ export function LightSidePanel({
         <ResoLightStage3D
           mode="preview"
           fixtures={fixtures}
-          previewColors={previewColors}
+          previewColors={displayColors}
         />
       </div>
 
-      {/* Settings content */}
       <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
         {!selection && (
           <div className="flex flex-col items-center justify-center flex-1 gap-2 text-foreground/30 text-xs text-center py-8">
-            <span className="text-2xl">💡</span>
+            <Lightbulb size={28} strokeWidth={1} />
             <span>Click a track header or cue block to edit it</span>
           </div>
         )}
 
         {selection?.type === "cue" && (
           <>
-            {/* Cue color first */}
             <div className="rounded-xl border border-default/30 bg-default/10 p-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-foreground/80">
-                  🎨 Cue: {selection.cue.label || selection.cue.id.slice(0, 8)}
-                </span>
-                <button
-                  type="button"
-                  onClick={onClearSelection}
-                  className="text-foreground/40 hover:text-foreground text-xs"
-                >
-                  ✕
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Palette size={13} className="shrink-0 text-foreground/50" />
+                  <span className="text-xs font-semibold text-foreground/80 truncate">
+                    {selection.cue.label || selection.cue.id.slice(0, 8)}
+                  </span>
+                </div>
+                <button type="button" onClick={onClearSelection}
+                  className="shrink-0 rounded p-0.5 text-foreground/40 hover:text-foreground transition-colors">
+                  <X size={13} />
                 </button>
               </div>
               <CueSettingsPanel
@@ -595,10 +768,22 @@ export function LightSidePanel({
                 songIndex={selection.songIndex}
                 busses={state.busses}
                 meters={state.meters}
+                bpm={currentBpm}
+                effectType={effectType}
+                effectBusId={effectBusId}
+                effectIntensity={effectIntensity}
+                effectRate={effectRate}
+                tempoSync={tempoSync}
+                tempoSubdiv={tempoSubdiv}
+                onEffectType={setEffectType}
+                onEffectBusId={setEffectBusId}
+                onEffectIntensity={setEffectIntensity}
+                onEffectRate={setEffectRate}
+                onTempoSync={setTempoSync}
+                onTempoSubdiv={setTempoSubdiv}
               />
             </div>
 
-            {/* Then track settings below */}
             <div className="rounded-xl border border-default/20 bg-default/5 p-3">
               <TrackSettingsPanel
                 track={selection.track}

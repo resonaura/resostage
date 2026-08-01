@@ -414,6 +414,13 @@ export const lighting = {
     fadeInSeconds?: number;
     fadeOutSeconds?: number;
     label?: string;
+    // Audio-reactive effect (processed by LightEngine on the backend)
+    effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple";
+    effectBusId?: string;
+    effectIntensity?: number;
+    tempoSync?: boolean;
+    tempoSubdiv?: string;
+    effectRateHz?: number;
   }) => post("/api/v1/lighting/cue/update", patch),
 };
 
