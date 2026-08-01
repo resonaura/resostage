@@ -1336,7 +1336,10 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"b\":" << lo.b << ","
               << "\"intensity\":" << finiteOrZero(lo.intensity) << ","
               << "\"meterLevel01\":" << finiteOrZero(lo.meterLevel01) << ","
-              << "\"gradientPreset\":\"" << jsonEscape(lo.gradientPreset) << "\"}";
+              << "\"gradientPreset\":\"" << jsonEscape(lo.gradientPreset) << "\","
+              << "\"effectType\":\"" << jsonEscape(lo.effectType) << "\","
+              << "\"effectTSec\":" << finiteOrZero(lo.effectTSec) << ","
+              << "\"effectRateHz\":" << finiteOrZero(lo.effectRateHz) << "}";
         }
         o << "]";
     }

@@ -89,7 +89,7 @@ export interface LightCueRow {
   // ProjectSchema.h exactly (persisted, resolved by LightEngine AND
   // MainComponent's WebUiState push through the same
   // engine/lighting/LightOutputResolver.h call -- see lightOutput below).
-  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "";
+  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "";
   effectSourceType: "bus" | "track" | "";
   effectSourceId: string;
   effectIntensity: number; // 0-1 depth of the effect
@@ -111,6 +111,12 @@ export interface LightOutputRow {
   intensity: number;
   meterLevel01: number; // 0 unless the active cue's effect is Meter
   gradientPreset: "solid" | "greenYellowRed" | "";
+  // Effect identity + phase for addressable fixtures with a spatial
+  // per-LED pattern (Converge, GradientFlow) -- "none"/0 otherwise. See
+  // lightCueInterpolation.ts's addressableEffectLedColor.
+  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow";
+  effectTSec: number;
+  effectRateHz: number;
 }
 
 export interface SongRow {

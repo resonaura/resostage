@@ -479,6 +479,15 @@ struct WebUiState {
         double intensity = 0.0;
         double meterLevel01 = 0.0; // 0 unless the active cue's effect is Meter
         std::string gradientPreset; // "solid" | "greenYellowRed"
+        // Effect identity + phase for addressable fixtures with a spatial
+        // per-LED pattern (Converge, GradientFlow) -- "none"/0 otherwise.
+        // The frontend ports the identical addressableEffectLedColor math
+        // (see ui/src/lib/lightCueInterpolation.ts) so the preview's
+        // per-LED rendering matches the real DMX output without shipping a
+        // full per-LED color array over the wire every frame.
+        std::string effectType = "none";
+        double effectTSec = 0.0;
+        double effectRateHz = 2.0;
     };
     std::vector<LightOutputRow> lightOutput;
 

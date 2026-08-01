@@ -14,13 +14,16 @@ namespace resostage {
 namespace {
 
 // Write one resolved fixture output into the correct DMX channels.
-// Non-addressable fixtures (or addressable ones outside an active Meter
-// effect) get a uniform RGB triplet scaled by intensity across the whole
-// bar. Addressable fixtures whose active cue IS a Meter effect instead get
-// a real progressive bottom-up LED fill (see meterLedColor) -- this is what
-// makes an addressable ResoLight bar actually look like a VU meter instead
-// of just uniformly dimming, matching how every other meter in the app
-// (LevelMeterBar.tsx) already fills bottom-to-top.
+// Non-addressable fixtures (or addressable ones with no per-LED effect
+// active) get a uniform RGB triplet scaled by intensity across the whole
+// bar. Addressable fixtures whose active cue IS Meter get a real
+// progressive bottom-up LED fill (see meterLedColor) -- this is what makes
+// an addressable ResoLight bar actually look like a VU meter instead of
+// just uniformly dimming, matching how every other meter in the app
+// (LevelMeterBar.tsx) already fills bottom-to-top. Converge/GradientFlow
+// get their own per-LED shape via addressableEffectLedColor -- travelling
+// lines / a scrolling rainbow only mean something once you have individual
+// LEDs to place them on.
 void writeDmxChannels(const ResolvedFixtureOutput& out,
                       const ResoLightChannelAssignment& assign,
                       const LightFixture& fixture,
@@ -29,9 +32,9 @@ void writeDmxChannels(const ResolvedFixtureOutput& out,
     if (universe.empty())
         universe.assign(512, 0);
 
-    const auto scaled = [&](uint8_t ch) -> uint8_t {
+    const auto scaled = [&](uint8_t ch, double ledLevel) -> uint8_t {
         return static_cast<uint8_t>(
-            std::clamp(static_cast<double>(ch) * out.value.intensity, 0.0, 255.0));
+            std::clamp(static_cast<double>(ch) * out.value.intensity * ledLevel, 0.0, 255.0));
     };
 
     const int startIdx = assign.startChannel - 1; // 0-based index
@@ -39,9 +42,9 @@ void writeDmxChannels(const ResolvedFixtureOutput& out,
     if (!fixture.addressable || fixture.ledCount <= 1) {
         // Uniform RGB for the whole bar -- no per-LED concept applies.
         if (startIdx + 2 < 512) {
-            universe[startIdx + 0] = scaled(out.value.r);
-            universe[startIdx + 1] = scaled(out.value.g);
-            universe[startIdx + 2] = scaled(out.value.b);
+            universe[startIdx + 0] = scaled(out.value.r, 1.0);
+            universe[startIdx + 1] = scaled(out.value.g, 1.0);
+            universe[startIdx + 2] = scaled(out.value.b, 1.0);
         }
         return;
     }
@@ -51,23 +54,25 @@ void writeDmxChannels(const ResolvedFixtureOutput& out,
     // actually Meter (see LightOutputResolver.h) -- safe to use its
     // presence as the "should this bar do a VU fill" signal.
     const bool meterActive = out.meterLevel01 > 0.0f;
+    const bool spatialEffectActive = !meterActive &&
+        (out.effectType == EffectParams::Type::Converge || out.effectType == EffectParams::Type::GradientFlow);
     const int litCount = meterActive
         ? std::clamp(static_cast<int>(std::lround(out.meterLevel01 * leds)), 0, leds)
         : leds; // not metering: every LED "lit" at the resolved uniform color
 
     for (int i = 0; i < leds; ++i) {
-        uint8_t r, g, b;
+        uint8_t r = out.value.r, g = out.value.g, b = out.value.b;
+        double ledLevel = 1.0;
         if (meterActive) {
             meterLedColor(i, litCount, leds, out.gradient, out.value.r, out.value.g, out.value.b, r, g, b);
-        } else {
-            r = out.value.r;
-            g = out.value.g;
-            b = out.value.b;
+        } else if (spatialEffectActive) {
+            addressableEffectLedColor(i, leds, out.effectType, out.effectTSec, out.effectRateHz,
+                                       out.value.r, out.value.g, out.value.b, r, g, b, ledLevel);
         }
         const int base = startIdx + i * 3;
-        universe[base + 0] = scaled(r);
-        universe[base + 1] = scaled(g);
-        universe[base + 2] = scaled(b);
+        universe[base + 0] = scaled(r, ledLevel);
+        universe[base + 1] = scaled(g, ledLevel);
+        universe[base + 2] = scaled(b, ledLevel);
     }
 }
 

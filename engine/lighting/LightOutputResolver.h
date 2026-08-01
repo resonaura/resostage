@@ -60,6 +60,16 @@ struct ResolvedFixtureOutput {
     // when this fixture's active cue's effect is Meter -- 0 otherwise.
     float meterLevel01 = 0.0f;
     GradientPreset gradient = GradientPreset::Solid;
+    // Effect identity + phase, forwarded so addressable fixtures can render
+    // per-LED spatial patterns (Converge, GradientFlow) that need more than
+    // the uniform `value` above captures -- see
+    // LightCueInterpolation.h's addressableEffectLedColor(). None/0 when
+    // there's no active cue or its effect has no per-LED shape of its own
+    // (Strobe/Pulse/Ripple are whole-bar uniform; Meter already has
+    // meterLevel01/gradient above).
+    EffectParams::Type effectType = EffectParams::Type::None;
+    double effectTSec = 0.0;
+    float effectRateHz = 2.0f;
 };
 
 // (sourceType "bus"|"track", sourceId) -> current peak dB for that source.
@@ -134,6 +144,10 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                     p.audioLevel = dbToLinearLevel(db);
                     r.meterLevel01 = p.audioLevel;
                 }
+
+                r.effectType = p.type;
+                r.effectTSec = p.tSec;
+                r.effectRateHz = p.rateHz;
 
                 r.value = applyEffect(r.value, p);
             }

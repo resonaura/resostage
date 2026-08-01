@@ -129,3 +129,27 @@ TEST_CASE("resolveLightOutputs: a null source-level callback just leaves meterLe
     REQUIRE(out.size() == 1);
     CHECK(out[0].meterLevel01 == doctest::Approx(0.0f));
 }
+
+TEST_CASE("resolveLightOutputs: forwards effect identity and phase for Converge/GradientFlow") {
+    std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
+    std::vector<LightCue> cues = {makeCue("t1", 10.0, 20.0, "converge")};
+    cues[0].effectRateHz = 3.0f;
+    auto out = resolveLightOutputs(tracks, cues, 14.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].effectType == EffectParams::Type::Converge);
+    CHECK(out[0].effectTSec == doctest::Approx(4.0)); // 14 - cue start (10)
+    CHECK(out[0].effectRateHz == doctest::Approx(3.0f));
+    CHECK(out[0].meterLevel01 == doctest::Approx(0.0f)); // only Meter sets this
+}
+
+TEST_CASE("resolveLightOutputs: querying between cues leaves effectType at None (black, no effect)") {
+    std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
+    std::vector<LightCue> cues = {makeCue("t1", 0.0, 2.0, "gradientflow")};
+    // The track still has a cue somewhere, just not active at this instant --
+    // still yields a row (black/off), unlike a track with no cues at all
+    // (see "no active cue on a track yields no rows" above).
+    auto out = resolveLightOutputs(tracks, cues, 100.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].effectType == EffectParams::Type::None);
+    CHECK(out[0].value.intensity == doctest::Approx(0.0));
+}

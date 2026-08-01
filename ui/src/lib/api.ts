@@ -417,7 +417,7 @@ export const lighting = {
     label?: string;
     // Audio-reactive effect (resolved by both LightEngine and the WebUiState
     // push -- see lighting.lightOutput on WebUiState for the live result).
-    effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple";
+    effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow";
     effectSourceType?: "bus" | "track";
     effectSourceId?: string;
     effectIntensity?: number;

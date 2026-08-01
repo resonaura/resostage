@@ -1298,6 +1298,9 @@ void MainComponent::publishWebState() {
             lor.intensity = r.value.intensity;
             lor.meterLevel01 = r.meterLevel01;
             lor.gradientPreset = r.gradient == GradientPreset::GreenYellowRed ? "greenYellowRed" : "solid";
+            lor.effectType = effectTypeToString(r.effectType);
+            lor.effectTSec = r.effectTSec;
+            lor.effectRateHz = r.effectRateHz;
             state.lightOutput.push_back(std::move(lor));
         }
     }

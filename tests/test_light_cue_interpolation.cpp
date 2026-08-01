@@ -114,3 +114,140 @@ TEST_CASE("resolveLightCueValue: cues on other tracks don't affect the query (tr
     auto v = resolveLightCueValue(cues, 5.0);
     CHECK(v.r == 1);
 }
+
+// ─── hsvToRgb ───────────────────────────────────────────────────────────────
+
+TEST_CASE("hsvToRgb: primary hues land on pure channel colors") {
+    uint8_t r, g, b;
+    hsvToRgb(0.0, 1.0, 1.0, r, g, b); // red
+    CHECK(r == 255); CHECK(g == 0); CHECK(b == 0);
+    hsvToRgb(1.0 / 3.0, 1.0, 1.0, r, g, b); // green
+    CHECK(r == 0); CHECK(g == 255); CHECK(b == 0);
+    hsvToRgb(2.0 / 3.0, 1.0, 1.0, r, g, b); // blue
+    CHECK(r == 0); CHECK(g == 0); CHECK(b == 255);
+}
+
+TEST_CASE("hsvToRgb: hue wraps outside 0..1") {
+    uint8_t r1, g1, b1, r2, g2, b2;
+    hsvToRgb(0.2, 1.0, 1.0, r1, g1, b1);
+    hsvToRgb(1.2, 1.0, 1.0, r2, g2, b2); // one full turn further
+    // Not bit-exact -- 1.2 - floor(1.2) accumulates a little floating-point
+    // slop relative to 0.2 directly -- but must land on (near enough) the
+    // same color.
+    CHECK(std::abs(r1 - r2) <= 1);
+    CHECK(std::abs(g1 - g2) <= 1);
+    CHECK(std::abs(b1 - b2) <= 1);
+}
+
+TEST_CASE("hsvToRgb: zero saturation is a grey scaled by value") {
+    uint8_t r, g, b;
+    hsvToRgb(0.5, 0.0, 0.6, r, g, b);
+    CHECK(r == g);
+    CHECK(g == b);
+    CHECK(r == static_cast<uint8_t>(153)); // 0.6 * 255, rounded down
+}
+
+// ─── parseEffectType / effectTypeToString ─────────────────────────────────
+
+TEST_CASE("parseEffectType recognises converge and gradientflow") {
+    CHECK(parseEffectType("converge") == EffectParams::Type::Converge);
+    CHECK(parseEffectType("gradientflow") == EffectParams::Type::GradientFlow);
+    CHECK(parseEffectType("bogus") == EffectParams::Type::None);
+}
+
+TEST_CASE("effectTypeToString round-trips every known type through parseEffectType") {
+    for (auto type : {EffectParams::Type::None, EffectParams::Type::Meter, EffectParams::Type::Strobe,
+                       EffectParams::Type::Pulse, EffectParams::Type::Ripple, EffectParams::Type::Converge,
+                       EffectParams::Type::GradientFlow}) {
+        CHECK(parseEffectType(effectTypeToString(type)) == type);
+    }
+}
+
+// ─── applyEffect: Converge / GradientFlow whole-bar fallback ──────────────
+
+TEST_CASE("applyEffect Converge: intensity grows from edge (t=0) toward the meeting point") {
+    EffectParams p;
+    p.type = EffectParams::Type::Converge;
+    p.intensity = 1.0f;
+    p.rateHz = 1.0f;
+
+    p.tSec = 0.0; // lines at the edges
+    CHECK(applyEffect({255, 255, 255, 1.0}, p).intensity == doctest::Approx(0.0));
+
+    p.tSec = 0.999; // just before the lines meet at centre and the cycle restarts
+    CHECK(applyEffect({255, 255, 255, 1.0}, p).intensity == doctest::Approx(0.999).epsilon(0.01));
+}
+
+TEST_CASE("applyEffect Converge does not touch color") {
+    EffectParams p;
+    p.type = EffectParams::Type::Converge;
+    p.intensity = 1.0f;
+    p.rateHz = 1.0f;
+    p.tSec = 0.25;
+    auto v = applyEffect({10, 20, 30, 1.0}, p);
+    CHECK(v.r == 10);
+    CHECK(v.g == 20);
+    CHECK(v.b == 30);
+}
+
+TEST_CASE("applyEffect GradientFlow overrides color with a swept hue and uses depth as intensity") {
+    EffectParams p;
+    p.type = EffectParams::Type::GradientFlow;
+    p.intensity = 0.5f;
+    p.rateHz = 1.0f;
+    p.tSec = 0.0;
+    auto v = applyEffect({10, 20, 30, 1.0}, p);
+    CHECK(v.r == 255); // hue=0 at tSec=0 -> pure red
+    CHECK(v.g == 0);
+    CHECK(v.b == 0);
+    CHECK(v.intensity == doctest::Approx(0.5));
+}
+
+// ─── addressableEffectLedColor ─────────────────────────────────────────────
+
+TEST_CASE("addressableEffectLedColor Converge: centre LED peaks first, edges last") {
+    // 11 LEDs (indices 0..10), centre at index 5. At tSec=0 the band sits at
+    // the edges, so the centre LED should be dim and an edge LED closer to
+    // the band's start should be brighter.
+    uint8_t r, g, b;
+    double centreLevel, edgeLevel;
+    addressableEffectLedColor(5, 11, EffectParams::Type::Converge, 0.0, 1.0f, 10, 20, 30, r, g, b, centreLevel);
+    addressableEffectLedColor(0, 11, EffectParams::Type::Converge, 0.0, 1.0f, 10, 20, 30, r, g, b, edgeLevel);
+    CHECK(edgeLevel > centreLevel);
+    // Color is left untouched -- only `level` carries the shape.
+    CHECK(r == 10);
+    CHECK(g == 20);
+    CHECK(b == 30);
+}
+
+TEST_CASE("addressableEffectLedColor Converge: just before the lines meet, the centre LED is the brightest") {
+    uint8_t r, g, b;
+    double centreLevel, edgeLevel;
+    // rateHz=1, tSec=0.999 -> band position 0.4995, i.e. almost at centre.
+    addressableEffectLedColor(5, 11, EffectParams::Type::Converge, 0.999, 1.0f, 10, 20, 30, r, g, b, centreLevel);
+    addressableEffectLedColor(0, 11, EffectParams::Type::Converge, 0.999, 1.0f, 10, 20, 30, r, g, b, edgeLevel);
+    CHECK(centreLevel > edgeLevel);
+    CHECK(centreLevel == doctest::Approx(1.0).epsilon(0.01));
+}
+
+TEST_CASE("addressableEffectLedColor GradientFlow: different LED positions get different hues at the same instant") {
+    // i=10 of 11 would land the LED's hue exactly back at 1.0 -> wraps to
+    // the same color as i=0's hue=0.0, so pick a midpoint index instead.
+    uint8_t r0, g0, b0, r1, g1, b1;
+    double level0, level1;
+    addressableEffectLedColor(0, 11, EffectParams::Type::GradientFlow, 0.0, 1.0f, 0, 0, 0, r0, g0, b0, level0);
+    addressableEffectLedColor(5, 11, EffectParams::Type::GradientFlow, 0.0, 1.0f, 0, 0, 0, r1, g1, b1, level1);
+    CHECK((r0 != r1 || g0 != g1 || b0 != b1));
+    CHECK(level0 == doctest::Approx(1.0));
+    CHECK(level1 == doctest::Approx(1.0));
+}
+
+TEST_CASE("addressableEffectLedColor: unrelated effect types leave color/level untouched") {
+    uint8_t r, g, b;
+    double level;
+    addressableEffectLedColor(3, 10, EffectParams::Type::Strobe, 1.23, 4.0f, 5, 6, 7, r, g, b, level);
+    CHECK(r == 5);
+    CHECK(g == 6);
+    CHECK(b == 7);
+    CHECK(level == doctest::Approx(1.0));
+}

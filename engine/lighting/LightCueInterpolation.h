@@ -16,6 +16,38 @@ struct LightCueValue {
     double intensity = 0.0; // 0..1
 };
 
+// Converts an HSV triplet (h wraps to any range, s/v 0..1) to 8-bit RGB.
+// Used by the GradientFlow effect to sweep a travelling rainbow, both as the
+// whole-bar fallback (applyEffect) and the per-LED variant
+// (addressableEffectLedColor).
+inline void hsvToRgb(double h, double s, double v, uint8_t& r, uint8_t& g, uint8_t& b) {
+    h -= std::floor(h);
+    const double i = std::floor(h * 6.0);
+    const double f = h * 6.0 - i;
+    const double p = v * (1.0 - s);
+    const double q = v * (1.0 - f * s);
+    const double t = v * (1.0 - (1.0 - f) * s);
+    double rf = v, gf = v, bf = v;
+    switch (static_cast<int>(i) % 6) {
+        case 0: rf = v; gf = t; bf = p; break;
+        case 1: rf = q; gf = v; bf = p; break;
+        case 2: rf = p; gf = v; bf = t; break;
+        case 3: rf = p; gf = q; bf = v; break;
+        case 4: rf = t; gf = p; bf = v; break;
+        default: rf = v; gf = p; bf = q; break;
+    }
+    r = static_cast<uint8_t>(std::clamp(rf * 255.0, 0.0, 255.0));
+    g = static_cast<uint8_t>(std::clamp(gf * 255.0, 0.0, 255.0));
+    b = static_cast<uint8_t>(std::clamp(bf * 255.0, 0.0, 255.0));
+}
+
+// GradientFlow's hue sweep speed relative to rateHz -- rateHz alone (as used
+// by Strobe/Pulse/Ripple) would spin the whole rainbow past in well under a
+// second; this slows it to a legible shimmer. Shared by applyEffect's
+// whole-bar fallback and addressableEffectLedColor's per-LED sweep so both
+// stay in lockstep.
+constexpr double kGradientFlowSpeedScale = 0.15;
+
 // ─── Effect modulation ────────────────────────────────────────────────────────
 //
 // Called by LightEngine once per output frame per track×fixture, AFTER
@@ -25,7 +57,7 @@ struct LightCueValue {
 // from MasterClock::currentSeconds() so every fixture stays frame-perfect.
 
 struct EffectParams {
-    enum class Type { None, Meter, Strobe, Pulse, Ripple } type{Type::None};
+    enum class Type { None, Meter, Strobe, Pulse, Ripple, Converge, GradientFlow } type{Type::None};
     float intensity    = 0.8f;   // 0..1 — depth of the effect
     float rateHz       = 2.0f;   // cycles per second (pre-computed from tempoSubdiv if synced)
     float audioLevel   = 0.0f;   // 0..1 peak level from the target bus (for Meter)
@@ -35,11 +67,29 @@ struct EffectParams {
 
 // Returns a clamped EffectParams::Type parsed from a LightCue's effectType string.
 inline EffectParams::Type parseEffectType(const std::string& s) {
-    if (s == "meter")  return EffectParams::Type::Meter;
-    if (s == "strobe") return EffectParams::Type::Strobe;
-    if (s == "pulse")  return EffectParams::Type::Pulse;
-    if (s == "ripple") return EffectParams::Type::Ripple;
+    if (s == "meter")        return EffectParams::Type::Meter;
+    if (s == "strobe")       return EffectParams::Type::Strobe;
+    if (s == "pulse")        return EffectParams::Type::Pulse;
+    if (s == "ripple")       return EffectParams::Type::Ripple;
+    if (s == "converge")     return EffectParams::Type::Converge;
+    if (s == "gradientflow") return EffectParams::Type::GradientFlow;
     return EffectParams::Type::None;
+}
+
+// Inverse of parseEffectType -- used when forwarding a resolved fixture's
+// active effect identity to the web UI (WebUiState::LightOutputRow), so the
+// frontend's addressableEffectLedColor port knows which per-LED formula to
+// run without re-deriving it from the cue list itself.
+inline const char* effectTypeToString(EffectParams::Type t) {
+    switch (t) {
+        case EffectParams::Type::Meter:        return "meter";
+        case EffectParams::Type::Strobe:       return "strobe";
+        case EffectParams::Type::Pulse:        return "pulse";
+        case EffectParams::Type::Ripple:       return "ripple";
+        case EffectParams::Type::Converge:     return "converge";
+        case EffectParams::Type::GradientFlow: return "gradientflow";
+        default:                               return "none";
+    }
 }
 
 // Converts a tempo-subdivision string + BPM to Hz.
@@ -64,7 +114,8 @@ inline float subdivToHz(const std::string& subdiv, double bpm, float fallbackHz 
 }
 
 // Apply audio-reactive modulation to `base`. Returns a copy with intensity
-// scaled by the computed level. Color is never touched.
+// scaled by the computed level (GradientFlow also overrides color -- see its
+// case below).
 inline LightCueValue applyEffect(LightCueValue base, const EffectParams& p) {
     if (p.type == EffectParams::Type::None)
         return base;
@@ -103,12 +154,75 @@ inline LightCueValue applyEffect(LightCueValue base, const EffectParams& p) {
             level = sine * p.intensity;
             break;
         }
+        case EffectParams::Type::Converge: {
+            // Whole-bar fallback for non-addressable fixtures: two lines
+            // race in from either edge and meet at the centre, brightening
+            // as they close in, then the cycle restarts. Addressable
+            // fixtures get the real travelling-band shape per LED via
+            // addressableEffectLedColor -- this uniform value still applies
+            // underneath it as the overall brightness ceiling.
+            const double phase = std::fmod(std::max(0.0, p.tSec) * p.rateHz, 1.0);
+            const double bandDistFromEdge = phase * 0.5; // 0 (edge) .. 0.5 (centre)
+            level = static_cast<float>(bandDistFromEdge * 2.0) * p.intensity;
+            break;
+        }
+        case EffectParams::Type::GradientFlow: {
+            // Whole-bar fallback for non-addressable fixtures (or the base
+            // color addressable ones start from before per-LED position
+            // offsets the hue -- see addressableEffectLedColor): the
+            // fixture's own hue slowly sweeps through the spectrum.
+            uint8_t hr, hg, hb;
+            hsvToRgb(std::max(0.0, p.tSec) * p.rateHz * kGradientFlowSpeedScale, 1.0, 1.0, hr, hg, hb);
+            base.r = hr;
+            base.g = hg;
+            base.b = hb;
+            level = p.intensity;
+            break;
+        }
         default:
             break;
     }
 
     base.intensity *= std::clamp(static_cast<double>(level), 0.0, 1.0);
     return base;
+}
+
+// ─── Per-LED addressable shape ────────────────────────────────────────────────
+//
+// Converge and GradientFlow are the first two effects with genuine spatial
+// meaning across a physical LED strip (Meter's per-LED VU fill already has
+// its own dedicated path -- see LightOutputResolver.h's meterLedColor).
+// Called once per LED per output frame by both LightEngine's real-time DMX
+// thread (writeDmxChannels) and MainComponent's WebUiState push -- driven by
+// the same tSec/rateHz the resolved fixture already carries, so the preview
+// can never diverge from the physical strip.
+//
+// `outLevel` is a 0..1 multiplier meant to be applied ON TOP OF the
+// fixture's existing (envelope × applyEffect) intensity, not in place of it
+// -- so the cue's own fade/brightness still governs the ceiling. `outR/G/B`
+// override the LED's color outright for GradientFlow; Converge leaves color
+// untouched and expresses itself purely through `outLevel`.
+inline void addressableEffectLedColor(int i, int totalLeds, EffectParams::Type type,
+                                       double tSec, float rateHz,
+                                       uint8_t baseR, uint8_t baseG, uint8_t baseB,
+                                       uint8_t& outR, uint8_t& outG, uint8_t& outB,
+                                       double& outLevel) {
+    outR = baseR;
+    outG = baseG;
+    outB = baseB;
+    outLevel = 1.0;
+    const double t = totalLeds > 1 ? static_cast<double>(i) / (totalLeds - 1) : 0.0;
+
+    if (type == EffectParams::Type::Converge) {
+        const double phase = std::fmod(std::max(0.0, tSec) * rateHz, 1.0);
+        const double bandPos = phase * 0.5;                // 0 (edge) .. 0.5 (centre)
+        const double distFromEdge = std::min(t, 1.0 - t);   // 0 at either edge, 0.5 at centre
+        constexpr double kBandWidth = 0.12;
+        outLevel = std::clamp(1.0 - std::abs(distFromEdge - bandPos) / kBandWidth, 0.0, 1.0);
+    } else if (type == EffectParams::Type::GradientFlow) {
+        const double hue = t + std::max(0.0, tSec) * rateHz * kGradientFlowSpeedScale;
+        hsvToRgb(hue, 1.0, 1.0, outR, outG, outB);
+    }
 }
 
 // ─── Cue interpolation ────────────────────────────────────────────────────────

@@ -15,8 +15,10 @@ import {
   Lightbulb,
   Link2,
   Link2Off,
+  Merge,
   Minus,
   Palette,
+  Rainbow,
   Trash2,
   TriangleAlert,
   Waves,
@@ -277,14 +279,16 @@ function HslColorPicker({
 
 // ─── Audio effect selector (props-driven — state lives in LightSidePanel) ──
 
-type EffectType = "none" | "meter" | "strobe" | "pulse" | "ripple";
+type EffectType = "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow";
 
 const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React.ReactNode }> = {
-  none:   { label: "None",   desc: "Static color, no modulation",               icon: <Minus size={12} /> },
-  meter:  { label: "Meter",  desc: "Brightness follows audio level (VU meter)",  icon: <BarChart2 size={12} /> },
-  strobe: { label: "Strobe", desc: "Rapid on/off flashes at set rate",            icon: <Zap size={12} /> },
-  pulse:  { label: "Pulse",  desc: "Smooth brightness pulse",                     icon: <Activity size={12} /> },
-  ripple: { label: "Ripple", desc: "Travelling wave across fixtures left→right",  icon: <Waves size={12} /> },
+  none:         { label: "None",     desc: "Static color, no modulation",                      icon: <Minus size={12} /> },
+  meter:        { label: "Meter",    desc: "Brightness follows audio level (VU meter)",         icon: <BarChart2 size={12} /> },
+  strobe:       { label: "Strobe",   desc: "Rapid on/off flashes at set rate",                   icon: <Zap size={12} /> },
+  pulse:        { label: "Pulse",    desc: "Smooth brightness pulse",                            icon: <Activity size={12} /> },
+  ripple:       { label: "Ripple",   desc: "Travelling wave across fixtures left→right",         icon: <Waves size={12} /> },
+  converge:     { label: "Converge", desc: "Lines race in from both ends and meet at the centre (addressable fixtures)", icon: <Merge size={12} /> },
+  gradientflow: { label: "Gradient", desc: "Flowing rainbow shimmer along the bar (addressable fixtures)", icon: <Rainbow size={12} /> },
 };
 
 // ─── Tempo subdivisions ───────────────────────────────────────────────────
@@ -332,13 +336,14 @@ function EffectPanel({
   tracks: TrackRow[];
   bpm: number;
 }) {
-  const hasRate = effectType === "strobe" || effectType === "pulse" || effectType === "ripple";
+  const hasRate = effectType === "strobe" || effectType === "pulse" || effectType === "ripple"
+    || effectType === "converge" || effectType === "gradientflow";
   const sourceItems = effectSourceType === "track" ? tracks : busses;
   return (
     <div className="flex flex-col gap-3">
       <Field label="Audio Effect">
-        <div className="grid grid-cols-5 gap-1">
-          {(["none", "meter", "strobe", "pulse", "ripple"] as EffectType[]).map((et) => {
+        <div className="grid grid-cols-4 gap-1">
+          {(["none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow"] as EffectType[]).map((et) => {
             const meta = EFFECT_META[et];
             return (
               <button
@@ -803,6 +808,9 @@ export function LightSidePanel({
         intensity: lo.intensity,
         meterLevel01: lo.meterLevel01,
         gradientPreset: lo.gradientPreset || undefined,
+        effectType: lo.effectType,
+        effectTSec: lo.effectTSec,
+        effectRateHz: lo.effectRateHz,
       };
     }
     return merged;

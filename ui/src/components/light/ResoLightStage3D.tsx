@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, MoveUp } from "lucide-react";
 import * as THREE from "three";
 import type { LightFixtureRow } from "../../lib/types";
-import type { LightCueValue } from "../../lib/lightCueInterpolation";
+import { addressableEffectLedColor, type LightCueValue, type SpatialEffectType } from "../../lib/lightCueInterpolation";
 
 // ─── Camera frame utility ─────────────────────────────────────────────────
 
@@ -198,13 +198,18 @@ export function ResoLightStage3D({
 
 // ─── Single light bar ─────────────────────────────────────────────────────
 
-// Only present when the fixture's active cue is a Meter effect -- see
-// WebUiState.lightOutput's doc comment. Extends the plain resolved color
-// with what's needed to draw the same bottom-up progressive LED fill the
-// real addressable hardware gets (see LightEngine.cpp's writeDmxChannels).
+// meterLevel01/gradientPreset are only present when the fixture's active
+// cue is a Meter effect; effectType/effectTSec/effectRateHz are only
+// meaningful for Converge/GradientFlow -- see WebUiState.lightOutput's doc
+// comment. Extends the plain resolved color with what's needed to draw the
+// same per-LED pattern the real addressable hardware gets (see
+// LightEngine.cpp's writeDmxChannels).
 export type PreviewColor = LightCueValue & {
   meterLevel01?: number;
   gradientPreset?: "solid" | "greenYellowRed";
+  effectType?: SpatialEffectType | "none" | "meter" | "strobe" | "pulse" | "ripple";
+  effectTSec?: number;
+  effectRateHz?: number;
 };
 
 function ResoLightBar({
@@ -243,12 +248,15 @@ function ResoLightBar({
     ? Math.max(0.08, previewColor.intensity)
     : 0.25;
 
-  // Addressable fixtures only render a segmented bottom-up VU fill while
-  // their active cue is genuinely a Meter effect (meterLevel01 present) --
+  // Addressable fixtures only render a segmented per-LED pattern while
+  // their active cue is genuinely Meter, Converge, or GradientFlow --
   // matching the real DMX output exactly (see writeDmxChannels) instead of
   // an always-on decorative gradient that wouldn't reflect reality.
   const meterActive =
     fixture.addressable && previewColor?.meterLevel01 !== undefined && previewColor.meterLevel01 > 0;
+  const spatialEffectActive =
+    fixture.addressable && !meterActive &&
+    (previewColor?.effectType === "converge" || previewColor?.effectType === "gradientflow");
   // Capped/floored purely for render cost and visibility -- the real DMX
   // output still addresses every physical LED; this is just how many
   // discrete segments the 3D preview bothers to draw.
@@ -256,28 +264,44 @@ function ResoLightBar({
   const litCount = meterActive
     ? Math.round((previewColor!.meterLevel01 ?? 0) * totalSegments)
     : totalSegments;
-  const segmentColors = useMemo(() => {
-    if (!meterActive) return null;
-    const preset = previewColor?.gradientPreset ?? "solid";
-    return Array.from({ length: totalSegments }, (_, i) => {
-      if (i >= litCount) return new THREE.Color(0, 0, 0);
-      if (preset === "solid") {
-        return new THREE.Color(
-          (previewColor?.r ?? 0) / 255,
-          (previewColor?.g ?? 0) / 255,
-          (previewColor?.b ?? 0) / 255,
+  const segments = useMemo(() => {
+    if (meterActive) {
+      const preset = previewColor?.gradientPreset ?? "solid";
+      return Array.from({ length: totalSegments }, (_, i) => {
+        if (i >= litCount) return { color: new THREE.Color(0, 0, 0), level: 1 };
+        if (preset === "solid") {
+          return {
+            color: new THREE.Color(
+              (previewColor?.r ?? 0) / 255,
+              (previewColor?.g ?? 0) / 255,
+              (previewColor?.b ?? 0) / 255,
+            ),
+            level: 1,
+          };
+        }
+        // greenYellowRed: colored by position on the bar, same bands as
+        // LightOutputResolver.h's meterLedColor (bottom 60% green, next
+        // 25% yellow, top 15% red) -- independent of the cue's own color.
+        const t = totalSegments > 1 ? i / (totalSegments - 1) : 0;
+        if (t < 0.6) return { color: new THREE.Color(40 / 255, 220 / 255, 90 / 255), level: 1 };
+        if (t < 0.85) return { color: new THREE.Color(240 / 255, 210 / 255, 40 / 255), level: 1 };
+        return { color: new THREE.Color(235 / 255, 60 / 255, 50 / 255), level: 1 };
+      });
+    }
+    if (spatialEffectActive) {
+      const type = previewColor!.effectType as "converge" | "gradientflow";
+      return Array.from({ length: totalSegments }, (_, i) => {
+        const led = addressableEffectLedColor(
+          i, totalSegments, type,
+          previewColor?.effectTSec ?? 0, previewColor?.effectRateHz ?? 2,
+          previewColor?.r ?? 0, previewColor?.g ?? 0, previewColor?.b ?? 0,
         );
-      }
-      // greenYellowRed: colored by position on the bar, same bands as
-      // LightOutputResolver.h's meterLedColor (bottom 60% green, next 25%
-      // yellow, top 15% red) -- independent of the cue's own color.
-      const t = totalSegments > 1 ? i / (totalSegments - 1) : 0;
-      if (t < 0.6) return new THREE.Color(40 / 255, 220 / 255, 90 / 255);
-      if (t < 0.85) return new THREE.Color(240 / 255, 210 / 255, 40 / 255);
-      return new THREE.Color(235 / 255, 60 / 255, 50 / 255);
-    });
-  }, [meterActive, litCount, totalSegments, previewColor]);
-  const segments = segmentColors ? totalSegments : 1;
+        return { color: new THREE.Color(led.r / 255, led.g / 255, led.b / 255), level: led.level };
+      });
+    }
+    return null;
+  }, [meterActive, spatialEffectActive, litCount, totalSegments, previewColor]);
+  const segmentCount = segments ? totalSegments : 1;
 
   // The bar mesh is ALWAYS built as a vertical box standing on its own
   // origin (base at local y=0, tip at y=heightMeters) -- orientation is
@@ -297,9 +321,9 @@ function ResoLightBar({
       rotation={[0, THREE.MathUtils.degToRad(fixture.rotationYDeg), 0]}
     >
       <group rotation={[0, 0, fixture.mountedHorizontally ? Math.PI / 2 : 0]}>
-        {segmentColors ? (
-          segmentColors.map((segColor, idx) => {
-            const segH = heightMeters / segments;
+        {segments ? (
+          segments.map((seg, idx) => {
+            const segH = heightMeters / segmentCount;
             const segY = idx * segH + segH / 2;
             return (
               <mesh
@@ -312,9 +336,9 @@ function ResoLightBar({
               >
                 <boxGeometry args={[0.08, segH * 0.95, 0.08]} />
                 <meshStandardMaterial
-                  color={segColor}
-                  emissive={segColor}
-                  emissiveIntensity={Math.max(0.08, previewColor!.intensity)}
+                  color={seg.color}
+                  emissive={seg.color}
+                  emissiveIntensity={Math.max(0.08, previewColor!.intensity * seg.level)}
                 />
               </mesh>
             );
