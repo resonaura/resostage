@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lighting/LightCueInterpolation.h"
+#include "lighting/LightOutputResolver.h"
 #include "lighting/ResoLightChannelMap.h"
 #include "project/ProjectSchema.h"
 #include "events/EventDispatcher.h"
@@ -43,21 +44,23 @@ class EventDispatcher;
 class LightEngine {
 public:
     // clockSource, dispatcher: not owned; caller must keep them alive for
-    // LightEngine's lifetime. Pass nullptr for busMeterAt to disable the
-    // Meter effect (audio level will be treated as 0).
+    // LightEngine's lifetime. Pass nullptr for either meter callback to
+    // disable Meter-effect cues sourced from that pool (audio level reads
+    // as silence instead).
     LightEngine() = default;
     ~LightEngine() { stop(); }
 
     LightEngine(const LightEngine&) = delete;
     LightEngine& operator=(const LightEngine&) = delete;
 
-    // Bind dependencies and start the output thread.
-    // busCountGetter / busMeterAt callbacks are captured by the thread; they
-    // must remain valid until stop() returns. Pass nullptr to disable Meter.
+    // Bind dependencies and start the output thread. Callbacks are captured
+    // by the thread; they must remain valid until stop() returns.
     using BusMeterFn = std::function<float(const std::string& busId)>;
+    using TrackMeterFn = std::function<float(const std::string& trackId)>;
     void start(MasterClock& clock,
                EventDispatcher& dispatcher,
                BusMeterFn busPeakDb,
+               TrackMeterFn trackPeakDb,
                double targetBpm = 120.0);
     void stop();
 
@@ -71,11 +74,6 @@ public:
 
 private:
     void threadLoop();
-
-    // Builds EffectParams for a given cue at time `tSec`.
-    EffectParams buildEffectParams(const LightCue& cue,
-                                   int fixtureIndex,
-                                   double tSec) const;
 
     std::thread thread_;
     std::atomic<bool> running_{false};
@@ -91,6 +89,7 @@ private:
     MasterClock*  clock_      = nullptr;
     EventDispatcher* dispatch_ = nullptr;
     BusMeterFn busPeakDb_;
+    TrackMeterFn trackPeakDb_;
 
     std::atomic<double> bpm_{120.0};
 

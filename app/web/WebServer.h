@@ -365,6 +365,19 @@ struct WebUiState {
             double fadeInSeconds = 0.0;
             double fadeOutSeconds = 0.0;
             std::string label;
+            // Audio-reactive effect -- see LightCue's own field docs in
+            // ProjectSchema.h. Read back here (not just write-only via the
+            // cueUpdate command) so the effect panel reflects the real
+            // stored value instead of resetting to defaults every time the
+            // selection changes.
+            std::string effectType;
+            std::string effectSourceType;
+            std::string effectSourceId;
+            double effectIntensity = 0.8;
+            bool tempoSync = false;
+            std::string tempoSubdiv;
+            double effectRateHz = 2.0;
+            std::string gradientPreset;
         };
         std::vector<LightCueRow> lightCues;
     };
@@ -450,6 +463,24 @@ struct WebUiState {
         std::vector<std::string> fixtureIds;
     };
     std::vector<LightTrackRow> lightTracks;
+
+    // Backend-authoritative resolved lamp state, one row per fixture
+    // currently driven by an active cue -- computed by the exact same
+    // engine/lighting/LightOutputResolver.h call LightEngine's real-time DMX
+    // thread uses, at the ~30Hz WebUiState publish rate. The live preview
+    // (Settings' 3D editor, Timeline's Light mode) renders THIS, not its own
+    // re-simulation, so it can never show something the real hardware isn't
+    // also doing (see RESTORE_POINT.md Feature 6's sync fix).
+    struct LightOutputRow {
+        std::string fixtureId;
+        int r = 0;
+        int g = 0;
+        int b = 0;
+        double intensity = 0.0;
+        double meterLevel01 = 0.0; // 0 unless the active cue's effect is Meter
+        std::string gradientPreset; // "solid" | "greenYellowRed"
+    };
+    std::vector<LightOutputRow> lightOutput;
 
     // Health -- combined totals across all app-related processes.
     double cpuPercent = 0.0;

@@ -6,6 +6,7 @@
 #include "web/BuilderJson.h"
 #include "timing/BarSeek.h"
 #include "project/ProjectJson.h"
+#include "lighting/LightOutputResolver.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1126,6 +1127,14 @@ void MainComponent::publishWebState() {
             lcr.fadeInSeconds = lc.fadeInSeconds;
             lcr.fadeOutSeconds = lc.fadeOutSeconds;
             lcr.label = lc.label;
+            lcr.effectType = lc.effectType;
+            lcr.effectSourceType = lc.effectSourceType;
+            lcr.effectSourceId = lc.effectSourceId;
+            lcr.effectIntensity = lc.effectIntensity;
+            lcr.tempoSync = lc.tempoSync;
+            lcr.tempoSubdiv = lc.tempoSubdiv;
+            lcr.effectRateHz = lc.effectRateHz;
+            lcr.gradientPreset = lc.gradientPreset;
             row.lightCues.push_back(std::move(lcr));
         }
 
@@ -1238,6 +1247,59 @@ void MainComponent::publishWebState() {
         ltr.name = lt.name;
         ltr.fixtureIds = lt.fixtureIds;
         state.lightTracks.push_back(std::move(ltr));
+    }
+
+    // Backend-authoritative resolved lamp state -- the exact same
+    // engine/lighting/LightOutputResolver.h call LightEngine's real-time DMX
+    // thread makes, so the live preview can never drift from what the real
+    // hardware is doing (see RESTORE_POINT.md Feature 6's sync fix).
+    if (proj.lighting.enabled && state.songIndex >= 0
+        && static_cast<size_t>(state.songIndex) < proj.songs.size()) {
+        const SongDef& activeSong = proj.songs[static_cast<size_t>(state.songIndex)];
+        const auto& allTracks = proj.tracks;
+        const auto sourceLevelDb = [this, &allTracks, &proj](const std::string& type, const std::string& id) -> float {
+            if (type == "track") {
+                for (size_t i = 0; i < allTracks.size(); ++i) {
+                    if (allTracks[i].id != id)
+                        continue;
+                    if (const auto* m = engine.trackMeterAt(i)) {
+                        MeterFrame f;
+                        if (m->read(f))
+                            return f.peakDb;
+                    }
+                    break;
+                }
+                return -144.0f;
+            }
+            for (size_t i = 0; i < proj.busses.size(); ++i) {
+                if (!id.empty() && proj.busses[i].id != id)
+                    continue;
+                if (id.empty() && i != 0)
+                    continue; // empty id = master mix / first bus
+                if (const auto* m = engine.busMeterAt(i)) {
+                    MeterFrame f;
+                    if (m->read(f))
+                        return f.peakDb;
+                }
+                break;
+            }
+            return -144.0f;
+        };
+
+        const auto resolved = resolveLightOutputs(
+            proj.lightTracks, activeSong.lightCues, state.playheadSeconds, activeSong.bpm, sourceLevelDb);
+        state.lightOutput.reserve(resolved.size());
+        for (const auto& r : resolved) {
+            WebUiState::LightOutputRow lor;
+            lor.fixtureId = r.fixtureId;
+            lor.r = r.value.r;
+            lor.g = r.value.g;
+            lor.b = r.value.b;
+            lor.intensity = r.value.intensity;
+            lor.meterLevel01 = r.meterLevel01;
+            lor.gradientPreset = r.gradient == GradientPreset::GreenYellowRed ? "greenYellowRed" : "solid";
+            state.lightOutput.push_back(std::move(lor));
+        }
     }
 
     state.cpuPercent = health.totalCpuPercent;

@@ -25,6 +25,14 @@ function makeCue(
     fadeInSeconds,
     fadeOutSeconds,
     label: "",
+    effectType: "none",
+    effectSourceType: "bus",
+    effectSourceId: "",
+    effectIntensity: 0.8,
+    tempoSync: false,
+    tempoSubdiv: "1/4",
+    effectRateHz: 2,
+    gradientPreset: "solid",
   };
 }
 

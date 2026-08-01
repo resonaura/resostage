@@ -152,8 +152,9 @@ AudioEngine::AudioEngine() {
     midiDispatcher.start();
     eventDispatcher.start();
 
-    // Start LightEngine: provide a bus-peak callback so the Meter effect can
-    // sample audio levels without touching the audio thread directly.
+    // Start LightEngine: provide bus- and track-peak callbacks so a Meter
+    // effect can sample either pool's audio level without touching the
+    // audio thread directly.
     lightEngine.start(
         clock,
         eventDispatcher,
@@ -169,6 +170,19 @@ AudioEngine::AudioEngine() {
                 MeterFrame f{};
                 m->read(f);
                 return f.peakDb;
+            }
+            return -144.0f;
+        },
+        [this](const std::string& trackId) -> float {
+            for (size_t i = 0; i < trackIdByIndex.size(); ++i) {
+                if (trackIdByIndex[i] != trackId)
+                    continue;
+                if (const auto* m = trackMeterAt(i)) {
+                    MeterFrame f{};
+                    m->read(f);
+                    return f.peakDb;
+                }
+                break;
             }
             return -144.0f;
         }

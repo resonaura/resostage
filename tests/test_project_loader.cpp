@@ -325,6 +325,14 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     cue.fadeInSeconds = 0.5;
     cue.fadeOutSeconds = 1.0;
     cue.label = "Chorus wash";
+    cue.effectType = "meter";
+    cue.effectSourceType = "track";
+    cue.effectSourceId = "trk_3";
+    cue.effectIntensity = 0.65f;
+    cue.tempoSync = true;
+    cue.tempoSubdiv = "1/8";
+    cue.effectRateHz = 3.5f;
+    cue.gradientPreset = "greenYellowRed";
     p.songs[0].lightCues.push_back(cue);
 
     const std::string outPath =
@@ -379,6 +387,14 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     CHECK(cue2.fadeInSeconds == doctest::Approx(0.5));
     CHECK(cue2.fadeOutSeconds == doctest::Approx(1.0));
     CHECK(cue2.label == "Chorus wash");
+    CHECK(cue2.effectType == "meter");
+    CHECK(cue2.effectSourceType == "track");
+    CHECK(cue2.effectSourceId == "trk_3");
+    CHECK(cue2.effectIntensity == doctest::Approx(0.65));
+    CHECK(cue2.tempoSync == true);
+    CHECK(cue2.tempoSubdiv == "1/8");
+    CHECK(cue2.effectRateHz == doctest::Approx(3.5));
+    CHECK(cue2.gradientPreset == "greenYellowRed");
 
     std::remove(outPath.c_str());
 }

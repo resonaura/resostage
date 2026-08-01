@@ -1201,7 +1201,15 @@ std::string WebServer::buildStateJson(const char* view) const {
                   << "\"intensity\":" << finiteOrZero(lc.intensity) << ","
                   << "\"fadeInSeconds\":" << finiteOrZero(lc.fadeInSeconds) << ","
                   << "\"fadeOutSeconds\":" << finiteOrZero(lc.fadeOutSeconds) << ","
-                  << "\"label\":\"" << jsonEscape(lc.label) << "\"}";
+                  << "\"label\":\"" << jsonEscape(lc.label) << "\","
+                  << "\"effectType\":\"" << jsonEscape(lc.effectType) << "\","
+                  << "\"effectSourceType\":\"" << jsonEscape(lc.effectSourceType) << "\","
+                  << "\"effectSourceId\":\"" << jsonEscape(lc.effectSourceId) << "\","
+                  << "\"effectIntensity\":" << finiteOrZero(lc.effectIntensity) << ","
+                  << "\"tempoSync\":" << (lc.tempoSync ? "true" : "false") << ","
+                  << "\"tempoSubdiv\":\"" << jsonEscape(lc.tempoSubdiv) << "\","
+                  << "\"effectRateHz\":" << finiteOrZero(lc.effectRateHz) << ","
+                  << "\"gradientPreset\":\"" << jsonEscape(lc.gradientPreset) << "\"}";
             }
             o << "]}";
         }
@@ -1315,6 +1323,20 @@ std::string WebServer::buildStateJson(const char* view) const {
                 o << "\"" << jsonEscape(lt.fixtureIds[fi]) << "\"";
             }
             o << "]}";
+        }
+        o << "]";
+
+        o << ",\"lightOutput\":[";
+        for (size_t i = 0; i < snap.lightOutput.size(); ++i) {
+            if (i) o << ",";
+            const auto& lo = snap.lightOutput[i];
+            o << "{\"fixtureId\":\"" << jsonEscape(lo.fixtureId) << "\","
+              << "\"r\":" << lo.r << ","
+              << "\"g\":" << lo.g << ","
+              << "\"b\":" << lo.b << ","
+              << "\"intensity\":" << finiteOrZero(lo.intensity) << ","
+              << "\"meterLevel01\":" << finiteOrZero(lo.meterLevel01) << ","
+              << "\"gradientPreset\":\"" << jsonEscape(lo.gradientPreset) << "\"}";
         }
         o << "]";
     }

@@ -340,7 +340,8 @@ void MainComponent::lightingCueUpdate(const std::string& json) {
 
     // Audio-reactive effect fields.
     if (getString(doc, "effectType", strVal)) cue->effectType = strVal;
-    if (getString(doc, "effectBusId", strVal)) cue->effectBusId = strVal;
+    if (getString(doc, "effectSourceType", strVal)) cue->effectSourceType = strVal;
+    if (getString(doc, "effectSourceId", strVal)) cue->effectSourceId = strVal;
     if (getDouble(doc, "effectIntensity", numVal))
         cue->effectIntensity = static_cast<float>(std::clamp(numVal, 0.0, 1.0));
     bool boolVal = false;
@@ -348,6 +349,7 @@ void MainComponent::lightingCueUpdate(const std::string& json) {
     if (getString(doc, "tempoSubdiv", strVal)) cue->tempoSubdiv = strVal;
     if (getDouble(doc, "effectRateHz", numVal))
         cue->effectRateHz = static_cast<float>(std::max(0.01, numVal));
+    if (getString(doc, "gradientPreset", strVal)) cue->gradientPreset = strVal;
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();

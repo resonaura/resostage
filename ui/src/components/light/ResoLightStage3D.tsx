@@ -95,7 +95,7 @@ export function ResoLightStage3D({
   selectedFixtureId?: string | null;
   onSelectFixture?: (id: string) => void;
   onFixtureMoved?: (id: string, x: number, z: number) => void;
-  previewColors?: Record<string, LightCueValue>;
+  previewColors?: Record<string, PreviewColor>;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; z: number } | null>(null);
@@ -198,6 +198,15 @@ export function ResoLightStage3D({
 
 // ─── Single light bar ─────────────────────────────────────────────────────
 
+// Only present when the fixture's active cue is a Meter effect -- see
+// WebUiState.lightOutput's doc comment. Extends the plain resolved color
+// with what's needed to draw the same bottom-up progressive LED fill the
+// real addressable hardware gets (see LightEngine.cpp's writeDmxChannels).
+export type PreviewColor = LightCueValue & {
+  meterLevel01?: number;
+  gradientPreset?: "solid" | "greenYellowRed";
+};
+
 function ResoLightBar({
   fixture,
   x,
@@ -213,7 +222,7 @@ function ResoLightBar({
   selected: boolean;
   editable: boolean;
   onPointerDownStart: () => void;
-  previewColor?: LightCueValue;
+  previewColor?: PreviewColor;
 }) {
   // Rough visual scale: ~30 LEDs per meter of bar height, clamped so a
   // 1-LED or 500-LED fixture still renders as something sane on stage.
@@ -234,22 +243,41 @@ function ResoLightBar({
     ? Math.max(0.08, previewColor.intensity)
     : 0.25;
 
-  // Addressable: show a gradient stack (bright center, dimmer edges) so an
-  // addressable bar visually reads differently from a uniform one even at a
-  // glance, before any real per-LED meter data exists.
-  const segments = fixture.addressable && previewColor ? 5 : 1;
+  // Addressable fixtures only render a segmented bottom-up VU fill while
+  // their active cue is genuinely a Meter effect (meterLevel01 present) --
+  // matching the real DMX output exactly (see writeDmxChannels) instead of
+  // an always-on decorative gradient that wouldn't reflect reality.
+  const meterActive =
+    fixture.addressable && previewColor?.meterLevel01 !== undefined && previewColor.meterLevel01 > 0;
+  // Capped/floored purely for render cost and visibility -- the real DMX
+  // output still addresses every physical LED; this is just how many
+  // discrete segments the 3D preview bothers to draw.
+  const totalSegments = Math.min(20, Math.max(3, Math.round(fixture.ledCount / 3)));
+  const litCount = meterActive
+    ? Math.round((previewColor!.meterLevel01 ?? 0) * totalSegments)
+    : totalSegments;
   const segmentColors = useMemo(() => {
-    if (!fixture.addressable || !previewColor || segments === 1) return null;
-    return Array.from({ length: segments }, (_, i) => {
-      const t = Math.abs(i / (segments - 1) - 0.5) * 2; // 0=center, 1=edge
-      const dimFactor = 1 - t * 0.4;
-      return new THREE.Color(
-        (previewColor.r / 255) * dimFactor,
-        (previewColor.g / 255) * dimFactor,
-        (previewColor.b / 255) * dimFactor,
-      );
+    if (!meterActive) return null;
+    const preset = previewColor?.gradientPreset ?? "solid";
+    return Array.from({ length: totalSegments }, (_, i) => {
+      if (i >= litCount) return new THREE.Color(0, 0, 0);
+      if (preset === "solid") {
+        return new THREE.Color(
+          (previewColor?.r ?? 0) / 255,
+          (previewColor?.g ?? 0) / 255,
+          (previewColor?.b ?? 0) / 255,
+        );
+      }
+      // greenYellowRed: colored by position on the bar, same bands as
+      // LightOutputResolver.h's meterLedColor (bottom 60% green, next 25%
+      // yellow, top 15% red) -- independent of the cue's own color.
+      const t = totalSegments > 1 ? i / (totalSegments - 1) : 0;
+      if (t < 0.6) return new THREE.Color(40 / 255, 220 / 255, 90 / 255);
+      if (t < 0.85) return new THREE.Color(240 / 255, 210 / 255, 40 / 255);
+      return new THREE.Color(235 / 255, 60 / 255, 50 / 255);
     });
-  }, [fixture.addressable, previewColor, segments]);
+  }, [meterActive, litCount, totalSegments, previewColor]);
+  const segments = segmentColors ? totalSegments : 1;
 
   // The bar mesh is ALWAYS built as a vertical box standing on its own
   // origin (base at local y=0, tip at y=heightMeters) -- orientation is

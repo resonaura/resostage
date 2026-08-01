@@ -304,6 +304,20 @@ bool parseLightCue(const simdjson::dom::element& lcEl, LightCue& lc, std::string
     if (!lcEl["label"].get(labelView))
         lc.label = std::string(labelView);
 
+    std::string_view sv;
+    if (!lcEl["effectType"].get(sv)) lc.effectType = std::string(sv);
+    if (!lcEl["effectSourceType"].get(sv)) lc.effectSourceType = std::string(sv);
+    if (!lcEl["effectSourceId"].get(sv)) lc.effectSourceId = std::string(sv);
+    double effectIntensity = 0.0;
+    if (!lcEl["effectIntensity"].get(effectIntensity))
+        lc.effectIntensity = static_cast<float>(effectIntensity);
+    (void)lcEl["tempoSync"].get(lc.tempoSync);
+    if (!lcEl["tempoSubdiv"].get(sv)) lc.tempoSubdiv = std::string(sv);
+    double effectRateHz = 0.0;
+    if (!lcEl["effectRateHz"].get(effectRateHz))
+        lc.effectRateHz = static_cast<float>(effectRateHz);
+    if (!lcEl["gradientPreset"].get(sv)) lc.gradientPreset = std::string(sv);
+
     return true;
 }
 

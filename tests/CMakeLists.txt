@@ -21,6 +21,7 @@ add_executable(resostage_engine_tests
   test_recent_projects.cpp
   test_resolight_channel_map.cpp
   test_light_cue_interpolation.cpp
+  test_light_output_resolver.cpp
 )
 
 target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)

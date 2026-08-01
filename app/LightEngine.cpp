@@ -13,23 +13,15 @@ namespace resostage {
 
 namespace {
 
-// Map (0..1 audio level) through an 8-segment LED quantiser for the Meter
-// effect so it looks like a real VU bar (segments light bottom-to-top).
-// The quantised value is the intensity multiplier for the fixture.
-inline float quantiseToLedSegments(float level, int segments = 8) {
-    level = std::clamp(level, 0.0f, 1.0f);
-    return std::floor(level * segments) / static_cast<float>(segments);
-}
-
-// Convert -inf..0 dBFS to a 0..1 linear level.
-// Maps [-60 dBFS, 0 dBFS] → [0, 1]; anything below -60 dBFS is silence.
-inline float dbToLinear(float peakDb) {
-    return std::max(0.0f, std::min(1.0f, (peakDb + 60.0f) / 60.0f));
-}
-
-// Write one LightCueValue into the correct DMX channels for the given
-// fixture assignment. Fills `frames` (universe → 512 byte array).
-void writeDmxChannels(const LightCueValue& val,
+// Write one resolved fixture output into the correct DMX channels.
+// Non-addressable fixtures (or addressable ones outside an active Meter
+// effect) get a uniform RGB triplet scaled by intensity across the whole
+// bar. Addressable fixtures whose active cue IS a Meter effect instead get
+// a real progressive bottom-up LED fill (see meterLedColor) -- this is what
+// makes an addressable ResoLight bar actually look like a VU meter instead
+// of just uniformly dimming, matching how every other meter in the app
+// (LevelMeterBar.tsx) already fills bottom-to-top.
+void writeDmxChannels(const ResolvedFixtureOutput& out,
                       const ResoLightChannelAssignment& assign,
                       const LightFixture& fixture,
                       std::map<int, std::vector<uint8_t>>& frames) {
@@ -39,33 +31,46 @@ void writeDmxChannels(const LightCueValue& val,
 
     const auto scaled = [&](uint8_t ch) -> uint8_t {
         return static_cast<uint8_t>(
-            std::clamp(static_cast<double>(ch) * val.intensity, 0.0, 255.0));
+            std::clamp(static_cast<double>(ch) * out.value.intensity, 0.0, 255.0));
     };
 
     const int startIdx = assign.startChannel - 1; // 0-based index
 
     if (!fixture.addressable || fixture.ledCount <= 1) {
-        // Uniform RGB for the whole bar.
+        // Uniform RGB for the whole bar -- no per-LED concept applies.
         if (startIdx + 2 < 512) {
-            universe[startIdx + 0] = scaled(val.r);
-            universe[startIdx + 1] = scaled(val.g);
-            universe[startIdx + 2] = scaled(val.b);
+            universe[startIdx + 0] = scaled(out.value.r);
+            universe[startIdx + 1] = scaled(out.value.g);
+            universe[startIdx + 2] = scaled(out.value.b);
         }
-    } else {
-        // Per-LED RGB: fill all LEDs with the same color (uniform for now;
-        // per-LED addressing can be layered on in Phase B).
-        const int leds = std::min(fixture.ledCount, (512 - startIdx) / 3);
-        for (int i = 0; i < leds; ++i) {
-            const int base = startIdx + i * 3;
-            universe[base + 0] = scaled(val.r);
-            universe[base + 1] = scaled(val.g);
-            universe[base + 2] = scaled(val.b);
+        return;
+    }
+
+    const int leds = std::min(fixture.ledCount, (512 - startIdx) / 3);
+    // meterLevel01 is only ever non-zero when the active cue's effect is
+    // actually Meter (see LightOutputResolver.h) -- safe to use its
+    // presence as the "should this bar do a VU fill" signal.
+    const bool meterActive = out.meterLevel01 > 0.0f;
+    const int litCount = meterActive
+        ? std::clamp(static_cast<int>(std::lround(out.meterLevel01 * leds)), 0, leds)
+        : leds; // not metering: every LED "lit" at the resolved uniform color
+
+    for (int i = 0; i < leds; ++i) {
+        uint8_t r, g, b;
+        if (meterActive) {
+            meterLedColor(i, litCount, leds, out.gradient, out.value.r, out.value.g, out.value.b, r, g, b);
+        } else {
+            r = out.value.r;
+            g = out.value.g;
+            b = out.value.b;
         }
+        const int base = startIdx + i * 3;
+        universe[base + 0] = scaled(r);
+        universe[base + 1] = scaled(g);
+        universe[base + 2] = scaled(b);
     }
 }
 
-// Build channel assignments for ResoLightBar fixtures and a lookup map
-// fixture id → assignment index.
 inline std::vector<ResoLightChannelAssignment>
 buildChannelMap(const std::vector<LightFixture>& fixtures) {
     return assignResoLightChannels(fixtures);
@@ -78,6 +83,7 @@ buildChannelMap(const std::vector<LightFixture>& fixtures) {
 void LightEngine::start(MasterClock& clock,
                         EventDispatcher& dispatcher,
                         BusMeterFn busPeakDb,
+                        TrackMeterFn trackPeakDb,
                         double initialBpm) {
     if (running_.exchange(true, std::memory_order_acq_rel))
         return; // already running
@@ -85,6 +91,7 @@ void LightEngine::start(MasterClock& clock,
     clock_       = &clock;
     dispatch_    = &dispatcher;
     busPeakDb_   = std::move(busPeakDb);
+    trackPeakDb_ = std::move(trackPeakDb);
     bpm_.store(initialBpm, std::memory_order_relaxed);
 
     thread_ = std::thread([this] { threadLoop(); });
@@ -100,34 +107,6 @@ void LightEngine::stop() {
 void LightEngine::setProject(std::shared_ptr<const Project> proj) {
     std::lock_guard<std::mutex> lock(snapshotMutex_);
     snapshot_ = std::move(proj);
-}
-
-// ─── Effect param builder ─────────────────────────────────────────────────────
-
-EffectParams LightEngine::buildEffectParams(const LightCue& cue,
-                                             int fixtureIndex,
-                                             double tSec) const {
-    EffectParams p;
-    p.type         = parseEffectType(cue.effectType);
-    p.intensity    = cue.effectIntensity;
-    p.fixtureIndex = fixtureIndex;
-    // Anchor effect time relative to cue start on the song timeline so phase is deterministic.
-    p.tSec         = std::max(0.0, tSec - cue.startSeconds);
-
-    if (cue.tempoSync) {
-        const double bpm = bpm_.load(std::memory_order_relaxed);
-        p.rateHz = subdivToHz(cue.tempoSubdiv, bpm, cue.effectRateHz);
-    } else {
-        p.rateHz = cue.effectRateHz;
-    }
-
-    // Meter effect: sample the target bus level.
-    if (p.type == EffectParams::Type::Meter && busPeakDb_) {
-        const float db = busPeakDb_(cue.effectBusId);
-        p.audioLevel = quantiseToLedSegments(dbToLinear(db));
-    }
-
-    return p;
 }
 
 // ─── Main thread loop ─────────────────────────────────────────────────────────
@@ -146,6 +125,14 @@ void LightEngine::threadLoop() {
         std::chrono::microseconds(1'000'000 / kFrameRateHz);
 
     auto nextFrame = std::chrono::steady_clock::now();
+
+    // Dispatches by effectSourceType so a single resolver call can pull
+    // from either meter pool interchangeably.
+    const SourceLevelDbFn sourceLevelDb = [this](const std::string& type, const std::string& id) -> float {
+        if (type == "track")
+            return trackPeakDb_ ? trackPeakDb_(id) : -100.0f;
+        return busPeakDb_ ? busPeakDb_(id) : -100.0f;
+    };
 
     while (running_.load(std::memory_order_acquire)) {
         // Sleep until next frame deadline.
@@ -168,15 +155,8 @@ void LightEngine::threadLoop() {
         const SongDef& song = proj->songs[static_cast<size_t>(songIdx)];
         const double tSec = clock_->currentSeconds();
 
-        // Build channel assignments for this frame.
         const auto channelMap = buildChannelMap(proj->lighting.fixtures);
-
-        // Build a lookup: fixtureId → (channel assignment index, LightFixture*)
-        struct FixtureLookup {
-            int assignIdx = -1;
-            const LightFixture* fixture = nullptr;
-        };
-        std::map<std::string, FixtureLookup> fixtureLut;
+        std::map<std::string, std::pair<int, const LightFixture*>> fixtureLut;
         for (int i = 0; i < static_cast<int>(channelMap.size()); ++i) {
             const auto& a = channelMap[static_cast<size_t>(i)];
             for (const auto& f : proj->lighting.fixtures) {
@@ -187,67 +167,18 @@ void LightEngine::threadLoop() {
             }
         }
 
-        // Collect cues per trackId for fast lookup.
-        std::map<std::string, std::vector<const LightCue*>> cuesByTrack;
-        for (const auto& cue : song.lightCues)
-            cuesByTrack[cue.trackId].push_back(&cue);
+        const auto resolved = resolveLightOutputs(
+            proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
 
-        // Assemble DMX frames.
         std::map<int, std::vector<uint8_t>> frames; // universe → 512 bytes
-
-        for (const auto& track : proj->lightTracks) {
-            // Gather cues for this track.
-            std::vector<LightCue> trackCues;
-            if (auto it = cuesByTrack.find(track.id); it != cuesByTrack.end())
-                for (const LightCue* cp : it->second)
-                    trackCues.push_back(*cp);
-
-            if (trackCues.empty())
+        for (const auto& out : resolved) {
+            auto lutIt = fixtureLut.find(out.fixtureId);
+            if (lutIt == fixtureLut.end())
                 continue;
-
-            // Resolve base color+intensity at the current timeline position.
-            LightCueValue val = resolveLightCueValue(trackCues, tSec);
-
-            // Determine which cue is active so we can read its effect params.
-            const LightCue* activeCue = nullptr;
-            {
-                double latestStart = -1.0;
-                for (const auto& c : trackCues) {
-                    if (tSec >= c.startSeconds &&
-                        tSec < c.startSeconds + c.durationSeconds &&
-                        c.startSeconds > latestStart) {
-                        latestStart = c.startSeconds;
-                        activeCue = &c;
-                    }
-                }
-            }
-
-            // Apply per-fixture: effect modulation + DMX write.
-            int fixturePos = 0;
-            for (const auto& fxId : track.fixtureIds) {
-                auto lutIt = fixtureLut.find(fxId);
-                if (lutIt == fixtureLut.end()) {
-                    ++fixturePos;
-                    continue;
-                }
-                const auto& lookup = lutIt->second;
-
-                LightCueValue fxVal = val;
-                if (activeCue) {
-                    const EffectParams ep =
-                        buildEffectParams(*activeCue, fixturePos, tSec);
-                    fxVal = applyEffect(fxVal, ep);
-                }
-
-                writeDmxChannels(fxVal,
-                                  channelMap[static_cast<size_t>(lookup.assignIdx)],
-                                  *lookup.fixture,
-                                  frames);
-                ++fixturePos;
-            }
+            const auto& [assignIdx, fixture] = lutIt->second;
+            writeDmxChannels(out, channelMap[static_cast<size_t>(assignIdx)], *fixture, frames);
         }
 
-        // Send one DMX packet per universe.
         for (auto& [uni, data] : frames) {
             DmxTriggerCommand cmd;
             cmd.universe = uni;

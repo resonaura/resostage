@@ -321,7 +321,15 @@ std::string serializeProjectJson(const Project& project) {
             o << "          \"intensity\": "; writeNumber(o, lc.intensity); o << ",\n";
             o << "          \"fadeInSeconds\": "; writeNumber(o, lc.fadeInSeconds); o << ",\n";
             o << "          \"fadeOutSeconds\": "; writeNumber(o, lc.fadeOutSeconds); o << ",\n";
-            o << "          \"label\": \"" << jsonEscapeString(lc.label) << "\"\n";
+            o << "          \"label\": \"" << jsonEscapeString(lc.label) << "\",\n";
+            o << "          \"effectType\": \"" << jsonEscapeString(lc.effectType) << "\",\n";
+            o << "          \"effectSourceType\": \"" << jsonEscapeString(lc.effectSourceType) << "\",\n";
+            o << "          \"effectSourceId\": \"" << jsonEscapeString(lc.effectSourceId) << "\",\n";
+            o << "          \"effectIntensity\": "; writeNumber(o, lc.effectIntensity); o << ",\n";
+            o << "          \"tempoSync\": " << (lc.tempoSync ? "true" : "false") << ",\n";
+            o << "          \"tempoSubdiv\": \"" << jsonEscapeString(lc.tempoSubdiv) << "\",\n";
+            o << "          \"effectRateHz\": "; writeNumber(o, lc.effectRateHz); o << ",\n";
+            o << "          \"gradientPreset\": \"" << jsonEscapeString(lc.gradientPreset) << "\"\n";
             o << "        }" << (lci + 1 < s.lightCues.size() ? "," : "") << "\n";
         }
         o << "      ]\n";

@@ -85,12 +85,32 @@ export interface LightCueRow {
   fadeInSeconds: number;
   fadeOutSeconds: number;
   label: string;
-  // ── Frontend-only audio-reactive effect fields (not persisted to C++ backend yet).
-  // These power the live 3D preview modulation only; the engine ignores them.
-  effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple";
-  effectBusId?: string;   // which bus/meter to read for audio-reactive effects
-  effectIntensity?: number; // 0-1 strength of the effect
-  effectRate?: number;    // strobe/pulse rate in Hz
+  // Audio-reactive effect -- mirrors LightCue's own fields in
+  // ProjectSchema.h exactly (persisted, resolved by LightEngine AND
+  // MainComponent's WebUiState push through the same
+  // engine/lighting/LightOutputResolver.h call -- see lightOutput below).
+  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "";
+  effectSourceType: "bus" | "track" | "";
+  effectSourceId: string;
+  effectIntensity: number; // 0-1 depth of the effect
+  tempoSync: boolean;
+  tempoSubdiv: string; // "2"|"1"|"1/2"|"1/3"|"1/4"|"1/6"|"1/8"|"1/16"|"1/32"|"1/64"
+  effectRateHz: number; // used when tempoSync is false
+  gradientPreset: "solid" | "greenYellowRed" | "";
+}
+
+// Backend-authoritative resolved lamp state, one row per fixture currently
+// driven by an active cue -- see WebUiState::LightOutputRow's doc comment.
+// The live preview (Settings' 3D editor, Timeline's Light mode) should
+// render THIS, not re-simulate cues/effects itself.
+export interface LightOutputRow {
+  fixtureId: string;
+  r: number;
+  g: number;
+  b: number;
+  intensity: number;
+  meterLevel01: number; // 0 unless the active cue's effect is Meter
+  gradientPreset: "solid" | "greenYellowRed" | "";
 }
 
 export interface SongRow {
@@ -339,6 +359,7 @@ export interface WebUiState {
   /** Project-scoped lighting rig config -- see Settings' "Project" card. Always shipped (tiny). */
   lighting: LightingState;
   lightTracks: LightTrackRow[];
+  lightOutput: LightOutputRow[];
   health: HealthState;
   settings: SettingsState;
 }
@@ -392,6 +413,7 @@ export const emptyState: WebUiState = {
     fixtures: [],
   },
   lightTracks: [],
+  lightOutput: [],
   health: {
     cpuPercent: 0,
     rssBytes: 0,

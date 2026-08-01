@@ -1,12 +1,13 @@
 /**
- * LightSidePanel — правая боковая панель в Timeline Light mode.
+ * LightSidePanel -- right-hand sidebar in the Timeline's Light mode.
  *
- * Содержит:
- *   1. Компактный 3D preview (с live-модуляцией эффектов через rAF)
- *   2. Настройки выделенного трека
- *   3. Настройки выделенного cue (цвета, эффекты, fades)
+ * Contains:
+ *   1. Compact 3D preview, driven by the backend-authoritative lightOutput
+ *      (see WebUiState.lightOutput's doc comment) -- not a re-simulation.
+ *   2. Selected track settings.
+ *   3. Selected cue settings (color, audio-reactive effect, fades).
  */
-import { useState, useRef, useEffect } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Activity,
   BarChart2,
@@ -26,11 +27,11 @@ import type {
   LightCueRow,
   LightFixtureRow,
   LightTrackRow,
-  MeterRow,
+  TrackRow,
   WebUiState,
 } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
-import { ResoLightStage3D } from "./ResoLightStage3D";
+import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
 
 const labelCls =
   "text-[11px] font-semibold uppercase tracking-wide text-foreground/50";
@@ -253,29 +254,46 @@ const SUBDIVISIONS = [
 ] as const;
 type TempoSubdiv = typeof SUBDIVISIONS[number];
 
+type SourceType = "bus" | "track";
+type GradientPreset = "solid" | "greenYellowRed";
+
+const GRADIENT_META: Record<GradientPreset, string> = {
+  solid: "Solid Color",
+  greenYellowRed: "Green → Yellow → Red",
+};
+
 function EffectPanel({
-  effectType, effectBusId, effectIntensity, effectRate,
-  tempoSync, tempoSubdiv,
-  onType, onBusId, onIntensity, onRate, onTempoSync, onTempoSubdiv,
-  busses, meters, bpm,
+  effectType, effectSourceType, effectSourceId, effectIntensity, effectRate,
+  tempoSync, tempoSubdiv, gradientPreset, showGradient,
+  onType, onSourceType, onSourceId, onIntensity, onRate, onTempoSync, onTempoSubdiv, onGradientPreset,
+  busses, tracks, bpm,
 }: {
   effectType: EffectType;
-  effectBusId: string;
+  effectSourceType: SourceType;
+  effectSourceId: string;
   effectIntensity: number;
   effectRate: number;
   tempoSync: boolean;
   tempoSubdiv: TempoSubdiv;
+  gradientPreset: GradientPreset;
+  /** Only meaningful (and only shown) when the effect is Meter and at least
+   * one assigned fixture is addressable -- a non-addressable bar has no
+   * per-LED concept for a gradient to apply to. */
+  showGradient: boolean;
   onType: (t: EffectType) => void;
-  onBusId: (id: string) => void;
+  onSourceType: (t: SourceType) => void;
+  onSourceId: (id: string) => void;
   onIntensity: (v: number) => void;
   onRate: (v: number) => void;
   onTempoSync: (v: boolean) => void;
   onTempoSubdiv: (v: TempoSubdiv) => void;
+  onGradientPreset: (g: GradientPreset) => void;
   busses: BusRow[];
-  meters: MeterRow[];
+  tracks: TrackRow[];
   bpm: number;
 }) {
   const hasRate = effectType === "strobe" || effectType === "pulse" || effectType === "ripple";
+  const sourceItems = effectSourceType === "track" ? tracks : busses;
   return (
     <div className="flex flex-col gap-3">
       <Field label="Audio Effect">
@@ -310,24 +328,61 @@ function EffectPanel({
       {effectType !== "none" && (
         <>
           <Field label="Audio Source">
-            <select
-              className="w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-xs outline-none focus:border-accent"
-              value={effectBusId}
-              onChange={(e) => onBusId(e.target.value)}
-            >
-              <option value="">— Master mix</option>
-              {busses.map((bus) => {
-                const meter = meters.find((m) => m.id === bus.id);
-                const db = meter?.peakDb ?? -100;
-                const dbStr = db > -100 ? `${db.toFixed(1)} dB` : "silence";
-                return (
-                  <option key={bus.id} value={bus.id}>
-                    {bus.name} · {dbStr}
-                  </option>
-                );
-              })}
-            </select>
+            <div className="flex gap-1.5">
+              <select
+                className="w-24 shrink-0 rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-xs outline-none focus:border-accent"
+                value={effectSourceType}
+                onChange={(e) => {
+                  const t = e.target.value as SourceType;
+                  onSourceType(t);
+                  // Switching pools invalidates whatever id was picked from
+                  // the other one -- reset to "master mix" (bus) / nothing
+                  // selected (track) rather than silently keeping a stale id.
+                  onSourceId("");
+                }}
+              >
+                <option value="bus">Bus</option>
+                <option value="track">Track</option>
+              </select>
+              <select
+                className="flex-1 rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-xs outline-none focus:border-accent"
+                value={effectSourceId}
+                onChange={(e) => onSourceId(e.target.value)}
+              >
+                {effectSourceType === "bus" && <option value="">— Master mix</option>}
+                {sourceItems.map((item) => {
+                  const db = item.peakDb ?? -100;
+                  const dbStr = db > -100 ? `${db.toFixed(1)} dB` : "silence";
+                  return (
+                    <option key={item.id} value={item.id}>
+                      {item.name} · {dbStr}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
           </Field>
+
+          {showGradient && (
+            <Field label="Gradient">
+              <div className="grid grid-cols-2 gap-1.5">
+                {(Object.keys(GRADIENT_META) as GradientPreset[]).map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => onGradientPreset(g)}
+                    className={`rounded-lg border px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                      gradientPreset === g
+                        ? "border-accent bg-accent/20 text-accent"
+                        : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                    }`}
+                  >
+                    {GRADIENT_META[g]}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          )}
 
           <Field label={`Depth: ${Math.round(effectIntensity * 100)}%`}>
             <input type="range" min={0} max={1} step={0.05}
@@ -394,51 +449,6 @@ function EffectPanel({
   );
 }
 
-
-// ─── Effect modulation (applied in rAF loop) ─────────────────────────────
-
-function applyEffect(
-  colors: Record<string, LightCueValue>,
-  effectType: EffectType,
-  effectIntensity: number,
-  effectRate: number,
-  effectBusId: string,
-  meters: MeterRow[],
-  fixtures: LightFixtureRow[],
-  tSec: number,
-): Record<string, LightCueValue> {
-  if (effectType === "none") return colors;
-  const TAU = Math.PI * 2;
-  const fixtureIds = fixtures.map((f) => f.id);
-
-  const getLevel = (fi: number): number => {
-    switch (effectType) {
-      case "meter": {
-        const meter = effectBusId
-          ? meters.find((m) => m.id === effectBusId)
-          : meters[0];
-        const db = meter?.peakDb ?? -100;
-        return Math.max(0, Math.min(1, (db + 60) / 60)) * effectIntensity;
-      }
-      case "strobe":
-        return ((Math.max(0, tSec) * effectRate) % 1 < 0.5 ? 1 : 0) * effectIntensity;
-      case "pulse":
-        return (0.5 + 0.5 * Math.sin(TAU * effectRate * Math.max(0, tSec) - TAU * 0.25)) * effectIntensity;
-      case "ripple": {
-        const offset = fi * 0.25;
-        return (0.5 + 0.5 * Math.sin(TAU * effectRate * Math.max(0, tSec) - offset * TAU - TAU * 0.25)) * effectIntensity;
-      }
-      default: return 1;
-    }
-  };
-
-  const result: Record<string, LightCueValue> = {};
-  for (const [id, val] of Object.entries(colors)) {
-    const fi = fixtureIds.indexOf(id);
-    result[id] = { ...val, intensity: val.intensity * getLevel(fi >= 0 ? fi : 0) };
-  }
-  return result;
-}
 
 // ─── Track Settings panel ─────────────────────────────────────────────────
 
@@ -528,29 +538,34 @@ function TrackSettingsPanel({
 // ─── Cue Settings panel ───────────────────────────────────────────────────
 
 function CueSettingsPanel({
-  cue, songIndex, busses, meters, bpm,
-  effectType, effectBusId, effectIntensity, effectRate,
-  tempoSync, tempoSubdiv,
-  onEffectType, onEffectBusId, onEffectIntensity, onEffectRate,
-  onTempoSync, onTempoSubdiv,
+  cue, songIndex, busses, tracks, bpm, hasAddressableFixture,
+  effectType, effectSourceType, effectSourceId, effectIntensity, effectRate,
+  tempoSync, tempoSubdiv, gradientPreset,
+  onEffectType, onEffectSourceType, onEffectSourceId, onEffectIntensity, onEffectRate,
+  onTempoSync, onTempoSubdiv, onGradientPreset,
 }: {
   cue: LightCueRow;
   songIndex: number;
   busses: BusRow[];
-  meters: MeterRow[];
+  tracks: TrackRow[];
   bpm: number;
+  hasAddressableFixture: boolean;
   effectType: EffectType;
-  effectBusId: string;
+  effectSourceType: SourceType;
+  effectSourceId: string;
   effectIntensity: number;
   effectRate: number;
   tempoSync: boolean;
   tempoSubdiv: TempoSubdiv;
+  gradientPreset: GradientPreset;
   onEffectType: (t: EffectType) => void;
-  onEffectBusId: (id: string) => void;
+  onEffectSourceType: (t: SourceType) => void;
+  onEffectSourceId: (id: string) => void;
   onEffectIntensity: (v: number) => void;
   onEffectRate: (v: number) => void;
   onTempoSync: (v: boolean) => void;
   onTempoSubdiv: (v: TempoSubdiv) => void;
+  onGradientPreset: (g: GradientPreset) => void;
 }) {
   const update = (patch: Omit<Parameters<typeof lighting.cueUpdate>[0], "songIndex" | "cueId">) =>
     void lighting.cueUpdate({ songIndex, cueId: cue.id, ...patch });
@@ -558,11 +573,18 @@ function CueSettingsPanel({
   // Persist effect changes to the backend immediately.
   const handleEffectType = (t: EffectType) => {
     onEffectType(t);
-    update({ effectType: t, effectBusId, effectIntensity, tempoSync, tempoSubdiv, effectRateHz: effectRate });
+    update({
+      effectType: t, effectSourceType, effectSourceId, effectIntensity,
+      tempoSync, tempoSubdiv, effectRateHz: effectRate, gradientPreset,
+    });
   };
-  const handleEffectBusId = (id: string) => {
-    onEffectBusId(id);
-    update({ effectBusId: id });
+  const handleEffectSourceType = (t: SourceType) => {
+    onEffectSourceType(t);
+    update({ effectSourceType: t });
+  };
+  const handleEffectSourceId = (id: string) => {
+    onEffectSourceId(id);
+    update({ effectSourceId: id });
   };
   const handleEffectIntensity = (v: number) => {
     onEffectIntensity(v);
@@ -579,6 +601,10 @@ function CueSettingsPanel({
   const handleTempoSubdiv = (v: TempoSubdiv) => {
     onTempoSubdiv(v);
     update({ tempoSync: true, tempoSubdiv: v });
+  };
+  const handleGradientPreset = (g: GradientPreset) => {
+    onGradientPreset(g);
+    update({ gradientPreset: g });
   };
 
   return (
@@ -619,13 +645,16 @@ function CueSettingsPanel({
 
       <div className="border-t border-default/20 pt-3">
         <EffectPanel
-          effectType={effectType} effectBusId={effectBusId}
+          effectType={effectType} effectSourceType={effectSourceType} effectSourceId={effectSourceId}
           effectIntensity={effectIntensity} effectRate={effectRate}
           tempoSync={tempoSync} tempoSubdiv={tempoSubdiv}
-          onType={handleEffectType} onBusId={handleEffectBusId}
+          gradientPreset={gradientPreset}
+          showGradient={effectType === "meter" && hasAddressableFixture}
+          onType={handleEffectType} onSourceType={handleEffectSourceType} onSourceId={handleEffectSourceId}
           onIntensity={handleEffectIntensity} onRate={handleEffectRate}
           onTempoSync={handleTempoSync} onTempoSubdiv={handleTempoSubdiv}
-          busses={busses} meters={meters} bpm={bpm}
+          onGradientPreset={handleGradientPreset}
+          busses={busses} tracks={tracks} bpm={bpm}
         />
       </div>
     </div>
@@ -661,66 +690,63 @@ export function LightSidePanel({
   previewColors: Record<string, LightCueValue>;
   onClearSelection: () => void;
 }) {
-  // ── Effect state (lifted here so it drives live 3D preview modulation) ──
+  // ── Effect editor state, seeded from the selected cue's real (persisted)
+  // values -- not hardcoded defaults, since state.lightCues now actually
+  // carries them (see RESTORE_POINT.md Feature 6's sync fix). ──
   const [effectType, setEffectType] = useState<EffectType>("none");
-  const [effectBusId, setEffectBusId] = useState("");
+  const [effectSourceType, setEffectSourceType] = useState<SourceType>("bus");
+  const [effectSourceId, setEffectSourceId] = useState("");
   const [effectIntensity, setEffectIntensity] = useState(0.8);
   const [effectRate, setEffectRate] = useState(2);
   const [tempoSync, setTempoSync] = useState(false);
   const [tempoSubdiv, setTempoSubdiv] = useState<TempoSubdiv>("1/4");
+  const [gradientPreset, setGradientPreset] = useState<GradientPreset>("solid");
 
   // BPM for the currently active song
   const currentSongIdx = selection?.type === "cue" ? selection.songIndex : 0;
   const currentBpm = state.songs[currentSongIdx]?.bpm ?? 120;
 
-  // Reset when cue changes
+  // Re-seed the editor fields whenever the selected cue changes.
   const prevCueId = useRef<string | null>(null);
   const currentCueId = selection?.type === "cue" ? selection.cue.id : null;
   if (prevCueId.current !== currentCueId) {
     prevCueId.current = currentCueId;
-    setEffectType("none");
-    setEffectBusId("");
-    setEffectIntensity(0.8);
-    setEffectRate(2);
-    setTempoSync(false);
-    setTempoSubdiv("1/4");
+    const cue = selection?.type === "cue" ? selection.cue : null;
+    setEffectType((cue?.effectType || "none") as EffectType);
+    setEffectSourceType((cue?.effectSourceType || "bus") as SourceType);
+    setEffectSourceId(cue?.effectSourceId ?? "");
+    setEffectIntensity(cue?.effectIntensity ?? 0.8);
+    setEffectRate(cue?.effectRateHz ?? 2);
+    setTempoSync(cue?.tempoSync ?? false);
+    setTempoSubdiv((cue?.tempoSubdiv || "1/4") as TempoSubdiv);
+    setGradientPreset((cue?.gradientPreset || "solid") as GradientPreset);
   }
 
-  // ── Animated preview with rAF loop ────────────────────────────────────
-  const [displayColors, setDisplayColors] = useState(previewColors);
-  const rafRef = useRef<number | null>(null);
+  const hasAddressableFixture =
+    selection?.type === "cue" || selection?.type === "track"
+      ? fixtures.some((f) => selection.track.fixtureIds.includes(f.id) && f.addressable)
+      : false;
 
-  const cueStart = selection?.type === "cue" ? selection.cue.startSeconds : 0;
-
-  // Keep mutable ref so rAF callback always reads the latest props
-  const latestRef = useRef({ effectType, effectBusId, effectIntensity, effectRate, previewColors, meters: state.meters, fixtures, cueStart, playing: state.playing, playheadSeconds: state.playheadSeconds });
-  latestRef.current = { effectType, effectBusId, effectIntensity, effectRate, previewColors, meters: state.meters, fixtures, cueStart, playing: state.playing, playheadSeconds: state.playheadSeconds };
-
-  useEffect(() => {
-    if (effectType === "none") {
-      if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-      setDisplayColors(previewColors);
-      return;
+  // Backend-authoritative resolved colors (see WebUiState.lightOutput's doc
+  // comment) merged over the base cue colors -- a fixture with no active cue
+  // has no lightOutput row and falls back to `previewColors` (black/off).
+  // This is what makes the preview show real strobe/pulse/ripple/meter
+  // modulation instead of a second, independent re-simulation that could
+  // drift from what the real hardware is doing.
+  const displayColors = useMemo(() => {
+    const merged: Record<string, PreviewColor> = { ...previewColors };
+    for (const lo of state.lightOutput) {
+      merged[lo.fixtureId] = {
+        r: lo.r,
+        g: lo.g,
+        b: lo.b,
+        intensity: lo.intensity,
+        meterLevel01: lo.meterLevel01,
+        gradientPreset: lo.gradientPreset || undefined,
+      };
     }
-    let alive = true;
-    const startWall = performance.now() / 1000;
-    const tick = () => {
-      if (!alive) return;
-      const { effectType: et, effectBusId: bid, effectIntensity: ei, effectRate: er, previewColors: pc, meters: m, fixtures: fx, cueStart: cs, playing: isPlaying, playheadSeconds: phSec } = latestRef.current;
-      // If transport is playing, anchor to actual timeline playhead position relative to cue start;
-      // if stopped, simulate forward time from selection start.
-      const timelineTime = isPlaying ? phSec : (cs + (performance.now() / 1000 - startWall));
-      const tRel = Math.max(0, timelineTime - cs);
-      setDisplayColors(applyEffect(pc, et, ei, er, bid, m, fx, tRel));
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => { alive = false; if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectType]);
-
-  // Keep display in sync when no loop is running
-  useEffect(() => { if (effectType === "none") setDisplayColors(previewColors); }, [previewColors, effectType]);
+    return merged;
+  }, [previewColors, state.lightOutput]);
 
   return (
     <div
@@ -767,20 +793,25 @@ export function LightSidePanel({
                 cue={selection.cue}
                 songIndex={selection.songIndex}
                 busses={state.busses}
-                meters={state.meters}
+                tracks={state.tracks}
                 bpm={currentBpm}
+                hasAddressableFixture={hasAddressableFixture}
                 effectType={effectType}
-                effectBusId={effectBusId}
+                effectSourceType={effectSourceType}
+                effectSourceId={effectSourceId}
                 effectIntensity={effectIntensity}
                 effectRate={effectRate}
                 tempoSync={tempoSync}
                 tempoSubdiv={tempoSubdiv}
+                gradientPreset={gradientPreset}
                 onEffectType={setEffectType}
-                onEffectBusId={setEffectBusId}
+                onEffectSourceType={setEffectSourceType}
+                onEffectSourceId={setEffectSourceId}
                 onEffectIntensity={setEffectIntensity}
                 onEffectRate={setEffectRate}
                 onTempoSync={setTempoSync}
                 onTempoSubdiv={setTempoSubdiv}
+                onGradientPreset={setGradientPreset}
               />
             </div>
 

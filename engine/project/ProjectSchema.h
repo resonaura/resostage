@@ -201,12 +201,17 @@ struct LightCue {
     double fadeOutSeconds = 0.0;
     std::string label;
 
-    // Audio-reactive effect. Processed by LightEngine in its dedicated thread;
-    // the UI preview mirrors these with an rAF loop for visual feedback only.
-    // "none" | "meter" | "strobe" | "pulse" | "ripple"
+    // Audio-reactive effect. Resolved by engine/lighting/LightOutputResolver.h,
+    // called from BOTH LightEngine's real-time DMX thread and MainComponent's
+    // ~30Hz WebUiState push -- one resolution function, so the live preview
+    // the user sees can never show something the real hardware isn't also
+    // doing. "none" | "meter" | "strobe" | "pulse" | "ripple"
     std::string effectType;
-    // Bus ID to read audio level from ("" = master mix / first bus).
-    std::string effectBusId;
+    // "bus" | "track" -- which meter pool effectSourceId is looked up in.
+    std::string effectSourceType = "bus";
+    // Id of the bus or track to read audio level from ("" = master mix /
+    // first bus, only meaningful when effectSourceType == "bus").
+    std::string effectSourceId;
     float effectIntensity = 0.8f;  // 0..1 depth of the effect
     // Rate control: either direct Hz or tempo-synced subdivision.
     bool  tempoSync    = false;
@@ -214,6 +219,11 @@ struct LightCue {
     std::string tempoSubdiv = "1/4";
     float effectRateHz = 2.0f;     // used when tempoSync=false
 
+    // Meter effect only, addressable fixtures only: how the lit LEDs (bottom
+    // -> up, progressive fill, like a real VU meter) are colored.
+    // "solid" = the cue's own colorR/G/B for every lit LED.
+    // "greenYellowRed" = classic VU coloring by position, ignores colorR/G/B.
+    std::string gradientPreset = "solid";
 };
 
 // A named structural marker on the timeline ruler (Intro/Verse/Chorus/
