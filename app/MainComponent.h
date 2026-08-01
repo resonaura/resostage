@@ -43,6 +43,9 @@ public:
     /** Expose active key bindings for Mac menu bar update. */
     const std::unordered_map<std::string, std::string>& getKeyBindings() const { return keyBindings; }
 
+    /** Expose the recent-projects list for Mac menu bar's Open Recent submenu. */
+    const std::vector<RecentProjectEntry>& getRecentProjects() const { return appSettings.recentProjects; }
+
 private:
     AudioEngine engine;
     WebServer webServer;
@@ -115,6 +118,8 @@ private:
     void jumpToSectionRelative(int delta);
     void jumpToLastSection();
     void jumpToBarRelative(int direction);
+    void rememberRecentProject(const juce::File& file);
+    void syncMacMenuRecentProjects();
     void requestUiTab(const std::string& tab);
     void ensureSongSelected();
     void goToSong(int index);

@@ -18,6 +18,7 @@ add_executable(resostage_engine_tests
   test_seqlock.cpp
   test_audio_folder_import.cpp
   test_bar_seek.cpp
+  test_recent_projects.cpp
 )
 
 target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)

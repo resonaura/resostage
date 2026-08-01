@@ -39,6 +39,14 @@ public:
                         mc->performAction(action);
                 }
             }, bindings);
+
+            if (auto* mc = mainWindow->getMainComponent()) {
+                std::vector<std::pair<std::string, std::string>> recents;
+                recents.reserve(mc->getRecentProjects().size());
+                for (const auto& rp : mc->getRecentProjects())
+                    recents.emplace_back(rp.path, rp.displayName);
+                updateMacMenuRecentProjects(recents);
+            }
         });
 #endif
 

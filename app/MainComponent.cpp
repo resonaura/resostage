@@ -418,6 +418,20 @@ void MainComponent::performAction(const std::string& action) {
         saveProjectClicked(true);
     else if (action == "import_song_folder")
         importSongFolderNative();
+    else if (action == "clear_recent_projects") {
+        appSettings.recentProjects.clear();
+        saveAppSettingsToDisk();
+        syncMacMenuRecentProjects();
+    }
+    else if (action.rfind("open_recent:", 0) == 0) {
+        const std::string path = action.substr(std::string("open_recent:").size());
+        if (!loadProjectFromPath(juce::File(path))) {
+            // Stale entry -- the file moved/was deleted since it was recorded.
+            removeRecentProject(appSettings.recentProjects, path);
+            saveAppSettingsToDisk();
+            syncMacMenuRecentProjects();
+        }
+    }
 }
 
 void MainComponent::jumpToSectionRelative(int delta) {
@@ -504,6 +518,35 @@ void MainComponent::jumpToBarRelative(int direction) {
     std::string error;
     if (!engine.seekToSeconds(target, error))
         setStatus("Bar seek failed: " + juce::String(error));
+}
+
+void MainComponent::rememberRecentProject(const juce::File& file) {
+    // Don't record the invisible draft archive under Application Support --
+    // it's an implementation detail auto-created for every fresh project,
+    // not something the user chose to open/save.
+    if (engine.isDraftProject())
+        return;
+
+    RecentProjectEntry entry;
+    entry.path = file.getFullPathName().toStdString();
+    entry.displayName = engine.project().name.empty()
+        ? file.getFileNameWithoutExtension().toStdString()
+        : engine.project().name;
+    entry.lastOpenedIso = juce::Time::getCurrentTime().toISO8601(true).toStdString();
+
+    touchRecentProject(appSettings.recentProjects, std::move(entry));
+    saveAppSettingsToDisk();
+    syncMacMenuRecentProjects();
+}
+
+void MainComponent::syncMacMenuRecentProjects() {
+#if JUCE_MAC
+    std::vector<std::pair<std::string, std::string>> recents;
+    recents.reserve(appSettings.recentProjects.size());
+    for (const auto& rp : appSettings.recentProjects)
+        recents.emplace_back(rp.path, rp.displayName);
+    updateMacMenuRecentProjects(recents);
+#endif
 }
 
 void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to16, int number) {
@@ -763,6 +806,19 @@ void MainComponent::drainWebCommands() {
                 }
                 break;
             }
+            case WebCommandKind::OpenRecentProject: {
+                if (!loadProjectFromPath(juce::File(cmd.path))) {
+                    removeRecentProject(appSettings.recentProjects, cmd.path);
+                    saveAppSettingsToDisk();
+                    syncMacMenuRecentProjects();
+                }
+                break;
+            }
+            case WebCommandKind::ClearRecentProjects:
+                appSettings.recentProjects.clear();
+                saveAppSettingsToDisk();
+                syncMacMenuRecentProjects();
+                break;
             case WebCommandKind::ExportProjectForDownload: {
                 if (!engine.isProjectLoaded()) {
                     webServer.failExport();
@@ -1215,6 +1271,7 @@ bool MainComponent::loadProjectFromPath(const juce::File& file) {
     setStatus("Loaded '" + juce::String(engine.project().name) + "' | "
               + juce::String(static_cast<int>(engine.project().songs.size())) + " songs | "
               + juce::String(static_cast<int>(engine.busCount())) + " busses");
+    rememberRecentProject(file);
 
     if (!engine.project().songs.empty())
         goToSong(0);
@@ -1243,6 +1300,7 @@ void MainComponent::loadProjectClicked() {
         setStatus("Loaded '" + juce::String(engine.project().name) + "' | "
                   + juce::String(static_cast<int>(engine.project().songs.size())) + " songs | "
                   + juce::String(static_cast<int>(engine.busCount())) + " busses");
+        rememberRecentProject(file);
 
         if (!engine.project().songs.empty())
             goToSong(0);
@@ -1274,7 +1332,7 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
         publishWebState();
 
         engine.saveProjectAsync(target.getFullPathName().toStdString(),
-            [this, onDone, name = target.getFileName()](bool ok, std::string error) {
+            [this, onDone, target, name = target.getFileName()](bool ok, std::string error) {
                 if (!ok) {
                     setStatus("Save failed: " + juce::String(error));
                     publishWebState();
@@ -1283,6 +1341,7 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
                     return;
                 }
                 setStatus("Saved " + name);
+                rememberRecentProject(target);
                 publishWebState();
                 if (onDone)
                     onDone(true);

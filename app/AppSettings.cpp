@@ -97,6 +97,24 @@ AppSettings loadAppSettings() {
         }
     }
 
+    simdjson::dom::array rpArr;
+    if (!doc["recentProjects"].get(rpArr)) {
+        for (simdjson::dom::element rpEl : rpArr) {
+            std::string_view path;
+            if (rpEl["path"].get(path))
+                continue; // skip malformed entry rather than fail the whole load
+            RecentProjectEntry rp;
+            rp.path = std::string(path);
+            std::string_view name;
+            if (!rpEl["displayName"].get(name))
+                rp.displayName = std::string(name);
+            std::string_view iso;
+            if (!rpEl["lastOpenedIso"].get(iso))
+                rp.lastOpenedIso = std::string(iso);
+            settings.recentProjects.push_back(std::move(rp));
+        }
+    }
+
     return settings;
 }
 
@@ -144,6 +162,17 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
           << "\",\n";
         o << "      \"number\": " << m.number << "\n";
         o << "    }" << (i + 1 < settings.midiMappings.size() ? "," : "") << "\n";
+    }
+    o << "  ],\n";
+
+    o << "  \"recentProjects\": [\n";
+    for (size_t i = 0; i < settings.recentProjects.size(); ++i) {
+        const RecentProjectEntry& rp = settings.recentProjects[i];
+        o << "    {\n";
+        o << "      \"path\": \"" << jsonEscapeString(rp.path) << "\",\n";
+        o << "      \"displayName\": \"" << jsonEscapeString(rp.displayName) << "\",\n";
+        o << "      \"lastOpenedIso\": \"" << jsonEscapeString(rp.lastOpenedIso) << "\"\n";
+        o << "    }" << (i + 1 < settings.recentProjects.size() ? "," : "") << "\n";
     }
     o << "  ]\n";
     o << "}\n";

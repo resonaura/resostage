@@ -139,6 +139,14 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
         out.midiBindings.push_back(std::move(mb));
     }
     out.midiLearnAction = midiLearnAction;
+
+    for (const auto& rp : appSettings.recentProjects) {
+        WebUiState::SettingsRow::RecentProject entry;
+        entry.path = rp.path;
+        entry.displayName = rp.displayName;
+        entry.lastOpenedIso = rp.lastOpenedIso;
+        out.recentProjects.push_back(std::move(entry));
+    }
 }
 
 void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {

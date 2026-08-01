@@ -45,6 +45,7 @@ MacMenuBarCallback menuCallback;
 id globalTarget = nil;
 NSMenuItem* undoItem = nil;
 NSMenuItem* redoItem = nil;
+NSMenuItem* openRecentItem = nil; // File > Open Recent, submenu rebuilt by updateMacMenuRecentProjects
 
 // Menu items whose key equivalents are driven by user-configured keyBindings.
 static NSMutableDictionary* dynamicItems = nil;  // action → NSMenuItem
@@ -195,6 +196,18 @@ void installMacMenuBar(MacMenuBarCallback onAction,
                              @"n", NSEventModifierFlagCommand, tgt)];
         [m addItem:makeItem(@"Open\u2026", @"open_project",
                              @"o", NSEventModifierFlagCommand, tgt)];
+        {
+            NSMenu* recentMenu = [[[NSMenu alloc] initWithTitle:@"Open Recent"] autorelease];
+            NSMenuItem* placeholder = [[[NSMenuItem alloc]
+                initWithTitle:@"No Recent Projects" action:nil keyEquivalent:@""] autorelease];
+            [placeholder setEnabled:NO];
+            [recentMenu addItem:placeholder];
+
+            openRecentItem = [[NSMenuItem alloc]
+                initWithTitle:@"Open Recent" action:nil keyEquivalent:@""];
+            [openRecentItem setSubmenu:recentMenu];
+            [m addItem:openRecentItem];
+        }
         [m addItem:makeSep()];
         [m addItem:makeItem(@"Save", @"save_project",
                              @"s", NSEventModifierFlagCommand, tgt)];
@@ -308,6 +321,7 @@ void uninstallMacMenuBar() {
     [NSApp setMainMenu:[[[NSMenu alloc] initWithTitle:@""] autorelease]];
     if (undoItem) { [undoItem release]; undoItem = nil; }
     if (redoItem) { [redoItem release]; redoItem = nil; }
+    if (openRecentItem) { [openRecentItem release]; openRecentItem = nil; }
     if (globalTarget) { [globalTarget release]; globalTarget = nil; }
     if (dynamicItems) { [dynamicItems release]; dynamicItems = nil; }
     menuCallback = nullptr;
@@ -345,6 +359,29 @@ void updateMacMenuUndoRedo(bool canUndo, bool canRedo,
             : @"Redo"];
         [redoItem setEnabled:canRedo];
     }
+}
+
+void updateMacMenuRecentProjects(
+    const std::vector<std::pair<std::string, std::string>>& recents) {
+    if (openRecentItem == nil)
+        return;
+
+    NSMenu* recentMenu = [[[NSMenu alloc] initWithTitle:@"Open Recent"] autorelease];
+    if (recents.empty()) {
+        NSMenuItem* placeholder = [[[NSMenuItem alloc]
+            initWithTitle:@"No Recent Projects" action:nil keyEquivalent:@""] autorelease];
+        [placeholder setEnabled:NO];
+        [recentMenu addItem:placeholder];
+    } else {
+        for (const auto& [path, label] : recents) {
+            NSString* actionId = [NSString stringWithUTF8String:("open_recent:" + path).c_str()];
+            NSString* title = [NSString stringWithUTF8String:label.c_str()];
+            [recentMenu addItem:makeItem(title, actionId, nil, 0, globalTarget)];
+        }
+        [recentMenu addItem:makeSep()];
+        [recentMenu addItem:makeItem(@"Clear Menu", @"clear_recent_projects", nil, 0, globalTarget)];
+    }
+    [openRecentItem setSubmenu:recentMenu];
 }
 
 } // namespace resostage

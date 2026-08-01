@@ -77,6 +77,14 @@ enum class WebCommandKind : uint8_t {
     SaveProjectAs,
     LoadProjectFromPath,
     ExportProjectForDownload,
+    // Open Recent parity -- `path` carries the absolute .rsnraset path from
+    // AppSettings::recentProjects. Unlike LoadProjectFromPath (which deletes
+    // its temp file on failure -- it only ever points at a throwaway browser
+    // upload), a stale recent entry is a real user file the app never owns:
+    // on failure it's just dropped from the recent list, never touched on
+    // disk. See MainComponent::loadProjectFromPath()/rememberRecentProject().
+    OpenRecentProject,
+    ClearRecentProjects,
     // Renames the loaded project directly (`json` carries {name}) -- unlike
     // Save/SaveAs, this doesn't touch the file on disk, just Project::name.
     // Exists so the project's displayed name is never *only* an implicit
@@ -425,6 +433,13 @@ struct WebUiState {
         std::vector<MidiBinding> midiBindings;
         // Non-empty while the web UI has armed MIDI-learn for this action.
         std::string midiLearnAction;
+        // Rig-wide MRU project list (AppSettings::recentProjects), most-recent-first.
+        struct RecentProject {
+            std::string path;
+            std::string displayName;
+            std::string lastOpenedIso;
+        };
+        std::vector<RecentProject> recentProjects;
     };
     SettingsRow settings;
 };

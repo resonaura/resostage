@@ -9,6 +9,11 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import {
+  ContextMenu,
+  ContextMenuDivider,
+  ContextMenuItem,
+} from "./components/ContextMenu";
 import { fetchAllPeaks, fetchPeaks, project } from "./lib/api";
 import { IS_EMBEDDED } from "./lib/embedded";
 import type { AllPeaksResponse, PeaksResponse, WebUiState } from "./lib/types";
@@ -496,6 +501,10 @@ function ProjectMenu({ state }: { state: WebUiState }) {
   const [confirmNew, setConfirmNew] = useState(false);
   const [saveLabel, setSaveLabel] = useState("Save");
   const saveFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recentBtnRef = useRef<HTMLButtonElement>(null);
+  const [recentAnchor, setRecentAnchor] = useState<{ x: number; y: number } | null>(
+    null,
+  );
 
   // Mirror native status: "Saving…" while busy, then flash "Saved".
   useEffect(() => {
@@ -588,6 +597,57 @@ function ProjectMenu({ state }: { state: WebUiState }) {
       <Button size="sm" variant="outline" onPress={handleLoad}>
         {IS_EMBEDDED ? "Load…" : "Upload…"}
       </Button>
+      {IS_EMBEDDED && (
+        <Button
+          ref={recentBtnRef}
+          size="sm"
+          variant="outline"
+          onPress={() => {
+            const r = recentBtnRef.current?.getBoundingClientRect();
+            setRecentAnchor(r ? { x: r.left, y: r.bottom + 4 } : { x: 0, y: 0 });
+          }}
+        >
+          Recent
+        </Button>
+      )}
+      {recentAnchor && (
+        <ContextMenu
+          x={recentAnchor.x}
+          y={recentAnchor.y}
+          width={260}
+          onClose={() => setRecentAnchor(null)}
+        >
+          {state.settings.recentProjects.length === 0 ? (
+            <ContextMenuItem disabled onClick={() => {}}>
+              No Recent Projects
+            </ContextMenuItem>
+          ) : (
+            <>
+              {state.settings.recentProjects.map((rp) => (
+                <ContextMenuItem
+                  key={rp.path}
+                  onClick={() => {
+                    setRecentAnchor(null);
+                    void project.openRecent(rp.path);
+                  }}
+                >
+                  {rp.displayName}
+                </ContextMenuItem>
+              ))}
+              <ContextMenuDivider />
+              <ContextMenuItem
+                danger
+                onClick={() => {
+                  setRecentAnchor(null);
+                  void project.clearRecent();
+                }}
+              >
+                Clear Recent
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenu>
+      )}
       <span title={IS_EMBEDDED ? "Save (⌘S)" : "Download project"}>
         <Button
           size="sm"

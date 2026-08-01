@@ -151,6 +151,10 @@ export const project = {
   loadDialog: () => post("/api/v1/project/load-dialog"),
   save: () => post("/api/v1/project/save"),
   saveAs: () => post("/api/v1/project/save-as"),
+  // Recent-projects parity -- native-only (no filesystem path model makes
+  // sense in a plain browser tab, see ProjectMenu's IS_EMBEDDED gating).
+  openRecent: (path: string) => post("/api/v1/project/open-recent", { path }),
+  clearRecent: () => post("/api/v1/project/clear-recent"),
   // Renames the loaded project directly (Project::name), independent of
   // any file path a save/export happens to use -- see WebCommandKind::
   // SetProjectName. Needed because a plain-browser "download" Save As can't

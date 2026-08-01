@@ -1,6 +1,7 @@
 #pragma once
 
 #include "project/ProjectSchema.h"
+#include "project/RecentProjects.h"
 
 #include <juce_core/juce_core.h>
 
@@ -30,6 +31,9 @@ struct AppSettings {
     std::string midiOutputName;
     std::string midiInputName;
     bool virtualMidiPortEnabled = false;
+
+    // Most-recent-first, capped at kMaxRecentProjects (see RecentProjects.h).
+    std::vector<RecentProjectEntry> recentProjects;
 };
 
 // ~/Library/Application Support/ResoStage/settings.json (platform-equivalent

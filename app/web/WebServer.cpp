@@ -1319,6 +1319,13 @@ std::string WebServer::buildStateJson(const char* view) const {
         o << "{\"action\":\"" << jsonEscape(s.keybindings[i].action) << "\","
           << "\"key\":\"" << jsonEscape(s.keybindings[i].key) << "\"}";
     }
+    o << "],\"recentProjects\":[";
+    for (size_t i = 0; i < s.recentProjects.size(); ++i) {
+        if (i) o << ",";
+        o << "{\"path\":\"" << jsonEscape(s.recentProjects[i].path) << "\","
+          << "\"displayName\":\"" << jsonEscape(s.recentProjects[i].displayName) << "\","
+          << "\"lastOpenedIso\":\"" << jsonEscape(s.recentProjects[i].lastOpenedIso) << "\"}";
+    }
     o << "],\"midiBindings\":[";
     if (isSettings || all) {
         for (size_t i = 0; i < s.midiBindings.size(); ++i) {
@@ -1384,6 +1391,19 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     } else if (std::strcmp(path, "/api/v1/project/export") == 0) {
         beginExport();
         cmd = {WebCommandKind::ExportProjectForDownload, 0};
+    } else if (std::strcmp(path, "/api/v1/project/open-recent") == 0) {
+        const std::string s(body, bodyLen);
+        std::string pathRaw;
+        if (!findJsonField(s, "\"path\"", pathRaw) || pathRaw.size() < 2
+            || pathRaw.front() != '"' || pathRaw.back() != '"') {
+            static const char* kMsg = "{\"error\":\"missing path\"}";
+            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
+                              kMsg, std::strlen(kMsg));
+            return true;
+        }
+        cmd = {WebCommandKind::OpenRecentProject, 0, 0.0, pathRaw.substr(1, pathRaw.size() - 2)};
+    } else if (std::strcmp(path, "/api/v1/project/clear-recent") == 0) {
+        cmd = {WebCommandKind::ClearRecentProjects, 0};
     } else if (std::strcmp(path, "/api/v1/project/quit-decision") == 0) {
         const int choice = parseSelectIndex(body, bodyLen);
         if (choice < 0) {

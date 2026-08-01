@@ -159,6 +159,13 @@ export interface MidiBindingRow {
   number: number;
 }
 
+export interface RecentProjectEntry {
+  path: string;
+  displayName: string;
+  /** ISO-8601 timestamp of the most recent load/save. */
+  lastOpenedIso: string;
+}
+
 export interface SettingsState {
   currentOutputDevice: string;
   outputDevices: string[];
@@ -176,6 +183,8 @@ export interface SettingsState {
   midiBindings?: MidiBindingRow[];
   /** Non-empty while MIDI-learn is armed for this action. */
   midiLearnAction?: string;
+  /** Rig-wide MRU project list, most-recent-first, always shipped (used by the always-visible ProjectMenu). */
+  recentProjects: RecentProjectEntry[];
 }
 
 // One pyramid level of a track's peak overview -- parallel arrays (not
@@ -335,5 +344,6 @@ export const emptyState: WebUiState = {
     keybindings: [],
     midiBindings: [],
     midiLearnAction: "",
+    recentProjects: [],
   },
 };
