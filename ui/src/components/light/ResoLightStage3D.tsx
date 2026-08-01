@@ -6,6 +6,12 @@ import * as THREE from "three";
 import type { LightFixtureRow } from "../../lib/types";
 import { addressableEffectLedColor, type LightCueValue, type SpatialEffectType } from "../../lib/lightCueInterpolation";
 
+// One stage-grid cell is deliberately small enough for practical placement,
+// while still guaranteeing panels never slowly drift off the visual grid.
+const STAGE_GRID_STEP = 0.25;
+const snapToStageGrid = (value: number) =>
+  Math.round(value / STAGE_GRID_STEP) * STAGE_GRID_STEP;
+
 // ─── Camera frame utility ─────────────────────────────────────────────────
 
 function FrameAllHelper({
@@ -149,17 +155,17 @@ export function ResoLightStage3D({
           onPointerMove={(e) => {
             if (mode !== "edit" || dragId === null) return;
             e.stopPropagation();
-            setDragPos({ x: e.point.x, z: e.point.z });
+            setDragPos({ x: snapToStageGrid(e.point.x), z: snapToStageGrid(e.point.z) });
           }}
           onPointerUp={() => {
             if (dragId !== null && dragPos !== null)
-              onFixtureMoved?.(dragId, dragPos.x, dragPos.z);
+              onFixtureMoved?.(dragId, snapToStageGrid(dragPos.x), snapToStageGrid(dragPos.z));
             setDragId(null);
             setDragPos(null);
           }}
           onPointerLeave={() => {
             if (dragId !== null && dragPos !== null)
-              onFixtureMoved?.(dragId, dragPos.x, dragPos.z);
+              onFixtureMoved?.(dragId, snapToStageGrid(dragPos.x), snapToStageGrid(dragPos.z));
             setDragId(null);
             setDragPos(null);
           }}
@@ -169,8 +175,8 @@ export function ResoLightStage3D({
 
         {fixtures.map((f) => {
           const isDragging = dragId === f.id;
-          const x = isDragging && dragPos ? dragPos.x : f.posX;
-          const z = isDragging && dragPos ? dragPos.z : f.posZ;
+          const x = isDragging && dragPos ? dragPos.x : snapToStageGrid(f.posX);
+          const z = isDragging && dragPos ? dragPos.z : snapToStageGrid(f.posZ);
           return (
             <ResoLightBar
               key={f.id}
@@ -332,8 +338,8 @@ function ResoLightBar({
             const segH = heightMeters / segmentCount;
             const segY = idx * segH + segH / 2;
             return (
+              <group key={idx}>
               <mesh
-                key={idx}
                 position={[0, segY, 0]}
                 onPointerDown={(e) => {
                   e.stopPropagation();
@@ -347,6 +353,18 @@ function ResoLightBar({
                   emissiveIntensity={Math.max(0.08, previewColor!.intensity * seg.level)}
                 />
               </mesh>
+              {/* A translucent additive halo reads as the light spilling from
+                  one physical LED, without a costly scene-wide bloom pass. */}
+              <sprite position={[0, segY, 0]} scale={[0.28, 0.28, 1]}>
+                <spriteMaterial
+                  color={seg.color}
+                  transparent
+                  opacity={Math.min(0.42, previewColor!.intensity * seg.level * 0.42)}
+                  depthWrite={false}
+                  blending={THREE.AdditiveBlending}
+                />
+              </sprite>
+              </group>
             );
           })
         ) : (
