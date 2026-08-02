@@ -251,6 +251,13 @@ void parseLightingConfig(const simdjson::dom::element& liEl, LightingConfig& cfg
     if (!liEl["resoLightColumns"].get(tmp)) cfg.resoLightColumns = static_cast<int>(tmp);
     if (!liEl["resoLightRows"].get(tmp)) cfg.resoLightRows = static_cast<int>(tmp);
 
+    std::string_view idleBehaviorView;
+    if (!liEl["idleBehavior"].get(idleBehaviorView)) cfg.idleBehavior = std::string(idleBehaviorView);
+    if (!liEl["idleColorR"].get(tmp)) cfg.idleColorR = static_cast<uint8_t>(tmp);
+    if (!liEl["idleColorG"].get(tmp)) cfg.idleColorG = static_cast<uint8_t>(tmp);
+    if (!liEl["idleColorB"].get(tmp)) cfg.idleColorB = static_cast<uint8_t>(tmp);
+    (void)liEl["idleIntensity"].get(cfg.idleIntensity);
+
     simdjson::dom::array fxArr;
     if (!liEl["fixtures"].get(fxArr)) {
         for (simdjson::dom::element fxEl : fxArr) {

@@ -459,6 +459,12 @@ struct WebUiState {
         std::string kind = "none"; // "none" | "resoLight" | "dmxGeneric"
         int resoLightColumns = 2;
         int resoLightRows = 1;
+        // See engine/project/ProjectSchema.h's LightingConfig::idleBehavior.
+        std::string idleBehavior = "holdLast"; // "holdLast" | "blackout" | "staticColor"
+        int idleColorR = 0;
+        int idleColorG = 0;
+        int idleColorB = 0;
+        double idleIntensity = 1.0;
         std::vector<LightFixtureRow> fixtures;
     };
     LightingRow lighting;

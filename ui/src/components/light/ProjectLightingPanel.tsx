@@ -3,6 +3,7 @@ import { MoveHorizontal, MoveVertical, Wand2 } from "lucide-react";
 import { lighting } from "../../lib/api";
 import type { LightFixtureRow, LightingState, WebUiState } from "../../lib/types";
 import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
+import { HslColorPicker, LabeledSlider } from "./LightSidePanel";
 import { computeFixturePreviewColors } from "../../lib/lightPreviewColors";
 import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "../../lib/liveLevels";
 
@@ -204,6 +205,53 @@ export function ProjectLightingPanel({
                 <option value="dmxGeneric">Generic DMX / Art-Net / HTTP</option>
               </select>
             </Field>
+          </div>
+
+          {/* Idle behavior -- what fixtures show while the transport is stopped */}
+          <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3 flex flex-col gap-3">
+            <Field label="When playback is stopped">
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { value: "holdLast", label: "Hold Last", desc: "Keep showing whatever the frozen playhead position resolves to" },
+                    { value: "blackout", label: "Blackout", desc: "Force every fixture off" },
+                    { value: "staticColor", label: "Static Color", desc: "Force every fixture to a fixed idle color" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    title={opt.desc}
+                    onClick={() => void lighting.setConfig({ idleBehavior: opt.value })}
+                    className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                      li.idleBehavior === opt.value
+                        ? "border-accent bg-accent/20 text-accent"
+                        : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            {li.idleBehavior === "staticColor" && (
+              <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
+                <HslColorPicker
+                  r={li.idleColorR}
+                  g={li.idleColorG}
+                  b={li.idleColorB}
+                  onChange={(r, g, b) =>
+                    void lighting.setConfig({ idleColorR: r, idleColorG: g, idleColorB: b })
+                  }
+                />
+                <LabeledSlider
+                  label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
+                  value={li.idleIntensity}
+                  onChange={(v) => void lighting.setConfig({ idleIntensity: v })}
+                />
+              </div>
+            )}
           </div>
 
           {li.kind === "dmxGeneric" && (

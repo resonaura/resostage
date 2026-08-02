@@ -99,6 +99,19 @@ void MainComponent::lightingSetConfig(const std::string& json) {
         cfg.resoLightColumns = std::max(0, intVal);
     if (getInt(doc, "resoLightRows", intVal))
         cfg.resoLightRows = std::max(0, intVal);
+    if (getString(doc, "idleBehavior", strVal)) {
+        if (strVal == "blackout" || strVal == "staticColor" || strVal == "holdLast")
+            cfg.idleBehavior = strVal;
+    }
+    if (getInt(doc, "idleColorR", intVal))
+        cfg.idleColorR = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "idleColorG", intVal))
+        cfg.idleColorG = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "idleColorB", intVal))
+        cfg.idleColorB = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    double doubleVal;
+    if (getDouble(doc, "idleIntensity", doubleVal))
+        cfg.idleIntensity = std::clamp(doubleVal, 0.0, 1.0);
 
     if (cfg.kind == LightingKind::ResoLight)
         regenerateResoLightFixtures(cfg);

@@ -283,6 +283,11 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     p.lighting.kind = LightingKind::ResoLight;
     p.lighting.resoLightColumns = 3;
     p.lighting.resoLightRows = 2;
+    p.lighting.idleBehavior = "staticColor";
+    p.lighting.idleColorR = 12;
+    p.lighting.idleColorG = 34;
+    p.lighting.idleColorB = 56;
+    p.lighting.idleIntensity = 0.4;
 
     LightFixture fx;
     fx.id = "bar_1";
@@ -348,6 +353,11 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     CHECK(p2.lighting.kind == LightingKind::ResoLight);
     CHECK(p2.lighting.resoLightColumns == 3);
     CHECK(p2.lighting.resoLightRows == 2);
+    CHECK(p2.lighting.idleBehavior == "staticColor");
+    CHECK(p2.lighting.idleColorR == 12);
+    CHECK(p2.lighting.idleColorG == 34);
+    CHECK(p2.lighting.idleColorB == 56);
+    CHECK(p2.lighting.idleIntensity == doctest::Approx(0.4));
     REQUIRE(p2.lighting.fixtures.size() == 2);
 
     const LightFixture& fx2 = p2.lighting.fixtures[0];
@@ -407,6 +417,7 @@ TEST_CASE("lighting defaults to disabled/none with no fixtures for a project wit
     const Project& p = loader.project();
     CHECK(p.lighting.enabled == false);
     CHECK(p.lighting.kind == LightingKind::None);
+    CHECK(p.lighting.idleBehavior == "holdLast");
     CHECK(p.lighting.fixtures.empty());
     CHECK(p.lightTracks.empty());
     CHECK(p.songs[0].lightCues.empty());

@@ -65,7 +65,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // (same one MixerScreen.tsx uses for gain), not a hand-rolled <input
 // type=range>. Every plain 0..1-ish slider in this panel (intensity,
 // fades, effect depth/rate) goes through this one wrapper.
-function LabeledSlider({
+export function LabeledSlider({
   label,
   value,
   onChange,
@@ -149,7 +149,7 @@ const PRESET_COLORS: [number, number, number][] = [
   [200, 200, 200],  // cool white
 ];
 
-function HslColorPicker({
+export function HslColorPicker({
   r, g, b,
   onChange,
 }: {

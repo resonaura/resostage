@@ -1386,6 +1386,11 @@ std::string WebServer::buildStateJson(const char* view) const {
           << "\"kind\":\"" << jsonEscape(li.kind) << "\","
           << "\"resoLightColumns\":" << li.resoLightColumns << ","
           << "\"resoLightRows\":" << li.resoLightRows << ","
+          << "\"idleBehavior\":\"" << jsonEscape(li.idleBehavior) << "\","
+          << "\"idleColorR\":" << li.idleColorR << ","
+          << "\"idleColorG\":" << li.idleColorG << ","
+          << "\"idleColorB\":" << li.idleColorB << ","
+          << "\"idleIntensity\":" << finiteOrZero(li.idleIntensity) << ","
           << "\"fixtures\":[";
         for (size_t i = 0; i < li.fixtures.size(); ++i) {
             if (i) o << ",";

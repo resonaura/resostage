@@ -172,6 +172,22 @@ struct LightingConfig {
     int resoLightColumns = 2;
     int resoLightRows = 1;
     std::vector<LightFixture> fixtures;
+
+    // What every fixture should show while the transport is stopped (not
+    // just between cues mid-song -- see MasterClock::isRunning()/
+    // AudioEngine::isPlaying()). "holdLast" is the original behavior: the
+    // rig keeps showing whatever the frozen playhead position resolves to,
+    // same as before this setting existed. "blackout" forces every fixture
+    // off; "staticColor" forces every fixture to idleColorR/G/B at
+    // idleIntensity -- e.g. a house-color wash between songs instead of
+    // whatever the last cue happened to leave lit. See
+    // LightOutputResolver.h's buildIdleLightOutputs, the single place both
+    // LightEngine's real DMX output and the web preview apply this.
+    std::string idleBehavior = "holdLast"; // "holdLast" | "blackout" | "staticColor"
+    uint8_t idleColorR = 0;
+    uint8_t idleColorG = 0;
+    uint8_t idleColorB = 0;
+    double idleIntensity = 1.0;
 };
 
 // A named row on the Light timeline -- project-level roster, mirrors

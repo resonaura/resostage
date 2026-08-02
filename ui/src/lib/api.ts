@@ -373,6 +373,11 @@ export const lighting = {
     kind?: "none" | "resoLight" | "dmxGeneric";
     resoLightColumns?: number;
     resoLightRows?: number;
+    idleBehavior?: "holdLast" | "blackout" | "staticColor";
+    idleColorR?: number;
+    idleColorG?: number;
+    idleColorB?: number;
+    idleIntensity?: number;
   }) => post("/api/v1/lighting/config", patch),
 
   fixtureUpdate: (patch: {

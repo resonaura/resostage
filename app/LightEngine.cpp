@@ -151,8 +151,20 @@ void LightEngine::threadLoop() {
             }
         }
 
-        const auto resolved = resolveLightOutputs(
-            proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
+        // Stopped transport + a configured idle behavior (blackout/static
+        // color) overrides the normal cue-driven resolve entirely -- see
+        // buildIdleLightOutputs's doc comment. "holdLast" (the default)
+        // keeps calling resolveLightOutputs() exactly as before this
+        // setting existed, i.e. whatever the frozen playhead resolves to.
+        std::vector<ResolvedFixtureOutput> resolved;
+        if (!clock_->isRunning() && proj->lighting.idleBehavior != "holdLast") {
+            resolved = buildIdleLightOutputs(proj->lighting.fixtures, proj->lighting.idleBehavior,
+                                              proj->lighting.idleColorR, proj->lighting.idleColorG,
+                                              proj->lighting.idleColorB, proj->lighting.idleIntensity);
+        } else {
+            resolved = resolveLightOutputs(
+                proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
+        }
 
         std::map<int, std::vector<uint8_t>> frames; // universe → 512 bytes
         for (const auto& out : resolved) {

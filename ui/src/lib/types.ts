@@ -192,6 +192,12 @@ export interface LightingState {
   kind: "none" | "resoLight" | "dmxGeneric";
   resoLightColumns: number;
   resoLightRows: number;
+  /** What every fixture shows while the transport is stopped. */
+  idleBehavior: "holdLast" | "blackout" | "staticColor";
+  idleColorR: number;
+  idleColorG: number;
+  idleColorB: number;
+  idleIntensity: number;
   fixtures: LightFixtureRow[];
 }
 
@@ -400,6 +406,11 @@ export const emptyState: WebUiState = {
     kind: "none",
     resoLightColumns: 2,
     resoLightRows: 1,
+    idleBehavior: "holdLast",
+    idleColorR: 0,
+    idleColorG: 0,
+    idleColorB: 0,
+    idleIntensity: 1,
     fixtures: [],
   },
   lightTracks: [],

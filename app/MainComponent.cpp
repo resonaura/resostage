@@ -1221,6 +1221,11 @@ void MainComponent::publishWebState() {
     state.lighting.kind = lightingKindToString(proj.lighting.kind);
     state.lighting.resoLightColumns = proj.lighting.resoLightColumns;
     state.lighting.resoLightRows = proj.lighting.resoLightRows;
+    state.lighting.idleBehavior = proj.lighting.idleBehavior;
+    state.lighting.idleColorR = proj.lighting.idleColorR;
+    state.lighting.idleColorG = proj.lighting.idleColorG;
+    state.lighting.idleColorB = proj.lighting.idleColorB;
+    state.lighting.idleIntensity = proj.lighting.idleIntensity;
     state.lighting.fixtures.reserve(proj.lighting.fixtures.size());
     for (const LightFixture& f : proj.lighting.fixtures) {
         WebUiState::LightFixtureRow fr;
@@ -1304,8 +1309,20 @@ void MainComponent::publishWebState() {
         // in order to match its output instead of trailing behind it.
         const double livePlayheadSec =
             transport.playheadSeconds.load(std::memory_order_relaxed);
-        const auto resolved = resolveLightOutputs(
-            proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
+
+        // Same idle-behavior override LightEngine's real DMX thread applies
+        // when stopped -- see buildIdleLightOutputs's doc comment. Keeps this
+        // preview from ever showing something the real hardware isn't also
+        // doing (the whole point of this being one shared resolve path).
+        std::vector<ResolvedFixtureOutput> resolved;
+        if (!engine.isPlaying() && proj.lighting.idleBehavior != "holdLast") {
+            resolved = buildIdleLightOutputs(proj.lighting.fixtures, proj.lighting.idleBehavior,
+                                              proj.lighting.idleColorR, proj.lighting.idleColorG,
+                                              proj.lighting.idleColorB, proj.lighting.idleIntensity);
+        } else {
+            resolved = resolveLightOutputs(
+                proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
+        }
 
         // Fixture id -> project fixture array index, the wire key the binary
         // per-LED stream uses so the frontend can map colors back to its own

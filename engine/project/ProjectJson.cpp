@@ -146,6 +146,11 @@ std::string serializeProjectJson(const Project& project) {
     o << "    \"kind\": \"" << lightingKindToString(project.lighting.kind) << "\",\n";
     o << "    \"resoLightColumns\": " << project.lighting.resoLightColumns << ",\n";
     o << "    \"resoLightRows\": " << project.lighting.resoLightRows << ",\n";
+    o << "    \"idleBehavior\": \"" << jsonEscapeString(project.lighting.idleBehavior) << "\",\n";
+    o << "    \"idleColorR\": " << static_cast<int>(project.lighting.idleColorR) << ",\n";
+    o << "    \"idleColorG\": " << static_cast<int>(project.lighting.idleColorG) << ",\n";
+    o << "    \"idleColorB\": " << static_cast<int>(project.lighting.idleColorB) << ",\n";
+    o << "    \"idleIntensity\": " << project.lighting.idleIntensity << ",\n";
     o << "    \"fixtures\": [\n";
     for (size_t i = 0; i < project.lighting.fixtures.size(); ++i) {
         const LightFixture& f = project.lighting.fixtures[i];

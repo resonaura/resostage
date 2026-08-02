@@ -310,3 +310,52 @@ TEST_CASE("parseBlendMode / blendModeToString round-trip every known mode and de
     CHECK(parseBlendMode("bogus") == BlendMode::Normal);
     CHECK(parseBlendMode("") == BlendMode::Normal);
 }
+
+// ─── buildIdleLightOutputs (stopped-playback behavior) ─────────────────────
+
+namespace {
+std::vector<LightFixture> makeIdleFixtures() {
+    LightFixture a;
+    a.id = "f1";
+    LightFixture b;
+    b.id = "f2";
+    return {a, b};
+}
+} // namespace
+
+TEST_CASE("buildIdleLightOutputs: holdLast (or any unrecognised value) returns nothing -- caller keeps resolveLightOutputs") {
+    auto fixtures = makeIdleFixtures();
+    CHECK(buildIdleLightOutputs(fixtures, "holdLast", 10, 20, 30, 1.0).empty());
+    CHECK(buildIdleLightOutputs(fixtures, "bogus", 10, 20, 30, 1.0).empty());
+    CHECK(buildIdleLightOutputs({}, "blackout", 10, 20, 30, 1.0).empty()); // no fixtures at all
+}
+
+TEST_CASE("buildIdleLightOutputs: blackout forces every fixture to black, zero intensity") {
+    auto out = buildIdleLightOutputs(makeIdleFixtures(), "blackout", 200, 100, 50, 0.9);
+    REQUIRE(out.size() == 2);
+    for (const auto& r : out) {
+        CHECK(r.value.r == 0);
+        CHECK(r.value.g == 0);
+        CHECK(r.value.b == 0);
+        CHECK(r.value.intensity == doctest::Approx(0.0));
+    }
+    CHECK(out[0].fixtureId == "f1");
+    CHECK(out[1].fixtureId == "f2");
+}
+
+TEST_CASE("buildIdleLightOutputs: staticColor forces every fixture to the configured idle color/intensity") {
+    auto out = buildIdleLightOutputs(makeIdleFixtures(), "staticColor", 200, 100, 50, 0.75);
+    REQUIRE(out.size() == 2);
+    for (const auto& r : out) {
+        CHECK(r.value.r == 200);
+        CHECK(r.value.g == 100);
+        CHECK(r.value.b == 50);
+        CHECK(r.value.intensity == doctest::Approx(0.75));
+    }
+}
+
+TEST_CASE("buildIdleLightOutputs: staticColor clamps an out-of-range intensity") {
+    auto out = buildIdleLightOutputs(makeIdleFixtures(), "staticColor", 1, 2, 3, 1.5);
+    REQUIRE(out.size() == 2);
+    CHECK(out[0].value.intensity == doctest::Approx(1.0));
+}

@@ -344,6 +344,40 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
     return out;
 }
 
+// Overrides the whole rig's output while the transport is stopped, per
+// LightingConfig::idleBehavior -- called by LightEngine's real DMX thread
+// and MainComponent's WebUiState push INSTEAD OF resolveLightOutputs (not
+// alongside it), so both apply the exact same idle rule. Covers every
+// fixture in `fixtures` unconditionally, unlike resolveLightOutputs (which
+// only emits a row for fixtures some track with an ACTIVE cue is currently
+// driving) -- a stopped rig has no "active cue" to derive from, so this
+// forces a value for the whole roster instead of leaving untouched fixtures
+// to whatever they last held.
+//
+// "holdLast" (the default) returns empty: the caller's contract is to fall
+// back to a normal resolveLightOutputs(..., tSec, ...) call in that case,
+// i.e. literally hold whatever the frozen playhead position resolves to --
+// this function is only ever called for the other two modes.
+inline std::vector<ResolvedFixtureOutput> buildIdleLightOutputs(
+    const std::vector<LightFixture>& fixtures,
+    const std::string& idleBehavior,
+    uint8_t idleR, uint8_t idleG, uint8_t idleB, double idleIntensity) {
+    std::vector<ResolvedFixtureOutput> out;
+    if (idleBehavior != "blackout" && idleBehavior != "staticColor")
+        return out;
+    out.reserve(fixtures.size());
+    for (const auto& f : fixtures) {
+        ResolvedFixtureOutput r;
+        r.fixtureId = f.id;
+        if (idleBehavior == "staticColor")
+            r.value = {idleR, idleG, idleB, std::clamp(idleIntensity, 0.0, 1.0)};
+        // else "blackout": default-constructed LightCueValue is already
+        // {0, 0, 0, intensity 0.0}.
+        out.push_back(std::move(r));
+    }
+    return out;
+}
+
 // Final per-LED wire color for one fixture -- the exact bytes the DMX
 // universe receives after intensity scaling (see writeDmxChannels).
 struct LedWireColor {
