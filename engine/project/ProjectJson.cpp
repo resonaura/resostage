@@ -171,6 +171,7 @@ std::string serializeProjectJson(const Project& project) {
         o << "        \"dmxStartChannel\": " << f.dmxStartChannel << ",\n";
         o << "        \"dmxChannelCount\": " << f.dmxChannelCount << ",\n";
         o << "        \"shape\": \"" << jsonEscapeString(f.shape) << "\",\n";
+        o << "        \"matrixCols\": " << f.matrixCols << ",\n";
         o << "        \"channelProfile\": \"" << jsonEscapeString(f.channelProfile) << "\",\n";
         o << "        \"tiltDeg\": "; writeNumber(o, f.tiltDeg); o << "\n";
         o << "      }" << (i + 1 < project.lighting.fixtures.size() ? "," : "") << "\n";

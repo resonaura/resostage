@@ -459,6 +459,7 @@ struct WebUiState {
         // Cosmetic/informational only -- see ProjectSchema.h's LightFixture
         // doc comment. Neither field affects real DMX output.
         std::string shape = "bar";
+        int matrixCols = 0;
         std::string channelProfile = "rgb";
         double tiltDeg = 0.0;
     };

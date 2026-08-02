@@ -401,7 +401,8 @@ export const lighting = {
     dmxUniverse?: number;
     dmxStartChannel?: number;
     dmxChannelCount?: number;
-    shape?: "bar" | "par" | "wash" | "spot" | "movingHead" | "strip";
+    shape?: "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead";
+    matrixCols?: number;
     channelProfile?: "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
     tiltDeg?: number;
   }) => post("/api/v1/lighting/fixture/update", patch),

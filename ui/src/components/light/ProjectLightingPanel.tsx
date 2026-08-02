@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Circle,
   Copy,
   Disc3,
+  Grid3x3,
   Lamp,
   MoveHorizontal,
   Move3D,
@@ -22,6 +24,7 @@ import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "
 import {
   CHANNEL_PROFILES,
   DMX_GENERIC_SHAPES,
+  RESOLIGHT_SHAPES,
   SHAPE_META,
   channelRoleLabels,
   type ChannelProfile,
@@ -30,11 +33,13 @@ import {
 
 const SHAPE_ICON: Record<FixtureShape, React.ComponentType<{ size?: number; className?: string }>> = {
   bar: Rows3,
+  strip: Rows3,
+  ring: Circle,
+  matrix: Grid3x3,
   par: Lamp,
   wash: Disc3,
   spot: Spotlight,
   movingHead: Move3D,
-  strip: Rows3,
 };
 
 const selectCls =
@@ -139,7 +144,11 @@ function FixtureItem({
 }) {
   const previewColor = summarizeSwatchColor(rawPreviewColor);
   const hasColor = previewColor && previewColor.intensity > 0.01;
-  const ShapeIcon = fixture.kind === "dmxGeneric" ? SHAPE_ICON[fixture.shape] : null;
+  // Only worth a badge when it's not the plain default for the kind --
+  // every ResoLightBar starts as "bar", so showing the icon for that case
+  // would just be visual noise on every single row.
+  const ShapeIcon =
+    fixture.kind === "dmxGeneric" || fixture.shape !== "bar" ? SHAPE_ICON[fixture.shape] : null;
   return (
     <div
       className={`flex items-center gap-1 w-full rounded-lg border transition-all ${
@@ -530,33 +539,50 @@ export function ProjectLightingPanel({
                     )}
                   </div>
 
-                  {/* Shape -- purely cosmetic (which 3D mesh the stage
-                      draws), lets a rig read as a mix of real fixture
-                      types instead of every DMX fixture looking like a
-                      ResoLight bar. */}
-                  {selected.kind === "dmxGeneric" && (
-                    <Field label="Fixture Shape">
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {DMX_GENERIC_SHAPES.map((shape) => {
-                          const Icon = SHAPE_ICON[shape];
-                          return (
-                            <button
-                              key={shape}
-                              type="button"
-                              onClick={() => void lighting.fixtureUpdate({ fixtureId: selected.id, shape })}
-                              title={SHAPE_META[shape].label}
-                              className={`flex flex-col items-center gap-1 rounded-lg border py-2 text-[10px] font-medium transition-colors ${
-                                selected.shape === shape
-                                  ? "border-accent bg-accent/20 text-accent"
-                                  : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
-                              }`}
-                            >
-                              <Icon size={16} />
-                              {SHAPE_META[shape].label}
-                            </button>
-                          );
-                        })}
-                      </div>
+                  {/* Shape -- purely cosmetic (which 3D layout the stage
+                      draws). For DmxGeneric it's the housing silhouette
+                      (which real fixture type this is); for ResoLightBar
+                      it rearranges the same linear pixel array into a
+                      different physical layout (see ResoLightStage3D.tsx). */}
+                  <Field label="Fixture Shape">
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {(selected.kind === "resoLightBar" ? RESOLIGHT_SHAPES : DMX_GENERIC_SHAPES).map((shape) => {
+                        const Icon = SHAPE_ICON[shape];
+                        return (
+                          <button
+                            key={shape}
+                            type="button"
+                            onClick={() => void lighting.fixtureUpdate({ fixtureId: selected.id, shape })}
+                            title={SHAPE_META[shape].label}
+                            className={`flex flex-col items-center gap-1 rounded-lg border py-2 text-[10px] font-medium transition-colors ${
+                              selected.shape === shape
+                                ? "border-accent bg-accent/20 text-accent"
+                                : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                            }`}
+                          >
+                            <Icon size={16} />
+                            {SHAPE_META[shape].label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Field>
+
+                  {selected.kind === "resoLightBar" && selected.shape === "matrix" && (
+                    <Field label="Matrix Columns (0 = auto)">
+                      <input
+                        type="number"
+                        min={0}
+                        max={31}
+                        className={numberCls}
+                        value={selected.matrixCols}
+                        onChange={(e) =>
+                          void lighting.fixtureUpdate({
+                            fixtureId: selected.id,
+                            matrixCols: Math.max(0, Number(e.target.value) || 0),
+                          })
+                        }
+                      />
                     </Field>
                   )}
 

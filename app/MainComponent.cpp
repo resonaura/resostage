@@ -1248,6 +1248,7 @@ void MainComponent::publishWebState() {
         fr.dmxStartChannel = f.dmxStartChannel;
         fr.dmxChannelCount = f.dmxChannelCount;
         fr.shape = f.shape;
+        fr.matrixCols = f.matrixCols;
         fr.channelProfile = f.channelProfile;
         fr.tiltDeg = f.tiltDeg;
         state.lighting.fixtures.push_back(std::move(fr));

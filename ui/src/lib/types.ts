@@ -186,7 +186,9 @@ export interface LightFixtureRow {
   dmxStartChannel: number;
   dmxChannelCount: number;
   /** Cosmetic-only (3D stage mesh) -- see ui/src/lib/dmxProfiles.ts. */
-  shape: "bar" | "par" | "wash" | "spot" | "movingHead" | "strip";
+  shape: "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead";
+  /** Only meaningful when shape === "matrix" -- 0 = let the UI pick a default. */
+  matrixCols: number;
   /** Cosmetic-only (sets dmxChannelCount + channel-role labels in the UI). */
   channelProfile: "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
   /** Cosmetic aim/pitch off vertical (3D stage only) -- 0 = straight up. */

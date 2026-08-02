@@ -160,7 +160,23 @@ struct LightFixture {
     // (e.g. "Ch1 Dimmer, Ch2 R, ...") -- purely a data-entry convenience,
     // not consulted by the engine. See ui/src/lib/dmxProfiles.ts for the
     // canonical profile -> channel-count/role table.
-    std::string shape = "bar";          // "bar" | "par" | "wash" | "spot" | "movingHead" | "strip"
+    // `shape` also applies to ResoLightBar fixtures, not just DmxGeneric --
+    // "bar" is the ResoLightBar default (a vertical addressable tube);
+    // "strip"/"ring"/"matrix" rearrange the SAME linear ledCount LEDs into a
+    // different physical layout (flat tape / horizontal ring / grid panel),
+    // purely a 3D position transform in ui/src/components/light/
+    // ResoLightStage3D.tsx -- the addressing model stays one linear array
+    // either way, resolveLedWireColors doesn't know or care how the 3D
+    // stage arranges the LEDs it hands back. "par"/"wash"/"spot"/
+    // "movingHead" only make sense for DmxGeneric (a single non-addressable
+    // point has nothing to rearrange). See ui/src/lib/dmxProfiles.ts for
+    // the shape catalogue split by kind.
+    std::string shape = "bar";          // "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead"
+    // Only meaningful when shape == "matrix" -- how many columns the linear
+    // LED array wraps into (rows = ceil(ledCount / matrixCols)). 0 means
+    // "let the UI pick a default (roughly sqrt(ledCount))". Cosmetic only,
+    // like shape itself.
+    int matrixCols = 0;
     std::string channelProfile = "rgb"; // "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom" -- see ui/src/lib/dmxProfiles.ts for why leading-channel personalities (Dimmer+RGB, Pan/Tilt+...) aren't offered
     // Cosmetic pitch (3D stage only, like the pair above) -- a real moving
     // head/PAR/spot is aimed at an angle off vertical via its yoke bracket,

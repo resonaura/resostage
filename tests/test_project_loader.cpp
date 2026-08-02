@@ -301,6 +301,8 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     fx.posY = 0.0;
     fx.posZ = -2.25;
     fx.rotationYDeg = 15.0;
+    fx.shape = "matrix";
+    fx.matrixCols = 6;
     p.lighting.fixtures.push_back(fx);
 
     LightFixture generic;
@@ -373,6 +375,8 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     CHECK(fx2.posX == doctest::Approx(1.5));
     CHECK(fx2.posZ == doctest::Approx(-2.25));
     CHECK(fx2.rotationYDeg == doctest::Approx(15.0));
+    CHECK(fx2.shape == "matrix");
+    CHECK(fx2.matrixCols == 6);
 
     const LightFixture& generic2 = p2.lighting.fixtures[1];
     CHECK(generic2.kind == LightFixture::Kind::DmxGeneric);

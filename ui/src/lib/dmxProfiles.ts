@@ -1,6 +1,8 @@
 /**
- * Cosmetic/informational metadata for DmxGeneric fixtures -- shape (which 3D
- * mesh the stage draws) and channelProfile (a named DMX personality preset).
+ * Cosmetic/informational fixture metadata, shared by both fixture kinds:
+ * `shape` (which 3D layout the stage draws -- a mesh silhouette for
+ * DmxGeneric, a pixel-array rearrangement for ResoLightBar) and
+ * `channelProfile` (a named DMX personality preset, DmxGeneric only).
  * Neither concept is known to the engine: a fixture's actual wire behavior
  * is entirely a function of addressable/ledCount and the resolved cue value
  * (see engine/lighting/LightOutputResolver.h). This table is the ONE place
@@ -10,20 +12,32 @@
  * to know this table exists.
  */
 
-export type FixtureShape = "bar" | "par" | "wash" | "spot" | "movingHead" | "strip";
+export type FixtureShape = "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead";
 
 export const SHAPE_META: Record<FixtureShape, { label: string }> = {
   bar: { label: "Bar" },
+  strip: { label: "Strip" },
+  ring: { label: "Ring" },
+  matrix: { label: "Matrix" },
   par: { label: "PAR Can" },
   wash: { label: "Wash" },
   spot: { label: "Spot" },
   movingHead: { label: "Moving Head" },
-  strip: { label: "Strip" },
 };
 
-// Shapes offered to DmxGeneric fixtures -- "bar" is a ResoLightBar's own
-// shape (a literal LED bar), not a style choice a generic fixture can pick.
+// Shapes offered to DmxGeneric fixtures -- a single non-addressable point
+// has nothing to spatially rearrange, so these are all about overall
+// housing silhouette (which real third-party instrument this is), not
+// pixel layout.
 export const DMX_GENERIC_SHAPES: FixtureShape[] = ["par", "wash", "spot", "movingHead", "strip"];
+
+// Shapes offered to ResoLightBar fixtures -- ResoStage's own addressable
+// product, so these rearrange the SAME linear ledCount pixel array into a
+// different physical layout (see ProjectSchema.h's LightFixture::shape doc
+// comment): "bar" (default) keeps the existing vertical stack, "strip" is
+// the same stack in a thinner cross-section, "ring"/"matrix" genuinely
+// reposition each pixel (circle / grid) -- see ResoLightStage3D.tsx.
+export const RESOLIGHT_SHAPES: FixtureShape[] = ["bar", "strip", "ring", "matrix"];
 
 // Deliberately NOT offering Dimmer+RGB / Pan+Tilt+Dimmer+RGB(W) personalities
 // here, even though they're common on real fixtures: writeDmxChannels (see

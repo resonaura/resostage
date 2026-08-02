@@ -6,6 +6,7 @@ import * as THREE from "three";
 import type { LightFixtureRow } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
 import type { LiveLedColor } from "../../lib/liveLevels";
+import type { FixtureShape } from "../../lib/dmxProfiles";
 
 // One stage-grid cell is deliberately small enough for practical placement,
 // while still guaranteeing panels never slowly drift off the visual grid.
@@ -330,6 +331,62 @@ function useUniformFixtureColor(previewColor?: PreviewColor): {
   return { color, emissiveIntensity };
 }
 
+// Where each of `count` LED segments sits, purely as a function of shape --
+// see ProjectSchema.h's LightFixture::shape doc comment: ring/matrix
+// genuinely reposition every pixel of the SAME linear array, bar/strip keep
+// the existing vertical stack (strip only changes the per-segment
+// cross-section below, not position, so "bar" behavior is byte-identical
+// to before this function existed -- zero risk to the default/common case).
+// `topY` is how high the name label/glow anchor needs to clear the layout.
+function computeSegmentLayout(
+  shape: FixtureShape,
+  count: number,
+  heightMeters: number,
+  matrixCols: number,
+): { positions: [number, number, number][]; topY: number } {
+  if (shape === "ring") {
+    // Flat horizontal ring, radius chosen so its circumference roughly
+    // matches the equivalent bar's height -- a "ring" reads as the same
+    // amount of LED as the same fixture would as a "bar", just bent into a
+    // circle instead of a line.
+    const radius = Math.max(0.1, heightMeters / (Math.PI * 2));
+    const y = heightMeters / 2;
+    const positions = Array.from({ length: count }, (_, i): [number, number, number] => {
+      const angle = (i / count) * Math.PI * 2;
+      return [Math.cos(angle) * radius, y, Math.sin(angle) * radius];
+    });
+    return { positions, topY: y + radius };
+  }
+  if (shape === "matrix") {
+    const cols = Math.max(1, matrixCols || Math.ceil(Math.sqrt(count)));
+    const rows = Math.ceil(count / cols);
+    const spacing = 0.12;
+    const positions = Array.from({ length: count }, (_, i): [number, number, number] => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      return [(col - (cols - 1) / 2) * spacing, row * spacing + spacing / 2, 0];
+    });
+    return { positions, topY: rows * spacing + spacing / 2 };
+  }
+  // "bar" / "strip": the original vertical stack.
+  const segH = heightMeters / count;
+  const positions = Array.from({ length: count }, (_, i): [number, number, number] => [
+    0,
+    i * segH + segH / 2,
+    0,
+  ]);
+  return { positions, topY: heightMeters };
+}
+
+// Per-segment box dimensions -- "strip" is a flatter/wider cross-section of
+// the same stack "bar" uses; ring/matrix pixels aren't stretched along a
+// stacking axis at all, so they get a small roughly-cubic size instead.
+function segmentBoxSize(shape: FixtureShape, segH: number): [number, number, number] {
+  if (shape === "strip") return [0.14, segH * 0.9, 0.025];
+  if (shape === "ring" || shape === "matrix") return [0.07, 0.07, 0.07];
+  return [0.08, segH * 0.95, 0.08];
+}
+
 function ResoLightBar({
   fixture,
   x,
@@ -371,21 +428,42 @@ function ResoLightBar({
   // discrete segments the 3D preview bothers to draw.
   const totalSegments = Math.min(20, Math.max(3, Math.round(fixture.ledCount / 3)));
 
+  // Ring/matrix genuinely need multiple positioned pixels to read as their
+  // shape at all -- unlike bar/strip, which can fall back to a single
+  // uniform blob when there's no live per-LED stream to segment.
+  const showShapeSegments = fixture.shape === "ring" || fixture.shape === "matrix";
+
   // Live per-LED pattern straight from the backend stream -- subsampled to
   // totalSegments, each segment keeping its exact wire color. No local
   // effect re-simulation; brightness rides the wire color itself.
   const segments = useMemo(() => {
-    if (!perLed || !liveLeds) return null;
-    return Array.from({ length: totalSegments }, (_, i) => {
-      const srcIdx = totalSegments > 1
-        ? Math.round((i * (liveLeds.length - 1)) / (totalSegments - 1))
-        : 0;
-      const c = liveLeds[Math.min(srcIdx, liveLeds.length - 1)];
-      const level = Math.max(c.r, c.g, c.b) / 255;
-      return { color: new THREE.Color(c.r / 255, c.g / 255, c.b / 255), level };
-    });
-  }, [perLed, liveLeds, totalSegments]);
+    if (perLed && liveLeds) {
+      return Array.from({ length: totalSegments }, (_, i) => {
+        const srcIdx = totalSegments > 1
+          ? Math.round((i * (liveLeds.length - 1)) / (totalSegments - 1))
+          : 0;
+        const c = liveLeds[Math.min(srcIdx, liveLeds.length - 1)];
+        const level = Math.max(c.r, c.g, c.b) / 255;
+        return { color: new THREE.Color(c.r / 255, c.g / 255, c.b / 255), level };
+      });
+    }
+    if (showShapeSegments) {
+      // No live per-LED stream (idle rig / static editor) -- still draw
+      // `totalSegments` pixels sharing the resolved uniform color, so a
+      // ring/matrix layout is visible while placing the fixture instead of
+      // collapsing to the single blob bar/strip fall back to below.
+      const level = emissiveIntensity > 0 ? Math.max(color.r, color.g, color.b) : 0;
+      return Array.from({ length: totalSegments }, () => ({ color, level }));
+    }
+    return null;
+  }, [perLed, liveLeds, totalSegments, showShapeSegments, color, emissiveIntensity]);
   const segmentCount = segments ? totalSegments : 1;
+
+  const layout = useMemo(
+    () => computeSegmentLayout(fixture.shape, segmentCount, heightMeters, fixture.matrixCols),
+    [fixture.shape, segmentCount, heightMeters, fixture.matrixCols],
+  );
+  const glowScale = showShapeSegments ? 0.22 : 0.42;
 
   // The bar mesh is ALWAYS built as a vertical box standing on its own
   // origin (base at local y=0, tip at y=heightMeters) -- orientation is
@@ -408,17 +486,18 @@ function ResoLightBar({
         {segments ? (
           segments.map((seg, idx) => {
             const segH = heightMeters / segmentCount;
-            const segY = idx * segH + segH / 2;
+            const segPos = layout.positions[idx] ?? [0, 0, 0];
+            const boxSize = segmentBoxSize(fixture.shape, segH);
             return (
               <group key={idx}>
               <mesh
-                position={[0, segY, 0]}
+                position={segPos}
                 onPointerDown={(e) => {
                   e.stopPropagation();
                   onPointerDownStart();
                 }}
               >
-                <boxGeometry args={[0.08, segH * 0.95, 0.08]} />
+                <boxGeometry args={boxSize} />
                 <meshStandardMaterial
                   color={seg.color}
                   emissive={seg.color}
@@ -428,7 +507,7 @@ function ResoLightBar({
               {/* A radial-falloff additive sprite reads as light spilling
                   from one physical LED (see getGlowTexture) -- not a flat
                   billboard halo, and no scene-wide bloom pass needed. */}
-              <sprite position={[0, segY, 0]} scale={[0.42, 0.42, 1]}>
+              <sprite position={segPos} scale={[glowScale, glowScale, 1]}>
                 <spriteMaterial
                   map={getGlowTexture()}
                   color={seg.color}
@@ -459,7 +538,7 @@ function ResoLightBar({
         )}
 
         <Text
-          position={[0, heightMeters + 0.18, 0]}
+          position={[0, layout.topY + 0.18, 0]}
           fontSize={0.14}
           color="#cbd5e1"
           anchorX="center"

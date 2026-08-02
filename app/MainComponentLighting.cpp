@@ -312,6 +312,7 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     // never branches on either, so no allowlist to keep in sync here; the
     // web UI owns the canonical set of known values.
     if (getString(doc, "shape", strVal)) fx->shape = strVal;
+    if (getInt(doc, "matrixCols", intVal)) fx->matrixCols = std::max(0, intVal);
     if (getString(doc, "channelProfile", strVal)) fx->channelProfile = strVal;
     if (getDouble(doc, "tiltDeg", numVal)) fx->tiltDeg = numVal;
 
