@@ -188,11 +188,7 @@ export interface LightFixtureRow {
   /** Cosmetic-only (3D stage mesh) -- see ui/src/lib/dmxProfiles.ts. */
   shape: "bar" | "par" | "wash" | "spot" | "movingHead" | "strip";
   /** Cosmetic-only (sets dmxChannelCount + channel-role labels in the UI). */
-  channelProfile:
-    | "dimmer" | "rgb" | "rgbw" | "rgbwa"
-    | "dimmerRgb" | "dimmerRgbw"
-    | "panTiltDimmerRgb" | "panTiltDimmerRgbw"
-    | "custom";
+  channelProfile: "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
   /** Cosmetic aim/pitch off vertical (3D stage only) -- 0 = straight up. */
   tiltDeg: number;
 }

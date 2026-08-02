@@ -37,11 +37,26 @@ void writeDmxChannels(const ResolvedFixtureOutput& out,
     const int startIdx = assign.startChannel - 1; // 0-based index
 
     if (wireColors.size() <= 1) {
-        // Uniform RGB for the whole bar -- no per-LED concept applies.
-        if (startIdx + 2 < 512) {
-            universe[startIdx + 0] = wireColors.empty() ? 0 : wireColors[0].r;
-            universe[startIdx + 1] = wireColors.empty() ? 0 : wireColors[0].g;
-            universe[startIdx + 2] = wireColors.empty() ? 0 : wireColors[0].b;
+        // Uniform RGB -- no per-LED concept applies. A DmxGeneric fixture's
+        // declared channel count is a real reservation (see
+        // assignResoLightChannels/lightingFixtureAdd's collision
+        // avoidance against whatever's patched right after it) -- writing
+        // the full RGB triplet regardless would spill into and corrupt
+        // that neighbour's first channel(s) whenever the fixture declares
+        // fewer than 3 (e.g. a 1-channel "Dimmer" profile). A ResoLightBar
+        // always gets the full triplet: its non-addressable channel count
+        // is always exactly 3 (see resoLightBarChannelCount), regardless
+        // of its own dmxChannelCount field, which auto-packing never reads.
+        const int channels = fixture.kind == LightFixture::Kind::DmxGeneric
+            ? std::clamp(fixture.dmxChannelCount, 1, 3)
+            : 3;
+        const uint8_t r = wireColors.empty() ? 0 : wireColors[0].r;
+        const uint8_t g = wireColors.empty() ? 0 : wireColors[0].g;
+        const uint8_t b = wireColors.empty() ? 0 : wireColors[0].b;
+        if (startIdx + channels - 1 < 512) {
+            if (channels >= 1) universe[startIdx + 0] = r;
+            if (channels >= 2) universe[startIdx + 1] = g;
+            if (channels >= 3) universe[startIdx + 2] = b;
         }
         return;
     }

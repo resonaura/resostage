@@ -161,7 +161,7 @@ struct LightFixture {
     // not consulted by the engine. See ui/src/lib/dmxProfiles.ts for the
     // canonical profile -> channel-count/role table.
     std::string shape = "bar";          // "bar" | "par" | "wash" | "spot" | "movingHead" | "strip"
-    std::string channelProfile = "rgb"; // "dimmer" | "rgb" | "rgbw" | "rgbwa" | "dimmerRgb" | "dimmerRgbw" | "panTiltDimmerRgb" | "panTiltDimmerRgbw" | "custom"
+    std::string channelProfile = "rgb"; // "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom" -- see ui/src/lib/dmxProfiles.ts for why leading-channel personalities (Dimmer+RGB, Pan/Tilt+...) aren't offered
     // Cosmetic pitch (3D stage only, like the pair above) -- a real moving
     // head/PAR/spot is aimed at an angle off vertical via its yoke bracket,
     // not standing bolt upright like a ResoLightBar; this is that aim

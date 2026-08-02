@@ -25,37 +25,32 @@ export const SHAPE_META: Record<FixtureShape, { label: string }> = {
 // shape (a literal LED bar), not a style choice a generic fixture can pick.
 export const DMX_GENERIC_SHAPES: FixtureShape[] = ["par", "wash", "spot", "movingHead", "strip"];
 
-export type ChannelProfile =
-  | "dimmer"
-  | "rgb"
-  | "rgbw"
-  | "rgbwa"
-  | "dimmerRgb"
-  | "dimmerRgbw"
-  | "panTiltDimmerRgb"
-  | "panTiltDimmerRgbw"
-  | "custom";
+// Deliberately NOT offering Dimmer+RGB / Pan+Tilt+Dimmer+RGB(W) personalities
+// here, even though they're common on real fixtures: writeDmxChannels (see
+// LightEngine.cpp) always writes the resolved R/G/B bytes starting at a
+// fixture's OWN dmxStartChannel (channel-count-clamped, but not offset), so
+// a profile whose real channel 1 is Pan/Tilt/Dimmer would get color-derived
+// bytes written into its movement/level channel instead -- on a real moving
+// head that can mean unexpected physical movement, not just a cosmetic
+// mismatch. Every profile below is safe because it's honest about what
+// actually happens: R/G/B (if present) really do land on channels 1-3, and
+// any channel beyond the 3 that get written (W, A) just stays at 0 instead
+// of being misdirected. Properly supporting a leading channel would need a
+// real dmxColorOffset (or a genuine dimmer/pan/tilt value from the cue
+// model, which doesn't exist yet) -- worth doing, not worth faking.
+export type ChannelProfile = "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
 
 export const CHANNEL_PROFILES: Record<
   ChannelProfile,
   { label: string; channelCount: number; roles: string[] }
 > = {
-  dimmer: { label: "Dimmer", channelCount: 1, roles: ["Dimmer"] },
+  // A 1-channel "dimmer" fixture has no color channels for R to misdirect
+  // into -- set the cue color to white so the resolved brightness rides
+  // this single channel as a de-facto master dimmer.
+  dimmer: { label: "Dimmer", channelCount: 1, roles: ["Dimmer (set cue color to white)"] },
   rgb: { label: "RGB", channelCount: 3, roles: ["R", "G", "B"] },
-  rgbw: { label: "RGBW", channelCount: 4, roles: ["R", "G", "B", "W"] },
-  rgbwa: { label: "RGBWA", channelCount: 5, roles: ["R", "G", "B", "W", "A"] },
-  dimmerRgb: { label: "Dimmer + RGB", channelCount: 4, roles: ["Dimmer", "R", "G", "B"] },
-  dimmerRgbw: { label: "Dimmer + RGBW", channelCount: 5, roles: ["Dimmer", "R", "G", "B", "W"] },
-  panTiltDimmerRgb: {
-    label: "Pan/Tilt + Dimmer + RGB",
-    channelCount: 6,
-    roles: ["Pan", "Tilt", "Dimmer", "R", "G", "B"],
-  },
-  panTiltDimmerRgbw: {
-    label: "Pan/Tilt + Dimmer + RGBW",
-    channelCount: 7,
-    roles: ["Pan", "Tilt", "Dimmer", "R", "G", "B", "W"],
-  },
+  rgbw: { label: "RGBW", channelCount: 4, roles: ["R", "G", "B", "W (unused)"] },
+  rgbwa: { label: "RGBWA", channelCount: 5, roles: ["R", "G", "B", "W (unused)", "A (unused)"] },
   // channelCount 0 is a sentinel meaning "don't touch dmxChannelCount" --
   // Custom is the escape hatch for a fixture that doesn't match any named
   // personality; the user drives Ch Count by hand instead.

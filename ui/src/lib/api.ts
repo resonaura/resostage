@@ -402,11 +402,7 @@ export const lighting = {
     dmxStartChannel?: number;
     dmxChannelCount?: number;
     shape?: "bar" | "par" | "wash" | "spot" | "movingHead" | "strip";
-    channelProfile?:
-      | "dimmer" | "rgb" | "rgbw" | "rgbwa"
-      | "dimmerRgb" | "dimmerRgbw"
-      | "panTiltDimmerRgb" | "panTiltDimmerRgbw"
-      | "custom";
+    channelProfile?: "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
     tiltDeg?: number;
   }) => post("/api/v1/lighting/fixture/update", patch),
 
