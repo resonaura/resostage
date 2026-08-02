@@ -101,9 +101,11 @@ TEST_CASE("resolveLightOutputs: Meter effect reads the source level via the call
     cues[0].effectIntensity = 1.0f;
 
     bool sawExpectedArgs = false;
-    auto sourceLevelDb = [&](const std::string& type, const std::string& id) -> float {
+    auto sourceLevelDb = [&](const std::string& type, const std::string& id) -> SourceLevels {
         if (type == "track" && id == "trk_5") sawExpectedArgs = true;
-        return -30.0f; // -> 0.5 linear
+        SourceLevels lv;
+        lv.peakDb = -30.0f; // -> 0.5 linear
+        return lv;
     };
 
     auto out = resolveLightOutputs(tracks, cues, 2.0, 120.0, sourceLevelDb);
@@ -117,7 +119,7 @@ TEST_CASE("resolveLightOutputs: gradient preset is carried through from the acti
     std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
     std::vector<LightCue> cues = {makeCue("t1", 0.0, 10.0, "meter")};
     cues[0].gradientPreset = "greenYellowRed";
-    auto out = resolveLightOutputs(tracks, cues, 1.0, 120.0, [](const std::string&, const std::string&) { return -100.0f; });
+    auto out = resolveLightOutputs(tracks, cues, 1.0, 120.0, [](const std::string&, const std::string&) { return SourceLevels{}; });
     REQUIRE(out.size() == 1);
     CHECK(out[0].gradient == GradientPreset::GreenYellowRed);
 }

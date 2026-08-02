@@ -4,6 +4,7 @@
 #include "LightCueInterpolation.h"
 #include "LightGradient.h"
 #include "project/ProjectSchema.h"
+#include "../telemetry/Telemetry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -131,13 +132,28 @@ struct ResolvedFixtureOutput {
     EffectParams::Type effectType = EffectParams::Type::None;
     double effectTSec = 0.0;
     float effectRateHz = 2.0f;
+    // 0..1 per-band energy (index 0 = lowest band) from the active cue's
+    // audio source -- filled whenever the cue is audio-driven (Meter, VuPeak,
+    // Geq, Blurz). All-zero otherwise. Forwarded so consumers (WebUiState /
+    // writeDmxChannels) can render Geq/Blurz's spectrum without re-fetching.
+    float bandLevel[kLightBandCount] = {};
 };
 
-// (sourceType "bus"|"track", sourceId) -> current peak dB for that source.
-// Return -100 (silence) for an unknown id rather than throwing -- a cue
-// pointing at a since-removed track/bus should just read as silent, not
-// crash the light output thread.
-using SourceLevelDbFn = std::function<float(const std::string& sourceType, const std::string& sourceId)>;
+// What an audio-source callback reports for one meter point at one instant.
+// peakDb is the post-fader peak (the classic Meter/VuPeak level); bandLevel
+// is the per-band 0..1 energy (index 0 = lowest band) that drives the
+// Geq/Blurz spectrum effects -- all zero if the meter pool has no band data
+// (e.g. a cue wired to a source the engine doesn't know).
+struct SourceLevels {
+    float peakDb = -144.0f;
+    float bandLevel[kLightBandCount] = {};
+};
+
+// (sourceType "bus"|"track", sourceId) -> current peak + per-band levels for
+// that source. Return all-zero levels (silence) for an unknown id rather than
+// throwing -- a cue pointing at a since-removed track/bus should just read as
+// silent, not crash the light output thread.
+using SourceLevelDbFn = std::function<SourceLevels(const std::string& sourceType, const std::string& sourceId)>;
 
 // Resolves what every fixture driven by `lightTracks` should display at
 // `tSec`, given `songLightCues` (the currently staged song's cues) and
@@ -229,15 +245,20 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                     ? subdivToHz(activeCue->tempoSubdiv, bpm, activeCue->effectRateHz)
                     : activeCue->effectRateHz;
 
-                if ((p.type == EffectParams::Type::Meter || p.type == EffectParams::Type::VuPeak) && sourceLevelDb) {
-                    const float db = sourceLevelDb(activeCue->effectSourceType, activeCue->effectSourceId);
-                    p.audioLevel = dbToLinearLevel(db);
-                    // Shared by both effects -- writeDmxChannels/the frontend
+                if ((p.type == EffectParams::Type::Meter || p.type == EffectParams::Type::VuPeak ||
+                     p.type == EffectParams::Type::Geq || p.type == EffectParams::Type::Blurz) && sourceLevelDb) {
+                    const SourceLevels lv = sourceLevelDb(activeCue->effectSourceType, activeCue->effectSourceId);
+                    p.audioLevel = dbToLinearLevel(lv.peakDb);
+                    for (int b = 0; b < kLightBandCount; ++b)
+                        p.bandLevel[b] = lv.bandLevel[b];
+                    // Shared by all four -- writeDmxChannels/the frontend
                     // preview key their Meter-vs-spatial routing off
                     // effectType explicitly (see its own doc comment), not
                     // off this field's presence, so VuPeak still gets its
                     // own per-LED shape via addressableEffectLedColor.
                     r.meterLevel01 = p.audioLevel;
+                    for (int b = 0; b < kLightBandCount; ++b)
+                        r.bandLevel[b] = p.bandLevel[b];
                 }
 
                 r.effectType = p.type;
@@ -314,11 +335,72 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                 acc.gradient = top.gradient;
                 acc.gradientColors = top.gradientColors;
                 acc.meterLevel01 = top.meterLevel01;
+                for (int b = 0; b < kLightBandCount; ++b)
+                    acc.bandLevel[b] = top.bandLevel[b];
             }
         }
         out.push_back(std::move(acc));
     }
     return out;
+}
+
+// Final per-LED wire color for one fixture -- the exact bytes the DMX
+// universe receives after intensity scaling (see writeDmxChannels).
+struct LedWireColor {
+    uint8_t r = 0;
+    uint8_t g = 0;
+    uint8_t b = 0;
+};
+
+// Resolves the final per-LED colors `fixture` should display for its resolved
+// output, using the same routing as LightEngine's DMX path (Meter's
+// progressive fill, spatial effects via addressableEffectLedColor, otherwise
+// the uniform cue color) and baking intensity into each color. Non-addressable
+// fixtures (or ledCount<=1) yield a single uniform entry; addressable fixtures
+// yield one entry per LED.
+//
+// Single source of truth for per-LED rendering: LightEngine's real-time DMX
+// output and MainComponent's per-LED websocket stream both call this, so the
+// web preview can never show something the hardware isn't doing.
+inline std::vector<LedWireColor> resolveLedWireColors(const ResolvedFixtureOutput& out,
+                                                      const LightFixture& fixture) {
+    const int leds = fixture.addressable && fixture.ledCount > 1 ? fixture.ledCount : 1;
+    const auto scale = [&](uint8_t ch, double ledLevel) -> uint8_t {
+        return static_cast<uint8_t>(
+            std::clamp(static_cast<double>(ch) * out.value.intensity * ledLevel, 0.0, 255.0));
+    };
+
+    if (leds == 1) {
+        return {{scale(out.value.r, 1.0), scale(out.value.g, 1.0), scale(out.value.b, 1.0)}};
+    }
+
+    const bool meterActive = out.effectType == EffectParams::Type::Meter;
+    const bool spatialEffectActive = !meterActive && out.effectType != EffectParams::Type::None;
+    const int litCount = meterActive
+        ? std::clamp(static_cast<int>(std::lround(out.meterLevel01 * leds)), 0, leds)
+        : leds; // not metering: every LED "lit" at the resolved uniform color
+
+    // Resolved ONCE per fixture per frame, not per LED -- see
+    // resolveGradientStops's doc comment. Empty for Solid/GreenYellowRed
+    // (meterLedColor/addressableEffectLedColor ignore the pointer then).
+    const std::vector<GradientStop> stops = resolveGradientStops(out.gradient, out.gradientColors);
+    const std::vector<GradientStop>* stopsPtr = stops.empty() ? nullptr : &stops;
+
+    std::vector<LedWireColor> colors;
+    colors.reserve(static_cast<size_t>(leds));
+    for (int i = 0; i < leds; ++i) {
+        uint8_t r = out.value.r, g = out.value.g, b = out.value.b;
+        double ledLevel = 1.0;
+        if (meterActive) {
+            meterLedColor(i, litCount, leds, out.gradient, out.value.r, out.value.g, out.value.b, r, g, b, stopsPtr);
+        } else if (spatialEffectActive) {
+            addressableEffectLedColor(i, leds, out.effectType, out.effectTSec, out.effectRateHz,
+                                      out.value.r, out.value.g, out.value.b, r, g, b, ledLevel,
+                                      stopsPtr, out.meterLevel01, out.bandLevel);
+        }
+        colors.push_back({scale(r, ledLevel), scale(g, ledLevel), scale(b, ledLevel)});
+    }
+    return colors;
 }
 
 } // namespace resostage

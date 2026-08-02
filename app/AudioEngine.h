@@ -434,6 +434,10 @@ private:
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> busMeters;
     std::vector<LoudnessMeter> busLoudnessMeters;
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> trackMeters;
+    // Per-track band-energy (GEQ/Blurz) analysis, kept in lockstep with
+    // trackMeters so frame.bandLevel carries real per-band levels for the
+    // light engine instead of the peak-only default.
+    std::vector<BandEnergyMeter> trackBandMeters;
     std::vector<bool> busMuted; // mirror of project bus mute for quick UI reads
     std::vector<PeakOverview> trackPeaks;
     // Session-lifetime cache keyed by archive path (TrackDef::file), so

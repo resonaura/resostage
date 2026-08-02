@@ -8,7 +8,7 @@
  *   3. Selected cue settings (color, audio-reactive effect, fades).
  */
 import { Slider } from "@heroui/react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BarChart2,
@@ -21,6 +21,7 @@ import {
   Merge,
   Minus,
   Palette,
+  Plus,
   Rainbow,
   Sparkles,
   Trash2,
@@ -39,6 +40,8 @@ import type {
   WebUiState,
 } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
+import { builtinPalette, parseGradientStops, type GradientStop } from "../../lib/lightCueInterpolation";
+import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "../../lib/liveLevels";
 import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
 
 const labelCls =
@@ -281,12 +284,158 @@ function HslColorPicker({
   );
 }
 
+// ─── Visual gradient-stop editor ───────────────────────────────────────────
+//
+// Replaces the old raw comma-separated hex textbox (see RESTORE_POINT.md
+// Feature 6). Stops are evenly spaced along the bar (the C++/TS samplers
+// interpolate at `t * (n - 1)`, so a stop's position is just its index --
+// drag reorders the sequence rather than storing absolute positions).
+// Editing writes back the same "#RRGGBB,#RRGGBB,..." string the backend
+// persists, so nothing downstream knows the editor exists.
+
+function GradientStopEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (colors: string) => void;
+}) {
+  const stops = useMemo(() => parseGradientStops(value, builtinPalette("vulcanFire")), [value]);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  const serialize = (next: GradientStop[]) =>
+    next.map((s) => rgbToHex(s.r, s.g, s.b)).join(",");
+
+  const commit = (next: GradientStop[]) => onChange(serialize(next));
+
+  const recolor = (i: number, hex: string) => {
+    const [r, g, b] = hexToRgb(hex);
+    commit(stops.map((s, idx) => (idx === i ? { r, g, b } : s)));
+  };
+
+  const removeStop = (i: number) => {
+    // The parsers require at least 2 stops (a single color isn't a
+    // gradient), so the last removable stop is #2.
+    if (stops.length <= 2) return;
+    commit(stops.filter((_, idx) => idx !== i));
+  };
+
+  const addStop = () => {
+    // Append a midpoint color between the last two stops so adding doesn't
+    // shift the perceived shape of the ramp -- the new stop is blended from
+    // its neighbours instead of being an arbitrary new color.
+    if (stops.length < 2) return;
+    const a = stops[stops.length - 2];
+    const b = stops[stops.length - 1];
+    const mid: GradientStop = {
+      r: Math.round((a.r + b.r) / 2),
+      g: Math.round((a.g + b.g) / 2),
+      b: Math.round((a.b + b.b) / 2),
+    };
+    commit([...stops, mid]);
+  };
+
+  const handleDrop = (target: number) => {
+    if (dragIndex !== null && dragIndex !== target) {
+      const next = [...stops];
+      const [moved] = next.splice(dragIndex, 1);
+      next.splice(target, 0, moved);
+      commit(next);
+    }
+    setDragIndex(null);
+    setOverIndex(null);
+  };
+
+  const gradientCss = stops
+    .map((s) => rgbToHex(s.r, s.g, s.b))
+    .map((hex, i) => `${hex} ${(i / (stops.length - 1)) * 100}%`)
+    .join(", ");
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-1.5">
+      {/* Preview bar */}
+      <div
+        className="h-5 w-full rounded-lg border border-default/40"
+        style={{ background: `linear-gradient(to right, ${gradientCss})` }}
+        aria-hidden
+      />
+
+      {/* Stops */}
+      <div className="flex flex-wrap items-center gap-1">
+        {stops.map((s, i) => (
+          <div
+            key={i}
+            draggable
+            onDragStart={() => setDragIndex(i)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setOverIndex(i);
+            }}
+            onDrop={() => handleDrop(i)}
+            onDragEnd={() => {
+              setDragIndex(null);
+              setOverIndex(null);
+            }}
+            className={`group relative flex h-7 w-12 cursor-grab items-center justify-center overflow-visible rounded-md border text-[8px] font-medium transition-all active:cursor-grabbing ${
+              overIndex === i
+                ? "border-accent ring-1 ring-accent/50"
+                : "border-default/50"
+            }`}
+            style={{ background: rgbToHex(s.r, s.g, s.b) }}
+            title="Drag to reorder"
+          >
+            <input
+              type="color"
+              value={rgbToHex(s.r, s.g, s.b)}
+              onChange={(e) => recolor(i, e.target.value)}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              aria-label={`Stop ${i + 1} color`}
+            />
+            <button
+              type="button"
+              onClick={() => removeStop(i)}
+              disabled={stops.length <= 2}
+              className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-default/60 bg-surface text-[8px] leading-none text-foreground/70 hover:bg-danger hover:text-white disabled:opacity-30 disabled:hover:bg-surface"
+              title={stops.length <= 2 ? "A gradient needs at least 2 stops" : "Remove stop"}
+            >
+              <X size={8} />
+            </button>
+            <span
+              className="pointer-events-none relative"
+              style={{ textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}
+            >
+              {i + 1}
+            </span>
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={addStop}
+          disabled={stops.length >= 8}
+          className="flex h-7 items-center gap-1 rounded-md border border-dashed border-default/50 px-2 text-[9px] text-foreground/50 hover:border-accent hover:text-accent disabled:opacity-30"
+          title={stops.length >= 8 ? "Max 8 stops" : "Add a stop (blended from the last two)"}
+        >
+          <Plus size={10} />
+          Add
+        </button>
+      </div>
+
+      <div className="text-[9px] text-foreground/35">
+        Stops are spread evenly. Drag to reorder, click a swatch to recolor, × to remove.
+      </div>
+    </div>
+  );
+}
+
 // ─── Audio effect selector (props-driven — state lives in LightSidePanel) ──
 
 type EffectType =
   | "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow"
   | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom"
-  | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak";
+  | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak"
+  | "geq" | "blurz";
 
 const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React.ReactNode }> = {
   none:         { label: "None",     desc: "Static color, no modulation",                      icon: <Minus size={12} /> },
@@ -308,6 +457,8 @@ const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React
   colorwaves:   { label: "Waves",    desc: "Multi-wave palette scan that never quite repeats", icon: <Waves size={12} /> },
   strobeswipe:  { label: "Swipe",    desc: "Fast bottom-to-top fill on every beat, then decays", icon: <Zap size={12} /> },
   vupeak:       { label: "VU Peak",  desc: "Continuous VU fill with a highlighted peak cap", icon: <BarChart2 size={12} /> },
+  geq:          { label: "GEQ",      desc: "Graphic-equalizer columns riding the audio spectrum (addressable fixtures)", icon: <BarChart2 size={12} /> },
+  blurz:        { label: "Blurz",    desc: "Spectrum smeared into a flowing colour wash (addressable fixtures)", icon: <Waves size={12} /> },
 };
 
 // ─── Tempo subdivisions ───────────────────────────────────────────────────
@@ -389,6 +540,7 @@ function EffectPanel({
             "none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow",
             "chase", "helix", "plasma", "twinkle", "sonicboom",
             "fire", "bouncing", "drip", "fireworks", "colorwaves", "strobeswipe", "vupeak",
+            "geq", "blurz",
           ] as EffectType[]).map((et) => {
             const meta = EFFECT_META[et];
             return (
@@ -473,14 +625,7 @@ function EffectPanel({
                 ))}
               </div>
               {gradientPreset === "custom" && (
-                <input
-                  type="text"
-                  value={gradientColors}
-                  onChange={(e) => onGradientColors(e.target.value)}
-                  placeholder="#ff0040,#7c3aed,#00e5ff"
-                  className="mt-1.5 w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-[10px] font-mono outline-none focus:border-accent"
-                  aria-label="Custom gradient stops"
-                />
+                <GradientStopEditor value={gradientColors} onChange={onGradientColors} />
               )}
             </Field>
           )}
@@ -798,11 +943,13 @@ function CueSettingsPanel({
           tempoSync={tempoSync} tempoSubdiv={tempoSubdiv}
           gradientPreset={gradientPreset}
           gradientColors={gradientColors}
+          blendMode={blendMode}
           showGradient={effectType !== "none" && hasAddressableFixture}
           onType={handleEffectType} onSourceType={handleEffectSourceType} onSourceId={handleEffectSourceId}
           onIntensity={handleEffectIntensity} onRate={handleEffectRate}
           onTempoSync={handleTempoSync} onTempoSubdiv={handleTempoSubdiv}
           onGradientPreset={handleGradientPreset} onGradientColors={handleGradientColors}
+          onBlendMode={handleBlendMode}
           busses={busses} tracks={tracks} bpm={bpm}
         />
       </div>
@@ -851,6 +998,7 @@ export function LightSidePanel({
   const [tempoSubdiv, setTempoSubdiv] = useState<TempoSubdiv>("1/4");
   const [gradientPreset, setGradientPreset] = useState<GradientPreset>("solid");
   const [gradientColors, setGradientColors] = useState("");
+  const [blendMode, setBlendMode] = useState<BlendModeUi>("normal");
 
   // BPM for the currently active song
   const currentSongIdx = selection?.type === "cue" ? selection.songIndex : 0;
@@ -871,6 +1019,7 @@ export function LightSidePanel({
     setTempoSubdiv((cue?.tempoSubdiv || "1/4") as TempoSubdiv);
     setGradientPreset((cue?.gradientPreset || "solid") as GradientPreset);
     setGradientColors(cue?.gradientColors ?? "");
+    setBlendMode(((cue?.blendMode as BlendModeUi) || "normal") as BlendModeUi);
   }
 
   const hasAddressableFixture =
@@ -878,30 +1027,35 @@ export function LightSidePanel({
       ? fixtures.some((f) => selection.track.fixtureIds.includes(f.id) && f.addressable)
       : false;
 
-  // Backend-authoritative resolved colors (see WebUiState.lightOutput's doc
-  // comment) merged over the base cue colors -- a fixture with no active cue
-  // has no lightOutput row and falls back to `previewColors` (black/off).
-  // This is what makes the preview show real strobe/pulse/ripple/meter
-  // modulation instead of a second, independent re-simulation that could
-  // drift from what the real hardware is doing.
+  // Backend-rendered per-LED state from the binary websocket stream (see
+  // liveLevels.ts) -- the preview draws these colors as-is, never
+  // re-simulating an effect. Fixtures with no live row (idle, or the song
+  // isn't playing) fall back to the editor `previewColors` (cue color /
+  // black).
+  const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
+  useEffect(
+    () =>
+      subscribeLiveLedOutputs(() =>
+        setLiveLedOutputs(getLiveLedOutputs()),
+      ),
+    [],
+  );
+
   const displayColors = useMemo(() => {
     const merged: Record<string, PreviewColor> = { ...previewColors };
-    for (const lo of state.lightOutput) {
-      merged[lo.fixtureId] = {
-        r: lo.r,
-        g: lo.g,
-        b: lo.b,
-        intensity: lo.intensity,
-        meterLevel01: lo.meterLevel01,
-        gradientPreset: lo.gradientPreset || undefined,
-        gradientColors: lo.gradientColors || undefined,
-        effectType: lo.effectType,
-        effectTSec: lo.effectTSec,
-        effectRateHz: lo.effectRateHz,
+    for (const lo of liveLedOutputs) {
+      const fixture = fixtures[lo.fixtureIdx];
+      if (!fixture) continue;
+      merged[fixture.id] = {
+        r: 0,
+        g: 0,
+        b: 0,
+        intensity: 1,
+        ledColors: lo.ledColors,
       };
     }
     return merged;
-  }, [previewColors, state.lightOutput]);
+  }, [previewColors, liveLedOutputs, fixtures]);
 
   return (
     <div
@@ -960,6 +1114,7 @@ export function LightSidePanel({
                 tempoSubdiv={tempoSubdiv}
                 gradientPreset={gradientPreset}
                 gradientColors={gradientColors}
+                blendMode={blendMode}
                 onEffectType={setEffectType}
                 onEffectSourceType={setEffectSourceType}
                 onEffectSourceId={setEffectSourceId}
@@ -969,6 +1124,7 @@ export function LightSidePanel({
                 onTempoSubdiv={setTempoSubdiv}
                 onGradientPreset={setGradientPreset}
                 onGradientColors={setGradientColors}
+                onBlendMode={setBlendMode}
               />
             </div>
 

@@ -21,9 +21,10 @@ namespace {
 // an addressable ResoLight bar actually look like a VU meter instead of
 // just uniformly dimming, matching how every other meter in the app
 // (LevelMeterBar.tsx) already fills bottom-to-top. Converge/GradientFlow
-// get their own per-LED shape via addressableEffectLedColor -- travelling
-// lines / a scrolling rainbow only mean something once you have individual
-// LEDs to place them on.
+// and the rest of the spatial effects get their own per-LED shape via
+// addressableEffectLedColor. All of that per-LED math lives in the shared
+// resolveLedWireColors() so the websocket stream can never diverge from
+// what this real output path writes.
 void writeDmxChannels(const ResolvedFixtureOutput& out,
                       const ResoLightChannelAssignment& assign,
                       const LightFixture& fixture,
@@ -32,56 +33,25 @@ void writeDmxChannels(const ResolvedFixtureOutput& out,
     if (universe.empty())
         universe.assign(512, 0);
 
-    const auto scaled = [&](uint8_t ch, double ledLevel) -> uint8_t {
-        return static_cast<uint8_t>(
-            std::clamp(static_cast<double>(ch) * out.value.intensity * ledLevel, 0.0, 255.0));
-    };
-
+    const std::vector<LedWireColor> wireColors = resolveLedWireColors(out, fixture);
     const int startIdx = assign.startChannel - 1; // 0-based index
 
-    if (!fixture.addressable || fixture.ledCount <= 1) {
+    if (wireColors.size() <= 1) {
         // Uniform RGB for the whole bar -- no per-LED concept applies.
         if (startIdx + 2 < 512) {
-            universe[startIdx + 0] = scaled(out.value.r, 1.0);
-            universe[startIdx + 1] = scaled(out.value.g, 1.0);
-            universe[startIdx + 2] = scaled(out.value.b, 1.0);
+            universe[startIdx + 0] = wireColors.empty() ? 0 : wireColors[0].r;
+            universe[startIdx + 1] = wireColors.empty() ? 0 : wireColors[0].g;
+            universe[startIdx + 2] = wireColors.empty() ? 0 : wireColors[0].b;
         }
         return;
     }
 
-    const int leds = std::min(fixture.ledCount, (512 - startIdx) / 3);
-    // Meter gets the dedicated progressive-fill path (meterLedColor); every
-    // other non-None effect (including VuPeak, which ALSO carries
-    // meterLevel01 -- see LightOutputResolver.h) renders through the
-    // general per-LED path instead, since only Meter's fill/gradient-preset
-    // shape belongs there.
-    const bool meterActive = out.effectType == EffectParams::Type::Meter;
-    const bool spatialEffectActive = !meterActive &&
-        out.effectType != EffectParams::Type::None;
-    const int litCount = meterActive
-        ? std::clamp(static_cast<int>(std::lround(out.meterLevel01 * leds)), 0, leds)
-        : leds; // not metering: every LED "lit" at the resolved uniform color
-
-    // Resolved ONCE per fixture per frame, not per LED -- see
-    // resolveGradientStops's doc comment. Empty for Solid/GreenYellowRed
-    // (meterLedColor/addressableEffectLedColor ignore the pointer then).
-    const std::vector<GradientStop> stops = resolveGradientStops(out.gradient, out.gradientColors);
-    const std::vector<GradientStop>* stopsPtr = stops.empty() ? nullptr : &stops;
-
+    const int leds = std::min(static_cast<int>(wireColors.size()), (512 - startIdx) / 3);
     for (int i = 0; i < leds; ++i) {
-        uint8_t r = out.value.r, g = out.value.g, b = out.value.b;
-        double ledLevel = 1.0;
-        if (meterActive) {
-            meterLedColor(i, litCount, leds, out.gradient, out.value.r, out.value.g, out.value.b, r, g, b, stopsPtr);
-        } else if (spatialEffectActive) {
-            addressableEffectLedColor(i, leds, out.effectType, out.effectTSec, out.effectRateHz,
-                                       out.value.r, out.value.g, out.value.b, r, g, b, ledLevel,
-                                       stopsPtr, out.meterLevel01);
-        }
         const int base = startIdx + i * 3;
-        universe[base + 0] = scaled(r, ledLevel);
-        universe[base + 1] = scaled(g, ledLevel);
-        universe[base + 2] = scaled(b, ledLevel);
+        universe[base + 0] = wireColors[static_cast<size_t>(i)].r;
+        universe[base + 1] = wireColors[static_cast<size_t>(i)].g;
+        universe[base + 2] = wireColors[static_cast<size_t>(i)].b;
     }
 }
 
@@ -142,10 +112,10 @@ void LightEngine::threadLoop() {
 
     // Dispatches by effectSourceType so a single resolver call can pull
     // from either meter pool interchangeably.
-    const SourceLevelDbFn sourceLevelDb = [this](const std::string& type, const std::string& id) -> float {
+    const SourceLevelDbFn sourceLevelDb = [this](const std::string& type, const std::string& id) -> SourceLevels {
         if (type == "track")
-            return trackPeakDb_ ? trackPeakDb_(id) : -100.0f;
-        return busPeakDb_ ? busPeakDb_(id) : -100.0f;
+            return trackPeakDb_ ? trackPeakDb_(id) : SourceLevels{};
+        return busPeakDb_ ? busPeakDb_(id) : SourceLevels{};
     };
 
     while (running_.load(std::memory_order_acquire)) {

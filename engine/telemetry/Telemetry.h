@@ -5,6 +5,13 @@
 
 namespace resostage {
 
+// Number of log-spaced frequency bands the audio meter splits into for the
+// light engine's GEQ/Blurz effects (see BandEnergyMeter in Metering.h).
+// Fixed so the band array lives inline in the trivially-copyable MeterFrame
+// (a SeqLock payload) and both the C++ lighting code and the TypeScript port
+// agree on the layout without a shared schema generator.
+constexpr int kLightBandCount = 6;
+
 // Per-meter-point snapshot (one instance per track or per bus), written by the
 // audio thread's Metering pass and consumed by UI/web threads via SeqLock<MeterFrame>.
 // Trivially copyable, as required by SeqLock.
@@ -16,6 +23,10 @@ struct MeterFrame {
     float momentaryLufs = -144.0f;  // ~400ms window
     float shortTermLufs = -144.0f;  // 3s window
     float integratedLufs = -144.0f; // gated, since measurement start
+    // 0..1 per-band energy (index 0 = lowest band), fed from the meter point's
+    // BandEnergyMeter pass. Only meaningful for the light engine's GEQ/Blurz
+    // effects; all other consumers ignore it.
+    float bandLevel[kLightBandCount] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 // Global transport state. Individual scalar fields are independently atomic

@@ -451,3 +451,69 @@ TEST_CASE("VuPeak: fills continuously up to the audio level, with a highlighted 
     CHECK(aboveLevel == doctest::Approx(0.0)); // above the fill -- off
     CHECK(r == 1); CHECK(g == 2); CHECK(b == 3); // color is the cue's own, unlike GradientFlow/Fire/Colorwaves
 }
+
+// ─── Geq / Blurz ──────────────────────────────────────────────────────────────
+
+TEST_CASE("Geq: LED brightness follows the interpolated band spectrum at its position") {
+    const float bands[kLightBandCount] = {0.0f, 0.9f, 0.0f, 0.0f, 0.0f, 0.0f};
+    uint8_t r, g, b;
+    double lvl;
+
+    // 21 LEDs: t = i/20. Band 1 sits at t = 1/5 = 0.2 -> LED 4 sits exactly
+    // on it. LED 0 maps to band 0 (energy 0), LED 20 to band 5 (energy 0).
+    addressableEffectLedColor(4, 21, EffectParams::Type::Geq, 3.14, 2.0f, 7, 8, 9, r, g, b, lvl, nullptr, 0.0f, bands);
+    CHECK(lvl == doctest::Approx(0.9));
+    CHECK(r == 7); CHECK(g == 8); CHECK(b == 9); // GEQ keeps the cue's own color
+
+    addressableEffectLedColor(2, 21, EffectParams::Type::Geq, 3.14, 2.0f, 7, 8, 9, r, g, b, lvl, nullptr, 0.0f, bands);
+    CHECK(lvl == doctest::Approx(0.45)); // t=0.1 -> halfway between band 0 and band 1
+
+    addressableEffectLedColor(0, 21, EffectParams::Type::Geq, 3.14, 2.0f, 7, 8, 9, r, g, b, lvl, nullptr, 0.0f, bands);
+    CHECK(lvl == doctest::Approx(0.0));
+
+    addressableEffectLedColor(20, 21, EffectParams::Type::Geq, 3.14, 2.0f, 7, 8, 9, r, g, b, lvl, nullptr, 0.0f, bands);
+    CHECK(lvl == doctest::Approx(0.0));
+}
+
+TEST_CASE("Geq: null or all-zero band data reads as dark") {
+    uint8_t r, g, b;
+    double lvl;
+    const float zeros[kLightBandCount] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+
+    addressableEffectLedColor(10, 21, EffectParams::Type::Geq, 0.0, 1.0f, 5, 6, 7, r, g, b, lvl, nullptr, 0.0f, zeros);
+    CHECK(lvl == doctest::Approx(0.0));
+    addressableEffectLedColor(10, 21, EffectParams::Type::Geq, 0.0, 1.0f, 5, 6, 7, r, g, b, lvl);
+    CHECK(lvl == doctest::Approx(0.0)); // no bandLevels pointer at all
+}
+
+TEST_CASE("Blurz: a lone loud band paints that band's hue where it sits and goes dark far away") {
+    const float bands[kLightBandCount] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    uint8_t r, g, b;
+    double lvl;
+
+    // Band 0's hue is red (hue 0). Its gaussian footprint keeps the wash
+    // localised: right on the band full-brightness red, several LED widths
+    // away effectively nothing.
+    addressableEffectLedColor(0, 21, EffectParams::Type::Blurz, 1.23, 4.0f, 9, 9, 9, r, g, b, lvl, nullptr, 0.0f, bands);
+    CHECK(lvl == doctest::Approx(1.0));
+    CHECK(r > 200);
+    CHECK(g < 60);
+    CHECK(b < 60);
+
+    addressableEffectLedColor(10, 21, EffectParams::Type::Blurz, 1.23, 4.0f, 9, 9, 9, r, g, b, lvl, nullptr, 0.0f, bands);
+    CHECK(lvl == doctest::Approx(0.0)); // far from the band's position -> dark
+}
+
+TEST_CASE("Blurz: an upper band paints its hue at the right place") {
+    const float bands[kLightBandCount] = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+    uint8_t r, g, b;
+    double lvl;
+
+    // Band 3's hue = 3/6 = 0.5 -> cyan (0,255,255). Band 3 sits at t=0.6,
+    // which is exactly LED 12 of a 21-LED bar.
+    addressableEffectLedColor(12, 21, EffectParams::Type::Blurz, 0.0, 1.0f, 1, 1, 1, r, g, b, lvl, nullptr, 0.0f, bands);
+    CHECK(lvl == doctest::Approx(1.0));
+    CHECK(r < 60);
+    CHECK(g > 200);
+    CHECK(b > 200);
+}

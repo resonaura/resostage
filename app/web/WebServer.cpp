@@ -72,10 +72,15 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     const uint16_t numMeters = static_cast<uint16_t>(s.meters.size());
     const uint16_t numLights = static_cast<uint16_t>(s.lightOutput.size());
 
+    size_t ledByteCount = 0;
+    for (const auto& lo : s.lightOutput)
+        ledByteCount += std::min<size_t>(lo.ledColors.size(), 512) * 3;
+
     const size_t totalSize = 24
         + static_cast<size_t>(numTracks) * 8
         + static_cast<size_t>(numMeters) * 8
-        + static_cast<size_t>(numLights) * 22;
+        + static_cast<size_t>(numLights) * 4  // fixtureIdx + ledCount per row
+        + ledByteCount;
 
     std::vector<uint8_t> buf(totalSize);
     uint8_t* p = buf.data();
@@ -93,7 +98,7 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     };
 
     writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
-    writeU8(1);       // Version 1
+    writeU8(2);       // Version 2: per-LED light rows (v1 carried effect params)
     writeU8(0);       // Flags
     writeFloat(static_cast<float>(s.playheadSeconds));
     writeFloat(s.clickPeakDbL);
@@ -113,46 +118,20 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
         writeFloat(m.peakDbR);
     }
 
-    // Byte values are wire protocol, not just an internal enum -- append
-    // new effects, never renumber existing ones, or an older/newer
-    // frontend build reading this stream would decode the wrong effect.
-    // (This path has no live consumer yet -- see RESTORE_POINT.md's binary
-    // transport note -- but keeping it complete means it's correct on day
-    // one if it's ever wired up, instead of silently mis-decoding every
-    // effect added after whichever one last bothered to update this table.)
-    const auto effectToByte = [](const std::string& type) -> uint8_t {
-        if (type == "meter") return 1;
-        if (type == "strobe") return 2;
-        if (type == "pulse") return 3;
-        if (type == "ripple") return 4;
-        if (type == "converge") return 5;
-        if (type == "gradientflow") return 6;
-        if (type == "chase") return 7;
-        if (type == "helix") return 8;
-        if (type == "plasma") return 9;
-        if (type == "twinkle") return 10;
-        if (type == "sonicboom") return 11;
-        if (type == "fire") return 12;
-        if (type == "bouncing") return 13;
-        if (type == "drip") return 14;
-        if (type == "fireworks") return 15;
-        if (type == "colorwaves") return 16;
-        if (type == "strobeswipe") return 17;
-        if (type == "vupeak") return 18;
-        return 0;
-    };
-
+    // Per-LED wire colors, backend-rendered (see resolveLedWireColors) --
+    // the frontend draws these as-is and never re-simulates an effect.
+    // Each row: fixtureIdx (u16), ledCount (u16), then ledCount RGB triples.
     for (uint16_t i = 0; i < numLights; ++i) {
         const auto& lo = s.lightOutput[i];
-        writeU16(i);
-        writeU8(static_cast<uint8_t>(std::clamp(lo.r, 0, 255)));
-        writeU8(static_cast<uint8_t>(std::clamp(lo.g, 0, 255)));
-        writeU8(static_cast<uint8_t>(std::clamp(lo.b, 0, 255)));
-        writeU8(effectToByte(lo.effectType));
-        writeFloat(static_cast<float>(lo.intensity));
-        writeFloat(static_cast<float>(lo.meterLevel01));
-        writeFloat(static_cast<float>(lo.effectTSec));
-        writeFloat(static_cast<float>(lo.effectRateHz));
+        writeU16(static_cast<uint16_t>(std::max(0, lo.fixtureIdx)));
+        const uint16_t n = static_cast<uint16_t>(
+            std::min<size_t>(lo.ledColors.size(), 512));
+        writeU16(n);
+        for (uint16_t j = 0; j < n; ++j) {
+            writeU8(static_cast<uint8_t>(std::clamp(lo.ledColors[j].r, 0, 255)));
+            writeU8(static_cast<uint8_t>(std::clamp(lo.ledColors[j].g, 0, 255)));
+            writeU8(static_cast<uint8_t>(std::clamp(lo.ledColors[j].b, 0, 255)));
+        }
     }
 
     return buf;
@@ -1441,24 +1420,6 @@ std::string WebServer::buildStateJson(const char* view) const {
                 o << "\"" << jsonEscape(lt.fixtureIds[fi]) << "\"";
             }
             o << "]}";
-        }
-        o << "]";
-
-        o << ",\"lightOutput\":[";
-        for (size_t i = 0; i < snap.lightOutput.size(); ++i) {
-            if (i) o << ",";
-            const auto& lo = snap.lightOutput[i];
-            o << "{\"fixtureId\":\"" << jsonEscape(lo.fixtureId) << "\","
-              << "\"r\":" << lo.r << ","
-              << "\"g\":" << lo.g << ","
-              << "\"b\":" << lo.b << ","
-              << "\"intensity\":" << finiteOrZero(lo.intensity) << ","
-              << "\"meterLevel01\":" << finiteOrZero(lo.meterLevel01) << ","
-              << "\"gradientPreset\":\"" << jsonEscape(lo.gradientPreset) << "\","
-              << "\"gradientColors\":\"" << jsonEscape(lo.gradientColors) << "\","
-              << "\"effectType\":\"" << jsonEscape(lo.effectType) << "\","
-              << "\"effectTSec\":" << finiteOrZero(lo.effectTSec) << ","
-              << "\"effectRateHz\":" << finiteOrZero(lo.effectRateHz) << "}";
         }
         o << "]";
     }

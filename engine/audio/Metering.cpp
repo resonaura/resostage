@@ -154,6 +154,111 @@ float TruePeakEstimator::processBlock(const float* samples, int numSamples) {
 }
 
 // ---------------------------------------------------------------------------
+// BandEnergyMeter
+// ---------------------------------------------------------------------------
+
+void BandEnergyMeter::prepare(double sampleRateHzIn, int numChannels) {
+    sampleRateHz = sampleRateHzIn > 0.0 ? sampleRateHzIn : 48000.0;
+    channelCount = std::max(1, numChannels);
+
+    filters.assign(static_cast<size_t>(kLightBandCount), std::vector<Biquad>(static_cast<size_t>(channelCount)));
+    sumSquares.assign(static_cast<size_t>(kLightBandCount), 0.0);
+    levels.assign(static_cast<size_t>(kLightBandCount), 0.0f);
+
+    for (int band = 0; band < kLightBandCount; ++band) {
+        // RBJ Audio EQ Cookbook band-pass, constant 0 dB peak gain (Q=1):
+        //   w0 = 2*pi*f0/Fs, alpha = sin(w0)/(2Q)
+        //   b0 = alpha, b1 = 0, b2 = -alpha
+        //   a0 = 1+alpha, a1 = -2*cos(w0), a2 = 1-alpha
+        // Peak gain is exactly 1.0 at f0, rolling to ~1/2 (-6dB) at f0/2 and 2*f0,
+        // which is what makes adjacent bands overlap gently (see header).
+        const double w0 = 2.0 * kPi * kLightBandCentersHz[static_cast<size_t>(band)] / sampleRateHz;
+        const double alpha = std::sin(w0) / (2.0 * 1.0);
+        const double a0 = 1.0 + alpha;
+        const double b0 = alpha / a0;
+        const double b1 = 0.0;
+        const double b2 = -alpha / a0;
+        const double a1 = -2.0 * std::cos(w0) / a0;
+        const double a2 = (1.0 - alpha) / a0;
+
+        for (auto& f : filters[static_cast<size_t>(band)])
+            f.setCoefficients(b0, b1, b2, a1, a2);
+    }
+
+    reset();
+}
+
+void BandEnergyMeter::reset() {
+    for (auto& bandFilters : filters)
+        for (auto& f : bandFilters)
+            f.reset();
+    std::fill(sumSquares.begin(), sumSquares.end(), 0.0);
+    std::fill(levels.begin(), levels.end(), 0.0f);
+}
+
+void BandEnergyMeter::processBlock(const float* const* channels, int numSamples) {
+    if (channels == nullptr || numSamples <= 0 || filters.empty())
+        return;
+    if (channels[0] == nullptr)
+        return;
+
+    // Mono signal: channel[1] is either nullptr or aliases channel[0] (the
+    // engine's mono path mirrors pointers). Only process one channel then.
+    const bool mono = channelCount < 2 || channels[1] == nullptr || channels[1] == channels[0];
+    const float* in0 = channels[0];
+    const float* in1 = mono ? nullptr : channels[1];
+
+    std::fill(sumSquares.begin(), sumSquares.end(), 0.0);
+    for (int band = 0; band < kLightBandCount; ++band) {
+        auto& bandFilters = filters[static_cast<size_t>(band)];
+        double sumSq = 0.0;
+
+        Biquad& f0 = bandFilters[0];
+        for (int i = 0; i < numSamples; ++i) {
+            const float y = f0.processSample(in0[i]);
+            if (std::isfinite(y))
+                sumSq += static_cast<double>(y) * static_cast<double>(y);
+        }
+        if (!mono) {
+            Biquad& f1 = bandFilters[1];
+            for (int i = 0; i < numSamples; ++i) {
+                const float y = f1.processSample(in1[i]);
+                if (std::isfinite(y))
+                    sumSq += static_cast<double>(y) * static_cast<double>(y);
+            }
+        }
+
+        sumSquares[static_cast<size_t>(band)] = sumSq;
+    }
+
+    // Convert per-block mean-square energy to a smoothed 0..1 level. Floor is
+    // -48dBFS (reads as a dark column); -24dBFS RMS sits at half height.
+    constexpr double kFloorDb = 48.0;
+    const double dt = static_cast<double>(numSamples) / sampleRateHz;
+    const double samplesPerChannel = static_cast<double>(numSamples) * (mono ? 1 : 2);
+    const double attackTau = 0.01;
+    const double releaseTau = 0.15;
+
+    for (int band = 0; band < kLightBandCount; ++band) {
+        const double mse = sumSquares[static_cast<size_t>(band)] / samplesPerChannel;
+        const double db = (mse > 1.0e-10) ? 10.0 * std::log10(mse) : -144.0;
+        const double target = std::clamp((db + kFloorDb) / kFloorDb, 0.0, 1.0);
+
+        const double tau = (target >= levels[static_cast<size_t>(band)]) ? attackTau : releaseTau;
+        const double alpha = 1.0 - std::exp(-dt / tau);
+        float& level = levels[static_cast<size_t>(band)];
+        level = static_cast<float>(level + alpha * (target - level));
+    }
+}
+
+void BandEnergyMeter::currentLevels(float* out) const {
+    if (out == nullptr)
+        return;
+    for (int band = 0; band < kLightBandCount; ++band)
+        out[band] = levels[static_cast<size_t>(band)];
+}
+
+// ---------------------------------------------------------------------------
 // LoudnessMeter
 // ---------------------------------------------------------------------------
 
@@ -169,6 +274,8 @@ void LoudnessMeter::prepare(double sampleRateHzIn, int numChannels) {
     for (auto& tp : truePeakEstimators)
         tp.prepare(4);
 
+    bandEnergy.prepare(sampleRateHz, channelCount);
+
     blockSizeSamples = static_cast<int>(sampleRateHz * 0.4);
     hopSizeSamples = static_cast<int>(sampleRateHz * 0.1);
     sumSquaresPerChannel.assign(static_cast<size_t>(channelCount), 0.0);
@@ -183,6 +290,8 @@ void LoudnessMeter::reset() {
         f.reset();
     for (auto& tp : truePeakEstimators)
         tp.reset();
+
+    bandEnergy.reset();
 
     std::fill(sumSquaresPerChannel.begin(), sumSquaresPerChannel.end(), 0.0);
     samplesAccumulated = 0;
@@ -249,6 +358,11 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
     // Mono sources: mirror L into R so stereo meters stay balanced.
     if (chs < 2)
         peakLinearR = peakLinearL;
+
+    // Per-band energy uses the raw (unweighted) signal, so the light engine's
+    // GEQ/Blurz sees the actual spectrum rather than the K-weighted loudness
+    // curve. Mono signals (chs < 2) are handled inside BandEnergyMeter.
+    bandEnergy.processBlock(channels, numSamples);
 
     // Block-level peak capture (this render block's peak), not an all-time max,
     // so the meter reflects current signal level rather than latching forever.
@@ -324,6 +438,7 @@ MeterFrame LoudnessMeter::currentFrame() const {
     frame.momentaryLufs = currentMomentaryLufs;
     frame.shortTermLufs = currentShortTermLufs;
     frame.integratedLufs = currentIntegratedLufs;
+    bandEnergy.currentLevels(frame.bandLevel);
     return frame;
 }
 

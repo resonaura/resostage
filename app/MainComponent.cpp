@@ -1259,7 +1259,14 @@ void MainComponent::publishWebState() {
         && static_cast<size_t>(state.songIndex) < proj.songs.size()) {
         const SongDef& activeSong = proj.songs[static_cast<size_t>(state.songIndex)];
         const auto& allTracks = proj.tracks;
-        const auto sourceLevelDb = [this, &allTracks, &proj](const std::string& type, const std::string& id) -> float {
+        const auto sourceLevelDb = [this, &allTracks, &proj](const std::string& type, const std::string& id) -> SourceLevels {
+            const auto toLevels = [](const MeterFrame& f) {
+                SourceLevels lv;
+                lv.peakDb = f.peakDb;
+                for (int b = 0; b < kLightBandCount; ++b)
+                    lv.bandLevel[b] = f.bandLevel[b];
+                return lv;
+            };
             if (type == "track") {
                 for (size_t i = 0; i < allTracks.size(); ++i) {
                     if (allTracks[i].id != id)
@@ -1267,11 +1274,11 @@ void MainComponent::publishWebState() {
                     if (const auto* m = engine.trackMeterAt(i)) {
                         MeterFrame f;
                         if (m->read(f))
-                            return f.peakDb;
+                            return toLevels(f);
                     }
                     break;
                 }
-                return -144.0f;
+                return SourceLevels{};
             }
             for (size_t i = 0; i < proj.busses.size(); ++i) {
                 if (!id.empty() && proj.busses[i].id != id)
@@ -1281,11 +1288,11 @@ void MainComponent::publishWebState() {
                 if (const auto* m = engine.busMeterAt(i)) {
                     MeterFrame f;
                     if (m->read(f))
-                        return f.peakDb;
+                        return toLevels(f);
                 }
                 break;
             }
-            return -144.0f;
+            return SourceLevels{};
         };
 
         // Re-read the live transport position right before resolving light
@@ -1299,20 +1306,26 @@ void MainComponent::publishWebState() {
             transport.playheadSeconds.load(std::memory_order_relaxed);
         const auto resolved = resolveLightOutputs(
             proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
+
+        // Fixture id -> project fixture array index, the wire key the binary
+        // per-LED stream uses so the frontend can map colors back to its own
+        // lighting.fixtures array without shipping ids every frame.
+        std::map<std::string, int> fixtureIndex;
+        for (size_t fi = 0; fi < proj.lighting.fixtures.size(); ++fi)
+            fixtureIndex[proj.lighting.fixtures[fi].id] = static_cast<int>(fi);
+
         state.lightOutput.reserve(resolved.size());
         for (const auto& r : resolved) {
             WebUiState::LightOutputRow lor;
             lor.fixtureId = r.fixtureId;
-            lor.r = r.value.r;
-            lor.g = r.value.g;
-            lor.b = r.value.b;
-            lor.intensity = r.value.intensity;
-            lor.meterLevel01 = r.meterLevel01;
-            lor.gradientPreset = gradientPresetToString(r.gradient);
-            lor.gradientColors = r.gradientColors;
-            lor.effectType = effectTypeToString(r.effectType);
-            lor.effectTSec = r.effectTSec;
-            lor.effectRateHz = r.effectRateHz;
+            lor.fixtureIdx = fixtureIndex[r.fixtureId]; // -1 if missing from the rig
+            if (lor.fixtureIdx >= 0) {
+                const auto& fixture = proj.lighting.fixtures[static_cast<size_t>(lor.fixtureIdx)];
+                const auto wire = resolveLedWireColors(r, fixture);
+                lor.ledColors.reserve(wire.size());
+                for (const auto& c : wire)
+                    lor.ledColors.push_back({c.r, c.g, c.b});
+            }
             state.lightOutput.push_back(std::move(lor));
         }
     }

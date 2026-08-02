@@ -427,16 +427,16 @@ export const lighting = {
     fadeInSeconds?: number;
     fadeOutSeconds?: number;
     label?: string;
-    // Audio-reactive effect (resolved by both LightEngine and the WebUiState
-    // push -- see lighting.lightOutput on WebUiState for the live result).
-    effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom";
+    // Audio-reactive effect (resolved by both LightEngine and the per-LED
+    // websocket stream -- see liveLevels.ts for the live result).
+    effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak" | "geq" | "blurz";
     effectSourceType?: "bus" | "track";
     effectSourceId?: string;
     effectIntensity?: number;
     tempoSync?: boolean;
     tempoSubdiv?: string;
     effectRateHz?: number;
-    gradientPreset?: "solid" | "greenYellowRed" | "custom";
+    gradientPreset?: "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire";
     gradientColors?: string;
     blendMode?: "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive";
     gestureId?: string;

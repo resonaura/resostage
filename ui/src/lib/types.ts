@@ -89,7 +89,7 @@ export interface LightCueRow {
   // ProjectSchema.h exactly (persisted, resolved by LightEngine AND
   // MainComponent's WebUiState push through the same
   // engine/lighting/LightOutputResolver.h call -- see lightOutput below).
-  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak" | "";
+  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak" | "geq" | "blurz" | "";
   effectSourceType: "bus" | "track" | "";
   effectSourceId: string;
   effectIntensity: number; // 0-1 depth of the effect
@@ -102,27 +102,6 @@ export interface LightCueRow {
   // on the same fixture (base/accent layering) -- see LightBlend.h. No
   // effect unless the fixture is driven by more than one LightTrack.
   blendMode?: "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive" | "";
-}
-
-// Backend-authoritative resolved lamp state, one row per fixture currently
-// driven by an active cue -- see WebUiState::LightOutputRow's doc comment.
-// The live preview (Settings' 3D editor, Timeline's Light mode) should
-// render THIS, not re-simulate cues/effects itself.
-export interface LightOutputRow {
-  fixtureId: string;
-  r: number;
-  g: number;
-  b: number;
-  intensity: number;
-  meterLevel01: number; // 0 unless the active cue's effect is Meter or VuPeak
-  gradientPreset: "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire" | "";
-  gradientColors: string;
-  // Effect identity + phase for addressable fixtures with a spatial
-  // per-LED pattern (Converge, GradientFlow) -- "none"/0 otherwise. See
-  // lightCueInterpolation.ts's addressableEffectLedColor.
-  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak";
-  effectTSec: number;
-  effectRateHz: number;
 }
 
 export interface SongRow {
@@ -371,7 +350,6 @@ export interface WebUiState {
   /** Project-scoped lighting rig config -- see Settings' "Project" card. Always shipped (tiny). */
   lighting: LightingState;
   lightTracks: LightTrackRow[];
-  lightOutput: LightOutputRow[];
   health: HealthState;
   settings: SettingsState;
 }
@@ -425,7 +403,6 @@ export const emptyState: WebUiState = {
     fixtures: [],
   },
   lightTracks: [],
-  lightOutput: [],
   health: {
     cpuPercent: 0,
     rssBytes: 0,

@@ -41,28 +41,15 @@ let meters: LiveLevels["meters"] = [];
 let meterIds: string[] = [];
 let seq = 0;
 
-export type LiveLightOutput = {
+export type LiveLedColor = { r: number; g: number; b: number };
+
+export type LiveLedOutput = {
   fixtureIdx: number;
-  r: number;
-  g: number;
-  b: number;
-  effectType: string;
-  intensity: number;
-  meterLevel01: number;
-  effectTSec: number;
-  effectRateHz: number;
+  ledColors: LiveLedColor[];
 };
 
-let liveLightOutputs: LiveLightOutput[] = [];
+let liveLedOutputs: LiveLedOutput[] = [];
 let lightPlayheadSec = 0;
-
-// Index == wire byte value written by WebServer.cpp's effectToByte -- append
-// new effects there and here together, never reorder (see its own comment).
-const EFFECT_TYPES = [
-  "none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow",
-  "chase", "helix", "plasma", "twinkle", "sonicboom",
-  "fire", "bouncing", "drip", "fireworks", "colorwaves", "strobeswipe", "vupeak",
-];
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -76,11 +63,11 @@ export function getLivePlayheadSec(): number {
   return lightPlayheadSec;
 }
 
-export function getLiveLightOutputs(): LiveLightOutput[] {
-  return liveLightOutputs;
+export function getLiveLedOutputs(): LiveLedOutput[] {
+  return liveLedOutputs;
 }
 
-export function subscribeLiveLightOutputs(listener: Listener): () => void {
+export function subscribeLiveLedOutputs(listener: Listener): () => void {
   lightListeners.add(listener);
   return () => {
     lightListeners.delete(listener);
@@ -222,6 +209,8 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   const view = new DataView(buffer);
   const magic = view.getUint16(0, true);
   if (magic !== 0x5253) return;
+  // Version 2+ carries backend-rendered per-LED light rows.
+  const version = view.getUint8(2);
 
   const playheadSec = view.getFloat32(4, true);
   const clickL = view.getFloat32(8, true);
@@ -262,31 +251,27 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   }
   meters = nextMeters;
 
-  const nextLights: LiveLightOutput[] = [];
-  for (let i = 0; i < numLights; i++) {
-    if (offset + 22 > buffer.byteLength) break;
-    const fixtureIdx = view.getUint16(offset, true);
-    const r = view.getUint8(offset + 2);
-    const g = view.getUint8(offset + 3);
-    const b = view.getUint8(offset + 4);
-    const effIdx = view.getUint8(offset + 5);
-    const intensity = view.getFloat32(offset + 6, true);
-    const meterLevel01 = view.getFloat32(offset + 10, true);
-    const effectTSec = view.getFloat32(offset + 14, true);
-    const effectRateHz = view.getFloat32(offset + 18, true);
-    offset += 22;
-
-    nextLights.push({
-      fixtureIdx,
-      r, g, b,
-      effectType: EFFECT_TYPES[effIdx] ?? "none",
-      intensity,
-      meterLevel01,
-      effectTSec,
-      effectRateHz,
-    });
+  const nextLights: LiveLedOutput[] = [];
+  if (version >= 2) {
+    for (let i = 0; i < numLights; i++) {
+      if (offset + 4 > buffer.byteLength) break;
+      const fixtureIdx = view.getUint16(offset, true);
+      const ledCount = view.getUint16(offset + 2, true);
+      offset += 4;
+      const leds: LiveLedColor[] = [];
+      for (let j = 0; j < ledCount; j++) {
+        if (offset + 3 > buffer.byteLength) break;
+        leds.push({
+          r: view.getUint8(offset),
+          g: view.getUint8(offset + 1),
+          b: view.getUint8(offset + 2),
+        });
+        offset += 3;
+      }
+      nextLights.push({ fixtureIdx, ledColors: leds });
+    }
   }
-  liveLightOutputs = nextLights;
+  liveLedOutputs = nextLights;
   for (const l of lightListeners) l();
 
   seq += 1;

@@ -2,6 +2,7 @@
 
 #include "LightGradient.h"
 #include "project/ProjectSchema.h"
+#include "../telemetry/Telemetry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -63,15 +64,25 @@ struct EffectParams {
         // Concert-pack additions -- see addressableEffectLedColor for the
         // per-LED shape of each. All seven are pure functions of
         // (i, totalLeds, tSec, rateHz) like everything above them; none
-        // needs persistent cross-frame simulation state (see RESTORE_POINT.md's
-        // "no FFT / spectral analysis exists yet" note for why GEQ/Blurz from
-        // the source research doc were deliberately left out of this batch
-        // rather than faked without real spectral data).
+        // needs persistent cross-frame simulation state.
         Fire, Bouncing, Drip, Fireworks, Colorwaves, StrobeSwipe, VuPeak,
+        // Audio-spectrum effects -- the band-energy batch from the source
+        // research doc (see RESTORE_POINT.md's "no FFT / spectral analysis
+        // exists yet" note for how BandEnergyMeter in Metering.h provides
+        // the per-band data without an FFT). Both are pure functions of
+        // (i, totalLeds, bandLevel[6]) -- audio drives the shape, so rateHz
+        // and tSec are unused by their per-LED formulas. They only render
+        // when the cue's source delivers bandLevel (i.e. a real MeterFrame);
+        // a source without band data reads as dark (outLevel 0).
+        Geq, Blurz,
     } type{Type::None};
     float intensity    = 0.8f;   // 0..1 — depth of the effect
     float rateHz       = 2.0f;   // cycles per second (pre-computed from tempoSubdiv if synced)
     float audioLevel   = 0.0f;   // 0..1 peak level from the target bus (for Meter, VuPeak)
+    // 0..1 per-band energy (index 0 = lowest band) from the target source's
+    // MeterFrame -- the only signal Geq/Blurz render from. Filled by the
+    // resolver when the active cue is audio-driven; all-zero otherwise.
+    float bandLevel[kLightBandCount] = {};
     double tSec        = 0.0;    // monotonic wall-clock time for Strobe/Pulse/Ripple
     int fixtureIndex   = 0;      // fixture position for Ripple phase offset
 };
@@ -96,6 +107,8 @@ inline EffectParams::Type parseEffectType(const std::string& s) {
     if (s == "colorwaves")   return EffectParams::Type::Colorwaves;
     if (s == "strobeswipe")  return EffectParams::Type::StrobeSwipe;
     if (s == "vupeak")       return EffectParams::Type::VuPeak;
+    if (s == "geq")          return EffectParams::Type::Geq;
+    if (s == "blurz")        return EffectParams::Type::Blurz;
     return EffectParams::Type::None;
 }
 
@@ -124,6 +137,8 @@ inline const char* effectTypeToString(EffectParams::Type t) {
         case EffectParams::Type::Colorwaves:   return "colorwaves";
         case EffectParams::Type::StrobeSwipe:  return "strobeswipe";
         case EffectParams::Type::VuPeak:       return "vupeak";
+        case EffectParams::Type::Geq:          return "geq";
+        case EffectParams::Type::Blurz:        return "blurz";
     }
     return "none";
 }
@@ -222,6 +237,19 @@ inline LightCueValue applyEffect(LightCueValue base, const EffectParams& p) {
             level = std::clamp(p.audioLevel, 0.0f, 1.0f) * p.intensity;
             break;
         }
+        case EffectParams::Type::Geq:
+        case EffectParams::Type::Blurz: {
+            // Whole-bar fallback for non-addressable fixtures: brightness
+            // follows the loudest band (a single colour, since a non-spatial
+            // bar has no positions to spread the spectrum across). Addressable
+            // fixtures get the real per-LED spectral shapes via
+            // addressableEffectLedColor.
+            float maxBand = 0.0f;
+            for (int b = 0; b < kLightBandCount; ++b)
+                maxBand = std::max(maxBand, p.bandLevel[b]);
+            level = std::clamp(maxBand, 0.0f, 1.0f) * p.intensity;
+            break;
+        }
         case EffectParams::Type::Chase:
         case EffectParams::Type::Helix:
         case EffectParams::Type::Plasma:
@@ -304,13 +332,20 @@ inline double pointFalloff(double t, double center, double width) {
 // `audioLevel` (optional, 0..1): only meaningful for VuPeak -- see
 // LightOutputResolver.h for why it's threaded separately from the
 // Meter-only meterLevel01/meterLedColor path.
+//
+// `bandLevels` (optional, array of kLightBandCount 0..1 values, index 0 =
+// lowest band): only meaningful for Geq/Blurz -- the audio spectrum they
+// render from. Both effects are pure functions of (i, totalLeds, bandLevels)
+// and ignore rateHz/tSec. Null or all-zero reads as dark (outLevel 0), which
+// is the correct behavior for a source that never delivered band data.
 inline void addressableEffectLedColor(int i, int totalLeds, EffectParams::Type type,
-                                       double tSec, float rateHz,
-                                       uint8_t baseR, uint8_t baseG, uint8_t baseB,
-                                       uint8_t& outR, uint8_t& outG, uint8_t& outB,
-                                       double& outLevel,
-                                       const std::vector<GradientStop>* palette = nullptr,
-                                       float audioLevel = 0.0f) {
+                                      double tSec, float rateHz,
+                                      uint8_t baseR, uint8_t baseG, uint8_t baseB,
+                                      uint8_t& outR, uint8_t& outG, uint8_t& outB,
+                                      double& outLevel,
+                                      const std::vector<GradientStop>* palette = nullptr,
+                                      float audioLevel = 0.0f,
+                                      const float* bandLevels = nullptr) {
     outR = baseR;
     outG = baseG;
     outB = baseB;
@@ -471,6 +506,61 @@ inline void addressableEffectLedColor(int i, int totalLeds, EffectParams::Type t
             outLevel = 0.0;
         }
         outR = baseR; outG = baseG; outB = baseB;
+    } else if (type == EffectParams::Type::Geq) {
+        // Graphic-equalizer: LED position maps linearly onto the band
+        // spectrum (t=0 -> lowest band, t=1 -> highest), and each LED shows
+        // the interpolated band energy at its position as brightness. A real
+        // GEQ's columns are single-coloured, so color stays the cue's base
+        // color and only the level rides the audio. Audio-driven, so
+        // rateHz/tSec are unused here.
+        if (bandLevels != nullptr) {
+            const double bandPos = t * (kLightBandCount - 1);
+            const int b0 = std::clamp(static_cast<int>(std::floor(bandPos)), 0, kLightBandCount - 1);
+            const int b1 = std::min(b0 + 1, kLightBandCount - 1);
+            const double frac = bandPos - std::floor(bandPos);
+            const double lvl = static_cast<double>(bandLevels[b0]) * (1.0 - frac)
+                             + static_cast<double>(bandLevels[b1]) * frac;
+            outLevel = std::clamp(lvl, 0.0, 1.0);
+        } else {
+            outLevel = 0.0;
+        }
+        outR = baseR; outG = baseG; outB = baseB;
+    } else if (type == EffectParams::Type::Blurz) {
+        // Blurz: the spectrum smears into a colour wash. Each band paints a
+        // hue (band index ramped across the full wheel) at its position on
+        // the bar; an LED blends the nearby bands' colours weighted by
+        // energy times a gaussian falloff in distance, so loud bands push
+        // their hue outward into their quieter neighbours instead of staying
+        // in discrete columns. Brightness follows the loudest nearby band.
+        constexpr double kBlurzSigma = 0.09;
+        constexpr int kBlurzBands = kLightBandCount;
+        double rAcc = 0.0, gAcc = 0.0, bAcc = 0.0, wAcc = 0.0;
+        double maxNear = 0.0;
+        if (bandLevels != nullptr) {
+            for (int b = 0; b < kBlurzBands; ++b) {
+                const double bandPos = kBlurzBands > 1 ? static_cast<double>(b) / (kBlurzBands - 1) : 0.0;
+                const double dist = t - bandPos;
+                const double w = static_cast<double>(bandLevels[b]) *
+                                 std::exp(-(dist * dist) / (2.0 * kBlurzSigma * kBlurzSigma));
+                uint8_t hr = 255, hg = 255, hb = 255;
+                hsvToRgb(static_cast<double>(b) / kBlurzBands, 1.0, 1.0, hr, hg, hb);
+                rAcc += w * hr;
+                gAcc += w * hg;
+                bAcc += w * hb;
+                wAcc += w;
+                maxNear = std::max(maxNear, static_cast<double>(bandLevels[b]) *
+                                            std::exp(-(dist * dist) / (2.0 * kBlurzSigma * kBlurzSigma)));
+            }
+        }
+        if (wAcc > 1.0e-6) {
+            outR = static_cast<uint8_t>(std::clamp(rAcc / wAcc, 0.0, 255.0));
+            outG = static_cast<uint8_t>(std::clamp(gAcc / wAcc, 0.0, 255.0));
+            outB = static_cast<uint8_t>(std::clamp(bAcc / wAcc, 0.0, 255.0));
+            outLevel = std::clamp(maxNear * 2.0, 0.0, 1.0); // loud band => full brightness
+        } else {
+            outLevel = 0.0;
+            outR = baseR; outG = baseG; outB = baseB;
+        }
     }
 }
 

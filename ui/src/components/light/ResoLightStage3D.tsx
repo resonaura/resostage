@@ -4,16 +4,43 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, MoveUp } from "lucide-react";
 import * as THREE from "three";
 import type { LightFixtureRow } from "../../lib/types";
-import {
-  addressableEffectLedColor, builtinPalette, parseGradientStops, sampleGradient,
-  type GradientStop, type LightCueValue, type SpatialEffectType,
-} from "../../lib/lightCueInterpolation";
+import type { LightCueValue } from "../../lib/lightCueInterpolation";
+import type { LiveLedColor } from "../../lib/liveLevels";
 
 // One stage-grid cell is deliberately small enough for practical placement,
 // while still guaranteeing panels never slowly drift off the visual grid.
 const STAGE_GRID_STEP = 0.25;
 const snapToStageGrid = (value: number) =>
   Math.round(value / STAGE_GRID_STEP) * STAGE_GRID_STEP;
+
+// ─── Radial-falloff glow sprite ────────────────────────────────────────────
+//
+// A flat solid-color sprite reads as a uniform billboard halo (the previous
+// attempt). A proper radial gradient -- bright core, smooth falloff to
+// transparent -- is what makes a sprite read as light spilling off a point
+// source instead. Three.js sprites always face the camera, so this single
+// shared texture works for every LED with no scene-wide bloom pass, and with
+// AdditiveBlending the core tints by the LED's own color while the falloff
+// blends into whatever is behind it. The texture is created once per module
+// load and reused -- SpriteMaterial.map is shared, color/opacity are per-LED.
+let glowTexture: THREE.CanvasTexture | null = null;
+function getGlowTexture(): THREE.CanvasTexture {
+  if (glowTexture) return glowTexture;
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.25, "rgba(255,255,255,0.6)");
+  g.addColorStop(0.55, "rgba(255,255,255,0.18)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  glowTexture = new THREE.CanvasTexture(canvas);
+  return glowTexture;
+}
 
 // ─── Camera frame utility ─────────────────────────────────────────────────
 
@@ -207,37 +234,15 @@ export function ResoLightStage3D({
 
 // ─── Single light bar ─────────────────────────────────────────────────────
 
-// meterLevel01/gradientPreset are only present when the fixture's active
-// cue is a Meter effect; effectType/effectTSec/effectRateHz are only
-// meaningful for Converge/GradientFlow -- see WebUiState.lightOutput's doc
-// comment. Extends the plain resolved color with what's needed to draw the
-// same per-LED pattern the real addressable hardware gets (see
-// LightEngine.cpp's writeDmxChannels).
+// Backend-rendered per-LED wire colors (intensity already baked in) are
+// what the live preview draws, one entry per LED for addressable fixtures
+// and a single uniform entry for non-addressable ones -- streamed over the
+// binary websocket (see liveLevels.ts). Extends the plain resolved editor
+// color with what's needed to draw the exact per-LED pattern the real
+// hardware gets (see resolveLedWireColors / LightOutputResolver.h).
 export type PreviewColor = LightCueValue & {
-  meterLevel01?: number;
-  gradientPreset?: "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire";
-  gradientColors?: string;
-  effectType?: SpatialEffectType | "none" | "meter" | "strobe" | "pulse" | "ripple";
-  effectTSec?: number;
-  effectRateHz?: number;
+  ledColors?: LiveLedColor[];
 };
-
-const SPATIAL_EFFECT_TYPES = [
-  "converge", "gradientflow", "chase", "helix", "plasma", "twinkle", "sonicboom",
-  "fire", "bouncing", "drip", "fireworks", "colorwaves", "strobeswipe", "vupeak",
-] as const;
-
-/** Resolved gradient stops for a preview color's gradientPreset/gradientColors -- mirrors LightOutputResolver.h's resolveGradientStops. */
-function resolvePreviewPalette(preset: PreviewColor["gradientPreset"], customCsv: string | undefined): GradientStop[] | undefined {
-  switch (preset) {
-    case "custom": return parseGradientStops(customCsv ?? "", builtinPalette("vulcanFire"));
-    case "vulcanFire": return builtinPalette("vulcanFire");
-    case "toxicFire": return builtinPalette("toxicFire");
-    case "cryoFire": return builtinPalette("cryoFire");
-    case "cyberpunkFire": return builtinPalette("cyberpunkFire");
-    default: return undefined;
-  }
-}
 
 function ResoLightBar({
   fixture,
@@ -260,6 +265,10 @@ function ResoLightBar({
   // 1-LED or 500-LED fixture still renders as something sane on stage.
   const heightMeters = Math.min(3, Math.max(0.3, fixture.ledCount / 30));
 
+  const liveLeds = previewColor?.ledColors;
+  const perLed = (liveLeds?.length ?? 0) > 1;
+  const uniformLive = (liveLeds?.length ?? 0) === 1;
+
   // The scene's ambient + directional lights reflect off a mesh's diffuse
   // `color` regardless of `emissive` -- so a fully-saturated diffuse color
   // with only a low emissiveIntensity still reads as fairly bright (the
@@ -269,7 +278,12 @@ function ResoLightBar({
   // real DMX output where 0 intensity means 0 on the wire -- no artificial
   // floor needed for "visibility", since a real blackout looks like nothing.
   const color = useMemo(() => {
-    if (previewColor) {
+    if (uniformLive && liveLeds) {
+      // Wire colors already have intensity baked in.
+      const c = liveLeds[0];
+      return new THREE.Color(c.r / 255, c.g / 255, c.b / 255);
+    }
+    if (previewColor && !perLed) {
       return new THREE.Color(
         previewColor.r / 255,
         previewColor.g / 255,
@@ -277,76 +291,31 @@ function ResoLightBar({
       ).multiplyScalar(Math.max(0, Math.min(1, previewColor.intensity)));
     }
     return new THREE.Color(0.55, 0.58, 0.65);
-  }, [previewColor]);
+  }, [uniformLive, liveLeds, perLed, previewColor]);
 
-  const emissiveIntensity = previewColor ? 1 : 0.25;
+  const emissiveIntensity = uniformLive && liveLeds
+    ? (liveLeds[0].r + liveLeds[0].g + liveLeds[0].b > 0 ? 1 : 0)
+    : previewColor ? 1 : 0.25;
 
-  // Addressable fixtures only render a segmented per-LED pattern while
-  // their active cue has a real per-LED shape -- matching the real DMX
-  // output exactly (see writeDmxChannels/LightEngine.cpp) instead of an
-  // always-on decorative gradient that wouldn't reflect reality. Meter gets
-  // its own dedicated progressive-fill path; VuPeak ALSO carries
-  // meterLevel01 (see LightOutputResolver.h) but renders through the
-  // general spatial path below, so the check must be effectType-exact, not
-  // just "meterLevel01 is set".
-  const meterActive = fixture.addressable && previewColor?.effectType === "meter";
-  const spatialEffectActive =
-    fixture.addressable && !meterActive &&
-    (SPATIAL_EFFECT_TYPES as readonly string[]).includes(previewColor?.effectType ?? "");
   // Capped/floored purely for render cost and visibility -- the real DMX
   // output still addresses every physical LED; this is just how many
   // discrete segments the 3D preview bothers to draw.
   const totalSegments = Math.min(20, Math.max(3, Math.round(fixture.ledCount / 3)));
-  const litCount = meterActive
-    ? Math.round((previewColor!.meterLevel01 ?? 0) * totalSegments)
-    : totalSegments;
-  const palette = useMemo(
-    () => resolvePreviewPalette(previewColor?.gradientPreset, previewColor?.gradientColors),
-    [previewColor?.gradientPreset, previewColor?.gradientColors],
-  );
+
+  // Live per-LED pattern straight from the backend stream -- subsampled to
+  // totalSegments, each segment keeping its exact wire color. No local
+  // effect re-simulation; brightness rides the wire color itself.
   const segments = useMemo(() => {
-    if (meterActive) {
-      const preset = previewColor?.gradientPreset ?? "solid";
-      return Array.from({ length: totalSegments }, (_, i) => {
-        if (i >= litCount) return { color: new THREE.Color(0, 0, 0), level: 1 };
-        if (preset === "greenYellowRed") {
-          // Colored by position on the bar, same bands as
-          // LightOutputResolver.h's meterLedColor (bottom 60% green, next
-          // 25% yellow, top 15% red) -- independent of the cue's own color.
-          const t = totalSegments > 1 ? i / (totalSegments - 1) : 0;
-          if (t < 0.6) return { color: new THREE.Color(40 / 255, 220 / 255, 90 / 255), level: 1 };
-          if (t < 0.85) return { color: new THREE.Color(240 / 255, 210 / 255, 40 / 255), level: 1 };
-          return { color: new THREE.Color(235 / 255, 60 / 255, 50 / 255), level: 1 };
-        }
-        if (palette) {
-          const t = totalSegments > 1 ? i / (totalSegments - 1) : 0;
-          const [r, g, b] = sampleGradient(palette, t);
-          return { color: new THREE.Color(r / 255, g / 255, b / 255), level: 1 };
-        }
-        return {
-          color: new THREE.Color(
-            (previewColor?.r ?? 0) / 255,
-            (previewColor?.g ?? 0) / 255,
-            (previewColor?.b ?? 0) / 255,
-          ),
-          level: 1,
-        };
-      });
-    }
-    if (spatialEffectActive) {
-      const type = previewColor!.effectType as SpatialEffectType;
-      return Array.from({ length: totalSegments }, (_, i) => {
-        const led = addressableEffectLedColor(
-          i, totalSegments, type,
-          previewColor?.effectTSec ?? 0, previewColor?.effectRateHz ?? 2,
-          previewColor?.r ?? 0, previewColor?.g ?? 0, previewColor?.b ?? 0,
-          palette, previewColor?.meterLevel01 ?? 0,
-        );
-        return { color: new THREE.Color(led.r / 255, led.g / 255, led.b / 255), level: led.level };
-      });
-    }
-    return null;
-  }, [meterActive, spatialEffectActive, litCount, totalSegments, previewColor, palette]);
+    if (!perLed || !liveLeds) return null;
+    return Array.from({ length: totalSegments }, (_, i) => {
+      const srcIdx = totalSegments > 1
+        ? Math.round((i * (liveLeds.length - 1)) / (totalSegments - 1))
+        : 0;
+      const c = liveLeds[Math.min(srcIdx, liveLeds.length - 1)];
+      const level = Math.max(c.r, c.g, c.b) / 255;
+      return { color: new THREE.Color(c.r / 255, c.g / 255, c.b / 255), level };
+    });
+  }, [perLed, liveLeds, totalSegments]);
   const segmentCount = segments ? totalSegments : 1;
 
   // The bar mesh is ALWAYS built as a vertical box standing on its own
@@ -384,16 +353,18 @@ function ResoLightBar({
                 <meshStandardMaterial
                   color={seg.color}
                   emissive={seg.color}
-                  emissiveIntensity={Math.max(0.08, previewColor!.intensity * seg.level)}
+                  emissiveIntensity={seg.level > 0 ? 1 : 0}
                 />
               </mesh>
-              {/* A translucent additive halo reads as the light spilling from
-                  one physical LED, without a costly scene-wide bloom pass. */}
-              <sprite position={[0, segY, 0]} scale={[0.28, 0.28, 1]}>
+              {/* A radial-falloff additive sprite reads as light spilling
+                  from one physical LED (see getGlowTexture) -- not a flat
+                  billboard halo, and no scene-wide bloom pass needed. */}
+              <sprite position={[0, segY, 0]} scale={[0.42, 0.42, 1]}>
                 <spriteMaterial
+                  map={getGlowTexture()}
                   color={seg.color}
                   transparent
-                  opacity={Math.min(0.42, previewColor!.intensity * seg.level * 0.42)}
+                  opacity={Math.min(0.85, seg.level * 0.9)}
                   depthWrite={false}
                   blending={THREE.AdditiveBlending}
                 />

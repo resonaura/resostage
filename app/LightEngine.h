@@ -55,8 +55,8 @@ public:
 
     // Bind dependencies and start the output thread. Callbacks are captured
     // by the thread; they must remain valid until stop() returns.
-    using BusMeterFn = std::function<float(const std::string& busId)>;
-    using TrackMeterFn = std::function<float(const std::string& trackId)>;
+    using BusMeterFn = std::function<SourceLevels(const std::string& busId)>;
+    using TrackMeterFn = std::function<SourceLevels(const std::string& trackId)>;
     void start(MasterClock& clock,
                EventDispatcher& dispatcher,
                BusMeterFn busPeakDb,

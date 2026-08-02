@@ -477,26 +477,22 @@ struct WebUiState {
     // (Settings' 3D editor, Timeline's Light mode) renders THIS, not its own
     // re-simulation, so it can never show something the real hardware isn't
     // also doing (see RESTORE_POINT.md Feature 6's sync fix).
-    struct LightOutputRow {
-        std::string fixtureId;
+    struct LedColorRow {
         int r = 0;
         int g = 0;
         int b = 0;
-        double intensity = 0.0;
-        double meterLevel01 = 0.0; // 0 unless the active cue's effect is Meter or VuPeak
-        std::string gradientPreset; // "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire"
-        // The cue's own typed stops, only meaningful when gradientPreset ==
-        // "custom" -- see engine/lighting/LightGradient.h.
-        std::string gradientColors;
-        // Effect identity + phase for addressable fixtures with a spatial
-        // per-LED pattern (Converge, GradientFlow) -- "none"/0 otherwise.
-        // The frontend ports the identical addressableEffectLedColor math
-        // (see ui/src/lib/lightCueInterpolation.ts) so the preview's
-        // per-LED rendering matches the real DMX output without shipping a
-        // full per-LED color array over the wire every frame.
-        std::string effectType = "none";
-        double effectTSec = 0.0;
-        double effectRateHz = 2.0;
+    };
+    struct LightOutputRow {
+        std::string fixtureId;
+        // Index of this fixture in the project's lighting.fixtures array --
+        // the wire key the frontend maps back to a fixture. -1 when the
+        // fixture is no longer in the project (row skipped upstream).
+        int fixtureIdx = -1;
+        // Final per-LED wire colors (intensity already baked in) -- one entry
+        // per LED for addressable fixtures, a single uniform entry for
+        // non-addressable ones, produced by resolveLedWireColors(). Empty
+        // when the fixture can't be found.
+        std::vector<LedColorRow> ledColors;
     };
     std::vector<LightOutputRow> lightOutput;
 

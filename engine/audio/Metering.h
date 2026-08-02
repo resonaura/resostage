@@ -7,6 +7,13 @@
 
 namespace resostage {
 
+// Log-spaced band centre frequencies (Hz) for BandEnergyMeter -- index 0 is
+// the lowest band, matching kLightBandCount's layout. Each band is an RBJ
+// bandpass biquad (constant 0 dB peak gain) with Q=1, so the -3dB edges sit
+// at f0/2 and 2*f0 and adjacent bands overlap gently (a real mix lights a
+// few neighbouring columns, not one lonely one).
+constexpr double kLightBandCentersHz[kLightBandCount] = {100.0, 250.0, 630.0, 1600.0, 4000.0, 10000.0};
+
 // Direct-form II transposed biquad.
 class Biquad {
 public:
@@ -56,6 +63,41 @@ private:
     int historyPos = 0;
 };
 
+// Splits one meter point's signal into kLightBandCount log-spaced bands via
+// constant-0dB-peak RBJ bandpass biquads and publishes a smoothed 0..1 level
+// per band -- the light engine's GEQ/Blurz audio source (see the RESTORE_POINT
+// "no FFT / spectral analysis exists yet" note: this is the band-energy
+// approach chosen there, real-time-safe and allocation-free after prepare()).
+//
+// Per-block mean-square energy per band is mapped to 0..1 with a -48dBFS
+// floor (quieter-than-that reads as a dark column; -24dBFS RMS sits at half
+// height), then passed through fast-attack / slow-release one-pole smoothing
+// so the LED columns
+// rise instantly with a hit but fall naturally instead of strobing with the
+// sample-level envelope. processBlock() never allocates; the per-channel
+// filter banks are allocated once in prepare().
+class BandEnergyMeter {
+public:
+    void prepare(double sampleRateHz, int numChannels);
+    void reset();
+    // Called from the audio thread once per render block. `channels` is the
+    // same pointer array LoudnessMeter::processBlock accepts; a mono signal
+    // may pass one channel, or two with channel[1] == channel[0] / nullptr.
+    void processBlock(const float* const* channels, int numSamples);
+    // Copies the current smoothed 0..1 levels into out[0..kLightBandCount).
+    void currentLevels(float* out) const;
+
+private:
+    double sampleRateHz = 48000.0;
+    int channelCount = 2;
+    // [band][channel] bandpass biquads (Q=1, constant 0dB peak gain).
+    std::vector<std::vector<Biquad>> filters;
+    // [band] mean-square energy accumulated over the current render block.
+    std::vector<double> sumSquares;
+    // [band] smoothed 0..1 levels.
+    std::vector<float> levels;
+};
+
 // Owns K-weighting + block accumulation + gating for ONE meter point (a track
 // or a bus), across up to `channelCount` channels. All processing after
 // prepare() is allocation-free.
@@ -86,6 +128,10 @@ private:
 
     std::vector<KWeightingFilter> kFilters;
     std::vector<TruePeakEstimator> truePeakEstimators;
+
+    // Per-band (GEQ/Blurz) energy analysis, processed alongside the peak/LUFS
+    // path from the same block.
+    BandEnergyMeter bandEnergy;
 
     // 400ms analysis blocks, 100ms hop (75% overlap) per BS.1770-4 / EBU Tech 3341.
     int blockSizeSamples = 0;

@@ -158,33 +158,41 @@ AudioEngine::AudioEngine() {
     lightEngine.start(
         clock,
         eventDispatcher,
-        [this](const std::string& busId) -> float {
+        [this](const std::string& busId) -> SourceLevels {
             // Empty busId → use first bus (master mix).
             size_t idx = 0;
             if (!busId.empty()) {
                 auto it = busIndexById.find(busId);
-                if (it == busIndexById.end()) return -144.0f;
+                if (it == busIndexById.end()) return SourceLevels{};
                 idx = it->second;
             }
             if (const auto* m = busMeterAt(idx)) {
                 MeterFrame f{};
                 m->read(f);
-                return f.peakDb;
+                SourceLevels lv;
+                lv.peakDb = f.peakDb;
+                for (int b = 0; b < kLightBandCount; ++b)
+                    lv.bandLevel[b] = f.bandLevel[b];
+                return lv;
             }
-            return -144.0f;
+            return SourceLevels{};
         },
-        [this](const std::string& trackId) -> float {
+        [this](const std::string& trackId) -> SourceLevels {
             for (size_t i = 0; i < trackIdByIndex.size(); ++i) {
                 if (trackIdByIndex[i] != trackId)
                     continue;
                 if (const auto* m = trackMeterAt(i)) {
                     MeterFrame f{};
                     m->read(f);
-                    return f.peakDb;
+                    SourceLevels lv;
+                    lv.peakDb = f.peakDb;
+                    for (int b = 0; b < kLightBandCount; ++b)
+                        lv.bandLevel[b] = f.bandLevel[b];
+                    return lv;
                 }
                 break;
             }
-            return -144.0f;
+            return SourceLevels{};
         }
     );
 }
@@ -753,6 +761,9 @@ void AudioEngine::ensureTrackMeters(size_t count) {
         if (trackMeters[i] == nullptr)
             trackMeters[i] = std::make_unique<SeqLock<MeterFrame>>();
     }
+    trackBandMeters.resize(count);
+    for (auto& band : trackBandMeters)
+        band.prepare(currentSampleRate, 2);
 }
 
 void AudioEngine::buildBusListFromProject() {
@@ -1124,6 +1135,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     trackGainSmooth.clear();
     clickSendSmooth.clear();
     trackMeters.clear();
+    trackBandMeters.clear();
     projectLoaded = true;
     // A user-chosen / loaded archive is never a draft -- without this, a
     // prior newProject()'s usingDraftArchive=true leaked across Load and
@@ -1215,6 +1227,7 @@ void AudioEngine::newProject(const std::string& name) {
         trackIdByIndex.clear();
         trackScratch.clear();
         trackMeters.clear();
+    trackBandMeters.clear();
     }
 
     streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
@@ -1380,6 +1393,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     trackGainSmooth.clear();
     clickSendSmooth.clear();
     trackMeters.clear();
+    trackBandMeters.clear();
 
     const auto& projTracks = loader.project().tracks;
     if (!projTracks.empty()) {
@@ -1564,6 +1578,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
             trackGainSmooth.clear();
             clickSendSmooth.clear();
             trackMeters.clear();
+    trackBandMeters.clear();
             const auto& projTracks = loader.project().tracks;
             if (!projTracks.empty()) {
                 for (const auto& t : projTracks)
@@ -1939,6 +1954,8 @@ void AudioEngine::resetMetersSilent() {
     for (auto& m : trackMeters)
         if (m != nullptr)
             m->write(silent);
+    for (auto& band : trackBandMeters)
+        band.reset();
     for (size_t i = 0; i < busMeters.size(); ++i) {
         if (i < busLoudnessMeters.size())
             busLoudnessMeters[i].reset();
@@ -2355,6 +2372,8 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
 
     for (auto& meter : busLoudnessMeters)
         meter.prepare(currentSampleRate, 2);
+    for (auto& band : trackBandMeters)
+        band.prepare(currentSampleRate, 2);
 
     ensureScratchSizes();
 
@@ -2591,6 +2610,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             for (auto& m : trackMeters)
                 if (m != nullptr)
                     m->write(silent);
+            for (auto& band : trackBandMeters)
+                band.reset();
             for (size_t i = 0; i < busMeters.size(); ++i) {
                 if (i < busLoudnessMeters.size())
                     busLoudnessMeters[i].reset();
@@ -2935,6 +2956,16 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 frame.peakDbL = toDb(peakL);
                 frame.peakDbR = toDb(peakR);
                 frame.truePeakDb = frame.peakDb;
+                // Band-energy analysis for the light engine's GEQ/Blurz: same
+                // post-fader signal the peaks see, so the columns follow what's
+                // actually heard. The uniform fader gain is a scalar on every
+                // band, so the spectrum *shape* (which bands dominate) is
+                // unaffected -- exactly what the visual needs.
+                if (t < trackBandMeters.size()) {
+                    const float* bandCh[2] = {sL != nullptr ? sL : sR, sR};
+                    trackBandMeters[t].processBlock(bandCh, numSamples);
+                    trackBandMeters[t].currentLevels(frame.bandLevel);
+                }
                 trackMeters[t]->write(frame);
             }
         }
@@ -3642,6 +3673,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     trackGainSmooth.clear();
     clickSendSmooth.clear();
     trackMeters.clear();
+    trackBandMeters.clear();
     trackPeaks.clear();
 
     if (songToRestore != static_cast<size_t>(-1) && songToRestore < loader.project().songs.size()) {
