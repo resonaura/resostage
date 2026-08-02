@@ -495,16 +495,31 @@ export function LightTrackLane({
         const songCues = (song.lightCues ?? []).filter(
           (c) => c.trackId === track.id,
         );
+        // Sorted by rendered start so the 6px minimum hit-box below (and
+        // any genuine data overlap from a drag) can never bleed a cue's
+        // clickable area into its neighbor's territory -- that bleed is
+        // what made clicking near one cue's edge select the *other* cue,
+        // most visibly right after a split leaves two cues touching.
+        const sortedCues = songCues
+          .map((cue) => ({ cue, geom: geomFor(i, cue) }))
+          .sort((a, b) => a.geom.start - b.geom.start);
         return (
           <div
             key={i}
             className="absolute top-0 bottom-0"
             style={{ left: segStart, width: songLengths[i] * pxPerSec }}
           >
-            {songCues.map((cue) => {
-              const geom = geomFor(i, cue);
+            {sortedCues.map(({ cue, geom }, sortedIdx) => {
               const leftPx = geom.start * pxPerSec;
-              const widthPx = Math.max(6, geom.duration * pxPerSec);
+              const nextGeom = sortedCues[sortedIdx + 1]?.geom;
+              const maxWidthPx =
+                nextGeom !== undefined
+                  ? Math.max(0, nextGeom.start * pxPerSec - leftPx)
+                  : Infinity;
+              const widthPx = Math.min(
+                Math.max(6, geom.duration * pxPerSec),
+                maxWidthPx,
+              );
               if (
                 leftPx + widthPx < viewStart - segStart ||
                 leftPx > viewEnd - segStart

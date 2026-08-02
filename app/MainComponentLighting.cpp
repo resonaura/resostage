@@ -45,7 +45,7 @@ void regenerateResoLightFixtures(LightingConfig& cfg) {
             used.push_back(f.id);
         // Nominal default spacing -- purely a starting point for the 3D
         // editor; the user drags bars to their real position afterward.
-        constexpr double kSpacingMeters = 1.5;
+        constexpr double kSpacingMeters = 2.0;
         while (static_cast<int>(bars.size()) < desired) {
             const int index = static_cast<int>(bars.size());
             const int col = cfg.resoLightColumns > 0 ? index % cfg.resoLightColumns : 0;

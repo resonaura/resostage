@@ -42,6 +42,46 @@ function getGlowTexture(): THREE.CanvasTexture {
   return glowTexture;
 }
 
+// ─── Theme-driven grid colors ──────────────────────────────────────────────
+//
+// The stage grid used to be two hardcoded hex slate colors, so it never
+// matched a theme change. HeroUI exposes its palette as CSS custom
+// properties (--default / --default-foreground, see @heroui/styles) rather
+// than a JS token table, so resolving them means walking the CSS cascade:
+// read the (already var()-substituted) computed values off :root, then let
+// a throwaway canvas 2D context's fillStyle parser -- which understands
+// oklch()/color-mix() but not var() -- normalize them into an rgb() string
+// three.js's Color can parse.
+function resolveCssColor(raw: string, fallback: string): string {
+  if (!raw) return fallback;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return fallback;
+  ctx.fillStyle = "#000";
+  ctx.fillStyle = raw;
+  return ctx.fillStyle || fallback;
+}
+
+function useHeroDefaultGridColors(): { cell: string; section: string } {
+  const [colors, setColors] = useState({ cell: "#1e293b", section: "#334155" });
+  useEffect(() => {
+    const root = getComputedStyle(document.documentElement);
+    const rawDefault = root.getPropertyValue("--default").trim();
+    const rawForeground = root.getPropertyValue("--default-foreground").trim();
+    if (!rawDefault || !rawForeground) return;
+    const cell = resolveCssColor(rawDefault, "#1e293b");
+    // Section (major) lines read as a lighter tint of the same "default"
+    // surface -- blended toward its paired foreground token rather than a
+    // second unrelated color, so it stays in-family with cell color.
+    const section = resolveCssColor(
+      `color-mix(in oklch, ${rawDefault} 55%, ${rawForeground} 45%)`,
+      "#334155",
+    );
+    setColors({ cell, section });
+  }, []);
+  return colors;
+}
+
 // ─── Camera frame utility ─────────────────────────────────────────────────
 
 function FrameAllHelper({
@@ -135,6 +175,7 @@ export function ResoLightStage3D({
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; z: number } | null>(null);
+  const gridColors = useHeroDefaultGridColors();
 
   const frameAllRef = useRef<(() => void) | null>(null);
   const topViewRef = useRef<(() => void) | null>(null);
@@ -172,8 +213,8 @@ export function ResoLightStage3D({
         <directionalLight position={[5, 8, 4]} intensity={0.7} />
         <Grid
           args={[40, 40]}
-          cellColor="#1e293b"
-          sectionColor="#334155"
+          cellColor={gridColors.cell}
+          sectionColor={gridColors.section}
           fadeDistance={28}
           infiniteGrid
         />

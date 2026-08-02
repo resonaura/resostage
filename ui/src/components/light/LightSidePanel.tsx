@@ -429,6 +429,21 @@ function GradientStopEditor({
   );
 }
 
+// Effects with a Rate control -- these are the "rhythmic" ones that make
+// sense synced to song tempo. Shared between the effect grid (which decides
+// whether to show the Rate/tempo-sync section at all) and the default-on
+// tempo-sync behavior when a cue first picks one of these (see
+// CueSettingsPanel.handleEffectType).
+function effectHasRate(t: EffectType): boolean {
+  return (
+    t === "strobe" || t === "pulse" || t === "ripple" ||
+    t === "converge" || t === "gradientflow" || t === "chase" ||
+    t === "helix" || t === "plasma" || t === "twinkle" || t === "sonicboom" ||
+    t === "fire" || t === "bouncing" || t === "drip" ||
+    t === "fireworks" || t === "colorwaves" || t === "strobeswipe"
+  );
+}
+
 // ─── Audio effect selector (props-driven — state lives in LightSidePanel) ──
 
 type EffectType =
@@ -526,11 +541,7 @@ function EffectPanel({
   tracks: TrackRow[];
   bpm: number;
 }) {
-  const hasRate = effectType === "strobe" || effectType === "pulse" || effectType === "ripple"
-    || effectType === "converge" || effectType === "gradientflow" || effectType === "chase"
-    || effectType === "helix" || effectType === "plasma" || effectType === "twinkle" || effectType === "sonicboom"
-    || effectType === "fire" || effectType === "bouncing" || effectType === "drip"
-    || effectType === "fireworks" || effectType === "colorwaves" || effectType === "strobeswipe";
+  const hasRate = effectHasRate(effectType);
   const sourceItems = effectSourceType === "track" ? tracks : busses;
   return (
     <div className="flex flex-col gap-3">
@@ -856,9 +867,15 @@ function CueSettingsPanel({
   // Persist effect changes to the backend immediately.
   const handleEffectType = (t: EffectType) => {
     onEffectType(t);
+    // Rhythmic effects (anything with a Rate control) default to tempo
+    // sync -- only when *newly* turning an effect on (previous type was
+    // "none"), so flipping between two rhythmic effects never silently
+    // re-syncs a rate the user deliberately freed from tempo.
+    const nextTempoSync = effectType === "none" && effectHasRate(t) ? true : tempoSync;
+    if (nextTempoSync !== tempoSync) onTempoSync(nextTempoSync);
     update({
       effectType: t, effectSourceType, effectSourceId, effectIntensity,
-      tempoSync, tempoSubdiv, effectRateHz: effectRate, gradientPreset, gradientColors, blendMode,
+      tempoSync: nextTempoSync, tempoSubdiv, effectRateHz: effectRate, gradientPreset, gradientColors, blendMode,
     });
   };
   const handleEffectSourceType = (t: SourceType) => {

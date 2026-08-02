@@ -25,7 +25,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function autoLayoutPositions(fixtures: LightFixtureRow[]): { id: string; posX: number; posZ: number }[] {
   if (fixtures.length === 0) return [];
-  const spacing = 1.2;
+  // Matches the backend's default column spacing (regenerateResoLightFixtures
+  // in MainComponentLighting.cpp) so manual auto-layout produces the same
+  // rig spacing as the initial grid, instead of a denser 1.2m guess.
+  const spacing = 2.0;
   const total = fixtures.length;
   const half = (total - 1) / 2;
   return fixtures.map((f, i) => ({
