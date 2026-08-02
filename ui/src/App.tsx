@@ -26,11 +26,6 @@ import { MixerScreen } from "./screens/MixerScreen";
 import { PlayerScreen } from "./screens/PlayerScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { type ActionId, performAction } from "./lib/actions";
-
-// HeroUI v3 has no provider -- theme is CSS-driven via a class/data-theme
-// attribute on <html>. This app is a stage-side remote/mirror of the native
-// (always-dark) desktop app, so it defaults to dark rather than following
-// system preference.
 import { transport } from "./lib/api";
 import { keyEventToDescription } from "./screens/SettingsScreen";
 
@@ -39,16 +34,6 @@ interface ToastNotification {
   title: string;
   message: string;
 }
-
-function useForcedDarkTheme() {
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.add("dark");
-    root.setAttribute("data-theme", "dark");
-  }, []);
-}
-
-
 
 /** Match a key event against a juce-style description ("space", "cmd + p", "f1"). */
 function eventMatchesBinding(e: KeyboardEvent, description: string): boolean {
@@ -200,7 +185,6 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
 }
 
 export default function App() {
-  useForcedDarkTheme();
   const [tab, setTab] = useState("player");
   // Tell the backend which SPA tab is active so WS frames only carry that
   // page's heavy arrays (transport/time always included).
