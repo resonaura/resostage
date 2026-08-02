@@ -380,6 +380,10 @@ export const lighting = {
     idleIntensity?: number;
   }) => post("/api/v1/lighting/config", patch),
 
+  fixtureAdd: (name?: string) => post("/api/v1/lighting/fixture/add", { name }),
+  fixtureRemove: (fixtureId: string) =>
+    post("/api/v1/lighting/fixture/remove", { fixtureId }),
+
   fixtureUpdate: (patch: {
     fixtureId: string;
     name?: string;

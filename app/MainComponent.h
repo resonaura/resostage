@@ -185,6 +185,8 @@ private:
     void builderSectionUpdate(const std::string& json);
 
     void lightingSetConfig(const std::string& json);
+    void lightingFixtureAdd(const std::string& json);
+    void lightingFixtureRemove(const std::string& json);
     void lightingFixtureUpdate(const std::string& json);
     void lightingTrackAdd(const std::string& json);
     void lightingTrackRemove(const std::string& json);

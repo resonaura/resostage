@@ -126,6 +126,94 @@ void MainComponent::lightingSetConfig(const std::string& json) {
     setStatus("Lighting settings updated");
 }
 
+// Manual fixture add/remove -- the counterpart to regenerateResoLightFixtures
+// above, which only ever manages the ResoLightBar subset via
+// resoLightColumns/Rows. DmxGeneric fixtures (a moving head, a PAR can, any
+// non-ResoLight instrument) have no grid concept to seed them from, so they
+// need their own explicit add/remove, driven the same way as a ResoLight bar
+// otherwise: one entry in cfg.fixtures, placed in the 3D stage, assignable to
+// light tracks, driven by cues/effects through the exact same resolver path.
+void MainComponent::lightingFixtureAdd(const std::string& json) {
+    if (!engine.isProjectLoaded())
+        return;
+    simdjson::dom::element doc;
+    const bool hasBody = parseJson(json, doc);
+
+    Project& proj = engine.project();
+    LightingConfig& cfg = proj.lighting;
+
+    std::vector<std::string> used;
+    for (const auto& f : cfg.fixtures)
+        used.push_back(f.id);
+
+    LightFixture f;
+    f.id = makeUniqueId("dmx", used);
+    std::string name;
+    f.name = (hasBody && getString(doc, "name", name) && !name.empty())
+        ? name
+        : ("DMX Fixture " + std::to_string(cfg.fixtures.size() + 1));
+    f.kind = LightFixture::Kind::DmxGeneric;
+    f.addressable = false;
+    f.ledCount = 1;
+
+    // Auto-place right after the last occupied channel range in universe 0
+    // so a freshly added fixture never silently overlaps an existing one's
+    // DMX channels -- the user can still repoint it to a different
+    // universe/range by hand afterward.
+    int nextChannel = 1;
+    for (const auto& other : cfg.fixtures) {
+        if (other.dmxUniverse == 0)
+            nextChannel = std::max(nextChannel, other.dmxStartChannel + other.dmxChannelCount);
+    }
+    f.dmxUniverse = 0;
+    f.dmxStartChannel = std::min(nextChannel, 510);
+    f.dmxChannelCount = 3;
+
+    // Off to the side in the 3D stage, one step back per existing fixture,
+    // so it never spawns on top of a ResoLight bar grid or another DMX
+    // fixture -- same "just a starting point, drag it where it belongs"
+    // spirit as regenerateResoLightFixtures' default spacing.
+    f.posX = 0.0;
+    f.posY = 0.0;
+    f.posZ = static_cast<double>(cfg.fixtures.size()) * -2.0;
+
+    engine.projectHistoryBeginEdit("", "Add DMX fixture");
+    cfg.fixtures.push_back(std::move(f));
+    engine.projectHistoryCommitEdit();
+    notifyProjectStructureChanged();
+    engine.notifyLightEngineProjectChanged();
+    setStatus("DMX fixture added");
+}
+
+void MainComponent::lightingFixtureRemove(const std::string& json) {
+    simdjson::dom::element doc;
+    std::string fixtureId;
+    if (!parseJson(json, doc) || !getString(doc, "fixtureId", fixtureId) || !engine.isProjectLoaded())
+        return;
+    Project& proj = engine.project();
+    LightingConfig& cfg = proj.lighting;
+
+    auto it = std::find_if(cfg.fixtures.begin(), cfg.fixtures.end(),
+                            [&](const LightFixture& f) { return f.id == fixtureId; });
+    if (it == cfg.fixtures.end())
+        return;
+
+    engine.projectHistoryBeginEdit("", "Remove fixture");
+    cfg.fixtures.erase(it);
+    // Drop the removed fixture from every light track's roster -- an
+    // orphaned fixtureId would never resolve to anything again (same
+    // cleanup lightingTrackRemove does for cues referencing a removed
+    // track).
+    for (auto& lt : proj.lightTracks) {
+        auto fit = std::remove(lt.fixtureIds.begin(), lt.fixtureIds.end(), fixtureId);
+        lt.fixtureIds.erase(fit, lt.fixtureIds.end());
+    }
+    engine.projectHistoryCommitEdit();
+    notifyProjectStructureChanged();
+    engine.notifyLightEngineProjectChanged();
+    setStatus("Fixture removed");
+}
+
 void MainComponent::lightingFixtureUpdate(const std::string& json) {
     simdjson::dom::element doc;
     std::string fixtureId;

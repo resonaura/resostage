@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MoveHorizontal, MoveVertical, Wand2 } from "lucide-react";
+import { MoveHorizontal, MoveVertical, Plus, Trash2, Wand2 } from "lucide-react";
 import { lighting } from "../../lib/api";
 import type { LightFixtureRow, LightingState, WebUiState } from "../../lib/types";
 import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
@@ -66,45 +66,61 @@ function FixtureItem({
   fixture,
   selected,
   onSelect,
+  onRemove,
   previewColor: rawPreviewColor,
 }: {
   fixture: LightFixtureRow;
   selected: boolean;
   onSelect: () => void;
+  onRemove: () => void;
   previewColor?: PreviewColor;
 }) {
   const previewColor = summarizeSwatchColor(rawPreviewColor);
   const hasColor = previewColor && previewColor.intensity > 0.01;
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`flex items-center gap-2.5 w-full rounded-lg border px-3 py-2 text-left transition-all ${
+    <div
+      className={`flex items-center gap-1 w-full rounded-lg border transition-all ${
         selected
           ? "border-accent/60 bg-accent/10"
           : "border-default/30 bg-default/10 hover:bg-default/20"
       }`}
     >
-      {/* Live color dot */}
-      <div
-        className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/10 transition-colors"
-        style={{
-          background: hasColor
-            ? `rgb(${previewColor.r},${previewColor.g},${previewColor.b})`
-            : "#334155",
-          boxShadow: hasColor
-            ? `0 0 6px rgb(${previewColor.r},${previewColor.g},${previewColor.b})`
-            : "none",
-        }}
-      />
-      <span className="flex-1 truncate text-xs font-medium text-foreground/80">
-        {fixture.name}
-      </span>
-      <span className="shrink-0 text-[9px] text-foreground/40 font-mono">
-        {fixture.ledCount}L · {fixture.mountedHorizontally ? "H" : "V"}
-        {fixture.addressable ? " · addr" : ""}
-      </span>
-    </button>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex flex-1 min-w-0 items-center gap-2.5 px-3 py-2 text-left"
+      >
+        {/* Live color dot */}
+        <div
+          className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/10 transition-colors"
+          style={{
+            background: hasColor
+              ? `rgb(${previewColor.r},${previewColor.g},${previewColor.b})`
+              : "#334155",
+            boxShadow: hasColor
+              ? `0 0 6px rgb(${previewColor.r},${previewColor.g},${previewColor.b})`
+              : "none",
+          }}
+        />
+        <span className="flex-1 truncate text-xs font-medium text-foreground/80">
+          {fixture.name}
+        </span>
+        <span className="shrink-0 text-[9px] text-foreground/40 font-mono">
+          {fixture.kind === "dmxGeneric"
+            ? `U${fixture.dmxUniverse}:${fixture.dmxStartChannel}`
+            : `${fixture.ledCount}L · ${fixture.mountedHorizontally ? "H" : "V"}${fixture.addressable ? " · addr" : ""}`}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove ${fixture.name}`}
+        title="Remove fixture"
+        className="shrink-0 rounded-md p-1.5 mr-1 text-foreground/30 hover:bg-danger/15 hover:text-danger transition-colors"
+      >
+        <Trash2 size={12} />
+      </button>
+    </div>
   );
 }
 
@@ -254,67 +270,87 @@ export function ProjectLightingPanel({
             )}
           </div>
 
-          {li.kind === "dmxGeneric" && (
-            <div className="rounded-lg bg-default/10 px-3 py-2 text-xs text-foreground/60">
-              Generic fixtures fire through the existing DMX/HTTP timeline
-              events (Editor &gt; Events) -- no dedicated setup here yet.
-            </div>
-          )}
-
-          {li.kind === "resoLight" && (
+          {/* DMX generic fixtures are driven through the exact same
+              rig editor, track/cue assignment, and effects pipeline as
+              ResoLight bars below -- resolveLightOutputs/LightOutputResolver
+              never distinguish fixture kind, only addressable/ledCount, so
+              the only thing DMX fixtures were actually missing was a way to
+              create/remove them and see this editor at all. */}
+          {(li.kind === "resoLight" || li.kind === "dmxGeneric") && (
             <div className="flex flex-col gap-4">
               {/* Rig size + auto-layout */}
               <div className="rounded-xl border border-default/30 bg-default/5 p-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <span className={labelCls}>Rig Layout</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const positions = autoLayoutPositions(li.fixtures);
-                      for (const p of positions) {
-                        void lighting.fixtureUpdate({ fixtureId: p.id, posX: p.posX, posZ: p.posZ });
-                      }
-                    }}
-                    className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/20 px-3 py-1 text-xs font-medium text-foreground/70 hover:bg-default/35 transition-colors"
-                    title="Evenly spread all fixtures in a horizontal line"
-                  >
-                    <Wand2 size={12} />
-                    Auto-layout
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <Field label="Columns">
-                    <input
-                      type="number"
-                      min={0}
-                      max={32}
-                      className={numberCls}
-                      value={li.resoLightColumns}
-                      onChange={(e) =>
-                        void lighting.setConfig({
-                          resoLightColumns: Math.max(0, Number(e.target.value) || 0),
-                        })
-                      }
-                    />
-                  </Field>
-                  <Field label="Rows">
-                    <input
-                      type="number"
-                      min={0}
-                      max={32}
-                      className={numberCls}
-                      value={li.resoLightRows}
-                      onChange={(e) =>
-                        void lighting.setConfig({
-                          resoLightRows: Math.max(0, Number(e.target.value) || 0),
-                        })
-                      }
-                    />
-                  </Field>
-                  <div className="flex-1 self-end pb-1.5 text-xs text-foreground/50">
-                    {li.fixtures.length} bar{li.fixtures.length === 1 ? "" : "s"} total
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const positions = autoLayoutPositions(li.fixtures);
+                        for (const p of positions) {
+                          void lighting.fixtureUpdate({ fixtureId: p.id, posX: p.posX, posZ: p.posZ });
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/20 px-3 py-1 text-xs font-medium text-foreground/70 hover:bg-default/35 transition-colors"
+                      title="Evenly spread all fixtures in a horizontal line"
+                    >
+                      <Wand2 size={12} />
+                      Auto-layout
+                    </button>
+                    {li.kind === "dmxGeneric" && (
+                      <button
+                        type="button"
+                        onClick={() => void lighting.fixtureAdd()}
+                        className="flex items-center gap-1.5 rounded-lg border border-accent/50 bg-accent/15 px-3 py-1 text-xs font-medium text-accent hover:bg-accent/25 transition-colors"
+                        title="Add a new DMX fixture"
+                      >
+                        <Plus size={12} />
+                        Add Fixture
+                      </button>
+                    )}
                   </div>
                 </div>
+                {li.kind === "resoLight" ? (
+                  <div className="flex flex-wrap gap-3">
+                    <Field label="Columns">
+                      <input
+                        type="number"
+                        min={0}
+                        max={32}
+                        className={numberCls}
+                        value={li.resoLightColumns}
+                        onChange={(e) =>
+                          void lighting.setConfig({
+                            resoLightColumns: Math.max(0, Number(e.target.value) || 0),
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="Rows">
+                      <input
+                        type="number"
+                        min={0}
+                        max={32}
+                        className={numberCls}
+                        value={li.resoLightRows}
+                        onChange={(e) =>
+                          void lighting.setConfig({
+                            resoLightRows: Math.max(0, Number(e.target.value) || 0),
+                          })
+                        }
+                      />
+                    </Field>
+                    <div className="flex-1 self-end pb-1.5 text-xs text-foreground/50">
+                      {li.fixtures.length} bar{li.fixtures.length === 1 ? "" : "s"} total
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-foreground/50">
+                    {li.fixtures.length} fixture{li.fixtures.length === 1 ? "" : "s"} total --
+                    add or remove individually below; each drives through the
+                    same tracks/cues/effects as a ResoLight bar.
+                  </div>
+                )}
               </div>
 
               {/* 3D Viewport */}
@@ -352,6 +388,10 @@ export function ProjectLightingPanel({
                         fixture={f}
                         selected={f.id === selectedFixtureId}
                         onSelect={() => setSelectedFixtureId(f.id)}
+                        onRemove={() => {
+                          if (selectedFixtureId === f.id) setSelectedFixtureId(null);
+                          void lighting.fixtureRemove(f.id);
+                        }}
                         previewColor={displayColors[f.id]}
                       />
                     ))}
@@ -368,7 +408,7 @@ export function ProjectLightingPanel({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={selected.kind === "dmxGeneric" ? "grid grid-cols-1 gap-3" : "grid grid-cols-2 gap-3"}>
                     <Field label="Name">
                       <input
                         type="text"
@@ -382,20 +422,22 @@ export function ProjectLightingPanel({
                         }
                       />
                     </Field>
-                    <Field label="LEDs">
-                      <input
-                        type="number"
-                        min={1}
-                        className={numberCls}
-                        value={selected.ledCount}
-                        onChange={(e) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            ledCount: Math.max(1, Number(e.target.value) || 1),
-                          })
-                        }
-                      />
-                    </Field>
+                    {selected.kind === "resoLightBar" && (
+                      <Field label="LEDs">
+                        <input
+                          type="number"
+                          min={1}
+                          className={numberCls}
+                          value={selected.ledCount}
+                          onChange={(e) =>
+                            void lighting.fixtureUpdate({
+                              fixtureId: selected.id,
+                              ledCount: Math.max(1, Number(e.target.value) || 1),
+                            })
+                          }
+                        />
+                      </Field>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-3 gap-3">
@@ -444,36 +486,39 @@ export function ProjectLightingPanel({
                   </div>
 
                   {/* Mount: standing vs. laid on its side -- a physical
-                      mount choice, independent of yaw (which way it faces). */}
-                  <Field label="Mount">
-                    <div className="flex gap-2">
-                      {(
-                        [
-                          { label: "Vertical", icon: MoveVertical, value: false },
-                          { label: "Horizontal", icon: MoveHorizontal, value: true },
-                        ] as const
-                      ).map((opt) => (
-                        <button
-                          key={opt.label}
-                          type="button"
-                          onClick={() =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              mountedHorizontally: opt.value,
-                            })
-                          }
-                          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                            selected.mountedHorizontally === opt.value
-                              ? "border-accent bg-accent/20 text-accent"
-                              : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
-                          }`}
-                        >
-                          <opt.icon size={13} />
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </Field>
+                      mount choice, independent of yaw (which way it faces).
+                      Only meaningful for a ResoLight bar's shape. */}
+                  {selected.kind === "resoLightBar" && (
+                    <Field label="Mount">
+                      <div className="flex gap-2">
+                        {(
+                          [
+                            { label: "Vertical", icon: MoveVertical, value: false },
+                            { label: "Horizontal", icon: MoveHorizontal, value: true },
+                          ] as const
+                        ).map((opt) => (
+                          <button
+                            key={opt.label}
+                            type="button"
+                            onClick={() =>
+                              void lighting.fixtureUpdate({
+                                fixtureId: selected.id,
+                                mountedHorizontally: opt.value,
+                              })
+                            }
+                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                              selected.mountedHorizontally === opt.value
+                                ? "border-accent bg-accent/20 text-accent"
+                                : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
+                            }`}
+                          >
+                            <opt.icon size={13} />
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+                  )}
 
                   <Field label="Yaw (°) -- which way it faces">
                     <div className="flex gap-2">
@@ -494,53 +539,58 @@ export function ProjectLightingPanel({
                     </div>
                   </Field>
 
-                  {/* Grid position */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Grid Column">
-                      <input
-                        type="number"
-                        min={0}
-                        max={31}
-                        className={numberCls}
-                        value={selected.gridColumn}
-                        onChange={(e) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            gridColumn: Math.max(0, Number(e.target.value) || 0),
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field label="Grid Row">
-                      <input
-                        type="number"
-                        min={0}
-                        max={31}
-                        className={numberCls}
-                        value={selected.gridRow}
-                        onChange={(e) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            gridRow: Math.max(0, Number(e.target.value) || 0),
-                          })
-                        }
-                      />
-                    </Field>
-                  </div>
+                  {/* Grid position -- only meaningful for a ResoLight bar
+                      seeded from the Columns x Rows layout above. */}
+                  {selected.kind === "resoLightBar" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Grid Column">
+                        <input
+                          type="number"
+                          min={0}
+                          max={31}
+                          className={numberCls}
+                          value={selected.gridColumn}
+                          onChange={(e) =>
+                            void lighting.fixtureUpdate({
+                              fixtureId: selected.id,
+                              gridColumn: Math.max(0, Number(e.target.value) || 0),
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field label="Grid Row">
+                        <input
+                          type="number"
+                          min={0}
+                          max={31}
+                          className={numberCls}
+                          value={selected.gridRow}
+                          onChange={(e) =>
+                            void lighting.fixtureUpdate({
+                              fixtureId: selected.id,
+                              gridRow: Math.max(0, Number(e.target.value) || 0),
+                            })
+                          }
+                        />
+                      </Field>
+                    </div>
+                  )}
 
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selected.addressable}
-                      onChange={(e) =>
-                        void lighting.fixtureUpdate({
-                          fixtureId: selected.id,
-                          addressable: e.target.checked,
-                        })
-                      }
-                    />
-                    <span>Addressable strip (individual LED control)</span>
-                  </label>
+                  {selected.kind === "resoLightBar" && (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selected.addressable}
+                        onChange={(e) =>
+                          void lighting.fixtureUpdate({
+                            fixtureId: selected.id,
+                            addressable: e.target.checked,
+                          })
+                        }
+                      />
+                      <span>Addressable strip (individual LED control)</span>
+                    </label>
+                  )}
 
                   {/* DMX fields */}
                   <div className="border-t border-default/20 pt-3 flex flex-col gap-2">

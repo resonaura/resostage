@@ -375,6 +375,8 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/section/remove", WebCommandKind::BuilderSectionRemove},
     {"/api/v1/builder/section/update", WebCommandKind::BuilderSectionUpdate},
     {"/api/v1/lighting/config", WebCommandKind::SetLightingConfig},
+    {"/api/v1/lighting/fixture/add", WebCommandKind::LightFixtureAdd},
+    {"/api/v1/lighting/fixture/remove", WebCommandKind::LightFixtureRemove},
     {"/api/v1/lighting/fixture/update", WebCommandKind::LightFixtureUpdate},
     {"/api/v1/lighting/track/add", WebCommandKind::LightTrackAdd},
     {"/api/v1/lighting/track/remove", WebCommandKind::LightTrackRemove},

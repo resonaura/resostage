@@ -146,6 +146,8 @@ enum class WebCommandKind : uint8_t {
     // per-fixture fields). LightCue has no Move -- like Region/Section,
     // repositioning is just a startSeconds field in Update.
     SetLightingConfig,
+    LightFixtureAdd,
+    LightFixtureRemove,
     LightFixtureUpdate,
     LightTrackAdd,
     LightTrackRemove,
