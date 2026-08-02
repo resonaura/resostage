@@ -1161,17 +1161,27 @@ export function Timeline({
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineBodyRef = useRef<HTMLDivElement>(null);
+  // Read live (never as a render dependency) by both the follow rAF loop
+  // below and useContinuousPlayhead's own reconciliation effects -- a
+  // playhead drag is a direct manipulation of the transport and must
+  // synchronously suspend both auto-follow AND server-value correction
+  // before React has had any chance to render a state update.
   const dragging = useRef(false);
-  // Separate from generic wheel/pinch activity: a playhead drag is a direct
-  // manipulation of the transport and must synchronously suspend follow
-  // before React has time to render its state update.
-  const playheadDragActiveRef = useRef(false);
-  const lastSeekAt = useRef(0);
   const pxPerSecRef = useRef(pxPerSec);
   pxPerSecRef.current = pxPerSec;
   const pendingScrollLeftRef = useRef<number | null>(null);
 
-  const [scrollTopY, setScrollTopY] = useState(0);
+  // Sidebar (track header list) vertical mirror. Written IMPERATIVELY every
+  // animation frame from the same rAF loop that drives the playhead marker
+  // and the follow/zoom scrollLeft writes below, instead of through React
+  // state -- a native `scroll` event -> setState -> re-render round trip is
+  // exactly what raced the follow loop's own 60Hz programmatic scrollLeft
+  // writes and made the sidebar's row labels visibly skew away from the
+  // right pane's already-scrolled lanes while fully playhead-pinned ("дорожки
+  // косоёбит"). Reading scroller.scrollTop straight from the DOM once per
+  // frame, the same way playheadRef's `left` is written, can never land a
+  // frame behind regardless of how many scroll events fire in between.
+  const sidebarContentRef = useRef<HTMLDivElement>(null);
   const [scrollState, setScrollState] = useState({
     scrollLeft: 0,
     viewportWidth: 1000,
@@ -1193,6 +1203,7 @@ export function Timeline({
     state.playing,
     state.projectName,
     zoomActive,
+    dragging,
   );
 
   // Snap-to-grid toggle
@@ -2154,7 +2165,10 @@ export function Timeline({
     const clampedAbs = songStart + clampedLocal;
 
     // Optimistic absolute needle moves immediately (one continuous timeline).
-    setPlayheadAbsoluteSec(clampedAbs, commit ? 2_000 : undefined);
+    // The commit lock only needs to bridge a real seek + one WS telemetry
+    // turn now that useContinuousPlayhead no longer has a proximity-based
+    // early release to race against -- see optimistic.ts's draggingRef doc.
+    setPlayheadAbsoluteSec(clampedAbs, commit ? 800 : undefined);
 
     // Engine seeks only on commit (pointer up). Mid-drag same-song seeks used
     // to restage every 60ms and produced the "chirp then stop then play" glitch.
@@ -2164,7 +2178,6 @@ export function Timeline({
       void transport.seek(clampedLocal, songIndex);
       return;
     }
-    lastSeekAt.current = Date.now();
     void transport.seek(clampedLocal);
   };
 
@@ -2193,7 +2206,6 @@ export function Timeline({
     // Empty-lane click (regions stopPropagation) clears region selection.
     if (!readOnly) setSelectedRegionKeys([]);
     dragging.current = true;
-    playheadDragActiveRef.current = true;
     // Capture on currentTarget (the stable element the handler is bound to),
     // not e.target -- capturing a transient child (a region block, a ruler
     // tick) that later unmounts mid-drag silently ends the capture without
@@ -2211,7 +2223,6 @@ export function Timeline({
     // following mere hover.
     if (e.buttons === 0) {
       dragging.current = false;
-      playheadDragActiveRef.current = false;
       // Lost button state is still a completed drop; never discard it.
       seekFromClientX(e.clientX, true);
       return;
@@ -2221,14 +2232,12 @@ export function Timeline({
   const onPointerUp = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
-    playheadDragActiveRef.current = false;
     // Single commit on release.
     seekFromClientX(e.clientX, true);
   };
   const onPointerCancelOrLost = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
-    playheadDragActiveRef.current = false;
     // A drag can end via pointercancel/lostpointercapture instead of a clean
     // pointerup (capture lost to a mid-drag re-render, a trackpad gesture
     // reinterpretation, alt-tab mid-drag) -- still commit the seek, or the
@@ -2239,7 +2248,9 @@ export function Timeline({
   };
 
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTopY(e.currentTarget.scrollTop);
+    // Vertical mirror is written imperatively every rAF tick (see
+    // sidebarContentRef's doc comment) -- this handler only needs the
+    // horizontal echo-detection logic below.
     const left = e.currentTarget.scrollLeft;
     const programmedLeft = programmaticScrollLeftRef.current;
     if (programmedLeft !== null && Math.abs(left - programmedLeft) < 0.5) {
@@ -2423,6 +2434,8 @@ export function Timeline({
     let lastSongIdx = currentSongIdxRef.current;
     const marker = playheadRef.current;
     if (marker) marker.style.left = `${displayPx}px`;
+    if (scrollRef.current && sidebarContentRef.current)
+      sidebarContentRef.current.style.transform = `translateY(-${scrollRef.current.scrollTop}px)`;
     // This whole effect runs once per mount, and a HeroUI TabPanel fully
     // unmounts its children while inactive (no shouldForceMount prop, see
     // App.tsx's <Tabs.Panel> usages) -- so mounting IS "the user just
@@ -2430,6 +2443,10 @@ export function Timeline({
     let firstTick = true;
 
     const tick = () => {
+      // Every frame, unconditionally -- see sidebarContentRef's doc comment
+      // for why this can't be a React-state round trip.
+      if (scrollRef.current && sidebarContentRef.current)
+        sidebarContentRef.current.style.transform = `translateY(-${scrollRef.current.scrollTop}px)`;
       // pxPerSecRef.current (NOT a render-copied mirror): applyZoomAt writes
       // it synchronously on every wheel/pinch tick, so this loop computes the
       // playhead's document position with the zoom scale CURRENT the same
@@ -2449,7 +2466,7 @@ export function Timeline({
       const following =
         playingRef.current
         && !gestureActiveNowRef.current
-        && !playheadDragActiveRef.current
+        && !dragging.current
         && followModeRef.current === "smooth";
       const scroller = scrollRef.current;
       const viewWidth = scroller ? scroller.clientWidth || 1000 : 1000;
@@ -2981,7 +2998,7 @@ export function Timeline({
               {/* Track controls list (scrolls vertically in sync with right timeline) */}
               <div className="flex-1 min-h-0 overflow-hidden">
                 {effectiveViewMode === "light" ? (
-                  <div style={{ transform: `translateY(-${scrollTopY}px)` }}>
+                  <div ref={sidebarContentRef}>
                     {!lightEnabled ? (
                       <div className="flex h-24 items-center justify-center px-3 text-center text-[10px] leading-relaxed text-foreground/40">
                         Enable lighting in Settings &gt; Project to author light
@@ -3008,7 +3025,7 @@ export function Timeline({
                     )}
                   </div>
                 ) : (
-                  <div style={{ transform: `translateY(-${scrollTopY}px)` }}>
+                  <div ref={sidebarContentRef}>
                     {rows.length === 0 ? (
                       <div className="flex h-20 items-center justify-center px-2 text-[10px] text-foreground/40">
                         No tracks

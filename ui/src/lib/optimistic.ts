@@ -44,12 +44,25 @@ export function useLiveValue(
  * - `frozen` (e.g. while a zoom gesture is active) stops the clock dead in
  *   its tracks so the playhead marker holds still; it resumes cleanly the
  *   moment `frozen` drops and re-corrects toward the engine.
+ * - `draggingRef` (optional): read LIVE, not as a dependency -- a ref so the
+ *   caller can flip it synchronously in a pointer handler without waiting
+ *   for a React render, same reasoning as Timeline.tsx's own
+ *   gestureActiveNowRef. While true, ALL server reconciliation is inert:
+ *   the caller owns the absolute value entirely (via seekAbsolute on every
+ *   pointermove) and nothing here may second-guess it. This used to be
+ *   approximated by a "release the lock early if the server value already
+ *   looks close" heuristic, which was the actual bug behind a dropped drag
+ *   silently snapping back -- while playing, the live (not-yet-seeked)
+ *   transport keeps advancing on its own, so it routinely drifts to within
+ *   the old 0.35s proximity threshold of wherever the user is mid-drag
+ *   purely by coincidence, which isn't the same as "the seek landed".
  */
 export function useContinuousPlayhead(
   serverAbsoluteSeconds: number,
   playing: boolean,
   resetKey?: unknown,
   frozen = false,
+  draggingRef?: { current: boolean },
 ): [absoluteSeconds: number, seekAbsolute: (v: number, lockMs?: number) => void] {
   const [absolute, setAbsolute] = useState(serverAbsoluteSeconds);
   const localRef = useRef(serverAbsoluteSeconds);
@@ -58,7 +71,11 @@ export function useContinuousPlayhead(
   const prevKey = useRef(resetKey);
   const lastSeekAt = useRef(0);
   const lastFrameTs = useRef<number | null>(null);
-  const SEEK_LOCK_MS = 450;
+  // Held for a short, FIXED window after a committed seek -- long enough to
+  // outlast a busy native seek plus one WS telemetry turn without a stale
+  // pre-seek frame visibly undoing the drop, but with no proximity-based
+  // early release (see the dragging-related bug this replaced above).
+  const SEEK_LOCK_MS = 500;
   // Stronger pull than before so we stay glued to the engine without
   // looking like a second free-running timeline.
   const CORRECT_PER_SEC = 8;
@@ -79,20 +96,15 @@ export function useContinuousPlayhead(
 
   // Server snapshots.
   useEffect(() => {
-    // While frozen (zoom gesture) don't let server corrections yank the
-    // clock -- it must stand still ("автостоп времени при зуме"). The resume
-    // path re-corrects after the gesture settles.
-    if (frozen) return;
+    // While frozen (zoom gesture) or actively dragging the playhead, don't
+    // let server corrections yank the clock -- it must stand still
+    // ("автостоп времени при зуме") or stay exactly where the user dropped
+    // it, unconditionally, for the whole gesture. Both resume cleanly once
+    // the flag drops: frozen re-corrects on its own next tick, dragging
+    // hands off to the fixed post-commit lock below.
+    if (frozen || draggingRef?.current) return;
     const seekLocked = Date.now() - lastSeekAt.current <= SEEK_LOCK_MS;
-    if (seekLocked) {
-      // During scrub lock, only release early if server is near our target.
-      if (Math.abs(serverAbsoluteSeconds - localRef.current) < 0.35) {
-        lastSeekAt.current = 0;
-        localRef.current = serverAbsoluteSeconds;
-        setAbsolute(serverAbsoluteSeconds);
-      }
-      return;
-    }
+    if (seekLocked) return;
     if (!playingRef.current) {
       localRef.current = serverAbsoluteSeconds;
       setAbsolute(serverAbsoluteSeconds);
@@ -104,7 +116,7 @@ export function useContinuousPlayhead(
       localRef.current = serverAbsoluteSeconds;
       setAbsolute(serverAbsoluteSeconds);
     }
-  }, [serverAbsoluteSeconds, frozen]);
+  }, [serverAbsoluteSeconds, frozen, draggingRef]);
 
   // rAF advance while playing.
   useEffect(() => {
@@ -118,7 +130,13 @@ export function useContinuousPlayhead(
     const tick = (ts: number) => {
       const prev = lastFrameTs.current;
       lastFrameTs.current = ts;
-      if (prev != null && Date.now() - lastSeekAt.current > SEEK_LOCK_MS) {
+      // Dragging: the caller drives `absolute` directly via seekAbsolute on
+      // every pointermove -- this loop must not also integrate dt/correct
+      // toward the server in the same tick, or the two fight. Keep looping
+      // (don't unmount the rAF) so it resumes instantly, mid-frame, the
+      // moment the drag ends -- no fresh-dt jump like a full effect restart
+      // would cause.
+      if (prev != null && !draggingRef?.current && Date.now() - lastSeekAt.current > SEEK_LOCK_MS) {
         const dt = Math.min(0.08, Math.max(0, (ts - prev) / 1000));
         let next = localRef.current + dt;
         const err = serverRef.current - next;
@@ -132,16 +150,14 @@ export function useContinuousPlayhead(
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, frozen, resetKey]);
+  }, [playing, frozen, resetKey, draggingRef]);
 
   const seekAbsolute = (v: number, lockMs = SEEK_LOCK_MS) => {
     const clamped = Math.max(0, v);
     // A released scrub must remain authoritative until the engine has had a
-    // chance to restage and publish its new transport position.  The old
-    // fixed 450ms window was shorter than a busy native seek plus one WS
-    // telemetry turn, so a stale live frame could visibly undo a valid drop.
-    // Callers use the default for a live drag and request the longer window
-    // only for its final committed position.
+    // chance to restage and publish its new transport position. Callers use
+    // the default for a live drag and may request a longer window only for
+    // its final committed position.
     lastSeekAt.current = Date.now() + Math.max(0, lockMs - SEEK_LOCK_MS);
     localRef.current = clamped;
     setAbsolute(clamped);
