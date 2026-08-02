@@ -1246,6 +1246,8 @@ void MainComponent::publishWebState() {
         fr.dmxUniverse = f.dmxUniverse;
         fr.dmxStartChannel = f.dmxStartChannel;
         fr.dmxChannelCount = f.dmxChannelCount;
+        fr.shape = f.shape;
+        fr.channelProfile = f.channelProfile;
         state.lighting.fixtures.push_back(std::move(fr));
     }
 

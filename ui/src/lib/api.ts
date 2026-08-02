@@ -399,6 +399,12 @@ export const lighting = {
     dmxUniverse?: number;
     dmxStartChannel?: number;
     dmxChannelCount?: number;
+    shape?: "bar" | "par" | "wash" | "spot" | "movingHead" | "strip";
+    channelProfile?:
+      | "dimmer" | "rgb" | "rgbw" | "rgbwa"
+      | "dimmerRgb" | "dimmerRgbw"
+      | "panTiltDimmerRgb" | "panTiltDimmerRgbw"
+      | "custom";
   }) => post("/api/v1/lighting/fixture/update", patch),
 
   trackAdd: () => post("/api/v1/lighting/track/add"),

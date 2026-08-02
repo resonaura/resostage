@@ -22,6 +22,8 @@ function makeFixture(id: string): LightFixtureRow {
     dmxUniverse: 0,
     dmxStartChannel: 1,
     dmxChannelCount: 3,
+    shape: "bar",
+    channelProfile: "rgb",
   };
 }
 

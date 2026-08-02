@@ -169,7 +169,9 @@ std::string serializeProjectJson(const Project& project) {
         o << "        \"mountedHorizontally\": " << (f.mountedHorizontally ? "true" : "false") << ",\n";
         o << "        \"dmxUniverse\": " << f.dmxUniverse << ",\n";
         o << "        \"dmxStartChannel\": " << f.dmxStartChannel << ",\n";
-        o << "        \"dmxChannelCount\": " << f.dmxChannelCount << "\n";
+        o << "        \"dmxChannelCount\": " << f.dmxChannelCount << ",\n";
+        o << "        \"shape\": \"" << jsonEscapeString(f.shape) << "\",\n";
+        o << "        \"channelProfile\": \"" << jsonEscapeString(f.channelProfile) << "\"\n";
         o << "      }" << (i + 1 < project.lighting.fixtures.size() ? "," : "") << "\n";
     }
     o << "    ]\n";

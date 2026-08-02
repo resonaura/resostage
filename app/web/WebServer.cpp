@@ -1411,7 +1411,9 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"mountedHorizontally\":" << (f.mountedHorizontally ? "true" : "false") << ","
               << "\"dmxUniverse\":" << f.dmxUniverse << ","
               << "\"dmxStartChannel\":" << f.dmxStartChannel << ","
-              << "\"dmxChannelCount\":" << f.dmxChannelCount << "}";
+              << "\"dmxChannelCount\":" << f.dmxChannelCount << ","
+              << "\"shape\":\"" << jsonEscape(f.shape) << "\","
+              << "\"channelProfile\":\"" << jsonEscape(f.channelProfile) << "\"}";
         }
         o << "]}";
 

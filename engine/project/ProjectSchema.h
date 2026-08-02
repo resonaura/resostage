@@ -150,6 +150,18 @@ struct LightFixture {
     int dmxUniverse = 0;
     int dmxStartChannel = 1; // 1-based
     int dmxChannelCount = 3;
+    // Purely cosmetic/informational for DmxGeneric fixtures -- neither
+    // field feeds resolveLightOutputs/writeDmxChannels (a fixture's actual
+    // wire behavior is entirely a function of addressable/ledCount and the
+    // resolved cue value). `shape` picks the 3D stage's mesh so a rig
+    // reads as a mix of real fixture types instead of every DMX fixture
+    // rendering as a generic bar; `channelProfile` is a named preset the
+    // web UI uses to set dmxChannelCount and label each channel's role
+    // (e.g. "Ch1 Dimmer, Ch2 R, ...") -- purely a data-entry convenience,
+    // not consulted by the engine. See ui/src/lib/dmxProfiles.ts for the
+    // canonical profile -> channel-count/role table.
+    std::string shape = "bar";          // "bar" | "par" | "wash" | "spot" | "movingHead" | "strip"
+    std::string channelProfile = "rgb"; // "dimmer" | "rgb" | "rgbw" | "rgbwa" | "dimmerRgb" | "dimmerRgbw" | "panTiltDimmerRgb" | "panTiltDimmerRgbw" | "custom"
 };
 
 enum class LightingKind {

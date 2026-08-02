@@ -62,20 +62,31 @@ function resolveCssColor(raw: string, fallback: string): string {
   return ctx.fillStyle || fallback;
 }
 
+// The stage canvas' own background (see the <color attach="background">
+// below) -- grid colors are mixed toward THIS, not toward the theme's
+// near-white --default-foreground. Mixing toward foreground (the original
+// approach) made the grid read as a bright white overlay on the dark
+// stage; mixing toward the actual background instead keeps the "default"
+// theme tint but guarantees the grid stays a subtle, dim guide -- never
+// whiter than the stage it's drawn on.
+const STAGE_BACKGROUND = "#0b0f14";
+
 function useHeroDefaultGridColors(): { cell: string; section: string } {
-  const [colors, setColors] = useState({ cell: "#1e293b", section: "#334155" });
+  const [colors, setColors] = useState({ cell: "#141a21", section: "#1c242e" });
   useEffect(() => {
     const root = getComputedStyle(document.documentElement);
     const rawDefault = root.getPropertyValue("--default").trim();
-    const rawForeground = root.getPropertyValue("--default-foreground").trim();
-    if (!rawDefault || !rawForeground) return;
-    const cell = resolveCssColor(rawDefault, "#1e293b");
-    // Section (major) lines read as a lighter tint of the same "default"
-    // surface -- blended toward its paired foreground token rather than a
-    // second unrelated color, so it stays in-family with cell color.
+    if (!rawDefault) return;
+    // Minor lines: mostly background, barely-there tint of the theme color.
+    const cell = resolveCssColor(
+      `color-mix(in oklch, ${rawDefault} 25%, ${STAGE_BACKGROUND} 75%)`,
+      "#141a21",
+    );
+    // Major (section) lines: a bit more present, still dark -- never mixes
+    // in any foreground/white at all.
     const section = resolveCssColor(
-      `color-mix(in oklch, ${rawDefault} 55%, ${rawForeground} 45%)`,
-      "#334155",
+      `color-mix(in oklch, ${rawDefault} 45%, ${STAGE_BACKGROUND} 55%)`,
+      "#1c242e",
     );
     setColors({ cell, section });
   }, []);
@@ -248,20 +259,22 @@ export function ResoLightStage3D({
           const isDragging = dragId === f.id;
           const x = isDragging && dragPos ? dragPos.x : snapToStageGrid(f.posX);
           const z = isDragging && dragPos ? dragPos.z : snapToStageGrid(f.posZ);
-          return (
-            <ResoLightBar
-              key={f.id}
-              fixture={f}
-              x={x}
-              z={z}
-              selected={mode === "edit" && f.id === selectedFixtureId}
-              editable={mode === "edit"}
-              onPointerDownStart={() => {
-                onSelectFixture?.(f.id);
-                if (mode === "edit") setDragId(f.id);
-              }}
-              previewColor={previewColors?.[f.id]}
-            />
+          const commonProps = {
+            fixture: f,
+            x,
+            z,
+            selected: mode === "edit" && f.id === selectedFixtureId,
+            editable: mode === "edit",
+            onPointerDownStart: () => {
+              onSelectFixture?.(f.id);
+              if (mode === "edit") setDragId(f.id);
+            },
+            previewColor: previewColors?.[f.id],
+          };
+          return f.kind === "resoLightBar" ? (
+            <ResoLightBar key={f.id} {...commonProps} />
+          ) : (
+            <GenericFixture key={f.id} {...commonProps} />
           );
         })}
 
@@ -284,6 +297,38 @@ export function ResoLightStage3D({
 export type PreviewColor = LightCueValue & {
   ledColors?: LiveLedColor[];
 };
+
+// Resolves a non-addressable fixture's single displayed color -- shared by
+// ResoLightBar's uniform (non-segmented) path and every GenericFixture
+// shape below, since a DmxGeneric fixture is always non-addressable
+// (ledCount=1) and therefore always takes this same uniform path. See the
+// call site's own comment for why intensity gets baked into the diffuse
+// color, not just emissive.
+function useUniformFixtureColor(previewColor?: PreviewColor): {
+  color: THREE.Color;
+  emissiveIntensity: number;
+} {
+  const liveLeds = previewColor?.ledColors;
+  const uniformLive = (liveLeds?.length ?? 0) >= 1;
+  const color = useMemo(() => {
+    if (uniformLive && liveLeds) {
+      const c = liveLeds[0];
+      return new THREE.Color(c.r / 255, c.g / 255, c.b / 255);
+    }
+    if (previewColor) {
+      return new THREE.Color(
+        previewColor.r / 255,
+        previewColor.g / 255,
+        previewColor.b / 255,
+      ).multiplyScalar(Math.max(0, Math.min(1, previewColor.intensity)));
+    }
+    return new THREE.Color(0.55, 0.58, 0.65);
+  }, [uniformLive, liveLeds, previewColor]);
+  const emissiveIntensity = uniformLive && liveLeds
+    ? (liveLeds[0].r + liveLeds[0].g + liveLeds[0].b > 0 ? 1 : 0)
+    : previewColor ? 1 : 0.25;
+  return { color, emissiveIntensity };
+}
 
 function ResoLightBar({
   fixture,
@@ -308,7 +353,6 @@ function ResoLightBar({
 
   const liveLeds = previewColor?.ledColors;
   const perLed = (liveLeds?.length ?? 0) > 1;
-  const uniformLive = (liveLeds?.length ?? 0) === 1;
 
   // The scene's ambient + directional lights reflect off a mesh's diffuse
   // `color` regardless of `emissive` -- so a fully-saturated diffuse color
@@ -318,25 +362,9 @@ function ResoLightBar({
   // means an LED at intensity 0 is actually black under any lighting, matching
   // real DMX output where 0 intensity means 0 on the wire -- no artificial
   // floor needed for "visibility", since a real blackout looks like nothing.
-  const color = useMemo(() => {
-    if (uniformLive && liveLeds) {
-      // Wire colors already have intensity baked in.
-      const c = liveLeds[0];
-      return new THREE.Color(c.r / 255, c.g / 255, c.b / 255);
-    }
-    if (previewColor && !perLed) {
-      return new THREE.Color(
-        previewColor.r / 255,
-        previewColor.g / 255,
-        previewColor.b / 255,
-      ).multiplyScalar(Math.max(0, Math.min(1, previewColor.intensity)));
-    }
-    return new THREE.Color(0.55, 0.58, 0.65);
-  }, [uniformLive, liveLeds, perLed, previewColor]);
-
-  const emissiveIntensity = uniformLive && liveLeds
-    ? (liveLeds[0].r + liveLeds[0].g + liveLeds[0].b > 0 ? 1 : 0)
-    : previewColor ? 1 : 0.25;
+  // Only meaningful along the non-segmented (uniform) path below -- the
+  // per-LED `segments` path derives its own colors straight from `liveLeds`.
+  const { color, emissiveIntensity } = useUniformFixtureColor(perLed ? undefined : previewColor);
 
   // Capped/floored purely for render cost and visibility -- the real DMX
   // output still addresses every physical LED; this is just how many
@@ -440,6 +468,148 @@ function ResoLightBar({
           {fixture.name}
         </Text>
       </group>
+
+      {editable && (
+        <mesh position={[0, -0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.12, selected ? 0.18 : 0.15, 24]} />
+          <meshBasicMaterial color={selected ? "#38bdf8" : "#475569"} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+// ─── Generic DMX fixture (PAR/wash/spot/moving head/strip) ────────────────
+//
+// DmxGeneric fixtures are always non-addressable (ledCount=1), so they only
+// ever need the same uniform-color path ResoLightBar's non-segmented branch
+// uses -- no per-LED segment logic applies. `shape` is purely cosmetic
+// (which primitive silhouette gets drawn); the actual color/brightness
+// logic, selection ring, and label are identical in spirit to ResoLightBar
+// so a rig mixing bars and generic fixtures reads as one consistent stage.
+function GenericFixture({
+  fixture,
+  x,
+  z,
+  selected,
+  editable,
+  onPointerDownStart,
+  previewColor,
+}: {
+  fixture: LightFixtureRow;
+  x: number;
+  z: number;
+  selected: boolean;
+  editable: boolean;
+  onPointerDownStart: () => void;
+  previewColor?: PreviewColor;
+}) {
+  const { color, emissiveIntensity } = useUniformFixtureColor(previewColor);
+  // How strongly the glow sprite reads -- mirrors ResoLightBar's per-segment
+  // `seg.level` (the resolved color's own brightness), not a separate signal.
+  const glowLevel = Math.max(color.r, color.g, color.b);
+
+  const onBodyPointerDown = (e: { stopPropagation: () => void }) => {
+    e.stopPropagation();
+    onPointerDownStart();
+  };
+
+  // Per-shape body mesh(es) + where its "lens" (glow sprite + label anchor)
+  // sits. Every shape stands with its base at local y=0, same convention as
+  // ResoLightBar, so posY means the same thing regardless of fixture kind.
+  let body: React.ReactNode;
+  let lensY: number;
+  let labelY: number;
+  switch (fixture.shape) {
+    case "wash":
+      lensY = 0.06;
+      labelY = 0.18;
+      body = (
+        <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
+          <cylinderGeometry args={[0.15, 0.13, 0.12, 20]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+        </mesh>
+      );
+      break;
+    case "spot":
+      lensY = 0.14;
+      labelY = 0.32;
+      body = (
+        <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
+          <coneGeometry args={[0.08, 0.28, 16]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+        </mesh>
+      );
+      break;
+    case "movingHead":
+      lensY = 0.19;
+      labelY = 0.34;
+      body = (
+        <>
+          {/* Static yoke/base -- never colored by the resolved cue, same
+              as the housing of a real moving head staying neutral while
+              only its lamp/lens changes color. */}
+          <mesh position={[0, 0.06, 0]}>
+            <boxGeometry args={[0.16, 0.12, 0.1]} />
+            <meshStandardMaterial color="#3a4149" />
+          </mesh>
+          <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
+            <sphereGeometry args={[0.09, 16, 16]} />
+            <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+          </mesh>
+        </>
+      );
+      break;
+    case "strip":
+      lensY = 0.03;
+      labelY = 0.15;
+      body = (
+        <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
+          <boxGeometry args={[0.5, 0.05, 0.05]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+        </mesh>
+      );
+      break;
+    case "par":
+    default:
+      lensY = 0.11;
+      labelY = 0.28;
+      body = (
+        <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
+          <cylinderGeometry args={[0.08, 0.1, 0.22, 20]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+        </mesh>
+      );
+      break;
+  }
+
+  return (
+    <group
+      position={[x, fixture.posY, z]}
+      rotation={[0, THREE.MathUtils.degToRad(fixture.rotationYDeg), 0]}
+    >
+      {body}
+
+      <sprite position={[0, lensY, 0]} scale={[0.5, 0.5, 1]}>
+        <spriteMaterial
+          map={getGlowTexture()}
+          color={color}
+          transparent
+          opacity={Math.min(0.85, glowLevel * 0.9)}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </sprite>
+
+      <Text
+        position={[0, labelY, 0]}
+        fontSize={0.14}
+        color="#cbd5e1"
+        anchorX="center"
+        anchorY="bottom"
+      >
+        {fixture.name}
+      </Text>
 
       {editable && (
         <mesh position={[0, -0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>

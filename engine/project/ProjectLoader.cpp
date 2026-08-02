@@ -230,6 +230,9 @@ bool parseLightFixture(const simdjson::dom::element& fxEl, LightFixture& fx, std
     if (!fxEl["dmxUniverse"].get(tmp)) fx.dmxUniverse = static_cast<int>(tmp);
     if (!fxEl["dmxStartChannel"].get(tmp)) fx.dmxStartChannel = static_cast<int>(tmp);
     if (!fxEl["dmxChannelCount"].get(tmp)) fx.dmxChannelCount = static_cast<int>(tmp);
+    std::string_view shapeView, profileView;
+    if (!fxEl["shape"].get(shapeView)) fx.shape = std::string(shapeView);
+    if (!fxEl["channelProfile"].get(profileView)) fx.channelProfile = std::string(profileView);
 
     return true;
 }

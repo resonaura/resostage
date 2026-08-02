@@ -310,6 +310,8 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     generic.dmxUniverse = 2;
     generic.dmxStartChannel = 17;
     generic.dmxChannelCount = 16;
+    generic.shape = "movingHead";
+    generic.channelProfile = "panTiltDimmerRgbw";
     p.lighting.fixtures.push_back(generic);
 
     LightTrack track;
@@ -376,6 +378,8 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     CHECK(generic2.dmxUniverse == 2);
     CHECK(generic2.dmxStartChannel == 17);
     CHECK(generic2.dmxChannelCount == 16);
+    CHECK(generic2.shape == "movingHead");
+    CHECK(generic2.channelProfile == "panTiltDimmerRgbw");
 
     REQUIRE(p2.lightTracks.size() == 1);
     CHECK(p2.lightTracks[0].id == "lt_1");

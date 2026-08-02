@@ -185,6 +185,14 @@ export interface LightFixtureRow {
   dmxUniverse: number;
   dmxStartChannel: number;
   dmxChannelCount: number;
+  /** Cosmetic-only (3D stage mesh) -- see ui/src/lib/dmxProfiles.ts. */
+  shape: "bar" | "par" | "wash" | "spot" | "movingHead" | "strip";
+  /** Cosmetic-only (sets dmxChannelCount + channel-role labels in the UI). */
+  channelProfile:
+    | "dimmer" | "rgb" | "rgbw" | "rgbwa"
+    | "dimmerRgb" | "dimmerRgbw"
+    | "panTiltDimmerRgb" | "panTiltDimmerRgbw"
+    | "custom";
 }
 
 export interface LightingState {

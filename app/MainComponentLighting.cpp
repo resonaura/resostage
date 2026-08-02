@@ -155,6 +155,11 @@ void MainComponent::lightingFixtureAdd(const std::string& json) {
     f.kind = LightFixture::Kind::DmxGeneric;
     f.addressable = false;
     f.ledCount = 1;
+    // "bar" is the LightFixture default (meant for ResoLightBar), not a
+    // sensible shape for a freshly added generic fixture -- "par" plus the
+    // 3-channel RGB profile is the most common real-world starting point.
+    f.shape = "par";
+    f.channelProfile = "rgb";
 
     // Auto-place right after the last occupied channel range in universe 0
     // so a freshly added fixture never silently overlaps an existing one's
@@ -249,6 +254,11 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     if (getInt(doc, "dmxUniverse", intVal)) fx->dmxUniverse = intVal;
     if (getInt(doc, "dmxStartChannel", intVal)) fx->dmxStartChannel = intVal;
     if (getInt(doc, "dmxChannelCount", intVal)) fx->dmxChannelCount = intVal;
+    // Cosmetic-only strings (see LightFixture's doc comment) -- the engine
+    // never branches on either, so no allowlist to keep in sync here; the
+    // web UI owns the canonical set of known values.
+    if (getString(doc, "shape", strVal)) fx->shape = strVal;
+    if (getString(doc, "channelProfile", strVal)) fx->channelProfile = strVal;
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();

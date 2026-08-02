@@ -1,11 +1,40 @@
 import { useEffect, useMemo, useState } from "react";
-import { MoveHorizontal, MoveVertical, Plus, Trash2, TriangleAlert, Wand2 } from "lucide-react";
+import {
+  Disc3,
+  Lamp,
+  MoveHorizontal,
+  Move3D,
+  MoveVertical,
+  Plus,
+  Rows3,
+  Spotlight,
+  Trash2,
+  TriangleAlert,
+  Wand2,
+} from "lucide-react";
 import { lighting } from "../../lib/api";
 import type { LightFixtureRow, LightingState, WebUiState } from "../../lib/types";
 import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
 import { HslColorPicker, LabeledSlider } from "./LightSidePanel";
 import { computeFixturePreviewColors } from "../../lib/lightPreviewColors";
 import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "../../lib/liveLevels";
+import {
+  CHANNEL_PROFILES,
+  DMX_GENERIC_SHAPES,
+  SHAPE_META,
+  channelRoleLabels,
+  type ChannelProfile,
+  type FixtureShape,
+} from "../../lib/dmxProfiles";
+
+const SHAPE_ICON: Record<FixtureShape, React.ComponentType<{ size?: number; className?: string }>> = {
+  bar: Rows3,
+  par: Lamp,
+  wash: Disc3,
+  spot: Spotlight,
+  movingHead: Move3D,
+  strip: Rows3,
+};
 
 const selectCls =
   "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
@@ -109,6 +138,7 @@ function FixtureItem({
 }) {
   const previewColor = summarizeSwatchColor(rawPreviewColor);
   const hasColor = previewColor && previewColor.intensity > 0.01;
+  const ShapeIcon = fixture.kind === "dmxGeneric" ? SHAPE_ICON[fixture.shape] : null;
   return (
     <div
       className={`flex items-center gap-1 w-full rounded-lg border transition-all ${
@@ -136,6 +166,9 @@ function FixtureItem({
               : "none",
           }}
         />
+        {ShapeIcon && (
+          <ShapeIcon size={11} className="shrink-0 text-foreground/40" />
+        )}
         <span className="flex-1 truncate text-xs font-medium text-foreground/80">
           {fixture.name}
         </span>
@@ -487,6 +520,36 @@ export function ProjectLightingPanel({
                     )}
                   </div>
 
+                  {/* Shape -- purely cosmetic (which 3D mesh the stage
+                      draws), lets a rig read as a mix of real fixture
+                      types instead of every DMX fixture looking like a
+                      ResoLight bar. */}
+                  {selected.kind === "dmxGeneric" && (
+                    <Field label="Fixture Shape">
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {DMX_GENERIC_SHAPES.map((shape) => {
+                          const Icon = SHAPE_ICON[shape];
+                          return (
+                            <button
+                              key={shape}
+                              type="button"
+                              onClick={() => void lighting.fixtureUpdate({ fixtureId: selected.id, shape })}
+                              title={SHAPE_META[shape].label}
+                              className={`flex flex-col items-center gap-1 rounded-lg border py-2 text-[10px] font-medium transition-colors ${
+                                selected.shape === shape
+                                  ? "border-accent bg-accent/20 text-accent"
+                                  : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                              }`}
+                            >
+                              <Icon size={16} />
+                              {SHAPE_META[shape].label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </Field>
+                  )}
+
                   <div className="grid grid-cols-3 gap-3">
                     <Field label="Height (m)">
                       <input
@@ -654,6 +717,41 @@ export function ProjectLightingPanel({
                           Overlaps another fixture's DMX channels in this universe.
                         </div>
                       )}
+
+                      {/* Channel Profile: a named personality preset --
+                          picking one sets Ch Count for you and labels what
+                          each channel actually does (real fixtures ship
+                          with a fixed channel layout; this documents it
+                          instead of making the user remember it). Custom
+                          leaves Ch Count exactly as typed below. */}
+                      <Field label="Channel Profile">
+                        <select
+                          className={selectCls}
+                          value={selected.channelProfile}
+                          onChange={(e) => {
+                            const profile = e.target.value as ChannelProfile;
+                            const meta = CHANNEL_PROFILES[profile];
+                            void lighting.fixtureUpdate(
+                              meta.channelCount > 0
+                                ? { fixtureId: selected.id, channelProfile: profile, dmxChannelCount: meta.channelCount }
+                                : { fixtureId: selected.id, channelProfile: profile },
+                            );
+                          }}
+                        >
+                          {(Object.keys(CHANNEL_PROFILES) as ChannelProfile[]).map((p) => (
+                            <option key={p} value={p}>
+                              {CHANNEL_PROFILES[p].label}
+                              {CHANNEL_PROFILES[p].channelCount > 0 ? ` (${CHANNEL_PROFILES[p].channelCount}ch)` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      {selected.channelProfile !== "custom" && (
+                        <div className="text-[10px] text-foreground/40 font-mono">
+                          {channelRoleLabels(selected.channelProfile, selected.dmxStartChannel).join(" · ")}
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-3 gap-3">
                         <Field label="Universe">
                           <input
@@ -689,7 +787,13 @@ export function ProjectLightingPanel({
                             type="number"
                             min={1}
                             max={512}
-                            className={numberCls}
+                            disabled={selected.channelProfile !== "custom"}
+                            title={
+                              selected.channelProfile !== "custom"
+                                ? "Set by the Channel Profile above -- switch to Custom to edit directly"
+                                : undefined
+                            }
+                            className={`${numberCls} disabled:opacity-50 disabled:cursor-not-allowed`}
                             value={selected.dmxChannelCount}
                             onChange={(e) =>
                               void lighting.fixtureUpdate({

@@ -455,6 +455,10 @@ struct WebUiState {
         int dmxUniverse = 0;
         int dmxStartChannel = 1;
         int dmxChannelCount = 3;
+        // Cosmetic/informational only -- see ProjectSchema.h's LightFixture
+        // doc comment. Neither field affects real DMX output.
+        std::string shape = "bar";
+        std::string channelProfile = "rgb";
     };
     struct LightingRow {
         bool enabled = false;
