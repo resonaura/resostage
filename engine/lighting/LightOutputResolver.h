@@ -416,11 +416,16 @@ inline std::vector<ResolvedFixtureOutput> blendTowardIdle(
 }
 
 // Final per-LED wire color for one fixture -- the exact bytes the DMX
-// universe receives after intensity scaling (see writeDmxChannels).
+// universe receives after intensity scaling (see writeDmxChannels). `w` is
+// only meaningful when a ResoLightBar's channelProfile is "rgbw" -- see
+// resolveLedWireColors' toWire conversion below and
+// ResoLightChannelMap.h's colorProfileByteCount, the shared source of truth
+// for how many of these fields actually get written per pixel.
 struct LedWireColor {
     uint8_t r = 0;
     uint8_t g = 0;
     uint8_t b = 0;
+    uint8_t w = 0;
 };
 
 // Resolves the final per-LED colors `fixture` should display for its resolved
@@ -441,8 +446,36 @@ inline std::vector<LedWireColor> resolveLedWireColors(const ResolvedFixtureOutpu
             std::clamp(static_cast<double>(ch) * out.value.intensity * ledLevel, 0.0, 255.0));
     };
 
+    // ResoLightBar's color type ("dimmer" | "rgb" | "rgbw", see LightFixture's
+    // doc comment) actually changes what bytes get written -- unlike
+    // DmxGeneric's channelProfile, which is purely a UI label/channel-count
+    // convenience (see writeDmxChannels' own doc comment for why that's the
+    // safe choice there). "rgbw" splits the shared white component out via
+    // the standard min(r,g,b) subtractive conversion; "dimmer" carries a
+    // single brightness byte (the loudest of r/g/b) in `.r` -- pick a white
+    // cue color so a Dimmer-only bar's own color choice doesn't matter.
+    const bool isResoLight = fixture.kind == LightFixture::Kind::ResoLightBar;
+    const std::string& profile = fixture.channelProfile;
+    const auto toWire = [&](uint8_t r, uint8_t g, uint8_t b, double ledLevel) -> LedWireColor {
+        LedWireColor c;
+        if (isResoLight && profile == "rgbw") {
+            const uint8_t white = std::min({r, g, b});
+            c.r = scale(static_cast<uint8_t>(r - white), ledLevel);
+            c.g = scale(static_cast<uint8_t>(g - white), ledLevel);
+            c.b = scale(static_cast<uint8_t>(b - white), ledLevel);
+            c.w = scale(white, ledLevel);
+        } else if (isResoLight && profile == "dimmer") {
+            c.r = scale(std::max({r, g, b}), ledLevel);
+        } else {
+            c.r = scale(r, ledLevel);
+            c.g = scale(g, ledLevel);
+            c.b = scale(b, ledLevel);
+        }
+        return c;
+    };
+
     if (leds == 1) {
-        return {{scale(out.value.r, 1.0), scale(out.value.g, 1.0), scale(out.value.b, 1.0)}};
+        return {toWire(out.value.r, out.value.g, out.value.b, 1.0)};
     }
 
     const bool meterActive = out.effectType == EffectParams::Type::Meter;
@@ -469,7 +502,7 @@ inline std::vector<LedWireColor> resolveLedWireColors(const ResolvedFixtureOutpu
                                       out.value.r, out.value.g, out.value.b, r, g, b, ledLevel,
                                       stopsPtr, out.meterLevel01, out.bandLevel);
         }
-        colors.push_back({scale(r, ledLevel), scale(g, ledLevel), scale(b, ledLevel)});
+        colors.push_back(toWire(r, g, b, ledLevel));
     }
     return colors;
 }

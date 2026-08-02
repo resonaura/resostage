@@ -424,3 +424,104 @@ TEST_CASE("blendTowardIdle: t is clamped, and the fixture set is always driven b
     REQUIRE(belowZero.size() == 1);
     CHECK(belowZero[0].value.r == 100);
 }
+
+// ─── resolveLedWireColors: ResoLightBar color type (Dimmer/RGB/RGBW) ──────
+
+namespace {
+LightFixture makeBar(std::string channelProfile, bool addressable = false, int ledCount = 1) {
+    LightFixture f;
+    f.id = "bar1";
+    f.kind = LightFixture::Kind::ResoLightBar;
+    f.channelProfile = std::move(channelProfile);
+    f.addressable = addressable;
+    f.ledCount = ledCount;
+    return f;
+}
+
+ResolvedFixtureOutput makeSolidOutput(uint8_t r, uint8_t g, uint8_t b, double intensity = 1.0) {
+    ResolvedFixtureOutput o;
+    o.fixtureId = "bar1";
+    o.value = {r, g, b, intensity};
+    return o;
+}
+} // namespace
+
+TEST_CASE("resolveLedWireColors: rgb profile is untouched passthrough (w always 0)") {
+    auto out = resolveLedWireColors(makeSolidOutput(200, 100, 50), makeBar("rgb"));
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].r == 200);
+    CHECK(out[0].g == 100);
+    CHECK(out[0].b == 50);
+    CHECK(out[0].w == 0);
+}
+
+TEST_CASE("resolveLedWireColors: rgbw extracts the shared white component") {
+    // min(200,150,50) = 50 -> w=50, r/g/b lose that shared component.
+    auto out = resolveLedWireColors(makeSolidOutput(200, 150, 50), makeBar("rgbw"));
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].r == 150);
+    CHECK(out[0].g == 100);
+    CHECK(out[0].b == 0);
+    CHECK(out[0].w == 50);
+}
+
+TEST_CASE("resolveLedWireColors: rgbw of a pure white cue puts everything on w") {
+    auto out = resolveLedWireColors(makeSolidOutput(255, 255, 255), makeBar("rgbw"));
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].r == 0);
+    CHECK(out[0].g == 0);
+    CHECK(out[0].b == 0);
+    CHECK(out[0].w == 255);
+}
+
+TEST_CASE("resolveLedWireColors: dimmer carries the loudest channel in .r, g/b unused") {
+    auto out = resolveLedWireColors(makeSolidOutput(80, 200, 40), makeBar("dimmer"));
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].r == 200);
+    CHECK(out[0].g == 0);
+    CHECK(out[0].b == 0);
+}
+
+TEST_CASE("resolveLedWireColors: intensity scaling still applies under every color type") {
+    auto rgbw = resolveLedWireColors(makeSolidOutput(200, 200, 200, 0.5), makeBar("rgbw"));
+    REQUIRE(rgbw.size() == 1);
+    CHECK(rgbw[0].w == 100); // 200 * 0.5
+
+    auto dimmer = resolveLedWireColors(makeSolidOutput(200, 0, 0, 0.5), makeBar("dimmer"));
+    REQUIRE(dimmer.size() == 1);
+    CHECK(dimmer[0].r == 100);
+}
+
+TEST_CASE("resolveLedWireColors: color type only applies to ResoLightBar, not DmxGeneric") {
+    // A DmxGeneric fixture that somehow carries channelProfile="rgbw"
+    // (purely informational for that kind, see LightFixture's doc comment)
+    // must still get plain, untouched r/g/b -- writeDmxChannels only ever
+    // writes 1-3 bytes for DmxGeneric regardless.
+    LightFixture generic;
+    generic.id = "bar1";
+    generic.kind = LightFixture::Kind::DmxGeneric;
+    generic.channelProfile = "rgbw";
+    // Real DmxGeneric fixtures are always non-addressable/single-LED (see
+    // lightingFixtureAdd) -- LightFixture's own defaults (ledCount=120,
+    // addressable=true) are ResoLightBar-shaped, so this must override both.
+    generic.addressable = false;
+    generic.ledCount = 1;
+    auto out = resolveLedWireColors(makeSolidOutput(200, 150, 50), generic);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].r == 200);
+    CHECK(out[0].g == 150);
+    CHECK(out[0].b == 50);
+    CHECK(out[0].w == 0);
+}
+
+TEST_CASE("resolveLedWireColors: color type applies per-LED for an addressable bar too") {
+    LightFixture bar = makeBar("rgbw", /*addressable*/ true, /*ledCount*/ 3);
+    auto out = resolveLedWireColors(makeSolidOutput(255, 255, 255), bar);
+    REQUIRE(out.size() == 3);
+    for (const auto& c : out) {
+        CHECK(c.r == 0);
+        CHECK(c.g == 0);
+        CHECK(c.b == 0);
+        CHECK(c.w == 255);
+    }
+}

@@ -8,12 +8,28 @@
 
 namespace resostage {
 
-// Channels needed to drive one ResoLight bar: 3 per LED (RGB) if
-// addressable, else a single RGB triplet drives the whole bar uniformly.
-inline int resoLightBarChannelCount(int ledCount, bool addressable) {
+// Real bytes-per-pixel for a ResoLightBar's color type -- the single source
+// of truth both resoLightBarChannelCount (channel-count bookkeeping) and
+// resolveLedWireColors/writeDmxChannels (the actual bytes written) read, so
+// they can never disagree about how many channels one pixel occupies. Only
+// meaningful for LightFixture::channelProfile on a ResoLightBar; DmxGeneric
+// uses dmxChannelCount directly instead (see LightFixture's doc comment).
+inline int colorProfileByteCount(const std::string& channelProfile) {
+    if (channelProfile == "dimmer") return 1;
+    if (channelProfile == "rgbw") return 4;
+    return 3; // "rgb" (default) and any unrecognised value
+}
+
+// Channels needed to drive one ResoLight bar: `colorProfileByteCount(channelProfile)`
+// per LED if addressable, else that many channels drive the whole bar
+// uniformly. `channelProfile` defaults to "rgb" so existing 2-arg call
+// sites (this project's own doctest suite included) keep today's
+// always-3-channels behavior unchanged.
+inline int resoLightBarChannelCount(int ledCount, bool addressable, const std::string& channelProfile = "rgb") {
     if (ledCount <= 0)
         ledCount = 1;
-    return addressable ? ledCount * 3 : 3;
+    const int perPixel = colorProfileByteCount(channelProfile);
+    return addressable ? ledCount * perPixel : perPixel;
 }
 
 struct ResoLightChannelAssignment {
@@ -46,7 +62,7 @@ inline std::vector<ResoLightChannelAssignment> assignResoLightChannels(
     for (const auto& f : fixtures) {
         if (f.kind != LightFixture::Kind::ResoLightBar)
             continue;
-        const int count = resoLightBarChannelCount(f.ledCount, f.addressable);
+        const int count = resoLightBarChannelCount(f.ledCount, f.addressable, f.channelProfile);
         if (nextChannel != 1 && nextChannel + count - 1 > kChannelsPerUniverse) {
             ++universe;
             nextChannel = 1;

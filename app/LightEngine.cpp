@@ -36,38 +36,38 @@ void writeDmxChannels(const ResolvedFixtureOutput& out,
     const std::vector<LedWireColor> wireColors = resolveLedWireColors(out, fixture);
     const int startIdx = assign.startChannel - 1; // 0-based index
 
+    // Real bytes-per-pixel this fixture occupies. A ResoLightBar's color
+    // type (Dimmer/RGB/RGBW) genuinely changes this -- see
+    // colorProfileByteCount, the same function assignResoLightChannels used
+    // to size its channel reservation, so the two can never disagree. A
+    // DmxGeneric fixture's declared channel count is a real reservation
+    // against whatever's patched right after it (see
+    // assignResoLightChannels/lightingFixtureAdd's collision avoidance),
+    // clamped to 1..3 since resolveLedWireColors only ever populates r/g/b
+    // for it (see that function's doc comment on why leading-channel
+    // personalities like Dimmer+RGB aren't offered for DmxGeneric).
+    const int perPixelBytes = fixture.kind == LightFixture::Kind::ResoLightBar
+        ? colorProfileByteCount(fixture.channelProfile)
+        : std::clamp(fixture.dmxChannelCount, 1, 3);
+
+    const auto writeOne = [&](int base, const LedWireColor& c) {
+        if (base < 0 || base + perPixelBytes - 1 >= 512)
+            return;
+        const auto idx = static_cast<size_t>(base);
+        if (perPixelBytes >= 1) universe[idx + 0] = c.r;
+        if (perPixelBytes >= 2) universe[idx + 1] = c.g;
+        if (perPixelBytes >= 3) universe[idx + 2] = c.b;
+        if (perPixelBytes >= 4) universe[idx + 3] = c.w;
+    };
+
     if (wireColors.size() <= 1) {
-        // Uniform RGB -- no per-LED concept applies. A DmxGeneric fixture's
-        // declared channel count is a real reservation (see
-        // assignResoLightChannels/lightingFixtureAdd's collision
-        // avoidance against whatever's patched right after it) -- writing
-        // the full RGB triplet regardless would spill into and corrupt
-        // that neighbour's first channel(s) whenever the fixture declares
-        // fewer than 3 (e.g. a 1-channel "Dimmer" profile). A ResoLightBar
-        // always gets the full triplet: its non-addressable channel count
-        // is always exactly 3 (see resoLightBarChannelCount), regardless
-        // of its own dmxChannelCount field, which auto-packing never reads.
-        const int channels = fixture.kind == LightFixture::Kind::DmxGeneric
-            ? std::clamp(fixture.dmxChannelCount, 1, 3)
-            : 3;
-        const uint8_t r = wireColors.empty() ? 0 : wireColors[0].r;
-        const uint8_t g = wireColors.empty() ? 0 : wireColors[0].g;
-        const uint8_t b = wireColors.empty() ? 0 : wireColors[0].b;
-        if (startIdx + channels - 1 < 512) {
-            if (channels >= 1) universe[startIdx + 0] = r;
-            if (channels >= 2) universe[startIdx + 1] = g;
-            if (channels >= 3) universe[startIdx + 2] = b;
-        }
+        writeOne(startIdx, wireColors.empty() ? LedWireColor{} : wireColors[0]);
         return;
     }
 
-    const int leds = std::min(static_cast<int>(wireColors.size()), (512 - startIdx) / 3);
-    for (int i = 0; i < leds; ++i) {
-        const int base = startIdx + i * 3;
-        universe[base + 0] = wireColors[static_cast<size_t>(i)].r;
-        universe[base + 1] = wireColors[static_cast<size_t>(i)].g;
-        universe[base + 2] = wireColors[static_cast<size_t>(i)].b;
-    }
+    const int leds = std::min(static_cast<int>(wireColors.size()), (512 - startIdx) / perPixelBytes);
+    for (int i = 0; i < leds; ++i)
+        writeOne(startIdx + i * perPixelBytes, wireColors[static_cast<size_t>(i)]);
 }
 
 inline std::vector<ResoLightChannelAssignment>

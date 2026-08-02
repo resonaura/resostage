@@ -1347,8 +1347,18 @@ void MainComponent::publishWebState() {
                 const auto& fixture = proj.lighting.fixtures[static_cast<size_t>(lor.fixtureIdx)];
                 const auto wire = resolveLedWireColors(r, fixture);
                 lor.ledColors.reserve(wire.size());
-                for (const auto& c : wire)
-                    lor.ledColors.push_back({c.r, c.g, c.b});
+                for (const auto& c : wire) {
+                    // The preview has no separate white channel to render --
+                    // add w back into r/g/b (real RGBW hardware's white diode
+                    // visually brightens/desaturates the same way) so an
+                    // "rgbw" fixture doesn't preview as near-black just
+                    // because most of a white cue color got routed onto the
+                    // W wire instead of R/G/B.
+                    const int r2 = std::min(255, static_cast<int>(c.r) + c.w);
+                    const int g2 = std::min(255, static_cast<int>(c.g) + c.w);
+                    const int b2 = std::min(255, static_cast<int>(c.b) + c.w);
+                    lor.ledColors.push_back({r2, g2, b2});
+                }
             }
             state.lightOutput.push_back(std::move(lor));
         }

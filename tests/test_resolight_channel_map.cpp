@@ -6,12 +6,13 @@ using namespace resostage;
 
 namespace {
 
-LightFixture makeBar(std::string id, int ledCount, bool addressable) {
+LightFixture makeBar(std::string id, int ledCount, bool addressable, std::string channelProfile = "rgb") {
     LightFixture f;
     f.id = std::move(id);
     f.kind = LightFixture::Kind::ResoLightBar;
     f.ledCount = ledCount;
     f.addressable = addressable;
+    f.channelProfile = std::move(channelProfile);
     return f;
 }
 
@@ -41,6 +42,25 @@ TEST_CASE("resoLightBarChannelCount: non-addressable is always 3 channels") {
 TEST_CASE("resoLightBarChannelCount: non-positive ledCount defaults to 1 LED") {
     CHECK(resoLightBarChannelCount(0, true) == 3);
     CHECK(resoLightBarChannelCount(-5, true) == 3);
+}
+
+TEST_CASE("colorProfileByteCount: dimmer=1, rgb=3, rgbw=4, unrecognised defaults to 3") {
+    CHECK(colorProfileByteCount("dimmer") == 1);
+    CHECK(colorProfileByteCount("rgb") == 3);
+    CHECK(colorProfileByteCount("rgbw") == 4);
+    CHECK(colorProfileByteCount("bogus") == 3);
+    CHECK(colorProfileByteCount("") == 3);
+}
+
+TEST_CASE("resoLightBarChannelCount: channelProfile changes bytes-per-pixel") {
+    CHECK(resoLightBarChannelCount(10, true, "dimmer") == 10);
+    CHECK(resoLightBarChannelCount(10, true, "rgb") == 30);
+    CHECK(resoLightBarChannelCount(10, true, "rgbw") == 40);
+    CHECK(resoLightBarChannelCount(10, false, "rgbw") == 4);
+    // Omitting the argument keeps today's always-RGB behavior -- existing
+    // call sites (this file's own earlier tests included) must not need to
+    // change just because this parameter was added.
+    CHECK(resoLightBarChannelCount(10, true) == 30);
 }
 
 TEST_CASE("assignResoLightChannels: single non-addressable bar gets universe 0 channel 1") {
@@ -126,6 +146,19 @@ TEST_CASE("assignResoLightChannels: DmxGeneric channel count is floored at 1") {
     auto out = assignResoLightChannels(fixtures);
     REQUIRE(out.size() == 1);
     CHECK(out[0].channelCount == 1);
+}
+
+TEST_CASE("assignResoLightChannels: a bar's channelProfile changes its real packed channel count") {
+    std::vector<LightFixture> fixtures = {
+        makeBar("dimmerBar", 10, true, "dimmer"), // 10 channels: 1..10
+        makeBar("rgbwBar", 5, true, "rgbw"),       // 20 channels: 11..30
+    };
+    auto out = assignResoLightChannels(fixtures);
+    REQUIRE(out.size() == 2);
+    CHECK(out[0].startChannel == 1);
+    CHECK(out[0].channelCount == 10);
+    CHECK(out[1].startChannel == 11);
+    CHECK(out[1].channelCount == 20);
 }
 
 TEST_CASE("assignResoLightChannels: empty fixture list yields no assignments") {

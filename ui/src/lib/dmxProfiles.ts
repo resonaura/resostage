@@ -75,3 +75,35 @@ export const CHANNEL_PROFILES: Record<
 export function channelRoleLabels(profile: ChannelProfile, startChannel: number): string[] {
   return CHANNEL_PROFILES[profile].roles.map((role, i) => `Ch${startChannel + i} ${role}`);
 }
+
+// ─── ResoLightBar color type ────────────────────────────────────────────────
+//
+// Unlike DmxGeneric's channelProfile above (a UI label/channel-count
+// convenience the engine never reads), a ResoLightBar's color type
+// genuinely changes how many bytes get written per pixel and what they
+// mean -- see engine/lighting/ResoLightChannelMap.h's colorProfileByteCount
+// and LightOutputResolver.h's resolveLedWireColors (the RGBW split /
+// Dimmer's loudest-channel conversion). Only these three: no Pan/Tilt or
+// other leading-channel concept applies to ResoStage's own addressable
+// product the way it might to a third-party DMX fixture.
+export type ResoLightColorType = "dimmer" | "rgb" | "rgbw";
+export const RESOLIGHT_COLOR_TYPES: ResoLightColorType[] = ["dimmer", "rgb", "rgbw"];
+
+export const RESOLIGHT_COLOR_TYPE_META: Record<ResoLightColorType, { label: string; description: string }> = {
+  dimmer: { label: "Dimmer", description: "1 channel per pixel: brightness only -- set the cue color to white." },
+  rgb: { label: "RGB", description: "3 channels per pixel: full color (the default)." },
+  rgbw: { label: "RGBW", description: "4 channels per pixel: color plus a dedicated white channel, split out automatically." },
+};
+
+// Hand-ported copy of colorProfileByteCount + resoLightBarChannelCount
+// (ResoLightChannelMap.h) -- purely for the UI's own "real channel count"
+// readout, kept in sync by hand like every other math duplicated across
+// the two languages in this codebase (see RESTORE_POINT.md).
+export function resoLightRealChannelCount(
+  colorType: ResoLightColorType,
+  ledCount: number,
+  addressable: boolean,
+): number {
+  const perPixel = colorType === "dimmer" ? 1 : colorType === "rgbw" ? 4 : 3;
+  return addressable ? Math.max(1, ledCount) * perPixel : perPixel;
+}

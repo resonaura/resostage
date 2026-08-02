@@ -24,11 +24,15 @@ import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "
 import {
   CHANNEL_PROFILES,
   DMX_GENERIC_SHAPES,
+  RESOLIGHT_COLOR_TYPE_META,
+  RESOLIGHT_COLOR_TYPES,
   RESOLIGHT_SHAPES,
   SHAPE_META,
   channelRoleLabels,
+  resoLightRealChannelCount,
   type ChannelProfile,
   type FixtureShape,
+  type ResoLightColorType,
 } from "../../lib/dmxProfiles";
 
 const SHAPE_ICON: Record<FixtureShape, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -674,6 +678,47 @@ export function ProjectLightingPanel({
                       />
                     </Field>
                   )}
+
+                  {/* Color Type -- unlike DmxGeneric's Channel Profile (a UI
+                      label only), this genuinely changes how many bytes get
+                      written per pixel (see resoLightRealChannelCount /
+                      ResoLightChannelMap.h's colorProfileByteCount). */}
+                  {selected.kind === "resoLightBar" && (() => {
+                    // Only dimmer/rgb/rgbw are offered, but the stored field
+                    // is the wider shared ChannelProfile type -- fall back to
+                    // "rgb" (the struct default) for the description/count
+                    // readout if it's ever something else (e.g. hand-edited
+                    // project data).
+                    const colorType: ResoLightColorType =
+                      selected.channelProfile === "dimmer" || selected.channelProfile === "rgbw"
+                        ? selected.channelProfile
+                        : "rgb";
+                    return (
+                      <Field label="Color Type">
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {RESOLIGHT_COLOR_TYPES.map((ct) => (
+                            <button
+                              key={ct}
+                              type="button"
+                              onClick={() => void lighting.fixtureUpdate({ fixtureId: selected.id, channelProfile: ct })}
+                              title={RESOLIGHT_COLOR_TYPE_META[ct].description}
+                              className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                                colorType === ct
+                                  ? "border-accent bg-accent/20 text-accent"
+                                  : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                              }`}
+                            >
+                              {RESOLIGHT_COLOR_TYPE_META[ct].label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-1 text-[10px] text-foreground/40 italic">
+                          {RESOLIGHT_COLOR_TYPE_META[colorType].description} Real channel count:{" "}
+                          {resoLightRealChannelCount(colorType, selected.ledCount, selected.addressable)}.
+                        </div>
+                      </Field>
+                    );
+                  })()}
 
                   <div className="grid grid-cols-3 gap-3">
                     <Field label="Height (m)">
