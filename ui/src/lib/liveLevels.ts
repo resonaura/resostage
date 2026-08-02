@@ -56,7 +56,13 @@ export type LiveLightOutput = {
 let liveLightOutputs: LiveLightOutput[] = [];
 let lightPlayheadSec = 0;
 
-const EFFECT_TYPES = ["none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow"];
+// Index == wire byte value written by WebServer.cpp's effectToByte -- append
+// new effects there and here together, never reorder (see its own comment).
+const EFFECT_TYPES = [
+  "none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow",
+  "chase", "helix", "plasma", "twinkle", "sonicboom",
+  "fire", "bouncing", "drip", "fireworks", "colorwaves", "strobeswipe", "vupeak",
+];
 
 type Listener = () => void;
 const listeners = new Set<Listener>();

@@ -483,8 +483,11 @@ struct WebUiState {
         int g = 0;
         int b = 0;
         double intensity = 0.0;
-        double meterLevel01 = 0.0; // 0 unless the active cue's effect is Meter
-        std::string gradientPreset; // "solid" | "greenYellowRed"
+        double meterLevel01 = 0.0; // 0 unless the active cue's effect is Meter or VuPeak
+        std::string gradientPreset; // "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire"
+        // The cue's own typed stops, only meaningful when gradientPreset ==
+        // "custom" -- see engine/lighting/LightGradient.h.
+        std::string gradientColors;
         // Effect identity + phase for addressable fixtures with a spatial
         // per-LED pattern (Converge, GradientFlow) -- "none"/0 otherwise.
         // The frontend ports the identical addressableEffectLedColor math

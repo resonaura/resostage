@@ -12,6 +12,9 @@ import { useMemo, useRef, useState } from "react";
 import {
   Activity,
   BarChart2,
+  CircleDot,
+  Droplet,
+  Flame,
   Lightbulb,
   Link2,
   Link2Off,
@@ -19,6 +22,7 @@ import {
   Minus,
   Palette,
   Rainbow,
+  Sparkles,
   Trash2,
   TriangleAlert,
   Waves,
@@ -279,7 +283,10 @@ function HslColorPicker({
 
 // ─── Audio effect selector (props-driven — state lives in LightSidePanel) ──
 
-type EffectType = "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom";
+type EffectType =
+  | "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow"
+  | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom"
+  | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak";
 
 const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React.ReactNode }> = {
   none:         { label: "None",     desc: "Static color, no modulation",                      icon: <Minus size={12} /> },
@@ -294,6 +301,13 @@ const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React
   plasma:       { label: "Plasma",   desc: "Liquid three-wave colour interference", icon: <Activity size={12} /> },
   twinkle:      { label: "Twinkle",  desc: "Deterministic sparkling star field", icon: <Lightbulb size={12} /> },
   sonicboom:    { label: "Boom",     desc: "Rhythmic wave expanding from the centre", icon: <Zap size={12} /> },
+  fire:         { label: "Fire",     desc: "Procedural flame -- pick a palette below (Vulcan/Toxic/Cryo/Cyberpunk/custom)", icon: <Flame size={12} /> },
+  bouncing:     { label: "Bounce",   desc: "Three balls bouncing with decaying energy (addressable fixtures)", icon: <CircleDot size={12} /> },
+  drip:         { label: "Drip",     desc: "Droplets falling from the tip and splashing at the base", icon: <Droplet size={12} /> },
+  fireworks:    { label: "Fireworks", desc: "Rockets launch and burst into fading sparks", icon: <Sparkles size={12} /> },
+  colorwaves:   { label: "Waves",    desc: "Multi-wave palette scan that never quite repeats", icon: <Waves size={12} /> },
+  strobeswipe:  { label: "Swipe",    desc: "Fast bottom-to-top fill on every beat, then decays", icon: <Zap size={12} /> },
+  vupeak:       { label: "VU Peak",  desc: "Continuous VU fill with a highlighted peak cap", icon: <BarChart2 size={12} /> },
 };
 
 // ─── Tempo subdivisions ───────────────────────────────────────────────────
@@ -304,18 +318,33 @@ const SUBDIVISIONS = [
 type TempoSubdiv = typeof SUBDIVISIONS[number];
 
 type SourceType = "bus" | "track";
-type GradientPreset = "solid" | "greenYellowRed" | "custom";
+type GradientPreset = "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire";
 
 const GRADIENT_META: Record<GradientPreset, string> = {
   solid: "Solid Color",
   greenYellowRed: "Green → Yellow → Red",
+  vulcanFire: "Vulcan Flame",
+  toxicFire: "Toxic Alien",
+  cryoFire: "Cryo Ice",
+  cyberpunkFire: "Cyberpunk",
   custom: "Custom palette",
+};
+
+type BlendModeUi = "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive";
+const BLEND_META: Record<BlendModeUi, string> = {
+  normal: "Normal (replace)",
+  additive: "Additive",
+  multiply: "Multiply",
+  difference: "Difference",
+  lighten: "Lighten",
+  subtractive: "Subtractive",
 };
 
 function EffectPanel({
   effectType, effectSourceType, effectSourceId, effectIntensity, effectRate,
-  tempoSync, tempoSubdiv, gradientPreset, gradientColors, showGradient,
-  onType, onSourceType, onSourceId, onIntensity, onRate, onTempoSync, onTempoSubdiv, onGradientPreset, onGradientColors,
+  tempoSync, tempoSubdiv, gradientPreset, gradientColors, blendMode, showGradient,
+  onType, onSourceType, onSourceId, onIntensity, onRate, onTempoSync, onTempoSubdiv,
+  onGradientPreset, onGradientColors, onBlendMode,
   busses, tracks, bpm,
 }: {
   effectType: EffectType;
@@ -327,6 +356,7 @@ function EffectPanel({
   tempoSubdiv: TempoSubdiv;
   gradientPreset: GradientPreset;
   gradientColors: string;
+  blendMode: BlendModeUi;
   /** Only meaningful (and only shown) when the effect is Meter and at least
    * one assigned fixture is addressable -- a non-addressable bar has no
    * per-LED concept for a gradient to apply to. */
@@ -340,19 +370,26 @@ function EffectPanel({
   onTempoSubdiv: (v: TempoSubdiv) => void;
   onGradientPreset: (g: GradientPreset) => void;
   onGradientColors: (colors: string) => void;
+  onBlendMode: (b: BlendModeUi) => void;
   busses: BusRow[];
   tracks: TrackRow[];
   bpm: number;
 }) {
   const hasRate = effectType === "strobe" || effectType === "pulse" || effectType === "ripple"
     || effectType === "converge" || effectType === "gradientflow" || effectType === "chase"
-    || effectType === "helix" || effectType === "plasma" || effectType === "twinkle" || effectType === "sonicboom";
+    || effectType === "helix" || effectType === "plasma" || effectType === "twinkle" || effectType === "sonicboom"
+    || effectType === "fire" || effectType === "bouncing" || effectType === "drip"
+    || effectType === "fireworks" || effectType === "colorwaves" || effectType === "strobeswipe";
   const sourceItems = effectSourceType === "track" ? tracks : busses;
   return (
     <div className="flex flex-col gap-3">
       <Field label="Audio Effect">
         <div className="grid grid-cols-4 gap-1">
-          {(["none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow", "chase", "helix", "plasma", "twinkle", "sonicboom"] as EffectType[]).map((et) => {
+          {([
+            "none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow",
+            "chase", "helix", "plasma", "twinkle", "sonicboom",
+            "fire", "bouncing", "drip", "fireworks", "colorwaves", "strobeswipe", "vupeak",
+          ] as EffectType[]).map((et) => {
             const meta = EFFECT_META[et];
             return (
               <button
@@ -454,6 +491,21 @@ function EffectPanel({
             onChange={onIntensity}
             step={0.05}
           />
+
+          <Field label="Layer Blend">
+            <select
+              className="w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-xs outline-none focus:border-accent"
+              value={blendMode}
+              onChange={(e) => onBlendMode(e.target.value as BlendModeUi)}
+            >
+              {(Object.keys(BLEND_META) as BlendModeUi[]).map((b) => (
+                <option key={b} value={b}>{BLEND_META[b]}</option>
+              ))}
+            </select>
+            <div className="mt-1 text-[10px] text-foreground/40 italic">
+              Only matters if another track's cue is active on the same fixture at the same time (base + accent layers).
+            </div>
+          </Field>
 
           {hasRate && (
             <div className="flex flex-col gap-2">
@@ -622,9 +674,9 @@ function TrackSettingsPanel({
 function CueSettingsPanel({
   cue, songIndex, busses, tracks, bpm, hasAddressableFixture,
   effectType, effectSourceType, effectSourceId, effectIntensity, effectRate,
-  tempoSync, tempoSubdiv, gradientPreset, gradientColors,
+  tempoSync, tempoSubdiv, gradientPreset, gradientColors, blendMode,
   onEffectType, onEffectSourceType, onEffectSourceId, onEffectIntensity, onEffectRate,
-  onTempoSync, onTempoSubdiv, onGradientPreset, onGradientColors,
+  onTempoSync, onTempoSubdiv, onGradientPreset, onGradientColors, onBlendMode,
 }: {
   cue: LightCueRow;
   songIndex: number;
@@ -641,6 +693,7 @@ function CueSettingsPanel({
   tempoSubdiv: TempoSubdiv;
   gradientPreset: GradientPreset;
   gradientColors: string;
+  blendMode: BlendModeUi;
   onEffectType: (t: EffectType) => void;
   onEffectSourceType: (t: SourceType) => void;
   onEffectSourceId: (id: string) => void;
@@ -650,6 +703,7 @@ function CueSettingsPanel({
   onTempoSubdiv: (v: TempoSubdiv) => void;
   onGradientPreset: (g: GradientPreset) => void;
   onGradientColors: (colors: string) => void;
+  onBlendMode: (b: BlendModeUi) => void;
 }) {
   const update = (patch: Omit<Parameters<typeof lighting.cueUpdate>[0], "songIndex" | "cueId">) =>
     void lighting.cueUpdate({ songIndex, cueId: cue.id, ...patch });
@@ -659,7 +713,7 @@ function CueSettingsPanel({
     onEffectType(t);
     update({
       effectType: t, effectSourceType, effectSourceId, effectIntensity,
-      tempoSync, tempoSubdiv, effectRateHz: effectRate, gradientPreset, gradientColors,
+      tempoSync, tempoSubdiv, effectRateHz: effectRate, gradientPreset, gradientColors, blendMode,
     });
   };
   const handleEffectSourceType = (t: SourceType) => {
@@ -693,6 +747,10 @@ function CueSettingsPanel({
   const handleGradientColors = (colors: string) => {
     onGradientColors(colors);
     update({ gradientColors: colors });
+  };
+  const handleBlendMode = (b: BlendModeUi) => {
+    onBlendMode(b);
+    update({ blendMode: b });
   };
 
   return (
@@ -836,6 +894,7 @@ export function LightSidePanel({
         intensity: lo.intensity,
         meterLevel01: lo.meterLevel01,
         gradientPreset: lo.gradientPreset || undefined,
+        gradientColors: lo.gradientColors || undefined,
         effectType: lo.effectType,
         effectTSec: lo.effectTSec,
         effectRateHz: lo.effectRateHz,

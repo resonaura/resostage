@@ -1,5 +1,6 @@
 #pragma once
 
+#include "LightGradient.h"
 #include "project/ProjectSchema.h"
 
 #include <algorithm>
@@ -57,10 +58,20 @@ constexpr double kGradientFlowSpeedScale = 0.15;
 // from MasterClock::currentSeconds() so every fixture stays frame-perfect.
 
 struct EffectParams {
-    enum class Type { None, Meter, Strobe, Pulse, Ripple, Converge, GradientFlow, Chase, Helix, Plasma, Twinkle, SonicBoom } type{Type::None};
+    enum class Type {
+        None, Meter, Strobe, Pulse, Ripple, Converge, GradientFlow, Chase, Helix, Plasma, Twinkle, SonicBoom,
+        // Concert-pack additions -- see addressableEffectLedColor for the
+        // per-LED shape of each. All seven are pure functions of
+        // (i, totalLeds, tSec, rateHz) like everything above them; none
+        // needs persistent cross-frame simulation state (see RESTORE_POINT.md's
+        // "no FFT / spectral analysis exists yet" note for why GEQ/Blurz from
+        // the source research doc were deliberately left out of this batch
+        // rather than faked without real spectral data).
+        Fire, Bouncing, Drip, Fireworks, Colorwaves, StrobeSwipe, VuPeak,
+    } type{Type::None};
     float intensity    = 0.8f;   // 0..1 — depth of the effect
     float rateHz       = 2.0f;   // cycles per second (pre-computed from tempoSubdiv if synced)
-    float audioLevel   = 0.0f;   // 0..1 peak level from the target bus (for Meter)
+    float audioLevel   = 0.0f;   // 0..1 peak level from the target bus (for Meter, VuPeak)
     double tSec        = 0.0;    // monotonic wall-clock time for Strobe/Pulse/Ripple
     int fixtureIndex   = 0;      // fixture position for Ripple phase offset
 };
@@ -78,6 +89,13 @@ inline EffectParams::Type parseEffectType(const std::string& s) {
     if (s == "plasma")       return EffectParams::Type::Plasma;
     if (s == "twinkle")      return EffectParams::Type::Twinkle;
     if (s == "sonicboom")    return EffectParams::Type::SonicBoom;
+    if (s == "fire")         return EffectParams::Type::Fire;
+    if (s == "bouncing")     return EffectParams::Type::Bouncing;
+    if (s == "drip")         return EffectParams::Type::Drip;
+    if (s == "fireworks")    return EffectParams::Type::Fireworks;
+    if (s == "colorwaves")   return EffectParams::Type::Colorwaves;
+    if (s == "strobeswipe")  return EffectParams::Type::StrobeSwipe;
+    if (s == "vupeak")       return EffectParams::Type::VuPeak;
     return EffectParams::Type::None;
 }
 
@@ -99,7 +117,15 @@ inline const char* effectTypeToString(EffectParams::Type t) {
         case EffectParams::Type::Plasma:       return "plasma";
         case EffectParams::Type::Twinkle:      return "twinkle";
         case EffectParams::Type::SonicBoom:    return "sonicboom";
+        case EffectParams::Type::Fire:         return "fire";
+        case EffectParams::Type::Bouncing:     return "bouncing";
+        case EffectParams::Type::Drip:         return "drip";
+        case EffectParams::Type::Fireworks:    return "fireworks";
+        case EffectParams::Type::Colorwaves:   return "colorwaves";
+        case EffectParams::Type::StrobeSwipe:  return "strobeswipe";
+        case EffectParams::Type::VuPeak:       return "vupeak";
     }
+    return "none";
 }
 
 // Converts a tempo-subdivision string + BPM to Hz.
@@ -189,11 +215,24 @@ inline LightCueValue applyEffect(LightCueValue base, const EffectParams& p) {
             level = p.intensity;
             break;
         }
+        case EffectParams::Type::VuPeak: {
+            // Whole-bar fallback: continuous (unquantized) level, unlike
+            // Meter's 8-step VU feel -- the addressable per-LED path adds a
+            // highlighted peak-hold cap on top of this same fill.
+            level = std::clamp(p.audioLevel, 0.0f, 1.0f) * p.intensity;
+            break;
+        }
         case EffectParams::Type::Chase:
         case EffectParams::Type::Helix:
         case EffectParams::Type::Plasma:
         case EffectParams::Type::Twinkle:
         case EffectParams::Type::SonicBoom:
+        case EffectParams::Type::Fire:
+        case EffectParams::Type::Bouncing:
+        case EffectParams::Type::Drip:
+        case EffectParams::Type::Fireworks:
+        case EffectParams::Type::Colorwaves:
+        case EffectParams::Type::StrobeSwipe:
             level = p.intensity;
             break;
         case EffectParams::Type::None:
@@ -202,6 +241,42 @@ inline LightCueValue applyEffect(LightCueValue base, const EffectParams& p) {
 
     base.intensity *= std::clamp(static_cast<double>(level), 0.0, 1.0);
     return base;
+}
+
+// ─── Deterministic value noise (Fire) ──────────────────────────────────────
+//
+// A tiny 2D value-noise implementation (hash + smoothstep bilinear
+// interpolation) -- NOT Perlin/simplex noise, but visually equivalent for a
+// single flame texture and a few lines instead of a permutation-table
+// dependency. Pure function of its inputs (no seeding/state), so Fire stays
+// as testable/deterministic as every other effect in this file.
+inline uint32_t noiseHash(int32_t ix, int32_t iy) {
+    uint32_t h = static_cast<uint32_t>(ix) * 374761393u + static_cast<uint32_t>(iy) * 668265263u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return h ^ (h >> 16);
+}
+inline double noiseHash01(int32_t ix, int32_t iy) {
+    return (noiseHash(ix, iy) & 0xFFFFFFu) / static_cast<double>(0xFFFFFFu);
+}
+inline double valueNoise2D(double x, double y) {
+    const auto x0 = static_cast<int32_t>(std::floor(x));
+    const auto y0 = static_cast<int32_t>(std::floor(y));
+    const double fx = x - x0, fy = y - y0;
+    const double v00 = noiseHash01(x0, y0),     v10 = noiseHash01(x0 + 1, y0);
+    const double v01 = noiseHash01(x0, y0 + 1), v11 = noiseHash01(x0 + 1, y0 + 1);
+    const double sx = fx * fx * (3.0 - 2.0 * fx); // smoothstep
+    const double sy = fy * fy * (3.0 - 2.0 * fy);
+    const double a = v00 + (v10 - v00) * sx;
+    const double b = v01 + (v11 - v01) * sx;
+    return a + (b - a) * sy;
+}
+
+// A narrow, symmetric falloff around `center` -- the shared "how bright is
+// this LED given it's `dist` away from a moving point" shape used by
+// Converge/Chase/SonicBoom above and every new travelling-point effect
+// below (bouncing balls, drips, firework sparks).
+inline double pointFalloff(double t, double center, double width) {
+    return std::clamp(1.0 - std::abs(t - center) / width, 0.0, 1.0);
 }
 
 // ─── Per-LED addressable shape ────────────────────────────────────────────────
@@ -219,11 +294,23 @@ inline LightCueValue applyEffect(LightCueValue base, const EffectParams& p) {
 // -- so the cue's own fade/brightness still governs the ceiling. `outR/G/B`
 // override the LED's color outright for GradientFlow; Converge leaves color
 // untouched and expresses itself purely through `outLevel`.
+//
+// `palette` (optional): resolved gradient stops (see LightOutputResolver.h's
+// resolveGradientStops) for effects that sample a color ramp instead of
+// procedurally computing hue -- Fire and Colorwaves. Null/empty falls back
+// to each effect's own built-in default (Fire: the Vulcan palette;
+// Colorwaves: a full rainbow via hsvToRgb, matching GradientFlow's sweep).
+//
+// `audioLevel` (optional, 0..1): only meaningful for VuPeak -- see
+// LightOutputResolver.h for why it's threaded separately from the
+// Meter-only meterLevel01/meterLedColor path.
 inline void addressableEffectLedColor(int i, int totalLeds, EffectParams::Type type,
                                        double tSec, float rateHz,
                                        uint8_t baseR, uint8_t baseG, uint8_t baseB,
                                        uint8_t& outR, uint8_t& outG, uint8_t& outB,
-                                       double& outLevel) {
+                                       double& outLevel,
+                                       const std::vector<GradientStop>* palette = nullptr,
+                                       float audioLevel = 0.0f) {
     outR = baseR;
     outG = baseG;
     outB = baseB;
@@ -264,6 +351,126 @@ inline void addressableEffectLedColor(int i, int totalLeds, EffectParams::Type t
         constexpr double kBandWidth = 0.10;
         const double radius = phase * 0.5;
         outLevel = std::clamp(1.0 - std::abs(std::abs(t - 0.5) - radius) / kBandWidth, 0.0, 1.0);
+    } else if (type == EffectParams::Type::Fire) {
+        // y=0 (LED index 0, the bottom of the bar) is the base of the flame;
+        // y=1 is the tip. Two octaves of upward-drifting value noise, then
+        // an attenuation curve that gates the tip so the flame doesn't just
+        // fill solid to the top. rateHz scales how fast the flame "boils".
+        const double rise = std::max(0.0, tSec) * rateHz * 0.6;
+        double n = 0.6 * valueNoise2D(0.0, t * 6.0 - rise * 4.0)
+                 + 0.4 * valueNoise2D(3.7, t * 11.0 - rise * 7.0);
+        n = std::clamp(n, 0.0, 1.0);
+        const double attenuation = std::clamp(1.0 - t * 1.15, 0.0, 1.0);
+        double heat = std::clamp(n * attenuation * 1.35, 0.0, 1.0);
+        heat = std::pow(heat, 1.4); // more contrast: real gaps of near-black between licks
+        if (palette != nullptr && !palette->empty())
+            sampleGradient(*palette, heat, outR, outG, outB);
+        else
+            sampleGradient(builtinPalette("vulcanFire"), heat, outR, outG, outB);
+        outLevel = 1.0; // brightness is already baked into the sampled color
+    } else if (type == EffectParams::Type::Colorwaves) {
+        // Three incommensurate sine/cosine terms (Pride2015-style) so the
+        // palette scan never visibly repeats over a short span.
+        const double idx = std::sin(4.0 * t + phase * TAU)
+                          + std::sin(7.0 * t - 1.5 * phase * TAU)
+                          + std::cos(2.3 * t + 2.0 * phase * TAU);
+        const double idx01 = std::clamp((idx + 3.0) / 6.0, 0.0, 1.0); // -3..3 -> 0..1
+        if (palette != nullptr && !palette->empty())
+            sampleGradient(*palette, idx01, outR, outG, outB);
+        else
+            hsvToRgb(idx01, 1.0, 1.0, outR, outG, outB);
+        outLevel = 1.0;
+    } else if (type == EffectParams::Type::Bouncing) {
+        // Three balls, closed-form: a decaying |sin| envelope per bounce
+        // cycle reads as "bouncing with energy loss" without needing to
+        // simulate/track actual collisions frame to frame -- see the class
+        // comment's "no persistent state" invariant.
+        constexpr int kBalls = 3;
+        double best = 0.0;
+        int bestBall = 0;
+        for (int k = 0; k < kBalls; ++k) {
+            const double cycleLen = 1.6 + k * 0.35; // seconds per ball's full decay-and-reset cycle
+            const double cyclePos = std::fmod(std::max(0.0, tSec) * rateHz / cycleLen + k * 0.29, 1.0);
+            const double period = 0.10 + k * 0.015; // fraction of the cycle per individual bounce
+            const double envelope = std::exp(-3.2 * cyclePos); // amplitude decays over the cycle
+            const double bouncePhase = std::fmod(cyclePos / period, 1.0);
+            const double height = envelope * std::abs(std::sin(TAU * 0.5 * bouncePhase));
+            const double lvl = pointFalloff(t, height, 0.05);
+            if (lvl > best) { best = lvl; bestBall = k; }
+        }
+        outLevel = best;
+        hsvToRgb(0.08 * bestBall, 0.7, 1.0, outR, outG, outB);
+    } else if (type == EffectParams::Type::Drip) {
+        // Two or three droplets fall from the tip under acceleration
+        // (quadratic ease-in), then a brief widening splash at the base.
+        constexpr int kDrips = 2;
+        double best = 0.0;
+        for (int j = 0; j < kDrips; ++j) {
+            const double cyclePos = std::fmod(std::max(0.0, tSec) * rateHz * 0.5 + j * 0.53, 1.0);
+            double lvl;
+            if (cyclePos < 0.8) {
+                const double f = cyclePos / 0.8;
+                const double y = 1.0 - f * f; // accelerating fall from the tip
+                lvl = pointFalloff(t, y, 0.045);
+            } else {
+                const double f = (cyclePos - 0.8) / 0.2;
+                lvl = (1.0 - f) * pointFalloff(t, 0.0, 0.05 + f * 0.25); // widening, fading splash
+            }
+            best = std::max(best, lvl);
+        }
+        outLevel = best;
+    } else if (type == EffectParams::Type::Fireworks) {
+        // Launch (bottom to a hashed apex height) then burst into a
+        // deterministic-per-LED spray of sparks that fly outward from the
+        // apex and fade exponentially. `shot` re-rolls the apex/spark
+        // pattern every cycle without needing remembered particle state.
+        const double cyclePos = std::fmod(std::max(0.0, tSec) * rateHz * 0.4, 1.0);
+        const auto shot = static_cast<int32_t>(std::floor(std::max(0.0, tSec) * rateHz * 0.4));
+        const double apex = 0.55 + 0.4 * noiseHash01(shot, 97);
+        if (cyclePos < 0.3) {
+            const double f = cyclePos / 0.3;
+            outLevel = pointFalloff(t, f * apex, 0.05) * (0.6 + 0.4 * f);
+            outR = baseR; outG = baseG; outB = baseB;
+        } else {
+            const double f = (cyclePos - 0.3) / 0.7; // 0..1 since the burst started
+            const double h = noiseHash01(i, shot * 131 + 7);
+            const double speed = 0.25 + 0.9 * h;
+            const double dist = speed * f;
+            const bool isSpark = h < 0.35; // sparse subset of LEDs carry a spark this shot
+            const double lvl = isSpark
+                ? pointFalloff(t, apex - dist, 0.035) * std::exp(-3.0 * f)
+                : 0.0;
+            outLevel = lvl;
+            hsvToRgb(0.02 + h * 0.12, 0.85, 1.0, outR, outG, outB); // warm spark hues
+        }
+    } else if (type == EffectParams::Type::StrobeSwipe) {
+        // Fast bottom-to-top fill on each beat (first ~8% of the phase),
+        // then the whole bar decays together exponentially -- a stage
+        // strobe "swipe" rather than a uniform on/off square wave.
+        const double elapsedBeats = phase / std::max(1e-6f, rateHz); // seconds since the last beat
+        constexpr double kSwipeFrac = 0.08;
+        if (phase < kSwipeFrac) {
+            outLevel = t <= phase / kSwipeFrac ? 1.0 : 0.0;
+        } else {
+            constexpr double kTau = 0.15; // decay time constant, seconds
+            outLevel = std::exp(-elapsedBeats / kTau);
+        }
+        outR = baseR; outG = baseG; outB = baseB;
+    } else if (type == EffectParams::Type::VuPeak) {
+        // Continuous-resolution VU fill (unlike Meter's 8-step quantized
+        // one) with a brighter highlight at the fill's leading edge. A
+        // simplified stand-in for true peak-hold ballistics (which would
+        // need cross-frame memory of the recent maximum -- see
+        // RESTORE_POINT.md) that's still a genuinely distinct, useful
+        // visual: smoother fill, plus a "cap" pixel that pops.
+        const double level01 = std::clamp(static_cast<double>(audioLevel), 0.0, 1.0);
+        const double capWidth = totalLeds > 1 ? 1.0 / (totalLeds - 1) : 1.0;
+        if (t <= level01) {
+            outLevel = t >= level01 - capWidth * 1.5 ? 1.0 : 0.65;
+        } else {
+            outLevel = 0.0;
+        }
+        outR = baseR; outG = baseG; outB = baseB;
     }
 }
 

@@ -113,6 +113,13 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
         writeFloat(m.peakDbR);
     }
 
+    // Byte values are wire protocol, not just an internal enum -- append
+    // new effects, never renumber existing ones, or an older/newer
+    // frontend build reading this stream would decode the wrong effect.
+    // (This path has no live consumer yet -- see RESTORE_POINT.md's binary
+    // transport note -- but keeping it complete means it's correct on day
+    // one if it's ever wired up, instead of silently mis-decoding every
+    // effect added after whichever one last bothered to update this table.)
     const auto effectToByte = [](const std::string& type) -> uint8_t {
         if (type == "meter") return 1;
         if (type == "strobe") return 2;
@@ -120,6 +127,18 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
         if (type == "ripple") return 4;
         if (type == "converge") return 5;
         if (type == "gradientflow") return 6;
+        if (type == "chase") return 7;
+        if (type == "helix") return 8;
+        if (type == "plasma") return 9;
+        if (type == "twinkle") return 10;
+        if (type == "sonicboom") return 11;
+        if (type == "fire") return 12;
+        if (type == "bouncing") return 13;
+        if (type == "drip") return 14;
+        if (type == "fireworks") return 15;
+        if (type == "colorwaves") return 16;
+        if (type == "strobeswipe") return 17;
+        if (type == "vupeak") return 18;
         return 0;
     };
 
@@ -1436,6 +1455,7 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"intensity\":" << finiteOrZero(lo.intensity) << ","
               << "\"meterLevel01\":" << finiteOrZero(lo.meterLevel01) << ","
               << "\"gradientPreset\":\"" << jsonEscape(lo.gradientPreset) << "\","
+              << "\"gradientColors\":\"" << jsonEscape(lo.gradientColors) << "\","
               << "\"effectType\":\"" << jsonEscape(lo.effectType) << "\","
               << "\"effectTSec\":" << finiteOrZero(lo.effectTSec) << ","
               << "\"effectRateHz\":" << finiteOrZero(lo.effectRateHz) << "}";

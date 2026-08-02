@@ -50,24 +50,33 @@ void writeDmxChannels(const ResolvedFixtureOutput& out,
     }
 
     const int leds = std::min(fixture.ledCount, (512 - startIdx) / 3);
-    // meterLevel01 is only ever non-zero when the active cue's effect is
-    // actually Meter (see LightOutputResolver.h) -- safe to use its
-    // presence as the "should this bar do a VU fill" signal.
-    const bool meterActive = out.meterLevel01 > 0.0f;
+    // Meter gets the dedicated progressive-fill path (meterLedColor); every
+    // other non-None effect (including VuPeak, which ALSO carries
+    // meterLevel01 -- see LightOutputResolver.h) renders through the
+    // general per-LED path instead, since only Meter's fill/gradient-preset
+    // shape belongs there.
+    const bool meterActive = out.effectType == EffectParams::Type::Meter;
     const bool spatialEffectActive = !meterActive &&
         out.effectType != EffectParams::Type::None;
     const int litCount = meterActive
         ? std::clamp(static_cast<int>(std::lround(out.meterLevel01 * leds)), 0, leds)
         : leds; // not metering: every LED "lit" at the resolved uniform color
 
+    // Resolved ONCE per fixture per frame, not per LED -- see
+    // resolveGradientStops's doc comment. Empty for Solid/GreenYellowRed
+    // (meterLedColor/addressableEffectLedColor ignore the pointer then).
+    const std::vector<GradientStop> stops = resolveGradientStops(out.gradient, out.gradientColors);
+    const std::vector<GradientStop>* stopsPtr = stops.empty() ? nullptr : &stops;
+
     for (int i = 0; i < leds; ++i) {
         uint8_t r = out.value.r, g = out.value.g, b = out.value.b;
         double ledLevel = 1.0;
         if (meterActive) {
-            meterLedColor(i, litCount, leds, out.gradient, out.value.r, out.value.g, out.value.b, r, g, b);
+            meterLedColor(i, litCount, leds, out.gradient, out.value.r, out.value.g, out.value.b, r, g, b, stopsPtr);
         } else if (spatialEffectActive) {
             addressableEffectLedColor(i, leds, out.effectType, out.effectTSec, out.effectRateHz,
-                                       out.value.r, out.value.g, out.value.b, r, g, b, ledLevel);
+                                       out.value.r, out.value.g, out.value.b, r, g, b, ledLevel,
+                                       stopsPtr, out.meterLevel01);
         }
         const int base = startIdx + i * 3;
         universe[base + 0] = scaled(r, ledLevel);

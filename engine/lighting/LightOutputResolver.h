@@ -2,6 +2,7 @@
 
 #include "LightBlend.h"
 #include "LightCueInterpolation.h"
+#include "LightGradient.h"
 #include "project/ProjectSchema.h"
 
 #include <algorithm>
@@ -19,10 +20,49 @@ inline float dbToLinearLevel(float peakDb) {
     return std::max(0.0f, std::min(1.0f, (peakDb + 60.0f) / 60.0f));
 }
 
-enum class GradientPreset { Solid, GreenYellowRed };
+// "custom" samples the cue's own typed gradientColors stops; the four named
+// presets are built-in palettes from LightGradient.h's catalogue, usable
+// without authoring stops by hand.
+enum class GradientPreset { Solid, GreenYellowRed, Custom, VulcanFire, ToxicFire, CryoFire, CyberpunkFire };
 
 inline GradientPreset parseGradientPreset(const std::string& s) {
-    return s == "greenYellowRed" ? GradientPreset::GreenYellowRed : GradientPreset::Solid;
+    if (s == "greenYellowRed") return GradientPreset::GreenYellowRed;
+    if (s == "custom") return GradientPreset::Custom;
+    if (s == "vulcanFire") return GradientPreset::VulcanFire;
+    if (s == "toxicFire") return GradientPreset::ToxicFire;
+    if (s == "cryoFire") return GradientPreset::CryoFire;
+    if (s == "cyberpunkFire") return GradientPreset::CyberpunkFire;
+    return GradientPreset::Solid;
+}
+
+inline const char* gradientPresetToString(GradientPreset p) {
+    switch (p) {
+        case GradientPreset::Solid:         return "solid";
+        case GradientPreset::GreenYellowRed: return "greenYellowRed";
+        case GradientPreset::Custom:        return "custom";
+        case GradientPreset::VulcanFire:    return "vulcanFire";
+        case GradientPreset::ToxicFire:     return "toxicFire";
+        case GradientPreset::CryoFire:      return "cryoFire";
+        case GradientPreset::CyberpunkFire: return "cyberpunkFire";
+    }
+    return "solid";
+}
+
+// Resolves a preset (+ the cue's own typed stops, only consulted for
+// Custom) into actual sample-able gradient stops. Solid/GreenYellowRed
+// return empty -- they're handled by their own fixed logic, not stop
+// sampling. Called ONCE per fixture per frame (not per LED) by every
+// consumer below; the resolved vector is then threaded through the
+// per-LED loop instead of re-parsing the CSV string 120 times a frame.
+inline std::vector<GradientStop> resolveGradientStops(GradientPreset preset, const std::string& customCsv) {
+    switch (preset) {
+        case GradientPreset::Custom:        return parseGradientStops(customCsv, builtinPalette("vulcanFire"));
+        case GradientPreset::VulcanFire:    return builtinPalette("vulcanFire");
+        case GradientPreset::ToxicFire:     return builtinPalette("toxicFire");
+        case GradientPreset::CryoFire:      return builtinPalette("cryoFire");
+        case GradientPreset::CyberpunkFire: return builtinPalette("cyberpunkFire");
+        default:                            return {};
+    }
 }
 
 // Color for LED index `i` of `totalLeds`, lit bottom-up to `litCount` LEDs
@@ -31,10 +71,14 @@ inline GradientPreset parseGradientPreset(const std::string& s) {
 // litCount are off. "solid" uses the cue's own color for every lit LED;
 // "greenYellowRed" colors by LED *position* on the bar (bottom 60% green,
 // next 25% yellow, top 15% red), matching a classic VU meter's fixed scale
-// -- independent of whatever color the cue was given.
+// -- independent of whatever color the cue was given. Custom/named-palette
+// presets sample `stops` (see resolveGradientStops) by the same LED
+// position -- pass the already-resolved stops, not a preset+string pair,
+// so this stays a cheap per-LED call with no parsing in the hot path.
 inline void meterLedColor(int i, int litCount, int totalLeds, GradientPreset preset,
                            uint8_t baseR, uint8_t baseG, uint8_t baseB,
-                           uint8_t& outR, uint8_t& outG, uint8_t& outB) {
+                           uint8_t& outR, uint8_t& outG, uint8_t& outB,
+                           const std::vector<GradientStop>* stops = nullptr) {
     if (i >= litCount) {
         outR = outG = outB = 0;
         return;
@@ -46,22 +90,37 @@ inline void meterLedColor(int i, int litCount, int totalLeds, GradientPreset pre
         return;
     }
     const double t = totalLeds > 1 ? static_cast<double>(i) / (totalLeds - 1) : 0.0;
-    if (t < 0.6) {
-        outR = 40; outG = 220; outB = 90; // green
-    } else if (t < 0.85) {
-        outR = 240; outG = 210; outB = 40; // yellow
-    } else {
-        outR = 235; outG = 60; outB = 50; // red
+    if (preset == GradientPreset::GreenYellowRed) {
+        if (t < 0.6) {
+            outR = 40; outG = 220; outB = 90; // green
+        } else if (t < 0.85) {
+            outR = 240; outG = 210; outB = 40; // yellow
+        } else {
+            outR = 235; outG = 60; outB = 50; // red
+        }
+        return;
     }
+    if (stops != nullptr && !stops->empty()) {
+        sampleGradient(*stops, t, outR, outG, outB);
+        return;
+    }
+    outR = baseR; outG = baseG; outB = baseB; // defensive: no stops resolved, fall back to the cue's color
 }
 
 struct ResolvedFixtureOutput {
     std::string fixtureId;
     LightCueValue value;
     // Raw 0..1 audio level (pre-quantization, pre-depth), only meaningful
-    // when this fixture's active cue's effect is Meter -- 0 otherwise.
+    // when this fixture's active cue's effect is Meter or VuPeak -- 0
+    // otherwise. Consumers distinguish the two by effectType (VuPeak still
+    // renders through addressableEffectLedColor, not meterLedColor).
     float meterLevel01 = 0.0f;
     GradientPreset gradient = GradientPreset::Solid;
+    // The cue's own typed stops, only meaningful when gradient == Custom --
+    // see resolveGradientStops. Forwarded raw (not pre-parsed) so a caller
+    // that doesn't need per-LED color (e.g. a whole-bar fixture) never pays
+    // for parsing it.
+    std::string gradientColors;
     // Effect identity + phase, forwarded so addressable fixtures can render
     // per-LED spatial patterns (Converge, GradientFlow) that need more than
     // the uniform `value` above captures -- see
@@ -147,6 +206,7 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                 r.fixtureId = fxId;
                 r.value = baseVal;
                 r.gradient = parseGradientPreset(activeCue->gradientPreset);
+                r.gradientColors = activeCue->gradientColors;
 
                 EffectParams p;
                 p.type = parseEffectType(activeCue->effectType);
@@ -169,9 +229,14 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                     ? subdivToHz(activeCue->tempoSubdiv, bpm, activeCue->effectRateHz)
                     : activeCue->effectRateHz;
 
-                if (p.type == EffectParams::Type::Meter && sourceLevelDb) {
+                if ((p.type == EffectParams::Type::Meter || p.type == EffectParams::Type::VuPeak) && sourceLevelDb) {
                     const float db = sourceLevelDb(activeCue->effectSourceType, activeCue->effectSourceId);
                     p.audioLevel = dbToLinearLevel(db);
+                    // Shared by both effects -- writeDmxChannels/the frontend
+                    // preview key their Meter-vs-spatial routing off
+                    // effectType explicitly (see its own doc comment), not
+                    // off this field's presence, so VuPeak still gets its
+                    // own per-LED shape via addressableEffectLedColor.
                     r.meterLevel01 = p.audioLevel;
                 }
 
@@ -247,6 +312,7 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                 acc.effectTSec = top.effectTSec;
                 acc.effectRateHz = top.effectRateHz;
                 acc.gradient = top.gradient;
+                acc.gradientColors = top.gradientColors;
                 acc.meterLevel01 = top.meterLevel01;
             }
         }

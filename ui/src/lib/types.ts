@@ -89,14 +89,14 @@ export interface LightCueRow {
   // ProjectSchema.h exactly (persisted, resolved by LightEngine AND
   // MainComponent's WebUiState push through the same
   // engine/lighting/LightOutputResolver.h call -- see lightOutput below).
-  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "";
+  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak" | "";
   effectSourceType: "bus" | "track" | "";
   effectSourceId: string;
   effectIntensity: number; // 0-1 depth of the effect
   tempoSync: boolean;
   tempoSubdiv: string; // "2"|"1"|"1/2"|"1/3"|"1/4"|"1/6"|"1/8"|"1/16"|"1/32"|"1/64"
   effectRateHz: number; // used when tempoSync is false
-  gradientPreset: "solid" | "greenYellowRed" | "custom" | "";
+  gradientPreset: "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire" | "";
   gradientColors?: string;
   // How this cue composites onto another track's simultaneously-active cue
   // on the same fixture (base/accent layering) -- see LightBlend.h. No
@@ -114,12 +114,13 @@ export interface LightOutputRow {
   g: number;
   b: number;
   intensity: number;
-  meterLevel01: number; // 0 unless the active cue's effect is Meter
-  gradientPreset: "solid" | "greenYellowRed" | "";
+  meterLevel01: number; // 0 unless the active cue's effect is Meter or VuPeak
+  gradientPreset: "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire" | "";
+  gradientColors: string;
   // Effect identity + phase for addressable fixtures with a spatial
   // per-LED pattern (Converge, GradientFlow) -- "none"/0 otherwise. See
   // lightCueInterpolation.ts's addressableEffectLedColor.
-  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom";
+  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak";
   effectTSec: number;
   effectRateHz: number;
 }

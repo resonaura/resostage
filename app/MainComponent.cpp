@@ -1308,7 +1308,8 @@ void MainComponent::publishWebState() {
             lor.b = r.value.b;
             lor.intensity = r.value.intensity;
             lor.meterLevel01 = r.meterLevel01;
-            lor.gradientPreset = r.gradient == GradientPreset::GreenYellowRed ? "greenYellowRed" : "solid";
+            lor.gradientPreset = gradientPresetToString(r.gradient);
+            lor.gradientColors = r.gradientColors;
             lor.effectType = effectTypeToString(r.effectType);
             lor.effectTSec = r.effectTSec;
             lor.effectRateHz = r.effectRateHz;

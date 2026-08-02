@@ -165,7 +165,11 @@ TEST_CASE("effectTypeToString round-trips every known type through parseEffectTy
                        EffectParams::Type::Pulse, EffectParams::Type::Ripple, EffectParams::Type::Converge,
                        EffectParams::Type::GradientFlow, EffectParams::Type::Chase,
                        EffectParams::Type::Helix, EffectParams::Type::Plasma,
-                       EffectParams::Type::Twinkle, EffectParams::Type::SonicBoom}) {
+                       EffectParams::Type::Twinkle, EffectParams::Type::SonicBoom,
+                       EffectParams::Type::Fire, EffectParams::Type::Bouncing,
+                       EffectParams::Type::Drip, EffectParams::Type::Fireworks,
+                       EffectParams::Type::Colorwaves, EffectParams::Type::StrobeSwipe,
+                       EffectParams::Type::VuPeak}) {
         CHECK(parseEffectType(effectTypeToString(type)) == type);
     }
 }
@@ -270,4 +274,180 @@ TEST_CASE("addressableEffectLedColor: unrelated effect types leave color/level u
     CHECK(g == 6);
     CHECK(b == 7);
     CHECK(level == doctest::Approx(1.0));
+}
+
+// ─── Fire ───────────────────────────────────────────────────────────────────
+
+TEST_CASE("Fire: deterministic -- identical inputs give bit-identical output") {
+    uint8_t r1, g1, b1, r2, g2, b2;
+    double l1, l2;
+    addressableEffectLedColor(7, 40, EffectParams::Type::Fire, 3.14, 1.5f, 0, 0, 0, r1, g1, b1, l1);
+    addressableEffectLedColor(7, 40, EffectParams::Type::Fire, 3.14, 1.5f, 0, 0, 0, r2, g2, b2, l2);
+    CHECK(r1 == r2);
+    CHECK(g1 == g2);
+    CHECK(b1 == b2);
+    CHECK(l1 == doctest::Approx(l2));
+}
+
+TEST_CASE("Fire: level is always fully open -- brightness is baked into the sampled color") {
+    uint8_t r, g, b;
+    double level;
+    addressableEffectLedColor(10, 40, EffectParams::Type::Fire, 5.0, 2.0f, 0, 0, 0, r, g, b, level);
+    CHECK(level == doctest::Approx(1.0));
+}
+
+TEST_CASE("Fire: a grayscale custom palette keeps every LED perfectly gray") {
+    // Any two-stop palette interpolates linearly per channel -- a black/white
+    // palette must therefore always land on r==g==b, regardless of the noise
+    // field's value. A real (non-grayscale) palette can't be asserted this
+    // precisely without duplicating the noise formula, so this is the
+    // sturdiest palette-is-actually-used regression check available.
+    const std::vector<GradientStop> grayscale = {{0, 0, 0}, {255, 255, 255}};
+    for (int i = 0; i < 40; i += 7) {
+        uint8_t r, g, b;
+        double level;
+        addressableEffectLedColor(i, 40, EffectParams::Type::Fire, 2.0, 1.0f, 0, 0, 0, r, g, b, level, &grayscale);
+        CHECK(r == g);
+        CHECK(g == b);
+    }
+}
+
+TEST_CASE("Fire: with no palette given, falls back to the built-in Vulcan (warm) palette") {
+    // Vulcan's stops are all r >= g >= b (black -> red -> orange -> yellow ->
+    // white) -- true at every one of its stops and every linear interpolation
+    // between them, so it must hold for any sampled heat value too.
+    for (int i = 0; i < 40; i += 5) {
+        uint8_t r, g, b;
+        double level;
+        addressableEffectLedColor(i, 40, EffectParams::Type::Fire, 4.0, 1.0f, 0, 0, 0, r, g, b, level);
+        CHECK(r >= g);
+        CHECK(g >= b);
+    }
+}
+
+// ─── Colorwaves ─────────────────────────────────────────────────────────────
+
+TEST_CASE("Colorwaves: different LED positions get different colors at the same instant") {
+    uint8_t r0, g0, b0, r1, g1, b1;
+    double l0, l1;
+    addressableEffectLedColor(0, 40, EffectParams::Type::Colorwaves, 0.0, 1.0f, 0, 0, 0, r0, g0, b0, l0);
+    addressableEffectLedColor(20, 40, EffectParams::Type::Colorwaves, 0.0, 1.0f, 0, 0, 0, r1, g1, b1, l1);
+    CHECK((r0 != r1 || g0 != g1 || b0 != b1));
+    CHECK(l0 == doctest::Approx(1.0));
+    CHECK(l1 == doctest::Approx(1.0));
+}
+
+TEST_CASE("Colorwaves: a grayscale custom palette keeps every LED perfectly gray") {
+    const std::vector<GradientStop> grayscale = {{0, 0, 0}, {255, 255, 255}};
+    for (int i = 0; i < 40; i += 7) {
+        uint8_t r, g, b;
+        double level;
+        addressableEffectLedColor(i, 40, EffectParams::Type::Colorwaves, 1.5, 1.0f, 0, 0, 0, r, g, b, level, &grayscale);
+        CHECK(r == g);
+        CHECK(g == b);
+    }
+}
+
+// ─── Bouncing / Drip / Fireworks (closed-form kinematics) ──────────────────
+
+TEST_CASE("Bouncing: the first ball starts each cycle at the bottom LED, fully bright") {
+    uint8_t r, g, b;
+    double level;
+    // tSec=0 is cyclePos=0 for ball 0 (its k*phase offset is also 0) -- the
+    // envelope and bounce phase are both exactly at their cycle-start value,
+    // landing the ball exactly on LED 0 (t=0) with no falloff.
+    addressableEffectLedColor(0, 21, EffectParams::Type::Bouncing, 0.0, 1.0f, 0, 0, 0, r, g, b, level);
+    CHECK(level == doctest::Approx(1.0));
+}
+
+TEST_CASE("Bouncing: level always stays within 0..1") {
+    for (double t = 0.0; t < 3.0; t += 0.37) {
+        for (int i = 0; i < 21; i += 3) {
+            uint8_t r, g, b;
+            double level;
+            addressableEffectLedColor(i, 21, EffectParams::Type::Bouncing, t, 1.3f, 0, 0, 0, r, g, b, level);
+            CHECK(level >= 0.0);
+            CHECK(level <= 1.0);
+        }
+    }
+}
+
+TEST_CASE("Drip: a droplet starts each cycle at the top LED") {
+    uint8_t r, g, b;
+    double level;
+    // j=0's cyclePos is 0 at tSec=0 -> y = 1 - 0^2 = 1 (the tip).
+    addressableEffectLedColor(20, 21, EffectParams::Type::Drip, 0.0, 1.0f, 10, 20, 30, r, g, b, level);
+    CHECK(level == doctest::Approx(1.0));
+}
+
+TEST_CASE("Drip: level always stays within 0..1") {
+    for (double t = 0.0; t < 3.0; t += 0.41) {
+        for (int i = 0; i < 21; i += 3) {
+            uint8_t r, g, b;
+            double level;
+            addressableEffectLedColor(i, 21, EffectParams::Type::Drip, t, 0.8f, 0, 0, 0, r, g, b, level);
+            CHECK(level >= 0.0);
+            CHECK(level <= 1.0);
+        }
+    }
+}
+
+TEST_CASE("Fireworks: during the launch phase the rocket keeps the cue's own color") {
+    uint8_t r, g, b;
+    double level;
+    // cyclePos=0 at tSec=0 is well within the 0..0.3 launch window.
+    addressableEffectLedColor(0, 21, EffectParams::Type::Fireworks, 0.0, 1.0f, 111, 22, 33, r, g, b, level);
+    CHECK(r == 111);
+    CHECK(g == 22);
+    CHECK(b == 33);
+    CHECK(level > 0.0);
+}
+
+TEST_CASE("Fireworks: level always stays within 0..1") {
+    for (double t = 0.0; t < 3.0; t += 0.29) {
+        for (int i = 0; i < 21; i += 3) {
+            uint8_t r, g, b;
+            double level;
+            addressableEffectLedColor(i, 21, EffectParams::Type::Fireworks, t, 1.1f, 5, 5, 5, r, g, b, level);
+            CHECK(level >= 0.0);
+            CHECK(level <= 1.0);
+        }
+    }
+}
+
+// ─── StrobeSwipe ────────────────────────────────────────────────────────────
+
+TEST_CASE("StrobeSwipe: right at a beat, only the base LED is lit -- the swipe hasn't reached the rest yet") {
+    uint8_t r, g, b;
+    double level;
+    addressableEffectLedColor(0, 21, EffectParams::Type::StrobeSwipe, 0.0, 1.0f, 9, 8, 7, r, g, b, level);
+    CHECK(level == doctest::Approx(1.0));
+    CHECK(r == 9); CHECK(g == 8); CHECK(b == 7);
+
+    addressableEffectLedColor(20, 21, EffectParams::Type::StrobeSwipe, 0.0, 1.0f, 9, 8, 7, r, g, b, level);
+    CHECK(level == doctest::Approx(0.0));
+}
+
+TEST_CASE("StrobeSwipe: brightness decays monotonically as the beat ages, well after the swipe") {
+    uint8_t r, g, b;
+    double levelEarly, levelLate;
+    // rateHz=1 -> phase == tSec here, both past the ~0.08 swipe window.
+    addressableEffectLedColor(0, 21, EffectParams::Type::StrobeSwipe, 0.5, 1.0f, 9, 8, 7, r, g, b, levelEarly);
+    addressableEffectLedColor(0, 21, EffectParams::Type::StrobeSwipe, 0.9, 1.0f, 9, 8, 7, r, g, b, levelLate);
+    CHECK(levelLate < levelEarly);
+}
+
+// ─── VuPeak ─────────────────────────────────────────────────────────────────
+
+TEST_CASE("VuPeak: fills continuously up to the audio level, with a highlighted cap") {
+    uint8_t r, g, b;
+    double belowLevel, atCapLevel, aboveLevel;
+    // 0.5 of 21 LEDs (0-indexed, t = i/20) -> the fill boundary sits at i=10.
+    addressableEffectLedColor(5, 21, EffectParams::Type::VuPeak, 0.0, 1.0f, 1, 2, 3, r, g, b, belowLevel, nullptr, 0.5f);
+    addressableEffectLedColor(10, 21, EffectParams::Type::VuPeak, 0.0, 1.0f, 1, 2, 3, r, g, b, atCapLevel, nullptr, 0.5f);
+    addressableEffectLedColor(15, 21, EffectParams::Type::VuPeak, 0.0, 1.0f, 1, 2, 3, r, g, b, aboveLevel, nullptr, 0.5f);
+    CHECK(belowLevel > 0.0);
+    CHECK(atCapLevel == doctest::Approx(1.0)); // the cap itself is the brightest point
+    CHECK(aboveLevel == doctest::Approx(0.0)); // above the fill -- off
+    CHECK(r == 1); CHECK(g == 2); CHECK(b == 3); // color is the cue's own, unlike GradientFlow/Fire/Colorwaves
 }
