@@ -445,7 +445,7 @@ export function ProjectLightingPanel({
               {/* 3D Viewport */}
               <div className="rounded-xl border border-default/30 overflow-hidden">
                 <div
-                  className="relative h-72 w-full bg-[#0b0f14]"
+                  className="relative h-72 w-full bg-background"
                   onWheel={(e) => e.stopPropagation()}
                 >
                   <ResoLightStage3D

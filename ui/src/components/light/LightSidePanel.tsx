@@ -1169,7 +1169,7 @@ export function LightSidePanel({
     >
       {/* 3D Preview — shows modulated colors when an effect is active */}
       <div
-        className="shrink-0 border-b border-default/20 bg-[#0b0f14]"
+        className="shrink-0 border-b border-default/20 bg-background"
         style={{ height: 200 }}
         onWheel={(e) => e.stopPropagation()}
       >

@@ -63,33 +63,40 @@ function resolveCssColor(raw: string, fallback: string): string {
   return ctx.fillStyle || fallback;
 }
 
-// The stage canvas' own background (see the <color attach="background">
-// below) -- grid colors are mixed toward THIS, not toward the theme's
-// near-white --default-foreground. Mixing toward foreground (the original
-// approach) made the grid read as a bright white overlay on the dark
-// stage; mixing toward the actual background instead keeps the "default"
-// theme tint but guarantees the grid stays a subtle, dim guide -- never
-// whiter than the stage it's drawn on.
-const STAGE_BACKGROUND = "#0b0f14";
-
-function useHeroDefaultGridColors(): { cell: string; section: string } {
-  const [colors, setColors] = useState({ cell: "#141a21", section: "#1c242e" });
+// Stage background + grid colors, all derived from the SAME two HeroUI
+// tokens (--background, --default) so they can never drift apart into an
+// arbitrary hardcoded hex that stops matching a theme change. Grid colors
+// are mixed toward the resolved --background (not toward the near-white
+// --default-foreground): mixing toward foreground made the grid read as a
+// bright overlay on the dark stage; mixing toward background keeps the
+// "default" theme tint while staying a subtle, dim guide -- never brighter
+// than the stage it's drawn on. Percentages are deliberately low (most of
+// the mix is background) so the grid reads as barely-there.
+function useHeroStageColors(): { background: string; cell: string; section: string } {
+  const [colors, setColors] = useState({
+    background: "#0b0f14",
+    cell: "#0f1318",
+    section: "#141a21",
+  });
   useEffect(() => {
     const root = getComputedStyle(document.documentElement);
+    const rawBackground = root.getPropertyValue("--background").trim();
     const rawDefault = root.getPropertyValue("--default").trim();
-    if (!rawDefault) return;
-    // Minor lines: mostly background, barely-there tint of the theme color.
+    if (!rawBackground) return;
+    const background = resolveCssColor(rawBackground, "#0b0f14");
+    const tint = rawDefault || rawBackground;
+    // Minor lines: barely-there tint of the theme color over background.
     const cell = resolveCssColor(
-      `color-mix(in oklch, ${rawDefault} 25%, ${STAGE_BACKGROUND} 75%)`,
-      "#141a21",
+      `color-mix(in oklch, ${tint} 15%, ${rawBackground} 85%)`,
+      "#0f1318",
     );
     // Major (section) lines: a bit more present, still dark -- never mixes
     // in any foreground/white at all.
     const section = resolveCssColor(
-      `color-mix(in oklch, ${rawDefault} 45%, ${STAGE_BACKGROUND} 55%)`,
-      "#1c242e",
+      `color-mix(in oklch, ${tint} 28%, ${rawBackground} 72%)`,
+      "#141a21",
     );
-    setColors({ cell, section });
+    setColors({ background, cell, section });
   }, []);
   return colors;
 }
@@ -187,7 +194,7 @@ export function ResoLightStage3D({
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; z: number } | null>(null);
-  const gridColors = useHeroDefaultGridColors();
+  const stageColors = useHeroStageColors();
 
   const frameAllRef = useRef<(() => void) | null>(null);
   const topViewRef = useRef<(() => void) | null>(null);
@@ -220,13 +227,13 @@ export function ResoLightStage3D({
         camera={{ position: [4, 3.5, 5], fov: 50 }}
         style={{ width: "100%", height: "100%" }}
       >
-        <color attach="background" args={["#0b0f14"]} />
+        <color attach="background" args={[stageColors.background]} />
         <ambientLight intensity={0.55} />
         <directionalLight position={[5, 8, 4]} intensity={0.7} />
         <Grid
           args={[40, 40]}
-          cellColor={gridColors.cell}
-          sectionColor={gridColors.section}
+          cellColor={stageColors.cell}
+          sectionColor={stageColors.section}
           fadeDistance={28}
           infiniteGrid
         />
