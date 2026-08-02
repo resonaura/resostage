@@ -1312,19 +1312,19 @@ void MainComponent::publishWebState() {
         const double livePlayheadSec =
             transport.playheadSeconds.load(std::memory_order_relaxed);
 
-        // Same idle-behavior override LightEngine's real DMX thread applies
-        // when stopped -- see buildIdleLightOutputs's doc comment. Keeps this
-        // preview from ever showing something the real hardware isn't also
-        // doing (the whole point of this being one shared resolve path).
-        std::vector<ResolvedFixtureOutput> resolved;
-        if (!engine.isPlaying() && proj.lighting.idleBehavior != "holdLast") {
-            resolved = buildIdleLightOutputs(proj.lighting.fixtures, proj.lighting.idleBehavior,
-                                              proj.lighting.idleColorR, proj.lighting.idleColorG,
-                                              proj.lighting.idleColorB, proj.lighting.idleIntensity);
-        } else {
-            resolved = resolveLightOutputs(
-                proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
-        }
+        // Deliberately NOT applying the idle-behavior override here, unlike
+        // LightEngine's real DMX thread. This preview feed also drives the
+        // Editor's Light-mode timeline scrub preview and the Settings 3D
+        // view -- both need to keep showing "what would this cue look like
+        // at the scrubbed playhead" while the transport is stopped (which is
+        // most of the time spent authoring cues). Blackout/staticColor is a
+        // real-hardware-only concept (house lights between songs); applying
+        // it here too would blank the preview the instant playback stops,
+        // making cue authoring impossible whenever idleBehavior isn't
+        // "holdLast". The real stage output still gets it via
+        // buildIdleLightOutputs in LightEngine.cpp's threadLoop.
+        const auto resolved = resolveLightOutputs(
+            proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
 
         // Fixture id -> project fixture array index, the wire key the binary
         // per-LED stream uses so the frontend can map colors back to its own
