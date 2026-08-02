@@ -15,10 +15,13 @@ LightFixture makeBar(std::string id, int ledCount, bool addressable) {
     return f;
 }
 
-LightFixture makeGeneric(std::string id) {
+LightFixture makeGeneric(std::string id, int universe = 0, int startChannel = 1, int channelCount = 3) {
     LightFixture f;
     f.id = std::move(id);
     f.kind = LightFixture::Kind::DmxGeneric;
+    f.dmxUniverse = universe;
+    f.dmxStartChannel = startChannel;
+    f.dmxChannelCount = channelCount;
     return f;
 }
 
@@ -83,15 +86,46 @@ TEST_CASE("assignResoLightChannels: a fixture that wouldn't fit starts the next 
     CHECK(out[1].channelCount == 3);
 }
 
-TEST_CASE("assignResoLightChannels: DmxGeneric fixtures are skipped entirely") {
+TEST_CASE("assignResoLightChannels: DmxGeneric fixtures are NOT folded into the ResoLightBar auto-pack") {
+    // A generic fixture placed between two bars in list order must not
+    // shift the bars' auto-packed channel numbering -- ResoLightBar
+    // channels are computed from ResoLightBar fixtures alone, then
+    // DmxGeneric entries are appended afterward using their own fields.
     std::vector<LightFixture> fixtures = {
-        makeGeneric("moving_head_1"),
+        makeGeneric("moving_head_1", 0, 50, 4),
         makeBar("bar1", 5, false),
-        makeGeneric("moving_head_2"),
+        makeGeneric("moving_head_2", 1, 1, 8),
     };
     auto out = assignResoLightChannels(fixtures);
-    REQUIRE(out.size() == 1);
+    REQUIRE(out.size() == 3);
     CHECK(out[0].fixtureId == "bar1");
+    CHECK(out[0].universe == 0);
+    CHECK(out[0].startChannel == 1);
+    CHECK(out[0].channelCount == 3);
+}
+
+TEST_CASE("assignResoLightChannels: DmxGeneric fixtures use their own explicit universe/channel/count") {
+    std::vector<LightFixture> fixtures = {
+        makeGeneric("moving_head_1", 0, 50, 4),
+        makeGeneric("moving_head_2", 1, 1, 8),
+    };
+    auto out = assignResoLightChannels(fixtures);
+    REQUIRE(out.size() == 2);
+    CHECK(out[0].fixtureId == "moving_head_1");
+    CHECK(out[0].universe == 0);
+    CHECK(out[0].startChannel == 50);
+    CHECK(out[0].channelCount == 4);
+    CHECK(out[1].fixtureId == "moving_head_2");
+    CHECK(out[1].universe == 1);
+    CHECK(out[1].startChannel == 1);
+    CHECK(out[1].channelCount == 8);
+}
+
+TEST_CASE("assignResoLightChannels: DmxGeneric channel count is floored at 1") {
+    std::vector<LightFixture> fixtures = {makeGeneric("mover", 0, 1, 0)};
+    auto out = assignResoLightChannels(fixtures);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].channelCount == 1);
 }
 
 TEST_CASE("assignResoLightChannels: empty fixture list yields no assignments") {

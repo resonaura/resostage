@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { MoveHorizontal, MoveVertical, Plus, Trash2, Wand2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { MoveHorizontal, MoveVertical, Plus, Trash2, TriangleAlert, Wand2 } from "lucide-react";
 import { lighting } from "../../lib/api";
 import type { LightFixtureRow, LightingState, WebUiState } from "../../lib/types";
 import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
@@ -40,6 +40,36 @@ function autoLayoutPositions(fixtures: LightFixtureRow[]): { id: string; posX: n
   }));
 }
 
+// ─── DMX channel conflicts ─────────────────────────────────────────────────
+//
+// DmxGeneric fixtures use their own explicit universe/start channel/count
+// (see ResoLightChannelMap.h's assignResoLightChannels), so two of them can
+// silently be pointed at overlapping channels with nothing to catch it until
+// the actual hardware misbehaves. Only checks DmxGeneric against DmxGeneric:
+// ResoLightBar channels are auto-packed sequentially by the backend from
+// each bar's ledCount/addressable (not from its own dmxUniverse/dmxStartChannel
+// fields, which the auto-pack never reads), so replicating that packing here
+// just to cross-check would drift the moment the packer's algorithm changes.
+function findDmxChannelConflicts(fixtures: LightFixtureRow[]): Set<string> {
+  const conflicting = new Set<string>();
+  const generic = fixtures.filter((f) => f.kind === "dmxGeneric");
+  for (let i = 0; i < generic.length; i++) {
+    const a = generic[i];
+    const aEnd = a.dmxStartChannel + Math.max(1, a.dmxChannelCount);
+    for (let j = i + 1; j < generic.length; j++) {
+      const b = generic[j];
+      if (a.dmxUniverse !== b.dmxUniverse) continue;
+      const bEnd = b.dmxStartChannel + Math.max(1, b.dmxChannelCount);
+      const overlaps = a.dmxStartChannel < bEnd && b.dmxStartChannel < aEnd;
+      if (overlaps) {
+        conflicting.add(a.id);
+        conflicting.add(b.id);
+      }
+    }
+  }
+  return conflicting;
+}
+
 // ─── Fixture row ──────────────────────────────────────────────────────────
 
 /**
@@ -67,12 +97,14 @@ function FixtureItem({
   selected,
   onSelect,
   onRemove,
+  hasChannelConflict,
   previewColor: rawPreviewColor,
 }: {
   fixture: LightFixtureRow;
   selected: boolean;
   onSelect: () => void;
   onRemove: () => void;
+  hasChannelConflict: boolean;
   previewColor?: PreviewColor;
 }) {
   const previewColor = summarizeSwatchColor(rawPreviewColor);
@@ -80,9 +112,11 @@ function FixtureItem({
   return (
     <div
       className={`flex items-center gap-1 w-full rounded-lg border transition-all ${
-        selected
-          ? "border-accent/60 bg-accent/10"
-          : "border-default/30 bg-default/10 hover:bg-default/20"
+        hasChannelConflict
+          ? "border-warning/60 bg-warning/10"
+          : selected
+            ? "border-accent/60 bg-accent/10"
+            : "border-default/30 bg-default/10 hover:bg-default/20"
       }`}
     >
       <button
@@ -105,7 +139,17 @@ function FixtureItem({
         <span className="flex-1 truncate text-xs font-medium text-foreground/80">
           {fixture.name}
         </span>
-        <span className="shrink-0 text-[9px] text-foreground/40 font-mono">
+        {hasChannelConflict && (
+          <TriangleAlert
+            size={11}
+            className="shrink-0 text-warning"
+            aria-label="DMX channel conflict"
+          />
+        )}
+        <span
+          className={`shrink-0 text-[9px] font-mono ${hasChannelConflict ? "text-warning" : "text-foreground/40"}`}
+          title={hasChannelConflict ? "Overlaps another fixture's DMX channels" : undefined}
+        >
           {fixture.kind === "dmxGeneric"
             ? `U${fixture.dmxUniverse}:${fixture.dmxStartChannel}`
             : `${fixture.ledCount}L · ${fixture.mountedHorizontally ? "H" : "V"}${fixture.addressable ? " · addr" : ""}`}
@@ -137,6 +181,8 @@ export function ProjectLightingPanel({
     li.fixtures[0]?.id ?? null,
   );
   const selected = li.fixtures.find((f) => f.id === selectedFixtureId) ?? null;
+
+  const dmxConflicts = useMemo(() => findDmxChannelConflicts(li.fixtures), [li.fixtures]);
 
   // Base preview colors from current playhead -- a fixture can be driven by
   // more than one light track, so this goes through the shared resolver
@@ -392,6 +438,7 @@ export function ProjectLightingPanel({
                           if (selectedFixtureId === f.id) setSelectedFixtureId(null);
                           void lighting.fixtureRemove(f.id);
                         }}
+                        hasChannelConflict={dmxConflicts.has(f.id)}
                         previewColor={displayColors[f.id]}
                       />
                     ))}
@@ -592,56 +639,69 @@ export function ProjectLightingPanel({
                     </label>
                   )}
 
-                  {/* DMX fields */}
-                  <div className="border-t border-default/20 pt-3 flex flex-col gap-2">
-                    <div className={labelCls + " mb-1"}>DMX Output</div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <Field label="Universe">
-                        <input
-                          type="number"
-                          min={0}
-                          className={numberCls}
-                          value={selected.dmxUniverse}
-                          onChange={(e) =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              dmxUniverse: Number(e.target.value) || 0,
-                            })
-                          }
-                        />
-                      </Field>
-                      <Field label="Start Ch">
-                        <input
-                          type="number"
-                          min={1}
-                          max={512}
-                          className={numberCls}
-                          value={selected.dmxStartChannel}
-                          onChange={(e) =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              dmxStartChannel: Math.max(1, Number(e.target.value) || 1),
-                            })
-                          }
-                        />
-                      </Field>
-                      <Field label="Ch Count">
-                        <input
-                          type="number"
-                          min={1}
-                          max={512}
-                          className={numberCls}
-                          value={selected.dmxChannelCount}
-                          onChange={(e) =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              dmxChannelCount: Math.max(1, Number(e.target.value) || 1),
-                            })
-                          }
-                        />
-                      </Field>
+                  {/* DMX fields -- only meaningful for a DmxGeneric fixture.
+                      A ResoLightBar's real channels are auto-packed by
+                      assignResoLightChannels from its ledCount/addressable,
+                      never from these stored fields, so showing them here
+                      for a bar would just be lying about what controls the
+                      real output. */}
+                  {selected.kind === "dmxGeneric" && (
+                    <div className="border-t border-default/20 pt-3 flex flex-col gap-2">
+                      <div className={labelCls + " mb-1"}>DMX Output</div>
+                      {dmxConflicts.has(selected.id) && (
+                        <div className="flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[10px] text-warning">
+                          <TriangleAlert size={12} className="shrink-0" />
+                          Overlaps another fixture's DMX channels in this universe.
+                        </div>
+                      )}
+                      <div className="grid grid-cols-3 gap-3">
+                        <Field label="Universe">
+                          <input
+                            type="number"
+                            min={0}
+                            className={numberCls}
+                            value={selected.dmxUniverse}
+                            onChange={(e) =>
+                              void lighting.fixtureUpdate({
+                                fixtureId: selected.id,
+                                dmxUniverse: Number(e.target.value) || 0,
+                              })
+                            }
+                          />
+                        </Field>
+                        <Field label="Start Ch">
+                          <input
+                            type="number"
+                            min={1}
+                            max={512}
+                            className={numberCls}
+                            value={selected.dmxStartChannel}
+                            onChange={(e) =>
+                              void lighting.fixtureUpdate({
+                                fixtureId: selected.id,
+                                dmxStartChannel: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                          />
+                        </Field>
+                        <Field label="Ch Count">
+                          <input
+                            type="number"
+                            min={1}
+                            max={512}
+                            className={numberCls}
+                            value={selected.dmxChannelCount}
+                            onChange={(e) =>
+                              void lighting.fixtureUpdate({
+                                fixtureId: selected.id,
+                                dmxChannelCount: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                          />
+                        </Field>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>

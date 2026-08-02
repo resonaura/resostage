@@ -2,6 +2,7 @@
 
 #include "project/ProjectSchema.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -22,12 +23,17 @@ struct ResoLightChannelAssignment {
     int channelCount = 0;
 };
 
-// Packs every ResoLightBar fixture (DmxGeneric fixtures are skipped -- they
-// carry their own explicit universe/channel already) sequentially into
-// 512-channel DMX universes, in fixture list order. Never splits one
-// fixture's channels across two universes -- a bar's LEDs must stay a
-// contiguous addressable run -- so a fixture that wouldn't fit in the
-// current universe starts the next one early rather than spilling over.
+// Packs every ResoLightBar fixture sequentially into 512-channel DMX
+// universes, in fixture list order. Never splits one fixture's channels
+// across two universes -- a bar's LEDs must stay a contiguous addressable
+// run -- so a fixture that wouldn't fit in the current universe starts the
+// next one early rather than spilling over. DmxGeneric fixtures are NOT
+// auto-packed here -- they carry their own explicit universe/start
+// channel/count (set directly in the rig editor, same fields
+// LightFixtureUpdate writes), appended verbatim afterward. This is the
+// single source of truth for "which DMX channels does each fixture
+// actually own" -- LightEngine's real-time write path and any future
+// channel-conflict UI both need to agree with this, not re-derive it.
 inline std::vector<ResoLightChannelAssignment> assignResoLightChannels(
     const std::vector<LightFixture>& fixtures) {
     constexpr int kChannelsPerUniverse = 512;
@@ -47,6 +53,12 @@ inline std::vector<ResoLightChannelAssignment> assignResoLightChannels(
         }
         out.push_back({f.id, universe, nextChannel, count});
         nextChannel += count;
+    }
+
+    for (const auto& f : fixtures) {
+        if (f.kind != LightFixture::Kind::DmxGeneric)
+            continue;
+        out.push_back({f.id, f.dmxUniverse, f.dmxStartChannel, std::max(1, f.dmxChannelCount)});
     }
     return out;
 }
