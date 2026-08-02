@@ -11,8 +11,10 @@ import { Slider } from "@heroui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
+  Barcode,
   BarChart2,
   CircleDot,
+  CloudLightning,
   Droplet,
   Flame,
   Lightbulb,
@@ -23,6 +25,7 @@ import {
   Palette,
   Plus,
   Rainbow,
+  ScanLine,
   Sparkles,
   Trash2,
   TriangleAlert,
@@ -440,7 +443,8 @@ function effectHasRate(t: EffectType): boolean {
     t === "converge" || t === "gradientflow" || t === "chase" ||
     t === "helix" || t === "plasma" || t === "twinkle" || t === "sonicboom" ||
     t === "fire" || t === "bouncing" || t === "drip" ||
-    t === "fireworks" || t === "colorwaves" || t === "strobeswipe"
+    t === "fireworks" || t === "colorwaves" || t === "strobeswipe" ||
+    t === "scanner" || t === "lightning" || t === "barberpole"
   );
 }
 
@@ -450,7 +454,7 @@ type EffectType =
   | "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow"
   | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom"
   | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak"
-  | "geq" | "blurz";
+  | "geq" | "blurz" | "scanner" | "lightning" | "barberpole";
 
 const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React.ReactNode }> = {
   none:         { label: "None",     desc: "Static color, no modulation",                      icon: <Minus size={12} /> },
@@ -458,23 +462,43 @@ const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React
   strobe:       { label: "Strobe",   desc: "Rapid on/off flashes at set rate",                   icon: <Zap size={12} /> },
   pulse:        { label: "Pulse",    desc: "Smooth brightness pulse",                            icon: <Activity size={12} /> },
   ripple:       { label: "Ripple",   desc: "Travelling wave across fixtures left→right",         icon: <Waves size={12} /> },
-  converge:     { label: "Converge", desc: "Lines race in from both ends and meet at the centre (addressable fixtures)", icon: <Merge size={12} /> },
-  gradientflow: { label: "Gradient", desc: "Flowing rainbow shimmer along the bar (addressable fixtures)", icon: <Rainbow size={12} /> },
-  chase:        { label: "Chase",    desc: "Phase-locked bright runner travelling up the bar", icon: <Zap size={12} /> },
-  helix:        { label: "Helix",    desc: "Double-strand colour wave projected onto the bar", icon: <Waves size={12} /> },
-  plasma:       { label: "Plasma",   desc: "Liquid three-wave colour interference", icon: <Activity size={12} /> },
-  twinkle:      { label: "Twinkle",  desc: "Deterministic sparkling star field", icon: <Lightbulb size={12} /> },
-  sonicboom:    { label: "Boom",     desc: "Rhythmic wave expanding from the centre", icon: <Zap size={12} /> },
-  fire:         { label: "Fire",     desc: "Procedural flame -- pick a palette below (Vulcan/Toxic/Cryo/Cyberpunk/custom)", icon: <Flame size={12} /> },
+  converge:     { label: "Converge", desc: "Lines race in from both ends and meet at the centre", icon: <Merge size={12} /> },
+  gradientflow: { label: "Gradient", desc: "Flowing rainbow shimmer along the bar", icon: <Rainbow size={12} /> },
+  chase:        { label: "Chase",    desc: "Phase-locked bright runner travelling up the bar (addressable fixtures)", icon: <Zap size={12} /> },
+  helix:        { label: "Helix",    desc: "Double-strand colour wave projected onto the bar (addressable fixtures)", icon: <Waves size={12} /> },
+  plasma:       { label: "Plasma",   desc: "Liquid three-wave colour interference (addressable fixtures)", icon: <Activity size={12} /> },
+  twinkle:      { label: "Twinkle",  desc: "Deterministic sparkling star field (addressable fixtures)", icon: <Lightbulb size={12} /> },
+  sonicboom:    { label: "Boom",     desc: "Rhythmic wave expanding from the centre (addressable fixtures)", icon: <Zap size={12} /> },
+  fire:         { label: "Fire",     desc: "Procedural flame -- pick a palette below (Vulcan/Toxic/Cryo/Cyberpunk/custom) (addressable fixtures)", icon: <Flame size={12} /> },
   bouncing:     { label: "Bounce",   desc: "Three balls bouncing with decaying energy (addressable fixtures)", icon: <CircleDot size={12} /> },
-  drip:         { label: "Drip",     desc: "Droplets falling from the tip and splashing at the base", icon: <Droplet size={12} /> },
-  fireworks:    { label: "Fireworks", desc: "Rockets launch and burst into fading sparks", icon: <Sparkles size={12} /> },
-  colorwaves:   { label: "Waves",    desc: "Multi-wave palette scan that never quite repeats", icon: <Waves size={12} /> },
-  strobeswipe:  { label: "Swipe",    desc: "Fast bottom-to-top fill on every beat, then decays", icon: <Zap size={12} /> },
+  drip:         { label: "Drip",     desc: "Droplets falling from the tip and splashing at the base (addressable fixtures)", icon: <Droplet size={12} /> },
+  fireworks:    { label: "Fireworks", desc: "Rockets launch and burst into fading sparks (addressable fixtures)", icon: <Sparkles size={12} /> },
+  colorwaves:   { label: "Waves",    desc: "Multi-wave palette scan that never quite repeats (addressable fixtures)", icon: <Waves size={12} /> },
+  strobeswipe:  { label: "Swipe",    desc: "Fast bottom-to-top fill on every beat, then decays (addressable fixtures)", icon: <Zap size={12} /> },
   vupeak:       { label: "VU Peak",  desc: "Continuous VU fill with a highlighted peak cap", icon: <BarChart2 size={12} /> },
-  geq:          { label: "GEQ",      desc: "Graphic-equalizer columns riding the audio spectrum (addressable fixtures)", icon: <BarChart2 size={12} /> },
-  blurz:        { label: "Blurz",    desc: "Spectrum smeared into a flowing colour wash (addressable fixtures)", icon: <Waves size={12} /> },
+  geq:          { label: "GEQ",      desc: "Graphic-equalizer columns riding the audio spectrum", icon: <BarChart2 size={12} /> },
+  blurz:        { label: "Blurz",    desc: "Spectrum smeared into a flowing colour wash", icon: <Waves size={12} /> },
+  scanner:      { label: "Scanner",  desc: "Larson-style bouncing point sweeps end to end with a trailing glow (addressable fixtures)", icon: <ScanLine size={12} /> },
+  lightning:    { label: "Lightning", desc: "Sporadic white-hot bolt strikes flicker across a jagged span (addressable fixtures)", icon: <CloudLightning size={12} /> },
+  barberpole:   { label: "Barberpole", desc: "Hard-edged stripes scroll continuously up the bar (addressable fixtures)", icon: <Barcode size={12} /> },
 };
+
+// Effects whose per-LED shape (addressableEffectLedColor in
+// LightCueInterpolation.h) is the whole point -- on a non-addressable
+// fixture, applyEffect's fallback for every one of these is the *static*
+// `level = p.intensity` case (no time modulation at all), so picking one
+// on a plain bar silently does nothing. Converge/GradientFlow/VuPeak/
+// Geq/Blurz are NOT in this set: their non-addressable fallback still
+// computes a real, animated/audio-reactive level, just without the
+// per-LED spatial pattern -- so they stay genuinely useful either way.
+function effectRequiresAddressable(t: EffectType): boolean {
+  return (
+    t === "chase" || t === "helix" || t === "plasma" || t === "twinkle" ||
+    t === "sonicboom" || t === "fire" || t === "bouncing" || t === "drip" ||
+    t === "fireworks" || t === "colorwaves" || t === "strobeswipe" ||
+    t === "scanner" || t === "lightning" || t === "barberpole"
+  );
+}
 
 // ─── Tempo subdivisions ───────────────────────────────────────────────────
 
@@ -509,6 +533,7 @@ const BLEND_META: Record<BlendModeUi, string> = {
 function EffectPanel({
   effectType, effectSourceType, effectSourceId, effectIntensity, effectRate,
   tempoSync, tempoSubdiv, gradientPreset, gradientColors, blendMode, showGradient,
+  hasAddressableFixture,
   onType, onSourceType, onSourceId, onIntensity, onRate, onTempoSync, onTempoSubdiv,
   onGradientPreset, onGradientColors, onBlendMode,
   busses, tracks, bpm,
@@ -527,6 +552,11 @@ function EffectPanel({
    * one assigned fixture is addressable -- a non-addressable bar has no
    * per-LED concept for a gradient to apply to. */
   showGradient: boolean;
+  /** Whether the track/cue's assigned fixtures include an addressable one --
+   * gates which effect *options* are even offered (see
+   * effectRequiresAddressable): no point showing an effect that renders as
+   * a flat, unmodulated color on the fixtures actually assigned. */
+  hasAddressableFixture: boolean;
   onType: (t: EffectType) => void;
   onSourceType: (t: SourceType) => void;
   onSourceId: (id: string) => void;
@@ -551,8 +581,14 @@ function EffectPanel({
             "none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow",
             "chase", "helix", "plasma", "twinkle", "sonicboom",
             "fire", "bouncing", "drip", "fireworks", "colorwaves", "strobeswipe", "vupeak",
-            "geq", "blurz",
-          ] as EffectType[]).map((et) => {
+            "geq", "blurz", "scanner", "lightning", "barberpole",
+          ] as EffectType[])
+            // Hide addressable-only effects once no assigned fixture can
+            // actually render their pattern -- except the one already
+            // active, so switching fixture assignment never strands the
+            // cue on a selection that silently vanishes from the grid.
+            .filter((et) => hasAddressableFixture || et === effectType || !effectRequiresAddressable(et))
+            .map((et) => {
             const meta = EFFECT_META[et];
             return (
               <button
@@ -962,6 +998,7 @@ function CueSettingsPanel({
           gradientColors={gradientColors}
           blendMode={blendMode}
           showGradient={effectType !== "none" && hasAddressableFixture}
+          hasAddressableFixture={hasAddressableFixture}
           onType={handleEffectType} onSourceType={handleEffectSourceType} onSourceId={handleEffectSourceId}
           onIntensity={handleEffectIntensity} onRate={handleEffectRate}
           onTempoSync={handleTempoSync} onTempoSubdiv={handleTempoSubdiv}

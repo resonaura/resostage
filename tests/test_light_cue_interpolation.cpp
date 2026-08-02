@@ -169,7 +169,9 @@ TEST_CASE("effectTypeToString round-trips every known type through parseEffectTy
                        EffectParams::Type::Fire, EffectParams::Type::Bouncing,
                        EffectParams::Type::Drip, EffectParams::Type::Fireworks,
                        EffectParams::Type::Colorwaves, EffectParams::Type::StrobeSwipe,
-                       EffectParams::Type::VuPeak}) {
+                       EffectParams::Type::VuPeak, EffectParams::Type::Geq, EffectParams::Type::Blurz,
+                       EffectParams::Type::Scanner, EffectParams::Type::Lightning,
+                       EffectParams::Type::Barberpole}) {
         CHECK(parseEffectType(effectTypeToString(type)) == type);
     }
 }
@@ -516,4 +518,83 @@ TEST_CASE("Blurz: an upper band paints its hue at the right place") {
     CHECK(r < 60);
     CHECK(g > 200);
     CHECK(b > 200);
+}
+
+// ─── Scanner / Lightning / Barberpole (second concert-pack batch) ─────────
+
+TEST_CASE("Scanner: at tSec=0 the bright point sits at the bottom LED, in the cue's own color") {
+    uint8_t r, g, b;
+    double level;
+    addressableEffectLedColor(0, 21, EffectParams::Type::Scanner, 0.0, 1.0f, 10, 20, 30, r, g, b, level);
+    CHECK(level == doctest::Approx(1.0));
+    CHECK(r == 10); CHECK(g == 20); CHECK(b == 30);
+}
+
+TEST_CASE("Scanner: the point reaches the top LED at the half-cycle point, then returns to the bottom") {
+    uint8_t r, g, b;
+    double levelAtTop, levelBackAtBottom;
+    // rateHz=1 -> phase == tSec (mod 1): phase=0.5 is the triangle wave's peak (pos=1).
+    addressableEffectLedColor(20, 21, EffectParams::Type::Scanner, 0.5, 1.0f, 0, 0, 0, r, g, b, levelAtTop);
+    CHECK(levelAtTop == doctest::Approx(1.0));
+    // A full cycle later (phase wraps back to 0) the point is back at the bottom.
+    addressableEffectLedColor(0, 21, EffectParams::Type::Scanner, 1.0, 1.0f, 0, 0, 0, r, g, b, levelBackAtBottom);
+    CHECK(levelBackAtBottom == doctest::Approx(1.0));
+}
+
+TEST_CASE("Scanner: level always stays within 0..1") {
+    for (double t = 0.0; t < 3.0; t += 0.31) {
+        for (int i = 0; i < 21; i += 3) {
+            uint8_t r, g, b;
+            double level;
+            addressableEffectLedColor(i, 21, EffectParams::Type::Scanner, t, 1.7f, 0, 0, 0, r, g, b, level);
+            CHECK(level >= 0.0);
+            CHECK(level <= 1.0);
+        }
+    }
+}
+
+TEST_CASE("Lightning: level always stays within 0..1, and color is either the cue's own or a white-hot flash") {
+    bool sawBaseColor = false;
+    bool sawWhiteHot = false;
+    // 40 distinct one-second "shot" cycles at rateHz=1 -- comfortably enough
+    // draws that both the ~35% strike branch and the ~65% dark branch are
+    // certain to appear (P(missing either) is astronomically small).
+    for (double t = 0.0; t < 40.0; t += 0.05) {
+        uint8_t r, g, b;
+        double level;
+        addressableEffectLedColor(5, 21, EffectParams::Type::Lightning, t, 1.0f, 10, 20, 30, r, g, b, level);
+        CHECK(level >= 0.0);
+        CHECK(level <= 1.0);
+        const bool isBase = r == 10 && g == 20 && b == 30;
+        const bool isWhiteHot = r == 235 && g == 240 && b == 255;
+        CHECK((isBase || isWhiteHot));
+        sawBaseColor = sawBaseColor || isBase;
+        sawWhiteHot = sawWhiteHot || isWhiteHot;
+    }
+    CHECK(sawBaseColor);
+    CHECK(sawWhiteHot);
+}
+
+TEST_CASE("Barberpole: hard-edged stripes alternate between full brightness and a dim shadow band") {
+    uint8_t r, g, b;
+    double levelOnStripe, levelOffStripe;
+    // 13 LEDs -> t = i/12. i=0 -> t=0 (stripePos=0, on-stripe). i=1 -> t=1/12,
+    // scaled by kStripeCount=6 lands exactly on the stripe's 0.5 boundary.
+    addressableEffectLedColor(0, 13, EffectParams::Type::Barberpole, 0.0, 1.0f, 9, 8, 7, r, g, b, levelOnStripe);
+    CHECK(levelOnStripe == doctest::Approx(1.0));
+    CHECK(r == 9); CHECK(g == 8); CHECK(b == 7); // no palette given -> falls back to the cue's own color
+
+    addressableEffectLedColor(1, 13, EffectParams::Type::Barberpole, 0.0, 1.0f, 9, 8, 7, r, g, b, levelOffStripe);
+    CHECK(levelOffStripe == doctest::Approx(0.12));
+}
+
+TEST_CASE("Barberpole: the pattern scrolls over time -- the same LED cycles bright/dim") {
+    uint8_t r, g, b;
+    double levelAtStart, levelQuarterIn, levelNearlyFull;
+    addressableEffectLedColor(0, 21, EffectParams::Type::Barberpole, 0.0, 1.0f, 0, 0, 0, r, g, b, levelAtStart);
+    addressableEffectLedColor(0, 21, EffectParams::Type::Barberpole, 0.25, 1.0f, 0, 0, 0, r, g, b, levelQuarterIn);
+    addressableEffectLedColor(0, 21, EffectParams::Type::Barberpole, 0.9, 1.0f, 0, 0, 0, r, g, b, levelNearlyFull);
+    CHECK(levelAtStart == doctest::Approx(1.0));
+    CHECK(levelQuarterIn == doctest::Approx(0.12));
+    CHECK(levelNearlyFull == doctest::Approx(1.0));
 }

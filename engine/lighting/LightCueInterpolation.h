@@ -75,6 +75,9 @@ struct EffectParams {
         // when the cue's source delivers bandLevel (i.e. a real MeterFrame);
         // a source without band data reads as dark (outLevel 0).
         Geq, Blurz,
+        // Second concert-pack batch -- same pure-function-of-(i, totalLeds,
+        // tSec, rateHz) shape as the first, see addressableEffectLedColor.
+        Scanner, Lightning, Barberpole,
     } type{Type::None};
     float intensity    = 0.8f;   // 0..1 — depth of the effect
     float rateHz       = 2.0f;   // cycles per second (pre-computed from tempoSubdiv if synced)
@@ -109,6 +112,9 @@ inline EffectParams::Type parseEffectType(const std::string& s) {
     if (s == "vupeak")       return EffectParams::Type::VuPeak;
     if (s == "geq")          return EffectParams::Type::Geq;
     if (s == "blurz")        return EffectParams::Type::Blurz;
+    if (s == "scanner")      return EffectParams::Type::Scanner;
+    if (s == "lightning")    return EffectParams::Type::Lightning;
+    if (s == "barberpole")   return EffectParams::Type::Barberpole;
     return EffectParams::Type::None;
 }
 
@@ -139,6 +145,9 @@ inline const char* effectTypeToString(EffectParams::Type t) {
         case EffectParams::Type::VuPeak:       return "vupeak";
         case EffectParams::Type::Geq:          return "geq";
         case EffectParams::Type::Blurz:        return "blurz";
+        case EffectParams::Type::Scanner:      return "scanner";
+        case EffectParams::Type::Lightning:    return "lightning";
+        case EffectParams::Type::Barberpole:   return "barberpole";
     }
     return "none";
 }
@@ -261,6 +270,9 @@ inline LightCueValue applyEffect(LightCueValue base, const EffectParams& p) {
         case EffectParams::Type::Fireworks:
         case EffectParams::Type::Colorwaves:
         case EffectParams::Type::StrobeSwipe:
+        case EffectParams::Type::Scanner:
+        case EffectParams::Type::Lightning:
+        case EffectParams::Type::Barberpole:
             level = p.intensity;
             break;
         case EffectParams::Type::None:
@@ -559,6 +571,53 @@ inline void addressableEffectLedColor(int i, int totalLeds, EffectParams::Type t
             outLevel = std::clamp(maxNear * 2.0, 0.0, 1.0); // loud band => full brightness
         } else {
             outLevel = 0.0;
+            outR = baseR; outG = baseG; outB = baseB;
+        }
+    } else if (type == EffectParams::Type::Scanner) {
+        // Larson/KITT-style scanner: a bright point sweeps end-to-end and
+        // bounces back (triangle-wave position from the shared `phase`),
+        // with an exponential trailing glow reading as motion blur behind
+        // it -- distinct from Chase's one-directional wrap-around runner.
+        const double pos = phase < 0.5 ? phase * 2.0 : (1.0 - phase) * 2.0;
+        const double core = pointFalloff(t, pos, 0.05);
+        const double trail = std::exp(-std::abs(t - pos) * 9.0) * 0.5;
+        outLevel = std::clamp(std::max(core, trail), 0.0, 1.0);
+        outR = baseR; outG = baseG; outB = baseB;
+    } else if (type == EffectParams::Type::Lightning) {
+        // Sporadic bolt strikes: most cycles stay dark, occasional ones
+        // erupt into a fast multi-flicker white-hot flash covering a
+        // jagged, randomly-positioned span of the bar -- deterministic per
+        // (shot, i) hash, same no-persistent-state approach as
+        // Fireworks/Twinkle above.
+        const auto shot = static_cast<int32_t>(std::floor(std::max(0.0, tSec) * rateHz));
+        const double shotPhase = std::fmod(std::max(0.0, tSec) * rateHz, 1.0);
+        const double strikeRoll = noiseHash01(shot, 401);
+        if (strikeRoll < 0.35) {
+            const double boltCenter = noiseHash01(shot, 17);
+            const double boltWidth = 0.25 + 0.35 * noiseHash01(shot, 53);
+            const double coverage = pointFalloff(t, boltCenter, boltWidth);
+            const double flicker = std::abs(std::sin(shotPhase * TAU * 7.0)) * std::exp(-shotPhase * 5.0);
+            const double jag = 0.6 + 0.4 * noiseHash01(i, shot * 271 + 11);
+            outLevel = std::clamp(coverage * flicker * jag, 0.0, 1.0);
+            outR = 235; outG = 240; outB = 255; // white-hot, faint blue tint
+        } else {
+            outLevel = 0.0;
+            outR = baseR; outG = baseG; outB = baseB;
+        }
+    } else if (type == EffectParams::Type::Barberpole) {
+        // Hard-edged alternating stripes scrolling continuously up the bar
+        // -- a classic rotating candy-cane/police-light look, distinct from
+        // every other effect's soft falloff shapes. Samples `palette` (if
+        // given) across the stripe cycle so a Fire/Colorwaves-style gradient
+        // still reads as banded color instead of just on/off.
+        constexpr double kStripeCount = 6.0;
+        const double scroll = t * kStripeCount - std::max(0.0, tSec) * rateHz;
+        const double stripePos = scroll - std::floor(scroll); // 0..1 within one stripe
+        const bool onStripe = stripePos < 0.5;
+        outLevel = onStripe ? 1.0 : 0.12; // dim rather than fully off -- reads as a shadow band, not a gap
+        if (palette != nullptr && !palette->empty())
+            sampleGradient(*palette, stripePos, outR, outG, outB);
+        else {
             outR = baseR; outG = baseG; outB = baseB;
         }
     }

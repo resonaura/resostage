@@ -429,7 +429,7 @@ export const lighting = {
     label?: string;
     // Audio-reactive effect (resolved by both LightEngine and the per-LED
     // websocket stream -- see liveLevels.ts for the live result).
-    effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak" | "geq" | "blurz";
+    effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak" | "geq" | "blurz" | "scanner" | "lightning" | "barberpole";
     effectSourceType?: "bus" | "track";
     effectSourceId?: string;
     effectIntensity?: number;
