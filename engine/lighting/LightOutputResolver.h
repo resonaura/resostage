@@ -378,6 +378,43 @@ inline std::vector<ResolvedFixtureOutput> buildIdleLightOutputs(
     return out;
 }
 
+// Linearly interpolates every fixture in `to` (the idle target, from
+// buildIdleLightOutputs) from its counterpart in `from` (the last output
+// while playing, snapshotted at the instant the transport stopped) at
+// progress `t` (0 = still `from`, 1 = fully `to`) -- this is what makes the
+// idle-behavior transition a smooth fade instead of an instant snap. A
+// fixture present in `to` but missing from `from` (never had an active cue
+// at the moment of stopping) fades in from black, not from nothing. Pure
+// function of its inputs (no clock/state reads), same convention as every
+// other resolver in this file, so it's trivially unit-testable and the
+// caller (LightEngine's real-time thread) owns all the timing/state.
+inline std::vector<ResolvedFixtureOutput> blendTowardIdle(
+    const std::vector<ResolvedFixtureOutput>& from,
+    const std::vector<ResolvedFixtureOutput>& to,
+    double t) {
+    t = std::clamp(t, 0.0, 1.0);
+    std::map<std::string, const ResolvedFixtureOutput*> fromById;
+    for (const auto& f : from)
+        fromById[f.fixtureId] = &f;
+
+    std::vector<ResolvedFixtureOutput> out;
+    out.reserve(to.size());
+    for (const auto& target : to) {
+        ResolvedFixtureOutput r = target; // keep the target's identity/effect-none fields
+        LightCueValue src; // defaults to black/off -- fades in from nothing if never live
+        if (auto it = fromById.find(target.fixtureId); it != fromById.end())
+            src = it->second->value;
+
+        const auto lerp = [t](double a, double b) { return a + (b - a) * t; };
+        r.value.r = static_cast<uint8_t>(std::clamp(lerp(src.r, target.value.r), 0.0, 255.0));
+        r.value.g = static_cast<uint8_t>(std::clamp(lerp(src.g, target.value.g), 0.0, 255.0));
+        r.value.b = static_cast<uint8_t>(std::clamp(lerp(src.b, target.value.b), 0.0, 255.0));
+        r.value.intensity = std::clamp(lerp(src.intensity, target.value.intensity), 0.0, 1.0);
+        out.push_back(std::move(r));
+    }
+    return out;
+}
+
 // Final per-LED wire color for one fixture -- the exact bytes the DMX
 // universe receives after intensity scaling (see writeDmxChannels).
 struct LedWireColor {

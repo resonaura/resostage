@@ -312,6 +312,11 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     // never branches on either, so no allowlist to keep in sync here; the
     // web UI owns the canonical set of known values.
     if (getString(doc, "shape", strVal)) fx->shape = strVal;
+    // A Ring is always uniform-color (no per-pixel control) -- enforced
+    // here too, not just by the web UI hiding the checkbox, so a direct
+    // API call or a hand-edited project file can't leave a Ring fixture
+    // stuck addressable.
+    if (fx->shape == "ring") fx->addressable = false;
     if (getInt(doc, "matrixCols", intVal)) fx->matrixCols = std::max(0, intVal);
     if (getString(doc, "channelProfile", strVal)) fx->channelProfile = strVal;
     if (getDouble(doc, "tiltDeg", numVal)) fx->tiltDeg = numVal;

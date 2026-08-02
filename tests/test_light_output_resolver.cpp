@@ -359,3 +359,68 @@ TEST_CASE("buildIdleLightOutputs: staticColor clamps an out-of-range intensity")
     REQUIRE(out.size() == 2);
     CHECK(out[0].value.intensity == doctest::Approx(1.0));
 }
+
+// ─── blendTowardIdle (idle-transition fade) ────────────────────────────────
+
+namespace {
+ResolvedFixtureOutput makeOutput(std::string id, uint8_t r, uint8_t g, uint8_t b, double intensity) {
+    ResolvedFixtureOutput o;
+    o.fixtureId = std::move(id);
+    o.value = {r, g, b, intensity};
+    return o;
+}
+} // namespace
+
+TEST_CASE("blendTowardIdle: t=0 is exactly the source, t=1 is exactly the target") {
+    std::vector<ResolvedFixtureOutput> from = {makeOutput("f1", 200, 0, 0, 1.0)};
+    std::vector<ResolvedFixtureOutput> to = {makeOutput("f1", 0, 0, 50, 0.2)};
+
+    auto atStart = blendTowardIdle(from, to, 0.0);
+    REQUIRE(atStart.size() == 1);
+    CHECK(atStart[0].value.r == 200);
+    CHECK(atStart[0].value.b == 0);
+    CHECK(atStart[0].value.intensity == doctest::Approx(1.0));
+
+    auto atEnd = blendTowardIdle(from, to, 1.0);
+    REQUIRE(atEnd.size() == 1);
+    CHECK(atEnd[0].value.r == 0);
+    CHECK(atEnd[0].value.b == 50);
+    CHECK(atEnd[0].value.intensity == doctest::Approx(0.2));
+}
+
+TEST_CASE("blendTowardIdle: halfway is the midpoint of each channel") {
+    std::vector<ResolvedFixtureOutput> from = {makeOutput("f1", 100, 100, 100, 1.0)};
+    std::vector<ResolvedFixtureOutput> to = {makeOutput("f1", 0, 200, 0, 0.0)};
+    auto mid = blendTowardIdle(from, to, 0.5);
+    REQUIRE(mid.size() == 1);
+    CHECK(mid[0].value.r == 50);
+    CHECK(mid[0].value.g == 150);
+    CHECK(mid[0].value.b == 50);
+    CHECK(mid[0].value.intensity == doctest::Approx(0.5));
+}
+
+TEST_CASE("blendTowardIdle: a fixture missing from `from` fades in from black") {
+    std::vector<ResolvedFixtureOutput> from = {}; // never had an active cue while playing
+    std::vector<ResolvedFixtureOutput> to = {makeOutput("f1", 255, 255, 255, 1.0)};
+    auto mid = blendTowardIdle(from, to, 0.5);
+    REQUIRE(mid.size() == 1);
+    CHECK(mid[0].value.r == 127); // (0 + 255) * 0.5 = 127.5, truncated
+    CHECK(mid[0].value.intensity == doctest::Approx(0.5));
+}
+
+TEST_CASE("blendTowardIdle: t is clamped, and the fixture set is always driven by `to`") {
+    std::vector<ResolvedFixtureOutput> from = {
+        makeOutput("f1", 100, 0, 0, 1.0),
+        makeOutput("stale", 9, 9, 9, 1.0), // no longer in the idle target -- must be dropped
+    };
+    std::vector<ResolvedFixtureOutput> to = {makeOutput("f1", 0, 0, 0, 0.0)};
+
+    auto beyondOne = blendTowardIdle(from, to, 5.0);
+    REQUIRE(beyondOne.size() == 1);
+    CHECK(beyondOne[0].fixtureId == "f1");
+    CHECK(beyondOne[0].value.r == 0);
+
+    auto belowZero = blendTowardIdle(from, to, -3.0);
+    REQUIRE(belowZero.size() == 1);
+    CHECK(belowZero[0].value.r == 100);
+}

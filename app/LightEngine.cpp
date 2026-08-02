@@ -133,6 +133,19 @@ void LightEngine::threadLoop() {
         return busPeakDb_ ? busPeakDb_(id) : SourceLevels{};
     };
 
+    // Idle-transition fade state -- local to this thread's loop, never
+    // touched from outside, so plain locals suffice (no member vars/locks
+    // needed). `lastResolvedOutputs` is whatever the rig was ACTUALLY
+    // showing the instant before an idle override (blackout/staticColor)
+    // kicked in -- captured continuously whenever we're NOT idle-fading
+    // (so it's current, whether that "before" state was live playback or a
+    // frozen holdLast resolve), so a fade always starts from the truth
+    // instead of snapping.
+    constexpr double kIdleFadeSeconds = 1.5;
+    std::vector<ResolvedFixtureOutput> lastResolvedOutputs;
+    bool wasIdleFading = false;
+    auto idleFadeStart = std::chrono::steady_clock::now();
+
     while (running_.load(std::memory_order_acquire)) {
         // Sleep until next frame deadline.
         std::this_thread::sleep_until(nextFrame);
@@ -171,14 +184,24 @@ void LightEngine::threadLoop() {
         // buildIdleLightOutputs's doc comment. "holdLast" (the default)
         // keeps calling resolveLightOutputs() exactly as before this
         // setting existed, i.e. whatever the frozen playhead resolves to.
+        const bool useIdleOverride = !clock_->isRunning() && proj->lighting.idleBehavior != "holdLast";
         std::vector<ResolvedFixtureOutput> resolved;
-        if (!clock_->isRunning() && proj->lighting.idleBehavior != "holdLast") {
-            resolved = buildIdleLightOutputs(proj->lighting.fixtures, proj->lighting.idleBehavior,
-                                              proj->lighting.idleColorR, proj->lighting.idleColorG,
-                                              proj->lighting.idleColorB, proj->lighting.idleIntensity);
-        } else {
+        if (!useIdleOverride) {
             resolved = resolveLightOutputs(
                 proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
+            lastResolvedOutputs = resolved;
+            wasIdleFading = false;
+        } else {
+            if (!wasIdleFading) {
+                idleFadeStart = std::chrono::steady_clock::now();
+                wasIdleFading = true;
+            }
+            const auto target = buildIdleLightOutputs(proj->lighting.fixtures, proj->lighting.idleBehavior,
+                                                        proj->lighting.idleColorR, proj->lighting.idleColorG,
+                                                        proj->lighting.idleColorB, proj->lighting.idleIntensity);
+            const double elapsed =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - idleFadeStart).count();
+            resolved = blendTowardIdle(lastResolvedOutputs, target, elapsed / kIdleFadeSeconds);
         }
 
         std::map<int, std::vector<uint8_t>> frames; // universe → 512 bytes
