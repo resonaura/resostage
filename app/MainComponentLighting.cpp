@@ -295,6 +295,7 @@ void MainComponent::lightingCueAdd(const std::string& json) {
     if (getDouble(doc, "effectRateHz", numVal)) cue.effectRateHz = static_cast<float>(std::max(0.01, numVal));
     if (getString(doc, "gradientPreset", strVal)) cue.gradientPreset = strVal;
     if (getString(doc, "gradientColors", strVal)) cue.gradientColors = strVal;
+    if (getString(doc, "blendMode", strVal)) cue.blendMode = strVal;
 
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
@@ -384,6 +385,7 @@ void MainComponent::lightingCueUpdate(const std::string& json) {
         cue->effectRateHz = static_cast<float>(std::max(0.01, numVal));
     if (getString(doc, "gradientPreset", strVal)) cue->gradientPreset = strVal;
     if (getString(doc, "gradientColors", strVal)) cue->gradientColors = strVal;
+    if (getString(doc, "blendMode", strVal)) cue->blendMode = strVal;
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();

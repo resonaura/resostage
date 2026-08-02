@@ -438,6 +438,7 @@ export const lighting = {
     effectRateHz?: number;
     gradientPreset?: "solid" | "greenYellowRed" | "custom";
     gradientColors?: string;
+    blendMode?: "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive";
     gestureId?: string;
   }) => post("/api/v1/lighting/cue/update", patch),
 };

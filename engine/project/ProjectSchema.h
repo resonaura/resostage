@@ -224,9 +224,18 @@ struct LightCue {
     // "solid" = the cue's own colorR/G/B for every lit LED.
     // "greenYellowRed" = classic VU coloring by position, ignores colorR/G/B.
     std::string gradientPreset = "solid";
-    // Optional user palette, three CSS-style #RRGGBB stops separated by
-    // commas. Empty means the selected built-in preset.
+    // Optional user palette, two or more CSS-style #RRGGBB stops separated
+    // by commas. Empty means the selected built-in preset.
     std::string gradientColors;
+
+    // How this cue composites onto whatever's already resolved for a
+    // fixture this frame from OTHER tracks driving the same fixture
+    // simultaneously (base/accent layering -- see LightBlend.h). Only
+    // matters when a LightFixture is listed in more than one LightTrack's
+    // fixtureIds; a fixture driven by a single track (the common case)
+    // ignores this entirely. "normal" | "additive" | "multiply" |
+    // "difference" | "lighten" | "subtractive".
+    std::string blendMode = "normal";
 };
 
 // A named structural marker on the timeline ruler (Intro/Verse/Chorus/

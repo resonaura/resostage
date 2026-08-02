@@ -9,6 +9,25 @@ export interface LightCueValue {
 
 const BLACK: LightCueValue = { r: 0, g: 0, b: 0, intensity: 0 };
 
+// ─── Cross-track layering / blend modes ───────────────────────────────────
+//
+// TypeScript port of engine/lighting/LightBlend.h -- kept in sync by hand,
+// same as everything else in this file. See that header's class comment for
+// why blending happens on the resolved color, not a per-LED array merge.
+
+export type BlendMode = "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive";
+
+export function blendChannel(mode: BlendMode, base: number, top: number): number {
+  switch (mode) {
+    case "additive": return Math.min(1, base + top);
+    case "multiply": return base * top;
+    case "difference": return Math.abs(base - top);
+    case "lighten": return Math.max(base, top);
+    case "subtractive": return Math.max(0, base - top);
+    default: return top;
+  }
+}
+
 /**
  * TypeScript port of engine/lighting/LightCueInterpolation.h's
  * resolveLightCueValue -- kept in sync by hand (no shared schema generator

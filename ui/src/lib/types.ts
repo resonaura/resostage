@@ -98,6 +98,10 @@ export interface LightCueRow {
   effectRateHz: number; // used when tempoSync is false
   gradientPreset: "solid" | "greenYellowRed" | "custom" | "";
   gradientColors?: string;
+  // How this cue composites onto another track's simultaneously-active cue
+  // on the same fixture (base/accent layering) -- see LightBlend.h. No
+  // effect unless the fixture is driven by more than one LightTrack.
+  blendMode?: "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive" | "";
 }
 
 // Backend-authoritative resolved lamp state, one row per fixture currently

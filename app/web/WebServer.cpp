@@ -1307,7 +1307,8 @@ std::string WebServer::buildStateJson(const char* view) const {
                   << "\"tempoSubdiv\":\"" << jsonEscape(lc.tempoSubdiv) << "\","
                   << "\"effectRateHz\":" << finiteOrZero(lc.effectRateHz) << ","
                   << "\"gradientPreset\":\"" << jsonEscape(lc.gradientPreset) << "\","
-                  << "\"gradientColors\":\"" << jsonEscape(lc.gradientColors) << "\"}";
+                  << "\"gradientColors\":\"" << jsonEscape(lc.gradientColors) << "\","
+                  << "\"blendMode\":\"" << jsonEscape(lc.blendMode) << "\"}";
             }
             o << "]}";
         }

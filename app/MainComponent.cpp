@@ -1136,6 +1136,7 @@ void MainComponent::publishWebState() {
             lcr.effectRateHz = lc.effectRateHz;
             lcr.gradientPreset = lc.gradientPreset;
             lcr.gradientColors = lc.gradientColors;
+            lcr.blendMode = lc.blendMode;
             row.lightCues.push_back(std::move(lcr));
         }
 

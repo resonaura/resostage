@@ -379,6 +379,11 @@ struct WebUiState {
             double effectRateHz = 2.0;
             std::string gradientPreset;
             std::string gradientColors;
+            // "normal" | "additive" | "multiply" | "difference" | "lighten"
+            // | "subtractive" -- see engine/lighting/LightBlend.h. Only
+            // meaningful when this cue's fixture is also driven by another
+            // LightTrack active at the same instant.
+            std::string blendMode;
         };
         std::vector<LightCueRow> lightCues;
     };

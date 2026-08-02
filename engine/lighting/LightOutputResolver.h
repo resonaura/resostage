@@ -1,9 +1,11 @@
 #pragma once
 
+#include "LightBlend.h"
 #include "LightCueInterpolation.h"
 #include "project/ProjectSchema.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <map>
 #include <string>
@@ -86,17 +88,31 @@ using SourceLevelDbFn = std::function<float(const std::string& sourceType, const
 // preview the user sees can never show something the real hardware isn't
 // also doing (see RESTORE_POINT.md Feature 6 / the "намертво к таймлайну"
 // sync fix).
+// One fixture's contribution from a single track that currently drives it,
+// bundled with the blend mode its active cue asked for -- kept only long
+// enough to fold multiple simultaneous tracks together below.
+struct LayerContribution {
+    ResolvedFixtureOutput out;
+    BlendMode mode = BlendMode::Normal;
+};
+
 inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
     const std::vector<LightTrack>& lightTracks,
     const std::vector<LightCue>& songLightCues,
     double tSec,
     double bpm,
     const SourceLevelDbFn& sourceLevelDb) {
-    std::vector<ResolvedFixtureOutput> out;
-
     std::map<std::string, std::vector<const LightCue*>> cuesByTrack;
     for (const auto& cue : songLightCues)
         cuesByTrack[cue.trackId].push_back(&cue);
+
+    // Per-fixture accumulation across every track that drives it, in track
+    // order (first-listed track = base layer, later ones layer on top --
+    // see LightBlend.h). `fixtureOrder` preserves first-seen order so
+    // output ordering stays exactly what a single-track fixture always had.
+    std::vector<std::string> fixtureOrder;
+    std::map<std::string, bool> anyTrackHasCues;
+    std::map<std::string, std::vector<LayerContribution>> layersByFixture;
 
     for (const auto& track : lightTracks) {
         std::vector<LightCue> trackCues;
@@ -123,11 +139,13 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
 
         int fixturePos = 0;
         for (const auto& fxId : track.fixtureIds) {
-            ResolvedFixtureOutput r;
-            r.fixtureId = fxId;
-            r.value = baseVal;
+            if (!anyTrackHasCues[fxId]) fixtureOrder.push_back(fxId);
+            anyTrackHasCues[fxId] = true;
 
             if (activeCue != nullptr) {
+                ResolvedFixtureOutput r;
+                r.fixtureId = fxId;
+                r.value = baseVal;
                 r.gradient = parseGradientPreset(activeCue->gradientPreset);
 
                 EffectParams p;
@@ -160,15 +178,80 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                 r.effectType = p.type;
                 r.effectTSec = p.tSec;
                 r.effectRateHz = p.rateHz;
-
                 r.value = applyEffect(r.value, p);
-            }
 
-            out.push_back(std::move(r));
+                layersByFixture[fxId].push_back({std::move(r), parseBlendMode(activeCue->blendMode)});
+            }
             ++fixturePos;
         }
     }
 
+    std::vector<ResolvedFixtureOutput> out;
+    out.reserve(fixtureOrder.size());
+    for (const auto& fxId : fixtureOrder) {
+        auto& layers = layersByFixture[fxId];
+        if (layers.empty()) {
+            // Every track driving this fixture has cues, but none is active
+            // right now -- still a real "off" row (matches what a single
+            // idle track has always produced), not an omitted one.
+            ResolvedFixtureOutput r;
+            r.fixtureId = fxId;
+            out.push_back(std::move(r));
+            continue;
+        }
+        if (layers.size() == 1) {
+            // Single layer -- the overwhelmingly common case (one track per
+            // fixture) -- passes through untouched, identical to before
+            // cross-track layering existed.
+            out.push_back(std::move(layers[0].out));
+            continue;
+        }
+        // Two or more tracks are simultaneously driving this fixture with
+        // active cues: fold them bottom-to-top. Each layer's OWN blend mode
+        // decides how it lands on the accumulator; "normal" (the default,
+        // and the only mode a pre-layering project's cues can have) replaces
+        // outright, so a fixture with exactly one ACTUAL simultaneous
+        // contributor per frame (even if two tracks nominally share it,
+        // just never active at the same instant) never sees blend math run.
+        ResolvedFixtureOutput acc = layers[0].out;
+        for (size_t i = 1; i < layers.size(); ++i) {
+            const ResolvedFixtureOutput& top = layers[i].out;
+            const BlendMode mode = layers[i].mode;
+            if (mode == BlendMode::Normal) {
+                acc = top;
+                continue;
+            }
+            // Effective (premultiplied-by-intensity) 0..1 channels -- a
+            // faded-in/faded-out layer blends proportionally to its current
+            // envelope, not as a hard on/off switch.
+            const auto effective = [](const LightCueValue& v, int ch) {
+                const double c = ch == 0 ? v.r : ch == 1 ? v.g : v.b;
+                return c / 255.0 * v.intensity;
+            };
+            LightCueValue blended;
+            const auto mix = [&](int ch) {
+                const double b = blendChannel(mode, effective(acc.value, ch), effective(top.value, ch));
+                return static_cast<uint8_t>(std::clamp(std::lround(b * 255.0), 0L, 255L));
+            };
+            blended.r = mix(0);
+            blended.g = mix(1);
+            blended.b = mix(2);
+            blended.intensity = 1.0; // brightness is fully baked into r/g/b above
+            acc.value = blended;
+            // The topmost layer with a renderable identity (a spatial shape,
+            // or Meter which needs meterLevel01/gradient) wins the forwarded
+            // effect slot -- one shape renders per fixture per frame, not a
+            // per-LED merge of two (see LightBlend.h's class comment).
+            if (top.effectType != EffectParams::Type::None) {
+                acc.effectType = top.effectType;
+                acc.effectTSec = top.effectTSec;
+                acc.effectRateHz = top.effectRateHz;
+                acc.gradient = top.gradient;
+                acc.meterLevel01 = top.meterLevel01;
+            }
+        }
+        out.push_back(std::move(acc));
+    }
     return out;
 }
 

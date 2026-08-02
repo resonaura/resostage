@@ -175,3 +175,136 @@ TEST_CASE("resolveLightOutputs: querying between cues leaves effectType at None 
     CHECK(out[0].effectType == EffectParams::Type::None);
     CHECK(out[0].value.intensity == doctest::Approx(0.0));
 }
+
+// ─── Cross-track layering / blend modes ────────────────────────────────────
+//
+// A fixture driven by exactly one track (every test above) must never run
+// any blend math at all -- confirmed above by every value matching the
+// pre-layering implementation exactly. These tests cover what happens when
+// TWO tracks list the same fixture and both have simultaneously active cues.
+
+TEST_CASE("resolveLightOutputs: two tracks sharing a fixture, second layer 'normal', is a plain replace") {
+    std::vector<LightTrack> tracks = {
+        makeTrack("base", {"fx1"}),
+        makeTrack("accent", {"fx1"}),
+    };
+    LightCue baseCue = makeCue("base", 0.0, 10.0);
+    baseCue.colorR = 10; baseCue.colorG = 20; baseCue.colorB = 30;
+    LightCue accentCue = makeCue("accent", 0.0, 10.0);
+    accentCue.colorR = 200; accentCue.colorG = 210; accentCue.colorB = 220;
+    accentCue.blendMode = "normal";
+    std::vector<LightCue> cues = {baseCue, accentCue};
+
+    auto out = resolveLightOutputs(tracks, cues, 5.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    // "normal" replaces outright -- the topmost (accent) layer wins,
+    // matching what an unlayered single cue on that fixture would show.
+    CHECK(out[0].value.r == 200);
+    CHECK(out[0].value.g == 210);
+    CHECK(out[0].value.b == 220);
+}
+
+TEST_CASE("resolveLightOutputs: additive blend combines two layers' effective brightness") {
+    std::vector<LightTrack> tracks = {
+        makeTrack("base", {"fx1"}),
+        makeTrack("accent", {"fx1"}),
+    };
+    LightCue baseCue = makeCue("base", 0.0, 10.0);
+    baseCue.colorR = 100; baseCue.colorG = 0; baseCue.colorB = 0;
+    baseCue.intensity = 1.0;
+    LightCue accentCue = makeCue("accent", 0.0, 10.0);
+    accentCue.colorR = 0; accentCue.colorG = 0; accentCue.colorB = 80;
+    accentCue.intensity = 1.0;
+    accentCue.blendMode = "additive";
+    std::vector<LightCue> cues = {baseCue, accentCue};
+
+    auto out = resolveLightOutputs(tracks, cues, 5.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].value.r == 100); // base channel untouched by a zero accent channel
+    CHECK(out[0].value.b == 80);  // accent channel untouched by a zero base channel
+    CHECK(out[0].value.intensity == doctest::Approx(1.0)); // baked into r/g/b already
+}
+
+TEST_CASE("resolveLightOutputs: additive blend clamps at full brightness, never overflows") {
+    std::vector<LightTrack> tracks = {
+        makeTrack("base", {"fx1"}),
+        makeTrack("accent", {"fx1"}),
+    };
+    LightCue baseCue = makeCue("base", 0.0, 10.0);
+    baseCue.colorR = 200; baseCue.colorG = 200; baseCue.colorB = 200;
+    LightCue accentCue = makeCue("accent", 0.0, 10.0);
+    accentCue.colorR = 200; accentCue.colorG = 200; accentCue.colorB = 200;
+    accentCue.blendMode = "additive";
+    std::vector<LightCue> cues = {baseCue, accentCue};
+
+    auto out = resolveLightOutputs(tracks, cues, 5.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].value.r == 255);
+    CHECK(out[0].value.g == 255);
+    CHECK(out[0].value.b == 255);
+}
+
+TEST_CASE("resolveLightOutputs: multiply blend uses the accent as a dimmer mask") {
+    std::vector<LightTrack> tracks = {
+        makeTrack("base", {"fx1"}),
+        makeTrack("accent", {"fx1"}),
+    };
+    LightCue baseCue = makeCue("base", 0.0, 10.0);
+    baseCue.colorR = 255; baseCue.colorG = 255; baseCue.colorB = 255;
+    LightCue accentCue = makeCue("accent", 0.0, 10.0);
+    accentCue.colorR = 0; accentCue.colorG = 128; accentCue.colorB = 255;
+    accentCue.blendMode = "multiply";
+    std::vector<LightCue> cues = {baseCue, accentCue};
+
+    auto out = resolveLightOutputs(tracks, cues, 5.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].value.r == 0);   // full white base * zero accent channel -> off
+    CHECK(out[0].value.b == 255); // full white base * full accent channel -> unchanged
+    CHECK(out[0].value.g > 0);
+    CHECK(out[0].value.g < 255);
+}
+
+TEST_CASE("resolveLightOutputs: an idle second track never blacks out an active first one") {
+    // "accent" track has a cue elsewhere in the timeline but nothing active
+    // at this instant -- must contribute NOTHING, not a black multiply/
+    // normal layer, or simply co-existing on a shared fixture would be a
+    // footgun (any authored idle track downstream would blank the rig).
+    std::vector<LightTrack> tracks = {
+        makeTrack("base", {"fx1"}),
+        makeTrack("accent", {"fx1"}),
+    };
+    LightCue baseCue = makeCue("base", 0.0, 10.0);
+    baseCue.colorR = 111; baseCue.colorG = 22; baseCue.colorB = 33;
+    LightCue accentCue = makeCue("accent", 50.0, 10.0); // active 50..60, not at t=5
+    std::vector<LightCue> cues = {baseCue, accentCue};
+
+    auto out = resolveLightOutputs(tracks, cues, 5.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].value.r == 111);
+    CHECK(out[0].value.g == 22);
+    CHECK(out[0].value.b == 33);
+}
+
+TEST_CASE("resolveLightOutputs: the topmost active layer with a spatial effect wins the forwarded effect slot") {
+    std::vector<LightTrack> tracks = {
+        makeTrack("base", {"fx1"}),
+        makeTrack("accent", {"fx1"}),
+    };
+    LightCue baseCue = makeCue("base", 0.0, 10.0, "plasma");
+    LightCue accentCue = makeCue("accent", 0.0, 10.0, "sonicboom");
+    accentCue.blendMode = "lighten";
+    std::vector<LightCue> cues = {baseCue, accentCue};
+
+    auto out = resolveLightOutputs(tracks, cues, 5.0, 120.0, nullptr);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].effectType == EffectParams::Type::SonicBoom);
+}
+
+TEST_CASE("parseBlendMode / blendModeToString round-trip every known mode and default to Normal") {
+    for (auto mode : {BlendMode::Normal, BlendMode::Additive, BlendMode::Multiply,
+                       BlendMode::Difference, BlendMode::Lighten, BlendMode::Subtractive}) {
+        CHECK(parseBlendMode(blendModeToString(mode)) == mode);
+    }
+    CHECK(parseBlendMode("bogus") == BlendMode::Normal);
+    CHECK(parseBlendMode("") == BlendMode::Normal);
+}

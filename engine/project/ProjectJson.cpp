@@ -330,7 +330,8 @@ std::string serializeProjectJson(const Project& project) {
             o << "          \"tempoSubdiv\": \"" << jsonEscapeString(lc.tempoSubdiv) << "\",\n";
             o << "          \"effectRateHz\": "; writeNumber(o, lc.effectRateHz); o << ",\n";
             o << "          \"gradientPreset\": \"" << jsonEscapeString(lc.gradientPreset) << "\",\n";
-            o << "          \"gradientColors\": \"" << jsonEscapeString(lc.gradientColors) << "\"\n";
+            o << "          \"gradientColors\": \"" << jsonEscapeString(lc.gradientColors) << "\",\n";
+            o << "          \"blendMode\": \"" << jsonEscapeString(lc.blendMode) << "\"\n";
             o << "        }" << (lci + 1 < s.lightCues.size() ? "," : "") << "\n";
         }
         o << "      ]\n";
