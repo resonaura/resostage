@@ -166,6 +166,18 @@ public:
         lightEngine.setProject(std::make_shared<Project>(loader.project()));
     }
 
+    // Called by MainComponent when the CURRENTLY ACTIVE song's own BPM is
+    // edited live (builderSongUpdate). goToSong() already pushes BPM to
+    // LightEngine on every song switch (see switchToSongGapless), but
+    // editing the tempo of the song that's already staged/playing never
+    // goes through that path -- without this, tempo-synced light effects on
+    // the real DMX output silently keep running at the stale old BPM until
+    // the next song change, even though the operator's own preview (which
+    // reads SongDef::bpm fresh every publish) shows the new tempo instantly.
+    void notifyLightEngineBpmChanged(double bpm) {
+        lightEngine.setBpm(bpm);
+    }
+
     size_t busCount() const { return busses.size(); }
     const std::string& busIdAt(size_t index) const { return busses[index].id; }
     const std::string& busNameAt(size_t index) const;

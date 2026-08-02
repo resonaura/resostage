@@ -153,8 +153,9 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     double numVal;
     int intVal;
     bool boolVal;
+    bool bpmChanged = false;
     if (getString(doc, "name", strVal)) s.name = strVal;
-    if (getDouble(doc, "bpm", numVal)) s.bpm = numVal;
+    if (getDouble(doc, "bpm", numVal)) { s.bpm = numVal; bpmChanged = true; }
     if (getString(doc, "mode", strVal))
         s.playbackMode = (strVal == "auto") ? PlaybackMode::AutoplayNext : PlaybackMode::WaitForTrigger;
     if (getInt(doc, "tsNum", intVal)) s.timeSignature.numerator = intVal;
@@ -188,8 +189,15 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     // Click gain is project-global -- always refresh live click even if this
     // song isn't the staged one.
     engine.refreshClickState();
-    if (index != static_cast<int>(engine.currentSongIndex()))
-        goToSong(index);
+    if (index != static_cast<int>(engine.currentSongIndex())) {
+        goToSong(index); // pushes BPM to LightEngine itself once this song is staged
+    } else if (bpmChanged) {
+        // Editing the ACTIVE song's own tempo -- goToSong() isn't called for
+        // this branch, so nothing else re-syncs LightEngine's BPM. Without
+        // this, tempo-synced light effects on real hardware keep running at
+        // the pre-edit tempo indefinitely (see RESTORE_POINT.md).
+        engine.notifyLightEngineBpmChanged(s.bpm);
+    }
     notifyProjectStructureChanged();
     setStatus("Song updated");
 }

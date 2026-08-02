@@ -105,6 +105,11 @@ void MainComponent::lightingSetConfig(const std::string& json) {
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
+    // Every lighting mutator must refresh LightEngine's snapshot (see
+    // RESTORE_POINT.md's "project snapshot goes stale" finding) -- otherwise
+    // this edit is only visible in the web preview (which reads
+    // engine.project() live) and never reaches the real-time DMX thread.
+    engine.notifyLightEngineProjectChanged();
     setStatus("Lighting settings updated");
 }
 
@@ -146,6 +151,7 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
+    engine.notifyLightEngineProjectChanged();
 }
 
 void MainComponent::lightingTrackAdd(const std::string& /*json*/) {
@@ -163,6 +169,7 @@ void MainComponent::lightingTrackAdd(const std::string& /*json*/) {
     proj.lightTracks.push_back(std::move(lt));
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
+    engine.notifyLightEngineProjectChanged();
     setStatus("Light track added");
 }
 
@@ -188,6 +195,7 @@ void MainComponent::lightingTrackRemove(const std::string& json) {
     }
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
+    engine.notifyLightEngineProjectChanged();
     setStatus("Light track removed");
 }
 
@@ -207,6 +215,7 @@ void MainComponent::lightingTrackMove(const std::string& json) {
     std::swap(proj.lightTracks[static_cast<size_t>(index)], proj.lightTracks[static_cast<size_t>(to)]);
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
+    engine.notifyLightEngineProjectChanged();
 }
 
 void MainComponent::lightingTrackUpdate(const std::string& json) {
@@ -237,6 +246,7 @@ void MainComponent::lightingTrackUpdate(const std::string& json) {
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
+    engine.notifyLightEngineProjectChanged();
 }
 
 void MainComponent::lightingCueAdd(const std::string& json) {
@@ -292,6 +302,7 @@ void MainComponent::lightingCueAdd(const std::string& json) {
     s.lightCues.push_back(std::move(cue));
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
+    engine.notifyLightEngineProjectChanged();
     setStatus("Light cue added");
 }
 
@@ -316,6 +327,7 @@ void MainComponent::lightingCueRemove(const std::string& json) {
         s.lightCues.erase(it, s.lightCues.end());
         engine.projectHistoryCommitEdit();
         notifyProjectStructureChanged();
+        engine.notifyLightEngineProjectChanged();
         setStatus("Light cue removed");
     }
 }
