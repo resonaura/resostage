@@ -380,11 +380,24 @@ function computeSegmentLayout(
 
 // Per-segment box dimensions -- "strip" is a flatter/wider cross-section of
 // the same stack "bar" uses; ring/matrix pixels aren't stretched along a
-// stacking axis at all, so they get a small roughly-cubic size instead.
+// stacking axis at all, so they get a small roughly-cubic size instead. The
+// *0.95 factor leaves a visible gap between adjacent stacked segments --
+// only meaningful when there ARE multiple segments, see uniformBoxSize for
+// the single-continuous-box (no live data) case.
 function segmentBoxSize(shape: FixtureShape, segH: number): [number, number, number] {
   if (shape === "strip") return [0.14, segH * 0.9, 0.025];
   if (shape === "ring" || shape === "matrix") return [0.07, 0.07, 0.07];
   return [0.08, segH * 0.95, 0.08];
+}
+
+// The whole-bar box for the uniform (non-segmented, no live per-LED data)
+// fallback -- shape-aware like segmentBoxSize, but WITHOUT its inter-segment
+// gap factor: this is one continuous box spanning the full height, not a
+// stack, so shrinking it would just leave an unexplained gap at the tip.
+// "bar" here is exactly the original hardcoded box, unchanged.
+function uniformBoxSize(shape: FixtureShape, heightMeters: number): [number, number, number] {
+  if (shape === "strip") return [0.14, heightMeters, 0.025];
+  return [0.08, heightMeters, 0.08];
 }
 
 function ResoLightBar({
@@ -528,7 +541,12 @@ function ResoLightBar({
               onPointerDownStart();
             }}
           >
-            <boxGeometry args={[0.08, heightMeters, 0.08]} />
+            {/* Only reachable for "bar"/"strip" (ring/matrix always take the
+                segmented branch above, even with no live data -- see
+                showShapeSegments) -- still shape-aware so a non-addressable
+                or currently-idle "strip" fixture doesn't fall back to
+                looking like a plain "bar". */}
+            <boxGeometry args={uniformBoxSize(fixture.shape, heightMeters)} />
             <meshStandardMaterial
               color={color}
               emissive={color}
