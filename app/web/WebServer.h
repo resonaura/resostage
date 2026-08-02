@@ -147,6 +147,7 @@ enum class WebCommandKind : uint8_t {
     // repositioning is just a startSeconds field in Update.
     SetLightingConfig,
     LightFixtureAdd,
+    LightFixtureDuplicate,
     LightFixtureRemove,
     LightFixtureUpdate,
     LightTrackAdd,

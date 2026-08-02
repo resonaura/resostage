@@ -186,6 +186,7 @@ private:
 
     void lightingSetConfig(const std::string& json);
     void lightingFixtureAdd(const std::string& json);
+    void lightingFixtureDuplicate(const std::string& json);
     void lightingFixtureRemove(const std::string& json);
     void lightingFixtureUpdate(const std::string& json);
     void lightingTrackAdd(const std::string& json);

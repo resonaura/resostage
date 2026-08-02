@@ -194,6 +194,56 @@ void MainComponent::lightingFixtureAdd(const std::string& json) {
     setStatus("DMX fixture added");
 }
 
+void MainComponent::lightingFixtureDuplicate(const std::string& json) {
+    simdjson::dom::element doc;
+    std::string fixtureId;
+    if (!parseJson(json, doc) || !getString(doc, "fixtureId", fixtureId) || !engine.isProjectLoaded())
+        return;
+    Project& proj = engine.project();
+    LightingConfig& cfg = proj.lighting;
+
+    const LightFixture* src = nullptr;
+    for (const auto& f : cfg.fixtures) {
+        if (f.id == fixtureId) {
+            src = &f;
+            break;
+        }
+    }
+    if (src == nullptr)
+        return;
+
+    std::vector<std::string> used;
+    for (const auto& f : cfg.fixtures)
+        used.push_back(f.id);
+
+    LightFixture copy = *src;
+    copy.id = makeUniqueId(src->kind == LightFixture::Kind::ResoLightBar ? "bar" : "dmx", used);
+    copy.name = src->name + " Copy";
+
+    // Auto-place right after the last occupied channel range in the SAME
+    // universe as the source -- same collision-avoidance lightingFixtureAdd
+    // uses, since a byte-for-byte copy would otherwise leave both fixtures
+    // pointing at identical DMX channels.
+    int nextChannel = 1;
+    for (const auto& other : cfg.fixtures) {
+        if (other.dmxUniverse == src->dmxUniverse)
+            nextChannel = std::max(nextChannel, other.dmxStartChannel + other.dmxChannelCount);
+    }
+    copy.dmxStartChannel = std::min(nextChannel, 510);
+
+    // Nudged in the 3D stage so the copy doesn't spawn exactly on top of
+    // the fixture it came from.
+    copy.posX = src->posX + 0.5;
+    copy.posZ = src->posZ + 0.5;
+
+    engine.projectHistoryBeginEdit("", "Duplicate fixture");
+    cfg.fixtures.push_back(std::move(copy));
+    engine.projectHistoryCommitEdit();
+    notifyProjectStructureChanged();
+    engine.notifyLightEngineProjectChanged();
+    setStatus("Fixture duplicated");
+}
+
 void MainComponent::lightingFixtureRemove(const std::string& json) {
     simdjson::dom::element doc;
     std::string fixtureId;

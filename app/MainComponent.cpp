@@ -877,6 +877,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderSectionUpdate: builderSectionUpdate(cmd.json); break;
             case WebCommandKind::SetLightingConfig: lightingSetConfig(cmd.json); break;
             case WebCommandKind::LightFixtureAdd: lightingFixtureAdd(cmd.json); break;
+            case WebCommandKind::LightFixtureDuplicate: lightingFixtureDuplicate(cmd.json); break;
             case WebCommandKind::LightFixtureRemove: lightingFixtureRemove(cmd.json); break;
             case WebCommandKind::LightFixtureUpdate: lightingFixtureUpdate(cmd.json); break;
             case WebCommandKind::LightTrackAdd: lightingTrackAdd(cmd.json); break;

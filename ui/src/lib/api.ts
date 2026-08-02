@@ -381,6 +381,8 @@ export const lighting = {
   }) => post("/api/v1/lighting/config", patch),
 
   fixtureAdd: (name?: string) => post("/api/v1/lighting/fixture/add", { name }),
+  fixtureDuplicate: (fixtureId: string) =>
+    post("/api/v1/lighting/fixture/duplicate", { fixtureId }),
   fixtureRemove: (fixtureId: string) =>
     post("/api/v1/lighting/fixture/remove", { fixtureId }),
 

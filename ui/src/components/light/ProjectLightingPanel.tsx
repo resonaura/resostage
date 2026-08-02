@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Copy,
   Disc3,
   Lamp,
   MoveHorizontal,
@@ -482,10 +483,19 @@ export function ProjectLightingPanel({
               {/* Selected fixture editor */}
               {selected && (
                 <div className="rounded-xl border border-accent/30 bg-accent/5 p-4 flex flex-col gap-3">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="text-xs font-semibold text-accent uppercase tracking-wide">
                       Editing: {selected.name}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => void lighting.fixtureDuplicate(selected.id)}
+                      className="flex items-center gap-1 rounded-lg border border-default/50 bg-default/20 px-2 py-1 text-[10px] font-medium text-foreground/70 hover:bg-default/35 transition-colors"
+                      title="Duplicate this fixture (same settings, offset position, next free DMX channels)"
+                    >
+                      <Copy size={11} />
+                      Duplicate
+                    </button>
                   </div>
 
                   <div className={selected.kind === "dmxGeneric" ? "grid grid-cols-1 gap-3" : "grid grid-cols-2 gap-3"}>
