@@ -11,7 +11,8 @@ namespace resostage {
 // install is a no-op on non-Apple builds. No runtime hardware probe needed
 // (Apple documents that apps should not branch on Touch Bar presence).
 //
-// `onSelect` receives SPA tab ids: "player" | "mixer" | "editor" | "settings".
+// `onSelect` receives SPA tab ids: "player" | "mixer" | "editor" | "light" |
+// "settings".
 // `nsViewOrWindow` may be an NSView* (JUCE peer handle) or NSWindow* — we
 // resolve the NSWindow internally (ObjC stays in the .mm).
 //

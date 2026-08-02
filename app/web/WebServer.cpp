@@ -1085,7 +1085,7 @@ void WebServer::enqueueCommand(WebCommand cmd) {
 void WebServer::noteClientView(const std::string& view) {
     std::string v = view;
     if (v == "builder") v = "editor";
-    if (v != "player" && v != "mixer" && v != "editor" && v != "settings")
+    if (v != "player" && v != "mixer" && v != "editor" && v != "light" && v != "settings")
         return;
     std::lock_guard<std::mutex> lock(clientViewMutex);
     clientView = std::move(v);
