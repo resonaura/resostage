@@ -51,50 +51,57 @@ function getGlowTexture(): THREE.CanvasTexture {
 // than a JS token table, so resolving them means walking the CSS cascade:
 // read the (already var()-substituted) computed values off :root, then let
 // a throwaway canvas 2D context's fillStyle parser -- which understands
-// oklch()/color-mix() but not var() -- normalize them into an rgb() string
-// three.js's Color can parse.
+// oklch()/color-mix() but not var() -- turn them into real pixels. Sampling
+// those pixels with getImageData is what guarantees an rgb(r, g, b) string
+// three.js's Color can actually parse: the context serializes supported
+// colors back as oklch(...)/color-mix(...), which THREE.Color would silently
+// reject (falling back to white).
 function resolveCssColor(raw: string, fallback: string): string {
   if (!raw) return fallback;
   const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return fallback;
   ctx.fillStyle = "#000";
   ctx.fillStyle = raw;
-  return ctx.fillStyle || fallback;
+  // An invalid color leaves fillStyle at the previous value (#000000) --
+  // bail to the fallback instead of sampling black.
+  if (ctx.fillStyle === "#000000") return fallback;
+  ctx.fillRect(0, 0, 1, 1);
+  const d = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgb(${d[0]}, ${d[1]}, ${d[2]})`;
 }
 
-// Stage background + grid colors, all derived from the SAME two HeroUI
-// tokens (--background, --default) so they can never drift apart into an
-// arbitrary hardcoded hex that stops matching a theme change. Grid colors
-// are mixed toward the resolved --background (not toward the near-white
-// --default-foreground): mixing toward foreground made the grid read as a
-// bright overlay on the dark stage; mixing toward background keeps the
-// "default" theme tint while staying a subtle, dim guide -- never brighter
-// than the stage it's drawn on. Percentages are deliberately low (most of
-// the mix is background) so the grid reads as barely-there.
+// Stage background + grid colors, all derived from the same HeroUI tokens
+// (--background, --default, --default-foreground) so they can never drift
+// apart into an arbitrary hardcoded hex that stops matching a theme change.
+// The stage stays dark (resolved --background); the grid is a tint of the
+// "default" surface pushed back toward the background, with the major
+// (section) lines blended a bit toward the paired --default-foreground so
+// minor/major still read as distinct -- visible on the dark floor without
+// ever going bright/white.
 function useHeroStageColors(): { background: string; cell: string; section: string } {
   const [colors, setColors] = useState({
-    background: "#0b0f14",
-    cell: "#0f1318",
-    section: "#141a21",
+    background: "#060607",
+    cell: "#18181b",
+    section: "#313032",
   });
   useEffect(() => {
     const root = getComputedStyle(document.documentElement);
     const rawBackground = root.getPropertyValue("--background").trim();
     const rawDefault = root.getPropertyValue("--default").trim();
     if (!rawBackground) return;
-    const background = resolveCssColor(rawBackground, "#0b0f14");
+    const background = resolveCssColor(rawBackground, "#060607");
     const tint = rawDefault || rawBackground;
-    // Minor lines: barely-there tint of the theme color over background.
+    // Minor lines: a clearly visible tint of the "default" theme surface.
     const cell = resolveCssColor(
-      `color-mix(in oklch, ${tint} 15%, ${rawBackground} 85%)`,
-      "#0f1318",
+      `color-mix(in oklch, ${tint} 60%, ${rawBackground} 40%)`,
+      "#18181b",
     );
-    // Major (section) lines: a bit more present, still dark -- never mixes
-    // in any foreground/white at all.
+    // Major (section) lines: same surface tinted slightly toward its paired
+    // foreground token, so they read a step brighter than the minor lines.
     const section = resolveCssColor(
-      `color-mix(in oklch, ${tint} 28%, ${rawBackground} 72%)`,
-      "#141a21",
+      `color-mix(in oklch, ${root.getPropertyValue("--default-foreground").trim() || tint} 22%, ${rawBackground} 78%)`,
+      "#313032",
     );
     setColors({ background, cell, section });
   }, []);
