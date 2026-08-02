@@ -408,7 +408,11 @@ export function LightTrackLane({
       );
       next = { start: s, duration: rd.origDuration - (s - rd.origStart) };
     } else if (rd.mode === "trimEnd") {
-      const end = snap(rd.origStart + dSec);
+      // Anchor the new end at the ORIGINAL end plus the drag delta (same as
+      // the audio region trim in Timeline.tsx) -- using origStart + dSec
+      // instead left the block's right edge lagging the cursor by the full
+      // original width, so a wide cue only stretched a fraction of the drag.
+      const end = snap(rd.origStart + rd.origDuration + dSec);
       next.duration = Math.max(
         0.05,
         Math.min(rd.maxEnd - rd.origStart, end - rd.origStart),
