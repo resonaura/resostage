@@ -17,6 +17,7 @@ import {
   CloudLightning,
   Droplet,
   Flame,
+  FlipHorizontal2,
   Lightbulb,
   Link2,
   Link2Off,
@@ -339,6 +340,25 @@ function GradientStopEditor({
     commit([...stops, mid]);
   };
 
+  // Inserts a stop blended from the pair at (i, i+1) right between them --
+  // addStop only ever appends at the end, which makes refining the middle
+  // of a ramp (the part that usually matters most) a drag-to-reorder chore.
+  const insertStopBetween = (i: number) => {
+    if (stops.length >= 8) return;
+    const a = stops[i];
+    const b = stops[i + 1];
+    const mid: GradientStop = {
+      r: Math.round((a.r + b.r) / 2),
+      g: Math.round((a.g + b.g) / 2),
+      b: Math.round((a.b + b.b) / 2),
+    };
+    const next = [...stops];
+    next.splice(i + 1, 0, mid);
+    commit(next);
+  };
+
+  const reverseStops = () => commit([...stops].reverse());
+
   const handleDrop = (target: number) => {
     if (dragIndex !== null && dragIndex !== target) {
       const next = [...stops];
@@ -358,60 +378,90 @@ function GradientStopEditor({
   return (
     <div className="mt-1.5 flex flex-col gap-1.5">
       {/* Preview bar */}
-      <div
-        className="h-5 w-full rounded-lg border border-default/40"
-        style={{ background: `linear-gradient(to right, ${gradientCss})` }}
-        aria-hidden
-      />
+      <div className="relative">
+        <div
+          className="h-5 w-full rounded-lg border border-default/40"
+          style={{ background: `linear-gradient(to right, ${gradientCss})` }}
+          aria-hidden
+        />
+        <button
+          type="button"
+          onClick={reverseStops}
+          className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-default/60 bg-surface text-foreground/60 hover:bg-accent/20 hover:text-accent transition-colors"
+          title="Reverse gradient direction"
+          aria-label="Reverse gradient direction"
+        >
+          <FlipHorizontal2 size={9} />
+        </button>
+      </div>
 
       {/* Stops */}
       <div className="flex flex-wrap items-center gap-1">
-        {stops.map((s, i) => (
-          <div
-            key={i}
-            draggable
-            onDragStart={() => setDragIndex(i)}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOverIndex(i);
-            }}
-            onDrop={() => handleDrop(i)}
-            onDragEnd={() => {
-              setDragIndex(null);
-              setOverIndex(null);
-            }}
-            className={`group relative flex h-7 w-12 cursor-grab items-center justify-center overflow-visible rounded-md border text-[8px] font-medium transition-all active:cursor-grabbing ${
-              overIndex === i
-                ? "border-accent ring-1 ring-accent/50"
-                : "border-default/50"
-            }`}
-            style={{ background: rgbToHex(s.r, s.g, s.b) }}
-            title="Drag to reorder"
-          >
-            <input
-              type="color"
-              value={rgbToHex(s.r, s.g, s.b)}
-              onChange={(e) => recolor(i, e.target.value)}
-              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-              aria-label={`Stop ${i + 1} color`}
-            />
-            <button
-              type="button"
-              onClick={() => removeStop(i)}
-              disabled={stops.length <= 2}
-              className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-default/60 bg-surface text-[8px] leading-none text-foreground/70 hover:bg-danger hover:text-white disabled:opacity-30 disabled:hover:bg-surface"
-              title={stops.length <= 2 ? "A gradient needs at least 2 stops" : "Remove stop"}
+        {stops.flatMap((s, i) => {
+          const nodes: React.ReactNode[] = [];
+          if (i > 0) {
+            nodes.push(
+              <button
+                key={`ins-${i}`}
+                type="button"
+                onClick={() => insertStopBetween(i - 1)}
+                disabled={stops.length >= 8}
+                className="h-7 w-3 shrink-0 flex items-center justify-center rounded text-foreground/15 hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-0 disabled:pointer-events-none"
+                title={stops.length >= 8 ? undefined : "Insert a stop here"}
+                aria-label={`Insert a stop between ${i} and ${i + 1}`}
+              >
+                <Plus size={9} />
+              </button>,
+            );
+          }
+          nodes.push(
+            <div
+              key={i}
+              draggable
+              onDragStart={() => setDragIndex(i)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOverIndex(i);
+              }}
+              onDrop={() => handleDrop(i)}
+              onDragEnd={() => {
+                setDragIndex(null);
+                setOverIndex(null);
+              }}
+              className={`group relative flex h-7 w-12 cursor-grab items-center justify-center overflow-visible rounded-md border text-[8px] font-medium transition-all active:cursor-grabbing ${
+                overIndex === i
+                  ? "border-accent ring-1 ring-accent/50"
+                  : "border-default/50"
+              }`}
+              style={{ background: rgbToHex(s.r, s.g, s.b) }}
+              title="Drag to reorder"
             >
-              <X size={8} />
-            </button>
-            <span
-              className="pointer-events-none relative"
-              style={{ textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}
-            >
-              {i + 1}
-            </span>
-          </div>
-        ))}
+              <input
+                type="color"
+                value={rgbToHex(s.r, s.g, s.b)}
+                onChange={(e) => recolor(i, e.target.value)}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                aria-label={`Stop ${i + 1} color`}
+              />
+              <button
+                type="button"
+                onClick={() => removeStop(i)}
+                disabled={stops.length <= 2}
+                className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-default/60 bg-surface text-[8px] leading-none text-foreground/70 hover:bg-danger hover:text-white disabled:opacity-30 disabled:hover:bg-surface"
+                title={stops.length <= 2 ? "A gradient needs at least 2 stops" : "Remove stop"}
+              >
+                <X size={8} />
+              </button>
+              <span
+                className="pointer-events-none relative"
+                style={{ textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}
+              >
+                {i + 1}
+              </span>
+            </div>,
+          );
+          return nodes;
+        })}
 
         <button
           type="button"
@@ -426,7 +476,8 @@ function GradientStopEditor({
       </div>
 
       <div className="text-[9px] text-foreground/35">
-        Stops are spread evenly. Drag to reorder, click a swatch to recolor, × to remove.
+        Stops are spread evenly. Drag to reorder, click a swatch to recolor,
+        the + between stops to insert, × to remove.
       </div>
     </div>
   );
