@@ -193,6 +193,8 @@ export interface LightFixtureRow {
     | "dimmerRgb" | "dimmerRgbw"
     | "panTiltDimmerRgb" | "panTiltDimmerRgbw"
     | "custom";
+  /** Cosmetic aim/pitch off vertical (3D stage only) -- 0 = straight up. */
+  tiltDeg: number;
 }
 
 export interface LightingState {

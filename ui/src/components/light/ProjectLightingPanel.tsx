@@ -649,6 +649,30 @@ export function ProjectLightingPanel({
                     </div>
                   </Field>
 
+                  {/* Tilt: cosmetic aim/pitch off vertical -- a real hung
+                      fixture is angled at the stage via its yoke, not
+                      standing bolt upright like a ResoLightBar. */}
+                  {selected.kind === "dmxGeneric" && (
+                    <Field label="Tilt (°) -- aim off vertical">
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          step={5}
+                          min={-90}
+                          max={90}
+                          className="w-20 rounded-lg border border-default/60 bg-default/20 px-2 py-1 text-xs outline-none focus:border-accent text-center"
+                          value={selected.tiltDeg}
+                          onChange={(e) =>
+                            void lighting.fixtureUpdate({
+                              fixtureId: selected.id,
+                              tiltDeg: Number(e.target.value) || 0,
+                            })
+                          }
+                        />
+                      </div>
+                    </Field>
+                  )}
+
                   {/* Grid position -- only meaningful for a ResoLight bar
                       seeded from the Columns x Rows layout above. */}
                   {selected.kind === "resoLightBar" && (

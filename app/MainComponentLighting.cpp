@@ -160,6 +160,10 @@ void MainComponent::lightingFixtureAdd(const std::string& json) {
     // 3-channel RGB profile is the most common real-world starting point.
     f.shape = "par";
     f.channelProfile = "rgb";
+    // Aimed off vertical by default, purely cosmetic -- reads as a real
+    // hung fixture aiming at the stage rather than every light standing
+    // bolt upright like a ResoLightBar. Trivially overridden per-fixture.
+    f.tiltDeg = 25.0;
 
     // Auto-place right after the last occupied channel range in universe 0
     // so a freshly added fixture never silently overlaps an existing one's
@@ -259,6 +263,7 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     // web UI owns the canonical set of known values.
     if (getString(doc, "shape", strVal)) fx->shape = strVal;
     if (getString(doc, "channelProfile", strVal)) fx->channelProfile = strVal;
+    if (getDouble(doc, "tiltDeg", numVal)) fx->tiltDeg = numVal;
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();

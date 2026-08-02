@@ -162,6 +162,11 @@ struct LightFixture {
     // canonical profile -> channel-count/role table.
     std::string shape = "bar";          // "bar" | "par" | "wash" | "spot" | "movingHead" | "strip"
     std::string channelProfile = "rgb"; // "dimmer" | "rgb" | "rgbw" | "rgbwa" | "dimmerRgb" | "dimmerRgbw" | "panTiltDimmerRgb" | "panTiltDimmerRgbw" | "custom"
+    // Cosmetic pitch (3D stage only, like the pair above) -- a real moving
+    // head/PAR/spot is aimed at an angle off vertical via its yoke bracket,
+    // not standing bolt upright like a ResoLightBar; this is that aim
+    // angle. 0 = straight up. Not consulted by the engine.
+    double tiltDeg = 0.0;
 };
 
 enum class LightingKind {

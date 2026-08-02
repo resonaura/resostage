@@ -24,6 +24,7 @@ function makeFixture(id: string): LightFixtureRow {
     dmxChannelCount: 3,
     shape: "bar",
     channelProfile: "rgb",
+    tiltDeg: 0,
   };
 }
 

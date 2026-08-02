@@ -405,6 +405,7 @@ export const lighting = {
       | "dimmerRgb" | "dimmerRgbw"
       | "panTiltDimmerRgb" | "panTiltDimmerRgbw"
       | "custom";
+    tiltDeg?: number;
   }) => post("/api/v1/lighting/fixture/update", patch),
 
   trackAdd: () => post("/api/v1/lighting/track/add"),

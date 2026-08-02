@@ -459,6 +459,7 @@ struct WebUiState {
         // doc comment. Neither field affects real DMX output.
         std::string shape = "bar";
         std::string channelProfile = "rgb";
+        double tiltDeg = 0.0;
     };
     struct LightingRow {
         bool enabled = false;

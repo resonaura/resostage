@@ -233,6 +233,7 @@ bool parseLightFixture(const simdjson::dom::element& fxEl, LightFixture& fx, std
     std::string_view shapeView, profileView;
     if (!fxEl["shape"].get(shapeView)) fx.shape = std::string(shapeView);
     if (!fxEl["channelProfile"].get(profileView)) fx.channelProfile = std::string(profileView);
+    (void)fxEl["tiltDeg"].get(fx.tiltDeg);
 
     return true;
 }

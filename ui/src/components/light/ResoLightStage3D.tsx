@@ -588,28 +588,35 @@ function GenericFixture({
       position={[x, fixture.posY, z]}
       rotation={[0, THREE.MathUtils.degToRad(fixture.rotationYDeg), 0]}
     >
-      {body}
+      {/* Tilt (aim pitch) nests inside yaw, same two-group composition
+          ResoLightBar uses for yaw+mount -- so tilting always pitches the
+          fixture in whatever horizontal direction it's already yawed to
+          face, not some fixed world axis. Selection ring stays outside:
+          it's a floor-anchored UI affordance, not part of the fixture. */}
+      <group rotation={[THREE.MathUtils.degToRad(fixture.tiltDeg), 0, 0]}>
+        {body}
 
-      <sprite position={[0, lensY, 0]} scale={[0.5, 0.5, 1]}>
-        <spriteMaterial
-          map={getGlowTexture()}
-          color={color}
-          transparent
-          opacity={Math.min(0.85, glowLevel * 0.9)}
-          depthWrite={false}
-          blending={THREE.AdditiveBlending}
-        />
-      </sprite>
+        <sprite position={[0, lensY, 0]} scale={[0.5, 0.5, 1]}>
+          <spriteMaterial
+            map={getGlowTexture()}
+            color={color}
+            transparent
+            opacity={Math.min(0.85, glowLevel * 0.9)}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+          />
+        </sprite>
 
-      <Text
-        position={[0, labelY, 0]}
-        fontSize={0.14}
-        color="#cbd5e1"
-        anchorX="center"
-        anchorY="bottom"
-      >
-        {fixture.name}
-      </Text>
+        <Text
+          position={[0, labelY, 0]}
+          fontSize={0.14}
+          color="#cbd5e1"
+          anchorX="center"
+          anchorY="bottom"
+        >
+          {fixture.name}
+        </Text>
+      </group>
 
       {editable && (
         <mesh position={[0, -0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>

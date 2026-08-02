@@ -1413,7 +1413,8 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"dmxStartChannel\":" << f.dmxStartChannel << ","
               << "\"dmxChannelCount\":" << f.dmxChannelCount << ","
               << "\"shape\":\"" << jsonEscape(f.shape) << "\","
-              << "\"channelProfile\":\"" << jsonEscape(f.channelProfile) << "\"}";
+              << "\"channelProfile\":\"" << jsonEscape(f.channelProfile) << "\","
+              << "\"tiltDeg\":" << finiteOrZero(f.tiltDeg) << "}";
         }
         o << "]}";
 
