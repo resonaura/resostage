@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MoveHorizontal, MoveVertical, Wand2 } from "lucide-react";
 import { lighting } from "../../lib/api";
 import type { LightFixtureRow, LightingState, WebUiState } from "../../lib/types";
-import { ResoLightStage3D } from "./ResoLightStage3D";
+import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
 import { computeFixturePreviewColors } from "../../lib/lightPreviewColors";
+import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "../../lib/liveLevels";
 
 const selectCls =
   "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
@@ -40,17 +41,38 @@ function autoLayoutPositions(fixtures: LightFixtureRow[]): { id: string; posX: n
 
 // ─── Fixture row ──────────────────────────────────────────────────────────
 
+/**
+ * Collapses a preview color (possibly a live per-LED array, straight off
+ * the same backend websocket stream the Timeline's Light mode reads -- see
+ * ProjectLightingPanel's displayColors) into one flat r/g/b/intensity for
+ * this row's single swatch dot, which has no notion of per-LED detail.
+ */
+function summarizeSwatchColor(
+  c?: PreviewColor,
+): { r: number; g: number; b: number; intensity: number } | undefined {
+  if (!c) return undefined;
+  if (!c.ledColors || c.ledColors.length === 0) return c;
+  let r = 0, g = 0, b = 0;
+  for (const led of c.ledColors) {
+    r += led.r; g += led.g; b += led.b;
+  }
+  const n = c.ledColors.length;
+  r = Math.round(r / n); g = Math.round(g / n); b = Math.round(b / n);
+  return { r, g, b, intensity: Math.max(r, g, b) / 255 };
+}
+
 function FixtureItem({
   fixture,
   selected,
   onSelect,
-  previewColor,
+  previewColor: rawPreviewColor,
 }: {
   fixture: LightFixtureRow;
   selected: boolean;
   onSelect: () => void;
-  previewColor?: { r: number; g: number; b: number; intensity: number };
+  previewColor?: PreviewColor;
 }) {
+  const previewColor = summarizeSwatchColor(rawPreviewColor);
   const hasColor = previewColor && previewColor.intensity > 0.01;
   return (
     <button
@@ -99,9 +121,13 @@ export function ProjectLightingPanel({
   );
   const selected = li.fixtures.find((f) => f.id === selectedFixtureId) ?? null;
 
-  // Live preview colors from current playhead -- a fixture can be driven by
+  // Base preview colors from current playhead -- a fixture can be driven by
   // more than one light track, so this goes through the shared resolver
-  // rather than the simpler one-track-per-fixture loop it used to be.
+  // rather than the simpler one-track-per-fixture loop it used to be. This
+  // alone is only the cue's static color/intensity though (no audio-reactive
+  // effect modulation), which used to make this settings-card preview go
+  // stale/wrong compared to the Timeline's Light-mode preview the moment an
+  // effect (Strobe, Meter, a spatial addressable pattern, ...) was active.
   const song = state.songs[state.songIndex];
   const previewColors = li.enabled
     ? computeFixturePreviewColors(
@@ -111,6 +137,25 @@ export function ProjectLightingPanel({
         state.playheadSeconds,
       )
     : {};
+
+  // Same backend-authoritative per-LED websocket stream LightSidePanel's
+  // Timeline preview reads (see liveLevels.ts) -- merging it in here is what
+  // actually unifies the two previews: whenever the engine is pushing real
+  // output (song playing, or a configured idle/stopped color), this settings
+  // card now shows the exact same live state, not just a re-derived guess.
+  const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
+  useEffect(
+    () => (li.enabled ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs())) : undefined),
+    [li.enabled],
+  );
+  const displayColors: Record<string, PreviewColor> = li.enabled ? { ...previewColors } : {};
+  if (li.enabled) {
+    for (const lo of liveLedOutputs) {
+      const fixture = li.fixtures[lo.fixtureIdx];
+      if (!fixture) continue;
+      displayColors[fixture.id] = { r: 0, g: 0, b: 0, intensity: 1, ledColors: lo.ledColors };
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -238,7 +283,7 @@ export function ProjectLightingPanel({
                     onFixtureMoved={(id, x, z) =>
                       void lighting.fixtureUpdate({ fixtureId: id, posX: x, posZ: z })
                     }
-                    previewColors={previewColors}
+                    previewColors={displayColors}
                   />
                 </div>
               </div>
@@ -259,7 +304,7 @@ export function ProjectLightingPanel({
                         fixture={f}
                         selected={f.id === selectedFixtureId}
                         onSelect={() => setSelectedFixtureId(f.id)}
-                        previewColor={previewColors[f.id]}
+                        previewColor={displayColors[f.id]}
                       />
                     ))}
                   </div>
