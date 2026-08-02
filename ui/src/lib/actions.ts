@@ -10,6 +10,7 @@ export const ACTION_IDS = [
   "mode_player",
   "mode_mixer",
   "mode_editor",
+  "mode_light",
   "mode_settings",
   "section_prev",
   "section_next",
@@ -53,6 +54,9 @@ export function performAction(
       break;
     case "mode_editor":
       setTab("editor");
+      break;
+    case "mode_light":
+      setTab("light");
       break;
     case "mode_settings":
       setTab("settings");

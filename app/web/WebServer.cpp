@@ -36,7 +36,7 @@ constexpr int kTelemetryMinPeriodUs = WebServer::kTelemetryMinPeriodUs;
 
 // Which SPA tab the client is showing -- drives buildStateJson() so we only
 // push fields that page needs (transport/time always).
-enum class ClientView : uint8_t { Player, Mixer, Editor, Settings };
+enum class ClientView : uint8_t { Player, Mixer, Editor, Settings, Light };
 
 // Consecutive backpressure ticks (previous period's write never completed)
 // before backing this client off to half its rate. Kept short (~100ms at the
@@ -64,6 +64,7 @@ ClientView parseClientView(const std::string& s) {
     if (s == "mixer") return ClientView::Mixer;
     if (s == "editor" || s == "builder") return ClientView::Editor;
     if (s == "settings") return ClientView::Settings;
+    if (s == "light") return ClientView::Light;
     return ClientView::Player;
 }
 
@@ -847,6 +848,7 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
                 case ClientView::Mixer: viewName = "mixer"; break;
                 case ClientView::Editor: viewName = "editor"; break;
                 case ClientView::Settings: viewName = "settings"; break;
+                case ClientView::Light: viewName = "light"; break;
                 case ClientView::Player: default: viewName = "player"; break;
             }
             // Hot path: only a shared_ptr copy of a pre-serialized frame.
@@ -1019,6 +1021,7 @@ void WebServer::publishState(const WebUiState& next) {
     auto mixer = std::make_shared<const std::string>(buildStateJson("mixer"));
     auto editor = std::make_shared<const std::string>(buildStateJson("editor"));
     auto settings = std::make_shared<const std::string>(buildStateJson("settings"));
+    auto light = std::make_shared<const std::string>(buildStateJson("light"));
     auto all = std::make_shared<const std::string>(buildStateJson("all"));
     auto binary = std::make_shared<const std::vector<uint8_t>>(buildBinaryTelemetryFrame(next));
 
@@ -1028,6 +1031,7 @@ void WebServer::publishState(const WebUiState& next) {
         frames.mixer = std::move(mixer);
         frames.editor = std::move(editor);
         frames.settings = std::move(settings);
+        frames.light = std::move(light);
         frames.all = std::move(all);
         frames.binary = std::move(binary);
         ++frames.generation;
@@ -1044,6 +1048,8 @@ std::shared_ptr<const std::string> WebServer::cachedFrameForView(const char* vie
         return frames.editor;
     if (std::strcmp(view, "settings") == 0)
         return frames.settings;
+    if (std::strcmp(view, "light") == 0)
+        return frames.light;
     return frames.player;
 }
 
@@ -1130,9 +1136,12 @@ std::string WebServer::buildStateJson(const char* view) const {
     const bool isEditor = all || std::strcmp(view, "editor") == 0
                           || std::strcmp(view, "builder") == 0;
     const bool isSettings = all || std::strcmp(view, "settings") == 0;
+    const bool isLight = all || std::strcmp(view, "light") == 0;
 
     // Songs: player + editor (timeline/hotkeys). Editor needs full detail.
-    const bool wantSongs = all || isPlayer || isEditor || isMixer;
+    // Light also needs songs -- the rig editor resolves the active song's bpm
+    // and light cues for its preview (see ProjectLightingPanel.tsx).
+    const bool wantSongs = all || isPlayer || isEditor || isMixer || isLight;
     const bool wantSongsFull = all || isEditor; // events, full region fades, clickSends
     const bool wantMeters = all || isPlayer || isMixer;
     const bool wantTracks = all || isPlayer || isMixer || isEditor;

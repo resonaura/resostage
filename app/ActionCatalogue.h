@@ -28,6 +28,7 @@ inline constexpr const char* kActionIds[] = {
     "mode_player",
     "mode_mixer",
     "mode_editor",
+    "mode_light",
     "mode_settings",
     "section_prev",
     "section_next",

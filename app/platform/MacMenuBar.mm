@@ -264,6 +264,8 @@ void installMacMenuBar(MacMenuBarCallback onAction,
                              nil, 0, tgt))];
         [m addItem:makeDynamicItem("mode_editor", makeItem(@"Editor", @"mode_editor",
                              nil, 0, tgt))];
+        [m addItem:makeDynamicItem("mode_light", makeItem(@"Light", @"mode_light",
+                             nil, 0, tgt))];
         [m addItem:makeDynamicItem("mode_settings", makeItem(@"Settings", @"mode_settings",
                              nil, 0, tgt))];
 

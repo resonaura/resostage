@@ -15,6 +15,7 @@ namespace {
 static NSString* const kTBPlayer = @"com.resostage.tb.player";
 static NSString* const kTBMixer = @"com.resostage.tb.mixer";
 static NSString* const kTBEditor = @"com.resostage.tb.editor";
+static NSString* const kTBLight = @"com.resostage.tb.light";
 static NSString* const kTBSettings = @"com.resostage.tb.settings";
 static NSString* const kTBGroup = @"com.resostage.tb.screens";
 
@@ -73,6 +74,7 @@ static char kCallbackKey;
             addBtn(kTBPlayer, @"Player", @"player");
             addBtn(kTBMixer, @"Mixer", @"mixer");
             addBtn(kTBEditor, @"Editor", @"editor");
+            addBtn(kTBLight, @"Light", @"light");
             addBtn(kTBSettings, @"Settings", @"settings");
 
             NSGroupTouchBarItem* group =

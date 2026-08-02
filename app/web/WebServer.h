@@ -738,6 +738,7 @@ private:
         std::shared_ptr<const std::string> mixer;
         std::shared_ptr<const std::string> editor;
         std::shared_ptr<const std::string> settings;
+        std::shared_ptr<const std::string> light;
         std::shared_ptr<const std::string> all; // REST full snapshot
         std::shared_ptr<const std::vector<uint8_t>> binary; // High-frequency telemetry (binary)
         uint64_t generation = 0;

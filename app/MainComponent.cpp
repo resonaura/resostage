@@ -339,7 +339,7 @@ void MainComponent::syncTouchBarToTab(const std::string& tabId) {
     std::string id = tabId;
     if (id == "builder")
         id = "editor";
-    if (id != "player" && id != "mixer" && id != "editor" && id != "settings")
+    if (id != "player" && id != "mixer" && id != "editor" && id != "light" && id != "settings")
         return;
     if (id == touchBarActiveTab)
         return;
@@ -350,8 +350,8 @@ void MainComponent::syncTouchBarToTab(const std::string& tabId) {
 }
 
 void MainComponent::handleTouchBarTab(const std::string& tabId) {
-    if (tabId == "player" || tabId == "mixer" || tabId == "editor" || tabId == "settings"
-        || tabId == "builder") {
+    if (tabId == "player" || tabId == "mixer" || tabId == "editor" || tabId == "light"
+        || tabId == "settings" || tabId == "builder") {
         const std::string id = tabId == "builder" ? "editor" : tabId;
         lastSeenSpaView = id;
         syncTouchBarToTab(id);
@@ -397,6 +397,8 @@ void MainComponent::performAction(const std::string& action) {
         requestUiTab("mixer");
     else if (action == "mode_editor")
         requestUiTab("editor");
+    else if (action == "mode_light")
+        requestUiTab("light");
     else if (action == "mode_settings")
         requestUiTab("settings");
     else if (action == "section_prev")

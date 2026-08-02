@@ -1,8 +1,7 @@
 import { Card, Tabs } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, FolderOpen, Lightbulb, Music3, SlidersHorizontal } from "lucide-react";
+import { Activity, Music3, SlidersHorizontal } from "lucide-react";
 import { FontIcon } from "../components/FontIcon";
-import { ProjectLightingPanel } from "../components/light/ProjectLightingPanel";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 
@@ -103,6 +102,7 @@ const ACTION_LABELS: Record<string, string> = {
   mode_player: "Mode: Player",
   mode_mixer: "Mode: Mixer",
   mode_editor: "Mode: Editor",
+  mode_light: "Mode: Light",
   mode_settings: "Mode: Settings",
   section_prev: "Previous section",
   section_next: "Next section",
@@ -239,7 +239,7 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
   },
   {
     title: "Modes",
-    actions: ["mode_player", "mode_mixer", "mode_editor", "mode_settings"],
+    actions: ["mode_player", "mode_mixer", "mode_editor", "mode_light", "mode_settings"],
   },
   {
     title: "Song sections",
@@ -256,12 +256,11 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
 ];
 
 // ─── Tab definitions ──────────────────────────────────────────────────────
-type SettingsTab = "audio" | "midi" | "light" | "health";
+type SettingsTab = "audio" | "midi" | "health";
 
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "audio", label: "Audio", icon: SlidersHorizontal },
   { id: "midi", label: "MIDI", icon: Music3 },
-  { id: "light", label: "Light", icon: Lightbulb },
   { id: "health", label: "Health", icon: Activity },
 ];
 
@@ -606,25 +605,6 @@ function HealthTab({ state }: { state: WebUiState }) {
   );
 }
 
-// ─── Light Tab ────────────────────────────────────────────────────────────
-function LightTab({ state }: { state: WebUiState }) {
-  return (
-    <div className="flex flex-col gap-4">
-      {/* Project-level badge */}
-      <div className="flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2">
-        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-accent">
-          <FolderOpen size={12} />
-          Project-level setting
-        </span>
-        <span className="text-xs text-foreground/50">
-          — saved with the project file, not global rig preferences
-        </span>
-      </div>
-      <ProjectLightingPanel li={state.lighting} state={state} />
-    </div>
-  );
-}
-
 // ─── Main SettingsScreen ──────────────────────────────────────────────────
 export function SettingsScreen({ state }: { state: WebUiState }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
@@ -642,11 +622,6 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
               <Tabs.Tab key={tab.id} id={tab.id}>
                 <tab.icon size={15} className="mr-1.5 inline-block" />
                 {tab.label}
-                {tab.id === "light" && (
-                  <span className="ml-1.5 rounded bg-accent/20 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">
-                    Project
-                  </span>
-                )}
                 <Tabs.Indicator className="bg-accent" />
               </Tabs.Tab>
             ))}
@@ -657,7 +632,6 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
           <Tabs.Panel key={tab.id} id={tab.id} className="flex-1 overflow-auto pt-4 pb-6">
             {tab.id === "audio" && <AudioTab state={state} />}
             {tab.id === "midi" && <MidiTab state={state} />}
-            {tab.id === "light" && <LightTab state={state} />}
             {tab.id === "health" && <HealthTab state={state} />}
           </Tabs.Panel>
         ))}

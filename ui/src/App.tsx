@@ -2,6 +2,7 @@ import { Button, Tabs } from "@heroui/react";
 import {
   AlertTriangle,
   Gauge,
+  Lightbulb,
   Music4,
   Radio,
   Settings2,
@@ -20,6 +21,7 @@ import type { AllPeaksResponse, PeaksResponse, WebUiState } from "./lib/types";
 import { SHOW_TRANSPORT_LABEL } from "./lib/devFlags";
 import { useLiveState, type TransportKind } from "./lib/useLiveState";
 import { EditorScreen } from "./screens/EditorScreen";
+import { LightScreen } from "./screens/LightScreen";
 import { MixerScreen } from "./screens/MixerScreen";
 import { PlayerScreen } from "./screens/PlayerScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
@@ -214,7 +216,7 @@ export default function App() {
     if (seq === 0 || seq === lastUiTabSeq.current) return;
     lastUiTabSeq.current = seq;
     const t = state.uiTab;
-    if (t === "player" || t === "mixer" || t === "editor" || t === "settings") {
+    if (t === "player" || t === "mixer" || t === "editor" || t === "light" || t === "settings") {
       setTab(t);
       sendView(t);
     }
@@ -346,6 +348,11 @@ export default function App() {
               Editor
               <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
+            <Tabs.Tab id="light">
+              <Lightbulb size={15} className="mr-1.5 inline-block" />
+              Light
+              <Tabs.Indicator className="bg-background-tertiary" />
+            </Tabs.Tab>
             <Tabs.Tab id="settings">
               <Settings2 size={15} className="mr-1.5 inline-block" />
               Settings
@@ -385,6 +392,9 @@ export default function App() {
             pxPerSec={pxPerSec}
             setPxPerSec={setPxPerSec}
           />
+        </Tabs.Panel>
+        <Tabs.Panel id="light" className="flex-1 overflow-auto p-3">
+          <LightScreen state={state} />
         </Tabs.Panel>
         <Tabs.Panel id="settings" className="flex-1 overflow-auto p-3">
           <SettingsScreen state={state} />
