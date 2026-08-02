@@ -146,6 +146,17 @@ void LightEngine::threadLoop() {
     bool wasIdleFading = false;
     auto idleFadeStart = std::chrono::steady_clock::now();
 
+    // Per-universe send throttling -- resolves happen every tick (cheap),
+    // but a universe only actually goes out to the network at its own
+    // configured rate (LightFixture::refreshRateHz, or
+    // LightingConfig::defaultRefreshRateHz for fixtures that don't
+    // override it). A universe is one shared wire, so it can only be sent
+    // at one rate; the SLOWEST rate among fixtures patched into it governs
+    // -- that's the one a faster send could actually hurt (flicker/dropped
+    // frames on older or glitchy gear), see LightFixture::refreshRateHz's
+    // doc comment.
+    std::map<int, std::chrono::steady_clock::time_point> lastSentPerUniverse;
+
     while (running_.load(std::memory_order_acquire)) {
         // Sleep until next frame deadline.
         std::this_thread::sleep_until(nextFrame);
@@ -205,15 +216,30 @@ void LightEngine::threadLoop() {
         }
 
         std::map<int, std::vector<uint8_t>> frames; // universe → 512 bytes
+        std::map<int, double> minHzPerUniverse;
         for (const auto& out : resolved) {
             auto lutIt = fixtureLut.find(out.fixtureId);
             if (lutIt == fixtureLut.end())
                 continue;
             const auto& [assignIdx, fixture] = lutIt->second;
-            writeDmxChannels(out, channelMap[static_cast<size_t>(assignIdx)], *fixture, frames);
+            const auto& assign = channelMap[static_cast<size_t>(assignIdx)];
+            writeDmxChannels(out, assign, *fixture, frames);
+
+            const double hz = fixture->refreshRateHz > 0.0 ? fixture->refreshRateHz : proj->lighting.defaultRefreshRateHz;
+            auto mit = minHzPerUniverse.find(assign.universe);
+            if (mit == minHzPerUniverse.end() || hz < mit->second)
+                minHzPerUniverse[assign.universe] = hz;
         }
 
+        const auto now = std::chrono::steady_clock::now();
         for (auto& [uni, data] : frames) {
+            const double hz = minHzPerUniverse.count(uni) ? minHzPerUniverse[uni] : proj->lighting.defaultRefreshRateHz;
+            const auto sendInterval = std::chrono::duration<double>(1.0 / std::max(1.0, hz));
+            auto lastIt = lastSentPerUniverse.find(uni);
+            if (lastIt != lastSentPerUniverse.end() && (now - lastIt->second) < sendInterval)
+                continue; // this universe isn't due for a resend yet
+            lastSentPerUniverse[uni] = now;
+
             DmxTriggerCommand cmd;
             cmd.universe = uni;
             cmd.data     = std::move(data);

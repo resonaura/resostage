@@ -443,6 +443,32 @@ export function ProjectLightingPanel({
             )}
           </div>
 
+          {/* Default DMX send rate -- a universe is one shared wire, so a
+              fixture can only slow it down (not speed it up) below this;
+              see LightFixture::refreshRateHz for the per-fixture override
+              and why the slowest one on a universe wins. */}
+          <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3">
+            <Field label="Default DMX Output Rate (Hz)">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  className={numberCls}
+                  value={li.defaultRefreshRateHz}
+                  onChange={(e) =>
+                    void lighting.setConfig({
+                      defaultRefreshRateHz: Math.min(60, Math.max(1, Number(e.target.value) || 44)),
+                    })
+                  }
+                />
+                <span className="text-[10px] text-foreground/40">
+                  Applies to every fixture that doesn&apos;t set its own rate below.
+                </span>
+              </div>
+            </Field>
+          </div>
+
           {/* DMX generic fixtures are driven through the exact same
               rig editor, track/cue assignment, and effects pipeline as
               ResoLight bars below -- resolveLightOutputs/LightOutputResolver
@@ -1003,6 +1029,29 @@ export function ProjectLightingPanel({
                       </div>
                     </div>
                   )}
+
+                  {/* Refresh Rate override -- applies to either fixture
+                      kind, since a universe is one shared wire regardless
+                      of what's patched into it (see LightFixture::
+                      refreshRateHz's doc comment on why the SLOWEST rate
+                      on a universe wins). */}
+                  <div className="border-t border-default/20 pt-3">
+                    <Field label={`Refresh Rate Override (Hz, 0 = use default: ${li.defaultRefreshRateHz})`}>
+                      <input
+                        type="number"
+                        min={0}
+                        max={60}
+                        className={numberCls}
+                        value={selected.refreshRateHz}
+                        onChange={(e) =>
+                          void lighting.fixtureUpdate({
+                            fixtureId: selected.id,
+                            refreshRateHz: Math.min(60, Math.max(0, Number(e.target.value) || 0)),
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
                 </div>
               )}
             </div>

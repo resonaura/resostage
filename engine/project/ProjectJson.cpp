@@ -151,6 +151,7 @@ std::string serializeProjectJson(const Project& project) {
     o << "    \"idleColorG\": " << static_cast<int>(project.lighting.idleColorG) << ",\n";
     o << "    \"idleColorB\": " << static_cast<int>(project.lighting.idleColorB) << ",\n";
     o << "    \"idleIntensity\": " << project.lighting.idleIntensity << ",\n";
+    o << "    \"defaultRefreshRateHz\": "; writeNumber(o, project.lighting.defaultRefreshRateHz); o << ",\n";
     o << "    \"fixtures\": [\n";
     for (size_t i = 0; i < project.lighting.fixtures.size(); ++i) {
         const LightFixture& f = project.lighting.fixtures[i];
@@ -173,7 +174,8 @@ std::string serializeProjectJson(const Project& project) {
         o << "        \"shape\": \"" << jsonEscapeString(f.shape) << "\",\n";
         o << "        \"matrixCols\": " << f.matrixCols << ",\n";
         o << "        \"channelProfile\": \"" << jsonEscapeString(f.channelProfile) << "\",\n";
-        o << "        \"tiltDeg\": "; writeNumber(o, f.tiltDeg); o << "\n";
+        o << "        \"tiltDeg\": "; writeNumber(o, f.tiltDeg); o << ",\n";
+        o << "        \"refreshRateHz\": "; writeNumber(o, f.refreshRateHz); o << "\n";
         o << "      }" << (i + 1 < project.lighting.fixtures.size() ? "," : "") << "\n";
     }
     o << "    ]\n";

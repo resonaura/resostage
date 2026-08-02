@@ -93,9 +93,16 @@ private:
 
     std::atomic<double> bpm_{120.0};
 
-    // Target output rate. 44 Hz is comfortably above the Art-Net spec minimum
-    // of 40 Hz and leaves headroom for any per-frame computation jitter.
-    static constexpr int kFrameRateHz = 44;
+    // Internal compute/tick rate -- an upper bound, not necessarily what any
+    // given universe actually sends at. Real per-universe send cadence is
+    // throttled separately (see threadLoop) by LightingConfig::
+    // defaultRefreshRateHz / LightFixture::refreshRateHz, which default to
+    // 44 Hz (comfortably above the Art-Net spec minimum of 40 Hz) but can be
+    // configured up to this tick rate. Ticking faster than the default send
+    // rate just means resolves happen more often than they're sent -- cheap,
+    // and gives per-fixture rates headroom above the default without ever
+    // silently capping a configured rate at a slower tick.
+    static constexpr int kFrameRateHz = 60;
 };
 
 } // namespace resostage

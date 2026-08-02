@@ -1394,6 +1394,7 @@ std::string WebServer::buildStateJson(const char* view) const {
           << "\"idleColorG\":" << li.idleColorG << ","
           << "\"idleColorB\":" << li.idleColorB << ","
           << "\"idleIntensity\":" << finiteOrZero(li.idleIntensity) << ","
+          << "\"defaultRefreshRateHz\":" << finiteOrZero(li.defaultRefreshRateHz) << ","
           << "\"fixtures\":[";
         for (size_t i = 0; i < li.fixtures.size(); ++i) {
             if (i) o << ",";
@@ -1416,7 +1417,8 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"shape\":\"" << jsonEscape(f.shape) << "\","
               << "\"matrixCols\":" << f.matrixCols << ","
               << "\"channelProfile\":\"" << jsonEscape(f.channelProfile) << "\","
-              << "\"tiltDeg\":" << finiteOrZero(f.tiltDeg) << "}";
+              << "\"tiltDeg\":" << finiteOrZero(f.tiltDeg) << ","
+              << "\"refreshRateHz\":" << finiteOrZero(f.refreshRateHz) << "}";
         }
         o << "]}";
 

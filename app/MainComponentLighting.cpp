@@ -112,6 +112,11 @@ void MainComponent::lightingSetConfig(const std::string& json) {
     double doubleVal;
     if (getDouble(doc, "idleIntensity", doubleVal))
         cfg.idleIntensity = std::clamp(doubleVal, 0.0, 1.0);
+    if (getDouble(doc, "defaultRefreshRateHz", doubleVal))
+        // Upper-bounded at LightEngine's internal compute tick (60Hz, see
+        // LightEngine.h's kFrameRateHz) -- a configured rate faster than
+        // that would just silently get capped at the tick rate anyway.
+        cfg.defaultRefreshRateHz = std::clamp(doubleVal, 1.0, 60.0);
 
     if (cfg.kind == LightingKind::ResoLight)
         regenerateResoLightFixtures(cfg);
@@ -320,6 +325,12 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     if (getInt(doc, "matrixCols", intVal)) fx->matrixCols = std::max(0, intVal);
     if (getString(doc, "channelProfile", strVal)) fx->channelProfile = strVal;
     if (getDouble(doc, "tiltDeg", numVal)) fx->tiltDeg = numVal;
+    // 0 = inherit the project default; otherwise clamp to LightEngine's
+    // internal tick rate (60Hz, see LightEngine.h's kFrameRateHz) at the
+    // top -- a deliberately slow override for a glitchy fixture is exactly
+    // the point, so the low end stays wide open.
+    if (getDouble(doc, "refreshRateHz", numVal))
+        fx->refreshRateHz = numVal <= 0.0 ? 0.0 : std::clamp(numVal, 1.0, 60.0);
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();

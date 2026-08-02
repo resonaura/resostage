@@ -288,6 +288,7 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     p.lighting.idleColorG = 34;
     p.lighting.idleColorB = 56;
     p.lighting.idleIntensity = 0.4;
+    p.lighting.defaultRefreshRateHz = 30.0;
 
     LightFixture fx;
     fx.id = "bar_1";
@@ -303,6 +304,7 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     fx.rotationYDeg = 15.0;
     fx.shape = "matrix";
     fx.matrixCols = 6;
+    fx.refreshRateHz = 15.0;
     p.lighting.fixtures.push_back(fx);
 
     LightFixture generic;
@@ -363,6 +365,7 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     CHECK(p2.lighting.idleColorG == 34);
     CHECK(p2.lighting.idleColorB == 56);
     CHECK(p2.lighting.idleIntensity == doctest::Approx(0.4));
+    CHECK(p2.lighting.defaultRefreshRateHz == doctest::Approx(30.0));
     REQUIRE(p2.lighting.fixtures.size() == 2);
 
     const LightFixture& fx2 = p2.lighting.fixtures[0];
@@ -377,6 +380,7 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     CHECK(fx2.rotationYDeg == doctest::Approx(15.0));
     CHECK(fx2.shape == "matrix");
     CHECK(fx2.matrixCols == 6);
+    CHECK(fx2.refreshRateHz == doctest::Approx(15.0));
 
     const LightFixture& generic2 = p2.lighting.fixtures[1];
     CHECK(generic2.kind == LightFixture::Kind::DmxGeneric);

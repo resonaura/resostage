@@ -378,6 +378,7 @@ export const lighting = {
     idleColorG?: number;
     idleColorB?: number;
     idleIntensity?: number;
+    defaultRefreshRateHz?: number;
   }) => post("/api/v1/lighting/config", patch),
 
   fixtureAdd: (name?: string) => post("/api/v1/lighting/fixture/add", { name }),
@@ -405,6 +406,7 @@ export const lighting = {
     matrixCols?: number;
     channelProfile?: "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
     tiltDeg?: number;
+    refreshRateHz?: number;
   }) => post("/api/v1/lighting/fixture/update", patch),
 
   trackAdd: () => post("/api/v1/lighting/track/add"),

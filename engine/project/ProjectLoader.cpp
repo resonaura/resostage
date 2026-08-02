@@ -235,6 +235,7 @@ bool parseLightFixture(const simdjson::dom::element& fxEl, LightFixture& fx, std
     if (!fxEl["matrixCols"].get(tmp)) fx.matrixCols = static_cast<int>(tmp);
     if (!fxEl["channelProfile"].get(profileView)) fx.channelProfile = std::string(profileView);
     (void)fxEl["tiltDeg"].get(fx.tiltDeg);
+    (void)fxEl["refreshRateHz"].get(fx.refreshRateHz);
 
     return true;
 }
@@ -262,6 +263,7 @@ void parseLightingConfig(const simdjson::dom::element& liEl, LightingConfig& cfg
     if (!liEl["idleColorG"].get(tmp)) cfg.idleColorG = static_cast<uint8_t>(tmp);
     if (!liEl["idleColorB"].get(tmp)) cfg.idleColorB = static_cast<uint8_t>(tmp);
     (void)liEl["idleIntensity"].get(cfg.idleIntensity);
+    (void)liEl["defaultRefreshRateHz"].get(cfg.defaultRefreshRateHz);
 
     simdjson::dom::array fxArr;
     if (!liEl["fixtures"].get(fxArr)) {

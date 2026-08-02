@@ -193,6 +193,8 @@ export interface LightFixtureRow {
   channelProfile: "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
   /** Cosmetic aim/pitch off vertical (3D stage only) -- 0 = straight up. */
   tiltDeg: number;
+  /** DMX send rate override for this fixture's universe, in Hz. 0 = inherit LightingState.defaultRefreshRateHz. */
+  refreshRateHz: number;
 }
 
 export interface LightingState {
@@ -206,6 +208,8 @@ export interface LightingState {
   idleColorG: number;
   idleColorB: number;
   idleIntensity: number;
+  /** Default DMX send rate (Hz) for fixtures that don't set their own refreshRateHz. */
+  defaultRefreshRateHz: number;
   fixtures: LightFixtureRow[];
 }
 
@@ -419,6 +423,7 @@ export const emptyState: WebUiState = {
     idleColorG: 0,
     idleColorB: 0,
     idleIntensity: 1,
+    defaultRefreshRateHz: 44,
     fixtures: [],
   },
   lightTracks: [],

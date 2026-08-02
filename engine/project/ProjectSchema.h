@@ -183,6 +183,18 @@ struct LightFixture {
     // not standing bolt upright like a ResoLightBar; this is that aim
     // angle. 0 = straight up. Not consulted by the engine.
     double tiltDeg = 0.0;
+    // DMX output refresh rate for THIS fixture, in Hz. 0 means "inherit
+    // LightingConfig::defaultRefreshRateHz". Unlike shape/channelProfile/
+    // tiltDeg above, this DOES reach the real output path: LightEngine
+    // throttles how often it actually sends a universe's frame (see
+    // LightEngine.cpp's threadLoop), using the SLOWEST rate among every
+    // fixture patched into that universe -- a universe is one shared wire,
+    // so it can only go out at one rate, and the slowest configured
+    // fixture is the one a faster rate could actually hurt (flicker/
+    // dropped frames on older or glitchy gear). Applies to both fixture
+    // kinds; a real DMX fixture can be just as rate-sensitive as a
+    // ResoLight bar.
+    double refreshRateHz = 0.0;
 };
 
 enum class LightingKind {
@@ -221,6 +233,12 @@ struct LightingConfig {
     uint8_t idleColorG = 0;
     uint8_t idleColorB = 0;
     double idleIntensity = 1.0;
+
+    // Default DMX output refresh rate (Hz) for every fixture that doesn't
+    // set its own LightFixture::refreshRateHz override. 44 Hz matches
+    // LightEngine's original hardcoded rate exactly, so a project that
+    // never touches this setting behaves identically to before it existed.
+    double defaultRefreshRateHz = 44.0;
 };
 
 // A named row on the Light timeline -- project-level roster, mirrors

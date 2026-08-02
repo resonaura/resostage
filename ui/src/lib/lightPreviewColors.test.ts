@@ -26,6 +26,7 @@ function makeFixture(id: string): LightFixtureRow {
     matrixCols: 0,
     channelProfile: "rgb",
     tiltDeg: 0,
+    refreshRateHz: 0,
   };
 }
 

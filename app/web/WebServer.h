@@ -462,6 +462,10 @@ struct WebUiState {
         int matrixCols = 0;
         std::string channelProfile = "rgb";
         double tiltDeg = 0.0;
+        // 0 = inherit LightingRow::defaultRefreshRateHz. See
+        // ProjectSchema.h's LightFixture::refreshRateHz doc comment -- this
+        // one DOES reach real DMX output, unlike the cosmetic fields above.
+        double refreshRateHz = 0.0;
     };
     struct LightingRow {
         bool enabled = false;
@@ -474,6 +478,7 @@ struct WebUiState {
         int idleColorG = 0;
         int idleColorB = 0;
         double idleIntensity = 1.0;
+        double defaultRefreshRateHz = 44.0;
         std::vector<LightFixtureRow> fixtures;
     };
     LightingRow lighting;

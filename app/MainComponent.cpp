@@ -1229,6 +1229,7 @@ void MainComponent::publishWebState() {
     state.lighting.idleColorG = proj.lighting.idleColorG;
     state.lighting.idleColorB = proj.lighting.idleColorB;
     state.lighting.idleIntensity = proj.lighting.idleIntensity;
+    state.lighting.defaultRefreshRateHz = proj.lighting.defaultRefreshRateHz;
     state.lighting.fixtures.reserve(proj.lighting.fixtures.size());
     for (const LightFixture& f : proj.lighting.fixtures) {
         WebUiState::LightFixtureRow fr;
@@ -1251,6 +1252,7 @@ void MainComponent::publishWebState() {
         fr.matrixCols = f.matrixCols;
         fr.channelProfile = f.channelProfile;
         fr.tiltDeg = f.tiltDeg;
+        fr.refreshRateHz = f.refreshRateHz;
         state.lighting.fixtures.push_back(std::move(fr));
     }
 
