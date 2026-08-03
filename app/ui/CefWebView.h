@@ -34,6 +34,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void parentHierarchyChanged() override;
     void visibilityChanged() override;
     void focusGained(FocusChangeType) override;
     void focusLost(FocusChangeType) override;
@@ -65,6 +66,7 @@ private:
     void createBrowser();
     void handlePaint(const void* buffer, int width, int height);
     void handleAfterCreated(CefRefPtr<CefBrowser> browser);
+    void handleBeforeClose();
     void handleLoadError();
 
     juce::String devServerUrl;

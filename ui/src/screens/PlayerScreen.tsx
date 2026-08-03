@@ -6,13 +6,15 @@ import {
   SkipBack,
   SkipForward,
   Square,
-  Sun,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
 import { LevelMeterBar } from "../components/LevelMeterBar";
+import { ResoLightStage3D, type PreviewColor } from "../components/light/ResoLightStage3D";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
+import { computeFixturePreviewColors } from "../lib/lightPreviewColors";
+import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
 import type {
   AllPeaksResponse,
@@ -286,41 +288,58 @@ export function PlayerScreen({
     state.projectName,
   );
 
-function LightStatusMeterCard({ state }: { state: WebUiState }) {
+function PlayerLightStagePreview({ state }: { state: WebUiState }) {
   const li = state.lighting;
-  const isIdle = !state.playing;
-  const idleBehavior = li?.idleBehavior || "holdLast";
-  const activeEffect = isIdle
-    ? idleBehavior === "effect"
-      ? li?.idleEffectType || "none"
-      : idleBehavior
-    : "Cue Active";
+  const fixtures = li?.fixtures ?? [];
+  const song = state.songIndex >= 0 ? state.songs[state.songIndex] : null;
+
+  const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
+
+  useEffect(
+    () => (li?.enabled ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs())) : undefined),
+    [li?.enabled],
+  );
+
+  const previewColors = useMemo(() => {
+    if (!li?.enabled) return {};
+    return computeFixturePreviewColors(
+      fixtures,
+      state.lightTracks,
+      song?.lightCues ?? [],
+      state.playheadSeconds,
+    );
+  }, [li?.enabled, fixtures, state.lightTracks, song?.lightCues, state.playheadSeconds]);
+
+  const displayColors = useMemo(() => {
+    const merged: Record<string, PreviewColor> = { ...previewColors };
+    for (const lo of liveLedOutputs) {
+      const fixture = fixtures[lo.fixtureIdx];
+      if (!fixture) continue;
+      merged[fixture.id] = {
+        r: 0,
+        g: 0,
+        b: 0,
+        intensity: 1,
+        ledColors: lo.ledColors,
+      };
+    }
+    return merged;
+  }, [previewColors, liveLedOutputs, fixtures]);
+
+  if (fixtures.length === 0) return null;
 
   return (
-    <div className="flex h-full flex-col items-center justify-between gap-1.5 py-1 pr-3 border-r border-default/20 shrink-0">
-      <div className="truncate text-center text-xs font-semibold text-amber-400 w-[60px] flex items-center justify-center gap-1" title="Lighting State">
-        <Sun size={11} className="text-amber-400 shrink-0" />
-        <span>Light</span>
+    <div className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary relative mr-2">
+      <div className="border-b border-default/20 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-amber-400 flex items-center justify-between z-10 bg-background/60 backdrop-blur-sm">
+        <span>Stage Lights</span>
+        <span className="text-[9px] font-mono text-foreground/40">{fixtures.length} fix</span>
       </div>
-      <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-1.5">
-        <div
-          className="h-3.5 w-3.5 rounded-full border border-white/20 shadow-md shrink-0 transition-colors"
-          style={{
-            backgroundColor: isIdle
-              ? `rgb(${li?.idleColorR ?? 255}, ${li?.idleColorG ?? 255}, ${li?.idleColorB ?? 255})`
-              : "#38bdf8",
-            opacity: isIdle ? li?.idleIntensity ?? 1 : 1,
-          }}
+      <div className="flex-1 min-h-0 relative">
+        <ResoLightStage3D
+          mode="preview"
+          fixtures={fixtures}
+          previewColors={displayColors}
         />
-        <div className="h-full w-1.5 rounded-full bg-default/30 overflow-hidden flex flex-col justify-end">
-          <div
-            className="w-full bg-amber-400 transition-all duration-150"
-            style={{ height: `${Math.round((isIdle ? li?.idleIntensity ?? 1 : 1) * 100)}%` }}
-          />
-        </div>
-      </div>
-      <div className="text-center text-[10px] tabular-nums text-foreground/50 w-[60px] truncate capitalize font-medium">
-        {activeEffect}
       </div>
     </div>
   );
@@ -708,6 +727,8 @@ function LightStatusMeterCard({ state }: { state: WebUiState }) {
           </ScrollShadow>
         </div>
 
+        <PlayerLightStagePreview state={state} />
+
         {/* Bus meters — Vertical meters (Capped at max 40% screen width) */}
         <div className="flex min-h-0 max-w-[40%] shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
           <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
@@ -717,7 +738,6 @@ function LightStatusMeterCard({ state }: { state: WebUiState }) {
             orientation="horizontal"
             className="flex min-h-0 flex-1 items-center justify-center gap-6 p-4"
           >
-            <LightStatusMeterCard state={state} />
             {state.meters.length === 0 ? (
               <div className="py-4 text-center text-sm text-foreground/40">
                 No busses.

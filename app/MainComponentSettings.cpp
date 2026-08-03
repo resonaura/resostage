@@ -321,6 +321,7 @@ void MainComponent::settingsSetUiRenderEngine(const std::string& json) {
 
     appSettings.uiRenderEngine = engineChoice;
     saveAppSettingsToDisk();
+    publishWebState();
     setStatus("UI render engine set to " + juce::String(engineChoice) + " (takes effect on app restart)");
 }
 

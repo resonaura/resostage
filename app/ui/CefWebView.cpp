@@ -6,6 +6,7 @@
 
 #include "include/cef_app.h"
 #include "include/cef_client.h"
+#include "include/cef_context_menu_handler.h"
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_render_handler.h"
@@ -15,7 +16,8 @@ namespace resostage {
 class CefWebView::Handler final : public CefClient,
                                   public CefRenderHandler,
                                   public CefLifeSpanHandler,
-                                  public CefLoadHandler {
+                                  public CefLoadHandler,
+                                  public CefContextMenuHandler {
 public:
     explicit Handler(CefWebView* owner) : owner_(owner) {}
 
@@ -25,8 +27,29 @@ public:
     CefRefPtr<CefRenderHandler> GetRenderHandler() override { return this; }
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
     CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+    CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
 
     // CefRenderHandler
+    bool GetScreenInfo(CefRefPtr<CefBrowser>, CefScreenInfo& screen_info) override {
+        if (owner_ != nullptr) {
+            float scale = static_cast<float>(juce::Component::getApproximateScaleFactorForComponent(owner_));
+            if (scale < 1.0f) scale = 1.0f;
+            screen_info.device_scale_factor = scale;
+            return true;
+        }
+        return false;
+    }
+
+    bool GetScreenPoint(CefRefPtr<CefBrowser>, int viewX, int viewY, int& screenX, int& screenY) override {
+        if (owner_ != nullptr) {
+            const auto globalPt = owner_->localPointToGlobal(juce::Point<int>(viewX, viewY));
+            screenX = globalPt.x;
+            screenY = globalPt.y;
+            return true;
+        }
+        return false;
+    }
+
     void GetViewRect(CefRefPtr<CefBrowser>, CefRect& rect) override {
         if (owner_ != nullptr) {
             rect.Set(0, 0, juce::jmax(1, owner_->getWidth()), juce::jmax(1, owner_->getHeight()));
@@ -53,6 +76,16 @@ public:
         }
     }
 
+    bool DoClose(CefRefPtr<CefBrowser>) override {
+        return false;
+    }
+
+    void OnBeforeClose(CefRefPtr<CefBrowser>) override {
+        if (owner_ != nullptr) {
+            owner_->handleBeforeClose();
+        }
+    }
+
     // CefLoadHandler
     void OnLoadError(CefRefPtr<CefBrowser>,
                      CefRefPtr<CefFrame> f,
@@ -70,6 +103,16 @@ public:
                               bool) override {
         if (!isLoading && owner_ != nullptr && owner_->onPageLoaded) {
             owner_->onPageLoaded();
+        }
+    }
+
+    // CefContextMenuHandler
+    void OnBeforeContextMenu(CefRefPtr<CefBrowser>,
+                             CefRefPtr<CefFrame>,
+                             CefRefPtr<CefContextMenuParams>,
+                             CefRefPtr<CefMenuModel> model) override {
+        if (model != nullptr) {
+            model->Clear();
         }
     }
 
@@ -101,15 +144,41 @@ CefWebView::~CefWebView() {
     }
 }
 
+#if JUCE_MAC
+#include <objc/runtime.h>
+#include <objc/message.h>
+
+struct ResoNSRect {
+    struct { double x; double y; } origin;
+    struct { double width; double height; } size;
+};
+#endif
+
 void CefWebView::createBrowser() {
     if (browser != nullptr)
+        return;
+
+    auto* peer = getPeer();
+    if (peer == nullptr)
         return;
 
     CefWindowInfo windowInfo;
     CefBrowserSettings browserSettings;
 
-    windowInfo.SetAsWindowless(nullptr);
-    windowInfo.shared_texture_enabled = false;
+#if JUCE_MAC
+    if (id parentView = static_cast<id>(peer->getNativeHandle())) {
+        const auto compBounds = getBounds();
+        ResoNSRect pBounds = ((ResoNSRect (*)(id, SEL))objc_msgSend)(parentView, sel_registerName("bounds"));
+        double newY = pBounds.size.height - compBounds.getY() - compBounds.getHeight();
+
+        windowInfo.SetAsChild(static_cast<CefWindowHandle>(parentView),
+                              CefRect(compBounds.getX(), static_cast<int>(newY),
+                                      compBounds.getWidth(), compBounds.getHeight()));
+    }
+#else
+    windowInfo.SetAsChild(static_cast<CefWindowHandle>(peer->getNativeHandle()),
+                          CefRect(getX(), getY(), getWidth(), getHeight()));
+#endif
 
     CefBrowserHost::CreateBrowser(
         windowInfo,
@@ -126,35 +195,11 @@ void CefWebView::handleAfterCreated(CefRefPtr<CefBrowser> b) {
     resized();
 }
 
-void CefWebView::handlePaint(const void* buffer, int width, int height) {
-    if (width <= 0 || height <= 0 || buffer == nullptr)
-        return;
+void CefWebView::handleBeforeClose() {
+    browser = nullptr;
+}
 
-    if (frame.getWidth() != width || frame.getHeight() != height) {
-        frame = juce::Image(juce::Image::ARGB, width, height, true);
-    }
-
-    juce::Image::BitmapData destData(frame, juce::Image::BitmapData::writeOnly);
-    const uint8_t* src = static_cast<const uint8_t*>(buffer);
-
-    for (int y = 0; y < height; ++y) {
-        uint8_t* destLine = destData.getLinePointer(y);
-        const uint8_t* srcLine = src + (y * width * 4);
-
-        for (int x = 0; x < width; ++x) {
-            const uint8_t b = srcLine[x * 4 + 0];
-            const uint8_t g = srcLine[x * 4 + 1];
-            const uint8_t r = srcLine[x * 4 + 2];
-            const uint8_t a = srcLine[x * 4 + 3];
-
-            destLine[x * 4 + 0] = b;
-            destLine[x * 4 + 1] = g;
-            destLine[x * 4 + 2] = r;
-            destLine[x * 4 + 3] = a;
-        }
-    }
-
-    repaint();
+void CefWebView::handlePaint(const void*, int, int) {
 }
 
 void CefWebView::handleLoadError() {
@@ -165,15 +210,36 @@ void CefWebView::handleLoadError() {
 }
 
 void CefWebView::paint(juce::Graphics& g) {
-    if (frame.isValid()) {
-        g.drawImageAt(frame, 0, 0);
-    } else {
-        g.fillAll(juce::Colours::black);
-    }
+    g.fillAll(juce::Colours::black);
+}
+
+void CefWebView::parentHierarchyChanged() {
+    cef_lifecycle::whenReady([this]() {
+        createBrowser();
+    });
 }
 
 void CefWebView::resized() {
     if (browser != nullptr) {
+#if JUCE_MAC
+        if (auto windowHandle = browser->GetHost()->GetWindowHandle()) {
+            id childView = static_cast<id>(windowHandle);
+            if (auto* peer = getPeer()) {
+                if (id parentView = static_cast<id>(peer->getNativeHandle())) {
+                    const auto compBounds = getBounds();
+                    ResoNSRect pBounds = ((ResoNSRect (*)(id, SEL))objc_msgSend)(parentView, sel_registerName("bounds"));
+                    double newY = pBounds.size.height - compBounds.getY() - compBounds.getHeight();
+                    ResoNSRect newFrame;
+                    newFrame.origin.x = compBounds.getX();
+                    newFrame.origin.y = newY;
+                    newFrame.size.width = compBounds.getWidth();
+                    newFrame.size.height = compBounds.getHeight();
+
+                    ((void (*)(id, SEL, ResoNSRect))objc_msgSend)(childView, sel_registerName("setFrame:"), newFrame);
+                }
+            }
+        }
+#endif
         browser->GetHost()->WasResized();
     }
 }
@@ -196,90 +262,16 @@ void CefWebView::focusLost(FocusChangeType) {
     }
 }
 
-static uint32_t getCefModifiers(const juce::MouseEvent& e) {
-    uint32_t modifiers = 0;
-    if (e.mods.isShiftDown()) modifiers |= EVENTFLAG_SHIFT_DOWN;
-    if (e.mods.isCtrlDown()) modifiers |= EVENTFLAG_CONTROL_DOWN;
-    if (e.mods.isAltDown()) modifiers |= EVENTFLAG_ALT_DOWN;
-    if (e.mods.isCommandDown()) modifiers |= EVENTFLAG_COMMAND_DOWN;
-    if (e.mods.isLeftButtonDown()) modifiers |= EVENTFLAG_LEFT_MOUSE_BUTTON;
-    if (e.mods.isMiddleButtonDown()) modifiers |= EVENTFLAG_MIDDLE_MOUSE_BUTTON;
-    if (e.mods.isRightButtonDown()) modifiers |= EVENTFLAG_RIGHT_MOUSE_BUTTON;
-    return modifiers;
-}
+void CefWebView::mouseDown(const juce::MouseEvent&) {}
+void CefWebView::mouseUp(const juce::MouseEvent&) {}
+void CefWebView::mouseDrag(const juce::MouseEvent&) {}
+void CefWebView::mouseMove(const juce::MouseEvent&) {}
+void CefWebView::mouseEnter(const juce::MouseEvent&) {}
+void CefWebView::mouseExit(const juce::MouseEvent&) {}
+void CefWebView::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) {}
 
-void CefWebView::mouseDown(const juce::MouseEvent& e) {
-    if (browser == nullptr) return;
-    grabKeyboardFocus();
-    CefMouseEvent mouseEvent;
-    mouseEvent.x = e.x;
-    mouseEvent.y = e.y;
-    mouseEvent.modifiers = getCefModifiers(e);
-
-    CefBrowserHost::MouseButtonType btn = MBT_LEFT;
-    if (e.mods.isRightButtonDown()) btn = MBT_RIGHT;
-    else if (e.mods.isMiddleButtonDown()) btn = MBT_MIDDLE;
-
-    browser->GetHost()->SendMouseClickEvent(mouseEvent, btn, false, e.getNumberOfClicks());
-}
-
-void CefWebView::mouseUp(const juce::MouseEvent& e) {
-    if (browser == nullptr) return;
-    CefMouseEvent mouseEvent;
-    mouseEvent.x = e.x;
-    mouseEvent.y = e.y;
-    mouseEvent.modifiers = getCefModifiers(e);
-
-    CefBrowserHost::MouseButtonType btn = MBT_LEFT;
-    if (e.mods.isRightButtonDown()) btn = MBT_RIGHT;
-    else if (e.mods.isMiddleButtonDown()) btn = MBT_MIDDLE;
-
-    browser->GetHost()->SendMouseClickEvent(mouseEvent, btn, true, e.getNumberOfClicks());
-}
-
-void CefWebView::mouseDrag(const juce::MouseEvent& e) {
-    mouseMove(e);
-}
-
-void CefWebView::mouseMove(const juce::MouseEvent& e) {
-    if (browser == nullptr) return;
-    CefMouseEvent mouseEvent;
-    mouseEvent.x = e.x;
-    mouseEvent.y = e.y;
-    mouseEvent.modifiers = getCefModifiers(e);
-    browser->GetHost()->SendMouseMoveEvent(mouseEvent, false);
-}
-
-void CefWebView::mouseEnter(const juce::MouseEvent& e) {
-    mouseMove(e);
-}
-
-void CefWebView::mouseExit(const juce::MouseEvent& e) {
-    if (browser == nullptr) return;
-    CefMouseEvent mouseEvent;
-    mouseEvent.x = e.x;
-    mouseEvent.y = e.y;
-    mouseEvent.modifiers = getCefModifiers(e);
-    browser->GetHost()->SendMouseMoveEvent(mouseEvent, true);
-}
-
-void CefWebView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) {
-    if (browser == nullptr) return;
-    CefMouseEvent mouseEvent;
-    mouseEvent.x = e.x;
-    mouseEvent.y = e.y;
-    mouseEvent.modifiers = getCefModifiers(e);
-    browser->GetHost()->SendMouseWheelEvent(mouseEvent, static_cast<int>(wheel.deltaX * 100.0f), static_cast<int>(wheel.deltaY * 100.0f));
-}
-
-bool CefWebView::keyPressed(const juce::KeyPress& key) {
-    if (browser == nullptr) return false;
-    CefKeyEvent event;
-    event.type = KEYEVENT_CHAR;
-    event.character = static_cast<char16_t>(key.getTextCharacter());
-    event.unmodified_character = static_cast<char16_t>(key.getTextCharacter());
-    browser->GetHost()->SendKeyEvent(event);
-    return true;
+bool CefWebView::keyPressed(const juce::KeyPress&) {
+    return false;
 }
 
 bool CefWebView::keyStateChanged(bool) {

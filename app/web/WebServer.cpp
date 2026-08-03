@@ -1627,6 +1627,11 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             return true;
         }
         cmd = {WebCommandKind::QuitDecision, choice};
+    } else if (std::strcmp(path, "/api/v1/settings/ui-render-engine") == 0) {
+        const std::string s(body, bodyLen);
+        cmd = {WebCommandKind::SetUiRenderEngine, 0, 0.0, s};
+        writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+        return true;
     } else if (std::strcmp(path, "/api/v1/view") == 0) {
         const std::string s(body, bodyLen);
         std::string viewRaw;

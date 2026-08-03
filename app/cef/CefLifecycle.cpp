@@ -25,10 +25,16 @@ namespace {
 // lifecycle contract (see this header's doc comment).
 CefScopedLibraryLoader* gLibraryLoader = nullptr;
 bool gInitialized = false;
+int gArgc = 0;
+char** gArgv = nullptr;
 
 class MessagePumpTimer final : public juce::Timer {
 public:
-    void timerCallback() override { CefDoMessageLoopWork(); }
+    void timerCallback() override {
+        if (gInitialized) {
+            CefDoMessageLoopWork();
+        }
+    }
 };
 
 MessagePumpTimer* gPumpTimer = nullptr;
@@ -72,6 +78,9 @@ juce::File resolveCacheDir() {
 } // namespace
 
 void bootstrapIfSelected(int argc, char* argv[]) {
+    gArgc = argc;
+    gArgv = argv;
+
     const AppSettings settings = loadAppSettings();
     if (settings.uiRenderEngine != "cef")
         return; // default path -- never touch CEF at all
@@ -83,41 +92,39 @@ void bootstrapIfSelected(int argc, char* argv[]) {
         return;
     }
 
-    // Required entry-point check for every CEF process, including the
-    // browser process itself -- see this header's doc comment for why this
-    // always resolves to "not a subprocess" on the main ResoStage
-    // executable specifically.
     const CefMainArgs mainArgs(argc, argv);
     const CefRefPtr<CefApp> app(new ResoStageCefApp());
-    CefExecuteProcess(mainArgs, app, nullptr);
+
+    int exitCode = CefExecuteProcess(mainArgs, app, nullptr);
+    if (exitCode >= 0) {
+        exit(exitCode);
+    }
+
+    CefSettings settingsObj;
+    settingsObj.windowless_rendering_enabled = false;
+    settingsObj.no_sandbox = true;
+    settingsObj.external_message_pump = true;
+    settingsObj.multi_threaded_message_loop = false;
+
+    const juce::File helper = resolveHelperExecutable();
+    CefString(&settingsObj.browser_subprocess_path) = helper.getFullPathName().toRawUTF8();
+
+    const juce::File cacheDir = resolveCacheDir();
+    CefString(&settingsObj.root_cache_path) = cacheDir.getFullPathName().toRawUTF8();
+
+    if (CefInitialize(mainArgs, settingsObj, app, nullptr)) {
+        gInitialized = true;
+    }
 }
 
 void initializeIfLoaded() {
-    if (gLibraryLoader == nullptr || gInitialized)
+    if (gLibraryLoader == nullptr || !gInitialized)
         return;
 
-    const CefMainArgs mainArgs(0, nullptr);
-    const CefRefPtr<CefApp> app(new ResoStageCefApp());
-
-    CefSettings settings;
-    settings.windowless_rendering_enabled = true;
-    // TODO(M6): re-evaluate sandboxing now that this is real application
-    // code driving a real embedded UI, not the tools/cef_smoke throwaway
-    // spike this milestone's design was validated against.
-    settings.no_sandbox = true;
-
-    const juce::File helper = resolveHelperExecutable();
-    CefString(&settings.browser_subprocess_path) = helper.getFullPathName().toRawUTF8();
-
-    const juce::File cacheDir = resolveCacheDir();
-    CefString(&settings.root_cache_path) = cacheDir.getFullPathName().toRawUTF8();
-
-    if (!CefInitialize(mainArgs, settings, app, nullptr))
-        return;
-    gInitialized = true;
-
-    gPumpTimer = new MessagePumpTimer();
-    gPumpTimer->startTimer(10); // ~100Hz, matches CEF's own sample apps
+    if (gPumpTimer == nullptr) {
+        gPumpTimer = new MessagePumpTimer();
+        gPumpTimer->startTimer(16); // ~60 FPS, non-blocking with external_message_pump = true
+    }
 
     // Anything that queued up while waiting for initialization (see
     // whenReady) can now safely create browsers etc.
@@ -142,6 +149,9 @@ void shutdownIfInitialized() {
         gPumpTimer = nullptr;
     }
     if (gInitialized) {
+        for (int i = 0; i < 20; ++i) {
+            CefDoMessageLoopWork();
+        }
         CefShutdown();
         gInitialized = false;
     }

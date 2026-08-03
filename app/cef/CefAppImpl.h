@@ -7,6 +7,13 @@
 // so this must be wired up everywhere, not just the browser process.
 #include "include/cef_app.h"
 
+#if __has_include(<juce_events/juce_events.h>)
+#include <juce_events/juce_events.h>
+#define RESOSTAGE_HAS_JUCE_EVENTS 1
+#else
+#define RESOSTAGE_HAS_JUCE_EVENTS 0
+#endif
+
 namespace resostage::cef_lifecycle {
 
 class ResoStageCefApp final : public CefApp {
