@@ -153,12 +153,13 @@ export function cmakeBuild(target) {
   run("cmake", args);
 }
 
-// The shipped/launched process is now the Electron shell (CFBundleExecutable
-// "Electron", like any Electron app) -- matching by full path (-f), not by
-// short process name, is required so this doesn't catch unrelated Electron
+// The shipped/launched process is the Electron shell, fully rebranded by
+// electron/scripts/brand-mac-app.mjs (executable renamed "Electron" ->
+// SHELL_APP_NAME, same as CFBundleExecutable) -- matching by full path (-f),
+// not just short process name, so this doesn't catch unrelated Electron
 // apps running on the same machine.
 function shellExecutablePath() {
-  return join(getShellAppBundle(), "Contents", "MacOS", "Electron");
+  return join(getShellAppBundle(), "Contents", "MacOS", SHELL_APP_NAME);
 }
 
 export function appIsRunning() {

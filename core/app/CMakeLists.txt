@@ -3,7 +3,12 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in" INFO_PLIST_CONTENT)
 juce_add_gui_app(ResoStage
   PRODUCT_NAME "ResoStage Core"
   COMPANY_NAME "Resonaura"
-  BUNDLE_ID "com.resonaura.resostage"
+  # BUNDLE_ID intentionally distinct from the Electron shell's
+  # com.resonaura.resostage: this bundle now ships nested inside the
+  # shell's own .app (Contents/Resources/), and two separate .app bundles
+  # sharing one CFBundleIdentifier confuses LaunchServices (icon caching,
+  # Spotlight, "which app owns this ID").
+  BUNDLE_ID "com.resonaura.resostage.core"
   ICON_BIG "${CMAKE_SOURCE_DIR}/../icons/app.png"
   PLIST_TO_MERGE "${INFO_PLIST_CONTENT}"
 )
