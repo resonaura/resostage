@@ -202,7 +202,13 @@ export function useOptimisticSeek(
 ): [number, (v: number) => void] {
   // Thin adapter: treat serverSeconds as absolute for callers that still
   // pass song-local time (Timeline was migrated off this).
-  return useContinuousPlayhead(serverSeconds, playing, resetKey);
+  // Drop the live getter — callers of this legacy API only need value + seek.
+  const [absolute, seekAbsolute] = useContinuousPlayhead(
+    serverSeconds,
+    playing,
+    resetKey,
+  );
+  return [absolute, seekAbsolute];
 }
 
 /** @deprecated Use useContinuousPlayhead. */

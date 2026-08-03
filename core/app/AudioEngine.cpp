@@ -333,6 +333,39 @@ MeterFrame AudioEngine::consumeClickMeterInterval() {
     return frame;
 }
 
+MeterFrame AudioEngine::consumeBusMeterInterval(size_t busIndex) {
+    MeterFrame frame;
+    if (busIndex < busMeters.size() && busMeters[busIndex] != nullptr)
+        (void)busMeters[busIndex]->read(frame);
+
+    float peakL = 0.0f;
+    float peakR = 0.0f;
+    if (busIndex < busPeakIntervalCount && busPeakIntervalMaxL && busPeakIntervalMaxR) {
+        peakL = busPeakIntervalMaxL[busIndex].exchange(0.0f, std::memory_order_relaxed);
+        peakR = busPeakIntervalMaxR[busIndex].exchange(0.0f, std::memory_order_relaxed);
+    }
+
+    float deliveryL = 0.0f;
+    float deliveryR = 0.0f;
+    if (busIndex < busPeakDeliveryL.size()) {
+        deliveryL = busPeakDeliveryL[busIndex];
+        deliveryR = busPeakDeliveryR[busIndex];
+        busPeakDeliveryL[busIndex] = peakL;
+        busPeakDeliveryR[busIndex] = peakR;
+    }
+
+    const float outL = std::max(peakL, deliveryL);
+    const float outR = std::max(peakR, deliveryR);
+    // Interval peaks win for display needles; keep LUFS/truePeak from the
+    // latest LoudnessMeter frame for sustained program material.
+    frame.peakDbL = linearPeakToDb(outL);
+    frame.peakDbR = linearPeakToDb(outR);
+    frame.peakDb = linearPeakToDb(std::max(outL, outR));
+    if (frame.truePeakDb < frame.peakDb)
+        frame.truePeakDb = frame.peakDb;
+    return frame;
+}
+
 const std::string& AudioEngine::busNameAt(size_t index) const {
     static const std::string kEmpty;
     const auto& buses = loader.project().busses;
@@ -454,6 +487,7 @@ void AudioEngine::rebuildTrackPeaks() {
     activePeakBuilds.fetch_add(1, std::memory_order_relaxed);
     std::thread([this, generation, songIndexForBuild, archivePathForBuild, files = std::move(trackFiles),
                  indices = std::move(regionTrackIndices)]() mutable {
+        demoteBackgroundWorkerPriority();
         std::vector<PeakOverview> buildResults(files.size());
         std::vector<ProjectLoader::ExtraFile> buildExtras;
 
@@ -655,6 +689,7 @@ void AudioEngine::ensureAllSongPeaksBuilt() {
     const std::string archivePathForBuild = loader.archivePath();
     activePeakBuilds.fetch_add(1, std::memory_order_relaxed);
     std::thread([this, archivePathForBuild, files = std::move(filesToBuild)]() {
+        demoteBackgroundWorkerPriority();
         std::vector<ProjectLoader::ExtraFile> newExtras;
         std::string openError;
         ProjectLoader peakLoader;
@@ -831,6 +866,17 @@ void AudioEngine::buildBusListFromProject() {
     for (size_t i = 0; i < busses.size(); ++i) {
         busMeters[i] = std::make_unique<SeqLock<MeterFrame>>();
         busLoudnessMeters[i].prepare(currentSampleRate, 2);
+    }
+
+    // Interval peak slots (click-on-bus capture for the UI poller).
+    busPeakIntervalCount = busses.size();
+    busPeakIntervalMaxL = std::make_unique<std::atomic<float>[]>(busPeakIntervalCount);
+    busPeakIntervalMaxR = std::make_unique<std::atomic<float>[]>(busPeakIntervalCount);
+    busPeakDeliveryL.assign(busPeakIntervalCount, 0.0f);
+    busPeakDeliveryR.assign(busPeakIntervalCount, 0.0f);
+    for (size_t i = 0; i < busPeakIntervalCount; ++i) {
+        busPeakIntervalMaxL[i].store(0.0f, std::memory_order_relaxed);
+        busPeakIntervalMaxR[i].store(0.0f, std::memory_order_relaxed);
     }
 
     ensureScratchSizes();
@@ -3236,6 +3282,26 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             busLoudnessMeters[out.busIndex].processBlock(meterChannels, numSamples);
             if (out.busIndex < busMeters.size() && busMeters[out.busIndex] != nullptr)
                 busMeters[out.busIndex]->write(busLoudnessMeters[out.busIndex].currentFrame());
+
+            // Interval max of post-mix bus peaks (includes metronome mixed
+            // into this bus above). A ~30ms click is often gone before the
+            // next 30 Hz UI poll reads the SeqLock -- same class of bug the
+            // dedicated click strip fixed with clickPeakIntervalMax*.
+            if (out.busIndex < busPeakIntervalCount && busPeakIntervalMaxL
+                && busPeakIntervalMaxR) {
+                const float* pL = meterChannels[0];
+                const float* pR = meterChannels[1];
+                float peakL = 0.0f;
+                float peakR = 0.0f;
+                for (int i = 0; i < numSamples; ++i) {
+                    const float l = (pL != nullptr && std::isfinite(pL[i])) ? pL[i] : 0.0f;
+                    const float r = (pR != nullptr && std::isfinite(pR[i])) ? pR[i] : l;
+                    peakL = std::max(peakL, std::abs(l));
+                    peakR = std::max(peakR, std::abs(r));
+                }
+                atomicMaxFloat(busPeakIntervalMaxL[out.busIndex], peakL);
+                atomicMaxFloat(busPeakIntervalMaxR[out.busIndex], peakR);
+            }
         } else if (meteringMuted && out.busIndex < busMeters.size() && busMeters[out.busIndex] != nullptr) {
             busMeters[out.busIndex]->write(MeterFrame{});
         }

@@ -1323,14 +1323,14 @@ void MainComponent::publishWebState() {
     for (size_t i = 0; i < engine.busCount(); ++i) {
         WebUiState::MeterRow m;
         m.id = engine.busIdAt(i);
-        if (const auto* meter = engine.busMeterAt(i)) {
-            MeterFrame frame;
-            if (meter->read(frame)) {
-                m.peakDb = frame.peakDb;
-                m.peakDbL = frame.peakDbL;
-                m.peakDbR = frame.peakDbR;
-                m.shortTermLufs = frame.shortTermLufs;
-            }
+        // Interval-max peaks so short impulses (metronome on this bus) are not
+        // lost between UI polls — see AudioEngine::consumeBusMeterInterval().
+        {
+            const MeterFrame frame = engine.consumeBusMeterInterval(i);
+            m.peakDb = frame.peakDb;
+            m.peakDbL = frame.peakDbL;
+            m.peakDbR = frame.peakDbR;
+            m.shortTermLufs = frame.shortTermLufs;
         }
         state.meters.push_back(std::move(m));
     }
@@ -1376,13 +1376,18 @@ void MainComponent::publishWebState() {
             br.startChannel = proj.busses[i].output.startChannel;
             br.channels = proj.busses[i].channels;
         }
-        if (const auto* meter = engine.busMeterAt(i)) {
-            MeterFrame frame;
-            if (meter->read(frame)) {
-                br.peakDb = frame.peakDb;
-                br.peakDbL = frame.peakDbL;
-                br.peakDbR = frame.peakDbR;
-            }
+        // Peaks already consumed into state.meters above; re-read LUFS frame
+        // for bus rows without double-clearing the interval max. Prefer the
+        // same interval peaks so mixer strips match the master meters array.
+        if (i < state.meters.size() && state.meters[i].id == br.id) {
+            br.peakDb = state.meters[i].peakDb;
+            br.peakDbL = state.meters[i].peakDbL;
+            br.peakDbR = state.meters[i].peakDbR;
+        } else {
+            const MeterFrame frame = engine.consumeBusMeterInterval(i);
+            br.peakDb = frame.peakDb;
+            br.peakDbL = frame.peakDbL;
+            br.peakDbR = frame.peakDbR;
         }
         state.busses.push_back(std::move(br));
     }

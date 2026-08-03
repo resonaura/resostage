@@ -3,14 +3,32 @@
 #include <atomic>
 #include <memory>
 
+#if defined(__APPLE__)
+#include <pthread.h>
+#include <pthread/qos.h>
+#endif
+
 namespace resostage {
+
+namespace {
+void demotePeakWorker() {
+#if defined(__APPLE__)
+    // UTILITY: below CoreAudio realtime and streaming USER_INITIATED so a
+    // full-project peak rebuild cannot starve playback.
+    (void)pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+#endif
+}
+} // namespace
 
 PeakBuildThreadPool::PeakBuildThreadPool(size_t numThreads) {
     if (numThreads < 1)
         numThreads = 1;
     workers.reserve(numThreads);
     for (size_t i = 0; i < numThreads; ++i)
-        workers.emplace_back([this] { workerLoop(); });
+        workers.emplace_back([this] {
+            demotePeakWorker();
+            workerLoop();
+        });
 }
 
 PeakBuildThreadPool::~PeakBuildThreadPool() {

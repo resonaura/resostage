@@ -388,6 +388,14 @@ public:
     // redundancy.
     MeterFrame consumeClickMeterInterval();
 
+    // Same interval-max pattern as the click strip, but for every bus. The
+    // metronome is mixed into busScratch *before* bus metering, yet a short
+    // click (~30ms) is still overwritten by silent blocks before the ~30 Hz
+    // UI poll reads busMeters -- so the main/aux bus needle "misses" ticks
+    // even though they are audible. This returns LUFS/etc from the latest
+    // frame with peak fields replaced by the interval max (+ one-frame echo).
+    MeterFrame consumeBusMeterInterval(size_t busIndex);
+
     bool isBusMuted(size_t busIndex) const;
     bool isBusSoloed(size_t busIndex) const;
     double busGainDb(size_t busIndex) const;
@@ -440,6 +448,16 @@ private:
     std::vector<TrackGainSmooth> trackGainSmooth;
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> busMeters;
     std::vector<LoudnessMeter> busLoudnessMeters;
+    // Per-bus interval peak (linear), parallel to busMeters. Audio thread
+    // CAS-maxes; message thread exchanges in consumeBusMeterInterval().
+    // Not a vector<atomic> (atomics are not CopyConstructible).
+    std::unique_ptr<std::atomic<float>[]> busPeakIntervalMaxL;
+    std::unique_ptr<std::atomic<float>[]> busPeakIntervalMaxR;
+    size_t busPeakIntervalCount = 0;
+    // Message-thread only: one-frame echo of the previous interval (same
+    // rationale as clickPeakDeliveryL/R).
+    std::vector<float> busPeakDeliveryL;
+    std::vector<float> busPeakDeliveryR;
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> trackMeters;
     // Per-track band-energy (GEQ/Blurz) analysis, kept in lockstep with
     // trackMeters so frame.bandLevel carries real per-band levels for the
