@@ -31,5 +31,11 @@
     "clean": "node scripts/dev.mjs clean",
     "clean:all": "node scripts/dev.mjs clean --ui",
     "scripts": "node scripts/dev.mjs help"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
   }
 }

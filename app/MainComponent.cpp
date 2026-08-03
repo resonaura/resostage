@@ -1,21 +1,15 @@
 #include "MainComponent.h"
 #include "lighting/LightOutputResolver.h"
-#include "platform/MacKeyMonitor.h"
-#include "platform/MacMenuBar.h"
-#include "platform/MacTouchBar.h"
+#include "platform/MacShellMode.h"
 #include "project/ProjectJson.h"
 #include "timing/BarSeek.h"
-#include "ui/DevOrEmbeddedWebView.h"
 #include "ui/UiColors.h"
 #include "web/BuilderJson.h"
-
-#if RESOSTAGE_ENABLE_CEF
-#include "ui/CefWebView.h"
-#endif
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <vector>
 
@@ -85,13 +79,24 @@ MainComponent::MainComponent() {
     }
 
     addChildComponent(busyOverlay);
-    webLoadingOverlay.startLoading();
 
     // Start with a real, empty, editable project rather than a "load
     // something first" placeholder -- SPA Builder is immediately usable.
     engine.newProject();
     applyGlobalBindings();
     onProjectLoaded();
+
+    // Serve the SPA from disk instead of a generated header: the packaged
+    // bundle's Contents/Resources/web folder (copied in by scripts/lib.mjs
+    // embedWebUi at build time), plus ui/dist for dev runs.
+    webServer.addWebRoot(juce::File::getSpecialLocation(juce::File::currentApplicationFile)
+                             .getChildFile("Contents/Resources/web")
+                             .getFullPathName()
+                             .toStdString());
+    webServer.addWebRoot(juce::File::getCurrentWorkingDirectory()
+                             .getChildFile("ui/dist")
+                             .getFullPathName()
+                             .toStdString());
 
     std::string webError;
     if (webServer.start(kWebPort, webError)) {
@@ -108,43 +113,170 @@ MainComponent::MainComponent() {
         juce::MessageManager::callAsync([this] { drainWebCommands(); });
     });
 
-    // Prefer Vite dev server (:2900) when running; fall back to embedded assets.
-    const juce::String fallbackUrl = "http://localhost:" + juce::String(kWebPort) + "/";
-#if RESOSTAGE_ENABLE_CEF
-    if (appSettings.uiRenderEngine == "cef") {
-        webView = std::make_unique<CefWebView>(fallbackUrl);
+    // The Core is headless: the on-screen UI comes from the engine chosen in
+    // Settings -- the Electron shell (window/menu/Touch Bar) or the default
+    // browser tab. Either way the JUCE window backs off to an accessory
+    // process that keeps serving the backend (audio / lighting / WebServer).
+    if (appSettings.uiRenderEngine == "electron") {
+        launchElectronShell();
     } else {
-        webView = std::make_unique<DevOrEmbeddedWebView>(fallbackUrl);
+        launchBrowserTab();
     }
-#else
-    webView = std::make_unique<DevOrEmbeddedWebView>(fallbackUrl);
-#endif
-
-    webView->onPageLoaded = [this] {
-        webLoadingOverlay.dismiss();
-    };
-    addAndMakeVisible(webView->getComponent());
-    addAndMakeVisible(webLoadingOverlay);
 
     setWantsKeyboardFocus(true);
     setSize(1280, 800);
 
-#if JUCE_MAC
-    installMacKeyMonitor([this](const juce::KeyPress& key, uint16_t vk, int jm) -> bool {
-        return matchAndPerformAction(key, vk, jm);
-    });
-#endif
-
-    // Match WebServer::kTelemetryHz (30).
+    // Match WebServer::kTelemetryHz (60).
     startTimerHz(WebServer::kTelemetryHz);
 }
 
 MainComponent::~MainComponent() {
     stopTimer();
-#if JUCE_MAC
-    uninstallMacKeyMonitor();
-#endif
+    // In electron mode the shell is our on-screen window -- kill it first so
+    // quitting ResoStage never strands a visible shell with no backend.
+    terminateElectronShell();
     webServer.stop();
+}
+
+// ── Electron shell mode ──────────────────────────────────────────────────
+// Settings > UI = "electron" routes the on-screen window through the
+// Electron shell (electron/ in the repo root) instead of a plain browser
+// tab. The shell talks to the same backend (REST + WS on kWebPort) any
+// remote browser tab would, builds its native menu bar / Touch Bar from
+// GET /api/v1/ui/menu (the same MenuModel table the AppKit menu used), and
+// dispatches menu clicks via POST /api/v1/action (PerformAction →
+// performAction()). The JUCE process stays alive headlessly to keep the
+// audio/lighting/transport engine and web server running.
+
+namespace {
+// electron executable for the given package dir, or an invalid File.
+juce::File findElectronBinary(const juce::File& packageDir) {
+    const auto dist = packageDir
+        .getChildFile("node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+    if (dist.existsAsFile())
+        return dist;
+    const auto bin = packageDir.getChildFile("node_modules/.bin/electron");
+    if (bin.existsAsFile())
+        return bin;
+    return {};
+}
+
+// The app is often launched via `open` (CWD = "/") from a staged/packaged
+// layout, so resolve the electron/ package by walking up from BOTH the
+// working directory and the app bundle location until a directory holding
+// electron/package.json turns up.
+juce::File findElectronPackageDir() {
+    if (const char* dir = std::getenv("RESOSTAGE_ELECTRON_DIR");
+        dir != nullptr && dir[0] != '\0') {
+        const juce::File explicitDir(juce::String::fromUTF8(dir));
+        if (explicitDir.isDirectory())
+            return explicitDir;
+    }
+    auto containsElectronPkg = [](const juce::File& dir) {
+        return dir.getChildFile("electron/package.json").existsAsFile();
+    };
+    // Walk up from the working directory (dev: `pnpm` runs from repo root).
+    juce::File cwd = juce::File::getCurrentWorkingDirectory();
+    while (cwd.exists()) {
+        if (containsElectronPkg(cwd))
+            return cwd.getChildFile("electron");
+        if (cwd.isRoot())
+            break;
+        cwd = cwd.getParentDirectory();
+    }
+    // Walk up from the app bundle (open/LaunchServices: CWD = "/").
+    juce::File bundle = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
+    while (bundle.exists()) {
+        if (containsElectronPkg(bundle))
+            return bundle.getChildFile("electron");
+        if (bundle.isRoot())
+            break;
+        bundle = bundle.getParentDirectory();
+    }
+    return {};
+}
+} // namespace
+
+void MainComponent::launchElectronShell() {
+    const juce::File packageDir = findElectronPackageDir();
+    if (!packageDir.isDirectory()) {
+        setStatus("Electron package not found -- run `pnpm install` at the repo root "
+                  "(or set RESOSTAGE_ELECTRON_DIR), then restart in Electron mode");
+        return;
+    }
+
+    juce::File binary;
+    if (const char* bin = std::getenv("RESOSTAGE_ELECTRON_BIN");
+        bin != nullptr && bin[0] != '\0')
+        binary = juce::File(juce::String::fromUTF8(bin));
+    else
+        binary = findElectronBinary(packageDir);
+
+    if (!binary.existsAsFile()) {
+        setStatus("Electron shell not found in " + packageDir.getFullPathName()
+                  + " -- run `pnpm install` at the repo root "
+                  "(or set RESOSTAGE_ELECTRON_DIR), then restart in Electron mode");
+        return;
+    }
+
+    // The shell is TypeScript; electron loads dist/main.mjs per package.json.
+    if (!packageDir.getChildFile("dist/main.mjs").existsAsFile()) {
+        setStatus("Electron shell not built in " + packageDir.getFullPathName()
+                  + " -- run `pnpm --dir electron build` at the repo root, then restart "
+                  "in Electron mode");
+        return;
+    }
+
+    juce::StringArray args;
+    args.add(binary.getFullPathName());
+    args.add(packageDir.getFullPathName());
+    args.add("--backend-port=" + juce::String(kWebPort));
+
+    electronProcess = std::make_unique<juce::ChildProcess>();
+    if (!electronProcess->start(args)) {
+        setStatus("Failed to launch the Electron shell (see console output)");
+        electronProcess.reset();
+        return;
+    }
+
+    setStatus("Electron shell launched (UI engine: Electron)");
+    // Drop out of the foreground once the shell is up: hide the JUCE window
+    // and remove us from the Dock so Electron is the only visible ResoStage.
+    juce::MessageManager::callAsync([this] {
+        if (auto* tl = getTopLevelComponent())
+            tl->setVisible(false);
+#if JUCE_MAC
+        backOffToHeadlessShell();
+#endif
+    });
+}
+
+void MainComponent::terminateElectronShell() {
+    if (electronProcess == nullptr)
+        return;
+    if (electronProcess->isRunning())
+        electronProcess->kill();
+    electronProcess.reset();
+}
+
+void MainComponent::launchBrowserTab() {
+    // Default "browser" engine: open the SPA in the system browser against the
+    // embedded backend. Plain browser tab = remote UI, so NO ?embedded=1
+    // marker (that flag is what tells the SPA to drive native file dialogs,
+    // which only the Electron shell / on-screen window can; a browser tab
+    // uses its own upload/download flow). Then back off to headless so the
+    // Core stops being the visible face of ResoStage.
+    const juce::String url =
+        "http://localhost:" + juce::String(kWebPort) + "/";
+    juce::URL(url).launchInDefaultBrowser();
+
+    juce::MessageManager::callAsync([this] {
+        if (auto* tl = getTopLevelComponent())
+            tl->setVisible(false);
+#if JUCE_MAC
+        backOffToHeadlessShell();
+#endif
+    });
 }
 
 void MainComponent::paint(juce::Graphics& g) {
@@ -157,10 +289,7 @@ void MainComponent::resized() {
         alarmBanner.setBounds(r.removeFromTop(28));
     else
         alarmBanner.setBounds({});
-    if (webView != nullptr)
-        webView->getComponent().setBounds(r);
     busyOverlay.setBounds(getLocalBounds());
-    webLoadingOverlay.setBounds(getLocalBounds());
 }
 
 bool MainComponent::keyPressed(const juce::KeyPress& key) {
@@ -336,44 +465,6 @@ std::pair<uint16_t, int> MainComponent::descriptionToMacKeyCode(const std::strin
     return {vk, mods};
 }
 
-void MainComponent::setTouchBarPeer(void* nsViewPeer) {
-    touchBarPeer = nsViewPeer;
-    touchBarActiveTab.clear(); // force next sync to paint
-    lastSeenSpaView.clear();
-    // Prefer live SPA view if already reported; else leave unhighlighted until
-    // the first {"view":...} (do NOT force "player" — that stuck the highlight).
-    const std::string v = webServer.lastClientView();
-    if (!v.empty())
-        syncTouchBarToTab(v);
-}
-
-void MainComponent::syncTouchBarToTab(const std::string& tabId) {
-    if (touchBarPeer == nullptr)
-        return;
-    std::string id = tabId;
-    if (id == "builder")
-        id = "editor";
-    if (id != "player" && id != "mixer" && id != "editor" && id != "light" && id != "settings")
-        return;
-    if (id == touchBarActiveTab)
-        return;
-    touchBarActiveTab = id;
-#if JUCE_MAC
-    setMacTouchBarActiveTab(touchBarPeer, id);
-#endif
-}
-
-void MainComponent::handleTouchBarTab(const std::string& tabId) {
-    if (tabId == "player" || tabId == "mixer" || tabId == "editor" || tabId == "light"
-        || tabId == "settings" || tabId == "builder") {
-        const std::string id = tabId == "builder" ? "editor" : tabId;
-        lastSeenSpaView = id;
-        syncTouchBarToTab(id);
-        webServer.noteClientView(id);
-        requestUiTab(id);
-    }
-}
-
 void MainComponent::requestUiTab(const std::string& tab) {
     uiTabRequest = tab;
     ++uiTabSeq;
@@ -382,18 +473,14 @@ void MainComponent::requestUiTab(const std::string& tab) {
         id = "editor";
     lastSeenSpaView = id;
     webServer.noteClientView(id);
-    syncTouchBarToTab(id);
 }
 
 void MainComponent::performAction(const std::string& action) {
-    // Covers native hotkey, MIDI, and menu bar dispatch alike (see field
-    // doc comment) -- publishWebState() mirrors this into WebUiState so
+    // Covers MIDI, the Electron menu bar, and web action POSTs alike (see
+    // field doc comment) -- publishWebState() mirrors this into WebUiState so
     // SettingsScreen can flash the one binding row that actually fired.
     lastAction_ = action;
     ++lastActionNonce_;
-#if JUCE_MAC
-    flashMacMenuAction(action);
-#endif
 
     if (action == "play")
         togglePlayback();
@@ -442,7 +529,31 @@ void MainComponent::performAction(const std::string& action) {
     else if (action == "clear_recent_projects") {
         appSettings.recentProjects.clear();
         saveAppSettingsToDisk();
-        syncMacMenuRecentProjects();
+    }
+    else if (action == "quit") {
+        // Native menu bar intercepts "quit" in Main.cpp before reaching us;
+        // this branch covers the Electron shell (POST /api/v1/action) and any
+        // MIDI/hotkey mapping -- same unsaved-changes prompt either way.
+        confirmQuitIfUnsaved([](bool canQuit) {
+            if (canQuit)
+                juce::JUCEApplication::quit();
+        });
+    }
+    else if (action == "restart_app") {
+        // Settings > UI engine change: relaunch the app so the new display
+        // framework takes effect. `open -n` forces a fresh instance; the 1s
+        // delay lets this instance quit (and flush autosaves) first.
+        const juce::File bundle = juce::File::getSpecialLocation(
+            juce::File::currentApplicationFile);
+        if (bundle.isDirectory()) {
+            const juce::String cmd = "sleep 1; /usr/bin/open -n '" + bundle.getFullPathName() + "'";
+            juce::ChildProcess spawner;
+            spawner.start(cmd); // shell child is orphaned after quit and keeps running
+        }
+        confirmQuitIfUnsaved([](bool canQuit) {
+            if (canQuit)
+                juce::JUCEApplication::quit();
+        });
     }
     else if (action.rfind("open_recent:", 0) == 0) {
         const std::string path = action.substr(std::string("open_recent:").size());
@@ -450,7 +561,6 @@ void MainComponent::performAction(const std::string& action) {
             // Stale entry -- the file moved/was deleted since it was recorded.
             removeRecentProject(appSettings.recentProjects, path);
             saveAppSettingsToDisk();
-            syncMacMenuRecentProjects();
         }
     }
 }
@@ -557,17 +667,6 @@ void MainComponent::rememberRecentProject(const juce::File& file) {
 
     touchRecentProject(appSettings.recentProjects, std::move(entry));
     saveAppSettingsToDisk();
-    syncMacMenuRecentProjects();
-}
-
-void MainComponent::syncMacMenuRecentProjects() {
-#if JUCE_MAC
-    std::vector<std::pair<std::string, std::string>> recents;
-    recents.reserve(appSettings.recentProjects.size());
-    for (const auto& rp : appSettings.recentProjects)
-        recents.emplace_back(rp.path, rp.displayName);
-    updateMacMenuRecentProjects(recents);
-#endif
 }
 
 void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to16, int number) {
@@ -602,14 +701,6 @@ void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to1
 }
 
 void MainComponent::timerCallback() {
-    if (!webLoadingOverlay.isDone()) {
-        webLoadingOverlay.tickAnimation();
-        webLoadingOverlay.toFront(false);
-        if (startupTicks > 90) { // Safety fallback (~3s)
-            webLoadingOverlay.dismiss();
-        }
-    }
-
     const bool busyNow = engine.isBusy();
     if (busyNow != wasBusyLastTick) {
         busyOverlay.setVisible(busyNow);
@@ -664,18 +755,6 @@ void MainComponent::timerCallback() {
     }
 
     drainWebCommands();
-    // Touch Bar highlight follows the embedded SPA — but ONLY when the SPA
-    // actually reports a *new* view. Re-applying lastClientView every tick
-    // (default "player") was racing Touch Bar / hotkey switches and snapping
-    // the highlight back to Player before the SPA had sent its update.
-    {
-        const std::string spaView = webServer.lastClientView();
-        if (!spaView.empty() && (spaView != lastSeenSpaView || touchBarActiveTab.empty())) {
-            lastSeenSpaView = spaView;
-            syncTouchBarToTab(spaView);
-        }
-    }
-
 
     publishWebState();
     maybePublishPeaks();
@@ -831,14 +910,12 @@ void MainComponent::drainWebCommands() {
                 if (!loadProjectFromPath(juce::File(cmd.path))) {
                     removeRecentProject(appSettings.recentProjects, cmd.path);
                     saveAppSettingsToDisk();
-                    syncMacMenuRecentProjects();
                 }
                 break;
             }
             case WebCommandKind::ClearRecentProjects:
                 appSettings.recentProjects.clear();
                 saveAppSettingsToDisk();
-                syncMacMenuRecentProjects();
                 break;
             case WebCommandKind::ExportProjectForDownload: {
                 if (!engine.isProjectLoaded()) {
@@ -923,6 +1000,19 @@ void MainComponent::drainWebCommands() {
                 editableFieldFocused.store(cmd.json.find("\"focused\":true") != std::string::npos,
                                            std::memory_order_relaxed);
                 break;
+            case WebCommandKind::PerformAction: {
+                // From the Electron shell's native menu (and anything else
+                // that wants the generic menu/hotkey path over HTTP). cmd.json
+                // carries {"action":"..."} -- same performAction() every
+                // native hotkey / menu bar item funnels through.
+                static simdjson::dom::parser parser;
+                simdjson::dom::element doc;
+                std::string action;
+                if (!parser.parse(cmd.json).get(doc)
+                    && builder_json::getString(doc, "action", action) && !action.empty())
+                    performAction(action);
+                break;
+            }
         }
     };
 
@@ -1062,10 +1152,6 @@ void MainComponent::publishWebState() {
     state.canRedo = engine.canRedoTimeline();
     state.undoLabel = engine.undoTimelineLabel();
     state.redoLabel = engine.redoTimelineLabel();
-#if JUCE_MAC
-    updateMacMenuUndoRedo(state.canUndo, state.canRedo,
-                          state.undoLabel, state.redoLabel);
-#endif
 
     state.songs.reserve(proj.songs.size());
     for (const SongDef& song : proj.songs) {
@@ -1521,9 +1607,6 @@ void MainComponent::applyGlobalBindings() {
     for (const auto& [action, description] : appSettings.keybindings)
         keyBindings[action] = description;
     midiInput.setMappings(appSettings.midiMappings);
-#if JUCE_MAC
-    updateMacMenuKeyBindings(keyBindings);
-#endif
 }
 
 void MainComponent::saveAppSettingsToDisk() {

@@ -11,8 +11,8 @@ namespace resostage {
 //
 // This does NOT eliminate every duplicate: MainComponent.h's keyBindings/
 // extraKeyBindings maps still carry each action's *default* key description
-// (an id list alone can't), MacMenuBar.mm's per-item action ids are
-// structurally tied to the native menu layout (submenu grouping, titles),
+// (an id list alone can't), MenuModel.h's per-item action ids are
+// structurally tied to the menu layout (submenu grouping, titles),
 // and the frontend's ACTION_GROUPS/ACTION_LABELS (ui/src/screens/
 // SettingsScreen.tsx) has no build-time link to this C++ list. Keep all of
 // those in sync by hand when adding a new action; this header at least

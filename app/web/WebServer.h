@@ -193,6 +193,9 @@ enum class WebCommandKind : uint8_t {
     // `arg`: 0 = Cancel, 1 = Save, 2 = Don't Save.
     QuitDecision,
     UiFocusState,
+    // Generic native menu / hotkey dispatch (Electron shell menu bar, etc.).
+    // `json` = {"action":"..."}; handled via MainComponent::performAction().
+    PerformAction,
 };
 
 struct WebCommand {
@@ -566,7 +569,6 @@ struct WebUiState {
         // without any hardware or IAC bus setup.
         bool virtualMidiPortEnabled = false;
         std::string uiRenderEngine = "wkwebview";
-        bool cefSupported = false;
         struct Keybinding {
             std::string action;
             std::string key;
@@ -596,7 +598,9 @@ struct WebUiState {
 
 // Embedded HTTP + WebSocket server (libwebsockets).
 //
-// - Serves the SPA from memory (EmbeddedAssets) -- no filesystem, no Node.
+// - Serves the SPA from disk: each root added via addWebRoot() (usually the
+//   packaged bundle's Contents/Resources/web folder, plus ui/dist in dev) is
+//   tried in order -- no Node, no generated header with baked-in assets.
 // - REST: POST /api/v1/transport/{play,stop,next,prev,select}
 // - WS:   /ws  (text JSON telemetry ~30 FPS)
 // - GET:  /api/v1/state  (one-shot JSON snapshot, same schema as WS)
@@ -662,6 +666,11 @@ public:
     // for the next 30 Hz timer tick (~0–33 ms of dead latency).
     void setUrgentCommandHook(std::function<void()> hook) { urgentCommandHook = std::move(hook); }
 
+    // Message-thread: add a directory to serve the SPA from (checked in order
+    // on the lws thread for each static request). Roots are read-only after
+    // start(), so this is only meant to be called before start().
+    void addWebRoot(const std::string& root);
+
     // Message-thread: browser-download handshake for ExportProjectForDownload
     // (see WebCommandKind). beginExport() invalidates any previous export
     // before enqueueing the new one so a racing GET .../export-status can't
@@ -722,6 +731,11 @@ private:
     int servePeaks(struct lws* wsi);
     int serveAllPeaks(struct lws* wsi);
     int serveWaveformRaw(struct lws* wsi, const char* queryArgs);
+    // GET /api/v1/ui/menu -- serializes platform/MenuModel.h/.cpp (the same
+    // single source the AppKit menu bar is built from) + current keybindings
+    // + recent projects, for the Electron shell's native menu/Touch Bar.
+    int serveUiMenu(struct lws* wsi);
+    std::string buildMenuModelJson() const;
 
     // Called only from the lws service thread.
     void onClientOpened();
@@ -783,6 +797,10 @@ private:
 
     mutable std::mutex archivePathMutex;
     std::string archivePathForRaw;
+
+    // SPA web roots (bundle Contents/Resources/web, dev ui/dist, ...) tried
+    // in order by serveStatic on the lws thread. Immutable after start().
+    std::vector<std::string> webRoots_;
 
     // Per-session WS bookkeeping lives in the .cpp (opaque to callers).
     // The service thread owns a linked list of live WS sessions via user data.

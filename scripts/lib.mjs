@@ -2,7 +2,7 @@
  * Shared helpers for root pnpm / Node scripts (ESM).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { cpSync, existsSync } from "node:fs";
 import { cpus } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,12 +12,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ROOT = join(__dirname, "..");
 export const BUILD_DIR = process.env.BUILD_DIR || join(ROOT, "build");
 export const BUILD_TYPE = process.env.BUILD_TYPE || "Debug";
-export const APP_NAME = "ResoStage";
+// CMake target + JUCE artefact dir. Kept "ResoStage" even though the bundle
+// is now branded "ResoStage Core" -- the target name drives _artefacts/.
+export const APP_TARGET = "ResoStage";
+// On-screen bundle/binary name (juce_add_gui_app PRODUCT_NAME) -- the
+// JUCE core is "ResoStage Core" while the Electron shell brands itself
+// "ResoStage". Must stay quoted anywhere it's used (contains a space).
+export const APP_NAME = "ResoStage Core";
 export function getAppBundle() {
   if (process.env.APP_BUNDLE) return process.env.APP_BUNDLE;
-  const directPath = join(BUILD_DIR, "app", `${APP_NAME}_artefacts`, `${APP_NAME}.app`);
+  const directPath = join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, `${APP_NAME}.app`);
   if (existsSync(directPath)) return directPath;
-  const buildTypePath = join(BUILD_DIR, "app", `${APP_NAME}_artefacts`, BUILD_TYPE, `${APP_NAME}.app`);
+  const buildTypePath = join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, BUILD_TYPE, `${APP_NAME}.app`);
   if (existsSync(buildTypePath)) return buildTypePath;
   return directPath;
 }
@@ -185,15 +191,43 @@ export function startApp() {
 }
 
 export function buildUi() {
-  log("Building web UI + embedding assets...");
-  run("pnpm", ["build:embed"], { cwd: join(ROOT, "ui") });
-  ok("Web UI embedded -> app/web/EmbeddedAssets.h");
+  log("Building web UI...");
+  run("pnpm", ["build"], { cwd: join(ROOT, "ui") });
+  ok("Web UI built -> ui/dist");
+}
+
+// Copies ui/dist into the app bundle's Contents/Resources/web so the embedded
+// WebServer can serve the SPA straight from disk -- no more giant
+// EmbeddedAssets.h header with every asset baked in as C++ string literals.
+function embedWebUi() {
+  const src = join(ROOT, "ui", "dist");
+  if (!existsSync(src)) {
+    log("ui/dist missing -- skipping web UI embed (run pnpm build:ui first)");
+    return;
+  }
+  const dst = join(APP_BUNDLE, "Contents", "Resources", "web");
+  log(`Embedding web UI -> ${dst}`);
+  cpSync(src, dst, { recursive: true });
+  ok("Web UI embedded as folder (Resources/web)");
+}
+
+// Compiles electron/src/*.ts to electron/dist (ESM main.mjs + CJS preload.cjs).
+function buildElectronShell() {
+  if (!existsSync(join(ROOT, "electron", "package.json"))) {
+    log("electron/ missing -- skipping Electron shell build");
+    return;
+  }
+  log("Building Electron shell (electron/ -> dist/)...");
+  run("pnpm", ["build"], { cwd: join(ROOT, "electron") });
+  ok("Electron shell built (electron/dist)");
 }
 
 export function buildApp() {
   log(`Building ${APP_NAME} (${BUILD_TYPE})...`);
-  cmakeBuild(APP_NAME);
+  cmakeBuild(APP_TARGET);
   ok(`App: ${APP_BUNDLE}`);
+  embedWebUi();
+  buildElectronShell();
 }
 
 export function buildTests() {

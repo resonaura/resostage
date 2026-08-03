@@ -1,7 +1,7 @@
 #include "WebServer.h"
-#include "EmbeddedAssets.h"
 
 #include "audio/WavStreamDecoder.h"
+#include "platform/MenuModel.h"
 #include "project/ProjectLoader.h"
 
 #include <libwebsockets.h>
@@ -241,6 +241,31 @@ double finiteOrZero(double v) {
     return std::isfinite(v) ? v : 0.0;
 }
 
+// Extension → MIME type for the on-disk SPA (index.html, assets/*.js,
+// *.css, images/fonts). Served files always carry no-store (see
+// writeHttpResponse) so a freshly rebuilt bundle is never stale.
+std::string mimeTypeForPath(const std::string& path) {
+    const auto dot = path.rfind('.');
+    const std::string ext = dot == std::string::npos ? "" : path.substr(dot + 1);
+    if (ext == "html") return "text/html";
+    if (ext == "js") return "application/javascript";
+    if (ext == "mjs") return "application/javascript";
+    if (ext == "css") return "text/css";
+    if (ext == "json") return "application/json";
+    if (ext == "svg") return "image/svg+xml";
+    if (ext == "png") return "image/png";
+    if (ext == "jpg" || ext == "jpeg") return "image/jpeg";
+    if (ext == "gif") return "image/gif";
+    if (ext == "webp") return "image/webp";
+    if (ext == "ico") return "image/x-icon";
+    if (ext == "woff") return "font/woff";
+    if (ext == "woff2") return "font/woff2";
+    if (ext == "ttf") return "font/ttf";
+    if (ext == "otf") return "font/otf";
+    if (ext == "map") return "application/json";
+    return "application/octet-stream";
+}
+
 // Meter levels: non-finite / absurd values must NOT become 0.0 (0 dBFS =
 // full-scale bar flash). Floor them instead.
 double finiteOrDbFloor(double v) {
@@ -406,6 +431,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/mixer/track/send/remove", WebCommandKind::RemoveTrackSend},
     {"/api/v1/project/name", WebCommandKind::SetProjectName},
     {"/api/v1/ui/focus-state", WebCommandKind::UiFocusState},
+    {"/api/v1/action", WebCommandKind::PerformAction},
 };
 
 bool builderCommandKindForPath(const char* path, WebCommandKind& outKind) {
@@ -648,6 +674,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
                         return server->serveWaveformRaw(wsi, argsBuf);
                     }
+                    if (std::strcmp(uri, "/api/v1/ui/menu") == 0)
+                        return server->serveUiMenu(wsi);
                     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
                                              "{\"error\":\"not found\"}", 27);
                 }
@@ -1525,8 +1553,7 @@ std::string WebServer::buildStateJson(const char* view) const {
         }
         o << "],"
           << "\"virtualMidiPortEnabled\":" << (s.virtualMidiPortEnabled ? "true" : "false") << ","
-          << "\"uiRenderEngine\":\"" << jsonEscape(s.uiRenderEngine) << "\","
-          << "\"cefSupported\":" << (s.cefSupported ? "true" : "false") << ",";
+          << "\"uiRenderEngine\":\"" << jsonEscape(s.uiRenderEngine) << "\",";
     }
     o << "\"keybindings\":[";
     for (size_t i = 0; i < s.keybindings.size(); ++i) {
@@ -1674,23 +1701,68 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
 }
 
 int WebServer::serveStatic(struct lws* wsi, const char* path) {
+    // Serve the SPA from disk (bundle Contents/Resources/web, or ui/dist in
+    // dev), reading the packaged folder instead of a generated header. "/"
+    // resolves to index.html; unknown paths fall back to index.html too so a
+    // refresh on a deep link still lands in the SPA.
     std::string_view p(path != nullptr && path[0] != '\0' ? path : "/");
     if (p == "/")
-        p = embedded_assets::kIndexHtmlPath;
+        p = "index.html";
+    if (p.front() == '/')
+        p.remove_prefix(1);
+    // Refuse anything that tries to escape the web root.
+    if (p.find("..") != std::string_view::npos)
+        return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "text/plain", "not found", 9);
 
-    for (const auto& asset : embedded_assets::kAssets) {
-        if (p == asset.path)
-            return writeHttpResponse(wsi, HTTP_STATUS_OK, asset.mimeType, asset.data, asset.length);
+    const auto tryServe = [&](const std::string& root) -> int {
+        std::string filePath = root;
+        if (!filePath.empty() && filePath.back() != '/')
+            filePath += '/';
+        filePath += std::string(p);
+        std::ifstream in(filePath, std::ios::binary);
+        if (!in)
+            return 0;
+        std::ostringstream data;
+        data << in.rdbuf();
+        const std::string body = data.str();
+        const std::string mime = mimeTypeForPath(filePath);
+        return writeHttpResponse(wsi, HTTP_STATUS_OK, mime.c_str(), body.c_str(), body.size());
+    };
+
+    for (const auto& root : webRoots_) {
+        const int r = tryServe(root);
+        if (r != 0)
+            return r;
     }
 
-    // Unknown path (e.g. a future client-side route, or a stray request for
-    // something that was never built) -- fall back to index.html rather than
-    // a bare 404 so a refresh on a deep link still resolves to the SPA.
-    for (const auto& asset : embedded_assets::kAssets) {
-        if (std::string_view(asset.path) == embedded_assets::kIndexHtmlPath)
-            return writeHttpResponse(wsi, HTTP_STATUS_OK, asset.mimeType, asset.data, asset.length);
+    // SPA deep-link / unknown path: serve index.html from the first root that
+    // has one, rather than a bare 404.
+    if (p != "index.html") {
+        const auto tryIndex = [&](const std::string& root) -> int {
+            std::string filePath = root;
+            if (!filePath.empty() && filePath.back() != '/')
+                filePath += '/';
+            filePath += "index.html";
+            std::ifstream in(filePath, std::ios::binary);
+            if (!in)
+                return 0;
+            std::ostringstream data;
+            data << in.rdbuf();
+            const std::string body = data.str();
+            return writeHttpResponse(wsi, HTTP_STATUS_OK, "text/html", body.c_str(), body.size());
+        };
+        for (const auto& root : webRoots_) {
+            const int r = tryIndex(root);
+            if (r != 0)
+                return r;
+        }
     }
     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "text/plain", "not found", 9);
+}
+
+void WebServer::addWebRoot(const std::string& root) {
+    if (!root.empty())
+        webRoots_.push_back(root);
 }
 
 void WebServer::beginExport() {
@@ -1756,6 +1828,83 @@ int WebServer::serveAllPeaks(struct lws* wsi) {
         std::lock_guard<std::mutex> lock(allPeaksMutex);
         json = allPeaksJson;
     }
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+}
+
+// The menu tree lives in platform/MenuModel.h/.cpp -- the single source of
+// truth. Serializing it to JSON here is what lets the Electron shell
+// (electron/main.mts) build a matching native menu without a second copy of
+// the structure. Keybindings and the recent projects list ride along so the
+// shell can fill dynamic accelerators and the File > Open Recent submenu
+// from the same snapshot the rest of the UI sees.
+std::string WebServer::buildMenuModelJson() const {
+    std::ostringstream o;
+    o << "{\"menus\":[";
+    const auto& menus = menuModel();
+    for (size_t mi = 0; mi < menus.size(); ++mi) {
+        if (mi) o << ",";
+        o << "{\"title\":\"" << jsonEscape(menus[mi].title) << "\",\"items\":[";
+        const auto& items = menus[mi].items;
+        for (size_t ii = 0; ii < items.size(); ++ii) {
+            if (ii) o << ",";
+            const auto& it = items[ii];
+            switch (it.kind) {
+            case MenuItemModel::Kind::Separator:
+                o << "{\"separator\":true}";
+                continue;
+            case MenuItemModel::Kind::OpenRecent:
+                o << "{\"kind\":\"open-recent\",\"title\":\"" << jsonEscape(it.title) << "\"}";
+                continue;
+            case MenuItemModel::Kind::Item:
+                break;
+            }
+            o << "{\"title\":\"" << jsonEscape(it.title) << "\"";
+            if (!it.role.empty()) {
+                o << ",\"role\":\"" << jsonEscape(it.role) << "\"";
+            } else {
+                o << ",\"actionId\":\"" << jsonEscape(it.actionId) << "\"";
+                if (it.dynamicKey)
+                    o << ",\"dynamicKey\":true";
+                else if (!it.key.empty())
+                    o << ",\"key\":\"" << jsonEscape(it.key) << "\"";
+            }
+            o << "}";
+        }
+        o << "]}";
+    }
+    o << "],\"touchbar\":[";
+    const auto& tabs = touchBarTabs();
+    for (size_t i = 0; i < tabs.size(); ++i) {
+        if (i) o << ",";
+        o << "{\"id\":\"" << jsonEscape(tabs[i].id) << "\",\"label\":\""
+          << jsonEscape(tabs[i].label) << "\"}";
+    }
+    o << "],\"keybindings\":{";
+    WebUiState snap;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        snap = state;
+    }
+    bool kFirst = true;
+    for (const auto& kb : snap.settings.keybindings) {
+        if (!kFirst) o << ",";
+        kFirst = false;
+        o << "\"" << jsonEscape(kb.action) << "\":\"" << jsonEscape(kb.key) << "\"";
+    }
+    o << "},\"recentProjects\":[";
+    for (size_t i = 0; i < snap.settings.recentProjects.size(); ++i) {
+        if (i) o << ",";
+        const auto& rp = snap.settings.recentProjects[i];
+        o << "{\"path\":\"" << jsonEscape(rp.path) << "\",\"displayName\":\""
+          << jsonEscape(rp.displayName) << "\",\"lastOpenedIso\":\""
+          << jsonEscape(rp.lastOpenedIso) << "\"}";
+    }
+    o << "]}";
+    return o.str();
+}
+
+int WebServer::serveUiMenu(struct lws* wsi) {
+    const std::string json = buildMenuModelJson();
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 

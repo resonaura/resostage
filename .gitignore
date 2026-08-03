@@ -6,3 +6,6 @@ CMakeUserPresets.json
 .cache/
 compile_commands.json
 tests/audio
+node_modules
+electron/node_modules
+electron/dist

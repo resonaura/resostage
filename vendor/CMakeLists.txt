@@ -29,10 +29,3 @@ add_library(miniz STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/miniz/miniz_zip.c
 )
 target_include_directories(miniz PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/miniz)
-
-# ---------------------------------------------------------------------------
-# Chromium Embedded Framework (optional, large download -- see vendor/cef)
-# ---------------------------------------------------------------------------
-if(RESOSTAGE_ENABLE_CEF)
-  add_subdirectory(cef)
-endif()

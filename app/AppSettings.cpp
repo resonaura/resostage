@@ -53,8 +53,13 @@ AppSettings loadAppSettings() {
     bool b = false;
     if (!doc["virtualMidiPortEnabled"].get(b))
         settings.virtualMidiPortEnabled = b;
-    if (!doc["uiRenderEngine"].get(sv))
-        settings.uiRenderEngine = std::string(sv);
+    if (!doc["uiRenderEngine"].get(sv)) {
+        // Only the two current engines are valid; a stale persisted value
+        // (e.g. the retired "wkwebview" or "cef") must not reach the UI.
+        const std::string choice = std::string(sv);
+        if (choice == "browser" || choice == "electron")
+            settings.uiRenderEngine = choice;
+    }
 
     simdjson::dom::array channelsArr;
     if (!doc["activeOutputChannels"].get(channelsArr)) {

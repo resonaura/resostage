@@ -8,7 +8,6 @@
 
 #include "ActionCatalogue.h"
 #include "MainComponent.h"
-#include "platform/MacMenuBar.h"
 #include "web/BuilderJson.h"
 
 #include <algorithm>
@@ -116,11 +115,6 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
         out.midiInputs.push_back(n);
     out.virtualMidiPortEnabled = engine.midi().hasVirtualSource();
     out.uiRenderEngine = appSettings.uiRenderEngine;
-#if RESOSTAGE_ENABLE_CEF
-    out.cefSupported = true;
-#else
-    out.cefSupported = false;
-#endif
 
     const auto& bindings = appSettings.keybindings;
     for (const char* action : kActionIds) {
@@ -316,13 +310,22 @@ void MainComponent::settingsSetUiRenderEngine(const std::string& json) {
     std::string engineChoice;
     if (!parseJson(json, doc) || !getString(doc, "engine", engineChoice))
         return;
-    if (engineChoice != "wkwebview" && engineChoice != "cef")
+    // "browser" = default: open the SPA in the system browser. "electron" =
+    // the Electron shell takes over the on-screen UI (see
+    // launchElectronShell()/launchBrowserTab()). No native renderer anymore.
+    // The engine can't be swapped hot -- the SPA offers a restart (POST
+    // /api/v1/action restart_app) which relaunches with the new setting.
+    if (engineChoice != "browser" && engineChoice != "electron")
+        return;
+
+    if (appSettings.uiRenderEngine == engineChoice)
         return;
 
     appSettings.uiRenderEngine = engineChoice;
     saveAppSettingsToDisk();
     publishWebState();
-    setStatus("UI render engine set to " + juce::String(engineChoice) + " (takes effect on app restart)");
+    setStatus("UI engine set to " + juce::String(engineChoice)
+              + " (takes effect on app restart)");
 }
 
 void MainComponent::settingsSetOutputChannels(const std::string& json) {
@@ -367,9 +370,6 @@ void MainComponent::settingsSetKeybinding(const std::string& json) {
     appSettings.keybindings[action] = key;
     applyGlobalBindings();
     saveAppSettingsToDisk();
-#if JUCE_MAC
-    updateMacMenuKeyBindings(keyBindings);
-#endif
     setStatus("Keybinding: " + juce::String(action) + " -> " + juce::String(key));
 }
 

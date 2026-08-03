@@ -36,11 +36,11 @@ const COMMANDS = {
     },
   },
   ui: {
-    desc: "Build ui + embed into EmbeddedAssets.h",
+    desc: "Build web UI (ui/dist)",
     run: () => buildUi(),
   },
   rebuild: {
-    desc: "Full rebuild: web UI embed + ResoStage app",
+    desc: "Full rebuild: web UI + ResoStage Core + electron shell",
     run: () => {
       buildUi();
       buildApp();
@@ -57,7 +57,7 @@ const COMMANDS = {
     },
   },
   app: {
-    desc: "Incremental CMake build of ResoStage only",
+    desc: "Incremental CMake build of ResoStage Core only",
     run: () => buildApp(),
   },
   "app:run": {

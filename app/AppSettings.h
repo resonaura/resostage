@@ -32,14 +32,13 @@ struct AppSettings {
     std::string midiInputName;
     bool virtualMidiPortEnabled = false;
 
-    // Which engine renders the app's own embedded web UI: "wkwebview"
-    // (default, macOS's system WebKit view) or "cef" (Chromium Embedded
-    // Framework, GPU-accelerated -- see app/cef/CefLifecycle.h). Set from
-    // Settings > UI; takes effect on next launch (see CefLifecycle's doc
-    // comment for why this isn't hot-swappable). Irrelevant to any browser
-    // used to reach the LAN remote UI -- only affects this native app's own
-    // window.
-    std::string uiRenderEngine = "wkwebview";
+    // Which engine drives the on-screen UI: "browser" (default -- the SPA
+    // opens in the system browser against the embedded backend) or "electron"
+    // (the Chromium-based Electron shell in electron/, its own window with the
+    // native menu bar/Touch Bar). Set from Settings > UI; takes effect on next
+    // launch (the setting itself can't be swapped hot). The JUCE core is
+    // headless either way.
+    std::string uiRenderEngine = "browser";
 
     // Most-recent-first, capped at kMaxRecentProjects (see RecentProjects.h).
     std::vector<RecentProjectEntry> recentProjects;

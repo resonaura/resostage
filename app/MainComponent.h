@@ -7,8 +7,6 @@
 #include "lighting/LightOutputResolver.h"
 #include "midi/CoreMidiInputListener.h"
 #include "ui/BusyOverlay.h"
-#include "ui/IWebEngineView.h"
-#include "ui/WebLoadingOverlay.h"
 #include "web/WebServer.h"
 
 #include <chrono>
@@ -19,9 +17,11 @@
 
 namespace resostage {
 
-// App shell: full-window embedded SPA (Web UI) + blocking busy overlay.
-// All editing / transport / settings live in the React remote; there is no
-// native Player/Mixer/Builder/Settings panel fallback anymore.
+// Headless core: the audio / lighting / transport engine plus the embedded
+// WebServer. The on-screen UI lives in the engine selected in Settings --
+// the Electron shell (window/menu/Touch Bar) or the default browser tab --
+// and talks to this backend over REST + WS on kWebPort. There is no native
+// JUCE view anymore.
 class MainComponent final : public juce::Component, private juce::Timer {
 public:
     MainComponent();
@@ -34,18 +34,25 @@ public:
     void confirmQuitIfUnsaved(std::function<void(bool)> onDecision = nullptr);
     void checkAndOfferAutosaveRecovery();
 
-    void handleTouchBarTab(const std::string& tabId);
-    void setTouchBarPeer(void* nsViewPeer);
-
     bool loadProjectFromPath(const juce::File& file);
 
-    /** Called from native menu bar and MacKeyMonitor hotkey dispatch. */
+    // Settings > UI = "electron": spawn the Electron shell (electron/), which
+    // becomes the on-screen window/menu bar/Touch Bar; the JUCE window backs
+    // off to a headless accessory process that keeps serving the backend.
+    void launchElectronShell();
+    void terminateElectronShell();
+
+    // Settings > UI = "browser" (default): open the SPA in the system browser
+    // against the embedded backend, then back off to headless as well.
+    void launchBrowserTab();
+
+    /** Called from the Electron menu bar, MIDI, and web action POSTs. */
     void performAction(const std::string& action);
 
-    /** Expose active key bindings for Mac menu bar update. */
+    /** Expose active key bindings for the Electron menu. */
     const std::unordered_map<std::string, std::string>& getKeyBindings() const { return keyBindings; }
 
-    /** Expose the recent-projects list for Mac menu bar's Open Recent submenu. */
+    /** Expose the recent-projects list for the Electron menu's Open Recent submenu. */
     const std::vector<RecentProjectEntry>& getRecentProjects() const { return appSettings.recentProjects; }
 
 private:
@@ -62,9 +69,11 @@ private:
     void saveAppSettingsToDisk();
 
     juce::Label alarmBanner;
-    std::unique_ptr<IWebEngineView> webView;
     BusyOverlay busyOverlay;
-    WebLoadingOverlay webLoadingOverlay;
+    // Non-null only in electron mode -- the spawned Electron shell (see
+    // launchElectronShell()). Killed on shutdown so quitting ResoStage
+    // always takes the shell down with it.
+    std::unique_ptr<juce::ChildProcess> electronProcess;
     bool wasBusyLastTick = false;
     // When true, the SPA has a text/input/textarea focused so native hotkey
     // processing is suppressed and keystrokes pass through for normal typing.
@@ -75,10 +84,7 @@ private:
     bool awaitingQuitDecision = false;
     std::function<void(bool)> pendingQuitDecision;
 
-    void* touchBarPeer = nullptr;
-    std::string touchBarActiveTab;
     std::string lastSeenSpaView;
-    void syncTouchBarToTab(const std::string& tabId);
 
     std::unordered_map<std::string, std::string> keyBindings = {
         {"play", "space"},
@@ -122,7 +128,6 @@ private:
     void jumpToLastSection();
     void jumpToBarRelative(int direction);
     void rememberRecentProject(const juce::File& file);
-    void syncMacMenuRecentProjects();
     void requestUiTab(const std::string& tab);
     void ensureSongSelected();
     void goToSong(int index);
@@ -231,10 +236,10 @@ private:
     bool wasHardwareAlarm = false;
     int startupTicks = 0;
     // Bumped by performAction() every time it actually executes a recognized
-    // action -- native hotkey (MacKeyMonitor), MIDI (CoreMidiInputListener::
-    // onAction), and the macOS menu bar all funnel through that one method,
-    // so this single pair covers all three input paths without duplicating
-    // per-path tracking. SettingsScreen compares lastAction_ against each
+    // action -- MIDI (CoreMidiInputListener::onAction), the Electron menu bar,
+    // and web action POSTs all funnel through that one method, so this single
+    // pair covers all input paths without duplicating per-path tracking.
+    // SettingsScreen compares lastAction_ against each
     // binding row to flash only the row that actually fired.
     int lastActionNonce_{0};
     std::string lastAction_;

@@ -277,8 +277,8 @@ export interface SettingsState {
   midiInputs: string[];
   /** Whether the "ResoStage Sync" virtual MIDI source is enabled (see settings.setMidiVirtualPort). */
   virtualMidiPortEnabled: boolean;
-  uiRenderEngine?: "wkwebview" | "cef";
-  cefSupported?: boolean;
+  /** "browser" = open the SPA in the system browser (default), "electron" = Electron shell. */
+  uiRenderEngine?: "browser" | "electron";
   keybindings: KeybindingRow[];
   midiBindings?: MidiBindingRow[];
   /** Non-empty while MIDI-learn is armed for this action. */

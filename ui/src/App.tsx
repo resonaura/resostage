@@ -17,6 +17,8 @@ import {
 } from "./components/ContextMenu";
 import { fetchAllPeaks, fetchPeaks, project } from "./lib/api";
 import { IS_EMBEDDED } from "./lib/embedded";
+import { IS_ELECTRON } from "./lib/electron";
+import { forwardMenuState } from "./lib/electronBridge";
 import type { AllPeaksResponse, PeaksResponse, WebUiState } from "./lib/types";
 import { SHOW_TRANSPORT_LABEL } from "./lib/devFlags";
 import { useLiveState, type TransportKind } from "./lib/useLiveState";
@@ -63,8 +65,12 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
   // undo/redo). The frontend only handles hard-coded conveniences (digit
   // song pick, arrow seek, Home) and sends the text-field focus signal so
   // the native monitor can suppress hotkeys while the user types.
+  //
+  // In the Electron shell the native monitor belongs to a different (and
+  // inactive) process, so the SPA takes over ALL bindings -- exactly like a
+  // plain browser tab, except the shell also owns the native menu bar.
   useEffect(() => {
-    if (!IS_EMBEDDED) {
+    if (!IS_EMBEDDED || IS_ELECTRON) {
       const handleKeyDown = (e: KeyboardEvent) => {
         const target = e.target as HTMLElement | null;
         if (
@@ -191,6 +197,13 @@ export default function App() {
   const { state, status, transport, cpuHistory, ramHistory, sendView } =
     useLiveState(tab);
   useGlobalHotkeys(state, setTab);
+
+  // Electron shell: keep its native menu bar / Touch Bar live (undo/redo
+  // state, Open Recent, active tab, window title) off the 30 Hz state feed.
+  useEffect(() => {
+    if (!IS_ELECTRON) return;
+    forwardMenuState(state);
+  }, [state]);
 
   // MIDI / native mode_* actions publish uiTab + uiTabSeq; apply them here
   // so a footswitch can flip screens the same way a keybinding does.

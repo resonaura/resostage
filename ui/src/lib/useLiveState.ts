@@ -90,8 +90,6 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
             next.settings.midiLearnAction ?? prev.settings.midiLearnAction,
           uiRenderEngine:
             next.settings.uiRenderEngine ?? prev.settings.uiRenderEngine,
-          cefSupported:
-            next.settings.cefSupported ?? prev.settings.cefSupported,
         }
       : prev.settings,
   };
