@@ -139,12 +139,6 @@ export function useLiveState(view: string = "player") {
     if (raw == null) return;
     try {
       const parsed = JSON.parse(raw) as Partial<WebUiState>;
-      // TEMP DEBUG
-      (window as unknown as { __dbg?: unknown[] }).__dbg =
-        ((window as unknown as { __dbg?: unknown[] }).__dbg ?? []);
-      (window as unknown as { __dbg: unknown[] }).__dbg.push({
-        t: Date.now(), playing: parsed.playing, ph: parsed.playheadSeconds, gph: parsed.globalPlayheadSeconds,
-      });
       setState((prev) => mergeState(prev, parsed));
       if (!hasSnapshotRef.current) {
         hasSnapshotRef.current = true;

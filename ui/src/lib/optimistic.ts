@@ -80,7 +80,13 @@ export function useContinuousPlayhead(
   // looking like a second free-running timeline.
   const CORRECT_PER_SEC = 8;
 
-  serverRef.current = serverAbsoluteSeconds;
+  const lastServerRxAt = useRef(Date.now());
+
+  // Synchronously update server references whenever new prop arrives (never race with useEffect!)
+  if (serverRef.current !== serverAbsoluteSeconds) {
+    serverRef.current = serverAbsoluteSeconds;
+    lastServerRxAt.current = Date.now();
+  }
   playingRef.current = playing;
 
   // Project change only -- hard snap.
@@ -91,6 +97,7 @@ export function useContinuousPlayhead(
       localRef.current = serverAbsoluteSeconds;
       setAbsolute(serverAbsoluteSeconds);
       lastFrameTs.current = null;
+      lastServerRxAt.current = Date.now();
     }
   }, [resetKey, serverAbsoluteSeconds]);
 
@@ -131,25 +138,21 @@ export function useContinuousPlayhead(
     const tick = (ts: number) => {
       const prev = lastFrameTs.current;
       lastFrameTs.current = ts;
-      // Dragging: the caller drives `absolute` directly via seekAbsolute on
-      // every pointermove -- this loop must not also integrate dt/correct
-      // toward the server in the same tick, or the two fight. Keep looping
-      // (don't unmount the rAF) so it resumes instantly, mid-frame, the
-      // moment the drag ends -- no fresh-dt jump like a full effect restart
-      // would cause.
       if (prev != null && !draggingRef?.current && Date.now() - lastSeekAt.current > SEEK_LOCK_MS) {
         const dt = Math.min(0.08, Math.max(0, (ts - prev) / 1000));
-        let next = localRef.current + dt;
-        const err = serverRef.current - next;
-        // Exponential pull toward server: ~e^(-CORRECT*dt) residual.
-        next += err * (1 - Math.exp(-CORRECT_PER_SEC * dt));
+        // Extrapolate expected server time considering elapsed time since packet arrival
+        const serverAge = Math.max(0, (Date.now() - lastServerRxAt.current) / 1000);
+        const targetServer = serverRef.current + (playingRef.current ? serverAge : 0);
+        const err = targetServer - localRef.current;
+
+        // Bounded speed correction (max ±5% speed variation) to filter jitter & prevent overshoots/jumps
+        const maxAdjust = 0.05 * dt;
+        const adjust = Math.max(-maxAdjust, Math.min(maxAdjust, err * 2.0 * dt));
+
+        let next = localRef.current + dt + adjust;
         if (next < 0) next = 0;
         localRef.current = next;
         setAbsolute(next);
-        // TEMP DEBUG
-        (window as unknown as { __dbg2?: unknown[] }).__dbg2 =
-          ((window as unknown as { __dbg2?: unknown[] }).__dbg2 ?? []);
-        (window as unknown as { __dbg2: unknown[] }).__dbg2.push({ t: Date.now(), next, playing, frozen });
       }
       raf = requestAnimationFrame(tick);
     };

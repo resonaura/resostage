@@ -682,12 +682,15 @@ function Ruler({
     const list: { x: number; major: boolean; label?: string }[] = [];
     if (minorStepSec <= 0 || majorStepSec <= 0) return list;
 
-    const startTime = Math.max(0, scrollLeft / pxPerSec);
+    // Quantize scrollLeft to 250px steps with generous buffer so React DOM nodes
+    // don't churn on every sub-pixel frame during smooth 60/120fps scrolling
+    const quantizedLeft = Math.max(0, Math.floor((scrollLeft || 0) / 250) * 250 - 250);
+    const bufferedWidth = (viewportWidth || 1200) + 500;
+
+    const startTime = Math.max(0, quantizedLeft / pxPerSec);
     const endTime = Math.min(
       songLength + majorStepSec,
-      viewportWidth != null
-        ? (scrollLeft + viewportWidth) / pxPerSec + minorStepSec
-        : songLength + majorStepSec,
+      (quantizedLeft + bufferedWidth) / pxPerSec + minorStepSec,
     );
     const startTick = Math.floor(startTime / minorStepSec) * minorStepSec;
 
@@ -2412,6 +2415,8 @@ export function Timeline({
   // стопилось якобы а потом оно с анимацией догоняло"). It runs ONCE (the
   // song index is tracked through a ref) so a song change doesn't restart it
   // and lose the in-flight glide.
+  const rulerHeaderRef = useRef<HTMLDivElement>(null);
+
   const playheadRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let raf = 0;
@@ -2434,19 +2439,35 @@ export function Timeline({
     let lastSongIdx = currentSongIdxRef.current;
     const marker = playheadRef.current;
     if (marker) marker.style.left = `${displayPx}px`;
-    if (scrollRef.current && sidebarContentRef.current)
-      sidebarContentRef.current.style.transform = `translateY(-${scrollRef.current.scrollTop}px)`;
-    // This whole effect runs once per mount, and a HeroUI TabPanel fully
-    // unmounts its children while inactive (no shouldForceMount prop, see
-    // App.tsx's <Tabs.Panel> usages) -- so mounting IS "the user just
-    // switched to this tab". Consumed once, on the first tick, below.
+    if (scrollRef.current) {
+      const st = scrollRef.current.scrollTop;
+      if (sidebarContentRef.current)
+        sidebarContentRef.current.style.transform = `translate3d(0, -${st}px, 0)`;
+      if (rulerHeaderRef.current)
+        rulerHeaderRef.current.style.transform = `translate3d(0, ${st}px, 0)`;
+    }
     let firstTick = true;
+    let lastFollowTs = 0;
+    let avgDt = 1 / 60;
 
     const tick = () => {
       // Every frame, unconditionally -- see sidebarContentRef's doc comment
       // for why this can't be a React-state round trip.
-      if (scrollRef.current && sidebarContentRef.current)
-        sidebarContentRef.current.style.transform = `translateY(-${scrollRef.current.scrollTop}px)`;
+      if (scrollRef.current) {
+        const st = scrollRef.current.scrollTop;
+        if (sidebarContentRef.current)
+          sidebarContentRef.current.style.transform = `translate3d(0, -${st}px, 0)`;
+        if (rulerHeaderRef.current)
+          rulerHeaderRef.current.style.transform = `translate3d(0, ${st}px, 0)`;
+      }
+
+      const nowTs = performance.now();
+      const rawDt = lastFollowTs > 0 ? Math.min(0.05, Math.max(0.001, (nowTs - lastFollowTs) / 1000)) : 1 / 60;
+      lastFollowTs = nowTs;
+      // Exponentially smooth frame delta to eliminate 60Hz/120Hz display rAF timer jitter
+      avgDt += (rawDt - avgDt) * 0.1;
+      const dt = avgDt;
+
       // pxPerSecRef.current (NOT a render-copied mirror): applyZoomAt writes
       // it synchronously on every wheel/pinch tick, so this loop computes the
       // playhead's document position with the zoom scale CURRENT the same
@@ -2482,15 +2503,10 @@ export function Timeline({
 
       // Step `from` toward `target`. Two regimes:
       //  - REAL PAN: a VARIABLE-ACCELERATION ease-out curve (start fast, then
-      //    decelerate into the target -- "сначала быстро а потом замедляться")
-      //    over a bounded ~PAN_FRAMES (~0.3s). The constant speed + hard snap
-      //    read as "резковато": it launched at full speed and slammed to a
-      //    stop. The curve finishes exactly at the target (f=1 -> next=target)
-      //    so there's no tail, and it stays bounded no matter how far the
-      //    target is -- even across minutes of timeline at heavy zoom.
-      //  - WOBBLE (panStartDist reset because we're at follow-jitter scale):
-      //    ease exponentially (alpha 0.25) so the WS-clock jitter is filtered,
-      //    not amplified, during continuous follow.
+      //    decelerate into the target) over a bounded ~PAN_FRAMES (~0.3s) for
+      //    song changes or large jumps.
+      //  - DIRECT SMOOTH FOLLOW: for normal steady-state playback, advance by dt * pxPerSec
+      //    on every 60fps frame to guarantee smooth continuous scroll without state-batching stutter.
       const glide = (from: number) => {
         const diff = target - from;
         const dist = Math.abs(diff);
@@ -2501,12 +2517,17 @@ export function Timeline({
           const t = Math.min(1, panElapsedFrames / PAN_FRAMES);
           const f = 1 - (1 - t) ** 3; // easeOutCubic
           const next = panFrom + (target - panFrom) * f;
-          if (t >= 1) panStartDist = 0; // pan done -- back to wobble next frame
+          if (t >= 1) panStartDist = 0; // pan done
           return next;
         }
-        // Caught up (sub-10px, follow-jitter scale): drop the pan speed and
-        // go back to jitter-filtering ease.
-        if (dist < 10) panStartDist = 0;
+        // Normal continuous follow: advance pure linear playback speed (dt * pxPerSec)
+        // to stay immune to discrete React state batching & oscillations
+        if (dist < 40) {
+          panStartDist = 0;
+          const step = dt * pxPerSecRef.current;
+          const next = from + step;
+          return Math.min(maxScrollLeft, Math.max(0, next));
+        }
         return diff > 0 ? from + dist * 0.25 : from - dist * 0.25;
       };
 
@@ -2528,37 +2549,26 @@ export function Timeline({
         if (Math.abs(before - engineScrollLeft) > 0.5) {
           programmaticScrollLeftRef.current = engineScrollLeft;
         }
-        setScrollState({ scrollLeft: engineScrollLeft, viewportWidth: viewWidth });
-        // Marker: pinned at 25% of the viewport whenever the playhead CAN sit
-        // there (desired scroll within bounds). At the very start/end of the
-        // timeline the desired scroll clamps to 0/maxScrollLeft, so the
-        // playhead can't be at 25% -- show its true position there ("плейхед
-        // не там" at the boundaries). During a song-change pan the marker
-        // stays pinned and the timeline slides under it, like a DAW's
-        // continuous-scroll playhead.
+        if (Math.abs(lastScrollLeftRef.current - engineScrollLeft) > 100) {
+          lastScrollLeftRef.current = engineScrollLeft;
+          setScrollState({ scrollLeft: engineScrollLeft, viewportWidth: viewWidth });
+        }
+        // Marker: during active large panning (song change / far seek), hold
+        // marker pinned at 25% viewport while timeline slides under it.
+        // During normal continuous follow, anchor marker directly to true `px`
+        // so any sub-pixel scroller adjustments never cause forward/backward marker jumps.
+        const isPanning = panStartDist > viewWidth * 0.25 && panElapsedFrames < 18;
         const pinnedTarget = px - viewWidth * 0.25;
         displayPx =
-          pinnedTarget >= 0 && pinnedTarget <= maxScrollLeft
+          isPanning && pinnedTarget >= 0 && pinnedTarget <= maxScrollLeft
             ? engineScrollLeft + viewWidth * 0.25
             : px;
       } else {
         // Not smoothly following this tick (paused, off/snap mode, or a
         // gesture is in progress) -- drop the follow anchor.
         engineScrollLeft = null;
-        // Marker tracks the raw playhead at its natural document position.
-        // No screen-pin during zoom: applyZoomAt anchors the scroll at the
-        // real gesture focus (cursor / pinch midpoint / center), and this
-        // loop snaps displayPx straight to px (gestureActiveNowRef is set
-        // during the gesture), so the marker rides the zoom-focus scroll
-        // exactly instead of being force-held at a screen X that fights it
-        // ("плейхед колбасит при зуме" / "когда завершаешь пинч то
-        // оказывается не там").
-        displayPx =
-          dragging.current
-          || gestureActiveNowRef.current
-          || Math.abs(px - displayPx) > pxPerSecRef.current * 1.5
-            ? px
-            : displayPx + (px - displayPx) * 0.25;
+        // Marker tracks the true playhead position directly without lag
+        displayPx = px;
 
         // Animated PANS (glide), unified for every follow mode and for
         // playing and stopped alike. Three triggers, all gliding instead of
@@ -2630,7 +2640,10 @@ export function Timeline({
             if (Math.abs(before - scroller.scrollLeft) > 0.5) {
               programmaticScrollLeftRef.current = scroller.scrollLeft;
             }
-            setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
+            if (Math.abs(lastScrollLeftRef.current - scroller.scrollLeft) > 100 || settled) {
+              lastScrollLeftRef.current = scroller.scrollLeft;
+              setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
+            }
             if (settled) revealScroll = null;
           }
         } else {
@@ -3065,17 +3078,19 @@ export function Timeline({
           <div
             ref={scrollRef}
             className="flex-1 min-h-0 overflow-auto relative select-none cursor-col-resize focus:outline-none"
+            style={{ willChange: "scroll-position", transform: "translateZ(0)" }}
             onScroll={onScrollSync}
           >
             <div
               ref={timelineBodyRef}
               className="relative flex min-h-0 flex-col"
-              style={{ width: contentWidth, minHeight: "100%" }}
+              style={{ width: contentWidth, minHeight: "100%", transform: "translateZ(0)" }}
             >
-              {/* 1. Sticky Ruler Header -- one segment per song, each with its own bpm/time-signature grid */}
+              {/* 1. Sticky Ruler Header -- driven by rAF translate3d instead of Chromium sticky compositor lock */}
               <div
-                className="sticky top-0 z-20 bg-background-secondary shrink-0 cursor-col-resize touch-none relative"
-                style={{ width: contentWidth, height: RULER_HEIGHT }}
+                ref={rulerHeaderRef}
+                className="relative top-0 z-20 bg-background-secondary shrink-0 cursor-col-resize touch-none"
+                style={{ width: contentWidth, height: RULER_HEIGHT, willChange: "transform" }}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
@@ -4081,39 +4096,42 @@ function BeatGrid({
     [pxPerSec, bpm, tsNum],
   );
 
+  // Quantize scrollLeft to 250px chunks so the canvas node stays static for 250px of scroll
+  // and moves smoothly with native GPU layer scrolling without 60fps React redraw stutter
+  const quantizedLeft = Math.max(0, Math.floor((scrollLeft || 0) / 250) * 250 - 250);
+  const bufferedWidth = Math.min(contentWidth, (viewportWidth || 1200) + 500);
+
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || viewportWidth <= 0) return;
+    if (!canvas || bufferedWidth <= 0) return;
     const parent = canvas.parentElement;
     const height = parent ? parent.clientHeight : 300;
 
     const dpr = window.devicePixelRatio || 1;
-    const renderWidth = Math.min(viewportWidth, contentWidth);
-    const targetW = Math.max(1, Math.floor(renderWidth * dpr));
+    const targetW = Math.max(1, Math.floor(bufferedWidth * dpr));
     const targetH = Math.max(1, Math.floor(height * dpr));
 
     if (canvas.width !== targetW || canvas.height !== targetH) {
       canvas.width = targetW;
       canvas.height = targetH;
-      canvas.style.width = `${renderWidth}px`;
+      canvas.style.width = `${bufferedWidth}px`;
       canvas.style.height = `${height}px`;
     }
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, renderWidth, height);
+    ctx.clearRect(0, 0, bufferedWidth, height);
 
     if (minorStepSec > 0 && majorStepSec > 0) {
-      const startTime = Math.max(0, scrollLeft / pxPerSec);
+      const startTime = Math.max(0, quantizedLeft / pxPerSec);
       const endTime = Math.min(
         songLength + minorStepSec,
-        (scrollLeft + viewportWidth) / pxPerSec,
+        (quantizedLeft + bufferedWidth) / pxPerSec,
       );
       const startTick = Math.floor(startTime / minorStepSec) * minorStepSec;
       const eps = Math.max(minorStepSec * 0.01, 1e-9);
-      // Cap strokes per frame so extreme zoom-out never melts the canvas.
-      const maxStrokes = 500;
+      const maxStrokes = 1000;
       let strokes = 0;
 
       for (
@@ -4123,8 +4141,8 @@ function BeatGrid({
       ) {
         const rounded = Math.round(t / minorStepSec) * minorStepSec;
         const globalX = Math.round(rounded * pxPerSec);
-        const canvasX = globalX - scrollLeft;
-        if (canvasX < 0 || canvasX > renderWidth) continue;
+        const canvasX = globalX - quantizedLeft;
+        if (canvasX < 0 || canvasX > bufferedWidth) continue;
 
         const phase = ((rounded % majorStepSec) + majorStepSec) % majorStepSec;
         const isMajor = phase < eps || Math.abs(phase - majorStepSec) < eps;
@@ -4143,8 +4161,8 @@ function BeatGrid({
   }, [
     pxPerSec,
     contentWidth,
-    scrollLeft,
-    viewportWidth,
+    quantizedLeft,
+    bufferedWidth,
     songLength,
     majorStepSec,
     minorStepSec,
@@ -4154,7 +4172,7 @@ function BeatGrid({
     <canvas
       ref={canvasRef}
       className="pointer-events-none absolute top-0 z-0"
-      style={{ left: scrollLeft }}
+      style={{ left: quantizedLeft }}
     />
   );
 }
