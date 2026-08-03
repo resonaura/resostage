@@ -178,6 +178,63 @@ function SystemHealthWidget({
   );
 }
 
+function PlayerLightStagePreview({ state }: { state: WebUiState }) {
+  const li = state.lighting;
+  const fixtures = li?.fixtures ?? [];
+  const song = state.songIndex >= 0 ? state.songs[state.songIndex] : null;
+
+  const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
+
+  useEffect(
+    () => (li?.enabled ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs())) : undefined),
+    [li?.enabled],
+  );
+
+  const previewColors = useMemo(() => {
+    if (!li?.enabled) return {};
+    return computeFixturePreviewColors(
+      fixtures,
+      state.lightTracks,
+      song?.lightCues ?? [],
+      state.playheadSeconds,
+    );
+  }, [li?.enabled, fixtures, state.lightTracks, song?.lightCues, state.playheadSeconds]);
+
+  const displayColors = useMemo(() => {
+    const merged: Record<string, PreviewColor> = { ...previewColors };
+    for (const lo of liveLedOutputs) {
+      const fixture = fixtures[lo.fixtureIdx];
+      if (!fixture) continue;
+      merged[fixture.id] = {
+        r: 0,
+        g: 0,
+        b: 0,
+        intensity: 1,
+        ledColors: lo.ledColors,
+      };
+    }
+    return merged;
+  }, [previewColors, liveLedOutputs, fixtures]);
+
+  if (fixtures.length === 0) return null;
+
+  return (
+    <div className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary relative mr-2">
+      <div className="border-b border-default/20 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-amber-400 flex items-center justify-between z-10 bg-background/60 backdrop-blur-sm">
+        <span>Stage Lights</span>
+        <span className="text-[9px] font-mono text-foreground/40">{fixtures.length} fix</span>
+      </div>
+      <div className="flex-1 min-h-0 relative">
+        <ResoLightStage3D
+          mode="preview"
+          fixtures={fixtures}
+          previewColors={displayColors}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function PlayerScreen({
   state,
   cpuHistory,
@@ -287,63 +344,6 @@ export function PlayerScreen({
     state.playing,
     state.projectName,
   );
-
-function PlayerLightStagePreview({ state }: { state: WebUiState }) {
-  const li = state.lighting;
-  const fixtures = li?.fixtures ?? [];
-  const song = state.songIndex >= 0 ? state.songs[state.songIndex] : null;
-
-  const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
-
-  useEffect(
-    () => (li?.enabled ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs())) : undefined),
-    [li?.enabled],
-  );
-
-  const previewColors = useMemo(() => {
-    if (!li?.enabled) return {};
-    return computeFixturePreviewColors(
-      fixtures,
-      state.lightTracks,
-      song?.lightCues ?? [],
-      state.playheadSeconds,
-    );
-  }, [li?.enabled, fixtures, state.lightTracks, song?.lightCues, state.playheadSeconds]);
-
-  const displayColors = useMemo(() => {
-    const merged: Record<string, PreviewColor> = { ...previewColors };
-    for (const lo of liveLedOutputs) {
-      const fixture = fixtures[lo.fixtureIdx];
-      if (!fixture) continue;
-      merged[fixture.id] = {
-        r: 0,
-        g: 0,
-        b: 0,
-        intensity: 1,
-        ledColors: lo.ledColors,
-      };
-    }
-    return merged;
-  }, [previewColors, liveLedOutputs, fixtures]);
-
-  if (fixtures.length === 0) return null;
-
-  return (
-    <div className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary relative mr-2">
-      <div className="border-b border-default/20 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-amber-400 flex items-center justify-between z-10 bg-background/60 backdrop-blur-sm">
-        <span>Stage Lights</span>
-        <span className="text-[9px] font-mono text-foreground/40">{fixtures.length} fix</span>
-      </div>
-      <div className="flex-1 min-h-0 relative">
-        <ResoLightStage3D
-          mode="preview"
-          fixtures={fixtures}
-          previewColors={displayColors}
-        />
-      </div>
-    </div>
-  );
-}
 
   const song =
     state.songIndex >= 0 && state.songs[state.songIndex]
