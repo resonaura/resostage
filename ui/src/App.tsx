@@ -650,7 +650,12 @@ function ProjectMenu({ state }: { state: WebUiState }) {
                     void project.openRecent(rp.path);
                   }}
                 >
-                  {rp.displayName}
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-medium text-xs text-foreground truncate">{rp.displayName}</span>
+                    <span className="text-[10px] text-foreground/40 truncate" title={rp.path}>
+                      {rp.path}
+                    </span>
+                  </div>
                 </ContextMenuItem>
               ))}
               <ContextMenuDivider />

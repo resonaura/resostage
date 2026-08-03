@@ -110,8 +110,11 @@ AppSettings loadAppSettings() {
             std::string_view path;
             if (rpEl["path"].get(path))
                 continue; // skip malformed entry rather than fail the whole load
+            const std::string pathStr(path);
+            if (!juce::File(pathStr).existsAsFile())
+                continue; // skip files that no longer exist on disk
             RecentProjectEntry rp;
-            rp.path = std::string(path);
+            rp.path = pathStr;
             std::string_view name;
             if (!rpEl["displayName"].get(name))
                 rp.displayName = std::string(name);

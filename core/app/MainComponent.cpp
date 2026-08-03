@@ -553,6 +553,7 @@ void MainComponent::performAction(const std::string& action) {
     else if (action == "clear_recent_projects") {
         appSettings.recentProjects.clear();
         saveAppSettingsToDisk();
+        publishWebState();
     }
     else if (action == "quit") {
         // Native menu bar intercepts "quit" in Main.cpp before reaching us;
@@ -691,6 +692,7 @@ void MainComponent::rememberRecentProject(const juce::File& file) {
 
     touchRecentProject(appSettings.recentProjects, std::move(entry));
     saveAppSettingsToDisk();
+    publishWebState();
 }
 
 void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to16, int number) {
@@ -922,6 +924,7 @@ void MainComponent::drainWebCommands() {
                     applyGlobalBindings();
                     onProjectLoaded();
                     setStatus("Loaded '" + juce::String(engine.project().name) + "' (uploaded from browser)");
+                    rememberRecentProject(juce::File(cmd.path));
                     if (!engine.project().songs.empty())
                         goToSong(0);
                 } else {
@@ -934,12 +937,14 @@ void MainComponent::drainWebCommands() {
                 if (!loadProjectFromPath(juce::File(cmd.path))) {
                     removeRecentProject(appSettings.recentProjects, cmd.path);
                     saveAppSettingsToDisk();
+                    publishWebState();
                 }
                 break;
             }
             case WebCommandKind::ClearRecentProjects:
                 appSettings.recentProjects.clear();
                 saveAppSettingsToDisk();
+                publishWebState();
                 break;
             case WebCommandKind::ExportProjectForDownload: {
                 if (!engine.isProjectLoaded()) {
