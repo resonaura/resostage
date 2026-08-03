@@ -105,6 +105,11 @@ export function useLiveState(view: string = "player") {
   const [ramHistory, setRamHistory] = useState<number[]>(() =>
     Array(30).fill(0),
   );
+  // Flips true once the first real WS snapshot has been merged into `state`
+  // -- callers that forward `state` elsewhere (e.g. the Electron menu-state
+  // bridge) should wait for this rather than sending `emptyState`'s
+  // placeholder values on mount.
+  const [hasLiveSnapshot, setHasLiveSnapshot] = useState(false);
 
   const reconnectMsRef = useRef(500);
   const latestHealthRef = useRef<{ cpu: number; ram: number }>({
@@ -120,15 +125,25 @@ export function useLiveState(view: string = "player") {
   // dropped by coalesce.
   const pendingRawRef = useRef<string | null>(null);
   const rafRef = useRef<number>(0);
+  const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasSnapshotRef = useRef(false);
 
   const flushPending = () => {
     rafRef.current = 0;
+    if (flushTimeoutRef.current) {
+      clearTimeout(flushTimeoutRef.current);
+      flushTimeoutRef.current = null;
+    }
     const raw = pendingRawRef.current;
     pendingRawRef.current = null;
     if (raw == null) return;
     try {
       const parsed = JSON.parse(raw) as Partial<WebUiState>;
       setState((prev) => mergeState(prev, parsed));
+      if (!hasSnapshotRef.current) {
+        hasSnapshotRef.current = true;
+        setHasLiveSnapshot(true);
+      }
       if (parsed.health) {
         latestHealthRef.current = {
           cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
@@ -138,6 +153,26 @@ export function useLiveState(view: string = "player") {
     } catch {
       // ignore malformed
     }
+  };
+
+  // Coalesce structural state to paint rate via rAF, but never let it go
+  // fully silent: a throttled/occluded window (Electron backgroundThrottling
+  // edge cases, devtools open, a GPU hiccup) can stall rAF indefinitely, and
+  // this is a live-performance app -- the Player screen and 3D lighting
+  // preview must not freeze just because the window lost focus/visibility.
+  // A setTimeout safety net forces the flush even if rAF never fires.
+  const scheduleFlush = () => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(flushPending);
+    if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
+    flushTimeoutRef.current = setTimeout(() => {
+      flushTimeoutRef.current = null;
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+      }
+      flushPending();
+    }, 100);
   };
 
   const sendView = (v: string) => {
@@ -212,11 +247,9 @@ export function useLiveState(view: string = "player") {
         } catch {
           // ignore
         }
-        // Full React state: coalesce to paint rate.
+        // Full React state: coalesce to paint rate (with a stall safety net).
         pendingRawRef.current = raw;
-        if (!rafRef.current) {
-          rafRef.current = requestAnimationFrame(flushPending);
-        }
+        scheduleFlush();
       };
       ws.onerror = () => {
         try {
@@ -256,10 +289,19 @@ export function useLiveState(view: string = "player") {
       clearInterval(sampleInterval);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
       ws?.close();
       wsRef.current = null;
     };
   }, []);
 
-  return { state, status, transport, cpuHistory, ramHistory, sendView };
+  return {
+    state,
+    status,
+    transport,
+    cpuHistory,
+    ramHistory,
+    sendView,
+    hasLiveSnapshot,
+  };
 }

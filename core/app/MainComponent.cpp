@@ -117,7 +117,23 @@ MainComponent::MainComponent() {
     // Settings -- the Electron shell (window/menu/Touch Bar) or the default
     // browser tab. Either way the JUCE window backs off to an accessory
     // process that keeps serving the backend (audio / lighting / WebServer).
-    if (appSettings.uiRenderEngine == "electron") {
+    //
+    // Exception: the shipped bundle nests this Core.app inside the Electron
+    // shell's own .app (Contents/Resources/) and Electron is what the user
+    // actually launches -- it spawns THIS process as its backend, setting
+    // RESOSTAGE_SPAWNED_BY_SHELL so we don't try to *also* spawn a shell of
+    // our own (which would be circular) or pop open a browser tab. This
+    // never overrides the flag for standalone/dev launches of this .app.
+    const bool spawnedByShell = std::getenv("RESOSTAGE_SPAWNED_BY_SHELL") != nullptr;
+    if (spawnedByShell) {
+        juce::MessageManager::callAsync([this] {
+            if (auto* tl = getTopLevelComponent())
+                tl->setVisible(false);
+#if JUCE_MAC
+            backOffToHeadlessShell();
+#endif
+        });
+    } else if (appSettings.uiRenderEngine == "electron") {
         launchElectronShell();
     } else {
         launchBrowserTab();
@@ -151,6 +167,14 @@ MainComponent::~MainComponent() {
 namespace {
 // electron executable for the given package dir, or an invalid File.
 juce::File findElectronBinary(const juce::File& packageDir) {
+    // Prefer the branded copy (electron/scripts/brand-mac-app.mjs, run as
+    // part of `pnpm build` in electron/) so macOS shows "ResoStage" with the
+    // real icns icon in the Dock/⌘-Tab instead of stock "Electron" -- falls
+    // back to the raw node_modules copy if branding hasn't run yet.
+    const auto branded = packageDir
+        .getChildFile("dist-app/ResoStage.app/Contents/MacOS/Electron");
+    if (branded.existsAsFile())
+        return branded;
     const auto dist = packageDir
         .getChildFile("node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
     if (dist.existsAsFile())

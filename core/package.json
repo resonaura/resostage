@@ -1,0 +1,10 @@
+{
+  "name": "resostage-core",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ResoStage native engine + JUCE app (C++ / CMake). See root package.json for the real build entry points (rebuild, test) -- these scripts just delegate there.",
+  "scripts": {
+    "build": "cd .. && pnpm run rebuild",
+    "test": "cd .. && pnpm run test"
+  }
+}

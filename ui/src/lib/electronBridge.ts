@@ -19,6 +19,11 @@ interface ElectronMenuState {
   uiTab: string;
   recentProjects: { path: string; displayName: string }[];
   projectName: string;
+  // Bumped on every performAction() call regardless of trigger (hotkey,
+  // MIDI, native menu, web POST) -- lets the shell briefly flash the
+  // matching menu item, mirroring the old AppKit MacMenuBar behavior.
+  lastAction: string;
+  lastActionNonce: number;
 }
 
 type BridgeWindow = typeof window & {
@@ -44,6 +49,8 @@ function fingerprint(s: WebUiState): string {
     s.uiTab,
     (s.settings?.recentProjects ?? []).map((r) => [r.path, r.displayName]),
     s.projectName,
+    s.lastAction,
+    s.lastActionNonce,
   ]);
 }
 
@@ -62,5 +69,7 @@ export function forwardMenuState(s: WebUiState): void {
     uiTab: s.uiTab ?? "",
     recentProjects: s.settings?.recentProjects ?? [],
     projectName: s.projectName ?? "",
+    lastAction: s.lastAction ?? "",
+    lastActionNonce: s.lastActionNonce ?? 0,
   });
 }

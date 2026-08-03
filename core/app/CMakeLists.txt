@@ -4,7 +4,7 @@ juce_add_gui_app(ResoStage
   PRODUCT_NAME "ResoStage Core"
   COMPANY_NAME "Resonaura"
   BUNDLE_ID "com.resonaura.resostage"
-  ICON_BIG "${CMAKE_SOURCE_DIR}/icons/app.png"
+  ICON_BIG "${CMAKE_SOURCE_DIR}/../icons/app.png"
   PLIST_TO_MERGE "${INFO_PLIST_CONTENT}"
 )
 
@@ -29,7 +29,7 @@ target_sources(ResoStage PRIVATE
 
 if(APPLE)
   target_sources(ResoStage PRIVATE platform/MacShellMode.mm)
-  set(FILE_ICON "${CMAKE_SOURCE_DIR}/icons/file.icns")
+  set(FILE_ICON "${CMAKE_SOURCE_DIR}/../icons/file.icns")
   set_source_files_properties(${FILE_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   target_sources(ResoStage PRIVATE ${FILE_ICON})
 endif()

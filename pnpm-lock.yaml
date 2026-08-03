@@ -8,6 +8,8 @@ importers:
 
   .: {}
 
+  core: {}
+
   electron:
     devDependencies:
       '@types/node':

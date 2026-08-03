@@ -5,7 +5,8 @@ build-*/
 CMakeUserPresets.json
 .cache/
 compile_commands.json
-tests/audio
+core/tests/audio
 node_modules
 electron/node_modules
 electron/dist
+electron/dist-app

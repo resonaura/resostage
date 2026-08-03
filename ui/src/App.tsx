@@ -194,16 +194,28 @@ export default function App() {
   const [tab, setTab] = useState("player");
   // Tell the backend which SPA tab is active so WS frames only carry that
   // page's heavy arrays (transport/time always included).
-  const { state, status, transport, cpuHistory, ramHistory, sendView } =
+  const { state, status, transport, cpuHistory, ramHistory, sendView, hasLiveSnapshot } =
     useLiveState(tab);
   useGlobalHotkeys(state, setTab);
 
   // Electron shell: keep its native menu bar / Touch Bar live (undo/redo
   // state, Open Recent, active tab, window title) off the 30 Hz state feed.
+  // Two things to get right here:
+  //  - Don't forward before hasLiveSnapshot: on mount `state` is still
+  //    emptyState (recentProjects: []), and forwarding it would overwrite
+  //    the main process's own correctly pre-seeded Open Recent list (it
+  //    fetches GET /api/v1/ui/menu before creating the window) with an
+  //    empty one, before any real data has arrived to correct it.
+  //  - Send local `tab`, not `state.uiTab`: `state.uiTab` is only bumped by
+  //    performAction("mode_*") (keyboard/MIDI/native menu), never by
+  //    clicking a tab directly in this page's own tab bar -- so the Touch
+  //    Bar highlight would go stale on every mouse-driven tab switch. Local
+  //    `tab` is updated by every navigation path and is what's actually on
+  //    screen.
   useEffect(() => {
-    if (!IS_ELECTRON) return;
-    forwardMenuState(state);
-  }, [state]);
+    if (!IS_ELECTRON || !hasLiveSnapshot) return;
+    forwardMenuState({ ...state, uiTab: tab });
+  }, [state, tab, hasLiveSnapshot]);
 
   // MIDI / native mode_* actions publish uiTab + uiTabSeq; apply them here
   // so a footswitch can flip screens the same way a keybinding does.

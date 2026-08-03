@@ -10,25 +10,58 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const ROOT = join(__dirname, "..");
-export const BUILD_DIR = process.env.BUILD_DIR || join(ROOT, "build");
+// All native C++ (JUCE app + engine + vendor + tools + tests) lives under
+// core/ -- CMake is invoked with this as the source root. The raw/dirty
+// CMake build tree also lives under core/ (core/build) -- it's disposable
+// intermediate output, distinct from the clean distributable assembled
+// below at the true repo root's build/<platform>/<arch>/.
+export const CORE_DIR = join(ROOT, "core");
+export const BUILD_DIR = process.env.BUILD_DIR || join(CORE_DIR, "build");
 export const BUILD_TYPE = process.env.BUILD_TYPE || "Debug";
 // CMake target + JUCE artefact dir. Kept "ResoStage" even though the bundle
 // is now branded "ResoStage Core" -- the target name drives _artefacts/.
 export const APP_TARGET = "ResoStage";
-// On-screen bundle/binary name (juce_add_gui_app PRODUCT_NAME) -- the
-// JUCE core is "ResoStage Core" while the Electron shell brands itself
-// "ResoStage". Must stay quoted anywhere it's used (contains a space).
-export const APP_NAME = "ResoStage Core";
-export function getAppBundle() {
+// The nested JUCE backend bundle (juce_add_gui_app PRODUCT_NAME) vs. the
+// outer Electron shell bundle the user actually launches -- see
+// getShellAppBundle()/getNestedCoreAppBundle() below. Both stay quoted
+// anywhere used (they contain spaces).
+export const CORE_APP_NAME = "ResoStage Core";
+export const SHELL_APP_NAME = "ResoStage";
+
+function platformDirName() {
+  if (process.platform === "darwin") return "mac";
+  if (process.platform === "win32") return "win";
+  if (process.platform === "linux") return "linux";
+  return process.platform;
+}
+
+// Clean distributable output root: build/<platform>/<arch>/ResoStage.app --
+// the ONE thing both `pnpm run rebuild:run` and a real release launch, so
+// dev iteration never diverges from what actually ships.
+export const DIST_DIR = process.env.DIST_DIR || join(ROOT, "build");
+export const PLATFORM_DIST_DIR = join(DIST_DIR, platformDirName(), process.arch);
+
+// NOTE: call these fresh at each use site rather than caching the result --
+// rebuild:run builds and launches in the same process, so a module-level
+// constant computed at import time (before the build exists) would stay
+// stale for the rest of the run.
+export function getShellAppBundle() {
   if (process.env.APP_BUNDLE) return process.env.APP_BUNDLE;
-  const directPath = join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, `${APP_NAME}.app`);
+  return join(PLATFORM_DIST_DIR, `${SHELL_APP_NAME}.app`);
+}
+export function getNestedCoreAppBundle(shellBundle = getShellAppBundle()) {
+  return join(shellBundle, "Contents", "Resources", `${CORE_APP_NAME}.app`);
+}
+// Raw JUCE build output straight out of CMake (core/build/), before it gets
+// copied into the assembled shell bundle above.
+export function getRawCoreAppBundle() {
+  const directPath = join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, `${CORE_APP_NAME}.app`);
   if (existsSync(directPath)) return directPath;
-  const buildTypePath = join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, BUILD_TYPE, `${APP_NAME}.app`);
+  const buildTypePath = join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, BUILD_TYPE, `${CORE_APP_NAME}.app`);
   if (existsSync(buildTypePath)) return buildTypePath;
   return directPath;
 }
-export const APP_BUNDLE = getAppBundle();
-export const APP_BINARY = join(APP_BUNDLE, "Contents", "MacOS", APP_NAME);
+
 export const TEST_BINARY =
   process.env.TEST_BINARY || join(BUILD_DIR, "tests", "resostage_engine_tests");
 export const JOBS = Number(process.env.JOBS) || cpus().length || 4;
@@ -101,7 +134,7 @@ export function ensureCmakeConfigured() {
   log(`CMake not configured at ${BUILD_DIR} -- configuring (${BUILD_TYPE})...`);
   run("cmake", [
     "-S",
-    ROOT,
+    CORE_DIR,
     "-B",
     BUILD_DIR,
     `-DCMAKE_BUILD_TYPE=${BUILD_TYPE}`,
@@ -120,74 +153,72 @@ export function cmakeBuild(target) {
   run("cmake", args);
 }
 
+// The shipped/launched process is now the Electron shell (CFBundleExecutable
+// "Electron", like any Electron app) -- matching by full path (-f), not by
+// short process name, is required so this doesn't catch unrelated Electron
+// apps running on the same machine.
+function shellExecutablePath() {
+  return join(getShellAppBundle(), "Contents", "MacOS", "Electron");
+}
+
 export function appIsRunning() {
-  const byName = runQuiet("pgrep", ["-x", APP_NAME]);
-  if (byName.status === 0) return true;
-  const byPath = runQuiet("pgrep", [
-    "-f",
-    `${APP_NAME}.app/Contents/MacOS/${APP_NAME}`,
-  ]);
-  return byPath.status === 0;
+  return runQuiet("pgrep", ["-f", shellExecutablePath()]).status === 0;
 }
 
 export function killApp() {
   if (!appIsRunning()) {
-    log(`${APP_NAME} is not running`);
+    log(`${SHELL_APP_NAME} is not running`);
     return;
   }
-  log(`Stopping ${APP_NAME}...`);
-  // Prefer AppleEvent quit so save dialogs can finish, then escalate.
-  runQuiet("osascript", ["-e", `tell application "${APP_NAME}" to quit`]);
+  log(`Stopping ${SHELL_APP_NAME}...`);
+  // Prefer AppleEvent quit so save dialogs can finish, then escalate. The
+  // shell's own before-quit handler kills the nested JUCE backend it spawned.
+  runQuiet("osascript", ["-e", `tell application "${SHELL_APP_NAME}" to quit`]);
   for (let i = 0; i < 8; i++) {
     if (!appIsRunning()) {
-      ok(`${APP_NAME} stopped`);
+      ok(`${SHELL_APP_NAME} stopped`);
       return;
     }
     sleepMs(250);
   }
-  runQuiet("killall", [APP_NAME]);
+  const exe = shellExecutablePath();
+  runQuiet("pkill", ["-f", exe]);
   sleepMs(300);
   if (appIsRunning()) {
-    log(`Force-killing ${APP_NAME}...`);
-    runQuiet("killall", ["-9", APP_NAME]);
-    runQuiet("pkill", [
-      "-9",
-      "-f",
-      `${APP_NAME}.app/Contents/MacOS/${APP_NAME}`,
-    ]);
+    log(`Force-killing ${SHELL_APP_NAME}...`);
+    runQuiet("pkill", ["-9", "-f", exe]);
   }
-  if (appIsRunning()) die(`Could not stop ${APP_NAME}`);
-  ok(`${APP_NAME} stopped`);
+  // The nested backend won't have gotten a graceful quit if we had to force
+  // this -- make sure it's not left running headless with no shell.
+  runQuiet("pkill", ["-f", `${CORE_APP_NAME}.app/Contents/MacOS/${CORE_APP_NAME}`]);
+  if (appIsRunning()) die(`Could not stop ${SHELL_APP_NAME}`);
+  ok(`${SHELL_APP_NAME} stopped`);
 }
 
 export function startApp() {
-  if (!existsSync(APP_BUNDLE)) {
+  if (process.platform !== "darwin") {
+    die(`Packaged launch isn't supported on ${process.platform} yet`);
+  }
+  const appBundle = getShellAppBundle();
+  if (!existsSync(appBundle)) {
     die(
-      `App not found: ${APP_BUNDLE}\nBuild first:  pnpm build:app   (or  pnpm rebuild)`,
+      `App not found: ${appBundle}\nBuild first:  pnpm build:app   (or  pnpm rebuild)`,
     );
   }
   if (appIsRunning()) {
-    log(`${APP_NAME} already running -- leaving it up (use pnpm kill first)`);
+    log(`${SHELL_APP_NAME} already running -- leaving it up (use pnpm kill first)`);
     return;
   }
-  log(`Launching ${APP_BUNDLE}`);
-  // macOS: `open` detaches cleanly; elsewhere spawn the binary detached.
-  if (process.platform === "darwin") {
-    const lsregister =
-      "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister";
-    if (existsSync(lsregister)) {
-      run(lsregister, ["-f", APP_BUNDLE], { allowFail: true });
-    }
-    run("open", [APP_BUNDLE]);
-  } else {
-    const child = spawn(APP_BINARY, [], {
-      detached: true,
-      stdio: "ignore",
-    });
-    child.on("error", (err) => die(err.message));
-    child.unref();
+  log(`Launching ${appBundle}`);
+  // `open` detaches cleanly and re-registers the bundle with LaunchServices
+  // so a freshly (re)branded/reassembled copy is picked up.
+  const lsregister =
+    "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister";
+  if (existsSync(lsregister)) {
+    run(lsregister, ["-f", appBundle], { allowFail: true });
   }
-  ok(`Launched ${APP_NAME}`);
+  run("open", [appBundle]);
+  ok(`Launched ${SHELL_APP_NAME}`);
 }
 
 export function buildUi() {
@@ -196,16 +227,17 @@ export function buildUi() {
   ok("Web UI built -> ui/dist");
 }
 
-// Copies ui/dist into the app bundle's Contents/Resources/web so the embedded
-// WebServer can serve the SPA straight from disk -- no more giant
-// EmbeddedAssets.h header with every asset baked in as C++ string literals.
+// Copies ui/dist into the (raw, pre-assembly) JUCE bundle's Contents/
+// Resources/web so the embedded WebServer can serve the SPA straight from
+// disk -- no more giant EmbeddedAssets.h header with every asset baked in
+// as C++ string literals.
 function embedWebUi() {
   const src = join(ROOT, "ui", "dist");
   if (!existsSync(src)) {
     log("ui/dist missing -- skipping web UI embed (run pnpm build:ui first)");
     return;
   }
-  const dst = join(APP_BUNDLE, "Contents", "Resources", "web");
+  const dst = join(getRawCoreAppBundle(), "Contents", "Resources", "web");
   log(`Embedding web UI -> ${dst}`);
   cpSync(src, dst, { recursive: true });
   ok("Web UI embedded as folder (Resources/web)");
@@ -222,12 +254,52 @@ function buildElectronShell() {
   ok("Electron shell built (electron/dist)");
 }
 
+// Assembles the final distributable bundle at build/<platform>/<arch>/
+// ResoStage.app: a branded Electron shell (Dock name + icon, see
+// electron/scripts/brand-mac-app.mjs) as the OUTER bundle -- what the user
+// actually double-clicks -- containing this project's electron/package.json
+// + dist/ at Contents/Resources/app (Electron auto-loads this with zero CLI
+// args, unlike the JUCE-spawned dev/browser flow which passes an explicit
+// app dir) and the built JUCE Core.app nested at Contents/Resources/ as the
+// backend Electron spawns on a standalone launch (see main.mts spawnBackend
+// / MainComponent's RESOSTAGE_SPAWNED_BY_SHELL check). One code-signing pass
+// at the very end, since any change after signing invalidates it anyway.
+function assembleShellBundle() {
+  if (process.platform !== "darwin") {
+    log("Not on macOS -- skipping shell bundle assembly");
+    return;
+  }
+  const rawCore = getRawCoreAppBundle();
+  if (!existsSync(rawCore)) {
+    log(`${rawCore} missing -- skipping shell bundle assembly (build the app first)`);
+    return;
+  }
+  const shellBundle = getShellAppBundle();
+  log(`Assembling ${shellBundle}...`);
+  run("node", [join(ROOT, "electron", "scripts", "brand-mac-app.mjs"), shellBundle]);
+
+  const resources = join(shellBundle, "Contents", "Resources");
+  const appDst = join(resources, "app");
+  run("rm", ["-rf", appDst]);
+  run("mkdir", ["-p", appDst]);
+  cpSync(join(ROOT, "electron", "package.json"), join(appDst, "package.json"));
+  cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), { recursive: true });
+
+  const coreDst = getNestedCoreAppBundle(shellBundle);
+  run("rm", ["-rf", coreDst]);
+  run("cp", ["-R", rawCore, coreDst]);
+
+  run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);
+  ok(`Assembled ${shellBundle}`);
+}
+
 export function buildApp() {
-  log(`Building ${APP_NAME} (${BUILD_TYPE})...`);
+  log(`Building ${CORE_APP_NAME} (${BUILD_TYPE})...`);
   cmakeBuild(APP_TARGET);
-  ok(`App: ${APP_BUNDLE}`);
+  ok(`Core: ${getRawCoreAppBundle()}`);
   embedWebUi();
   buildElectronShell();
+  assembleShellBundle();
 }
 
 export function buildTests() {
@@ -270,7 +342,7 @@ export function configure() {
   log(`Configuring ${BUILD_DIR} (CMAKE_BUILD_TYPE=${BUILD_TYPE})...`);
   run("cmake", [
     "-S",
-    ROOT,
+    CORE_DIR,
     "-B",
     BUILD_DIR,
     `-DCMAKE_BUILD_TYPE=${BUILD_TYPE}`,
@@ -280,12 +352,14 @@ export function configure() {
 
 export function clean({ ui = false } = {}) {
   killApp();
-  if (existsSync(BUILD_DIR)) {
-    log(`Removing ${BUILD_DIR}...`);
-    run("rm", ["-rf", BUILD_DIR]);
-    ok(`Removed ${BUILD_DIR}`);
-  } else {
-    log(`No build dir at ${BUILD_DIR}`);
+  for (const dir of [BUILD_DIR, DIST_DIR]) {
+    if (existsSync(dir)) {
+      log(`Removing ${dir}...`);
+      run("rm", ["-rf", dir]);
+      ok(`Removed ${dir}`);
+    } else {
+      log(`No dir at ${dir}`);
+    }
   }
   if (ui) {
     const dist = join(ROOT, "ui", "dist");

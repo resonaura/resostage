@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "brand": "node scripts/brand-mac-app.mjs",
     "start": "pnpm build && electron ."
   },
   "devDependencies": {
