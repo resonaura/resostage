@@ -6,7 +6,7 @@ namespace resostage {
 
 TrayIcon::TrayIcon(std::function<void()> onQuit_) : onQuit(std::move(onQuit_)) {
     const auto image = juce::ImageFileFormat::loadFrom(
-        BinaryData::trayicon_png, static_cast<size_t>(BinaryData::trayicon_pngSize));
+        BinaryData::tray_png, static_cast<size_t>(BinaryData::tray_pngSize));
     setIconImage(image, image);
     setIconTooltip("ResoStage -- running in the background");
 }

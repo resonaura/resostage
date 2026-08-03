@@ -3,13 +3,15 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in" INFO_PLIST_CONTENT)
 # Menu-bar tray icon (platform/TrayIcon.cpp) for when this process runs
 # headless with no Dock icon of its own -- embedded as binary data (it's a
 # handful of KB) rather than a runtime file read, so it's not tied to any
-# particular Resources/ layout. A pre-rasterized PNG (via the system's own
-# SVG renderer, `icons/icon.svg` -> `icons/tray-icon.png`), not the raw SVG:
+# particular Resources/ layout. A pre-rasterized, tightly-cropped PNG (via
+# the system's own AppKit SVG renderer, `icons/icon.svg` -> `icons/tray.png`
+# -- trimmed to the glyph's own bounding box + a small margin so JUCE's
+# fixed 20x20pt tray icon target isn't mostly empty space), not the raw SVG:
 # JUCE's own SVG parser is a much more limited implementation than a real
 # browser/WebKit renderer and silently produced a blank Drawable for this
 # file's <g transform="matrix(...)"> + style="fill-rule:evenodd" syntax.
 juce_add_binary_data(ResoStageTrayIconData
-  SOURCES "${CMAKE_SOURCE_DIR}/../icons/tray-icon.png"
+  SOURCES "${CMAKE_SOURCE_DIR}/../icons/tray.png"
 )
 
 juce_add_gui_app(ResoStage

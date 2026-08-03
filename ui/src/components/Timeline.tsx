@@ -1347,6 +1347,18 @@ export function Timeline({
   // was racy: a vertical native scroll event could consume it and make a
   // later delayed horizontal echo look user-originated (or vice versa).
   const programmaticScrollLeftRef = useRef<number | null>(null);
+  // Companion to programmaticScrollLeftRef for continuous "smooth" follow:
+  // that loop writes scrollLeft on EVERY rAF frame, but the browser coalesces
+  // native `scroll` events, so by the time one fires it can echo an OLDER
+  // write that's already been superseded by several newer ones -- the exact-
+  // pixel comparison above then misses (the position moved on since), and
+  // onScrollSync wrongly treated ITS OWN continuous auto-scroll as a user
+  // gesture, pausing autofollow for 700ms, over and over
+  // ("смотри такую вещь ... рывками и плейхед и таймлайн показывает"). Any
+  // scroll event landing shortly after ANY programmatic write is still
+  // almost certainly an echo of ours, regardless of exact pixel match.
+  const lastProgrammaticWriteAtRef = useRef(0);
+  const ECHO_GRACE_MS = 120;
   // Last scrollLeft seen by onScrollSync, to tell a genuine HORIZONTAL user
   // scroll apart from a vertical-only one. Vertical scrolling must NOT pause
   // auto-follow (it doesn't fight the horizontal autoscroll) -- only a
@@ -2021,6 +2033,7 @@ export function Timeline({
         );
         scroller.scrollLeft = targetScrollLeft;
         programmaticScrollLeftRef.current = scroller.scrollLeft;
+        lastProgrammaticWriteAtRef.current = performance.now();
         // Marker: same document position the rAF loop derives during a gesture
         // (playheadAbsoluteSec * pxPerSec -- the clock is frozen while
         // zooming). Writing it here, in the same commit as the scroll write,
@@ -2256,7 +2269,14 @@ export function Timeline({
     // horizontal echo-detection logic below.
     const left = e.currentTarget.scrollLeft;
     const programmedLeft = programmaticScrollLeftRef.current;
-    if (programmedLeft !== null && Math.abs(left - programmedLeft) < 0.5) {
+    const exactEcho = programmedLeft !== null && Math.abs(left - programmedLeft) < 0.5;
+    // Coalesced echo: a programmatic write landed very recently (continuous
+    // "smooth" follow writes every rAF frame, faster than the browser
+    // necessarily dispatches `scroll` events for each one) -- see
+    // lastProgrammaticWriteAtRef's doc comment.
+    const recentEcho =
+      performance.now() - lastProgrammaticWriteAtRef.current < ECHO_GRACE_MS;
+    if (exactEcho || recentEcho) {
       // Echo of our own auto-follow/zoom-focus write -- that effect already
       // synced scrollState synchronously (see programmaticScrollRef's doc
       // comment). Re-applying it here from a possibly-delayed native event
@@ -2451,6 +2471,9 @@ export function Timeline({
     let avgDt = 1 / 60;
 
     const tick = () => {
+      (window as unknown as { __tickLog?: unknown[] }).__tickLog =
+        (window as unknown as { __tickLog?: unknown[] }).__tickLog ?? [];
+      (window as unknown as { __tickLog: unknown[] }).__tickLog.push(performance.now());
       // Every frame, unconditionally -- see sidebarContentRef's doc comment
       // for why this can't be a React-state round trip.
       if (scrollRef.current) {
@@ -2489,6 +2512,16 @@ export function Timeline({
         && !gestureActiveNowRef.current
         && !dragging.current
         && followModeRef.current === "smooth";
+      (window as unknown as { __followLog?: unknown[] }).__followLog =
+        (window as unknown as { __followLog?: unknown[] }).__followLog ?? [];
+      (window as unknown as { __followLog: unknown[] }).__followLog.push({
+        t: performance.now(),
+        following,
+        playing: playingRef.current,
+        gesture: gestureActiveNowRef.current,
+        dragging: dragging.current,
+        mode: followModeRef.current,
+      });
       const scroller = scrollRef.current;
       const viewWidth = scroller ? scroller.clientWidth || 1000 : 1000;
       const maxScrollLeft = Math.max(0, contentWidthRef.current - viewWidth);
@@ -2542,12 +2575,21 @@ export function Timeline({
           const still = Math.abs(target - engineScrollLeft);
           if (still > panStartDist) startPan(engineScrollLeft);
         }
+        const preGlide = engineScrollLeft;
         engineScrollLeft = glide(engineScrollLeft);
         const before = scroller.scrollLeft;
         scroller.scrollLeft = engineScrollLeft;
+        const afterWrite = scroller.scrollLeft;
+        (window as unknown as { __tlDbg?: unknown[] }).__tlDbg =
+          (window as unknown as { __tlDbg?: unknown[] }).__tlDbg ?? [];
+        (window as unknown as { __tlDbg: unknown[] }).__tlDbg.push({
+          t: performance.now(), dt, target, preGlide, glided: engineScrollLeft,
+          before, afterWrite, panStartDist, panElapsedFrames,
+        });
         engineScrollLeft = scroller.scrollLeft; // re-read in case browser clamped it
         if (Math.abs(before - engineScrollLeft) > 0.5) {
           programmaticScrollLeftRef.current = engineScrollLeft;
+          lastProgrammaticWriteAtRef.current = performance.now();
         }
         if (Math.abs((lastScrollLeftRef.current ?? Infinity) - engineScrollLeft) > 100) {
           lastScrollLeftRef.current = engineScrollLeft;
@@ -2639,6 +2681,7 @@ export function Timeline({
             scroller.scrollLeft = revealScroll;
             if (Math.abs(before - scroller.scrollLeft) > 0.5) {
               programmaticScrollLeftRef.current = scroller.scrollLeft;
+              lastProgrammaticWriteAtRef.current = performance.now();
             }
             if (Math.abs((lastScrollLeftRef.current ?? Infinity) - scroller.scrollLeft) > 100 || settled) {
               lastScrollLeftRef.current = scroller.scrollLeft;

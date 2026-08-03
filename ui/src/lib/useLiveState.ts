@@ -84,6 +84,8 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
             next.settings.virtualMidiPortEnabled ??
             prev.settings.virtualMidiPortEnabled,
           keybindings: next.settings.keybindings ?? prev.settings.keybindings,
+          recentProjects:
+            next.settings.recentProjects ?? prev.settings.recentProjects,
           midiBindings:
             next.settings.midiBindings ?? prev.settings.midiBindings,
           midiLearnAction:
