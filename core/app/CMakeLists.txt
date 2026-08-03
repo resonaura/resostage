@@ -1,5 +1,17 @@
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in" INFO_PLIST_CONTENT)
 
+# Menu-bar tray icon (platform/TrayIcon.cpp) for when this process runs
+# headless with no Dock icon of its own -- embedded as binary data (it's a
+# handful of KB) rather than a runtime file read, so it's not tied to any
+# particular Resources/ layout. A pre-rasterized PNG (via the system's own
+# SVG renderer, `icons/icon.svg` -> `icons/tray-icon.png`), not the raw SVG:
+# JUCE's own SVG parser is a much more limited implementation than a real
+# browser/WebKit renderer and silently produced a blank Drawable for this
+# file's <g transform="matrix(...)"> + style="fill-rule:evenodd" syntax.
+juce_add_binary_data(ResoStageTrayIconData
+  SOURCES "${CMAKE_SOURCE_DIR}/../icons/tray-icon.png"
+)
+
 juce_add_gui_app(ResoStage
   PRODUCT_NAME "ResoStage Core"
   COMPANY_NAME "Resonaura"
@@ -29,6 +41,7 @@ target_sources(ResoStage PRIVATE
   platform/AudioWorkgroup.cpp
   platform/MenuModel.cpp
   platform/ProcessPriority.cpp
+  platform/TrayIcon.cpp
   web/WebServer.cpp
 )
 
@@ -50,6 +63,7 @@ target_link_libraries(ResoStage
   PRIVATE
     resostage_engine
     websockets
+    ResoStageTrayIconData
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_utils

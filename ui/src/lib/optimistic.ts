@@ -76,9 +76,6 @@ export function useContinuousPlayhead(
   // pre-seek frame visibly undoing the drop, but with no proximity-based
   // early release (see the dragging-related bug this replaced above).
   const SEEK_LOCK_MS = 500;
-  // Stronger pull than before so we stay glued to the engine without
-  // looking like a second free-running timeline.
-  const CORRECT_PER_SEC = 8;
 
   const lastServerRxAt = useRef(Date.now());
 

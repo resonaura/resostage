@@ -2549,7 +2549,7 @@ export function Timeline({
         if (Math.abs(before - engineScrollLeft) > 0.5) {
           programmaticScrollLeftRef.current = engineScrollLeft;
         }
-        if (Math.abs(lastScrollLeftRef.current - engineScrollLeft) > 100) {
+        if (Math.abs((lastScrollLeftRef.current ?? Infinity) - engineScrollLeft) > 100) {
           lastScrollLeftRef.current = engineScrollLeft;
           setScrollState({ scrollLeft: engineScrollLeft, viewportWidth: viewWidth });
         }
@@ -2640,7 +2640,7 @@ export function Timeline({
             if (Math.abs(before - scroller.scrollLeft) > 0.5) {
               programmaticScrollLeftRef.current = scroller.scrollLeft;
             }
-            if (Math.abs(lastScrollLeftRef.current - scroller.scrollLeft) > 100 || settled) {
+            if (Math.abs((lastScrollLeftRef.current ?? Infinity) - scroller.scrollLeft) > 100 || settled) {
               lastScrollLeftRef.current = scroller.scrollLeft;
               setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
             }

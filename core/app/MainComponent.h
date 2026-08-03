@@ -74,6 +74,9 @@ private:
     // launchElectronShell()). Killed on shutdown so quitting ResoStage
     // always takes the shell down with it.
     std::unique_ptr<juce::ChildProcess> electronProcess;
+    // Non-null only when RESOSTAGE_SPAWNED_BY_SHELL is set (this process has
+    // no Dock icon of its own) -- see platform/TrayIcon.h.
+    std::unique_ptr<class TrayIcon> trayIcon;
     bool wasBusyLastTick = false;
     // When true, the SPA has a text/input/textarea focused so native hotkey
     // processing is suppressed and keystrokes pass through for normal typing.

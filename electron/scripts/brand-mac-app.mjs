@@ -126,7 +126,12 @@ function main() {
 
   const icnsSrc = join(REPO_ROOT, "icons", "app.icns");
   if (existsSync(icnsSrc)) {
-    execFileSync("cp", [icnsSrc, join(destApp, "Contents", "Resources", "electron.icns")]);
+    // Drop the stock "electron.icns" entirely (not just its bytes) and
+    // point CFBundleIconFile at a properly named one -- Contents/Resources
+    // shouldn't have "electron" anywhere in it once this is "ResoStage".
+    rmSync(join(destApp, "Contents", "Resources", "electron.icns"), { force: true });
+    execFileSync("cp", [icnsSrc, join(destApp, "Contents", "Resources", `${APP_NAME}.icns`)]);
+    execFileSync("plutil", ["-replace", "CFBundleIconFile", "-string", `${APP_NAME}.icns`, plistPath]);
   } else {
     log(`${icnsSrc} not found -- keeping stock Electron icon`);
   }

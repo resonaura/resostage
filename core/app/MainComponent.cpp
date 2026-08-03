@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "lighting/LightOutputResolver.h"
 #include "platform/MacShellMode.h"
+#include "platform/TrayIcon.h"
 #include "project/ProjectJson.h"
 #include "timing/BarSeek.h"
 #include "ui/UiColors.h"
@@ -16,6 +17,19 @@
 namespace resostage {
 
 MainComponent::MainComponent() {
+#if JUCE_MAC
+    // No Dock icon ever, for any launch mode (see LSUIElement in
+    // Info.plist.in) -- a runtime setActivationPolicy call here would be too
+    // late, macOS already registered the Dock icon before our own code runs.
+    // When Electron spawned us as its nested backend specifically, give the
+    // user a menu-bar way to see/quit the backend instead.
+    if (std::getenv("RESOSTAGE_SPAWNED_BY_SHELL") != nullptr) {
+        trayIcon = std::make_unique<TrayIcon>([] {
+            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+        });
+    }
+#endif
+
     // Rig-wide preferences (hotkeys, MIDI bindings, device setup) load once
     // here, before anything below needs them -- see AppSettings.h for why
     // these live outside the project file.
@@ -85,6 +99,15 @@ MainComponent::MainComponent() {
     engine.newProject();
     applyGlobalBindings();
     onProjectLoaded();
+
+    // publishWebState() normally only runs off the 60 Hz timer started below
+    // -- started AFTER webServer.start(), which begins accepting connections
+    // immediately. Without this call, a GET landing in that gap (e.g.
+    // Electron's very first GET /api/v1/ui/menu on a standalone launch) would
+    // see `state.settings` still at its zero-value default -- recentProjects
+    // (and everything else populateSettingsState() copies from appSettings)
+    // included -- rather than what was just loaded above.
+    publishWebState();
 
     // Serve the SPA from disk instead of a generated header: the packaged
     // bundle's Contents/Resources/web folder (copied in by scripts/lib.mjs
@@ -226,6 +249,9 @@ void MainComponent::launchElectronShell() {
     if (!packageDir.isDirectory()) {
         setStatus("Electron package not found -- run `pnpm install` at the repo root "
                   "(or set RESOSTAGE_ELECTRON_DIR), then restart in Electron mode");
+#if JUCE_MAC
+        restoreForegroundShell();
+#endif
         return;
     }
 
@@ -240,6 +266,9 @@ void MainComponent::launchElectronShell() {
         setStatus("Electron shell not found in " + packageDir.getFullPathName()
                   + " -- run `pnpm install` at the repo root "
                   "(or set RESOSTAGE_ELECTRON_DIR), then restart in Electron mode");
+#if JUCE_MAC
+        restoreForegroundShell();
+#endif
         return;
     }
 
@@ -248,6 +277,9 @@ void MainComponent::launchElectronShell() {
         setStatus("Electron shell not built in " + packageDir.getFullPathName()
                   + " -- run `pnpm --dir electron build` at the repo root, then restart "
                   "in Electron mode");
+#if JUCE_MAC
+        restoreForegroundShell();
+#endif
         return;
     }
 
@@ -260,6 +292,9 @@ void MainComponent::launchElectronShell() {
     if (!electronProcess->start(args)) {
         setStatus("Failed to launch the Electron shell (see console output)");
         electronProcess.reset();
+#if JUCE_MAC
+        restoreForegroundShell();
+#endif
         return;
     }
 

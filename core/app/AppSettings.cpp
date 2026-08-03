@@ -111,8 +111,12 @@ AppSettings loadAppSettings() {
             if (rpEl["path"].get(path))
                 continue; // skip malformed entry rather than fail the whole load
             const std::string pathStr(path);
-            if (!juce::File(pathStr).existsAsFile())
-                continue; // skip files that no longer exist on disk
+            // .rsnraset projects are package directories (LSTypeIsPackage in
+            // Info.plist.in), not flat files -- existsAsFile() is always
+            // false for a directory, which was silently dropping every
+            // recent project on load. exists() covers both.
+            if (!juce::File(pathStr).exists())
+                continue; // skip projects that no longer exist on disk
             RecentProjectEntry rp;
             rp.path = pathStr;
             std::string_view name;

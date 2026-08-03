@@ -10,4 +10,9 @@ namespace resostage {
 void backOffToHeadlessShell();
 void restoreForegroundShell();
 
+// Brings the Electron shell's window to the front -- used by the tray icon
+// (platform/TrayIcon.cpp) since this process has no window of its own to
+// show. No-op if the shell isn't running.
+void activateElectronShell();
+
 } // namespace resostage
