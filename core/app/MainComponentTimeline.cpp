@@ -80,29 +80,45 @@ void MainComponent::maybePublishPeaks() {
                             ? -1
                             : static_cast<int>(engine.currentSongIndex());
 
+    int filled = 0;
     bool complete = engine.trackCount() > 0;
     for (size_t i = 0; i < engine.trackCount(); ++i) {
         const PeakOverview* pk = engine.trackPeaksAt(i);
-        if (pk == nullptr || pk->empty()) {
+        if (pk != nullptr && !pk->empty()) {
+            ++filled;
+        } else {
+            // Tracks with no audio region stay empty forever -- do not treat
+            // them as "still building" or we never flip complete and keep
+            // re-serializing multi-MB JSON at 2 Hz for the life of the session.
+            // Heuristic: an empty slot after we already have some filled peaks
+            // and no active builds is "done empty", not "pending".
             complete = false;
-            break;
         }
     }
+    // If every non-empty peak is in and nothing is still decoding, mark complete
+    // even when some tracks have no region (blank lanes).
+    if (engine.activePeakBuildCount() == 0 && filled > 0)
+        complete = true;
+    if (engine.trackCount() == 0)
+        complete = true;
 
-    if (songIdx == lastPeaksPublishSongIndex && lastPeaksPublishComplete)
+    if (songIdx == lastPeaksPublishSongIndex && lastPeaksPublishComplete
+        && filled == lastPeaksPublishFilledCount)
         return; // nothing new since the last publish
 
-    // While peaks are still streaming in, republish at most ~2 Hz -- full
-    // pyramid JSON for multi-track multi-minute songs is multi-MB of text
-    // and was burning ~one core on the message thread after every import.
+    // While peaks are still streaming in, republish at most ~2 Hz -- BUT
+    // always publish immediately when the filled count advances so the SPA
+    // sees each track as it lands ("пики не грузит динамически").
     const juce::uint32 nowMs = juce::Time::getMillisecondCounter();
-    if (songIdx == lastPeaksPublishSongIndex && !complete
+    const bool filledAdvanced = filled != lastPeaksPublishFilledCount;
+    if (songIdx == lastPeaksPublishSongIndex && !complete && !filledAdvanced
         && (nowMs - lastPeaksPublishMs) < 500)
         return;
 
     webServer.publishPeaks(buildPeaksJson());
     lastPeaksPublishSongIndex = songIdx;
     lastPeaksPublishComplete = complete;
+    lastPeaksPublishFilledCount = filled;
     lastPeaksPublishMs = nowMs;
 }
 

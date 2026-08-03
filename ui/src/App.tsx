@@ -261,33 +261,32 @@ export default function App() {
     0,
   );
 
-  // Per-song peaks (current staged song). Backend builds them in the
-  // background and republishes as each track fills in -- keep polling until
-  // the filled count stabilizes (NOT just "tracks array non-empty", which
-  // arrives immediately with blank levels and used to abort the poll forever).
+  // Per-song peaks (current staged song). Backend publishes each track as it
+  // finishes -- poll frequently while filled count climbs, then settle.
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
       let lastFilled = -1;
       let stable = 0;
-      for (let attempt = 0; attempt < 80 && !cancelled; attempt++) {
+      for (let attempt = 0; attempt < 120 && !cancelled; attempt++) {
         const data = await fetchPeaks().catch(() => null);
         if (cancelled) return;
         if (data?.tracks) {
           setPeaks(data);
           const filled = data.tracks.filter((t) => t.levels.length > 0).length;
-          if (filled > 0 && filled === lastFilled) {
+          if (filled === lastFilled) {
             stable += 1;
-            // A few identical "done" snapshots means the background build is
-            // finished for this song (or no more progress is coming).
-            if (stable >= 3) return;
+            // Empty-lane tracks never get levels, so stop on plateau not on
+            // filled === tracks.length.
+            if (stable >= 4 && (filled > 0 || attempt > 10)) return;
           } else {
             stable = 0;
             lastFilled = filled;
           }
         }
+        const climbing = lastFilled >= 0 && stable === 0;
         await new Promise((resolve) =>
-          setTimeout(resolve, attempt < 25 ? 200 : 500),
+          setTimeout(resolve, climbing ? 150 : attempt < 40 ? 250 : 600),
         );
       }
     };
@@ -297,15 +296,14 @@ export default function App() {
     };
   }, [state.projectName, state.songIndex, totalRegionCount]);
 
-  // All-song peaks (for the multi-song timeline). Same progressive-build
-  // story as fetchPeaks, but across every region in the project -- poll
-  // until every track entry has levels, or the filled count plateaus.
+  // All-song peaks -- apply every partial so regions light up as the
+  // background sweep fills the session cache.
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
       let lastFilled = -1;
       let stable = 0;
-      for (let attempt = 0; attempt < 180 && !cancelled; attempt++) {
+      for (let attempt = 0; attempt < 240 && !cancelled; attempt++) {
         const data = await fetchAllPeaks().catch(() => null);
         if (cancelled) return;
         if (data) {
@@ -315,17 +313,17 @@ export default function App() {
             0,
           );
           const total = data.songs.reduce((n, s) => n + s.tracks.length, 0);
-          if (total > 0 && filled >= total) return; // fully built
-          if (filled > 0 && filled === lastFilled) {
+          if (total > 0 && filled >= total) return;
+          if (filled === lastFilled) {
             stable += 1;
-            if (stable >= 6) return;
+            if (stable >= 8 && (filled > 0 || attempt > 15)) return;
           } else {
             stable = 0;
             lastFilled = filled;
           }
         }
         await new Promise((resolve) =>
-          setTimeout(resolve, attempt < 30 ? 300 : 800),
+          setTimeout(resolve, attempt < 40 ? 250 : 700),
         );
       }
     };

@@ -513,6 +513,42 @@ void AudioEngine::rebuildTrackPeaks() {
                 }
             }
 
+            // Publish a single region→track peak onto the message thread as
+            // soon as it is ready so the SPA can paint waveforms track-by-
+            // track instead of waiting for the whole song batch to finish
+            // ("пики не грузит динамически").
+            auto publishPartial = [this, generation, songIndexForBuild, &indices](size_t regionIndex, PeakOverview overview) {
+                if (overview.empty())
+                    return;
+                const int trackIdx = (regionIndex < indices.size()) ? indices[regionIndex] : -1;
+                if (trackIdx < 0)
+                    return;
+                juce::MessageManager::callAsync(
+                    [this, generation, songIndexForBuild, trackIdx, regionIndex, overview = std::move(overview)]() mutable {
+                        if (peakBuildGeneration.load(std::memory_order_acquire) != generation
+                            || currentSong != songIndexForBuild)
+                            return;
+                        if (static_cast<size_t>(trackIdx) >= trackPeaks.size())
+                            return;
+                        trackPeaks[static_cast<size_t>(trackIdx)] = overview;
+                        if (songIndexForBuild < loader.project().songs.size()) {
+                            auto& s = loader.project().songs[songIndexForBuild];
+                            if (regionIndex < s.regions.size()
+                                && s.regions[regionIndex].durationSeconds <= 0.0
+                                && overview.durationSeconds > 0.0) {
+                                s.regions[regionIndex].durationSeconds = overview.durationSeconds;
+                            }
+                        }
+                    });
+            };
+
+            // Session / on-disk hits from phase 1 are already in buildResults
+            // -- push them to the UI immediately before the slow decode.
+            for (size_t i = 0; i < buildResults.size(); ++i) {
+                if (!buildResults[i].empty())
+                    publishPartial(i, buildResults[i]);
+            }
+
             // Phase 2: Decode peaks from memory buffers in parallel. Each
             // build is fully independent (no shared state), so jobs are
             // handed to the bounded peakBuildPool rather than spawning one
@@ -523,7 +559,7 @@ void AudioEngine::rebuildTrackPeaks() {
                 std::vector<std::function<void()>> jobs;
                 jobs.reserve(pending.size());
                 for (size_t t = 0; t < pending.size(); ++t) {
-                    jobs.emplace_back([this, &pb = pending[t], &buildResults, &threadExtras, t, generation]() {
+                    jobs.emplace_back([this, &pb = pending[t], &buildResults, &threadExtras, t, generation, publishPartial]() {
                         if (peakBuildGeneration.load(std::memory_order_acquire) != generation)
                             return;
                         PeakOverview overview;
@@ -534,7 +570,8 @@ void AudioEngine::rebuildTrackPeaks() {
                                 std::lock_guard<std::mutex> lock(peakCacheMutex);
                                 peakOverviewSessionCache[pb.path] = overview;
                             }
-                            buildResults[pb.index] = std::move(overview);
+                            buildResults[pb.index] = overview;
+                            publishPartial(pb.index, std::move(overview));
                         } else {
                             buildResults[pb.index] = PeakOverview{};
                         }
@@ -559,8 +596,10 @@ void AudioEngine::rebuildTrackPeaks() {
                 if (peakBuildGeneration.load(std::memory_order_acquire) != generation || currentSong != songIndexForBuild)
                     return;
 
-                // Remap region-indexed peaks to track-indexed peaks.
-                trackPeaks.assign(targetIndices.size(), PeakOverview{});
+                // Final reconciliation (covers any partial that raced a
+                // song-change and any empty-track slots).
+                if (trackPeaks.size() != targetIndices.size())
+                    trackPeaks.assign(targetIndices.size(), PeakOverview{});
                 for (size_t i = 0; i < results.size() && i < targetIndices.size(); ++i) {
                     const int trackIdx = targetIndices[i];
                     if (trackIdx >= 0 && static_cast<size_t>(trackIdx) < trackPeaks.size())

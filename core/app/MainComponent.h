@@ -228,6 +228,7 @@ private:
     std::string buildPeaksJson() const;
     int lastPeaksPublishSongIndex = -2;
     bool lastPeaksPublishComplete = false;
+    int lastPeaksPublishFilledCount = -1;
 
     void maybePublishAllPeaks();
     std::string buildAllPeaksJson() const;

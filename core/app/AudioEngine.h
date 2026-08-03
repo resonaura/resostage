@@ -355,6 +355,13 @@ public:
     // picked up.
     void ensureAllSongPeaksBuilt();
 
+    // >0 while a rebuildTrackPeaks / ensureAllSongPeaksBuilt worker is still
+    // decoding. Used by maybePublishPeaks() to decide when empty track slots
+    // mean "still building" vs. "lane has no audio".
+    int activePeakBuildCount() const {
+        return activePeakBuilds.load(std::memory_order_acquire);
+    }
+
     MasterClock& masterClock() { return clock; }
 
     // Debug-only: makes the NEXT audio callback sleep for `milliseconds`

@@ -1391,6 +1391,13 @@ export function Timeline({
   // auto-follow (it doesn't fight the horizontal autoscroll) -- only a
   // horizontal user scroll or a zoom gesture should.
   const lastScrollLeftRef = useRef<number | null>(null);
+  // Last scrollLeft we actually pushed into React scrollState. Separate from
+  // lastScrollLeftRef: the follow-echo path in onScrollSync updates the latter
+  // every frame (so gesture detection stays accurate), which made the rAF
+  // "moved > N px" check always see 0 delta and NEVER re-render BeatGrid /
+  // ruler / viewport-culled waveforms during smooth follow.
+  const lastCommittedScrollLeftRef = useRef<number | null>(null);
+  const lastScrollStateCommitAtRef = useRef(0);
 
   // Vertical zoom (buttons, not gestures)
   const [verticalZoom, setVerticalZoom] = useState(1.0);
@@ -1863,7 +1870,9 @@ export function Timeline({
     return {
       songLengths: lengths,
       songOffsets: offsets,
-      totalLength: Math.max(acc, 120),
+      // Exact project length -- a 120s floor used to leave a long empty
+      // tail the user could scroll into past the last song.
+      totalLength: Math.max(acc, 1),
     };
   }, [songs, allPeaks, peaks, state.songIndex]);
 
@@ -2340,7 +2349,13 @@ export function Timeline({
     // Vertical mirror is written imperatively every rAF tick (see
     // sidebarContentRef's doc comment) -- this handler only needs the
     // horizontal echo-detection logic below.
-    const left = e.currentTarget.scrollLeft;
+    const scroller = e.currentTarget;
+    // Hard-clamp past the real content end (macOS rubber-band / trackpad
+    // can report scrollLeft beyond scrollWidth-clientWidth briefly).
+    const maxLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    if (scroller.scrollLeft < 0) scroller.scrollLeft = 0;
+    else if (scroller.scrollLeft > maxLeft) scroller.scrollLeft = maxLeft;
+    const left = scroller.scrollLeft;
     const programmedLeft = programmaticScrollLeftRef.current;
     const exactEcho =
       programmedLeft !== null && Math.abs(left - programmedLeft) < 0.5;
@@ -2360,12 +2375,11 @@ export function Timeline({
     const followEcho =
       followTarget !== null && Math.abs(left - followTarget) < 32;
     if (exactEcho || recentEcho || followEcho) {
-      // Echo of our own auto-follow/zoom-focus write -- that effect already
-      // synced scrollState synchronously (see programmaticScrollRef's doc
-      // comment). Re-applying it here from a possibly-delayed native event
-      // could stomp a NEWER value the same effect already wrote on a later
-      // frame; skip both the resync and the gesture-active mark.
-      lastScrollLeftRef.current = e.currentTarget.scrollLeft;
+      // Echo of our own auto-follow/zoom-focus write. Do NOT touch
+      // lastCommittedScrollLeftRef here -- the rAF loop is the sole owner of
+      // React scrollState during follow. Only keep lastScrollLeftRef fresh so
+      // a later real user drag is measured correctly.
+      lastScrollLeftRef.current = left;
       return;
     }
     // A true user horizontal move supersedes any delayed programmatic echo.
@@ -2376,6 +2390,8 @@ export function Timeline({
     const movedHorizontally =
       lastScrollLeftRef.current !== null && left !== lastScrollLeftRef.current;
     lastScrollLeftRef.current = left;
+    lastCommittedScrollLeftRef.current = left;
+    lastScrollStateCommitAtRef.current = performance.now();
     // Vertical-only scroll (scrollTop changed, scrollLeft didn't) is not a
     // user fight for the horizontal timeline -- don't pause auto-follow for
     // it ("при вертикальном скролле стопается автоскролл").
@@ -2384,7 +2400,7 @@ export function Timeline({
     }
     setScrollState({
       scrollLeft: left,
-      viewportWidth: e.currentTarget.clientWidth,
+      viewportWidth: scroller.clientWidth,
     });
   };
 
@@ -2591,7 +2607,12 @@ export function Timeline({
         followModeRef.current === "smooth";
       const scroller = scrollRef.current;
       const viewWidth = scroller ? scroller.clientWidth || 1000 : 1000;
-      const maxScrollLeft = Math.max(0, contentWidthRef.current - viewWidth);
+      // Prefer the live DOM max (scrollWidth) over the React contentWidth
+      // mirror -- after zoom/layout the two can lag a frame and writing past
+      // the real max felt like "scrolling into empty space".
+      const maxScrollLeft = scroller
+        ? Math.max(0, scroller.scrollWidth - scroller.clientWidth)
+        : Math.max(0, contentWidthRef.current - viewWidth);
       const target = Math.min(
         maxScrollLeft,
         Math.max(0, px - viewWidth * 0.25),
@@ -2640,7 +2661,10 @@ export function Timeline({
           const still = Math.abs(target - engineScrollLeft);
           if (still > panStartDist) startPan(engineScrollLeft);
         }
-        engineScrollLeft = glide(engineScrollLeft);
+        engineScrollLeft = Math.min(
+          maxScrollLeft,
+          Math.max(0, glide(engineScrollLeft)),
+        );
         scroller.scrollLeft = engineScrollLeft;
         engineScrollLeft = scroller.scrollLeft; // re-read in case browser clamped it
         // Always mark as programmatic while following, even if the write was
@@ -2648,10 +2672,20 @@ export function Timeline({
         programmaticScrollLeftRef.current = engineScrollLeft;
         lastProgrammaticWriteAtRef.current = performance.now();
         followEngineScrollRef.current = engineScrollLeft;
+        // Commit React scrollState from THIS loop only, using a dedicated
+        // ref that onScrollSync echoes do not touch. BeatGrid / Ruler /
+        // viewport-culled peaks all read scrollState -- if we skip this,
+        // the timeline scrolls under a frozen grid/waveform layer.
+        const nowCommit = performance.now();
+        const movedSinceCommit = Math.abs(
+          (lastCommittedScrollLeftRef.current ?? Infinity) - engineScrollLeft,
+        );
         if (
-          Math.abs((lastScrollLeftRef.current ?? Infinity) - engineScrollLeft) >
-          48
+          movedSinceCommit > 8 ||
+          nowCommit - lastScrollStateCommitAtRef.current > 50
         ) {
+          lastCommittedScrollLeftRef.current = engineScrollLeft;
+          lastScrollStateCommitAtRef.current = nowCommit;
           lastScrollLeftRef.current = engineScrollLeft;
           setScrollState({
             scrollLeft: engineScrollLeft,
@@ -2739,7 +2773,10 @@ export function Timeline({
             if (still > panStartDist) startPan(revealScroll);
           }
           if (revealScroll !== null) {
-            revealScroll = glide(revealScroll);
+            revealScroll = Math.min(
+              maxScrollLeft,
+              Math.max(0, glide(revealScroll)),
+            );
             const settled = Math.abs(target - revealScroll) < 0.5;
             if (settled) revealScroll = target;
             const before = scroller.scrollLeft;
@@ -2748,15 +2785,16 @@ export function Timeline({
               programmaticScrollLeftRef.current = scroller.scrollLeft;
               lastProgrammaticWriteAtRef.current = performance.now();
             }
-            if (
-              Math.abs(
-                (lastScrollLeftRef.current ?? Infinity) - scroller.scrollLeft,
-              ) > 100 ||
-              settled
-            ) {
-              lastScrollLeftRef.current = scroller.scrollLeft;
+            const revealLeft = scroller.scrollLeft;
+            const revealMoved = Math.abs(
+              (lastCommittedScrollLeftRef.current ?? Infinity) - revealLeft,
+            );
+            if (revealMoved > 8 || settled) {
+              lastCommittedScrollLeftRef.current = revealLeft;
+              lastScrollStateCommitAtRef.current = performance.now();
+              lastScrollLeftRef.current = revealLeft;
               setScrollState({
-                scrollLeft: scroller.scrollLeft,
+                scrollLeft: revealLeft,
                 viewportWidth: viewWidth,
               });
             }
@@ -3203,6 +3241,9 @@ export function Timeline({
             style={{
               willChange: "scroll-position",
               transform: "translateZ(0)",
+              // Kill macOS rubber-band past the content end -- user could
+              // pull the timeline into empty space past the last sample.
+              overscrollBehavior: "none",
             }}
             onScroll={onScrollSync}
           >
