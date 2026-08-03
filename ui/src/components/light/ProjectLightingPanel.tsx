@@ -458,29 +458,29 @@ export function ProjectLightingPanel({
                           )}
                         </Field>
                       )}
-
-                      {idleUsesOwnColor ? (
-                        <div className="rounded-lg border border-default/30 bg-default/10 px-3 py-2 text-xs text-foreground/50 italic">
-                          Color is driven by {EFFECT_META[idleEt]?.label || idleEt} palette
-                        </div>
-                      ) : (
-                        <HslColorPicker
-                          r={li.idleColorR}
-                          g={li.idleColorG}
-                          b={li.idleColorB}
-                          onChange={(r, g, b) =>
-                            void lighting.setConfig({ idleColorR: r, idleColorG: g, idleColorB: b })
-                          }
-                        />
-                      )}
-
-                      <LabeledSlider
-                        label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
-                        value={li.idleIntensity}
-                        onChange={(v) => void lighting.setConfig({ idleIntensity: v })}
-                      />
                     </>
                   )}
+
+                  {idleUsesOwnColor ? (
+                    <div className="rounded-lg border border-default/30 bg-default/10 px-3 py-2 text-xs text-foreground/50 italic">
+                      Color is driven by {EFFECT_META[idleEt]?.label || idleEt} palette
+                    </div>
+                  ) : (
+                    <HslColorPicker
+                      r={li.idleColorR}
+                      g={li.idleColorG}
+                      b={li.idleColorB}
+                      onChange={(r, g, b) =>
+                        void lighting.setConfig({ idleColorR: r, idleColorG: g, idleColorB: b })
+                      }
+                    />
+                  )}
+
+                  <LabeledSlider
+                    label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
+                    value={li.idleIntensity}
+                    onChange={(v) => void lighting.setConfig({ idleIntensity: v })}
+                  />
                 </div>
               );
             })()}

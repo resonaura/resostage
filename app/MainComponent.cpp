@@ -1357,7 +1357,16 @@ void MainComponent::publishWebState() {
             lightingPreviewWasIdleFading = false;
         }
 
+        // When a fade is genuinely in progress (0 < blendT < 1), these mirror
+        // LightEngine::threadLoop's blendFrom/blendTo/blendT so the per-LED
+        // preview loop below can crossfade each LED individually instead of
+        // rendering the pre-blended aggregate `resolved` -- keeps the web
+        // preview's per-pixel look identical to the real DMX output during
+        // idle transitions (see resolveLedWireColorsBlended's doc comment).
         std::vector<ResolvedFixtureOutput> resolved;
+        std::vector<ResolvedFixtureOutput> blendFrom;
+        std::vector<ResolvedFixtureOutput> blendTo;
+        double blendT = 1.0;
         if (lightingPreviewWasResumeFading) {
             // Fading back from idle to the normal cue resolve. Fixtures the
             // idle state turned on but that no cue drives anymore get an
@@ -1380,6 +1389,9 @@ void MainComponent::publishWebState() {
                         normal.push_back(ResolvedFixtureOutput{rf.fixtureId});
                 }
                 resolved = blendTowardIdle(lightingPreviewResumeFrom, normal, t);
+                blendFrom = lightingPreviewResumeFrom;
+                blendTo = normal;
+                blendT = t;
             }
             lightingPreviewLastResolved = resolved;
         } else if (lightingPreviewWasIdleFading) {
@@ -1395,7 +1407,13 @@ void MainComponent::publishWebState() {
                                                 proj.lighting.idleEffectType, proj.lighting.idleEffectRateHz,
                                                 proj.lighting.idleGradientPreset, proj.lighting.idleGradientColors,
                                                 effectPhase);
-            resolved = blendTowardIdle(lightingPreviewLastResolved, target, effectPhase / kIdleFadeSeconds);
+            const double t = effectPhase / kIdleFadeSeconds;
+            resolved = blendTowardIdle(lightingPreviewLastResolved, target, t);
+            if (t < 1.0) {
+                blendFrom = lightingPreviewLastResolved;
+                blendTo = target;
+                blendT = t;
+            }
         } else {
             resolved = resolveLightOutputs(
                 proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
@@ -1410,14 +1428,35 @@ void MainComponent::publishWebState() {
         for (size_t fi = 0; fi < proj.lighting.fixtures.size(); ++fi)
             fixtureIndex[proj.lighting.fixtures[fi].id] = static_cast<int>(fi);
 
+        // Only built when a fade is actually in progress -- see blendFrom's
+        // doc comment above. `blendTo`/`resolved` share the same fixture
+        // order (both derived by iterating the same "to" vector inside
+        // blendTowardIdle); only the "from" side needs a lookup by id since
+        // a fixture can be absent from it.
+        std::map<std::string, const ResolvedFixtureOutput*> blendFromById;
+        const bool blendActive = !blendFrom.empty() || !blendTo.empty();
+        if (blendActive)
+            for (const auto& f : blendFrom)
+                blendFromById[f.fixtureId] = &f;
+
         state.lightOutput.reserve(resolved.size());
-        for (const auto& r : resolved) {
+        for (size_t ri = 0; ri < resolved.size(); ++ri) {
+            const auto& r = resolved[ri];
             WebUiState::LightOutputRow lor;
             lor.fixtureId = r.fixtureId;
             lor.fixtureIdx = fixtureIndex[r.fixtureId]; // -1 if missing from the rig
             if (lor.fixtureIdx >= 0) {
                 const auto& fixture = proj.lighting.fixtures[static_cast<size_t>(lor.fixtureIdx)];
-                const auto wire = resolveLedWireColors(r, fixture);
+                std::vector<LedWireColor> wire;
+                if (blendActive) {
+                    static const ResolvedFixtureOutput kBlackFallback{};
+                    const ResolvedFixtureOutput* fromEntry = &kBlackFallback;
+                    if (auto it = blendFromById.find(r.fixtureId); it != blendFromById.end())
+                        fromEntry = it->second;
+                    wire = resolveLedWireColorsBlended(*fromEntry, blendTo[ri], fixture, blendT);
+                } else {
+                    wire = resolveLedWireColors(r, fixture);
+                }
                 lor.ledColors.reserve(wire.size());
                 for (const auto& c : wire) {
                     // The preview has no separate white channel to render --

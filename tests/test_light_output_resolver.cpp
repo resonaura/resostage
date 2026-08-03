@@ -363,7 +363,7 @@ TEST_CASE("buildIdleLightOutputs: staticColor clamps an out-of-range intensity")
 // ─── buildIdleEffectOutputs / buildIdleTarget (idle "effect" mode) ─────────
 
 TEST_CASE("buildIdleEffectOutputs: one row per fixture, forwards identity, rate and phase") {
-    auto out = buildIdleEffectOutputs(makeIdleFixtures(), "strobe", 3.5, 200, 100, 50, 0.8, 1.25);
+    auto out = buildIdleEffectOutputs(makeIdleFixtures(), "strobe", 3.5, 200, 100, 50, 0.8, "solid", "", 1.25);
     REQUIRE(out.size() == 2);
     CHECK(out[0].fixtureId == "f1");
     CHECK(out[1].fixtureId == "f2");
@@ -383,7 +383,7 @@ TEST_CASE("buildIdleEffectOutputs: one row per fixture, forwards identity, rate 
 }
 
 TEST_CASE("buildIdleEffectOutputs: an unrecognised effect type yields Type::None rows (off, not animated)") {
-    auto out = buildIdleEffectOutputs(makeIdleFixtures(), "bogus", 2.0, 10, 20, 30, 1.0, 0.0);
+    auto out = buildIdleEffectOutputs(makeIdleFixtures(), "bogus", 2.0, 10, 20, 30, 1.0, "solid", "", 0.0);
     REQUIRE(out.size() == 2);
     for (const auto& r : out)
         CHECK(r.effectType == EffectParams::Type::None);
@@ -391,26 +391,26 @@ TEST_CASE("buildIdleEffectOutputs: an unrecognised effect type yields Type::None
 
 TEST_CASE("buildIdleTarget: effect delegates to the effect builder; other modes fall through") {
     auto fixtures = makeIdleFixtures();
-    auto eff = buildIdleTarget(fixtures, "effect", 200, 100, 50, 0.8, "chase", 4.0, 0.5);
+    auto eff = buildIdleTarget(fixtures, "effect", 200, 100, 50, 0.8, "chase", 4.0, "solid", "", 0.5);
     REQUIRE(eff.size() == 2);
     CHECK(eff[0].effectType == EffectParams::Type::Chase);
     CHECK(eff[0].effectRateHz == doctest::Approx(4.0f));
 
-    auto sc = buildIdleTarget(fixtures, "staticColor", 200, 100, 50, 0.75, "chase", 4.0, 0.5);
+    auto sc = buildIdleTarget(fixtures, "staticColor", 200, 100, 50, 0.75, "chase", 4.0, "solid", "", 0.5);
     REQUIRE(sc.size() == 2);
     CHECK(sc[0].value.r == 200);
     CHECK(sc[0].value.g == 100);
     CHECK(sc[0].value.b == 50);
     CHECK(sc[0].effectType == EffectParams::Type::None); // static color never animates
 
-    auto bo = buildIdleTarget(fixtures, "blackout", 200, 100, 50, 0.75, "chase", 4.0, 0.5);
+    auto bo = buildIdleTarget(fixtures, "blackout", 200, 100, 50, 0.75, "chase", 4.0, "solid", "", 0.5);
     REQUIRE(bo.size() == 2);
     CHECK(bo[0].value.r == 0);
     CHECK(bo[0].value.intensity == doctest::Approx(0.0));
 
     // holdLast is not a buildIdleTarget mode -- it's the caller's "keep
     // resolving normally" fallback, so the target stays empty.
-    CHECK(buildIdleTarget(fixtures, "holdLast", 200, 100, 50, 0.75, "chase", 4.0, 0.5).empty());
+    CHECK(buildIdleTarget(fixtures, "holdLast", 200, 100, 50, 0.75, "chase", 4.0, "solid", "", 0.5).empty());
 }
 
 TEST_CASE("buildIdleTarget effect: per-LED colors keep animating across wall-clock phase") {
@@ -426,8 +426,8 @@ TEST_CASE("buildIdleTarget effect: per-LED colors keep animating across wall-clo
     bar.ledCount = 8;
     std::vector<LightFixture> fixtures = {bar};
 
-    const auto a = buildIdleTarget(fixtures, "effect", 255, 255, 255, 1.0, "chase", 2.0, 0.10);
-    const auto b = buildIdleTarget(fixtures, "effect", 255, 255, 255, 1.0, "chase", 2.0, 0.35);
+    const auto a = buildIdleTarget(fixtures, "effect", 255, 255, 255, 1.0, "chase", 2.0, "solid", "", 0.10);
+    const auto b = buildIdleTarget(fixtures, "effect", 255, 255, 255, 1.0, "chase", 2.0, "solid", "", 0.35);
     REQUIRE(a.size() == 1);
     REQUIRE(b.size() == 1);
     CHECK(a[0].effectType == EffectParams::Type::Chase);
@@ -606,5 +606,91 @@ TEST_CASE("resolveLedWireColors: color type applies per-LED for an addressable b
         CHECK(c.g == 0);
         CHECK(c.b == 0);
         CHECK(c.w == 255);
+    }
+}
+
+// ─── resolveLedWireColorsBlended (idle-transition per-pixel crossfade) ────
+
+namespace {
+ResolvedFixtureOutput makeEffectOutput(uint8_t r, uint8_t g, uint8_t b, EffectParams::Type type,
+                                       float rateHz, double tSec) {
+    ResolvedFixtureOutput o;
+    o.fixtureId = "bar1";
+    o.value = {r, g, b, 1.0};
+    o.effectType = type;
+    o.effectRateHz = rateHz;
+    o.effectTSec = tSec;
+    return o;
+}
+} // namespace
+
+TEST_CASE("resolveLedWireColorsBlended: t=0/1 boundaries equal resolveLedWireColors of each side exactly") {
+    LightFixture bar = makeBar("rgb", /*addressable*/ true, /*ledCount*/ 8);
+    const auto from = makeEffectOutput(255, 0, 0, EffectParams::Type::Chase, 2.0f, 0.3);
+    const auto to = makeEffectOutput(0, 0, 255, EffectParams::Type::Twinkle, 1.0f, 1.1);
+
+    const auto atZero = resolveLedWireColorsBlended(from, to, bar, 0.0);
+    const auto expectedFrom = resolveLedWireColors(from, bar);
+    REQUIRE(atZero.size() == expectedFrom.size());
+    for (size_t i = 0; i < atZero.size(); ++i) {
+        CHECK(atZero[i].r == expectedFrom[i].r);
+        CHECK(atZero[i].g == expectedFrom[i].g);
+        CHECK(atZero[i].b == expectedFrom[i].b);
+    }
+
+    const auto atOne = resolveLedWireColorsBlended(from, to, bar, 1.0);
+    const auto expectedTo = resolveLedWireColors(to, bar);
+    REQUIRE(atOne.size() == expectedTo.size());
+    for (size_t i = 0; i < atOne.size(); ++i) {
+        CHECK(atOne[i].r == expectedTo[i].r);
+        CHECK(atOne[i].g == expectedTo[i].g);
+        CHECK(atOne[i].b == expectedTo[i].b);
+    }
+}
+
+TEST_CASE("resolveLedWireColorsBlended: mid-fade is a genuine per-LED mix of the two effects' own shapes") {
+    // Chase (from) and Twinkle (to) each render their own distinct per-LED
+    // pattern -- a correct crossfade mixes those two *shapes* pixel by
+    // pixel, not just the aggregate base color (which is what the older,
+    // buggy blendTowardIdle-only path did: it copied the target's effect
+    // shape verbatim and only ramped r/g/b/intensity).
+    LightFixture bar = makeBar("rgb", /*addressable*/ true, /*ledCount*/ 8);
+    const auto from = makeEffectOutput(255, 0, 0, EffectParams::Type::Chase, 2.0f, 0.3);
+    const auto to = makeEffectOutput(0, 0, 255, EffectParams::Type::Twinkle, 1.0f, 1.1);
+
+    const auto fromColors = resolveLedWireColors(from, bar);
+    const auto toColors = resolveLedWireColors(to, bar);
+    const auto mid = resolveLedWireColorsBlended(from, to, bar, 0.5);
+    REQUIRE(mid.size() == 8);
+
+    bool differsFromBothEndpoints = false;
+    for (size_t i = 0; i < mid.size(); ++i) {
+        // Every mid-fade LED must be exactly the arithmetic midpoint of what
+        // each side's own resolveLedWireColors produced at that index.
+        CHECK(mid[i].r == static_cast<uint8_t>((static_cast<int>(fromColors[i].r) + toColors[i].r) / 2));
+        CHECK(mid[i].g == static_cast<uint8_t>((static_cast<int>(fromColors[i].g) + toColors[i].g) / 2));
+        CHECK(mid[i].b == static_cast<uint8_t>((static_cast<int>(fromColors[i].b) + toColors[i].b) / 2));
+
+        const bool matchesFrom =
+            mid[i].r == fromColors[i].r && mid[i].g == fromColors[i].g && mid[i].b == fromColors[i].b;
+        const bool matchesTo =
+            mid[i].r == toColors[i].r && mid[i].g == toColors[i].g && mid[i].b == toColors[i].b;
+        if (!matchesFrom && !matchesTo)
+            differsFromBothEndpoints = true;
+    }
+    CHECK(differsFromBothEndpoints);
+}
+
+TEST_CASE("resolveLedWireColorsBlended: a fixture missing from `from` fades in from black, per-LED") {
+    LightFixture bar = makeBar("rgb", /*addressable*/ true, /*ledCount*/ 4);
+    const ResolvedFixtureOutput from{}; // default-constructed -- fixture never had an active cue
+    const auto to = makeSolidOutput(255, 255, 255);
+
+    const auto mid = resolveLedWireColorsBlended(from, to, bar, 0.5);
+    REQUIRE(mid.size() == 4);
+    for (const auto& c : mid) {
+        CHECK(c.r == 127);
+        CHECK(c.g == 127);
+        CHECK(c.b == 127);
     }
 }

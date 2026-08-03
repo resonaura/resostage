@@ -25,15 +25,14 @@ namespace {
 // addressableEffectLedColor. All of that per-LED math lives in the shared
 // resolveLedWireColors() so the websocket stream can never diverge from
 // what this real output path writes.
-void writeDmxChannels(const ResolvedFixtureOutput& out,
-                      const ResoLightChannelAssignment& assign,
-                      const LightFixture& fixture,
-                      std::map<int, std::vector<uint8_t>>& frames) {
+void writeWireColorsToDmx(const std::vector<LedWireColor>& wireColors,
+                          const ResoLightChannelAssignment& assign,
+                          const LightFixture& fixture,
+                          std::map<int, std::vector<uint8_t>>& frames) {
     auto& universe = frames[assign.universe];
     if (universe.empty())
         universe.assign(512, 0);
 
-    const std::vector<LedWireColor> wireColors = resolveLedWireColors(out, fixture);
     const int startIdx = assign.startChannel - 1; // 0-based index
 
     // Real bytes-per-pixel this fixture occupies. A ResoLightBar's color
@@ -68,6 +67,39 @@ void writeDmxChannels(const ResolvedFixtureOutput& out,
     const int leds = std::min(static_cast<int>(wireColors.size()), (512 - startIdx) / perPixelBytes);
     for (int i = 0; i < leds; ++i)
         writeOne(startIdx + i * perPixelBytes, wireColors[static_cast<size_t>(i)]);
+}
+
+// Write one resolved fixture output into the correct DMX channels.
+// Non-addressable fixtures (or addressable ones with no per-LED effect
+// active) get a uniform RGB triplet scaled by intensity across the whole
+// bar. Addressable fixtures whose active cue IS Meter get a real
+// progressive bottom-up LED fill (see meterLedColor) -- this is what makes
+// an addressable ResoLight bar actually look like a VU meter instead of
+// just uniformly dimming, matching how every other meter in the app
+// (LevelMeterBar.tsx) already fills bottom-to-top. Converge/GradientFlow
+// and the rest of the spatial effects get their own per-LED shape via
+// addressableEffectLedColor. All of that per-LED math lives in the shared
+// resolveLedWireColors() so the websocket stream can never diverge from
+// what this real output path writes.
+void writeDmxChannels(const ResolvedFixtureOutput& out,
+                      const ResoLightChannelAssignment& assign,
+                      const LightFixture& fixture,
+                      std::map<int, std::vector<uint8_t>>& frames) {
+    writeWireColorsToDmx(resolveLedWireColors(out, fixture), assign, fixture, frames);
+}
+
+// Idle-transition variant: crossfades each LED between the frozen "from"
+// snapshot and the live "to" target (see resolveLedWireColorsBlended's doc
+// comment) instead of writing the pre-blended aggregate `out` -- this is
+// what makes an addressable effect's per-LED shape actually dissolve into
+// the target pattern instead of snapping the instant a fade begins.
+void writeDmxChannelsBlended(const ResolvedFixtureOutput& from,
+                             const ResolvedFixtureOutput& to,
+                             double t,
+                             const ResoLightChannelAssignment& assign,
+                             const LightFixture& fixture,
+                             std::map<int, std::vector<uint8_t>>& frames) {
+    writeWireColorsToDmx(resolveLedWireColorsBlended(from, to, fixture, t), assign, fixture, frames);
 }
 
 inline std::vector<ResoLightChannelAssignment>
@@ -219,7 +251,7 @@ void LightEngine::threadLoop() {
             // idle behavior was just configured while stopped). Start the
             // fade from the last pre-idle resolve, which `lastResolvedOutputs`
             // still holds. The first frame comes out fully at `from`, so
-            // there's no snap, just the start of the 1.5s fade.
+            // there's no snap, just the start of the kIdleFadeSeconds fade.
             idleFadeStart = std::chrono::steady_clock::now();
             wasIdleFading = true;
         } else if (wasResumeFading && useIdleOverride) {
@@ -234,7 +266,17 @@ void LightEngine::threadLoop() {
             wasIdleFading = false;
         }
 
+        // When a fade is genuinely in progress (0 < blendT < 1), these hold
+        // the "from"/"to" sides so the DMX write loop below can crossfade
+        // each LED individually via resolveLedWireColorsBlended instead of
+        // writing the pre-blended aggregate `resolved` (see
+        // writeDmxChannelsBlended's doc comment). Left empty and blendT left
+        // at 1.0 outside a fade, which makes the write loop fall back to the
+        // ordinary per-fixture writeDmxChannels path.
         std::vector<ResolvedFixtureOutput> resolved;
+        std::vector<ResolvedFixtureOutput> blendFrom;
+        std::vector<ResolvedFixtureOutput> blendTo;
+        double blendT = 1.0;
         if (wasResumeFading) {
             // Fading back from idle to the normal cue resolve. Fixtures the
             // idle state turned on but that no cue drives anymore get an
@@ -259,6 +301,9 @@ void LightEngine::threadLoop() {
                     }
                 }
                 resolved = blendTowardIdle(resumeFrom, normal, t);
+                blendFrom = resumeFrom;
+                blendTo = normal;
+                blendT = t;
             }
             lastResolvedOutputs = resolved;
         } else if (wasIdleFading) {
@@ -273,7 +318,13 @@ void LightEngine::threadLoop() {
                                                 proj->lighting.idleEffectType, proj->lighting.idleEffectRateHz,
                                                 proj->lighting.idleGradientPreset, proj->lighting.idleGradientColors,
                                                 effectPhase);
-            resolved = blendTowardIdle(lastResolvedOutputs, target, effectPhase / kIdleFadeSeconds);
+            const double t = effectPhase / kIdleFadeSeconds;
+            resolved = blendTowardIdle(lastResolvedOutputs, target, t);
+            if (t < 1.0) {
+                blendFrom = lastResolvedOutputs;
+                blendTo = target;
+                blendT = t;
+            }
         } else {
             resolved = resolveLightOutputs(
                 proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
@@ -281,15 +332,37 @@ void LightEngine::threadLoop() {
         }
         lastFrame = resolved;
 
+        // Only built when a fade is actually in progress -- see blendFrom's
+        // doc comment above. `blendTo`/`resolved` share the same fixture
+        // order (both derived by iterating the same "to" vector inside
+        // blendTowardIdle), so `blendTo[i]` always matches `resolved[i]`;
+        // only the "from" side needs a lookup by id since a fixture can be
+        // absent from it (never had an active cue when the fade started).
+        std::map<std::string, const ResolvedFixtureOutput*> blendFromById;
+        const bool blendActive = !blendFrom.empty() || !blendTo.empty();
+        if (blendActive)
+            for (const auto& f : blendFrom)
+                blendFromById[f.fixtureId] = &f;
+
         std::map<int, std::vector<uint8_t>> frames; // universe → 512 bytes
         std::map<int, double> minHzPerUniverse;
-        for (const auto& out : resolved) {
+        for (size_t i = 0; i < resolved.size(); ++i) {
+            const auto& out = resolved[i];
             auto lutIt = fixtureLut.find(out.fixtureId);
             if (lutIt == fixtureLut.end())
                 continue;
             const auto& [assignIdx, fixture] = lutIt->second;
             const auto& assign = channelMap[static_cast<size_t>(assignIdx)];
-            writeDmxChannels(out, assign, *fixture, frames);
+
+            if (blendActive) {
+                static const ResolvedFixtureOutput kBlackFallback{};
+                const ResolvedFixtureOutput* fromEntry = &kBlackFallback;
+                if (auto it = blendFromById.find(out.fixtureId); it != blendFromById.end())
+                    fromEntry = it->second;
+                writeDmxChannelsBlended(*fromEntry, blendTo[i], blendT, assign, *fixture, frames);
+            } else {
+                writeDmxChannels(out, assign, *fixture, frames);
+            }
 
             const double hz = fixture->refreshRateHz > 0.0 ? fixture->refreshRateHz : proj->lighting.defaultRefreshRateHz;
             auto mit = minHzPerUniverse.find(assign.universe);

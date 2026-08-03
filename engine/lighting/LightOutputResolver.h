@@ -584,4 +584,39 @@ inline std::vector<LedWireColor> resolveLedWireColors(const ResolvedFixtureOutpu
     return colors;
 }
 
+// Crossfades two fixtures' per-LED wire colors channel-by-channel -- used
+// during idle-behavior transitions so each LED visibly cross-dissolves from
+// whatever it actually looked like in the last rendered frame (which may be
+// mid-effect, e.g. partway through a Chase sweep) into the new target's
+// shape, instead of the LED pattern snapping to the target instantly while
+// only the aggregate color/intensity ramps (see blendTowardIdle's doc
+// comment -- that function only lerps ResolvedFixtureOutput::value and
+// copies the target's effectType/effectTSec/gradient verbatim, which is
+// exactly the snap this function exists to avoid at the LED-color level).
+// Both resolveLedWireColors calls below address the same physical
+// `fixture`, so the two returned arrays are always the same size.
+inline std::vector<LedWireColor> resolveLedWireColorsBlended(
+    const ResolvedFixtureOutput& from, const ResolvedFixtureOutput& to,
+    const LightFixture& fixture, double t) {
+    t = std::clamp(t, 0.0, 1.0);
+    if (t >= 1.0) return resolveLedWireColors(to, fixture);
+    if (t <= 0.0) return resolveLedWireColors(from, fixture);
+
+    const auto a = resolveLedWireColors(from, fixture);
+    const auto b = resolveLedWireColors(to, fixture);
+    const auto lerpByte = [t](uint8_t x, uint8_t y) -> uint8_t {
+        return static_cast<uint8_t>(std::clamp(x + (y - x) * t, 0.0, 255.0));
+    };
+
+    std::vector<LedWireColor> out;
+    out.reserve(b.size());
+    for (size_t i = 0; i < b.size(); ++i) {
+        const LedWireColor from_i = i < a.size() ? a[i] : LedWireColor{};
+        const LedWireColor& to_i = b[i];
+        out.push_back(LedWireColor{lerpByte(from_i.r, to_i.r), lerpByte(from_i.g, to_i.g),
+                                    lerpByte(from_i.b, to_i.b), lerpByte(from_i.w, to_i.w)});
+    }
+    return out;
+}
+
 } // namespace resostage
