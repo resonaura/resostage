@@ -360,6 +360,59 @@ TEST_CASE("buildIdleLightOutputs: staticColor clamps an out-of-range intensity")
     CHECK(out[0].value.intensity == doctest::Approx(1.0));
 }
 
+// ─── buildIdleEffectOutputs / buildIdleTarget (idle "effect" mode) ─────────
+
+TEST_CASE("buildIdleEffectOutputs: one row per fixture, forwards identity, rate and phase") {
+    auto out = buildIdleEffectOutputs(makeIdleFixtures(), "strobe", 3.5, 200, 100, 50, 0.8, 1.25);
+    REQUIRE(out.size() == 2);
+    CHECK(out[0].fixtureId == "f1");
+    CHECK(out[1].fixtureId == "f2");
+    for (const auto& r : out) {
+        CHECK(r.effectType == EffectParams::Type::Strobe);
+        CHECK(r.effectRateHz == doctest::Approx(3.5f));
+        CHECK(r.effectTSec == doctest::Approx(1.25));
+        // The idle color seeds the effect's base color.
+        CHECK(r.value.r == 200);
+        CHECK(r.value.g == 100);
+        CHECK(r.value.b == 50);
+        // The effect is actually modulating (Strobe scales intensity from
+        // the base level, so it won't stay exactly at 0.8).
+        CHECK(r.value.intensity > 0.0);
+        CHECK(r.value.intensity <= 1.0);
+    }
+}
+
+TEST_CASE("buildIdleEffectOutputs: an unrecognised effect type yields Type::None rows (off, not animated)") {
+    auto out = buildIdleEffectOutputs(makeIdleFixtures(), "bogus", 2.0, 10, 20, 30, 1.0, 0.0);
+    REQUIRE(out.size() == 2);
+    for (const auto& r : out)
+        CHECK(r.effectType == EffectParams::Type::None);
+}
+
+TEST_CASE("buildIdleTarget: effect delegates to the effect builder; other modes fall through") {
+    auto fixtures = makeIdleFixtures();
+    auto eff = buildIdleTarget(fixtures, "effect", 200, 100, 50, 0.8, "chase", 4.0, 0.5);
+    REQUIRE(eff.size() == 2);
+    CHECK(eff[0].effectType == EffectParams::Type::Chase);
+    CHECK(eff[0].effectRateHz == doctest::Approx(4.0f));
+
+    auto sc = buildIdleTarget(fixtures, "staticColor", 200, 100, 50, 0.75, "chase", 4.0, 0.5);
+    REQUIRE(sc.size() == 2);
+    CHECK(sc[0].value.r == 200);
+    CHECK(sc[0].value.g == 100);
+    CHECK(sc[0].value.b == 50);
+    CHECK(sc[0].effectType == EffectParams::Type::None); // static color never animates
+
+    auto bo = buildIdleTarget(fixtures, "blackout", 200, 100, 50, 0.75, "chase", 4.0, 0.5);
+    REQUIRE(bo.size() == 2);
+    CHECK(bo[0].value.r == 0);
+    CHECK(bo[0].value.intensity == doctest::Approx(0.0));
+
+    // holdLast is not a buildIdleTarget mode -- it's the caller's "keep
+    // resolving normally" fallback, so the target stays empty.
+    CHECK(buildIdleTarget(fixtures, "holdLast", 200, 100, 50, 0.75, "chase", 4.0, 0.5).empty());
+}
+
 // ─── blendTowardIdle (idle-transition fade) ────────────────────────────────
 
 namespace {

@@ -1231,6 +1231,8 @@ void MainComponent::publishWebState() {
     state.lighting.idleColorG = proj.lighting.idleColorG;
     state.lighting.idleColorB = proj.lighting.idleColorB;
     state.lighting.idleIntensity = proj.lighting.idleIntensity;
+    state.lighting.idleEffectType = proj.lighting.idleEffectType;
+    state.lighting.idleEffectRateHz = proj.lighting.idleEffectRateHz;
     state.lighting.defaultRefreshRateHz = proj.lighting.defaultRefreshRateHz;
     state.lighting.fixtures.reserve(proj.lighting.fixtures.size());
     for (const LightFixture& f : proj.lighting.fixtures) {
@@ -1323,32 +1325,77 @@ void MainComponent::publishWebState() {
 
         // Apply the same idle-behavior override LightEngine's real DMX thread
         // applies: while the transport is stopped with a non-"holdLast"
-        // idleBehavior (blackout/staticColor), the whole preview feed fades to
-        // the idle target via the shared blendTowardIdle + kIdleFadeSeconds,
-        // exactly like the hardware. This preview feed drives every light
-        // preview in the SPA (Light tab, Editor's Light-mode, wherever) --
-        // the frontend draws the backend-rendered per-LED rows as-is and
-        // never re-simulates idle behavior client-side anymore.
+        // idleBehavior (blackout/staticColor/effect), the whole preview feed
+        // fades to/from the idle target via the shared blendTowardIdle +
+        // kIdleFadeSeconds, exactly like the hardware -- resuming playback
+        // fades just as smoothly back out of it. This preview feed drives
+        // every light preview in the SPA (Light tab, Editor's Light-mode,
+        // wherever) -- the frontend draws the backend-rendered per-LED rows
+        // as-is and never re-simulates idle behavior client-side anymore.
         const bool useIdleOverride = !state.playing && proj.lighting.idleBehavior != "holdLast";
+
+        // Mirror of LightEngine's transition bookkeeping -- see threadLoop.
+        if (useIdleOverride && !lightingPreviewWasIdleFading && !lightingPreviewWasResumeFading) {
+            // Fresh entry into idle (transport just stopped) -- start the
+            // fade from the last pre-idle resolve, same as the DMX thread.
+            lightingPreviewIdleFadeStart = std::chrono::steady_clock::now();
+            lightingPreviewWasIdleFading = true;
+        } else if (lightingPreviewWasResumeFading && useIdleOverride) {
+            lightingPreviewLastResolved = lightingPreviewLastFrame;
+            lightingPreviewIdleFadeStart = std::chrono::steady_clock::now();
+            lightingPreviewWasResumeFading = false;
+            lightingPreviewWasIdleFading = true;
+        } else if (!useIdleOverride && (lightingPreviewWasIdleFading || lightingPreviewWasResumeFading)) {
+            lightingPreviewResumeFrom = lightingPreviewLastFrame;
+            lightingPreviewResumeFadeStart = std::chrono::steady_clock::now();
+            lightingPreviewWasResumeFading = true;
+            lightingPreviewWasIdleFading = false;
+        }
+
         std::vector<ResolvedFixtureOutput> resolved;
-        if (!useIdleOverride) {
+        if (lightingPreviewWasResumeFading) {
+            // Fading back from idle to the normal cue resolve. Fixtures the
+            // idle state turned on but that no cue drives anymore get an
+            // explicit off-row so they fade to black instead of snapping.
+            auto normal = resolveLightOutputs(
+                proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
+            const double t = std::chrono::duration<double>(
+                                 std::chrono::steady_clock::now() - lightingPreviewResumeFadeStart)
+                                 .count() /
+                             kIdleFadeSeconds;
+            if (t >= 1.0) {
+                resolved = std::move(normal);
+                lightingPreviewWasResumeFading = false;
+            } else {
+                for (const auto& rf : lightingPreviewResumeFrom) {
+                    bool found = false;
+                    for (const auto& n : normal)
+                        if (n.fixtureId == rf.fixtureId) { found = true; break; }
+                    if (!found)
+                        normal.push_back(ResolvedFixtureOutput{rf.fixtureId});
+                }
+                resolved = blendTowardIdle(lightingPreviewResumeFrom, normal, t);
+            }
+            lightingPreviewLastResolved = resolved;
+        } else if (lightingPreviewWasIdleFading) {
+            // Fading into (and then sustaining) the idle target. effectPhase
+            // is wall-clock seconds since the fade began -- consumed by the
+            // "effect" idle mode so the effect animates while stopped.
+            const double effectPhase = std::chrono::duration<double>(
+                                           std::chrono::steady_clock::now() - lightingPreviewIdleFadeStart)
+                                           .count();
+            const auto target = buildIdleTarget(proj.lighting.fixtures, proj.lighting.idleBehavior,
+                                                proj.lighting.idleColorR, proj.lighting.idleColorG,
+                                                proj.lighting.idleColorB, proj.lighting.idleIntensity,
+                                                proj.lighting.idleEffectType, proj.lighting.idleEffectRateHz,
+                                                effectPhase);
+            resolved = blendTowardIdle(lightingPreviewLastResolved, target, effectPhase / kIdleFadeSeconds);
+        } else {
             resolved = resolveLightOutputs(
                 proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
             lightingPreviewLastResolved = resolved;
-            lightingPreviewWasIdleFading = false;
-        } else {
-            if (!lightingPreviewWasIdleFading) {
-                lightingPreviewIdleFadeStart = std::chrono::steady_clock::now();
-                lightingPreviewWasIdleFading = true;
-            }
-            const auto target = buildIdleLightOutputs(proj.lighting.fixtures, proj.lighting.idleBehavior,
-                                                      proj.lighting.idleColorR, proj.lighting.idleColorG,
-                                                      proj.lighting.idleColorB, proj.lighting.idleIntensity);
-            const double elapsed = std::chrono::duration<double>(
-                std::chrono::steady_clock::now() - lightingPreviewIdleFadeStart)
-                                      .count();
-            resolved = blendTowardIdle(lightingPreviewLastResolved, target, elapsed / kIdleFadeSeconds);
         }
+        lightingPreviewLastFrame = resolved;
 
         // Fixture id -> project fixture array index, the wire key the binary
         // per-LED stream uses so the frontend can map colors back to its own

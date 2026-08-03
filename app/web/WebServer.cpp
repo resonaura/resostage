@@ -1403,6 +1403,8 @@ std::string WebServer::buildStateJson(const char* view) const {
           << "\"idleColorG\":" << li.idleColorG << ","
           << "\"idleColorB\":" << li.idleColorB << ","
           << "\"idleIntensity\":" << finiteOrZero(li.idleIntensity) << ","
+          << "\"idleEffectType\":\"" << jsonEscape(li.idleEffectType) << "\","
+          << "\"idleEffectRateHz\":" << finiteOrZero(li.idleEffectRateHz) << ","
           << "\"defaultRefreshRateHz\":" << finiteOrZero(li.defaultRefreshRateHz) << ","
           << "\"fixtures\":[";
         for (size_t i = 0; i < li.fixtures.size(); ++i) {

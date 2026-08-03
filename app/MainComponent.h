@@ -240,14 +240,19 @@ private:
 
     // Idle-behavior fade state for the WebUiState preview feed (mirrors
     // LightEngine's own thread-local state in threadLoop, so the preview and
-    // the real DMX output both fade to blackout/staticColor at the same rate
-    // via the shared blendTowardIdle + kIdleFadeSeconds -- see
+    // the real DMX output both fade to/from blackout/staticColor/effect at
+    // the same rate via the shared blendTowardIdle + kIdleFadeSeconds -- see
     // publishWebState). `lightingPreviewLastResolved` is the last non-idle
-    // resolve, captured continuously while NOT idle-fading so a fade starts
-    // from whatever the preview was actually showing.
+    // resolve, `lightingPreviewLastFrame` the previous frame's output, and
+    // `lightingPreviewResumeFrom` the idle output captured when the override
+    // turned off -- the three "from" snapshots the fades start from.
     bool lightingPreviewWasIdleFading = false;
     std::chrono::steady_clock::time_point lightingPreviewIdleFadeStart;
     std::vector<ResolvedFixtureOutput> lightingPreviewLastResolved;
+    bool lightingPreviewWasResumeFading = false;
+    std::chrono::steady_clock::time_point lightingPreviewResumeFadeStart;
+    std::vector<ResolvedFixtureOutput> lightingPreviewResumeFrom;
+    std::vector<ResolvedFixtureOutput> lightingPreviewLastFrame;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

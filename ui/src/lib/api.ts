@@ -373,11 +373,13 @@ export const lighting = {
     kind?: "none" | "resoLight" | "dmxGeneric";
     resoLightColumns?: number;
     resoLightRows?: number;
-    idleBehavior?: "holdLast" | "blackout" | "staticColor";
+    idleBehavior?: "holdLast" | "blackout" | "staticColor" | "effect";
     idleColorR?: number;
     idleColorG?: number;
     idleColorB?: number;
     idleIntensity?: number;
+    idleEffectType?: string;
+    idleEffectRateHz?: number;
     defaultRefreshRateHz?: number;
   }) => post("/api/v1/lighting/config", patch),
 

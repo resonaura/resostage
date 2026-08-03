@@ -136,15 +136,23 @@ void LightEngine::threadLoop() {
     // Idle-transition fade state -- local to this thread's loop, never
     // touched from outside, so plain locals suffice (no member vars/locks
     // needed). `lastResolvedOutputs` is whatever the rig was ACTUALLY
-    // showing the instant before an idle override (blackout/staticColor)
-    // kicked in -- captured continuously whenever we're NOT idle-fading
-    // (so it's current, whether that "before" state was live playback or a
-    // frozen holdLast resolve), so a fade always starts from the truth
-    // instead of snapping. kIdleFadeSeconds lives in LightOutputResolver.h
-    // so MainComponent's preview push fades at the identical rate.
+    // showing the instant before an idle override (blackout/staticColor/
+    // effect) kicked in -- captured continuously whenever we're NOT
+    // idle-fading (so it's current, whether that "before" state was live
+    // playback or a frozen holdLast resolve), so a fade always starts from
+    // the truth instead of snapping. `resumeFrom` is the mirror image: the
+    // idle output captured the instant the override turned OFF, so coming
+    // back to normal lighting fades smoothly out of it too. `lastFrame` is
+    // the previous frame's output, used to snapshot the current position on
+    // either transition. kIdleFadeSeconds lives in LightOutputResolver.h so
+    // MainComponent's preview push fades at the identical rate.
     std::vector<ResolvedFixtureOutput> lastResolvedOutputs;
+    std::vector<ResolvedFixtureOutput> resumeFrom;
+    std::vector<ResolvedFixtureOutput> lastFrame;
     bool wasIdleFading = false;
+    bool wasResumeFading = false;
     auto idleFadeStart = std::chrono::steady_clock::now();
+    auto resumeFadeStart = std::chrono::steady_clock::now();
 
     // Per-universe send throttling -- resolves happen every tick (cheap),
     // but a universe only actually goes out to the network at its own
@@ -191,29 +199,80 @@ void LightEngine::threadLoop() {
         }
 
         // Stopped transport + a configured idle behavior (blackout/static
-        // color) overrides the normal cue-driven resolve entirely -- see
-        // buildIdleLightOutputs's doc comment. "holdLast" (the default)
-        // keeps calling resolveLightOutputs() exactly as before this
-        // setting existed, i.e. whatever the frozen playhead resolves to.
+        // color/effect) overrides the normal cue-driven resolve entirely --
+        // see buildIdleTarget's doc comment. "holdLast" (the default) keeps
+        // calling resolveLightOutputs() exactly as before this setting
+        // existed, i.e. whatever the frozen playhead resolves to.
         const bool useIdleOverride = !clock_->isRunning() && proj->lighting.idleBehavior != "holdLast";
+
+        // Idle-behavior transition bookkeeping. Leaving idle (resume or a
+        // switch back to holdLast) starts a symmetric fade back out of the
+        // idle state; stopping again mid-resume folds the current position
+        // back into an idle fade. `lastFrame` is the previous frame's
+        // output, the honest "what are we showing right now" both snapshot
+        // their "from" state from.
+        if (useIdleOverride && !wasIdleFading && !wasResumeFading) {
+            // Fresh entry into idle -- the transport just stopped (or an
+            // idle behavior was just configured while stopped). Start the
+            // fade from the last pre-idle resolve, which `lastResolvedOutputs`
+            // still holds. The first frame comes out fully at `from`, so
+            // there's no snap, just the start of the 1.5s fade.
+            idleFadeStart = std::chrono::steady_clock::now();
+            wasIdleFading = true;
+        } else if (wasResumeFading && useIdleOverride) {
+            lastResolvedOutputs = lastFrame;
+            idleFadeStart = std::chrono::steady_clock::now();
+            wasResumeFading = false;
+            wasIdleFading = true;
+        } else if (!useIdleOverride && (wasIdleFading || wasResumeFading)) {
+            resumeFrom = lastFrame;
+            resumeFadeStart = std::chrono::steady_clock::now();
+            wasResumeFading = true;
+            wasIdleFading = false;
+        }
+
         std::vector<ResolvedFixtureOutput> resolved;
-        if (!useIdleOverride) {
+        if (wasResumeFading) {
+            // Fading back from idle to the normal cue resolve. Fixtures the
+            // idle state turned on but that no cue drives anymore get an
+            // explicit off-row so they fade to black instead of snapping.
+            auto normal = resolveLightOutputs(
+                proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
+            const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - resumeFadeStart)
+                                 .count() /
+                             kIdleFadeSeconds;
+            if (t >= 1.0) {
+                resolved = std::move(normal);
+                wasResumeFading = false;
+            } else {
+                for (const auto& rf : resumeFrom) {
+                    bool found = false;
+                    for (const auto& n : normal)
+                        if (n.fixtureId == rf.fixtureId) { found = true; break; }
+                    if (!found)
+                        normal.push_back(ResolvedFixtureOutput{rf.fixtureId});
+                }
+                resolved = blendTowardIdle(resumeFrom, normal, t);
+            }
+            lastResolvedOutputs = resolved;
+        } else if (wasIdleFading) {
+            // Fading into (and then sustaining) the idle target. effectPhase
+            // is wall-clock seconds since the fade began -- consumed by the
+            // "effect" idle mode so the effect animates while stopped.
+            const double effectPhase =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - idleFadeStart).count();
+            const auto target = buildIdleTarget(proj->lighting.fixtures, proj->lighting.idleBehavior,
+                                                proj->lighting.idleColorR, proj->lighting.idleColorG,
+                                                proj->lighting.idleColorB, proj->lighting.idleIntensity,
+                                                proj->lighting.idleEffectType, proj->lighting.idleEffectRateHz,
+                                                effectPhase);
+            resolved = blendTowardIdle(lastResolvedOutputs, target, effectPhase / kIdleFadeSeconds);
+        } else {
             resolved = resolveLightOutputs(
                 proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
             lastResolvedOutputs = resolved;
-            wasIdleFading = false;
-        } else {
-            if (!wasIdleFading) {
-                idleFadeStart = std::chrono::steady_clock::now();
-                wasIdleFading = true;
-            }
-            const auto target = buildIdleLightOutputs(proj->lighting.fixtures, proj->lighting.idleBehavior,
-                                                        proj->lighting.idleColorR, proj->lighting.idleColorG,
-                                                        proj->lighting.idleColorB, proj->lighting.idleIntensity);
-            const double elapsed =
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - idleFadeStart).count();
-            resolved = blendTowardIdle(lastResolvedOutputs, target, elapsed / kIdleFadeSeconds);
         }
+        lastFrame = resolved;
 
         std::map<int, std::vector<uint8_t>> frames; // universe → 512 bytes
         std::map<int, double> minHzPerUniverse;

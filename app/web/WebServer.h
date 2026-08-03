@@ -473,11 +473,15 @@ struct WebUiState {
         int resoLightColumns = 2;
         int resoLightRows = 1;
         // See engine/project/ProjectSchema.h's LightingConfig::idleBehavior.
-        std::string idleBehavior = "holdLast"; // "holdLast" | "blackout" | "staticColor"
+        std::string idleBehavior = "holdLast"; // "holdLast" | "blackout" | "staticColor" | "effect"
         int idleColorR = 0;
         int idleColorG = 0;
         int idleColorB = 0;
         double idleIntensity = 1.0;
+        // See LightingConfig::idleEffectType/idleEffectRateHz -- used only
+        // when idleBehavior == "effect".
+        std::string idleEffectType = "none";
+        double idleEffectRateHz = 2.0;
         double defaultRefreshRateHz = 44.0;
         std::vector<LightFixtureRow> fixtures;
     };

@@ -62,6 +62,34 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+// Idle-behavior "effect" catalog -- rhythm-independent effects that animate
+// off wall-clock time while the transport is stopped. Audio-driven ones
+// (Meter/VuPeak/Geq/Blurz) are excluded: with no playback there is no audio
+// to drive them. Labels mirror LightSidePanel's EFFECT_META. Mirrors the
+// backend's parseEffectType string catalog (LightCueInterpolation.h).
+const IDLE_EFFECT_OPTIONS: { value: string; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "strobe", label: "Strobe" },
+  { value: "pulse", label: "Pulse" },
+  { value: "ripple", label: "Ripple" },
+  { value: "converge", label: "Converge" },
+  { value: "gradientflow", label: "Gradient" },
+  { value: "chase", label: "Chase" },
+  { value: "helix", label: "Helix" },
+  { value: "plasma", label: "Plasma" },
+  { value: "twinkle", label: "Twinkle" },
+  { value: "sonicboom", label: "Boom" },
+  { value: "fire", label: "Fire" },
+  { value: "bouncing", label: "Bounce" },
+  { value: "drip", label: "Drip" },
+  { value: "fireworks", label: "Fireworks" },
+  { value: "colorwaves", label: "Waves" },
+  { value: "strobeswipe", label: "Swipe" },
+  { value: "scanner", label: "Scanner" },
+  { value: "lightning", label: "Lightning" },
+  { value: "barberpole", label: "Barberpole" },
+];
+
 // ─── Auto-layout positions ────────────────────────────────────────────────
 
 function autoLayoutPositions(fixtures: LightFixtureRow[]): { id: string; posX: number; posZ: number }[] {
@@ -321,12 +349,13 @@ export function ProjectLightingPanel({
           {/* Idle behavior -- what fixtures show while the transport is stopped */}
           <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3 flex flex-col gap-3">
             <Field label="When playback is stopped">
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
                 {(
                   [
                     { value: "holdLast", label: "Hold Last", desc: "Keep showing whatever the frozen playhead position resolves to" },
                     { value: "blackout", label: "Blackout", desc: "Force every fixture off" },
                     { value: "staticColor", label: "Static Color", desc: "Force every fixture to a fixed idle color" },
+                    { value: "effect", label: "Effect", desc: "Run a rhythm-independent effect over the rig, still animating while stopped" },
                   ] as const
                 ).map((opt) => (
                   <button
@@ -361,6 +390,49 @@ export function ProjectLightingPanel({
                   value={li.idleIntensity}
                   onChange={(v) => void lighting.setConfig({ idleIntensity: v })}
                 />
+              </div>
+            )}
+
+            {li.idleBehavior === "effect" && (
+              <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
+                <Field label="Effect">
+                  <select
+                    className={selectCls}
+                    value={li.idleEffectType}
+                    onChange={(e) => void lighting.setConfig({ idleEffectType: e.target.value })}
+                  >
+                    {IDLE_EFFECT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {li.idleEffectType !== "none" && (
+                  <>
+                    <LabeledSlider
+                      label={`Rate: ${li.idleEffectRateHz.toFixed(1)} Hz`}
+                      min={0.05}
+                      max={10}
+                      step={0.05}
+                      value={li.idleEffectRateHz}
+                      onChange={(v) => void lighting.setConfig({ idleEffectRateHz: v })}
+                    />
+                    <HslColorPicker
+                      r={li.idleColorR}
+                      g={li.idleColorG}
+                      b={li.idleColorB}
+                      onChange={(r, g, b) =>
+                        void lighting.setConfig({ idleColorR: r, idleColorG: g, idleColorB: b })
+                      }
+                    />
+                    <LabeledSlider
+                      label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
+                      value={li.idleIntensity}
+                      onChange={(v) => void lighting.setConfig({ idleIntensity: v })}
+                    />
+                  </>
+                )}
               </div>
             )}
           </div>

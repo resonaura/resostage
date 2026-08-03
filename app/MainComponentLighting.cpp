@@ -99,17 +99,27 @@ void MainComponent::lightingSetConfig(const std::string& json) {
         cfg.resoLightColumns = std::max(0, intVal);
     if (getInt(doc, "resoLightRows", intVal))
         cfg.resoLightRows = std::max(0, intVal);
+    double doubleVal;
     if (getString(doc, "idleBehavior", strVal)) {
-        if (strVal == "blackout" || strVal == "staticColor" || strVal == "holdLast")
+        if (strVal == "blackout" || strVal == "staticColor" || strVal == "effect" || strVal == "holdLast")
             cfg.idleBehavior = strVal;
     }
+    if (getString(doc, "idleEffectType", strVal)) {
+        // Validate against the same catalog buildIdleEffectOutputs will use
+        // (parseEffectType returns Type::None for unknown strings, which is
+        // the "off" value -- so reject anything that doesn't parse rather
+        // than silently turning the effect off).
+        if (parseEffectType(strVal) != EffectParams::Type::None)
+            cfg.idleEffectType = strVal;
+    }
+    if (getDouble(doc, "idleEffectRateHz", doubleVal))
+        cfg.idleEffectRateHz = std::clamp(doubleVal, 0.05, 30.0);
     if (getInt(doc, "idleColorR", intVal))
         cfg.idleColorR = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
     if (getInt(doc, "idleColorG", intVal))
         cfg.idleColorG = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
     if (getInt(doc, "idleColorB", intVal))
         cfg.idleColorB = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
-    double doubleVal;
     if (getDouble(doc, "idleIntensity", doubleVal))
         cfg.idleIntensity = std::clamp(doubleVal, 0.0, 1.0);
     if (getDouble(doc, "defaultRefreshRateHz", doubleVal))

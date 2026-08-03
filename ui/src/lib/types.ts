@@ -203,11 +203,15 @@ export interface LightingState {
   resoLightColumns: number;
   resoLightRows: number;
   /** What every fixture shows while the transport is stopped. */
-  idleBehavior: "holdLast" | "blackout" | "staticColor";
+  idleBehavior: "holdLast" | "blackout" | "staticColor" | "effect";
   idleColorR: number;
   idleColorG: number;
   idleColorB: number;
   idleIntensity: number;
+  /** Effect run while stopped when idleBehavior === "effect". */
+  idleEffectType: string;
+  /** Animation rate (Hz) of the stopped-stopped effect. */
+  idleEffectRateHz: number;
   /** Default DMX send rate (Hz) for fixtures that don't set their own refreshRateHz. */
   defaultRefreshRateHz: number;
   fixtures: LightFixtureRow[];
@@ -423,6 +427,8 @@ export const emptyState: WebUiState = {
     idleColorG: 0,
     idleColorB: 0,
     idleIntensity: 1,
+    idleEffectType: "none",
+    idleEffectRateHz: 2,
     defaultRefreshRateHz: 44,
     fixtures: [],
   },

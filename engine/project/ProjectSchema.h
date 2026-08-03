@@ -225,14 +225,23 @@ struct LightingConfig {
     // same as before this setting existed. "blackout" forces every fixture
     // off; "staticColor" forces every fixture to idleColorR/G/B at
     // idleIntensity -- e.g. a house-color wash between songs instead of
-    // whatever the last cue happened to leave lit. See
-    // LightOutputResolver.h's buildIdleLightOutputs, the single place both
-    // LightEngine's real DMX output and the web preview apply this.
-    std::string idleBehavior = "holdLast"; // "holdLast" | "blackout" | "staticColor"
+    // whatever the last cue happened to leave lit; "effect" runs a
+    // rhythm-independent effect (idleEffectType, e.g. Strobe/Chase/Plasma)
+    // over the whole rig at idleEffectRateHz, with idleColorR/G/B as the
+    // effect's base color -- the effect keeps animating off wall-clock time
+    // even though the transport is stopped. See LightOutputResolver.h's
+    // buildIdleTarget, the single place both LightEngine's real DMX output
+    // and the web preview apply this.
+    std::string idleBehavior = "holdLast"; // "holdLast" | "blackout" | "staticColor" | "effect"
     uint8_t idleColorR = 0;
     uint8_t idleColorG = 0;
     uint8_t idleColorB = 0;
     double idleIntensity = 1.0;
+    // Effect run by idleBehavior "effect" (see parseEffectType's string
+    // catalog). Audio-driven effects (Meter/VuPeak/Geq/Blurz) are excluded:
+    // with the transport stopped there is no running audio to drive them.
+    std::string idleEffectType = "none";
+    double idleEffectRateHz = 2.0;
 
     // Default DMX output refresh rate (Hz) for every fixture that doesn't
     // set its own LightFixture::refreshRateHz override. 44 Hz matches

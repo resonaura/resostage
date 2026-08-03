@@ -363,7 +363,7 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
 // "holdLast" (the default) returns empty: the caller's contract is to fall
 // back to a normal resolveLightOutputs(..., tSec, ...) call in that case,
 // i.e. literally hold whatever the frozen playhead position resolves to --
-// this function is only ever called for the other two modes.
+// this function is only ever called for the other three modes.
 inline std::vector<ResolvedFixtureOutput> buildIdleLightOutputs(
     const std::vector<LightFixture>& fixtures,
     const std::string& idleBehavior,
@@ -382,6 +382,60 @@ inline std::vector<ResolvedFixtureOutput> buildIdleLightOutputs(
         out.push_back(std::move(r));
     }
     return out;
+}
+
+// Idle target for idleBehavior "effect": every fixture runs `idleEffectType`
+// (a rhythm-independent effect -- Strobe/Pulse/Ripple/Chase/Plasma/...; see
+// the LightingConfig::idleEffectType doc comment for which are eligible) at
+// idleEffectRateHz, seeded with idleColorR/G/B as the effect's base color.
+// `tSec` is the wall-clock time since the idle transition began (advances
+// even though the transport is stopped, so the effect keeps animating).
+// Uses the exact same applyEffect + effectType forwarding as
+// resolveLightOutputs, so the per-LED shapes it renders are identical to a
+// cue-driven effect of the same type.
+inline std::vector<ResolvedFixtureOutput> buildIdleEffectOutputs(
+    const std::vector<LightFixture>& fixtures,
+    const std::string& idleEffectType,
+    double idleEffectRateHz,
+    uint8_t idleR, uint8_t idleG, uint8_t idleB, double idleIntensity,
+    double tSec) {
+    EffectParams p;
+    p.type = parseEffectType(idleEffectType);
+    p.rateHz = static_cast<float>(idleEffectRateHz);
+    p.tSec = tSec;
+    p.intensity = static_cast<float>(idleIntensity);
+    const LightCueValue base{idleR, idleG, idleB, std::clamp(idleIntensity, 0.0, 1.0)};
+
+    std::vector<ResolvedFixtureOutput> out;
+    out.reserve(fixtures.size());
+    for (size_t i = 0; i < fixtures.size(); ++i) {
+        ResolvedFixtureOutput r;
+        r.fixtureId = fixtures[i].id;
+        p.fixtureIndex = static_cast<int>(i);
+        r.value = applyEffect(base, p);
+        r.effectType = p.type;
+        r.effectTSec = p.tSec;
+        r.effectRateHz = p.rateHz;
+        out.push_back(std::move(r));
+    }
+    return out;
+}
+
+// The full idle target for the whole rig -- the single place both
+// LightEngine's real DMX thread and MainComponent's web preview compute it,
+// so the stage and every preview agree on every idleBehavior. `effectPhaseT`
+// is the wall-clock seconds since the idle transition began (pass 0 for a
+// fresh fade-in; callers own the clock), consumed only by the "effect" mode
+// so the effect keeps animating while stopped.
+inline std::vector<ResolvedFixtureOutput> buildIdleTarget(
+    const std::vector<LightFixture>& fixtures,
+    const std::string& idleBehavior,
+    uint8_t idleR, uint8_t idleG, uint8_t idleB, double idleIntensity,
+    const std::string& idleEffectType, double idleEffectRateHz, double effectPhaseT) {
+    if (idleBehavior == "effect")
+        return buildIdleEffectOutputs(fixtures, idleEffectType, idleEffectRateHz,
+                                      idleR, idleG, idleB, idleIntensity, effectPhaseT);
+    return buildIdleLightOutputs(fixtures, idleBehavior, idleR, idleG, idleB, idleIntensity);
 }
 
 // Linearly interpolates every fixture in `to` (the idle target, from
