@@ -678,17 +678,19 @@ function Ruler({
     [pxPerSec, bpm, tsNum],
   );
 
+  // Quantize OUTSIDE the mark list so the memo only invalidates every 250px
+  // of pan -- not on every follow/scrollState tick. Raw scrollLeft in the
+  // dep array rebuilt the whole mark list every frame and, with key={idx},
+  // React recycled tick nodes onto the next mark's position ("сетка прыгает").
+  const quantizedLeft = Math.max(
+    0,
+    Math.floor((scrollLeft || 0) / 250) * 250 - 250,
+  );
+  const bufferedWidth = (viewportWidth || 1200) + 500;
+
   const marks = useMemo(() => {
     const list: { x: number; major: boolean; label?: string }[] = [];
     if (minorStepSec <= 0 || majorStepSec <= 0) return list;
-
-    // Quantize scrollLeft to 250px steps with generous buffer so React DOM nodes
-    // don't churn on every sub-pixel frame during smooth 60/120fps scrolling
-    const quantizedLeft = Math.max(
-      0,
-      Math.floor((scrollLeft || 0) / 250) * 250 - 250,
-    );
-    const bufferedWidth = (viewportWidth || 1200) + 500;
 
     const startTime = Math.max(0, quantizedLeft / pxPerSec);
     const endTime = Math.min(
@@ -735,8 +737,8 @@ function Ruler({
     minorStepSec,
     isBeatGrid,
     barSec,
-    scrollLeft,
-    viewportWidth,
+    quantizedLeft,
+    bufferedWidth,
   ]);
 
   return (
@@ -744,8 +746,8 @@ function Ruler({
       className="relative select-none border-b border-default/30 bg-background-tertiary shrink-0"
       style={{ height: RULER_HEIGHT, width: contentWidth }}
     >
-      {marks.map(({ x, major, label }, idx) => (
-        <div key={idx} className="absolute bottom-0" style={{ left: x }}>
+      {marks.map(({ x, major, label }) => (
+        <div key={x} className="absolute bottom-0" style={{ left: x }}>
           <div
             style={{
               width: 1,
@@ -1183,16 +1185,10 @@ export function Timeline({
   pxPerSecRef.current = pxPerSec;
   const pendingScrollLeftRef = useRef<number | null>(null);
 
-  // Sidebar (track header list) vertical mirror. Written IMPERATIVELY every
-  // animation frame from the same rAF loop that drives the playhead marker
-  // and the follow/zoom scrollLeft writes below, instead of through React
-  // state -- a native `scroll` event -> setState -> re-render round trip is
-  // exactly what raced the follow loop's own 60Hz programmatic scrollLeft
-  // writes and made the sidebar's row labels visibly skew away from the
-  // right pane's already-scrolled lanes while fully playhead-pinned ("дорожки
-  // косоёбит"). Reading scroller.scrollTop straight from the DOM once per
-  // frame, the same way playheadRef's `left` is written, can never land a
-  // frame behind regardless of how many scroll events fire in between.
+  // Sidebar (track header list) vertical mirror. The list sits outside the
+  // right scroller, so we apply translateY(-scrollTop) imperatively from
+  // onScroll (sync with the browser) + rAF as a safety net — never via
+  // React state (that lagged a frame and skew-synced track labels).
   const sidebarContentRef = useRef<HTMLDivElement>(null);
   const [scrollState, setScrollState] = useState({
     scrollLeft: 0,
@@ -2114,10 +2110,10 @@ export function Timeline({
         // (playheadAbsoluteSec * pxPerSec -- the clock is frozen while
         // zooming). Writing it here, in the same commit as the scroll write,
         // means the two can never land a frame apart.
-        const markerEl = playheadRef.current;
-        if (markerEl) {
-          markerEl.style.left = `${playheadAbsoluteSecRef.current * pxPerSecRef.current}px`;
-        }
+        const px = playheadAbsoluteSecRef.current * pxPerSecRef.current;
+        if (playheadRef.current) playheadRef.current.style.left = `${px}px`;
+        if (playheadHandleRef.current)
+          playheadHandleRef.current.style.left = `${px}px`;
         setScrollState({
           scrollLeft: targetScrollLeft,
           viewportWidth: scroller.clientWidth || 1000,
@@ -2346,10 +2342,12 @@ export function Timeline({
   };
 
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
-    // Vertical mirror is written imperatively every rAF tick (see
-    // sidebarContentRef's doc comment) -- this handler only needs the
-    // horizontal echo-detection logic below.
+    // Vertical sidebar mirror: write HERE (scroll event is sync with the
+    // browser's scroll position) so the left track list never lags a frame
+    // behind the right pane. rAF only re-applies as a safety net.
     const scroller = e.currentTarget;
+    if (sidebarContentRef.current)
+      sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
     // Hard-clamp past the real content end (macOS rubber-band / trackpad
     // can report scrollLeft beyond scrollWidth-clientWidth briefly).
     const maxLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
@@ -2535,9 +2533,25 @@ export function Timeline({
   // стопилось якобы а потом оно с анимацией догоняло"). It runs ONCE (the
   // song index is tracked through a ref) so a song change doesn't restart it
   // and lose the in-flight glide.
-  const rulerHeaderRef = useRef<HTMLDivElement>(null);
-
+  // Ruler uses real CSS position:sticky (see markup). Do NOT emulate sticky
+  // with translateY(scrollTop): native scroll paints on the compositor one
+  // frame before JS can counter-translate → vertical jitter.
+  // Playhead: needle is absolute full-height; the triangle handle lives INSIDE
+  // the sticky ruler (sticky inside absolute is broken — handle would stick to
+  // the playhead box, not the scrollport).
   const playheadRef = useRef<HTMLDivElement>(null);
+  const playheadHandleRef = useRef<HTMLDivElement>(null);
+
+  // Left sidebar track list lives OUTSIDE the right scroller; mirror its
+  // vertical offset from the right pane's scrollTop. Applied synchronously
+  // from onScroll (and rAF as a safety net) — never via React state.
+  const syncSidebarScrollMirror = () => {
+    const scroller = scrollRef.current;
+    if (!scroller || !sidebarContentRef.current) return;
+    const st = scroller.scrollTop;
+    sidebarContentRef.current.style.transform = `translate3d(0, -${st}px, 0)`;
+  };
+
   useEffect(() => {
     let raf = 0;
     // Engine-owned scrollLeft; null while idle (not following / not panning).
@@ -2557,27 +2571,18 @@ export function Timeline({
     // manual scrolls never fire a reveal.
     let lastRevealPx = displayPx;
     let lastSongIdx = currentSongIdxRef.current;
-    const marker = playheadRef.current;
-    if (marker) marker.style.left = `${displayPx}px`;
-    if (scrollRef.current) {
-      const st = scrollRef.current.scrollTop;
-      if (sidebarContentRef.current)
-        sidebarContentRef.current.style.transform = `translate3d(0, -${st}px, 0)`;
-      if (rulerHeaderRef.current)
-        rulerHeaderRef.current.style.transform = `translate3d(0, ${st}px, 0)`;
-    }
+    const placePlayhead = (px: number) => {
+      if (playheadRef.current) playheadRef.current.style.left = `${px}px`;
+      if (playheadHandleRef.current)
+        playheadHandleRef.current.style.left = `${px}px`;
+    };
+    placePlayhead(displayPx);
+    syncSidebarScrollMirror();
     let firstTick = true;
 
     const tick = () => {
-      // Every frame, unconditionally -- see sidebarContentRef's doc comment
-      // for why this can't be a React-state round trip.
-      if (scrollRef.current) {
-        const st = scrollRef.current.scrollTop;
-        if (sidebarContentRef.current)
-          sidebarContentRef.current.style.transform = `translate3d(0, -${st}px, 0)`;
-        if (rulerHeaderRef.current)
-          rulerHeaderRef.current.style.transform = `translate3d(0, ${st}px, 0)`;
-      }
+      // Sidebar mirror safety net (primary write is onScroll — see below).
+      syncSidebarScrollMirror();
 
       // Live playhead from the clock's own ref -- not the React-state mirror
       // (playheadAbsoluteSecRef), which only updates on commit and can lag
@@ -2817,9 +2822,8 @@ export function Timeline({
       // wobble over the content ("всё ещё колбасит плейхед"). When the
       // pending target is consumed, the DOM is consistent again and the loop
       // resumes writing the marker itself.
-      const m = playheadRef.current;
-      if (m && pendingScrollLeftRef.current === null) {
-        m.style.left = `${displayPx}px`;
+      if (pendingScrollLeftRef.current === null) {
+        placePlayhead(displayPx);
       }
 
       raf = requestAnimationFrame(tick);
@@ -3239,8 +3243,9 @@ export function Timeline({
             ref={scrollRef}
             className="flex-1 min-h-0 overflow-auto relative select-none cursor-col-resize focus:outline-none"
             style={{
+              // No transform/filter here: sticky ruler + playhead handle need
+              // a clean scrollport. will-change:scroll-position alone is fine.
               willChange: "scroll-position",
-              transform: "translateZ(0)",
               // Kill macOS rubber-band past the content end -- user could
               // pull the timeline into empty space past the last sample.
               overscrollBehavior: "none",
@@ -3253,17 +3258,18 @@ export function Timeline({
               style={{
                 width: contentWidth,
                 minHeight: "100%",
-                transform: "translateZ(0)",
+                // No translateZ(0): any transform on this node breaks
+                // position:sticky for the ruler and playhead handle.
               }}
             >
-              {/* 1. Sticky Ruler Header -- driven by rAF translate3d instead of Chromium sticky compositor lock */}
+              {/* 1. Ruler — real CSS sticky (compositor-pinned, no JS Y race).
+                  Playhead triangle lives here so it sticks with the ruler;
+                  sticky inside an absolute full-height needle does not work. */}
               <div
-                ref={rulerHeaderRef}
-                className="relative top-0 z-20 bg-background-secondary shrink-0 cursor-col-resize touch-none"
+                className="sticky top-0 z-20 bg-background-secondary shrink-0 cursor-col-resize touch-none"
                 style={{
                   width: contentWidth,
                   height: RULER_HEIGHT,
-                  willChange: "transform",
                 }}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
@@ -3271,6 +3277,34 @@ export function Timeline({
                 onPointerCancel={onPointerCancelOrLost}
                 onLostPointerCapture={onPointerCancelOrLost}
               >
+                {/* Playhead handle + ruler-band needle. Lives inside the sticky
+                    header so the line is never painted under the opaque ruler
+                    (the full-height needle is z-below sticky and would vanish
+                    here). X synced with the lane needle via rAF. */}
+                <div
+                  ref={playheadHandleRef}
+                  className="pointer-events-auto absolute top-0 bottom-0 z-30 w-0 -translate-x-1/2 cursor-col-resize select-none"
+                  style={{ left: 0 }}
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerCancelOrLost}
+                  onLostPointerCapture={onPointerCancelOrLost}
+                >
+                  <div className="absolute top-0 bottom-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+                  {/* Down-pointing triangle (not a rotate-45 square = diamond). */}
+                  <div
+                    className="absolute top-0 left-0 -translate-x-1/2"
+                    style={{
+                      width: 0,
+                      height: 0,
+                      borderLeft: "5px solid transparent",
+                      borderRight: "5px solid transparent",
+                      borderTop: "7px solid #fff",
+                      filter: "drop-shadow(0 0 2px rgba(255,255,255,0.5))",
+                    }}
+                  />
+                </div>
                 {songs.map((song, i) => {
                   const left = Math.round(songOffsets[i] * pxPerSec);
                   const isActive = i === state.songIndex;
@@ -4159,28 +4193,14 @@ export function Timeline({
                 )}
               </div>
 
-              {/* 4. Sticky Playhead (Handle triangle sits stickily on Ruler, needle spans full height) */}
+              {/* 4. Lane needle (full content height). z below sticky ruler so
+                  it doesn't cover song labels; the ruler-band segment is drawn
+                  inside the sticky header (playheadHandleRef). */}
               <div
                 ref={playheadRef}
-                className="pointer-events-none absolute top-0 z-30 flex flex-col items-center bottom-0"
-                style={{
-                  transform: "translateX(-50%)",
-                }}
+                className="pointer-events-none absolute top-0 bottom-0 z-[15] w-0"
               >
-                {/* Sticky Playhead Handle resting on Ruler */}
-                <div
-                  className="sticky top-0 z-30 pointer-events-auto flex flex-col items-center cursor-col-resize select-none -mt-0.5"
-                  onPointerDown={onPointerDown}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={onPointerUp}
-                  onPointerCancel={onPointerCancelOrLost}
-                  onLostPointerCapture={onPointerCancelOrLost}
-                >
-                  <div className="h-2 w-2 rotate-45 bg-[#fff]" />
-                </div>
-
-                {/* Playhead needle extending through the entire height */}
-                <div className="flex-1 w-[1.5px] bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+                <div className="absolute top-0 bottom-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
               </div>
             </div>
           </div>
