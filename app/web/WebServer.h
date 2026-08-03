@@ -482,6 +482,10 @@ struct WebUiState {
         // when idleBehavior == "effect".
         std::string idleEffectType = "none";
         double idleEffectRateHz = 2.0;
+        // Gradient palette for idle effect mode (Fire/Fireworks/ColorWaves/etc).
+        // "solid" = use idleColorR/G/B; named presets = built-in palettes.
+        std::string idleGradientPreset = "solid";
+        std::string idleGradientColors;
         double defaultRefreshRateHz = 44.0;
         std::vector<LightFixtureRow> fixtures;
     };

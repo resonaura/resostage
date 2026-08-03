@@ -453,7 +453,7 @@ void AudioEngine::rebuildTrackPeaks() {
     // song feels slow", since it ran synchronously right here).
     activePeakBuilds.fetch_add(1, std::memory_order_relaxed);
     std::thread([this, generation, songIndexForBuild, archivePathForBuild, files = std::move(trackFiles),
-                 regionTrackIndices = std::move(regionTrackIndices)]() mutable {
+                 indices = std::move(regionTrackIndices)]() mutable {
         std::vector<PeakOverview> buildResults(files.size());
         std::vector<ProjectLoader::ExtraFile> buildExtras;
 
@@ -554,23 +554,23 @@ void AudioEngine::rebuildTrackPeaks() {
 
         juce::MessageManager::callAsync(
             [this, generation, songIndexForBuild, results = std::move(buildResults), newExtras = std::move(buildExtras),
-             regionTrackIndices = std::move(regionTrackIndices)]() mutable {
+             targetIndices = std::move(indices)]() mutable {
                 // Song changed again while this build was in flight -- discard.
                 if (peakBuildGeneration.load(std::memory_order_acquire) != generation || currentSong != songIndexForBuild)
                     return;
 
                 // Remap region-indexed peaks to track-indexed peaks.
-                trackPeaks.assign(regionTrackIndices.size(), PeakOverview{});
-                for (size_t i = 0; i < results.size() && i < regionTrackIndices.size(); ++i) {
-                    const int trackIdx = regionTrackIndices[i];
+                trackPeaks.assign(targetIndices.size(), PeakOverview{});
+                for (size_t i = 0; i < results.size() && i < targetIndices.size(); ++i) {
+                    const int trackIdx = targetIndices[i];
                     if (trackIdx >= 0 && static_cast<size_t>(trackIdx) < trackPeaks.size())
                         trackPeaks[static_cast<size_t>(trackIdx)] = std::move(results[i]);
                 }
 
                 if (songIndexForBuild < loader.project().songs.size()) {
                     auto& s = loader.project().songs[songIndexForBuild];
-                    for (size_t i = 0; i < regionTrackIndices.size() && i < s.regions.size(); ++i) {
-                        const int trackIdx = regionTrackIndices[i];
+                    for (size_t i = 0; i < targetIndices.size() && i < s.regions.size(); ++i) {
+                        const int trackIdx = targetIndices[i];
                         if (trackIdx >= 0 && static_cast<size_t>(trackIdx) < trackPeaks.size()) {
                             if (s.regions[i].durationSeconds <= 0.0 && trackPeaks[static_cast<size_t>(trackIdx)].durationSeconds > 0.0) {
                                 s.regions[i].durationSeconds = trackPeaks[static_cast<size_t>(trackIdx)].durationSeconds;
@@ -2871,13 +2871,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                         if (hasSource) {
                             g = regGain;
                             if (fadeInN > 0 && into < fadeInN) {
-                                const float t = static_cast<float>(into + 1) / static_cast<float>(fadeInN);
-                                g *= shapedFadeGain(t, fadeInCurve);
+                                const float fadeT = static_cast<float>(into + 1) / static_cast<float>(fadeInN);
+                                g *= shapedFadeGain(fadeT, fadeInCurve);
                             }
                             if (fadeOutN > 0 && into >= regLen - fadeOutN) {
                                 const float remain = static_cast<float>(regLen - into);
-                                const float t = remain / static_cast<float>(fadeOutN);
-                                g *= shapedFadeGain(t, fadeOutCurve);
+                                const float fadeT = remain / static_cast<float>(fadeOutN);
+                                g *= shapedFadeGain(fadeT, fadeOutCurve);
                             }
                         }
                     }

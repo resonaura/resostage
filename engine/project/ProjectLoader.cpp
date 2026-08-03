@@ -266,6 +266,10 @@ void parseLightingConfig(const simdjson::dom::element& liEl, LightingConfig& cfg
     std::string_view idleEffectView;
     if (!liEl["idleEffectType"].get(idleEffectView)) cfg.idleEffectType = std::string(idleEffectView);
     (void)liEl["idleEffectRateHz"].get(cfg.idleEffectRateHz);
+    std::string_view idleGradPresetView;
+    if (!liEl["idleGradientPreset"].get(idleGradPresetView)) cfg.idleGradientPreset = std::string(idleGradPresetView);
+    std::string_view idleGradColorsView;
+    if (!liEl["idleGradientColors"].get(idleGradColorsView)) cfg.idleGradientColors = std::string(idleGradColorsView);
     (void)liEl["defaultRefreshRateHz"].get(cfg.defaultRefreshRateHz);
 
     simdjson::dom::array fxArr;

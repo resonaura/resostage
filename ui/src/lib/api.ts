@@ -380,6 +380,8 @@ export const lighting = {
     idleIntensity?: number;
     idleEffectType?: string;
     idleEffectRateHz?: number;
+    idleGradientPreset?: string;
+    idleGradientColors?: string;
     defaultRefreshRateHz?: number;
   }) => post("/api/v1/lighting/config", patch),
 

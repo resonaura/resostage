@@ -212,6 +212,10 @@ export interface LightingState {
   idleEffectType: string;
   /** Animation rate (Hz) of the stopped-stopped effect. */
   idleEffectRateHz: number;
+  /** Palette preset for self-colored idle effects (Fire/Fireworks/ColorWaves/etc). */
+  idleGradientPreset?: string;
+  /** Custom gradient stops for idle effect (CSV #RRGGBB). */
+  idleGradientColors?: string;
   /** Default DMX send rate (Hz) for fixtures that don't set their own refreshRateHz. */
   defaultRefreshRateHz: number;
   fixtures: LightFixtureRow[];

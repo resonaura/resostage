@@ -1233,6 +1233,8 @@ void MainComponent::publishWebState() {
     state.lighting.idleIntensity = proj.lighting.idleIntensity;
     state.lighting.idleEffectType = proj.lighting.idleEffectType;
     state.lighting.idleEffectRateHz = proj.lighting.idleEffectRateHz;
+    state.lighting.idleGradientPreset = proj.lighting.idleGradientPreset;
+    state.lighting.idleGradientColors = proj.lighting.idleGradientColors;
     state.lighting.defaultRefreshRateHz = proj.lighting.defaultRefreshRateHz;
     state.lighting.fixtures.reserve(proj.lighting.fixtures.size());
     for (const LightFixture& f : proj.lighting.fixtures) {
@@ -1391,6 +1393,7 @@ void MainComponent::publishWebState() {
                                                 proj.lighting.idleColorR, proj.lighting.idleColorG,
                                                 proj.lighting.idleColorB, proj.lighting.idleIntensity,
                                                 proj.lighting.idleEffectType, proj.lighting.idleEffectRateHz,
+                                                proj.lighting.idleGradientPreset, proj.lighting.idleGradientColors,
                                                 effectPhase);
             resolved = blendTowardIdle(lightingPreviewLastResolved, target, effectPhase / kIdleFadeSeconds);
         } else {

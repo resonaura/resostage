@@ -297,7 +297,7 @@ export function HslColorPicker({
 // Editing writes back the same "#RRGGBB,#RRGGBB,..." string the backend
 // persists, so nothing downstream knows the editor exists.
 
-function GradientStopEditor({
+export function GradientStopEditor({
   value,
   onChange,
 }: {
@@ -501,13 +501,13 @@ function effectHasRate(t: EffectType): boolean {
 
 // ─── Audio effect selector (props-driven — state lives in LightSidePanel) ──
 
-type EffectType =
+export type EffectType =
   | "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow"
   | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom"
   | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak"
   | "geq" | "blurz" | "scanner" | "lightning" | "barberpole";
 
-const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React.ReactNode }> = {
+export const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React.ReactNode }> = {
   none:         { label: "None",     desc: "Static color, no modulation",                      icon: <Minus size={12} /> },
   meter:        { label: "Meter",    desc: "Brightness follows audio level (VU meter)",         icon: <BarChart2 size={12} /> },
   strobe:       { label: "Strobe",   desc: "Rapid on/off flashes at set rate",                   icon: <Zap size={12} /> },
@@ -534,6 +534,36 @@ const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React
   barberpole:   { label: "Barberpole", desc: "Hard-edged stripes scroll continuously up the bar (addressable fixtures)", icon: <Barcode size={12} /> },
 };
 
+export function effectUsesOwnColor(t: EffectType, gradientPreset?: string): boolean {
+  if (
+    t === "fire" ||
+    t === "gradientflow" ||
+    t === "helix" ||
+    t === "plasma" ||
+    t === "colorwaves" ||
+    t === "fireworks" ||
+    t === "twinkle" ||
+    t === "bouncing" ||
+    t === "blurz"
+  ) {
+    return true;
+  }
+  if (t === "barberpole" || t === "meter") {
+    return gradientPreset !== undefined && gradientPreset !== "solid";
+  }
+  return false;
+}
+
+export function effectSupportsGradient(t: EffectType): boolean {
+  return (
+    t === "fire" ||
+    t === "barberpole" ||
+    t === "colorwaves" ||
+    t === "meter" ||
+    t === "geq"
+  );
+}
+
 // Effects whose per-LED shape (addressableEffectLedColor in
 // LightCueInterpolation.h) is the whole point -- on a non-addressable
 // fixture, applyEffect's fallback for every one of these is the *static*
@@ -559,9 +589,9 @@ const SUBDIVISIONS = [
 type TempoSubdiv = typeof SUBDIVISIONS[number];
 
 type SourceType = "bus" | "track";
-type GradientPreset = "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire";
+export type GradientPreset = "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire";
 
-const GRADIENT_META: Record<GradientPreset, string> = {
+export const GRADIENT_META: Record<GradientPreset, string> = {
   solid: "Solid Color",
   greenYellowRed: "Green → Yellow → Red",
   vulcanFire: "Vulcan Flame",
@@ -1002,14 +1032,23 @@ function CueSettingsPanel({
     update({ blendMode: b });
   };
 
+  const usesOwnColor = effectUsesOwnColor(effectType, gradientPreset);
+  const supportsGradient = effectSupportsGradient(effectType);
+
   return (
     <div className="flex flex-col gap-4">
       <div>
         <div className={labelCls + " mb-2"}>Color</div>
-        <HslColorPicker
-          r={cue.colorR} g={cue.colorG} b={cue.colorB}
-          onChange={(r, g, b) => update({ colorR: r, colorG: g, colorB: b })}
-        />
+        {usesOwnColor ? (
+          <div className="rounded-lg border border-default/30 bg-default/10 px-3 py-2 text-xs text-foreground/50 italic flex items-center justify-between">
+            <span>Color is driven by {EFFECT_META[effectType]?.label || effectType} palette</span>
+          </div>
+        ) : (
+          <HslColorPicker
+            r={cue.colorR} g={cue.colorG} b={cue.colorB}
+            onChange={(r, g, b) => update({ colorR: r, colorG: g, colorB: b })}
+          />
+        )}
       </div>
 
       <Field label="Label">
@@ -1048,7 +1087,7 @@ function CueSettingsPanel({
           gradientPreset={gradientPreset}
           gradientColors={gradientColors}
           blendMode={blendMode}
-          showGradient={effectType !== "none" && hasAddressableFixture}
+          showGradient={supportsGradient && hasAddressableFixture}
           hasAddressableFixture={hasAddressableFixture}
           onType={handleEffectType} onSourceType={handleEffectSourceType} onSourceId={handleEffectSourceId}
           onIntensity={handleEffectIntensity} onRate={handleEffectRate}

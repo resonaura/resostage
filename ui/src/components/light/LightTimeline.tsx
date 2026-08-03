@@ -15,6 +15,7 @@ import {
   ContextMenuItem,
 } from "../ContextMenu";
 import { LANE_HEIGHT, TrackWaveformLane } from "../TrackWaveformLane";
+import { effectUsesOwnColor, EFFECT_META, type EffectType } from "./LightSidePanel";
 
 // Distinct palette for light tracks so they read as a different layer from
 // the audio track colors (which cycle TRACK_COLORS). Warm/amber-heavy.
@@ -104,6 +105,10 @@ export function LightHintStrip({
                 leftPx > viewEnd - segStart
               )
                 return null;
+              const isOwnColor = effectUsesOwnColor(cue.effectType as EffectType, cue.gradientPreset);
+              const bg = isOwnColor
+                ? "rgb(90, 95, 110)"
+                : `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`;
               return (
                 <div
                   key={cue.id}
@@ -111,7 +116,7 @@ export function LightHintStrip({
                   style={{
                     left: leftPx,
                     width: widthPx,
-                    background: `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`,
+                    background: bg,
                     opacity: 0.45,
                     border: `1px solid ${trackColor(cue.trackId)}88`,
                     clipPath: cueClipPath(cue, pxPerSec),
@@ -531,7 +536,17 @@ export function LightTrackLane({
                 { ...cue, ...geom } as LightCueRow,
                 pxPerSec,
               );
-              const labelShown = Boolean(cue.label) && widthPx > 48;
+              const cueEt = cue.effectType as EffectType;
+              const isOwnColor = effectUsesOwnColor(cueEt, cue.gradientPreset);
+              const fillBg = isOwnColor
+                ? "rgb(80, 85, 100)"
+                : `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`;
+              const labelText =
+                cue.label ||
+                (cueEt && cueEt !== "none"
+                  ? EFFECT_META[cueEt]?.label || cueEt
+                  : "");
+              const labelShown = Boolean(labelText) && widthPx > 24;
               const edge = hoverEdge[cue.id];
               return (
                 <div
@@ -560,7 +575,7 @@ export function LightTrackLane({
                         : "grab",
                     zIndex: isSelected ? 2 : 1,
                   }}
-                  title={`${cue.label || cue.id} — Song ${i + 1}: ${song.name}`}
+                  title={`${labelText || cue.id} — Song ${i + 1}: ${song.name}`}
                   onPointerDown={
                     readOnly
                       ? undefined
@@ -620,8 +635,8 @@ export function LightTrackLane({
                   <div
                     className="absolute inset-0 rounded-sm pointer-events-none"
                     style={{
-                      background: `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`,
-                      opacity: Math.max(0.12, cue.intensity),
+                      background: fillBg,
+                      opacity: Math.max(isOwnColor ? 0.45 : 0.12, cue.intensity),
                       clipPath: clip,
                     }}
                   />
@@ -648,14 +663,14 @@ export function LightTrackLane({
                   )}
                   {labelShown && (
                     <span
-                      className="absolute top-0.5 left-2 truncate text-[9px] font-semibold pointer-events-none select-none"
+                      className="absolute top-0.5 left-1.5 truncate text-[9px] font-semibold pointer-events-none select-none"
                       style={{
-                        color: "#ffffffcc",
-                        textShadow: "0 1px 2px rgba(0,0,0,0.6)",
-                        maxWidth: `calc(100% - ${CUE_EDGE_PX + 4}px)`,
+                        color: "#ffffffdd",
+                        textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+                        maxWidth: `calc(100% - ${CUE_EDGE_PX + 2}px)`,
                       }}
                     >
-                      {cue.label}
+                      {labelText}
                     </span>
                   )}
                 </div>

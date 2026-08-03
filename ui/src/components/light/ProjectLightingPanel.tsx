@@ -18,7 +18,17 @@ import {
 import { lighting } from "../../lib/api";
 import type { LightFixtureRow, LightingState, WebUiState } from "../../lib/types";
 import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
-import { HslColorPicker, LabeledSlider } from "./LightSidePanel";
+import {
+  HslColorPicker,
+  LabeledSlider,
+  EFFECT_META,
+  GRADIENT_META,
+  GradientStopEditor,
+  effectUsesOwnColor,
+  effectSupportsGradient,
+  type EffectType,
+  type GradientPreset,
+} from "./LightSidePanel";
 import { computeFixturePreviewColors } from "../../lib/lightPreviewColors";
 import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "../../lib/liveLevels";
 import {
@@ -61,34 +71,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </div>
   );
 }
-
-// Idle-behavior "effect" catalog -- rhythm-independent effects that animate
-// off wall-clock time while the transport is stopped. Audio-driven ones
-// (Meter/VuPeak/Geq/Blurz) are excluded: with no playback there is no audio
-// to drive them. Labels mirror LightSidePanel's EFFECT_META. Mirrors the
-// backend's parseEffectType string catalog (LightCueInterpolation.h).
-const IDLE_EFFECT_OPTIONS: { value: string; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "strobe", label: "Strobe" },
-  { value: "pulse", label: "Pulse" },
-  { value: "ripple", label: "Ripple" },
-  { value: "converge", label: "Converge" },
-  { value: "gradientflow", label: "Gradient" },
-  { value: "chase", label: "Chase" },
-  { value: "helix", label: "Helix" },
-  { value: "plasma", label: "Plasma" },
-  { value: "twinkle", label: "Twinkle" },
-  { value: "sonicboom", label: "Boom" },
-  { value: "fire", label: "Fire" },
-  { value: "bouncing", label: "Bounce" },
-  { value: "drip", label: "Drip" },
-  { value: "fireworks", label: "Fireworks" },
-  { value: "colorwaves", label: "Waves" },
-  { value: "strobeswipe", label: "Swipe" },
-  { value: "scanner", label: "Scanner" },
-  { value: "lightning", label: "Lightning" },
-  { value: "barberpole", label: "Barberpole" },
-];
 
 // ─── Auto-layout positions ────────────────────────────────────────────────
 
@@ -393,48 +375,115 @@ export function ProjectLightingPanel({
               </div>
             )}
 
-            {li.idleBehavior === "effect" && (
-              <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
-                <Field label="Effect">
-                  <select
-                    className={selectCls}
-                    value={li.idleEffectType}
-                    onChange={(e) => void lighting.setConfig({ idleEffectType: e.target.value })}
-                  >
-                    {IDLE_EFFECT_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                {li.idleEffectType !== "none" && (
-                  <>
-                    <LabeledSlider
-                      label={`Rate: ${li.idleEffectRateHz.toFixed(1)} Hz`}
-                      min={0.05}
-                      max={10}
-                      step={0.05}
-                      value={li.idleEffectRateHz}
-                      onChange={(v) => void lighting.setConfig({ idleEffectRateHz: v })}
-                    />
-                    <HslColorPicker
-                      r={li.idleColorR}
-                      g={li.idleColorG}
-                      b={li.idleColorB}
-                      onChange={(r, g, b) =>
-                        void lighting.setConfig({ idleColorR: r, idleColorG: g, idleColorB: b })
-                      }
-                    />
-                    <LabeledSlider
-                      label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
-                      value={li.idleIntensity}
-                      onChange={(v) => void lighting.setConfig({ idleIntensity: v })}
-                    />
-                  </>
-                )}
-              </div>
-            )}
+            {li.idleBehavior === "effect" && (() => {
+              const idleEt = li.idleEffectType as EffectType;
+              const idlePreset = (li.idleGradientPreset || "solid") as GradientPreset;
+              const idleUsesOwnColor = effectUsesOwnColor(idleEt, idlePreset);
+              const idleSupportsGradient = effectSupportsGradient(idleEt);
+
+              return (
+                <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
+                  <Field label="Effect">
+                    <div className="grid grid-cols-4 gap-1">
+                      {(
+                        [
+                          "none", "strobe", "pulse", "ripple", "converge", "gradientflow",
+                          "chase", "helix", "plasma", "twinkle", "sonicboom",
+                          "fire", "bouncing", "drip", "fireworks", "colorwaves", "strobeswipe",
+                          "scanner", "lightning", "barberpole",
+                        ] as EffectType[]
+                      ).map((et) => {
+                        const meta = EFFECT_META[et];
+                        return (
+                          <button
+                            key={et}
+                            type="button"
+                            title={meta.desc}
+                            onClick={() => void lighting.setConfig({ idleEffectType: et })}
+                            className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
+                              li.idleEffectType === et
+                                ? "border-accent bg-accent/20 text-accent"
+                                : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                            }`}
+                          >
+                            {meta.icon}
+                            <span>{meta.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {li.idleEffectType && li.idleEffectType !== "none" && (
+                      <div className="mt-1 text-[10px] text-foreground/40 italic">
+                        {EFFECT_META[idleEt]?.desc}
+                      </div>
+                    )}
+                  </Field>
+
+                  {li.idleEffectType !== "none" && (
+                    <>
+                      <LabeledSlider
+                        label={`Rate: ${li.idleEffectRateHz.toFixed(1)} Hz`}
+                        min={0.05}
+                        max={10}
+                        step={0.05}
+                        value={li.idleEffectRateHz}
+                        onChange={(v) => void lighting.setConfig({ idleEffectRateHz: v })}
+                      />
+
+                      {idleSupportsGradient && (
+                        <Field label="Gradient Palette">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {(Object.keys(GRADIENT_META) as GradientPreset[]).map((g) => (
+                              <button
+                                key={g}
+                                type="button"
+                                onClick={() => void lighting.setConfig({ idleGradientPreset: g })}
+                                className={`rounded-lg border px-2 py-1 text-left text-xs font-medium transition-colors ${
+                                  (li.idleGradientPreset || "solid") === g
+                                    ? "border-accent bg-accent/20 text-accent"
+                                    : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
+                                }`}
+                              >
+                                {GRADIENT_META[g]}
+                              </button>
+                            ))}
+                          </div>
+                          {li.idleGradientPreset === "custom" && (
+                            <div className="mt-2">
+                              <GradientStopEditor
+                                value={li.idleGradientColors || ""}
+                                onChange={(colors) => void lighting.setConfig({ idleGradientColors: colors })}
+                              />
+                            </div>
+                          )}
+                        </Field>
+                      )}
+
+                      {idleUsesOwnColor ? (
+                        <div className="rounded-lg border border-default/30 bg-default/10 px-3 py-2 text-xs text-foreground/50 italic">
+                          Color is driven by {EFFECT_META[idleEt]?.label || idleEt} palette
+                        </div>
+                      ) : (
+                        <HslColorPicker
+                          r={li.idleColorR}
+                          g={li.idleColorG}
+                          b={li.idleColorB}
+                          onChange={(r, g, b) =>
+                            void lighting.setConfig({ idleColorR: r, idleColorG: g, idleColorB: b })
+                          }
+                        />
+                      )}
+
+                      <LabeledSlider
+                        label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
+                        value={li.idleIntensity}
+                        onChange={(v) => void lighting.setConfig({ idleIntensity: v })}
+                      />
+                    </>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Default DMX send rate -- a universe is one shared wire, so a

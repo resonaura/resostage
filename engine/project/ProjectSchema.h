@@ -242,6 +242,14 @@ struct LightingConfig {
     // with the transport stopped there is no running audio to drive them.
     std::string idleEffectType = "none";
     double idleEffectRateHz = 2.0;
+    // Gradient palette for idle effects that have their own color (Fire,
+    // Fireworks, ColorWaves, Plasma, Helix, GradientFlow, Barberpole -- i.e.
+    // effects that ignore the base R/G/B and draw from a built-in palette).
+    // Same values as LightCue::gradientPreset; "solid" means use idleColorR/G/B.
+    std::string idleGradientPreset = "solid";
+    // Custom gradient stops (CSV #RRGGBB, same format as LightCue::gradientColors).
+    // Only consulted when idleGradientPreset == "custom".
+    std::string idleGradientColors;
 
     // Default DMX output refresh rate (Hz) for every fixture that doesn't
     // set its own LightFixture::refreshRateHz override. 44 Hz matches

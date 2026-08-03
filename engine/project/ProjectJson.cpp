@@ -153,6 +153,8 @@ std::string serializeProjectJson(const Project& project) {
     o << "    \"idleIntensity\": " << project.lighting.idleIntensity << ",\n";
     o << "    \"idleEffectType\": \"" << jsonEscapeString(project.lighting.idleEffectType) << "\",\n";
     o << "    \"idleEffectRateHz\": "; writeNumber(o, project.lighting.idleEffectRateHz); o << ",\n";
+    o << "    \"idleGradientPreset\": \"" << jsonEscapeString(project.lighting.idleGradientPreset) << "\",\n";
+    o << "    \"idleGradientColors\": \"" << jsonEscapeString(project.lighting.idleGradientColors) << "\",\n";
     o << "    \"defaultRefreshRateHz\": "; writeNumber(o, project.lighting.defaultRefreshRateHz); o << ",\n";
     o << "    \"fixtures\": [\n";
     for (size_t i = 0; i < project.lighting.fixtures.size(); ++i) {

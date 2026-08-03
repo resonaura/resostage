@@ -59,9 +59,18 @@ void regenerateResoLightFixtures(LightingConfig& cfg) {
             f.gridRow = row;
             f.ledCount = 120;
             f.addressable = true;
-            f.posX = col * kSpacingMeters;
+            // Center the grid around X=0 so two bars land at -1.0 and +1.0
+            // instead of 0 and 2.0 -- the 3D preview then feels balanced,
+            // with the audience/camera anchor at the center of the rig.
+            const double halfWidthX = (cfg.resoLightColumns > 1 ? (cfg.resoLightColumns - 1) * 0.5 * kSpacingMeters : 0.0);
+            const double halfWidthZ = (cfg.resoLightRows > 1    ? (cfg.resoLightRows    - 1) * 0.5 * kSpacingMeters : 0.0);
+            f.posX = col * kSpacingMeters - halfWidthX;
             f.posY = 0.0;
-            f.posZ = row * kSpacingMeters;
+            f.posZ = row * kSpacingMeters - halfWidthZ;
+            // RGBW is the default for new ResoLight bars: the dedicated white
+            // channel gives richer whites than mixing R+G+B to near-white,
+            // which is exactly what a stage light is asked to do most often.
+            f.channelProfile = "rgbw";
             bars.push_back(std::move(f));
         }
     }
@@ -114,6 +123,13 @@ void MainComponent::lightingSetConfig(const std::string& json) {
     }
     if (getDouble(doc, "idleEffectRateHz", doubleVal))
         cfg.idleEffectRateHz = std::clamp(doubleVal, 0.05, 30.0);
+    if (getString(doc, "idleGradientPreset", strVal)) {
+        // Accept any value the frontend sends -- parseGradientPreset handles
+        // unknown strings by falling back to Solid, so there's no invalid state.
+        cfg.idleGradientPreset = strVal;
+    }
+    if (getString(doc, "idleGradientColors", strVal))
+        cfg.idleGradientColors = strVal;
     if (getInt(doc, "idleColorR", intVal))
         cfg.idleColorR = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
     if (getInt(doc, "idleColorG", intVal))

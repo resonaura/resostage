@@ -57,13 +57,15 @@ inline const char* gradientPresetToString(GradientPreset p) {
 // per-LED loop instead of re-parsing the CSV string 120 times a frame.
 inline std::vector<GradientStop> resolveGradientStops(GradientPreset preset, const std::string& customCsv) {
     switch (preset) {
+        case GradientPreset::Solid:
+        case GradientPreset::GreenYellowRed: return {};
         case GradientPreset::Custom:        return parseGradientStops(customCsv, builtinPalette("vulcanFire"));
         case GradientPreset::VulcanFire:    return builtinPalette("vulcanFire");
         case GradientPreset::ToxicFire:     return builtinPalette("toxicFire");
         case GradientPreset::CryoFire:      return builtinPalette("cryoFire");
         case GradientPreset::CyberpunkFire: return builtinPalette("cyberpunkFire");
-        default:                            return {};
     }
+    return {};
 }
 
 // Color for LED index `i` of `totalLeds`, lit bottom-up to `litCount` LEDs
@@ -159,7 +161,7 @@ using SourceLevelDbFn = std::function<SourceLevels(const std::string& sourceType
 // kicking in when the transport stops). Shared by LightEngine's real DMX
 // thread and MainComponent's WebUiState preview push so the stage and every
 // preview fade to the idle target at exactly the same rate.
-inline constexpr double kIdleFadeSeconds = 1.5;
+inline constexpr double kIdleFadeSeconds = 0.8;
 
 // Duration of the fade BACK from an idle behavior to normal lighting when the
 // transport resumes. Deliberately much shorter than kIdleFadeSeconds:
@@ -406,6 +408,7 @@ inline std::vector<ResolvedFixtureOutput> buildIdleEffectOutputs(
     const std::string& idleEffectType,
     double idleEffectRateHz,
     uint8_t idleR, uint8_t idleG, uint8_t idleB, double idleIntensity,
+    const std::string& idleGradientPreset, const std::string& idleGradientColors,
     double tSec) {
     EffectParams p;
     p.type = parseEffectType(idleEffectType);
@@ -413,6 +416,7 @@ inline std::vector<ResolvedFixtureOutput> buildIdleEffectOutputs(
     p.tSec = tSec;
     p.intensity = static_cast<float>(idleIntensity);
     const LightCueValue base{idleR, idleG, idleB, std::clamp(idleIntensity, 0.0, 1.0)};
+    const GradientPreset grad = parseGradientPreset(idleGradientPreset);
 
     std::vector<ResolvedFixtureOutput> out;
     out.reserve(fixtures.size());
@@ -424,6 +428,8 @@ inline std::vector<ResolvedFixtureOutput> buildIdleEffectOutputs(
         r.effectType = p.type;
         r.effectTSec = p.tSec;
         r.effectRateHz = p.rateHz;
+        r.gradient = grad;
+        r.gradientColors = idleGradientColors;
         out.push_back(std::move(r));
     }
     return out;
@@ -439,10 +445,13 @@ inline std::vector<ResolvedFixtureOutput> buildIdleTarget(
     const std::vector<LightFixture>& fixtures,
     const std::string& idleBehavior,
     uint8_t idleR, uint8_t idleG, uint8_t idleB, double idleIntensity,
-    const std::string& idleEffectType, double idleEffectRateHz, double effectPhaseT) {
+    const std::string& idleEffectType, double idleEffectRateHz,
+    const std::string& idleGradientPreset, const std::string& idleGradientColors,
+    double effectPhaseT) {
     if (idleBehavior == "effect")
         return buildIdleEffectOutputs(fixtures, idleEffectType, idleEffectRateHz,
-                                      idleR, idleG, idleB, idleIntensity, effectPhaseT);
+                                      idleR, idleG, idleB, idleIntensity,
+                                      idleGradientPreset, idleGradientColors, effectPhaseT);
     return buildIdleLightOutputs(fixtures, idleBehavior, idleR, idleG, idleB, idleIntensity);
 }
 
@@ -549,7 +558,7 @@ inline std::vector<LedWireColor> resolveLedWireColors(const ResolvedFixtureOutpu
     const bool meterActive = out.effectType == EffectParams::Type::Meter;
     const bool spatialEffectActive = !meterActive && out.effectType != EffectParams::Type::None;
     const int litCount = meterActive
-        ? std::clamp(static_cast<int>(std::lround(out.meterLevel01 * leds)), 0, leds)
+        ? std::clamp(static_cast<int>(std::lround(out.meterLevel01 * static_cast<float>(leds))), 0, leds)
         : leds; // not metering: every LED "lit" at the resolved uniform color
 
     // Resolved ONCE per fixture per frame, not per LED -- see

@@ -252,8 +252,11 @@ void LightEngine::threadLoop() {
                     bool found = false;
                     for (const auto& n : normal)
                         if (n.fixtureId == rf.fixtureId) { found = true; break; }
-                    if (!found)
-                        normal.push_back(ResolvedFixtureOutput{rf.fixtureId});
+                    if (!found) {
+                        ResolvedFixtureOutput r;
+                        r.fixtureId = rf.fixtureId;
+                        normal.push_back(std::move(r));
+                    }
                 }
                 resolved = blendTowardIdle(resumeFrom, normal, t);
             }
@@ -268,6 +271,7 @@ void LightEngine::threadLoop() {
                                                 proj->lighting.idleColorR, proj->lighting.idleColorG,
                                                 proj->lighting.idleColorB, proj->lighting.idleIntensity,
                                                 proj->lighting.idleEffectType, proj->lighting.idleEffectRateHz,
+                                                proj->lighting.idleGradientPreset, proj->lighting.idleGradientColors,
                                                 effectPhase);
             resolved = blendTowardIdle(lastResolvedOutputs, target, effectPhase / kIdleFadeSeconds);
         } else {
