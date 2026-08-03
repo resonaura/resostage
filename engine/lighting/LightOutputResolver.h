@@ -155,6 +155,12 @@ struct SourceLevels {
 // silent, not crash the light output thread.
 using SourceLevelDbFn = std::function<SourceLevels(const std::string& sourceType, const std::string& sourceId)>;
 
+// Duration of the idle-behavior transition fade (blackout / staticColor
+// kicking in when the transport stops). Shared by LightEngine's real DMX
+// thread and MainComponent's WebUiState preview push so the stage and every
+// preview fade to the idle target at exactly the same rate.
+inline constexpr double kIdleFadeSeconds = 1.5;
+
 // Resolves what every fixture driven by `lightTracks` should display at
 // `tSec`, given `songLightCues` (the currently staged song's cues) and
 // `bpm` (for tempo-synced effect rates). Single source of truth for "what

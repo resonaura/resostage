@@ -140,8 +140,8 @@ void LightEngine::threadLoop() {
     // kicked in -- captured continuously whenever we're NOT idle-fading
     // (so it's current, whether that "before" state was live playback or a
     // frozen holdLast resolve), so a fade always starts from the truth
-    // instead of snapping.
-    constexpr double kIdleFadeSeconds = 1.5;
+    // instead of snapping. kIdleFadeSeconds lives in LightOutputResolver.h
+    // so MainComponent's preview push fades at the identical rate.
     std::vector<ResolvedFixtureOutput> lastResolvedOutputs;
     bool wasIdleFading = false;
     auto idleFadeStart = std::chrono::steady_clock::now();

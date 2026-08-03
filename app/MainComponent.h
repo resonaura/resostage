@@ -4,12 +4,14 @@
 
 #include "AppSettings.h"
 #include "AudioEngine.h"
+#include "lighting/LightOutputResolver.h"
 #include "midi/CoreMidiInputListener.h"
 #include "ui/BusyOverlay.h"
 #include "ui/DevOrEmbeddedWebView.h"
 #include "ui/WebLoadingOverlay.h"
 #include "web/WebServer.h"
 
+#include <chrono>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -235,6 +237,17 @@ private:
     // binding row to flash only the row that actually fired.
     int lastActionNonce_{0};
     std::string lastAction_;
+
+    // Idle-behavior fade state for the WebUiState preview feed (mirrors
+    // LightEngine's own thread-local state in threadLoop, so the preview and
+    // the real DMX output both fade to blackout/staticColor at the same rate
+    // via the shared blendTowardIdle + kIdleFadeSeconds -- see
+    // publishWebState). `lightingPreviewLastResolved` is the last non-idle
+    // resolve, captured continuously while NOT idle-fading so a fade starts
+    // from whatever the preview was actually showing.
+    bool lightingPreviewWasIdleFading = false;
+    std::chrono::steady_clock::time_point lightingPreviewIdleFadeStart;
+    std::vector<ResolvedFixtureOutput> lightingPreviewLastResolved;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

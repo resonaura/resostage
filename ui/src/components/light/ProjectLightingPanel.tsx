@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Circle,
   Copy,
@@ -131,83 +131,6 @@ function summarizeSwatchColor(
   return { r, g, b, intensity: Math.max(r, g, b) / 255 };
 }
 
-// ─── Idle-behavior preview (client-side only) ──────────────────────────────
-//
-// The shared backend preview feed (state.lightOutput / the per-LED
-// websocket stream) deliberately never applies LightingState's idle
-// override -- it also drives the Timeline's Light-mode scrub preview, which
-// needs to keep showing "what does this cue look like at the playhead"
-// while stopped (the most common state while authoring cues); applying
-// idle behavior there would blank that preview the instant playback stops.
-// See MainComponent.cpp's publishWebState for the backend side of that
-// decision, and buildIdleLightOutputs/blendTowardIdle in
-// LightOutputResolver.h for the real fade LightEngine applies to actual
-// hardware. This settings card is a different story: it's not used for cue
-// scrubbing, so it can and should show idle behavior taking effect -- this
-// hook reproduces the same ~1.5s fade LightEngine does, purely client-side
-// (no backend signal exists for "how far into the idle fade are we").
-const IDLE_FADE_MS = 1500;
-
-function useIdleFadeOverride(
-  li: LightingState,
-  playing: boolean,
-  baseColors: Record<string, PreviewColor>,
-): Record<string, PreviewColor> {
-  const idleActive = li.enabled && !playing && li.idleBehavior !== "holdLast";
-
-  const baseColorsRef = useRef(baseColors);
-  baseColorsRef.current = baseColors;
-
-  const wasIdleRef = useRef(false);
-  const fromColorsRef = useRef<Record<string, PreviewColor>>({});
-  const fadeStartRef = useRef(0);
-  const [progress, setProgress] = useState(0);
-
-  // Snapshot whatever was showing right before, exactly once per
-  // not-idle -> idle transition (not on every render/baseColors change --
-  // that would keep resetting the fade to 0 forever).
-  useEffect(() => {
-    if (idleActive && !wasIdleRef.current) {
-      fromColorsRef.current = baseColorsRef.current;
-      fadeStartRef.current = performance.now();
-      setProgress(0);
-    }
-    wasIdleRef.current = idleActive;
-  }, [idleActive]);
-
-  useEffect(() => {
-    if (!idleActive) return;
-    let raf = 0;
-    const tick = () => {
-      const t = Math.min(1, (performance.now() - fadeStartRef.current) / IDLE_FADE_MS);
-      setProgress(t);
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [idleActive]);
-
-  if (!idleActive) return {};
-
-  const target =
-    li.idleBehavior === "staticColor"
-      ? { r: li.idleColorR, g: li.idleColorG, b: li.idleColorB, intensity: li.idleIntensity }
-      : { r: 0, g: 0, b: 0, intensity: 0 };
-  const lerp = (a: number, b: number) => a + (b - a) * progress;
-
-  const out: Record<string, PreviewColor> = {};
-  for (const f of li.fixtures) {
-    const from = summarizeSwatchColor(fromColorsRef.current[f.id]) ?? { r: 0, g: 0, b: 0, intensity: 0 };
-    out[f.id] = {
-      r: Math.round(lerp(from.r, target.r)),
-      g: Math.round(lerp(from.g, target.g)),
-      b: Math.round(lerp(from.b, target.b)),
-      intensity: lerp(from.intensity, target.intensity),
-    };
-  }
-  return out;
-}
-
 function FixtureItem({
   fixture,
   selected,
@@ -327,25 +250,24 @@ export function ProjectLightingPanel({
 
   // Same backend-authoritative per-LED websocket stream LightSidePanel's
   // Timeline preview reads (see liveLevels.ts) -- merging it in here is what
-  // actually unifies the two previews while playing. This stream never
-  // reflects the idle-behavior override, by design -- see
-  // useIdleFadeOverride's doc comment for why, and how this card layers its
-  // own idle preview on top of these otherwise-identical base colors.
+  // actually unifies the two previews while playing. The stream is rendered
+  // entirely backend-side (resolveLightOutputs + the idle-behavior fade in
+  // MainComponent.cpp's publishWebState), so this panel shows the exact same
+  // thing the real hardware does, including the fade to blackout/staticColor
+  // when the transport stops -- no client-side idle simulation anymore.
   const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
   useEffect(
     () => (li.enabled ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs())) : undefined),
     [li.enabled],
   );
-  const baseColors: Record<string, PreviewColor> = li.enabled ? { ...previewColors } : {};
+  const displayColors: Record<string, PreviewColor> = li.enabled ? { ...previewColors } : {};
   if (li.enabled) {
     for (const lo of liveLedOutputs) {
       const fixture = li.fixtures[lo.fixtureIdx];
       if (!fixture) continue;
-      baseColors[fixture.id] = { r: 0, g: 0, b: 0, intensity: 1, ledColors: lo.ledColors };
+      displayColors[fixture.id] = { r: 0, g: 0, b: 0, intensity: 1, ledColors: lo.ledColors };
     }
   }
-  const idleOverride = useIdleFadeOverride(li, state.playing, baseColors);
-  const displayColors: Record<string, PreviewColor> = { ...baseColors, ...idleOverride };
 
   return (
     <div className="flex flex-col gap-4">

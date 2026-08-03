@@ -1321,19 +1321,34 @@ void MainComponent::publishWebState() {
         const double livePlayheadSec =
             transport.playheadSeconds.load(std::memory_order_relaxed);
 
-        // Deliberately NOT applying the idle-behavior override here, unlike
-        // LightEngine's real DMX thread. This preview feed also drives the
-        // Editor's Light-mode timeline scrub preview and the Settings 3D
-        // view -- both need to keep showing "what would this cue look like
-        // at the scrubbed playhead" while the transport is stopped (which is
-        // most of the time spent authoring cues). Blackout/staticColor is a
-        // real-hardware-only concept (house lights between songs); applying
-        // it here too would blank the preview the instant playback stops,
-        // making cue authoring impossible whenever idleBehavior isn't
-        // "holdLast". The real stage output still gets it via
-        // buildIdleLightOutputs in LightEngine.cpp's threadLoop.
-        const auto resolved = resolveLightOutputs(
-            proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
+        // Apply the same idle-behavior override LightEngine's real DMX thread
+        // applies: while the transport is stopped with a non-"holdLast"
+        // idleBehavior (blackout/staticColor), the whole preview feed fades to
+        // the idle target via the shared blendTowardIdle + kIdleFadeSeconds,
+        // exactly like the hardware. This preview feed drives every light
+        // preview in the SPA (Light tab, Editor's Light-mode, wherever) --
+        // the frontend draws the backend-rendered per-LED rows as-is and
+        // never re-simulates idle behavior client-side anymore.
+        const bool useIdleOverride = !state.playing && proj.lighting.idleBehavior != "holdLast";
+        std::vector<ResolvedFixtureOutput> resolved;
+        if (!useIdleOverride) {
+            resolved = resolveLightOutputs(
+                proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
+            lightingPreviewLastResolved = resolved;
+            lightingPreviewWasIdleFading = false;
+        } else {
+            if (!lightingPreviewWasIdleFading) {
+                lightingPreviewIdleFadeStart = std::chrono::steady_clock::now();
+                lightingPreviewWasIdleFading = true;
+            }
+            const auto target = buildIdleLightOutputs(proj.lighting.fixtures, proj.lighting.idleBehavior,
+                                                      proj.lighting.idleColorR, proj.lighting.idleColorG,
+                                                      proj.lighting.idleColorB, proj.lighting.idleIntensity);
+            const double elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - lightingPreviewIdleFadeStart)
+                                      .count();
+            resolved = blendTowardIdle(lightingPreviewLastResolved, target, elapsed / kIdleFadeSeconds);
+        }
 
         // Fixture id -> project fixture array index, the wire key the binary
         // per-LED stream uses so the frontend can map colors back to its own

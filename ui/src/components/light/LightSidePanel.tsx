@@ -1134,9 +1134,10 @@ export function LightSidePanel({
 
   // Backend-rendered per-LED state from the binary websocket stream (see
   // liveLevels.ts) -- the preview draws these colors as-is, never
-  // re-simulating an effect. Fixtures with no live row (idle, or the song
-  // isn't playing) fall back to the editor `previewColors` (cue color /
-  // black).
+  // re-simulating an effect or the idle behavior (the backend applies both,
+  // see MainComponent.cpp's publishWebState). Fixtures with no live row yet
+  // (transport stopped with lighting disabled, or before the first frame
+  // arrives) fall back to the editor `previewColors` (cue color / black).
   const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
   useEffect(
     () =>
