@@ -627,7 +627,7 @@ function getTickConfig(pxPerSec: number, bpm: number, tsNum: number) {
 function getSnapInterval(pxPerSec: number, bpm: number, tsNum: number): number {
   if (bpm <= 0) return 1.0;
   const tc = getTickConfig(pxPerSec, bpm, tsNum);
-  return tc.minorStepSec > 0 ? tc.minorStepSec : (60 / bpm);
+  return tc.minorStepSec > 0 ? tc.minorStepSec : 60 / bpm;
 }
 
 function snapToGridSec(
@@ -684,7 +684,10 @@ function Ruler({
 
     // Quantize scrollLeft to 250px steps with generous buffer so React DOM nodes
     // don't churn on every sub-pixel frame during smooth 60/120fps scrolling
-    const quantizedLeft = Math.max(0, Math.floor((scrollLeft || 0) / 250) * 250 - 250);
+    const quantizedLeft = Math.max(
+      0,
+      Math.floor((scrollLeft || 0) / 250) * 250 - 250,
+    );
     const bufferedWidth = (viewportWidth || 1200) + 500;
 
     const startTime = Math.max(0, quantizedLeft / pxPerSec);
@@ -870,7 +873,13 @@ function SectionMarkerLane({
     const song = songs[songIndex];
     const bpm = song?.bpm ?? 120;
     const tsNum = song?.tsNum ?? 4;
-    const snappedLocal = snapToGridSec(localSeconds, pxPerSec, bpm, tsNum, snapToGrid);
+    const snappedLocal = snapToGridSec(
+      localSeconds,
+      pxPerSec,
+      bpm,
+      tsNum,
+      snapToGrid,
+    );
     setMenu({
       x: e.clientX,
       y: e.clientY,
@@ -1201,13 +1210,19 @@ export function Timeline({
   // `zoomActive` FREEZES the clock while a zoom gesture is in progress so the
   // playhead marker holds still ("автостоп времени при зуме"); it resumes
   // (and softly re-corrects toward the engine) the moment the zoom settles.
-  const [playheadAbsoluteSec, setPlayheadAbsoluteSec] = useContinuousPlayhead(
-    state.globalPlayheadSeconds,
-    state.playing,
-    state.projectName,
-    zoomActive,
-    dragging,
-  );
+  const [playheadAbsoluteSec, setPlayheadAbsoluteSec, getLivePlayheadAbsolute] =
+    useContinuousPlayhead(
+      state.globalPlayheadSeconds,
+      state.playing,
+      state.projectName,
+      zoomActive,
+      dragging,
+    );
+  // Live clock getter for the rAF follow/marker loop -- never go through the
+  // React-state mirror (playheadAbsoluteSec), which can lag a commit behind
+  // the rAF that advances the clock and made smooth-follow advance in steps.
+  const getLivePlayheadAbsoluteRef = useRef(getLivePlayheadAbsolute);
+  getLivePlayheadAbsoluteRef.current = getLivePlayheadAbsolute;
 
   // Snap-to-grid toggle
   const [snapToGrid, setSnapToGrid] = useState(true);
@@ -1221,7 +1236,8 @@ export function Timeline({
   const [followMode, setFollowMode] = useState<FollowMode>(() => {
     try {
       const saved = localStorage.getItem("resostage.timeline.followMode");
-      if (saved === "off" || saved === "snap" || saved === "smooth") return saved;
+      if (saved === "off" || saved === "snap" || saved === "smooth")
+        return saved;
     } catch {
       // localStorage unavailable (e.g. private mode) -- fall through to default
     }
@@ -1235,7 +1251,9 @@ export function Timeline({
     }
   }, [followMode]);
   const cycleFollowMode = () =>
-    setFollowMode((m) => (m === "off" ? "snap" : m === "snap" ? "smooth" : "off"));
+    setFollowMode((m) =>
+      m === "off" ? "snap" : m === "snap" ? "smooth" : "off",
+    );
 
   // Dual-mode Audio/Light timeline (Editor only -- the Player Timeline stays
   // audio-only; RESTORE_POINT.md Feature 6). Per-instance, persisted exactly
@@ -1262,10 +1280,15 @@ export function Timeline({
   // Selected light cue (Light-mode editor), drives the cue editor panel.
   const [cueSelection, setCueSelection] = useState<CueSelKey | null>(null);
   // Track selection for the side panel
-  const [sidePanelTrackIndex, setSidePanelTrackIndex] = useState<number | null>(null);
+  const [sidePanelTrackIndex, setSidePanelTrackIndex] = useState<number | null>(
+    null,
+  );
   // Leave editing when switching away from Light mode.
   useEffect(() => {
-    if (effectiveViewMode !== "light") { setCueSelection(null); setSidePanelTrackIndex(null); }
+    if (effectiveViewMode !== "light") {
+      setCueSelection(null);
+      setSidePanelTrackIndex(null);
+    }
   }, [effectiveViewMode]);
 
   // Progressive rendering: track gesture activity for coarse→fine rendering
@@ -1358,7 +1381,11 @@ export function Timeline({
   // scroll event landing shortly after ANY programmatic write is still
   // almost certainly an echo of ours, regardless of exact pixel match.
   const lastProgrammaticWriteAtRef = useRef(0);
-  const ECHO_GRACE_MS = 120;
+  const ECHO_GRACE_MS = 200;
+  // Non-null while the smooth-follow rAF branch is actively driving
+  // scrollLeft. onScrollSync treats any event near this value as an engine
+  // echo (not a user fight), so continuous follow can never pause itself.
+  const followEngineScrollRef = useRef<number | null>(null);
   // Last scrollLeft seen by onScrollSync, to tell a genuine HORIZONTAL user
   // scroll apart from a vertical-only one. Vertical scrolling must NOT pause
   // auto-follow (it doesn't fight the horizontal autoscroll) -- only a
@@ -1423,14 +1450,21 @@ export function Timeline({
       cue.startSeconds,
       cue.durationSeconds,
       {
-        colorR: cue.colorR, colorG: cue.colorG, colorB: cue.colorB,
+        colorR: cue.colorR,
+        colorG: cue.colorG,
+        colorB: cue.colorB,
         intensity: cue.intensity,
-        fadeInSeconds: cue.fadeInSeconds, fadeOutSeconds: cue.fadeOutSeconds,
+        fadeInSeconds: cue.fadeInSeconds,
+        fadeOutSeconds: cue.fadeOutSeconds,
         label: cue.label,
-        effectType: cue.effectType, effectSourceType: cue.effectSourceType,
-        effectSourceId: cue.effectSourceId, effectIntensity: cue.effectIntensity,
-        tempoSync: cue.tempoSync, tempoSubdiv: cue.tempoSubdiv,
-        effectRateHz: cue.effectRateHz, gradientPreset: cue.gradientPreset,
+        effectType: cue.effectType,
+        effectSourceType: cue.effectSourceType,
+        effectSourceId: cue.effectSourceId,
+        effectIntensity: cue.effectIntensity,
+        tempoSync: cue.tempoSync,
+        tempoSubdiv: cue.tempoSubdiv,
+        effectRateHz: cue.effectRateHz,
+        gradientPreset: cue.gradientPreset,
         gradientColors: cue.gradientColors,
       },
     );
@@ -1448,14 +1482,21 @@ export function Timeline({
         entry.startSeconds,
         entry.durationSeconds,
         {
-          colorR: entry.colorR, colorG: entry.colorG, colorB: entry.colorB,
+          colorR: entry.colorR,
+          colorG: entry.colorG,
+          colorB: entry.colorB,
           intensity: entry.intensity,
-          fadeInSeconds: entry.fadeInSeconds, fadeOutSeconds: entry.fadeOutSeconds,
+          fadeInSeconds: entry.fadeInSeconds,
+          fadeOutSeconds: entry.fadeOutSeconds,
           label: entry.label,
-          effectType: entry.effectType, effectSourceType: entry.effectSourceType,
-          effectSourceId: entry.effectSourceId, effectIntensity: entry.effectIntensity,
-          tempoSync: entry.tempoSync, tempoSubdiv: entry.tempoSubdiv,
-          effectRateHz: entry.effectRateHz, gradientPreset: entry.gradientPreset,
+          effectType: entry.effectType,
+          effectSourceType: entry.effectSourceType,
+          effectSourceId: entry.effectSourceId,
+          effectIntensity: entry.effectIntensity,
+          tempoSync: entry.tempoSync,
+          tempoSubdiv: entry.tempoSubdiv,
+          effectRateHz: entry.effectRateHz,
+          gradientPreset: entry.gradientPreset,
           gestureId,
         },
       );
@@ -1505,14 +1546,21 @@ export function Timeline({
       localPlayhead,
       rightDur,
       {
-        colorR: cue.colorR, colorG: cue.colorG, colorB: cue.colorB,
+        colorR: cue.colorR,
+        colorG: cue.colorG,
+        colorB: cue.colorB,
         intensity: cue.intensity,
-        fadeInSeconds: 0, fadeOutSeconds: cue.fadeOutSeconds,
+        fadeInSeconds: 0,
+        fadeOutSeconds: cue.fadeOutSeconds,
         label: cue.label,
-        effectType: cue.effectType, effectSourceType: cue.effectSourceType,
-        effectSourceId: cue.effectSourceId, effectIntensity: cue.effectIntensity,
-        tempoSync: cue.tempoSync, tempoSubdiv: cue.tempoSubdiv,
-        effectRateHz: cue.effectRateHz, gradientPreset: cue.gradientPreset,
+        effectType: cue.effectType,
+        effectSourceType: cue.effectSourceType,
+        effectSourceId: cue.effectSourceId,
+        effectIntensity: cue.effectIntensity,
+        tempoSync: cue.tempoSync,
+        tempoSubdiv: cue.tempoSubdiv,
+        effectRateHz: cue.effectRateHz,
+        gradientPreset: cue.gradientPreset,
         gestureId,
       },
     );
@@ -1520,7 +1568,6 @@ export function Timeline({
     showToast("Split cue at playhead");
     setCueSelection(null);
   };
-
 
   const selectRegion = (
     key: RegionSelKey,
@@ -1581,7 +1628,8 @@ export function Timeline({
     const gestureId = crypto.randomUUID();
     for (const key of selectedRegionKeys) {
       const hit = lookupRegion(state.songs, key);
-      if (hit) void builder.regionRemove(hit.songIndex, hit.region.id, gestureId);
+      if (hit)
+        void builder.regionRemove(hit.songIndex, hit.region.id, gestureId);
     }
     setSelectedRegionKeys([]);
     showToast("Deleted region(s)");
@@ -1901,7 +1949,10 @@ export function Timeline({
 
   // Light-mode derived data (Feature 6). Guarded with optional chaining so an
   // older WebUiState snapshot without the lighting fields still renders.
-  const lightTracks = useMemo(() => state.lightTracks ?? [], [state.lightTracks]);
+  const lightTracks = useMemo(
+    () => state.lightTracks ?? [],
+    [state.lightTracks],
+  );
   const lightFixtures = useMemo(
     () => state.lighting?.fixtures ?? [],
     [state.lighting?.fixtures],
@@ -1912,13 +1963,19 @@ export function Timeline({
   const lightTrackColorForId = (trackId: string) =>
     lightTrackColor(lightTracks.findIndex((t) => t.id === trackId));
   const hasLightContent =
-    lightEnabled && (lightTracks.length > 0 || songs.some((s) => (s.lightCues ?? []).length > 0));
+    lightEnabled &&
+    (lightTracks.length > 0 ||
+      songs.some((s) => (s.lightCues ?? []).length > 0));
 
   // Per-fixture preview colors at the current playhead (drives the live 3D
   // simulator). Recomputed every clock tick -- cheap for the Phase A rig
   // sizes, and the r3f scene re-renders from these props.
   const previewColors = useMemo(() => {
-    if (!lightEnabled) return {} as Record<string, import("../lib/lightCueInterpolation").LightCueValue>;
+    if (!lightEnabled)
+      return {} as Record<
+        string,
+        import("../lib/lightCueInterpolation").LightCueValue
+      >;
     const song = songs[state.songIndex];
     const localTime = Math.max(
       0,
@@ -1949,11 +2006,21 @@ export function Timeline({
       if (cue) {
         const tIdx = lightTracks.findIndex((t) => t.id === cue.trackId);
         if (tIdx >= 0)
-          return { type: "cue" as const, songIndex: cueSelection.songIndex, cue, trackIndex: tIdx, track: lightTracks[tIdx] };
+          return {
+            type: "cue" as const,
+            songIndex: cueSelection.songIndex,
+            cue,
+            trackIndex: tIdx,
+            track: lightTracks[tIdx],
+          };
       }
     }
     if (sidePanelTrackIndex !== null && lightTracks[sidePanelTrackIndex]) {
-      return { type: "track" as const, trackIndex: sidePanelTrackIndex, track: lightTracks[sidePanelTrackIndex] };
+      return {
+        type: "track" as const,
+        trackIndex: sidePanelTrackIndex,
+        track: lightTracks[sidePanelTrackIndex],
+      };
     }
     return null;
   })();
@@ -2169,7 +2236,13 @@ export function Timeline({
     const targetSong = songs[songIndex];
     const bpm = targetSong?.bpm ?? 120;
     const tsNum = targetSong?.tsNum ?? 4;
-    const snappedLocal = snapToGridSec(localSeconds, pxPerSecRef.current, bpm, tsNum, snapToGrid);
+    const snappedLocal = snapToGridSec(
+      localSeconds,
+      pxPerSecRef.current,
+      bpm,
+      tsNum,
+      snapToGrid,
+    );
 
     // Clamp into the resolved song's authored length so we never seek past EOF.
     const songLen = songLengths[songIndex] ?? 0;
@@ -2269,14 +2342,24 @@ export function Timeline({
     // horizontal echo-detection logic below.
     const left = e.currentTarget.scrollLeft;
     const programmedLeft = programmaticScrollLeftRef.current;
-    const exactEcho = programmedLeft !== null && Math.abs(left - programmedLeft) < 0.5;
+    const exactEcho =
+      programmedLeft !== null && Math.abs(left - programmedLeft) < 0.5;
     // Coalesced echo: a programmatic write landed very recently (continuous
     // "smooth" follow writes every rAF frame, faster than the browser
     // necessarily dispatches `scroll` events for each one) -- see
     // lastProgrammaticWriteAtRef's doc comment.
     const recentEcho =
       performance.now() - lastProgrammaticWriteAtRef.current < ECHO_GRACE_MS;
-    if (exactEcho || recentEcho) {
+    // Continuous smooth-follow owns the scroller. Any event within a few
+    // pixels of the engine target is an echo of our own write (browser
+    // rounding / delayed coalesced events), NOT a user fight. Only a real
+    // manual drag that pulls the viewport away from the follow anchor
+    // should pause autofollow -- without this, own scroll events flipped
+    // gestureActive every ~150ms and the timeline stuttered in 700ms chunks.
+    const followTarget = followEngineScrollRef.current;
+    const followEcho =
+      followTarget !== null && Math.abs(left - followTarget) < 32;
+    if (exactEcho || recentEcho || followEcho) {
       // Echo of our own auto-follow/zoom-focus write -- that effect already
       // synced scrollState synchronously (see programmaticScrollRef's doc
       // comment). Re-applying it here from a possibly-delayed native event
@@ -2287,6 +2370,7 @@ export function Timeline({
     }
     // A true user horizontal move supersedes any delayed programmatic echo.
     programmaticScrollLeftRef.current = null;
+    followEngineScrollRef.current = null;
     // null means "no baseline yet" (mount / scroll-restore) -- that first
     // event never counts as a user fight.
     const movedHorizontally =
@@ -2467,13 +2551,8 @@ export function Timeline({
         rulerHeaderRef.current.style.transform = `translate3d(0, ${st}px, 0)`;
     }
     let firstTick = true;
-    let lastFollowTs = 0;
-    let avgDt = 1 / 60;
 
     const tick = () => {
-      (window as unknown as { __tickLog?: unknown[] }).__tickLog =
-        (window as unknown as { __tickLog?: unknown[] }).__tickLog ?? [];
-      (window as unknown as { __tickLog: unknown[] }).__tickLog.push(performance.now());
       // Every frame, unconditionally -- see sidebarContentRef's doc comment
       // for why this can't be a React-state round trip.
       if (scrollRef.current) {
@@ -2484,19 +2563,17 @@ export function Timeline({
           rulerHeaderRef.current.style.transform = `translate3d(0, ${st}px, 0)`;
       }
 
-      const nowTs = performance.now();
-      const rawDt = lastFollowTs > 0 ? Math.min(0.05, Math.max(0.001, (nowTs - lastFollowTs) / 1000)) : 1 / 60;
-      lastFollowTs = nowTs;
-      // Exponentially smooth frame delta to eliminate 60Hz/120Hz display rAF timer jitter
-      avgDt += (rawDt - avgDt) * 0.1;
-      const dt = avgDt;
-
+      // Live playhead from the clock's own ref -- not the React-state mirror
+      // (playheadAbsoluteSecRef), which only updates on commit and can lag
+      // behind the clock rAF by one or more frames.
       // pxPerSecRef.current (NOT a render-copied mirror): applyZoomAt writes
       // it synchronously on every wheel/pinch tick, so this loop computes the
       // playhead's document position with the zoom scale CURRENT the same
       // frame the zoom-focus scroll is applied -- no one-frame stale-scale
       // gap, which made the marker wobble left-right during a zoom gesture.
-      const px = playheadAbsoluteSecRef.current * pxPerSecRef.current;
+      const liveSec = getLivePlayheadAbsoluteRef.current();
+      const px = liveSec * pxPerSecRef.current;
+      playheadAbsoluteSecRef.current = liveSec;
       const songJumped = currentSongIdxRef.current !== lastSongIdx;
       lastSongIdx = currentSongIdxRef.current;
 
@@ -2508,24 +2585,17 @@ export function Timeline({
       // effect writes the zoom-focus target) was what made the playhead
       // visibly jump during a zoom gesture while autofollowing.
       const following =
-        playingRef.current
-        && !gestureActiveNowRef.current
-        && !dragging.current
-        && followModeRef.current === "smooth";
-      (window as unknown as { __followLog?: unknown[] }).__followLog =
-        (window as unknown as { __followLog?: unknown[] }).__followLog ?? [];
-      (window as unknown as { __followLog: unknown[] }).__followLog.push({
-        t: performance.now(),
-        following,
-        playing: playingRef.current,
-        gesture: gestureActiveNowRef.current,
-        dragging: dragging.current,
-        mode: followModeRef.current,
-      });
+        playingRef.current &&
+        !gestureActiveNowRef.current &&
+        !dragging.current &&
+        followModeRef.current === "smooth";
       const scroller = scrollRef.current;
       const viewWidth = scroller ? scroller.clientWidth || 1000 : 1000;
       const maxScrollLeft = Math.max(0, contentWidthRef.current - viewWidth);
-      const target = Math.min(maxScrollLeft, Math.max(0, px - viewWidth * 0.25));
+      const target = Math.min(
+        maxScrollLeft,
+        Math.max(0, px - viewWidth * 0.25),
+      );
 
       // Begin (or re-anchor) a pan from `fromPos` toward the current target.
       const startPan = (fromPos: number) => {
@@ -2534,12 +2604,12 @@ export function Timeline({
         panElapsedFrames = 0;
       };
 
-      // Step `from` toward `target`. Two regimes:
-      //  - REAL PAN: a VARIABLE-ACCELERATION ease-out curve (start fast, then
-      //    decelerate into the target) over a bounded ~PAN_FRAMES (~0.3s) for
-      //    song changes or large jumps.
-      //  - DIRECT SMOOTH FOLLOW: for normal steady-state playback, advance by dt * pxPerSec
-      //    on every 60fps frame to guarantee smooth continuous scroll without state-batching stutter.
+      // Step `from` toward `target`. Three regimes:
+      //  - REAL PAN: ease-out over ~PAN_FRAMES for song changes / large jumps.
+      //  - STEADY FOLLOW (following===true): pin scrollLeft to the moving
+      //    playhead-anchored target every frame. Target already advances
+      //    with the live clock -- free-running at dt*pxPerSec drifted.
+      //  - SNAP/REVEAL catch-up: exponential approach for medium pans.
       const glide = (from: number) => {
         const diff = target - from;
         const dist = Math.abs(diff);
@@ -2553,15 +2623,10 @@ export function Timeline({
           if (t >= 1) panStartDist = 0; // pan done
           return next;
         }
-        // Normal continuous follow: advance pure linear playback speed (dt * pxPerSec)
-        // to stay immune to discrete React state batching & oscillations
-        if (dist < 40) {
-          panStartDist = 0;
-          const step = dt * pxPerSecRef.current;
-          const next = from + step;
-          return Math.min(maxScrollLeft, Math.max(0, next));
-        }
-        return diff > 0 ? from + dist * 0.25 : from - dist * 0.25;
+        panStartDist = 0;
+        if (following) return target;
+        const step = Math.max(dist * 0.25, 1);
+        return diff > 0 ? from + step : from - step;
       };
 
       if (following && scroller) {
@@ -2575,31 +2640,30 @@ export function Timeline({
           const still = Math.abs(target - engineScrollLeft);
           if (still > panStartDist) startPan(engineScrollLeft);
         }
-        const preGlide = engineScrollLeft;
         engineScrollLeft = glide(engineScrollLeft);
-        const before = scroller.scrollLeft;
         scroller.scrollLeft = engineScrollLeft;
-        const afterWrite = scroller.scrollLeft;
-        (window as unknown as { __tlDbg?: unknown[] }).__tlDbg =
-          (window as unknown as { __tlDbg?: unknown[] }).__tlDbg ?? [];
-        (window as unknown as { __tlDbg: unknown[] }).__tlDbg.push({
-          t: performance.now(), dt, target, preGlide, glided: engineScrollLeft,
-          before, afterWrite, panStartDist, panElapsedFrames,
-        });
         engineScrollLeft = scroller.scrollLeft; // re-read in case browser clamped it
-        if (Math.abs(before - engineScrollLeft) > 0.5) {
-          programmaticScrollLeftRef.current = engineScrollLeft;
-          lastProgrammaticWriteAtRef.current = performance.now();
-        }
-        if (Math.abs((lastScrollLeftRef.current ?? Infinity) - engineScrollLeft) > 100) {
+        // Always mark as programmatic while following, even if the write was
+        // a sub-pixel no-op -- keeps onScrollSync's echo window fresh.
+        programmaticScrollLeftRef.current = engineScrollLeft;
+        lastProgrammaticWriteAtRef.current = performance.now();
+        followEngineScrollRef.current = engineScrollLeft;
+        if (
+          Math.abs((lastScrollLeftRef.current ?? Infinity) - engineScrollLeft) >
+          48
+        ) {
           lastScrollLeftRef.current = engineScrollLeft;
-          setScrollState({ scrollLeft: engineScrollLeft, viewportWidth: viewWidth });
+          setScrollState({
+            scrollLeft: engineScrollLeft,
+            viewportWidth: viewWidth,
+          });
         }
         // Marker: during active large panning (song change / far seek), hold
         // marker pinned at 25% viewport while timeline slides under it.
         // During normal continuous follow, anchor marker directly to true `px`
         // so any sub-pixel scroller adjustments never cause forward/backward marker jumps.
-        const isPanning = panStartDist > viewWidth * 0.25 && panElapsedFrames < 18;
+        const isPanning =
+          panStartDist > viewWidth * 0.25 && panElapsedFrames < 18;
         const pinnedTarget = px - viewWidth * 0.25;
         displayPx =
           isPanning && pinnedTarget >= 0 && pinnedTarget <= maxScrollLeft
@@ -2609,6 +2673,7 @@ export function Timeline({
         // Not smoothly following this tick (paused, off/snap mode, or a
         // gesture is in progress) -- drop the follow anchor.
         engineScrollLeft = null;
+        followEngineScrollRef.current = null;
         // Marker tracks the true playhead position directly without lag
         displayPx = px;
 
@@ -2634,19 +2699,19 @@ export function Timeline({
         // most once per mount regardless of whether a pan actually starts
         // this tick (dragging/gesture below could still defer it a frame).
         const notYetVisible =
-          firstTick
-          && !!scroller
-          && !isPositionVisible(px, scroller.scrollLeft, viewWidth);
+          firstTick &&
+          !!scroller &&
+          !isPositionVisible(px, scroller.scrollLeft, viewWidth);
         const jumped =
-          songJumped
-          || Math.abs(px - lastRevealPx) > pxPerSecRef.current * 2.0
-          || notYetVisible;
+          songJumped ||
+          Math.abs(px - lastRevealPx) > pxPerSecRef.current * 2.0 ||
+          notYetVisible;
         const snapEdge =
-          playingRef.current
-          && followModeRef.current === "snap"
-          && scroller
-          && !gestureActiveNowRef.current
-          && !dragging.current;
+          playingRef.current &&
+          followModeRef.current === "snap" &&
+          scroller &&
+          !gestureActiveNowRef.current &&
+          !dragging.current;
         let overEdge = false;
         if (snapEdge) {
           const currentLeft = revealScroll ?? scroller!.scrollLeft;
@@ -2655,10 +2720,10 @@ export function Timeline({
         }
         const needPan = jumped || overEdge;
         if (
-          scroller
-          && !dragging.current
-          && !gestureActiveNowRef.current
-          && (revealScroll !== null || needPan)
+          scroller &&
+          !dragging.current &&
+          !gestureActiveNowRef.current &&
+          (revealScroll !== null || needPan)
         ) {
           if (revealScroll === null) {
             const startLeft = scroller.scrollLeft;
@@ -2683,9 +2748,17 @@ export function Timeline({
               programmaticScrollLeftRef.current = scroller.scrollLeft;
               lastProgrammaticWriteAtRef.current = performance.now();
             }
-            if (Math.abs((lastScrollLeftRef.current ?? Infinity) - scroller.scrollLeft) > 100 || settled) {
+            if (
+              Math.abs(
+                (lastScrollLeftRef.current ?? Infinity) - scroller.scrollLeft,
+              ) > 100 ||
+              settled
+            ) {
               lastScrollLeftRef.current = scroller.scrollLeft;
-              setScrollState({ scrollLeft: scroller.scrollLeft, viewportWidth: viewWidth });
+              setScrollState({
+                scrollLeft: scroller.scrollLeft,
+                viewportWidth: viewWidth,
+              });
             }
             if (settled) revealScroll = null;
           }
@@ -2747,7 +2820,9 @@ export function Timeline({
                 variant="outline"
                 isIconOnly
                 aria-label={
-                  state.undoLabel ? `Undo: ${state.undoLabel} (⌘Z)` : "Undo (⌘Z)"
+                  state.undoLabel
+                    ? `Undo: ${state.undoLabel} (⌘Z)`
+                    : "Undo (⌘Z)"
                 }
                 isDisabled={!state.canUndo}
                 onPress={() => void timelineHistory.undo()}
@@ -3038,7 +3113,9 @@ export function Timeline({
                       : LIGHT_HINT_HEIGHT,
                 }}
               >
-                <span>{effectiveViewMode === "light" ? "Audio ref" : "Light"}</span>
+                <span>
+                  {effectiveViewMode === "light" ? "Audio ref" : "Light"}
+                </span>
                 {effectiveViewMode === "light" && lightEnabled && (
                   <button
                     type="button"
@@ -3075,7 +3152,10 @@ export function Timeline({
                           color={lightTrackColor(i)}
                           height={LANE_HEIGHT * verticalZoom}
                           selected={sidePanelTrackIndex === i && !cueSelection}
-                          onSelect={() => { setSidePanelTrackIndex(i); setCueSelection(null); }}
+                          onSelect={() => {
+                            setSidePanelTrackIndex(i);
+                            setCueSelection(null);
+                          }}
                         />
                       ))
                     )}
@@ -3113,7 +3193,6 @@ export function Timeline({
                   </div>
                 )}
               </div>
-
             </div>
           )}
 
@@ -3121,19 +3200,30 @@ export function Timeline({
           <div
             ref={scrollRef}
             className="flex-1 min-h-0 overflow-auto relative select-none cursor-col-resize focus:outline-none"
-            style={{ willChange: "scroll-position", transform: "translateZ(0)" }}
+            style={{
+              willChange: "scroll-position",
+              transform: "translateZ(0)",
+            }}
             onScroll={onScrollSync}
           >
             <div
               ref={timelineBodyRef}
               className="relative flex min-h-0 flex-col"
-              style={{ width: contentWidth, minHeight: "100%", transform: "translateZ(0)" }}
+              style={{
+                width: contentWidth,
+                minHeight: "100%",
+                transform: "translateZ(0)",
+              }}
             >
               {/* 1. Sticky Ruler Header -- driven by rAF translate3d instead of Chromium sticky compositor lock */}
               <div
                 ref={rulerHeaderRef}
                 className="relative top-0 z-20 bg-background-secondary shrink-0 cursor-col-resize touch-none"
-                style={{ width: contentWidth, height: RULER_HEIGHT, willChange: "transform" }}
+                style={{
+                  width: contentWidth,
+                  height: RULER_HEIGHT,
+                  willChange: "transform",
+                }}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
@@ -3258,7 +3348,10 @@ export function Timeline({
                   state={state}
                   peaks={peaks}
                   allPeaks={allPeaks}
-                  audioRows={rows.map((r) => ({ name: r.name, color: r.color }))}
+                  audioRows={rows.map((r) => ({
+                    name: r.name,
+                    color: r.color,
+                  }))}
                   songs={songs}
                   songOffsets={songOffsets}
                   songLengths={songLengths}
@@ -3270,7 +3363,6 @@ export function Timeline({
               )}
 
               {/* 3D preview moved to LightSidePanel — nothing to render here */}
-
 
               {/* 3. Track Waveforms & Grid Container -- one row per canonical track name, one segment per song */}
               <div
@@ -3426,7 +3518,9 @@ export function Timeline({
                               draft?.fadeOutCurve ?? r.fadeOutCurve ?? 0,
                             loop: draft?.loop ?? r.loop ?? false,
                             loopLengthSeconds:
-                              draft?.loopLengthSeconds ?? r.loopLengthSeconds ?? 0,
+                              draft?.loopLengthSeconds ??
+                              r.loopLengthSeconds ??
+                              0,
                           };
                         };
 
@@ -3523,7 +3617,7 @@ export function Timeline({
                                       geom.loopLengthSeconds > 0
                                       ? geom.loopLengthSeconds
                                       : geom.duration
-                                    : geom.loopLengthSeconds ?? 0;
+                                    : (geom.loopLengthSeconds ?? 0);
 
                                 regionDragRef.current = {
                                   key: thisRegionSelKey,
@@ -3577,9 +3671,7 @@ export function Timeline({
                                 const qH = h * 0.25;
                                 if (localX < EDGE_PX) {
                                   // Left: top 25% = fade in, bottom 75% = trim start
-                                  return localY < qH
-                                    ? "fadeIn"
-                                    : "trimStart";
+                                  return localY < qH ? "fadeIn" : "trimStart";
                                 }
                                 if (localX > w - EDGE_PX) {
                                   // Right Logic Pro style:
@@ -3667,8 +3759,7 @@ export function Timeline({
                                     rd.origLoopLength > 0
                                       ? rd.origLoopLength
                                       : rd.origDuration;
-                                  const isLooped =
-                                    nextDur > loopLen + 0.01;
+                                  const isLooped = nextDur > loopLen + 0.01;
                                   writeGeomDraft(thisRegionSelKey, {
                                     ...baseGeom(rd),
                                     duration: nextDur,
@@ -3770,7 +3861,8 @@ export function Timeline({
                                   fadeInCurve: finalGeom.fadeInCurve,
                                   fadeOutCurve: finalGeom.fadeOutCurve,
                                   loop: finalGeom.loop,
-                                  loopLengthSeconds: finalGeom.loopLengthSeconds,
+                                  loopLengthSeconds:
+                                    finalGeom.loopLengthSeconds,
                                 });
                                 regionDragRef.current = null;
                                 try {
@@ -3949,70 +4041,71 @@ export function Timeline({
                                     )}
 
                                     {/* Loop iteration notches (triangles top+bottom). */}
-                                    {geom.loop && (() => {
-                                      const cycleLen =
-                                        geom.loopLengthSeconds &&
-                                        geom.loopLengthSeconds > 0
-                                          ? geom.loopLengthSeconds
-                                          : maxSourceDur;
-                                      if (
-                                        cycleLen <= 0.05 ||
-                                        geom.duration <= cycleLen + 0.01
-                                      )
-                                        return null;
-                                      return Array.from({
-                                        length: Math.floor(
-                                          geom.duration / cycleLen,
-                                        ),
-                                      }).map((_, li) => {
-                                        const x =
-                                          (li + 1) * cycleLen * pxPerSec;
-                                        if (x <= 2 || x >= regionWidth - 2)
+                                    {geom.loop &&
+                                      (() => {
+                                        const cycleLen =
+                                          geom.loopLengthSeconds &&
+                                          geom.loopLengthSeconds > 0
+                                            ? geom.loopLengthSeconds
+                                            : maxSourceDur;
+                                        if (
+                                          cycleLen <= 0.05 ||
+                                          geom.duration <= cycleLen + 0.01
+                                        )
                                           return null;
-                                        return (
-                                          <div
-                                            key={`loop-${li}`}
-                                            className="pointer-events-none absolute top-0 bottom-0 z-[3]"
-                                            style={{ left: x }}
-                                            title="Loop boundary"
-                                          >
+                                        return Array.from({
+                                          length: Math.floor(
+                                            geom.duration / cycleLen,
+                                          ),
+                                        }).map((_, li) => {
+                                          const x =
+                                            (li + 1) * cycleLen * pxPerSec;
+                                          if (x <= 2 || x >= regionWidth - 2)
+                                            return null;
+                                          return (
                                             <div
-                                              className="absolute left-1/2 top-0 -translate-x-1/2"
-                                              style={{
-                                                width: 0,
-                                                height: 0,
-                                                borderLeft:
-                                                  "4px solid transparent",
-                                                borderRight:
-                                                  "4px solid transparent",
-                                                borderTop: `6px solid ${row.color}`,
-                                                opacity: 0.9,
-                                              }}
-                                            />
-                                            <div
-                                              className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2"
-                                              style={{
-                                                background: row.color,
-                                                opacity: 0.4,
-                                              }}
-                                            />
-                                            <div
-                                              className="absolute left-1/2 bottom-0 -translate-x-1/2"
-                                              style={{
-                                                width: 0,
-                                                height: 0,
-                                                borderLeft:
-                                                  "4px solid transparent",
-                                                borderRight:
-                                                  "4px solid transparent",
-                                                borderBottom: `6px solid ${row.color}`,
-                                                opacity: 0.9,
-                                              }}
-                                            />
-                                          </div>
-                                        );
-                                      });
-                                    })()}
+                                              key={`loop-${li}`}
+                                              className="pointer-events-none absolute top-0 bottom-0 z-[3]"
+                                              style={{ left: x }}
+                                              title="Loop boundary"
+                                            >
+                                              <div
+                                                className="absolute left-1/2 top-0 -translate-x-1/2"
+                                                style={{
+                                                  width: 0,
+                                                  height: 0,
+                                                  borderLeft:
+                                                    "4px solid transparent",
+                                                  borderRight:
+                                                    "4px solid transparent",
+                                                  borderTop: `6px solid ${row.color}`,
+                                                  opacity: 0.9,
+                                                }}
+                                              />
+                                              <div
+                                                className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2"
+                                                style={{
+                                                  background: row.color,
+                                                  opacity: 0.4,
+                                                }}
+                                              />
+                                              <div
+                                                className="absolute left-1/2 bottom-0 -translate-x-1/2"
+                                                style={{
+                                                  width: 0,
+                                                  height: 0,
+                                                  borderLeft:
+                                                    "4px solid transparent",
+                                                  borderRight:
+                                                    "4px solid transparent",
+                                                  borderBottom: `6px solid ${row.color}`,
+                                                  opacity: 0.9,
+                                                }}
+                                              />
+                                            </div>
+                                          );
+                                        });
+                                      })()}
                                   </div>
                                 </div>
                               );
@@ -4058,58 +4151,60 @@ export function Timeline({
               selection={sidePanelSelection}
               fixtures={lightFixtures}
               previewColors={previewColors}
-              onClearSelection={() => { setCueSelection(null); setSidePanelTrackIndex(null); }}
+              onClearSelection={() => {
+                setCueSelection(null);
+                setSidePanelTrackIndex(null);
+              }}
             />
           )}
         </div>
       )}
 
-      {regionContextMenu && (() => {
-        const song = songs[regionContextMenu.songIndex];
-        const songRegion = song?.regions?.find(
-          (r) => r.id === regionContextMenu.regionId,
-        );
-        if (!songRegion || !song) return null;
+      {regionContextMenu &&
+        (() => {
+          const song = songs[regionContextMenu.songIndex];
+          const songRegion = song?.regions?.find(
+            (r) => r.id === regionContextMenu.regionId,
+          );
+          if (!songRegion || !song) return null;
 
-        const regUi = getRegionUi(regionContextMenu.selKey);
+          const regUi = getRegionUi(regionContextMenu.selKey);
 
-        return (
-          <ContextMenu
-            x={regionContextMenu.x}
-            y={regionContextMenu.y}
-            width={180}
-            onClose={() => setRegionContextMenu(null)}
-          >
-
-
-            <ContextMenuItem
-              onClick={() => {
-                setRegionUi(regionContextMenu.selKey, {
-                  muted: !regUi.muted,
-                });
-                setRegionContextMenu(null);
-              }}
+          return (
+            <ContextMenu
+              x={regionContextMenu.x}
+              y={regionContextMenu.y}
+              width={180}
+              onClose={() => setRegionContextMenu(null)}
             >
-              {regUi.muted ? "Unmute Region" : "Mute Region"}
-            </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => {
+                  setRegionUi(regionContextMenu.selKey, {
+                    muted: !regUi.muted,
+                  });
+                  setRegionContextMenu(null);
+                }}
+              >
+                {regUi.muted ? "Unmute Region" : "Mute Region"}
+              </ContextMenuItem>
 
-            <ContextMenuDivider />
+              <ContextMenuDivider />
 
-            <ContextMenuItem
-              danger
-              onClick={() => {
-                void builder.regionRemove(
-                  regionContextMenu.songIndex,
-                  regionContextMenu.regionId,
-                );
-                setRegionContextMenu(null);
-              }}
-            >
-              Delete Region
-            </ContextMenuItem>
-          </ContextMenu>
-        );
-      })()}
+              <ContextMenuItem
+                danger
+                onClick={() => {
+                  void builder.regionRemove(
+                    regionContextMenu.songIndex,
+                    regionContextMenu.regionId,
+                  );
+                  setRegionContextMenu(null);
+                }}
+              >
+                Delete Region
+              </ContextMenuItem>
+            </ContextMenu>
+          );
+        })()}
     </div>
   );
 }
@@ -4141,7 +4236,10 @@ function BeatGrid({
 
   // Quantize scrollLeft to 250px chunks so the canvas node stays static for 250px of scroll
   // and moves smoothly with native GPU layer scrolling without 60fps React redraw stutter
-  const quantizedLeft = Math.max(0, Math.floor((scrollLeft || 0) / 250) * 250 - 250);
+  const quantizedLeft = Math.max(
+    0,
+    Math.floor((scrollLeft || 0) / 250) * 250 - 250,
+  );
   const bufferedWidth = Math.min(contentWidth, (viewportWidth || 1200) + 500);
 
   useLayoutEffect(() => {

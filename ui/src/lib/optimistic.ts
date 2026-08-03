@@ -63,7 +63,12 @@ export function useContinuousPlayhead(
   resetKey?: unknown,
   frozen = false,
   draggingRef?: { current: boolean },
-): [absoluteSeconds: number, seekAbsolute: (v: number, lockMs?: number) => void] {
+): [
+  absoluteSeconds: number,
+  seekAbsolute: (v: number, lockMs?: number) => void,
+  /** Live read of the clock without waiting for a React commit (rAF loops). */
+  getLiveAbsolute: () => number,
+] {
   const [absolute, setAbsolute] = useState(serverAbsoluteSeconds);
   const localRef = useRef(serverAbsoluteSeconds);
   const serverRef = useRef(serverAbsoluteSeconds);
@@ -135,16 +140,27 @@ export function useContinuousPlayhead(
     const tick = (ts: number) => {
       const prev = lastFrameTs.current;
       lastFrameTs.current = ts;
-      if (prev != null && !draggingRef?.current && Date.now() - lastSeekAt.current > SEEK_LOCK_MS) {
+      if (
+        prev != null &&
+        !draggingRef?.current &&
+        Date.now() - lastSeekAt.current > SEEK_LOCK_MS
+      ) {
         const dt = Math.min(0.08, Math.max(0, (ts - prev) / 1000));
         // Extrapolate expected server time considering elapsed time since packet arrival
-        const serverAge = Math.max(0, (Date.now() - lastServerRxAt.current) / 1000);
-        const targetServer = serverRef.current + (playingRef.current ? serverAge : 0);
+        const serverAge = Math.max(
+          0,
+          (Date.now() - lastServerRxAt.current) / 1000,
+        );
+        const targetServer =
+          serverRef.current + (playingRef.current ? serverAge : 0);
         const err = targetServer - localRef.current;
 
         // Bounded speed correction (max ±5% speed variation) to filter jitter & prevent overshoots/jumps
         const maxAdjust = 0.05 * dt;
-        const adjust = Math.max(-maxAdjust, Math.min(maxAdjust, err * 2.0 * dt));
+        const adjust = Math.max(
+          -maxAdjust,
+          Math.min(maxAdjust, err * 2.0 * dt),
+        );
 
         let next = localRef.current + dt + adjust;
         if (next < 0) next = 0;
@@ -169,7 +185,13 @@ export function useContinuousPlayhead(
     lastFrameTs.current = null;
   };
 
-  return [absolute, seekAbsolute];
+  // Stable identity: always reads the same ref the rAF loop writes. Timeline
+  // follow/marker rAF loops use this so they never lag a React commit behind
+  // the live clock (setState every frame is not guaranteed to commit every
+  // display frame, which made smooth-follow scroll in discrete steps).
+  const getLiveAbsolute = useRef(() => localRef.current).current;
+
+  return [absolute, seekAbsolute, getLiveAbsolute];
 }
 
 /** @deprecated Prefer useContinuousPlayhead -- kept for mixer-style non-transport uses. */

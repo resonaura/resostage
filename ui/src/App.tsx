@@ -194,8 +194,15 @@ export default function App() {
   const [tab, setTab] = useState("player");
   // Tell the backend which SPA tab is active so WS frames only carry that
   // page's heavy arrays (transport/time always included).
-  const { state, status, transport, cpuHistory, ramHistory, sendView, hasLiveSnapshot } =
-    useLiveState(tab);
+  const {
+    state,
+    status,
+    transport,
+    cpuHistory,
+    ramHistory,
+    sendView,
+    hasLiveSnapshot,
+  } = useLiveState(tab);
   useGlobalHotkeys(state, setTab);
 
   // Electron shell: keep its native menu bar / Touch Bar live (undo/redo
@@ -225,7 +232,13 @@ export default function App() {
     if (seq === 0 || seq === lastUiTabSeq.current) return;
     lastUiTabSeq.current = seq;
     const t = state.uiTab;
-    if (t === "player" || t === "mixer" || t === "editor" || t === "light" || t === "settings") {
+    if (
+      t === "player" ||
+      t === "mixer" ||
+      t === "editor" ||
+      t === "light" ||
+      t === "settings"
+    ) {
       setTab(t);
       sendView(t);
     }
@@ -248,18 +261,34 @@ export default function App() {
     0,
   );
 
-  // Per-song peaks (current staged song)
+  // Per-song peaks (current staged song). Backend builds them in the
+  // background and republishes as each track fills in -- keep polling until
+  // the filled count stabilizes (NOT just "tracks array non-empty", which
+  // arrives immediately with blank levels and used to abort the poll forever).
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
-      for (let attempt = 0; attempt < 20 && !cancelled; attempt++) {
+      let lastFilled = -1;
+      let stable = 0;
+      for (let attempt = 0; attempt < 80 && !cancelled; attempt++) {
         const data = await fetchPeaks().catch(() => null);
         if (cancelled) return;
-        if (data && data.tracks && data.tracks.length > 0) {
+        if (data?.tracks) {
           setPeaks(data);
-          return;
+          const filled = data.tracks.filter((t) => t.levels.length > 0).length;
+          if (filled > 0 && filled === lastFilled) {
+            stable += 1;
+            // A few identical "done" snapshots means the background build is
+            // finished for this song (or no more progress is coming).
+            if (stable >= 3) return;
+          } else {
+            stable = 0;
+            lastFilled = filled;
+          }
         }
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) =>
+          setTimeout(resolve, attempt < 25 ? 200 : 500),
+        );
       }
     };
     void poll();
@@ -268,15 +297,36 @@ export default function App() {
     };
   }, [state.projectName, state.songIndex, totalRegionCount]);
 
-  // All-song peaks (for the multi-song timeline)
+  // All-song peaks (for the multi-song timeline). Same progressive-build
+  // story as fetchPeaks, but across every region in the project -- poll
+  // until every track entry has levels, or the filled count plateaus.
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
-      for (let attempt = 0; attempt < 30 && !cancelled; attempt++) {
+      let lastFilled = -1;
+      let stable = 0;
+      for (let attempt = 0; attempt < 180 && !cancelled; attempt++) {
         const data = await fetchAllPeaks().catch(() => null);
         if (cancelled) return;
-        if (data) setAllPeaks(data);
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        if (data) {
+          setAllPeaks(data);
+          const filled = data.songs.reduce(
+            (n, s) => n + s.tracks.filter((t) => t.levels.length > 0).length,
+            0,
+          );
+          const total = data.songs.reduce((n, s) => n + s.tracks.length, 0);
+          if (total > 0 && filled >= total) return; // fully built
+          if (filled > 0 && filled === lastFilled) {
+            stable += 1;
+            if (stable >= 6) return;
+          } else {
+            stable = 0;
+            lastFilled = filled;
+          }
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, attempt < 30 ? 300 : 800),
+        );
       }
     };
     void poll();
@@ -286,7 +336,9 @@ export default function App() {
   }, [state.projectName, state.songs.length, totalRegionCount]);
 
   // Hardware alarm toast notifications (post-startup only)
-  const [toastNotifications, setToastNotifications] = useState<ToastNotification[]>([]);
+  const [toastNotifications, setToastNotifications] = useState<
+    ToastNotification[]
+  >([]);
   const isInitialLoadRef = useRef(true);
   const prevAlarmRef = useRef(state.hardwareAlarm);
 
@@ -320,7 +372,6 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-default/60 bg-background px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-accent">
           <Radio size={16} />
@@ -328,7 +379,11 @@ export default function App() {
         </div>
         <ProjectNameField state={state} />
         <ProjectMenu state={state} />
-        <ConnectionBadge status={status} transport={transport} wsHz={state.wsHz} />
+        <ConnectionBadge
+          status={status}
+          transport={transport}
+          wsHz={state.wsHz}
+        />
       </header>
 
       <Tabs
@@ -454,22 +509,34 @@ export default function App() {
           {toastNotifications.map((toast) => (
             <div
               key={toast.id}
-              onClick={() => setToastNotifications((prev) => prev.filter((t) => t.id !== toast.id))}
+              onClick={() =>
+                setToastNotifications((prev) =>
+                  prev.filter((t) => t.id !== toast.id),
+                )
+              }
               className="pointer-events-auto flex items-start gap-3 rounded-xl border border-danger/40 bg-surface/95 p-3.5 text-foreground shadow-2xl backdrop-blur-md transition-all cursor-pointer hover:border-danger"
-              style={{ animation: "fadeInUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }}
+              style={{
+                animation: "fadeInUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+              }}
             >
               <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-danger/20 text-danger">
                 <AlertTriangle size={15} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold text-danger uppercase tracking-wider">{toast.title}</p>
-                <p className="text-xs text-foreground/90 font-medium leading-relaxed mt-0.5">{toast.message}</p>
+                <p className="text-xs font-bold text-danger uppercase tracking-wider">
+                  {toast.title}
+                </p>
+                <p className="text-xs text-foreground/90 font-medium leading-relaxed mt-0.5">
+                  {toast.message}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setToastNotifications((prev) => prev.filter((t) => t.id !== toast.id));
+                  setToastNotifications((prev) =>
+                    prev.filter((t) => t.id !== toast.id),
+                  );
                 }}
                 className="text-foreground/40 hover:text-foreground text-xs font-bold"
               >
@@ -521,9 +588,10 @@ function ProjectMenu({ state }: { state: WebUiState }) {
   const [saveLabel, setSaveLabel] = useState("Save");
   const saveFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recentBtnRef = useRef<HTMLButtonElement>(null);
-  const [recentAnchor, setRecentAnchor] = useState<{ x: number; y: number } | null>(
-    null,
-  );
+  const [recentAnchor, setRecentAnchor] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Mirror native status: "Saving…" while busy, then flash "Saved".
   useEffect(() => {
@@ -623,7 +691,9 @@ function ProjectMenu({ state }: { state: WebUiState }) {
           variant="outline"
           onPress={() => {
             const r = recentBtnRef.current?.getBoundingClientRect();
-            setRecentAnchor(r ? { x: r.left, y: r.bottom + 4 } : { x: 0, y: 0 });
+            setRecentAnchor(
+              r ? { x: r.left, y: r.bottom + 4 } : { x: 0, y: 0 },
+            );
           }}
         >
           Recent
@@ -651,8 +721,13 @@ function ProjectMenu({ state }: { state: WebUiState }) {
                   }}
                 >
                   <div className="flex flex-col min-w-0">
-                    <span className="font-medium text-xs text-foreground truncate">{rp.displayName}</span>
-                    <span className="text-[10px] text-foreground/40 truncate" title={rp.path}>
+                    <span className="font-medium text-xs text-foreground truncate">
+                      {rp.displayName}
+                    </span>
+                    <span
+                      className="text-[10px] text-foreground/40 truncate"
+                      title={rp.path}
+                    >
                       {rp.path}
                     </span>
                   </div>
