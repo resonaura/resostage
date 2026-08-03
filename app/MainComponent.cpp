@@ -1,12 +1,17 @@
 #include "MainComponent.h"
+#include "lighting/LightOutputResolver.h"
 #include "platform/MacKeyMonitor.h"
 #include "platform/MacMenuBar.h"
 #include "platform/MacTouchBar.h"
+#include "project/ProjectJson.h"
+#include "timing/BarSeek.h"
+#include "ui/DevOrEmbeddedWebView.h"
 #include "ui/UiColors.h"
 #include "web/BuilderJson.h"
-#include "timing/BarSeek.h"
-#include "project/ProjectJson.h"
-#include "lighting/LightOutputResolver.h"
+
+#if RESOSTAGE_ENABLE_CEF
+#include "ui/CefWebView.h"
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -104,12 +109,21 @@ MainComponent::MainComponent() {
     });
 
     // Prefer Vite dev server (:2900) when running; fall back to embedded assets.
-    webView = std::make_unique<DevOrEmbeddedWebView>(
-        "http://localhost:" + juce::String(kWebPort) + "/");
+    const juce::String fallbackUrl = "http://localhost:" + juce::String(kWebPort) + "/";
+#if RESOSTAGE_ENABLE_CEF
+    if (appSettings.uiRenderEngine == "cef") {
+        webView = std::make_unique<CefWebView>(fallbackUrl);
+    } else {
+        webView = std::make_unique<DevOrEmbeddedWebView>(fallbackUrl);
+    }
+#else
+    webView = std::make_unique<DevOrEmbeddedWebView>(fallbackUrl);
+#endif
+
     webView->onPageLoaded = [this] {
         webLoadingOverlay.dismiss();
     };
-    addAndMakeVisible(*webView);
+    addAndMakeVisible(webView->getComponent());
     addAndMakeVisible(webLoadingOverlay);
 
     setWantsKeyboardFocus(true);
@@ -144,7 +158,7 @@ void MainComponent::resized() {
     else
         alarmBanner.setBounds({});
     if (webView != nullptr)
-        webView->setBounds(r);
+        webView->getComponent().setBounds(r);
     busyOverlay.setBounds(getLocalBounds());
     webLoadingOverlay.setBounds(getLocalBounds());
 }
@@ -897,6 +911,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetMidiOutput: settingsSetMidiOutput(cmd.json); break;
             case WebCommandKind::SetMidiInput: settingsSetMidiInput(cmd.json); break;
             case WebCommandKind::SetMidiVirtualPort: settingsSetMidiVirtualPort(cmd.json); break;
+            case WebCommandKind::SetUiRenderEngine: settingsSetUiRenderEngine(cmd.json); break;
             case WebCommandKind::SetKeybinding: settingsSetKeybinding(cmd.json); break;
             case WebCommandKind::SetOutputChannels: settingsSetOutputChannels(cmd.json); break;
             case WebCommandKind::MidiLearn: settingsMidiLearn(cmd.json); break;

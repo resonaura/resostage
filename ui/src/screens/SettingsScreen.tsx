@@ -1,6 +1,6 @@
 import { Card, Tabs } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, Music3, SlidersHorizontal } from "lucide-react";
+import { Activity, Monitor, Music3, SlidersHorizontal } from "lucide-react";
 import { FontIcon } from "../components/FontIcon";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
@@ -256,12 +256,13 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
 ];
 
 // ─── Tab definitions ──────────────────────────────────────────────────────
-type SettingsTab = "audio" | "midi" | "health";
+type SettingsTab = "audio" | "midi" | "health" | "ui";
 
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "audio", label: "Audio", icon: SlidersHorizontal },
   { id: "midi", label: "MIDI", icon: Music3 },
   { id: "health", label: "Health", icon: Activity },
+  { id: "ui", label: "UI Engine", icon: Monitor },
 ];
 
 // ─── Section wrapper ──────────────────────────────────────────────────────
@@ -605,6 +606,77 @@ function HealthTab({ state }: { state: WebUiState }) {
   );
 }
 
+// ─── UI Tab ───────────────────────────────────────────────────────────────
+function UiTab({ state }: { state: WebUiState }) {
+  const currentEngine = state.settings.uiRenderEngine || "wkwebview";
+  const cefSupported = state.settings.cefSupported ?? true;
+  const [selected, setSelected] = useState(currentEngine);
+
+  useEffect(() => {
+    setSelected(currentEngine);
+  }, [currentEngine]);
+
+  const handleSelect = (engine: "wkwebview" | "cef") => {
+    setSelected(engine);
+    void settingsApi.setUiRenderEngine(engine);
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Section
+        title="Embedded UI Rendering Engine"
+        description="Select the native rendering engine used for the embedded application window."
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => handleSelect("wkwebview")}
+            className={`flex flex-col items-start gap-1 rounded-xl border p-4 text-left transition-colors ${
+              selected === "wkwebview"
+                ? "border-accent bg-accent/15 text-accent"
+                : "border-default/40 bg-default/5 hover:bg-default/10 text-foreground/80"
+            }`}
+          >
+            <div className="text-sm font-semibold">System WebKit (WKWebView)</div>
+            <div className="text-xs text-foreground/50">
+              Default system browser component. Low memory footprint, basic WebGL support.
+            </div>
+          </button>
+
+          <button
+            type="button"
+            disabled={!cefSupported}
+            onClick={() => handleSelect("cef")}
+            className={`flex flex-col items-start gap-1 rounded-xl border p-4 text-left transition-colors ${
+              !cefSupported
+                ? "opacity-50 cursor-not-allowed border-default/20 bg-default/5 text-foreground/40"
+                : selected === "cef"
+                ? "border-accent bg-accent/15 text-accent"
+                : "border-default/40 bg-default/5 hover:bg-default/10 text-foreground/80"
+            }`}
+          >
+            <div className="text-sm font-semibold flex items-center gap-2">
+              Chromium (CEF)
+              <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent">
+                Hardware Accelerated
+              </span>
+            </div>
+            <div className="text-xs text-foreground/50">
+              Chromium Blink engine with GPU acceleration. Identical rendering, V8 performance.
+            </div>
+          </button>
+        </div>
+
+        {selected !== currentEngine && (
+          <div className="mt-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+            Note: Changing the embedded UI engine requires restarting ResoStage to take effect.
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
 // ─── Main SettingsScreen ──────────────────────────────────────────────────
 export function SettingsScreen({ state }: { state: WebUiState }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
@@ -633,6 +705,7 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
             {tab.id === "audio" && <AudioTab state={state} />}
             {tab.id === "midi" && <MidiTab state={state} />}
             {tab.id === "health" && <HealthTab state={state} />}
+            {tab.id === "ui" && <UiTab state={state} />}
           </Tabs.Panel>
         ))}
       </Tabs>

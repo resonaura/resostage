@@ -6,6 +6,7 @@ import {
   SkipBack,
   SkipForward,
   Square,
+  Sun,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
@@ -284,6 +285,46 @@ export function PlayerScreen({
     state.playing,
     state.projectName,
   );
+
+function LightStatusMeterCard({ state }: { state: WebUiState }) {
+  const li = state.lighting;
+  const isIdle = !state.playing;
+  const idleBehavior = li?.idleBehavior || "holdLast";
+  const activeEffect = isIdle
+    ? idleBehavior === "effect"
+      ? li?.idleEffectType || "none"
+      : idleBehavior
+    : "Cue Active";
+
+  return (
+    <div className="flex h-full flex-col items-center justify-between gap-1.5 py-1 pr-3 border-r border-default/20 shrink-0">
+      <div className="truncate text-center text-xs font-semibold text-amber-400 w-[60px] flex items-center justify-center gap-1" title="Lighting State">
+        <Sun size={11} className="text-amber-400 shrink-0" />
+        <span>Light</span>
+      </div>
+      <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-1.5">
+        <div
+          className="h-3.5 w-3.5 rounded-full border border-white/20 shadow-md shrink-0 transition-colors"
+          style={{
+            backgroundColor: isIdle
+              ? `rgb(${li?.idleColorR ?? 255}, ${li?.idleColorG ?? 255}, ${li?.idleColorB ?? 255})`
+              : "#38bdf8",
+            opacity: isIdle ? li?.idleIntensity ?? 1 : 1,
+          }}
+        />
+        <div className="h-full w-1.5 rounded-full bg-default/30 overflow-hidden flex flex-col justify-end">
+          <div
+            className="w-full bg-amber-400 transition-all duration-150"
+            style={{ height: `${Math.round((isIdle ? li?.idleIntensity ?? 1 : 1) * 100)}%` }}
+          />
+        </div>
+      </div>
+      <div className="text-center text-[10px] tabular-nums text-foreground/50 w-[60px] truncate capitalize font-medium">
+        {activeEffect}
+      </div>
+    </div>
+  );
+}
 
   const song =
     state.songIndex >= 0 && state.songs[state.songIndex]
@@ -676,6 +717,7 @@ export function PlayerScreen({
             orientation="horizontal"
             className="flex min-h-0 flex-1 items-center justify-center gap-6 p-4"
           >
+            <LightStatusMeterCard state={state} />
             {state.meters.length === 0 ? (
               <div className="py-4 text-center text-sm text-foreground/40">
                 No busses.

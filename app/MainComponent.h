@@ -7,7 +7,7 @@
 #include "lighting/LightOutputResolver.h"
 #include "midi/CoreMidiInputListener.h"
 #include "ui/BusyOverlay.h"
-#include "ui/DevOrEmbeddedWebView.h"
+#include "ui/IWebEngineView.h"
 #include "ui/WebLoadingOverlay.h"
 #include "web/WebServer.h"
 
@@ -62,7 +62,7 @@ private:
     void saveAppSettingsToDisk();
 
     juce::Label alarmBanner;
-    std::unique_ptr<DevOrEmbeddedWebView> webView;
+    std::unique_ptr<IWebEngineView> webView;
     BusyOverlay busyOverlay;
     WebLoadingOverlay webLoadingOverlay;
     bool wasBusyLastTick = false;
@@ -206,6 +206,7 @@ private:
     void settingsSetMidiOutput(const std::string& json);
     void settingsSetMidiInput(const std::string& json);
     void settingsSetMidiVirtualPort(const std::string& json);
+    void settingsSetUiRenderEngine(const std::string& json);
     void settingsSetKeybinding(const std::string& json);
     void settingsSetOutputChannels(const std::string& json);
     void settingsMidiLearn(const std::string& json);

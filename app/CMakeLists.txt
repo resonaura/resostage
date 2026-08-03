@@ -91,7 +91,7 @@ target_compile_features(ResoStage PRIVATE cxx_std_20)
 # choice at runtime (see CefLifecycle.h) even when compiled in.
 # ---------------------------------------------------------------------------
 if(RESOSTAGE_ENABLE_CEF)
-  target_sources(ResoStage PRIVATE cef/CefLifecycle.cpp)
+  target_sources(ResoStage PRIVATE cef/CefLifecycle.cpp ui/CefWebView.cpp)
   target_compile_definitions(ResoStage PRIVATE RESOSTAGE_ENABLE_CEF=1)
 
   include(${CMAKE_SOURCE_DIR}/cmake/CefBundle.cmake)

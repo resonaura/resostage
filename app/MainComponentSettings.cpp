@@ -115,6 +115,12 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
     for (const auto& n : midiInput.availableSourceNames())
         out.midiInputs.push_back(n);
     out.virtualMidiPortEnabled = engine.midi().hasVirtualSource();
+    out.uiRenderEngine = appSettings.uiRenderEngine;
+#if RESOSTAGE_ENABLE_CEF
+    out.cefSupported = true;
+#else
+    out.cefSupported = false;
+#endif
 
     const auto& bindings = appSettings.keybindings;
     for (const char* action : kActionIds) {
@@ -303,6 +309,19 @@ void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
     }
     appSettings.virtualMidiPortEnabled = enabled;
     saveAppSettingsToDisk();
+}
+
+void MainComponent::settingsSetUiRenderEngine(const std::string& json) {
+    simdjson::dom::element doc;
+    std::string engineChoice;
+    if (!parseJson(json, doc) || !getString(doc, "engine", engineChoice))
+        return;
+    if (engineChoice != "wkwebview" && engineChoice != "cef")
+        return;
+
+    appSettings.uiRenderEngine = engineChoice;
+    saveAppSettingsToDisk();
+    setStatus("UI render engine set to " + juce::String(engineChoice) + " (takes effect on app restart)");
 }
 
 void MainComponent::settingsSetOutputChannels(const std::string& json) {

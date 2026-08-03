@@ -277,6 +277,8 @@ export interface SettingsState {
   midiInputs: string[];
   /** Whether the "ResoStage Sync" virtual MIDI source is enabled (see settings.setMidiVirtualPort). */
   virtualMidiPortEnabled: boolean;
+  uiRenderEngine?: "wkwebview" | "cef";
+  cefSupported?: boolean;
   keybindings: KeybindingRow[];
   midiBindings?: MidiBindingRow[];
   /** Non-empty while MIDI-learn is armed for this action. */

@@ -395,6 +395,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/settings/midi-output", WebCommandKind::SetMidiOutput},
     {"/api/v1/settings/midi-input", WebCommandKind::SetMidiInput},
     {"/api/v1/settings/midi-virtual-port", WebCommandKind::SetMidiVirtualPort},
+    {"/api/v1/settings/ui-render-engine", WebCommandKind::SetUiRenderEngine},
     {"/api/v1/settings/keybinding", WebCommandKind::SetKeybinding},
     {"/api/v1/settings/output-channels", WebCommandKind::SetOutputChannels},
     {"/api/v1/settings/midi-learn", WebCommandKind::MidiLearn},
@@ -1523,7 +1524,9 @@ std::string WebServer::buildStateJson(const char* view) const {
             o << "\"" << jsonEscape(s.midiInputs[i]) << "\"";
         }
         o << "],"
-          << "\"virtualMidiPortEnabled\":" << (s.virtualMidiPortEnabled ? "true" : "false") << ",";
+          << "\"virtualMidiPortEnabled\":" << (s.virtualMidiPortEnabled ? "true" : "false") << ","
+          << "\"uiRenderEngine\":\"" << jsonEscape(s.uiRenderEngine) << "\","
+          << "\"cefSupported\":" << (s.cefSupported ? "true" : "false") << ",";
     }
     o << "\"keybindings\":[";
     for (size_t i = 0; i < s.keybindings.size(); ++i) {

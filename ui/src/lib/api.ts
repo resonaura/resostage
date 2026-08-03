@@ -486,6 +486,8 @@ export const settings = {
   /** Toggles the "ResoStage Sync" virtual MIDI source, for testing DAW clock/transport sync. */
   setMidiVirtualPort: (enabled: boolean) =>
     post("/api/v1/settings/midi-virtual-port", { enabled }),
+  setUiRenderEngine: (engine: string) =>
+    post("/api/v1/settings/ui-render-engine", { engine }),
   setKeybinding: (action: string, key: string) =>
     post("/api/v1/settings/keybinding", { action, key }),
   // `channels` is the full list of active channel indices (0-based) -- the
