@@ -407,6 +407,31 @@ function createWindow(): void {
   refreshTouchBar();
   mainWindow.on("focus", () => refreshTouchBar());
 
+  // Right-click context menu with Inspect Element & DevTools
+  mainWindow.webContents.on("context-menu", (_event, params) => {
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: "Inspect Element",
+        click: () => {
+          mainWindow?.webContents.inspectElement(params.x, params.y);
+          if (!mainWindow?.webContents.isDevToolsOpened()) {
+            mainWindow?.webContents.openDevTools({ mode: "detach" });
+          }
+        },
+      },
+      {
+        label: "Toggle Developer Tools",
+        click: () => {
+          mainWindow?.webContents.toggleDevTools();
+        },
+      },
+      { type: "separator" },
+      { role: "reload", label: "Reload" },
+      { role: "forceReload", label: "Force Reload" },
+    ]);
+    contextMenu.popup();
+  });
+
   void mainWindow.loadURL(DEV_URL);
 }
 

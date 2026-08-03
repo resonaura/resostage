@@ -467,7 +467,7 @@ std::string sanitizeUploadFileName(const std::string& name) {
 int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
                       const char* body, size_t bodyLen,
                       const char* contentDisposition = nullptr) {
-    uint8_t buf[LWS_PRE + 768];
+    uint8_t buf[LWS_PRE + 2048];
     uint8_t* start = &buf[LWS_PRE];
     uint8_t* p = start;
     uint8_t* end = &buf[sizeof(buf) - 1];
@@ -475,6 +475,21 @@ int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
     if (lws_add_http_common_headers(wsi, static_cast<unsigned int>(status), contentType,
                                     bodyLen, &p, end))
         return 1;
+
+    static const char kCsp[] =
+        "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: wss: http: https:; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
+        "style-src 'self' 'unsafe-inline' https:; "
+        "worker-src 'self' blob:; "
+        "connect-src 'self' ws: wss: http: https:; "
+        "img-src 'self' data: blob: https:; "
+        "font-src 'self' data: https:;";
+    if (lws_add_http_header_by_name(wsi,
+                                    reinterpret_cast<const unsigned char*>("content-security-policy"),
+                                    reinterpret_cast<const unsigned char*>(kCsp),
+                                    static_cast<int>(std::strlen(kCsp)), &p, end))
+        return 1;
+
     // CORS for LAN tablets / other origins (local network only use-case).
     if (lws_add_http_header_by_name(wsi,
                                     reinterpret_cast<const unsigned char*>("access-control-allow-origin"),
@@ -981,8 +996,7 @@ bool WebServer::start(uint16_t port, std::string& error) {
     std::memset(&info, 0, sizeof(info));
     info.port = port;
     info.protocols = protocols;
-    info.options = LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE
-                 | LWS_SERVER_OPTION_VALIDATE_UTF8;
+    info.options = LWS_SERVER_OPTION_VALIDATE_UTF8;
     info.user = this;
     // No mounts -- everything is served from memory in the HTTP callback.
     info.mounts = nullptr;

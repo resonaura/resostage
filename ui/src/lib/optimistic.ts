@@ -111,10 +111,11 @@ export function useContinuousPlayhead(
       lastFrameTs.current = null;
       return;
     }
-    // Hard snap only on large discontinuities (seek we missed, stall, jump).
-    if (Math.abs(serverAbsoluteSeconds - localRef.current) > 1.25) {
+    // Hard snap only on large discontinuities (seek we missed, stall, jump, project re-open).
+    if (Math.abs(serverAbsoluteSeconds - localRef.current) > 0.5) {
       localRef.current = serverAbsoluteSeconds;
       setAbsolute(serverAbsoluteSeconds);
+      lastFrameTs.current = null;
     }
   }, [serverAbsoluteSeconds, frozen, draggingRef]);
 
@@ -145,6 +146,10 @@ export function useContinuousPlayhead(
         if (next < 0) next = 0;
         localRef.current = next;
         setAbsolute(next);
+        // TEMP DEBUG
+        (window as unknown as { __dbg2?: unknown[] }).__dbg2 =
+          ((window as unknown as { __dbg2?: unknown[] }).__dbg2 ?? []);
+        (window as unknown as { __dbg2: unknown[] }).__dbg2.push({ t: Date.now(), next, playing, frozen });
       }
       raf = requestAnimationFrame(tick);
     };
