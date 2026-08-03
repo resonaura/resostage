@@ -210,7 +210,10 @@ void LightEngine::threadLoop() {
         // idle state; stopping again mid-resume folds the current position
         // back into an idle fade. `lastFrame` is the previous frame's
         // output, the honest "what are we showing right now" both snapshot
-        // their "from" state from.
+        // their "from" state from. Each transition fires once (edge-triggered):
+        // leaving idle keys on `wasIdleFading` only, never on an already-
+        // active resume fade -- otherwise resumeFadeStart would reset every
+        // frame while playing and the fade-out would never progress.
         if (useIdleOverride && !wasIdleFading && !wasResumeFading) {
             // Fresh entry into idle -- the transport just stopped (or an
             // idle behavior was just configured while stopped). Start the
@@ -224,7 +227,7 @@ void LightEngine::threadLoop() {
             idleFadeStart = std::chrono::steady_clock::now();
             wasResumeFading = false;
             wasIdleFading = true;
-        } else if (!useIdleOverride && (wasIdleFading || wasResumeFading)) {
+        } else if (!useIdleOverride && wasIdleFading) {
             resumeFrom = lastFrame;
             resumeFadeStart = std::chrono::steady_clock::now();
             wasResumeFading = true;
@@ -240,7 +243,7 @@ void LightEngine::threadLoop() {
                 proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
             const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - resumeFadeStart)
                                  .count() /
-                             kIdleFadeSeconds;
+                             kResumeFadeSeconds;
             if (t >= 1.0) {
                 resolved = std::move(normal);
                 wasResumeFading = false;

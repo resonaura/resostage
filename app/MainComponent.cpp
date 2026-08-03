@@ -1335,6 +1335,9 @@ void MainComponent::publishWebState() {
         const bool useIdleOverride = !state.playing && proj.lighting.idleBehavior != "holdLast";
 
         // Mirror of LightEngine's transition bookkeeping -- see threadLoop.
+        // Each transition fires once (edge-triggered): leaving idle keys on
+        // wasIdleFading only, never on an already-active resume fade, or the
+        // resume fade-out would restart every frame and never progress.
         if (useIdleOverride && !lightingPreviewWasIdleFading && !lightingPreviewWasResumeFading) {
             // Fresh entry into idle (transport just stopped) -- start the
             // fade from the last pre-idle resolve, same as the DMX thread.
@@ -1345,7 +1348,7 @@ void MainComponent::publishWebState() {
             lightingPreviewIdleFadeStart = std::chrono::steady_clock::now();
             lightingPreviewWasResumeFading = false;
             lightingPreviewWasIdleFading = true;
-        } else if (!useIdleOverride && (lightingPreviewWasIdleFading || lightingPreviewWasResumeFading)) {
+        } else if (!useIdleOverride && lightingPreviewWasIdleFading) {
             lightingPreviewResumeFrom = lightingPreviewLastFrame;
             lightingPreviewResumeFadeStart = std::chrono::steady_clock::now();
             lightingPreviewWasResumeFading = true;
@@ -1362,7 +1365,7 @@ void MainComponent::publishWebState() {
             const double t = std::chrono::duration<double>(
                                  std::chrono::steady_clock::now() - lightingPreviewResumeFadeStart)
                                  .count() /
-                             kIdleFadeSeconds;
+                             kResumeFadeSeconds;
             if (t >= 1.0) {
                 resolved = std::move(normal);
                 lightingPreviewWasResumeFading = false;

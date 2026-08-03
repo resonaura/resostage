@@ -413,6 +413,36 @@ TEST_CASE("buildIdleTarget: effect delegates to the effect builder; other modes 
     CHECK(buildIdleTarget(fixtures, "holdLast", 200, 100, 50, 0.75, "chase", 4.0, 0.5).empty());
 }
 
+TEST_CASE("buildIdleTarget effect: per-LED colors keep animating across wall-clock phase") {
+    // The idle "effect" mode must advance even while the transport is
+    // stopped -- the preview and DMX both render via resolveLedWireColors,
+    // which animates off effectTSec. Two different wall-clock phases must
+    // produce different per-LED wire colors.
+    LightFixture bar;
+    bar.id = "bar1";
+    bar.kind = LightFixture::Kind::ResoLightBar;
+    bar.channelProfile = "rgb";
+    bar.addressable = true;
+    bar.ledCount = 8;
+    std::vector<LightFixture> fixtures = {bar};
+
+    const auto a = buildIdleTarget(fixtures, "effect", 255, 255, 255, 1.0, "chase", 2.0, 0.10);
+    const auto b = buildIdleTarget(fixtures, "effect", 255, 255, 255, 1.0, "chase", 2.0, 0.35);
+    REQUIRE(a.size() == 1);
+    REQUIRE(b.size() == 1);
+    CHECK(a[0].effectType == EffectParams::Type::Chase);
+
+    const auto wa = resolveLedWireColors(a[0], bar);
+    const auto wb = resolveLedWireColors(b[0], bar);
+    REQUIRE(wa.size() == 8);
+    REQUIRE(wb.size() == 8);
+    bool differs = false;
+    for (int i = 0; i < 8 && !differs; ++i)
+        if (wa[i].r != wb[i].r || wa[i].g != wb[i].g || wa[i].b != wb[i].b)
+            differs = true;
+    CHECK(differs);
+}
+
 // ─── blendTowardIdle (idle-transition fade) ────────────────────────────────
 
 namespace {

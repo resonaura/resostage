@@ -161,6 +161,14 @@ using SourceLevelDbFn = std::function<SourceLevels(const std::string& sourceType
 // preview fade to the idle target at exactly the same rate.
 inline constexpr double kIdleFadeSeconds = 1.5;
 
+// Duration of the fade BACK from an idle behavior to normal lighting when the
+// transport resumes. Deliberately much shorter than kIdleFadeSeconds:
+// drifting into blackout / house-color between songs is a slow, classy ramp,
+// but coming back up on a cue hit should snap briskly (~0.25s reads as
+// "instant" to an audience) so the show never lingers in the idle look once
+// playback starts. Same sharing contract as kIdleFadeSeconds.
+inline constexpr double kResumeFadeSeconds = 0.25;
+
 // Resolves what every fixture driven by `lightTracks` should display at
 // `tSec`, given `songLightCues` (the currently staged song's cues) and
 // `bpm` (for tempo-synced effect rates). Single source of truth for "what
