@@ -12,6 +12,7 @@
 #include <juce_events/juce_events.h>
 
 #include <unistd.h>
+#include <vector>
 
 namespace resostage::cef_lifecycle {
 
@@ -31,6 +32,9 @@ public:
 };
 
 MessagePumpTimer* gPumpTimer = nullptr;
+
+// See whenReady's doc comment.
+std::vector<std::function<void()>> gReadyCallbacks;
 
 // Resolves "ResoStage.app/Contents/Frameworks/ResoStage Helper.app/Contents/
 // MacOS/ResoStage Helper" relative to the running executable, rather than
@@ -114,6 +118,21 @@ void initializeIfLoaded() {
 
     gPumpTimer = new MessagePumpTimer();
     gPumpTimer->startTimer(10); // ~100Hz, matches CEF's own sample apps
+
+    // Anything that queued up while waiting for initialization (see
+    // whenReady) can now safely create browsers etc.
+    const auto callbacks = std::move(gReadyCallbacks);
+    gReadyCallbacks.clear();
+    for (const auto& cb : callbacks)
+        cb();
+}
+
+void whenReady(std::function<void()> callback) {
+    if (gInitialized) {
+        callback();
+        return;
+    }
+    gReadyCallbacks.push_back(std::move(callback));
 }
 
 void shutdownIfInitialized() {

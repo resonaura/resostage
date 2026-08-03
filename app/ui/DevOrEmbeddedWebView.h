@@ -1,5 +1,7 @@
 #pragma once
 
+#include "IWebEngineView.h"
+
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #if JUCE_MAC
@@ -18,9 +20,9 @@ namespace resostage {
 // Live state always uses WebSockets (same path as a remote browser tab).
 // Pushing full 30 Hz UI snapshots through JUCE emitEvent/evaluateJavascript
 // was tried and is far too expensive for multi-KB JSON frames.
-class DevOrEmbeddedWebView final : public juce::WebBrowserComponent {
+class DevOrEmbeddedWebView final : public juce::WebBrowserComponent, public IWebEngineView {
 public:
-    std::function<void()> onPageLoaded;
+    juce::Component& getComponent() override { return *this; }
 
     explicit DevOrEmbeddedWebView(juce::String fallbackUrl)
         : embeddedFallbackUrl(std::move(fallbackUrl) + "?embedded=1") {

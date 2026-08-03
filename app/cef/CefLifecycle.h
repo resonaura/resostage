@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 // Process-lifetime wiring for the optional Chromium Embedded Framework
 // rendering engine (see vendor/cef/CMakeLists.txt and the CEF integration
 // milestones). Every function here is safe to call unconditionally from
@@ -42,11 +44,23 @@ void initializeIfLoaded();
 // Called from ResoStageApplication::shutdown().
 void shutdownIfInitialized();
 
+// Registers `callback` to run once CefInitialize() has actually completed.
+// Needed because initializeIfLoaded() itself runs deferred (see its call
+// site in Main.cpp -- calling it synchronously before the app's own first
+// window exists crashed JUCE's own AppKit window creation moments later
+// during hands-on testing), so anything that wants to create a CEF browser
+// (CefWebView) cannot just do it in its own constructor: that constructor
+// runs *before* the deferred initializeIfLoaded() has had a chance to run,
+// even though it's on the same message thread. If CEF is already
+// initialized when this is called, `callback` runs immediately.
+void whenReady(std::function<void()> callback);
+
 #else
 
 inline void bootstrapIfSelected(int, char*[]) {}
 inline void initializeIfLoaded() {}
 inline void shutdownIfInitialized() {}
+inline void whenReady(std::function<void()>) {}
 
 #endif
 
