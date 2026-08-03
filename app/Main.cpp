@@ -1,6 +1,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "MainComponent.h"
+#include "cef/CefLifecycle.h"
 #include "platform/MacMenuBar.h"
 #include "platform/MacTouchBar.h"
 #include "platform/ProcessPriority.h"
@@ -17,7 +18,21 @@ public:
         // Prefer high scheduling priority so audio stays solid when the
         // rest of the system is thrashing (see ProcessPriority.cpp).
         boostAppProcessPriority();
+
         mainWindow = std::make_unique<MainWindow>(getApplicationName());
+
+        // No-op unless RESOSTAGE_ENABLE_CEF is compiled in AND the user has
+        // selected the Chromium engine in Settings > UI -- see
+        // cef/CefLifecycle.h. Deliberately deferred via callAsync to run
+        // *after* our own NSWindow/NSView peer is fully created and the
+        // message loop has had a chance to settle: calling CefInitialize()
+        // synchronously before that point crashed JUCE's own AppKit window
+        // creation moments later (corrupted Objective-C method dispatch
+        // inside NSView's layer-backing setup) during hands-on testing --
+        // CEF's mac browser-process bootstrap does enough of its own deep
+        // AppKit/Cocoa setup that it cannot safely run interleaved with the
+        // host app's first-window creation in the same call stack.
+        juce::MessageManager::callAsync([] { cef_lifecycle::initializeIfLoaded(); });
 
 #if JUCE_MAC
         // Defer menu installation: JUCE's own initialiseApp() calls
@@ -77,6 +92,7 @@ public:
         if (mainWindow != nullptr)
             mainWindow->teardownTouchBar();
         mainWindow = nullptr;
+        cef_lifecycle::shutdownIfInitialized();
     }
 
     void systemRequestedQuit() override {
@@ -158,7 +174,21 @@ private:
     std::unique_ptr<MainWindow> mainWindow;
 };
 
+juce::JUCEApplicationBase* juce_CreateApplication();
+juce::JUCEApplicationBase* juce_CreateApplication() { return new ResoStageApplication(); }
+
 } // namespace resostage
 
+// Hand-inlined expansion of JUCE's START_JUCE_APPLICATION macro (see
+// JUCE_CREATE_APPLICATION_DEFINE/JUCE_MAIN_FUNCTION_DEFINITION in
+// juce_events/messages/juce_Initialisation.h for the macro this mirrors) --
+// needed so cef_lifecycle::bootstrapIfSelected() can run as the literal
+// first statement in main(), before JUCEApplicationBase::main() creates its
+// own NSApplication. CEF's docs require its entry-point check to happen
+// before any of that host-application setup.
+int main(int argc, char* argv[]) {
+    resostage::cef_lifecycle::bootstrapIfSelected(argc, argv);
 
-START_JUCE_APPLICATION(resostage::ResoStageApplication)
+    juce::JUCEApplicationBase::createInstance = &resostage::juce_CreateApplication;
+    return juce::JUCEApplicationBase::main(argc, const_cast<const char**>(argv));
+}

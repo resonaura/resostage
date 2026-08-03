@@ -15,6 +15,16 @@ option(RESOSTAGE_BUILD_TESTS "Build engine unit tests" ON)
 option(RESOSTAGE_BUILD_APP "Build the ResoStage JUCE app" ON)
 option(RESOSTAGE_BUILD_TOOLS "Build developer tools (test-project generator)" ON)
 
+# Chromium Embedded Framework (CEF) -- alternate GPU-accelerated rendering
+# engine for the embedded web UI, selectable in Settings > UI. ON by default
+# per product decision (CEF is the primary rendering engine going forward);
+# it's still a real multi-hundred-MB download+build and a new subprocess/
+# thread surface, so it can be turned off with -DRESOSTAGE_ENABLE_CEF=OFF
+# for engine-only/CI/test builds that don't need the app target at all. See
+# vendor/cef/CMakeLists.txt for the fetch/build, and app/cef/ for the
+# integration (added in later milestones).
+option(RESOSTAGE_ENABLE_CEF "Fetch and build Chromium Embedded Framework as an alternate embedded-UI renderer (large download, macOS only)" ON)
+
 include(FetchContent)
 
 # ---------------------------------------------------------------------------
@@ -67,6 +77,10 @@ endif()
 
 if(RESOSTAGE_BUILD_TOOLS)
   add_subdirectory(tools/make_test_project)
+endif()
+
+if(RESOSTAGE_ENABLE_CEF AND APPLE)
+  add_subdirectory(tools/cef_smoke)
 endif()
 
 if(RESOSTAGE_BUILD_TESTS)

@@ -53,6 +53,8 @@ AppSettings loadAppSettings() {
     bool b = false;
     if (!doc["virtualMidiPortEnabled"].get(b))
         settings.virtualMidiPortEnabled = b;
+    if (!doc["uiRenderEngine"].get(sv))
+        settings.uiRenderEngine = std::string(sv);
 
     simdjson::dom::array channelsArr;
     if (!doc["activeOutputChannels"].get(channelsArr)) {
@@ -134,6 +136,7 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
     o << "  \"midiOutputName\": \"" << jsonEscapeString(settings.midiOutputName) << "\",\n";
     o << "  \"midiInputName\": \"" << jsonEscapeString(settings.midiInputName) << "\",\n";
     o << "  \"virtualMidiPortEnabled\": " << (settings.virtualMidiPortEnabled ? "true" : "false") << ",\n";
+    o << "  \"uiRenderEngine\": \"" << jsonEscapeString(settings.uiRenderEngine) << "\",\n";
 
     o << "  \"activeOutputChannels\": [";
     for (size_t i = 0; i < settings.activeOutputChannels.size(); ++i)

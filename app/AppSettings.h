@@ -32,6 +32,15 @@ struct AppSettings {
     std::string midiInputName;
     bool virtualMidiPortEnabled = false;
 
+    // Which engine renders the app's own embedded web UI: "wkwebview"
+    // (default, macOS's system WebKit view) or "cef" (Chromium Embedded
+    // Framework, GPU-accelerated -- see app/cef/CefLifecycle.h). Set from
+    // Settings > UI; takes effect on next launch (see CefLifecycle's doc
+    // comment for why this isn't hot-swappable). Irrelevant to any browser
+    // used to reach the LAN remote UI -- only affects this native app's own
+    // window.
+    std::string uiRenderEngine = "wkwebview";
+
     // Most-recent-first, capped at kMaxRecentProjects (see RecentProjects.h).
     std::vector<RecentProjectEntry> recentProjects;
 };
