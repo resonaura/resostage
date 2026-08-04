@@ -4181,31 +4181,38 @@ export function Timeline({
                                         loopLengthSec={geom.loopLengthSeconds}
                                       />
                                     )}
+                                    {/* Region name — left of region, light backdrop chip, no border. */}
                                     <div
-                                      className={`absolute pointer-events-none select-none truncate font-semibold ${
-                                        compactLane
-                                          ? "inset-y-0 left-1.5 right-1.5 flex items-center max-w-none"
-                                          : "top-0.5 left-2 max-w-[80%] text-[9px]"
-                                      }`}
+                                      className="pointer-events-none absolute z-[3] max-w-[min(90%,14rem)] select-none"
                                       style={{
-                                        color: compactLane
-                                          ? "#ffffff"
-                                          : row.color,
-                                        opacity: compactLane ? 1 : 0.8,
-                                        fontSize: compactLane
-                                          ? Math.max(
-                                              8,
-                                              Math.min(
-                                                11,
-                                                laneHeightPx(verticalZoom) - 10,
-                                              ),
-                                            )
-                                          : undefined,
+                                        left: compactLane ? 4 : 6,
+                                        top: compactLane ? 1 : 3,
                                       }}
                                     >
-                                      {regionUi.muted ? "[M] " : ""}
-                                      {row.name}
-                                      {geom.loop && compactLane ? " ↺" : ""}
+                                      <span
+                                        className="inline-block max-w-full truncate rounded-md px-1.5 py-0.5 font-semibold leading-tight"
+                                        style={{
+                                          color: "#fff",
+                                          fontSize: compactLane
+                                            ? Math.max(
+                                                8,
+                                                Math.min(
+                                                  11,
+                                                  laneHeightPx(verticalZoom) -
+                                                    10,
+                                                ),
+                                              )
+                                            : 10,
+                                          background: "rgba(0, 0, 0, 0.28)",
+                                          backdropFilter: "blur(6px)",
+                                          WebkitBackdropFilter: "blur(6px)",
+                                        }}
+                                        title={`${regionUi.muted ? "[M] " : ""}${row.name}${geom.loop ? " ↺" : ""}`}
+                                      >
+                                        {regionUi.muted ? "[M] " : ""}
+                                        {row.name}
+                                        {geom.loop ? " ↺" : ""}
+                                      </span>
                                     </div>
                                     {!compactLane &&
                                       peaksLoading &&

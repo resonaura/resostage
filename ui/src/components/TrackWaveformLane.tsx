@@ -160,25 +160,29 @@ export function TrackWaveformLane({
 
     const height = laneH - 6;
     const mid = height / 2;
+    // halfH already scales with lane height (verticalZoom) — do NOT multiply
+    // samples by verticalZoom again or peaks clip / look wrong.
     const halfH = Math.max(1, height / 2 - 2);
     const alpha = muted ? 0.35 : 1.0;
     ctx.globalAlpha = alpha;
 
-    const isRawActive = needsRaw && rawWindow && rawWindow.samples.length > 1;
+    const hasRaw =
+      needsRaw && rawWindow != null && rawWindow.samples.length > 1;
+    // Always draw the best peak pyramid we have (full quality). Raw samples
+    // overlay on top when zoomed past the finest pyramid level — never hide
+    // the envelope while waiting on / during a gesture (that was the blocky
+    // "ugly zoom" look: gestureActive used ~200 columns and skipped detail).
     const level =
       pickLevelForZoom(levels, durationSeconds, pxPerSec) ?? levels[0];
 
-    if (level && !isRawActive) {
+    if (level) {
       const bins = level.min.length;
-      const step = gestureActive
-        ? Math.max(1, Math.floor(renderWidth / 200))
-        : 1;
+      // Full horizontal resolution always. Gesture used to step by
+      // renderWidth/200 (~blocky columns) — looked broken while zooming.
+      const step = 1;
 
-      // Build 1:1 aligned top and bottom vertices with range aggregation
       const topPoints: { x: number; y: number }[] = [];
       const botPoints: { x: number; y: number }[] = [];
-      const rmsTopPoints: { x: number; y: number }[] = [];
-      const rmsBotPoints: { x: number; y: number }[] = [];
 
       const availSec = Math.max(0.01, durationSeconds - sourceOffsetSec);
       const cycleSec =
@@ -213,20 +217,18 @@ export function TrackWaveformLane({
 
         let maxV = -1;
         let minV = 1;
-        let rmsV = 0;
 
         if (startBin === endBin) {
           maxV = level.max[startBin] ?? 0;
           minV = level.min[startBin] ?? 0;
-          rmsV = level.rms[startBin] ?? 0;
         } else {
+          // Aggregate min/max across bins covering this pixel column so
+          // zoom-out stays peak-accurate (no thin-line aliasing).
           for (let b = startBin; b <= endBin; ++b) {
             const mx = level.max[b] ?? 0;
             const mn = level.min[b] ?? 0;
-            const rm = level.rms[b] ?? 0;
             if (maxV === -1 || mx > maxV) maxV = mx;
             if (minV === 1 || mn < minV) minV = mn;
-            if (rm > rmsV) rmsV = rm;
           }
         }
 
@@ -237,21 +239,14 @@ export function TrackWaveformLane({
         if (!loop && tStartSec >= durationSeconds) {
           maxV = 0;
           minV = 0;
-          rmsV = 0;
         }
 
-        const yTop = mid - maxV * halfH * verticalZoom;
-        const yBot = mid - minV * halfH * verticalZoom;
-        topPoints.push({ x, y: yTop });
-        botPoints.push({ x, y: yBot });
-
-        const rmsH = rmsV * halfH * verticalZoom;
-        rmsTopPoints.push({ x, y: mid - rmsH });
-        rmsBotPoints.push({ x, y: mid + rmsH });
+        topPoints.push({ x, y: mid - maxV * halfH });
+        botPoints.push({ x, y: mid - minV * halfH });
       }
 
-      // Outer Peak Envelope Path (continuous smooth contour)
       if (topPoints.length > 0) {
+        // Solid fill envelope.
         ctx.beginPath();
         ctx.moveTo(topPoints[0].x, topPoints[0].y);
         for (let i = 1; i < topPoints.length; ++i) {
@@ -261,61 +256,62 @@ export function TrackWaveformLane({
           ctx.lineTo(botPoints[i].x, botPoints[i].y);
         }
         ctx.closePath();
-
-        // Soft crisp gradient fill
-        const grad = ctx.createLinearGradient(0, 0, 0, height);
-        grad.addColorStop(0, color + "aa");
-        grad.addColorStop(0.5, color + "77");
-        grad.addColorStop(1, color + "aa");
-        ctx.fillStyle = grad;
+        ctx.fillStyle = color;
         ctx.fill();
 
-        // Sharp outer contour line
+        // Leading contour (top + bottom edge) — solid, same color.
         ctx.strokeStyle = color;
         ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-
-      // RMS Core Fill
-      if (rmsTopPoints.length > 0) {
+        ctx.lineJoin = "round";
         ctx.beginPath();
-        ctx.moveTo(rmsTopPoints[0].x, rmsTopPoints[0].y);
-        for (let i = 1; i < rmsTopPoints.length; ++i) {
-          ctx.lineTo(rmsTopPoints[i].x, rmsTopPoints[i].y);
+        ctx.moveTo(topPoints[0].x, topPoints[0].y);
+        for (let i = 1; i < topPoints.length; ++i) {
+          ctx.lineTo(topPoints[i].x, topPoints[i].y);
         }
-        for (let i = rmsBotPoints.length - 1; i >= 0; --i) {
-          ctx.lineTo(rmsBotPoints[i].x, rmsBotPoints[i].y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(botPoints[0].x, botPoints[0].y);
+        for (let i = 1; i < botPoints.length; ++i) {
+          ctx.lineTo(botPoints[i].x, botPoints[i].y);
         }
-        ctx.closePath();
-        ctx.fillStyle = color + "ee";
-        ctx.fill();
+        ctx.stroke();
       }
     }
 
-    // Extreme zoom: true per-sample curve through the fetched raw window
-    if (isRawActive && rawWindow) {
+    // Extreme zoom: per-sample curve on top of the peak envelope (detail).
+    if (hasRaw && rawWindow) {
       const windowEndSec =
         rawWindow.startSec + rawWindow.samples.length / rawWindow.sampleRate;
+      // Draw whatever of the window overlaps the view — don't require full
+      // coverage (partial windows left blank-looking holes while loading).
       if (
-        rawWindow.startSec <= visibleStartSec + 1e-6 &&
-        windowEndSec >= visibleEndSec - 1e-6
+        windowEndSec > visibleStartSec &&
+        rawWindow.startSec < visibleEndSec
       ) {
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1.8;
+        ctx.lineWidth = 1.25;
         ctx.beginPath();
         const { samples, sampleRate, startSec } = rawWindow;
         let first = true;
         for (let x = 0; x < renderWidth; ++x) {
           const tSec = sourceOffsetSec + (scrollLeft + x) / pxPerSec;
+          if (tSec < startSec || tSec > windowEndSec) {
+            first = true;
+            continue;
+          }
           const exactIdx = (tSec - startSec) * sampleRate;
           const baseIdx = Math.floor(exactIdx);
+          if (baseIdx < 0 || baseIdx >= samples.length) {
+            first = true;
+            continue;
+          }
           const mu = exactIdx - baseIdx;
           const y0 = samples[baseIdx - 1] ?? samples[0] ?? 0;
           const y1 = samples[baseIdx] ?? 0;
           const y2 = samples[baseIdx + 1] ?? samples[samples.length - 1] ?? 0;
           const y3 = samples[baseIdx + 2] ?? samples[samples.length - 1] ?? 0;
           const v = cubicHermite(y0, y1, y2, y3, mu);
-          const y = mid - v * halfH * verticalZoom;
+          const y = mid - v * halfH;
           if (first) {
             ctx.moveTo(x, y);
             first = false;
@@ -345,6 +341,8 @@ export function TrackWaveformLane({
     sourceOffsetSec,
     visibleStartSec,
     visibleEndSec,
+    loop,
+    loopLengthSec,
   ]);
 
   if (compact) return null;
