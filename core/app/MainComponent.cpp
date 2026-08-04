@@ -1180,9 +1180,19 @@ void MainComponent::publishWebState() {
 
     const Project& proj = engine.project();
     state.projectName = proj.name;
+    state.click = proj.builtInClickEnabled;
+    state.clickBusId = proj.builtInClickBusId;
     state.clickGainDb = proj.builtInClickGainDb;
     state.clickPan = proj.builtInClickPan;
     state.clickSolo = proj.builtInClickSolo;
+    state.clickSends.clear();
+    for (const TrackSendDef& cs : proj.builtInClickSends) {
+        WebUiState::ClickSendRow csr;
+        csr.busId = cs.busId;
+        csr.gainDb = cs.gainDb;
+        csr.enabled = cs.enabled;
+        state.clickSends.push_back(std::move(csr));
+    }
     // Interval max of rendered click peaks since last poll — captures every
     // audible tick even when the impulse is shorter than the UI sample period.
     {
@@ -1225,11 +1235,12 @@ void MainComponent::publishWebState() {
         row.autoplay = (song.playbackMode == PlaybackMode::AutoplayNext);
         row.tsNum = song.timeSignature.numerator;
         row.tsDen = song.timeSignature.denominator;
-        row.click = song.builtInClickEnabled;
-        row.clickBusId = song.builtInClickBusId;
-        // Global click level (same for every song row for API convenience).
+        // Metronome is project-global — mirror onto every song row so older
+        // SPA code that still reads song.click / song.clickSends stays correct.
+        row.click = proj.builtInClickEnabled;
+        row.clickBusId = proj.builtInClickBusId;
         row.clickGainDb = proj.builtInClickGainDb;
-        for (const TrackSendDef& cs : song.builtInClickSends) {
+        for (const TrackSendDef& cs : proj.builtInClickSends) {
             WebUiState::SongRow::ClickSendRow csr;
             csr.busId = cs.busId;
             csr.gainDb = cs.gainDb;

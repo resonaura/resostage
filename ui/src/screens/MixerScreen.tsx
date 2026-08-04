@@ -1134,19 +1134,20 @@ function TrackStrip({
 function MetronomeStrip({ state }: { state: WebUiState }) {
   const clickSolo = state.clickSolo ?? false;
 
+  // Metronome is project-global (not per-song). Song rows mirror the same
+  // values for older consumers; always read/write the project fields.
   const hasSongs = state.songs.length > 0;
   const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
   const currentSong = hasSongs ? state.songs[songIdx] : null;
-  const isMetronomeOn = currentSong ? currentSong.click : false;
+  const isMetronomeOn = state.click ?? currentSong?.click ?? false;
   // Empty clickBusId = Sends Only. Do NOT coerce "" to the first bus — that
   // made Sends Only unselectable (falsy "" fell back to main every patch).
-  const currentClickBus = currentSong ? (currentSong.clickBusId ?? "") : "";
-  // Project-global click level / pan (not per-song).
+  const currentClickBus = state.clickBusId ?? currentSong?.clickBusId ?? "";
   const clickGain = state.clickGainDb ?? -6;
   const clickPan = state.clickPan ?? 0;
 
   const auxBusses = state.busses.filter((b) => b.isAux);
-  const clickSends = currentSong?.clickSends ?? [];
+  const clickSends = state.clickSends ?? currentSong?.clickSends ?? [];
   // Dedicated click meter — never the destination bus (master) peaks.
   // Fallbacks from coalesced React state; live getters read the shared
   // paint snapshot in liveLevels (no per-channel consume race).
@@ -1161,20 +1162,18 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   const getLiveClickL = () => (isMetronomeOn ? getClickPeaks().peakDbL : -100);
   const getLiveClickR = () => (isMetronomeOn ? getClickPeaks().peakDbR : -100);
 
-  const patchSong = (partial: {
+  const patchClick = (partial: {
     click?: boolean;
     clickBusId?: string;
     clickGainDb?: number;
     clickPan?: number;
     clickSends?: typeof clickSends;
   }) => {
+    // songUpdate still carries the full song identity for the active row,
+    // but click fields are applied project-wide on the backend.
     if (!hasSongs || !currentSong) return;
-    // Preserve empty string for Sends Only — only fall back when the field
-    // is omitted (undefined), never when it is intentionally "".
     const nextClickBusId =
-      partial.clickBusId !== undefined
-        ? partial.clickBusId
-        : (currentSong.clickBusId ?? "");
+      partial.clickBusId !== undefined ? partial.clickBusId : currentClickBus;
     void builder.songUpdate({
       index: songIdx,
       name: currentSong.name,
@@ -1182,20 +1181,20 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       mode: currentSong.mode,
       tsNum: currentSong.tsNum,
       tsDen: currentSong.tsDen,
-      click: partial.click ?? currentSong.click,
+      click: partial.click ?? isMetronomeOn,
       clickBusId: nextClickBusId,
       clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? -6,
       clickPan: partial.clickPan ?? state.clickPan ?? 0,
-      clickSends: partial.clickSends ?? currentSong.clickSends ?? [],
+      clickSends: partial.clickSends ?? clickSends,
     });
   };
 
   const toggleMetronomeMute = () => {
-    patchSong({ click: !isMetronomeOn });
+    patchClick({ click: !isMetronomeOn });
   };
 
   const changeClickBus = (busId: string) => {
-    patchSong({ clickBusId: busId });
+    patchClick({ clickBusId: busId });
   };
 
   const handleClickSendChange = (busId: string, gainDb: number) => {
@@ -1209,7 +1208,7 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
     } else {
       updatedSends = [...clickSends, { busId, gainDb, enabled: gainDb > -59 }];
     }
-    patchSong({ clickSends: updatedSends });
+    patchClick({ clickSends: updatedSends });
   };
 
   return (
@@ -1253,8 +1252,8 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       getLiveDbR={getLiveClickR}
       mute={!isMetronomeOn}
       solo={clickSolo}
-      onGain={(v) => patchSong({ clickGainDb: v })}
-      onPan={(v) => patchSong({ clickPan: v })}
+      onGain={(v) => patchClick({ clickGainDb: v })}
+      onPan={(v) => patchClick({ clickPan: v })}
       onMute={toggleMetronomeMute}
       onSolo={() => void mixer.setClickSolo(!clickSolo)}
     />

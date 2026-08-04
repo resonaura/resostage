@@ -945,6 +945,19 @@ bool ProjectLoader::loadAutosave(std::string& error) {
     (void)doc["sampleRate"].get(sampleRate);
     proj.sampleRate = sampleRate;
 
+    bool hadProjectClickConfig = false;
+    bool clickEnabled = false;
+    if (!doc["builtInClickEnabled"].get(clickEnabled)) {
+        proj.builtInClickEnabled = clickEnabled;
+        hadProjectClickConfig = true;
+    }
+    {
+        std::string_view clickBusView;
+        if (!doc["builtInClickBusId"].get(clickBusView)) {
+            proj.builtInClickBusId = std::string(clickBusView);
+            hadProjectClickConfig = true;
+        }
+    }
     double clickGainDb = -6.0;
     const bool hadProjectClickGain = !doc["builtInClickGainDb"].get(clickGainDb);
     if (hadProjectClickGain)
@@ -957,6 +970,29 @@ bool ProjectLoader::loadAutosave(std::string& error) {
     bool clickSolo = false;
     if (!doc["builtInClickSolo"].get(clickSolo))
         proj.builtInClickSolo = clickSolo;
+
+    {
+        simdjson::dom::array clickSendsArr;
+        if (!doc["builtInClickSends"].get(clickSendsArr)) {
+            hadProjectClickConfig = true;
+            for (simdjson::dom::element csEl : clickSendsArr) {
+                TrackSendDef cs;
+                std::string_view sv;
+                if (!csEl["bus"].get(sv))
+                    cs.busId = std::string(sv);
+                else if (!csEl["busId"].get(sv))
+                    cs.busId = std::string(sv);
+                if (cs.busId.empty())
+                    continue;
+                (void)csEl["gainDb"].get(cs.gainDb);
+                bool enabled = true;
+                (void)csEl["enabled"].get(enabled);
+                cs.enabled = enabled;
+                (void)csEl["preFader"].get(cs.preFader);
+                proj.builtInClickSends.push_back(std::move(cs));
+            }
+        }
+    }
 
     simdjson::dom::array bussesArr;
     if (!doc["busses"].get(bussesArr)) {
@@ -999,7 +1035,20 @@ bool ProjectLoader::loadAutosave(std::string& error) {
         }
     }
 
-    // Migrate legacy per-song click gain → project-global when missing.
+    // Migrate legacy per-song metronome → project-global when the archive
+    // predates project-level click fields.
+    if (!hadProjectClickConfig) {
+        for (const auto& s : proj.songs) {
+            if (s.builtInClickEnabled || !s.builtInClickBusId.empty() || !s.builtInClickSends.empty()) {
+                proj.builtInClickEnabled = s.builtInClickEnabled;
+                proj.builtInClickBusId = s.builtInClickBusId;
+                proj.builtInClickSends = s.builtInClickSends;
+                break;
+            }
+        }
+        if (proj.builtInClickBusId.empty() && !proj.busses.empty() && proj.builtInClickEnabled)
+            proj.builtInClickBusId = proj.busses.front().id;
+    }
     if (!hadProjectClickGain) {
         for (const auto& s : proj.songs) {
             if (s.builtInClickEnabled || s.builtInClickGainDb != -6.0) {
@@ -1007,6 +1056,14 @@ bool ProjectLoader::loadAutosave(std::string& error) {
                 break;
             }
         }
+    }
+    // Keep legacy song fields in sync so any remaining song-scoped readers
+    // still see the project metronome.
+    for (auto& s : proj.songs) {
+        s.builtInClickEnabled = proj.builtInClickEnabled;
+        s.builtInClickBusId = proj.builtInClickBusId;
+        s.builtInClickSends = proj.builtInClickSends;
+        s.builtInClickGainDb = proj.builtInClickGainDb;
     }
 
     parsedProject = std::move(proj);
@@ -1076,6 +1133,19 @@ bool ProjectLoader::reparseProject(std::string& error) {
     (void)doc["sampleRate"].get(sampleRate);
     proj.sampleRate = sampleRate;
 
+    bool hadProjectClickConfig = false;
+    bool clickEnabled = false;
+    if (!doc["builtInClickEnabled"].get(clickEnabled)) {
+        proj.builtInClickEnabled = clickEnabled;
+        hadProjectClickConfig = true;
+    }
+    {
+        std::string_view clickBusView;
+        if (!doc["builtInClickBusId"].get(clickBusView)) {
+            proj.builtInClickBusId = std::string(clickBusView);
+            hadProjectClickConfig = true;
+        }
+    }
     double clickGainDb = -6.0;
     const bool hadProjectClickGain = !doc["builtInClickGainDb"].get(clickGainDb);
     if (hadProjectClickGain)
@@ -1088,6 +1158,29 @@ bool ProjectLoader::reparseProject(std::string& error) {
     bool clickSolo = false;
     if (!doc["builtInClickSolo"].get(clickSolo))
         proj.builtInClickSolo = clickSolo;
+
+    {
+        simdjson::dom::array clickSendsArr;
+        if (!doc["builtInClickSends"].get(clickSendsArr)) {
+            hadProjectClickConfig = true;
+            for (simdjson::dom::element csEl : clickSendsArr) {
+                TrackSendDef cs;
+                std::string_view sv;
+                if (!csEl["bus"].get(sv))
+                    cs.busId = std::string(sv);
+                else if (!csEl["busId"].get(sv))
+                    cs.busId = std::string(sv);
+                if (cs.busId.empty())
+                    continue;
+                (void)csEl["gainDb"].get(cs.gainDb);
+                bool enabled = true;
+                (void)csEl["enabled"].get(enabled);
+                cs.enabled = enabled;
+                (void)csEl["preFader"].get(cs.preFader);
+                proj.builtInClickSends.push_back(std::move(cs));
+            }
+        }
+    }
 
     simdjson::dom::array bussesArr;
     if (!doc["busses"].get(bussesArr)) {
@@ -1146,6 +1239,18 @@ bool ProjectLoader::reparseProject(std::string& error) {
         }
     }
 
+    if (!hadProjectClickConfig) {
+        for (const auto& s : proj.songs) {
+            if (s.builtInClickEnabled || !s.builtInClickBusId.empty() || !s.builtInClickSends.empty()) {
+                proj.builtInClickEnabled = s.builtInClickEnabled;
+                proj.builtInClickBusId = s.builtInClickBusId;
+                proj.builtInClickSends = s.builtInClickSends;
+                break;
+            }
+        }
+        if (proj.builtInClickBusId.empty() && !proj.busses.empty() && proj.builtInClickEnabled)
+            proj.builtInClickBusId = proj.busses.front().id;
+    }
     if (!hadProjectClickGain) {
         for (const auto& s : proj.songs) {
             if (s.builtInClickEnabled || s.builtInClickGainDb != -6.0) {
@@ -1153,6 +1258,12 @@ bool ProjectLoader::reparseProject(std::string& error) {
                 break;
             }
         }
+    }
+    for (auto& s : proj.songs) {
+        s.builtInClickEnabled = proj.builtInClickEnabled;
+        s.builtInClickBusId = proj.builtInClickBusId;
+        s.builtInClickSends = proj.builtInClickSends;
+        s.builtInClickGainDb = proj.builtInClickGainDb;
     }
 
     simdjson::dom::object kbObj;

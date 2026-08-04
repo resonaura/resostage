@@ -1231,9 +1231,20 @@ std::string WebServer::buildStateJson(const char* view) const {
 
     if (wantClick) {
         o << ","
+          << "\"click\":" << (snap.click ? "true" : "false") << ","
+          << "\"clickBusId\":\"" << jsonEscape(snap.clickBusId) << "\","
           << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
           << "\"clickPan\":" << finiteOrZero(snap.clickPan) << ","
           << "\"clickSolo\":" << (snap.clickSolo ? "true" : "false") << ","
+          << "\"clickSends\":[";
+        for (size_t ci = 0; ci < snap.clickSends.size(); ++ci) {
+            if (ci) o << ",";
+            const auto& cs = snap.clickSends[ci];
+            o << "{\"busId\":\"" << jsonEscape(cs.busId) << "\","
+              << "\"gainDb\":" << finiteOrZero(cs.gainDb) << ","
+              << "\"enabled\":" << (cs.enabled ? "true" : "false") << "}";
+        }
+        o << "],"
           << "\"clickPeakDb\":" << finiteOrDbFloor(snap.clickPeakDb) << ","
           << "\"clickPeakDbL\":" << finiteOrDbFloor(snap.clickPeakDbL) << ","
           << "\"clickPeakDbR\":" << finiteOrDbFloor(snap.clickPeakDbR) << ","

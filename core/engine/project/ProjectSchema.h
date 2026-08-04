@@ -344,16 +344,12 @@ struct SongDef {
     std::vector<SongSection> sections;
     std::vector<LightCue> lightCues;
 
-    // Built-in programmatic click generator (see ClickGenerator). Separate
-    // from and compatible with a user-supplied click.wav routed as an
-    // ordinary track -- bands can use either or both.
+    // Legacy per-song click fields -- kept only for load migration from older
+    // archives. Live routing and new saves use Project::builtInClick* below
+    // (metronome is project-global, same for every song).
     bool builtInClickEnabled = false;
     std::string builtInClickBusId;
     double builtInClickGainDb = -6.0;
-    // Additional sends: the click is mixed into each of these buses (aux
-    // monitor mixes) at the specified gain, independent of the main bus above.
-    // Mirrors the per-track TrackSendDef routing so the click can go to
-    // "FOH main + drummer IEM + guitarist IEM" simultaneously.
     std::vector<TrackSendDef> builtInClickSends;
 };
 
@@ -394,10 +390,16 @@ struct Project {
     int formatVersion = 1;
     std::string name;
     double sampleRate = 48000.0;
-    // Global metronome level -- shared across all songs (not per-song).
-    // SongDef::builtInClickGainDb is kept for backward-compat load migration.
+    // ── Project-global metronome (ClickGenerator). Same for every song. ──
+    // On/off, main bus, aux sends, gain, pan, solo all live here -- not on
+    // SongDef (legacy song fields are load-only migration).
+    bool builtInClickEnabled = false;
+    // Empty = Sends Only (no main target bus).
+    std::string builtInClickBusId;
+    // Aux monitor mixes the click is also mixed into.
+    std::vector<TrackSendDef> builtInClickSends;
     double builtInClickGainDb = -6.0;
-    // Project-global metronome pan (-1..+1). Same for every song.
+    // Project-global metronome pan (-1..+1).
     double builtInClickPan = 0.0;
     // Soloing the metronome joins the same solo group as TrackDef::solo --
     // when true, every regular track is silenced exactly as if one of them

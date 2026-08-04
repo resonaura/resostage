@@ -89,19 +89,59 @@ export interface LightCueRow {
   // ProjectSchema.h exactly (persisted, resolved by LightEngine AND
   // MainComponent's WebUiState push through the same
   // engine/lighting/LightOutputResolver.h call -- see lightOutput below).
-  effectType: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak" | "geq" | "blurz" | "scanner" | "lightning" | "barberpole" | "";
+  effectType:
+    | "none"
+    | "meter"
+    | "strobe"
+    | "pulse"
+    | "ripple"
+    | "converge"
+    | "gradientflow"
+    | "chase"
+    | "helix"
+    | "plasma"
+    | "twinkle"
+    | "sonicboom"
+    | "fire"
+    | "bouncing"
+    | "drip"
+    | "fireworks"
+    | "colorwaves"
+    | "strobeswipe"
+    | "vupeak"
+    | "geq"
+    | "blurz"
+    | "scanner"
+    | "lightning"
+    | "barberpole"
+    | "";
   effectSourceType: "bus" | "track" | "";
   effectSourceId: string;
   effectIntensity: number; // 0-1 depth of the effect
   tempoSync: boolean;
   tempoSubdiv: string; // "2"|"1"|"1/2"|"1/3"|"1/4"|"1/6"|"1/8"|"1/16"|"1/32"|"1/64"
   effectRateHz: number; // used when tempoSync is false
-  gradientPreset: "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire" | "";
+  gradientPreset:
+    | "solid"
+    | "greenYellowRed"
+    | "custom"
+    | "vulcanFire"
+    | "toxicFire"
+    | "cryoFire"
+    | "cyberpunkFire"
+    | "";
   gradientColors?: string;
   // How this cue composites onto another track's simultaneously-active cue
   // on the same fixture (base/accent layering) -- see LightBlend.h. No
   // effect unless the fixture is driven by more than one LightTrack.
-  blendMode?: "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive" | "";
+  blendMode?:
+    | "normal"
+    | "additive"
+    | "multiply"
+    | "difference"
+    | "lighten"
+    | "subtractive"
+    | "";
 }
 
 export interface SongRow {
@@ -186,7 +226,15 @@ export interface LightFixtureRow {
   dmxStartChannel: number;
   dmxChannelCount: number;
   /** Cosmetic-only (3D stage mesh) -- see ui/src/lib/dmxProfiles.ts. */
-  shape: "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead";
+  shape:
+    | "bar"
+    | "strip"
+    | "ring"
+    | "matrix"
+    | "par"
+    | "wash"
+    | "spot"
+    | "movingHead";
   /** Only meaningful when shape === "matrix" -- 0 = let the UI pick a default. */
   matrixCols: number;
   /** Cosmetic-only (sets dmxChannelCount + channel-role labels in the UI). */
@@ -317,12 +365,18 @@ export interface AllPeaksResponse {
 
 export interface WebUiState {
   projectName: string;
+  /** Project-global metronome on/off (same for every song). */
+  click?: boolean;
+  /** Project-global main bus for click; empty = Sends Only. */
+  clickBusId?: string;
   /** Project-global metronome level (dB). */
   clickGainDb: number;
   /** Project-global metronome pan (-1..+1). */
   clickPan?: number;
   /** Metronome solo -- joins the same solo group as track solo. */
   clickSolo?: boolean;
+  /** Project-global click aux sends. */
+  clickSends?: ClickSendRow[];
   /** Metronome-only peak (not the bus it routes into). */
   clickPeakDb?: number;
   clickPeakDbL?: number;
@@ -384,9 +438,12 @@ export interface WebUiState {
 
 export const emptyState: WebUiState = {
   projectName: "",
+  click: false,
+  clickBusId: "",
   clickGainDb: -6,
   clickPan: 0,
   clickSolo: false,
+  clickSends: [],
   clickPeakDb: -100,
   clickPeakDbL: -100,
   clickPeakDbR: -100,

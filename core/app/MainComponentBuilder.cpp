@@ -37,8 +37,10 @@ void MainComponent::builderSongAdd(const std::string& json) {
     song.id = makeUniqueId("song", used);
     song.name = "New Song";
     song.bpm = 120.0;
-    if (!proj.busses.empty())
-        song.builtInClickBusId = proj.busses.front().id;
+    // Metronome is project-global -- only seed the project bus once when
+    // still unset (first song in a fresh project).
+    if (proj.builtInClickBusId.empty() && !proj.busses.empty())
+        proj.builtInClickBusId = proj.busses.front().id;
 
     const std::string defaultBusId = !proj.busses.empty() ? proj.busses.front().id : "main";
 
@@ -160,9 +162,12 @@ void MainComponent::builderSongUpdate(const std::string& json) {
         s.playbackMode = (strVal == "auto") ? PlaybackMode::AutoplayNext : PlaybackMode::WaitForTrigger;
     if (getInt(doc, "tsNum", intVal)) s.timeSignature.numerator = intVal;
     if (getInt(doc, "tsDen", intVal)) s.timeSignature.denominator = intVal;
-    if (getBool(doc, "click", boolVal)) s.builtInClickEnabled = boolVal;
-    if (getString(doc, "clickBusId", strVal)) s.builtInClickBusId = strVal;
-    // Click gain/pan are project-global (not per-song).
+    // Metronome is project-global (same for every song). songUpdate still
+    // carries click fields for API compatibility; they write Project, not SongDef.
+    if (getBool(doc, "click", boolVal))
+        proj.builtInClickEnabled = boolVal;
+    if (getString(doc, "clickBusId", strVal))
+        proj.builtInClickBusId = strVal;
     if (getDouble(doc, "clickGainDb", numVal))
         proj.builtInClickGainDb = numVal;
     if (getDouble(doc, "clickPan", numVal))
@@ -171,7 +176,7 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     // clickSends: full replacement when present (web sends the entire array)
     simdjson::dom::array clickSendsArr;
     if (!doc["clickSends"].get(clickSendsArr)) {
-        s.builtInClickSends.clear();
+        proj.builtInClickSends.clear();
         for (simdjson::dom::element csEl : clickSendsArr) {
             TrackSendDef cs;
             std::string_view sv;
@@ -182,12 +187,20 @@ void MainComponent::builderSongUpdate(const std::string& json) {
             bool enabled = true;
             (void)csEl["enabled"].get(enabled);
             cs.enabled = enabled;
-            s.builtInClickSends.push_back(std::move(cs));
+            proj.builtInClickSends.push_back(std::move(cs));
         }
     }
 
-    // Click gain is project-global -- always refresh live click even if this
-    // song isn't the staged one.
+    // Keep legacy song fields mirrored so any remaining song-scoped readers
+    // (and older UI code paths) stay consistent.
+    for (auto& song : proj.songs) {
+        song.builtInClickEnabled = proj.builtInClickEnabled;
+        song.builtInClickBusId = proj.builtInClickBusId;
+        song.builtInClickSends = proj.builtInClickSends;
+        song.builtInClickGainDb = proj.builtInClickGainDb;
+    }
+
+    // Always refresh live click even if this song isn't the staged one.
     engine.refreshClickState();
     if (index != static_cast<int>(engine.currentSongIndex())) {
         goToSong(index); // pushes BPM to LightEngine itself once this song is staged
@@ -676,13 +689,16 @@ void MainComponent::builderBusRemove(const std::string& json) {
         tr.sends.erase(std::remove_if(tr.sends.begin(), tr.sends.end(), dropsRemovedSend),
                         tr.sends.end());
     }
+    // Project-global metronome routing.
+    if (!proj.builtInClickBusId.empty() && proj.builtInClickBusId == removedId)
+        proj.builtInClickBusId = fallback;
+    proj.builtInClickSends.erase(
+        std::remove_if(proj.builtInClickSends.begin(), proj.builtInClickSends.end(), dropsRemovedSend),
+        proj.builtInClickSends.end());
     for (auto& song : proj.songs) {
-        // Only re-point a real bus assignment. Empty = Sends Only — leave it.
-        if (!song.builtInClickBusId.empty() && song.builtInClickBusId == removedId)
-            song.builtInClickBusId = fallback;
-        song.builtInClickSends.erase(
-            std::remove_if(song.builtInClickSends.begin(), song.builtInClickSends.end(), dropsRemovedSend),
-            song.builtInClickSends.end());
+        // Keep legacy song mirrors in sync.
+        song.builtInClickBusId = proj.builtInClickBusId;
+        song.builtInClickSends = proj.builtInClickSends;
     }
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();

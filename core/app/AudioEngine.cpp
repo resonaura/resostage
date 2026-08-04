@@ -1102,24 +1102,29 @@ void AudioEngine::refreshClickState() {
     std::lock_guard<std::recursive_mutex> lock(routingMutex);
 
 
-    if (!projectLoaded || currentSong >= loader.project().songs.size())
+    if (!projectLoaded)
         return;
-    const SongDef& song = loader.project().songs[currentSong];
+    // Routing/gain/sends are project-global. Tempo grid still follows the
+    // currently staged song's BPM + time signature.
+    if (currentSong >= loader.project().songs.size())
+        return;
+    const Project& proj = loader.project();
+    const SongDef& song = proj.songs[currentSong];
     clickTargetBusIndex = -1;
     clickSendBusIndices.clear();
     clickSendGainLinears.clear();
-    isClickEnabled = song.builtInClickEnabled;
+    isClickEnabled = proj.builtInClickEnabled;
 
-    // Gain/pan are project-global (same for every song). Always refresh so
-    // Sends Only still has a level even without a main target bus.
-    clickGainLinear = dbToGain(loader.project().builtInClickGainDb);
+    // Gain/pan are project-global. Always refresh so Sends Only still has a
+    // level even without a main target bus.
+    clickGainLinear = dbToGain(proj.builtInClickGainDb);
     clickPan = static_cast<float>(
-        std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
+        std::clamp(proj.builtInClickPan, -1.0, 1.0));
 
     // Empty builtInClickBusId = Sends Only (no main target). Do NOT fall
     // back to the first bus -- that made "Sends Only" unselectable.
-    if (!song.builtInClickBusId.empty()) {
-        auto clickBusIt = busIndexById.find(song.builtInClickBusId);
+    if (!proj.builtInClickBusId.empty()) {
+        auto clickBusIt = busIndexById.find(proj.builtInClickBusId);
         if (clickBusIt != busIndexById.end())
             clickTargetBusIndex = static_cast<int>(clickBusIt->second);
     }
@@ -1135,7 +1140,7 @@ void AudioEngine::refreshClickState() {
                                song.timeSignature.denominator);
     }
 
-    for (const TrackSendDef& cs : song.builtInClickSends) {
+    for (const TrackSendDef& cs : proj.builtInClickSends) {
         if (!cs.enabled)
             continue;
         auto it = busIndexById.find(cs.busId);
@@ -1822,18 +1827,18 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     }
 
     // Prepare click routing offline, publish under the lock below.
-    // Empty builtInClickBusId = Sends Only (no main target bus).
+    // Click routing is project-global (same for every song).
     int newClickTarget = -1;
     float newClickGain = dbToGain(loader.project().builtInClickGainDb);
     std::vector<int> newClickSends;
     std::vector<float> newClickSendGains;
-    const bool newClickEnabled = song.builtInClickEnabled;
-    if (!song.builtInClickBusId.empty()) {
-        auto clickBusIt = busIndexById.find(song.builtInClickBusId);
+    const bool newClickEnabled = loader.project().builtInClickEnabled;
+    if (!loader.project().builtInClickBusId.empty()) {
+        auto clickBusIt = busIndexById.find(loader.project().builtInClickBusId);
         if (clickBusIt != busIndexById.end())
             newClickTarget = static_cast<int>(clickBusIt->second);
     }
-    for (const TrackSendDef& cs : song.builtInClickSends) {
+    for (const TrackSendDef& cs : loader.project().builtInClickSends) {
         if (!cs.enabled)
             continue;
         auto it = busIndexById.find(cs.busId);
@@ -2071,18 +2076,18 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     }
 
     // Click routing for the new song (same fields the message-thread path sets).
-    // Empty builtInClickBusId = Sends Only (no main target bus).
+    // Click routing is project-global (same for every song).
     int newClickTarget = -1;
     float newClickGain = dbToGain(loader.project().builtInClickGainDb);
     std::vector<int> newClickSends;
     std::vector<float> newClickSendGains;
-    const bool newClickEnabled = song.builtInClickEnabled;
-    if (!song.builtInClickBusId.empty()) {
-        auto clickBusIt = busIndexById.find(song.builtInClickBusId);
+    const bool newClickEnabled = loader.project().builtInClickEnabled;
+    if (!loader.project().builtInClickBusId.empty()) {
+        auto clickBusIt = busIndexById.find(loader.project().builtInClickBusId);
         if (clickBusIt != busIndexById.end())
             newClickTarget = static_cast<int>(clickBusIt->second);
     }
-    for (const TrackSendDef& cs : song.builtInClickSends) {
+    for (const TrackSendDef& cs : loader.project().builtInClickSends) {
         if (!cs.enabled)
             continue;
         auto it = busIndexById.find(cs.busId);
@@ -3997,7 +4002,8 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
 
             std::string category = autoDetectStemCategory(srcPath.filename().string());
             if (category == "Click") {
-                song.builtInClickEnabled = true;
+                // Project-global metronome on when a Click stem is imported.
+                projectSnapshot.builtInClickEnabled = true;
                 continue;
             }
 
