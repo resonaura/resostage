@@ -68,6 +68,53 @@ export async function pasteCues(items: CueClipboardEntry[]): Promise<number> {
   return items.length;
 }
 
+/**
+ * Re-anchor clipboard cues so the leftmost start lands at `localPlayhead`
+ * in `targetSongIndex` (relative spacing preserved).
+ */
+export function offsetCuesToPlayhead(
+  items: CueClipboardEntry[],
+  targetSongIndex: number,
+  localPlayhead: number,
+): CueClipboardEntry[] {
+  if (items.length === 0) return [];
+  const base = Math.min(...items.map((e) => e.startSeconds));
+  return items.map((e) => ({
+    ...e,
+    songIndex: targetSongIndex,
+    startSeconds: Math.max(0, localPlayhead + (e.startSeconds - base)),
+  }));
+}
+
+export function cueSelKeyStr(sel: CueSelKey): string {
+  return `${sel.songIndex}:${sel.cueId}`;
+}
+
+export function parseCueSelKey(key: string): CueSelKey | null {
+  const colon = key.indexOf(":");
+  if (colon < 0) return null;
+  const songIndex = Number(key.slice(0, colon));
+  const cueId = key.slice(colon + 1);
+  if (!Number.isFinite(songIndex) || !cueId) return null;
+  return { songIndex, cueId };
+}
+
+export function allCueSelKeys(songs: SongRow[]): CueSelKey[] {
+  const out: CueSelKey[] = [];
+  songs.forEach((song, si) => {
+    for (const c of song.lightCues ?? []) {
+      if (c.id) out.push({ songIndex: si, cueId: c.id });
+    }
+  });
+  return out;
+}
+
+export async function deleteCues(sels: CueSelKey[]): Promise<void> {
+  for (const s of sels) {
+    await lighting.cueRemove(s.songIndex, s.cueId);
+  }
+}
+
 /** Split selected cue at absolute playhead. Returns status message. */
 export async function splitCueAtPlayhead(
   songs: SongRow[],

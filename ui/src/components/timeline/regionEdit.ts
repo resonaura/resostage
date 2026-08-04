@@ -65,6 +65,43 @@ export async function addRegionEntries(
   }
 }
 
+/** Map absolute project seconds → song index + local time. */
+export function resolveSongLocal(
+  songOffsets: number[],
+  songLengths: number[],
+  absSec: number,
+): { songIndex: number; localSeconds: number } {
+  for (let i = 0; i < songOffsets.length; i++) {
+    const start = songOffsets[i] ?? 0;
+    const end = start + (songLengths[i] ?? 0);
+    if (absSec < end || i === songOffsets.length - 1) {
+      return {
+        songIndex: i,
+        localSeconds: Math.max(0, absSec - start),
+      };
+    }
+  }
+  return { songIndex: 0, localSeconds: Math.max(0, absSec) };
+}
+
+/**
+ * Re-anchor a clipboard set so its leftmost start lands at `localPlayhead`
+ * in `targetSongIndex` (relative offsets between items preserved).
+ */
+export function offsetRegionsToPlayhead(
+  entries: RegionClipboardEntry[],
+  targetSongIndex: number,
+  localPlayhead: number,
+): RegionClipboardEntry[] {
+  if (entries.length === 0) return [];
+  const base = Math.min(...entries.map((e) => e.startSeconds));
+  return entries.map((e) => ({
+    ...e,
+    songIndex: targetSongIndex,
+    startSeconds: Math.max(0, localPlayhead + (e.startSeconds - base)),
+  }));
+}
+
 /** Split selected region(s) at the absolute playhead (Logic-style ⌘T). */
 export async function splitRegionsAtPlayhead(
   selectedRegionKeys: RegionSelKey[],

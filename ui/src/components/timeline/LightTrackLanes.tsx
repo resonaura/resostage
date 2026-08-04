@@ -20,8 +20,10 @@ export function LightTrackLanes({
   readOnly,
   toAbsSec,
   snapLocalSec,
-  cueSelection,
-  setCueSelection,
+  selectedCueKeys,
+  onSelectCue,
+  onCopySelectedCues,
+  onDeleteSelectedCues,
   lightCueDrag,
   setLightCueDrag,
 }: {
@@ -39,8 +41,13 @@ export function LightTrackLanes({
   readOnly: boolean;
   toAbsSec: (clientX: number) => number;
   snapLocalSec: (songIndex: number, localSec: number) => number;
-  cueSelection: CueSelKey | null;
-  setCueSelection: (v: CueSelKey | null) => void;
+  selectedCueKeys: CueSelKey[];
+  onSelectCue: (
+    sel: CueSelKey | null,
+    mods?: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean },
+  ) => void;
+  onCopySelectedCues: () => void;
+  onDeleteSelectedCues: () => void;
   lightCueDrag: LightCueDragState | null;
   setLightCueDrag: (v: LightCueDragState | null) => void;
 }) {
@@ -79,8 +86,10 @@ export function LightTrackLanes({
           readOnly={readOnly}
           toAbsSec={toAbsSec}
           snapLocalSec={snapLocalSec}
-          selected={cueSelection}
-          onSelect={setCueSelection}
+          selectedKeys={selectedCueKeys}
+          onSelect={onSelectCue}
+          onCopySelected={onCopySelectedCues}
+          onDeleteSelected={onDeleteSelectedCues}
           activeDrag={lightCueDrag}
           onActiveDragChange={setLightCueDrag}
         />

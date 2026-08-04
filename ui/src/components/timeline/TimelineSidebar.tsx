@@ -52,7 +52,7 @@ export function TimelineSidebar({
   hasLightContent: boolean;
   sidePanelTrackIndex: number | null;
   setSidePanelTrackIndex: (i: number | null) => void;
-  setCueSelection: (v: null) => void;
+  setCueSelection: (v: null) => void; // clears primary; parent also clears multi
   sidebarContentRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const anySolo =

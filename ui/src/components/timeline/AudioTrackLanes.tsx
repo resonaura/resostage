@@ -258,7 +258,10 @@ export function AudioTrackLanes({
                           e.preventDefault();
                           e.stopPropagation();
                           if (readOnly) return;
-                          selectRegion(thisRegionSelKey, e);
+                          // Preserve multi-select when right-clicking inside it.
+                          if (!selectedRegionKeys.includes(thisRegionSelKey)) {
+                            selectRegion(thisRegionSelKey, e);
+                          }
                           onRegionContextMenu({
                             x: e.clientX,
                             y: e.clientY,

@@ -20,12 +20,14 @@ export function RegionContextMenu({
   songs,
   getRegionUi,
   setRegionUi,
+  onCopy,
   onClose,
 }: {
   menu: RegionContextMenuState;
   songs: SongRow[];
   getRegionUi: (key: RegionSelKey) => RegionUiState;
   setRegionUi: (key: RegionSelKey, patch: Partial<RegionUiState>) => void;
+  onCopy?: () => void;
   onClose: () => void;
 }) {
   const song = songs[menu.songIndex];
@@ -36,6 +38,16 @@ export function RegionContextMenu({
 
   return (
     <ContextMenu x={menu.x} y={menu.y} width={180} onClose={onClose}>
+      {onCopy && (
+        <ContextMenuItem
+          onClick={() => {
+            onCopy();
+            onClose();
+          }}
+        >
+          Copy
+        </ContextMenuItem>
+      )}
       <ContextMenuItem
         onClick={() => {
           setRegionUi(menu.selKey, { muted: !regUi.muted });

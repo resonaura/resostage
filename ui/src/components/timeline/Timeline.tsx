@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { lighting, transport } from "../../lib/api";
+import { transport } from "../../lib/api";
 import { useContinuousPlayhead } from "../../lib/optimistic";
 import { isPositionVisible } from "../../lib/timelineVisibility";
 import type {
@@ -16,12 +16,15 @@ import {
 import type { CueSelKey, LightCueDragState } from "../light/LightTimeline";
 import { LightSidePanel } from "../light/LightSidePanel";
 import type { LightSidePanelSelection } from "../light/LightSidePanel";
+import { laneHeightPx } from "../TrackWaveformLane";
 import { AudioTrackLanes } from "./AudioTrackLanes";
 import { BeatGrid } from "./BeatGrid";
 import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
 import {
   duplicateCue,
   findCue,
+  deleteCues,
+  offsetCuesToPlayhead,
   pasteCues,
   splitCueAtPlayhead,
   type CueClipboardEntry,
@@ -32,7 +35,9 @@ import { LightTrackLanes } from "./LightTrackLanes";
 import {
   addRegionEntries,
   deleteSelectedRegions as deleteRegionsOp,
+  offsetRegionsToPlayhead,
   resolveSelectedRegions,
+  resolveSongLocal,
   selectRegionKeys,
   splitRegionsAtPlayhead,
 } from "./regionEdit";
@@ -46,7 +51,14 @@ import {
   RegionContextMenu,
   type RegionContextMenuState,
 } from "./RegionContextMenu";
+import {
+  marqueeHitCues,
+  marqueeHitRegions,
+  normalizeMarquee,
+  type MarqueeRect,
+} from "./marqueeSelect";
 import { buildRows } from "./rows";
+import { SelectionContextMenu } from "./SelectionContextMenu";
 import { SectionMarkerLane } from "./SectionMarkerLane";
 import { SongRulerHeader } from "./SongRulerHeader";
 import { TimelineSidebar } from "./TimelineSidebar";
@@ -146,6 +158,10 @@ export function Timeline({
 
   // Selected light cue (Light-mode editor), drives the cue editor panel.
   const [cueSelection, setCueSelection] = useState<CueSelKey | null>(null);
+  // Multi-select for cues (outline + marquee / shift-click). cueSelection
+  // remains the "primary" for the side panel (last clicked).
+  const [selectedCueKeys, setSelectedCueKeys] = useState<CueSelKey[]>([]);
+
   // Track selection for the side panel
   const [sidePanelTrackIndex, setSidePanelTrackIndex] = useState<number | null>(
     null,
@@ -289,18 +305,68 @@ export function Timeline({
   const clipboardCues = useRef<CueClipboardEntry[]>([]);
 
   const copySelectedCue = () => {
-    if (!cueSelection) return;
-    const cue = findCue(state.songs, cueSelection);
-    if (!cue) return;
-    clipboardCues.current = [{ ...cue, songIndex: cueSelection.songIndex }];
-    showToast("Copied light cue");
+    const keys =
+      selectedCueKeys.length > 0
+        ? selectedCueKeys
+        : cueSelection
+          ? [cueSelection]
+          : [];
+    const entries: CueClipboardEntry[] = [];
+    for (const k of keys) {
+      const cue = findCue(state.songs, k);
+      if (cue) entries.push({ ...cue, songIndex: k.songIndex });
+    }
+    if (entries.length === 0) return;
+    clipboardCues.current = entries;
+    showToast(
+      entries.length === 1
+        ? "Copied light cue"
+        : `Copied ${entries.length} light cues`,
+    );
   };
 
   const deleteSelectedCue = () => {
-    if (!cueSelection) return;
-    void lighting.cueRemove(cueSelection.songIndex, cueSelection.cueId);
+    const keys =
+      selectedCueKeys.length > 0
+        ? selectedCueKeys
+        : cueSelection
+          ? [cueSelection]
+          : [];
+    if (keys.length === 0) return;
+    void deleteCues(keys);
     setCueSelection(null);
-    showToast("Deleted light cue");
+    setSelectedCueKeys([]);
+    showToast(
+      keys.length === 1 ? "Deleted light cue" : `Deleted ${keys.length} cues`,
+    );
+  };
+
+  const selectCue = (
+    sel: CueSelKey | null,
+    mods?: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean },
+  ) => {
+    if (sel === null) {
+      setCueSelection(null);
+      setSelectedCueKeys([]);
+      return;
+    }
+    const additive = Boolean(mods?.metaKey || mods?.ctrlKey);
+    setCueSelection(sel);
+    setSelectedCueKeys((prev) => {
+      if (additive) {
+        const has = prev.some(
+          (s) => s.songIndex === sel.songIndex && s.cueId === sel.cueId,
+        );
+        return has
+          ? prev.filter(
+              (s) => !(s.songIndex === sel.songIndex && s.cueId === sel.cueId),
+            )
+          : [...prev, sel];
+      }
+      return [sel];
+    });
+    // Selecting a cue clears audio region selection
+    setSelectedRegionKeys([]);
   };
 
   const duplicateSelectedCue = async () => {
@@ -310,8 +376,24 @@ export function Timeline({
   };
 
   const pasteClipboardCues = async () => {
-    const n = await pasteCues(clipboardCues.current);
-    if (n) showToast(`Pasted ${n} light cue(s)`);
+    if (clipboardCues.current.length === 0) return;
+    const { songIndex, localSeconds } = resolveSongLocal(
+      songOffsets,
+      songLengths,
+      playheadAbsoluteSec,
+    );
+    const placed = offsetCuesToPlayhead(
+      clipboardCues.current,
+      songIndex,
+      localSeconds,
+    );
+    const n = await pasteCues(placed);
+    if (n) {
+      showToast(`Pasted ${n} light cue(s) at playhead`);
+      setSelectedCueKeys([]);
+      setCueSelection(null);
+      setSelectedRegionKeys([]);
+    }
   };
 
   const splitSelectedCueAtPlayhead = async () => {
@@ -342,6 +424,8 @@ export function Timeline({
     setSelectedRegionKeys(
       selectRegionKeys(key, e, selectedRegionKeys, state.songs),
     );
+    setCueSelection(null);
+    setSelectedCueKeys([]);
   };
 
   const copySelectedRegions = () => {
@@ -368,8 +452,23 @@ export function Timeline({
 
   const pasteClipboardRegions = async () => {
     if (clipboardRegions.current.length === 0) return;
-    await addRegionEntries(clipboardRegions.current);
-    showToast(`Pasted ${clipboardRegions.current.length} region(s)`);
+    const { songIndex, localSeconds } = resolveSongLocal(
+      songOffsets,
+      songLengths,
+      playheadAbsoluteSec,
+    );
+    const placed = offsetRegionsToPlayhead(
+      clipboardRegions.current,
+      songIndex,
+      localSeconds,
+    );
+    await addRegionEntries(placed);
+    showToast(
+      `Pasted ${clipboardRegions.current.length} region(s) at playhead`,
+    );
+    setSelectedRegionKeys([]);
+    setSelectedCueKeys([]);
+    setCueSelection(null);
   };
 
   // Drop selection entries that no longer exist (delete / project reload).
@@ -388,6 +487,28 @@ export function Timeline({
 
   const [regionContextMenu, setRegionContextMenu] =
     useState<RegionContextMenuState | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
+  const marqueeRef = useRef<{
+    x0: number;
+    y0: number;
+    active: boolean;
+    additive: boolean;
+    /** Selection snapshot at marquee start (for shift/⌘ additive merge). */
+    baseRegionKeys: RegionSelKey[];
+    baseCueKeys: CueSelKey[];
+  } | null>(null);
+  // Filled after rows/song layout exist (see assignment below).
+  const marqueeLiveRef = useRef<{
+    effectiveViewMode: typeof effectiveViewMode;
+    lightTrackIds: string[];
+    songs: typeof state.songs;
+    songOffsets: number[];
+    songLengths: number[];
+    pxPerSec: number;
+    verticalZoom: number;
+    rows: ReturnType<typeof buildRows>;
+    tracks: typeof state.tracks;
+  } | null>(null);
 
   const { regionGeomDraft, regionDragRef, regionDragCtxRef, startRegionDrag } =
     useRegionDrag({
@@ -498,6 +619,71 @@ export function Timeline({
     lightEnabled &&
     (lightTracks.length > 0 ||
       songs.some((s) => (s.lightCues ?? []).length > 0));
+
+  // Live marquee hit-test inputs (after layout deps exist).
+  marqueeLiveRef.current = {
+    effectiveViewMode,
+    lightTrackIds,
+    songs,
+    songOffsets,
+    songLengths,
+    pxPerSec,
+    verticalZoom,
+    rows,
+    tracks: state.tracks,
+  };
+
+  const applyMarqueeHits = (
+    box: MarqueeRect,
+    m: NonNullable<typeof marqueeRef.current>,
+  ) => {
+    const live = marqueeLiveRef.current;
+    if (!live) return;
+    const laneH = laneHeightPx(live.verticalZoom);
+    if (live.effectiveViewMode === "light") {
+      const hits = marqueeHitCues(
+        box,
+        live.lightTrackIds,
+        live.songs,
+        live.songOffsets,
+        live.pxPerSec,
+        laneH,
+      );
+      if (m.additive) {
+        const map = new Map(
+          m.baseCueKeys.map((s) => [`${s.songIndex}:${s.cueId}`, s] as const),
+        );
+        for (const h of hits) map.set(`${h.songIndex}:${h.cueId}`, h);
+        const next = [...map.values()];
+        setSelectedCueKeys(next);
+        setCueSelection(next[next.length - 1] ?? null);
+      } else {
+        setSelectedCueKeys(hits);
+        setCueSelection(hits[hits.length - 1] ?? null);
+      }
+      setSelectedRegionKeys([]);
+    } else {
+      const hits = marqueeHitRegions(
+        box,
+        live.rows,
+        live.songs,
+        live.songOffsets,
+        live.songLengths,
+        live.pxPerSec,
+        laneH,
+        live.tracks,
+      );
+      if (m.additive) {
+        const set = new Set(m.baseRegionKeys);
+        for (const h of hits) set.add(h);
+        setSelectedRegionKeys([...set]);
+      } else {
+        setSelectedRegionKeys(hits);
+      }
+      setSelectedCueKeys([]);
+      setCueSelection(null);
+    }
+  };
 
   // Live 3D stage colors come only from the core binary LED stream
   // (LightSidePanel). Do not re-resolve cues on the frontend.
@@ -817,29 +1003,17 @@ export function Timeline({
     );
   };
 
+  // Ruler / playhead-handle scrub (immediate seek).
   const onPointerDown = (e: React.PointerEvent) => {
     if (!hasSongs) return;
-    // Empty-lane click (regions stopPropagation) clears region selection.
-    if (!readOnly) setSelectedRegionKeys([]);
     dragging.current = true;
-    // Capture on currentTarget (the stable element the handler is bound to),
-    // not e.target -- capturing a transient child (a region block, a ruler
-    // tick) that later unmounts mid-drag silently ends the capture without
-    // ever firing pointerup, leaving dragging.current stuck true so plain
-    // mouse hover afterwards kept dragging the playhead.
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    // Optimistic needle only on down -- committing a full seek here AND on
-    // pointerup caused a stop→play blip (audio for 1ms, silence, then play).
     seekFromClientX(e.clientX, false);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return;
-    // Defensive: if the button was released without us seeing pointerup
-    // (lost capture, event swallowed elsewhere), stop dragging instead of
-    // following mere hover.
     if (e.buttons === 0) {
       dragging.current = false;
-      // Lost button state is still a completed drop; never discard it.
       seekFromClientX(e.clientX, true);
       return;
     }
@@ -848,19 +1022,80 @@ export function Timeline({
   const onPointerUp = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
-    // Single commit on release.
     seekFromClientX(e.clientX, true);
   };
   const onPointerCancelOrLost = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
-    // A drag can end via pointercancel/lostpointercapture instead of a clean
-    // pointerup (capture lost to a mid-drag re-render, a trackpad gesture
-    // reinterpretation, alt-tab mid-drag) -- still commit the seek, or the
-    // optimistic marker the user just dropped silently snaps back to the
-    // pre-drag position once optimistic.ts's reconciliation lock expires,
-    // making the drag look like it "didn't apply."
     seekFromClientX(e.clientX, true);
+  };
+
+  // Empty track-lane gesture: click = seek + clear selection; drag = marquee.
+  // Regions/cues stopPropagation so this only sees empty space.
+  // While dragging, selection updates live (before mouse-up).
+  const tracksOriginRef = useRef<HTMLDivElement>(null);
+  const onTracksPointerDown = (e: React.PointerEvent) => {
+    if (!hasSongs || readOnly || e.button !== 0) return;
+    const origin = tracksOriginRef.current;
+    if (!origin) return;
+    const rect = origin.getBoundingClientRect();
+    const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0);
+    // y relative to tracks container (tracksOrigin is inside the scroll body).
+    const y = e.clientY - rect.top;
+    marqueeRef.current = {
+      x0: x,
+      y0: y,
+      active: false,
+      additive: e.shiftKey || e.metaKey || e.ctrlKey,
+      baseRegionKeys: [...selectedRegionKeys],
+      baseCueKeys: [...selectedCueKeys],
+    };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onTracksPointerMove = (e: React.PointerEvent) => {
+    const m = marqueeRef.current;
+    if (!m) return;
+    const origin = tracksOriginRef.current;
+    if (!origin) return;
+    const rect = origin.getBoundingClientRect();
+    const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0);
+    const y = e.clientY - rect.top;
+    const dx = x - m.x0;
+    const dy = y - m.y0;
+    if (!m.active && Math.hypot(dx, dy) < 6) return;
+    m.active = true;
+    const box = normalizeMarquee(m.x0, m.y0, x, y);
+    setMarqueeRect(box);
+    // Live highlight under the rubber-band before release.
+    applyMarqueeHits(box, m);
+  };
+  const finishMarquee = (e: React.PointerEvent) => {
+    const m = marqueeRef.current;
+    marqueeRef.current = null;
+    setMarqueeRect(null);
+    if (!m) return;
+    const origin = tracksOriginRef.current;
+    if (!origin) return;
+    const rect = origin.getBoundingClientRect();
+    const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0);
+    const y = e.clientY - rect.top;
+    if (!m.active) {
+      // Click empty lane: clear selection + seek.
+      setSelectedRegionKeys([]);
+      setSelectedCueKeys([]);
+      setCueSelection(null);
+      seekFromClientX(e.clientX, true);
+      return;
+    }
+    // Final apply (matches last live frame; keeps additive baseline correct).
+    applyMarqueeHits(normalizeMarquee(m.x0, m.y0, x, y), m);
+  };
+  const onTracksPointerUp = (e: React.PointerEvent) => {
+    finishMarquee(e);
+  };
+  const onTracksPointerCancel = (_e: React.PointerEvent) => {
+    marqueeRef.current = null;
+    setMarqueeRect(null);
   };
 
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
@@ -931,7 +1166,17 @@ export function Timeline({
       duplicateSelectedCue,
       splitSelectedCueAtPlayhead,
       deleteSelectedCue,
-      setCueSelection,
+      setCueSelection: (v: CueSelKey | null) => selectCue(v),
+      selectAllCues: () => {
+        const all: CueSelKey[] = [];
+        state.songs.forEach((song, si) => {
+          for (const c of song.lightCues ?? []) {
+            if (c.id) all.push({ songIndex: si, cueId: c.id });
+          }
+        });
+        setSelectedCueKeys(all);
+        setCueSelection(all[all.length - 1] ?? null);
+      },
       copySelectedRegions,
       pasteClipboardRegions,
       duplicateSelectedRegions,
@@ -943,6 +1188,7 @@ export function Timeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       cueSelection,
+      selectedCueKeys,
       selectedRegionKeys,
       state.songs,
       playheadAbsoluteSec,
@@ -954,7 +1200,7 @@ export function Timeline({
   useTimelineKeyboard({
     readOnly,
     effectiveViewMode,
-    cueSelection,
+    hasCueSelection: Boolean(cueSelection) || selectedCueKeys.length > 0,
     selectedRegionKeys,
     songs: state.songs,
     actions: keyboardActions,
@@ -1341,7 +1587,7 @@ export function Timeline({
         setSnapToGrid={setSnapToGrid}
         followMode={followMode}
         cycleFollowMode={cycleFollowMode}
-        hasCueSelection={Boolean(cueSelection)}
+        hasCueSelection={Boolean(cueSelection) || selectedCueKeys.length > 0}
         hasRegionSelection={selectedRegionKeys.length > 0}
         onCopy={
           effectiveViewMode === "light" ? copySelectedCue : copySelectedRegions
@@ -1383,7 +1629,7 @@ export function Timeline({
               hasLightContent={hasLightContent}
               sidePanelTrackIndex={sidePanelTrackIndex}
               setSidePanelTrackIndex={setSidePanelTrackIndex}
-              setCueSelection={setCueSelection}
+              setCueSelection={() => selectCue(null)}
               sidebarContentRef={sidebarContentRef}
             />
           )}
@@ -1488,13 +1734,25 @@ export function Timeline({
 
               {/* 3. Track Waveforms & Grid Container -- one row per canonical track name, one segment per song */}
               <div
+                ref={tracksOriginRef}
                 className="relative flex-1 touch-none select-none min-h-[120px]"
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={onPointerCancelOrLost}
-                onLostPointerCapture={onPointerCancelOrLost}
+                onPointerDown={onTracksPointerDown}
+                onPointerMove={onTracksPointerMove}
+                onPointerUp={onTracksPointerUp}
+                onPointerCancel={onTracksPointerCancel}
+                onLostPointerCapture={onTracksPointerCancel}
               >
+                {marqueeRect && (
+                  <div
+                    className="pointer-events-none absolute z-40 border border-accent/80 bg-accent/15"
+                    style={{
+                      left: marqueeRect.left,
+                      top: marqueeRect.top,
+                      width: marqueeRect.width,
+                      height: marqueeRect.height,
+                    }}
+                  />
+                )}
                 {/* Beat/bar vertical grid canvas, per song (Viewport Sliced) */}
                 {songs.map((song, i) => (
                   <div
@@ -1536,8 +1794,10 @@ export function Timeline({
                     readOnly={readOnly}
                     toAbsSec={toAbsSec}
                     snapLocalSec={snapLocalSec}
-                    cueSelection={cueSelection}
-                    setCueSelection={setCueSelection}
+                    selectedCueKeys={selectedCueKeys}
+                    onSelectCue={selectCue}
+                    onCopySelectedCues={copySelectedCue}
+                    onDeleteSelectedCues={deleteSelectedCue}
                     lightCueDrag={lightCueDrag}
                     setLightCueDrag={setLightCueDrag}
                   />
@@ -1595,15 +1855,41 @@ export function Timeline({
         </div>
       )}
 
-      {regionContextMenu && (
-        <RegionContextMenu
-          menu={regionContextMenu}
-          songs={songs}
-          getRegionUi={getRegionUi}
-          setRegionUi={setRegionUi}
-          onClose={() => setRegionContextMenu(null)}
-        />
-      )}
+      {regionContextMenu &&
+        (selectedRegionKeys.length > 1 &&
+        selectedRegionKeys.includes(regionContextMenu.selKey) ? (
+          <SelectionContextMenu
+            x={regionContextMenu.x}
+            y={regionContextMenu.y}
+            count={selectedRegionKeys.length}
+            kind="region"
+            onCopy={copySelectedRegions}
+            onDelete={deleteSelectedRegions}
+            onMuteToggle={() => {
+              const anyUnmuted = selectedRegionKeys.some(
+                (k) => !getRegionUi(k).muted,
+              );
+              for (const k of selectedRegionKeys) {
+                setRegionUi(k, { muted: anyUnmuted });
+              }
+            }}
+            muteLabel={
+              selectedRegionKeys.some((k) => !getRegionUi(k).muted)
+                ? "Mute selected"
+                : "Unmute selected"
+            }
+            onClose={() => setRegionContextMenu(null)}
+          />
+        ) : (
+          <RegionContextMenu
+            menu={regionContextMenu}
+            songs={songs}
+            getRegionUi={getRegionUi}
+            setRegionUi={setRegionUi}
+            onCopy={copySelectedRegions}
+            onClose={() => setRegionContextMenu(null)}
+          />
+        ))}
     </div>
   );
 }

@@ -213,10 +213,10 @@ export function LightHintStrip({
                   style={{
                     left: leftPx,
                     width: widthPx,
-                    // Same chrome as the editor lane: no default border;
-                    // overall dim so the strip stays a quiet reference.
+                    // Quiet monochrome reference strip (player / audio mode).
                     ...lightCueSelectionStyle(false, trackColor(cue.trackId)),
-                    opacity: 0.45,
+                    opacity: 0.22,
+                    filter: "grayscale(1)",
                   }}
                 >
                   <LightCueBody
@@ -393,8 +393,10 @@ export function LightTrackLane({
   readOnly,
   toAbsSec,
   snapLocalSec,
-  selected,
+  selectedKeys,
   onSelect,
+  onCopySelected,
+  onDeleteSelected,
   activeDrag,
   onActiveDragChange,
 }: {
@@ -416,8 +418,15 @@ export function LightTrackLane({
   readOnly: boolean;
   toAbsSec: (clientX: number) => number;
   snapLocalSec: (songIndex: number, localSeconds: number) => number;
-  selected: CueSelKey | null;
-  onSelect: (sel: CueSelKey | null) => void;
+  /** Multi-select set (outline on every matching cue). */
+  selectedKeys: CueSelKey[];
+  onSelect: (
+    sel: CueSelKey | null,
+    mods?: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean },
+  ) => void;
+  /** Multi-select context actions (copy / delete whole selection). */
+  onCopySelected?: () => void;
+  onDeleteSelected?: () => void;
   /** Shared across all lanes (owned by the parent Timeline, unlike audio
    * regions which share one drag ref/draft within a single Timeline.tsx
    * closure -- each light lane is its own component instance, so a cue
@@ -542,7 +551,10 @@ export function LightTrackLane({
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    onSelect({ songIndex, cueId: cue.id });
+    onSelect(
+      { songIndex, cueId: cue.id },
+      { metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey },
+    );
     dragRef.current = {
       key: cueKey(songIndex, cue.id),
       mode,
@@ -655,7 +667,8 @@ export function LightTrackLane({
 
   const onLanePointerDown = (e: React.PointerEvent) => {
     if (readOnly) return;
-    e.stopPropagation();
+    // Do NOT stopPropagation — parent Timeline runs marquee select on empty
+    // lane drags. Cues still stopPropagation on their own handlers.
     onSelect(null);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     laneClickRef.current = {
@@ -746,8 +759,9 @@ export function LightTrackLane({
                 leftPx > viewEnd - segStart
               )
                 return null;
-              const isSelected =
-                selected?.songIndex === i && selected.cueId === cue.id;
+              const isSelected = selectedKeys.some(
+                (s) => s.songIndex === i && s.cueId === cue.id,
+              );
               const labelText =
                 cue.label ||
                 (cue.effectType && cue.effectType !== "none"
@@ -819,7 +833,17 @@ export function LightTrackLane({
                     if (readOnly) return;
                     e.preventDefault();
                     e.stopPropagation();
-                    onSelect({ songIndex: i, cueId: cue.id });
+                    // Keep multi-select if this cue is already in it;
+                    // otherwise select only this cue.
+                    const already = selectedKeys.some(
+                      (s) => s.songIndex === i && s.cueId === cue.id,
+                    );
+                    if (!already) {
+                      onSelect(
+                        { songIndex: i, cueId: cue.id },
+                        { metaKey: false, ctrlKey: false, shiftKey: false },
+                      );
+                    }
                     setCtxMenu({
                       x: e.clientX,
                       y: e.clientY,
@@ -872,18 +896,50 @@ export function LightTrackLane({
         <ContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
-          width={150}
+          width={180}
           onClose={() => setCtxMenu(null)}
         >
-          <ContextMenuItem
-            danger
-            onClick={() => {
-              void lighting.cueRemove(ctxMenu.songIndex, ctxMenu.cueId);
-              setCtxMenu(null);
-            }}
-          >
-            Delete cue
-          </ContextMenuItem>
+          {(() => {
+            const multi =
+              selectedKeys.length > 1 &&
+              selectedKeys.some(
+                (s) =>
+                  s.songIndex === ctxMenu.songIndex &&
+                  s.cueId === ctxMenu.cueId,
+              );
+            const n = multi ? selectedKeys.length : 1;
+            return (
+              <>
+                {multi && (
+                  <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground/40">
+                    {n} cues selected
+                  </div>
+                )}
+                <ContextMenuItem
+                  onClick={() => {
+                    if (multi && onCopySelected) onCopySelected();
+                    else if (onCopySelected) onCopySelected();
+                    setCtxMenu(null);
+                  }}
+                >
+                  {n > 1 ? `Copy (${n})` : "Copy"}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  danger
+                  onClick={() => {
+                    if (multi && onDeleteSelected) {
+                      onDeleteSelected();
+                    } else {
+                      void lighting.cueRemove(ctxMenu.songIndex, ctxMenu.cueId);
+                    }
+                    setCtxMenu(null);
+                  }}
+                >
+                  {n > 1 ? `Delete (${n})` : "Delete cue"}
+                </ContextMenuItem>
+              </>
+            );
+          })()}
         </ContextMenu>
       )}
     </div>

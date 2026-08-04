@@ -12,6 +12,7 @@ type Actions = {
   splitSelectedCueAtPlayhead: () => void;
   deleteSelectedCue: () => void;
   setCueSelection: (v: CueSelKey | null) => void;
+  selectAllCues: () => void;
   // audio
   copySelectedRegions: () => void;
   pasteClipboardRegions: () => void;
@@ -30,14 +31,14 @@ type Actions = {
 export function useTimelineKeyboard({
   readOnly,
   effectiveViewMode,
-  cueSelection,
+  hasCueSelection,
   selectedRegionKeys,
   songs,
   actions,
 }: {
   readOnly: boolean;
   effectiveViewMode: TimelineViewMode;
-  cueSelection: CueSelKey | null;
+  hasCueSelection: boolean;
   selectedRegionKeys: RegionSelKey[];
   songs: SongRow[];
   actions: Actions;
@@ -56,7 +57,10 @@ export function useTimelineKeyboard({
       const mod = e.metaKey || e.ctrlKey;
 
       if (effectiveViewMode === "light") {
-        if (mod && e.key === "c") {
+        if (mod && e.key === "a") {
+          e.preventDefault();
+          actions.selectAllCues();
+        } else if (mod && e.key === "c") {
           e.preventDefault();
           actions.copySelectedCue();
         } else if (mod && e.key === "v") {
@@ -69,7 +73,7 @@ export function useTimelineKeyboard({
           e.preventDefault();
           void actions.splitSelectedCueAtPlayhead();
         } else if (e.key === "Backspace" || e.key === "Delete") {
-          if (!cueSelection) return;
+          if (!hasCueSelection) return;
           e.preventDefault();
           actions.deleteSelectedCue();
         } else if (e.key === "Escape") {
@@ -105,7 +109,7 @@ export function useTimelineKeyboard({
   }, [
     readOnly,
     effectiveViewMode,
-    cueSelection,
+    hasCueSelection,
     selectedRegionKeys,
     songs,
     actions,
