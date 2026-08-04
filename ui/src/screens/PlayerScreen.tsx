@@ -18,6 +18,7 @@ import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
 import {
   getLiveLedOutputs,
+  getLiveLevels,
   subscribeLiveLedOutputs,
   type LiveLedOutput,
 } from "../lib/liveLevels";
@@ -759,6 +760,14 @@ export function PlayerScreen({
                         db={m.peakDb}
                         dbL={m.peakDbL ?? m.peakDb}
                         dbR={m.peakDbR ?? m.peakDb}
+                        getLiveDbL={() =>
+                          getLiveLevels().meters.find((lm) => lm.id === m.id)
+                            ?.peakDbL ?? -144
+                        }
+                        getLiveDbR={() =>
+                          getLiveLevels().meters.find((lm) => lm.id === m.id)
+                            ?.peakDbR ?? -144
+                        }
                         accent={accent}
                         vertical={true}
                         showValue={false}

@@ -263,6 +263,45 @@ export function ResoLightStage3D({
   const minimal = chrome === "minimal";
   const orbitEnabled = !minimal && dragId === null;
 
+  // Ground-plane onPointerUp (below) only fires when the release lands on
+  // the plane itself -- but a fixture drag visually follows the cursor, so
+  // releasing right where you dropped it lands the pointerup on the FIXTURE
+  // mesh instead (a sibling, not an ancestor, of the plane -- R3F never
+  // bubbles the event there). dragId was then stuck non-null forever,
+  // permanently disabling OrbitControls (orbitEnabled above) -- "zoom
+  // stopped working" after the first drag. A window-level listener commits
+  // the drop and clears drag state no matter what's under the cursor at
+  // release; the native pointerup always bubbles to window regardless of
+  // which mesh R3F routed the synthetic event to.
+  const dragIdRef = useRef(dragId);
+  dragIdRef.current = dragId;
+  const dragPosRef = useRef(dragPos);
+  dragPosRef.current = dragPos;
+  const onFixtureMovedRef = useRef(onFixtureMoved);
+  onFixtureMovedRef.current = onFixtureMoved;
+  useEffect(() => {
+    if (dragId === null) return;
+    const endDrag = () => {
+      const id = dragIdRef.current;
+      const pos = dragPosRef.current;
+      if (id !== null && pos !== null) {
+        onFixtureMovedRef.current?.(
+          id,
+          snapToStageGrid(pos.x),
+          snapToStageGrid(pos.z),
+        );
+      }
+      setDragId(null);
+      setDragPos(null);
+    };
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+    return () => {
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+    };
+  }, [dragId]);
+
   const frameAllRef = useRef<(() => void) | null>(null);
   const topViewRef = useRef<(() => void) | null>(null);
   // Fade-in only AFTER auto Frame All so the camera jump is never visible.

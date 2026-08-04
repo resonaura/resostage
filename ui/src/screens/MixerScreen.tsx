@@ -15,7 +15,7 @@ import {
   useChannelClipHold,
 } from "../components/LevelMeterBar";
 import { builder, mixer } from "../lib/api";
-import { getClickPeaks } from "../lib/liveLevels";
+import { getClickPeaks, getLiveLevels } from "../lib/liveLevels";
 import { useLiveValue } from "../lib/optimistic";
 import type { BusRow, SettingsState, TrackRow, WebUiState } from "../lib/types";
 
@@ -1120,6 +1120,8 @@ function TrackStrip({
       peakDb={peakDb}
       peakDbL={peakDbL}
       peakDbR={peakDbR}
+      getLiveDbL={() => getLiveLevels().tracks[index]?.peakDbL ?? -144}
+      getLiveDbR={() => getLiveLevels().tracks[index]?.peakDbR ?? -144}
       mute={t.mute}
       solo={t.solo}
       anySoloInGroup={anySoloInGroup}
@@ -1285,6 +1287,12 @@ function BusStrip({
       peakDb={peakDb}
       peakDbL={peakDbL}
       peakDbR={peakDbR}
+      getLiveDbL={() =>
+        getLiveLevels().meters.find((m) => m.id === b.id)?.peakDbL ?? -144
+      }
+      getLiveDbR={() =>
+        getLiveLevels().meters.find((m) => m.id === b.id)?.peakDbR ?? -144
+      }
       mute={b.mute}
       solo={b.solo}
       anySoloInGroup={anySoloInGroup}
