@@ -2,7 +2,7 @@
 // the matching BuilderPanel.cpp method (addItem/removeItem/moveItem/
 // apply*Settings) as closely as possible -- same Project mutations, same
 // engine setter calls, same post-edit refresh hooks -- just driven by a JSON
-// payload (see WebCommand::json, parsed with simdjson via BuilderJson.h)
+// payload (see WebCommand::json, parsed with glz::json_t via BuilderJson.h)
 // instead of native widget state. Kept in its own translation unit so
 // MainComponent.cpp doesn't balloon; these are still MainComponent member
 // functions with full access to engine / web-command handlers.
@@ -16,15 +16,6 @@
 namespace resostage {
 
 using namespace builder_json;
-
-namespace {
-
-bool parseJson(const std::string& json, simdjson::dom::element& out) {
-    static simdjson::dom::parser parser; // simdjson's parser is reusable/reentrant only from one thread at a time -- fine here (message thread only)
-    return !parser.parse(json).get(out);
-}
-
-} // namespace
 
 void MainComponent::builderSongAdd(const std::string& json) {
     if (!engine.isProjectLoaded())
@@ -52,7 +43,7 @@ void MainComponent::builderSongAdd(const std::string& json) {
     // fresh, so trackUpdate() ended up renaming/uploading onto the WRONG
     // (pre-seeded) track while the caller's own newly-added track sat
     // unused, still called "New Track" with no audio.
-    simdjson::dom::element doc;
+    glz::json_t doc;
     bool noSeed = false;
     if (parseJson(json, doc))
         getBool(doc, "noSeed", noSeed);
@@ -67,7 +58,7 @@ void MainComponent::builderSongAdd(const std::string& json) {
 }
 
 void MainComponent::builderSongImportFolder(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     std::string path;
     if (!parseJson(json, doc) || !getString(doc, "path", path) || path.empty()) {
         // No path provided -- this is the native UI's own button, which has
@@ -109,7 +100,7 @@ void MainComponent::builderSongImportFolder(const std::string& json) {
 }
 
 void MainComponent::builderSongRemove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int index = -1;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
@@ -125,7 +116,7 @@ void MainComponent::builderSongRemove(const std::string& json) {
 }
 
 void MainComponent::builderSongMove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int index = -1, delta = 0;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !getInt(doc, "delta", delta)
         || !engine.isProjectLoaded())
@@ -142,7 +133,7 @@ void MainComponent::builderSongMove(const std::string& json) {
 }
 
 void MainComponent::builderSongUpdate(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     if (!parseJson(json, doc) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
@@ -171,30 +162,21 @@ void MainComponent::builderSongUpdate(const std::string& json) {
         proj.builtInClickPan = std::clamp(numVal, -1.0, 1.0);
         clickTouched = true;
     }
-    simdjson::dom::array clickSendsArr;
-    if (!doc["clickSends"].get(clickSendsArr)) {
+    if (const auto* clickSendsArr = getArray(doc, "clickSends")) {
         clickTouched = true;
         proj.builtInClickSends.clear();
-        for (simdjson::dom::element csEl : clickSendsArr) {
+        for (const auto& csEl : *clickSendsArr) {
             TrackSendDef cs;
-            std::string_view sv;
-            if (csEl["busId"].get(sv))
+            if (!getString(csEl, "busId", cs.busId))
                 continue; // busId is required
-            cs.busId = std::string(sv);
-            (void)csEl["gainDb"].get(cs.gainDb);
+            getDouble(csEl, "gainDb", cs.gainDb);
             bool enabled = true;
-            (void)csEl["enabled"].get(enabled);
+            getBool(csEl, "enabled", enabled);
             cs.enabled = enabled;
             proj.builtInClickSends.push_back(std::move(cs));
         }
     }
     if (clickTouched) {
-        for (auto& song : proj.songs) {
-            song.builtInClickEnabled = proj.builtInClickEnabled;
-            song.builtInClickBusId = proj.builtInClickBusId;
-            song.builtInClickSends = proj.builtInClickSends;
-            song.builtInClickGainDb = proj.builtInClickGainDb;
-        }
         engine.refreshClickState();
     }
 
@@ -251,7 +233,7 @@ void MainComponent::builderTrackAdd(const std::string& /*json*/) {
 }
 
 void MainComponent::builderTrackRemove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int index = -1;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
@@ -267,7 +249,7 @@ void MainComponent::builderTrackRemove(const std::string& json) {
 }
 
 void MainComponent::builderTrackMove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int index = -1, delta = 0;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !getInt(doc, "delta", delta) || !engine.isProjectLoaded())
         return;
@@ -283,7 +265,7 @@ void MainComponent::builderTrackMove(const std::string& json) {
 }
 
 void MainComponent::builderTrackUpdate(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int index = -1;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
@@ -322,7 +304,7 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
 }
 
 void MainComponent::builderRegionAdd(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1;
     std::string trackId;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "trackId", trackId) || !engine.isProjectLoaded())
@@ -364,7 +346,7 @@ void MainComponent::builderRegionAdd(const std::string& json) {
 }
 
 void MainComponent::builderRegionRemove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1;
     std::string regionId;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "regionId", regionId) || !engine.isProjectLoaded())
@@ -387,7 +369,7 @@ void MainComponent::builderRegionRemove(const std::string& json) {
 }
 
 void MainComponent::builderRegionUpdate(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1;
     std::string regionId;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "regionId", regionId) || !engine.isProjectLoaded())
@@ -452,7 +434,7 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
 // regions), not positional index (like events), since repositioning a
 // marker is just a startSeconds update, not a swap.
 void MainComponent::builderSectionAdd(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !engine.isProjectLoaded())
         return;
@@ -485,7 +467,7 @@ void MainComponent::builderSectionAdd(const std::string& json) {
 }
 
 void MainComponent::builderSectionRemove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1;
     std::string sectionId;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "sectionId", sectionId)
@@ -510,7 +492,7 @@ void MainComponent::builderSectionRemove(const std::string& json) {
 }
 
 void MainComponent::builderSectionUpdate(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1;
     std::string sectionId;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "sectionId", sectionId)
@@ -552,7 +534,7 @@ void MainComponent::builderSectionUpdate(const std::string& json) {
 }
 
 void MainComponent::builderCycleUpdate(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     if (!parseJson(json, doc) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
@@ -598,7 +580,7 @@ void MainComponent::builderCycleUpdate(const std::string& json) {
 }
 
 void MainComponent::setTrackSendFromJson(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int trackIndex = -1;
     std::string busId;
     double gainDb = 0.0;
@@ -632,7 +614,7 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
 }
 
 void MainComponent::setProjectNameFromJson(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     std::string name;
     if (!parseJson(json, doc) || !getString(doc, "name", name) || !engine.isProjectLoaded())
         return;
@@ -647,7 +629,7 @@ void MainComponent::setProjectNameFromJson(const std::string& json) {
 }
 
 void MainComponent::removeTrackSendFromJson(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int trackIndex = -1;
     std::string busId;
     if (!parseJson(json, doc) || !getInt(doc, "trackIndex", trackIndex) || !getString(doc, "busId", busId)
@@ -722,7 +704,7 @@ void MainComponent::builderBusAdd() {
 }
 
 void MainComponent::builderBusRemove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int index = -1;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
@@ -757,18 +739,13 @@ void MainComponent::builderBusRemove(const std::string& json) {
     proj.builtInClickSends.erase(
         std::remove_if(proj.builtInClickSends.begin(), proj.builtInClickSends.end(), dropsRemovedSend),
         proj.builtInClickSends.end());
-    for (auto& song : proj.songs) {
-        // Keep legacy song mirrors in sync.
-        song.builtInClickBusId = proj.builtInClickBusId;
-        song.builtInClickSends = proj.builtInClickSends;
-    }
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Bus removed");
 }
 
 void MainComponent::builderBusMove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int index = -1, delta = 0;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !getInt(doc, "delta", delta)
         || !engine.isProjectLoaded())
@@ -786,7 +763,7 @@ void MainComponent::builderBusMove(const std::string& json) {
 }
 
 void MainComponent::builderBusUpdate(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int index = -1;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
@@ -836,7 +813,7 @@ void MainComponent::builderBusUpdate(const std::string& json) {
 }
 
 void MainComponent::builderEventAdd(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !engine.isProjectLoaded())
         return;
@@ -860,7 +837,7 @@ void MainComponent::builderEventAdd(const std::string& json) {
 }
 
 void MainComponent::builderEventRemove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1, index = -1;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getInt(doc, "index", index)
         || !engine.isProjectLoaded())
@@ -878,7 +855,7 @@ void MainComponent::builderEventRemove(const std::string& json) {
 }
 
 void MainComponent::builderEventMove(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1, index = -1, delta = 0;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getInt(doc, "index", index)
         || !getInt(doc, "delta", delta) || !engine.isProjectLoaded())
@@ -897,7 +874,7 @@ void MainComponent::builderEventMove(const std::string& json) {
 }
 
 void MainComponent::builderEventUpdate(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int songIndex = -1, index = -1;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getInt(doc, "index", index)
         || !engine.isProjectLoaded())

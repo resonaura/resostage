@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Children,
+  Fragment,
   isValidElement,
   useEffect,
   useLayoutEffect,
@@ -58,39 +59,57 @@ function collectNativeItems(children: ReactNode): {
   const items: NativeMenuItem[] = [];
   const handlers = new Map<string, () => void>();
   let n = 0;
-  Children.forEach(children, (child) => {
-    if (!isValidElement(child)) return;
-    const t = child.type as { displayName?: string; name?: string };
-    const name = t.displayName || t.name || "";
-    if (name === "ContextMenuDivider") {
-      items.push({ type: "separator" });
-      return;
-    }
-    if (name === "ContextMenuItem") {
-      const props = child.props as {
-        children?: ReactNode;
-        danger?: boolean;
-        disabled?: boolean;
-        checked?: boolean;
-        onClick: () => void;
-      };
-      const id = `item-${n++}`;
-      const item: NativeMenuItem = {
-        type: "item",
-        id,
-        label: extractLabel(props.children) || "…",
-        danger: props.danger,
-        disabled: props.disabled,
-      };
-      // Only mark as checkbox when `checked` is explicitly boolean — plain
-      // action items stay type "item" without a check column.
-      if (typeof props.checked === "boolean") {
-        item.checked = props.checked;
+
+  // Recurse into Fragments / arrays. Menus often wrap items in `<>...</>`;
+  // without flattening, Electron's native path gets zero items, popup exits
+  // immediately, and the click looks dead (sections create menu).
+  const walk = (node: ReactNode) => {
+    Children.forEach(node, (child) => {
+      if (child == null || typeof child === "boolean") return;
+      if (Array.isArray(child)) {
+        walk(child);
+        return;
       }
-      items.push(item);
-      handlers.set(id, props.onClick);
-    }
-  });
+      if (!isValidElement(child)) return;
+
+      if (child.type === Fragment) {
+        walk((child.props as { children?: ReactNode }).children);
+        return;
+      }
+
+      const t = child.type as { displayName?: string; name?: string };
+      const name = t.displayName || t.name || "";
+
+      if (name === "ContextMenuDivider") {
+        items.push({ type: "separator" });
+        return;
+      }
+      if (name === "ContextMenuItem") {
+        const props = child.props as {
+          children?: ReactNode;
+          danger?: boolean;
+          disabled?: boolean;
+          checked?: boolean;
+          onClick: () => void;
+        };
+        const id = `item-${n++}`;
+        const item: NativeMenuItem = {
+          type: "item",
+          id,
+          label: extractLabel(props.children) || "…",
+          danger: props.danger,
+          disabled: props.disabled,
+        };
+        if (typeof props.checked === "boolean") {
+          item.checked = props.checked;
+        }
+        items.push(item);
+        handlers.set(id, props.onClick);
+      }
+    });
+  };
+
+  walk(children);
   return { items, handlers };
 }
 
@@ -144,6 +163,11 @@ export function ContextMenu({
   useEffect(() => {
     if (!useNative) return;
     const items = JSON.parse(nativeItemsKey) as NativeMenuItem[];
+    if (items.length === 0) {
+      // Defensive: empty native menu is a no-op that would look like a dead click.
+      onCloseRef.current();
+      return;
+    }
     let cancelled = false;
     void bridge!.showContextMenu!(items, x, y)
       .then((id) => {

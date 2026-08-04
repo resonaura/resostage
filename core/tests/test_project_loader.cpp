@@ -36,6 +36,9 @@ constexpr const char* kFullProjectJson = R"JSON(
   "busses": [
     { "id": "bus_main", "name": "Main", "channels": 2, "output": { "startChannel": 0 }, "gainDb": -3.0 }
   ],
+  "tracks": [
+    { "id": "trk_1", "name": "Synths", "bus": "bus_main", "gainDb": -1.5, "pan": 0.25, "mute": true }
+  ],
   "songs": [
     {
       "id": "song_1",
@@ -43,8 +46,8 @@ constexpr const char* kFullProjectJson = R"JSON(
       "bpm": 140.0,
       "timeSignature": { "numerator": 7, "denominator": 8 },
       "playbackMode": "autoplayNext",
-      "tracks": [
-        { "id": "trk_1", "name": "Synths", "file": "Audio/dummy.wav", "bus": "bus_main", "gainDb": -1.5, "pan": 0.25, "mute": true }
+      "regions": [
+        { "id": "reg_1", "trackId": "trk_1", "file": "Audio/dummy.wav", "startSeconds": 0.0, "durationSeconds": 4.0 }
       ],
       "events": [
         { "id": "ev_pc", "type": "midiProgramChange", "triggerOnLoad": true, "midiChannel": 3, "midiProgram": 12, "latencyCompensationMs": 15.0 },
@@ -54,6 +57,7 @@ constexpr const char* kFullProjectJson = R"JSON(
       ]
     }
   ],
+  "cycle": { "active": false, "skip": false, "leftSec": 0.0, "rightSec": 4.0, "songIndex": -1 },
   "keybindings": { "play": "space", "next": "n" },
   "midiMappings": [
     { "action": "play", "channel": 1, "triggerType": "noteOn", "number": 60 },
@@ -174,11 +178,16 @@ TEST_CASE("ProjectLoader parses and round-trips a sends-only track (empty bus)")
     { "id": "bus_main", "name": "Main", "channels": 2, "output": { "startChannel": 0 } },
     { "id": "bus_aux", "name": "Monitor", "channels": 2, "output": { "startChannel": 2 }, "isAux": true }
   ],
+  "tracks": [
+    { "id": "t1", "name": "Click (monitor only)", "bus": "",
+      "sends": [ { "bus": "bus_aux", "gainDb": -3.0 } ] }
+  ],
   "songs": [
-    { "id": "s1", "name": "S1", "bpm": 120, "tracks": [
-        { "id": "t1", "name": "Click (monitor only)", "file": "Audio/dummy.wav", "bus": "",
-          "sends": [ { "bus": "bus_aux", "gainDb": -3.0 } ] }
-      ], "events": [] }
+    { "id": "s1", "name": "S1", "bpm": 120,
+      "regions": [
+        { "id": "r1", "trackId": "t1", "file": "Audio/dummy.wav", "startSeconds": 0.0, "durationSeconds": 1.0 }
+      ],
+      "events": [] }
   ]
 }
 )JSON";

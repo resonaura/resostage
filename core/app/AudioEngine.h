@@ -597,7 +597,7 @@ private:
     bool clickSmoothInited = false;
     bool isClickEnabled = false;
     // Additional send destinations for the click (monitor mixes). Resolved
-    // from song.builtInClickSends in refreshClickState(); parallel arrays.
+    // from Project::builtInClickSends in refreshClickState(); parallel arrays.
     std::vector<int> clickSendBusIndices;
     std::vector<float> clickSendGainLinears;
     // Dezippered click SEND gains (audio thread only) -- parallel to

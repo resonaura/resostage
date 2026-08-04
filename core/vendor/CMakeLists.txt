@@ -15,18 +15,6 @@ add_library(doctest INTERFACE)
 target_include_directories(doctest SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/doctest)
 
 # ---------------------------------------------------------------------------
-# simdjson (amalgamated single-file library)
-# ---------------------------------------------------------------------------
-add_library(simdjson STATIC ${CMAKE_CURRENT_SOURCE_DIR}/simdjson/simdjson.cpp)
-target_include_directories(simdjson SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/simdjson)
-target_compile_features(simdjson PUBLIC cxx_std_17)
-# The amalgamation itself compiles with -Wsign-conversion noise under our
-# app flags; silence it at the translation unit so app sources stay clean.
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
-  target_compile_options(simdjson PRIVATE -Wno-sign-conversion -Wno-conversion)
-endif()
-
-# ---------------------------------------------------------------------------
 # miniz (zip reading)
 # ---------------------------------------------------------------------------
 add_library(miniz STATIC

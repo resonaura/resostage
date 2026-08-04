@@ -370,9 +370,6 @@ struct ProjectCycle {
     int songIndex = -1;
 };
 
-// Legacy alias -- older code / load migration from per-song cycle objects.
-using SongCycle = ProjectCycle;
-
 struct SongDef {
     std::string id;
     std::string name;
@@ -383,17 +380,6 @@ struct SongDef {
     std::vector<TimelineEvent> events;
     std::vector<SongSection> sections;
     std::vector<LightCue> lightCues;
-    // Load-only migration from archives that stored cycle per song. Live state
-    // and new saves use Project::cycle (single project-wide zone).
-    SongCycle legacyCycle;
-
-    // Legacy per-song click fields -- kept only for load migration from older
-    // archives. Live routing and new saves use Project::builtInClick* below
-    // (metronome is project-global, same for every song).
-    bool builtInClickEnabled = false;
-    std::string builtInClickBusId;
-    double builtInClickGainDb = -6.0;
-    std::vector<TrackSendDef> builtInClickSends;
 };
 
 struct BusOutputDef {
@@ -434,8 +420,6 @@ struct Project {
     std::string name;
     double sampleRate = 48000.0;
     // ── Project-global metronome (ClickGenerator). Same for every song. ──
-    // On/off, main bus, aux sends, gain, pan, solo all live here -- not on
-    // SongDef (legacy song fields are load-only migration).
     bool builtInClickEnabled = false;
     // Empty = Sends Only (no main target bus).
     std::string builtInClickBusId;

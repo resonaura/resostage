@@ -871,10 +871,9 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::PerformAction: {
                 // From the Electron shell's menu / action bridge. cmd.json
                 // carries {"action":"..."}.
-                static simdjson::dom::parser parser;
-                simdjson::dom::element doc;
+                glz::json_t doc;
                 std::string action;
-                if (!parser.parse(cmd.json).get(doc)
+                if (builder_json::parseJson(cmd.json, doc)
                     && builder_json::getString(doc, "action", action) && !action.empty())
                     performAction(action);
                 break;

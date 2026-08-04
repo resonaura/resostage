@@ -19,7 +19,7 @@ namespace resostage {
 // retarget()/prepare() only update the grid (tempo + meter). They do not
 // invent a second clock; musical position comes from the caller's startSample.
 //
-// This is the *built-in* generator (project.json: song.builtInClickEnabled).
+// This is the *built-in* generator (project.json: builtInClickEnabled).
 class ClickGenerator {
 public:
     // sampleRateHz: device rate.

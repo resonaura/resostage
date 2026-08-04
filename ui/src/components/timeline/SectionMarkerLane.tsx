@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { builder } from "../../lib/api";
 import type { SectionRow, SongRow } from "../../lib/types";
 import {
@@ -15,9 +16,8 @@ const SECTION_CHIP_BG = "rgba(255,255,255,0.08)";
 const SECTION_CHIP_FG = "rgba(255,255,255,0.55)";
 
 // Point markers, not ranges -- the segment a marker covers is implicitly
-// "from here to the next marker (or song end)". In the Editor, empty-lane
-// left-click (or right-click) opens the section-create context menu; existing
-// markers: drag to move, double-click = cycle, right-click = edit/delete.
+// "from here to the next marker (or song end)". Editor empty-lane click /
+// right-click opens create menu; markers: drag, double-click cycle, context edit.
 
 interface SectionMenuState {
   x: number;
@@ -36,8 +36,6 @@ export function SectionMarkerLane({
   contentWidth,
   readOnly,
   snapToGrid = false,
-  /** Double-click a section marker → set cycle to that section's range
-   *  (start → next section / song end). Song sections, not audio regions. */
   onCycleFromSection,
 }: {
   songs: SongRow[];
@@ -57,9 +55,6 @@ export function SectionMarkerLane({
   const [menu, setMenu] = useState<SectionMenuState | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
-  // Drag bookkeeping (startX/origStart) lives in a ref -- doesn't need to
-  // trigger renders. The live dragged position is state so the marker's
-  // on-screen position actually updates as the pointer moves.
   const dragMetaRef = useRef<{
     songIndex: number;
     sectionId: string;
@@ -71,30 +66,33 @@ export function SectionMarkerLane({
     sectionId: string;
     value: number;
   } | null>(null);
+  // Empty-lane click detection (pointer, not click — more reliable under
+  // parent cursor-col-resize / touch-none scrollports).
+  const emptyPtrRef = useRef<{ x: number; y: number } | null>(null);
 
   const resolveSongAt = (
     absSeconds: number,
   ): { songIndex: number; localSeconds: number } => {
+    if (songOffsets.length === 0) return { songIndex: -1, localSeconds: 0 };
     for (let i = 0; i < songOffsets.length; i++) {
       const start = songOffsets[i];
-      const end = start + songLengths[i];
+      const end = start + (songLengths[i] ?? 0);
       if (absSeconds < end || i === songOffsets.length - 1)
         return { songIndex: i, localSeconds: Math.max(0, absSeconds - start) };
     }
-    return { songIndex: -1, localSeconds: 0 };
+    return { songIndex: 0, localSeconds: 0 };
   };
 
-  const openMenuAt = (
-    e: React.MouseEvent,
+  const openMenuAtClient = (
+    clientX: number,
+    clientY: number,
     existing?: { songIndex: number; sectionId: string },
   ) => {
-    e.preventDefault();
-    e.stopPropagation();
     if (readOnly) return;
     if (existing) {
       setMenu({
-        x: e.clientX,
-        y: e.clientY,
+        x: clientX,
+        y: clientY,
         songIndex: existing.songIndex,
         startSeconds: 0,
         sectionId: existing.sectionId,
@@ -102,9 +100,9 @@ export function SectionMarkerLane({
       return;
     }
     const rect = laneRef.current?.getBoundingClientRect();
-    const absSeconds = rect
-      ? Math.max(0, (e.clientX - rect.left) / pxPerSec)
-      : 0;
+    // Lane is full contentWidth inside a scroller — rect.left already shifts
+    // with scrollLeft (same pattern as seekFromClientX).
+    const absSeconds = rect ? Math.max(0, (clientX - rect.left) / pxPerSec) : 0;
     const { songIndex, localSeconds } = resolveSongAt(absSeconds);
     if (songIndex < 0) return;
     const song = songs[songIndex];
@@ -118,8 +116,8 @@ export function SectionMarkerLane({
       snapToGrid,
     );
     setMenu({
-      x: e.clientX,
-      y: e.clientY,
+      x: clientX,
+      y: clientY,
       songIndex,
       startSeconds: snappedLocal,
     });
@@ -157,7 +155,6 @@ export function SectionMarkerLane({
     closeMenu();
   };
 
-  /** Section covers [start, next.start) or [start, songEnd). */
   const sectionRange = (
     songIndex: number,
     sectionId: string,
@@ -229,22 +226,39 @@ export function SectionMarkerLane({
   return (
     <div
       ref={laneRef}
-      className={`relative shrink-0 border-b border-default/30 bg-surface/20 touch-none ${
-        // Editor: context-menu cursor on empty lane (place a section).
-        // Markers below override with ew-resize for drag-to-move.
+      className={`relative z-[5] shrink-0 border-b border-default/30 bg-surface/20 touch-none ${
         readOnly ? "" : "cursor-context-menu"
       }`}
-      style={{ height: SECTION_LANE_HEIGHT, width: contentWidth }}
-      onContextMenu={(e) => {
-        if (readOnly) return;
-        openMenuAt(e);
+      style={{
+        height: SECTION_LANE_HEIGHT,
+        width: contentWidth,
+        // Inline cursor wins over parent scrollport cursor-col-resize.
+        cursor: readOnly ? undefined : "context-menu",
       }}
-      onClick={(e) => {
-        // Editor only: left-click empty lane → section create menu
-        // (Intro/Verse/Chorus/… + custom). Markers stopPropagation.
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (readOnly) return;
+        openMenuAtClient(e.clientX, e.clientY);
+      }}
+      onPointerDown={(e) => {
         if (readOnly || e.button !== 0) return;
-        if (e.detail !== 1) return;
-        openMenuAt(e);
+        // Stop the timeline scroller from treating this as a seek/drag start.
+        e.stopPropagation();
+        emptyPtrRef.current = { x: e.clientX, y: e.clientY };
+      }}
+      onPointerUp={(e) => {
+        if (readOnly || e.button !== 0) return;
+        const start = emptyPtrRef.current;
+        emptyPtrRef.current = null;
+        if (!start) return;
+        // Pure click (no drag) on empty lane → create menu.
+        if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 5) return;
+        e.stopPropagation();
+        openMenuAtClient(e.clientX, e.clientY);
+      }}
+      onPointerCancel={() => {
+        emptyPtrRef.current = null;
       }}
     >
       {songs.map((song, i) =>
@@ -256,14 +270,12 @@ export function SectionMarkerLane({
           return (
             <div
               key={`${i}:${sec.id}`}
-              className="absolute top-0 bottom-0 flex items-center"
+              className="absolute top-0 bottom-0 z-[1] flex items-center"
               style={{ left, cursor: readOnly ? "default" : "ew-resize" }}
-              title={`${sec.name} @ ${formatTimeShort(sec.startSeconds)}${readOnly ? "" : " (drag to move · double-click = cycle · right-click to edit)"}`}
-              onClick={(e) => e.stopPropagation()}
+              title={`${sec.name} @ ${formatTimeShort(sec.startSeconds)}${readOnly ? "" : " (drag · double-click = cycle · right-click edit)"}`}
               onPointerDown={(e) => {
                 e.stopPropagation();
-                // Second click of a double-click must not start a drag — it
-                // would fight the cycle-from-section gesture below.
+                emptyPtrRef.current = null; // not an empty-lane click
                 if (e.detail >= 2) return;
                 beginDrag(e, i, sec.id, sec.startSeconds);
               }}
@@ -279,9 +291,15 @@ export function SectionMarkerLane({
                 if (!range) return;
                 onCycleFromSection(i, range.leftSec, range.rightSec);
               }}
-              onContextMenu={(e) =>
-                openMenuAt(e, { songIndex: i, sectionId: sec.id })
-              }
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                emptyPtrRef.current = null;
+                openMenuAtClient(e.clientX, e.clientY, {
+                  songIndex: i,
+                  sectionId: sec.id,
+                });
+              }}
             >
               <div
                 className="h-full w-px"
@@ -301,11 +319,52 @@ export function SectionMarkerLane({
         }),
       )}
 
-      {menu && (
+      {menu && !renaming && (
         <ContextMenu x={menu.x} y={menu.y} width={168} onClose={closeMenu}>
-          {renaming ? (
+          {/*
+            Items must be direct-enough for ContextMenu's native collector
+            (Fragments are flattened). Avoid non-item wrappers as sole children.
+          */}
+          {SECTION_PRESETS.map((p) => (
+            <ContextMenuItem key={p} onClick={() => applyPreset(p)}>
+              {p}
+            </ContextMenuItem>
+          ))}
+          <ContextMenuItem
+            onClick={() => {
+              setNameDraft("");
+              setRenaming(true);
+            }}
+          >
+            Custom...
+          </ContextMenuItem>
+          {menu.sectionId ? (
+            <>
+              <ContextMenuDivider />
+              <ContextMenuItem danger onClick={removeMarker}>
+                Delete Marker
+              </ContextMenuItem>
+            </>
+          ) : null}
+        </ContextMenu>
+      )}
+
+      {/* Custom name: DOM portal (native menus can't host a text field). */}
+      {menu &&
+        renaming &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[9998]"
+              onClick={closeMenu}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                closeMenu();
+              }}
+            />
             <form
-              className="px-2 py-1.5"
+              className="fixed z-[9999] w-44 rounded-xl border border-default/40 bg-surface/95 p-2 shadow-2xl backdrop-blur-md"
+              style={{ left: menu.x, top: menu.y }}
               onSubmit={(e) => {
                 e.preventDefault();
                 commitCustomName();
@@ -322,33 +381,9 @@ export function SectionMarkerLane({
                 className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
               />
             </form>
-          ) : (
-            <>
-              {SECTION_PRESETS.map((p) => (
-                <ContextMenuItem key={p} onClick={() => applyPreset(p)}>
-                  {p}
-                </ContextMenuItem>
-              ))}
-              <ContextMenuItem
-                onClick={() => {
-                  setNameDraft("");
-                  setRenaming(true);
-                }}
-              >
-                Custom...
-              </ContextMenuItem>
-              {menu.sectionId && (
-                <>
-                  <ContextMenuDivider />
-                  <ContextMenuItem danger onClick={removeMarker}>
-                    Delete Marker
-                  </ContextMenuItem>
-                </>
-              )}
-            </>
-          )}
-        </ContextMenu>
-      )}
+          </>,
+          document.body,
+        )}
     </div>
   );
 }

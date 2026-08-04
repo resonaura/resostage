@@ -6,9 +6,13 @@
 
 namespace resostage {
 
-// Round-trip serializer for project.json. Used by ProjectLoader::save and tests.
-// Output is UTF-8 JSON without trailing newline requirements beyond a final \n.
+// Serialize Project → project.json via Glaze (reflection wire DTOs).
+// Output is UTF-8 pretty JSON with a trailing newline.
 std::string serializeProjectJson(const Project& project);
+
+// Parse project.json via Glaze into Project. Unknown keys ignored; no legacy
+// format migrations (per-song tracks/cycle/click are not supported).
+bool parseProjectJson(std::string_view json, Project& out, std::string& error);
 
 // Escape a string for embedding in a JSON string literal.
 std::string jsonEscapeString(const std::string& s);

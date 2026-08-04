@@ -17,15 +17,6 @@ namespace resostage {
 
 using namespace builder_json;
 
-namespace {
-
-bool parseJson(const std::string& json, simdjson::dom::element& out) {
-    static simdjson::dom::parser parser;
-    return !parser.parse(json).get(out);
-}
-
-} // namespace
-
 void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
     // Fresh vectors every call (publishWebState builds a new WebUiState, but
     // be explicit so a reused SettingsRow can never accumulate stale names).
@@ -150,7 +141,7 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
 }
 
 void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     std::string name;
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
@@ -170,7 +161,7 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
 }
 
 void MainComponent::settingsSetSampleRate(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     double value = 0.0;
     if (!parseJson(json, doc) || !getDouble(doc, "value", value) || value <= 0.0)
         return;
@@ -235,7 +226,7 @@ void MainComponent::settingsSetSampleRate(const std::string& json) {
 }
 
 void MainComponent::settingsSetBufferSize(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     int value = 0;
     if (!parseJson(json, doc) || !getInt(doc, "value", value) || value <= 0)
         return;
@@ -253,7 +244,7 @@ void MainComponent::settingsSetBufferSize(const std::string& json) {
 }
 
 void MainComponent::settingsSetMidiOutput(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     std::string name;
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
@@ -269,7 +260,7 @@ void MainComponent::settingsSetMidiOutput(const std::string& json) {
 }
 
 void MainComponent::settingsSetMidiInput(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     std::string name;
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
@@ -285,7 +276,7 @@ void MainComponent::settingsSetMidiInput(const std::string& json) {
 }
 
 void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     bool enabled = false;
     if (!parseJson(json, doc) || !getBool(doc, "enabled", enabled))
         return;
@@ -306,7 +297,7 @@ void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
 }
 
 void MainComponent::settingsSetUiRenderEngine(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     std::string engineChoice;
     if (!parseJson(json, doc) || !getString(doc, "engine", engineChoice))
         return;
@@ -329,16 +320,18 @@ void MainComponent::settingsSetUiRenderEngine(const std::string& json) {
 }
 
 void MainComponent::settingsSetOutputChannels(const std::string& json) {
-    simdjson::dom::element doc;
-    simdjson::dom::array channels;
-    if (!parseJson(json, doc) || doc["channels"].get(channels))
+    glz::json_t doc;
+    if (!parseJson(json, doc))
+        return;
+    const auto* channels = getArray(doc, "channels");
+    if (channels == nullptr)
         return;
 
     juce::BigInteger bits;
-    for (simdjson::dom::element v : channels) {
-        int64_t idx = 0;
-        if (!v.get(idx) && idx >= 0)
-            bits.setBit(static_cast<int>(idx));
+    for (const auto& v : *channels) {
+        int idx = 0;
+        if (asInt(v, idx) && idx >= 0)
+            bits.setBit(idx);
     }
 
     auto setup = engine.deviceManager().getAudioDeviceSetup();
@@ -347,10 +340,10 @@ void MainComponent::settingsSetOutputChannels(const std::string& json) {
     const juce::String error = engine.setAudioDeviceSetup(setup, true);
     if (error.isEmpty()) {
         appSettings.activeOutputChannels.clear();
-        for (simdjson::dom::element v : channels) {
-            int64_t idx = 0;
-            if (!v.get(idx) && idx >= 0)
-                appSettings.activeOutputChannels.push_back(static_cast<int>(idx));
+        for (const auto& v : *channels) {
+            int idx = 0;
+            if (asInt(v, idx) && idx >= 0)
+                appSettings.activeOutputChannels.push_back(idx);
         }
         saveAppSettingsToDisk();
         setStatus("Output channels updated");
@@ -360,7 +353,7 @@ void MainComponent::settingsSetOutputChannels(const std::string& json) {
 }
 
 void MainComponent::settingsSetKeybinding(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     std::string action, key;
     if (!parseJson(json, doc) || !getString(doc, "action", action) || !getString(doc, "key", key))
         return;
@@ -374,7 +367,7 @@ void MainComponent::settingsSetKeybinding(const std::string& json) {
 }
 
 void MainComponent::settingsMidiLearn(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     std::string action;
     if (!parseJson(json, doc) || !getString(doc, "action", action))
         return;
@@ -392,7 +385,7 @@ void MainComponent::settingsMidiLearnCancel() {
 }
 
 void MainComponent::settingsMidiClear(const std::string& json) {
-    simdjson::dom::element doc;
+    glz::json_t doc;
     std::string action;
     if (!parseJson(json, doc) || !getString(doc, "action", action))
         return;

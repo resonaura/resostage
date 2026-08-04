@@ -1,12 +1,13 @@
 #include "AppSettings.h"
 
 #include "project/ProjectJson.h" // jsonEscapeString
-
-#include "simdjson.h"
+#include "web/BuilderJson.h"
 
 #include <sstream>
 
 namespace resostage {
+
+using namespace builder_json;
 
 juce::File appSettingsFile() {
     const juce::File userData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
@@ -32,85 +33,68 @@ AppSettings loadAppSettings() {
     if (text.empty())
         return settings;
 
-    simdjson::dom::parser parser;
-    simdjson::dom::element doc;
-    if (parser.parse(text).get(doc))
+    glz::json_t doc;
+    if (!parseJson(text, doc))
         return settings; // corrupt file -- start from defaults rather than fail startup
 
-    std::string_view sv;
-    if (!doc["outputDeviceName"].get(sv))
-        settings.outputDeviceName = std::string(sv);
-    double d = 0.0;
-    if (!doc["sampleRate"].get(d))
-        settings.sampleRate = d;
-    int64_t i64 = 0;
-    if (!doc["bufferSize"].get(i64))
-        settings.bufferSize = static_cast<int>(i64);
-    if (!doc["midiOutputName"].get(sv))
-        settings.midiOutputName = std::string(sv);
-    if (!doc["midiInputName"].get(sv))
-        settings.midiInputName = std::string(sv);
-    bool b = false;
-    if (!doc["virtualMidiPortEnabled"].get(b))
-        settings.virtualMidiPortEnabled = b;
-    if (!doc["uiRenderEngine"].get(sv)) {
+    getString(doc, "outputDeviceName", settings.outputDeviceName);
+    getDouble(doc, "sampleRate", settings.sampleRate);
+    getInt(doc, "bufferSize", settings.bufferSize);
+    getString(doc, "midiOutputName", settings.midiOutputName);
+    getString(doc, "midiInputName", settings.midiInputName);
+    getBool(doc, "virtualMidiPortEnabled", settings.virtualMidiPortEnabled);
+
+    std::string uiEngine;
+    if (getString(doc, "uiRenderEngine", uiEngine)) {
         // Only the two current engines are valid; a stale persisted value
         // (e.g. the retired "wkwebview" or "cef") must not reach the UI.
-        const std::string choice = std::string(sv);
-        if (choice == "browser" || choice == "electron")
-            settings.uiRenderEngine = choice;
+        if (uiEngine == "browser" || uiEngine == "electron")
+            settings.uiRenderEngine = uiEngine;
     }
 
-    simdjson::dom::array channelsArr;
-    if (!doc["activeOutputChannels"].get(channelsArr)) {
-        for (simdjson::dom::element el : channelsArr) {
-            int64_t idx = 0;
-            if (!el.get(idx))
-                settings.activeOutputChannels.push_back(static_cast<int>(idx));
+    if (const auto* channelsArr = getArray(doc, "activeOutputChannels")) {
+        for (const auto& el : *channelsArr) {
+            int idx = 0;
+            if (asInt(el, idx))
+                settings.activeOutputChannels.push_back(idx);
         }
     }
 
-    simdjson::dom::object kbObj;
-    if (!doc["keybindings"].get(kbObj)) {
-        for (simdjson::dom::key_value_pair field : kbObj) {
-            std::string_view value;
-            if (!field.value.get(value))
-                settings.keybindings[std::string(field.key)] = std::string(value);
+    if (const auto* kbObj = getObject(doc, "keybindings")) {
+        for (const auto& [key, value] : *kbObj) {
+            std::string str;
+            if (asString(value, str))
+                settings.keybindings[key] = std::move(str);
         }
     }
 
-    simdjson::dom::array mmArr;
-    if (!doc["midiMappings"].get(mmArr)) {
-        for (simdjson::dom::element mmEl : mmArr) {
-            std::string_view action;
-            if (mmEl["action"].get(action))
+    if (const auto* mmArr = getArray(doc, "midiMappings")) {
+        for (const auto& mmEl : *mmArr) {
+            std::string action;
+            if (!getString(mmEl, "action", action))
                 continue; // skip malformed entry rather than fail the whole load
             MidiMapping mapping;
-            mapping.action = std::string(action);
+            mapping.action = std::move(action);
 
-            int64_t channel = 0;
-            (void)mmEl["channel"].get(channel);
-            mapping.channel = static_cast<int>(channel);
+            getInt(mmEl, "channel", mapping.channel);
 
-            std::string_view triggerType;
-            if (!mmEl["triggerType"].get(triggerType))
-                mapping.triggerType = (triggerType == "controlChange") ? MidiTriggerType::ControlChange : MidiTriggerType::NoteOn;
+            std::string triggerType;
+            if (getString(mmEl, "triggerType", triggerType))
+                mapping.triggerType = (triggerType == "controlChange")
+                                          ? MidiTriggerType::ControlChange
+                                          : MidiTriggerType::NoteOn;
 
-            int64_t number = 0;
-            (void)mmEl["number"].get(number);
-            mapping.number = static_cast<int>(number);
+            getInt(mmEl, "number", mapping.number);
 
             settings.midiMappings.push_back(std::move(mapping));
         }
     }
 
-    simdjson::dom::array rpArr;
-    if (!doc["recentProjects"].get(rpArr)) {
-        for (simdjson::dom::element rpEl : rpArr) {
-            std::string_view path;
-            if (rpEl["path"].get(path))
+    if (const auto* rpArr = getArray(doc, "recentProjects")) {
+        for (const auto& rpEl : *rpArr) {
+            std::string pathStr;
+            if (!getString(rpEl, "path", pathStr))
                 continue; // skip malformed entry rather than fail the whole load
-            const std::string pathStr(path);
             // .rsnraset projects are package directories (LSTypeIsPackage in
             // Info.plist.in), not flat files -- existsAsFile() is always
             // false for a directory, which was silently dropping every
@@ -118,13 +102,9 @@ AppSettings loadAppSettings() {
             if (!juce::File(pathStr).exists())
                 continue; // skip projects that no longer exist on disk
             RecentProjectEntry rp;
-            rp.path = pathStr;
-            std::string_view name;
-            if (!rpEl["displayName"].get(name))
-                rp.displayName = std::string(name);
-            std::string_view iso;
-            if (!rpEl["lastOpenedIso"].get(iso))
-                rp.lastOpenedIso = std::string(iso);
+            rp.path = std::move(pathStr);
+            getString(rpEl, "displayName", rp.displayName);
+            getString(rpEl, "lastOpenedIso", rp.lastOpenedIso);
             settings.recentProjects.push_back(std::move(rp));
         }
     }

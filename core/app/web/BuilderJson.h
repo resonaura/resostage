@@ -1,14 +1,15 @@
 #pragma once
 
-// Shared helpers for the Builder web-parity commands: WebServer.cpp passes
-// raw JSON bodies through untouched (see WebCommand::json), and both
-// MainComponent.cpp (state serialization) and MainComponentBuilder.cpp
-// (command handling) need the same simdjson field accessors and
-// EventType<->wire-string mapping. Header-only, inline, no .cpp needed.
+// Shared helpers for web-parity commands: WebServer passes raw JSON bodies
+// through untouched (see WebCommand::json), and MainComponent* handlers need
+// the same field accessors and EventType<->wire-string mapping. Header-only.
+//
+// Dynamic command/settings parse uses Glaze's glz::json_t (generic DOM-like
+// tree). Project files use typed Glaze DTOs in ProjectJson.cpp instead.
 
 #include "project/ProjectSchema.h"
 
-#include "simdjson.h"
+#include "glaze/glaze.hpp"
 
 #include <algorithm>
 #include <string>
@@ -17,43 +18,85 @@
 
 namespace resostage::builder_json {
 
-// simdjson's `.get(out)` returns an error_code that's truthy on FAILURE
-// (mirrors the convention already used in engine/project/ProjectLoader.cpp).
-// These wrap that into a more ergonomic "did we get a value" bool, and leave
-// `out` untouched when the field is absent -- callers rely on that to mean
-// "the web client didn't send this field, don't touch the existing value".
+// glz::read_json returns error_ctx that is truthy on failure. Leave `out`
+// undefined on failure -- callers must not use it when this returns false.
+// Field accessors leave `out` untouched when the key is absent so callers can
+// mean "web client didn't send this field, keep the existing value".
 
-inline bool getInt(const simdjson::dom::element& el, const char* key, int& out) {
-    int64_t v;
-    if (el[key].get(v))
+inline bool parseJson(const std::string& json, glz::json_t& out) {
+    return !glz::read_json(out, json);
+}
+
+inline bool getInt(const glz::json_t& el, const char* key, int& out) {
+    if (!el.contains(key))
         return false;
-    out = static_cast<int>(v);
+    const glz::json_t& v = el[key];
+    if (!v.is_number())
+        return false;
+    out = static_cast<int>(v.get_number());
     return true;
 }
 
-inline bool getDouble(const simdjson::dom::element& el, const char* key, double& out) {
-    double d;
-    if (!el[key].get(d)) {
-        out = d;
-        return true;
-    }
-    int64_t i;
-    if (!el[key].get(i)) {
-        out = static_cast<double>(i);
-        return true;
-    }
-    return false;
-}
-
-inline bool getBool(const simdjson::dom::element& el, const char* key, bool& out) {
-    return !el[key].get(out);
-}
-
-inline bool getString(const simdjson::dom::element& el, const char* key, std::string& out) {
-    std::string_view sv;
-    if (el[key].get(sv))
+inline bool getDouble(const glz::json_t& el, const char* key, double& out) {
+    if (!el.contains(key))
         return false;
-    out = std::string(sv);
+    const glz::json_t& v = el[key];
+    if (!v.is_number())
+        return false;
+    out = v.get_number();
+    return true;
+}
+
+inline bool getBool(const glz::json_t& el, const char* key, bool& out) {
+    if (!el.contains(key))
+        return false;
+    const glz::json_t& v = el[key];
+    if (!v.is_boolean())
+        return false;
+    out = v.get_boolean();
+    return true;
+}
+
+inline bool getString(const glz::json_t& el, const char* key, std::string& out) {
+    if (!el.contains(key))
+        return false;
+    const glz::json_t& v = el[key];
+    if (!v.is_string())
+        return false;
+    out = v.get_string();
+    return true;
+}
+
+// Array/object children (nullptr if missing or wrong type).
+inline const glz::json_t::array_t* getArray(const glz::json_t& el, const char* key) {
+    if (!el.contains(key))
+        return nullptr;
+    const glz::json_t& v = el[key];
+    if (!v.is_array())
+        return nullptr;
+    return &v.get_array();
+}
+
+inline const glz::json_t::object_t* getObject(const glz::json_t& el, const char* key) {
+    if (!el.contains(key))
+        return nullptr;
+    const glz::json_t& v = el[key];
+    if (!v.is_object())
+        return nullptr;
+    return &v.get_object();
+}
+
+inline bool asInt(const glz::json_t& v, int& out) {
+    if (!v.is_number())
+        return false;
+    out = static_cast<int>(v.get_number());
+    return true;
+}
+
+inline bool asString(const glz::json_t& v, std::string& out) {
+    if (!v.is_string())
+        return false;
+    out = v.get_string();
     return true;
 }
 

@@ -29,8 +29,8 @@ target_include_directories(resostage_engine PUBLIC
 target_link_libraries(resostage_engine
   PUBLIC
     miniz
-    simdjson
     moodycamel_rwq
+    glaze::glaze
 )
 
 if(APPLE)
