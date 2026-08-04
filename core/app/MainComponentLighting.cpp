@@ -571,6 +571,7 @@ void MainComponent::lightingCueUpdate(const std::string& json) {
     double numVal;
     int intVal;
     std::string strVal;
+    if (getString(doc, "trackId", strVal)) cue->trackId = strVal;
     if (getDouble(doc, "startSeconds", numVal)) cue->startSeconds = std::max(0.0, numVal);
     if (getDouble(doc, "durationSeconds", numVal)) cue->durationSeconds = std::max(0.1, numVal);
     if (getInt(doc, "colorR", intVal)) cue->colorR = static_cast<uint8_t>(std::clamp(intVal, 0, 255));

@@ -11,7 +11,7 @@ import type {
   WebUiState,
 } from "../../lib/types";
 import { ContextMenu, ContextMenuItem } from "../ContextMenu";
-import { LANE_HEIGHT, TrackWaveformLane } from "../TrackWaveformLane";
+import { LANE_HEIGHT, laneHeightPx, TrackWaveformLane } from "../TrackWaveformLane";
 import {
   effectUsesOwnColor,
   EFFECT_META,
@@ -259,8 +259,19 @@ export function AudioHintStrip({
 // spec, plus minimal Phase A authoring -- click empty lane to add a cue,
 // drag the block to move it, drag either edge to resize, right-click to
 // delete. Selection opens the cue editor panel (owned by the parent Timeline).
+export interface LightCueDragState {
+  key: string;
+  songIndex: number;
+  cueId: string;
+  start: number;
+  duration: number;
+  targetTrackId: string;
+}
+
 export function LightTrackLane({
   track,
+  trackIndex,
+  trackIds,
   color,
   songs,
   songOffsets,
@@ -274,8 +285,16 @@ export function LightTrackLane({
   snapLocalSec,
   selected,
   onSelect,
+  activeDrag,
+  onActiveDragChange,
 }: {
   track: LightTrackRow;
+  /** This lane's position among lightTracks -- used to resolve which lane a
+   * vertical cue drag is currently hovering (see onCueDragMove below). */
+  trackIndex: number;
+  /** Every light track's id, in the same order as trackIndex, so a drag
+   * that crosses into another lane can resolve a real trackId. */
+  trackIds: string[];
   color: string;
   songs: SongRow[];
   songOffsets: number[];
@@ -289,6 +308,16 @@ export function LightTrackLane({
   snapLocalSec: (songIndex: number, localSeconds: number) => number;
   selected: CueSelKey | null;
   onSelect: (sel: CueSelKey | null) => void;
+  /** Shared across all lanes (owned by the parent Timeline, unlike audio
+   * regions which share one drag ref/draft within a single Timeline.tsx
+   * closure -- each light lane is its own component instance, so a cue
+   * crossing into a different lane has to be coordinated one level up).
+   * Non-null only while a "move" drag has actually crossed into a
+   * different lane; every lane resolves its own rendered cue list against
+   * this so the cue visually jumps to its new lane immediately instead of
+   * waiting for the backend round-trip. */
+  activeDrag: LightCueDragState | null;
+  onActiveDragChange: (next: LightCueDragState | null) => void;
 }) {
   interface CueDraft {
     start: number;
@@ -315,10 +344,15 @@ export function LightTrackLane({
     songIndex: number;
     cueId: string;
     startX: number;
+    startY: number;
     origStart: number;
     origDuration: number;
     maxEnd: number;
     lastGeom: CueDraft;
+    /** Lane this drag started in / currently hovers over -- "move" mode
+     * only, see onCueDragMove. */
+    originTrackIndex: number;
+    targetTrackIndex: number;
   } | null>(null);
 
   const laneClickRef = useRef<{
@@ -373,11 +407,21 @@ export function LightTrackLane({
     return -1;
   };
 
-  const geomFor = (songIndex: number, cue: LightCueRow): CueDraft =>
-    drafts[cueKey(songIndex, cue.id)] ?? {
-      start: cue.startSeconds,
-      duration: cue.durationSeconds,
-    };
+  const geomFor = (songIndex: number, cue: LightCueRow): CueDraft => {
+    const key = cueKey(songIndex, cue.id);
+    // A cue crossing into a different lane is driven by the shared
+    // activeDrag (visible to every lane), not this lane's own local
+    // drafts -- see the module doc comment on LightCueDragState.
+    if (activeDrag?.key === key) {
+      return { start: activeDrag.start, duration: activeDrag.duration };
+    }
+    return (
+      drafts[key] ?? {
+        start: cue.startSeconds,
+        duration: cue.durationSeconds,
+      }
+    );
+  };
 
   const beginCueDrag = (
     e: React.PointerEvent,
@@ -395,10 +439,13 @@ export function LightTrackLane({
       songIndex,
       cueId: cue.id,
       startX: e.clientX,
+      startY: e.clientY,
       origStart: geom.start,
       origDuration: geom.duration,
       maxEnd: songLengths[songIndex] ?? 0,
       lastGeom: geom,
+      originTrackIndex: trackIndex,
+      targetTrackIndex: trackIndex,
     };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -412,6 +459,31 @@ export function LightTrackLane({
     if (rd.mode === "move") {
       const maxStart = Math.max(0, rd.maxEnd - rd.origDuration);
       next.start = Math.max(0, Math.min(maxStart, snap(rd.origStart + dSec)));
+
+      // Move between tracks: crossing into a neighboring lane's vertical
+      // span moves the cue into that lane's rendering immediately -- every
+      // lane resolves its own cue list against activeDrag (see songCues
+      // below and geomFor above), instead of only previewing a drop
+      // target and waiting for the backend round-trip.
+      const dY = e.clientY - rd.startY;
+      const rowsCrossed = Math.round(dY / laneHeightPx(verticalZoom));
+      const nextTargetTrack = Math.max(
+        0,
+        Math.min(trackIds.length - 1, rd.originTrackIndex + rowsCrossed),
+      );
+      rd.targetTrackIndex = nextTargetTrack;
+      onActiveDragChange(
+        nextTargetTrack !== rd.originTrackIndex
+          ? {
+              key: rd.key,
+              songIndex: rd.songIndex,
+              cueId: rd.cueId,
+              start: next.start,
+              duration: next.duration,
+              targetTrackId: trackIds[nextTargetTrack],
+            }
+          : null,
+      );
     } else if (rd.mode === "trimStart") {
       const s = Math.max(
         0,
@@ -445,13 +517,25 @@ export function LightTrackLane({
     const updated = { ...draftsRef.current, [rd.key]: final };
     draftsRef.current = updated;
     setDrafts(updated);
+
+    // Resolve a track crossing (see onCueDragMove) to an actual trackId.
+    const targetTrackId =
+      rd.mode === "move" && rd.targetTrackIndex !== rd.originTrackIndex
+        ? trackIds[rd.targetTrackIndex]
+        : undefined;
+
     void lighting.cueUpdate({
       songIndex: rd.songIndex,
       cueId: rd.cueId,
+      ...(targetTrackId ? { trackId: targetTrackId } : {}),
       startSeconds: final.start,
       durationSeconds: final.duration,
     });
     dragRef.current = null;
+    // activeDrag (if a crossing happened) intentionally stays set -- the
+    // parent clears it once state.songs confirms the new trackId, so the
+    // cue doesn't flash back to its old lane before the server catches up.
+    // If no crossing happened it's already null (see onCueDragMove).
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {
@@ -510,9 +594,18 @@ export function LightTrackLane({
         const segStart = songOffsets[i] * pxPerSec;
         const segEnd = segStart + songLengths[i] * pxPerSec;
         if (viewEnd <= segStart || viewStart >= segEnd) return null;
-        const songCues = (song.lightCues ?? []).filter(
-          (c) => c.trackId === track.id,
-        );
+        // A cue actively being dragged across lanes renders in whichever
+        // lane activeDrag.targetTrackId points at -- not its own
+        // (not-yet-committed) trackId -- so it visually jumps to the new
+        // lane immediately during the drag. See geomFor above for the
+        // matching live-geometry override.
+        const songCues = (song.lightCues ?? []).filter((c) => {
+          const effectiveTrackId =
+            activeDrag?.key === cueKey(i, c.id)
+              ? activeDrag.targetTrackId
+              : c.trackId;
+          return effectiveTrackId === track.id;
+        });
         // Sorted by rendered start so the 6px minimum hit-box below (and
         // any genuine data overlap from a drag) can never bleed a cue's
         // clickable area into its neighbor's territory -- that bleed is

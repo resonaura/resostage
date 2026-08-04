@@ -63,7 +63,7 @@ import {
   LIGHT_COLORS,
   LIGHT_HINT_HEIGHT,
 } from "./light/LightTimeline";
-import type { CueSelKey } from "./light/LightTimeline";
+import type { CueSelKey, LightCueDragState } from "./light/LightTimeline";
 import { LightSidePanel } from "./light/LightSidePanel";
 import type { LightSidePanelSelection } from "./light/LightSidePanel";
 
@@ -1882,11 +1882,36 @@ export function Timeline({
         fadeOutCurve?: number;
         loop?: boolean;
         loopLengthSeconds?: number;
+        trackId?: string;
       }
     >
   >({});
   const regionGeomDraftRef = useRef(regionGeomDraft);
   regionGeomDraftRef.current = regionGeomDraft;
+
+  // Light cue actively being dragged across LightTrackLane instances (each
+  // lane is its own component, so -- unlike audio regions, which share one
+  // regionGeomDraft/regionDragRef in this same closure -- crossing tracks
+  // needs a piece of state lifted up here that every lane can read: the
+  // origin lane stops rendering the cue via its own (not yet committed)
+  // trackId, and whichever lane matches targetTrackId renders it instead,
+  // live, at (start, duration). Only used while a "move" drag has actually
+  // crossed into a different lane; a same-track drag never touches this and
+  // keeps using LightTrackLane's own local draft exactly as before. Kept
+  // alive through the backend round-trip (cleared once state.songs confirms
+  // the new trackId, see the effect below) so the cue doesn't flash back to
+  // its old lane before the server catches up.
+  const [lightCueDrag, setLightCueDrag] =
+    useState<LightCueDragState | null>(null);
+  useEffect(() => {
+    if (!lightCueDrag) return;
+    const cue = state.songs[lightCueDrag.songIndex]?.lightCues?.find(
+      (c) => c.id === lightCueDrag.cueId,
+    );
+    if (!cue || cue.trackId === lightCueDrag.targetTrackId) {
+      setLightCueDrag(null);
+    }
+  }, [state.songs, lightCueDrag]);
 
   // Drop draft once project state reflects it (or the region vanished).
   useEffect(() => {
@@ -1922,7 +1947,8 @@ export function Timeline({
             Math.abs((r.fadeInCurve ?? 0) - d.fadeInCurve) < 0.05) &&
           (d.fadeOutCurve === undefined ||
             Math.abs((r.fadeOutCurve ?? 0) - d.fadeOutCurve) < 0.05) &&
-          (d.loop === undefined || Boolean(r.loop) === Boolean(d.loop));
+          (d.loop === undefined || Boolean(r.loop) === Boolean(d.loop)) &&
+          (d.trackId === undefined || r.trackId === d.trackId);
         if (matches) {
           delete next[key];
           changed = true;
@@ -1954,6 +1980,10 @@ export function Timeline({
     fadeOutCurve: number;
     loop: boolean;
     loopLengthSeconds?: number;
+    /** Set only while a "move" drag is hovering a different track's lane --
+     * see the trackRegions filter above. Undefined = stays on its own
+     * (committed) track. */
+    trackId?: string;
   };
   const regionDragRef = useRef<{
     key: RegionSelKey;
@@ -1976,6 +2006,11 @@ export function Timeline({
     maxSourceDur: number;
     /** Last live geometry during drag (committed on pointer up). */
     lastGeom: RegionGeom;
+    /** Row index (in `rows`) the region started in -- "move" mode only. */
+    originRowIndex: number;
+    /** Row index the drag currently hovers over; resolved to a track id at
+     * pointer-up. Equal to originRowIndex when not crossing tracks. */
+    targetRowIndex: number;
   } | null>(null);
 
   const writeGeomDraft = (key: RegionSelKey, geom: RegionGeom) => {
@@ -2122,6 +2157,10 @@ export function Timeline({
   const lightTracks = useMemo(
     () => state.lightTracks ?? [],
     [state.lightTracks],
+  );
+  const lightTrackIds = useMemo(
+    () => lightTracks.map((t) => t.id),
+    [lightTracks],
   );
   const lightFixtures = useMemo(
     () => state.lighting?.fixtures ?? [],
@@ -3650,6 +3689,8 @@ export function Timeline({
                         <LightTrackLane
                           key={t.id}
                           track={t}
+                          trackIndex={i}
+                          trackIds={lightTrackIds}
                           color={lightTrackColor(i)}
                           songs={songs}
                           songOffsets={songOffsets}
@@ -3663,6 +3704,8 @@ export function Timeline({
                           snapLocalSec={snapLocalSec}
                           selected={cueSelection}
                           onSelect={setCueSelection}
+                          activeDrag={lightCueDrag}
+                          onActiveDragChange={setLightCueDrag}
                         />
                       ))
                     )}
@@ -3673,7 +3716,7 @@ export function Timeline({
                     No tracks in this project.
                   </div>
                 ) : (
-                  rows.map((row) => (
+                  rows.map((row, rowIndex) => (
                     <div
                       key={row.name}
                       className="relative border-b border-default/15 bg-default/5"
@@ -3704,9 +3747,22 @@ export function Timeline({
                             (t.name || t.id) === row.name || t.id === row.name,
                         );
                         const trackRegions = (song.regions ?? []).filter(
-                          (r) =>
-                            Boolean(r.file) &&
-                            (r.trackId === track?.id || r.trackId === row.name),
+                          (r) => {
+                            if (!r.file) return false;
+                            // A region actively being dragged across tracks
+                            // renders in whichever row its draft's trackId
+                            // points at -- not its own (not-yet-committed)
+                            // trackId -- so the box itself jumps to the new
+                            // lane immediately during the drag, instead of
+                            // waiting for the backend round-trip.
+                            const draftTrackId =
+                              regionGeomDraft[regionSelKey(i, r.id)]?.trackId;
+                            const effectiveTrackId = draftTrackId ?? r.trackId;
+                            return (
+                              effectiveTrackId === track?.id ||
+                              effectiveTrackId === row.name
+                            );
+                          },
                         );
                         if (trackRegions.length === 0) return null;
 
@@ -3892,6 +3948,8 @@ export function Timeline({
                                     fileDuration - orig.sourceOffset,
                                   ),
                                   lastGeom: orig,
+                                  originRowIndex: rowIndex,
+                                  targetRowIndex: rowIndex,
                                 };
                                 (
                                   e.currentTarget as HTMLElement
@@ -3969,9 +4027,44 @@ export function Timeline({
                                       snapSec(rd.origStart + dSec),
                                     ),
                                   );
+
+                                  // Move between tracks: crossing into a
+                                  // neighboring lane's vertical span moves
+                                  // the region into that row's rendering
+                                  // immediately (the trackRegions filter
+                                  // above resolves the draft's trackId over
+                                  // the region's own not-yet-committed one),
+                                  // instead of only previewing a drop target
+                                  // and waiting for the backend round-trip.
+                                  const rowsCrossed = Math.round(
+                                    dY / laneHeightPx(verticalZoom),
+                                  );
+                                  const nextTargetRow = Math.max(
+                                    0,
+                                    Math.min(
+                                      rows.length - 1,
+                                      rd.originRowIndex + rowsCrossed,
+                                    ),
+                                  );
+                                  rd.targetRowIndex = nextTargetRow;
+                                  let draftTrackId: string | undefined;
+                                  if (nextTargetRow !== rd.originRowIndex) {
+                                    const targetRow = rows[nextTargetRow];
+                                    const targetTrack = targetRow
+                                      ? state.tracks.find(
+                                          (t) =>
+                                            (t.name || t.id) ===
+                                              targetRow.name ||
+                                            t.id === targetRow.name,
+                                        )
+                                      : undefined;
+                                    draftTrackId = targetTrack?.id;
+                                  }
+
                                   writeGeomDraft(thisRegionSelKey, {
                                     ...baseGeom(rd),
                                     start: nextStart,
+                                    trackId: draftTrackId,
                                   });
                                   return;
                                 }
@@ -4099,11 +4192,19 @@ export function Timeline({
                                 if (!rd || rd.key !== thisRegionSelKey) return;
                                 const finalGeom: RegionGeom =
                                   rd.lastGeom ?? baseGeom(rd);
-                                // Keep draft until state.songs matches (useEffect above).
+                                // Keep draft (including a track crossing,
+                                // see onDragMove) until state.songs matches
+                                // (useEffect above) -- the region stays
+                                // rendered in its new lane without a
+                                // snap-back flash while this round-trips.
                                 writeGeomDraft(thisRegionSelKey, finalGeom);
+
                                 void builder.regionUpdate({
                                   songIndex: i,
                                   regionId: songRegion.id,
+                                  ...(finalGeom.trackId
+                                    ? { trackId: finalGeom.trackId }
+                                    : {}),
                                   startSeconds: finalGeom.start,
                                   sourceOffsetSeconds: finalGeom.sourceOffset,
                                   durationSeconds: finalGeom.duration,

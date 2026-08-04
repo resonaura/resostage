@@ -566,7 +566,7 @@ function TrackOutputRouting({
   busId,
   busses,
   settings,
-  mono,
+  mono = false,
   onMonoChange,
   onBusSelect,
   onDirectOutput,
@@ -574,8 +574,11 @@ function TrackOutputRouting({
   busId: string;
   busses: BusRow[];
   settings: SettingsState;
-  mono: boolean;
-  onMonoChange: (mono: boolean) => void;
+  /** Omit both mono and onMonoChange for a strip with nothing meaningful to
+   * sum to mono (e.g. the metronome click) -- the toggle just won't render,
+   * rather than sitting there as a button that does nothing. */
+  mono?: boolean;
+  onMonoChange?: (mono: boolean) => void;
   onBusSelect: (id: string) => void;
   onDirectOutput: (mono: boolean, startChannel: number) => void;
 }) {
@@ -591,29 +594,31 @@ function TrackOutputRouting({
   return (
     <div className="w-full my-1 flex flex-col items-center gap-1.5">
       {/* Mono/Stereo: forces mono sum of the track for mix + meters */}
-      <div className="w-full flex items-center justify-center my-0.5">
-        <button
-          type="button"
-          className="flex items-center justify-center p-1 text-foreground/70 transition-colors hover:text-foreground mx-auto"
-          title={
-            mono
-              ? "Mono — click for stereo"
-              : "Stereo — click for mono (sum L+R)"
-          }
-          onClick={() => {
-            const nextMono = !mono;
-            onMonoChange(nextMono);
-            if (directOutputOpen) {
-              const newOptions = directOutputOptions(settings, !nextMono);
-              if (newOptions.length > 0) {
-                onDirectOutput(nextMono, newOptions[0].startChannel);
-              }
+      {onMonoChange && (
+        <div className="w-full flex items-center justify-center my-0.5">
+          <button
+            type="button"
+            className="flex items-center justify-center p-1 text-foreground/70 transition-colors hover:text-foreground mx-auto"
+            title={
+              mono
+                ? "Mono — click for stereo"
+                : "Stereo — click for mono (sum L+R)"
             }
-          }}
-        >
-          <MonoStereoIcon stereo={!mono} />
-        </button>
-      </div>
+            onClick={() => {
+              const nextMono = !mono;
+              onMonoChange(nextMono);
+              if (directOutputOpen) {
+                const newOptions = directOutputOptions(settings, !nextMono);
+                if (newOptions.length > 0) {
+                  onDirectOutput(nextMono, newOptions[0].startChannel);
+                }
+              }
+            }}
+          >
+            <MonoStereoIcon stereo={!mono} />
+          </button>
+        </div>
+      )}
 
       <select
         value={currentValue}
@@ -877,12 +882,13 @@ function ChannelStrip({
   busId?: string;
   onBusSelect?: (id: string) => void;
   // When set, the plain <select> is replaced by TrackOutputRouting (adds the
-  // "Direct Output" escape hatch + mono/stereo channel picker). Track strips
-  // only -- doesn't apply to bus/master/click strips.
+  // "Direct Output" escape hatch). Mono/stereo toggle is optional within
+  // that -- omit mono/onMonoChange for a strip with nothing meaningful to
+  // sum to mono (e.g. the metronome click uses this for Direct Output only).
   directOutput?: {
     settings: SettingsState;
-    mono: boolean;
-    onMonoChange: (mono: boolean) => void;
+    mono?: boolean;
+    onMonoChange?: (mono: boolean) => void;
     onDirectOutput: (mono: boolean, startChannel: number) => void;
   };
   // Ableton-style send knob row, one per aux bus. Track strips only.
@@ -1216,8 +1222,6 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
       onBusSelect={changeClickBus}
       directOutput={{
         settings: state.settings,
-        mono: false,
-        onMonoChange: () => {},
         onDirectOutput: (_mono, startChannel) => {
           // Route click onto any bus (main or aux) already on this physical
           // pair so Ext. Out same-channel stacks with master/sends via the

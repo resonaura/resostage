@@ -439,6 +439,7 @@ export const lighting = {
   cueUpdate: (patch: {
     songIndex: number;
     cueId: string;
+    trackId?: string;
     startSeconds?: number;
     durationSeconds?: number;
     colorR?: number;
