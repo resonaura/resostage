@@ -7,21 +7,13 @@ import {
   SkipForward,
   Square,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
 import { LevelMeterBar } from "../components/LevelMeterBar";
-import {
-  ResoLightStage3D,
-  type PreviewColor,
-} from "../components/light/ResoLightStage3D";
+import { ResoLightStage3D } from "../components/light/ResoLightStage3D";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
-import {
-  getLiveLedOutputs,
-  getLiveLevels,
-  subscribeLiveLedOutputs,
-  type LiveLedOutput,
-} from "../lib/liveLevels";
+import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
 import type {
   AllPeaksResponse,
@@ -186,35 +178,6 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
   const li = state.lighting;
   const fixtures = li?.fixtures ?? [];
 
-  // Backend-authoritative per-LED stream only (same resolve path as ResoLight).
-  // No client-side cue re-simulation.
-  const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
-
-  useEffect(
-    () =>
-      li?.enabled
-        ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs()))
-        : undefined,
-    [li?.enabled],
-  );
-
-  const displayColors = useMemo(() => {
-    const merged: Record<string, PreviewColor> = {};
-    if (!li?.enabled) return merged;
-    for (const lo of liveLedOutputs) {
-      const fixture = fixtures[lo.fixtureIdx];
-      if (!fixture) continue;
-      merged[fixture.id] = {
-        r: 0,
-        g: 0,
-        b: 0,
-        intensity: 1,
-        ledColors: lo.ledColors,
-      };
-    }
-    return merged;
-  }, [li?.enabled, liveLedOutputs, fixtures]);
-
   if (fixtures.length === 0) return null;
 
   return (
@@ -229,7 +192,7 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
         <ResoLightStage3D
           mode="preview"
           fixtures={fixtures}
-          previewColors={displayColors}
+          live={Boolean(li?.enabled)}
           chrome="minimal"
         />
       </div>

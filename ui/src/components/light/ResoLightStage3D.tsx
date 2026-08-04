@@ -5,7 +5,11 @@ import { Maximize2, MoveUp } from "lucide-react";
 import * as THREE from "three";
 import type { LightFixtureRow } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
-import type { LiveLedColor } from "../../lib/liveLevels";
+import {
+  getLiveLedOutputs,
+  subscribeLiveLedOutputs,
+  type LiveLedColor,
+} from "../../lib/liveLevels";
 import type { FixtureShape } from "../../lib/dmxProfiles";
 
 // One stage-grid cell is deliberately small enough for practical placement,
@@ -245,7 +249,17 @@ export function ResoLightStage3D({
   selectedFixtureId,
   onSelectFixture,
   onFixtureMoved,
-  previewColors,
+  /** Whether to show the live per-LED binary stream at all (mirrors the
+   * caller's own `li.enabled`/rig-connected gate) -- when false, every
+   * fixture just shows its dark/off housing. Each fixture subscribes to the
+   * stream itself (see ResoLightBar/GenericFixture below) instead of this
+   * component holding the live data in React state: that used to live in
+   * three near-identical useState+useEffect blocks in every caller
+   * (PlayerScreen, ProjectLightingPanel, LightSidePanel), each re-rendering
+   * its whole tree (every fixture, every segment mesh) on every binary WS
+   * frame -- 30-60Hz during a show, entirely through React's reconciler for
+   * what's ultimately just a color/opacity number changing. */
+  live = true,
   /** Compact player preview: no overlay buttons, no orbit drag. */
   chrome = "full",
 }: {
@@ -254,7 +268,7 @@ export function ResoLightStage3D({
   selectedFixtureId?: string | null;
   onSelectFixture?: (id: string) => void;
   onFixtureMoved?: (id: string, x: number, z: number) => void;
-  previewColors?: Record<string, PreviewColor>;
+  live?: boolean;
   chrome?: "full" | "minimal";
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
@@ -447,12 +461,14 @@ export function ResoLightStage3D({
           <planeGeometry args={[200, 200]} />
         </mesh>
 
-        {fixtures.map((f) => {
+        {fixtures.map((f, i) => {
           const isDragging = dragId === f.id;
           const x = isDragging && dragPos ? dragPos.x : snapToStageGrid(f.posX);
           const z = isDragging && dragPos ? dragPos.z : snapToStageGrid(f.posZ);
           const commonProps = {
             fixture: f,
+            fixtureIndex: i,
+            live,
             x,
             z,
             selected: mode === "edit" && f.id === selectedFixtureId,
@@ -461,7 +477,6 @@ export function ResoLightStage3D({
               onSelectFixture?.(f.id);
               if (mode === "edit") setDragId(f.id);
             },
-            previewColor: previewColors?.[f.id],
           };
           return f.kind === "resoLightBar" ? (
             <ResoLightBar key={f.id} {...commonProps} />
@@ -503,6 +518,40 @@ export function ResoLightStage3D({
 export type PreviewColor = LightCueValue & {
   ledColors?: LiveLedColor[];
 };
+
+// Each fixture subscribes to the live binary stream itself, filtered to its
+// own fixtureIdx, instead of a parent screen holding ALL fixtures' colors in
+// React state and re-rendering the entire stage on every WS frame. Still a
+// React state update (not a ref+useFrame mutation) -- but it's now scoped to
+// exactly the one fixture whose color actually changed, instead of cascading
+// through the whole scene, every OTHER fixture, and the parent screen too.
+export function useLiveFixtureColor(
+  fixtureIndex: number,
+  live: boolean,
+): PreviewColor | undefined {
+  const [previewColor, setPreviewColor] = useState<PreviewColor | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    if (!live) {
+      setPreviewColor(undefined);
+      return;
+    }
+    const apply = () => {
+      const lo = getLiveLedOutputs().find(
+        (l) => l.fixtureIdx === fixtureIndex,
+      );
+      setPreviewColor(
+        lo
+          ? { r: 0, g: 0, b: 0, intensity: 1, ledColors: lo.ledColors }
+          : undefined,
+      );
+    };
+    apply();
+    return subscribeLiveLedOutputs(apply);
+  }, [live, fixtureIndex]);
+  return previewColor;
+}
 
 // Dark housing when a fixture has no live output (unbound, empty track,
 // blackout). Ambient/directional still pick up a faint charcoal so the
@@ -638,21 +687,24 @@ function uniformBoxSize(
 
 function ResoLightBar({
   fixture,
+  fixtureIndex,
+  live,
   x,
   z,
   selected,
   editable,
   onPointerDownStart,
-  previewColor,
 }: {
   fixture: LightFixtureRow;
+  fixtureIndex: number;
+  live: boolean;
   x: number;
   z: number;
   selected: boolean;
   editable: boolean;
   onPointerDownStart: () => void;
-  previewColor?: PreviewColor;
 }) {
+  const previewColor = useLiveFixtureColor(fixtureIndex, live);
   // Rough visual scale: ~30 LEDs per meter of bar height, clamped so a
   // 1-LED or 500-LED fixture still renders as something sane on stage.
   const heightMeters = Math.min(3, Math.max(0.3, fixture.ledCount / 30));
@@ -846,21 +898,24 @@ function ResoLightBar({
 // so a rig mixing bars and generic fixtures reads as one consistent stage.
 function GenericFixture({
   fixture,
+  fixtureIndex,
+  live,
   x,
   z,
   selected,
   editable,
   onPointerDownStart,
-  previewColor,
 }: {
   fixture: LightFixtureRow;
+  fixtureIndex: number;
+  live: boolean;
   x: number;
   z: number;
   selected: boolean;
   editable: boolean;
   onPointerDownStart: () => void;
-  previewColor?: PreviewColor;
 }) {
+  const previewColor = useLiveFixtureColor(fixtureIndex, live);
   const { color, emissiveIntensity } = useUniformFixtureColor(previewColor);
   // How strongly the glow sprite reads -- mirrors ResoLightBar's per-segment
   // `seg.level` (the resolved color's own brightness), not a separate signal.

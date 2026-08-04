@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Circle,
   Copy,
@@ -21,7 +21,11 @@ import type {
   LightingState,
   WebUiState,
 } from "../../lib/types";
-import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
+import {
+  ResoLightStage3D,
+  useLiveFixtureColor,
+  type PreviewColor,
+} from "./ResoLightStage3D";
 import {
   HslColorPicker,
   LabeledSlider,
@@ -33,11 +37,6 @@ import {
   type EffectType,
   type GradientPreset,
 } from "./LightSidePanel";
-import {
-  getLiveLedOutputs,
-  subscribeLiveLedOutputs,
-  type LiveLedOutput,
-} from "../../lib/liveLevels";
 import {
   CHANNEL_PROFILES,
   DMX_GENERIC_SHAPES,
@@ -167,20 +166,24 @@ function summarizeSwatchColor(
 
 function FixtureItem({
   fixture,
+  fixtureIndex,
+  live,
   selected,
   onSelect,
   onRemove,
   hasChannelConflict,
-  previewColor: rawPreviewColor,
 }: {
   fixture: LightFixtureRow;
+  fixtureIndex: number;
+  live: boolean;
   selected: boolean;
   onSelect: () => void;
   onRemove: () => void;
   hasChannelConflict: boolean;
-  previewColor?: PreviewColor;
 }) {
-  const previewColor = summarizeSwatchColor(rawPreviewColor);
+  const previewColor = summarizeSwatchColor(
+    useLiveFixtureColor(fixtureIndex, live),
+  );
   const hasColor = previewColor && previewColor.intensity > 0.01;
   // Only worth a badge when it's not the plain default for the kind --
   // every ResoLightBar starts as "bar", so showing the icon for that case
@@ -274,31 +277,6 @@ export function ProjectLightingPanel({
     () => findDmxChannelConflicts(li.fixtures),
     [li.fixtures],
   );
-
-  // Backend-authoritative per-LED stream only (resolveLightOutputs + idle
-  // fades on the core). Frontend never re-simulates cues/effects.
-  const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
-  useEffect(
-    () =>
-      li.enabled
-        ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs()))
-        : undefined,
-    [li.enabled],
-  );
-  const displayColors: Record<string, PreviewColor> = {};
-  if (li.enabled) {
-    for (const lo of liveLedOutputs) {
-      const fixture = li.fixtures[lo.fixtureIdx];
-      if (!fixture) continue;
-      displayColors[fixture.id] = {
-        r: 0,
-        g: 0,
-        b: 0,
-        intensity: 1,
-        ledColors: lo.ledColors,
-      };
-    }
-  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -713,7 +691,7 @@ export function ProjectLightingPanel({
                         posZ: z,
                       })
                     }
-                    previewColors={displayColors}
+                    live={li.enabled}
                   />
                 </div>
               </div>
@@ -728,10 +706,12 @@ export function ProjectLightingPanel({
                     </span>
                   </div>
                   <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
-                    {li.fixtures.map((f) => (
+                    {li.fixtures.map((f, i) => (
                       <FixtureItem
                         key={f.id}
                         fixture={f}
+                        fixtureIndex={i}
+                        live={li.enabled}
                         selected={f.id === selectedFixtureId}
                         onSelect={() => setSelectedFixtureId(f.id)}
                         onRemove={() => {
@@ -740,7 +720,6 @@ export function ProjectLightingPanel({
                           void lighting.fixtureRemove(f.id);
                         }}
                         hasChannelConflict={dmxConflicts.has(f.id)}
-                        previewColor={displayColors[f.id]}
                       />
                     ))}
                   </div>

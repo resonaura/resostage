@@ -8,7 +8,7 @@
  *   3. Selected cue settings (color, audio-reactive effect, fades).
  */
 import { Slider } from "@heroui/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Activity,
   Barcode,
@@ -49,12 +49,7 @@ import {
   parseGradientStops,
   type GradientStop,
 } from "../../lib/lightCueInterpolation";
-import {
-  getLiveLedOutputs,
-  subscribeLiveLedOutputs,
-  type LiveLedOutput,
-} from "../../lib/liveLevels";
-import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
+import { ResoLightStage3D } from "./ResoLightStage3D";
 
 const labelCls =
   "text-[11px] font-semibold uppercase tracking-wide text-foreground/50";
@@ -1535,31 +1530,10 @@ export function LightSidePanel({
         )
       : false;
 
-  // Backend-rendered per-LED state only (binary WS stream from core).
-  // Never re-simulate cues/effects/idle on the frontend — that must match
-  // ResoLight DMX pixel-for-pixel.
-  const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
-  useEffect(
-    () => subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs())),
-    [],
-  );
-
-  const displayColors = useMemo(() => {
-    void previewColors; // kept in props for API stability; not used for paint
-    const merged: Record<string, PreviewColor> = {};
-    for (const lo of liveLedOutputs) {
-      const fixture = fixtures[lo.fixtureIdx];
-      if (!fixture) continue;
-      merged[fixture.id] = {
-        r: 0,
-        g: 0,
-        b: 0,
-        intensity: 1,
-        ledColors: lo.ledColors,
-      };
-    }
-    return merged;
-  }, [previewColors, liveLedOutputs, fixtures]);
+  // previewColors kept in props for API stability -- ResoLightStage3D now
+  // sources live colors itself (per-fixture, see useLiveFixtureColor), not
+  // used for paint here.
+  void previewColors;
 
   return (
     <div
@@ -1572,11 +1546,7 @@ export function LightSidePanel({
         style={{ height: 200 }}
         onWheel={(e) => e.stopPropagation()}
       >
-        <ResoLightStage3D
-          mode="preview"
-          fixtures={fixtures}
-          previewColors={displayColors}
-        />
+        <ResoLightStage3D mode="preview" fixtures={fixtures} />
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
