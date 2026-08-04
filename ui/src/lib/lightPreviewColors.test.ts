@@ -28,7 +28,6 @@ function makeFixture(id: string): LightFixtureRow {
     tiltDeg: 0,
     refreshRateHz: 0,
     networkHost: "",
-    networkPort: 0,
   };
 }
 

@@ -238,7 +238,7 @@ bool parseLightFixture(const simdjson::dom::element& fxEl, LightFixture& fx, std
     (void)fxEl["refreshRateHz"].get(fx.refreshRateHz);
     std::string_view networkHostView;
     if (!fxEl["networkHost"].get(networkHostView)) fx.networkHost = std::string(networkHostView);
-    if (!fxEl["networkPort"].get(tmp)) fx.networkPort = static_cast<int>(tmp);
+    // networkPort (legacy) ignored — transport always uses kDefaultBoardPort.
 
     return true;
 }

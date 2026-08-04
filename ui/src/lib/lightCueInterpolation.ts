@@ -15,16 +15,32 @@ const BLACK: LightCueValue = { r: 0, g: 0, b: 0, intensity: 0 };
 // same as everything else in this file. See that header's class comment for
 // why blending happens on the resolved color, not a per-LED array merge.
 
-export type BlendMode = "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive";
+export type BlendMode =
+  | "normal"
+  | "additive"
+  | "multiply"
+  | "difference"
+  | "lighten"
+  | "subtractive";
 
-export function blendChannel(mode: BlendMode, base: number, top: number): number {
+export function blendChannel(
+  mode: BlendMode,
+  base: number,
+  top: number,
+): number {
   switch (mode) {
-    case "additive": return Math.min(1, base + top);
-    case "multiply": return base * top;
-    case "difference": return Math.abs(base - top);
-    case "lighten": return Math.max(base, top);
-    case "subtractive": return Math.max(0, base - top);
-    default: return top;
+    case "additive":
+      return Math.min(1, base + top);
+    case "multiply":
+      return base * top;
+    case "difference":
+      return Math.abs(base - top);
+    case "lighten":
+      return Math.max(base, top);
+    case "subtractive":
+      return Math.max(0, base - top);
+    default:
+      return top;
   }
 }
 
@@ -62,7 +78,8 @@ export function resolveLightCueValue(
 
   let level = 1;
   if (fadeIn > 0 && t < fadeIn) level = t / fadeIn;
-  else if (fadeOut > 0 && t >= fadeOutStart) level = Math.max(0, (dur - t) / fadeOut);
+  else if (fadeOut > 0 && t >= fadeOutStart)
+    level = Math.max(0, (dur - t) / fadeOut);
 
   return {
     r: active.colorR,
@@ -81,10 +98,34 @@ export interface GradientStop {
 }
 
 const BUILTIN_PALETTES: Record<string, GradientStop[]> = {
-  vulcanFire: [{ r: 0, g: 0, b: 0 }, { r: 120, g: 0, b: 0 }, { r: 255, g: 90, b: 0 }, { r: 255, g: 200, b: 40 }, { r: 255, g: 255, b: 220 }],
-  toxicFire: [{ r: 0, g: 0, b: 0 }, { r: 10, g: 60, b: 10 }, { r: 40, g: 220, b: 60 }, { r: 190, g: 255, b: 120 }, { r: 255, g: 255, b: 255 }],
-  cryoFire: [{ r: 0, g: 0, b: 0 }, { r: 10, g: 20, b: 60 }, { r: 20, g: 110, b: 200 }, { r: 100, g: 220, b: 255 }, { r: 255, g: 255, b: 255 }],
-  cyberpunkFire: [{ r: 10, g: 0, b: 20 }, { r: 80, g: 0, b: 120 }, { r: 220, g: 0, b: 200 }, { r: 0, g: 220, b: 255 }, { r: 255, g: 255, b: 255 }],
+  vulcanFire: [
+    { r: 0, g: 0, b: 0 },
+    { r: 120, g: 0, b: 0 },
+    { r: 255, g: 90, b: 0 },
+    { r: 255, g: 200, b: 40 },
+    { r: 255, g: 255, b: 220 },
+  ],
+  toxicFire: [
+    { r: 0, g: 0, b: 0 },
+    { r: 10, g: 60, b: 10 },
+    { r: 40, g: 220, b: 60 },
+    { r: 190, g: 255, b: 120 },
+    { r: 255, g: 255, b: 255 },
+  ],
+  cryoFire: [
+    { r: 0, g: 0, b: 0 },
+    { r: 10, g: 20, b: 60 },
+    { r: 20, g: 110, b: 200 },
+    { r: 100, g: 220, b: 255 },
+    { r: 255, g: 255, b: 255 },
+  ],
+  cyberpunkFire: [
+    { r: 10, g: 0, b: 20 },
+    { r: 80, g: 0, b: 120 },
+    { r: 220, g: 0, b: 200 },
+    { r: 0, g: 220, b: 255 },
+    { r: 255, g: 255, b: 255 },
+  ],
 };
 
 export function builtinPalette(name: string): GradientStop[] {
@@ -92,7 +133,10 @@ export function builtinPalette(name: string): GradientStop[] {
 }
 
 /** Parses "#RRGGBB,#RRGGBB,..." -- see LightGradient.h's parseGradientStops. */
-export function parseGradientStops(csv: string, fallback: GradientStop[]): GradientStop[] {
+export function parseGradientStops(
+  csv: string,
+  fallback: GradientStop[],
+): GradientStop[] {
   const stops: GradientStop[] = [];
   for (const raw of csv.split(",")) {
     const token = raw.trim();
@@ -105,17 +149,4 @@ export function parseGradientStops(csv: string, fallback: GradientStop[]): Gradi
     }
   }
   return stops.length >= 2 ? stops : fallback;
-}
-
-/** Linearly-interpolated color at `t` (0..1, clamped) across `stops`. */
-export function sampleGradient(stops: GradientStop[], t: number): [number, number, number] {
-  if (stops.length === 0) return [0, 0, 0];
-  if (stops.length === 1) return [stops[0].r, stops[0].g, stops[0].b];
-  const c = Math.max(0, Math.min(1, t));
-  const scaled = c * (stops.length - 1);
-  const i0 = Math.floor(scaled);
-  const i1 = Math.min(stops.length - 1, i0 + 1);
-  const f = scaled - i0;
-  const lerp = (a: number, b: number) => Math.round(a + (b - a) * f);
-  return [lerp(stops[i0].r, stops[i1].r), lerp(stops[i0].g, stops[i1].g), lerp(stops[i0].b, stops[i1].b)];
 }

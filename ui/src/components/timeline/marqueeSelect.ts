@@ -11,7 +11,7 @@ export type MarqueeRect = {
 };
 
 /** Axis-aligned rect intersection (inclusive edges with tiny epsilon). */
-export function rectsIntersect(
+function rectsIntersect(
   a: MarqueeRect,
   b: { left: number; top: number; right: number; bottom: number },
 ): boolean {

@@ -49,18 +49,12 @@ export type LiveLedOutput = {
 };
 
 let liveLedOutputs: LiveLedOutput[] = [];
-let lightPlayheadSec = 0;
 
 type Listener = () => void;
-const listeners = new Set<Listener>();
 const lightListeners = new Set<Listener>();
 
 export function setMeterIds(ids: string[]) {
   meterIds = ids;
-}
-
-export function getLivePlayheadSec(): number {
-  return lightPlayheadSec;
 }
 
 export function getLiveLedOutputs(): LiveLedOutput[] {
@@ -75,10 +69,6 @@ export function subscribeLiveLedOutputs(listener: Listener): () => void {
 }
 
 let paintRaf = 0;
-
-function emit() {
-  for (const l of listeners) l();
-}
 
 /**
  * Shared paint ticker: rolls pending → display once per frame so stereo
@@ -151,7 +141,6 @@ export function pushLiveLevels(frame: {
 
   if (changed) {
     seq += 1;
-    emit();
     ensurePaintTicker();
   }
 }
@@ -173,17 +162,6 @@ export function getClickPeaks(): {
   };
 }
 
-/**
- * @deprecated Prefer getClickPeaks() — pure read (no consume).
- */
-export function takeClickPeaks(): {
-  peakDb: number;
-  peakDbL: number;
-  peakDbR: number;
-} {
-  return getClickPeaks();
-}
-
 export function getLiveLevels(): LiveLevels {
   const c = getClickPeaks();
   return {
@@ -196,14 +174,6 @@ export function getLiveLevels(): LiveLevels {
   };
 }
 
-export function subscribeLiveLevels(listener: Listener): () => void {
-  listeners.add(listener);
-  ensurePaintTicker();
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
 export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   if (buffer.byteLength < 24) return;
   const view = new DataView(buffer);
@@ -212,14 +182,13 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   // Version 2+ carries backend-rendered per-LED light rows.
   const version = view.getUint8(2);
 
-  const playheadSec = view.getFloat32(4, true);
+  // offset 4: playheadSec — unused on the SPA (transport playhead comes from
+  // the JSON state path); still advance the view past it.
   const clickL = view.getFloat32(8, true);
   const clickR = view.getFloat32(12, true);
   const numTracks = view.getUint16(16, true);
   const numMeters = view.getUint16(18, true);
   const numLights = view.getUint16(20, true);
-
-  lightPlayheadSec = playheadSec;
 
   latestClickL = clickL;
   latestClickR = clickR;
@@ -275,6 +244,5 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   for (const l of lightListeners) l();
 
   seq += 1;
-  emit();
   ensurePaintTicker();
 }

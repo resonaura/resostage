@@ -257,7 +257,6 @@ void MainComponent::lightingFixtureDuplicate(const std::string& json) {
     // Hardware is 1:1 with a physical board -- never let a duplicate steal
     // the source's IP. Operator re-pairs the copy if they want one.
     copy.networkHost.clear();
-    copy.networkPort = 0;
 
     // Auto-place right after the last occupied channel range in the SAME
     // universe as the source -- same collision-avoidance lightingFixtureAdd
@@ -368,10 +367,8 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     // "" is the valid, meaningful "no hardware attached, preview only"
     // value -- see LightFixture::networkHost's doc comment. Port is not
     // user-configurable: both sides always use resolight::kDefaultBoardPort.
-    if (getString(doc, "networkHost", strVal)) {
+    if (getString(doc, "networkHost", strVal))
         fx->networkHost = strVal;
-        fx->networkPort = 0;
-    }
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();

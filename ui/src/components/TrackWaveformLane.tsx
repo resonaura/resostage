@@ -20,7 +20,7 @@ export function isCompactLane(verticalZoom: number): boolean {
 }
 
 /** Pick the peak pyramid level whose bin width matches the current zoom. */
-export function pickLevelForZoom(
+function pickLevelForZoom(
   levels: PeakLevelData[],
   durationSeconds: number,
   pxPerSec: number,

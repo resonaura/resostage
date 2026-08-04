@@ -57,7 +57,7 @@ function cueKey(songIndex: number, cueId: string): string {
 /** Slanted-fade clip path sized to a cue's fadeIn/fadeOut (Cue Block spec).
  * Fades share the cue duration without overlapping (same clamp as the side
  * panel sliders / lightCueInterpolation). */
-export function cueClipPath(
+function cueClipPath(
   cue: Pick<
     LightCueRow,
     "durationSeconds" | "fadeInSeconds" | "fadeOutSeconds"
@@ -74,7 +74,7 @@ export function cueClipPath(
 }
 
 /** Shared fill for timeline cues and player/hint previews. */
-export function lightCueFill(
+function lightCueFill(
   cue: Pick<
     LightCueRow,
     | "colorR"
@@ -97,7 +97,7 @@ export function lightCueFill(
 }
 
 /** Selection chrome — outline only when selected (no default border). */
-export function lightCueSelectionStyle(
+function lightCueSelectionStyle(
   selected: boolean,
   accentColor: string,
 ): React.CSSProperties {
@@ -113,7 +113,7 @@ export function lightCueSelectionStyle(
  * interactive timeline lane and the non-interactive hint/player preview so
  * the two never diverge (borders, colors, fade shape).
  */
-export function LightCueBody({
+function LightCueBody({
   cue,
   pxPerSec,
   widthPx,

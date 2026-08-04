@@ -5,9 +5,10 @@
 
 namespace resostage {
 
-// Single source of truth for the native menu bar -- one definition, one
-// consumer now. WebServer::serveUiMenu() serializes this table to JSON for
-// the Electron shell (see GET /api/v1/ui/menu). Edit only here.
+// Single source of truth for the *application menu structure* served to the
+// Electron shell as JSON (GET /api/v1/ui/menu). Not an AppKit/JUCE menu --
+// Core is headless; Electron builds the real NSMenu from this table.
+// Edit only here.
 struct MenuItemModel {
     enum class Kind {
         Item,

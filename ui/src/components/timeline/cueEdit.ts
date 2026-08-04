@@ -86,29 +86,6 @@ export function offsetCuesToPlayhead(
   }));
 }
 
-export function cueSelKeyStr(sel: CueSelKey): string {
-  return `${sel.songIndex}:${sel.cueId}`;
-}
-
-export function parseCueSelKey(key: string): CueSelKey | null {
-  const colon = key.indexOf(":");
-  if (colon < 0) return null;
-  const songIndex = Number(key.slice(0, colon));
-  const cueId = key.slice(colon + 1);
-  if (!Number.isFinite(songIndex) || !cueId) return null;
-  return { songIndex, cueId };
-}
-
-export function allCueSelKeys(songs: SongRow[]): CueSelKey[] {
-  const out: CueSelKey[] = [];
-  songs.forEach((song, si) => {
-    for (const c of song.lightCues ?? []) {
-      if (c.id) out.push({ songIndex: si, cueId: c.id });
-    }
-  });
-  return out;
-}
-
 export async function deleteCues(sels: CueSelKey[]): Promise<void> {
   for (const s of sels) {
     await lighting.cueRemove(s.songIndex, s.cueId);

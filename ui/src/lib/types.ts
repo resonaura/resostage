@@ -249,8 +249,6 @@ export interface LightFixtureRow {
    * live frames over WS binary via LightHardwareServer.
    */
   networkHost: string;
-  /** Legacy/ignored — transport always uses the fixed ResoLight port. */
-  networkPort: number;
   /** Live: a host is configured for this fixture. */
   hwConfigured?: boolean;
   /** Live: WS link to the board is up. */

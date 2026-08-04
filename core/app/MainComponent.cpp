@@ -4,7 +4,6 @@
 #include "platform/TrayIcon.h"
 #include "project/ProjectJson.h"
 #include "timing/BarSeek.h"
-#include "ui/UiColors.h"
 #include "web/BuilderJson.h"
 
 #include <algorithm>
@@ -58,15 +57,6 @@ MainComponent::MainComponent() {
         (void)engine.setAudioDeviceSetup(setup, true);
     }
 
-    alarmBanner.setJustificationType(juce::Justification::centred);
-    alarmBanner.setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold)));
-    alarmBanner.setColour(juce::Label::textColourId, juce::Colours::white);
-    alarmBanner.setColour(juce::Label::backgroundColourId, ui::alarm());
-    alarmBanner.setText("AUDIO DEVICE DISCONNECTED -- fell back to default output",
-                        juce::dontSendNotification);
-    alarmBanner.setVisible(false);
-    addChildComponent(alarmBanner);
-
     midiInput.onAction = [this](const std::string& action) {
         juce::MessageManager::callAsync([this, action] { performAction(action); });
     };
@@ -92,10 +82,8 @@ MainComponent::MainComponent() {
         (void)engine.midi().enableVirtualSource(err);
     }
 
-    addChildComponent(busyOverlay);
-
     // Start with a real, empty, editable project rather than a "load
-    // something first" placeholder -- SPA Builder is immediately usable.
+    // something first" placeholder -- SPA is immediately usable.
     engine.newProject();
     applyGlobalBindings();
     onProjectLoaded();
@@ -162,8 +150,8 @@ MainComponent::MainComponent() {
         launchBrowserTab();
     }
 
-    setWantsKeyboardFocus(true);
-    setSize(1280, 800);
+    // Tiny hidden host for the message loop / FileChooser parent.
+    setSize(1, 1);
 
     // Match WebServer::kTelemetryHz (60).
     startTimerHz(WebServer::kTelemetryHz);
@@ -182,8 +170,8 @@ MainComponent::~MainComponent() {
 // Electron shell (electron/ in the repo root) instead of a plain browser
 // tab. The shell talks to the same backend (REST + WS on kWebPort) any
 // remote browser tab would, builds its native menu bar / Touch Bar from
-// GET /api/v1/ui/menu (the same MenuModel table the AppKit menu used), and
-// dispatches menu clicks via POST /api/v1/action (PerformAction →
+// GET /api/v1/ui/menu (MenuModel → JSON; Electron builds the real NSMenu),
+// and dispatches menu clicks via POST /api/v1/action (PerformAction →
 // performAction()). The JUCE process stays alive headlessly to keep the
 // audio/lighting/transport engine and web server running.
 
@@ -342,187 +330,7 @@ void MainComponent::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black);
 }
 
-void MainComponent::resized() {
-    auto r = getLocalBounds();
-    if (alarmBanner.isVisible())
-        alarmBanner.setBounds(r.removeFromTop(28));
-    else
-        alarmBanner.setBounds({});
-    busyOverlay.setBounds(getLocalBounds());
-}
-
-bool MainComponent::keyPressed(const juce::KeyPress& key) {
-    return matchAndPerformAction(key);
-}
-
-bool MainComponent::matchAndPerformAction(const juce::KeyPress& key,
-                                           uint16_t macKeyCode,
-                                           int juceMods) {
-    // When the SPA has an editable field focused, let keystrokes pass through
-    // for normal typing rather than treating them as hotkeys.
-    if (editableFieldFocused.load(std::memory_order_relaxed))
-        return false;
-
-    // Digit keys 1-9 select songs directly (0-indexed).
-    {
-        const auto kc = key.getKeyCode();
-        if (kc >= '1' && kc <= '9') {
-            goToSong(static_cast<int>(kc - '1'));
-            return true;
-        }
-    }
-
-    // Pass 1: standard character+modifier comparison (works for most keys
-    // on all layouts -- space, escape, brackets, function keys, etc.).
-    for (const auto& [action, description] : keyBindings) {
-        if (key == juce::KeyPress::createFromDescription(juce::String(description))) {
-            performAction(action);
-            return true;
-        }
-    }
-    // Also check extraKeyBindings (multi-key actions e.g. "0" for stop).
-    for (const auto& [action, description] : extraKeyBindings) {
-        if (key == juce::KeyPress::createFromDescription(juce::String(description))) {
-            performAction(action);
-            return true;
-        }
-    }
-    // Pass 2: physical Mac keyCode comparison (cross-layout support).
-    // Only triggered when called from the Mac NSEvent monitor
-    // (macKeyCode != 0). Matches letter-key bindings by virtual keyCode
-    // instead of character, so e.g. Cmd+Z on German QWERTZ (where
-    // kVK_ANSI_Z = 6 produces 'y') still triggers undo.
-    if (macKeyCode != 0) {
-        for (const auto& [action, description] : keyBindings) {
-            auto [expectedVk, expectedMods] = descriptionToMacKeyCode(description);
-            if (expectedVk != 0
-                && expectedVk == macKeyCode
-                && expectedMods == juceMods)
-            {
-                performAction(action);
-                return true;
-            }
-        }
-        for (const auto& [action, description] : extraKeyBindings) {
-            auto [expectedVk, expectedMods] = descriptionToMacKeyCode(description);
-            if (expectedVk != 0
-                && expectedVk == macKeyCode
-                && expectedMods == juceMods)
-            {
-                performAction(action);
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-// static
-std::pair<uint16_t, int> MainComponent::descriptionToMacKeyCode(const std::string& desc) {
-    // Parse modifiers
-    int mods = 0;
-    std::string keyName;
-    {
-        size_t start = 0;
-        for (;;) {
-            size_t plus = desc.find('+', start);
-            if (plus == std::string::npos) {
-                keyName = desc.substr(start);
-                break;
-            }
-            std::string token = desc.substr(start, plus - start);
-            // trim
-            while (!token.empty() && (token.front() == ' ' || token.front() == '\t'))
-                token.erase(token.begin());
-            while (!token.empty() && (token.back() == ' ' || token.back() == '\t'))
-                token.pop_back();
-
-            for (char& c : token) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            if (token == "cmd" || token == "command")
-                mods |= juce::ModifierKeys::commandModifier;
-            else if (token == "shift")
-                mods |= juce::ModifierKeys::shiftModifier;
-            else if (token == "alt" || token == "option")
-                mods |= juce::ModifierKeys::altModifier;
-            else if (token == "ctrl" || token == "control")
-                mods |= juce::ModifierKeys::ctrlModifier;
-
-            start = plus + 1;
-        }
-        // trim keyName
-        while (!keyName.empty() && (keyName.front() == ' ' || keyName.front() == '\t'))
-            keyName.erase(keyName.begin());
-        while (!keyName.empty() && (keyName.back() == ' ' || keyName.back() == '\t'))
-            keyName.pop_back();
-    }
-
-    // Map key name to Apple virtual key code. Table covers all ANSI
-    // letter keys (fixed physical position across every Apple keyboard)
-    // plus common named keys used in default bindings.
-    uint16_t vk = 0;
-    if (keyName.length() == 1) {
-        char c = static_cast<char>(std::tolower(static_cast<unsigned char>(keyName[0])));
-        if (c >= 'a' && c <= 'z') {
-            // kVK_ANSI_A..kVK_ANSI_Z
-            static const uint16_t letterVk[] = {
-                0x00, 0x0B, 0x08, 0x02, 0x0E, 0x03, 0x05, 0x04,
-                0x22, 0x26, 0x28, 0x25, 0x2E, 0x2D, 0x1F, 0x23,
-                0x0C, 0x0F, 0x01, 0x11, 0x20, 0x09, 0x0D, 0x07,
-                0x10, 0x06
-            }; // a b c d e f g h i j k l m n o p q r s t u v w x y z
-            vk = letterVk[c - 'a'];
-        } else if (c >= '0' && c <= '9') {
-            static const uint16_t digitVk[] = {
-                0x1D, 0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1A, 0x1C, 0x19
-            }; // 0 1 2 3 4 5 6 7 8 9
-            vk = digitVk[c - '0'];
-        } else if (c == '[') vk = 33;
-        else if (c == ']') vk = 30;
-        else if (c == '-') vk = 27;
-        else if (c == '=') vk = 24;
-        else if (c == ';') vk = 41;
-        else if (c == '\'') vk = 39;
-        else if (c == ',') vk = 43;
-        else if (c == '.') vk = 47;
-        else if (c == '/') vk = 44;
-        else if (c == '`') vk = 50;
-        else if (c == '\\') vk = 42;
-    } else {
-        std::string lower;
-        lower.reserve(keyName.size());
-        for (char c : keyName) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-        if (lower == "space")                vk = 49;
-        else if (lower == "escape" || lower == "esc") vk = 53;
-        else if (lower == "f1")              vk = 122;
-        else if (lower == "f2")              vk = 120;
-        else if (lower == "f3")              vk = 99;
-        else if (lower == "f4")              vk = 118;
-        else if (lower == "f5")              vk = 96;
-        else if (lower == "f6")              vk = 97;
-        else if (lower == "f7")              vk = 98;
-        else if (lower == "f8")              vk = 100;
-        else if (lower == "f9")              vk = 101;
-        else if (lower == "f10")             vk = 109;
-        else if (lower == "f11")             vk = 103;
-        else if (lower == "f12")             vk = 111;
-        else if (lower == "end")             vk = 119;
-        else if (lower == "home")            vk = 115;
-        else if (lower == "pageup" || lower == "pgup") vk = 116;
-        else if (lower == "pagedown" || lower == "pgdn") vk = 121;
-        else if (lower == "left")            vk = 123;
-        else if (lower == "right")           vk = 124;
-        else if (lower == "down")            vk = 125;
-        else if (lower == "up")              vk = 126;
-        else if (lower == "return" || lower == "enter") vk = 36;
-        else if (lower == "tab")             vk = 48;
-        else if (lower == "backspace" || lower == "delete") vk = 51;
-        else if (lower == "forwarddelete")   vk = 117; // Fn+Delete / ForwardDelete
-    }
-
-    return {vk, mods};
-}
+void MainComponent::resized() {}
 
 void MainComponent::requestUiTab(const std::string& tab) {
     uiTabRequest = tab;
@@ -762,24 +570,11 @@ void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to1
 }
 
 void MainComponent::timerCallback() {
-    const bool busyNow = engine.isBusy();
-    if (busyNow != wasBusyLastTick) {
-        busyOverlay.setVisible(busyNow);
-        if (busyNow)
-            busyOverlay.toFront(false);
-        wasBusyLastTick = busyNow;
-    }
-    if (busyNow) {
-        busyOverlay.advanceSpinner(12.0f); // ~30Hz timer -> one full turn in ~1s
-        // Still push status/busy so the web UI can show "Saving…" etc.
+    // Busy is SPA-only (state.busy); Core does not draw an overlay.
+    if (engine.isBusy()) {
         drainWebCommands();
         publishWebState();
         return;
-    }
-
-    if (alarmBanner.isVisible()) {
-        alarmBanner.setVisible(false);
-        resized();
     }
 
     const bool alarm = engine.transport().hardwareAlarm.load(std::memory_order_relaxed);
@@ -1061,14 +856,11 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::Seek: transportSeek(cmd.json); break;
             case WebCommandKind::QuitDecision: handleQuitDecision(cmd.arg); break;
             case WebCommandKind::UiFocusState:
-                editableFieldFocused.store(cmd.json.find("\"focused\":true") != std::string::npos,
-                                           std::memory_order_relaxed);
+                // Legacy no-op: native MacKeyMonitor is gone; SPA handles focus.
                 break;
             case WebCommandKind::PerformAction: {
-                // From the Electron shell's native menu (and anything else
-                // that wants the generic menu/hotkey path over HTTP). cmd.json
-                // carries {"action":"..."} -- same performAction() every
-                // native hotkey / menu bar item funnels through.
+                // From the Electron shell's menu / action bridge. cmd.json
+                // carries {"action":"..."}.
                 static simdjson::dom::parser parser;
                 simdjson::dom::element doc;
                 std::string action;
@@ -1127,43 +919,6 @@ void MainComponent::handleQuitDecision(int choice) {
         if (onDecision) onDecision(false);
     }
 }
-
-void MainComponent::checkAndOfferAutosaveRecovery() {
-    std::string timestamp;
-    if (engine.isProjectLoaded() && engine.hasAutosave(timestamp)) {
-        juce::AlertWindow::showAsync(
-            juce::MessageBoxOptions()
-                .withIconType(juce::MessageBoxIconType::QuestionIcon)
-                .withTitle("Auto-Save Recovery")
-                .withMessage("An auto-saved version of '" + juce::String(engine.project().name) + "' (" + juce::String(timestamp) + ") was found.\nWould you like to recover the auto-saved version or load the saved file?")
-
-                .withButton("Load Auto-Save")
-                .withButton("Load Saved Version")
-                .withButton("Discard Auto-Save")
-                .withAssociatedComponent(this),
-            [this](int choice) {
-                // AlertWindow::showAsync maps button X (0-based add order) to
-                // (X + 1) % numButtons, not a plain index: "Load Auto-Save"
-                // (added 1st) -> 1, "Load Saved Version" (2nd) -> 2,
-                // "Discard Auto-Save" (3rd) -> (2+1)%3 -> 0.
-                if (choice == 1) { // Load Auto-Save
-                    std::string err;
-                    if (engine.loadAutosave(err)) {
-                        setStatus("Auto-save recovered successfully");
-                        onProjectLoaded();
-                    } else {
-                        setStatus("Failed to load auto-save: " + juce::String(err));
-                    }
-                } else if (choice == 0) { // Discard Auto-Save
-                    engine.clearAutosave();
-                }
-            }
-        );
-    }
-}
-
-
-
 
 void MainComponent::publishWebState() {
     WebUiState state;
@@ -1441,7 +1196,6 @@ void MainComponent::publishWebState() {
         fr.tiltDeg = f.tiltDeg;
         fr.refreshRateHz = f.refreshRateHz;
         fr.networkHost = f.networkHost;
-        fr.networkPort = f.networkPort;
         if (!f.networkHost.empty()) {
             const auto link = engine.lightHardware().fixtureLinkStatus(f.id);
             fr.hwConfigured = link.configured;

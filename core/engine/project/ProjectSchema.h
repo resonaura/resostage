@@ -207,10 +207,6 @@ struct LightFixture {
     // this is a second, independent transport, not another way to reach
     // the same Art-Net output.
     std::string networkHost;
-    // Legacy field, ignored at runtime. Transport always uses
-    // resolight::kDefaultBoardPort (7862) on both ends. Kept so old project
-    // files still load without a schema break; new writes leave it 0.
-    int networkPort = 0;
 };
 
 enum class LightingKind {
@@ -356,7 +352,7 @@ struct SongSection {
     std::string id;
     std::string name = "Section";
     double startSeconds = 0.0;
-    int colorIndex = 0; // index into ui::Accent's cycle, see UiColors.h
+    int colorIndex = 0; // cosmetic track colour index for the SPA
 };
 
 struct SongDef {

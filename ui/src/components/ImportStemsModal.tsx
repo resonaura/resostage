@@ -11,7 +11,7 @@ export interface StemImportItem {
   targetTrackName: string;
 }
 
-export const STANDARD_TRACK_NAMES = [
+const STANDARD_TRACK_NAMES = [
   "Click",
   "Guide",
   "Drums",
@@ -27,26 +27,109 @@ export const STANDARD_TRACK_NAMES = [
   "Other",
 ];
 
-export function autoDetectStemType(filename: string): string {
+function autoDetectStemType(filename: string): string {
   const upper = filename.toUpperCase();
-  if (upper.includes("CLICK") || upper.includes("METRO") || upper.includes("COUNT")) return "Click";
-  if (upper.includes("GUIDE") || upper.includes("CUE") || upper.includes("SLATE")) return "Guide";
-  if (upper.includes("BASS") || upper.includes("BS") || upper.includes("SUB")) return "Bass";
-  if (upper.includes("DRUM") || upper.includes("DRM") || upper.includes("KICK") || upper.includes("SNARE") || upper.includes("BEAT") || upper.includes("HAT") || upper.includes("CYMBAL") || upper.includes("TOM")) return "Drums";
-  if (upper.includes("PERC") || upper.includes("SHAKER") || upper.includes("CONGA") || upper.includes("TAMB") || upper.includes("CLAP")) return "Percussion";
-  if (upper.includes("LOOP") || upper.includes("TOPS") || upper.includes("GROOVE")) return "Loops";
-  if (upper.includes("BACK") || upper.includes("BK") || upper.includes("BGV") || upper.includes("BVOX") || upper.includes("BACKING") || upper.includes("CHOIR") || upper.includes("HARMONY") || upper.includes("SECOND")) return "Backing Vocals";
-  if (upper.includes("VOX") || upper.includes("VOCAL") || upper.includes("LEAD") || upper.includes("MAIN_VOX")) return "Vocals";
-  if (upper.includes("KEY") || upper.includes("PIANO") || upper.includes("ORGAN") || upper.includes("RHODES")) return "Keys";
-  if (upper.includes("SYNTH") || upper.includes("PAD") || upper.includes("ARP") || upper.includes("LEAD_SYNTH")) return "Synths";
-  if (upper.includes("GUITAR") || upper.includes("GTR") || upper.includes("ACOUSTIC") || upper.includes("ELECTRIC")) return "Guitars";
-  if (upper.includes("SFX") || upper.includes("FX") || upper.includes("RISER") || upper.includes("SWEEP") || upper.includes("HIT") || upper.includes("NOISE") || upper.includes("DROP")) return "SFX";
-  if (upper.includes("BRASS") || upper.includes("HORN") || upper.includes("STRINGS") || upper.includes("ORCH")) return "Synths";
+  if (
+    upper.includes("CLICK") ||
+    upper.includes("METRO") ||
+    upper.includes("COUNT")
+  )
+    return "Click";
+  if (
+    upper.includes("GUIDE") ||
+    upper.includes("CUE") ||
+    upper.includes("SLATE")
+  )
+    return "Guide";
+  if (upper.includes("BASS") || upper.includes("BS") || upper.includes("SUB"))
+    return "Bass";
+  if (
+    upper.includes("DRUM") ||
+    upper.includes("DRM") ||
+    upper.includes("KICK") ||
+    upper.includes("SNARE") ||
+    upper.includes("BEAT") ||
+    upper.includes("HAT") ||
+    upper.includes("CYMBAL") ||
+    upper.includes("TOM")
+  )
+    return "Drums";
+  if (
+    upper.includes("PERC") ||
+    upper.includes("SHAKER") ||
+    upper.includes("CONGA") ||
+    upper.includes("TAMB") ||
+    upper.includes("CLAP")
+  )
+    return "Percussion";
+  if (
+    upper.includes("LOOP") ||
+    upper.includes("TOPS") ||
+    upper.includes("GROOVE")
+  )
+    return "Loops";
+  if (
+    upper.includes("BACK") ||
+    upper.includes("BK") ||
+    upper.includes("BGV") ||
+    upper.includes("BVOX") ||
+    upper.includes("BACKING") ||
+    upper.includes("CHOIR") ||
+    upper.includes("HARMONY") ||
+    upper.includes("SECOND")
+  )
+    return "Backing Vocals";
+  if (
+    upper.includes("VOX") ||
+    upper.includes("VOCAL") ||
+    upper.includes("LEAD") ||
+    upper.includes("MAIN_VOX")
+  )
+    return "Vocals";
+  if (
+    upper.includes("KEY") ||
+    upper.includes("PIANO") ||
+    upper.includes("ORGAN") ||
+    upper.includes("RHODES")
+  )
+    return "Keys";
+  if (
+    upper.includes("SYNTH") ||
+    upper.includes("PAD") ||
+    upper.includes("ARP") ||
+    upper.includes("LEAD_SYNTH")
+  )
+    return "Synths";
+  if (
+    upper.includes("GUITAR") ||
+    upper.includes("GTR") ||
+    upper.includes("ACOUSTIC") ||
+    upper.includes("ELECTRIC")
+  )
+    return "Guitars";
+  if (
+    upper.includes("SFX") ||
+    upper.includes("FX") ||
+    upper.includes("RISER") ||
+    upper.includes("SWEEP") ||
+    upper.includes("HIT") ||
+    upper.includes("NOISE") ||
+    upper.includes("DROP")
+  )
+    return "SFX";
+  if (
+    upper.includes("BRASS") ||
+    upper.includes("HORN") ||
+    upper.includes("STRINGS") ||
+    upper.includes("ORCH")
+  )
+    return "Synths";
   return "Other";
 }
 
 export function autoDetectBpm(filename: string): number {
-  const match = filename.match(/(\d{2,3})\s*BPM/i) || filename.match(/BPM\s*(\d{2,3})/i);
+  const match =
+    filename.match(/(\d{2,3})\s*BPM/i) || filename.match(/BPM\s*(\d{2,3})/i);
   if (match) return parseInt(match[1], 10);
   return 120;
 }
@@ -116,7 +199,12 @@ export function ImportStemsModal({
       const category = autoDetectStemType(file.name);
       const isClick = category === "Click";
       if (isClick) {
-        return { file, filename: file.name, detectedCategory: category, targetTrackName: "(Use Built-in Metronome)" };
+        return {
+          file,
+          filename: file.name,
+          detectedCategory: category,
+          targetTrackName: "(Use Built-in Metronome)",
+        };
       }
       const occurrence = (seenCounts[category] ?? 0) + 1;
       seenCounts[category] = occurrence;
@@ -124,7 +212,8 @@ export function ImportStemsModal({
         file,
         filename: file.name,
         detectedCategory: category,
-        targetTrackName: occurrence === 1 ? category : `${category} ${occurrence}`,
+        targetTrackName:
+          occurrence === 1 ? category : `${category} ${occurrence}`,
       };
     });
   });
@@ -167,111 +256,145 @@ export function ImportStemsModal({
             </Modal.Header>
 
             <Modal.Body className="p-0">
-              <ScrollShadow orientation="vertical" className="flex flex-col gap-4 p-4 max-h-[70vh]">
+              <ScrollShadow
+                orientation="vertical"
+                className="flex flex-col gap-4 p-4 max-h-[70vh]"
+              >
                 {/* Song Information Inputs */}
-              <div className="grid grid-cols-3 gap-3 bg-default/10 p-3 rounded-lg border border-default/20">
-                <div className="col-span-1 flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold uppercase text-foreground/50">Song Title</label>
-                  <input
-                    value={songName}
-                    onChange={(e) => setSongName(e.target.value)}
-                    className="w-full rounded border border-default/40 bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground focus:border-accent focus:outline-none"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold uppercase text-foreground/50">BPM (Tempo)</label>
-                  <input
-                    type="number"
-                    value={bpm}
-                    onChange={(e) => setBpm(parseFloat(e.target.value) || 120)}
-                    className="w-full rounded border border-default/40 bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground focus:border-accent focus:outline-none"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold uppercase text-foreground/50">Time Signature</label>
-                  <div className="flex items-center gap-1">
+                <div className="grid grid-cols-3 gap-3 bg-default/10 p-3 rounded-lg border border-default/20">
+                  <div className="col-span-1 flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold uppercase text-foreground/50">
+                      Song Title
+                    </label>
                     <input
-                      type="number"
-                      value={tsNum}
-                      onChange={(e) => setTsNum(parseInt(e.target.value) || 4)}
-                      className="w-full rounded border border-default/40 bg-surface px-2 py-1.5 text-xs font-semibold text-foreground text-center focus:border-accent focus:outline-none"
-                    />
-                    <span className="text-foreground/40 font-bold">/</span>
-                    <input
-                      type="number"
-                      value={tsDen}
-                      onChange={(e) => setTsDen(parseInt(e.target.value) || 4)}
-                      className="w-full rounded border border-default/40 bg-surface px-2 py-1.5 text-xs font-semibold text-foreground text-center focus:border-accent focus:outline-none"
+                      value={songName}
+                      onChange={(e) => setSongName(e.target.value)}
+                      className="w-full rounded border border-default/40 bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground focus:border-accent focus:outline-none"
                     />
                   </div>
-                </div>
-              </div>
 
-              {/* Consolidated Track Channel Mapping Table */}
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs font-bold text-foreground/70">
-                  <span className="flex items-center gap-1.5">
-                    <Layers size={14} className="text-accent" />
-                    Stem Track Consolidation ({stemMappings.length} files)
-                  </span>
-                  <span className="text-[10px] text-foreground/40 font-normal">
-                    Maps files to consolidated global track channels
-                  </span>
-                </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold uppercase text-foreground/50">
+                      BPM (Tempo)
+                    </label>
+                    <input
+                      type="number"
+                      value={bpm}
+                      onChange={(e) =>
+                        setBpm(parseFloat(e.target.value) || 120)
+                      }
+                      className="w-full rounded border border-default/40 bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground focus:border-accent focus:outline-none"
+                    />
+                  </div>
 
-                <div className="divide-y divide-default/15 border border-default/30 rounded-lg overflow-hidden bg-surface/50">
-                  {stemMappings.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <Music size={14} className="shrink-0 text-foreground/40" />
-                        <span className="truncate font-mono text-[11px] font-medium text-foreground/90" title={item.filename}>
-                          {item.filename}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-accent/15 text-accent border border-accent/20">
-                          {item.detectedCategory}
-                        </span>
-
-                        <select
-                          value={item.targetTrackName}
-                          onChange={(e) => handleTargetChange(idx, e.target.value)}
-                          className="rounded border border-default/40 bg-surface px-2 py-1 text-xs font-semibold text-foreground focus:border-accent focus:outline-none"
-                        >
-                          {item.detectedCategory === "Click" && (
-                            <option value="(Use Built-in Metronome)">
-                              ✔ Use Built-in C++ Metronome
-                            </option>
-                          )}
-                          <optgroup label="Consolidated Tracks">
-                            {item.detectedCategory !== "Click" && (
-                              <option value={item.detectedCategory}>Track: {item.detectedCategory}</option>
-                            )}
-                            {availableTrackNames
-                              .filter((n) => n !== item.detectedCategory)
-                              .map((name) => (
-                                <option key={name} value={name}>
-                                  Track: {name}
-                                </option>
-                              ))}
-                          </optgroup>
-                          <optgroup label="Actions">
-                            <option value="(Skip)">(Skip / Do Not Import)</option>
-                          </optgroup>
-                        </select>
-                      </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold uppercase text-foreground/50">
+                      Time Signature
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        value={tsNum}
+                        onChange={(e) =>
+                          setTsNum(parseInt(e.target.value) || 4)
+                        }
+                        className="w-full rounded border border-default/40 bg-surface px-2 py-1.5 text-xs font-semibold text-foreground text-center focus:border-accent focus:outline-none"
+                      />
+                      <span className="text-foreground/40 font-bold">/</span>
+                      <input
+                        type="number"
+                        value={tsDen}
+                        onChange={(e) =>
+                          setTsDen(parseInt(e.target.value) || 4)
+                        }
+                        className="w-full rounded border border-default/40 bg-surface px-2 py-1.5 text-xs font-semibold text-foreground text-center focus:border-accent focus:outline-none"
+                      />
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            </ScrollShadow>
+
+                {/* Consolidated Track Channel Mapping Table */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-xs font-bold text-foreground/70">
+                    <span className="flex items-center gap-1.5">
+                      <Layers size={14} className="text-accent" />
+                      Stem Track Consolidation ({stemMappings.length} files)
+                    </span>
+                    <span className="text-[10px] text-foreground/40 font-normal">
+                      Maps files to consolidated global track channels
+                    </span>
+                  </div>
+
+                  <div className="divide-y divide-default/15 border border-default/30 rounded-lg overflow-hidden bg-surface/50">
+                    {stemMappings.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between gap-3 px-3 py-2 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Music
+                            size={14}
+                            className="shrink-0 text-foreground/40"
+                          />
+                          <span
+                            className="truncate font-mono text-[11px] font-medium text-foreground/90"
+                            title={item.filename}
+                          >
+                            {item.filename}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-accent/15 text-accent border border-accent/20">
+                            {item.detectedCategory}
+                          </span>
+
+                          <select
+                            value={item.targetTrackName}
+                            onChange={(e) =>
+                              handleTargetChange(idx, e.target.value)
+                            }
+                            className="rounded border border-default/40 bg-surface px-2 py-1 text-xs font-semibold text-foreground focus:border-accent focus:outline-none"
+                          >
+                            {item.detectedCategory === "Click" && (
+                              <option value="(Use Built-in Metronome)">
+                                ✔ Use Built-in C++ Metronome
+                              </option>
+                            )}
+                            <optgroup label="Consolidated Tracks">
+                              {item.detectedCategory !== "Click" && (
+                                <option value={item.detectedCategory}>
+                                  Track: {item.detectedCategory}
+                                </option>
+                              )}
+                              {availableTrackNames
+                                .filter((n) => n !== item.detectedCategory)
+                                .map((name) => (
+                                  <option key={name} value={name}>
+                                    Track: {name}
+                                  </option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="Actions">
+                              <option value="(Skip)">
+                                (Skip / Do Not Import)
+                              </option>
+                            </optgroup>
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </ScrollShadow>
             </Modal.Body>
 
             <Modal.Footer className="border-t border-default/20 pt-3 flex justify-end gap-2">
-              <Button variant="outline" onPress={onClose} isDisabled={isImporting}>
+              <Button
+                variant="outline"
+                onPress={onClose}
+                isDisabled={isImporting}
+              >
                 Cancel
               </Button>
               <Button
@@ -297,7 +420,7 @@ export async function executeStemImport(
   tsNum: number,
   tsDen: number,
   stemMappings: StemImportItem[],
-  state: WebUiState
+  state: WebUiState,
 ) {
   await builder.songAdd(true);
   const songIndex = state.songs.length;
@@ -306,7 +429,7 @@ export async function executeStemImport(
     (s) =>
       s.detectedCategory === "Click" ||
       s.targetTrackName === "(Use Built-in Metronome)" ||
-      s.targetTrackName === "Click"
+      s.targetTrackName === "Click",
   );
 
   await builder.songUpdate({
@@ -325,8 +448,8 @@ export async function executeStemImport(
     new Set(
       stemMappings
         .map((s) => s.targetTrackName)
-        .filter((t) => t !== "(Skip)" && t !== "(Use Built-in Metronome)")
-    )
+        .filter((t) => t !== "(Skip)" && t !== "(Use Built-in Metronome)"),
+    ),
   );
 
   const currentGlobalTracks = [...state.tracks];
@@ -334,7 +457,7 @@ export async function executeStemImport(
 
   for (const trackName of requiredTrackNames) {
     let globalIndex = currentGlobalTracks.findIndex(
-      (t) => (t.name || t.id).toLowerCase() === trackName.toLowerCase()
+      (t) => (t.name || t.id).toLowerCase() === trackName.toLowerCase(),
     );
     if (globalIndex < 0) {
       await builder.trackAdd(songIndex);
@@ -381,7 +504,8 @@ export async function executeStemImport(
     if (occurrence > 1) {
       const disambiguatedName = `${baseName} ${occurrence}`;
       let disambiguatedIndex = currentGlobalTracks.findIndex(
-        (t) => (t.name || t.id).toLowerCase() === disambiguatedName.toLowerCase()
+        (t) =>
+          (t.name || t.id).toLowerCase() === disambiguatedName.toLowerCase(),
       );
       if (disambiguatedIndex < 0) {
         await builder.trackAdd(songIndex);
@@ -424,7 +548,12 @@ export function autoDetectStemMappings(files: File[]): StemImportItem[] {
     const category = autoDetectStemType(file.name);
     const isClick = category === "Click";
     if (isClick) {
-      return { file, filename: file.name, detectedCategory: category, targetTrackName: "(Use Built-in Metronome)" };
+      return {
+        file,
+        filename: file.name,
+        detectedCategory: category,
+        targetTrackName: "(Use Built-in Metronome)",
+      };
     }
     const occurrence = (seenCounts[category] ?? 0) + 1;
     seenCounts[category] = occurrence;
@@ -432,7 +561,8 @@ export function autoDetectStemMappings(files: File[]): StemImportItem[] {
       file,
       filename: file.name,
       detectedCategory: category,
-      targetTrackName: occurrence === 1 ? category : `${category} ${occurrence}`,
+      targetTrackName:
+        occurrence === 1 ? category : `${category} ${occurrence}`,
     };
   });
 }

@@ -6,7 +6,6 @@
 #include "AudioEngine.h"
 #include "lighting/LightOutputResolver.h"
 #include "midi/CoreMidiInputListener.h"
-#include "ui/BusyOverlay.h"
 #include "web/WebServer.h"
 
 #include <chrono>
@@ -17,11 +16,10 @@
 
 namespace resostage {
 
-// Headless core: the audio / lighting / transport engine plus the embedded
-// WebServer. The on-screen UI lives in the engine selected in Settings --
-// the Electron shell (window/menu/Touch Bar) or the default browser tab --
-// and talks to this backend over REST + WS on kWebPort. There is no native
-// JUCE view anymore.
+// Headless core: audio / lighting / transport + embedded WebServer.
+// All operator-facing UI lives in the Electron shell (or a browser tab);
+// this Component only hosts the JUCE message loop and occasional OS
+// FileChooser dialogs. No menus, banners, or overlays are drawn here.
 class MainComponent final : public juce::Component, private juce::Timer {
 public:
     MainComponent();
@@ -29,10 +27,8 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    bool keyPressed(const juce::KeyPress& key) override;
 
     void confirmQuitIfUnsaved(std::function<void(bool)> onDecision = nullptr);
-    void checkAndOfferAutosaveRecovery();
 
     bool loadProjectFromPath(const juce::File& file);
 
@@ -68,8 +64,6 @@ private:
     AppSettings appSettings;
     void saveAppSettingsToDisk();
 
-    juce::Label alarmBanner;
-    BusyOverlay busyOverlay;
     // Non-null only in electron mode -- the spawned Electron shell (see
     // launchElectronShell()). Killed on shutdown so quitting ResoStage
     // always takes the shell down with it.
@@ -77,11 +71,7 @@ private:
     // Non-null only when RESOSTAGE_SPAWNED_BY_SHELL is set (this process has
     // no Dock icon of its own) -- see platform/TrayIcon.h.
     std::unique_ptr<class TrayIcon> trayIcon;
-    bool wasBusyLastTick = false;
-    // When true, the SPA has a text/input/textarea focused so native hotkey
-    // processing is suppressed and keystrokes pass through for normal typing.
-    std::atomic<bool> editableFieldFocused{false};
-    // Mirrored into WebUiState::statusMessage (no native status bar anymore).
+    // Mirrored into WebUiState::statusMessage.
     std::string lastStatusMessage;
 
     bool awaitingQuitDecision = false;
@@ -107,8 +97,7 @@ private:
         {"undo", "cmd + z"},
         {"redo", "cmd + shift + z"},
     };
-    // Additional bindings where the same action maps to multiple keys.
-    // These are checked in matchAndPerformAction after the main map.
+    // Multi-key actions (same action, extra accelerators) for the Electron menu.
     std::vector<std::pair<std::string, std::string>> extraKeyBindings = {
         {"stop_to_start", "0"},
     };
@@ -148,21 +137,9 @@ private:
     void notifyProjectStructureChanged();
     void notifyRoutingChanged();
 
-    // Shared by the WebCommandKind::TimelineUndo/Redo dispatch (web/remote)
-    // and performAction("undo"/"redo") (native hotkeys/MIDI) so both entry
-    // points share one implementation instead of duplicating it.
+    // Shared by WebCommandKind::TimelineUndo/Redo and performAction("undo"/"redo").
     void performTimelineUndo();
     void performTimelineRedo();
-
-    // Hotkey dispatch. On Mac the monitor passes macKeyCode/juceMods for
-    // physical-keyCode matching (cross-layout Cmd+Z etc.).
-    bool matchAndPerformAction(const juce::KeyPress& key,
-                               uint16_t macKeyCode = 0,
-                               int juceMods = 0);
-
-    // Convert a keybinding description ("cmd + z", "space") to Mac
-    // virtual keyCode + JUCE modifier mask. Returns (0, 0) on failure.
-    static std::pair<uint16_t, int> descriptionToMacKeyCode(const std::string& desc);
 
     // Native folder picker when web sends import without a path (rare).
     void importSongFolderNative();

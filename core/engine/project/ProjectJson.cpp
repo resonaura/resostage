@@ -196,8 +196,7 @@ std::string serializeProjectJson(const Project& project) {
         o << "        \"channelProfile\": \"" << jsonEscapeString(f.channelProfile) << "\",\n";
         o << "        \"tiltDeg\": "; writeNumber(o, f.tiltDeg); o << ",\n";
         o << "        \"refreshRateHz\": "; writeNumber(o, f.refreshRateHz); o << ",\n";
-        o << "        \"networkHost\": \"" << jsonEscapeString(f.networkHost) << "\",\n";
-        o << "        \"networkPort\": " << f.networkPort << "\n";
+        o << "        \"networkHost\": \"" << jsonEscapeString(f.networkHost) << "\"\n";
         o << "      }" << (i + 1 < project.lighting.fixtures.size() ? "," : "") << "\n";
     }
     o << "    ]\n";

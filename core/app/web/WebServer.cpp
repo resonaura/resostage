@@ -1487,7 +1487,6 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"tiltDeg\":" << finiteOrZero(f.tiltDeg) << ","
               << "\"refreshRateHz\":" << finiteOrZero(f.refreshRateHz) << ","
               << "\"networkHost\":\"" << jsonEscape(f.networkHost) << "\","
-              << "\"networkPort\":" << f.networkPort << ","
               << "\"hwConfigured\":" << (f.hwConfigured ? "true" : "false") << ","
               << "\"hwConnected\":" << (f.hwConnected ? "true" : "false") << ","
               << "\"hwRssiDbm\":" << f.hwRssiDbm << ","
@@ -1873,12 +1872,9 @@ int WebServer::serveAllPeaks(struct lws* wsi) {
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
-// The menu tree lives in platform/MenuModel.h/.cpp -- the single source of
-// truth. Serializing it to JSON here is what lets the Electron shell
-// (electron/main.mts) build a matching native menu without a second copy of
-// the structure. Keybindings and the recent projects list ride along so the
-// shell can fill dynamic accelerators and the File > Open Recent submenu
-// from the same snapshot the rest of the UI sees.
+// MenuModel → JSON for the Electron shell (electron/main.mts builds the real
+// NSMenu). Not drawn by Core. Keybindings + recent projects ride along for
+// dynamic accelerators and File > Open Recent.
 std::string WebServer::buildMenuModelJson() const {
     std::ostringstream o;
     o << "{\"menus\":[";

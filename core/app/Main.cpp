@@ -58,22 +58,20 @@ public:
 
 
 private:
-    // ResoStage Core is headless: the window exists to host the backend's
-    // message loop and native dialogs, but the MainComponent hides it right
-    // after it launches the on-screen UI (Electron shell or browser tab).
+    // Headless host: message loop + optional OS FileChooser parent. The
+    // on-screen UI is always Electron (or a browser tab); this window is
+    // hidden as soon as MainComponent launches that shell.
     class MainWindow final : public juce::DocumentWindow {
     public:
         explicit MainWindow(const juce::String& name)
             : DocumentWindow(name,
-                              juce::Desktop::getInstance().getDefaultLookAndFeel().findColour(
-                                  juce::ResizableWindow::backgroundColourId),
-                              DocumentWindow::allButtons) {
+                              juce::Colours::black,
+                              DocumentWindow::closeButton) {
             setUsingNativeTitleBar(true);
             setContentOwned(new MainComponent(), true);
-            setResizable(true, false);
-            setResizeLimits(960, 640, 10000, 10000);
-            centreWithSize(getWidth(), getHeight());
-            setVisible(true);
+            setResizable(false, false);
+            centreWithSize(1, 1);
+            setVisible(true); // required for message loop; immediately hidden by MainComponent
         }
 
         MainComponent* getMainComponent() const {

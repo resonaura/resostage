@@ -267,7 +267,7 @@ struct WebUiState {
 
     // Mirrors AudioEngine::isBusy() -- true during an async WAV/folder
     // import. The web UI disables Builder edits while this is set, same as
-    // the native BusyOverlay blocking all input.
+    // the SPA blocking edits (state.busy).
     bool busy = false;
     // True while MainComponent::confirmQuitIfUnsaved() is waiting on the
     // user's Save/Don't Save/Cancel answer -- the web UI shows a ConfirmDialog
@@ -479,10 +479,9 @@ struct WebUiState {
         // one DOES reach real DMX output, unlike the cosmetic fields above.
         double refreshRateHz = 0.0;
         // Real-hardware transport (ResoLightBar only). Empty = preview-only.
-        // See ProjectSchema.h's LightFixture::networkHost.
+        // See ProjectSchema.h's LightFixture::networkHost. Port is protocol-
+        // fixed (never on the wire).
         std::string networkHost;
-        // 0 = default board port (7862).
-        int networkPort = 0;
         // Live link status from LightHardwareServer (not persisted).
         bool hwConfigured = false;
         bool hwConnected = false;

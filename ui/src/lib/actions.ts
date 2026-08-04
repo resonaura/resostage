@@ -82,7 +82,7 @@ export function performAction(
 }
 
 /** Jump one bar backward/forward (matches MainComponent::jumpToBarRelative). */
-export function jumpBar(
+function jumpBar(
   action: "bar_prev" | "bar_next",
   songs: WebUiState["songs"],
   songIndex: number,
@@ -103,7 +103,7 @@ export function jumpBar(
   }
 }
 
-export function jumpSection(
+function jumpSection(
   action: string,
   songs: WebUiState["songs"],
   songIndex: number,

@@ -36,19 +36,6 @@ inline GradientPreset parseGradientPreset(const std::string& s) {
     return GradientPreset::Solid;
 }
 
-inline const char* gradientPresetToString(GradientPreset p) {
-    switch (p) {
-        case GradientPreset::Solid:         return "solid";
-        case GradientPreset::GreenYellowRed: return "greenYellowRed";
-        case GradientPreset::Custom:        return "custom";
-        case GradientPreset::VulcanFire:    return "vulcanFire";
-        case GradientPreset::ToxicFire:     return "toxicFire";
-        case GradientPreset::CryoFire:      return "cryoFire";
-        case GradientPreset::CyberpunkFire: return "cyberpunkFire";
-    }
-    return "solid";
-}
-
 // Resolves a preset (+ the cue's own typed stops, only consulted for
 // Custom) into actual sample-able gradient stops. Solid/GreenYellowRed
 // return empty -- they're handled by their own fixed logic, not stop

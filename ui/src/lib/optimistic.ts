@@ -193,30 +193,3 @@ export function useContinuousPlayhead(
 
   return [absolute, seekAbsolute, getLiveAbsolute];
 }
-
-/** @deprecated Prefer useContinuousPlayhead -- kept for mixer-style non-transport uses. */
-export function useOptimisticSeek(
-  serverSeconds: number,
-  resetKey?: unknown,
-  playing = false,
-): [number, (v: number) => void] {
-  // Thin adapter: treat serverSeconds as absolute for callers that still
-  // pass song-local time (Timeline was migrated off this).
-  // Drop the live getter — callers of this legacy API only need value + seek.
-  const [absolute, seekAbsolute] = useContinuousPlayhead(
-    serverSeconds,
-    playing,
-    resetKey,
-  );
-  return [absolute, seekAbsolute];
-}
-
-/** @deprecated Use useContinuousPlayhead. */
-export function useOptimisticGlobalPlayhead(
-  serverGlobalSeconds: number,
-  playing: boolean,
-  resetKey?: unknown,
-): number {
-  const [abs] = useContinuousPlayhead(serverGlobalSeconds, playing, resetKey);
-  return abs;
-}
