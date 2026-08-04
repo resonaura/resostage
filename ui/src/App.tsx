@@ -4,7 +4,6 @@ import {
   Gauge,
   Lightbulb,
   Music4,
-  Radio,
   Settings2,
   Sliders,
 } from "lucide-react";
@@ -371,11 +370,16 @@ export default function App() {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-default/60 bg-background px-4 py-3">
-        <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-accent">
-          <Radio size={16} />
-          ResoStage
-        </div>
-        <ProjectNameField state={state} />
+        <img
+          src="/logo.svg"
+          alt="ResoStage"
+          title="ResoStage"
+          className="h-7 w-7 shrink-0 object-contain"
+          draggable={false}
+        />
+        {/* Flex spacer — keeps Project menu / connection badge on the right
+            after the project name was removed from the header. */}
+        <div className="min-w-0 flex-1" />
         <ProjectMenu state={state} />
         <ConnectionBadge
           status={status}
@@ -567,16 +571,6 @@ function QuitConfirmDialog({ state }: { state: WebUiState }) {
       onThird={() => void project.resolveQuit("discard")}
       onCancel={() => void project.resolveQuit("cancel")}
     />
-  );
-}
-
-// Read-only -- naming a project is Save / Save As's job (the file path IS
-// the name), not a separately editable field that could drift from it.
-function ProjectNameField({ state }: { state: WebUiState }) {
-  return (
-    <div className="min-w-0 flex-1 truncate px-1.5 py-0.5 text-left text-sm text-foreground/70">
-      {state.projectName || "No project"}
-    </div>
   );
 }
 
