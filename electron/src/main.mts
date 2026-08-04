@@ -24,6 +24,8 @@ import {
   Menu,
   TouchBar,
   ipcMain,
+  powerMonitor,
+  powerSaveBlocker,
   type MenuItemConstructorOptions,
 } from "electron";
 import path from "node:path";
@@ -70,14 +72,49 @@ function EnsureNativeMenuFlash(): ((title: string) => void) | null {
 
 const { TouchBarButton } = TouchBar;
 
-// Belt-and-suspenders alongside BrowserWindow's backgroundThrottling:false
-// below -- stops Chromium from deprioritizing the whole renderer process
-// (not just rAF/timers) when the window is occluded or unfocused.
-app.commandLine.appendSwitch("disable-renderer-backgrounding");
+// ── Live-by-default (no user toggle) ──────────────────────────────────────
+// Stage app: the UI must keep running when minimized, alt-tabbed, or under
+// another window. Chromium's default is to background-throttle the renderer
+// (timers, rAF, sometimes the GPU surface) — that's the black screen after
+// wake. These are permanent defaults, not optional flags.
+//
+// Must be set before app.ready.
+function applyLiveRendererDefaults(): void {
+  app.commandLine.appendSwitch("disable-renderer-backgrounding");
+  app.commandLine.appendSwitch("disable-background-timer-throttling");
+  app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+  // Win/Linux occlusion heuristic; harmless on macOS if ignored.
+  app.commandLine.appendSwitch(
+    "disable-features",
+    "CalculateNativeWinOcclusion",
+  );
+}
+applyLiveRendererDefaults();
 
 // The on-screen product is "ResoStage" (JUCE stays headless as "ResoStage
 // Core"). Electron would otherwise call itself "Electron" in the Dock/menu.
 app.setName("ResoStage");
+
+// Keep the process out of App Nap / forced suspension while the shell is up
+// (display may still sleep; we recover UI on wake).
+let appSuspensionBlockerId: number | null = null;
+function ensureAppNotSuspended(): void {
+  if (
+    appSuspensionBlockerId === null ||
+    !powerSaveBlocker.isStarted(appSuspensionBlockerId)
+  ) {
+    appSuspensionBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+  }
+}
+function releaseAppSuspensionBlocker(): void {
+  if (
+    appSuspensionBlockerId !== null &&
+    powerSaveBlocker.isStarted(appSuspensionBlockerId)
+  ) {
+    powerSaveBlocker.stop(appSuspensionBlockerId);
+  }
+  appSuspensionBlockerId = null;
+}
 
 const DEFAULT_PORT = 2899;
 
@@ -418,13 +455,158 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
   };
 }
 
+/** Shell-only Dev menu (not in backend MenuModel) — DevTools / reload / recover. */
+function buildDevMenu(): MenuItemConstructorOptions {
+  return {
+    label: "Dev",
+    submenu: [
+      {
+        label: "Reload",
+        accelerator: "CmdOrControl+R",
+        click: () => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+          mainWindow.webContents.reload();
+        },
+      },
+      {
+        label: "Force Reload",
+        accelerator: "CmdOrControl+Shift+R",
+        click: () => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+          mainWindow.webContents.reloadIgnoringCache();
+        },
+      },
+      { type: "separator" },
+      {
+        label: "Toggle Developer Tools",
+        accelerator: "Alt+Command+I",
+        click: () => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+          mainWindow.webContents.toggleDevTools();
+        },
+      },
+      {
+        label: "Inspect Element at Center…",
+        click: () => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+          const [w, h] = mainWindow.getContentSize();
+          mainWindow.webContents.inspectElement(
+            Math.floor(w / 2),
+            Math.floor(h / 2),
+          );
+          if (!mainWindow.webContents.isDevToolsOpened())
+            mainWindow.webContents.openDevTools({ mode: "detach" });
+        },
+      },
+      { type: "separator" },
+      {
+        label: "Recover UI (after sleep / black screen)",
+        click: () => {
+          lastRecoverAt = 0; // bypass debounce
+          recoverRenderer("menu");
+        },
+      },
+      {
+        label: "Open GPU Internals",
+        click: () => {
+          // Separate window so it doesn't replace the SPA.
+          const win = new BrowserWindow({
+            width: 960,
+            height: 720,
+            title: "GPU Internals",
+          });
+          void win.loadURL("chrome://gpu");
+        },
+      },
+    ],
+  };
+}
+
 function buildMenu(): Menu | null {
   if (!menuModel) return null;
-  const sections = (menuModel.menus ?? []).map((section) => ({
-    label: section.title,
-    submenu: (section.items ?? []).map((it) => buildMenuItem(it)),
-  }));
+  const sections: MenuItemConstructorOptions[] = (menuModel.menus ?? []).map(
+    (section) => ({
+      label: section.title,
+      submenu: (section.items ?? []).map((it) => buildMenuItem(it)),
+    }),
+  );
+  // Insert Dev before Window (or append if Window is missing).
+  const winIdx = sections.findIndex((s) => s.label === "Window");
+  if (winIdx >= 0) sections.splice(winIdx, 0, buildDevMenu());
+  else sections.push(buildDevMenu());
   return Menu.buildFromTemplate(sections);
+}
+
+/**
+ * Unstick a frozen/black Chromium compositor after sleep, minimize, or long
+ * occlusion. Always automatic (focus/show/power-resume) — Dev → Recover UI
+ * is the same path, not a special mode.
+ */
+let lastRecoverAt = 0;
+function recoverRenderer(
+  reason: string,
+  opts: { forceReload?: boolean } = {},
+): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const now = Date.now();
+  // Debounce focus/show spam; power-resume uses a longer second pass.
+  if (!opts.forceReload && now - lastRecoverAt < 350) return;
+  lastRecoverAt = now;
+
+  const wc = mainWindow.webContents;
+  if (wc.isDestroyed()) return;
+
+  if (opts.forceReload) {
+    wc.reloadIgnoringCache();
+    return;
+  }
+
+  // Re-assert live policy (Electron can re-enable throttling on some paths).
+  try {
+    wc.setBackgroundThrottling(false);
+  } catch {
+    /* older electron */
+  }
+
+  // Nudge the compositor after GPU sleep (black surface).
+  try {
+    const [w, h] = mainWindow.getSize();
+    if (w > 0 && h > 0) {
+      mainWindow.setSize(w, h + 1);
+      mainWindow.setSize(w, h);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // Prefer IPC (preload always receives it); executeJavaScript as fallback
+  // for reflow if the page is mid-paint.
+  try {
+    wc.send("shell-resume", { reason });
+  } catch {
+    /* ignore */
+  }
+  void wc
+    .executeJavaScript(
+      `(() => {
+        try {
+          const b = document.body;
+          if (b) {
+            const prev = b.style.display;
+            b.style.display = 'none';
+            void b.offsetHeight;
+            b.style.display = prev || '';
+          }
+          window.dispatchEvent(new CustomEvent('resoshell-resume', {
+            detail: { reason: ${JSON.stringify(reason)} }
+          }));
+        } catch (e) {}
+        true;
+      })()`,
+    )
+    .catch(() => {
+      /* renderer may be mid-navigation */
+    });
 }
 
 function refreshMenu(): void {
@@ -462,21 +644,25 @@ function createWindow(): void {
     minHeight: 640,
     title: "ResoStage",
     backgroundColor: "#000000",
+    // Don't paint a frozen black buffer while occluded — redraw on reveal.
+    paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // This is a live-performance app: the operator routinely alt-tabs
-      // away or covers the window with other software mid-show, and the
-      // SPA's state feed (Player screen, 3D lighting preview) must keep
-      // updating even then. Electron defaults to throttling rAF/timers for
-      // occluded/backgrounded windows, which silently freezes anything
-      // gated behind requestAnimationFrame (see useLiveState.ts) -- disable
-      // that here.
+      // Default off: rAF/timers must keep firing when minimized/occluded
+      // (live meters, playhead, stage preview). See applyLiveRendererDefaults.
       backgroundThrottling: false,
     },
   });
+  // API mirror of webPreferences.backgroundThrottling (some Electron builds
+  // only honor the runtime setter after the window exists).
+  try {
+    mainWindow.webContents.setBackgroundThrottling(false);
+  } catch {
+    /* ignore */
+  }
 
   let triedEmbed = false;
   mainWindow.webContents.on("did-fail-load", () => {
@@ -505,12 +691,12 @@ function createWindow(): void {
   // menu-state, but build the bar (with the latest known tab) as soon as the
   // window exists so nothing shows up empty/control-strip on first open.
   refreshTouchBar();
-  mainWindow.on("focus", () => refreshTouchBar());
-
-  // DevTools / reload are available via standard accelerators (Cmd+Opt+I,
-  // Cmd+R). Do NOT auto-popup a context menu here: it races the SPA's
-  // native Menu.popup() path (show-context-menu IPC) and steals right-clicks
-  // that should become track/cue menus.
+  mainWindow.on("focus", () => {
+    refreshTouchBar();
+    recoverRenderer("focus");
+  });
+  mainWindow.on("show", () => recoverRenderer("show"));
+  mainWindow.on("restore", () => recoverRenderer("restore"));
 
   void mainWindow.loadURL(DEV_URL);
 }
@@ -616,6 +802,7 @@ app.setAboutPanelOptions({
 
 void app.whenReady().then(async () => {
   if (STANDALONE) spawnBackend();
+  ensureAppNotSuspended();
 
   // The GET response already carries the current Open Recent list, so the
   // submenu is correct on first open -- before any live menu-state IPC has
@@ -637,8 +824,25 @@ void app.whenReady().then(async () => {
   // Electron icon rather than a single-resolution PNG override.
   createWindow();
 
+  // System sleep / display off → wake: GPU + compositor often leave a black
+  // frame. Recover automatically (double-pass: GPU may not be ready at +50ms).
+  const onSystemWake = (reason: string) => {
+    lastRecoverAt = 0;
+    setTimeout(() => recoverRenderer(reason), 80);
+    setTimeout(() => {
+      lastRecoverAt = 0;
+      recoverRenderer(`${reason}-late`);
+    }, 500);
+  };
+  powerMonitor.on("resume", () => onSystemWake("power-resume"));
+  powerMonitor.on("unlock-screen", () => onSystemWake("unlock-screen"));
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else {
+      lastRecoverAt = 0;
+      recoverRenderer("activate");
+    }
   });
 });
 
@@ -652,5 +856,6 @@ app.on("window-all-closed", () => {
 // etc.) so a standalone launch never leaves the backend running headless
 // with no shell left to talk to it.
 app.on("before-quit", () => {
+  releaseAppSuspensionBlocker();
   if (STANDALONE) killBackend();
 });

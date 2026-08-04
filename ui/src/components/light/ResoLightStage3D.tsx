@@ -267,12 +267,56 @@ export function ResoLightStage3D({
   const topViewRef = useRef<(() => void) | null>(null);
   // Fade-in only AFTER auto Frame All so the camera jump is never visible.
   const [fadedIn, setFadedIn] = useState(false);
+  // Bump to remount <Canvas> after WebGL context loss (sleep / GPU reset)
+  // or an Electron shell-resume when the compositor left a black surface.
+  const [canvasEpoch, setCanvasEpoch] = useState(0);
   const onFramed = useMemo(
     () => () => {
       requestAnimationFrame(() => setFadedIn(true));
     },
     [],
   );
+
+  useEffect(() => {
+    const remount = () => {
+      setFadedIn(false);
+      setCanvasEpoch((n) => n + 1);
+    };
+    const onContextLost = (e: Event) => {
+      e.preventDefault();
+      remount();
+    };
+    // Soft recover on plain focus/show (don't tear down the GL context —
+    // that flickers the stage every alt-tab). Hard remount after sleep /
+    // unlock / long background, where the GPU surface is often dead.
+    const onShellResume = (e: Event) => {
+      const reason =
+        e instanceof CustomEvent
+          ? String((e.detail as { reason?: string } | undefined)?.reason ?? "")
+          : "";
+      const hard =
+        reason.startsWith("power-resume") ||
+        reason.startsWith("unlock-screen") ||
+        reason === "restore" ||
+        reason === "menu" ||
+        reason === "page-resume" ||
+        reason === "pageshow-bfcache" ||
+        reason === "visibility";
+      if (hard) {
+        remount();
+        return;
+      }
+      // focus/show/activate: keep canvas, just ensure we're visible.
+      setFadedIn(true);
+      requestAnimationFrame(() => frameAllRef.current?.());
+    };
+    window.addEventListener("webglcontextlost", onContextLost, true);
+    window.addEventListener("resoshell-resume", onShellResume);
+    return () => {
+      window.removeEventListener("webglcontextlost", onContextLost, true);
+      window.removeEventListener("resoshell-resume", onShellResume);
+    };
+  }, []);
 
   return (
     <div
@@ -304,8 +348,18 @@ export function ResoLightStage3D({
       )}
 
       <Canvas
+        key={canvasEpoch}
         camera={{ position: [4, 3.5, 5], fov: 50 }}
         style={{ width: "100%", height: "100%" }}
+        onCreated={({ gl }) => {
+          const el = gl.domElement;
+          const lost = (e: Event) => {
+            e.preventDefault();
+            setFadedIn(false);
+            setCanvasEpoch((n) => n + 1);
+          };
+          el.addEventListener("webglcontextlost", lost, false);
+        }}
       >
         <color attach="background" args={[stageColors.background]} />
         <ambientLight intensity={0.55} />

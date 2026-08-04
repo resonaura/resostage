@@ -179,9 +179,9 @@ export function useLiveState(view: string = "player") {
 
   const sendView = (v: string) => {
     // POST is more reliable than WS for this — no dependency on WS state.
-    fetch('/api/v1/view', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    fetch("/api/v1/view", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ view: v }),
     }).catch(() => {
       // Best-effort — the WS send below is the fallback path.
@@ -190,7 +190,9 @@ export function useLiveState(view: string = "player") {
     // Also try WS if open (dual-path for redundancy).
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ view: v })); } catch {}
+      try {
+        ws.send(JSON.stringify({ view: v }));
+      } catch {}
     }
   };
 
@@ -271,6 +273,42 @@ export function useLiveState(view: string = "player") {
 
     connect();
 
+    // After laptop sleep / minimize the socket often stays OPEN but is dead
+    // (no onclose). On resume: ping if open, else force a reconnect.
+    const wakeSocket = () => {
+      if (cancelled) return;
+      const cur = wsRef.current;
+      if (cur && cur.readyState === WebSocket.OPEN) {
+        try {
+          cur.send(JSON.stringify({ view: viewRef.current }));
+        } catch {
+          try {
+            cur.close();
+          } catch {
+            /* reconnect via onclose */
+          }
+        }
+        return;
+      }
+      if (
+        !cur ||
+        cur.readyState === WebSocket.CLOSED ||
+        cur.readyState === WebSocket.CLOSING
+      ) {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        connect();
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") wakeSocket();
+    };
+    const onShellResume = () => wakeSocket();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("resoshell-resume", onShellResume);
+
     // 1 Hz: sparkline history + freeze CPU/RAM numbers into React state.
     const sampleInterval = setInterval(() => {
       const sample = latestHealthRef.current;
@@ -292,6 +330,8 @@ export function useLiveState(view: string = "player") {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("resoshell-resume", onShellResume);
       ws?.close();
       wsRef.current = null;
     };

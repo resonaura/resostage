@@ -17,3 +17,21 @@ contextBridge.exposeInMainWorld("resostageElectron", {
   ): Promise<string | null> =>
     ipcRenderer.invoke("show-context-menu", { items, x, y }),
 });
+
+// Shell → SPA: wake after sleep / minimize. IPC is more reliable than
+// executeJavaScript after the GPU process has been suspended.
+ipcRenderer.on("shell-resume", (_event, detail: { reason?: string }) => {
+  try {
+    const w = globalThis as unknown as {
+      dispatchEvent: (e: Event) => boolean;
+      CustomEvent: new (type: string, init?: { detail?: unknown }) => Event;
+    };
+    w.dispatchEvent(
+      new w.CustomEvent("resoshell-resume", {
+        detail: detail ?? { reason: "shell" },
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+});
