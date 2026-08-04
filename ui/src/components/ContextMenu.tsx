@@ -12,6 +12,11 @@ import { createPortal } from "react-dom";
 import { IS_ELECTRON } from "../lib/electron";
 import { IS_EMBEDDED } from "../lib/embedded";
 
+/**
+ * Wire format for Electron's native Menu (see electron main
+ * `show-context-menu`). Checkbox items use Electron's `type: "checkbox"` so
+ * macOS / Windows draw the platform checkmark — not a text "✓" hack.
+ */
 export type NativeMenuItem =
   | {
       type: "item";
@@ -19,6 +24,8 @@ export type NativeMenuItem =
       label: string;
       danger?: boolean;
       disabled?: boolean;
+      /** When set, item is a checkbox (native checkmark in Electron). */
+      checked?: boolean;
     }
   | { type: "separator" };
 
@@ -64,16 +71,23 @@ function collectNativeItems(children: ReactNode): {
         children?: ReactNode;
         danger?: boolean;
         disabled?: boolean;
+        checked?: boolean;
         onClick: () => void;
       };
       const id = `item-${n++}`;
-      items.push({
+      const item: NativeMenuItem = {
         type: "item",
         id,
         label: extractLabel(props.children) || "…",
         danger: props.danger,
         disabled: props.disabled,
-      });
+      };
+      // Only mark as checkbox when `checked` is explicitly boolean — plain
+      // action items stay type "item" without a check column.
+      if (typeof props.checked === "boolean") {
+        item.checked = props.checked;
+      }
+      items.push(item);
       handlers.set(id, props.onClick);
     }
   });
@@ -84,7 +98,8 @@ function collectNativeItems(children: ReactNode): {
  * Shared right-click menu shell for the whole app.
  *
  * When running under Electron (or embedded with the Electron bridge), items
- * are shown via a native OS menu. Otherwise a custom portaled panel is used.
+ * are shown via a native OS menu (checkbox items use platform checkmarks).
+ * Otherwise a custom portaled panel is used with a reserved check column.
  */
 export function ContextMenu({
   x,
@@ -119,6 +134,11 @@ export function ContextMenu({
   handlersRef.current = nativeHandlers;
   // Stable key for menu content — reopen only when labels/flags/coords change.
   const nativeItemsKey = JSON.stringify(nativeItems);
+
+  // Any checkbox item in the tree → reserve check column in the DOM menu.
+  const hasCheckable = nativeItems.some(
+    (it) => it.type === "item" && typeof it.checked === "boolean",
+  );
 
   // Native path (Electron shell with preload bridge).
   useEffect(() => {
@@ -181,6 +201,7 @@ export function ContextMenu({
         <motion.div
           ref={menuRef}
           key="ctx-menu"
+          data-has-checkable={hasCheckable ? "1" : "0"}
           initial={{ opacity: 0, scale: 0.94, y: -4 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94 }}
@@ -205,25 +226,44 @@ export function ContextMenuItem({
   children,
   danger = false,
   disabled = false,
+  checked,
   onClick,
 }: {
   children: React.ReactNode;
   danger?: boolean;
   disabled?: boolean;
+  /**
+   * When a boolean, this item is a toggle/checkbox:
+   * - Electron: native `type: "checkbox"` with OS checkmark
+   * - DOM menu: reserved leading check column
+   * Omit for ordinary action items.
+   */
+  checked?: boolean;
   onClick: () => void;
 }) {
+  const isCheckable = typeof checked === "boolean";
   return (
     <button
       type="button"
+      role={isCheckable ? "menuitemcheckbox" : "menuitem"}
+      aria-checked={isCheckable ? checked : undefined}
       disabled={disabled}
       onClick={onClick}
-      className={`flex w-full items-center px-3 py-1.5 text-left transition-colors disabled:opacity-30 disabled:cursor-default ${
+      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors disabled:opacity-30 disabled:cursor-default ${
         danger
           ? "text-danger hover:bg-danger/10"
           : "text-foreground/80 hover:bg-default/20"
       }`}
     >
-      {children}
+      {isCheckable && (
+        <span
+          className="inline-flex w-3.5 shrink-0 items-center justify-center text-[11px] font-semibold text-accent"
+          aria-hidden
+        >
+          {checked ? "✓" : ""}
+        </span>
+      )}
+      <span className="min-w-0 flex-1 truncate">{children}</span>
     </button>
   );
 }

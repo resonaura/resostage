@@ -322,6 +322,9 @@ std::string serializeProjectJson(const Project& project) {
         }
         o << "      ],\n";
 
+        // Cycle is project-global (written once at project root). Per-song
+        // cycle objects are no longer saved.
+
         o << "      \"lightCues\": [\n";
         for (size_t lci = 0; lci < s.lightCues.size(); ++lci) {
             const LightCue& lc = s.lightCues[lci];
@@ -353,6 +356,19 @@ std::string serializeProjectJson(const Project& project) {
         o << "    }" << (si + 1 < project.songs.size() ? "," : "") << "\n";
     }
     o << "  ],\n";
+
+    // Single project-wide cycle (song-local seconds on cycle.songIndex).
+    o << "  \"cycle\": {\n";
+    o << "    \"active\": " << (project.cycle.active ? "true" : "false") << ",\n";
+    o << "    \"skip\": " << (project.cycle.skip ? "true" : "false") << ",\n";
+    o << "    \"leftSec\": ";
+    writeNumber(o, project.cycle.leftSec);
+    o << ",\n";
+    o << "    \"rightSec\": ";
+    writeNumber(o, project.cycle.rightSec);
+    o << ",\n";
+    o << "    \"songIndex\": " << project.cycle.songIndex << "\n";
+    o << "  },\n";
 
     o << "  \"keybindings\": {\n";
     size_t kbCount = 0;

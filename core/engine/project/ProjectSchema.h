@@ -355,6 +355,24 @@ struct SongSection {
     int colorIndex = 0; // cosmetic track colour index for the SPA
 };
 
+// ONE project-wide Logic-style cycle (not per-song). left/right are song-local
+// seconds on `songIndex`. Cross-song spans are unsupported (gapless restage).
+// Coordinates persist when inactive so toggling cycle on restores the range.
+// Applied by AudioEngine on the realtime path so every client hears the same
+// loop without SPA-side seeks.
+struct ProjectCycle {
+    bool active = false;
+    // When true: jump over [leftSec, rightSec) instead of looping it.
+    bool skip = false;
+    double leftSec = 0.0;
+    double rightSec = 4.0;
+    // Song the locators belong to (-1 = unset / no song yet).
+    int songIndex = -1;
+};
+
+// Legacy alias -- older code / load migration from per-song cycle objects.
+using SongCycle = ProjectCycle;
+
 struct SongDef {
     std::string id;
     std::string name;
@@ -365,6 +383,9 @@ struct SongDef {
     std::vector<TimelineEvent> events;
     std::vector<SongSection> sections;
     std::vector<LightCue> lightCues;
+    // Load-only migration from archives that stored cycle per song. Live state
+    // and new saves use Project::cycle (single project-wide zone).
+    SongCycle legacyCycle;
 
     // Legacy per-song click fields -- kept only for load migration from older
     // archives. Live routing and new saves use Project::builtInClick* below
@@ -431,6 +452,8 @@ struct Project {
     std::vector<BusDef> busses;
     std::vector<TrackDef> tracks;
     std::vector<SongDef> songs;
+    // Single project-wide cycle zone (see ProjectCycle). Not per-song.
+    ProjectCycle cycle;
     KeyBindingMap keybindings;
     std::vector<MidiMapping> midiMappings;
     LightingConfig lighting;

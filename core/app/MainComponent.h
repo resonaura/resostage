@@ -171,6 +171,7 @@ private:
     void builderSectionAdd(const std::string& json);
     void builderSectionRemove(const std::string& json);
     void builderSectionUpdate(const std::string& json);
+    void builderCycleUpdate(const std::string& json);
 
     void lightingSetConfig(const std::string& json);
     void lightingFixtureAdd(const std::string& json);

@@ -1229,7 +1229,7 @@ function TrackSettingsPanel({
   return (
     <div className="flex flex-col gap-3 select-text">
       <div className="flex items-center justify-between">
-        <span className={labelCls}>Track: {track.name}</span>
+        <span className={labelCls}>Track Settings</span>
         {onRequestClose && (
           <button
             type="button"
@@ -1275,6 +1275,7 @@ function TrackSettingsPanel({
         </div>
       )}
 
+      {/* Fixtures are owned by the track, never by individual cues. */}
       <Field label="Assigned Fixtures">
         <div className="flex flex-col gap-1">
           {fixtures.length === 0 ? (
@@ -1700,6 +1701,9 @@ export function LightSidePanel({
               />
             </div>
 
+            {/* Fixtures / track name live on the track only — still shown while
+                editing a cue so assignment stays one click away, labeled as
+                Track Settings (not cue settings). */}
             <div className="rounded-xl border border-default/20 bg-default/5 p-3">
               <TrackSettingsPanel
                 track={selection.track}

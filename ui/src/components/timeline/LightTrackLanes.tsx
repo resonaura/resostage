@@ -4,6 +4,7 @@ import {
   type CueSelKey,
   type LightCueDragState,
 } from "../light/LightTimeline";
+import type { TimelineTool } from "./tools";
 
 export function LightTrackLanes({
   lightEnabled,
@@ -18,6 +19,7 @@ export function LightTrackLanes({
   verticalZoom,
   contentWidth,
   readOnly,
+  tool,
   toAbsSec,
   snapLocalSec,
   selectedCueKeys,
@@ -39,6 +41,7 @@ export function LightTrackLanes({
   verticalZoom: number;
   contentWidth: number;
   readOnly: boolean;
+  tool: TimelineTool;
   toAbsSec: (clientX: number) => number;
   snapLocalSec: (songIndex: number, localSec: number) => number;
   selectedCueKeys: CueSelKey[];
@@ -62,8 +65,8 @@ export function LightTrackLanes({
   if (lightTracks.length === 0) {
     return (
       <div className="flex h-24 items-center justify-center px-6 text-center text-xs text-foreground/40">
-        No light tracks yet — add one from the sidebar, then click an empty lane
-        to place a cue.
+        No light tracks yet — add one from the sidebar, then use the Pencil tool
+        and click an empty lane to place a cue.
       </div>
     );
   }
@@ -84,6 +87,7 @@ export function LightTrackLanes({
           verticalZoom={verticalZoom}
           contentWidth={contentWidth}
           readOnly={readOnly}
+          tool={tool}
           toAbsSec={toAbsSec}
           snapLocalSec={snapLocalSec}
           selectedKeys={selectedCueKeys}

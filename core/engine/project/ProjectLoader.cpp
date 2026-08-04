@@ -471,6 +471,28 @@ bool parseSong(const simdjson::dom::element& songEl, SongDef& song, std::string&
         }
     }
 
+    // Optional legacy per-song cycle -- migrated to Project::cycle after songs
+    // are loaded. New archives store cycle at the project root only.
+    {
+        simdjson::dom::element cycleEl;
+        if (!songEl["cycle"].get(cycleEl)) {
+            bool b = false;
+            if (!cycleEl["active"].get(b))
+                song.legacyCycle.active = b;
+            if (!cycleEl["skip"].get(b))
+                song.legacyCycle.skip = b;
+            double d = 0.0;
+            if (!cycleEl["leftSec"].get(d))
+                song.legacyCycle.leftSec = std::max(0.0, d);
+            if (!cycleEl["rightSec"].get(d))
+                song.legacyCycle.rightSec = std::max(0.0, d);
+            if (song.legacyCycle.rightSec < song.legacyCycle.leftSec)
+                std::swap(song.legacyCycle.leftSec, song.legacyCycle.rightSec);
+            // songIndex filled during migration (index of this song).
+            song.legacyCycle.songIndex = -1; // set by caller after push
+        }
+    }
+
     // Optional -- absent in projects saved before lighting existed.
     simdjson::dom::array lightCuesArr;
     if (!songEl["lightCues"].get(lightCuesArr)) {
@@ -1033,11 +1055,63 @@ bool ProjectLoader::loadAutosave(std::string& error) {
 
     simdjson::dom::array songsArr;
     if (!doc["songs"].get(songsArr)) {
+        int si = 0;
         for (simdjson::dom::element songEl : songsArr) {
             SongDef song;
             if (!parseSong(songEl, song, error, proj)) return false;
+            if (song.legacyCycle.songIndex < 0)
+                song.legacyCycle.songIndex = si;
             proj.songs.push_back(std::move(song));
+            ++si;
         }
+    }
+
+    // Project-wide cycle (preferred). Fall back to first legacy per-song cycle.
+    {
+        simdjson::dom::element cycleEl;
+        bool hadProjectCycle = false;
+        if (!doc["cycle"].get(cycleEl)) {
+            hadProjectCycle = true;
+            bool b = false;
+            if (!cycleEl["active"].get(b))
+                proj.cycle.active = b;
+            if (!cycleEl["skip"].get(b))
+                proj.cycle.skip = b;
+            double d = 0.0;
+            if (!cycleEl["leftSec"].get(d))
+                proj.cycle.leftSec = std::max(0.0, d);
+            if (!cycleEl["rightSec"].get(d))
+                proj.cycle.rightSec = std::max(0.0, d);
+            int64_t si = -1;
+            if (!cycleEl["songIndex"].get(si))
+                proj.cycle.songIndex = static_cast<int>(si);
+            if (proj.cycle.rightSec < proj.cycle.leftSec)
+                std::swap(proj.cycle.leftSec, proj.cycle.rightSec);
+        }
+        if (!hadProjectCycle) {
+            // Prefer an active legacy zone; otherwise first song with a real range.
+            for (size_t i = 0; i < proj.songs.size(); ++i) {
+                const SongCycle& lc = proj.songs[i].legacyCycle;
+                if (lc.active) {
+                    proj.cycle = lc;
+                    proj.cycle.songIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+            if (proj.cycle.songIndex < 0) {
+                for (size_t i = 0; i < proj.songs.size(); ++i) {
+                    const SongCycle& lc = proj.songs[i].legacyCycle;
+                    if (lc.rightSec - lc.leftSec >= 0.05
+                        && (lc.leftSec > 0.0 || lc.rightSec != 4.0 || lc.skip)) {
+                        proj.cycle = lc;
+                        proj.cycle.songIndex = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+        }
+        if (proj.cycle.songIndex >= static_cast<int>(proj.songs.size()))
+            proj.cycle.songIndex = proj.songs.empty() ? -1 : 0;
     }
 
     // Migrate legacy per-song metronome → project-global when the archive
@@ -1236,12 +1310,62 @@ bool ProjectLoader::reparseProject(std::string& error) {
 
     simdjson::dom::array songsArr;
     if (!doc["songs"].get(songsArr)) {
+        int si = 0;
         for (simdjson::dom::element songEl : songsArr) {
             SongDef song;
             if (!parseSong(songEl, song, error, proj))
                 return false;
+            if (song.legacyCycle.songIndex < 0)
+                song.legacyCycle.songIndex = si;
             proj.songs.push_back(std::move(song));
+            ++si;
         }
+    }
+
+    {
+        simdjson::dom::element cycleEl;
+        bool hadProjectCycle = false;
+        if (!doc["cycle"].get(cycleEl)) {
+            hadProjectCycle = true;
+            bool b = false;
+            if (!cycleEl["active"].get(b))
+                proj.cycle.active = b;
+            if (!cycleEl["skip"].get(b))
+                proj.cycle.skip = b;
+            double d = 0.0;
+            if (!cycleEl["leftSec"].get(d))
+                proj.cycle.leftSec = std::max(0.0, d);
+            if (!cycleEl["rightSec"].get(d))
+                proj.cycle.rightSec = std::max(0.0, d);
+            int64_t six = -1;
+            if (!cycleEl["songIndex"].get(six))
+                proj.cycle.songIndex = static_cast<int>(six);
+            if (proj.cycle.rightSec < proj.cycle.leftSec)
+                std::swap(proj.cycle.leftSec, proj.cycle.rightSec);
+        }
+        if (!hadProjectCycle) {
+            for (size_t i = 0; i < proj.songs.size(); ++i) {
+                const SongCycle& lc = proj.songs[i].legacyCycle;
+                if (lc.active) {
+                    proj.cycle = lc;
+                    proj.cycle.songIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+            if (proj.cycle.songIndex < 0) {
+                for (size_t i = 0; i < proj.songs.size(); ++i) {
+                    const SongCycle& lc = proj.songs[i].legacyCycle;
+                    if (lc.rightSec - lc.leftSec >= 0.05
+                        && (lc.leftSec > 0.0 || lc.rightSec != 4.0 || lc.skip)) {
+                        proj.cycle = lc;
+                        proj.cycle.songIndex = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+        }
+        if (proj.cycle.songIndex >= static_cast<int>(proj.songs.size()))
+            proj.cycle.songIndex = proj.songs.empty() ? -1 : 0;
     }
 
     if (!hadProjectClickConfig) {

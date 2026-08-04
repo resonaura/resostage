@@ -854,7 +854,8 @@ ipcMain.on("haptic-feedback", (_event, pattern: unknown) => {
 });
 
 // SPA → native context menu (mixer track menus, etc.). Returns chosen id
-// or null when dismissed / cancelled.
+// or null when dismissed / cancelled. Checkbox items use Electron's native
+// `type: "checkbox"` so the OS draws platform checkmarks (macOS NSMenu, etc.).
 ipcMain.handle(
   "show-context-menu",
   async (
@@ -868,6 +869,8 @@ ipcMain.handle(
             label: string;
             danger?: boolean;
             disabled?: boolean;
+            /** When boolean, render as a native checkbox menu item. */
+            checked?: boolean;
           }
       >;
       x?: number;
@@ -885,9 +888,13 @@ ipcMain.handle(
       };
       const template: MenuItemConstructorOptions[] = items.map((it) => {
         if (it.type === "separator") return { type: "separator" as const };
+        const isCheckbox = typeof it.checked === "boolean";
         return {
           label: it.label,
           enabled: !it.disabled,
+          ...(isCheckbox
+            ? { type: "checkbox" as const, checked: it.checked }
+            : {}),
           click: () => done(it.id),
         };
       });

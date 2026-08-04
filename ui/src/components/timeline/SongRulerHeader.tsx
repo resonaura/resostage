@@ -1,8 +1,18 @@
 import type { SongRow } from "../../lib/types";
-import { RULER_HEIGHT } from "./constants";
+import {
+  RULER_BEAT_HEIGHT,
+  RULER_CYCLE_HEIGHT,
+  RULER_HEIGHT,
+} from "./constants";
+import { CycleStrip } from "./CycleStrip";
 import { Ruler } from "./Ruler";
+import type { CycleLocators } from "./useCycleState";
 
-/** Sticky per-song rulers + song name chips + playhead handle host. */
+/**
+ * Sticky two-tier bar ruler (Logic-style):
+ *   upper = cycle create / move / toggle
+ *   lower = beat ticks + playhead scrub
+ */
 export function SongRulerHeader({
   songs,
   songOffsets,
@@ -12,6 +22,12 @@ export function SongRulerHeader({
   contentWidth,
   scrollState,
   playheadHandleRef,
+  cycle,
+  snapToGrid = false,
+  onCycleToggle,
+  onCycleSetRange,
+  onCycleToggleSkip,
+  onCycleDragEnd,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -25,6 +41,22 @@ export function SongRulerHeader({
   contentWidth: number;
   scrollState: { scrollLeft: number; viewportWidth: number };
   playheadHandleRef: React.RefObject<HTMLDivElement | null>;
+  cycle: CycleLocators;
+  snapToGrid?: boolean;
+  onCycleToggle: () => void;
+  onCycleSetRange: (
+    leftSec: number,
+    rightSec: number,
+    opts?: {
+      activate?: boolean;
+      skip?: boolean;
+      dragging?: boolean;
+      songIndex?: number;
+      songLength?: number;
+    },
+  ) => void;
+  onCycleToggleSkip: () => void;
+  onCycleDragEnd?: () => void;
   onPointerDown: (e: React.PointerEvent) => void;
   onPointerMove: (e: React.PointerEvent) => void;
   onPointerUp: (e: React.PointerEvent) => void;
@@ -32,37 +64,33 @@ export function SongRulerHeader({
 }) {
   return (
     <div
-      className="sticky top-0 z-20 bg-background-secondary shrink-0 cursor-col-resize touch-none"
-      // Explicit height: children are absolute; without it the sticky box
-      // collapses to 0 and the ruler-band playhead (top/bottom:0) vanishes
-      // under the opaque Ruler canvases ("рулер перекрывает плейхед").
+      className="sticky top-0 z-20 bg-background-secondary shrink-0 touch-none"
       style={{ width: contentWidth, height: RULER_HEIGHT }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
-      onLostPointerCapture={onPointerCancel}
     >
       {songs.map((song, i) => {
         const left = Math.round(songOffsets[i] * pxPerSec);
+        const w = Math.max(1, Math.round(songLengths[i] * pxPerSec));
         const isActive = i === songIndex;
         return (
           <div
             key={i}
-            className="absolute top-0"
-            style={{ left, height: RULER_HEIGHT }}
+            className="pointer-events-none absolute top-0"
+            style={{ left, width: w, height: RULER_HEIGHT }}
           >
             {i > 0 && (
               <div className="absolute left-0 top-0 h-full w-px bg-default/40" />
             )}
             <div
-              className={`absolute -top-px left-1.5 z-10 truncate rounded-b px-1 text-[8px] font-bold uppercase tracking-wide ${
+              className={`pointer-events-none absolute z-10 truncate rounded-b px-1 text-[8px] font-bold uppercase tracking-wide ${
                 isActive
                   ? "bg-accent text-accent-foreground"
                   : "bg-default/30 text-foreground/50"
               }`}
               style={{
-                maxWidth: Math.max(20, songLengths[i] * pxPerSec - 6),
+                // Sit in the upper cycle tier without covering cycle handles.
+                top: 1,
+                left: 6,
+                maxWidth: Math.max(20, w - 12),
               }}
               title={song.name}
             >
@@ -70,7 +98,7 @@ export function SongRulerHeader({
             </div>
             <Ruler
               pxPerSec={pxPerSec}
-              contentWidth={Math.max(1, Math.round(songLengths[i] * pxPerSec))}
+              contentWidth={w}
               songLength={songLengths[i]}
               bpm={song.bpm}
               tsNum={song.tsNum}
@@ -80,23 +108,60 @@ export function SongRulerHeader({
               )}
               viewportWidth={scrollState.viewportWidth}
             />
+            {/* Cycle upper tier on EVERY song: create/rebind here; the bar
+                only paints when this song owns the project cycle. */}
+            <CycleStrip
+              songLength={songLengths[i]}
+              pxPerSec={pxPerSec}
+              cycle={cycle}
+              ownsCycle={cycle.songIndex === i}
+              bpm={song.bpm}
+              tsNum={song.tsNum}
+              snapToGrid={snapToGrid}
+              onToggleActive={onCycleToggle}
+              onSetRange={(l, r, opts) =>
+                onCycleSetRange(l, r, {
+                  ...opts,
+                  songIndex: i,
+                  songLength: songLengths[i] ?? 0,
+                })
+              }
+              onToggleSkip={onCycleToggleSkip}
+              onDragEnd={onCycleDragEnd}
+            />
           </div>
         );
       })}
-      {/* Playhead handle + ruler-band needle — AFTER song rulers so it paints
-          on top of the opaque ruler canvases. Lives inside sticky so it
-          sticks with the header; full-height lane needle is z-below sticky. */}
+
+      {/* Lower tier only: playhead scrub (does not compete with cycle). */}
+      <div
+        className="absolute inset-x-0 z-[15] cursor-col-resize"
+        style={{ top: RULER_CYCLE_HEIGHT, height: RULER_BEAT_HEIGHT }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onLostPointerCapture={onPointerCancel}
+        title="Click / drag to seek"
+      />
+
+      {/* Playhead handle — lower beat tier only (never paints into cycle row). */}
       <div
         ref={playheadHandleRef}
-        className="pointer-events-auto absolute inset-y-0 z-30 w-0 -translate-x-1/2 cursor-col-resize select-none"
-        style={{ left: 0 }}
+        className="pointer-events-auto absolute z-30 w-0 -translate-x-1/2 cursor-col-resize select-none"
+        style={{
+          left: 0,
+          top: RULER_CYCLE_HEIGHT,
+          height: RULER_BEAT_HEIGHT,
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
         onLostPointerCapture={onPointerCancel}
       >
-        <div className="absolute top-0 bottom-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+        {/* Needle only through the beat tier; full arrangement line lives below. */}
+        <div className="absolute inset-y-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
         <div
           className="absolute top-0 left-0 -translate-x-1/2"
           style={{

@@ -50,10 +50,12 @@ export const TrackHeaderControl = memo(
     const btn = h < 36 ? 16 : h < 72 ? 20 : 22;
     const btnFont = h < 36 ? 8 : 10;
     const knobSize = h < 48 ? 16 : h < 80 ? 20 : 24;
-    // Meter fills leftover vertical space next to the name row.
-    const meterH = showVol
+    // Quantize meter height so vertical zoom doesn't thrash ResizeObserver
+    // (and flash the canvas meters) on every sub-step.
+    const meterHRaw = showVol
       ? Math.max(14, Math.round(h * 0.38))
       : Math.max(12, h - padY * 2 - 4);
+    const meterH = Math.round(meterHRaw / 4) * 4;
     const swatchH = h < 32 ? 10 : 14;
     const swatchW = h < 32 ? 6 : 8;
 

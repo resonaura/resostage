@@ -400,6 +400,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/section/add", WebCommandKind::BuilderSectionAdd},
     {"/api/v1/builder/section/remove", WebCommandKind::BuilderSectionRemove},
     {"/api/v1/builder/section/update", WebCommandKind::BuilderSectionUpdate},
+    {"/api/v1/builder/cycle/update", WebCommandKind::BuilderCycleUpdate},
     {"/api/v1/lighting/config", WebCommandKind::SetLightingConfig},
     {"/api/v1/lighting/fixture/add", WebCommandKind::LightFixtureAdd},
     {"/api/v1/lighting/fixture/duplicate", WebCommandKind::LightFixtureDuplicate},
@@ -1377,6 +1378,17 @@ std::string WebServer::buildStateJson(const char* view) const {
             o << "]}";
         }
         o << "]";
+    }
+
+    // Project-wide cycle (always with songs so every client shares one zone).
+    if (wantSongs) {
+        o << ",\"cycle\":{"
+          << "\"active\":" << (snap.cycle.active ? "true" : "false") << ","
+          << "\"skip\":" << (snap.cycle.skip ? "true" : "false") << ","
+          << "\"leftSec\":" << finiteOrZero(snap.cycle.leftSec) << ","
+          << "\"rightSec\":" << finiteOrZero(snap.cycle.rightSec) << ","
+          << "\"songIndex\":" << snap.cycle.songIndex
+          << "}";
     }
 
     if (wantMeters) {

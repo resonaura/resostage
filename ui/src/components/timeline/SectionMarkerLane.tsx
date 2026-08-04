@@ -6,18 +6,18 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "../ContextMenu";
-import {
-  SECTION_LANE_HEIGHT,
-  SECTION_PRESETS,
-  TRACK_COLORS,
-} from "./constants";
+import { SECTION_LANE_HEIGHT, SECTION_PRESETS } from "./constants";
 import { formatTimeShort, snapToGridSec } from "./geometry";
 
+/** Neutral marker chrome — no per-section accent colours. */
+const SECTION_LINE = "rgba(255,255,255,0.22)";
+const SECTION_CHIP_BG = "rgba(255,255,255,0.08)";
+const SECTION_CHIP_FG = "rgba(255,255,255,0.55)";
+
 // Point markers, not ranges -- the segment a marker covers is implicitly
-// "from here to the next marker (or song end)", same convention as the
-// native TimelineView.cpp's section-marker ruler this mirrors. Right-click
-// empty lane space to add one at that time; right-click an existing marker
-// to rename/delete it; drag a marker to reposition it (commits on release).
+// "from here to the next marker (or song end)". In the Editor, empty-lane
+// left-click (or right-click) opens the section-create context menu; existing
+// markers: drag to move, double-click = cycle, right-click = edit/delete.
 
 interface SectionMenuState {
   x: number;
@@ -36,6 +36,9 @@ export function SectionMarkerLane({
   contentWidth,
   readOnly,
   snapToGrid = false,
+  /** Double-click a section marker → set cycle to that section's range
+   *  (start → next section / song end). Song sections, not audio regions. */
+  onCycleFromSection,
 }: {
   songs: SongRow[];
   songOffsets: number[];
@@ -44,6 +47,11 @@ export function SectionMarkerLane({
   contentWidth: number;
   readOnly: boolean;
   snapToGrid?: boolean;
+  onCycleFromSection?: (
+    songIndex: number,
+    leftSec: number,
+    rightSec: number,
+  ) => void;
 }) {
   const laneRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<SectionMenuState | null>(null);
@@ -149,6 +157,28 @@ export function SectionMarkerLane({
     closeMenu();
   };
 
+  /** Section covers [start, next.start) or [start, songEnd). */
+  const sectionRange = (
+    songIndex: number,
+    sectionId: string,
+  ): { leftSec: number; rightSec: number } | null => {
+    const song = songs[songIndex];
+    if (!song) return null;
+    const songLen = songLengths[songIndex] ?? 0;
+    const ordered = [...(song.sections ?? [])].sort(
+      (a, b) => a.startSeconds - b.startSeconds,
+    );
+    const idx = ordered.findIndex((s) => s.id === sectionId);
+    if (idx < 0) return null;
+    const leftSec = Math.max(0, ordered[idx].startSeconds);
+    const rightSec =
+      idx + 1 < ordered.length
+        ? Math.max(leftSec, ordered[idx + 1].startSeconds)
+        : Math.max(leftSec, songLen);
+    if (rightSec - leftSec < 0.05) return null;
+    return { leftSec, rightSec };
+  };
+
   const beginDrag = (
     e: React.PointerEvent,
     songIndex: number,
@@ -200,10 +230,22 @@ export function SectionMarkerLane({
     <div
       ref={laneRef}
       className={`relative shrink-0 border-b border-default/30 bg-surface/20 touch-none ${
+        // Editor: context-menu cursor on empty lane (place a section).
+        // Markers below override with ew-resize for drag-to-move.
         readOnly ? "" : "cursor-context-menu"
       }`}
       style={{ height: SECTION_LANE_HEIGHT, width: contentWidth }}
-      onContextMenu={(e) => openMenuAt(e)}
+      onContextMenu={(e) => {
+        if (readOnly) return;
+        openMenuAt(e);
+      }}
+      onClick={(e) => {
+        // Editor only: left-click empty lane → section create menu
+        // (Intro/Verse/Chorus/… + custom). Markers stopPropagation.
+        if (readOnly || e.button !== 0) return;
+        if (e.detail !== 1) return;
+        openMenuAt(e);
+      }}
     >
       {songs.map((song, i) =>
         (song.sections ?? []).map((sec: SectionRow) => {
@@ -211,24 +253,46 @@ export function SectionMarkerLane({
             liveDrag?.songIndex === i && liveDrag?.sectionId === sec.id;
           const startSeconds = isDragging ? liveDrag!.value : sec.startSeconds;
           const left = (songOffsets[i] + startSeconds) * pxPerSec;
-          const color = TRACK_COLORS[sec.colorIndex % TRACK_COLORS.length];
           return (
             <div
               key={`${i}:${sec.id}`}
               className="absolute top-0 bottom-0 flex items-center"
               style={{ left, cursor: readOnly ? "default" : "ew-resize" }}
-              title={`${sec.name} @ ${formatTimeShort(sec.startSeconds)}${readOnly ? "" : " (drag to move, right-click to edit)"}`}
-              onPointerDown={(e) => beginDrag(e, i, sec.id, sec.startSeconds)}
+              title={`${sec.name} @ ${formatTimeShort(sec.startSeconds)}${readOnly ? "" : " (drag to move · double-click = cycle · right-click to edit)"}`}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                // Second click of a double-click must not start a drag — it
+                // would fight the cycle-from-section gesture below.
+                if (e.detail >= 2) return;
+                beginDrag(e, i, sec.id, sec.startSeconds);
+              }}
               onPointerMove={onDragMove}
               onPointerUp={onDragEnd}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (readOnly || !onCycleFromSection) return;
+                dragMetaRef.current = null;
+                setLiveDrag(null);
+                const range = sectionRange(i, sec.id);
+                if (!range) return;
+                onCycleFromSection(i, range.leftSec, range.rightSec);
+              }}
               onContextMenu={(e) =>
                 openMenuAt(e, { songIndex: i, sectionId: sec.id })
               }
             >
-              <div className="h-full w-px" style={{ background: color }} />
               <div
-                className="ml-0.5 truncate rounded px-1 py-0.5 text-[9px] font-semibold leading-none"
-                style={{ background: color + "33", color }}
+                className="h-full w-px"
+                style={{ background: SECTION_LINE }}
+              />
+              <div
+                className="ml-0.5 truncate rounded px-1 py-0.5 text-[9px] font-medium leading-none"
+                style={{
+                  background: SECTION_CHIP_BG,
+                  color: SECTION_CHIP_FG,
+                }}
               >
                 {sec.name}
               </div>

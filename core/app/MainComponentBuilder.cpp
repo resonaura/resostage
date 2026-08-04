@@ -551,6 +551,52 @@ void MainComponent::builderSectionUpdate(const std::string& json) {
     setStatus("Section updated");
 }
 
+void MainComponent::builderCycleUpdate(const std::string& json) {
+    simdjson::dom::element doc;
+    if (!parseJson(json, doc) || !engine.isProjectLoaded())
+        return;
+    Project& proj = engine.project();
+
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    engine.projectHistoryBeginEdit(gestureId, "Edit cycle");
+
+    // Single project-wide cycle. songIndex rebinds the zone to a song
+    // (required when creating/moving locators); left/right stay song-local.
+    int songIndex = proj.cycle.songIndex;
+    if (getInt(doc, "songIndex", songIndex)) {
+        if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size())) {
+            engine.projectHistoryCommitEdit();
+            return;
+        }
+        proj.cycle.songIndex = songIndex;
+    }
+
+    bool boolVal = false;
+    double numVal = 0.0;
+    if (getBool(doc, "active", boolVal))
+        proj.cycle.active = boolVal;
+    if (getBool(doc, "skip", boolVal))
+        proj.cycle.skip = boolVal;
+    if (getDouble(doc, "leftSec", numVal))
+        proj.cycle.leftSec = std::max(0.0, numVal);
+    if (getDouble(doc, "rightSec", numVal))
+        proj.cycle.rightSec = std::max(0.0, numVal);
+    if (proj.cycle.rightSec < proj.cycle.leftSec)
+        std::swap(proj.cycle.leftSec, proj.cycle.rightSec);
+
+    // If still unbound, attach to the currently staged song.
+    if (proj.cycle.songIndex < 0 && !proj.songs.empty())
+        proj.cycle.songIndex = static_cast<int>(engine.currentSongIndex());
+
+    engine.projectHistoryCommitEdit();
+    engine.markDirty();
+    // Mirror onto audio-thread atomics so loop/skip applies even with no SPA
+    // client driving seeks, and every tab hears the same cycle.
+    engine.syncTransportCycleFromProject();
+    notifyProjectStructureChanged();
+}
+
 void MainComponent::setTrackSendFromJson(const std::string& json) {
     simdjson::dom::element doc;
     int trackIndex = -1;

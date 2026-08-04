@@ -794,6 +794,7 @@ bool AudioEngine::undoTimelineEdit(std::string& appliedLabel) {
         return false;
     loader.project() = std::move(*restored);
     resyncStreamingWindowsForCurrentSong();
+    syncTransportCycleFromProject();
     markDirty();
     return true;
 }
@@ -805,6 +806,7 @@ bool AudioEngine::redoTimelineEdit(std::string& appliedLabel) {
         return false;
     loader.project() = std::move(*restored);
     resyncStreamingWindowsForCurrentSong();
+    syncTransportCycleFromProject();
     markDirty();
     return true;
 }
@@ -1920,6 +1922,9 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         // tempo-synced effects use the correct rate immediately.
         clock.setSongIndex(static_cast<int>(songIndex));
         lightEngine.setBpm(song.bpm);
+        // Each song has its own cycle locators; re-mirror so the audio thread
+        // loops the newly staged song (or deactivates if that song has none).
+        syncTransportCycleFromProject();
 
         // Publish routing while still holding routingMutex (recursive).
         publishRoutingSnapshot();
@@ -2055,6 +2060,42 @@ bool AudioEngine::consumeGaplessUiNotify(size_t& outSongIndex) {
     return true;
 }
 
+void AudioEngine::syncTransportCycleFromProject() {
+    // Bump epoch first so any in-flight callAsync cycle seeks from the OLD
+    // zone become no-ops (disable / move / replace must cut the previous
+    // loop immediately, then the new locators take effect).
+    cycleEpoch.fetch_add(1, std::memory_order_acq_rel);
+    pendingCycleSeekSec.store(-1.0, std::memory_order_release);
+
+    if (!projectLoaded || currentSong >= loader.project().songs.size()) {
+        cycleActive.store(false, std::memory_order_relaxed);
+        cycleSkip.store(false, std::memory_order_relaxed);
+        return;
+    }
+    // Project-wide cycle: only armed while the staged song is the one the
+    // locators belong to (cycle cannot span songs).
+    const ProjectCycle& c = loader.project().cycle;
+    const bool appliesHere =
+        c.active && c.songIndex >= 0
+        && static_cast<size_t>(c.songIndex) == currentSong;
+    double lo = c.leftSec;
+    double hi = c.rightSec;
+    if (hi < lo)
+        std::swap(lo, hi);
+    cycleActive.store(appliesHere, std::memory_order_relaxed);
+    cycleSkip.store(c.skip, std::memory_order_relaxed);
+    cycleLeftSec.store(lo, std::memory_order_relaxed);
+    cycleRightSec.store(hi, std::memory_order_relaxed);
+}
+
+bool AudioEngine::consumeCycleSeek(double& outSeconds) {
+    const double pending = pendingCycleSeekSec.exchange(-1.0, std::memory_order_acq_rel);
+    if (pending < 0.0)
+        return false;
+    outSeconds = pending;
+    return true;
+}
+
 void AudioEngine::resetMetersSilent() {
     const MeterFrame silent{};
     for (auto& m : trackMeters)
@@ -2179,7 +2220,31 @@ void AudioEngine::play() {
     if (currentSong == static_cast<size_t>(-1))
         return;
 
-    // Resume from the current anchor (0 after selectSong, or last seek/stop pos).
+    // Active loop cycle (project-wide): every Play jumps to the cycle's song
+    // and left locator — even if the user is currently staged on another song.
+    // Skip mode leaves the anchor alone (pass-through zone, not a loop).
+    if (projectLoaded) {
+        const ProjectCycle& c = loader.project().cycle;
+        if (c.active && !c.skip && c.songIndex >= 0
+            && static_cast<size_t>(c.songIndex) < loader.project().songs.size()) {
+            double lo = c.leftSec;
+            double hi = c.rightSec;
+            if (hi < lo)
+                std::swap(lo, hi);
+            if (hi - lo >= 0.05) {
+                std::string err;
+                // Cross-song seek if the cycle lives on a different song;
+                // same-song just parks at left. Then play continues below.
+                (void)seekToSeconds(lo, err, static_cast<size_t>(c.songIndex));
+                // Re-mirror atomics after a possible song hop so loop seeks
+                // arm on the newly staged song.
+                syncTransportCycleFromProject();
+            }
+        }
+    }
+
+    // Resume from the current anchor (0 after selectSong, or last seek/stop pos,
+    // or the cycle left locator just applied above).
     // Defensively clamped to the song's actual length: this anchor should
     // never legitimately exceed it (selectSong resets to 0, seekToSeconds
     // clamps to [0, length]), but resuming beyond the end would otherwise
@@ -2769,6 +2834,55 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         const double blockEndSeconds = static_cast<double>(playheadSample + numSamples) / currentSampleRate;
         fireDueEvents(song, blockStartSeconds, blockEndSeconds, hostTimeNanos);
 
+        // Cycle / skip-cycle (Logic-style locators, song-local). Applied on the
+        // realtime path so loop authority is the engine -- not whichever SPA
+        // tab happens to be open. Seek itself is message-thread (stream reseek
+        // is not RT-safe); we only arm a pending target here.
+        if (playing.load(std::memory_order_relaxed)
+            && cycleActive.load(std::memory_order_relaxed)
+            && pendingCycleSeekSec.load(std::memory_order_relaxed) < 0.0) {
+            double lo = cycleLeftSec.load(std::memory_order_relaxed);
+            double hi = cycleRightSec.load(std::memory_order_relaxed);
+            if (hi < lo)
+                std::swap(lo, hi);
+            if (hi - lo >= 0.05) {
+                const bool skip = cycleSkip.load(std::memory_order_relaxed);
+                if (skip) {
+                    // Jump over [lo, hi): when the block enters the zone, land on hi.
+                    if (blockStartSeconds < hi && blockEndSeconds > lo
+                        && blockStartSeconds < hi - 1e-9) {
+                        // Prefer jump when already inside, or when crossing lo from below.
+                        if (blockStartSeconds >= lo || blockEndSeconds > lo) {
+                            const uint64_t epoch = cycleEpoch.load(std::memory_order_relaxed);
+                            pendingCycleSeekSec.store(hi, std::memory_order_release);
+                            juce::MessageManager::callAsync([this, epoch]() {
+                                if (cycleEpoch.load(std::memory_order_acquire) != epoch)
+                                    return; // zone changed / disabled since arm
+                                double sec = 0.0;
+                                if (!consumeCycleSeek(sec))
+                                    return;
+                                std::string err;
+                                (void)seekToSeconds(sec, err);
+                            });
+                        }
+                    }
+                } else if (blockStartSeconds < hi && blockEndSeconds >= hi) {
+                    // Loop: crossing the right locator → jump to left.
+                    const uint64_t epoch = cycleEpoch.load(std::memory_order_relaxed);
+                    pendingCycleSeekSec.store(lo, std::memory_order_release);
+                    juce::MessageManager::callAsync([this, epoch]() {
+                        if (cycleEpoch.load(std::memory_order_acquire) != epoch)
+                            return; // zone changed / disabled since arm
+                        double sec = 0.0;
+                        if (!consumeCycleSeek(sec))
+                            return;
+                        std::string err;
+                        (void)seekToSeconds(sec, err);
+                    });
+                }
+            }
+        }
+
         // Arm as soon as the fade window (kSongEndFadeSamples before the real
         // end) first overlaps this block -- NOT once we're already past the
         // end. StreamingTrackBuffer::read() only starts returning silence
@@ -2783,8 +2897,24 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // Starting the ramp `kSongEndFadeSamples` early guarantees gain has
         // decayed to ~0 by the time the real cutoff sample arrives, so the
         // step lands on already-near-silent audio and is inaudible.
+        //
+        // When cycle loops and the right locator sits at (or past) the authored
+        // end, prefer looping over song-end stop/advance. Mid-song cycles never
+        // reach the end while looping (seek fires first); if the playhead is
+        // already past the right locator, song-end must still work.
+        const double songLenSec = currentSampleRate > 0.0
+            ? static_cast<double>(currentSongLengthFrames) / currentSampleRate
+            : 0.0;
+        const double cycleHi = cycleRightSec.load(std::memory_order_relaxed);
+        const double cycleLo = cycleLeftSec.load(std::memory_order_relaxed);
+        const bool cycleLoopBlocksSongEnd =
+            cycleActive.load(std::memory_order_relaxed)
+            && !cycleSkip.load(std::memory_order_relaxed)
+            && (cycleHi - cycleLo) >= 0.05
+            && cycleHi >= songLenSec - 0.02;
         const int64_t fadeArmSample = currentSongLengthFrames - kSongEndFadeSamples;
-        if (currentSongLengthFrames > 0 && playheadSample + numSamples >= fadeArmSample) {
+        if (!cycleLoopBlocksSongEnd
+            && currentSongLengthFrames > 0 && playheadSample + numSamples >= fadeArmSample) {
             if (pendingSongEndAction == SongEndAction::None) {
                 if (underrunFadeOutRemaining <= 0) {
                     underrunFadeOutLength = kSongEndFadeSamples;

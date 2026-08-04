@@ -144,6 +144,14 @@ public:
     // without calling switchToSongGapless again.
     bool consumeGaplessUiNotify(size_t& outSongIndex);
 
+    // Mirror SongDef::cycle of the currently staged song onto audio-thread
+    // atomics. Call after cycle edits, song select, project load, undo/redo.
+    // Message-thread only.
+    void syncTransportCycleFromProject();
+    // True when the audio thread wants a same-song cycle/skip seek; clears
+    // the pending request. Message-thread only (timerCallback / callAsync).
+    bool consumeCycleSeek(double& outSeconds);
+
     // Aux-send matrix API (message thread). Takes an explicit songIndex --
     // NOT tied to whichever song happens to be staged/playing -- so editing
     // a song in the Builder can never corrupt a *different*, currently
@@ -621,6 +629,19 @@ private:
     std::atomic<bool> autoAdvancePending{false};
     std::atomic<int> pendingGaplessSong{-1}; // >=0 => message thread should gapless-switch
     std::atomic<int> pendingGaplessUiNotify{-1}; // audio-thread promote done; UI only
+    // Per-song cycle locators mirrored for the *currently staged* song so the
+    // realtime path can loop/skip without reading SongDef under mutation, and
+    // without relying on any SPA client to issue transport.seek.
+    std::atomic<bool> cycleActive{false};
+    std::atomic<bool> cycleSkip{false};
+    std::atomic<double> cycleLeftSec{0.0};
+    std::atomic<double> cycleRightSec{4.0};
+    // >= 0 => message thread should seekToSeconds(this value). -1 = none.
+    // Audio thread only sets when previously -1 (coalesce) to avoid seek spam.
+    std::atomic<double> pendingCycleSeekSec{-1.0};
+    // Bumped on every cycle sync so stale callAsync seeks from a previous
+    // zone (before disable/replace) never land after the new state is live.
+    std::atomic<uint64_t> cycleEpoch{0};
     std::vector<ProjectLoader::ExtraFile> pendingPeakCacheExtras;
 
     std::atomic<bool> playing{false};

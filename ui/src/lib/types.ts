@@ -144,6 +144,22 @@ export interface LightCueRow {
     | "";
 }
 
+/**
+ * Single project-wide cycle. left/right are song-local seconds on `songIndex`.
+ * Not per-song — there is only one zone in the project.
+ */
+export interface ProjectCycleRow {
+  active: boolean;
+  skip: boolean;
+  leftSec: number;
+  rightSec: number;
+  /** Song the locators belong to (-1 = unset). */
+  songIndex: number;
+}
+
+/** @deprecated Use ProjectCycleRow */
+export type SongCycleRow = ProjectCycleRow;
+
 export interface SongRow {
   name: string;
   bpm: number;
@@ -453,6 +469,8 @@ export interface WebUiState {
   undoLabel: string;
   redoLabel: string;
   songs: SongRow[];
+  /** Single project-wide cycle zone (not per-song). */
+  cycle?: ProjectCycleRow;
   meters: MeterRow[];
   tracks: TrackRow[];
   busses: BusRow[];
@@ -504,6 +522,13 @@ export const emptyState: WebUiState = {
   undoLabel: "",
   redoLabel: "",
   songs: [],
+  cycle: {
+    active: false,
+    skip: false,
+    leftSec: 0,
+    rightSec: 4,
+    songIndex: -1,
+  },
   meters: [],
   tracks: [],
   busses: [],

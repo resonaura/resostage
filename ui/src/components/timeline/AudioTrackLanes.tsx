@@ -1,3 +1,5 @@
+import { useRef } from "react";
+import { builder } from "../../lib/api";
 import type {
   AllPeaksResponse,
   PeaksResponse,
@@ -14,12 +16,14 @@ import {
   type RegionDragSession,
   type RegionGeomDraft,
 } from "./regionDrag";
+import { splitRegionsAtPlayhead } from "./regionEdit";
 import {
   regionSelKey,
   type RegionSelKey,
   type RegionUiState,
 } from "./regionUtils";
 import type { TimelineRow } from "./rows";
+import { toolCursor, type TimelineTool } from "./tools";
 
 export function AudioTrackLanes({
   state,
@@ -39,6 +43,7 @@ export function AudioTrackLanes({
   getRegionUi,
   gestureActive,
   readOnly,
+  tool = "pointer",
   selectRegion,
   startRegionDrag,
   onRegionContextMenu,
@@ -60,6 +65,7 @@ export function AudioTrackLanes({
   getRegionUi: (key: RegionSelKey) => RegionUiState;
   gestureActive: boolean;
   readOnly: boolean;
+  tool?: TimelineTool;
   selectRegion: (
     key: RegionSelKey,
     e: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean },
@@ -73,6 +79,16 @@ export function AudioTrackLanes({
     selKey: RegionSelKey;
   }) => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingImportRef = useRef<{
+    songIndex: number;
+    trackIndex: number;
+  } | null>(null);
+
+  const openWavPicker = (songIndex: number, trackIndex: number) => {
+    pendingImportRef.current = { songIndex, trackIndex };
+    fileInputRef.current?.click();
+  };
   if (rows.length === 0) {
     return (
       <div className="flex h-20 items-center justify-center text-sm text-foreground/40">
@@ -88,10 +104,31 @@ export function AudioTrackLanes({
 
   return (
     <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/wav,audio/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          const pending = pendingImportRef.current;
+          pendingImportRef.current = null;
+          if (!file || !pending) return;
+          void builder.trackImportWav(
+            pending.songIndex,
+            pending.trackIndex,
+            file,
+          );
+        }}
+      />
       {rows.map((row, rowIndex) => {
         const track = state.tracks.find(
           (t: TrackRow) => (t.name || t.id) === row.name || t.id === row.name,
         );
+        const trackIndex = track
+          ? state.tracks.findIndex((t) => t.id === track.id)
+          : -1;
         // Orphan rows (no staged track) never count as soloed.
         const soloDimmed = anySolo && !(track?.solo ?? false);
         const trackMuted = track?.mute ?? false;
@@ -103,6 +140,27 @@ export function AudioTrackLanes({
             style={{
               width: contentWidth,
               height: laneHeightPx(verticalZoom),
+              cursor: toolCursor(tool, readOnly),
+            }}
+            onClick={(e) => {
+              if (readOnly || tool !== "pencil") return;
+              // Empty-lane pencil only — region blocks stopPropagation on
+              // their own handlers so this won't fire when clicking a region.
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = e.clientX - rect.left + scrollState.scrollLeft;
+              // Find song under click
+              let songIndex = 0;
+              for (let i = 0; i < songOffsets.length; i++) {
+                const start = songOffsets[i] * pxPerSec;
+                const end = start + songLengths[i] * pxPerSec;
+                if (x >= start && x < end) {
+                  songIndex = i;
+                  break;
+                }
+                if (i === songOffsets.length - 1) songIndex = i;
+              }
+              if (trackIndex < 0) return;
+              openWavPicker(songIndex, trackIndex);
             }}
           >
             {songs.map((song, i) => {
@@ -206,7 +264,38 @@ export function AudioTrackLanes({
                     ) => {
                       e.stopPropagation();
                       e.preventDefault();
+
+                      if (!readOnly && tool === "eraser") {
+                        void builder.regionRemove(i, songRegion.id);
+                        return;
+                      }
+                      if (!readOnly && tool === "scissors") {
+                        const abs =
+                          songOffsets[i] +
+                          geom.start +
+                          Math.max(
+                            0.02,
+                            Math.min(
+                              geom.duration - 0.02,
+                              (e.clientX -
+                                (
+                                  e.currentTarget as HTMLElement
+                                ).getBoundingClientRect().left) /
+                                pxPerSec,
+                            ),
+                          );
+                        void splitRegionsAtPlayhead(
+                          [thisRegionSelKey],
+                          songs,
+                          songOffsets,
+                          songLengths,
+                          abs,
+                        );
+                        return;
+                      }
+
                       selectRegion(thisRegionSelKey, e);
+                      if (tool !== "pointer") return;
                       const originTrackId =
                         songRegion.trackId || track?.id || row.name;
                       startRegionDrag(

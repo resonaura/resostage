@@ -366,6 +366,18 @@ export const builder = {
     startSeconds?: number;
     colorIndex?: number;
   }) => post("/api/v1/builder/section/update", patch),
+
+  // Per-song cycle locators (Logic-style loop/skip). Coordinates persist even
+  // when inactive; AudioEngine applies seeks so every connected client hears
+  // the same loop without SPA-side racing.
+  cycleUpdate: (patch: {
+    songIndex: number;
+    active?: boolean;
+    skip?: boolean;
+    leftSec?: number;
+    rightSec?: number;
+    gestureId?: string;
+  }) => post("/api/v1/builder/cycle/update", patch),
 };
 
 // Lighting rig config + fixture roster + Light-timeline tracks/cues -- see

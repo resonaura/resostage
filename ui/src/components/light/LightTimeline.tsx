@@ -18,6 +18,8 @@ import {
   laneHeightPx,
   TrackWaveformLane,
 } from "../TrackWaveformLane";
+import { splitCueAtPlayhead } from "../timeline/cueEdit";
+import { toolCursor, type TimelineTool } from "../timeline/tools";
 import {
   effectUsesOwnColor,
   EFFECT_META,
@@ -392,6 +394,7 @@ export function LightTrackLane({
   verticalZoom,
   contentWidth,
   readOnly,
+  tool = "pointer",
   toAbsSec,
   snapLocalSec,
   selectedKeys,
@@ -417,6 +420,7 @@ export function LightTrackLane({
   verticalZoom: number;
   contentWidth: number;
   readOnly: boolean;
+  tool?: TimelineTool;
   toAbsSec: (clientX: number) => number;
   snapLocalSec: (songIndex: number, localSeconds: number) => number;
   /** Multi-select set (outline on every matching cue). */
@@ -552,10 +556,34 @@ export function LightTrackLane({
   ) => {
     e.stopPropagation();
     e.preventDefault();
+
+    // Tool overrides on cue click (before drag/select).
+    if (!readOnly && tool === "eraser") {
+      void lighting.cueRemove(songIndex, cue.id);
+      return;
+    }
+    if (!readOnly && tool === "scissors") {
+      // Clamp split into the cue body using click X.
+      const cueLeftAbs = (songOffsets[songIndex] ?? 0) + geom.start;
+      const clickAbs = toAbsSec(e.clientX);
+      const splitAbs = Math.max(
+        cueLeftAbs + 0.02,
+        Math.min(cueLeftAbs + geom.duration - 0.02, clickAbs),
+      );
+      void splitCueAtPlayhead(
+        songs,
+        { songIndex, cueId: cue.id },
+        songOffsets,
+        splitAbs,
+      );
+      return;
+    }
+
     onSelect(
       { songIndex, cueId: cue.id },
       { metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey },
     );
+    if (tool !== "pointer") return;
     dragRef.current = {
       key: cueKey(songIndex, cue.id),
       mode,
@@ -682,7 +710,7 @@ export function LightTrackLane({
   const onLanePointerDown = (e: React.PointerEvent) => {
     if (readOnly) return;
     // Do NOT stopPropagation — parent Timeline runs marquee select on empty
-    // lane drags. Cues still stopPropagation on their own handlers.
+    // lane drags (pointer tool). Cues still stopPropagation on their own handlers.
     onSelect(null);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     laneClickRef.current = {
@@ -705,6 +733,8 @@ export function LightTrackLane({
     const dy = Math.abs(e.clientY - c.y);
     if (dx > 4 || dy > 4) return;
     if (c.songIndex < 0) return;
+    // Pencil only creates cues on empty-lane click. Pointer marquee-selects.
+    if (tool !== "pencil") return;
     const local = Math.max(0, toAbsSec(e.clientX) - songOffsets[c.songIndex]);
     void lighting.cueAdd(
       c.songIndex,
@@ -722,7 +752,7 @@ export function LightTrackLane({
       style={{
         width: contentWidth,
         height: Math.max(22, Math.round(LANE_HEIGHT * verticalZoom)),
-        cursor: readOnly ? "default" : "copy",
+        cursor: toolCursor(tool, readOnly),
       }}
       onPointerDown={readOnly ? undefined : onLanePointerDown}
       onPointerUp={readOnly ? undefined : onLanePointerUp}

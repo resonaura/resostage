@@ -173,17 +173,25 @@ function ChannelBar({
 
     let cssW = 0;
     let cssH = 0;
+    // Only reallocate the backing store when the integer CSS size changes.
+    // Vertical timeline zoom used to ResizeObserver-fire every subpixel step,
+    // and assigning canvas.width/height clears the bitmap → visible flicker.
+    let lastBw = 0;
+    let lastBh = 0;
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
-      cssW = rect.width;
-      cssH = rect.height;
-      // Retina-resolution backing store: bitmap size is CSS size * DPR,
-      // then every draw call below is issued in CSS pixels via the scaled
-      // transform so the math stays identical to the old percentage-based
-      // DOM layout.
-      canvas.width = Math.max(1, Math.round(cssW * dpr));
-      canvas.height = Math.max(1, Math.round(cssH * dpr));
+      const nextW = Math.max(1, Math.round(rect.width));
+      const nextH = Math.max(1, Math.round(rect.height));
+      cssW = nextW;
+      cssH = nextH;
+      const bw = Math.max(1, Math.round(nextW * dpr));
+      const bh = Math.max(1, Math.round(nextH * dpr));
+      if (bw === lastBw && bh === lastBh) return;
+      lastBw = bw;
+      lastBh = bh;
+      canvas.width = bw;
+      canvas.height = bh;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();

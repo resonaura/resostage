@@ -135,6 +135,10 @@ enum class WebCommandKind : uint8_t {
     BuilderSectionAdd,
     BuilderSectionRemove,
     BuilderSectionUpdate,
+    // Per-song Logic-style cycle locators (active/skip/left/right). Identity is
+    // the song itself -- one cycle range per SongDef, persisted even when
+    // inactive. See MainComponentBuilder.cpp's builderCycleUpdate().
+    BuilderCycleUpdate,
     // Lighting parity -- see RESTORE_POINT.md Feature 6 and
     // MainComponentLighting.cpp (mirrors the Builder handlers above:
     // `json` carries the raw POST body, field parsing happens
@@ -403,6 +407,16 @@ struct WebUiState {
         std::vector<LightCueRow> lightCues;
     };
     std::vector<SongRow> songs;
+
+    // Single project-wide cycle (song-local seconds on songIndex).
+    struct CycleRow {
+        bool active = false;
+        bool skip = false;
+        double leftSec = 0.0;
+        double rightSec = 4.0;
+        int songIndex = -1;
+    };
+    CycleRow cycle;
 
     struct MeterRow {
         std::string id;

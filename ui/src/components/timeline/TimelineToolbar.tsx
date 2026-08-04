@@ -2,24 +2,41 @@ import { Button, Slider } from "@heroui/react";
 import {
   AudioLines,
   Copy,
+  Eraser,
   Lightbulb,
   Locate,
   LocateFixed,
   LocateOff,
   Magnet,
+  MousePointer2,
   MoveHorizontalIcon,
   MoveVerticalIcon,
+  Pencil,
   Redo2,
   Scissors,
   Trash2,
   Undo2,
 } from "lucide-react";
+import { useState } from "react";
 import { timelineHistory } from "../../lib/api";
+import {
+  ContextMenu,
+  ContextMenuDivider,
+  ContextMenuItem,
+} from "../ContextMenu";
 import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
 import { formatTimeShort } from "./geometry";
+import { TIMELINE_TOOLS, type TimelineTool } from "./tools";
 
 export type TimelineFollowMode = "off" | "snap" | "smooth";
 export type TimelineViewMode = "audio" | "light";
+
+const TOOL_ICONS: Record<TimelineTool, React.ReactNode> = {
+  pointer: <MousePointer2 size={13} />,
+  pencil: <Pencil size={13} />,
+  eraser: <Eraser size={13} />,
+  scissors: <Scissors size={13} />,
+};
 
 export function TimelineToolbar({
   songCount,
@@ -35,6 +52,12 @@ export function TimelineToolbar({
   setSnapToGrid,
   followMode,
   cycleFollowMode,
+  catchOnPlay,
+  setCatchOnPlay,
+  catchOnSeek,
+  setCatchOnSeek,
+  tool,
+  setTool,
   hasCueSelection,
   hasRegionSelection,
   onCopy,
@@ -60,6 +83,12 @@ export function TimelineToolbar({
   setSnapToGrid: React.Dispatch<React.SetStateAction<boolean>>;
   followMode: TimelineFollowMode;
   cycleFollowMode: () => void;
+  catchOnPlay: boolean;
+  setCatchOnPlay: (v: boolean) => void;
+  catchOnSeek: boolean;
+  setCatchOnSeek: (v: boolean) => void;
+  tool: TimelineTool;
+  setTool: (t: TimelineTool) => void;
   hasCueSelection: boolean;
   hasRegionSelection: boolean;
   onCopy: () => void;
@@ -74,6 +103,9 @@ export function TimelineToolbar({
 }) {
   const light = effectiveViewMode === "light";
   const selectionEmpty = light ? !hasCueSelection : !hasRegionSelection;
+  const [followMenu, setFollowMenu] = useState<{ x: number; y: number } | null>(
+    null,
+  );
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default/30 px-3 py-1.5 bg-background-secondary z-20">
@@ -194,6 +226,31 @@ export function TimelineToolbar({
           </>
         )}
 
+        {!readOnly && (
+          <>
+            <div className="w-px h-4 bg-default/30 mx-0.5" />
+            <div className="flex items-center gap-0.5 rounded-lg border border-default/30 bg-default/10 p-0.5">
+              {TIMELINE_TOOLS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  title={`${t.label} (${t.shortcut}) — ${t.tip}`}
+                  aria-label={t.label}
+                  aria-pressed={tool === t.id}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
+                    tool === t.id
+                      ? "bg-accent text-accent-foreground"
+                      : "text-foreground/55 hover:text-foreground hover:bg-default/30"
+                  }`}
+                  onClick={() => setTool(t.id)}
+                >
+                  {TOOL_ICONS[t.id]}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
         <div className="w-px h-4 bg-default/30 mx-0.5" />
         <Button
           size="sm"
@@ -201,12 +258,16 @@ export function TimelineToolbar({
           isIconOnly
           aria-label={
             followMode === "off"
-              ? "Playhead autofollow: off (click for standard)"
+              ? "Playhead autofollow: off (click cycles mode, right-click options)"
               : followMode === "snap"
-                ? "Playhead autofollow: standard (click for smooth)"
-                : "Playhead autofollow: smooth (click to turn off)"
+                ? "Playhead autofollow: standard (click cycles, right-click options)"
+                : "Playhead autofollow: smooth (click cycles, right-click options)"
           }
           onPress={cycleFollowMode}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setFollowMenu({ x: e.clientX, y: e.clientY });
+          }}
         >
           {followMode === "off" ? (
             <LocateOff size={13} />
@@ -216,6 +277,40 @@ export function TimelineToolbar({
             <LocateFixed size={13} />
           )}
         </Button>
+
+        {followMenu && (
+          <ContextMenu
+            x={followMenu.x}
+            y={followMenu.y}
+            width={240}
+            onClose={() => setFollowMenu(null)}
+          >
+            <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-foreground/40">
+              Follow playhead
+            </div>
+            <ContextMenuItem
+              checked={catchOnPlay}
+              onClick={() => {
+                setCatchOnPlay(!catchOnPlay);
+              }}
+            >
+              Catch when Starting Playback
+            </ContextMenuItem>
+            <ContextMenuItem
+              checked={catchOnSeek}
+              onClick={() => {
+                setCatchOnSeek(!catchOnSeek);
+              }}
+            >
+              Catch when Moving Playhead
+            </ContextMenuItem>
+            <ContextMenuDivider />
+            <div className="px-2.5 py-1.5 text-[10px] leading-snug text-foreground/40">
+              Manual scroll while playing suspends follow. Play / scrub can
+              re-enable it based on the options above.
+            </div>
+          </ContextMenu>
+        )}
 
         <div className="flex items-center gap-1.5 ml-1 w-[17.5rem] shrink-0">
           <MoveHorizontalIcon

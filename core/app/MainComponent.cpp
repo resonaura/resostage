@@ -610,6 +610,15 @@ void MainComponent::timerCallback() {
         engine.play();
     }
 
+    // Cycle / skip-cycle seek requested by the audio thread (single engine
+    // authority so every connected client hears the same loop without SPA
+    // racing transport.seek against each other).
+    double cycleSeekSec = 0.0;
+    if (engine.consumeCycleSeek(cycleSeekSec)) {
+        std::string error;
+        (void)engine.seekToSeconds(cycleSeekSec, error);
+    }
+
     drainWebCommands();
 
     publishWebState();
@@ -827,6 +836,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderSectionAdd: builderSectionAdd(cmd.json); break;
             case WebCommandKind::BuilderSectionRemove: builderSectionRemove(cmd.json); break;
             case WebCommandKind::BuilderSectionUpdate: builderSectionUpdate(cmd.json); break;
+            case WebCommandKind::BuilderCycleUpdate: builderCycleUpdate(cmd.json); break;
             case WebCommandKind::SetLightingConfig: lightingSetConfig(cmd.json); break;
             case WebCommandKind::LightFixtureAdd: lightingFixtureAdd(cmd.json); break;
             case WebCommandKind::LightFixtureDuplicate: lightingFixtureDuplicate(cmd.json); break;
@@ -1078,6 +1088,13 @@ void MainComponent::publishWebState() {
 
         state.songs.push_back(std::move(row));
     }
+
+    // Project-wide cycle (one zone; songIndex binds left/right to a song).
+    state.cycle.active = proj.cycle.active;
+    state.cycle.skip = proj.cycle.skip;
+    state.cycle.leftSec = proj.cycle.leftSec;
+    state.cycle.rightSec = proj.cycle.rightSec;
+    state.cycle.songIndex = proj.cycle.songIndex;
 
     if (state.songIndex >= 0 && static_cast<size_t>(state.songIndex) < proj.songs.size()) {
         const SongDef& song = proj.songs[static_cast<size_t>(state.songIndex)];

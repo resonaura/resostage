@@ -64,6 +64,7 @@ import { SongRulerHeader } from "./SongRulerHeader";
 import { TimelineSidebar } from "./TimelineSidebar";
 import { TimelineToolbar } from "./TimelineToolbar";
 import { ToastContainer, type Toast } from "./ToastContainer";
+import { useCycleState } from "./useCycleState";
 import { useRegionDrag } from "./useRegionDrag";
 import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./useTimelineKeyboard";
@@ -148,12 +149,21 @@ export function Timeline({
   const {
     followMode,
     cycleFollowMode,
+    suspendFollowFromUserScroll,
+    catchFollowOnPlay,
+    catchFollowOnSeek,
+    catchOnPlay,
+    setCatchOnPlay,
+    catchOnSeek,
+    setCatchOnSeek,
     setViewMode,
     effectiveViewMode,
     snapToGrid,
     setSnapToGrid,
     verticalZoom,
     setVerticalZoom,
+    effectiveTool,
+    setTool,
   } = useTimelinePrefs(readOnly);
 
   // Selected light cue (Light-mode editor), drives the cue editor panel.
@@ -553,6 +563,57 @@ export function Timeline({
     peaks,
     state.songIndex,
   );
+
+  const activeSongIndex = state.songIndex >= 0 ? state.songIndex : 0;
+  const activeSongLen = songLengths[activeSongIndex] ?? 0;
+  // Project-wide cycle: clamp using the song it belongs to (fall back to active).
+  const cycleOwnerIndex =
+    typeof state.cycle?.songIndex === "number" && state.cycle.songIndex >= 0
+      ? state.cycle.songIndex
+      : activeSongIndex;
+  const cycleSongLen = songLengths[cycleOwnerIndex] ?? activeSongLen;
+  const {
+    cycle,
+    toggleActive: toggleCycle,
+    setRange: setCycleRange,
+    toggleSkip: toggleCycleSkip,
+    commitDrag: commitCycleDrag,
+  } = useCycleState(activeSongIndex, cycleSongLen, state.cycle);
+
+  // Cycle loop/skip seeks are applied by AudioEngine (project-authoritative)
+  // so every client hears the same loop without SPA transport.seek races.
+
+  // Catch-follow when transport starts playing.
+  const wasPlayingRef = useRef(state.playing);
+  useEffect(() => {
+    if (state.playing && !wasPlayingRef.current) catchFollowOnPlay();
+    wasPlayingRef.current = state.playing;
+  }, [state.playing, catchFollowOnPlay]);
+
+  // Tool hotkeys (V/B/E) — plain keys only, never with mod keys (⌘C copy etc.).
+  useEffect(() => {
+    if (readOnly) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      )
+        return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "v") setTool("pointer");
+      else if (k === "b") setTool("pencil");
+      else if (k === "e") setTool("eraser");
+      // Scissors: bare "x" (Logic uses scissors tool; avoid bare "c" vs copy).
+      else if (k === "x") setTool("scissors");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [readOnly, setTool]);
 
   /** Split selected region(s) at the absolute playhead (Logic-style ⌘T). */
   const splitSelectedAtPlayhead = async () => {
@@ -971,6 +1032,19 @@ export function Timeline({
     // turn now that useContinuousPlayhead no longer has a proximity-based
     // early release to race against -- see optimistic.ts's draggingRef doc.
     setPlayheadAbsoluteSec(clampedAbs, commit ? 800 : undefined);
+    // Re-enable follow only when the seek lands *outside* the viewport.
+    // Clicking/scrubbing within the already-visible range must not pan.
+    if (commit) {
+      const scroller = scrollRef.current;
+      if (scroller) {
+        const px = clampedAbs * pxPerSecRef.current;
+        if (
+          !isPositionVisible(px, scroller.scrollLeft, scroller.clientWidth || 0)
+        ) {
+          catchFollowOnSeek();
+        }
+      }
+    }
 
     // Engine seeks only on commit (pointer up). Mid-drag same-song seeks used
     // to restage every 60ms and produced the "chirp then stop then play" glitch.
@@ -1003,7 +1077,10 @@ export function Timeline({
     );
   };
 
-  // Ruler / playhead-handle scrub (immediate seek).
+  // Ruler / playhead-handle scrub. Mid-drag only moves the optimistic
+  // needle; commit seeks the engine. Edge auto-scroll lives in the rAF
+  // loop (dragging.current) so scrubbing past the viewport pans the
+  // timeline like a DAW.
   const onPointerDown = (e: React.PointerEvent) => {
     if (!hasSongs) return;
     dragging.current = true;
@@ -1029,7 +1106,6 @@ export function Timeline({
     dragging.current = false;
     seekFromClientX(e.clientX, true);
   };
-
   // Empty track-lane gesture: click = seek + clear selection; drag = marquee.
   // Regions/cues stopPropagation so this only sees empty space.
   // While dragging, selection updates live (before mouse-up).
@@ -1039,7 +1115,10 @@ export function Timeline({
     const origin = tracksOriginRef.current;
     if (!origin) return;
     const rect = origin.getBoundingClientRect();
-    const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0);
+    // tracksOrigin lives inside the scrolled body — getBoundingClientRect()
+    // already shifts with scrollLeft. Adding scrollLeft again double-counts
+    // (same bug seekFromClientX fixed) and draws marquee offset when panned.
+    const x = e.clientX - rect.left;
     // y relative to tracks container (tracksOrigin is inside the scroll body).
     const y = e.clientY - rect.top;
     marqueeRef.current = {
@@ -1058,7 +1137,7 @@ export function Timeline({
     const origin = tracksOriginRef.current;
     if (!origin) return;
     const rect = origin.getBoundingClientRect();
-    const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0);
+    const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const dx = x - m.x0;
     const dy = y - m.y0;
@@ -1077,7 +1156,7 @@ export function Timeline({
     const origin = tracksOriginRef.current;
     if (!origin) return;
     const rect = origin.getBoundingClientRect();
-    const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0);
+    const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     if (!m.active) {
       // Click empty lane: clear selection + seek.
@@ -1152,6 +1231,8 @@ export function Timeline({
     // it ("при вертикальном скролле стопается автоскролл").
     if (movedHorizontally) {
       markGestureActiveRef.current();
+      // Manual pan while playing suspends follow; catch flags re-enable later.
+      if (playingRef.current) suspendFollowFromUserScroll();
     }
     setScrollState({
       scrollLeft: left,
@@ -1445,6 +1526,33 @@ export function Timeline({
         // Marker tracks the true playhead position directly without lag
         displayPx = px;
 
+        // Scrub edge-scroll: while the user drags the playhead on the ruler,
+        // pan the timeline so the needle never gets stuck at a viewport edge
+        // (DAW convention). Hard scroll (not glide) so it tracks the pointer.
+        if (dragging.current && scroller && !gestureActiveNowRef.current) {
+          const margin = 48;
+          const left = scroller.scrollLeft;
+          const right = left + viewWidth;
+          let nextLeft = left;
+          if (px > right - margin) {
+            nextLeft = Math.min(maxScrollLeft, px - viewWidth + margin);
+          } else if (px < left + margin) {
+            nextLeft = Math.max(0, px - margin);
+          }
+          if (Math.abs(nextLeft - left) > 0.5) {
+            scroller.scrollLeft = nextLeft;
+            programmaticScrollLeftRef.current = scroller.scrollLeft;
+            lastProgrammaticWriteAtRef.current = performance.now();
+            lastCommittedScrollLeftRef.current = scroller.scrollLeft;
+            lastScrollLeftRef.current = scroller.scrollLeft;
+            setScrollState({
+              scrollLeft: scroller.scrollLeft,
+              viewportWidth: viewWidth,
+            });
+          }
+          revealScroll = null;
+        }
+
         // Animated PANS (glide), unified for every follow mode and for
         // playing and stopped alike. Three triggers, all gliding instead of
         // teleporting ("глайд нужен не только в smooth", "не резко а плавно"):
@@ -1470,10 +1578,13 @@ export function Timeline({
           firstTick &&
           !!scroller &&
           !isPositionVisible(px, scroller.scrollLeft, viewWidth);
-        const jumped =
-          songJumped ||
-          Math.abs(px - lastRevealPx) > pxPerSecRef.current * 2.0 ||
-          notYetVisible;
+        // Large playhead jumps only trigger a reveal pan when the needle is
+        // actually off-screen. Scrubbing/clicking inside the viewport must
+        // leave scrollLeft alone.
+        const bigJump = Math.abs(px - lastRevealPx) > pxPerSecRef.current * 2.0;
+        const outsideView =
+          !!scroller && !isPositionVisible(px, scroller.scrollLeft, viewWidth);
+        const jumped = songJumped || notYetVisible || (bigJump && outsideView);
         const snapEdge =
           playingRef.current &&
           followModeRef.current === "snap" &&
@@ -1587,6 +1698,12 @@ export function Timeline({
         setSnapToGrid={setSnapToGrid}
         followMode={followMode}
         cycleFollowMode={cycleFollowMode}
+        catchOnPlay={catchOnPlay}
+        setCatchOnPlay={setCatchOnPlay}
+        catchOnSeek={catchOnSeek}
+        setCatchOnSeek={setCatchOnSeek}
+        tool={effectiveTool}
+        setTool={setTool}
         hasCueSelection={Boolean(cueSelection) || selectedCueKeys.length > 0}
         hasRegionSelection={selectedRegionKeys.length > 0}
         onCopy={
@@ -1667,6 +1784,12 @@ export function Timeline({
                 contentWidth={contentWidth}
                 scrollState={scrollState}
                 playheadHandleRef={playheadHandleRef}
+                cycle={cycle}
+                snapToGrid={snapToGrid}
+                onCycleToggle={toggleCycle}
+                onCycleSetRange={setCycleRange}
+                onCycleToggleSkip={toggleCycleSkip}
+                onCycleDragEnd={commitCycleDrag}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
@@ -1682,6 +1805,15 @@ export function Timeline({
                 contentWidth={contentWidth}
                 readOnly={readOnly}
                 snapToGrid={snapToGrid}
+                onCycleFromSection={(songIndex, leftSec, rightSec) => {
+                  // Song section span (Intro/Verse/…), not an audio region.
+                  // Rebinds the single project cycle to this song.
+                  setCycleRange(leftSec, rightSec, {
+                    activate: true,
+                    songIndex,
+                    songLength: songLengths[songIndex] ?? 0,
+                  });
+                }}
               />
 
               <EventMarkerLane
@@ -1792,6 +1924,7 @@ export function Timeline({
                     verticalZoom={verticalZoom}
                     contentWidth={contentWidth}
                     readOnly={readOnly}
+                    tool={effectiveTool}
                     toAbsSec={toAbsSec}
                     snapLocalSec={snapLocalSec}
                     selectedCueKeys={selectedCueKeys}
@@ -1820,6 +1953,7 @@ export function Timeline({
                     getRegionUi={getRegionUi}
                     gestureActive={gestureActive}
                     readOnly={readOnly}
+                    tool={effectiveTool}
                     selectRegion={selectRegion}
                     startRegionDrag={startRegionDrag}
                     onRegionContextMenu={setRegionContextMenu}
