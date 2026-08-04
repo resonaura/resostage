@@ -176,8 +176,9 @@ function FadeCurveOverlay({
   color: string;
   readOnly: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
-  onPointerMove: (e: React.PointerEvent) => void;
-  onPointerUp: (e: React.PointerEvent) => void;
+  /** Optional -- region drag uses window listeners after pointerdown. */
+  onPointerMove?: (e: React.PointerEvent) => void;
+  onPointerUp?: (e: React.PointerEvent) => void;
 }) {
   const steps = 12;
   // Match engine: exp = 2^(-curve*2). +curve → ease-out, −curve → ease-in.
@@ -496,202 +497,203 @@ function MiniSlider({
 // Density follows verticalZoom so the left rail stays pixel-aligned with
 // waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ vol + taller meter).
 
-const TrackHeaderControl = memo(function TrackHeaderControl({
-  track,
-  index,
-  color,
-  verticalZoom,
-  anySolo = false,
-}: {
-  track: TrackRow;
-  index: number;
-  color: string;
-  verticalZoom: number;
-  anySolo?: boolean;
-}) {
-  const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) =>
-    mixer.setTrackGain(index, v),
-  );
-  const [pan, setPan] = useLiveValue(track.pan ?? 0, (v) =>
-    mixer.setTrackPan(index, v),
-  );
+const TrackHeaderControl = memo(
+  function TrackHeaderControl({
+    track,
+    index,
+    color,
+    verticalZoom,
+    anySolo = false,
+  }: {
+    track: TrackRow;
+    index: number;
+    color: string;
+    verticalZoom: number;
+    anySolo?: boolean;
+  }) {
+    const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) =>
+      mixer.setTrackGain(index, v),
+    );
+    const [pan, setPan] = useLiveValue(track.pan ?? 0, (v) =>
+      mixer.setTrackPan(index, v),
+    );
 
-  const formatPan = (p: number) => {
-    if (Math.abs(p) < 0.05) return "C";
-    if (p < 0) return `L${Math.round(-p * 100)}`;
-    return `R${Math.round(p * 100)}`;
-  };
+    const formatPan = (p: number) => {
+      if (Math.abs(p) < 0.05) return "C";
+      if (p < 0) return `L${Math.round(-p * 100)}`;
+      return `R${Math.round(p * 100)}`;
+    };
 
-  const isDimmed = anySolo && !track.solo;
-  const h = laneHeightPx(verticalZoom);
-  // Density tiers keyed to lane height (LANE_HEIGHT=56 at zoom 1).
-  const showVol = h >= 48;
-  const showPan = h >= 36;
-  const showMeter = h >= 28;
-  const padY = h < 32 ? 2 : h < 48 ? 4 : h < 80 ? 6 : 8;
-  const padX = h < 36 ? 8 : 12;
-  const nameSize = h < 32 ? 10 : h < 64 ? 12 : 13;
-  const btn = h < 36 ? 16 : h < 72 ? 20 : 22;
-  const btnFont = h < 36 ? 8 : 10;
-  const knobSize = h < 48 ? 16 : h < 80 ? 20 : 24;
-  // Meter fills leftover vertical space next to the name row.
-  const meterH = showVol
-    ? Math.max(14, Math.round(h * 0.38))
-    : Math.max(12, h - padY * 2 - 4);
-  const swatchH = h < 32 ? 10 : 14;
-  const swatchW = h < 32 ? 6 : 8;
+    const isDimmed = anySolo && !track.solo;
+    const h = laneHeightPx(verticalZoom);
+    // Density tiers keyed to lane height (LANE_HEIGHT=56 at zoom 1).
+    const showVol = h >= 48;
+    const showPan = h >= 36;
+    const showMeter = h >= 28;
+    const padY = h < 32 ? 2 : h < 48 ? 4 : h < 80 ? 6 : 8;
+    const padX = h < 36 ? 8 : 12;
+    const nameSize = h < 32 ? 10 : h < 64 ? 12 : 13;
+    const btn = h < 36 ? 16 : h < 72 ? 20 : 22;
+    const btnFont = h < 36 ? 8 : 10;
+    const knobSize = h < 48 ? 16 : h < 80 ? 20 : 24;
+    // Meter fills leftover vertical space next to the name row.
+    const meterH = showVol
+      ? Math.max(14, Math.round(h * 0.38))
+      : Math.max(12, h - padY * 2 - 4);
+    const swatchH = h < 32 ? 10 : 14;
+    const swatchW = h < 32 ? 6 : 8;
 
-  return (
-    <div
-      className={`flex flex-col justify-center border-b border-default/15 select-none overflow-hidden transition-opacity duration-300 bg-surface/40 hover:bg-surface/70 ${
-        isDimmed ? "opacity-35" : "opacity-100"
-      }`}
-      style={{
-        height: h,
-        padding: `${padY}px ${padX}px`,
-        gap: showVol ? 4 : 0,
-      }}
-    >
-      {/* Top row: color, name, meter, pan, M/S */}
-      <div className="flex min-h-0 min-w-0 flex-1 items-center gap-1.5">
-        <span
-          className="shrink-0 rounded-sm"
-          style={{
-            height: swatchH,
-            width: swatchW,
-            background: color,
-            opacity: track.mute ? 0.35 : 1,
-          }}
-        />
-        <span
-          className={`min-w-0 flex-1 truncate font-semibold text-foreground/90 ${
-            track.mute ? "line-through opacity-40" : ""
-          }`}
-          style={{ fontSize: nameSize }}
-          title={track.name || track.id}
-        >
-          {track.name || track.id}
-        </span>
-        {showMeter && (
-          <div className="w-3 shrink-0" style={{ height: meterH }}>
-            <LevelMeterBar
-              db={track.peakDb ?? -100}
-              dbL={track.peakDbL ?? track.peakDb ?? -100}
-              dbR={track.peakDbR ?? track.peakDb ?? -100}
-              getLiveDbL={() =>
-                getLiveLevels().tracks[index]?.peakDbL ?? -144
-              }
-              getLiveDbR={() =>
-                getLiveLevels().tracks[index]?.peakDbR ?? -144
-              }
-              accent={color}
-              vertical
-              showValue={false}
-              barClassName="h-full w-1"
-            />
-          </div>
-        )}
-
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          {showPan && (
-            <div
-              className="flex items-center gap-0.5"
-              title={`Pan: ${formatPan(pan)}`}
-            >
-              <Knob
-                value={pan}
-                min={-1}
-                max={1}
-                defaultValue={0}
-                size={knobSize}
+    return (
+      <div
+        className={`flex flex-col justify-center border-b border-default/15 select-none overflow-hidden transition-opacity duration-300 bg-surface/40 hover:bg-surface/70 ${
+          isDimmed ? "opacity-35" : "opacity-100"
+        }`}
+        style={{
+          height: h,
+          padding: `${padY}px ${padX}px`,
+          gap: showVol ? 4 : 0,
+        }}
+      >
+        {/* Top row: color, name, meter, pan, M/S */}
+        <div className="flex min-h-0 min-w-0 flex-1 items-center gap-1.5">
+          <span
+            className="shrink-0 rounded-sm"
+            style={{
+              height: swatchH,
+              width: swatchW,
+              background: color,
+              opacity: track.mute ? 0.35 : 1,
+            }}
+          />
+          <span
+            className={`min-w-0 flex-1 truncate font-semibold text-foreground/90 ${
+              track.mute ? "line-through opacity-40" : ""
+            }`}
+            style={{ fontSize: nameSize }}
+            title={track.name || track.id}
+          >
+            {track.name || track.id}
+          </span>
+          {showMeter && (
+            <div className="w-3 shrink-0" style={{ height: meterH }}>
+              <LevelMeterBar
+                db={track.peakDb ?? -100}
+                dbL={track.peakDbL ?? track.peakDb ?? -100}
+                dbR={track.peakDbR ?? track.peakDb ?? -100}
+                getLiveDbL={() =>
+                  getLiveLevels().tracks[index]?.peakDbL ?? -144
+                }
+                getLiveDbR={() =>
+                  getLiveLevels().tracks[index]?.peakDbR ?? -144
+                }
                 accent={color}
-                onCommit={(v) => setPan(v)}
+                vertical
+                showValue={false}
+                barClassName="h-full w-1"
               />
-              {h >= 44 && (
-                <span
-                  className="w-5 text-center font-mono font-medium text-foreground/50"
-                  style={{ fontSize: Math.max(7, nameSize - 3) }}
-                >
-                  {formatPan(pan)}
-                </span>
-              )}
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => mixer.setTrackMute(index, !track.mute)}
-            className={`rounded font-bold transition-all shadow-sm ${
-              track.mute
-                ? "bg-danger text-white scale-105"
-                : isDimmed
-                  ? "bg-danger/80 text-white animate-pulse"
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {showPan && (
+              <div
+                className="flex items-center gap-0.5"
+                title={`Pan: ${formatPan(pan)}`}
+              >
+                <Knob
+                  value={pan}
+                  min={-1}
+                  max={1}
+                  defaultValue={0}
+                  size={knobSize}
+                  accent={color}
+                  onCommit={(v) => setPan(v)}
+                />
+                {h >= 44 && (
+                  <span
+                    className="w-5 text-center font-mono font-medium text-foreground/50"
+                    style={{ fontSize: Math.max(7, nameSize - 3) }}
+                  >
+                    {formatPan(pan)}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => mixer.setTrackMute(index, !track.mute)}
+              className={`rounded font-bold transition-all shadow-sm ${
+                track.mute
+                  ? "bg-danger text-white scale-105"
+                  : isDimmed
+                    ? "bg-danger/80 text-white animate-pulse"
+                    : "bg-default/20 text-foreground/50 hover:bg-default/35 hover:text-foreground"
+              }`}
+              style={{ height: btn, width: btn, fontSize: btnFont }}
+              title="Mute"
+            >
+              M
+            </button>
+
+            <button
+              type="button"
+              onClick={() => mixer.setTrackSolo(index, !track.solo)}
+              className={`rounded font-bold transition-all shadow-sm ${
+                track.solo
+                  ? "bg-warning text-black scale-105"
                   : "bg-default/20 text-foreground/50 hover:bg-default/35 hover:text-foreground"
-            }`}
-            style={{ height: btn, width: btn, fontSize: btnFont }}
-            title="Mute"
-          >
-            M
-          </button>
-
-          <button
-            type="button"
-            onClick={() => mixer.setTrackSolo(index, !track.solo)}
-            className={`rounded font-bold transition-all shadow-sm ${
-              track.solo
-                ? "bg-warning text-black scale-105"
-                : "bg-default/20 text-foreground/50 hover:bg-default/35 hover:text-foreground"
-            }`}
-            style={{ height: btn, width: btn, fontSize: btnFont }}
-            title="Solo"
-          >
-            S
-          </button>
+              }`}
+              style={{ height: btn, width: btn, fontSize: btnFont }}
+              title="Solo"
+            >
+              S
+            </button>
+          </div>
         </div>
+
+        {showVol && (
+          <div
+            className="flex shrink-0 items-center gap-1.5 font-mono text-foreground/60"
+            style={{ fontSize: Math.max(8, nameSize - 3) }}
+          >
+            <span className="shrink-0 uppercase tracking-wider font-semibold text-foreground/40">
+              Vol
+            </span>
+            <MiniSlider
+              value={gain}
+              min={-60}
+              max={12}
+              step={0.5}
+              accent={color}
+              onChange={(v) => setGain(v)}
+            />
+            <span
+              className="w-8 shrink-0 text-right font-medium tabular-nums"
+              style={{ fontSize: Math.max(8, nameSize - 2) }}
+            >
+              {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}
+            </span>
+          </div>
+        )}
       </div>
-
-      {showVol && (
-        <div
-          className="flex shrink-0 items-center gap-1.5 font-mono text-foreground/60"
-          style={{ fontSize: Math.max(8, nameSize - 3) }}
-        >
-          <span className="shrink-0 uppercase tracking-wider font-semibold text-foreground/40">
-            Vol
-          </span>
-          <MiniSlider
-            value={gain}
-            min={-60}
-            max={12}
-            step={0.5}
-            accent={color}
-            onChange={(v) => setGain(v)}
-          />
-          <span
-            className="w-8 shrink-0 text-right font-medium tabular-nums"
-            style={{ fontSize: Math.max(8, nameSize - 2) }}
-          >
-            {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}
-          </span>
-        </div>
-      )}
-    </div>
-  );
-},
-// Peak levels now animate off the live binary telemetry (getLiveDb* above),
-// not this prop -- so a `track` update that only bumps peakDb/peakDbL/peakDbR
-// (i.e. every WS frame during playback) shouldn't force a re-render of the
-// whole header row. Compare only the fields that actually affect output.
-(prev, next) =>
-  prev.index === next.index &&
-  prev.color === next.color &&
-  prev.verticalZoom === next.verticalZoom &&
-  prev.anySolo === next.anySolo &&
-  prev.track.id === next.track.id &&
-  prev.track.name === next.track.name &&
-  prev.track.mute === next.track.mute &&
-  prev.track.solo === next.track.solo &&
-  prev.track.gainDb === next.track.gainDb &&
-  prev.track.pan === next.track.pan,
+    );
+  },
+  // Peak levels now animate off the live binary telemetry (getLiveDb* above),
+  // not this prop -- so a `track` update that only bumps peakDb/peakDbL/peakDbR
+  // (i.e. every WS frame during playback) shouldn't force a re-render of the
+  // whole header row. Compare only the fields that actually affect output.
+  (prev, next) =>
+    prev.index === next.index &&
+    prev.color === next.color &&
+    prev.verticalZoom === next.verticalZoom &&
+    prev.anySolo === next.anySolo &&
+    prev.track.id === next.track.id &&
+    prev.track.name === next.track.name &&
+    prev.track.mute === next.track.mute &&
+    prev.track.solo === next.track.solo &&
+    prev.track.gainDb === next.track.gainDb &&
+    prev.track.pan === next.track.pan,
 );
 
 // ------- Dynamic Ruler Tick Configuration -------------------------------
@@ -1901,8 +1903,9 @@ export function Timeline({
   // alive through the backend round-trip (cleared once state.songs confirms
   // the new trackId, see the effect below) so the cue doesn't flash back to
   // its old lane before the server catches up.
-  const [lightCueDrag, setLightCueDrag] =
-    useState<LightCueDragState | null>(null);
+  const [lightCueDrag, setLightCueDrag] = useState<LightCueDragState | null>(
+    null,
+  );
   useEffect(() => {
     if (!lightCueDrag) return;
     const cue = state.songs[lightCueDrag.songIndex]?.lightCues?.find(
@@ -2011,7 +2014,26 @@ export function Timeline({
     /** Row index the drag currently hovers over; resolved to a track id at
      * pointer-up. Equal to originRowIndex when not crossing tracks. */
     targetRowIndex: number;
+    /** Committed track id when the drag began (for returning mid-gesture). */
+    originTrackId: string;
   } | null>(null);
+
+  // Live values the window-level drag handlers need. Region "move" re-parents
+  // the DOM node into a different track row as soon as the draft trackId
+  // changes -- that unmounts the element that started the gesture and would
+  // kill setPointerCapture / element pointermove. Window listeners survive
+  // that remount so the user can freely drag across tracks (and back) in
+  // one continuous gesture without releasing.
+  const regionDragCtxRef = useRef({
+    pxPerSec,
+    verticalZoom,
+    snapToGrid,
+    rows: [] as TimelineRow[],
+    tracks: [] as TrackRow[],
+    songs: [] as SongRow[],
+  });
+
+  const regionDragWindowCleanupRef = useRef<(() => void) | null>(null);
 
   const writeGeomDraft = (key: RegionSelKey, geom: RegionGeom) => {
     // Sync ref immediately so pointer-up in the same frame sees the value
@@ -2023,6 +2045,234 @@ export function Timeline({
       regionDragRef.current.lastGeom = geom;
     }
   };
+
+  const baseRegionGeom = (
+    rd: NonNullable<typeof regionDragRef.current>,
+  ): RegionGeom => ({
+    start: rd.origStart,
+    sourceOffset: rd.origSourceOffset,
+    duration: rd.origDuration,
+    fadeIn: rd.origFadeIn,
+    fadeOut: rd.origFadeOut,
+    fadeInCurve: rd.origFadeInCurve,
+    fadeOutCurve: rd.origFadeOutCurve,
+    loop: rd.origLoop,
+    loopLengthSeconds: rd.origLoopLength,
+  });
+
+  const processRegionDragMove = (clientX: number, clientY: number) => {
+    const rd = regionDragRef.current;
+    if (!rd) return;
+    const ctx = regionDragCtxRef.current;
+    const { pxPerSec: pps, verticalZoom: vz, snapToGrid: snapOn } = ctx;
+    const song = ctx.songs[rd.songIndex];
+    const snapSec = (sec: number) =>
+      snapToGridSec(sec, pps, song?.bpm ?? 120, song?.tsNum ?? 4, snapOn);
+    const dSec = (clientX - rd.startX) / pps;
+    const dY = clientY - rd.startY;
+
+    if (rd.mode === "move") {
+      const maxStart = Math.max(0, rd.maxEnd - rd.origDuration);
+      const nextStart = Math.max(
+        0,
+        Math.min(maxStart, snapSec(rd.origStart + dSec)),
+      );
+
+      // Free track crossing: each full lane height of vertical travel jumps
+      // the region into that row's rendering immediately (draft trackId).
+      // Using origin + delta (not absolute hit-test) so mid-gesture layout
+      // shifts from re-parenting never invert the mapping under the cursor.
+      const laneH = Math.max(1, laneHeightPx(vz));
+      const rowsCrossed = Math.round(dY / laneH);
+      const nextTargetRow = Math.max(
+        0,
+        Math.min(ctx.rows.length - 1, rd.originRowIndex + rowsCrossed),
+      );
+      rd.targetRowIndex = nextTargetRow;
+
+      let draftTrackId: string | undefined;
+      if (nextTargetRow !== rd.originRowIndex) {
+        const targetRow = ctx.rows[nextTargetRow];
+        const targetTrack = targetRow
+          ? ctx.tracks.find(
+              (t) =>
+                (t.name || t.id) === targetRow.name || t.id === targetRow.name,
+            )
+          : undefined;
+        // Prefer a real track id; fall back to the row name so orphan rows
+        // (present only via other songs' regions) still accept the drop.
+        draftTrackId = targetTrack?.id ?? targetRow?.name;
+      } else {
+        // Explicit origin id keeps the draft stable when bouncing back from
+        // another lane mid-gesture (undefined would also work via ??, but
+        // committing without a trackId field would skip a no-op write if we
+        // ever need to force the origin after a partial backend update).
+        draftTrackId = rd.originTrackId;
+      }
+
+      writeGeomDraft(rd.key, {
+        ...baseRegionGeom(rd),
+        start: nextStart,
+        trackId: draftTrackId,
+      });
+      return;
+    }
+
+    if (rd.mode === "trimStart") {
+      const maxLeft = rd.origSourceOffset;
+      const rawDelta = snapSec(rd.origStart + dSec) - rd.origStart;
+      const delta = Math.max(
+        -maxLeft,
+        Math.min(rd.origDuration - 0.05, rawDelta),
+      );
+      writeGeomDraft(rd.key, {
+        ...baseRegionGeom(rd),
+        start: rd.origStart + delta,
+        sourceOffset: rd.origSourceOffset + delta,
+        duration: rd.origDuration - delta,
+      });
+      return;
+    }
+
+    if (rd.mode === "loopTrim") {
+      const rawEnd = rd.origStart + rd.origDuration + dSec;
+      const snappedEnd = snapSec(rawEnd);
+      const maxDur = rd.maxEnd - rd.origStart;
+      const nextDur = Math.max(
+        0.05,
+        Math.min(maxDur, snappedEnd - rd.origStart),
+      );
+      const loopLen =
+        rd.origLoopLength > 0 ? rd.origLoopLength : rd.origDuration;
+      const isLooped = nextDur > loopLen + 0.01;
+      writeGeomDraft(rd.key, {
+        ...baseRegionGeom(rd),
+        duration: nextDur,
+        loop: isLooped,
+        loopLengthSeconds: isLooped ? loopLen : 0,
+      });
+      return;
+    }
+
+    if (rd.mode === "trimEnd") {
+      const rawEnd = rd.origStart + rd.origDuration + dSec;
+      const snappedEnd = snapSec(rawEnd);
+      const maxDur = Math.min(rd.maxEnd - rd.origStart, rd.maxSourceDur);
+      const nextDur = Math.max(
+        0.05,
+        Math.min(maxDur, snappedEnd - rd.origStart),
+      );
+      writeGeomDraft(rd.key, {
+        ...baseRegionGeom(rd),
+        duration: nextDur,
+        loop: false,
+        loopLengthSeconds: 0,
+      });
+      return;
+    }
+
+    if (rd.mode === "fadeIn") {
+      const maxFade = rd.origDuration * 0.5;
+      const next = Math.max(0, Math.min(maxFade, rd.origFadeIn + dSec));
+      writeGeomDraft(rd.key, {
+        ...baseRegionGeom(rd),
+        fadeIn: next,
+      });
+      return;
+    }
+
+    if (rd.mode === "fadeOut") {
+      const maxFade = rd.origDuration * 0.5;
+      const next = Math.max(0, Math.min(maxFade, rd.origFadeOut - dSec));
+      writeGeomDraft(rd.key, {
+        ...baseRegionGeom(rd),
+        fadeOut: next,
+      });
+      return;
+    }
+
+    if (rd.mode === "fadeInCurve") {
+      const next = Math.max(-1, Math.min(1, rd.origFadeInCurve - dY / 40));
+      writeGeomDraft(rd.key, {
+        ...baseRegionGeom(rd),
+        fadeInCurve: next,
+      });
+      return;
+    }
+
+    if (rd.mode === "fadeOutCurve") {
+      const next = Math.max(-1, Math.min(1, rd.origFadeOutCurve - dY / 40));
+      writeGeomDraft(rd.key, {
+        ...baseRegionGeom(rd),
+        fadeOutCurve: next,
+      });
+    }
+  };
+
+  const finishRegionDrag = () => {
+    const rd = regionDragRef.current;
+    if (!rd) return;
+    const finalGeom: RegionGeom = rd.lastGeom ?? baseRegionGeom(rd);
+    // Keep draft (including a track crossing) until state.songs matches --
+    // the region stays rendered in its new lane without a snap-back flash
+    // while the backend round-trips.
+    writeGeomDraft(rd.key, finalGeom);
+
+    void builder.regionUpdate({
+      songIndex: rd.songIndex,
+      regionId: rd.regionId,
+      ...(finalGeom.trackId !== undefined
+        ? { trackId: finalGeom.trackId }
+        : {}),
+      startSeconds: finalGeom.start,
+      sourceOffsetSeconds: finalGeom.sourceOffset,
+      durationSeconds: finalGeom.duration,
+      fadeInSeconds: finalGeom.fadeIn,
+      fadeOutSeconds: finalGeom.fadeOut,
+      fadeInCurve: finalGeom.fadeInCurve,
+      fadeOutCurve: finalGeom.fadeOutCurve,
+      loop: finalGeom.loop,
+      loopLengthSeconds: finalGeom.loopLengthSeconds,
+    });
+    regionDragRef.current = null;
+    regionDragWindowCleanupRef.current?.();
+    regionDragWindowCleanupRef.current = null;
+  };
+
+  const attachRegionDragWindowListeners = () => {
+    regionDragWindowCleanupRef.current?.();
+    const onMove = (e: PointerEvent) => {
+      if (!regionDragRef.current) return;
+      // Prevent text selection / scroll chaining while dragging.
+      e.preventDefault();
+      // Keep coarse waveform mode for the whole gesture (timer is 700ms).
+      markGestureActiveRef.current();
+      processRegionDragMove(e.clientX, e.clientY);
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!regionDragRef.current) return;
+      processRegionDragMove(e.clientX, e.clientY);
+      finishRegionDrag();
+    };
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    regionDragWindowCleanupRef.current = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  };
+
+  // Drop window listeners if the timeline unmounts mid-drag.
+  useEffect(
+    () => () => {
+      regionDragWindowCleanupRef.current?.();
+      regionDragWindowCleanupRef.current = null;
+      regionDragRef.current = null;
+    },
+    [],
+  );
 
   const getRegionUi = (key: RegionSelKey): RegionUiState =>
     regions.get(key) ?? { muted: false };
@@ -2151,6 +2401,16 @@ export function Timeline({
     () => buildRows(state.tracks, songs),
     [state.tracks, songs],
   );
+
+  // Keep window-level region-drag handlers on the latest layout/snap inputs.
+  regionDragCtxRef.current = {
+    pxPerSec,
+    verticalZoom,
+    snapToGrid,
+    rows,
+    tracks: state.tracks,
+    songs,
+  };
 
   // Light-mode derived data (Feature 6). Guarded with optional chaining so an
   // older WebUiState snapshot without the lighting fields still renders.
@@ -3779,15 +4039,6 @@ export function Timeline({
                           (i === state.songIndex ? peaks?.tracks : undefined);
                         const segDuration = songLengths[i];
 
-                        const snapSec = (sec: number) =>
-                          snapToGridSec(
-                            sec,
-                            pxPerSec,
-                            song.bpm,
-                            song.tsNum ?? 4,
-                            snapToGrid,
-                          );
-
                         const effectiveGeom = (r: RegionRow): RegionGeom => {
                           const draft = regionGeomDraft[regionSelKey(i, r.id)];
                           const start = draft?.start ?? r.startSeconds;
@@ -3888,8 +4139,7 @@ export function Timeline({
                               // pointer capture).
                               if (
                                 regViewEnd <= regViewStart &&
-                                regionDragRef.current?.key !==
-                                  thisRegionSelKey
+                                regionDragRef.current?.key !== thisRegionSelKey
                               ) {
                                 return null;
                               }
@@ -3906,6 +4156,8 @@ export function Timeline({
                                 e.stopPropagation();
                                 e.preventDefault();
                                 selectRegion(thisRegionSelKey, e);
+                                const originTrackId =
+                                  songRegion.trackId || track?.id || row.name;
                                 const orig: RegionGeom = {
                                   start: geom.start,
                                   sourceOffset: geom.sourceOffset,
@@ -3916,6 +4168,7 @@ export function Timeline({
                                   fadeOutCurve: geom.fadeOutCurve,
                                   loop: geom.loop,
                                   loopLengthSeconds: geom.loopLengthSeconds,
+                                  trackId: originTrackId,
                                 };
                                 const origLoopLen =
                                   mode === "loopTrim"
@@ -3950,25 +4203,15 @@ export function Timeline({
                                   lastGeom: orig,
                                   originRowIndex: rowIndex,
                                   targetRowIndex: rowIndex,
+                                  originTrackId,
                                 };
-                                (
-                                  e.currentTarget as HTMLElement
-                                ).setPointerCapture(e.pointerId);
+                                // Window-level move/up -- not element
+                                // pointer capture. Crossing tracks remounts
+                                // this node under a different row and would
+                                // kill capture mid-gesture.
+                                attachRegionDragWindowListeners();
+                                markGestureActiveRef.current();
                               };
-
-                              const baseGeom = (
-                                rd: NonNullable<typeof regionDragRef.current>,
-                              ): RegionGeom => ({
-                                start: rd.origStart,
-                                sourceOffset: rd.origSourceOffset,
-                                duration: rd.origDuration,
-                                fadeIn: rd.origFadeIn,
-                                fadeOut: rd.origFadeOut,
-                                fadeInCurve: rd.origFadeInCurve,
-                                fadeOutCurve: rd.origFadeOutCurve,
-                                loop: rd.origLoop,
-                                loopLengthSeconds: rd.origLoopLength,
-                              });
 
                               /** Hit-test left/right edge into Logic Pro style zones. */
                               const edgeMode = (
@@ -4009,227 +4252,12 @@ export function Timeline({
                                 return "grab";
                               };
 
-                              const onDragMove = (e: React.PointerEvent) => {
-                                const rd = regionDragRef.current;
-                                if (!rd || rd.key !== thisRegionSelKey) return;
-                                const dSec = (e.clientX - rd.startX) / pxPerSec;
-                                const dY = e.clientY - rd.startY;
-
-                                if (rd.mode === "move") {
-                                  const maxStart = Math.max(
-                                    0,
-                                    rd.maxEnd - rd.origDuration,
-                                  );
-                                  const nextStart = Math.max(
-                                    0,
-                                    Math.min(
-                                      maxStart,
-                                      snapSec(rd.origStart + dSec),
-                                    ),
-                                  );
-
-                                  // Move between tracks: crossing into a
-                                  // neighboring lane's vertical span moves
-                                  // the region into that row's rendering
-                                  // immediately (the trackRegions filter
-                                  // above resolves the draft's trackId over
-                                  // the region's own not-yet-committed one),
-                                  // instead of only previewing a drop target
-                                  // and waiting for the backend round-trip.
-                                  const rowsCrossed = Math.round(
-                                    dY / laneHeightPx(verticalZoom),
-                                  );
-                                  const nextTargetRow = Math.max(
-                                    0,
-                                    Math.min(
-                                      rows.length - 1,
-                                      rd.originRowIndex + rowsCrossed,
-                                    ),
-                                  );
-                                  rd.targetRowIndex = nextTargetRow;
-                                  let draftTrackId: string | undefined;
-                                  if (nextTargetRow !== rd.originRowIndex) {
-                                    const targetRow = rows[nextTargetRow];
-                                    const targetTrack = targetRow
-                                      ? state.tracks.find(
-                                          (t) =>
-                                            (t.name || t.id) ===
-                                              targetRow.name ||
-                                            t.id === targetRow.name,
-                                        )
-                                      : undefined;
-                                    draftTrackId = targetTrack?.id;
-                                  }
-
-                                  writeGeomDraft(thisRegionSelKey, {
-                                    ...baseGeom(rd),
-                                    start: nextStart,
-                                    trackId: draftTrackId,
-                                  });
-                                  return;
-                                }
-
-                                if (rd.mode === "trimStart") {
-                                  // Stretch left into earlier source (only if
-                                  // sourceOffset > 0). Dragging left decreases
-                                  // start & sourceOffset, grows duration.
-                                  const maxLeft = rd.origSourceOffset; // can't go past file start
-                                  const rawDelta =
-                                    snapSec(rd.origStart + dSec) - rd.origStart;
-                                  // Negative delta = extend left
-                                  const delta = Math.max(
-                                    -maxLeft,
-                                    Math.min(rd.origDuration - 0.05, rawDelta),
-                                  );
-                                  writeGeomDraft(thisRegionSelKey, {
-                                    ...baseGeom(rd),
-                                    start: rd.origStart + delta,
-                                    sourceOffset: rd.origSourceOffset + delta,
-                                    duration: rd.origDuration - delta,
-                                  });
-                                  return;
-                                }
-
-                                if (rd.mode === "loopTrim") {
-                                  const rawEnd =
-                                    rd.origStart + rd.origDuration + dSec;
-                                  const snappedEnd = snapSec(rawEnd);
-                                  const maxDur = rd.maxEnd - rd.origStart;
-                                  const nextDur = Math.max(
-                                    0.05,
-                                    Math.min(maxDur, snappedEnd - rd.origStart),
-                                  );
-                                  const loopLen =
-                                    rd.origLoopLength > 0
-                                      ? rd.origLoopLength
-                                      : rd.origDuration;
-                                  const isLooped = nextDur > loopLen + 0.01;
-                                  writeGeomDraft(thisRegionSelKey, {
-                                    ...baseGeom(rd),
-                                    duration: nextDur,
-                                    loop: isLooped,
-                                    loopLengthSeconds: isLooped ? loopLen : 0,
-                                  });
-                                  return;
-                                }
-
-                                if (rd.mode === "trimEnd") {
-                                  const rawEnd =
-                                    rd.origStart + rd.origDuration + dSec;
-                                  const snappedEnd = snapSec(rawEnd);
-                                  // Standard trim never loops; capped to remaining source duration.
-                                  const maxDur = Math.min(
-                                    rd.maxEnd - rd.origStart,
-                                    rd.maxSourceDur,
-                                  );
-                                  const nextDur = Math.max(
-                                    0.05,
-                                    Math.min(maxDur, snappedEnd - rd.origStart),
-                                  );
-                                  writeGeomDraft(thisRegionSelKey, {
-                                    ...baseGeom(rd),
-                                    duration: nextDur,
-                                    loop: false,
-                                    loopLengthSeconds: 0,
-                                  });
-                                  return;
-                                }
-
-                                if (rd.mode === "fadeIn") {
-                                  const maxFade = rd.origDuration * 0.5;
-                                  const next = Math.max(
-                                    0,
-                                    Math.min(maxFade, rd.origFadeIn + dSec),
-                                  );
-                                  writeGeomDraft(thisRegionSelKey, {
-                                    ...baseGeom(rd),
-                                    fadeIn: next,
-                                  });
-                                  return;
-                                }
-
-                                if (rd.mode === "fadeOut") {
-                                  const maxFade = rd.origDuration * 0.5;
-                                  // Dragging the right-top zone left increases fade-out.
-                                  const next = Math.max(
-                                    0,
-                                    Math.min(maxFade, rd.origFadeOut - dSec),
-                                  );
-                                  writeGeomDraft(thisRegionSelKey, {
-                                    ...baseGeom(rd),
-                                    fadeOut: next,
-                                  });
-                                  return;
-                                }
-
-                                if (rd.mode === "fadeInCurve") {
-                                  // Vertical drag reshapes the curve (−1..+1).
-                                  const next = Math.max(
-                                    -1,
-                                    Math.min(1, rd.origFadeInCurve - dY / 40),
-                                  );
-                                  writeGeomDraft(thisRegionSelKey, {
-                                    ...baseGeom(rd),
-                                    fadeInCurve: next,
-                                  });
-                                  return;
-                                }
-
-                                if (rd.mode === "fadeOutCurve") {
-                                  const next = Math.max(
-                                    -1,
-                                    Math.min(1, rd.origFadeOutCurve - dY / 40),
-                                  );
-                                  writeGeomDraft(thisRegionSelKey, {
-                                    ...baseGeom(rd),
-                                    fadeOutCurve: next,
-                                  });
-                                }
-                              };
-
-                              const onDragUp = (e: React.PointerEvent) => {
-                                const rd = regionDragRef.current;
-                                if (!rd || rd.key !== thisRegionSelKey) return;
-                                const finalGeom: RegionGeom =
-                                  rd.lastGeom ?? baseGeom(rd);
-                                // Keep draft (including a track crossing,
-                                // see onDragMove) until state.songs matches
-                                // (useEffect above) -- the region stays
-                                // rendered in its new lane without a
-                                // snap-back flash while this round-trips.
-                                writeGeomDraft(thisRegionSelKey, finalGeom);
-
-                                void builder.regionUpdate({
-                                  songIndex: i,
-                                  regionId: songRegion.id,
-                                  ...(finalGeom.trackId
-                                    ? { trackId: finalGeom.trackId }
-                                    : {}),
-                                  startSeconds: finalGeom.start,
-                                  sourceOffsetSeconds: finalGeom.sourceOffset,
-                                  durationSeconds: finalGeom.duration,
-                                  fadeInSeconds: finalGeom.fadeIn,
-                                  fadeOutSeconds: finalGeom.fadeOut,
-                                  fadeInCurve: finalGeom.fadeInCurve,
-                                  fadeOutCurve: finalGeom.fadeOutCurve,
-                                  loop: finalGeom.loop,
-                                  loopLengthSeconds:
-                                    finalGeom.loopLengthSeconds,
-                                });
-                                regionDragRef.current = null;
-                                try {
-                                  (
-                                    e.currentTarget as HTMLElement
-                                  ).releasePointerCapture(e.pointerId);
-                                } catch {
-                                  /* already released */
-                                }
-                              };
-
                               const onRegionPointerDown = (
                                 e: React.PointerEvent,
                               ) => {
                                 if (readOnly) return;
+                                // Primary button only -- right-click is context menu.
+                                if (e.button !== 0) return;
                                 const rect =
                                   e.currentTarget.getBoundingClientRect();
                                 const localX = e.clientX - rect.left;
@@ -4303,12 +4331,11 @@ export function Timeline({
                                     title={`${row.name} – Song ${i + 1}: ${song.name}${geom.loop ? " [loop]" : ""}`}
                                     onPointerDown={onRegionPointerDown}
                                     onPointerMove={(e) => {
-                                      if (regionDragRef.current) {
-                                        onDragMove(e);
+                                      // Drag geometry is driven by window
+                                      // listeners (see attachRegionDragWindowListeners).
+                                      // Here we only update the edge-zone cursor.
+                                      if (regionDragRef.current || readOnly)
                                         return;
-                                      }
-                                      // Hover cursor reflects edge zone.
-                                      if (readOnly) return;
                                       const rect =
                                         e.currentTarget.getBoundingClientRect();
                                       const c = edgeCursor(
@@ -4321,7 +4348,6 @@ export function Timeline({
                                         e.currentTarget as HTMLElement
                                       ).style.cursor = c;
                                     }}
-                                    onPointerUp={onDragUp}
                                     onContextMenu={(e) => {
                                       e.preventDefault();
                                       e.stopPropagation();
@@ -4422,8 +4448,6 @@ export function Timeline({
                                         onPointerDown={(e) =>
                                           beginDrag(e, "fadeInCurve")
                                         }
-                                        onPointerMove={onDragMove}
-                                        onPointerUp={onDragUp}
                                       />
                                     )}
                                     {geom.fadeOut > 0.001 && (
@@ -4440,8 +4464,6 @@ export function Timeline({
                                         onPointerDown={(e) =>
                                           beginDrag(e, "fadeOutCurve")
                                         }
-                                        onPointerMove={onDragMove}
-                                        onPointerUp={onDragUp}
                                       />
                                     )}
 
