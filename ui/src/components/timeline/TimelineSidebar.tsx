@@ -1,9 +1,11 @@
+import { Plus } from "lucide-react";
 import type {
   LightFixtureRow,
   LightTrackRow,
   TrackRow,
   WebUiState,
 } from "../../lib/types";
+import { lighting } from "../../lib/api";
 import {
   LightTrackHeader,
   AUDIO_HINT_HEIGHT,
@@ -20,6 +22,9 @@ import type { TimelineRow } from "./rows";
 import { TimelineRowLabel } from "./TimelineRowLabel";
 import type { TimelineViewMode } from "./TimelineToolbar";
 import { TrackHeaderControl } from "./TrackHeaderControl";
+
+const laneHeaderCls =
+  "shrink-0 border-b border-default/30 px-2.5 font-bold uppercase flex items-center bg-background-tertiary";
 
 export function TimelineSidebar({
   state,
@@ -54,45 +59,69 @@ export function TimelineSidebar({
     state.tracks.some((t) => t.solo) || state.busses.some((b) => b.solo);
   const laneH = laneHeightPx(verticalZoom);
 
+  // Keep spacer height in lockstep with the body's hint strip so rows align.
+  const showHintSpacer = effectiveViewMode === "audio" ? hasLightContent : true;
+  const hintHeight =
+    effectiveViewMode === "light" ? AUDIO_HINT_HEIGHT : LIGHT_HINT_HEIGHT;
+
   return (
     <div
       className="shrink-0 flex flex-col border-r border-default/30 bg-background-secondary z-20 select-none"
       style={{ width: SIDEBAR_WIDTH }}
     >
+      {/* Ruler spacer header */}
       <div
-        className="shrink-0 border-b border-default/30 bg-background-tertiary"
+        className={`${laneHeaderCls} text-[10px] tracking-wider text-foreground/40`}
         style={{ height: RULER_HEIGHT }}
-      />
+      >
+        Songs
+      </div>
+      {/* Section-marker lane spacer */}
       <div
-        className="shrink-0 border-b border-default/30 bg-surface/20"
+        className={`${laneHeaderCls} text-[9px] text-foreground/25`}
         style={{ height: SECTION_LANE_HEIGHT }}
-      />
+      >
+        Sections
+      </div>
+      {/* Event lane spacer */}
       <div
-        className="shrink-0 border-b border-default/30 bg-surface/30"
+        className={`${laneHeaderCls} text-[9px] text-foreground/25`}
         style={{ height: EVENT_LANE_HEIGHT }}
-      />
-      {(effectiveViewMode === "audio" ? hasLightContent : true) && (
+      >
+        Events
+      </div>
+      {/* Cross-mode hint strip: Audio mode → dimmed light strip label;
+          Light mode → audio reference + persistent "add track" control. */}
+      {showHintSpacer && (
         <div
-          className="shrink-0 border-b border-default/20"
-          style={{
-            height:
-              effectiveViewMode === "audio"
-                ? LIGHT_HINT_HEIGHT
-                : AUDIO_HINT_HEIGHT,
-          }}
-        />
+          className={`${laneHeaderCls} justify-between text-[9px] text-foreground/25`}
+          style={{ height: hintHeight }}
+        >
+          <span>{effectiveViewMode === "light" ? "Audio ref" : "Light"}</span>
+          {effectiveViewMode === "light" && lightEnabled && (
+            <button
+              type="button"
+              title="Add light track"
+              className="flex items-center gap-0.5 rounded border border-default/40 bg-default/15 px-1 py-0.5 normal-case tracking-normal text-foreground/60 transition-colors hover:border-accent/60 hover:text-foreground"
+              onClick={() => void lighting.trackAdd()}
+            >
+              <Plus size={10} /> Track
+            </button>
+          )}
+        </div>
       )}
 
       <div className="flex-1 overflow-hidden min-h-0">
         <div ref={sidebarContentRef} className="will-change-transform">
           {effectiveViewMode === "light" ? (
             !lightEnabled ? (
-              <div className="px-3 py-4 text-[11px] text-foreground/40">
-                Lighting disabled
+              <div className="flex h-24 items-center justify-center px-3 text-center text-[10px] leading-relaxed text-foreground/40">
+                Enable lighting in Settings &gt; Project to author light cues
               </div>
             ) : lightTracks.length === 0 ? (
-              <div className="px-3 py-4 text-[11px] text-foreground/40">
+              <div className="flex flex-col items-center gap-1 px-3 py-5 text-center text-[10px] text-foreground/40">
                 No light tracks
+                <span>Use the Track button above to add one</span>
               </div>
             ) : (
               lightTracks.map((t, i) => (
@@ -111,6 +140,10 @@ export function TimelineSidebar({
                 />
               ))
             )
+          ) : rows.length === 0 ? (
+            <div className="flex h-20 items-center justify-center px-2 text-[10px] text-foreground/40">
+              No tracks
+            </div>
           ) : (
             rows.map((row) =>
               row.headerIndex !== null && state.tracks[row.headerIndex] ? (

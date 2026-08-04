@@ -12,6 +12,7 @@ import type {
 } from "../../lib/types";
 import { ContextMenu, ContextMenuItem } from "../ContextMenu";
 import {
+  COMPACT_LANE_MAX_PX,
   LANE_HEIGHT,
   laneHeightPx,
   TrackWaveformLane,
@@ -55,7 +56,13 @@ function cueKey(songIndex: number, cueId: string): string {
 /** Slanted-fade clip path sized to a cue's fadeIn/fadeOut (Cue Block spec).
  * Fades share the cue duration without overlapping (same clamp as the side
  * panel sliders / lightCueInterpolation). */
-function cueClipPath(cue: LightCueRow, pxPerSec: number): string | undefined {
+export function cueClipPath(
+  cue: Pick<
+    LightCueRow,
+    "durationSeconds" | "fadeInSeconds" | "fadeOutSeconds"
+  >,
+  pxPerSec: number,
+): string | undefined {
   const dur = Math.max(0, cue.durationSeconds);
   const fi = Math.min(Math.max(0, cue.fadeInSeconds), dur);
   const fo = Math.min(Math.max(0, cue.fadeOutSeconds), Math.max(0, dur - fi));
@@ -63,6 +70,94 @@ function cueClipPath(cue: LightCueRow, pxPerSec: number): string | undefined {
   const fadeOutPx = fo * pxPerSec;
   if (fadeInPx <= 0 && fadeOutPx <= 0) return undefined;
   return `polygon(${fadeInPx}px 0, calc(100% - ${fadeOutPx}px) 0, 100% 100%, 0 100%)`;
+}
+
+/** Shared fill for timeline cues and player/hint previews. */
+export function lightCueFill(
+  cue: Pick<
+    LightCueRow,
+    | "colorR"
+    | "colorG"
+    | "colorB"
+    | "intensity"
+    | "effectType"
+    | "gradientPreset"
+  >,
+): { background: string; opacity: number; isOwnColor: boolean } {
+  const cueEt = cue.effectType as EffectType;
+  const isOwnColor = effectUsesOwnColor(cueEt, cue.gradientPreset);
+  return {
+    isOwnColor,
+    background: isOwnColor
+      ? "rgb(80, 85, 100)"
+      : `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`,
+    opacity: Math.max(isOwnColor ? 0.45 : 0.12, cue.intensity),
+  };
+}
+
+/** Selection chrome — outline only when selected (no default border). */
+export function lightCueSelectionStyle(
+  selected: boolean,
+  accentColor: string,
+): React.CSSProperties {
+  if (!selected) return { border: "none" };
+  return {
+    border: `1.5px solid ${accentColor}`,
+    boxShadow: `0 0 0 1px ${accentColor}aa, 0 0 8px ${accentColor}44`,
+  };
+}
+
+/**
+ * Decorative cue body (fill + fade clip + optional label). Used by both the
+ * interactive timeline lane and the non-interactive hint/player preview so
+ * the two never diverge (borders, colors, fade shape).
+ */
+export function LightCueBody({
+  cue,
+  pxPerSec,
+  widthPx,
+  label,
+  showLabel = true,
+}: {
+  cue: LightCueRow;
+  pxPerSec: number;
+  widthPx: number;
+  label?: string;
+  showLabel?: boolean;
+}) {
+  const fill = lightCueFill(cue);
+  const clip = cueClipPath(cue, pxPerSec);
+  const labelText =
+    (label ?? cue.label) ||
+    (cue.effectType && cue.effectType !== "none"
+      ? EFFECT_META[cue.effectType as EffectType]?.label || cue.effectType
+      : "");
+  const labelShown = showLabel && Boolean(labelText) && widthPx > 24;
+
+  return (
+    <>
+      <div
+        className="absolute inset-0 rounded-sm pointer-events-none"
+        style={{
+          background: fill.background,
+          opacity: fill.opacity,
+          clipPath: clip,
+        }}
+      />
+      {labelShown && (
+        <span
+          className="absolute top-0.5 left-1.5 truncate text-[9px] font-semibold pointer-events-none select-none"
+          style={{
+            color: "#ffffffdd",
+            textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+            maxWidth: `calc(100% - ${CUE_EDGE_PX + 2}px)`,
+          }}
+        >
+          {labelText}
+        </span>
+      )}
+    </>
+  );
 }
 
 // Audio mode: a dimmed, non-interactive strip near the top showing that light
@@ -111,26 +206,26 @@ export function LightHintStrip({
                 leftPx > viewEnd - segStart
               )
                 return null;
-              const isOwnColor = effectUsesOwnColor(
-                cue.effectType as EffectType,
-                cue.gradientPreset,
-              );
-              const bg = isOwnColor
-                ? "rgb(90, 95, 110)"
-                : `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`;
               return (
                 <div
                   key={cue.id}
-                  className="absolute top-1 bottom-1 rounded-sm"
+                  className="absolute top-1 bottom-1 rounded-sm overflow-hidden"
                   style={{
                     left: leftPx,
                     width: widthPx,
-                    background: bg,
+                    // Same chrome as the editor lane: no default border;
+                    // overall dim so the strip stays a quiet reference.
+                    ...lightCueSelectionStyle(false, trackColor(cue.trackId)),
                     opacity: 0.45,
-                    border: `1px solid ${trackColor(cue.trackId)}88`,
-                    clipPath: cueClipPath(cue, pxPerSec),
                   }}
-                />
+                >
+                  <LightCueBody
+                    cue={cue}
+                    pxPerSec={pxPerSec}
+                    widthPx={widthPx}
+                    showLabel={false}
+                  />
+                </div>
               );
             })}
           </div>
@@ -143,6 +238,16 @@ export function LightHintStrip({
 // Light mode: a dimmed, non-interactive waveform strip so the light-focused
 // view keeps its musical reference. Reuses the real waveform renderer
 // (TrackWaveformLane) per region, stacked over one short strip.
+//
+// The strip is FIXED height (AUDIO_HINT_HEIGHT) — it does not track the
+// timeline's vertical zoom. Waveform verticalZoom is therefore a constant
+// sized to fill the strip and always stay above the compact-lane cutoff
+// (below which TrackWaveformLane draws nothing).
+const AUDIO_HINT_WAVEFORM_ZOOM = Math.max(
+  (COMPACT_LANE_MAX_PX + 2) / LANE_HEIGHT,
+  AUDIO_HINT_HEIGHT / LANE_HEIGHT,
+);
+
 export function AudioHintStrip({
   state,
   peaks,
@@ -153,7 +258,6 @@ export function AudioHintStrip({
   songLengths,
   pxPerSec,
   scrollState,
-  verticalZoom,
   contentWidth,
 }: {
   state: WebUiState;
@@ -165,7 +269,8 @@ export function AudioHintStrip({
   songLengths: number[];
   pxPerSec: number;
   scrollState: { scrollLeft: number; viewportWidth: number };
-  verticalZoom: number;
+  /** @deprecated ignored — strip height is fixed; kept optional for callers. */
+  verticalZoom?: number;
   contentWidth: number;
 }) {
   const viewStart = scrollState.scrollLeft;
@@ -239,7 +344,7 @@ export function AudioHintStrip({
                         durationSeconds={fileDur}
                         regionFile={r.file}
                         gestureActive={false}
-                        verticalZoom={verticalZoom * 0.5}
+                        verticalZoom={AUDIO_HINT_WAVEFORM_ZOOM}
                         contentWidth={widthPx}
                         scrollLeft={Math.max(0, regViewStart - absLeft)}
                         viewportWidth={regViewportWidth}
@@ -643,21 +748,12 @@ export function LightTrackLane({
                 return null;
               const isSelected =
                 selected?.songIndex === i && selected.cueId === cue.id;
-              const clip = cueClipPath(
-                { ...cue, ...geom } as LightCueRow,
-                pxPerSec,
-              );
-              const cueEt = cue.effectType as EffectType;
-              const isOwnColor = effectUsesOwnColor(cueEt, cue.gradientPreset);
-              const fillBg = isOwnColor
-                ? "rgb(80, 85, 100)"
-                : `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`;
               const labelText =
                 cue.label ||
-                (cueEt && cueEt !== "none"
-                  ? EFFECT_META[cueEt]?.label || cueEt
+                (cue.effectType && cue.effectType !== "none"
+                  ? EFFECT_META[cue.effectType as EffectType]?.label ||
+                    cue.effectType
                   : "");
-              const labelShown = Boolean(labelText) && widthPx > 24;
               const edge = hoverEdge[cue.id];
               return (
                 <div
@@ -666,19 +762,10 @@ export function LightTrackLane({
                   style={{
                     left: leftPx,
                     width: widthPx,
-                    border: isSelected
-                      ? `1.5px solid ${color}`
-                      : `1px solid ${color}66`,
-                    boxShadow: isSelected
-                      ? `0 0 0 1px ${color}aa, 0 0 8px ${color}44`
-                      : undefined,
-                    // No clipPath here -- it lives on the decorative fill
-                    // below. clip-path also clips pointer-event hit-testing
-                    // in modern browsers, so a faded cue's slanted top
-                    // corners used to silently swallow trim-handle clicks
-                    // right where CUE_EDGE_PX expects them. Keeping this
-                    // outer div a plain rectangle means the full box height
-                    // is always draggable/trimmable regardless of fades.
+                    ...lightCueSelectionStyle(isSelected, color),
+                    // No clipPath on the hit shell -- clip lives on the
+                    // decorative LightCueBody fill so edge handles stay
+                    // clickable under fades.
                     cursor: readOnly ? "default" : edge ? "ew-resize" : "grab",
                     zIndex: isSelected ? 2 : 1,
                   }}
@@ -741,22 +828,15 @@ export function LightTrackLane({
                     });
                   }}
                 >
-                  {/* Decorative fill + fade slant -- pointer-events-none so
-                      clip-path here never affects the outer div's hit area. */}
-                  <div
-                    className="absolute inset-0 rounded-sm pointer-events-none"
-                    style={{
-                      background: fillBg,
-                      opacity: Math.max(
-                        isOwnColor ? 0.45 : 0.12,
-                        cue.intensity,
-                      ),
-                      clipPath: clip,
-                    }}
+                  <LightCueBody
+                    cue={
+                      { ...cue, durationSeconds: geom.duration } as LightCueRow
+                    }
+                    pxPerSec={pxPerSec}
+                    widthPx={widthPx}
+                    label={labelText}
                   />
-                  {/* Edge affordance -- a faint highlight over the trim
-                      hit-zone so it's visually discoverable, not just a
-                      cursor change. */}
+                  {/* Edge affordance -- faint highlight over the trim zone. */}
                   {!readOnly && (
                     <>
                       <div
@@ -780,18 +860,6 @@ export function LightTrackLane({
                         }}
                       />
                     </>
-                  )}
-                  {labelShown && (
-                    <span
-                      className="absolute top-0.5 left-1.5 truncate text-[9px] font-semibold pointer-events-none select-none"
-                      style={{
-                        color: "#ffffffdd",
-                        textShadow: "0 1px 2px rgba(0,0,0,0.8)",
-                        maxWidth: `calc(100% - ${CUE_EDGE_PX + 2}px)`,
-                      }}
-                    >
-                      {labelText}
-                    </span>
                   )}
                 </div>
               );

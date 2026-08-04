@@ -1480,7 +1480,6 @@ export function Timeline({
                   songLengths={songLengths}
                   pxPerSec={pxPerSec}
                   scrollState={scrollState}
-                  verticalZoom={verticalZoom}
                   contentWidth={contentWidth}
                 />
               )}
@@ -1605,7 +1604,6 @@ export function Timeline({
           onClose={() => setRegionContextMenu(null)}
         />
       )}
-
     </div>
   );
 }
