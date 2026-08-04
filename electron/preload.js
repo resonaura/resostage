@@ -1,4 +1,6 @@
-// contextBridge API exposed to the SPA as window.resostageElectron.
+// DEPRECATED shim — the real preload is electron/src/preload.cts → dist/preload.cjs
+// (BrowserWindow loads dist/preload.cjs). Kept in sync so accidental loads
+// still expose the full bridge.
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("resostageElectron", {

@@ -4,6 +4,21 @@ import type { PeakLevelData } from "../lib/types";
 
 export const LANE_HEIGHT = 56;
 
+/** Lane height in CSS px for a given vertical zoom (shared by sidebar + lanes). */
+export function laneHeightPx(verticalZoom: number): number {
+  return Math.max(22, Math.round(LANE_HEIGHT * verticalZoom));
+}
+
+/**
+ * Below this height waveforms are unreadable noise — render a solid color
+ * strip with the track name instead (see Timeline region chrome).
+ */
+export const COMPACT_LANE_MAX_PX = 32;
+
+export function isCompactLane(verticalZoom: number): boolean {
+  return laneHeightPx(verticalZoom) <= COMPACT_LANE_MAX_PX;
+}
+
 /** Pick the peak pyramid level whose bin width matches the current zoom. */
 export function pickLevelForZoom(
   levels: PeakLevelData[],
@@ -80,7 +95,12 @@ export function TrackWaveformLane({
     samples: number[];
   } | null>(null);
 
+  // Parent usually skips mounting us in compact mode; if still mounted, draw
+  // nothing so we never spend paint or network on unreadable peaks.
+  const compact = isCompactLane(verticalZoom);
+
   const needsRaw =
+    !compact &&
     pickLevelForZoom(levels, durationSeconds, pxPerSec) === null &&
     levels.length > 0;
 
@@ -115,11 +135,11 @@ export function TrackWaveformLane({
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || viewportWidth <= 0) return;
+    if (!canvas || viewportWidth <= 0 || compact) return;
 
     const dpr = window.devicePixelRatio || 1;
     const renderWidth = Math.min(viewportWidth, contentWidth);
-    const laneH = Math.max(20, Math.round(LANE_HEIGHT * verticalZoom));
+    const laneH = laneHeightPx(verticalZoom);
     const targetW = Math.max(1, Math.floor(renderWidth * dpr));
     const targetH = Math.max(1, Math.floor((laneH - 6) * dpr));
 
@@ -161,9 +181,8 @@ export function TrackWaveformLane({
       const rmsBotPoints: { x: number; y: number }[] = [];
 
       const availSec = Math.max(0.01, durationSeconds - sourceOffsetSec);
-      const cycleSec = (loopLengthSec && loopLengthSec > 0)
-        ? loopLengthSec
-        : availSec;
+      const cycleSec =
+        loopLengthSec && loopLengthSec > 0 ? loopLengthSec : availSec;
 
       for (let x = 0; x <= renderWidth; x += step) {
         // Map lane-local time → source-file time (honours region trim/split & loop).
@@ -310,6 +329,7 @@ export function TrackWaveformLane({
 
     ctx.globalAlpha = 1;
   }, [
+    compact,
     levels,
     durationSeconds,
     needsRaw,
@@ -327,6 +347,8 @@ export function TrackWaveformLane({
     visibleEndSec,
   ]);
 
+  if (compact) return null;
+
   return (
     <div
       className={
@@ -339,7 +361,7 @@ export function TrackWaveformLane({
           ? { opacity: muted ? 0.4 : 1 }
           : {
               width: contentWidth,
-              height: LANE_HEIGHT * verticalZoom,
+              height: laneHeightPx(verticalZoom),
               opacity: muted ? 0.4 : 1,
             }
       }

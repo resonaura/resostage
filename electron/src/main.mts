@@ -158,15 +158,33 @@ let menuState: MenuState = {
 };
 let lastTouchBarTab: string | null = null;
 
-// Briefly flashes the menu item matching the most recently fired action --
-// mirrors the pre-Electron AppKit MacMenuBar's flashMacMenuAction (a
-// checkmark pulse on any performAction() dispatch, regardless of trigger
-// source: hotkey, MIDI, native menu click, or web POST).
+// Briefly flashes the menu bar entry for the most recently fired action --
+// mirrors the pre-Electron AppKit MacMenuBar flash: the TOP-LEVEL menu title
+// that owns the action is highlighted (visible without opening the menu),
+// and the item itself gets a checkmark + checked state while open.
+// Sources: hotkey, MIDI, native menu click, or SPA POST via lastActionNonce.
 let flashingActionId: string | null = null;
 let flashTimer: ReturnType<typeof setTimeout> | null = null;
-const FLASH_MS = 450;
+const FLASH_MS = 500;
+
+function flashMenuAction(action: string): void {
+  if (!action) return;
+  // open_recent:… etc. never appear as a single menu item id — skip noise.
+  if (action.includes(":")) return;
+  flashingActionId = action;
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => {
+    flashingActionId = null;
+    flashTimer = null;
+    refreshMenu();
+  }, FLASH_MS);
+  refreshMenu();
+}
 
 async function postAction(action: string): Promise<boolean> {
+  // Immediate flash for menu-click / shell-originated actions (don't wait
+  // for the SPA's WebSocket round-trip of lastActionNonce).
+  flashMenuAction(action);
   try {
     const res = await fetch(`${BACKEND}/api/v1/action`, {
       method: "POST",
@@ -246,11 +264,23 @@ function keybindingFor(action: string): string {
   return menuModel?.keybindings?.[action] ?? "";
 }
 
-// Prefixes the label with a checkmark while `action` is the most recently
-// fired one -- see flashingActionId above.
-function flashLabel(action: string, title: string | undefined): string {
+// Item label + checked state while `action` is flashing.
+function flashItemProps(
+  action: string,
+  title: string | undefined,
+): { label: string; checked?: boolean; type?: "checkbox" } {
   const base = title ?? "";
-  return action === flashingActionId ? `✓ ${base}` : base;
+  if (action === flashingActionId) {
+    // Checkbox type is the only Electron-native way to highlight a leaf
+    // item when its submenu happens to be open; top-level flash is handled
+    // in buildMenu via the section title.
+    return { label: `✓ ${base}`, type: "checkbox", checked: true };
+  }
+  return { label: base };
+}
+
+function sectionOwnsAction(section: MenuSectionModel, action: string): boolean {
+  return (section.items ?? []).some((it) => it.actionId === action);
 }
 
 function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
@@ -284,7 +314,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
     // Routed through the backend so the unsaved-changes prompt runs (the
     // JUCE process performs the actual quit and then kills this shell).
     return {
-      label: flashLabel(action, item.title),
+      ...flashItemProps(action, item.title),
       accelerator: acceleratorFor(item.key),
       click: () => postAction("quit"),
     };
@@ -297,7 +327,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
     // menu clicks via POST /api/v1/action.
     const binding = keybindingFor(action);
     return {
-      label: flashLabel(action, item.title),
+      ...flashItemProps(action, item.title),
       accelerator: acceleratorFor(binding),
       registerAccelerator: false,
       enabled:
@@ -312,7 +342,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
   // Fixed app shortcuts (New / Open / Save / Save As / Minimize …): safe to
   // register as real accelerators -- none are bare typing characters.
   return {
-    label: flashLabel(action, item.title),
+    ...flashItemProps(action, item.title),
     accelerator: acceleratorFor(item.key),
     click: () => postAction(action),
   };
@@ -320,10 +350,16 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
 
 function buildMenu(): Menu | null {
   if (!menuModel) return null;
-  const sections = (menuModel.menus ?? []).map((section) => ({
-    label: section.title,
-    submenu: (section.items ?? []).map((it) => buildMenuItem(it)),
-  }));
+  const sections = (menuModel.menus ?? []).map((section) => {
+    // Top-level title flash is the only feedback visible in the menu bar
+    // itself (leaf checkmarks only show when the submenu is open).
+    const flashing =
+      flashingActionId != null && sectionOwnsAction(section, flashingActionId);
+    return {
+      label: flashing ? `● ${section.title}` : section.title,
+      submenu: (section.items ?? []).map((it) => buildMenuItem(it)),
+    };
+  });
   return Menu.buildFromTemplate(sections);
 }
 
@@ -407,30 +443,10 @@ function createWindow(): void {
   refreshTouchBar();
   mainWindow.on("focus", () => refreshTouchBar());
 
-  // Right-click context menu with Inspect Element & DevTools
-  mainWindow.webContents.on("context-menu", (_event, params) => {
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: "Inspect Element",
-        click: () => {
-          mainWindow?.webContents.inspectElement(params.x, params.y);
-          if (!mainWindow?.webContents.isDevToolsOpened()) {
-            mainWindow?.webContents.openDevTools({ mode: "detach" });
-          }
-        },
-      },
-      {
-        label: "Toggle Developer Tools",
-        click: () => {
-          mainWindow?.webContents.toggleDevTools();
-        },
-      },
-      { type: "separator" },
-      { role: "reload", label: "Reload" },
-      { role: "forceReload", label: "Force Reload" },
-    ]);
-    contextMenu.popup();
-  });
+  // DevTools / reload are available via standard accelerators (Cmd+Opt+I,
+  // Cmd+R). Do NOT auto-popup a context menu here: it races the SPA's
+  // native Menu.popup() path (show-context-menu IPC) and steals right-clicks
+  // that should become track/cue menus.
 
   void mainWindow.loadURL(DEV_URL);
 }
@@ -449,15 +465,13 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
       menuState.lastActionNonce !== 0 &&
       menuState.lastAction
     ) {
-      flashingActionId = menuState.lastAction;
-      if (flashTimer) clearTimeout(flashTimer);
-      flashTimer = setTimeout(() => {
-        flashingActionId = null;
-        flashTimer = null;
-        refreshMenu();
-      }, FLASH_MS);
+      // SPA / MIDI / backend-originated actions (hotkeys that never hit
+      // postAction() in this process). Menu-click paths already flashed
+      // optimistically in postAction — re-arming just restarts the timer.
+      flashMenuAction(menuState.lastAction);
+    } else {
+      refreshMenu();
     }
-    refreshMenu();
     refreshTouchBar();
   }
 });

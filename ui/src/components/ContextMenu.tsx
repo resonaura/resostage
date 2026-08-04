@@ -44,6 +44,42 @@ function extractLabel(node: ReactNode): string {
   return "";
 }
 
+function collectNativeItems(children: ReactNode): {
+  items: NativeMenuItem[];
+  handlers: Map<string, () => void>;
+} {
+  const items: NativeMenuItem[] = [];
+  const handlers = new Map<string, () => void>();
+  let n = 0;
+  Children.forEach(children, (child) => {
+    if (!isValidElement(child)) return;
+    const t = child.type as { displayName?: string; name?: string };
+    const name = t.displayName || t.name || "";
+    if (name === "ContextMenuDivider") {
+      items.push({ type: "separator" });
+      return;
+    }
+    if (name === "ContextMenuItem") {
+      const props = child.props as {
+        children?: ReactNode;
+        danger?: boolean;
+        disabled?: boolean;
+        onClick: () => void;
+      };
+      const id = `item-${n++}`;
+      items.push({
+        type: "item",
+        id,
+        label: extractLabel(props.children) || "…",
+        danger: props.danger,
+        disabled: props.disabled,
+      });
+      handlers.set(id, props.onClick);
+    }
+  });
+  return { items, handlers };
+}
+
 /**
  * Shared right-click menu shell for the whole app.
  *
@@ -67,64 +103,41 @@ export function ContextMenu({
   const [pos, setPos] = useState<{ left: number; top: number; ready: boolean }>(
     { left: x, top: y, ready: false },
   );
-
-  // Native path (Electron / embedded Electron shell).
-  useEffect(() => {
-    const bridge = (window as BridgeWindow).resostageElectron;
-    const useNative =
-      (IS_ELECTRON || IS_EMBEDDED) &&
-      typeof bridge?.showContextMenu === "function";
-    if (!useNative) return;
-
-    const items: NativeMenuItem[] = [];
-    const handlers = new Map<string, () => void>();
-    let n = 0;
-    Children.forEach(children, (child) => {
-      if (!isValidElement(child)) return;
-      const t = child.type as { displayName?: string; name?: string };
-      const name = t.displayName || t.name || "";
-      if (name === "ContextMenuDivider") {
-        items.push({ type: "separator" });
-        return;
-      }
-      if (name === "ContextMenuItem") {
-        const props = child.props as {
-          children?: ReactNode;
-          danger?: boolean;
-          disabled?: boolean;
-          onClick: () => void;
-        };
-        const id = `item-${n++}`;
-        items.push({
-          type: "item",
-          id,
-          label: extractLabel(props.children) || "…",
-          danger: props.danger,
-          disabled: props.disabled,
-        });
-        handlers.set(id, props.onClick);
-      }
-    });
-
-    let cancelled = false;
-    void bridge!.showContextMenu!(items, x, y)
-      .then((id) => {
-        if (cancelled) return;
-        if (id && handlers.has(id)) handlers.get(id)!();
-        onClose();
-      })
-      .catch(() => {
-        if (!cancelled) onClose();
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [x, y, children, onClose]);
+  // Keep latest handlers/onClose without re-opening the native menu on every
+  // parent re-render (children identity changes constantly).
+  const handlersRef = useRef<Map<string, () => void>>(new Map());
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   const bridge = (window as BridgeWindow).resostageElectron;
   const useNative =
     (IS_ELECTRON || IS_EMBEDDED) &&
     typeof bridge?.showContextMenu === "function";
+
+  const { items: nativeItems, handlers: nativeHandlers } =
+    collectNativeItems(children);
+  handlersRef.current = nativeHandlers;
+  // Stable key for menu content — reopen only when labels/flags/coords change.
+  const nativeItemsKey = JSON.stringify(nativeItems);
+
+  // Native path (Electron shell with preload bridge).
+  useEffect(() => {
+    if (!useNative) return;
+    const items = JSON.parse(nativeItemsKey) as NativeMenuItem[];
+    let cancelled = false;
+    void bridge!.showContextMenu!(items, x, y)
+      .then((id) => {
+        if (cancelled) return;
+        if (id) handlersRef.current.get(id)?.();
+        onCloseRef.current();
+      })
+      .catch(() => {
+        if (!cancelled) onCloseRef.current();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [useNative, x, y, nativeItemsKey, bridge]);
 
   useLayoutEffect(() => {
     if (useNative) return;

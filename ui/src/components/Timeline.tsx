@@ -41,7 +41,11 @@ import {
   ContextMenuItem,
 } from "./ContextMenu";
 import { LevelMeterBar } from "./LevelMeterBar";
-import { LANE_HEIGHT, TrackWaveformLane } from "./TrackWaveformLane";
+import {
+  isCompactLane,
+  laneHeightPx,
+  TrackWaveformLane,
+} from "./TrackWaveformLane";
 import {
   AudioHintStrip,
   LightHintStrip,
@@ -76,6 +80,71 @@ const TRACK_COLORS = [
   "#ffd600",
   "#b78a66",
 ];
+
+/**
+ * Compact-lane fill: lower lightness of a hex color, optionally push
+ * saturation. Done in HSL (no CSS filter) so hue is preserved.
+ * `lightness` / `saturation` are multipliers on the source L / S channels.
+ */
+function dimHexColor(color: string, lightness: number, saturation = 1): string {
+  const m = color.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!m) return color;
+  let hex = m[1];
+  if (hex.length === 3)
+    hex = hex
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  const n = parseInt(hex, 16);
+  let r = ((n >> 16) & 255) / 255;
+  let g = ((n >> 8) & 255) / 255;
+  let b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  let l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+        break;
+      case g:
+        h = ((b - r) / d + 2) / 6;
+        break;
+      default:
+        h = ((r - g) / d + 4) / 6;
+        break;
+    }
+  }
+  s = Math.max(0, Math.min(1, s * saturation));
+  l = Math.max(0, Math.min(1, l * lightness));
+  // HSL → RGB
+  const hue2rgb = (p: number, q: number, t: number) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  const ri = Math.round(r * 255);
+  const gi = Math.round(g * 255);
+  const bi = Math.round(b * 255);
+  return `#${((1 << 24) | (ri << 16) | (gi << 8) | bi).toString(16).slice(1)}`;
+}
 
 /** Edge hit zone width (fade / trim / loop / duration). */
 const EDGE_PX = 12;
@@ -416,6 +485,8 @@ function MiniSlider({
 }
 
 // ------- TrackHeaderControl (Mixer Parity in Timeline Sidebar) ----------
+// Density follows verticalZoom so the left rail stays pixel-aligned with
+// waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ vol + taller meter).
 
 function TrackHeaderControl({
   track,
@@ -444,85 +515,120 @@ function TrackHeaderControl({
   };
 
   const isDimmed = anySolo && !track.solo;
+  const h = laneHeightPx(verticalZoom);
+  // Density tiers keyed to lane height (LANE_HEIGHT=56 at zoom 1).
+  const showVol = h >= 48;
+  const showPan = h >= 36;
+  const showMeter = h >= 28;
+  const padY = h < 32 ? 2 : h < 48 ? 4 : h < 80 ? 6 : 8;
+  const padX = h < 36 ? 8 : 12;
+  const nameSize = h < 32 ? 10 : h < 64 ? 12 : 13;
+  const btn = h < 36 ? 16 : h < 72 ? 20 : 22;
+  const btnFont = h < 36 ? 8 : 10;
+  const knobSize = h < 48 ? 16 : h < 80 ? 20 : 24;
+  // Meter fills leftover vertical space next to the name row.
+  const meterH = showVol
+    ? Math.max(14, Math.round(h * 0.38))
+    : Math.max(12, h - padY * 2 - 4);
+  const swatchH = h < 32 ? 10 : 14;
+  const swatchW = h < 32 ? 6 : 8;
 
   return (
     <div
-      className={`flex flex-col justify-between border-b border-default/15 px-3 py-1.5 select-none transition-opacity duration-300 bg-surface/40 hover:bg-surface/70 ${
+      className={`flex flex-col justify-center border-b border-default/15 select-none overflow-hidden transition-opacity duration-300 bg-surface/40 hover:bg-surface/70 ${
         isDimmed ? "opacity-35" : "opacity-100"
       }`}
-      style={{ height: Math.max(28, LANE_HEIGHT * verticalZoom) }}
+      style={{
+        height: h,
+        padding: `${padY}px ${padX}px`,
+        gap: showVol ? 4 : 0,
+      }}
     >
-      {/* Top Row: Color indicator, Track Name, Pan Knob & Value, Mute & Solo */}
-      <div className="flex items-center gap-2 min-w-0">
+      {/* Top row: color, name, meter, pan, M/S */}
+      <div className="flex min-h-0 min-w-0 flex-1 items-center gap-1.5">
         <span
-          className="h-3.5 w-2 shrink-0 rounded-sm"
-          style={{ background: color, opacity: track.mute ? 0.35 : 1 }}
+          className="shrink-0 rounded-sm"
+          style={{
+            height: swatchH,
+            width: swatchW,
+            background: color,
+            opacity: track.mute ? 0.35 : 1,
+          }}
         />
         <span
-          className={`truncate text-xs font-semibold text-foreground/90 flex-1 min-w-0 ${
+          className={`min-w-0 flex-1 truncate font-semibold text-foreground/90 ${
             track.mute ? "line-through opacity-40" : ""
           }`}
+          style={{ fontSize: nameSize }}
           title={track.name || track.id}
         >
           {track.name || track.id}
         </span>
-        <div className="h-8 w-3 shrink-0">
-          <LevelMeterBar
-            db={track.peakDb ?? -100}
-            dbL={track.peakDbL ?? track.peakDb ?? -100}
-            dbR={track.peakDbR ?? track.peakDb ?? -100}
-            accent={color}
-            vertical
-            showValue={false}
-            barClassName="h-full w-1"
-          />
-        </div>
-
-        <div className="ml-auto flex items-center gap-1.5 shrink-0">
-          {/* Rotary Knob for Pan Balance */}
-          <div
-            className="flex items-center gap-1"
-            title={`Pan: ${formatPan(pan)}`}
-          >
-            <Knob
-              value={pan}
-              min={-1}
-              max={1}
-              defaultValue={0}
-              size={20}
+        {showMeter && (
+          <div className="w-3 shrink-0" style={{ height: meterH }}>
+            <LevelMeterBar
+              db={track.peakDb ?? -100}
+              dbL={track.peakDbL ?? track.peakDb ?? -100}
+              dbR={track.peakDbR ?? track.peakDb ?? -100}
               accent={color}
-              onCommit={(v) => setPan(v)}
+              vertical
+              showValue={false}
+              barClassName="h-full w-1"
             />
-            <span className="w-5 text-[8px] font-mono text-foreground/50 text-center font-medium">
-              {formatPan(pan)}
-            </span>
           </div>
+        )}
 
-          {/* Mute Button -- blinks when soloed-out (same as mixer) */}
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {showPan && (
+            <div
+              className="flex items-center gap-0.5"
+              title={`Pan: ${formatPan(pan)}`}
+            >
+              <Knob
+                value={pan}
+                min={-1}
+                max={1}
+                defaultValue={0}
+                size={knobSize}
+                accent={color}
+                onCommit={(v) => setPan(v)}
+              />
+              {h >= 44 && (
+                <span
+                  className="w-5 text-center font-mono font-medium text-foreground/50"
+                  style={{ fontSize: Math.max(7, nameSize - 3) }}
+                >
+                  {formatPan(pan)}
+                </span>
+              )}
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => mixer.setTrackMute(index, !track.mute)}
-            className={`h-5.5 w-5.5 rounded text-[10px] font-bold transition-all shadow-sm ${
+            className={`rounded font-bold transition-all shadow-sm ${
               track.mute
                 ? "bg-danger text-white scale-105"
                 : isDimmed
                   ? "bg-danger/80 text-white animate-pulse"
                   : "bg-default/20 text-foreground/50 hover:bg-default/35 hover:text-foreground"
             }`}
+            style={{ height: btn, width: btn, fontSize: btnFont }}
             title="Mute"
           >
             M
           </button>
 
-          {/* Solo Button */}
           <button
             type="button"
             onClick={() => mixer.setTrackSolo(index, !track.solo)}
-            className={`h-5.5 w-5.5 rounded text-[10px] font-bold transition-all shadow-sm ${
+            className={`rounded font-bold transition-all shadow-sm ${
               track.solo
                 ? "bg-warning text-black scale-105"
                 : "bg-default/20 text-foreground/50 hover:bg-default/35 hover:text-foreground"
             }`}
+            style={{ height: btn, width: btn, fontSize: btnFont }}
             title="Solo"
           >
             S
@@ -530,23 +636,30 @@ function TrackHeaderControl({
         </div>
       </div>
 
-      {/* Bottom Row: Mini Slider for Volume matching Track Color */}
-      <div className="flex items-center gap-2 text-[9px] font-mono text-foreground/60">
-        <span className="shrink-0 text-foreground/40 text-[8px] uppercase tracking-wider font-semibold">
-          Vol
-        </span>
-        <MiniSlider
-          value={gain}
-          min={-60}
-          max={12}
-          step={0.5}
-          accent={color}
-          onChange={(v) => setGain(v)}
-        />
-        <span className="w-8 shrink-0 text-right font-medium text-[9px] tabular-nums">
-          {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}
-        </span>
-      </div>
+      {showVol && (
+        <div
+          className="flex shrink-0 items-center gap-1.5 font-mono text-foreground/60"
+          style={{ fontSize: Math.max(8, nameSize - 3) }}
+        >
+          <span className="shrink-0 uppercase tracking-wider font-semibold text-foreground/40">
+            Vol
+          </span>
+          <MiniSlider
+            value={gain}
+            min={-60}
+            max={12}
+            step={0.5}
+            accent={color}
+            onChange={(v) => setGain(v)}
+          />
+          <span
+            className="w-8 shrink-0 text-right font-medium tabular-nums"
+            style={{ fontSize: Math.max(8, nameSize - 2) }}
+          >
+            {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1136,17 +1249,23 @@ function TimelineRowLabel({
   color: string;
   verticalZoom: number;
 }) {
+  const h = laneHeightPx(verticalZoom);
+  const padX = h < 36 ? 8 : 12;
+  const nameSize = h < 32 ? 10 : h < 64 ? 12 : 13;
+  const swatchH = h < 32 ? 10 : 14;
+  const swatchW = h < 32 ? 6 : 8;
   return (
     <div
-      className="flex items-center gap-2 border-b border-default/15 px-3 py-1.5 select-none bg-surface/20 opacity-60"
-      style={{ height: LANE_HEIGHT * verticalZoom }}
+      className="flex items-center gap-2 border-b border-default/15 select-none overflow-hidden bg-surface/20 opacity-60"
+      style={{ height: h, padding: `0 ${padX}px` }}
     >
       <span
-        className="h-3.5 w-2 shrink-0 rounded-sm"
-        style={{ background: color }}
+        className="shrink-0 rounded-sm"
+        style={{ height: swatchH, width: swatchW, background: color }}
       />
       <span
-        className="truncate text-xs font-medium text-foreground/60"
+        className="truncate font-medium text-foreground/60"
+        style={{ fontSize: nameSize }}
         title={name}
       >
         {name}
@@ -3172,7 +3291,7 @@ export function Timeline({
                           index={i}
                           fixtures={lightFixtures}
                           color={lightTrackColor(i)}
-                          height={LANE_HEIGHT * verticalZoom}
+                          height={laneHeightPx(verticalZoom)}
                           selected={sidePanelTrackIndex === i && !cueSelection}
                           onSelect={() => {
                             setSidePanelTrackIndex(i);
@@ -3499,7 +3618,7 @@ export function Timeline({
                       className="relative border-b border-default/15 bg-default/5"
                       style={{
                         width: contentWidth,
-                        height: LANE_HEIGHT * verticalZoom,
+                        height: laneHeightPx(verticalZoom),
                       }}
                     >
                       {songs.map((song, i) => {
@@ -3955,24 +4074,52 @@ export function Timeline({
                                 beginDrag(e, mode);
                               };
 
+                              // Tiny vertical zoom: skip waveform canvas entirely
+                              // and paint a solid color strip + name (peaks are
+                              // noise at ≤COMPACT_LANE_MAX_PX).
+                              const compactLane = isCompactLane(verticalZoom);
+
                               return (
                                 <div key={songRegion.id}>
                                   <div
-                                    className={`absolute top-1 bottom-1 rounded-md overflow-hidden ${readOnly ? "pointer-events-none" : "pointer-events-auto"}`}
+                                    className={`absolute overflow-hidden ${
+                                      compactLane
+                                        ? "top-0.5 bottom-0.5 rounded-sm"
+                                        : "top-1 bottom-1 rounded-md"
+                                    } ${readOnly ? "pointer-events-none" : "pointer-events-auto"}`}
                                     style={{
                                       left: leftPx,
                                       width: regionWidth,
-                                      border: isRegionSelected
-                                        ? `2px solid ${row.color}`
-                                        : `1.5px solid ${row.color}55`,
-                                      background: isRegionSelected
-                                        ? `${row.color}30`
-                                        : `${row.color}12`,
-                                      boxShadow: isRegionSelected
-                                        ? `0 0 0 1px ${row.color}aa, 0 0 10px ${row.color}44`
-                                        : undefined,
+                                      border: compactLane
+                                        ? isRegionSelected
+                                          ? "2px solid #fff"
+                                          : `1px solid ${dimHexColor(row.color, regionUi.muted ? 0.52 : 0.68, 1.2)}`
+                                        : isRegionSelected
+                                          ? `2px solid ${row.color}`
+                                          : `1.5px solid ${row.color}55`,
+                                      // Compact: solid fill via HSL (L down a bit, S up a bit).
+                                      background: compactLane
+                                        ? dimHexColor(
+                                            row.color,
+                                            regionUi.muted ? 0.48 : 0.64,
+                                            regionUi.muted ? 1.05 : 1.22,
+                                          )
+                                        : isRegionSelected
+                                          ? `${row.color}30`
+                                          : `${row.color}12`,
+                                      boxShadow:
+                                        isRegionSelected && !compactLane
+                                          ? `0 0 0 1px ${row.color}aa, 0 0 10px ${row.color}44`
+                                          : isRegionSelected && compactLane
+                                            ? "0 0 0 1px rgba(255,255,255,0.5)"
+                                            : undefined,
                                       cursor: readOnly ? "default" : "grab",
-                                      opacity: regionUi.muted ? 0.4 : 1,
+                                      // Mute: only dim the normal waveform chrome;
+                                      // compact strips stay solid (label shows [M]).
+                                      opacity:
+                                        !compactLane && regionUi.muted
+                                          ? 0.4
+                                          : 1,
                                       zIndex: isRegionSelected ? 2 : 1,
                                     }}
                                     title={`${row.name} – Song ${i + 1}: ${song.name}${geom.loop ? " [loop]" : ""}`}
@@ -4011,8 +4158,8 @@ export function Timeline({
                                       });
                                     }}
                                   >
-                                    {/* Peaks clipped to region bounds */}
-                                    {regViewportWidth > 0 && (
+                                    {/* Peaks only when the lane is tall enough */}
+                                    {!compactLane && regViewportWidth > 0 && (
                                       <TrackWaveformLane
                                         levels={peakEntry?.levels ?? []}
                                         durationSeconds={fileDuration}
@@ -4035,26 +4182,44 @@ export function Timeline({
                                       />
                                     )}
                                     <div
-                                      className="absolute top-0.5 left-2 text-[9px] font-semibold truncate max-w-[80%] pointer-events-none select-none"
+                                      className={`absolute pointer-events-none select-none truncate font-semibold ${
+                                        compactLane
+                                          ? "inset-y-0 left-1.5 right-1.5 flex items-center max-w-none"
+                                          : "top-0.5 left-2 max-w-[80%] text-[9px]"
+                                      }`}
                                       style={{
-                                        color: row.color,
-                                        opacity: 0.8,
+                                        color: compactLane
+                                          ? "#ffffff"
+                                          : row.color,
+                                        opacity: compactLane ? 1 : 0.8,
+                                        fontSize: compactLane
+                                          ? Math.max(
+                                              8,
+                                              Math.min(
+                                                11,
+                                                laneHeightPx(verticalZoom) - 10,
+                                              ),
+                                            )
+                                          : undefined,
                                       }}
                                     >
                                       {regionUi.muted ? "[M] " : ""}
                                       {row.name}
+                                      {geom.loop && compactLane ? " ↺" : ""}
                                     </div>
-                                    {peaksLoading && regionWidth > 40 && (
-                                      <div
-                                        className="absolute bottom-0.5 left-2 text-[8px] pointer-events-none select-none animate-pulse"
-                                        style={{
-                                          color: row.color,
-                                          opacity: 0.5,
-                                        }}
-                                      >
-                                        peaks…
-                                      </div>
-                                    )}
+                                    {!compactLane &&
+                                      peaksLoading &&
+                                      regionWidth > 40 && (
+                                        <div
+                                          className="absolute bottom-0.5 left-2 text-[8px] pointer-events-none select-none animate-pulse"
+                                          style={{
+                                            color: row.color,
+                                            opacity: 0.5,
+                                          }}
+                                        >
+                                          peaks…
+                                        </div>
+                                      )}
 
                                     {/* Fade overlays (curve only — no handle squares).
                                         Edge zones on the parent set cursor + drag mode. */}

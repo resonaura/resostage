@@ -10,12 +10,13 @@ import type {
   SongRow,
   WebUiState,
 } from "../../lib/types";
-import {
-  ContextMenu,
-  ContextMenuItem,
-} from "../ContextMenu";
+import { ContextMenu, ContextMenuItem } from "../ContextMenu";
 import { LANE_HEIGHT, TrackWaveformLane } from "../TrackWaveformLane";
-import { effectUsesOwnColor, EFFECT_META, type EffectType } from "./LightSidePanel";
+import {
+  effectUsesOwnColor,
+  EFFECT_META,
+  type EffectType,
+} from "./LightSidePanel";
 
 // Distinct palette for light tracks so they read as a different layer from
 // the audio track colors (which cycle TRACK_COLORS). Warm/amber-heavy.
@@ -105,7 +106,10 @@ export function LightHintStrip({
                 leftPx > viewEnd - segStart
               )
                 return null;
-              const isOwnColor = effectUsesOwnColor(cue.effectType as EffectType, cue.gradientPreset);
+              const isOwnColor = effectUsesOwnColor(
+                cue.effectType as EffectType,
+                cue.gradientPreset,
+              );
               const bg = isOwnColor
                 ? "rgb(90, 95, 110)"
                 : `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`;
@@ -300,7 +304,9 @@ export function LightTrackLane({
   // every drag/draft update, and React would silently stomp a manually-set
   // inline cursor back to the static style prop's "grab" on the very next
   // render, so the resize cursor never actually stuck.
-  const [hoverEdge, setHoverEdge] = useState<Record<string, "start" | "end" | null>>({});
+  const [hoverEdge, setHoverEdge] = useState<
+    Record<string, "start" | "end" | null>
+  >({});
 
   type CueDragMode = "move" | "trimStart" | "trimEnd";
   const dragRef = useRef<{
@@ -409,7 +415,10 @@ export function LightTrackLane({
     } else if (rd.mode === "trimStart") {
       const s = Math.max(
         0,
-        Math.min(rd.origStart + rd.origDuration - 0.05, snap(rd.origStart + dSec)),
+        Math.min(
+          rd.origStart + rd.origDuration - 0.05,
+          snap(rd.origStart + dSec),
+        ),
       );
       next = { start: s, duration: rd.origDuration - (s - rd.origStart) };
     } else if (rd.mode === "trimEnd") {
@@ -476,7 +485,11 @@ export function LightTrackLane({
     if (dx > 4 || dy > 4) return;
     if (c.songIndex < 0) return;
     const local = Math.max(0, toAbsSec(e.clientX) - songOffsets[c.songIndex]);
-    void lighting.cueAdd(c.songIndex, track.id, snapLocalSec(c.songIndex, local));
+    void lighting.cueAdd(
+      c.songIndex,
+      track.id,
+      snapLocalSec(c.songIndex, local),
+    );
   };
 
   const viewStart = scrollState.scrollLeft;
@@ -487,7 +500,7 @@ export function LightTrackLane({
       className="relative border-b border-default/15 bg-surface/10"
       style={{
         width: contentWidth,
-        height: LANE_HEIGHT * verticalZoom,
+        height: Math.max(22, Math.round(LANE_HEIGHT * verticalZoom)),
         cursor: readOnly ? "default" : "copy",
       }}
       onPointerDown={readOnly ? undefined : onLanePointerDown}
@@ -568,11 +581,7 @@ export function LightTrackLane({
                     // right where CUE_EDGE_PX expects them. Keeping this
                     // outer div a plain rectangle means the full box height
                     // is always draggable/trimmable regardless of fades.
-                    cursor: readOnly
-                      ? "default"
-                      : edge
-                        ? "ew-resize"
-                        : "grab",
+                    cursor: readOnly ? "default" : edge ? "ew-resize" : "grab",
                     zIndex: isSelected ? 2 : 1,
                   }}
                   title={`${labelText || cue.id} — Song ${i + 1}: ${song.name}`}
@@ -580,8 +589,7 @@ export function LightTrackLane({
                     readOnly
                       ? undefined
                       : (e) => {
-                          const rect =
-                            e.currentTarget.getBoundingClientRect();
+                          const rect = e.currentTarget.getBoundingClientRect();
                           const localX = e.clientX - rect.left;
                           const mode: CueDragMode =
                             localX < CUE_EDGE_PX
@@ -627,7 +635,12 @@ export function LightTrackLane({
                     e.preventDefault();
                     e.stopPropagation();
                     onSelect({ songIndex: i, cueId: cue.id });
-                    setCtxMenu({ x: e.clientX, y: e.clientY, songIndex: i, cueId: cue.id });
+                    setCtxMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      songIndex: i,
+                      cueId: cue.id,
+                    });
                   }}
                 >
                   {/* Decorative fill + fade slant -- pointer-events-none so
@@ -636,7 +649,10 @@ export function LightTrackLane({
                     className="absolute inset-0 rounded-sm pointer-events-none"
                     style={{
                       background: fillBg,
-                      opacity: Math.max(isOwnColor ? 0.45 : 0.12, cue.intensity),
+                      opacity: Math.max(
+                        isOwnColor ? 0.45 : 0.12,
+                        cue.intensity,
+                      ),
                       clipPath: clip,
                     }}
                   />
@@ -649,14 +665,20 @@ export function LightTrackLane({
                         className="absolute top-0 bottom-0 left-0 pointer-events-none bg-white/0 transition-colors"
                         style={{
                           width: CUE_EDGE_PX,
-                          background: edge === "start" ? "rgba(255,255,255,0.35)" : undefined,
+                          background:
+                            edge === "start"
+                              ? "rgba(255,255,255,0.35)"
+                              : undefined,
                         }}
                       />
                       <div
                         className="absolute top-0 bottom-0 right-0 pointer-events-none"
                         style={{
                           width: CUE_EDGE_PX,
-                          background: edge === "end" ? "rgba(255,255,255,0.35)" : undefined,
+                          background:
+                            edge === "end"
+                              ? "rgba(255,255,255,0.35)"
+                              : undefined,
                         }}
                       />
                     </>
@@ -703,6 +725,8 @@ export function LightTrackLane({
 }
 
 // Sidebar row for a light track — clickable to open settings in LightSidePanel.
+// Height tracks verticalZoom (passed as `height`); typography/padding scale
+// with it so the left rail stays aligned with light lanes at any zoom.
 export function LightTrackHeader({
   track,
   color,
@@ -718,35 +742,49 @@ export function LightTrackHeader({
   selected?: boolean;
   onSelect?: () => void;
 }) {
+  const h = Math.max(22, Math.round(height));
+  const padX = h < 36 ? 8 : 12;
+  const nameSize = h < 32 ? 10 : h < 64 ? 12 : 13;
+  const metaSize = Math.max(8, nameSize - 2);
+  const swatchH = h < 32 ? 10 : 14;
+  const swatchW = h < 32 ? 6 : 8;
+  const iconSize = h < 36 ? 9 : 10;
   return (
     <div
-      className={`flex items-center gap-2 border-b border-default/15 px-3 py-1.5 select-none cursor-pointer transition-colors ${
-        selected ? "bg-accent/10 border-l-2 border-l-accent" : "bg-surface/20 hover:bg-surface/40"
+      className={`flex items-center gap-2 border-b border-default/15 select-none overflow-hidden cursor-pointer transition-colors ${
+        selected
+          ? "bg-accent/10 border-l-2 border-l-accent"
+          : "bg-surface/20 hover:bg-surface/40"
       }`}
-      style={{ height }}
+      style={{ height: h, padding: `0 ${padX}px` }}
       onClick={onSelect}
       title="Click to edit track in side panel"
     >
       <span
-        className="h-3.5 w-2 shrink-0 rounded-sm"
-        style={{ background: color }}
+        className="shrink-0 rounded-sm"
+        style={{ height: swatchH, width: swatchW, background: color }}
       />
       <span
-        className="flex-1 truncate text-xs font-medium text-foreground/80"
+        className="min-w-0 flex-1 truncate font-medium text-foreground/80"
+        style={{ fontSize: nameSize }}
         title={track.name}
       >
         {track.name}
       </span>
       {track.fixtureIds.length === 0 ? (
         <span
-          className="shrink-0 flex items-center gap-0.5 text-[9px] font-mono text-warning"
+          className="flex shrink-0 items-center gap-0.5 font-mono text-warning"
+          style={{ fontSize: metaSize }}
           title="No fixtures assigned -- cues on this track won't drive anything until you check at least one fixture below"
         >
-          <TriangleAlert size={10} />
+          <TriangleAlert size={iconSize} />
           0f
         </span>
       ) : (
-        <span className="shrink-0 text-[9px] text-foreground/30 font-mono">
+        <span
+          className="shrink-0 font-mono text-foreground/30"
+          style={{ fontSize: metaSize }}
+        >
           {track.fixtureIds.length}f
         </span>
       )}
