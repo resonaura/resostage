@@ -1149,18 +1149,13 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   const auxBusses = state.busses.filter((b) => b.isAux);
   const clickSends = state.clickSends ?? currentSong?.clickSends ?? [];
   // Dedicated click meter — never the destination bus (master) peaks.
-  // Fallbacks from coalesced React state; live getters read the shared
-  // paint snapshot in liveLevels (no per-channel consume race).
-  const clickPeak = isMetronomeOn ? (state.clickPeakDb ?? -100) : -100;
-  const clickPeakL = isMetronomeOn
-    ? (state.clickPeakDbL ?? state.clickPeakDb ?? -100)
-    : -100;
-  const clickPeakR = isMetronomeOn
-    ? (state.clickPeakDbR ?? state.clickPeakDb ?? -100)
-    : -100;
-  const getLiveClick = () => (isMetronomeOn ? getClickPeaks().peakDb : -100);
-  const getLiveClickL = () => (isMetronomeOn ? getClickPeaks().peakDbL : -100);
-  const getLiveClickR = () => (isMetronomeOn ? getClickPeaks().peakDbR : -100);
+  // Always show strip peaks (post gain/pan), even when the metronome is muted.
+  const clickPeak = state.clickPeakDb ?? -100;
+  const clickPeakL = state.clickPeakDbL ?? state.clickPeakDb ?? -100;
+  const clickPeakR = state.clickPeakDbR ?? state.clickPeakDb ?? -100;
+  const getLiveClick = () => getClickPeaks().peakDb;
+  const getLiveClickL = () => getClickPeaks().peakDbL;
+  const getLiveClickR = () => getClickPeaks().peakDbR;
 
   const patchClick = (partial: {
     click?: boolean;
@@ -1169,18 +1164,16 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
     clickPan?: number;
     clickSends?: typeof clickSends;
   }) => {
-    // songUpdate still carries the full song identity for the active row,
-    // but click fields are applied project-wide on the backend.
-    if (!hasSongs || !currentSong) return;
+    // Project-global click — works with zero songs (index -1).
     const nextClickBusId =
       partial.clickBusId !== undefined ? partial.clickBusId : currentClickBus;
     void builder.songUpdate({
-      index: songIdx,
-      name: currentSong.name,
-      bpm: currentSong.bpm,
-      mode: currentSong.mode,
-      tsNum: currentSong.tsNum,
-      tsDen: currentSong.tsDen,
+      index: hasSongs ? songIdx : -1,
+      name: currentSong?.name ?? "",
+      bpm: currentSong?.bpm ?? 120,
+      mode: currentSong?.mode ?? "wait",
+      tsNum: currentSong?.tsNum ?? 4,
+      tsDen: currentSong?.tsDen ?? 4,
       click: partial.click ?? isMetronomeOn,
       clickBusId: nextClickBusId,
       clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? -6,
@@ -1198,7 +1191,6 @@ function MetronomeStrip({ state }: { state: WebUiState }) {
   };
 
   const handleClickSendChange = (busId: string, gainDb: number) => {
-    if (!hasSongs || !currentSong) return;
     const existing = clickSends.find((cs) => cs.busId === busId);
     let updatedSends: typeof clickSends;
     if (existing) {

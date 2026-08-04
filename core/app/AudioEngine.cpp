@@ -1104,12 +1104,10 @@ void AudioEngine::refreshClickState() {
 
     if (!projectLoaded)
         return;
-    // Routing/gain/sends are project-global. Tempo grid still follows the
-    // currently staged song's BPM + time signature.
-    if (currentSong >= loader.project().songs.size())
-        return;
+    // Routing/gain/sends are project-global. Tempo grid follows the staged
+    // song when one exists; empty projects use a 120 BPM / 4/4 default so
+    // the metronome can still be toggled and metered.
     const Project& proj = loader.project();
-    const SongDef& song = proj.songs[currentSong];
     clickTargetBusIndex = -1;
     clickSendBusIndices.clear();
     clickSendGainLinears.clear();
@@ -1129,15 +1127,23 @@ void AudioEngine::refreshClickState() {
             clickTargetBusIndex = static_cast<int>(clickBusIt->second);
     }
 
+    double bpm = 120.0;
+    int tsNum = 4;
+    int tsDen = 4;
+    if (currentSong < proj.songs.size()) {
+        const SongDef& song = proj.songs[currentSong];
+        bpm = song.bpm;
+        tsNum = song.timeSignature.numerator;
+        tsDen = song.timeSignature.denominator;
+    }
+
     // Full tempo + meter grid (numerator = strong/weak period, denominator =
     // beat unit). Playhead-locked render keeps bar 1 = accented downbeat.
     const double prevBpm = clickGenerator.currentBpm();
     const int prevBpb = clickGenerator.currentBeatsPerBar();
     const int prevUnit = clickGenerator.currentBeatUnit();
     if (currentSampleRate > 0.0) {
-        clickGenerator.prepare(currentSampleRate, song.bpm,
-                               song.timeSignature.numerator,
-                               song.timeSignature.denominator);
+        clickGenerator.prepare(currentSampleRate, bpm, tsNum, tsDen);
     }
 
     for (const TrackSendDef& cs : proj.builtInClickSends) {
@@ -1153,9 +1159,9 @@ void AudioEngine::refreshClickState() {
     // Live songUpdate of bpm/meter while playing: keep MIDI clock + SPP in
     // step with the new click grid. Skip pure gain/pan/bus routing edits.
     const bool tempoOrMeterChanged =
-        std::abs(prevBpm - song.bpm) > 1.0e-9
-        || prevBpb != song.timeSignature.numerator
-        || prevUnit != song.timeSignature.denominator;
+        std::abs(prevBpm - bpm) > 1.0e-9
+        || prevBpb != tsNum
+        || prevUnit != tsDen;
     if (tempoOrMeterChanged && playing.load(std::memory_order_relaxed))
         syncMidiTransportToCurrentSong(/*sendContinue=*/false);
 }
@@ -2798,15 +2804,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // and force silence outside [start, start+duration). Without this the
     // file kept playing after the clip's visual end, then hit EOF and
     // flashed meters. Fades + region gain are applied sample-accurately here.
-    bool anyTrackSolo = proj.builtInClickSolo;
-    if (!anyTrackSolo) {
-        for (size_t si = 0; si < proj.tracks.size(); ++si) {
-            if (proj.tracks[si].solo) {
-                anyTrackSolo = true;
-                break;
-            }
-        }
-    }
+    // (Mute/solo for bus routing lives in Pass 2 via snap->routes; strip
+    // meters below always show post-fader/pan regardless of mute/solo.)
     for (size_t t = 0; t < trackIdByIndex.size(); ++t) {
         if (t >= trackScratch.size())
             break;
@@ -3002,12 +3001,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             float gL = 1.0f;
             float gR = 1.0f;
             bool forceMono = trackChannels < 2;
-            bool silenced = false;
             if (t < proj.tracks.size()) {
                 const TrackDef& td = proj.tracks[t];
-                // Solo group: same rule as publishRoutingSnapshot (track mute
-                // or dimmed by another track/click solo).
-                silenced = td.mute || (anyTrackSolo && !td.solo);
+                // Strip meters always show post-fader/pan signal, even when
+                // the track is muted or dimmed by another solo. Mute/solo
+                // only affect bus routing (Pass 2 below), not strip needles.
                 const float g = dbToGain(td.gainDb);
                 const float pan = static_cast<float>(std::clamp(td.pan, -1.0, 1.0));
                 gL = g * (1.0f - std::max(0.0f, pan));
@@ -3015,49 +3013,45 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 forceMono = forceMono || td.mono;
             }
 
-            if (silenced) {
-                trackMeters[t]->write(MeterFrame{});
-            } else {
-                const float* sL = scratch.getReadPointer(0);
-                const float* sR =
-                    trackChannels > 1 ? scratch.getReadPointer(1) : sL;
-                float peakL = 0.0f;
-                float peakR = 0.0f;
-                for (int i = 0; i < numSamples; ++i) {
-                    const float l = finiteSample(sL != nullptr ? sL[i] : 0.0f);
-                    const float r = finiteSample(sR != nullptr ? sR[i] : l);
-                    if (forceMono) {
-                        const float m = 0.5f * (l + r);
-                        peakL = std::max(peakL, std::abs(m * gL));
-                        peakR = std::max(peakR, std::abs(m * gR));
-                    } else {
-                        peakL = std::max(peakL, std::abs(l * gL));
-                        peakR = std::max(peakR, std::abs(r * gR));
-                    }
+            const float* sL = scratch.getReadPointer(0);
+            const float* sR =
+                trackChannels > 1 ? scratch.getReadPointer(1) : sL;
+            float peakL = 0.0f;
+            float peakR = 0.0f;
+            for (int i = 0; i < numSamples; ++i) {
+                const float l = finiteSample(sL != nullptr ? sL[i] : 0.0f);
+                const float r = finiteSample(sR != nullptr ? sR[i] : l);
+                if (forceMono) {
+                    const float m = 0.5f * (l + r);
+                    peakL = std::max(peakL, std::abs(m * gL));
+                    peakR = std::max(peakR, std::abs(m * gR));
+                } else {
+                    peakL = std::max(peakL, std::abs(l * gL));
+                    peakR = std::max(peakR, std::abs(r * gR));
                 }
-                // Mono strip: same post-fader mono peak on both bars when pan
-                // is centre; with pan, L/R already reflect balance.
-                if (forceMono && std::abs(gL - gR) < 1.0e-6f) {
-                    const float p = std::max(peakL, peakR);
-                    peakL = peakR = p;
-                }
-                MeterFrame frame;
-                frame.peakDb = toDb(std::max(peakL, peakR));
-                frame.peakDbL = toDb(peakL);
-                frame.peakDbR = toDb(peakR);
-                frame.truePeakDb = frame.peakDb;
-                // Band-energy analysis for the light engine's GEQ/Blurz: same
-                // post-fader signal the peaks see, so the columns follow what's
-                // actually heard. The uniform fader gain is a scalar on every
-                // band, so the spectrum *shape* (which bands dominate) is
-                // unaffected -- exactly what the visual needs.
-                if (t < trackBandMeters.size()) {
-                    const float* bandCh[2] = {sL != nullptr ? sL : sR, sR};
-                    trackBandMeters[t].processBlock(bandCh, numSamples);
-                    trackBandMeters[t].currentLevels(frame.bandLevel);
-                }
-                trackMeters[t]->write(frame);
             }
+            // Mono strip: same post-fader mono peak on both bars when pan
+            // is centre; with pan, L/R already reflect balance.
+            if (forceMono && std::abs(gL - gR) < 1.0e-6f) {
+                const float p = std::max(peakL, peakR);
+                peakL = peakR = p;
+            }
+            MeterFrame frame;
+            frame.peakDb = toDb(std::max(peakL, peakR));
+            frame.peakDbL = toDb(peakL);
+            frame.peakDbR = toDb(peakR);
+            frame.truePeakDb = frame.peakDb;
+            // Band-energy analysis for the light engine's GEQ/Blurz: same
+            // post-fader signal the peaks see, so the columns follow what's
+            // on the strip (including muted channels). The uniform fader
+            // gain is a scalar on every band, so the spectrum *shape* is
+            // unaffected -- exactly what the visual needs.
+            if (t < trackBandMeters.size()) {
+                const float* bandCh[2] = {sL != nullptr ? sL : sR, sR};
+                trackBandMeters[t].processBlock(bandCh, numSamples);
+                trackBandMeters[t].currentLevels(frame.bandLevel);
+            }
+            trackMeters[t]->write(frame);
         }
     }
 
@@ -3154,36 +3148,43 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // Empty clickTargetBusIndex = Sends Only -- still audible via sends.
     // Physical outs of those busses sum with `+=`, so master + aux + click
     // sharing the same Ext. Out channel all stack correctly.
+    //
+    // Always RENDER for the strip meter (post gain/pan), even when the
+    // metronome is muted (isClickEnabled == false). Bus/send mix only when
+    // enabled -- same strip-vs-bus rule as muted tracks above.
     const bool clickActive = clickTargetBusIndex >= 0
         && static_cast<size_t>(clickTargetBusIndex) < busses.size();
     const bool clickHasSends = !clickSendBusIndices.empty();
-    if (isClickEnabled && (clickActive || clickHasSends)) {
+    {
         if (clickScratch.size() < static_cast<size_t>(numSamples))
             clickScratch.resize(static_cast<size_t>(numSamples), 0.0f);
         // playheadSample == 0 → beat 0 → accented downbeat under current meter.
         clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
 
-        {
-            // Balance pan on the mono click (same law as track pan).
-            const float targetGL =
-                clickGainLinear * (1.0f - std::max(0.0f, clickPan));
-            const float targetGR =
-                clickGainLinear * (1.0f + std::min(0.0f, clickPan));
-            if (!clickSmoothInited) {
-                clickSmoothGL = targetGL;
-                clickSmoothGR = targetGR;
-                clickSmoothInited = true;
-            }
-            const float sr = static_cast<float>(std::max(1.0, currentSampleRate));
-            const float a = 1.0f - std::exp(-1.0f / (0.010f * sr));
+        // Balance pan on the mono click (same law as track pan).
+        const float targetGL =
+            clickGainLinear * (1.0f - std::max(0.0f, clickPan));
+        const float targetGR =
+            clickGainLinear * (1.0f + std::min(0.0f, clickPan));
+        if (!clickSmoothInited) {
+            clickSmoothGL = targetGL;
+            clickSmoothGR = targetGR;
+            clickSmoothInited = true;
+        }
+        const float sr = static_cast<float>(std::max(1.0, currentSampleRate));
+        const float a = 1.0f - std::exp(-1.0f / (0.010f * sr));
+        // Advance dezippers even when muted so re-enabling doesn't jump.
+        for (int i = 0; i < numSamples; ++i) {
+            clickSmoothGL += a * (targetGL - clickSmoothGL);
+            clickSmoothGR += a * (targetGR - clickSmoothGR);
+        }
 
-            // Main target bus
+        // Bus mix only when the metronome is on.
+        if (isClickEnabled) {
             if (clickActive) {
                 const int scratchOffset = clickTargetBusIndex * 2;
                 if (scratchOffset + 2 <= scratchChannels) {
                     for (int i = 0; i < numSamples; ++i) {
-                        clickSmoothGL += a * (targetGL - clickSmoothGL);
-                        clickSmoothGR += a * (targetGR - clickSmoothGR);
                         const float s = clickScratch[static_cast<size_t>(i)];
                         busScratch.addSample(
                             scratchOffset + 0, i, s * clickSmoothGL);
@@ -3193,10 +3194,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 }
             }
 
-            // Send buses (aux monitor mixes) — send gain × pan balance,
-            // dezippered per-send the same ~10ms exponential way as every
-            // other gain path (see the track-route smoother above), so
-            // moving a click send knob doesn't zipper/click.
+            // Send buses (aux monitor mixes) — send gain × pan balance.
             if (clickSendSmooth.size() < clickSendBusIndices.size())
                 clickSendSmooth.resize(clickSendBusIndices.size());
             for (size_t si = 0; si < clickSendBusIndices.size(); ++si) {
@@ -3227,40 +3225,31 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     busScratch.addSample(scratchOffset + 1, i, s * sm.gR);
                 }
             }
-
-            // Click strip meter: metronome only, post gain+pan (L/R balance).
-            // Also accumulate interval-max for the UI poller: a one-block
-            // impulse is often overwritten by silence before the next 30 Hz
-            // sample, so consumeClickMeterInterval() would otherwise miss it.
-            // That max is the true peak of what was rendered in the interval
-            // (not a post-silence display hold).
-            if (!meteringMuted) {
-                float peakL = 0.0f;
-                float peakR = 0.0f;
-                for (int i = 0; i < numSamples; ++i) {
-                    const float s =
-                        std::abs(clickScratch[static_cast<size_t>(i)]);
-                    peakL = std::max(peakL, s * clickSmoothGL);
-                    peakR = std::max(peakR, s * clickSmoothGR);
-                }
-                atomicMaxFloat(clickPeakIntervalMaxL, peakL);
-                atomicMaxFloat(clickPeakIntervalMaxR, peakR);
-                MeterFrame frame;
-                frame.peakDb = linearPeakToDb(std::max(peakL, peakR));
-                frame.peakDbL = linearPeakToDb(peakL);
-                frame.peakDbR = linearPeakToDb(peakR);
-                frame.truePeakDb = frame.peakDb;
-                clickMeterFrame.write(frame);
-            } else {
-                clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
-                clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
-                clickMeterFrame.write(MeterFrame{});
-            }
         }
-    } else {
-        clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
-        clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
-        clickMeterFrame.write(MeterFrame{});
+
+        // Click strip meter: always post gain+pan, even when muted.
+        if (!meteringMuted) {
+            float peakL = 0.0f;
+            float peakR = 0.0f;
+            for (int i = 0; i < numSamples; ++i) {
+                const float s =
+                    std::abs(clickScratch[static_cast<size_t>(i)]);
+                peakL = std::max(peakL, s * clickSmoothGL);
+                peakR = std::max(peakR, s * clickSmoothGR);
+            }
+            atomicMaxFloat(clickPeakIntervalMaxL, peakL);
+            atomicMaxFloat(clickPeakIntervalMaxR, peakR);
+            MeterFrame frame;
+            frame.peakDb = linearPeakToDb(std::max(peakL, peakR));
+            frame.peakDbL = linearPeakToDb(peakL);
+            frame.peakDbR = linearPeakToDb(peakR);
+            frame.truePeakDb = frame.peakDb;
+            clickMeterFrame.write(frame);
+        } else {
+            clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
+            clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
+            clickMeterFrame.write(MeterFrame{});
+        }
     }
 
     // Pass 3: bus scratch buffers -> metering + physical outputs.

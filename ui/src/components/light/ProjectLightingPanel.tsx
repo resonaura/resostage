@@ -16,7 +16,11 @@ import {
   Wand2,
 } from "lucide-react";
 import { lighting } from "../../lib/api";
-import type { LightFixtureRow, LightingState, WebUiState } from "../../lib/types";
+import type {
+  LightFixtureRow,
+  LightingState,
+  WebUiState,
+} from "../../lib/types";
 import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
 import {
   HslColorPicker,
@@ -29,8 +33,11 @@ import {
   type EffectType,
   type GradientPreset,
 } from "./LightSidePanel";
-import { computeFixturePreviewColors } from "../../lib/lightPreviewColors";
-import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "../../lib/liveLevels";
+import {
+  getLiveLedOutputs,
+  subscribeLiveLedOutputs,
+  type LiveLedOutput,
+} from "../../lib/liveLevels";
 import {
   CHANNEL_PROFILES,
   DMX_GENERIC_SHAPES,
@@ -45,7 +52,10 @@ import {
   type ResoLightColorType,
 } from "../../lib/dmxProfiles";
 
-const SHAPE_ICON: Record<FixtureShape, React.ComponentType<{ size?: number; className?: string }>> = {
+const SHAPE_ICON: Record<
+  FixtureShape,
+  React.ComponentType<{ size?: number; className?: string }>
+> = {
   bar: Rows3,
   strip: Rows3,
   ring: Circle,
@@ -63,7 +73,13 @@ const labelCls =
 const numberCls =
   "w-20 rounded-lg border border-default/60 bg-default/20 px-2 py-1 text-sm outline-none focus:border-accent";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1">
       <span className={labelCls}>{label}</span>
@@ -74,7 +90,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ─── Auto-layout positions ────────────────────────────────────────────────
 
-function autoLayoutPositions(fixtures: LightFixtureRow[]): { id: string; posX: number; posZ: number }[] {
+function autoLayoutPositions(
+  fixtures: LightFixtureRow[],
+): { id: string; posX: number; posZ: number }[] {
   if (fixtures.length === 0) return [];
   // Matches the backend's default column spacing (regenerateResoLightFixtures
   // in MainComponentLighting.cpp) so manual auto-layout produces the same
@@ -132,12 +150,18 @@ function summarizeSwatchColor(
 ): { r: number; g: number; b: number; intensity: number } | undefined {
   if (!c) return undefined;
   if (!c.ledColors || c.ledColors.length === 0) return c;
-  let r = 0, g = 0, b = 0;
+  let r = 0,
+    g = 0,
+    b = 0;
   for (const led of c.ledColors) {
-    r += led.r; g += led.g; b += led.b;
+    r += led.r;
+    g += led.g;
+    b += led.b;
   }
   const n = c.ledColors.length;
-  r = Math.round(r / n); g = Math.round(g / n); b = Math.round(b / n);
+  r = Math.round(r / n);
+  g = Math.round(g / n);
+  b = Math.round(b / n);
   return { r, g, b, intensity: Math.max(r, g, b) / 255 };
 }
 
@@ -162,7 +186,9 @@ function FixtureItem({
   // every ResoLightBar starts as "bar", so showing the icon for that case
   // would just be visual noise on every single row.
   const ShapeIcon =
-    fixture.kind === "dmxGeneric" || fixture.shape !== "bar" ? SHAPE_ICON[fixture.shape] : null;
+    fixture.kind === "dmxGeneric" || fixture.shape !== "bar"
+      ? SHAPE_ICON[fixture.shape]
+      : null;
   return (
     <div
       className={`flex items-center gap-1 w-full rounded-lg border transition-all ${
@@ -205,7 +231,11 @@ function FixtureItem({
         )}
         <span
           className={`shrink-0 text-[9px] font-mono ${hasChannelConflict ? "text-warning" : "text-foreground/40"}`}
-          title={hasChannelConflict ? "Overlaps another fixture's DMX channels" : undefined}
+          title={
+            hasChannelConflict
+              ? "Overlaps another fixture's DMX channels"
+              : undefined
+          }
         >
           {fixture.kind === "dmxGeneric"
             ? `U${fixture.dmxUniverse}:${fixture.dmxStartChannel}`
@@ -229,53 +259,44 @@ function FixtureItem({
 // No Card wrapper -- SettingsScreen.tsx renders this inside its own Card.
 export function ProjectLightingPanel({
   li,
-  state,
+  state: _state,
 }: {
   li: LightingState;
   state: WebUiState;
 }) {
+  void _state;
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(
     li.fixtures[0]?.id ?? null,
   );
   const selected = li.fixtures.find((f) => f.id === selectedFixtureId) ?? null;
 
-  const dmxConflicts = useMemo(() => findDmxChannelConflicts(li.fixtures), [li.fixtures]);
+  const dmxConflicts = useMemo(
+    () => findDmxChannelConflicts(li.fixtures),
+    [li.fixtures],
+  );
 
-  // Base preview colors from current playhead -- a fixture can be driven by
-  // more than one light track, so this goes through the shared resolver
-  // rather than the simpler one-track-per-fixture loop it used to be. This
-  // alone is only the cue's static color/intensity though (no audio-reactive
-  // effect modulation), which used to make this settings-card preview go
-  // stale/wrong compared to the Timeline's Light-mode preview the moment an
-  // effect (Strobe, Meter, a spatial addressable pattern, ...) was active.
-  const song = state.songs[state.songIndex];
-  const previewColors = li.enabled
-    ? computeFixturePreviewColors(
-        li.fixtures,
-        state.lightTracks,
-        song?.lightCues ?? [],
-        state.playheadSeconds,
-      )
-    : {};
-
-  // Same backend-authoritative per-LED websocket stream LightSidePanel's
-  // Timeline preview reads (see liveLevels.ts) -- merging it in here is what
-  // actually unifies the two previews while playing. The stream is rendered
-  // entirely backend-side (resolveLightOutputs + the idle-behavior fade in
-  // MainComponent.cpp's publishWebState), so this panel shows the exact same
-  // thing the real hardware does, including the fade to blackout/staticColor
-  // when the transport stops -- no client-side idle simulation anymore.
+  // Backend-authoritative per-LED stream only (resolveLightOutputs + idle
+  // fades on the core). Frontend never re-simulates cues/effects.
   const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
   useEffect(
-    () => (li.enabled ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs())) : undefined),
+    () =>
+      li.enabled
+        ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs()))
+        : undefined,
     [li.enabled],
   );
-  const displayColors: Record<string, PreviewColor> = li.enabled ? { ...previewColors } : {};
+  const displayColors: Record<string, PreviewColor> = {};
   if (li.enabled) {
     for (const lo of liveLedOutputs) {
       const fixture = li.fixtures[lo.fixtureIdx];
       if (!fixture) continue;
-      displayColors[fixture.id] = { r: 0, g: 0, b: 0, intensity: 1, ledColors: lo.ledColors };
+      displayColors[fixture.id] = {
+        r: 0,
+        g: 0,
+        b: 0,
+        intensity: 1,
+        ledColors: lo.ledColors,
+      };
     }
   }
 
@@ -334,17 +355,35 @@ export function ProjectLightingPanel({
               <div className="grid grid-cols-2 gap-1.5">
                 {(
                   [
-                    { value: "holdLast", label: "Hold Last", desc: "Keep showing whatever the frozen playhead position resolves to" },
-                    { value: "blackout", label: "Blackout", desc: "Force every fixture off" },
-                    { value: "staticColor", label: "Static Color", desc: "Force every fixture to a fixed idle color" },
-                    { value: "effect", label: "Effect", desc: "Run a rhythm-independent effect over the rig, still animating while stopped" },
+                    {
+                      value: "holdLast",
+                      label: "Hold Last",
+                      desc: "Keep showing whatever the frozen playhead position resolves to",
+                    },
+                    {
+                      value: "blackout",
+                      label: "Blackout",
+                      desc: "Force every fixture off",
+                    },
+                    {
+                      value: "staticColor",
+                      label: "Static Color",
+                      desc: "Force every fixture to a fixed idle color",
+                    },
+                    {
+                      value: "effect",
+                      label: "Effect",
+                      desc: "Run a rhythm-independent effect over the rig, still animating while stopped",
+                    },
                   ] as const
                 ).map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
                     title={opt.desc}
-                    onClick={() => void lighting.setConfig({ idleBehavior: opt.value })}
+                    onClick={() =>
+                      void lighting.setConfig({ idleBehavior: opt.value })
+                    }
                     className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
                       li.idleBehavior === opt.value
                         ? "border-accent bg-accent/20 text-accent"
@@ -364,126 +403,171 @@ export function ProjectLightingPanel({
                   g={li.idleColorG}
                   b={li.idleColorB}
                   onChange={(r, g, b) =>
-                    void lighting.setConfig({ idleColorR: r, idleColorG: g, idleColorB: b })
+                    void lighting.setConfig({
+                      idleColorR: r,
+                      idleColorG: g,
+                      idleColorB: b,
+                    })
                   }
                 />
                 <LabeledSlider
                   label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
                   value={li.idleIntensity}
-                  onChange={(v) => void lighting.setConfig({ idleIntensity: v })}
+                  onChange={(v) =>
+                    void lighting.setConfig({ idleIntensity: v })
+                  }
                 />
               </div>
             )}
 
-            {li.idleBehavior === "effect" && (() => {
-              const idleEt = li.idleEffectType as EffectType;
-              const idlePreset = (li.idleGradientPreset || "solid") as GradientPreset;
-              const idleUsesOwnColor = effectUsesOwnColor(idleEt, idlePreset);
-              const idleSupportsGradient = effectSupportsGradient(idleEt);
+            {li.idleBehavior === "effect" &&
+              (() => {
+                const idleEt = li.idleEffectType as EffectType;
+                const idlePreset = (li.idleGradientPreset ||
+                  "solid") as GradientPreset;
+                const idleUsesOwnColor = effectUsesOwnColor(idleEt, idlePreset);
+                const idleSupportsGradient = effectSupportsGradient(idleEt);
 
-              return (
-                <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
-                  <Field label="Effect">
-                    <div className="grid grid-cols-4 gap-1">
-                      {(
-                        [
-                          "none", "strobe", "pulse", "ripple", "converge", "gradientflow",
-                          "chase", "helix", "plasma", "twinkle", "sonicboom",
-                          "fire", "bouncing", "drip", "fireworks", "colorwaves", "strobeswipe",
-                          "scanner", "lightning", "barberpole",
-                        ] as EffectType[]
-                      ).map((et) => {
-                        const meta = EFFECT_META[et];
-                        return (
-                          <button
-                            key={et}
-                            type="button"
-                            title={meta.desc}
-                            onClick={() => void lighting.setConfig({ idleEffectType: et })}
-                            className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
-                              li.idleEffectType === et
-                                ? "border-accent bg-accent/20 text-accent"
-                                : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
-                            }`}
-                          >
-                            {meta.icon}
-                            <span>{meta.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {li.idleEffectType && li.idleEffectType !== "none" && (
-                      <div className="mt-1 text-[10px] text-foreground/40 italic">
-                        {EFFECT_META[idleEt]?.desc}
+                return (
+                  <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
+                    <Field label="Effect">
+                      <div className="grid grid-cols-4 gap-1">
+                        {(
+                          [
+                            "none",
+                            "strobe",
+                            "pulse",
+                            "ripple",
+                            "converge",
+                            "gradientflow",
+                            "chase",
+                            "helix",
+                            "plasma",
+                            "twinkle",
+                            "sonicboom",
+                            "fire",
+                            "bouncing",
+                            "drip",
+                            "fireworks",
+                            "colorwaves",
+                            "strobeswipe",
+                            "scanner",
+                            "lightning",
+                            "barberpole",
+                          ] as EffectType[]
+                        ).map((et) => {
+                          const meta = EFFECT_META[et];
+                          return (
+                            <button
+                              key={et}
+                              type="button"
+                              title={meta.desc}
+                              onClick={() =>
+                                void lighting.setConfig({ idleEffectType: et })
+                              }
+                              className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
+                                li.idleEffectType === et
+                                  ? "border-accent bg-accent/20 text-accent"
+                                  : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                              }`}
+                            >
+                              {meta.icon}
+                              <span>{meta.label}</span>
+                            </button>
+                          );
+                        })}
                       </div>
-                    )}
-                  </Field>
-
-                  {li.idleEffectType !== "none" && (
-                    <>
-                      <LabeledSlider
-                        label={`Rate: ${li.idleEffectRateHz.toFixed(1)} Hz`}
-                        min={0.05}
-                        max={10}
-                        step={0.05}
-                        value={li.idleEffectRateHz}
-                        onChange={(v) => void lighting.setConfig({ idleEffectRateHz: v })}
-                      />
-
-                      {idleSupportsGradient && (
-                        <Field label="Gradient Palette">
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {(Object.keys(GRADIENT_META) as GradientPreset[]).map((g) => (
-                              <button
-                                key={g}
-                                type="button"
-                                onClick={() => void lighting.setConfig({ idleGradientPreset: g })}
-                                className={`rounded-lg border px-2 py-1 text-left text-xs font-medium transition-colors ${
-                                  (li.idleGradientPreset || "solid") === g
-                                    ? "border-accent bg-accent/20 text-accent"
-                                    : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
-                                }`}
-                              >
-                                {GRADIENT_META[g]}
-                              </button>
-                            ))}
-                          </div>
-                          {li.idleGradientPreset === "custom" && (
-                            <div className="mt-2">
-                              <GradientStopEditor
-                                value={li.idleGradientColors || ""}
-                                onChange={(colors) => void lighting.setConfig({ idleGradientColors: colors })}
-                              />
-                            </div>
-                          )}
-                        </Field>
+                      {li.idleEffectType && li.idleEffectType !== "none" && (
+                        <div className="mt-1 text-[10px] text-foreground/40 italic">
+                          {EFFECT_META[idleEt]?.desc}
+                        </div>
                       )}
-                    </>
-                  )}
+                    </Field>
 
-                  {idleUsesOwnColor ? (
-                    <div className="rounded-lg border border-default/30 bg-default/10 px-3 py-2 text-xs text-foreground/50 italic">
-                      Color is driven by {EFFECT_META[idleEt]?.label || idleEt} palette
-                    </div>
-                  ) : (
-                    <HslColorPicker
-                      r={li.idleColorR}
-                      g={li.idleColorG}
-                      b={li.idleColorB}
-                      onChange={(r, g, b) =>
-                        void lighting.setConfig({ idleColorR: r, idleColorG: g, idleColorB: b })
+                    {li.idleEffectType !== "none" && (
+                      <>
+                        <LabeledSlider
+                          label={`Rate: ${li.idleEffectRateHz.toFixed(1)} Hz`}
+                          min={0.05}
+                          max={10}
+                          step={0.05}
+                          value={li.idleEffectRateHz}
+                          onChange={(v) =>
+                            void lighting.setConfig({ idleEffectRateHz: v })
+                          }
+                        />
+
+                        {idleSupportsGradient && (
+                          <Field label="Gradient Palette">
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {(
+                                Object.keys(GRADIENT_META) as GradientPreset[]
+                              ).map((g) => (
+                                <button
+                                  key={g}
+                                  type="button"
+                                  onClick={() =>
+                                    void lighting.setConfig({
+                                      idleGradientPreset: g,
+                                    })
+                                  }
+                                  className={`rounded-lg border px-2 py-1 text-left text-xs font-medium transition-colors ${
+                                    (li.idleGradientPreset || "solid") === g
+                                      ? "border-accent bg-accent/20 text-accent"
+                                      : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
+                                  }`}
+                                >
+                                  {GRADIENT_META[g]}
+                                </button>
+                              ))}
+                            </div>
+                            {li.idleGradientPreset === "custom" && (
+                              <div className="mt-2">
+                                <GradientStopEditor
+                                  value={li.idleGradientColors || ""}
+                                  onChange={(colors) =>
+                                    void lighting.setConfig({
+                                      idleGradientColors: colors,
+                                    })
+                                  }
+                                />
+                              </div>
+                            )}
+                          </Field>
+                        )}
+                      </>
+                    )}
+
+                    {idleUsesOwnColor ? (
+                      <div className="rounded-lg border border-default/30 bg-default/10 px-3 py-2 text-xs text-foreground/50 italic">
+                        Color is driven by{" "}
+                        {EFFECT_META[idleEt]?.label || idleEt} palette
+                      </div>
+                    ) : (
+                      <HslColorPicker
+                        r={li.idleColorR}
+                        g={li.idleColorG}
+                        b={li.idleColorB}
+                        onChange={(r, g, b) =>
+                          void lighting.setConfig({
+                            idleColorR: r,
+                            idleColorG: g,
+                            idleColorB: b,
+                          })
+                        }
+                      />
+                    )}
+
+                    <LabeledSlider
+                      label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
+                      value={li.idleIntensity}
+                      onChange={(v) =>
+                        void lighting.setConfig({ idleIntensity: v })
                       }
                     />
-                  )}
-
-                  <LabeledSlider
-                    label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
-                    value={li.idleIntensity}
-                    onChange={(v) => void lighting.setConfig({ idleIntensity: v })}
-                  />
-                </div>
-              );
-            })()}
+                  </div>
+                );
+              })()}
           </div>
 
           {/* Default DMX send rate -- a universe is one shared wire, so a
@@ -501,12 +585,16 @@ export function ProjectLightingPanel({
                   value={li.defaultRefreshRateHz}
                   onChange={(e) =>
                     void lighting.setConfig({
-                      defaultRefreshRateHz: Math.min(60, Math.max(1, Number(e.target.value) || 44)),
+                      defaultRefreshRateHz: Math.min(
+                        60,
+                        Math.max(1, Number(e.target.value) || 44),
+                      ),
                     })
                   }
                 />
                 <span className="text-[10px] text-foreground/40">
-                  Applies to every fixture that doesn&apos;t set its own rate below.
+                  Applies to every fixture that doesn&apos;t set its own rate
+                  below.
                 </span>
               </div>
             </Field>
@@ -530,7 +618,11 @@ export function ProjectLightingPanel({
                       onClick={() => {
                         const positions = autoLayoutPositions(li.fixtures);
                         for (const p of positions) {
-                          void lighting.fixtureUpdate({ fixtureId: p.id, posX: p.posX, posZ: p.posZ });
+                          void lighting.fixtureUpdate({
+                            fixtureId: p.id,
+                            posX: p.posX,
+                            posZ: p.posZ,
+                          });
                         }
                       }}
                       className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/20 px-3 py-1 text-xs font-medium text-foreground/70 hover:bg-default/35 transition-colors"
@@ -563,7 +655,10 @@ export function ProjectLightingPanel({
                         value={li.resoLightColumns}
                         onChange={(e) =>
                           void lighting.setConfig({
-                            resoLightColumns: Math.max(0, Number(e.target.value) || 0),
+                            resoLightColumns: Math.max(
+                              0,
+                              Number(e.target.value) || 0,
+                            ),
                           })
                         }
                       />
@@ -577,20 +672,25 @@ export function ProjectLightingPanel({
                         value={li.resoLightRows}
                         onChange={(e) =>
                           void lighting.setConfig({
-                            resoLightRows: Math.max(0, Number(e.target.value) || 0),
+                            resoLightRows: Math.max(
+                              0,
+                              Number(e.target.value) || 0,
+                            ),
                           })
                         }
                       />
                     </Field>
                     <div className="flex-1 self-end pb-1.5 text-xs text-foreground/50">
-                      {li.fixtures.length} bar{li.fixtures.length === 1 ? "" : "s"} total
+                      {li.fixtures.length} bar
+                      {li.fixtures.length === 1 ? "" : "s"} total
                     </div>
                   </div>
                 ) : (
                   <div className="text-xs text-foreground/50">
-                    {li.fixtures.length} fixture{li.fixtures.length === 1 ? "" : "s"} total --
-                    add or remove individually below; each drives through the
-                    same tracks/cues/effects as a ResoLight bar.
+                    {li.fixtures.length} fixture
+                    {li.fixtures.length === 1 ? "" : "s"} total -- add or remove
+                    individually below; each drives through the same
+                    tracks/cues/effects as a ResoLight bar.
                   </div>
                 )}
               </div>
@@ -607,7 +707,11 @@ export function ProjectLightingPanel({
                     selectedFixtureId={selectedFixtureId}
                     onSelectFixture={setSelectedFixtureId}
                     onFixtureMoved={(id, x, z) =>
-                      void lighting.fixtureUpdate({ fixtureId: id, posX: x, posZ: z })
+                      void lighting.fixtureUpdate({
+                        fixtureId: id,
+                        posX: x,
+                        posZ: z,
+                      })
                     }
                     previewColors={displayColors}
                   />
@@ -631,7 +735,8 @@ export function ProjectLightingPanel({
                         selected={f.id === selectedFixtureId}
                         onSelect={() => setSelectedFixtureId(f.id)}
                         onRemove={() => {
-                          if (selectedFixtureId === f.id) setSelectedFixtureId(null);
+                          if (selectedFixtureId === f.id)
+                            setSelectedFixtureId(null);
                           void lighting.fixtureRemove(f.id);
                         }}
                         hasChannelConflict={dmxConflicts.has(f.id)}
@@ -651,7 +756,9 @@ export function ProjectLightingPanel({
                     </span>
                     <button
                       type="button"
-                      onClick={() => void lighting.fixtureDuplicate(selected.id)}
+                      onClick={() =>
+                        void lighting.fixtureDuplicate(selected.id)
+                      }
                       className="flex items-center gap-1 rounded-lg border border-default/50 bg-default/20 px-2 py-1 text-[10px] font-medium text-foreground/70 hover:bg-default/35 transition-colors"
                       title="Duplicate this fixture (same settings, offset position, next free DMX channels)"
                     >
@@ -660,7 +767,13 @@ export function ProjectLightingPanel({
                     </button>
                   </div>
 
-                  <div className={selected.kind === "dmxGeneric" ? "grid grid-cols-1 gap-3" : "grid grid-cols-2 gap-3"}>
+                  <div
+                    className={
+                      selected.kind === "dmxGeneric"
+                        ? "grid grid-cols-1 gap-3"
+                        : "grid grid-cols-2 gap-3"
+                    }
+                  >
                     <Field label="Name">
                       <input
                         type="text"
@@ -684,7 +797,10 @@ export function ProjectLightingPanel({
                           onChange={(e) =>
                             void lighting.fixtureUpdate({
                               fixtureId: selected.id,
-                              ledCount: Math.max(1, Number(e.target.value) || 1),
+                              ledCount: Math.max(
+                                1,
+                                Number(e.target.value) || 1,
+                              ),
                             })
                           }
                         />
@@ -699,7 +815,10 @@ export function ProjectLightingPanel({
                       different physical layout (see ResoLightStage3D.tsx). */}
                   <Field label="Fixture Shape">
                     <div className="grid grid-cols-5 gap-1.5">
-                      {(selected.kind === "resoLightBar" ? RESOLIGHT_SHAPES : DMX_GENERIC_SHAPES).map((shape) => {
+                      {(selected.kind === "resoLightBar"
+                        ? RESOLIGHT_SHAPES
+                        : DMX_GENERIC_SHAPES
+                      ).map((shape) => {
                         const Icon = SHAPE_ICON[shape];
                         return (
                           <button
@@ -711,7 +830,11 @@ export function ProjectLightingPanel({
                                 // addressable off so stale per-pixel data
                                 // from a previous shape never lingers.
                                 shape === "ring"
-                                  ? { fixtureId: selected.id, shape, addressable: false }
+                                  ? {
+                                      fixtureId: selected.id,
+                                      shape,
+                                      addressable: false,
+                                    }
                                   : { fixtureId: selected.id, shape },
                               )
                             }
@@ -730,64 +853,83 @@ export function ProjectLightingPanel({
                     </div>
                   </Field>
 
-                  {selected.kind === "resoLightBar" && selected.shape === "matrix" && (
-                    <Field label="Matrix Columns (0 = auto)">
-                      <input
-                        type="number"
-                        min={0}
-                        max={31}
-                        className={numberCls}
-                        value={selected.matrixCols}
-                        onChange={(e) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            matrixCols: Math.max(0, Number(e.target.value) || 0),
-                          })
-                        }
-                      />
-                    </Field>
-                  )}
+                  {selected.kind === "resoLightBar" &&
+                    selected.shape === "matrix" && (
+                      <Field label="Matrix Columns (0 = auto)">
+                        <input
+                          type="number"
+                          min={0}
+                          max={31}
+                          className={numberCls}
+                          value={selected.matrixCols}
+                          onChange={(e) =>
+                            void lighting.fixtureUpdate({
+                              fixtureId: selected.id,
+                              matrixCols: Math.max(
+                                0,
+                                Number(e.target.value) || 0,
+                              ),
+                            })
+                          }
+                        />
+                      </Field>
+                    )}
 
                   {/* Color Type -- unlike DmxGeneric's Channel Profile (a UI
                       label only), this genuinely changes how many bytes get
                       written per pixel (see resoLightRealChannelCount /
                       ResoLightChannelMap.h's colorProfileByteCount). */}
-                  {selected.kind === "resoLightBar" && (() => {
-                    // Only dimmer/rgb/rgbw are offered, but the stored field
-                    // is the wider shared ChannelProfile type -- fall back to
-                    // "rgb" (the struct default) for the description/count
-                    // readout if it's ever something else (e.g. hand-edited
-                    // project data).
-                    const colorType: ResoLightColorType =
-                      selected.channelProfile === "dimmer" || selected.channelProfile === "rgbw"
-                        ? selected.channelProfile
-                        : "rgb";
-                    return (
-                      <Field label="Color Type">
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {RESOLIGHT_COLOR_TYPES.map((ct) => (
-                            <button
-                              key={ct}
-                              type="button"
-                              onClick={() => void lighting.fixtureUpdate({ fixtureId: selected.id, channelProfile: ct })}
-                              title={RESOLIGHT_COLOR_TYPE_META[ct].description}
-                              className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
-                                colorType === ct
-                                  ? "border-accent bg-accent/20 text-accent"
-                                  : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
-                              }`}
-                            >
-                              {RESOLIGHT_COLOR_TYPE_META[ct].label}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="mt-1 text-[10px] text-foreground/40 italic">
-                          {RESOLIGHT_COLOR_TYPE_META[colorType].description} Real channel count:{" "}
-                          {resoLightRealChannelCount(colorType, selected.ledCount, selected.addressable)}.
-                        </div>
-                      </Field>
-                    );
-                  })()}
+                  {selected.kind === "resoLightBar" &&
+                    (() => {
+                      // Only dimmer/rgb/rgbw are offered, but the stored field
+                      // is the wider shared ChannelProfile type -- fall back to
+                      // "rgb" (the struct default) for the description/count
+                      // readout if it's ever something else (e.g. hand-edited
+                      // project data).
+                      const colorType: ResoLightColorType =
+                        selected.channelProfile === "dimmer" ||
+                        selected.channelProfile === "rgbw"
+                          ? selected.channelProfile
+                          : "rgb";
+                      return (
+                        <Field label="Color Type">
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {RESOLIGHT_COLOR_TYPES.map((ct) => (
+                              <button
+                                key={ct}
+                                type="button"
+                                onClick={() =>
+                                  void lighting.fixtureUpdate({
+                                    fixtureId: selected.id,
+                                    channelProfile: ct,
+                                  })
+                                }
+                                title={
+                                  RESOLIGHT_COLOR_TYPE_META[ct].description
+                                }
+                                className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                                  colorType === ct
+                                    ? "border-accent bg-accent/20 text-accent"
+                                    : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                                }`}
+                              >
+                                {RESOLIGHT_COLOR_TYPE_META[ct].label}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-1 text-[10px] text-foreground/40 italic">
+                            {RESOLIGHT_COLOR_TYPE_META[colorType].description}{" "}
+                            Real channel count:{" "}
+                            {resoLightRealChannelCount(
+                              colorType,
+                              selected.ledCount,
+                              selected.addressable,
+                            )}
+                            .
+                          </div>
+                        </Field>
+                      );
+                    })()}
 
                   <div className="grid grid-cols-3 gap-3">
                     <Field label="Height (m)">
@@ -842,8 +984,16 @@ export function ProjectLightingPanel({
                       <div className="flex gap-2">
                         {(
                           [
-                            { label: "Vertical", icon: MoveVertical, value: false },
-                            { label: "Horizontal", icon: MoveHorizontal, value: true },
+                            {
+                              label: "Vertical",
+                              icon: MoveVertical,
+                              value: false,
+                            },
+                            {
+                              label: "Horizontal",
+                              icon: MoveHorizontal,
+                              value: true,
+                            },
                           ] as const
                         ).map((opt) => (
                           <button
@@ -926,7 +1076,10 @@ export function ProjectLightingPanel({
                           onChange={(e) =>
                             void lighting.fixtureUpdate({
                               fixtureId: selected.id,
-                              gridColumn: Math.max(0, Number(e.target.value) || 0),
+                              gridColumn: Math.max(
+                                0,
+                                Number(e.target.value) || 0,
+                              ),
                             })
                           }
                         />
@@ -952,21 +1105,22 @@ export function ProjectLightingPanel({
                   {/* A Ring is always uniform-color (no per-pixel control) --
                       not offering the option at all instead of showing it
                       forced-unchecked. */}
-                  {selected.kind === "resoLightBar" && selected.shape !== "ring" && (
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={selected.addressable}
-                        onChange={(e) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            addressable: e.target.checked,
-                          })
-                        }
-                      />
-                      <span>Addressable strip (individual LED control)</span>
-                    </label>
-                  )}
+                  {selected.kind === "resoLightBar" &&
+                    selected.shape !== "ring" && (
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selected.addressable}
+                          onChange={(e) =>
+                            void lighting.fixtureUpdate({
+                              fixtureId: selected.id,
+                              addressable: e.target.checked,
+                            })
+                          }
+                        />
+                        <span>Addressable strip (individual LED control)</span>
+                      </label>
+                    )}
 
                   {/* DMX fields -- only meaningful for a DmxGeneric fixture.
                       A ResoLightBar's real channels are auto-packed by
@@ -980,7 +1134,8 @@ export function ProjectLightingPanel({
                       {dmxConflicts.has(selected.id) && (
                         <div className="flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[10px] text-warning">
                           <TriangleAlert size={12} className="shrink-0" />
-                          Overlaps another fixture's DMX channels in this universe.
+                          Overlaps another fixture's DMX channels in this
+                          universe.
                         </div>
                       )}
 
@@ -999,22 +1154,36 @@ export function ProjectLightingPanel({
                             const meta = CHANNEL_PROFILES[profile];
                             void lighting.fixtureUpdate(
                               meta.channelCount > 0
-                                ? { fixtureId: selected.id, channelProfile: profile, dmxChannelCount: meta.channelCount }
-                                : { fixtureId: selected.id, channelProfile: profile },
+                                ? {
+                                    fixtureId: selected.id,
+                                    channelProfile: profile,
+                                    dmxChannelCount: meta.channelCount,
+                                  }
+                                : {
+                                    fixtureId: selected.id,
+                                    channelProfile: profile,
+                                  },
                             );
                           }}
                         >
-                          {(Object.keys(CHANNEL_PROFILES) as ChannelProfile[]).map((p) => (
+                          {(
+                            Object.keys(CHANNEL_PROFILES) as ChannelProfile[]
+                          ).map((p) => (
                             <option key={p} value={p}>
                               {CHANNEL_PROFILES[p].label}
-                              {CHANNEL_PROFILES[p].channelCount > 0 ? ` (${CHANNEL_PROFILES[p].channelCount}ch)` : ""}
+                              {CHANNEL_PROFILES[p].channelCount > 0
+                                ? ` (${CHANNEL_PROFILES[p].channelCount}ch)`
+                                : ""}
                             </option>
                           ))}
                         </select>
                       </Field>
                       {selected.channelProfile !== "custom" && (
                         <div className="text-[10px] text-foreground/40 font-mono">
-                          {channelRoleLabels(selected.channelProfile, selected.dmxStartChannel).join(" · ")}
+                          {channelRoleLabels(
+                            selected.channelProfile,
+                            selected.dmxStartChannel,
+                          ).join(" · ")}
                         </div>
                       )}
 
@@ -1043,7 +1212,10 @@ export function ProjectLightingPanel({
                             onChange={(e) =>
                               void lighting.fixtureUpdate({
                                 fixtureId: selected.id,
-                                dmxStartChannel: Math.max(1, Number(e.target.value) || 1),
+                                dmxStartChannel: Math.max(
+                                  1,
+                                  Number(e.target.value) || 1,
+                                ),
                               })
                             }
                           />
@@ -1064,7 +1236,10 @@ export function ProjectLightingPanel({
                             onChange={(e) =>
                               void lighting.fixtureUpdate({
                                 fixtureId: selected.id,
-                                dmxChannelCount: Math.max(1, Number(e.target.value) || 1),
+                                dmxChannelCount: Math.max(
+                                  1,
+                                  Number(e.target.value) || 1,
+                                ),
                               })
                             }
                           />
@@ -1079,7 +1254,9 @@ export function ProjectLightingPanel({
                       refreshRateHz's doc comment on why the SLOWEST rate
                       on a universe wins). */}
                   <div className="border-t border-default/20 pt-3">
-                    <Field label={`Refresh Rate Override (Hz, 0 = use default: ${li.defaultRefreshRateHz})`}>
+                    <Field
+                      label={`Refresh Rate Override (Hz, 0 = use default: ${li.defaultRefreshRateHz})`}
+                    >
                       <input
                         type="number"
                         min={0}
@@ -1089,7 +1266,10 @@ export function ProjectLightingPanel({
                         onChange={(e) =>
                           void lighting.fixtureUpdate({
                             fixtureId: selected.id,
-                            refreshRateHz: Math.min(60, Math.max(0, Number(e.target.value) || 0)),
+                            refreshRateHz: Math.min(
+                              60,
+                              Math.max(0, Number(e.target.value) || 0),
+                            ),
                           })
                         }
                       />

@@ -143,39 +143,37 @@ void MainComponent::builderSongMove(const std::string& json) {
 
 void MainComponent::builderSongUpdate(const std::string& json) {
     simdjson::dom::element doc;
-    int index = -1;
-    if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
+    if (!parseJson(json, doc) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    if (index < 0 || index >= static_cast<int>(proj.songs.size()))
-        return;
-    SongDef& s = proj.songs[static_cast<size_t>(index)];
 
     std::string strVal;
     double numVal;
     int intVal;
     bool boolVal;
-    bool bpmChanged = false;
-    if (getString(doc, "name", strVal)) s.name = strVal;
-    if (getDouble(doc, "bpm", numVal)) { s.bpm = numVal; bpmChanged = true; }
-    if (getString(doc, "mode", strVal))
-        s.playbackMode = (strVal == "auto") ? PlaybackMode::AutoplayNext : PlaybackMode::WaitForTrigger;
-    if (getInt(doc, "tsNum", intVal)) s.timeSignature.numerator = intVal;
-    if (getInt(doc, "tsDen", intVal)) s.timeSignature.denominator = intVal;
-    // Metronome is project-global (same for every song). songUpdate still
-    // carries click fields for API compatibility; they write Project, not SongDef.
-    if (getBool(doc, "click", boolVal))
-        proj.builtInClickEnabled = boolVal;
-    if (getString(doc, "clickBusId", strVal))
-        proj.builtInClickBusId = strVal;
-    if (getDouble(doc, "clickGainDb", numVal))
-        proj.builtInClickGainDb = numVal;
-    if (getDouble(doc, "clickPan", numVal))
-        proj.builtInClickPan = std::clamp(numVal, -1.0, 1.0);
 
-    // clickSends: full replacement when present (web sends the entire array)
+    // Metronome is project-global. Apply click fields even with zero songs
+    // (empty project) so the mixer/player can toggle the click freely.
+    bool clickTouched = false;
+    if (getBool(doc, "click", boolVal)) {
+        proj.builtInClickEnabled = boolVal;
+        clickTouched = true;
+    }
+    if (getString(doc, "clickBusId", strVal)) {
+        proj.builtInClickBusId = strVal;
+        clickTouched = true;
+    }
+    if (getDouble(doc, "clickGainDb", numVal)) {
+        proj.builtInClickGainDb = numVal;
+        clickTouched = true;
+    }
+    if (getDouble(doc, "clickPan", numVal)) {
+        proj.builtInClickPan = std::clamp(numVal, -1.0, 1.0);
+        clickTouched = true;
+    }
     simdjson::dom::array clickSendsArr;
     if (!doc["clickSends"].get(clickSendsArr)) {
+        clickTouched = true;
         proj.builtInClickSends.clear();
         for (simdjson::dom::element csEl : clickSendsArr) {
             TrackSendDef cs;
@@ -190,18 +188,36 @@ void MainComponent::builderSongUpdate(const std::string& json) {
             proj.builtInClickSends.push_back(std::move(cs));
         }
     }
-
-    // Keep legacy song fields mirrored so any remaining song-scoped readers
-    // (and older UI code paths) stay consistent.
-    for (auto& song : proj.songs) {
-        song.builtInClickEnabled = proj.builtInClickEnabled;
-        song.builtInClickBusId = proj.builtInClickBusId;
-        song.builtInClickSends = proj.builtInClickSends;
-        song.builtInClickGainDb = proj.builtInClickGainDb;
+    if (clickTouched) {
+        for (auto& song : proj.songs) {
+            song.builtInClickEnabled = proj.builtInClickEnabled;
+            song.builtInClickBusId = proj.builtInClickBusId;
+            song.builtInClickSends = proj.builtInClickSends;
+            song.builtInClickGainDb = proj.builtInClickGainDb;
+        }
+        engine.refreshClickState();
     }
 
-    // Always refresh live click even if this song isn't the staged one.
-    engine.refreshClickState();
+    int index = -1;
+    if (!getInt(doc, "index", index) || index < 0
+        || index >= static_cast<int>(proj.songs.size())) {
+        // Click-only update (empty project / no valid song index).
+        if (clickTouched) {
+            notifyProjectStructureChanged();
+            setStatus("Click updated");
+        }
+        return;
+    }
+    SongDef& s = proj.songs[static_cast<size_t>(index)];
+
+    bool bpmChanged = false;
+    if (getString(doc, "name", strVal)) s.name = strVal;
+    if (getDouble(doc, "bpm", numVal)) { s.bpm = numVal; bpmChanged = true; }
+    if (getString(doc, "mode", strVal))
+        s.playbackMode = (strVal == "auto") ? PlaybackMode::AutoplayNext : PlaybackMode::WaitForTrigger;
+    if (getInt(doc, "tsNum", intVal)) s.timeSignature.numerator = intVal;
+    if (getInt(doc, "tsDen", intVal)) s.timeSignature.denominator = intVal;
+
     if (index != static_cast<int>(engine.currentSongIndex())) {
         goToSong(index); // pushes BPM to LightEngine itself once this song is staged
     } else if (bpmChanged) {

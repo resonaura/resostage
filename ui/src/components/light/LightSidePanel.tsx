@@ -44,8 +44,16 @@ import type {
   WebUiState,
 } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
-import { builtinPalette, parseGradientStops, type GradientStop } from "../../lib/lightCueInterpolation";
-import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "../../lib/liveLevels";
+import {
+  builtinPalette,
+  parseGradientStops,
+  type GradientStop,
+} from "../../lib/lightCueInterpolation";
+import {
+  getLiveLedOutputs,
+  subscribeLiveLedOutputs,
+  type LiveLedOutput,
+} from "../../lib/liveLevels";
 import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
 
 const labelCls =
@@ -53,7 +61,13 @@ const labelCls =
 const inputCls =
   "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-xs outline-none focus:border-accent";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1">
       <span className={labelCls}>{label}</span>
@@ -107,13 +121,21 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
   l /= 100;
   const k = (n: number) => (n + h / 30) % 12;
   const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+  const f = (n: number) =>
+    l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [
+    Math.round(f(0) * 255),
+    Math.round(f(8) * 255),
+    Math.round(f(4) * 255),
+  ];
 }
 
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
   const l = (max + min) / 2;
   if (max === min) return [0, 0, Math.round(l * 100)];
   const d = max - min;
@@ -136,22 +158,24 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 const PRESET_COLORS: [number, number, number][] = [
-  [255, 159, 10],   // amber
-  [255, 214, 10],   // yellow
-  [255, 55, 95],    // rose
-  [191, 90, 242],   // purple
-  [100, 210, 255],  // cyan
-  [48, 209, 88],    // green
-  [255, 69, 58],    // red
-  [0, 199, 190],    // teal
-  [255, 255, 255],  // white
-  [0, 91, 255],     // blue
-  [255, 120, 0],    // orange
-  [200, 200, 200],  // cool white
+  [255, 159, 10], // amber
+  [255, 214, 10], // yellow
+  [255, 55, 95], // rose
+  [191, 90, 242], // purple
+  [100, 210, 255], // cyan
+  [48, 209, 88], // green
+  [255, 69, 58], // red
+  [0, 199, 190], // teal
+  [255, 255, 255], // white
+  [0, 91, 255], // blue
+  [255, 120, 0], // orange
+  [200, 200, 200], // cool white
 ];
 
 export function HslColorPicker({
-  r, g, b,
+  r,
+  g,
+  b,
   onChange,
 }: {
   r: number;
@@ -159,14 +183,24 @@ export function HslColorPicker({
   b: number;
   onChange: (r: number, g: number, b: number) => void;
 }) {
-  const [hsl, setHsl] = useState<[number, number, number]>(() => rgbToHsl(r, g, b));
+  const [hsl, setHsl] = useState<[number, number, number]>(() =>
+    rgbToHsl(r, g, b),
+  );
   const lastRgb = useRef<[number, number, number]>([r, g, b]);
 
   // Sync from outside only when not dragging
-  if (lastRgb.current[0] !== r || lastRgb.current[1] !== g || lastRgb.current[2] !== b) {
+  if (
+    lastRgb.current[0] !== r ||
+    lastRgb.current[1] !== g ||
+    lastRgb.current[2] !== b
+  ) {
     lastRgb.current = [r, g, b];
     const newHsl = rgbToHsl(r, g, b);
-    if (Math.abs(newHsl[0] - hsl[0]) > 2 || Math.abs(newHsl[1] - hsl[1]) > 2 || Math.abs(newHsl[2] - hsl[2]) > 2) {
+    if (
+      Math.abs(newHsl[0] - hsl[0]) > 2 ||
+      Math.abs(newHsl[1] - hsl[1]) > 2 ||
+      Math.abs(newHsl[2] - hsl[2]) > 2
+    ) {
       setHsl(newHsl);
     }
   }
@@ -197,7 +231,8 @@ export function HslColorPicker({
             className="h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 active:scale-95"
             style={{
               background: `rgb(${pr},${pg},${pb})`,
-              borderColor: pr === r && pg === g && pb === b ? "#fff" : "transparent",
+              borderColor:
+                pr === r && pg === g && pb === b ? "#fff" : "transparent",
             }}
           />
         ))}
@@ -226,7 +261,9 @@ export function HslColorPicker({
           value={hex.toUpperCase()}
           onChange={(e) => {
             if (e.target.value.match(/^#?[0-9a-fA-F]{6}$/)) {
-              const clean = e.target.value.startsWith("#") ? e.target.value : "#" + e.target.value;
+              const clean = e.target.value.startsWith("#")
+                ? e.target.value
+                : "#" + e.target.value;
               const [nr, ng, nb] = hexToRgb(clean);
               lastRgb.current = [nr, ng, nb];
               onChange(nr, ng, nb);
@@ -240,22 +277,43 @@ export function HslColorPicker({
 
       {/* HSL sliders */}
       {[
-        { label: "H", index: 0, max: 360, unit: "°", color: `hsl(${hsl[0]}, 100%, 50%)` },
-        { label: "S", index: 1, max: 100, unit: "%", color: `hsl(${hsl[0]}, ${hsl[1]}%, 50%)` },
-        { label: "L", index: 2, max: 100, unit: "%", color: `hsl(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%)` },
+        {
+          label: "H",
+          index: 0,
+          max: 360,
+          unit: "°",
+          color: `hsl(${hsl[0]}, 100%, 50%)`,
+        },
+        {
+          label: "S",
+          index: 1,
+          max: 100,
+          unit: "%",
+          color: `hsl(${hsl[0]}, ${hsl[1]}%, 50%)`,
+        },
+        {
+          label: "L",
+          index: 2,
+          max: 100,
+          unit: "%",
+          color: `hsl(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%)`,
+        },
       ].map(({ label, index, max, unit, color }) => (
         <div key={label} className="flex items-center gap-2">
-          <span className="w-4 shrink-0 text-xs text-foreground/50 font-mono">{label}</span>
+          <span className="w-4 shrink-0 text-xs text-foreground/50 font-mono">
+            {label}
+          </span>
           <div className="relative flex-1 h-3 flex items-center">
             {/* Gradient track */}
             <div
               className="absolute inset-0 rounded-full"
               style={{
-                background: index === 0
-                  ? `linear-gradient(to right, hsl(0,${hsl[1]}%,${hsl[2]}%), hsl(60,${hsl[1]}%,${hsl[2]}%), hsl(120,${hsl[1]}%,${hsl[2]}%), hsl(180,${hsl[1]}%,${hsl[2]}%), hsl(240,${hsl[1]}%,${hsl[2]}%), hsl(300,${hsl[1]}%,${hsl[2]}%), hsl(360,${hsl[1]}%,${hsl[2]}%))`
-                  : index === 1
-                  ? `linear-gradient(to right, hsl(${hsl[0]},0%,${hsl[2]}%), hsl(${hsl[0]},100%,${hsl[2]}%))`
-                  : `linear-gradient(to right, hsl(${hsl[0]},${hsl[1]}%,0%), hsl(${hsl[0]},${hsl[1]}%,50%), hsl(${hsl[0]},${hsl[1]}%,100%))`,
+                background:
+                  index === 0
+                    ? `linear-gradient(to right, hsl(0,${hsl[1]}%,${hsl[2]}%), hsl(60,${hsl[1]}%,${hsl[2]}%), hsl(120,${hsl[1]}%,${hsl[2]}%), hsl(180,${hsl[1]}%,${hsl[2]}%), hsl(240,${hsl[1]}%,${hsl[2]}%), hsl(300,${hsl[1]}%,${hsl[2]}%), hsl(360,${hsl[1]}%,${hsl[2]}%))`
+                    : index === 1
+                      ? `linear-gradient(to right, hsl(${hsl[0]},0%,${hsl[2]}%), hsl(${hsl[0]},100%,${hsl[2]}%))`
+                      : `linear-gradient(to right, hsl(${hsl[0]},${hsl[1]}%,0%), hsl(${hsl[0]},${hsl[1]}%,50%), hsl(${hsl[0]},${hsl[1]}%,100%))`,
               }}
             />
             <input
@@ -280,7 +338,8 @@ export function HslColorPicker({
             />
           </div>
           <span className="w-10 shrink-0 text-right text-xs font-mono text-foreground/50">
-            {hsl[index]}{unit}
+            {hsl[index]}
+            {unit}
           </span>
         </div>
       ))}
@@ -304,7 +363,10 @@ export function GradientStopEditor({
   value: string;
   onChange: (colors: string) => void;
 }) {
-  const stops = useMemo(() => parseGradientStops(value, builtinPalette("vulcanFire")), [value]);
+  const stops = useMemo(
+    () => parseGradientStops(value, builtinPalette("vulcanFire")),
+    [value],
+  );
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
@@ -448,7 +510,11 @@ export function GradientStopEditor({
                 onClick={() => removeStop(i)}
                 disabled={stops.length <= 2}
                 className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-default/60 bg-surface text-[8px] leading-none text-foreground/70 hover:bg-danger hover:text-white disabled:opacity-30 disabled:hover:bg-surface"
-                title={stops.length <= 2 ? "A gradient needs at least 2 stops" : "Remove stop"}
+                title={
+                  stops.length <= 2
+                    ? "A gradient needs at least 2 stops"
+                    : "Remove stop"
+                }
               >
                 <X size={8} />
               </button>
@@ -468,7 +534,11 @@ export function GradientStopEditor({
           onClick={addStop}
           disabled={stops.length >= 8}
           className="flex h-7 items-center gap-1 rounded-md border border-dashed border-default/50 px-2 text-[9px] text-foreground/50 hover:border-accent hover:text-accent disabled:opacity-30"
-          title={stops.length >= 8 ? "Max 8 stops" : "Add a stop (blended from the last two)"}
+          title={
+            stops.length >= 8
+              ? "Max 8 stops"
+              : "Add a stop (blended from the last two)"
+          }
         >
           <Plus size={10} />
           Add
@@ -476,8 +546,8 @@ export function GradientStopEditor({
       </div>
 
       <div className="text-[9px] text-foreground/35">
-        Stops are spread evenly. Drag to reorder, click a swatch to recolor,
-        the + between stops to insert, × to remove.
+        Stops are spread evenly. Drag to reorder, click a swatch to recolor, the
+        + between stops to insert, × to remove.
       </div>
     </div>
   );
@@ -490,51 +560,186 @@ export function GradientStopEditor({
 // CueSettingsPanel.handleEffectType).
 function effectHasRate(t: EffectType): boolean {
   return (
-    t === "strobe" || t === "pulse" || t === "ripple" ||
-    t === "converge" || t === "gradientflow" || t === "chase" ||
-    t === "helix" || t === "plasma" || t === "twinkle" || t === "sonicboom" ||
-    t === "fire" || t === "bouncing" || t === "drip" ||
-    t === "fireworks" || t === "colorwaves" || t === "strobeswipe" ||
-    t === "scanner" || t === "lightning" || t === "barberpole"
+    t === "strobe" ||
+    t === "pulse" ||
+    t === "ripple" ||
+    t === "converge" ||
+    t === "gradientflow" ||
+    t === "chase" ||
+    t === "helix" ||
+    t === "plasma" ||
+    t === "twinkle" ||
+    t === "sonicboom" ||
+    t === "fire" ||
+    t === "bouncing" ||
+    t === "drip" ||
+    t === "fireworks" ||
+    t === "colorwaves" ||
+    t === "strobeswipe" ||
+    t === "scanner" ||
+    t === "lightning" ||
+    t === "barberpole"
   );
 }
 
 // ─── Audio effect selector (props-driven — state lives in LightSidePanel) ──
 
 export type EffectType =
-  | "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow"
-  | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom"
-  | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak"
-  | "geq" | "blurz" | "scanner" | "lightning" | "barberpole";
+  | "none"
+  | "meter"
+  | "strobe"
+  | "pulse"
+  | "ripple"
+  | "converge"
+  | "gradientflow"
+  | "chase"
+  | "helix"
+  | "plasma"
+  | "twinkle"
+  | "sonicboom"
+  | "fire"
+  | "bouncing"
+  | "drip"
+  | "fireworks"
+  | "colorwaves"
+  | "strobeswipe"
+  | "vupeak"
+  | "geq"
+  | "blurz"
+  | "scanner"
+  | "lightning"
+  | "barberpole";
 
-export const EFFECT_META: Record<EffectType, { label: string; desc: string; icon: React.ReactNode }> = {
-  none:         { label: "None",     desc: "Static color, no modulation",                      icon: <Minus size={12} /> },
-  meter:        { label: "Meter",    desc: "Brightness follows audio level (VU meter)",         icon: <BarChart2 size={12} /> },
-  strobe:       { label: "Strobe",   desc: "Rapid on/off flashes at set rate",                   icon: <Zap size={12} /> },
-  pulse:        { label: "Pulse",    desc: "Smooth brightness pulse",                            icon: <Activity size={12} /> },
-  ripple:       { label: "Ripple",   desc: "Travelling wave across fixtures left→right",         icon: <Waves size={12} /> },
-  converge:     { label: "Converge", desc: "Lines race in from both ends and meet at the centre", icon: <Merge size={12} /> },
-  gradientflow: { label: "Gradient", desc: "Flowing rainbow shimmer along the bar", icon: <Rainbow size={12} /> },
-  chase:        { label: "Chase",    desc: "Phase-locked bright runner travelling up the bar (addressable fixtures)", icon: <Zap size={12} /> },
-  helix:        { label: "Helix",    desc: "Double-strand colour wave projected onto the bar (addressable fixtures)", icon: <Waves size={12} /> },
-  plasma:       { label: "Plasma",   desc: "Liquid three-wave colour interference (addressable fixtures)", icon: <Activity size={12} /> },
-  twinkle:      { label: "Twinkle",  desc: "Deterministic sparkling star field (addressable fixtures)", icon: <Lightbulb size={12} /> },
-  sonicboom:    { label: "Boom",     desc: "Rhythmic wave expanding from the centre (addressable fixtures)", icon: <Zap size={12} /> },
-  fire:         { label: "Fire",     desc: "Procedural flame -- pick a palette below (Vulcan/Toxic/Cryo/Cyberpunk/custom) (addressable fixtures)", icon: <Flame size={12} /> },
-  bouncing:     { label: "Bounce",   desc: "Three balls bouncing with decaying energy (addressable fixtures)", icon: <CircleDot size={12} /> },
-  drip:         { label: "Drip",     desc: "Droplets falling from the tip and splashing at the base (addressable fixtures)", icon: <Droplet size={12} /> },
-  fireworks:    { label: "Fireworks", desc: "Rockets launch and burst into fading sparks (addressable fixtures)", icon: <Sparkles size={12} /> },
-  colorwaves:   { label: "Waves",    desc: "Multi-wave palette scan that never quite repeats (addressable fixtures)", icon: <Waves size={12} /> },
-  strobeswipe:  { label: "Swipe",    desc: "Fast bottom-to-top fill on every beat, then decays (addressable fixtures)", icon: <Zap size={12} /> },
-  vupeak:       { label: "VU Peak",  desc: "Continuous VU fill with a highlighted peak cap", icon: <BarChart2 size={12} /> },
-  geq:          { label: "GEQ",      desc: "Graphic-equalizer columns riding the audio spectrum", icon: <BarChart2 size={12} /> },
-  blurz:        { label: "Blurz",    desc: "Spectrum smeared into a flowing colour wash", icon: <Waves size={12} /> },
-  scanner:      { label: "Scanner",  desc: "Larson-style bouncing point sweeps end to end with a trailing glow (addressable fixtures)", icon: <ScanLine size={12} /> },
-  lightning:    { label: "Lightning", desc: "Sporadic white-hot bolt strikes flicker across a jagged span (addressable fixtures)", icon: <CloudLightning size={12} /> },
-  barberpole:   { label: "Barberpole", desc: "Hard-edged stripes scroll continuously up the bar (addressable fixtures)", icon: <Barcode size={12} /> },
+export const EFFECT_META: Record<
+  EffectType,
+  { label: string; desc: string; icon: React.ReactNode }
+> = {
+  none: {
+    label: "None",
+    desc: "Static color, no modulation",
+    icon: <Minus size={12} />,
+  },
+  meter: {
+    label: "Meter",
+    desc: "Brightness follows audio level (VU meter)",
+    icon: <BarChart2 size={12} />,
+  },
+  strobe: {
+    label: "Strobe",
+    desc: "Rapid on/off flashes at set rate",
+    icon: <Zap size={12} />,
+  },
+  pulse: {
+    label: "Pulse",
+    desc: "Smooth brightness pulse",
+    icon: <Activity size={12} />,
+  },
+  ripple: {
+    label: "Ripple",
+    desc: "Travelling wave across fixtures left→right",
+    icon: <Waves size={12} />,
+  },
+  converge: {
+    label: "Converge",
+    desc: "Lines race in from both ends and meet at the centre",
+    icon: <Merge size={12} />,
+  },
+  gradientflow: {
+    label: "Gradient",
+    desc: "Flowing rainbow shimmer along the bar",
+    icon: <Rainbow size={12} />,
+  },
+  chase: {
+    label: "Chase",
+    desc: "Phase-locked bright runner travelling up the bar (addressable fixtures)",
+    icon: <Zap size={12} />,
+  },
+  helix: {
+    label: "Helix",
+    desc: "Double-strand colour wave projected onto the bar (addressable fixtures)",
+    icon: <Waves size={12} />,
+  },
+  plasma: {
+    label: "Plasma",
+    desc: "Liquid three-wave colour interference (addressable fixtures)",
+    icon: <Activity size={12} />,
+  },
+  twinkle: {
+    label: "Twinkle",
+    desc: "Deterministic sparkling star field (addressable fixtures)",
+    icon: <Lightbulb size={12} />,
+  },
+  sonicboom: {
+    label: "Boom",
+    desc: "Rhythmic wave expanding from the centre (addressable fixtures)",
+    icon: <Zap size={12} />,
+  },
+  fire: {
+    label: "Fire",
+    desc: "Procedural flame -- pick a palette below (Vulcan/Toxic/Cryo/Cyberpunk/custom) (addressable fixtures)",
+    icon: <Flame size={12} />,
+  },
+  bouncing: {
+    label: "Bounce",
+    desc: "Three balls bouncing with decaying energy (addressable fixtures)",
+    icon: <CircleDot size={12} />,
+  },
+  drip: {
+    label: "Drip",
+    desc: "Droplets falling from the tip and splashing at the base (addressable fixtures)",
+    icon: <Droplet size={12} />,
+  },
+  fireworks: {
+    label: "Fireworks",
+    desc: "Rockets launch and burst into fading sparks (addressable fixtures)",
+    icon: <Sparkles size={12} />,
+  },
+  colorwaves: {
+    label: "Waves",
+    desc: "Multi-wave palette scan that never quite repeats (addressable fixtures)",
+    icon: <Waves size={12} />,
+  },
+  strobeswipe: {
+    label: "Swipe",
+    desc: "Fast bottom-to-top fill on every beat, then decays (addressable fixtures)",
+    icon: <Zap size={12} />,
+  },
+  vupeak: {
+    label: "VU Peak",
+    desc: "Continuous VU fill with a highlighted peak cap",
+    icon: <BarChart2 size={12} />,
+  },
+  geq: {
+    label: "GEQ",
+    desc: "Graphic-equalizer columns riding the audio spectrum",
+    icon: <BarChart2 size={12} />,
+  },
+  blurz: {
+    label: "Blurz",
+    desc: "Spectrum smeared into a flowing colour wash",
+    icon: <Waves size={12} />,
+  },
+  scanner: {
+    label: "Scanner",
+    desc: "Larson-style bouncing point sweeps end to end with a trailing glow (addressable fixtures)",
+    icon: <ScanLine size={12} />,
+  },
+  lightning: {
+    label: "Lightning",
+    desc: "Sporadic white-hot bolt strikes flicker across a jagged span (addressable fixtures)",
+    icon: <CloudLightning size={12} />,
+  },
+  barberpole: {
+    label: "Barberpole",
+    desc: "Hard-edged stripes scroll continuously up the bar (addressable fixtures)",
+    icon: <Barcode size={12} />,
+  },
 };
 
-export function effectUsesOwnColor(t: EffectType, gradientPreset?: string): boolean {
+export function effectUsesOwnColor(
+  t: EffectType,
+  gradientPreset?: string,
+): boolean {
   if (
     t === "fire" ||
     t === "gradientflow" ||
@@ -574,22 +779,48 @@ export function effectSupportsGradient(t: EffectType): boolean {
 // per-LED spatial pattern -- so they stay genuinely useful either way.
 function effectRequiresAddressable(t: EffectType): boolean {
   return (
-    t === "chase" || t === "helix" || t === "plasma" || t === "twinkle" ||
-    t === "sonicboom" || t === "fire" || t === "bouncing" || t === "drip" ||
-    t === "fireworks" || t === "colorwaves" || t === "strobeswipe" ||
-    t === "scanner" || t === "lightning" || t === "barberpole"
+    t === "chase" ||
+    t === "helix" ||
+    t === "plasma" ||
+    t === "twinkle" ||
+    t === "sonicboom" ||
+    t === "fire" ||
+    t === "bouncing" ||
+    t === "drip" ||
+    t === "fireworks" ||
+    t === "colorwaves" ||
+    t === "strobeswipe" ||
+    t === "scanner" ||
+    t === "lightning" ||
+    t === "barberpole"
   );
 }
 
 // ─── Tempo subdivisions ───────────────────────────────────────────────────
 
 const SUBDIVISIONS = [
-  "2", "1", "1/2", "1/3", "1/4", "1/6", "1/8", "1/16", "1/32", "1/64",
+  "2",
+  "1",
+  "1/2",
+  "1/3",
+  "1/4",
+  "1/6",
+  "1/8",
+  "1/16",
+  "1/32",
+  "1/64",
 ] as const;
-type TempoSubdiv = typeof SUBDIVISIONS[number];
+type TempoSubdiv = (typeof SUBDIVISIONS)[number];
 
 type SourceType = "bus" | "track";
-export type GradientPreset = "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire";
+export type GradientPreset =
+  | "solid"
+  | "greenYellowRed"
+  | "custom"
+  | "vulcanFire"
+  | "toxicFire"
+  | "cryoFire"
+  | "cyberpunkFire";
 
 export const GRADIENT_META: Record<GradientPreset, string> = {
   solid: "Solid Color",
@@ -601,7 +832,13 @@ export const GRADIENT_META: Record<GradientPreset, string> = {
   custom: "Custom palette",
 };
 
-type BlendModeUi = "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive";
+type BlendModeUi =
+  | "normal"
+  | "additive"
+  | "multiply"
+  | "difference"
+  | "lighten"
+  | "subtractive";
 const BLEND_META: Record<BlendModeUi, string> = {
   normal: "Normal (replace)",
   additive: "Additive",
@@ -612,12 +849,31 @@ const BLEND_META: Record<BlendModeUi, string> = {
 };
 
 function EffectPanel({
-  effectType, effectSourceType, effectSourceId, effectIntensity, effectRate,
-  tempoSync, tempoSubdiv, gradientPreset, gradientColors, blendMode, showGradient,
+  effectType,
+  effectSourceType,
+  effectSourceId,
+  effectIntensity,
+  effectRate,
+  tempoSync,
+  tempoSubdiv,
+  gradientPreset,
+  gradientColors,
+  blendMode,
+  showGradient,
   hasAddressableFixture,
-  onType, onSourceType, onSourceId, onIntensity, onRate, onTempoSync, onTempoSubdiv,
-  onGradientPreset, onGradientColors, onBlendMode,
-  busses, tracks, bpm,
+  onType,
+  onSourceType,
+  onSourceId,
+  onIntensity,
+  onRate,
+  onTempoSync,
+  onTempoSubdiv,
+  onGradientPreset,
+  onGradientColors,
+  onBlendMode,
+  busses,
+  tracks,
+  bpm,
 }: {
   effectType: EffectType;
   effectSourceType: SourceType;
@@ -658,36 +914,63 @@ function EffectPanel({
     <div className="flex flex-col gap-3">
       <Field label="Audio Effect">
         <div className="grid grid-cols-4 gap-1">
-          {([
-            "none", "meter", "strobe", "pulse", "ripple", "converge", "gradientflow",
-            "chase", "helix", "plasma", "twinkle", "sonicboom",
-            "fire", "bouncing", "drip", "fireworks", "colorwaves", "strobeswipe", "vupeak",
-            "geq", "blurz", "scanner", "lightning", "barberpole",
-          ] as EffectType[])
+          {(
+            [
+              "none",
+              "meter",
+              "strobe",
+              "pulse",
+              "ripple",
+              "converge",
+              "gradientflow",
+              "chase",
+              "helix",
+              "plasma",
+              "twinkle",
+              "sonicboom",
+              "fire",
+              "bouncing",
+              "drip",
+              "fireworks",
+              "colorwaves",
+              "strobeswipe",
+              "vupeak",
+              "geq",
+              "blurz",
+              "scanner",
+              "lightning",
+              "barberpole",
+            ] as EffectType[]
+          )
             // Hide addressable-only effects once no assigned fixture can
             // actually render their pattern -- except the one already
             // active, so switching fixture assignment never strands the
             // cue on a selection that silently vanishes from the grid.
-            .filter((et) => hasAddressableFixture || et === effectType || !effectRequiresAddressable(et))
+            .filter(
+              (et) =>
+                hasAddressableFixture ||
+                et === effectType ||
+                !effectRequiresAddressable(et),
+            )
             .map((et) => {
-            const meta = EFFECT_META[et];
-            return (
-              <button
-                key={et}
-                type="button"
-                title={meta.desc}
-                onClick={() => onType(et)}
-                className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
-                  effectType === et
-                    ? "border-accent bg-accent/20 text-accent"
-                    : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
-                }`}
-              >
-                {meta.icon}
-                <span>{meta.label}</span>
-              </button>
-            );
-          })}
+              const meta = EFFECT_META[et];
+              return (
+                <button
+                  key={et}
+                  type="button"
+                  title={meta.desc}
+                  onClick={() => onType(et)}
+                  className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
+                    effectType === et
+                      ? "border-accent bg-accent/20 text-accent"
+                      : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
+                  }`}
+                >
+                  {meta.icon}
+                  <span>{meta.label}</span>
+                </button>
+              );
+            })}
         </div>
         {effectType !== "none" && (
           <div className="mt-1 text-[10px] text-foreground/40 italic">
@@ -720,7 +1003,9 @@ function EffectPanel({
                 value={effectSourceId}
                 onChange={(e) => onSourceId(e.target.value)}
               >
-                {effectSourceType === "bus" && <option value="">— Master mix</option>}
+                {effectSourceType === "bus" && (
+                  <option value="">— Master mix</option>
+                )}
                 {sourceItems.map((item) => {
                   const db = item.peakDb ?? -100;
                   const dbStr = db > -100 ? `${db.toFixed(1)} dB` : "silence";
@@ -753,7 +1038,10 @@ function EffectPanel({
                 ))}
               </div>
               {gradientPreset === "custom" && (
-                <GradientStopEditor value={gradientColors} onChange={onGradientColors} />
+                <GradientStopEditor
+                  value={gradientColors}
+                  onChange={onGradientColors}
+                />
               )}
             </Field>
           )}
@@ -772,11 +1060,14 @@ function EffectPanel({
               onChange={(e) => onBlendMode(e.target.value as BlendModeUi)}
             >
               {(Object.keys(BLEND_META) as BlendModeUi[]).map((b) => (
-                <option key={b} value={b}>{BLEND_META[b]}</option>
+                <option key={b} value={b}>
+                  {BLEND_META[b]}
+                </option>
               ))}
             </select>
             <div className="mt-1 text-[10px] text-foreground/40 italic">
-              Only matters if another track's cue is active on the same fixture at the same time (base + accent layers).
+              Only matters if another track's cue is active on the same fixture
+              at the same time (base + accent layers).
             </div>
           </Field>
 
@@ -788,7 +1079,11 @@ function EffectPanel({
                 <button
                   type="button"
                   onClick={() => onTempoSync(!tempoSync)}
-                  title={tempoSync ? `Synced to tempo (${bpm.toFixed(0)} BPM)` : "Free rate — click to sync to tempo"}
+                  title={
+                    tempoSync
+                      ? `Synced to tempo (${bpm.toFixed(0)} BPM)`
+                      : "Free rate — click to sync to tempo"
+                  }
                   className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
                     tempoSync
                       ? "bg-accent/20 text-accent border border-accent/40"
@@ -835,10 +1130,22 @@ function EffectPanel({
               )}
               <div className="text-[10px] text-foreground/35 text-right">
                 {tempoSync
-                  ? `= ${(bpm / 60 / ({
-                      "2": 8, "1": 4, "1/2": 2, "1/3": 4/3, "1/4": 1,
-                      "1/6": 2/3, "1/8": 0.5, "1/16": 0.25, "1/32": 0.125, "1/64": 0.0625,
-                    }[tempoSubdiv] ?? 1)).toFixed(2)} Hz`
+                  ? `= ${(
+                      bpm /
+                      60 /
+                      ({
+                        "2": 8,
+                        "1": 4,
+                        "1/2": 2,
+                        "1/3": 4 / 3,
+                        "1/4": 1,
+                        "1/6": 2 / 3,
+                        "1/8": 0.5,
+                        "1/16": 0.25,
+                        "1/32": 0.125,
+                        "1/64": 0.0625,
+                      }[tempoSubdiv] ?? 1)
+                    ).toFixed(2)} Hz`
                   : `${effectRate.toFixed(1)} Hz`}
               </div>
             </div>
@@ -848,7 +1155,6 @@ function EffectPanel({
     </div>
   );
 }
-
 
 // ─── Track Settings panel ─────────────────────────────────────────────────
 
@@ -893,7 +1199,8 @@ function TrackSettingsPanel({
       {fixtures.length > 0 && track.fixtureIds.length === 0 && (
         <div className="flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[10px] text-warning">
           <TriangleAlert size={12} className="shrink-0" />
-          No fixtures checked below -- cues on this track won&apos;t drive anything yet.
+          No fixtures checked below -- cues on this track won&apos;t drive
+          anything yet.
         </div>
       )}
 
@@ -945,11 +1252,32 @@ function TrackSettingsPanel({
 // ─── Cue Settings panel ───────────────────────────────────────────────────
 
 function CueSettingsPanel({
-  cue, songIndex, busses, tracks, bpm, hasAddressableFixture,
-  effectType, effectSourceType, effectSourceId, effectIntensity, effectRate,
-  tempoSync, tempoSubdiv, gradientPreset, gradientColors, blendMode,
-  onEffectType, onEffectSourceType, onEffectSourceId, onEffectIntensity, onEffectRate,
-  onTempoSync, onTempoSubdiv, onGradientPreset, onGradientColors, onBlendMode,
+  cue,
+  songIndex,
+  busses,
+  tracks,
+  bpm,
+  hasAddressableFixture,
+  effectType,
+  effectSourceType,
+  effectSourceId,
+  effectIntensity,
+  effectRate,
+  tempoSync,
+  tempoSubdiv,
+  gradientPreset,
+  gradientColors,
+  blendMode,
+  onEffectType,
+  onEffectSourceType,
+  onEffectSourceId,
+  onEffectIntensity,
+  onEffectRate,
+  onTempoSync,
+  onTempoSubdiv,
+  onGradientPreset,
+  onGradientColors,
+  onBlendMode,
 }: {
   cue: LightCueRow;
   songIndex: number;
@@ -978,8 +1306,12 @@ function CueSettingsPanel({
   onGradientColors: (colors: string) => void;
   onBlendMode: (b: BlendModeUi) => void;
 }) {
-  const update = (patch: Omit<Parameters<typeof lighting.cueUpdate>[0], "songIndex" | "cueId">) =>
-    void lighting.cueUpdate({ songIndex, cueId: cue.id, ...patch });
+  const update = (
+    patch: Omit<
+      Parameters<typeof lighting.cueUpdate>[0],
+      "songIndex" | "cueId"
+    >,
+  ) => void lighting.cueUpdate({ songIndex, cueId: cue.id, ...patch });
 
   // Persist effect changes to the backend immediately.
   const handleEffectType = (t: EffectType) => {
@@ -988,11 +1320,20 @@ function CueSettingsPanel({
     // sync -- only when *newly* turning an effect on (previous type was
     // "none"), so flipping between two rhythmic effects never silently
     // re-syncs a rate the user deliberately freed from tempo.
-    const nextTempoSync = effectType === "none" && effectHasRate(t) ? true : tempoSync;
+    const nextTempoSync =
+      effectType === "none" && effectHasRate(t) ? true : tempoSync;
     if (nextTempoSync !== tempoSync) onTempoSync(nextTempoSync);
     update({
-      effectType: t, effectSourceType, effectSourceId, effectIntensity,
-      tempoSync: nextTempoSync, tempoSubdiv, effectRateHz: effectRate, gradientPreset, gradientColors, blendMode,
+      effectType: t,
+      effectSourceType,
+      effectSourceId,
+      effectIntensity,
+      tempoSync: nextTempoSync,
+      tempoSubdiv,
+      effectRateHz: effectRate,
+      gradientPreset,
+      gradientColors,
+      blendMode,
     });
   };
   const handleEffectSourceType = (t: SourceType) => {
@@ -1041,19 +1382,29 @@ function CueSettingsPanel({
         <div className={labelCls + " mb-2"}>Color</div>
         {usesOwnColor ? (
           <div className="rounded-lg border border-default/30 bg-default/10 px-3 py-2 text-xs text-foreground/50 italic flex items-center justify-between">
-            <span>Color is driven by {EFFECT_META[effectType]?.label || effectType} palette</span>
+            <span>
+              Color is driven by {EFFECT_META[effectType]?.label || effectType}{" "}
+              palette
+            </span>
           </div>
         ) : (
           <HslColorPicker
-            r={cue.colorR} g={cue.colorG} b={cue.colorB}
+            r={cue.colorR}
+            g={cue.colorG}
+            b={cue.colorB}
             onChange={(r, g, b) => update({ colorR: r, colorG: g, colorB: b })}
           />
         )}
       </div>
 
       <Field label="Label">
-        <input type="text" value={cue.label} placeholder="Cue label (optional)"
-          className={inputCls} onChange={(e) => update({ label: e.target.value })} />
+        <input
+          type="text"
+          value={cue.label}
+          placeholder="Cue label (optional)"
+          className={inputCls}
+          onChange={(e) => update({ label: e.target.value })}
+        />
       </Field>
 
       <LabeledSlider
@@ -1081,20 +1432,31 @@ function CueSettingsPanel({
 
       <div className="border-t border-default/20 pt-3">
         <EffectPanel
-          effectType={effectType} effectSourceType={effectSourceType} effectSourceId={effectSourceId}
-          effectIntensity={effectIntensity} effectRate={effectRate}
-          tempoSync={tempoSync} tempoSubdiv={tempoSubdiv}
+          effectType={effectType}
+          effectSourceType={effectSourceType}
+          effectSourceId={effectSourceId}
+          effectIntensity={effectIntensity}
+          effectRate={effectRate}
+          tempoSync={tempoSync}
+          tempoSubdiv={tempoSubdiv}
           gradientPreset={gradientPreset}
           gradientColors={gradientColors}
           blendMode={blendMode}
           showGradient={supportsGradient && hasAddressableFixture}
           hasAddressableFixture={hasAddressableFixture}
-          onType={handleEffectType} onSourceType={handleEffectSourceType} onSourceId={handleEffectSourceId}
-          onIntensity={handleEffectIntensity} onRate={handleEffectRate}
-          onTempoSync={handleTempoSync} onTempoSubdiv={handleTempoSubdiv}
-          onGradientPreset={handleGradientPreset} onGradientColors={handleGradientColors}
+          onType={handleEffectType}
+          onSourceType={handleEffectSourceType}
+          onSourceId={handleEffectSourceId}
+          onIntensity={handleEffectIntensity}
+          onRate={handleEffectRate}
+          onTempoSync={handleTempoSync}
+          onTempoSubdiv={handleTempoSubdiv}
+          onGradientPreset={handleGradientPreset}
+          onGradientColors={handleGradientColors}
           onBlendMode={handleBlendMode}
-          busses={busses} tracks={tracks} bpm={bpm}
+          busses={busses}
+          tracks={tracks}
+          bpm={bpm}
         />
       </div>
     </div>
@@ -1168,26 +1530,23 @@ export function LightSidePanel({
 
   const hasAddressableFixture =
     selection?.type === "cue" || selection?.type === "track"
-      ? fixtures.some((f) => selection.track.fixtureIds.includes(f.id) && f.addressable)
+      ? fixtures.some(
+          (f) => selection.track.fixtureIds.includes(f.id) && f.addressable,
+        )
       : false;
 
-  // Backend-rendered per-LED state from the binary websocket stream (see
-  // liveLevels.ts) -- the preview draws these colors as-is, never
-  // re-simulating an effect or the idle behavior (the backend applies both,
-  // see MainComponent.cpp's publishWebState). Fixtures with no live row yet
-  // (transport stopped with lighting disabled, or before the first frame
-  // arrives) fall back to the editor `previewColors` (cue color / black).
+  // Backend-rendered per-LED state only (binary WS stream from core).
+  // Never re-simulate cues/effects/idle on the frontend — that must match
+  // ResoLight DMX pixel-for-pixel.
   const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
   useEffect(
-    () =>
-      subscribeLiveLedOutputs(() =>
-        setLiveLedOutputs(getLiveLedOutputs()),
-      ),
+    () => subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs())),
     [],
   );
 
   const displayColors = useMemo(() => {
-    const merged: Record<string, PreviewColor> = { ...previewColors };
+    void previewColors; // kept in props for API stability; not used for paint
+    const merged: Record<string, PreviewColor> = {};
     for (const lo of liveLedOutputs) {
       const fixture = fixtures[lo.fixtureIdx];
       if (!fixture) continue;
@@ -1238,8 +1597,11 @@ export function LightSidePanel({
                     {selection.cue.label || selection.cue.id.slice(0, 8)}
                   </span>
                 </div>
-                <button type="button" onClick={onClearSelection}
-                  className="shrink-0 rounded p-0.5 text-foreground/40 hover:text-foreground transition-colors">
+                <button
+                  type="button"
+                  onClick={onClearSelection}
+                  className="shrink-0 rounded p-0.5 text-foreground/40 hover:text-foreground transition-colors"
+                >
                   <X size={13} />
                 </button>
               </div>

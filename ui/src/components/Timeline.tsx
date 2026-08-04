@@ -35,7 +35,6 @@ import type {
   TrackRow,
   WebUiState,
 } from "../lib/types";
-import { computeFixturePreviewColors } from "../lib/lightPreviewColors";
 import {
   ContextMenu,
   ContextMenuDivider,
@@ -1972,35 +1971,16 @@ export function Timeline({
     (lightTracks.length > 0 ||
       songs.some((s) => (s.lightCues ?? []).length > 0));
 
-  // Per-fixture preview colors at the current playhead (drives the live 3D
-  // simulator). Recomputed every clock tick -- cheap for the Phase A rig
-  // sizes, and the r3f scene re-renders from these props.
-  const previewColors = useMemo(() => {
-    if (!lightEnabled)
-      return {} as Record<
+  // Live 3D stage colors come only from the core binary LED stream
+  // (LightSidePanel). Do not re-resolve cues on the frontend.
+  const previewColors = useMemo(
+    () =>
+      ({}) as Record<
         string,
         import("../lib/lightCueInterpolation").LightCueValue
-      >;
-    const song = songs[state.songIndex];
-    const localTime = Math.max(
-      0,
-      playheadAbsoluteSec - (songOffsets[state.songIndex] ?? 0),
-    );
-    return computeFixturePreviewColors(
-      lightFixtures,
-      lightTracks,
-      song?.lightCues ?? [],
-      localTime,
-    );
-  }, [
-    lightEnabled,
-    lightFixtures,
-    lightTracks,
-    songs,
-    state.songIndex,
-    playheadAbsoluteSec,
-    songOffsets,
-  ]);
+      >,
+    [],
+  );
 
   // Derived side-panel selection (after songs, lightTracks, cueSelection are defined)
   const sidePanelSelection: LightSidePanelSelection | null = (() => {

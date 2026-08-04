@@ -10,11 +10,17 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
 import { LevelMeterBar } from "../components/LevelMeterBar";
-import { ResoLightStage3D, type PreviewColor } from "../components/light/ResoLightStage3D";
+import {
+  ResoLightStage3D,
+  type PreviewColor,
+} from "../components/light/ResoLightStage3D";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
-import { computeFixturePreviewColors } from "../lib/lightPreviewColors";
-import { getLiveLedOutputs, subscribeLiveLedOutputs, type LiveLedOutput } from "../lib/liveLevels";
+import {
+  getLiveLedOutputs,
+  subscribeLiveLedOutputs,
+  type LiveLedOutput,
+} from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
 import type {
   AllPeaksResponse,
@@ -181,27 +187,22 @@ function SystemHealthWidget({
 function PlayerLightStagePreview({ state }: { state: WebUiState }) {
   const li = state.lighting;
   const fixtures = li?.fixtures ?? [];
-  const song = state.songIndex >= 0 ? state.songs[state.songIndex] : null;
 
+  // Backend-authoritative per-LED stream only (same resolve path as ResoLight).
+  // No client-side cue re-simulation.
   const [liveLedOutputs, setLiveLedOutputs] = useState<LiveLedOutput[]>([]);
 
   useEffect(
-    () => (li?.enabled ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs())) : undefined),
+    () =>
+      li?.enabled
+        ? subscribeLiveLedOutputs(() => setLiveLedOutputs(getLiveLedOutputs()))
+        : undefined,
     [li?.enabled],
   );
 
-  const previewColors = useMemo(() => {
-    if (!li?.enabled) return {};
-    return computeFixturePreviewColors(
-      fixtures,
-      state.lightTracks,
-      song?.lightCues ?? [],
-      state.playheadSeconds,
-    );
-  }, [li?.enabled, fixtures, state.lightTracks, song?.lightCues, state.playheadSeconds]);
-
   const displayColors = useMemo(() => {
-    const merged: Record<string, PreviewColor> = { ...previewColors };
+    const merged: Record<string, PreviewColor> = {};
+    if (!li?.enabled) return merged;
     for (const lo of liveLedOutputs) {
       const fixture = fixtures[lo.fixtureIdx];
       if (!fixture) continue;
@@ -214,7 +215,7 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
       };
     }
     return merged;
-  }, [previewColors, liveLedOutputs, fixtures]);
+  }, [li?.enabled, liveLedOutputs, fixtures]);
 
   if (fixtures.length === 0) return null;
 
@@ -222,7 +223,9 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
     <div className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary relative mr-2">
       <div className="border-b border-default/20 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-amber-400 flex items-center justify-between z-10 bg-background/60 backdrop-blur-sm">
         <span>Stage Lights</span>
-        <span className="text-[9px] font-mono text-foreground/40">{fixtures.length} fix</span>
+        <span className="text-[9px] font-mono text-foreground/40">
+          {fixtures.length} fix
+        </span>
       </div>
       <div className="flex-1 min-h-0 relative">
         <ResoLightStage3D
@@ -273,68 +276,68 @@ export function PlayerScreen({
     optimisticSongIndex != null ? optimisticSongIndex : state.songIndex;
 
   const hasSongs = state.songs.length > 0;
-  const isMetronomeOn =
-    metronomeOverride ?? (hasSongs ? state.songs.some((s) => s.click) : false);
+  // Project-global metronome (not per-song). Optimistic override until
+  // state.click catches up from the WS snapshot.
+  const isMetronomeOn = metronomeOverride ?? state.click ?? false;
+  useEffect(() => {
+    if (metronomeOverride != null && state.click === metronomeOverride)
+      setMetronomeOverride(null);
+  }, [state.click, metronomeOverride]);
+
+  const patchProjectClick = (partial: {
+    click?: boolean;
+    clickBusId?: string;
+    clickSends?: ClickSendRow[];
+  }) => {
+    const idx = hasSongs ? (state.songIndex >= 0 ? state.songIndex : 0) : -1;
+    const s = hasSongs ? state.songs[idx] : null;
+    void builder.songUpdate({
+      index: idx,
+      name: s?.name ?? "",
+      bpm: s?.bpm ?? 120,
+      mode: s?.mode ?? "wait",
+      tsNum: s?.tsNum ?? 4,
+      tsDen: s?.tsDen ?? 4,
+      click: partial.click ?? state.click ?? false,
+      // Preserve empty clickBusId (Sends Only) — never coerce "" → main.
+      clickBusId:
+        partial.clickBusId !== undefined
+          ? partial.clickBusId
+          : (state.clickBusId ?? s?.clickBusId ?? ""),
+      clickSends: (
+        partial.clickSends ??
+        state.clickSends ??
+        s?.clickSends ??
+        []
+      ).map((cs) => ({
+        busId: cs.busId,
+        gainDb: cs.gainDb,
+        enabled: cs.enabled,
+      })),
+    });
+  };
 
   const toggleMetronome = () => {
     const nextState = !isMetronomeOn;
     setMetronomeOverride(nextState);
-
-    if (hasSongs) {
-      const idx = state.songIndex >= 0 ? state.songIndex : 0;
-      const s = state.songs[idx];
-      if (s) {
-        // Preserve empty clickBusId (Sends Only) — never coerce "" → main.
-        void builder.songUpdate({
-          index: idx,
-          name: s.name,
-          bpm: s.bpm,
-          mode: s.mode,
-          tsNum: s.tsNum,
-          tsDen: s.tsDen,
-          click: nextState,
-          clickBusId: s.clickBusId ?? "",
-          clickSends: (s.clickSends ?? []).map((cs) => ({
-            busId: cs.busId,
-            gainDb: cs.gainDb,
-            enabled: cs.enabled,
-          })),
-        });
-      }
-    }
+    patchProjectClick({ click: nextState });
   };
 
   // Toggle a send on/off for the metronome (aux bus click routing)
   const toggleClickSend = (busId: string) => {
-    if (!hasSongs) return;
-    const idx = state.songIndex >= 0 ? state.songIndex : 0;
-    const s = state.songs[idx];
-    if (!s) return;
-    const existing = (s.clickSends ?? []).find((cs) => cs.busId === busId);
+    const existing = (state.clickSends ?? []).find((cs) => cs.busId === busId);
     let newSends: ClickSendRow[];
     if (existing) {
-      // Toggle enabled flag
-      newSends = (s.clickSends ?? []).map((cs) =>
+      newSends = (state.clickSends ?? []).map((cs) =>
         cs.busId === busId ? { ...cs, enabled: !cs.enabled } : cs,
       );
     } else {
-      // Add new send at unity gain, enabled
       newSends = [
-        ...(s.clickSends ?? []),
+        ...(state.clickSends ?? []),
         { busId, gainDb: 0.0, enabled: true },
       ];
     }
-    void builder.songUpdate({
-      index: idx,
-      name: s.name,
-      bpm: s.bpm,
-      mode: s.mode,
-      tsNum: s.tsNum,
-      tsDen: s.tsDen,
-      click: s.click,
-      clickBusId: s.clickBusId,
-      clickSends: newSends,
-    });
+    patchProjectClick({ clickSends: newSends });
   };
 
   // ONE continuous absolute clock for transport. Song-local is derived from
@@ -382,29 +385,12 @@ export function PlayerScreen({
   const displaySeconds = Math.max(0, displayGlobalSeconds - songOffset);
 
   // Empty string = Sends Only (must not fall back to main via falsy ||).
-  const currentClickBus =
-    hasSongs && state.songIndex >= 0 && state.songs[state.songIndex]
-      ? (state.songs[state.songIndex].clickBusId ?? "")
-      : (state.busses[0]?.id ?? "");
+  const currentClickBus = state.clickBusId ?? "";
   const auxBusses = state.busses.filter((b) => b.isAux);
 
   const changeClickBus = (busId: string) => {
-    if (!hasSongs) return;
-    const idx = state.songIndex >= 0 ? state.songIndex : 0;
-    const s = state.songs[idx];
-    if (!s) return;
-    // busId may be "" for Sends Only.
-    void builder.songUpdate({
-      index: idx,
-      name: s.name,
-      bpm: s.bpm,
-      mode: s.mode,
-      tsNum: s.tsNum,
-      tsDen: s.tsDen,
-      click: s.click,
-      clickBusId: busId,
-      clickSends: s.clickSends ?? [],
-    });
+    // busId may be "" for Sends Only. Project-global.
+    patchProjectClick({ clickBusId: busId });
   };
 
   return (
@@ -606,7 +592,7 @@ export function PlayerScreen({
                     </div>
                   ) : (
                     auxBusses.map((bus) => {
-                      const send = (song?.clickSends ?? []).find(
+                      const send = (state.clickSends ?? []).find(
                         (cs) => cs.busId === bus.id,
                       );
                       const isActive = send?.enabled === true;
