@@ -81,7 +81,7 @@ void regenerateResoLightFixtures(LightingConfig& cfg) {
 } // namespace
 
 void MainComponent::lightingSetConfig(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     if (!parseJson(json, doc) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
@@ -166,7 +166,7 @@ void MainComponent::lightingSetConfig(const std::string& json) {
 void MainComponent::lightingFixtureAdd(const std::string& json) {
     if (!engine.isProjectLoaded())
         return;
-    glz::json_t doc;
+    glz::generic doc;
     const bool hasBody = parseJson(json, doc);
 
     Project& proj = engine.project();
@@ -225,7 +225,7 @@ void MainComponent::lightingFixtureAdd(const std::string& json) {
 }
 
 void MainComponent::lightingFixtureDuplicate(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string fixtureId;
     if (!parseJson(json, doc) || !getString(doc, "fixtureId", fixtureId) || !engine.isProjectLoaded())
         return;
@@ -278,7 +278,7 @@ void MainComponent::lightingFixtureDuplicate(const std::string& json) {
 }
 
 void MainComponent::lightingFixtureRemove(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string fixtureId;
     if (!parseJson(json, doc) || !getString(doc, "fixtureId", fixtureId) || !engine.isProjectLoaded())
         return;
@@ -307,7 +307,7 @@ void MainComponent::lightingFixtureRemove(const std::string& json) {
 }
 
 void MainComponent::lightingFixtureUpdate(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string fixtureId;
     if (!parseJson(json, doc) || !getString(doc, "fixtureId", fixtureId) || !engine.isProjectLoaded())
         return;
@@ -390,7 +390,7 @@ void MainComponent::lightingTrackAdd(const std::string& /*json*/) {
 }
 
 void MainComponent::lightingTrackRemove(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     int index = -1;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
@@ -416,7 +416,7 @@ void MainComponent::lightingTrackRemove(const std::string& json) {
 }
 
 void MainComponent::lightingTrackMove(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     int index = -1, delta = 0;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !getInt(doc, "delta", delta)
         || !engine.isProjectLoaded())
@@ -435,7 +435,7 @@ void MainComponent::lightingTrackMove(const std::string& json) {
 }
 
 void MainComponent::lightingTrackUpdate(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     int index = -1;
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
@@ -465,7 +465,7 @@ void MainComponent::lightingTrackUpdate(const std::string& json) {
 }
 
 void MainComponent::lightingCueAdd(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     int songIndex = -1;
     std::string trackId;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "trackId", trackId)
@@ -523,7 +523,7 @@ void MainComponent::lightingCueAdd(const std::string& json) {
 }
 
 void MainComponent::lightingCueRemove(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     int songIndex = -1;
     std::string cueId;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "cueId", cueId)
@@ -549,7 +549,7 @@ void MainComponent::lightingCueRemove(const std::string& json) {
 }
 
 void MainComponent::lightingCueUpdate(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     int songIndex = -1;
     std::string cueId;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "cueId", cueId)

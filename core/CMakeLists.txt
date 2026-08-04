@@ -60,13 +60,13 @@ endif()
 
 # ---------------------------------------------------------------------------
 # Glaze — reflection-based JSON (project I/O + dynamic command/settings parse).
-# Header-only C++20. Typed DTOs for project.json; glz::json_t for web command
+# Header-only C++20. Typed DTOs for project.json; glz::generic for web command
 # bodies and settings.json.
 # ---------------------------------------------------------------------------
 FetchContent_Declare(
   glaze
   GIT_REPOSITORY https://github.com/stephenberry/glaze.git
-  GIT_TAG        v4.4.2
+  GIT_TAG        v8.0.0
   GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(glaze)

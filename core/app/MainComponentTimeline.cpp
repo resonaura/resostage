@@ -44,7 +44,7 @@ void writePeakOverviewJson(std::ostringstream& o, const PeakOverview* pk) {
 } // namespace
 
 void MainComponent::transportSeek(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     double seconds = 0.0;
     if (!parseJson(json, doc) || !getDouble(doc, "seconds", seconds))
         return;

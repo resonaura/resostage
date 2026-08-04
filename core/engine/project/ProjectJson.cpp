@@ -493,7 +493,13 @@ std::string serializeProjectJson(const Project& project) {
     const auto wire = toWire(project);
     std::string buffer;
     // Pretty JSON for human-readable archives (loader ignores whitespace).
-    const auto ec = glz::write<glz::opts{.prettify = true, .indentation_width = 2}>(wire, buffer);
+    // indentation_width is not on base glz::opts in Glaze v5+; carry it on a
+    // derived options struct (see glaze/core/opts.hpp "OTHER AVAILABLE OPTIONS").
+    struct pretty_opts : glz::opts {
+        bool prettify = true;
+        uint8_t indentation_width = 2;
+    };
+    const auto ec = glz::write<pretty_opts{}>(wire, buffer);
     if (ec) {
         // Should not fail for well-formed wire DTOs; fall back to compact.
         buffer.clear();

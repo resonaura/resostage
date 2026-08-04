@@ -141,7 +141,7 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
 }
 
 void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string name;
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
@@ -161,7 +161,7 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
 }
 
 void MainComponent::settingsSetSampleRate(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     double value = 0.0;
     if (!parseJson(json, doc) || !getDouble(doc, "value", value) || value <= 0.0)
         return;
@@ -226,7 +226,7 @@ void MainComponent::settingsSetSampleRate(const std::string& json) {
 }
 
 void MainComponent::settingsSetBufferSize(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     int value = 0;
     if (!parseJson(json, doc) || !getInt(doc, "value", value) || value <= 0)
         return;
@@ -244,7 +244,7 @@ void MainComponent::settingsSetBufferSize(const std::string& json) {
 }
 
 void MainComponent::settingsSetMidiOutput(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string name;
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
@@ -260,7 +260,7 @@ void MainComponent::settingsSetMidiOutput(const std::string& json) {
 }
 
 void MainComponent::settingsSetMidiInput(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string name;
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
@@ -276,7 +276,7 @@ void MainComponent::settingsSetMidiInput(const std::string& json) {
 }
 
 void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     bool enabled = false;
     if (!parseJson(json, doc) || !getBool(doc, "enabled", enabled))
         return;
@@ -297,7 +297,7 @@ void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
 }
 
 void MainComponent::settingsSetUiRenderEngine(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string engineChoice;
     if (!parseJson(json, doc) || !getString(doc, "engine", engineChoice))
         return;
@@ -320,7 +320,7 @@ void MainComponent::settingsSetUiRenderEngine(const std::string& json) {
 }
 
 void MainComponent::settingsSetOutputChannels(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     if (!parseJson(json, doc))
         return;
     const auto* channels = getArray(doc, "channels");
@@ -353,7 +353,7 @@ void MainComponent::settingsSetOutputChannels(const std::string& json) {
 }
 
 void MainComponent::settingsSetKeybinding(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string action, key;
     if (!parseJson(json, doc) || !getString(doc, "action", action) || !getString(doc, "key", key))
         return;
@@ -367,7 +367,7 @@ void MainComponent::settingsSetKeybinding(const std::string& json) {
 }
 
 void MainComponent::settingsMidiLearn(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string action;
     if (!parseJson(json, doc) || !getString(doc, "action", action))
         return;
@@ -385,7 +385,7 @@ void MainComponent::settingsMidiLearnCancel() {
 }
 
 void MainComponent::settingsMidiClear(const std::string& json) {
-    glz::json_t doc;
+    glz::generic doc;
     std::string action;
     if (!parseJson(json, doc) || !getString(doc, "action", action))
         return;

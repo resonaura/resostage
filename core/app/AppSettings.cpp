@@ -33,7 +33,7 @@ AppSettings loadAppSettings() {
     if (text.empty())
         return settings;
 
-    glz::json_t doc;
+    glz::generic doc;
     if (!parseJson(text, doc))
         return settings; // corrupt file -- start from defaults rather than fail startup
 
