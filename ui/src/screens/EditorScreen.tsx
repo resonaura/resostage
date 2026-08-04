@@ -404,7 +404,8 @@ export function EditorScreen({
       {state.busy && (
         <div className="flex shrink-0 items-center gap-2 rounded-lg bg-warning/15 px-3 py-2 text-sm text-warning">
           <Loader2 size={14} className="animate-spin" />
-          Import in progress&hellip; the app is busy.
+          {/* busy covers save + import + other async work; backend sets statusMessage. */}
+          {state.statusMessage?.trim() || "Working… please wait."}
         </div>
       )}
 
