@@ -11,7 +11,11 @@ import type {
   WebUiState,
 } from "../../lib/types";
 import { ContextMenu, ContextMenuItem } from "../ContextMenu";
-import { LANE_HEIGHT, laneHeightPx, TrackWaveformLane } from "../TrackWaveformLane";
+import {
+  LANE_HEIGHT,
+  laneHeightPx,
+  TrackWaveformLane,
+} from "../TrackWaveformLane";
 import {
   effectUsesOwnColor,
   EFFECT_META,
@@ -48,14 +52,15 @@ function cueKey(songIndex: number, cueId: string): string {
   return `${songIndex}:${cueId}`;
 }
 
-/** Slanted-fade clip path sized to a cue's fadeIn/fadeOut (Cue Block spec). */
+/** Slanted-fade clip path sized to a cue's fadeIn/fadeOut (Cue Block spec).
+ * Fades share the cue duration without overlapping (same clamp as the side
+ * panel sliders / lightCueInterpolation). */
 function cueClipPath(cue: LightCueRow, pxPerSec: number): string | undefined {
-  const fadeInPx =
-    Math.min(cue.durationSeconds / 2, Math.max(0, cue.fadeInSeconds)) *
-    pxPerSec;
-  const fadeOutPx =
-    Math.min(cue.durationSeconds / 2, Math.max(0, cue.fadeOutSeconds)) *
-    pxPerSec;
+  const dur = Math.max(0, cue.durationSeconds);
+  const fi = Math.min(Math.max(0, cue.fadeInSeconds), dur);
+  const fo = Math.min(Math.max(0, cue.fadeOutSeconds), Math.max(0, dur - fi));
+  const fadeInPx = fi * pxPerSec;
+  const fadeOutPx = fo * pxPerSec;
   if (fadeInPx <= 0 && fadeOutPx <= 0) return undefined;
   return `polygon(${fadeInPx}px 0, calc(100% - ${fadeOutPx}px) 0, 100% 100%, 0 100%)`;
 }

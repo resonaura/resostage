@@ -1408,22 +1408,47 @@ function CueSettingsPanel({
         onChange={(v) => update({ intensity: v })}
       />
 
-      <div className="grid grid-cols-2 gap-3">
-        <LabeledSlider
-          label={`Fade In: ${cue.fadeInSeconds.toFixed(1)}s`}
-          value={cue.fadeInSeconds}
-          onChange={(v) => update({ fadeInSeconds: v })}
-          max={Math.min(cue.durationSeconds / 2, 10)}
-          step={0.1}
-        />
-        <LabeledSlider
-          label={`Fade Out: ${cue.fadeOutSeconds.toFixed(1)}s`}
-          value={cue.fadeOutSeconds}
-          onChange={(v) => update({ fadeOutSeconds: v })}
-          max={Math.min(cue.durationSeconds / 2, 10)}
-          step={0.1}
-        />
-      </div>
+      {(() => {
+        // Fades may fill the whole cue but must not overlap:
+        //   fadeIn  ≤ duration − fadeOut  (up to the fade-out start / cue end)
+        //   fadeOut ≤ duration − fadeIn   (remaining after fade-in ends)
+        // Matches resolveLightCueValue in lightCueInterpolation.ts.
+        const dur = Math.max(0, cue.durationSeconds);
+        const fadeIn = Math.max(0, cue.fadeInSeconds);
+        const fadeOut = Math.max(0, cue.fadeOutSeconds);
+        const maxFadeIn = Math.max(0, dur - fadeOut);
+        const maxFadeOut = Math.max(0, dur - fadeIn);
+        // HeroUI Slider needs max > min; keep a tiny range when the other
+        // fade already consumes the full duration (max === 0).
+        const sliderMaxIn = Math.max(maxFadeIn, 0.01);
+        const sliderMaxOut = Math.max(maxFadeOut, 0.01);
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            <LabeledSlider
+              label={`Fade In: ${fadeIn.toFixed(1)}s`}
+              value={Math.min(fadeIn, sliderMaxIn)}
+              onChange={(v) =>
+                update({
+                  fadeInSeconds: Math.min(Math.max(0, v), maxFadeIn),
+                })
+              }
+              max={sliderMaxIn}
+              step={0.1}
+            />
+            <LabeledSlider
+              label={`Fade Out: ${fadeOut.toFixed(1)}s`}
+              value={Math.min(fadeOut, sliderMaxOut)}
+              onChange={(v) =>
+                update({
+                  fadeOutSeconds: Math.min(Math.max(0, v), maxFadeOut),
+                })
+              }
+              max={sliderMaxOut}
+              step={0.1}
+            />
+          </div>
+        );
+      })()}
 
       <div className="border-t border-default/20 pt-3">
         <EffectPanel

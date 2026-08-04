@@ -1,0 +1,182 @@
+import { describe, expect, it } from "vitest";
+import {
+  computeRegionDragGeom,
+  regionDraftMatchesCommitted,
+  regionEdgeCursor,
+  regionEdgeMode,
+  type RegionDragSession,
+  type RegionGeom,
+} from "./regionDrag";
+import type { RegionRow } from "../../lib/types";
+
+const session = (
+  partial: Partial<RegionDragSession> & Pick<RegionDragSession, "mode">,
+): RegionDragSession => ({
+  key: "0:r1",
+  startX: 100,
+  startY: 50,
+  songIndex: 0,
+  regionId: "r1",
+  origStart: 10,
+  origSourceOffset: 2,
+  origDuration: 8,
+  origFadeIn: 0,
+  origFadeOut: 0,
+  origFadeInCurve: 0,
+  origFadeOutCurve: 0,
+  origLoop: false,
+  origLoopLength: 0,
+  maxEnd: 60,
+  maxSourceDur: 30,
+  lastGeom: {
+    start: 10,
+    sourceOffset: 2,
+    duration: 8,
+    fadeIn: 0,
+    fadeOut: 0,
+    fadeInCurve: 0,
+    fadeOutCurve: 0,
+    loop: false,
+  },
+  originRowIndex: 1,
+  targetRowIndex: 1,
+  originTrackId: "trk_a",
+  ...partial,
+});
+
+const ctx = {
+  pxPerSec: 10,
+  verticalZoom: 1,
+  snapToGrid: false,
+  rows: [
+    { name: "A", color: "#fff", headerIndex: 0 },
+    { name: "B", color: "#fff", headerIndex: 1 },
+    { name: "C", color: "#fff", headerIndex: 2 },
+  ],
+  tracks: [
+    {
+      id: "trk_a",
+      name: "A",
+      busId: "m",
+      gainDb: 0,
+      pan: 0,
+      mute: false,
+      solo: false,
+      sends: [],
+      peakDb: -100,
+    },
+    {
+      id: "trk_b",
+      name: "B",
+      busId: "m",
+      gainDb: 0,
+      pan: 0,
+      mute: false,
+      solo: false,
+      sends: [],
+      peakDb: -100,
+    },
+    {
+      id: "trk_c",
+      name: "C",
+      busId: "m",
+      gainDb: 0,
+      pan: 0,
+      mute: false,
+      solo: false,
+      sends: [],
+      peakDb: -100,
+    },
+  ],
+  songs: [
+    {
+      name: "S",
+      bpm: 120,
+      mode: "auto" as const,
+      tsNum: 4,
+      tsDen: 4,
+      click: false,
+      clickBusId: "m",
+      clickSends: [],
+      tracks: [],
+      events: [],
+    },
+  ],
+};
+
+describe("regionEdgeMode", () => {
+  it("maps left edge top to fadeIn and bottom to trimStart", () => {
+    expect(regionEdgeMode(2, 5, 200, 40)).toBe("fadeIn");
+    expect(regionEdgeMode(2, 20, 200, 40)).toBe("trimStart");
+  });
+
+  it("maps right edge zones", () => {
+    expect(regionEdgeMode(195, 5, 200, 40)).toBe("fadeOut");
+    expect(regionEdgeMode(195, 20, 200, 40)).toBe("loopTrim");
+    expect(regionEdgeMode(195, 35, 200, 40)).toBe("trimEnd");
+  });
+
+  it("center is move with grab cursor", () => {
+    expect(regionEdgeMode(100, 20, 200, 40)).toBe("move");
+    expect(regionEdgeCursor(100, 20, 200, 40)).toBe("grab");
+  });
+});
+
+describe("computeRegionDragGeom", () => {
+  it("moves start by horizontal delta", () => {
+    const rd = session({ mode: "move" });
+    // +20px at 10 px/s = +2s
+    const g = computeRegionDragGeom(rd, ctx, 120, 50);
+    expect(g.start).toBeCloseTo(12);
+    // Same lane → keep origin track id
+    expect(g.trackId).toBe("trk_a");
+  });
+
+  it("crosses tracks on vertical travel", () => {
+    const rd = session({
+      mode: "move",
+      originRowIndex: 1,
+      originTrackId: "trk_b",
+    });
+    // LANE_HEIGHT * 1 at zoom 1 = 56px → one row down
+    const g = computeRegionDragGeom(rd, ctx, 100, 50 + 56);
+    expect(rd.targetRowIndex).toBe(2);
+    expect(g.trackId).toBe("trk_c");
+  });
+
+  it("trims end without looping", () => {
+    const rd = session({ mode: "trimEnd" });
+    const g = computeRegionDragGeom(rd, ctx, 100 + 30, 50); // +3s
+    expect(g.duration).toBeCloseTo(11);
+    expect(g.loop).toBe(false);
+  });
+});
+
+describe("regionDraftMatchesCommitted", () => {
+  it("matches when geometry agrees", () => {
+    const r = {
+      id: "r1",
+      trackId: "t",
+      file: "a.wav",
+      startSeconds: 1,
+      sourceOffsetSeconds: 0,
+      durationSeconds: 4,
+      gainDb: 0,
+      fadeInSeconds: 0.1,
+      fadeOutSeconds: 0,
+    } as RegionRow;
+    const d: RegionGeom = {
+      start: 1,
+      sourceOffset: 0,
+      duration: 4,
+      fadeIn: 0.1,
+      fadeOut: 0,
+      fadeInCurve: 0,
+      fadeOutCurve: 0,
+      loop: false,
+      trackId: "t",
+    };
+    expect(regionDraftMatchesCommitted(r, d)).toBe(true);
+    expect(regionDraftMatchesCommitted(r, { ...d, start: 2 })).toBe(false);
+  });
+});
