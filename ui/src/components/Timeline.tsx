@@ -15,7 +15,14 @@ import {
   Trash2,
   Undo2,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   builder,
   lighting,
@@ -23,6 +30,7 @@ import {
   timelineHistory,
   transport,
 } from "../lib/api";
+import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead, useLiveValue } from "../lib/optimistic";
 import { isPositionVisible } from "../lib/timelineVisibility";
 import type {
@@ -488,7 +496,7 @@ function MiniSlider({
 // Density follows verticalZoom so the left rail stays pixel-aligned with
 // waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ vol + taller meter).
 
-function TrackHeaderControl({
+const TrackHeaderControl = memo(function TrackHeaderControl({
   track,
   index,
   color,
@@ -570,6 +578,12 @@ function TrackHeaderControl({
               db={track.peakDb ?? -100}
               dbL={track.peakDbL ?? track.peakDb ?? -100}
               dbR={track.peakDbR ?? track.peakDb ?? -100}
+              getLiveDbL={() =>
+                getLiveLevels().tracks[index]?.peakDbL ?? -144
+              }
+              getLiveDbR={() =>
+                getLiveLevels().tracks[index]?.peakDbR ?? -144
+              }
               accent={color}
               vertical
               showValue={false}
@@ -662,7 +676,23 @@ function TrackHeaderControl({
       )}
     </div>
   );
-}
+},
+// Peak levels now animate off the live binary telemetry (getLiveDb* above),
+// not this prop -- so a `track` update that only bumps peakDb/peakDbL/peakDbR
+// (i.e. every WS frame during playback) shouldn't force a re-render of the
+// whole header row. Compare only the fields that actually affect output.
+(prev, next) =>
+  prev.index === next.index &&
+  prev.color === next.color &&
+  prev.verticalZoom === next.verticalZoom &&
+  prev.anySolo === next.anySolo &&
+  prev.track.id === next.track.id &&
+  prev.track.name === next.track.name &&
+  prev.track.mute === next.track.mute &&
+  prev.track.solo === next.track.solo &&
+  prev.track.gainDb === next.track.gainDb &&
+  prev.track.pan === next.track.pan,
+);
 
 // ------- Dynamic Ruler Tick Configuration -------------------------------
 
@@ -1240,7 +1270,7 @@ function songDurationSeconds(
 
 // Read-only sidebar row for a track that only exists in a non-staged song --
 // no mixer controls, since there's no staged track index to drive them with.
-function TimelineRowLabel({
+const TimelineRowLabel = memo(function TimelineRowLabel({
   name,
   color,
   verticalZoom,
@@ -1272,7 +1302,7 @@ function TimelineRowLabel({
       </span>
     </div>
   );
-}
+});
 
 export function Timeline({
   state,
@@ -3760,6 +3790,22 @@ export function Timeline({
                                 0,
                                 regViewEnd - regViewStart,
                               );
+
+                              // Region box sits fully outside the horizontal
+                              // viewport (song segment above is only culled
+                              // as a whole, not per-region) -- skip building
+                              // its drag handles/JSX entirely. Never skip the
+                              // region actively being dragged: an edge-of-
+                              // viewport auto-scroll during drag must not
+                              // unmount the element mid-gesture (it holds
+                              // pointer capture).
+                              if (
+                                regViewEnd <= regViewStart &&
+                                regionDragRef.current?.key !==
+                                  thisRegionSelKey
+                              ) {
+                                return null;
+                              }
 
                               const maxSourceDur = Math.max(
                                 0.05,
