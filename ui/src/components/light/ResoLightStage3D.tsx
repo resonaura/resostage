@@ -175,10 +175,25 @@ function FrameAllHelper({
   onFramed?: () => void;
 }) {
   const { camera, controls } = useThree();
-  const framedOnce = useRef(false);
+  // `run` always reads the LATEST fixtures via this ref, regardless of how
+  // rarely the effect below re-subscribes -- see fixtureSetKey.
+  const fixturesRef = useRef(fixtures);
+  fixturesRef.current = fixtures;
+
+  // Stable identity for the effect: only the fixture *set* (which ids
+  // exist), not the array reference. The backend resends the whole fixture
+  // roster fresh on every ~30Hz telemetry tick regardless of whether
+  // anything actually changed ("lighting ... always shipped" in
+  // WebServer.cpp), so keying this effect on the raw `fixtures` prop
+  // re-ran it -- and re-snapped the camera to Frame All -- on nearly every
+  // frame, fighting any manual OrbitControls drag ("график поворачивается к
+  // Frame All при попытке покрутить"). Only re-auto-frame when fixtures are
+  // actually added/removed, per the original intent below.
+  const fixtureSetKey = fixtures.map((f) => f.id).join("\n");
 
   useEffect(() => {
-    const run = () => frameCameraToFixtures(camera, controls, fixtures);
+    const run = () =>
+      frameCameraToFixtures(camera, controls, fixturesRef.current);
     triggerRef.current = run;
     if (!autoFrame)
       return () => {
@@ -192,7 +207,6 @@ function FrameAllHelper({
       raf2 = requestAnimationFrame(() => {
         if (cancelled) return;
         run();
-        framedOnce.current = true;
         onFramed?.();
       });
     });
@@ -202,10 +216,10 @@ function FrameAllHelper({
       cancelAnimationFrame(raf2);
       triggerRef.current = null;
     };
-    // Only re-auto-frame when fixture *count* or ids change significantly is
-    // intentional via remount; deps stay camera/controls/fixtures for the
-    // triggerRef callback currency.
-  }, [fixtures, camera, controls, triggerRef, autoFrame, onFramed]);
+    // Only re-auto-frame when fixture *count* or ids change significantly --
+    // deps intentionally key off fixtureSetKey, not the fixtures array
+    // reference itself.
+  }, [fixtureSetKey, camera, controls, triggerRef, autoFrame, onFramed]);
 
   return null;
 }
