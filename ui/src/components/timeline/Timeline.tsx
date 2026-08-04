@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { transport } from "../../lib/api";
-import { useContinuousPlayhead } from "../../lib/optimistic";
+import {
+  useContinuousPlayhead,
+  type CycleWrapRange,
+} from "../../lib/optimistic";
 import { isPositionVisible } from "../../lib/timelineVisibility";
 import type {
   AllPeaksResponse,
@@ -132,6 +135,9 @@ export function Timeline({
   // `zoomActive` FREEZES the clock while a zoom gesture is in progress so the
   // playhead marker holds still ("автостоп времени при зуме"); it resumes
   // (and softly re-corrects toward the engine) the moment the zoom settles.
+  // cycleWrapRef is filled after song layout (below) each render — rAF reads
+  // it live so short loops wrap on the SPA without waiting for WS.
+  const cycleWrapRef = useRef<CycleWrapRange | null>(null);
   const [playheadAbsoluteSec, setPlayheadAbsoluteSec, getLivePlayheadAbsolute] =
     useContinuousPlayhead(
       state.globalPlayheadSeconds,
@@ -139,6 +145,7 @@ export function Timeline({
       state.projectName,
       zoomActive,
       dragging,
+      cycleWrapRef,
     );
   // Live clock getter for the rAF follow/marker loop -- never go through the
   // React-state mirror (playheadAbsoluteSec), which can lag a commit behind
@@ -580,8 +587,26 @@ export function Timeline({
     commitDrag: commitCycleDrag,
   } = useCycleState(activeSongIndex, cycleSongLen, state.cycle);
 
-  // Cycle loop/skip seeks are applied by AudioEngine (project-authoritative)
-  // so every client hears the same loop without SPA transport.seek races.
+  // Display wrap for active loop cycle (not skip). Outside the zone the
+  // playhead is free — only hi→lo crossings from inside mirror the engine.
+  {
+    const sc = state.cycle;
+    let wrap: CycleWrapRange | null = null;
+    if (
+      sc?.active &&
+      !sc.skip &&
+      typeof sc.songIndex === "number" &&
+      sc.songIndex >= 0
+    ) {
+      const lo = Math.min(sc.leftSec, sc.rightSec);
+      const hi = Math.max(sc.leftSec, sc.rightSec);
+      if (hi - lo >= 0.05) {
+        const off = songOffsets[sc.songIndex] ?? 0;
+        wrap = { loAbs: off + lo, hiAbs: off + hi };
+      }
+    }
+    cycleWrapRef.current = wrap;
+  }
 
   // Catch-follow when transport starts playing.
   const wasPlayingRef = useRef(state.playing);

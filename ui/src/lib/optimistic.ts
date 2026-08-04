@@ -34,6 +34,17 @@ export function useLiveValue(
 }
 
 /**
+ * Absolute project-second bounds of an active loop cycle (not skip).
+ * Written by Timeline each render; read LIVE by the rAF loop.
+ * Playhead outside [loAbs, hiAbs) is intentional and left alone — only
+ * crossings of hiAbs from *inside* the zone wrap back to loAbs.
+ */
+export type CycleWrapRange = {
+  loAbs: number;
+  hiAbs: number;
+};
+
+/**
  * Single continuous project playhead.
  *
  * - Advances at ~60fps while `playing` (does not wait for ~30Hz WS frames).
@@ -56,6 +67,10 @@ export function useLiveValue(
  *   transport keeps advancing on its own, so it routinely drifts to within
  *   the old 0.35s proximity threshold of wherever the user is mid-drag
  *   purely by coincidence, which isn't the same as "the seek landed".
+ * - `cycleWrapRef` (optional): when set to an active loop range, the local
+ *   clock wraps at the right locator *only if* it was already inside the
+ *   zone (matches AudioEngine; playhead outside the cycle is left alone).
+ *   Needed because short cycles (<0.5s) never trip the hard server snap.
  */
 export function useContinuousPlayhead(
   serverAbsoluteSeconds: number,
@@ -63,6 +78,7 @@ export function useContinuousPlayhead(
   resetKey?: unknown,
   frozen = false,
   draggingRef?: { current: boolean },
+  cycleWrapRef?: { current: CycleWrapRange | null },
 ): [
   absoluteSeconds: number,
   seekAbsolute: (v: number, lockMs?: number) => void,
@@ -120,8 +136,12 @@ export function useContinuousPlayhead(
       lastFrameTs.current = null;
       return;
     }
-    // Hard snap only on large discontinuities (seek we missed, stall, jump, project re-open).
-    if (Math.abs(serverAbsoluteSeconds - localRef.current) > 0.5) {
+    const delta = serverAbsoluteSeconds - localRef.current;
+    // Large discontinuity (seek/stall/project reopen), OR a backward jump
+    // while playing (cycle wrap is often << 0.5s for a single beat, so the
+    // old 0.5s threshold never fired and the SPA needle kept walking past
+    // the right locator until soft-correct slowly crawled back).
+    if (Math.abs(delta) > 0.5 || delta < -0.06) {
       localRef.current = serverAbsoluteSeconds;
       setAbsolute(serverAbsoluteSeconds);
       lastFrameTs.current = null;
@@ -162,8 +182,31 @@ export function useContinuousPlayhead(
           Math.min(maxAdjust, err * 2.0 * dt),
         );
 
-        let next = localRef.current + dt + adjust;
+        const prevPos = localRef.current;
+        let next = prevPos + dt + adjust;
         if (next < 0) next = 0;
+
+        // Local cycle wrap (display parity with AudioEngine). Only when the
+        // needle was *inside* the loop and crosses the right locator —
+        // playhead sitting before/after the cycle is intentional and stays.
+        const wrap = cycleWrapRef?.current;
+        if (wrap) {
+          const span = wrap.hiAbs - wrap.loAbs;
+          if (
+            span >= 0.05 &&
+            prevPos >= wrap.loAbs &&
+            prevPos < wrap.hiAbs &&
+            next >= wrap.hiAbs
+          ) {
+            // Carry overshoot so multi-frame skips on tiny cycles stay accurate.
+            next = wrap.loAbs + (next - wrap.hiAbs);
+            if (next >= wrap.hiAbs) {
+              next = wrap.loAbs + ((next - wrap.loAbs) % span);
+            }
+            if (next < wrap.loAbs) next = wrap.loAbs;
+          }
+        }
+
         localRef.current = next;
         setAbsolute(next);
       }
@@ -171,7 +214,7 @@ export function useContinuousPlayhead(
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, frozen, resetKey, draggingRef]);
+  }, [playing, frozen, resetKey, draggingRef, cycleWrapRef]);
 
   const seekAbsolute = (v: number, lockMs = SEEK_LOCK_MS) => {
     const clamped = Math.max(0, v);
