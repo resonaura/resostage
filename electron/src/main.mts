@@ -29,6 +29,44 @@ import {
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createRequire } from "node:module";
+
+// koffi loads dist/MenuFlash.dylib (native/mac/MenuFlash.m). Optional —
+// if the dylib is missing we simply skip visual feedback.
+const require = createRequire(import.meta.url);
+type KoffiLib = {
+  load: (p: string) => {
+    func: (
+      name: string,
+      ret: string,
+      args: string[],
+    ) => (title: string) => void;
+  };
+};
+let FlashMenuTitleNative: ((title: string) => void) | null = null;
+let FlashMenuLoadAttempted = false;
+function EnsureNativeMenuFlash(): ((title: string) => void) | null {
+  if (FlashMenuTitleNative) return FlashMenuTitleNative;
+  if (FlashMenuLoadAttempted) return null;
+  FlashMenuLoadAttempted = true;
+  if (process.platform !== "darwin") return null;
+  const LibPath = path.join(import.meta.dirname, "MenuFlash.dylib");
+  if (!existsSync(LibPath)) {
+    console.warn("MenuFlash: dylib missing at", LibPath);
+    return null;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Koffi = require("koffi") as KoffiLib;
+    const Lib = Koffi.load(LibPath);
+    FlashMenuTitleNative = Lib.func("FlashMenuTitle", "void", ["str"]);
+    console.log("MenuFlash: loaded", LibPath);
+    return FlashMenuTitleNative;
+  } catch (err) {
+    console.warn("MenuFlash unavailable:", err);
+    return null;
+  }
+}
 
 const { TouchBarButton } = TouchBar;
 
@@ -158,32 +196,83 @@ let menuState: MenuState = {
 };
 let lastTouchBarTab: string | null = null;
 
-// Briefly flashes the menu bar entry for the most recently fired action --
-// mirrors the pre-Electron AppKit MacMenuBar flash: the TOP-LEVEL menu title
-// that owns the action is highlighted (visible without opening the menu),
-// and the item itself gets a checkmark + checked state while open.
-// Sources: hotkey, MIDI, native menu click, or SPA POST via lastActionNonce.
-let flashingActionId: string | null = null;
-let flashTimer: ReturnType<typeof setTimeout> | null = null;
-const FLASH_MS = 500;
+// Native macOS menu-bar flash (AppKit key-equivalent paint of the top-level
+// title — same look as a real keyboard shortcut). Sources: hotkey, MIDI,
+// native menu click, SPA lastActionNonce.
+//
+// Menu.setApplicationMenu() tears down the NSMenu hierarchy and cancels an
+// in-flight flash, so: (1) never rebuild the menu for lastAction-only
+// updates, and (2) always fire the flash on the next macrotask.
+let lastFlashedAction = "";
+let lastFlashAt = 0;
+let pendingFlashTitle: string | null = null;
+let pendingFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+function sectionTitleForAction(action: string): string | null {
+  if (!menuModel) return null;
+  for (const section of menuModel.menus ?? []) {
+    if ((section.items ?? []).some((it) => it.actionId === action))
+      return section.title;
+  }
+  return null;
+}
+
+/** Prefer the live Electron menu label (matches NSApp.mainMenu titles). */
+function resolveLiveMenuTitle(modelTitle: string): string {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return modelTitle;
+  const exact = menu.items.find((it) => it.label === modelTitle);
+  if (exact?.label) return exact.label;
+  const ci = menu.items.find(
+    (it) =>
+      typeof it.label === "string" &&
+      it.label.toLowerCase() === modelTitle.toLowerCase(),
+  );
+  if (ci?.label) return ci.label;
+  // App menu is often the process name while the model says "ResoStage".
+  if (modelTitle === "ResoStage" && menu.items[0]?.label)
+    return menu.items[0].label;
+  return modelTitle;
+}
+
+function scheduleMenuFlash(title: string): void {
+  pendingFlashTitle = title;
+  if (pendingFlashTimer) clearTimeout(pendingFlashTimer);
+  // Next macrotask: after any setApplicationMenu from this turn has settled.
+  pendingFlashTimer = setTimeout(() => {
+    pendingFlashTimer = null;
+    const t = pendingFlashTitle;
+    pendingFlashTitle = null;
+    if (!t) return;
+    const live = resolveLiveMenuTitle(t);
+    const flash = EnsureNativeMenuFlash();
+    if (!flash) {
+      console.warn("MenuFlash: native dylib not loaded");
+      return;
+    }
+    flash(live);
+  }, 16);
+}
 
 function flashMenuAction(action: string): void {
   if (!action) return;
   // open_recent:… etc. never appear as a single menu item id — skip noise.
   if (action.includes(":")) return;
-  flashingActionId = action;
-  if (flashTimer) clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => {
-    flashingActionId = null;
-    flashTimer = null;
-    refreshMenu();
-  }, FLASH_MS);
-  refreshMenu();
+  // Debounce identical back-to-back flashes (menu click + WS lastAction).
+  const now = Date.now();
+  if (action === lastFlashedAction && now - lastFlashAt < 250) return;
+  lastFlashedAction = action;
+  lastFlashAt = now;
+
+  const title = sectionTitleForAction(action);
+  if (!title) return;
+  scheduleMenuFlash(title);
 }
 
 async function postAction(action: string): Promise<boolean> {
-  // Immediate flash for menu-click / shell-originated actions (don't wait
-  // for the SPA's WebSocket round-trip of lastActionNonce).
+  // Flash for menu-click / shell-originated actions (don't wait for the
+  // SPA's WebSocket round-trip of lastActionNonce). Deferred so it lands
+  // after any concurrent refreshMenu from menu-state.
   flashMenuAction(action);
   try {
     const res = await fetch(`${BACKEND}/api/v1/action`, {
@@ -264,25 +353,6 @@ function keybindingFor(action: string): string {
   return menuModel?.keybindings?.[action] ?? "";
 }
 
-// Item label + checked state while `action` is flashing.
-function flashItemProps(
-  action: string,
-  title: string | undefined,
-): { label: string; checked?: boolean; type?: "checkbox" } {
-  const base = title ?? "";
-  if (action === flashingActionId) {
-    // Checkbox type is the only Electron-native way to highlight a leaf
-    // item when its submenu happens to be open; top-level flash is handled
-    // in buildMenu via the section title.
-    return { label: `✓ ${base}`, type: "checkbox", checked: true };
-  }
-  return { label: base };
-}
-
-function sectionOwnsAction(section: MenuSectionModel, action: string): boolean {
-  return (section.items ?? []).some((it) => it.actionId === action);
-}
-
 function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
   if (item.separator) return { type: "separator" };
   if (item.kind === "open-recent") {
@@ -314,7 +384,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
     // Routed through the backend so the unsaved-changes prompt runs (the
     // JUCE process performs the actual quit and then kills this shell).
     return {
-      ...flashItemProps(action, item.title),
+      label: item.title ?? "",
       accelerator: acceleratorFor(item.key),
       click: () => postAction("quit"),
     };
@@ -327,7 +397,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
     // menu clicks via POST /api/v1/action.
     const binding = keybindingFor(action);
     return {
-      ...flashItemProps(action, item.title),
+      label: item.title ?? "",
       accelerator: acceleratorFor(binding),
       registerAccelerator: false,
       enabled:
@@ -342,7 +412,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
   // Fixed app shortcuts (New / Open / Save / Save As / Minimize …): safe to
   // register as real accelerators -- none are bare typing characters.
   return {
-    ...flashItemProps(action, item.title),
+    label: item.title ?? "",
     accelerator: acceleratorFor(item.key),
     click: () => postAction(action),
   };
@@ -350,16 +420,10 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
 
 function buildMenu(): Menu | null {
   if (!menuModel) return null;
-  const sections = (menuModel.menus ?? []).map((section) => {
-    // Top-level title flash is the only feedback visible in the menu bar
-    // itself (leaf checkmarks only show when the submenu is open).
-    const flashing =
-      flashingActionId != null && sectionOwnsAction(section, flashingActionId);
-    return {
-      label: flashing ? `● ${section.title}` : section.title,
-      submenu: (section.items ?? []).map((it) => buildMenuItem(it)),
-    };
-  });
+  const sections = (menuModel.menus ?? []).map((section) => ({
+    label: section.title,
+    submenu: (section.items ?? []).map((it) => buildMenuItem(it)),
+  }));
   return Menu.buildFromTemplate(sections);
 }
 
@@ -453,13 +517,27 @@ function createWindow(): void {
 
 ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
   if (s && typeof s === "object") {
-    const prevNonce = menuState.lastActionNonce;
+    const prev = menuState;
+    const prevNonce = prev.lastActionNonce;
     menuState = { ...menuState, ...s };
     if (mainWindow) {
       mainWindow.setTitle(
         s.projectName ? `ResoStage — ${s.projectName}` : "ResoStage",
       );
     }
+
+    // Rebuild the NSMenu only when something that *appears* in it changes.
+    // lastAction/nonce alone must NOT call setApplicationMenu — that tears
+    // down the menu hierarchy and kills the native bar flash mid-paint.
+    const needsMenuRebuild =
+      prev.canUndo !== menuState.canUndo ||
+      prev.canRedo !== menuState.canRedo ||
+      prev.undoLabel !== menuState.undoLabel ||
+      prev.redoLabel !== menuState.redoLabel ||
+      JSON.stringify(prev.recentProjects) !==
+        JSON.stringify(menuState.recentProjects);
+    if (needsMenuRebuild) refreshMenu();
+
     if (
       menuState.lastActionNonce !== prevNonce &&
       menuState.lastActionNonce !== 0 &&
@@ -467,10 +545,8 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
     ) {
       // SPA / MIDI / backend-originated actions (hotkeys that never hit
       // postAction() in this process). Menu-click paths already flashed
-      // optimistically in postAction — re-arming just restarts the timer.
+      // optimistically in postAction — debounced inside flashMenuAction.
       flashMenuAction(menuState.lastAction);
-    } else {
-      refreshMenu();
     }
     refreshTouchBar();
   }
