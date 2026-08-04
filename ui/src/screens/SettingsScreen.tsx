@@ -1,6 +1,6 @@
 import { Card, Tabs } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, Monitor, Music3, SlidersHorizontal } from "lucide-react";
+import { Activity, Music3, SlidersHorizontal } from "lucide-react";
 import { FontIcon } from "../components/FontIcon";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
@@ -156,21 +156,23 @@ function BindingRow({
       window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [listening, action]);
 
-  // Flash this row's dot only when IT was the action that just fired (native
-  // hotkey, MIDI, or menu bar -- see WebUiState.lastAction doc comment).
-  // Re-triggers on every nonce bump for this action, including repeats.
+  // Flash only on a *new* nonce for this action — not when Settings mounts
+  // with a stale lastAction (e.g. play) still in state.
   const [dotVisible, setDotVisible] = useState(false);
+  const prevNonce = useRef(lastActionNonce);
   const dotTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (lastActionNonce === 0 || lastAction !== action) return;
+    const prev = prevNonce.current;
+    prevNonce.current = lastActionNonce;
+    if (lastActionNonce === 0 || lastActionNonce === prev) return;
+    if (lastAction !== action) return;
     setDotVisible(true);
     if (dotTimer.current) clearTimeout(dotTimer.current);
     dotTimer.current = setTimeout(() => setDotVisible(false), 500);
     return () => {
       if (dotTimer.current) clearTimeout(dotTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastActionNonce]);
+  }, [lastActionNonce, lastAction, action]);
 
   const midiBound = Boolean(midi?.trigger);
 
@@ -187,7 +189,7 @@ function BindingRow({
       <div className="flex flex-wrap items-center gap-1.5">
         <button
           onClick={() => setListening(true)}
-          className={`rounded-lg border px-3 py-1 text-sm tabular-nums ${
+          className={`min-w-[7.5rem] rounded-lg border px-3 py-1 text-sm tabular-nums ${
             listening
               ? "border-accent bg-accent/10 text-accent"
               : "border-default/60 bg-default/20 hover:bg-default/30"
@@ -201,7 +203,7 @@ function BindingRow({
             if (learning) void settingsApi.midiLearnCancel();
             else void settingsApi.midiLearn(action);
           }}
-          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm ${
+          className={`flex min-w-[7.5rem] items-center justify-center gap-1.5 rounded-lg border px-3 py-1 text-sm ${
             learning
               ? "border-accent bg-accent/10 text-accent"
               : "border-default/60 bg-default/20 hover:bg-default/30"
@@ -216,7 +218,7 @@ function BindingRow({
           }
         >
           <FontIcon name="midiplug" size={13} />
-          {learning ? "Listening…" : midiBound ? formatMidi(midi) : null}
+          {learning ? "Listening…" : midiBound ? formatMidi(midi) : "MIDI"}
         </button>
         {midiBound && !learning && (
           <button
@@ -239,7 +241,13 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
   },
   {
     title: "Modes",
-    actions: ["mode_player", "mode_mixer", "mode_editor", "mode_light", "mode_settings"],
+    actions: [
+      "mode_player",
+      "mode_mixer",
+      "mode_editor",
+      "mode_light",
+      "mode_settings",
+    ],
   },
   {
     title: "Song sections",
@@ -256,13 +264,16 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
 ];
 
 // ─── Tab definitions ──────────────────────────────────────────────────────
-type SettingsTab = "audio" | "midi" | "health" | "ui";
+type SettingsTab = "audio" | "midi" | "health";
 
-const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
+const SETTINGS_TABS: {
+  id: SettingsTab;
+  label: string;
+  icon: typeof SlidersHorizontal;
+}[] = [
   { id: "audio", label: "Audio", icon: SlidersHorizontal },
   { id: "midi", label: "MIDI", icon: Music3 },
   { id: "health", label: "Health", icon: Activity },
-  { id: "ui", label: "UI Engine", icon: Monitor },
 ];
 
 // ─── Section wrapper ──────────────────────────────────────────────────────
@@ -322,9 +333,8 @@ function AudioTab({ state }: { state: WebUiState }) {
     <div className="flex flex-col gap-4">
       {devicesEmpty && (
         <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-          Waiting for audio/MIDI device list from the app… If this stays
-          empty, restart ResoStage (the native backend on :2899 must be
-          running).
+          Waiting for audio/MIDI device list from the app… If this stays empty,
+          restart ResoStage (the native backend on :2899 must be running).
         </div>
       )}
 
@@ -475,9 +485,7 @@ function MidiTab({ state }: { state: WebUiState }) {
           <div className="flex flex-col gap-1.5">
             <button
               onClick={() =>
-                void settingsApi.setMidiVirtualPort(
-                  !s.virtualMidiPortEnabled,
-                )
+                void settingsApi.setMidiVirtualPort(!s.virtualMidiPortEnabled)
               }
               className={`self-start rounded-lg border px-3 py-1.5 text-sm ${
                 s.virtualMidiPortEnabled
@@ -560,10 +568,7 @@ function HealthTab({ state }: { state: WebUiState }) {
           />
           <Stat label="Free system RAM" value={formatBytes(h.freeBytes)} />
           <Stat label="Underruns" value={String(h.underrunCount)} />
-          <Stat
-            label="Audio callbacks"
-            value={String(h.audioCallbackCount)}
-          />
+          <Stat label="Audio callbacks" value={String(h.audioCallbackCount)} />
           <Stat label="Web clients" value={String(h.webClientCount)} />
         </div>
         {(h.processes?.length ?? 0) > 0 && (
@@ -606,91 +611,6 @@ function HealthTab({ state }: { state: WebUiState }) {
   );
 }
 
-// ─── UI Tab ───────────────────────────────────────────────────────────────
-function UiTab({ state }: { state: WebUiState }) {
-  const currentEngine = state.settings.uiRenderEngine || "browser";
-  const [selected, setSelected] = useState(currentEngine);
-
-  useEffect(() => {
-    setSelected(currentEngine);
-  }, [currentEngine]);
-
-  const handleSelect = (engine: "browser" | "electron") => {
-    if (engine === selected) return;
-    setSelected(engine);
-    void settingsApi.setUiRenderEngine(engine);
-  };
-
-  const engineCards: {
-    id: "browser" | "electron";
-    title: string;
-    badge?: string;
-    desc: string;
-  }[] = [
-    {
-      id: "browser",
-      title: "Browser",
-      desc: "Opens the UI in your system browser against the embedded backend. Zero extra processes.",
-    },
-    {
-      id: "electron",
-      title: "Electron",
-      badge: "Chromium",
-      desc: "Dedicated window with a native menu bar & Touch Bar (electron/ shell).",
-    },
-  ];
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Section
-        title="UI Display Engine"
-        description="Which engine shows the on-screen ResoStage UI. The JUCE core stays headless either way."
-      >
-        <div className="grid grid-cols-2 gap-3">
-          {engineCards.map((card) => (
-            <button
-              key={card.id}
-              type="button"
-              onClick={() => handleSelect(card.id)}
-              className={`flex flex-col items-start gap-1 rounded-xl border p-4 text-left transition-colors ${
-                selected === card.id
-                  ? "border-accent bg-accent/15 text-accent"
-                  : "border-default/40 bg-default/5 hover:bg-default/10 text-foreground/80"
-              }`}
-            >
-              <div className="text-sm font-semibold flex items-center gap-2">
-                {card.title}
-                {card.badge && (
-                  <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent">
-                    {card.badge}
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-foreground/50">{card.desc}</div>
-            </button>
-          ))}
-        </div>
-
-        {selected !== currentEngine && (
-          <div className="mt-2 flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-            <span>
-              Changing the UI engine requires restarting ResoStage to take
-              effect. Restart now?
-            </span>
-            <button
-              type="button"
-              onClick={() => void settingsApi.restart()}
-              className="w-fit rounded-lg bg-warning/20 px-3 py-1.5 font-semibold text-warning hover:bg-warning/30"
-            >
-              Restart ResoStage
-            </button>
-          </div>
-        )}
-      </Section>
-    </div>
-  );
-}
-
 // ─── Main SettingsScreen ──────────────────────────────────────────────────
 export function SettingsScreen({ state }: { state: WebUiState }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
@@ -715,11 +635,14 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
         </Tabs.ListContainer>
 
         {SETTINGS_TABS.map((tab) => (
-          <Tabs.Panel key={tab.id} id={tab.id} className="flex-1 overflow-auto pt-4 pb-6">
+          <Tabs.Panel
+            key={tab.id}
+            id={tab.id}
+            className="flex-1 overflow-auto pt-4 pb-6"
+          >
             {tab.id === "audio" && <AudioTab state={state} />}
             {tab.id === "midi" && <MidiTab state={state} />}
             {tab.id === "health" && <HealthTab state={state} />}
-            {tab.id === "ui" && <UiTab state={state} />}
           </Tabs.Panel>
         ))}
       </Tabs>

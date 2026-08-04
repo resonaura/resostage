@@ -390,7 +390,7 @@ export function EditorScreen({
   ];
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden">
       {isImportModalOpen && (
         <ImportStemsModal
           isOpen={isImportModalOpen}

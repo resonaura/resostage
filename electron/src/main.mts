@@ -466,6 +466,59 @@ ipcMain.on("action", (_event, action: unknown) => {
   if (typeof action === "string" && action) postAction(action);
 });
 
+// SPA → native context menu (mixer track menus, etc.). Returns chosen id
+// or null when dismissed / cancelled.
+ipcMain.handle(
+  "show-context-menu",
+  async (
+    event,
+    payload: {
+      items?: Array<
+        | { type: "separator" }
+        | {
+            type: "item";
+            id: string;
+            label: string;
+            danger?: boolean;
+            disabled?: boolean;
+          }
+      >;
+      x?: number;
+      y?: number;
+    },
+  ): Promise<string | null> => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const items = payload?.items ?? [];
+    return await new Promise((resolve) => {
+      let settled = false;
+      const done = (id: string | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(id);
+      };
+      const template: MenuItemConstructorOptions[] = items.map((it) => {
+        if (it.type === "separator") return { type: "separator" as const };
+        return {
+          label: it.label,
+          enabled: !it.disabled,
+          click: () => done(it.id),
+        };
+      });
+      if (template.length === 0) {
+        done(null);
+        return;
+      }
+      const menu = Menu.buildFromTemplate(template);
+      menu.popup({
+        window: win ?? undefined,
+        x: typeof payload.x === "number" ? Math.round(payload.x) : undefined,
+        y: typeof payload.y === "number" ? Math.round(payload.y) : undefined,
+        callback: () => done(null),
+      });
+    });
+  },
+);
+
 app.setAboutPanelOptions({
   applicationName: "ResoStage",
   applicationVersion: "0.2.0",
@@ -480,7 +533,10 @@ void app.whenReady().then(async () => {
   // the "wait for the backend to finish starting up" gate in standalone mode.
   menuModel = await fetchMenuWithRetry();
   if (menuModel) {
-    menuState = { ...menuState, recentProjects: menuModel.recentProjects ?? [] };
+    menuState = {
+      ...menuState,
+      recentProjects: menuModel.recentProjects ?? [],
+    };
   }
   refreshMenu();
 

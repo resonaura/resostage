@@ -1,24 +1,54 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Children,
+  isValidElement,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
+import { IS_ELECTRON } from "../lib/electron";
+import { IS_EMBEDDED } from "../lib/embedded";
+
+export type NativeMenuItem =
+  | {
+      type: "item";
+      id: string;
+      label: string;
+      danger?: boolean;
+      disabled?: boolean;
+    }
+  | { type: "separator" };
+
+type BridgeWindow = typeof window & {
+  resostageElectron?: {
+    isElectron?: boolean;
+    showContextMenu?: (
+      items: NativeMenuItem[],
+      x: number,
+      y: number,
+    ) => Promise<string | null>;
+  };
+};
+
+function extractLabel(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractLabel).join("").trim();
+  if (isValidElement(node)) {
+    const props = node.props as { children?: ReactNode };
+    return extractLabel(props.children);
+  }
+  return "";
+}
 
 /**
- * Shared right-click menu shell for the whole app (mixer track/bus menus,
- * and anything else that needs one). Two things every ad-hoc context menu
- * kept getting wrong on its own:
+ * Shared right-click menu shell for the whole app.
  *
- * - Portaled to <body> so `position: fixed` is always relative to the
- *   viewport. Rendered in place, a menu inside any ancestor with a CSS
- *   `transform` (framer-motion hover/press scale, etc.) would have its
- *   `fixed` positioning silently rebased to that ancestor's box instead of
- *   the viewport -- the classic reason a context menu occasionally opens
- *   off-screen or in the wrong spot.
- * - Clamped position is computed once (useLayoutEffect, before paint) into
- *   local state and rendered from that state. Measuring into a ref callback
- *   and writing `el.style.left` directly (the previous approach) gets
- *   stomped every time the parent re-renders and re-applies its own
- *   `style={{ left, top }}` prop -- and this app's screens re-render at
- *   ~30Hz from the live WebSocket state, so that tug-of-war was constant.
+ * When running under Electron (or embedded with the Electron bridge), items
+ * are shown via a native OS menu. Otherwise a custom portaled panel is used.
  */
 export function ContextMenu({
   x,
@@ -38,7 +68,66 @@ export function ContextMenu({
     { left: x, top: y, ready: false },
   );
 
+  // Native path (Electron / embedded Electron shell).
+  useEffect(() => {
+    const bridge = (window as BridgeWindow).resostageElectron;
+    const useNative =
+      (IS_ELECTRON || IS_EMBEDDED) &&
+      typeof bridge?.showContextMenu === "function";
+    if (!useNative) return;
+
+    const items: NativeMenuItem[] = [];
+    const handlers = new Map<string, () => void>();
+    let n = 0;
+    Children.forEach(children, (child) => {
+      if (!isValidElement(child)) return;
+      const t = child.type as { displayName?: string; name?: string };
+      const name = t.displayName || t.name || "";
+      if (name === "ContextMenuDivider") {
+        items.push({ type: "separator" });
+        return;
+      }
+      if (name === "ContextMenuItem") {
+        const props = child.props as {
+          children?: ReactNode;
+          danger?: boolean;
+          disabled?: boolean;
+          onClick: () => void;
+        };
+        const id = `item-${n++}`;
+        items.push({
+          type: "item",
+          id,
+          label: extractLabel(props.children) || "…",
+          danger: props.danger,
+          disabled: props.disabled,
+        });
+        handlers.set(id, props.onClick);
+      }
+    });
+
+    let cancelled = false;
+    void bridge!.showContextMenu!(items, x, y)
+      .then((id) => {
+        if (cancelled) return;
+        if (id && handlers.has(id)) handlers.get(id)!();
+        onClose();
+      })
+      .catch(() => {
+        if (!cancelled) onClose();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [x, y, children, onClose]);
+
+  const bridge = (window as BridgeWindow).resostageElectron;
+  const useNative =
+    (IS_ELECTRON || IS_EMBEDDED) &&
+    typeof bridge?.showContextMenu === "function";
+
   useLayoutEffect(() => {
+    if (useNative) return;
     const el = menuRef.current;
     if (!el) return;
     const pad = 8;
@@ -52,15 +141,18 @@ export function ContextMenu({
     if (left < pad) left = pad;
     if (top < pad) top = pad;
     setPos({ left, top, ready: true });
-  }, [x, y]);
+  }, [x, y, useNative]);
 
   useEffect(() => {
+    if (useNative) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, useNative]);
+
+  if (useNative) return null;
 
   return createPortal(
     <>
@@ -122,7 +214,9 @@ export function ContextMenuItem({
     </button>
   );
 }
+ContextMenuItem.displayName = "ContextMenuItem";
 
 export function ContextMenuDivider() {
   return <div className="my-1 h-px bg-default/20" />;
 }
+ContextMenuDivider.displayName = "ContextMenuDivider";

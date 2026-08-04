@@ -161,32 +161,47 @@ function frameCameraToFixtures(
 function FrameAllHelper({
   fixtures,
   triggerRef,
-  autoFrameKey,
+  autoFrame = true,
+  onFramed,
 }: {
   fixtures: LightFixtureRow[];
   triggerRef: React.MutableRefObject<(() => void) | null>;
-  /** Changes when the stage mounts / fixtures change → auto Frame All. */
-  autoFrameKey: string;
+  /** When true, frame once after the canvas is ready (before parent fade-in). */
+  autoFrame?: boolean;
+  onFramed?: () => void;
 }) {
   const { camera, controls } = useThree();
+  const framedOnce = useRef(false);
 
   useEffect(() => {
     const run = () => frameCameraToFixtures(camera, controls, fixtures);
     triggerRef.current = run;
-    // Double-rAF: wait until Canvas has a real size after layout, then frame.
+    if (!autoFrame)
+      return () => {
+        triggerRef.current = null;
+      };
+    // Frame once after layout, then signal parent to fade in — avoids the
+    // visible camera jump during fade-in.
+    let cancelled = false;
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(run);
+      raf2 = requestAnimationFrame(() => {
+        if (cancelled) return;
+        run();
+        framedOnce.current = true;
+        onFramed?.();
+      });
     });
-    // Also re-frame shortly after open (fixtures/async layout settle).
-    const t = window.setTimeout(run, 80);
     return () => {
+      cancelled = true;
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
-      window.clearTimeout(t);
       triggerRef.current = null;
     };
-  }, [fixtures, camera, controls, triggerRef, autoFrameKey]);
+    // Only re-auto-frame when fixture *count* or ids change significantly is
+    // intentional via remount; deps stay camera/controls/fixtures for the
+    // triggerRef callback currency.
+  }, [fixtures, camera, controls, triggerRef, autoFrame, onFramed]);
 
   return null;
 }
@@ -231,6 +246,8 @@ export function ResoLightStage3D({
   onSelectFixture,
   onFixtureMoved,
   previewColors,
+  /** Compact player preview: no overlay buttons, no orbit drag. */
+  chrome = "full",
 }: {
   mode: "edit" | "preview";
   fixtures: LightFixtureRow[];
@@ -238,26 +255,23 @@ export function ResoLightStage3D({
   onSelectFixture?: (id: string) => void;
   onFixtureMoved?: (id: string, x: number, z: number) => void;
   previewColors?: Record<string, PreviewColor>;
+  chrome?: "full" | "minimal";
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; z: number } | null>(null);
   const stageColors = useHeroStageColors();
+  const minimal = chrome === "minimal";
+  const orbitEnabled = !minimal && dragId === null;
 
   const frameAllRef = useRef<(() => void) | null>(null);
   const topViewRef = useRef<(() => void) | null>(null);
-  // Fade-in the stage after mount (avoids a hard flash of the empty canvas).
+  // Fade-in only AFTER auto Frame All so the camera jump is never visible.
   const [fadedIn, setFadedIn] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setFadedIn(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-  // Stable key for auto Frame All: remounts of this component + fixture set.
-  const autoFrameKey = useMemo(
-    () =>
-      fixtures
-        .map((f) => `${f.id}:${f.posX.toFixed(2)}:${f.posZ.toFixed(2)}`)
-        .join("|") || "empty",
-    [fixtures],
+  const onFramed = useMemo(
+    () => () => {
+      requestAnimationFrame(() => setFadedIn(true));
+    },
+    [],
   );
 
   return (
@@ -265,27 +279,29 @@ export function ResoLightStage3D({
       className="relative h-full w-full transition-opacity duration-500 ease-out"
       style={{ opacity: fadedIn ? 1 : 0 }}
     >
-      {/* 3D Controls overlay */}
-      <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
-        <button
-          type="button"
-          onClick={() => frameAllRef.current?.()}
-          className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-sm transition-colors hover:bg-default/90"
-          title="Frame all fixtures"
-        >
-          <Maximize2 size={12} />
-          Frame All
-        </button>
-        <button
-          type="button"
-          onClick={() => topViewRef.current?.()}
-          className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-sm transition-colors hover:bg-default/90"
-          title="Top-down view"
-        >
-          <MoveUp size={12} />
-          Top View
-        </button>
-      </div>
+      {/* 3D Controls overlay — hidden on compact player preview */}
+      {!minimal && (
+        <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => frameAllRef.current?.()}
+            className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-sm transition-colors hover:bg-default/90"
+            title="Frame all fixtures"
+          >
+            <Maximize2 size={12} />
+            Frame All
+          </button>
+          <button
+            type="button"
+            onClick={() => topViewRef.current?.()}
+            className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-sm transition-colors hover:bg-default/90"
+            title="Top-down view"
+          >
+            <MoveUp size={12} />
+            Top View
+          </button>
+        </div>
+      )}
 
       <Canvas
         camera={{ position: [4, 3.5, 5], fov: 50 }}
@@ -363,15 +379,21 @@ export function ResoLightStage3D({
 
         <OrbitControls
           makeDefault
-          enabled={dragId === null}
+          enabled={orbitEnabled}
           enableDamping={false}
+          enableRotate={orbitEnabled}
+          enablePan={orbitEnabled}
+          enableZoom={orbitEnabled}
         />
         <FrameAllHelper
           fixtures={fixtures}
           triggerRef={frameAllRef}
-          autoFrameKey={autoFrameKey}
+          autoFrame
+          onFramed={onFramed}
         />
-        <TopViewHelper fixtures={fixtures} triggerRef={topViewRef} />
+        {!minimal && (
+          <TopViewHelper fixtures={fixtures} triggerRef={topViewRef} />
+        )}
       </Canvas>
     </div>
   );
@@ -388,6 +410,12 @@ export function ResoLightStage3D({
 export type PreviewColor = LightCueValue & {
   ledColors?: LiveLedColor[];
 };
+
+// Dark housing when a fixture has no live output (unbound, empty track,
+// blackout). Ambient/directional still pick up a faint charcoal so the
+// mesh reads as a physical bar on stage — never a glowing near-white
+// "placeholder" that looked like a dim idle white.
+const kOffFixtureColor = new THREE.Color(0.07, 0.08, 0.1);
 
 // Resolves a non-addressable fixture's single displayed color -- shared by
 // ResoLightBar's uniform (non-segmented) path and every GenericFixture
@@ -413,7 +441,8 @@ function useUniformFixtureColor(previewColor?: PreviewColor): {
         previewColor.b / 255,
       ).multiplyScalar(Math.max(0, Math.min(1, previewColor.intensity)));
     }
-    return new THREE.Color(0.55, 0.58, 0.65);
+    // No resolved output for this fixture: dark, not faintly lit white.
+    return kOffFixtureColor.clone();
   }, [uniformLive, liveLeds, previewColor]);
   const emissiveIntensity =
     uniformLive && liveLeds
@@ -421,8 +450,12 @@ function useUniformFixtureColor(previewColor?: PreviewColor): {
         ? 1
         : 0
       : previewColor
-        ? 1
-        : 0.25;
+        ? // intensity already baked into diffuse; still emit when on
+          previewColor.intensity > 0 &&
+          (previewColor.r > 0 || previewColor.g > 0 || previewColor.b > 0)
+          ? 1
+          : 0
+        : 0; // off / unbound / empty tracks — no glow
   return { color, emissiveIntensity };
 }
 

@@ -15,6 +15,8 @@ export const ACTION_IDS = [
   "section_prev",
   "section_next",
   "section_last",
+  "bar_prev",
+  "bar_next",
   "undo",
   "redo",
 ] as const;
@@ -66,12 +68,38 @@ export function performAction(
     case "section_last":
       jumpSection(action, songs, songIndex, playhead);
       break;
+    case "bar_prev":
+    case "bar_next":
+      jumpBar(action, songs, songIndex, playhead);
+      break;
     case "undo":
       void timelineHistory.undo();
       break;
     case "redo":
       void timelineHistory.redo();
       break;
+  }
+}
+
+/** Jump one bar backward/forward (matches MainComponent::jumpToBarRelative). */
+export function jumpBar(
+  action: "bar_prev" | "bar_next",
+  songs: WebUiState["songs"],
+  songIndex: number,
+  playhead: number,
+) {
+  const song = songs[songIndex];
+  const bpm = song?.bpm && song.bpm > 0 ? song.bpm : 120;
+  const tsNum = song?.tsNum && song.tsNum > 0 ? song.tsNum : 4;
+  const barSec = (60 / bpm) * tsNum;
+  if (!(barSec > 0)) return;
+  const curBar = playhead / barSec;
+  if (action === "bar_prev") {
+    const prevBarSec = Math.max(0, Math.floor(curBar - 0.01) * barSec);
+    void transport.seek(prevBarSec);
+  } else {
+    const nextBarSec = Math.floor(curBar + 1.01) * barSec;
+    void transport.seek(nextBarSec);
   }
 }
 

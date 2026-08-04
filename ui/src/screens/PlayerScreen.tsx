@@ -47,10 +47,7 @@ function barBeat(seconds: number, bpm: number, tsNum: number): string {
 }
 
 // Cumulative whole-project bar|beat from an already-accumulated beat count
-// (see AudioEngine::globalBeatsElapsed). Bar-wraps using the *current* song's
-// time signature -- if an earlier song had a different signature, its beats
-// don't necessarily land on a bar boundary under the current one; inherent
-// to any cross-time-signature cumulative bar counter, not a bug.
+// (see AudioEngine::globalBeatsElapsed).
 function globalBarBeat(beatsElapsed: number, tsNum: number): string {
   if (!Number.isFinite(beatsElapsed) || beatsElapsed < 0 || tsNum <= 0)
     return "—";
@@ -221,7 +218,7 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
 
   return (
     <div className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary relative mr-2">
-      <div className="border-b border-default/20 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-amber-400 flex items-center justify-between z-10 bg-background/60 backdrop-blur-sm">
+      <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35 flex items-center justify-between z-10">
         <span>Stage Lights</span>
         <span className="text-[9px] font-mono text-foreground/40">
           {fixtures.length} fix
@@ -232,6 +229,7 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
           mode="preview"
           fixtures={fixtures}
           previewColors={displayColors}
+          chrome="minimal"
         />
       </div>
     </div>
@@ -397,8 +395,8 @@ export function PlayerScreen({
     <div className="flex h-full min-h-0 flex-col gap-3">
       {/* ── 1. Top Transport bar ──────────────────────────────── */}
       <div className="flex shrink-0 items-stretch gap-0 overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
-        {/* Clock + bar/beat */}
-        <div className="flex flex-col justify-center border-r border-default/30 px-5 py-2.5">
+        {/* Clock + bar/beat + abs (full info — header has compact clock) */}
+        <div className="flex shrink-0 flex-col justify-center border-r border-default/30 px-5 py-2.5">
           <div
             style={{ fontWeight: "100" }}
             className={`font-mono text-3xl tabular-nums tracking-tight leading-none ${
@@ -418,7 +416,6 @@ export function PlayerScreen({
             </span>
             <span className="text-[11px] text-foreground/30">bar | beat</span>
           </div>
-          {/* Absolute whole-project position (not song-relative) -- small/gray by design */}
           <div className="mt-0.5 flex items-baseline gap-1.5 opacity-60">
             <span className="font-mono text-[10px] tabular-nums text-foreground/35">
               {formatTime(displayGlobalSeconds)}
@@ -426,10 +423,6 @@ export function PlayerScreen({
             <span className="font-mono text-[10px] tabular-nums text-foreground/35">
               {song
                 ? globalBarBeat(
-                    // Reconstruct beats from smoothed global seconds using the
-                    // current song's bpm as a local approximation for the
-                    // fractional tail (prior songs already baked into the
-                    // server's globalBeatsElapsed baseline via the WS delta).
                     state.globalBeatsElapsed +
                       Math.max(
                         0,
@@ -444,15 +437,18 @@ export function PlayerScreen({
           </div>
         </div>
 
-        {/* Song metadata */}
-        <div className="flex flex-1 flex-col justify-center border-r border-default/30 px-4 py-2.5 min-w-0">
-          <div className="truncate text-sm font-semibold">
+        {/* Song metadata — flex-1 so the card fills evenly (clock + transport
+            + health stay fixed; title/BPM claim the leftover width). */}
+        <div className="flex min-w-0 flex-1 flex-col items-center justify-center border-r border-default/30 px-4 py-2.5 text-center">
+          <div className="w-full max-w-full truncate text-sm font-semibold">
             {state.songName || "No song selected"}
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-foreground/40">
+          <div className="mt-0.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[11px] text-foreground/40">
             {song && song.bpm > 0 ? (
               <>
-                <span>{song.bpm.toFixed(1)} bpm</span>
+                <span className="font-mono tabular-nums text-accent">
+                  {song.bpm.toFixed(1)} BPM
+                </span>
                 <span>
                   {song.tsNum}/{song.tsDen}
                 </span>
@@ -470,7 +466,7 @@ export function PlayerScreen({
         </div>
 
         {/* Transport control buttons */}
-        <div className="flex items-center gap-1.5 px-3 py-2.5">
+        <div className="flex shrink-0 items-center gap-1.5 px-3 py-2.5">
           <button
             type="button"
             onClick={() => transport.prev()}
@@ -479,17 +475,19 @@ export function PlayerScreen({
           >
             <SkipBack size={16} />
           </button>
-          {/* Play button: Standard accent styling without hardcoded custom green */}
+          {/* Fixed width so Play ↔ Pause does not reflow the transport bar */}
           <Button
             variant="secondary"
-            className="flex h-9 px-4 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold bg-accent/20 text-accent hover:bg-accent/80 transition-colors"
+            className="flex h-9 w-[5.75rem] shrink-0 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold bg-accent/20 text-accent hover:bg-accent/30 transition-colors"
             onPress={() =>
               state.playing ? transport.stop() : transport.play()
             }
             aria-label={state.playing ? "Pause" : "Play"}
           >
             {state.playing ? <Pause size={15} /> : <Play size={15} />}
-            {state.playing ? "Pause" : "Play"}
+            <span className="tabular-nums">
+              {state.playing ? "Pause" : "Play"}
+            </span>
           </Button>
           <button
             type="button"

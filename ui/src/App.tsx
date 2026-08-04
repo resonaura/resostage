@@ -16,6 +16,7 @@ import {
 } from "./components/ContextMenu";
 import { GlobalTransportBar } from "./components/GlobalTransportBar";
 import { fetchAllPeaks, fetchPeaks, project } from "./lib/api";
+import { apiUrl } from "./lib/backend";
 import { IS_EMBEDDED } from "./lib/embedded";
 import { IS_ELECTRON } from "./lib/electron";
 import { forwardMenuState } from "./lib/electronBridge";
@@ -70,6 +71,10 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
   // inactive) process, so the SPA takes over ALL bindings -- exactly like a
   // plain browser tab, except the shell also owns the native menu bar.
   useEffect(() => {
+    // Always handle SPA keybindings when not pure-JUCE-embedded, OR when
+    // running in Electron (MacKeyMonitor lives in the wrong process there).
+    // Pure embedded still gets arrow/Home conveniences below via a second
+    // path if needed — see the always-on arrow block after this branch.
     if (!IS_EMBEDDED || IS_ELECTRON) {
       const handleKeyDown = (e: KeyboardEvent) => {
         const target = e.target as HTMLElement | null;
@@ -83,19 +88,41 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
           return;
         }
 
-        // Configurable project keybindings (transport / mode / sections / undo/redo).
+        // Configurable project keybindings (transport / mode / sections /
+        // bar_prev/bar_next / undo/redo). Route through the backend action
+        // endpoint so lastAction/nonce updates (native menu flash + settings
+        // dots). Mode switches also update the SPA tab optimistically.
         for (const kb of bindingsRef.current) {
           if (!eventMatchesBinding(e, kb.key)) continue;
           e.preventDefault();
           e.stopPropagation();
-          performAction(
-            kb.action as ActionId,
-            songsRef.current,
-            songIndexRef.current,
-            playheadRef.current,
-            setTab,
-            playingRef.current,
-          );
+          const action = kb.action as ActionId;
+          void fetch(apiUrl("/api/v1/action"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          }).catch(() => {
+            // Backend unreachable -- fall back to local handling.
+            performAction(
+              action,
+              songsRef.current,
+              songIndexRef.current,
+              playheadRef.current,
+              setTab,
+              playingRef.current,
+            );
+          });
+          if (action.startsWith("mode_")) {
+            const tabId = action.replace("mode_", "");
+            if (
+              tabId === "player" ||
+              tabId === "mixer" ||
+              tabId === "editor" ||
+              tabId === "light" ||
+              tabId === "settings"
+            )
+              setTab(tabId);
+          }
           return;
         }
 
@@ -113,26 +140,24 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
           void transport.select(songIdx);
         } else if (e.code === "ArrowLeft") {
           e.preventDefault();
-          const songs = songsRef.current;
-          const sIdx = songIndexRef.current;
-          const song = songs[sIdx];
-          const bpm = song?.bpm && song.bpm > 0 ? song.bpm : 120;
-          const tsNum = song?.tsNum && song.tsNum > 0 ? song.tsNum : 4;
-          const barSec = (60 / bpm) * tsNum;
-          const curBar = playheadRef.current / barSec;
-          const prevBarSec = Math.max(0, Math.floor(curBar - 0.01) * barSec);
-          void transport.seek(prevBarSec);
+          performAction(
+            "bar_prev",
+            songsRef.current,
+            songIndexRef.current,
+            playheadRef.current,
+            setTab,
+            playingRef.current,
+          );
         } else if (e.code === "ArrowRight") {
           e.preventDefault();
-          const songs = songsRef.current;
-          const sIdx = songIndexRef.current;
-          const song = songs[sIdx];
-          const bpm = song?.bpm && song.bpm > 0 ? song.bpm : 120;
-          const tsNum = song?.tsNum && song.tsNum > 0 ? song.tsNum : 4;
-          const barSec = (60 / bpm) * tsNum;
-          const curBar = playheadRef.current / barSec;
-          const nextBarSec = Math.floor(curBar + 1.01) * barSec;
-          void transport.seek(nextBarSec);
+          performAction(
+            "bar_next",
+            songsRef.current,
+            songIndexRef.current,
+            playheadRef.current,
+            setTab,
+            playingRef.current,
+          );
         } else if (e.code === "Home") {
           e.preventDefault();
           void transport.seek(0);
@@ -370,25 +395,40 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-default/60 bg-background px-4 py-3">
-        <img
-          src="/logo.svg"
-          alt="ResoStage"
-          title="ResoStage"
-          className="h-7 w-7 shrink-0 object-contain"
-          draggable={false}
-        />
-        {/* Flex spacer — keeps controls on the right. */}
-        <div className="min-w-0 flex-1" />
-        {/* Shared transport on every tab except Player (Player has its own
-            full transport strip). */}
-        {tab !== "player" && <GlobalTransportBar state={state} />}
-        <ProjectMenu state={state} />
-        <ConnectionBadge
-          status={status}
-          transport={transport}
-          wsHz={state.wsHz}
-        />
+      <header className="relative flex h-14 shrink-0 items-center border-b border-default/60 bg-background px-4">
+        <div className="z-10 flex shrink-0 items-center">
+          <img
+            src="/logo.svg"
+            alt="ResoStage"
+            title="ResoStage"
+            className="h-7 w-7 shrink-0 object-contain"
+            draggable={false}
+          />
+        </div>
+
+        {/* Center transport: always mounted, fades out on Player tab. */}
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div
+            className={`pointer-events-auto transition-opacity duration-200 ease-out ${
+              tab !== "player"
+                ? "opacity-100"
+                : "pointer-events-none opacity-0"
+            }`}
+          >
+            <GlobalTransportBar state={state} />
+          </div>
+        </div>
+
+        <div className="z-10 ml-auto flex shrink-0 items-center gap-3">
+          {!IS_EMBEDDED && !IS_ELECTRON ? (
+            <ProjectMenu state={state} />
+          ) : null}
+          <ConnectionBadge
+            status={status}
+            transport={transport}
+            wsHz={state.wsHz}
+          />
+        </div>
       </header>
 
       <Tabs
