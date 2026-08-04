@@ -14,6 +14,7 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "./components/ContextMenu";
+import { GlobalTransportBar } from "./components/GlobalTransportBar";
 import { fetchAllPeaks, fetchPeaks, project } from "./lib/api";
 import { IS_EMBEDDED } from "./lib/embedded";
 import { IS_ELECTRON } from "./lib/electron";
@@ -377,9 +378,11 @@ export default function App() {
           className="h-7 w-7 shrink-0 object-contain"
           draggable={false}
         />
-        {/* Flex spacer — keeps Project menu / connection badge on the right
-            after the project name was removed from the header. */}
+        {/* Flex spacer — keeps controls on the right. */}
         <div className="min-w-0 flex-1" />
+        {/* Shared transport on every tab except Player (Player has its own
+            full transport strip). */}
+        {tab !== "player" && <GlobalTransportBar state={state} />}
         <ProjectMenu state={state} />
         <ConnectionBadge
           status={status}

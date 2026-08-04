@@ -32,7 +32,14 @@ function getGlowTexture(): THREE.CanvasTexture {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  const g = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2,
+  );
   g.addColorStop(0, "rgba(255,255,255,1)");
   g.addColorStop(0.25, "rgba(255,255,255,0.6)");
   g.addColorStop(0.55, "rgba(255,255,255,0.18)");
@@ -79,7 +86,11 @@ function resolveCssColor(raw: string, fallback: string): string {
 // (section) lines blended a bit toward the paired --default-foreground so
 // minor/major still read as distinct -- visible on the dark floor without
 // ever going bright/white.
-function useHeroStageColors(): { background: string; cell: string; section: string } {
+function useHeroStageColors(): {
+  background: string;
+  cell: string;
+  section: string;
+} {
   const [colors, setColors] = useState({
     background: "#060607",
     cell: "#18181b",
@@ -110,47 +121,72 @@ function useHeroStageColors(): { background: string; cell: string; section: stri
 
 // ─── Camera frame utility ─────────────────────────────────────────────────
 
+function frameCameraToFixtures(
+  camera: THREE.Camera,
+  controls: unknown,
+  fixtures: LightFixtureRow[],
+) {
+  if (fixtures.length === 0) {
+    camera.position.set(4, 3.5, 5);
+    if (controls) (controls as { target: THREE.Vector3 }).target.set(0, 1, 0);
+    if ("updateProjectionMatrix" in camera)
+      (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+    return;
+  }
+
+  const xs = fixtures.map((f) => f.posX);
+  const zs = fixtures.map((f) => f.posZ);
+  const ys = fixtures.map(
+    (f) => f.posY + Math.min(3, Math.max(0.3, f.ledCount / 30)),
+  );
+
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minZ = Math.min(...zs);
+  const maxZ = Math.max(...zs);
+  const maxY = Math.max(...ys);
+
+  const cx = (minX + maxX) / 2;
+  const cy = maxY / 2;
+  const cz = (minZ + maxZ) / 2;
+
+  const spread = Math.max(maxX - minX, maxZ - minZ, maxY, 3);
+
+  if (controls) (controls as { target: THREE.Vector3 }).target.set(cx, cy, cz);
+  camera.position.set(cx + spread * 0.8, cy + spread * 0.7, cz + spread * 1.2);
+  if ("updateProjectionMatrix" in camera)
+    (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+}
+
 function FrameAllHelper({
   fixtures,
   triggerRef,
+  autoFrameKey,
 }: {
   fixtures: LightFixtureRow[];
   triggerRef: React.MutableRefObject<(() => void) | null>;
+  /** Changes when the stage mounts / fixtures change → auto Frame All. */
+  autoFrameKey: string;
 }) {
   const { camera, controls } = useThree();
 
   useEffect(() => {
-    triggerRef.current = () => {
-      if (fixtures.length === 0) {
-        camera.position.set(4, 3.5, 5);
-        if (controls) (controls as unknown as { target: THREE.Vector3 }).target.set(0, 1, 0);
-        camera.updateProjectionMatrix();
-        return;
-      }
-
-      const xs = fixtures.map((f) => f.posX);
-      const zs = fixtures.map((f) => f.posZ);
-      const ys = fixtures.map((f) => f.posY + Math.min(3, Math.max(0.3, f.ledCount / 30)));
-
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minZ = Math.min(...zs);
-      const maxZ = Math.max(...zs);
-      const maxY = Math.max(...ys);
-
-      const cx = (minX + maxX) / 2;
-      const cy = maxY / 2;
-      const cz = (minZ + maxZ) / 2;
-
-      const spread = Math.max(maxX - minX, maxZ - minZ, maxY, 3);
-
-      if (controls) {
-        (controls as unknown as { target: THREE.Vector3 }).target.set(cx, cy, cz);
-      }
-      camera.position.set(cx + spread * 0.8, cy + spread * 0.7, cz + spread * 1.2);
-      camera.updateProjectionMatrix();
+    const run = () => frameCameraToFixtures(camera, controls, fixtures);
+    triggerRef.current = run;
+    // Double-rAF: wait until Canvas has a real size after layout, then frame.
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(run);
+    });
+    // Also re-frame shortly after open (fixtures/async layout settle).
+    const t = window.setTimeout(run, 80);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      window.clearTimeout(t);
+      triggerRef.current = null;
     };
-  }, [fixtures, camera, controls, triggerRef]);
+  }, [fixtures, camera, controls, triggerRef, autoFrameKey]);
 
   return null;
 }
@@ -172,7 +208,11 @@ function TopViewHelper({
       const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
 
       if (controls) {
-        (controls as unknown as { target: THREE.Vector3 }).target.set(cx, 0, cz);
+        (controls as unknown as { target: THREE.Vector3 }).target.set(
+          cx,
+          0,
+          cz,
+        );
       }
       camera.position.set(cx, 12, cz + 0.001);
       camera.updateProjectionMatrix();
@@ -205,9 +245,26 @@ export function ResoLightStage3D({
 
   const frameAllRef = useRef<(() => void) | null>(null);
   const topViewRef = useRef<(() => void) | null>(null);
+  // Fade-in the stage after mount (avoids a hard flash of the empty canvas).
+  const [fadedIn, setFadedIn] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setFadedIn(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  // Stable key for auto Frame All: remounts of this component + fixture set.
+  const autoFrameKey = useMemo(
+    () =>
+      fixtures
+        .map((f) => `${f.id}:${f.posX.toFixed(2)}:${f.posZ.toFixed(2)}`)
+        .join("|") || "empty",
+    [fixtures],
+  );
 
   return (
-    <div className="relative w-full h-full">
+    <div
+      className="relative h-full w-full transition-opacity duration-500 ease-out"
+      style={{ opacity: fadedIn ? 1 : 0 }}
+    >
       {/* 3D Controls overlay */}
       <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
         <button
@@ -252,17 +309,28 @@ export function ResoLightStage3D({
           onPointerMove={(e) => {
             if (mode !== "edit" || dragId === null) return;
             e.stopPropagation();
-            setDragPos({ x: snapToStageGrid(e.point.x), z: snapToStageGrid(e.point.z) });
+            setDragPos({
+              x: snapToStageGrid(e.point.x),
+              z: snapToStageGrid(e.point.z),
+            });
           }}
           onPointerUp={() => {
             if (dragId !== null && dragPos !== null)
-              onFixtureMoved?.(dragId, snapToStageGrid(dragPos.x), snapToStageGrid(dragPos.z));
+              onFixtureMoved?.(
+                dragId,
+                snapToStageGrid(dragPos.x),
+                snapToStageGrid(dragPos.z),
+              );
             setDragId(null);
             setDragPos(null);
           }}
           onPointerLeave={() => {
             if (dragId !== null && dragPos !== null)
-              onFixtureMoved?.(dragId, snapToStageGrid(dragPos.x), snapToStageGrid(dragPos.z));
+              onFixtureMoved?.(
+                dragId,
+                snapToStageGrid(dragPos.x),
+                snapToStageGrid(dragPos.z),
+              );
             setDragId(null);
             setDragPos(null);
           }}
@@ -293,8 +361,16 @@ export function ResoLightStage3D({
           );
         })}
 
-        <OrbitControls makeDefault enabled={dragId === null} enableDamping={false} />
-        <FrameAllHelper fixtures={fixtures} triggerRef={frameAllRef} />
+        <OrbitControls
+          makeDefault
+          enabled={dragId === null}
+          enableDamping={false}
+        />
+        <FrameAllHelper
+          fixtures={fixtures}
+          triggerRef={frameAllRef}
+          autoFrameKey={autoFrameKey}
+        />
         <TopViewHelper fixtures={fixtures} triggerRef={topViewRef} />
       </Canvas>
     </div>
@@ -339,9 +415,14 @@ function useUniformFixtureColor(previewColor?: PreviewColor): {
     }
     return new THREE.Color(0.55, 0.58, 0.65);
   }, [uniformLive, liveLeds, previewColor]);
-  const emissiveIntensity = uniformLive && liveLeds
-    ? (liveLeds[0].r + liveLeds[0].g + liveLeds[0].b > 0 ? 1 : 0)
-    : previewColor ? 1 : 0.25;
+  const emissiveIntensity =
+    uniformLive && liveLeds
+      ? liveLeds[0].r + liveLeds[0].g + liveLeds[0].b > 0
+        ? 1
+        : 0
+      : previewColor
+        ? 1
+        : 0.25;
   return { color, emissiveIntensity };
 }
 
@@ -365,30 +446,39 @@ function computeSegmentLayout(
     // circle instead of a line.
     const radius = Math.max(0.1, heightMeters / (Math.PI * 2));
     const y = heightMeters / 2;
-    const positions = Array.from({ length: count }, (_, i): [number, number, number] => {
-      const angle = (i / count) * Math.PI * 2;
-      return [Math.cos(angle) * radius, y, Math.sin(angle) * radius];
-    });
+    const positions = Array.from(
+      { length: count },
+      (_, i): [number, number, number] => {
+        const angle = (i / count) * Math.PI * 2;
+        return [Math.cos(angle) * radius, y, Math.sin(angle) * radius];
+      },
+    );
     return { positions, topY: y + radius };
   }
   if (shape === "matrix") {
     const cols = Math.max(1, matrixCols || Math.ceil(Math.sqrt(count)));
     const rows = Math.ceil(count / cols);
     const spacing = 0.12;
-    const positions = Array.from({ length: count }, (_, i): [number, number, number] => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      return [(col - (cols - 1) / 2) * spacing, row * spacing + spacing / 2, 0];
-    });
+    const positions = Array.from(
+      { length: count },
+      (_, i): [number, number, number] => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        return [
+          (col - (cols - 1) / 2) * spacing,
+          row * spacing + spacing / 2,
+          0,
+        ];
+      },
+    );
     return { positions, topY: rows * spacing + spacing / 2 };
   }
   // "bar" / "strip": the original vertical stack.
   const segH = heightMeters / count;
-  const positions = Array.from({ length: count }, (_, i): [number, number, number] => [
-    0,
-    i * segH + segH / 2,
-    0,
-  ]);
+  const positions = Array.from(
+    { length: count },
+    (_, i): [number, number, number] => [0, i * segH + segH / 2, 0],
+  );
   return { positions, topY: heightMeters };
 }
 
@@ -398,7 +488,10 @@ function computeSegmentLayout(
 // *0.95 factor leaves a visible gap between adjacent stacked segments --
 // only meaningful when there ARE multiple segments, see uniformBoxSize for
 // the single-continuous-box (no live data) case.
-function segmentBoxSize(shape: FixtureShape, segH: number): [number, number, number] {
+function segmentBoxSize(
+  shape: FixtureShape,
+  segH: number,
+): [number, number, number] {
   if (shape === "strip") return [0.14, segH * 0.9, 0.025];
   if (shape === "ring" || shape === "matrix") return [0.07, 0.07, 0.07];
   return [0.08, segH * 0.95, 0.08];
@@ -409,7 +502,10 @@ function segmentBoxSize(shape: FixtureShape, segH: number): [number, number, num
 // gap factor: this is one continuous box spanning the full height, not a
 // stack, so shrinking it would just leave an unexplained gap at the tip.
 // "bar" here is exactly the original hardcoded box, unchanged.
-function uniformBoxSize(shape: FixtureShape, heightMeters: number): [number, number, number] {
+function uniformBoxSize(
+  shape: FixtureShape,
+  heightMeters: number,
+): [number, number, number] {
   if (shape === "strip") return [0.14, heightMeters, 0.025];
   return [0.08, heightMeters, 0.08];
 }
@@ -448,17 +544,23 @@ function ResoLightBar({
   // floor needed for "visibility", since a real blackout looks like nothing.
   // Only meaningful along the non-segmented (uniform) path below -- the
   // per-LED `segments` path derives its own colors straight from `liveLeds`.
-  const { color, emissiveIntensity } = useUniformFixtureColor(perLed ? undefined : previewColor);
+  const { color, emissiveIntensity } = useUniformFixtureColor(
+    perLed ? undefined : previewColor,
+  );
 
   // Capped/floored purely for render cost and visibility -- the real DMX
   // output still addresses every physical LED; this is just how many
   // discrete segments the 3D preview bothers to draw.
-  const totalSegments = Math.min(20, Math.max(3, Math.round(fixture.ledCount / 3)));
+  const totalSegments = Math.min(
+    20,
+    Math.max(3, Math.round(fixture.ledCount / 3)),
+  );
 
   // Ring/matrix genuinely need multiple positioned pixels to read as their
   // shape at all -- unlike bar/strip, which can fall back to a single
   // uniform blob when there's no live per-LED stream to segment.
-  const showShapeSegments = fixture.shape === "ring" || fixture.shape === "matrix";
+  const showShapeSegments =
+    fixture.shape === "ring" || fixture.shape === "matrix";
 
   // Live per-LED pattern straight from the backend stream -- subsampled to
   // totalSegments, each segment keeping its exact wire color. No local
@@ -466,12 +568,16 @@ function ResoLightBar({
   const segments = useMemo(() => {
     if (perLed && liveLeds) {
       return Array.from({ length: totalSegments }, (_, i) => {
-        const srcIdx = totalSegments > 1
-          ? Math.round((i * (liveLeds.length - 1)) / (totalSegments - 1))
-          : 0;
+        const srcIdx =
+          totalSegments > 1
+            ? Math.round((i * (liveLeds.length - 1)) / (totalSegments - 1))
+            : 0;
         const c = liveLeds[Math.min(srcIdx, liveLeds.length - 1)];
         const level = Math.max(c.r, c.g, c.b) / 255;
-        return { color: new THREE.Color(c.r / 255, c.g / 255, c.b / 255), level };
+        return {
+          color: new THREE.Color(c.r / 255, c.g / 255, c.b / 255),
+          level,
+        };
       });
     }
     if (showShapeSegments) {
@@ -479,15 +585,29 @@ function ResoLightBar({
       // `totalSegments` pixels sharing the resolved uniform color, so a
       // ring/matrix layout is visible while placing the fixture instead of
       // collapsing to the single blob bar/strip fall back to below.
-      const level = emissiveIntensity > 0 ? Math.max(color.r, color.g, color.b) : 0;
+      const level =
+        emissiveIntensity > 0 ? Math.max(color.r, color.g, color.b) : 0;
       return Array.from({ length: totalSegments }, () => ({ color, level }));
     }
     return null;
-  }, [perLed, liveLeds, totalSegments, showShapeSegments, color, emissiveIntensity]);
+  }, [
+    perLed,
+    liveLeds,
+    totalSegments,
+    showShapeSegments,
+    color,
+    emissiveIntensity,
+  ]);
   const segmentCount = segments ? totalSegments : 1;
 
   const layout = useMemo(
-    () => computeSegmentLayout(fixture.shape, segmentCount, heightMeters, fixture.matrixCols),
+    () =>
+      computeSegmentLayout(
+        fixture.shape,
+        segmentCount,
+        heightMeters,
+        fixture.matrixCols,
+      ),
     [fixture.shape, segmentCount, heightMeters, fixture.matrixCols],
   );
   const glowScale = showShapeSegments ? 0.22 : 0.42;
@@ -517,33 +637,33 @@ function ResoLightBar({
             const boxSize = segmentBoxSize(fixture.shape, segH);
             return (
               <group key={idx}>
-              <mesh
-                position={segPos}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  onPointerDownStart();
-                }}
-              >
-                <boxGeometry args={boxSize} />
-                <meshStandardMaterial
-                  color={seg.color}
-                  emissive={seg.color}
-                  emissiveIntensity={seg.level > 0 ? 1 : 0}
-                />
-              </mesh>
-              {/* A radial-falloff additive sprite reads as light spilling
+                <mesh
+                  position={segPos}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    onPointerDownStart();
+                  }}
+                >
+                  <boxGeometry args={boxSize} />
+                  <meshStandardMaterial
+                    color={seg.color}
+                    emissive={seg.color}
+                    emissiveIntensity={seg.level > 0 ? 1 : 0}
+                  />
+                </mesh>
+                {/* A radial-falloff additive sprite reads as light spilling
                   from one physical LED (see getGlowTexture) -- not a flat
                   billboard halo, and no scene-wide bloom pass needed. */}
-              <sprite position={segPos} scale={[glowScale, glowScale, 1]}>
-                <spriteMaterial
-                  map={getGlowTexture()}
-                  color={seg.color}
-                  transparent
-                  opacity={Math.min(0.85, seg.level * 0.9)}
-                  depthWrite={false}
-                  blending={THREE.AdditiveBlending}
-                />
-              </sprite>
+                <sprite position={segPos} scale={[glowScale, glowScale, 1]}>
+                  <spriteMaterial
+                    map={getGlowTexture()}
+                    color={seg.color}
+                    transparent
+                    opacity={Math.min(0.85, seg.level * 0.9)}
+                    depthWrite={false}
+                    blending={THREE.AdditiveBlending}
+                  />
+                </sprite>
               </group>
             );
           })
@@ -638,7 +758,11 @@ function GenericFixture({
       body = (
         <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
           <cylinderGeometry args={[0.15, 0.13, 0.12, 20]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+          <meshStandardMaterial
+            color={color}
+            emissive={color}
+            emissiveIntensity={emissiveIntensity}
+          />
         </mesh>
       );
       break;
@@ -648,7 +772,11 @@ function GenericFixture({
       body = (
         <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
           <coneGeometry args={[0.08, 0.28, 16]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+          <meshStandardMaterial
+            color={color}
+            emissive={color}
+            emissiveIntensity={emissiveIntensity}
+          />
         </mesh>
       );
       break;
@@ -666,7 +794,11 @@ function GenericFixture({
           </mesh>
           <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
             <sphereGeometry args={[0.09, 16, 16]} />
-            <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+            <meshStandardMaterial
+              color={color}
+              emissive={color}
+              emissiveIntensity={emissiveIntensity}
+            />
           </mesh>
         </>
       );
@@ -677,7 +809,11 @@ function GenericFixture({
       body = (
         <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
           <boxGeometry args={[0.5, 0.05, 0.05]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+          <meshStandardMaterial
+            color={color}
+            emissive={color}
+            emissiveIntensity={emissiveIntensity}
+          />
         </mesh>
       );
       break;
@@ -688,7 +824,11 @@ function GenericFixture({
       body = (
         <mesh position={[0, lensY, 0]} onPointerDown={onBodyPointerDown}>
           <cylinderGeometry args={[0.08, 0.1, 0.22, 20]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} />
+          <meshStandardMaterial
+            color={color}
+            emissive={color}
+            emissiveIntensity={emissiveIntensity}
+          />
         </mesh>
       );
       break;
