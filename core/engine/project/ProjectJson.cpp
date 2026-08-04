@@ -171,6 +171,7 @@ std::string serializeProjectJson(const Project& project) {
     o << "    \"idleGradientPreset\": \"" << jsonEscapeString(project.lighting.idleGradientPreset) << "\",\n";
     o << "    \"idleGradientColors\": \"" << jsonEscapeString(project.lighting.idleGradientColors) << "\",\n";
     o << "    \"defaultRefreshRateHz\": "; writeNumber(o, project.lighting.defaultRefreshRateHz); o << ",\n";
+    o << "    \"artNetTargetHost\": \"" << jsonEscapeString(project.lighting.artNetTargetHost) << "\",\n";
     o << "    \"fixtures\": [\n";
     for (size_t i = 0; i < project.lighting.fixtures.size(); ++i) {
         const LightFixture& f = project.lighting.fixtures[i];
@@ -194,7 +195,9 @@ std::string serializeProjectJson(const Project& project) {
         o << "        \"matrixCols\": " << f.matrixCols << ",\n";
         o << "        \"channelProfile\": \"" << jsonEscapeString(f.channelProfile) << "\",\n";
         o << "        \"tiltDeg\": "; writeNumber(o, f.tiltDeg); o << ",\n";
-        o << "        \"refreshRateHz\": "; writeNumber(o, f.refreshRateHz); o << "\n";
+        o << "        \"refreshRateHz\": "; writeNumber(o, f.refreshRateHz); o << ",\n";
+        o << "        \"networkHost\": \"" << jsonEscapeString(f.networkHost) << "\",\n";
+        o << "        \"networkPort\": " << f.networkPort << "\n";
         o << "      }" << (i + 1 < project.lighting.fixtures.size() ? "," : "") << "\n";
     }
     o << "    ]\n";

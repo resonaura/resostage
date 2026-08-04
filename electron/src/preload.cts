@@ -16,6 +16,10 @@ contextBridge.exposeInMainWorld("resostageElectron", {
     y: number,
   ): Promise<string | null> =>
     ipcRenderer.invoke("show-context-menu", { items, x, y }),
+  /** Trackpad haptic tick (Force Touch Taptic Engine). Fire-and-forget,
+   * no-op on non-mac / non-Force-Touch hardware. */
+  hapticFeedback: (pattern?: "generic" | "alignment" | "levelChange") =>
+    ipcRenderer.send("haptic-feedback", pattern ?? "alignment"),
 });
 
 // Shell → SPA: wake after sleep / minimize. IPC is more reliable than

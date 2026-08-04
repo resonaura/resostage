@@ -23,6 +23,7 @@ add_executable(resostage_engine_tests
   test_light_cue_interpolation.cpp
   test_light_output_resolver.cpp
   test_light_gradient.cpp
+  test_resolight_protocol.cpp
 )
 
 target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)

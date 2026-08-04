@@ -1485,7 +1485,24 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"matrixCols\":" << f.matrixCols << ","
               << "\"channelProfile\":\"" << jsonEscape(f.channelProfile) << "\","
               << "\"tiltDeg\":" << finiteOrZero(f.tiltDeg) << ","
-              << "\"refreshRateHz\":" << finiteOrZero(f.refreshRateHz) << "}";
+              << "\"refreshRateHz\":" << finiteOrZero(f.refreshRateHz) << ","
+              << "\"networkHost\":\"" << jsonEscape(f.networkHost) << "\","
+              << "\"networkPort\":" << f.networkPort << ","
+              << "\"hwConfigured\":" << (f.hwConfigured ? "true" : "false") << ","
+              << "\"hwConnected\":" << (f.hwConnected ? "true" : "false") << ","
+              << "\"hwRssiDbm\":" << f.hwRssiDbm << ","
+              << "\"hwChipType\":\"" << jsonEscape(f.hwChipType) << "\"}";
+        }
+        o << "],\"artNetTargetHost\":\"" << jsonEscape(li.artNetTargetHost) << "\","
+          << "\"discoveredBoards\":[";
+        for (size_t bi = 0; bi < li.discoveredBoards.size(); ++bi) {
+            if (bi) o << ",";
+            const auto& b = li.discoveredBoards[bi];
+            o << "{\"mac\":\"" << jsonEscape(b.mac) << "\","
+              << "\"ip\":\"" << jsonEscape(b.ip) << "\","
+              << "\"name\":\"" << jsonEscape(b.name) << "\","
+              << "\"chipType\":\"" << jsonEscape(b.chipType) << "\","
+              << "\"lastSeenSecondsAgo\":" << finiteOrZero(b.lastSeenSecondsAgo) << "}";
         }
         o << "]}";
 

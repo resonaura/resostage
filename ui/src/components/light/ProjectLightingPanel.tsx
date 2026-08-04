@@ -198,7 +198,7 @@ function FixtureItem({
         hasChannelConflict
           ? "border-warning/60 bg-warning/10"
           : selected
-            ? "border-accent/60 bg-accent/10"
+            ? "border-foreground/25 bg-default/25"
             : "border-default/30 bg-default/10 hover:bg-default/20"
       }`}
     >
@@ -225,6 +225,18 @@ function FixtureItem({
         <span className="flex-1 truncate text-xs font-medium text-foreground/80">
           {fixture.name}
         </span>
+        {fixture.kind === "resoLightBar" && fixture.networkHost ? (
+          <span
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              fixture.hwConnected ? "bg-success" : "bg-foreground/30"
+            }`}
+            title={
+              fixture.hwConnected
+                ? `Hardware linked · ${fixture.networkHost}`
+                : `Hardware configured · ${fixture.networkHost} (not linked)`
+            }
+          />
+        ) : null}
         {hasChannelConflict && (
           <TriangleAlert
             size={11}
@@ -255,6 +267,47 @@ function FixtureItem({
         <Trash2 size={12} />
       </button>
     </div>
+  );
+}
+
+/** Local-draft host so typing an IP doesn't fight live WS re-renders.
+ *  Port is always resolight::kDefaultBoardPort on both ends — no UI for it. */
+function HardwareHostField({ fixture }: { fixture: LightFixtureRow }) {
+  const [hostDraft, setHostDraft] = useState(fixture.networkHost);
+  const [focused, setFocused] = useState(false);
+
+  if (!focused && hostDraft !== fixture.networkHost) {
+    setHostDraft(fixture.networkHost);
+  }
+
+  const commit = () => {
+    setFocused(false);
+    const host = hostDraft.trim();
+    if (host === fixture.networkHost) return;
+    void lighting.fixtureUpdate({
+      fixtureId: fixture.id,
+      networkHost: host,
+    });
+  };
+
+  return (
+    <Field label="Board IP">
+      <input
+        type="text"
+        className={`${selectCls} select-text`}
+        placeholder="e.g. 192.168.1.50"
+        value={hostDraft}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => setHostDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+      <div className="text-[10px] text-foreground/40 mt-1">
+        Leave empty for preview only (no hardware).
+      </div>
+    </Field>
   );
 }
 
@@ -551,9 +604,10 @@ export function ProjectLightingPanel({
           {/* Default DMX send rate -- a universe is one shared wire, so a
               fixture can only slow it down (not speed it up) below this;
               see LightFixture::refreshRateHz for the per-fixture override
-              and why the slowest one on a universe wins. */}
-          <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3">
-            <Field label="Default DMX Output Rate (Hz)">
+              and why the slowest one on a universe wins. Also the default
+              rate for ResoLight real-hardware WS frames. */}
+          <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3 flex flex-col gap-3">
+            <Field label="Default Output Rate (Hz)">
               <div className="flex items-center gap-2">
                 <input
                   type="number"
@@ -571,12 +625,81 @@ export function ProjectLightingPanel({
                   }
                 />
                 <span className="text-[10px] text-foreground/40">
-                  Applies to every fixture that doesn&apos;t set its own rate
-                  below.
+                  DMX/Art-Net and ResoLight hardware frames. Per-fixture
+                  overrides below win when set.
                 </span>
               </div>
             </Field>
+            {li.kind === "dmxGeneric" && (
+              <Field label="Art-Net Target Host">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    className={selectCls}
+                    placeholder="255.255.255.255 (broadcast)"
+                    value={li.artNetTargetHost ?? ""}
+                    onChange={(e) =>
+                      void lighting.setConfig({
+                        artNetTargetHost: e.target.value.trim(),
+                      })
+                    }
+                  />
+                </div>
+                <div className="text-[10px] text-foreground/40 mt-1">
+                  Empty or 255.255.255.255 = LAN broadcast. Unicast IP for a
+                  specific Art-Net node.
+                </div>
+              </Field>
+            )}
           </div>
+
+          {/* ResoLight real-hardware discovery (ESP32/ESP8266 on LAN).
+              Preview-only by default -- boards only appear when powered and
+              broadcasting; pairing is opt-in per fixture below. */}
+          {li.kind === "resoLight" && (
+            <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className={labelCls}>ResoLight Hardware</span>
+                <span className="text-[10px] text-foreground/40">
+                  Preview-only until a board IP is set per fixture
+                </span>
+              </div>
+              {(li.discoveredBoards?.length ?? 0) === 0 ? (
+                <div className="text-[11px] text-foreground/45 leading-relaxed">
+                  No boards discovered on the LAN yet. Power an ESP32/ESP8266
+                  running the ResoLight firmware on the same Wi-Fi; it will
+                  appear here automatically. Or type an IP on a fixture below.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {(li.discoveredBoards ?? []).map((b) => (
+                    <div
+                      key={b.mac}
+                      className="flex items-center gap-2 rounded-lg border border-default/30 bg-default/10 px-2.5 py-1.5 text-xs"
+                    >
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
+                      <span className="font-medium text-foreground/80 truncate">
+                        {b.name || "ResoLight"}
+                      </span>
+                      <span className="font-mono text-[10px] text-foreground/50">
+                        {b.ip}
+                      </span>
+                      <span className="text-[10px] text-foreground/35 uppercase">
+                        {b.chipType}
+                      </span>
+                      <span className="ml-auto text-[10px] text-foreground/35 font-mono">
+                        {b.mac}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="text-[10px] text-foreground/40 mt-0.5">
+                    Click a fixture below, then use &quot;Use discovered&quot;
+                    or type the IP to bind it.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* DMX generic fixtures are driven through the exact same
               rig editor, track/cue assignment, and effects pipeline as
@@ -613,7 +736,7 @@ export function ProjectLightingPanel({
                       <button
                         type="button"
                         onClick={() => void lighting.fixtureAdd()}
-                        className="flex items-center gap-1.5 rounded-lg border border-accent/50 bg-accent/15 px-3 py-1 text-xs font-medium text-accent hover:bg-accent/25 transition-colors"
+                        className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/20 px-3 py-1 text-xs font-medium text-foreground/70 hover:bg-default/35 transition-colors"
                         title="Add a new DMX fixture"
                       >
                         <Plus size={12} />
@@ -728,9 +851,9 @@ export function ProjectLightingPanel({
 
               {/* Selected fixture editor */}
               {selected && (
-                <div className="rounded-xl border border-accent/30 bg-accent/5 p-4 flex flex-col gap-3">
+                <div className="rounded-xl border border-default/30 bg-default/5 p-4 flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-xs font-semibold text-accent uppercase tracking-wide">
+                    <span className="text-xs font-semibold text-foreground/70 uppercase tracking-wide">
                       Editing: {selected.name}
                     </span>
                     <button
@@ -1254,6 +1377,73 @@ export function ProjectLightingPanel({
                       />
                     </Field>
                   </div>
+
+                  {/* Real-hardware transport -- ResoLightBar only. Empty host
+                      = preview-only (default). Setting an IP makes ResoStage
+                      dial the board as a WS client and stream binary frames. */}
+                  {selected.kind === "resoLightBar" && (
+                    <div className="border-t border-default/20 pt-3 flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className={labelCls}>Hardware Link</span>
+                        {selected.networkHost ? (
+                          <span
+                            className={`text-[10px] font-medium ${
+                              selected.hwConnected
+                                ? "text-success"
+                                : "text-foreground/45"
+                            }`}
+                          >
+                            {selected.hwConnected
+                              ? `Linked${selected.hwRssiDbm ? ` · ${selected.hwRssiDbm} dBm` : ""}${selected.hwChipType && selected.hwChipType !== "unknown" ? ` · ${selected.hwChipType}` : ""}`
+                              : "Connecting…"}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-foreground/40">
+                            Preview only
+                          </span>
+                        )}
+                      </div>
+                      <HardwareHostField fixture={selected} />
+                      {(li.discoveredBoards?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {(li.discoveredBoards ?? []).map((b) => (
+                            <button
+                              key={b.mac}
+                              type="button"
+                              title={`Bind ${b.name || b.mac} (${b.ip})`}
+                              onClick={() =>
+                                void lighting.fixtureUpdate({
+                                  fixtureId: selected.id,
+                                  networkHost: b.ip,
+                                })
+                              }
+                              className={`rounded-md border px-2 py-1 text-[10px] font-mono transition-colors ${
+                                selected.networkHost === b.ip
+                                  ? "border-foreground/30 bg-default/30 text-foreground/80"
+                                  : "border-default/40 bg-default/10 text-foreground/55 hover:bg-default/20"
+                              }`}
+                            >
+                              {b.ip}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {selected.networkHost ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void lighting.fixtureUpdate({
+                              fixtureId: selected.id,
+                              networkHost: "",
+                            })
+                          }
+                          className="self-start rounded-md border border-default/40 bg-default/10 px-2 py-1 text-[10px] text-foreground/55 hover:bg-default/20 transition-colors"
+                        >
+                          Clear — back to preview only
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

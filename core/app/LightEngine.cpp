@@ -1,5 +1,7 @@
 #include "LightEngine.h"
 
+#include "ResoLightProtocol.h"
+
 #include <algorithm>
 #include <chrono>
 #include <map>
@@ -113,6 +115,7 @@ buildChannelMap(const std::vector<LightFixture>& fixtures) {
 
 void LightEngine::start(MasterClock& clock,
                         EventDispatcher& dispatcher,
+                        LightHardwareServer* hardwareServer,
                         BusMeterFn busPeakDb,
                         TrackMeterFn trackPeakDb,
                         double initialBpm) {
@@ -121,6 +124,7 @@ void LightEngine::start(MasterClock& clock,
 
     clock_       = &clock;
     dispatch_    = &dispatcher;
+    hardwareServer_ = hardwareServer;
     busPeakDb_   = std::move(busPeakDb);
     trackPeakDb_ = std::move(trackPeakDb);
     bpm_.store(initialBpm, std::memory_order_relaxed);
@@ -210,6 +214,27 @@ void LightEngine::threadLoop() {
         }
         if (!proj || !proj->lighting.enabled)
             continue; // no project or lighting disabled — send nothing
+
+        // Keep hardware connections warm for every fixture with a
+        // configured host, independent of whether it has an active cue
+        // this tick -- see LightHardwareServer.h's threading-contract doc
+        // comment on why connection lifecycle is decoupled from frame
+        // delivery below.
+        if (hardwareServer_ != nullptr) {
+            std::vector<LightHardwareServer::ActiveFixtureTarget> active;
+            for (const auto& f : proj->lighting.fixtures) {
+                if (f.kind != LightFixture::Kind::ResoLightBar || f.networkHost.empty())
+                    continue;
+                LightHardwareServer::ActiveFixtureTarget t;
+                t.fixtureId = f.id;
+                t.host = f.networkHost;
+                // Port is a protocol constant (ResoLightProtocol.h), never
+                // per-fixture user config -- both ends hardcode the same value.
+                t.port = resolight::kDefaultBoardPort;
+                active.push_back(std::move(t));
+            }
+            hardwareServer_->syncActiveFixtures(active);
+        }
 
         const int songIdx = clock_->currentSongIndex();
         if (songIdx < 0 || songIdx >= static_cast<int>(proj->songs.size()))
@@ -354,9 +379,9 @@ void LightEngine::threadLoop() {
             const auto& [assignIdx, fixture] = lutIt->second;
             const auto& assign = channelMap[static_cast<size_t>(assignIdx)];
 
+            static const ResolvedFixtureOutput kBlackFallback{};
+            const ResolvedFixtureOutput* fromEntry = &kBlackFallback;
             if (blendActive) {
-                static const ResolvedFixtureOutput kBlackFallback{};
-                const ResolvedFixtureOutput* fromEntry = &kBlackFallback;
                 if (auto it = blendFromById.find(out.fixtureId); it != blendFromById.end())
                     fromEntry = it->second;
                 writeDmxChannelsBlended(*fromEntry, blendTo[i], blendT, assign, *fixture, frames);
@@ -368,6 +393,34 @@ void LightEngine::threadLoop() {
             auto mit = minHzPerUniverse.find(assign.universe);
             if (mit == minHzPerUniverse.end() || hz < mit->second)
                 minHzPerUniverse[assign.universe] = hz;
+
+            // Real-hardware push (ResoLightBar with an attached ESP32/
+            // ESP8266 board only -- see LightHardwareServer.h). Computed
+            // separately from the DMX write above (a second, cheap
+            // resolveLedWireColors call) rather than threading a byte
+            // buffer out of writeWireColorsToDmx, so this can never risk
+            // the proven DMX output path -- the cost only exists for
+            // fixtures that actually have a host configured, which is zero
+            // for the common preview-only rig.
+            if (hardwareServer_ != nullptr && fixture->kind == LightFixture::Kind::ResoLightBar &&
+                !fixture->networkHost.empty()) {
+                const std::vector<LedWireColor> wireColors = blendActive
+                    ? resolveLedWireColorsBlended(*fromEntry, blendTo[i], *fixture, blendT)
+                    : resolveLedWireColors(out, *fixture);
+                const int perPixelBytes = colorProfileByteCount(fixture->channelProfile);
+                std::vector<uint8_t> flat;
+                flat.reserve(wireColors.size() * static_cast<size_t>(perPixelBytes));
+                for (const auto& c : wireColors) {
+                    if (perPixelBytes >= 1) flat.push_back(c.r);
+                    if (perPixelBytes >= 2) flat.push_back(c.g);
+                    if (perPixelBytes >= 3) flat.push_back(c.b);
+                    if (perPixelBytes >= 4) flat.push_back(c.w);
+                }
+                hardwareServer_->updateFixtureFrame(fixture->id, fixture->networkHost,
+                                                    resolight::kDefaultBoardPort,
+                                                    static_cast<uint8_t>(perPixelBytes), flat.data(),
+                                                    flat.size(), hz);
+            }
         }
 
         const auto now = std::chrono::steady_clock::now();

@@ -231,7 +231,7 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     setStatus("Song updated");
 }
 
-void MainComponent::builderTrackAdd(const std::string& json) {
+void MainComponent::builderTrackAdd(const std::string& /*json*/) {
     if (!engine.isProjectLoaded())
         return;
     Project& proj = engine.project();

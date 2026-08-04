@@ -18,7 +18,13 @@ add_library(resostage_engine STATIC
   telemetry/SystemHealth.cpp
 )
 
-target_include_directories(resostage_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(resostage_engine PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  # ResoLightProtocol.h: the ESP32/ESP8266 hardware transport's wire format,
+  # shared verbatim (not hand-ported) with resolight/firmware -- see that
+  # header's own doc comment for why.
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../resolight/firmware/shared
+)
 
 target_link_libraries(resostage_engine
   PUBLIC

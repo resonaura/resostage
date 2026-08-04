@@ -2,3 +2,4 @@ packages:
   - "ui"
   - "electron"
   - "core"
+  - "resolight/firmware"

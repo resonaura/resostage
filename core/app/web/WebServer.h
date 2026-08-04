@@ -478,6 +478,23 @@ struct WebUiState {
         // ProjectSchema.h's LightFixture::refreshRateHz doc comment -- this
         // one DOES reach real DMX output, unlike the cosmetic fields above.
         double refreshRateHz = 0.0;
+        // Real-hardware transport (ResoLightBar only). Empty = preview-only.
+        // See ProjectSchema.h's LightFixture::networkHost.
+        std::string networkHost;
+        // 0 = default board port (7862).
+        int networkPort = 0;
+        // Live link status from LightHardwareServer (not persisted).
+        bool hwConfigured = false;
+        bool hwConnected = false;
+        int hwRssiDbm = 0;
+        std::string hwChipType;
+    };
+    struct DiscoveredBoardRow {
+        std::string mac;
+        std::string ip;
+        std::string name;
+        std::string chipType;
+        double lastSeenSecondsAgo = 0.0;
     };
     struct LightingRow {
         bool enabled = false;
@@ -499,7 +516,12 @@ struct WebUiState {
         std::string idleGradientPreset = "solid";
         std::string idleGradientColors;
         double defaultRefreshRateHz = 44.0;
+        // Art-Net unicast target; empty / "255.255.255.255" = broadcast.
+        std::string artNetTargetHost;
         std::vector<LightFixtureRow> fixtures;
+        // ESP boards heard on the LAN discovery beacon (last ~30s). Not
+        // project data -- live from LightHardwareServer.
+        std::vector<DiscoveredBoardRow> discoveredBoards;
     };
     LightingRow lighting;
 

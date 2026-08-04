@@ -5,6 +5,7 @@
 #include "lighting/ResoLightChannelMap.h"
 #include "project/ProjectSchema.h"
 #include "events/EventDispatcher.h"
+#include "light/LightHardwareServer.h"
 #include "timing/MasterClock.h"
 
 #include <atomic>
@@ -57,8 +58,12 @@ public:
     // by the thread; they must remain valid until stop() returns.
     using BusMeterFn = std::function<SourceLevels(const std::string& busId)>;
     using TrackMeterFn = std::function<SourceLevels(const std::string& trackId)>;
+    // hardwareServer: not owned; may be nullptr to disable the ESP32/
+    // ESP8266 real-hardware transport entirely (DMX/Art-Net output is
+    // unaffected either way -- see LightHardwareServer.h).
     void start(MasterClock& clock,
                EventDispatcher& dispatcher,
+               LightHardwareServer* hardwareServer,
                BusMeterFn busPeakDb,
                TrackMeterFn trackPeakDb,
                double targetBpm = 120.0);
@@ -88,6 +93,7 @@ private:
 
     MasterClock*  clock_      = nullptr;
     EventDispatcher* dispatch_ = nullptr;
+    LightHardwareServer* hardwareServer_ = nullptr;
     BusMeterFn busPeakDb_;
     TrackMeterFn trackPeakDb_;
 

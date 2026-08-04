@@ -1440,7 +1440,30 @@ void MainComponent::publishWebState() {
         fr.channelProfile = f.channelProfile;
         fr.tiltDeg = f.tiltDeg;
         fr.refreshRateHz = f.refreshRateHz;
+        fr.networkHost = f.networkHost;
+        fr.networkPort = f.networkPort;
+        if (!f.networkHost.empty()) {
+            const auto link = engine.lightHardware().fixtureLinkStatus(f.id);
+            fr.hwConfigured = link.configured;
+            fr.hwConnected = link.connected;
+            fr.hwRssiDbm = link.rssiDbm;
+            fr.hwChipType = link.chipType;
+        }
         state.lighting.fixtures.push_back(std::move(fr));
+    }
+    state.lighting.artNetTargetHost = proj.lighting.artNetTargetHost;
+    {
+        const auto boards = engine.lightHardware().discoveredBoards();
+        state.lighting.discoveredBoards.reserve(boards.size());
+        for (const auto& b : boards) {
+            WebUiState::DiscoveredBoardRow row;
+            row.mac = b.mac;
+            row.ip = b.ip;
+            row.name = b.name;
+            row.chipType = b.chipType;
+            row.lastSeenSecondsAgo = b.lastSeenSecondsAgo;
+            state.lighting.discoveredBoards.push_back(std::move(row));
+        }
     }
 
     state.lightTracks.reserve(proj.lightTracks.size());
@@ -1566,8 +1589,11 @@ void MainComponent::publishWebState() {
                     bool found = false;
                     for (const auto& n : normal)
                         if (n.fixtureId == rf.fixtureId) { found = true; break; }
-                    if (!found)
-                        normal.push_back(ResolvedFixtureOutput{rf.fixtureId});
+                    if (!found) {
+                        ResolvedFixtureOutput stub;
+                        stub.fixtureId = rf.fixtureId;
+                        normal.push_back(std::move(stub));
+                    }
                 }
                 resolved = blendTowardIdle(lightingPreviewResumeFrom, normal, t);
                 blendFrom = lightingPreviewResumeFrom;

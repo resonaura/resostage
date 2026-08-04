@@ -10,3 +10,9 @@ node_modules
 electron/node_modules
 electron/dist
 electron/dist-app
+
+# ResoLight firmware — local secrets + generated header + PlatformIO build dir
+resolight/firmware/config.yaml
+resolight/firmware/src/generated/
+resolight/firmware/.pio
+resolight/firmware/src/secrets.h

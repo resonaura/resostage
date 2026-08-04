@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { builder } from "../../lib/api";
+import { triggerHaptic } from "../../lib/haptics";
 import type { SongRow } from "../../lib/types";
 import { lookupRegion, type RegionSelKey } from "./regionUtils";
 import {
@@ -90,6 +91,18 @@ export function useRegionDrag({
       clientX,
       clientY,
     );
+    // A brief trackpad tick each time the gesture actually lands on a new
+    // grid-snapped position/lane -- not on every pointermove, which would
+    // buzz continuously instead of reading as a detent.
+    const prev = rd.lastGeom;
+    if (
+      prev &&
+      (prev.start !== geom.start ||
+        prev.duration !== geom.duration ||
+        prev.trackId !== geom.trackId)
+    ) {
+      triggerHaptic("alignment");
+    }
     writeGeomDraft(rd.key, geom);
   };
 
@@ -99,6 +112,7 @@ export function useRegionDrag({
     const finalGeom: RegionGeom = rd.lastGeom ?? baseRegionGeom(rd);
     // Keep draft until state.songs matches -- no snap-back flash.
     writeGeomDraft(rd.key, finalGeom);
+    triggerHaptic("generic");
 
     void builder.regionUpdate({
       songIndex: rd.songIndex,
@@ -158,6 +172,7 @@ export function useRegionDrag({
     regionDragRef.current = session;
     attachRegionDragWindowListeners();
     markGestureActiveRef.current();
+    triggerHaptic("generic");
   };
 
   return {

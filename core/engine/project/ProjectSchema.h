@@ -195,6 +195,22 @@ struct LightFixture {
     // kinds; a real DMX fixture can be just as rate-sensitive as a
     // ResoLight bar.
     double refreshRateHz = 0.0;
+
+    // Real-hardware transport (ResoLightBar only -- see
+    // resolight/firmware/shared/ResoLightProtocol.h and
+    // core/app/light/LightHardwareServer.h). Empty = preview-only, the
+    // default: no hardware required, nothing is dialed. Set once the
+    // operator types in (or pairs from the discovered-boards list) an
+    // ESP32/ESP8266 board's LAN IP; ResoStage then dials OUT to it as a WS
+    // client and streams live lighting frames at `refreshRateHz` above (or
+    // the project default). Unrelated to dmxUniverse/dmxStartChannel --
+    // this is a second, independent transport, not another way to reach
+    // the same Art-Net output.
+    std::string networkHost;
+    // Legacy field, ignored at runtime. Transport always uses
+    // resolight::kDefaultBoardPort (7862) on both ends. Kept so old project
+    // files still load without a schema break; new writes leave it 0.
+    int networkPort = 0;
 };
 
 enum class LightingKind {
@@ -256,6 +272,16 @@ struct LightingConfig {
     // LightEngine's original hardcoded rate exactly, so a project that
     // never touches this setting behaves identically to before it existed.
     double defaultRefreshRateHz = 44.0;
+
+    // Where Art-Net/DMX UDP packets actually go (EventDispatcher::sendDmx).
+    // Empty = broadcast to 255.255.255.255 (every Art-Net node on the
+    // subnet picks packets up -- the original, still-default behavior).
+    // Set to a specific node/converter's IP for unicast delivery, which
+    // real venues often need: some routers/APs block or rate-limit
+    // broadcast traffic, and a unicast target is also the only way to
+    // address one specific converter when more than one Art-Net node
+    // shares the LAN but should receive different universes.
+    std::string artNetTargetHost;
 };
 
 // A named row on the Light timeline -- project-level roster, mirrors

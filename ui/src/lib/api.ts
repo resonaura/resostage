@@ -1,5 +1,10 @@
 import { apiUrl } from "./backend";
-import type { AllPeaksResponse, EventTypeWire, LightCueRow, PeaksResponse } from "./types";
+import type {
+  AllPeaksResponse,
+  EventTypeWire,
+  LightCueRow,
+  PeaksResponse,
+} from "./types";
 
 // Mirrors WebServer::handleHttpApi().
 async function post(path: string, body?: unknown): Promise<void> {
@@ -383,6 +388,7 @@ export const lighting = {
     idleGradientPreset?: string;
     idleGradientColors?: string;
     defaultRefreshRateHz?: number;
+    artNetTargetHost?: string;
   }) => post("/api/v1/lighting/config", patch),
 
   fixtureAdd: (name?: string) => post("/api/v1/lighting/fixture/add", { name }),
@@ -406,19 +412,33 @@ export const lighting = {
     dmxUniverse?: number;
     dmxStartChannel?: number;
     dmxChannelCount?: number;
-    shape?: "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead";
+    shape?:
+      | "bar"
+      | "strip"
+      | "ring"
+      | "matrix"
+      | "par"
+      | "wash"
+      | "spot"
+      | "movingHead";
     matrixCols?: number;
     channelProfile?: "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
     tiltDeg?: number;
     refreshRateHz?: number;
+    /** Empty string clears the host (back to preview-only). Port is protocol-fixed. */
+    networkHost?: string;
   }) => post("/api/v1/lighting/fixture/update", patch),
 
   trackAdd: () => post("/api/v1/lighting/track/add"),
-  trackRemove: (index: number) => post("/api/v1/lighting/track/remove", { index }),
+  trackRemove: (index: number) =>
+    post("/api/v1/lighting/track/remove", { index }),
   trackMove: (index: number, delta: number) =>
     post("/api/v1/lighting/track/move", { index, delta }),
-  trackUpdate: (patch: { index: number; name?: string; fixtureIds?: string[] }) =>
-    post("/api/v1/lighting/track/update", patch),
+  trackUpdate: (patch: {
+    index: number;
+    name?: string;
+    fixtureIds?: string[];
+  }) => post("/api/v1/lighting/track/update", patch),
 
   cueAdd: (
     songIndex: number,
@@ -451,16 +471,53 @@ export const lighting = {
     label?: string;
     // Audio-reactive effect (resolved by both LightEngine and the per-LED
     // websocket stream -- see liveLevels.ts for the live result).
-    effectType?: "none" | "meter" | "strobe" | "pulse" | "ripple" | "converge" | "gradientflow" | "chase" | "helix" | "plasma" | "twinkle" | "sonicboom" | "fire" | "bouncing" | "drip" | "fireworks" | "colorwaves" | "strobeswipe" | "vupeak" | "geq" | "blurz" | "scanner" | "lightning" | "barberpole";
+    effectType?:
+      | "none"
+      | "meter"
+      | "strobe"
+      | "pulse"
+      | "ripple"
+      | "converge"
+      | "gradientflow"
+      | "chase"
+      | "helix"
+      | "plasma"
+      | "twinkle"
+      | "sonicboom"
+      | "fire"
+      | "bouncing"
+      | "drip"
+      | "fireworks"
+      | "colorwaves"
+      | "strobeswipe"
+      | "vupeak"
+      | "geq"
+      | "blurz"
+      | "scanner"
+      | "lightning"
+      | "barberpole";
     effectSourceType?: "bus" | "track";
     effectSourceId?: string;
     effectIntensity?: number;
     tempoSync?: boolean;
     tempoSubdiv?: string;
     effectRateHz?: number;
-    gradientPreset?: "solid" | "greenYellowRed" | "custom" | "vulcanFire" | "toxicFire" | "cryoFire" | "cyberpunkFire";
+    gradientPreset?:
+      | "solid"
+      | "greenYellowRed"
+      | "custom"
+      | "vulcanFire"
+      | "toxicFire"
+      | "cryoFire"
+      | "cyberpunkFire";
     gradientColors?: string;
-    blendMode?: "normal" | "additive" | "multiply" | "difference" | "lighten" | "subtractive";
+    blendMode?:
+      | "normal"
+      | "additive"
+      | "multiply"
+      | "difference"
+      | "lighten"
+      | "subtractive";
     gestureId?: string;
   }) => post("/api/v1/lighting/cue/update", patch),
 };

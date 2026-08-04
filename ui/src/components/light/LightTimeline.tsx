@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { lighting } from "../../lib/api";
+import { triggerHaptic } from "../../lib/haptics";
 import type {
   AllPeaksResponse,
   LightCueRow,
@@ -569,6 +570,7 @@ export function LightTrackLane({
       originTrackIndex: trackIndex,
       targetTrackIndex: trackIndex,
     };
+    triggerHaptic("generic");
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
@@ -577,6 +579,7 @@ export function LightTrackLane({
     if (!rd || rd.songIndex !== songIndex) return;
     const dSec = (e.clientX - rd.startX) / pxPerSec;
     const snap = (s: number) => snapLocalSec(songIndex, s);
+    const prevTargetTrackIndex = rd.targetTrackIndex;
     let next: CueDraft = { start: rd.origStart, duration: rd.origDuration };
     if (rd.mode === "move") {
       const maxStart = Math.max(0, rd.maxEnd - rd.origDuration);
@@ -626,6 +629,17 @@ export function LightTrackLane({
         Math.min(rd.maxEnd - rd.origStart, end - rd.origStart),
       );
     }
+    // A brief trackpad tick each time the gesture lands on a new
+    // grid-snapped start/duration/lane -- mirrors the audio-region drag
+    // feel (useRegionDrag.ts) instead of buzzing on every pointermove.
+    if (
+      rd.lastGeom.start !== next.start ||
+      rd.lastGeom.duration !== next.duration ||
+      rd.targetTrackIndex !== prevTargetTrackIndex
+    ) {
+      triggerHaptic("alignment");
+    }
+
     const updated = { ...draftsRef.current, [rd.key]: next };
     draftsRef.current = updated;
     setDrafts(updated);

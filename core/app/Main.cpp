@@ -47,7 +47,7 @@ public:
 
     void systemRequestedQuit() override {
         if (mainWindow != nullptr && mainWindow->getMainComponent() != nullptr) {
-            mainWindow->getMainComponent()->confirmQuitIfUnsaved([this](bool canQuit) {
+            mainWindow->getMainComponent()->confirmQuitIfUnsaved([](bool canQuit) {
                 if (canQuit)
                     quit();
             });

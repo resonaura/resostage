@@ -55,6 +55,7 @@ public:
     juce::AudioDeviceManager& deviceManager() { return deviceManagerInstance; }
     CoreMidiDispatcher& midi() { return midiDispatcher; }
     EventDispatcher& events() { return eventDispatcher; }
+    LightHardwareServer& lightHardware() { return lightHardwareServer; }
 
     // Loads a .rsnraset and its global bus list, and (re)starts the
     // background streaming I/O thread against it. Does not stage any song's
@@ -161,9 +162,16 @@ public:
     size_t currentSongIndex() const { return currentSong; }
 
     // Called by MainComponent after any in-place edit of Project data so the
-    // LightEngine thread picks up the change on the next DMX frame.
+    // LightEngine thread picks up the change on the next DMX frame. Also
+    // re-applies the Art-Net unicast/broadcast target every time -- cheap
+    // (a string compare + assignment inside EventDispatcher), and this is
+    // the one choke point every lighting mutator AND project load already
+    // funnels through, so a saved artNetTargetHost takes effect immediately
+    // without needing its own separate wiring at every load site.
     void notifyLightEngineProjectChanged() {
         lightEngine.setProject(std::make_shared<Project>(loader.project()));
+        const std::string& target = loader.project().lighting.artNetTargetHost;
+        eventDispatcher.setArtNetTargetAddress(target.empty() ? "255.255.255.255" : target);
     }
 
     // Called by MainComponent when the CURRENTLY ACTIVE song's own BPM is
@@ -424,6 +432,7 @@ private:
     StreamingEngine streaming;
     CoreMidiDispatcher midiDispatcher;
     EventDispatcher eventDispatcher;
+    LightHardwareServer lightHardwareServer; // ESP32/ESP8266 WS-binary transport (see LightHardwareServer.h)
     LightEngine lightEngine; // near-realtime dedicated DMX output thread
     TransportTelemetry transportTelemetry;
     SystemHealth systemHealth;

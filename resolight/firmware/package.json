@@ -1,0 +1,22 @@
+{
+  "name": "resostage-firmware",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ResoLight ESP32/ESP8266 firmware (WS binary light transport)",
+  "type": "module",
+  "scripts": {
+    "build": "tsx scripts/cli.ts build",
+    "flash": "tsx scripts/cli.ts flash",
+    "monitor": "tsx scripts/cli.ts monitor",
+    "flash:monitor": "tsx scripts/cli.ts flash:monitor",
+    "clean": "tsx scripts/cli.ts clean",
+    "list-strips": "tsx scripts/cli.ts list-strips",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "yaml": "^2.6.0"
+  }
+}

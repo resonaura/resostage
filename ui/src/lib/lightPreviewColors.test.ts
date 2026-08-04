@@ -27,6 +27,8 @@ function makeFixture(id: string): LightFixtureRow {
     channelProfile: "rgb",
     tiltDeg: 0,
     refreshRateHz: 0,
+    networkHost: "",
+    networkPort: 0,
   };
 }
 
@@ -67,7 +69,9 @@ function makeCue(
 describe("fixturePreviewColor", () => {
   it("returns black when the fixture is not assigned to any light track", () => {
     const fixture = makeFixture("f1");
-    const tracks: LightTrackRow[] = [{ id: "t1", name: "wash", fixtureIds: ["f2"] }];
+    const tracks: LightTrackRow[] = [
+      { id: "t1", name: "wash", fixtureIds: ["f2"] },
+    ];
     const cues = [makeCue("t1", 0, 10, 255, 0, 0)];
     expect(fixturePreviewColor(fixture, tracks, cues, 5)).toEqual({
       r: 0,
@@ -121,7 +125,9 @@ describe("fixturePreviewColor", () => {
 describe("computeFixturePreviewColors", () => {
   it("maps every fixture to its resolved value at the query time", () => {
     const fixtures = [makeFixture("f1"), makeFixture("f2")];
-    const tracks: LightTrackRow[] = [{ id: "t1", name: "wash", fixtureIds: ["f1"] }];
+    const tracks: LightTrackRow[] = [
+      { id: "t1", name: "wash", fixtureIds: ["f1"] },
+    ];
     const cues = [makeCue("t1", 0, 10, 10, 20, 30, 0.8)];
     const colors = computeFixturePreviewColors(fixtures, tracks, cues, 5);
     expect(colors["f1"]).toEqual({ r: 10, g: 20, b: 30, intensity: 0.8 });

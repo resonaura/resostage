@@ -71,6 +71,44 @@ function Field({
   );
 }
 
+// Plain numeric stepper for timing values (fades, durations) -- unlike
+// color/effect parameters (Depth, Rate, HSL), a fade length is something you
+// want to type or nudge precisely, not drag a bar for, and it doesn't need
+// the accent-filled slider track's visual weight.
+function SecondsField({
+  label,
+  value,
+  onChange,
+  max,
+  step = 0.1,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  max: number;
+  step?: number;
+}) {
+  return (
+    <Field label={label}>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          min={0}
+          max={max}
+          step={step}
+          value={Number(value.toFixed(2))}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            onChange(Math.min(Math.max(0, Number.isFinite(v) ? v : 0), max));
+          }}
+          className={inputCls}
+        />
+        <span className="shrink-0 text-[10px] text-foreground/40">s</span>
+      </div>
+    </Field>
+  );
+}
+
 // Shared horizontal slider -- HeroUI's own Slider compound component
 // (same one MixerScreen.tsx uses for gain), not a hand-rolled <input
 // type=range>. Every plain 0..1-ish slider in this panel (intensity,
@@ -152,19 +190,24 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(m[0], 16), parseInt(m[1], 16), parseInt(m[2], 16)];
 }
 
+// Fully-saturated, stage-console-style primaries/secondaries -- not the iOS
+// system-color pastels this used to be. On real LED hardware, "aesthetic"
+// mid-saturation swatches (dusty rose, lavender, etc.) read as muddy/washed
+// out; a working light rig needs true red/green/blue/etc. as one-tap
+// defaults, with the full HSL picker below for anything more subtle.
 const PRESET_COLORS: [number, number, number][] = [
-  [255, 159, 10], // amber
-  [255, 214, 10], // yellow
-  [255, 55, 95], // rose
-  [191, 90, 242], // purple
-  [100, 210, 255], // cyan
-  [48, 209, 88], // green
-  [255, 69, 58], // red
-  [0, 199, 190], // teal
+  [255, 0, 0], // true red
+  [255, 60, 0], // orange-red
+  [255, 140, 0], // amber
+  [255, 255, 0], // true yellow
+  [0, 255, 0], // true green
+  [0, 255, 140], // spring green
+  [0, 255, 255], // true cyan
+  [0, 90, 255], // true blue
+  [110, 0, 255], // violet
+  [255, 0, 255], // magenta
+  [255, 0, 130], // pink
   [255, 255, 255], // white
-  [0, 91, 255], // blue
-  [255, 120, 0], // orange
-  [200, 200, 200], // cool white
 ];
 
 export function HslColorPicker({
@@ -1164,8 +1207,27 @@ function TrackSettingsPanel({
   fixtures: LightFixtureRow[];
   onRequestClose?: () => void;
 }) {
+  // Local draft so live WS re-renders (and remote name echoes) never clobber
+  // an in-progress edit or kill text selection mid-drag / mid-Cmd+A. Commit
+  // on blur only -- same pattern as MixerScreen track rename.
+  const [nameDraft, setNameDraft] = useState(track.name);
+  const [nameFocused, setNameFocused] = useState(false);
+  if (!nameFocused && nameDraft !== track.name) {
+    setNameDraft(track.name);
+  }
+
+  const commitName = () => {
+    setNameFocused(false);
+    const next = nameDraft.trim();
+    if (next.length === 0 || next === track.name) {
+      setNameDraft(track.name);
+      return;
+    }
+    void lighting.trackUpdate({ index, name: next });
+  };
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 select-text">
       <div className="flex items-center justify-between">
         <span className={labelCls}>Track: {track.name}</span>
         {onRequestClose && (
@@ -1182,12 +1244,26 @@ function TrackSettingsPanel({
       <Field label="Name">
         <input
           type="text"
-          value={track.name}
+          value={nameDraft}
           placeholder="Light track name"
-          className={inputCls}
-          onChange={(e) =>
-            void lighting.trackUpdate({ index, name: e.target.value })
-          }
+          className={`${inputCls} select-text`}
+          onFocus={(e) => {
+            setNameFocused(true);
+            // Select the whole name on focus so a rename is one keystroke
+            // away -- the previous controlled+live-state path made drag
+            // selection / Cmd+A unreliable.
+            e.currentTarget.select();
+          }}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
+            } else if (e.key === "Escape") {
+              setNameDraft(track.name);
+              e.currentTarget.blur();
+            }
+          }}
         />
       </Field>
 
@@ -1418,33 +1494,27 @@ function CueSettingsPanel({
         const fadeOut = Math.max(0, cue.fadeOutSeconds);
         const maxFadeIn = Math.max(0, dur - fadeOut);
         const maxFadeOut = Math.max(0, dur - fadeIn);
-        // HeroUI Slider needs max > min; keep a tiny range when the other
-        // fade already consumes the full duration (max === 0).
-        const sliderMaxIn = Math.max(maxFadeIn, 0.01);
-        const sliderMaxOut = Math.max(maxFadeOut, 0.01);
         return (
           <div className="grid grid-cols-2 gap-3">
-            <LabeledSlider
-              label={`Fade In: ${fadeIn.toFixed(1)}s`}
-              value={Math.min(fadeIn, sliderMaxIn)}
+            <SecondsField
+              label="Fade In"
+              value={Math.min(fadeIn, maxFadeIn)}
               onChange={(v) =>
                 update({
                   fadeInSeconds: Math.min(Math.max(0, v), maxFadeIn),
                 })
               }
-              max={sliderMaxIn}
-              step={0.1}
+              max={maxFadeIn}
             />
-            <LabeledSlider
-              label={`Fade Out: ${fadeOut.toFixed(1)}s`}
-              value={Math.min(fadeOut, sliderMaxOut)}
+            <SecondsField
+              label="Fade Out"
+              value={Math.min(fadeOut, maxFadeOut)}
               onChange={(v) =>
                 update({
                   fadeOutSeconds: Math.min(Math.max(0, v), maxFadeOut),
                 })
               }
-              max={sliderMaxOut}
-              step={0.1}
+              max={maxFadeOut}
             />
           </div>
         );

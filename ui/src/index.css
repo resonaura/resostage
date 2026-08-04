@@ -17,6 +17,16 @@ body {
   user-select: none;
 }
 
+/* Form fields must remain fully selectable even under body user-select:none.
+   WebKit/Electron can otherwise block drag-select / Cmd+A on text inputs
+   nested inside select-none containers (timeline chrome, side panels). */
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Numeric readouts (playhead, dB, bpm) should use tabular figures so digits
    don't jitter horizontally as they update every frame. */
 .tabular-nums {
@@ -25,6 +35,12 @@ body {
 
 /* Toast slide-up animation */
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

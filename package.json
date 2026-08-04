@@ -30,7 +30,11 @@
     "configure": "node scripts/dev.mjs configure",
     "clean": "node scripts/dev.mjs clean",
     "clean:all": "node scripts/dev.mjs clean --ui",
-    "scripts": "node scripts/dev.mjs help"
+    "scripts": "node scripts/dev.mjs help",
+    "firmware:build": "pnpm --dir resolight/firmware build",
+    "firmware:flash": "pnpm --dir resolight/firmware flash",
+    "firmware:monitor": "pnpm --dir resolight/firmware monitor",
+    "firmware:list-strips": "pnpm --dir resolight/firmware list-strips"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

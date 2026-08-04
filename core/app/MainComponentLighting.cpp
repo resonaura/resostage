@@ -143,6 +143,10 @@ void MainComponent::lightingSetConfig(const std::string& json) {
         // LightEngine.h's kFrameRateHz) -- a configured rate faster than
         // that would just silently get capped at the tick rate anyway.
         cfg.defaultRefreshRateHz = std::clamp(doubleVal, 1.0, 60.0);
+    // "" is a valid, meaningful value here (broadcast -- see the field's
+    // doc comment in ProjectSchema.h), not "leave unset".
+    if (getString(doc, "artNetTargetHost", strVal))
+        cfg.artNetTargetHost = strVal;
 
     if (cfg.kind == LightingKind::ResoLight)
         regenerateResoLightFixtures(cfg);
@@ -250,6 +254,10 @@ void MainComponent::lightingFixtureDuplicate(const std::string& json) {
     LightFixture copy = *src;
     copy.id = makeUniqueId(src->kind == LightFixture::Kind::ResoLightBar ? "bar" : "dmx", used);
     copy.name = src->name + " Copy";
+    // Hardware is 1:1 with a physical board -- never let a duplicate steal
+    // the source's IP. Operator re-pairs the copy if they want one.
+    copy.networkHost.clear();
+    copy.networkPort = 0;
 
     // Auto-place right after the last occupied channel range in the SAME
     // universe as the source -- same collision-avoidance lightingFixtureAdd
@@ -357,6 +365,13 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     // the point, so the low end stays wide open.
     if (getDouble(doc, "refreshRateHz", numVal))
         fx->refreshRateHz = numVal <= 0.0 ? 0.0 : std::clamp(numVal, 1.0, 60.0);
+    // "" is the valid, meaningful "no hardware attached, preview only"
+    // value -- see LightFixture::networkHost's doc comment. Port is not
+    // user-configurable: both sides always use resolight::kDefaultBoardPort.
+    if (getString(doc, "networkHost", strVal)) {
+        fx->networkHost = strVal;
+        fx->networkPort = 0;
+    }
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();

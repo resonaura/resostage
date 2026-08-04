@@ -243,6 +243,31 @@ export interface LightFixtureRow {
   tiltDeg: number;
   /** DMX send rate override for this fixture's universe, in Hz. 0 = inherit LightingState.defaultRefreshRateHz. */
   refreshRateHz: number;
+  /**
+   * Real-hardware transport host (ResoLightBar only). Empty = preview-only
+   * (default; no ESP board required). Set to a board's LAN IP to stream
+   * live frames over WS binary via LightHardwareServer.
+   */
+  networkHost: string;
+  /** Legacy/ignored — transport always uses the fixed ResoLight port. */
+  networkPort: number;
+  /** Live: a host is configured for this fixture. */
+  hwConfigured?: boolean;
+  /** Live: WS link to the board is up. */
+  hwConnected?: boolean;
+  /** Live: last reported RSSI from the board (dBm, negative). */
+  hwRssiDbm?: number;
+  /** Live: "esp32" | "esp8266" | "unknown". */
+  hwChipType?: string;
+}
+
+/** ESP board heard on the LAN discovery UDP beacon (not project data). */
+export interface DiscoveredBoardRow {
+  mac: string;
+  ip: string;
+  name: string;
+  chipType: string;
+  lastSeenSecondsAgo: number;
 }
 
 export interface LightingState {
@@ -266,7 +291,11 @@ export interface LightingState {
   idleGradientColors?: string;
   /** Default DMX send rate (Hz) for fixtures that don't set their own refreshRateHz. */
   defaultRefreshRateHz: number;
+  /** Art-Net unicast target; empty = broadcast (255.255.255.255). */
+  artNetTargetHost?: string;
   fixtures: LightFixtureRow[];
+  /** Live ESP boards discovered on the LAN (last ~30s). */
+  discoveredBoards?: DiscoveredBoardRow[];
 }
 
 export interface LightTrackRow {
@@ -493,7 +522,9 @@ export const emptyState: WebUiState = {
     idleEffectType: "none",
     idleEffectRateHz: 2,
     defaultRefreshRateHz: 44,
+    artNetTargetHost: "",
     fixtures: [],
+    discoveredBoards: [],
   },
   lightTracks: [],
   health: {

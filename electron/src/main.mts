@@ -33,22 +33,29 @@ import { existsSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 
-// koffi loads dist/MenuFlash.dylib (native/mac/MenuFlash.m). Optional —
-// if the dylib is missing we simply skip visual feedback.
+// koffi loads dist/*.dylib (native/mac/*.m). Optional — missing dylib or
+// non-mac simply skips the feature. Eager-loaded on app ready so load
+// failures show up once at startup instead of silently on first use.
 const require = createRequire(import.meta.url);
-type KoffiLib = {
+
+type KoffiModule = {
   load: (p: string) => {
     func: (
       name: string,
       ret: string,
       args: string[],
-    ) => (title: string) => void;
+    ) => (...args: unknown[]) => void;
   };
 };
-let FlashMenuTitleNative: ((title: string) => void) | null = null;
+
+let FlashMenuItemNative:
+  | ((topTitle: string, itemTitle: string) => void)
+  | null = null;
 let FlashMenuLoadAttempted = false;
-function EnsureNativeMenuFlash(): ((title: string) => void) | null {
-  if (FlashMenuTitleNative) return FlashMenuTitleNative;
+function EnsureNativeMenuFlash():
+  | ((topTitle: string, itemTitle: string) => void)
+  | null {
+  if (FlashMenuItemNative) return FlashMenuItemNative;
   if (FlashMenuLoadAttempted) return null;
   FlashMenuLoadAttempted = true;
   if (process.platform !== "darwin") return null;
@@ -59,15 +66,51 @@ function EnsureNativeMenuFlash(): ((title: string) => void) | null {
   }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Koffi = require("koffi") as KoffiLib;
+    const Koffi = require("koffi") as KoffiModule;
     const Lib = Koffi.load(LibPath);
-    FlashMenuTitleNative = Lib.func("FlashMenuTitle", "void", ["str"]);
+    // FlashMenuItem(topTitle, itemTitle) — itemTitle may be "".
+    FlashMenuItemNative = Lib.func("FlashMenuItem", "void", ["str", "str"]) as (
+      topTitle: string,
+      itemTitle: string,
+    ) => void;
     console.log("MenuFlash: loaded", LibPath);
-    return FlashMenuTitleNative;
+    return FlashMenuItemNative;
   } catch (err) {
     console.warn("MenuFlash unavailable:", err);
     return null;
   }
+}
+
+let HapticFeedbackNative: ((pattern: number) => void) | null = null;
+let HapticLoadAttempted = false;
+function EnsureNativeHaptics(): ((pattern: number) => void) | null {
+  if (HapticFeedbackNative) return HapticFeedbackNative;
+  if (HapticLoadAttempted) return null;
+  HapticLoadAttempted = true;
+  if (process.platform !== "darwin") return null;
+  const LibPath = path.join(import.meta.dirname, "Haptics.dylib");
+  if (!existsSync(LibPath)) {
+    console.warn("Haptics: dylib missing at", LibPath);
+    return null;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Koffi = require("koffi") as KoffiModule;
+    const Lib = Koffi.load(LibPath);
+    HapticFeedbackNative = Lib.func("PerformHapticFeedback", "void", [
+      "int",
+    ]) as (pattern: number) => void;
+    console.log("Haptics: loaded", LibPath);
+    return HapticFeedbackNative;
+  } catch (err) {
+    console.warn("Haptics unavailable:", err);
+    return null;
+  }
+}
+
+function preloadNatives(): void {
+  EnsureNativeMenuFlash();
+  EnsureNativeHaptics();
 }
 
 const { TouchBarButton } = TouchBar;
@@ -234,8 +277,8 @@ let menuState: MenuState = {
 let lastTouchBarTab: string | null = null;
 
 // Native macOS menu-bar flash (AppKit key-equivalent paint of the top-level
-// title — same look as a real keyboard shortcut). Sources: hotkey, MIDI,
-// native menu click, SPA lastActionNonce.
+// title + leaf item). Sources: hotkey, MIDI, native menu click, SPA
+// lastActionNonce.
 //
 // Menu.setApplicationMenu() tears down the NSMenu hierarchy and cancels an
 // in-flight flash, so: (1) never rebuild the menu for lastAction-only
@@ -243,13 +286,19 @@ let lastTouchBarTab: string | null = null;
 let lastFlashedAction = "";
 let lastFlashAt = 0;
 let pendingFlashTitle: string | null = null;
+let pendingFlashItem: string | null = null;
 let pendingFlashTimer: ReturnType<typeof setTimeout> | null = null;
 
-function sectionTitleForAction(action: string): string | null {
+/** Top-level section title + leaf item title for a performAction id. */
+function menuLocationForAction(
+  action: string,
+): { section: string; item: string } | null {
   if (!menuModel) return null;
   for (const section of menuModel.menus ?? []) {
-    if ((section.items ?? []).some((it) => it.actionId === action))
-      return section.title;
+    for (const it of section.items ?? []) {
+      if (it.actionId === action && it.title)
+        return { section: section.title, item: it.title };
+    }
   }
   return null;
 }
@@ -272,22 +321,25 @@ function resolveLiveMenuTitle(modelTitle: string): string {
   return modelTitle;
 }
 
-function scheduleMenuFlash(title: string): void {
-  pendingFlashTitle = title;
+function scheduleMenuFlash(sectionTitle: string, itemTitle: string): void {
+  pendingFlashTitle = sectionTitle;
+  pendingFlashItem = itemTitle;
   if (pendingFlashTimer) clearTimeout(pendingFlashTimer);
   // Next macrotask: after any setApplicationMenu from this turn has settled.
   pendingFlashTimer = setTimeout(() => {
     pendingFlashTimer = null;
-    const t = pendingFlashTitle;
+    const section = pendingFlashTitle;
+    const item = pendingFlashItem;
     pendingFlashTitle = null;
-    if (!t) return;
-    const live = resolveLiveMenuTitle(t);
+    pendingFlashItem = null;
+    if (!section) return;
+    const live = resolveLiveMenuTitle(section);
     const flash = EnsureNativeMenuFlash();
     if (!flash) {
       console.warn("MenuFlash: native dylib not loaded");
       return;
     }
-    flash(live);
+    flash(live, item ?? "");
   }, 16);
 }
 
@@ -301,9 +353,9 @@ function flashMenuAction(action: string): void {
   lastFlashedAction = action;
   lastFlashAt = now;
 
-  const title = sectionTitleForAction(action);
-  if (!title) return;
-  scheduleMenuFlash(title);
+  const loc = menuLocationForAction(action);
+  if (!loc) return;
+  scheduleMenuFlash(loc.section, loc.item);
 }
 
 async function postAction(action: string): Promise<boolean> {
@@ -518,8 +570,49 @@ function buildDevMenu(): MenuItemConstructorOptions {
           void win.loadURL("chrome://gpu");
         },
       },
+      { type: "separator" },
+      {
+        label: "Test Trackpad Haptic",
+        click: () => {
+          const fn = EnsureNativeHaptics();
+          if (!fn) {
+            console.warn("Haptics: not available");
+            return;
+          }
+          fn(1); // alignment
+          setTimeout(() => fn(0), 120);
+          setTimeout(() => fn(2), 240);
+        },
+      },
+      {
+        label: "Test Menu Flash (File → Save)",
+        click: () => {
+          scheduleMenuFlash("File", "Save");
+        },
+      },
     ],
   };
+}
+
+// Standard macOS text-editing roles (cut/copy/paste/selectAll/…). On macOS,
+// Electron only wires up the Cmd+A / Cmd+C / Cmd+V / Cmd+X accelerators for
+// focused web-content text fields when a menu item with the matching `role`
+// exists SOMEWHERE in the application menu — this is not automatic just
+// because a native <input> is focused, and it is not covered by the
+// backend's cross-platform MenuModel (which only knows about app-level
+// actions like the project undo stack, not native OS text editing). Without
+// this, renaming anything — a light track, a project name, any text field —
+// silently can't be select-all'd via Cmd+A. See Electron's "roles" docs.
+function editRoleItems(): MenuItemConstructorOptions[] {
+  return [
+    { type: "separator" },
+    { role: "cut" },
+    { role: "copy" },
+    { role: "paste" },
+    { role: "pasteAndMatchStyle" },
+    { role: "delete" },
+    { role: "selectAll" },
+  ];
 }
 
 function buildMenu(): Menu | null {
@@ -530,6 +623,14 @@ function buildMenu(): Menu | null {
       submenu: (section.items ?? []).map((it) => buildMenuItem(it)),
     }),
   );
+  const editIdx = sections.findIndex((s) => s.label === "Edit");
+  if (editIdx >= 0) {
+    const edit = sections[editIdx];
+    const submenu = Array.isArray(edit.submenu) ? edit.submenu : [];
+    edit.submenu = [...submenu, ...editRoleItems()];
+  } else {
+    sections.push({ label: "Edit", submenu: editRoleItems() });
+  }
   // Insert Dev before Window (or append if Window is missing).
   const winIdx = sections.findIndex((s) => s.label === "Window");
   if (winIdx >= 0) sections.splice(winIdx, 0, buildDevMenu());
@@ -742,6 +843,16 @@ ipcMain.on("action", (_event, action: unknown) => {
   if (typeof action === "string" && action) postAction(action);
 });
 
+// SPA → trackpad haptic tick (clip/cue drag snap, etc). Fire-and-forget --
+// deliberately .on/.send, not .invoke/.handle, so a rapid-fire drag gesture
+// never waits on an IPC round trip.
+ipcMain.on("haptic-feedback", (_event, pattern: unknown) => {
+  const fn = EnsureNativeHaptics();
+  if (!fn) return;
+  const p = pattern === "levelChange" ? 2 : pattern === "generic" ? 0 : 1;
+  fn(p);
+});
+
 // SPA → native context menu (mixer track menus, etc.). Returns chosen id
 // or null when dismissed / cancelled.
 ipcMain.handle(
@@ -803,6 +914,8 @@ app.setAboutPanelOptions({
 void app.whenReady().then(async () => {
   if (STANDALONE) spawnBackend();
   ensureAppNotSuspended();
+  // Load MenuFlash/Haptics dylibs once up front so first-use isn't silent.
+  preloadNatives();
 
   // The GET response already carries the current Open Recent list, so the
   // submenu is correct on first open -- before any live menu-state IPC has

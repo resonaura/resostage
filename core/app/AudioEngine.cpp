@@ -151,6 +151,7 @@ AudioEngine::AudioEngine() {
     deviceManagerInstance.addChangeListener(this);
     midiDispatcher.start();
     eventDispatcher.start();
+    lightHardwareServer.start();
 
     // Start LightEngine: provide bus- and track-peak callbacks so a Meter
     // effect can sample either pool's audio level without touching the
@@ -158,6 +159,7 @@ AudioEngine::AudioEngine() {
     lightEngine.start(
         clock,
         eventDispatcher,
+        &lightHardwareServer,
         [this](const std::string& busId) -> SourceLevels {
             // Empty busId → use first bus (master mix).
             size_t idx = 0;
@@ -218,6 +220,7 @@ AudioEngine::~AudioEngine() {
     streaming.stop();
     purgeStaleSavePackages();
     lightEngine.stop();
+    lightHardwareServer.stop();
     midiDispatcher.stop();
     eventDispatcher.stop();
     deviceManagerInstance.removeChangeListener(this);
@@ -557,20 +560,25 @@ void AudioEngine::rebuildTrackPeaks() {
                 const int trackIdx = (regionIndex < indices.size()) ? indices[regionIndex] : -1;
                 if (trackIdx < 0)
                     return;
+                // Capture POD copies (not the parameter names themselves) so
+                // the async lambda doesn't trip -Wshadow-uncaptured-local on
+                // the enclosing publishPartial parameters.
+                const size_t regionIdxCopy = regionIndex;
                 juce::MessageManager::callAsync(
-                    [this, generation, songIndexForBuild, trackIdx, regionIndex, overview = std::move(overview)]() mutable {
+                    [this, generation, songIndexForBuild, trackIdx, regionIdxCopy,
+                     overviewCopy = std::move(overview)]() mutable {
                         if (peakBuildGeneration.load(std::memory_order_acquire) != generation
                             || currentSong != songIndexForBuild)
                             return;
                         if (static_cast<size_t>(trackIdx) >= trackPeaks.size())
                             return;
-                        trackPeaks[static_cast<size_t>(trackIdx)] = overview;
+                        trackPeaks[static_cast<size_t>(trackIdx)] = overviewCopy;
                         if (songIndexForBuild < loader.project().songs.size()) {
                             auto& s = loader.project().songs[songIndexForBuild];
-                            if (regionIndex < s.regions.size()
-                                && s.regions[regionIndex].durationSeconds <= 0.0
-                                && overview.durationSeconds > 0.0) {
-                                s.regions[regionIndex].durationSeconds = overview.durationSeconds;
+                            if (regionIdxCopy < s.regions.size()
+                                && s.regions[regionIdxCopy].durationSeconds <= 0.0
+                                && overviewCopy.durationSeconds > 0.0) {
+                                s.regions[regionIdxCopy].durationSeconds = overviewCopy.durationSeconds;
                             }
                         }
                     });
@@ -1281,8 +1289,9 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
             });
         }
     }
-    // Notify LightEngine of the newly loaded project.
-    lightEngine.setProject(std::make_shared<Project>(loader.project()));
+    // Notify LightEngine (and re-apply the Art-Net target) for the newly
+    // loaded project.
+    notifyLightEngineProjectChanged();
     clock.setSongIndex(0);
     return true;
 }
@@ -1328,8 +1337,9 @@ void AudioEngine::newProject(const std::string& name) {
 
     streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
     clearDirty();
-    // Notify LightEngine about the new (empty) project.
-    lightEngine.setProject(std::make_shared<Project>(loader.project()));
+    // Notify LightEngine (and re-apply the Art-Net target) for the new
+    // (empty) project.
+    notifyLightEngineProjectChanged();
     clock.setSongIndex(0);
 }
 
@@ -3154,7 +3164,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // enabled -- same strip-vs-bus rule as muted tracks above.
     const bool clickActive = clickTargetBusIndex >= 0
         && static_cast<size_t>(clickTargetBusIndex) < busses.size();
-    const bool clickHasSends = !clickSendBusIndices.empty();
     {
         if (clickScratch.size() < static_cast<size_t>(numSamples))
             clickScratch.resize(static_cast<size_t>(numSamples), 0.0f);
@@ -3689,7 +3698,8 @@ void AudioEngine::importSongStemsBatchAsync(size_t songIndex, const std::vector<
                     fs::create_directories(peakDest.parent_path(), ec);
                     std::ofstream ofs(peakDest, std::ios::binary);
                     if (ofs.is_open()) {
-                        ofs.write(reinterpret_cast<const char*>(cacheExtra.data.data()), cacheExtra.data.size());
+                        ofs.write(reinterpret_cast<const char*>(cacheExtra.data.data()),
+                                  static_cast<std::streamsize>(cacheExtra.data.size()));
                     }
                     std::lock_guard<std::mutex> lock(peakCacheMutex);
                     peakOverviewSessionCache[entry] = std::move(overview);

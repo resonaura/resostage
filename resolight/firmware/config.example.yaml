@@ -1,0 +1,40 @@
+# Copy to config.yaml (gitignored) and edit for your board + strip.
+#   cp config.example.yaml config.yaml
+#
+# `pnpm --dir resolight/firmware build|flash` reads this file, auto-generates
+# src/generated/BoardConfig.h, then runs PlatformIO — no separate gen step.
+# No secrets in git, no hand-edited C++ headers.
+
+# PlatformIO env: "esp32" | "esp8266"
+board: esp32
+
+wifi:
+  ssid: "YourStageWifi"
+  password: "your-password"
+
+leds:
+  # Physical strip chip. Pick the one printed on the reel / datasheet.
+  #   ws2812b  — most common "NeoPixel" 5V GRB
+  #   ws2811   — older 12V often in bulkier pixels
+  #   ws2813   — WS2812-class with backup data line
+  #   ws2815   — 12V WS2812-class
+  #   sk6812   — often used for RGBW mini strips (RGB path)
+  #   sk6812rgbw — SK6812 with explicit white channel (W folded into RGB)
+  #   apa102   — DotStar / SPI (needs clockPin)
+  #   apa102hd — high-definition APA102
+  type: ws2812b
+
+  # Color byte order on the wire (almost all WS2812B reels are grb).
+  #   rgb | rbg | grb | gbr | brg | bgr
+  order: grb
+
+  # GPIO for data (and clock for APA102).
+  pin: 5
+  # clockPin: 18   # only for apa102 / apa102hd
+
+  # Exact number of LEDs on THIS bar. Buffer is sized to this at compile
+  # time — no artificial "max pixels" ceiling.
+  count: 120
+
+  # 0–255 global brightness cap (255 = full).
+  brightness: 255
