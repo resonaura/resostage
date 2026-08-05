@@ -150,6 +150,10 @@ void MainComponent::builderSongUpdate(const std::string& json) {
         proj.builtInClickEnabled = boolVal;
         clickTouched = true;
     }
+    if (getString(doc, "clickName", strVal)) {
+        proj.builtInClickName = strVal.empty() ? "Click" : strVal;
+        clickTouched = true;
+    }
     if (getString(doc, "clickBusId", strVal)) {
         proj.builtInClickBusId = strVal;
         clickTouched = true;

@@ -424,6 +424,8 @@ struct Project {
     double sampleRate = 48000.0;
     // ── Project-global metronome (ClickGenerator). Same for every song. ──
     bool builtInClickEnabled = false;
+    // Mixer strip label for the built-in metronome (default "Click").
+    std::string builtInClickName = "Click";
     // Empty = Sends Only (no main target bus).
     std::string builtInClickBusId;
     // Aux monitor mixes the click is also mixed into.

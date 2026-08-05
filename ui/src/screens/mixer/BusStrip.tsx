@@ -1,0 +1,63 @@
+import { mixer } from "../../lib/api";
+import { getLiveLevels } from "../../lib/liveLevels";
+import type { BusRow, MeterRow, SettingsState } from "../../lib/types";
+import { BusDestinationRouting } from "./BusDestinationRouting";
+import { ChannelStrip } from "./ChannelStrip";
+
+export function BusStrip({
+  b,
+  index,
+  meters,
+  master,
+  settings,
+  isMaster = false,
+  anySoloInGroup,
+}: {
+  b: BusRow;
+  index: number;
+  meters: MeterRow[];
+  master?: BusRow;
+  settings: SettingsState;
+  isMaster?: boolean;
+  anySoloInGroup?: boolean;
+}) {
+  const meter = meters.find((m) => m.id === b.id);
+  const color = isMaster ? "#0091ff" : "#ff9230";
+  const peakDb = meter?.peakDb ?? b.peakDb;
+  const peakDbL = meter?.peakDbL ?? b.peakDbL ?? peakDb;
+  const peakDbR = meter?.peakDbR ?? b.peakDbR ?? peakDb;
+
+  return (
+    <ChannelStrip
+      name={b.name || b.id}
+      subtitle={isMaster ? "Master Output" : "Send"}
+      color={color}
+      gainDb={b.gainDb ?? 0}
+      pan={b.pan ?? 0}
+      peakDb={peakDb}
+      peakDbL={peakDbL}
+      peakDbR={peakDbR}
+      getLiveDbL={() =>
+        getLiveLevels().meters.find((m) => m.id === b.id)?.peakDbL ?? -144
+      }
+      getLiveDbR={() =>
+        getLiveLevels().meters.find((m) => m.id === b.id)?.peakDbR ?? -144
+      }
+      mute={b.mute}
+      solo={b.solo}
+      anySoloInGroup={anySoloInGroup}
+      onGain={(v) => mixer.setBusGain(index, v)}
+      onPan={(v) => mixer.setBusPan(index, v)}
+      onMute={() => mixer.setBusMute(index, !b.mute)}
+      onSolo={() => mixer.setBusSolo(index, !b.solo)}
+      busDestination={
+        <BusDestinationRouting
+          bus={b}
+          index={index}
+          master={master}
+          settings={settings}
+        />
+      }
+    />
+  );
+}

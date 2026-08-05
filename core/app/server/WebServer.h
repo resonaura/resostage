@@ -219,6 +219,7 @@ struct WebUiState {
     std::string projectName;
     // Project-global metronome (same for every song).
     bool click = false;
+    std::string clickName = "Click";
     std::string clickBusId;
     double clickGainDb = -6.0;
     // Project-global metronome pan (-1..+1).

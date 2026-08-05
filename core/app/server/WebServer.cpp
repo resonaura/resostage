@@ -1234,6 +1234,7 @@ std::string WebServer::buildStateJson(const char* view) const {
     if (wantClick) {
         o << ","
           << "\"click\":" << (snap.click ? "true" : "false") << ","
+          << "\"clickName\":\"" << jsonEscape(snap.clickName.empty() ? "Click" : snap.clickName) << "\","
           << "\"clickBusId\":\"" << jsonEscape(snap.clickBusId) << "\","
           << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
           << "\"clickPan\":" << finiteOrZero(snap.clickPan) << ","

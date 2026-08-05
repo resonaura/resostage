@@ -412,6 +412,8 @@ export interface WebUiState {
   projectName: string;
   /** Project-global metronome on/off (same for every song). */
   click?: boolean;
+  /** Mixer strip label for the built-in metronome. */
+  clickName?: string;
   /** Project-global main bus for click; empty = Sends Only. */
   clickBusId?: string;
   /** Project-global metronome level (dB). */
@@ -488,6 +490,7 @@ export interface WebUiState {
 export const emptyState: WebUiState = {
   projectName: "",
   click: false,
+  clickName: "Click",
   clickBusId: "",
   clickGainDb: -6,
   clickPan: 0,

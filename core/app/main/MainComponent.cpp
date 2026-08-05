@@ -936,6 +936,7 @@ void MainComponent::publishWebState() {
     const Project& proj = engine.project();
     state.projectName = proj.name;
     state.click = proj.builtInClickEnabled;
+    state.clickName = proj.builtInClickName.empty() ? "Click" : proj.builtInClickName;
     state.clickBusId = proj.builtInClickBusId;
     state.clickGainDb = proj.builtInClickGainDb;
     state.clickPan = proj.builtInClickPan;

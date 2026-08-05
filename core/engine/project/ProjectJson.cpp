@@ -255,6 +255,7 @@ struct WProject {
     std::string name;
     double sampleRate = 48000.0;
     bool builtInClickEnabled = false;
+    std::string builtInClickName = "Click";
     std::string builtInClickBusId;
     double builtInClickGainDb = -6.0;
     double builtInClickPan = 0.0;
@@ -285,6 +286,7 @@ WProject toWire(const Project& p) {
     w.name = p.name;
     w.sampleRate = finiteOrZero(p.sampleRate);
     w.builtInClickEnabled = p.builtInClickEnabled;
+    w.builtInClickName = p.builtInClickName.empty() ? "Click" : p.builtInClickName;
     w.builtInClickBusId = p.builtInClickBusId;
     w.builtInClickGainDb = finiteOrZero(p.builtInClickGainDb);
     w.builtInClickPan = finiteOrZero(p.builtInClickPan);
@@ -554,6 +556,7 @@ Project fromWire(const WProject& w) {
     p.name = w.name;
     p.sampleRate = w.sampleRate;
     p.builtInClickEnabled = w.builtInClickEnabled;
+    p.builtInClickName = w.builtInClickName.empty() ? "Click" : w.builtInClickName;
     p.builtInClickBusId = w.builtInClickBusId;
     p.builtInClickGainDb = w.builtInClickGainDb;
     p.builtInClickPan = std::clamp(w.builtInClickPan, -1.0, 1.0);

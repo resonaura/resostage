@@ -237,6 +237,7 @@ export const builder = {
     clickGainDb?: number;
     clickPan?: number;
     clickMono?: boolean;
+    clickName?: string;
     clickSends: { busId: string; gainDb: number; enabled: boolean }[];
   }) => post("/api/v1/builder/song/update", patch),
 
@@ -328,6 +329,7 @@ export const builder = {
     channels: number;
     startChannel: number;
     gainDb: number;
+    pan?: number;
     mute: boolean;
     solo: boolean;
     isAux: boolean;
