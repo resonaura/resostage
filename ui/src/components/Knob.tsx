@@ -31,8 +31,16 @@ export function Knob({
   const startValue = useRef(0);
   const rafId = useRef<number | null>(null);
   const pendingCommit = useRef<number | null>(null);
+  const lastEditTime = useRef(0);
 
-  if (!dragging.current && localValue !== value) setLocalValue(value);
+  // Sync external value when not dragging and optimistic lock window (500ms) has expired
+  if (
+    !dragging.current &&
+    Date.now() - lastEditTime.current > 500 &&
+    localValue !== value
+  ) {
+    setLocalValue(value);
+  }
 
   const angleFor = (v: number) => {
     const t = (v - min) / (max - min);
@@ -54,12 +62,14 @@ export function Knob({
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     dragging.current = true;
+    lastEditTime.current = Date.now();
     startY.current = e.clientY;
     startValue.current = localValue;
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging.current) return;
+    lastEditTime.current = Date.now();
     const dy = startY.current - e.clientY;
     const range = max - min;
     const next =
@@ -71,7 +81,9 @@ export function Knob({
     scheduleCommit(next);
   };
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
     dragging.current = false;
+    lastEditTime.current = Date.now();
     if (rafId.current != null) {
       cancelAnimationFrame(rafId.current);
       rafId.current = null;
