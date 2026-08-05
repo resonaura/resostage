@@ -271,19 +271,19 @@ export function CycleStrip({
   let border: string | undefined;
   let bgImage: string | undefined;
   if (!active) {
-    barBg = "rgba(140, 162, 150, 0.18)";
-    handleBg = "rgba(200, 200, 210, 0)";
+    barBg = "rgba(255, 255, 255, 0.05)";
+    handleBg = "rgba(255, 255, 255, 0)";
     border = "0px dashed rgba(255,255,255,0.18)";
   } else if (skip) {
     barBg = "rgba(255, 166, 48, 0.22)";
-    handleBg = "rgba(255, 166, 48, 0)";
+    handleBg = "rgba(255, 255, 255, 0)";
     border = "1px solid rgba(255, 146, 48, 0.5)";
     bgImage =
       "repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(0,0,0,0.28) 3px, rgba(0,0,0,0.28) 5px)";
   } else {
     // Translucent fill; bar numbers paint above this layer (Ruler layer="labels").
     barBg = "rgba(255, 166, 48, 0.45)";
-    handleBg = "rgba(255, 166, 48, 0)";
+    handleBg = "rgba(255, 255, 255, 0)";
     border = "0px solid rgba(255, 180, 72, 0.35)";
   }
 

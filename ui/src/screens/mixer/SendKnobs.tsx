@@ -57,6 +57,10 @@ export function SendKnobs({
                 onRemoveSend && existing
                   ? (e) => {
                       e.preventDefault();
+                      // Stop propagation so the outer track-strip onContextMenu
+                      // wrapper doesn't also fire (which would open the full
+                      // track context menu and hide this "Remove Send" popup).
+                      e.stopPropagation();
                       setRemoveMenu({
                         x: e.clientX,
                         y: e.clientY,
