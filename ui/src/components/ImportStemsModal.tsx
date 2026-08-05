@@ -358,7 +358,7 @@ export function ImportStemsModal({
                           >
                             {item.detectedCategory === "Click" && (
                               <option value="(Use Built-in Metronome)">
-                                ✔ Use Built-in C++ Metronome
+                                ✔ Use Built-in Metronome
                               </option>
                             )}
                             <optgroup label="Consolidated Tracks">

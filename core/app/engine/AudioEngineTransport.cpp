@@ -211,6 +211,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         clickGainLinear = newClickGain;
         clickPan = static_cast<float>(
             std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
+        clickMono = loader.project().builtInClickMono;
         clickSendBusIndices = std::move(newClickSends);
         clickSendGainLinears = std::move(newClickSendGains);
         isClickEnabled = newClickEnabled;
@@ -478,6 +479,7 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     clickGainLinear = newClickGain;
     clickPan = static_cast<float>(
         std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
+    clickMono = loader.project().builtInClickMono;
     clickSendBusIndices = std::move(newClickSends);
     clickSendGainLinears = std::move(newClickSendGains);
     isClickEnabled = newClickEnabled;

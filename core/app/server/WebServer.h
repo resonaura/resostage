@@ -42,6 +42,7 @@ enum class WebCommandKind : uint8_t {
     SetTrackSolo,
     SetTrackMono,
     SetBusGain,
+    SetBusPan,
     SetBusMute,
     SetBusSolo,
     // Metronome solo -- joins the same solo group as SetTrackSolo (see
@@ -222,6 +223,8 @@ struct WebUiState {
     double clickGainDb = -6.0;
     // Project-global metronome pan (-1..+1).
     double clickPan = 0.0;
+    // Force mono click (L=R, pan balance ignored).
+    bool clickMono = false;
     // Metronome solo -- joins the same solo group as track solo (see
     // AudioEngine::setClickSolo()).
     bool clickSolo = false;
@@ -451,6 +454,7 @@ struct WebUiState {
         std::string id;
         std::string name;
         double gainDb = 0.0;
+        double pan = 0.0; // -1..+1 balance on physical outs
         bool mute = false;
         bool solo = false;
         bool isAux = false;

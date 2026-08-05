@@ -695,6 +695,12 @@ void MainComponent::drainWebCommands() {
                 engine.projectHistoryCommitEdit();
                 break;
             }
+            case WebCommandKind::SetBusPan: {
+                engine.projectHistoryBeginEdit("bp" + std::to_string(idx), "Set Bus Pan");
+                engine.setBusPan(idx, cmd.value);
+                engine.projectHistoryCommitEdit();
+                break;
+            }
             case WebCommandKind::SetBusMute: {
                 engine.projectHistoryBeginEdit("", "Toggle Bus Mute");
                 engine.setBusMute(idx, cmd.value != 0.0);
@@ -933,6 +939,7 @@ void MainComponent::publishWebState() {
     state.clickBusId = proj.builtInClickBusId;
     state.clickGainDb = proj.builtInClickGainDb;
     state.clickPan = proj.builtInClickPan;
+    state.clickMono = proj.builtInClickMono;
     state.clickSolo = proj.builtInClickSolo;
     state.clickSends.clear();
     for (const TrackSendDef& cs : proj.builtInClickSends) {
@@ -1139,6 +1146,7 @@ void MainComponent::publishWebState() {
         br.mute = engine.isBusMuted(i);
         br.solo = engine.isBusSoloed(i);
         if (i < proj.busses.size()) {
+            br.pan = proj.busses[i].pan;
             br.isAux = proj.busses[i].isAux;
             br.startChannel = proj.busses[i].output.startChannel;
             br.channels = proj.busses[i].channels;

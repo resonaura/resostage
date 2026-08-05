@@ -1156,11 +1156,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // playheadSample == 0 → beat 0 → accented downbeat under current meter.
         clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
 
-        // Balance pan on the mono click (same law as track pan).
-        const float targetGL =
-            clickGainLinear * (1.0f - std::max(0.0f, clickPan));
-        const float targetGR =
-            clickGainLinear * (1.0f + std::min(0.0f, clickPan));
+        // Balance pan on the mono click (same law as track pan), unless
+        // clickMono forces L=R.
+        const float targetGL = clickMono
+            ? clickGainLinear
+            : clickGainLinear * (1.0f - std::max(0.0f, clickPan));
+        const float targetGR = clickMono
+            ? clickGainLinear
+            : clickGainLinear * (1.0f + std::min(0.0f, clickPan));
         if (!clickSmoothInited) {
             clickSmoothGL = targetGL;
             clickSmoothGR = targetGR;
@@ -1200,10 +1203,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 if (scratchOffset + 2 > scratchChannels)
                     continue;
                 const float sendGain = clickSendGainLinears[si];
-                const float sendTargetGL =
-                    sendGain * (1.0f - std::max(0.0f, clickPan));
-                const float sendTargetGR =
-                    sendGain * (1.0f + std::min(0.0f, clickPan));
+                const float sendTargetGL = clickMono
+                    ? sendGain
+                    : sendGain * (1.0f - std::max(0.0f, clickPan));
+                const float sendTargetGR = clickMono
+                    ? sendGain
+                    : sendGain * (1.0f + std::min(0.0f, clickPan));
 
                 ClickSendSmooth& sm = clickSendSmooth[si];
                 if (!sm.inited) {
@@ -1251,8 +1256,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     //
     // Multiple busses may share the same Ext. Out pair (master + aux send on
     // Out 1/2 is the common case). Every non-muted bus ALWAYS accumulates
-    // into the physical channel with += -- never replaces. Mono busses still
-    // feed their single channel; stereo feed L/R.
+    // into the physical channel with += -- never replaces. Mono busses
+    // (channelCount == 1) still hit BOTH speakers of the pair starting at
+    // startChannel so a mono master/track doesn't disappear from one side.
     for (const BusOutput& out : snap->outputs) {
         if (out.busIndex >= busses.size())
             continue;
@@ -1260,7 +1266,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // Never treat a bus as 0-channel (would skip the physical write entirely
         // and silence a send that shares the master's Ext. Out).
         const int channels = std::max(1, std::min(2, out.channelCount));
-        if (scratchOffset + channels > scratchChannels)
+        if (scratchOffset + std::max(channels, 1) > scratchChannels)
             continue;
 
         if (!meteringMuted && out.busIndex < busLoudnessMeters.size()) {
@@ -1299,17 +1305,46 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             continue;
 
         const float busGain = std::isfinite(out.gainLinear) ? out.gainLinear : 0.0f;
-        for (int ch = 0; ch < channels; ++ch) {
-            const int physicalCh = out.startChannel + ch;
-            if (physicalCh < 0 || physicalCh >= numOutputChannels
-                || outputChannelData[physicalCh] == nullptr)
-                continue;
-            const float* src = busScratch.getReadPointer(scratchOffset + ch);
+        // Balance pan (same law as track pan): attenuate L or R.
+        const float pan = std::isfinite(out.pan) ? out.pan : 0.0f;
+        const float gL = busGain * (1.0f - std::max(0.0f, pan));
+        const float gR = busGain * (1.0f + std::min(0.0f, pan));
+        if (channels == 1) {
+            // Mono content → both speakers of the pair with pan balance.
+            const float* src = busScratch.getReadPointer(scratchOffset + 0);
             if (src == nullptr)
                 continue;
-            float* dst = outputChannelData[physicalCh];
-            for (int i = 0; i < numSamples; ++i)
-                dst[i] += src[i] * busGain;
+            const float gains[2] = { gL, gR };
+            for (int pairCh = 0; pairCh < 2; ++pairCh) {
+                const int physicalCh = out.startChannel + pairCh;
+                if (physicalCh < 0 || physicalCh >= numOutputChannels
+                    || outputChannelData[physicalCh] == nullptr)
+                    continue;
+                float* dst = outputChannelData[physicalCh];
+                const float g = gains[pairCh];
+                for (int i = 0; i < numSamples; ++i)
+                    dst[i] += src[i] * g;
+            }
+        } else {
+            const float* srcL = busScratch.getReadPointer(scratchOffset + 0);
+            const float* srcR = busScratch.getReadPointer(scratchOffset + 1);
+            if (srcL == nullptr)
+                continue;
+            if (srcR == nullptr)
+                srcR = srcL;
+            const float* srcs[2] = { srcL, srcR };
+            const float gains[2] = { gL, gR };
+            for (int ch = 0; ch < 2; ++ch) {
+                const int physicalCh = out.startChannel + ch;
+                if (physicalCh < 0 || physicalCh >= numOutputChannels
+                    || outputChannelData[physicalCh] == nullptr)
+                    continue;
+                float* dst = outputChannelData[physicalCh];
+                const float* src = srcs[ch];
+                const float g = gains[ch];
+                for (int i = 0; i < numSamples; ++i)
+                    dst[i] += src[i] * g;
+            }
         }
     }
 

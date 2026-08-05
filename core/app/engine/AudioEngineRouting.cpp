@@ -149,6 +149,7 @@ void AudioEngine::publishRoutingSnapshot() {
         out.startChannel = busDef.output.startChannel;
         out.channelCount = busDef.channels;
         out.gainLinear = dbToGain(busDef.gainDb);
+        out.pan = static_cast<float>(std::clamp(busDef.pan, -1.0, 1.0));
         out.mute = busDef.mute || (anyBusSolo && !busDef.solo);
         snapshot->outputs.push_back(out);
     }
@@ -260,6 +261,14 @@ void AudioEngine::setBusGainDb(size_t busIndex, double gainDb) {
     publishRoutingSnapshot();
 }
 
+void AudioEngine::setBusPan(size_t busIndex, double pan) {
+    auto& buses = loader.project().busses;
+    if (busIndex >= buses.size())
+        return;
+    buses[busIndex].pan = std::clamp(pan, -1.0, 1.0);
+    publishRoutingSnapshot();
+}
+
 void AudioEngine::setBusMute(size_t busIndex, bool mute) {
     auto& buses = loader.project().busses;
     if (busIndex >= buses.size())
@@ -303,6 +312,7 @@ void AudioEngine::refreshClickState() {
     clickGainLinear = dbToGain(proj.builtInClickGainDb);
     clickPan = static_cast<float>(
         std::clamp(proj.builtInClickPan, -1.0, 1.0));
+    clickMono = proj.builtInClickMono;
 
     // Empty builtInClickBusId = Sends Only (no main target). Do NOT fall
     // back to the first bus -- that made "Sends Only" unselectable.

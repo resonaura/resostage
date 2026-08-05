@@ -162,6 +162,7 @@
     int clickTargetBusIndex = -1;
     float clickGainLinear = 1.0f;
     float clickPan = 0.0f; // -1..+1, project-global
+    bool clickMono = false; // L=R (pan balance ignored)
     // Dezippered click strip gains (audio thread only).
     float clickSmoothGL = 1.0f;
     float clickSmoothGR = 1.0f;

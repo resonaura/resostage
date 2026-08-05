@@ -118,6 +118,8 @@ export const mixer = {
     builder.trackUpdate({ index, busId }),
   setBusGain: (index: number, value: number) =>
     post("/api/v1/bus/gain", { index, value }),
+  setBusPan: (index: number, value: number) =>
+    post("/api/v1/bus/pan", { index, value }),
   setBusMute: (index: number, value: boolean) =>
     post("/api/v1/bus/mute", { index, value }),
   setBusSolo: (index: number, value: boolean) =>
@@ -234,6 +236,7 @@ export const builder = {
     clickBusId: string;
     clickGainDb?: number;
     clickPan?: number;
+    clickMono?: boolean;
     clickSends: { busId: string; gainDb: number; enabled: boolean }[];
   }) => post("/api/v1/builder/song/update", patch),
 

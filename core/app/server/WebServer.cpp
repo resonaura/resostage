@@ -347,7 +347,7 @@ bool isMixerCommandPath(const char* path) {
     static const char* const kPaths[] = {
         "/api/v1/track/gain", "/api/v1/track/pan",  "/api/v1/track/mute", "/api/v1/track/solo",
         "/api/v1/track/mono",
-        "/api/v1/bus/gain",   "/api/v1/bus/mute",   "/api/v1/bus/solo",
+        "/api/v1/bus/gain",   "/api/v1/bus/pan",    "/api/v1/bus/mute",   "/api/v1/bus/solo",
         "/api/v1/click/solo",
     };
     for (const char* p : kPaths)
@@ -363,6 +363,7 @@ WebCommandKind mixerCommandKindForPath(const char* path) {
     if (std::strcmp(path, "/api/v1/track/solo") == 0) return WebCommandKind::SetTrackSolo;
     if (std::strcmp(path, "/api/v1/track/mono") == 0) return WebCommandKind::SetTrackMono;
     if (std::strcmp(path, "/api/v1/bus/gain") == 0) return WebCommandKind::SetBusGain;
+    if (std::strcmp(path, "/api/v1/bus/pan") == 0) return WebCommandKind::SetBusPan;
     if (std::strcmp(path, "/api/v1/bus/mute") == 0) return WebCommandKind::SetBusMute;
     if (std::strcmp(path, "/api/v1/bus/solo") == 0) return WebCommandKind::SetBusSolo;
     return WebCommandKind::SetClickSolo; // "/api/v1/click/solo" -- last remaining option per isMixerCommandPath's list
@@ -1236,6 +1237,7 @@ std::string WebServer::buildStateJson(const char* view) const {
           << "\"clickBusId\":\"" << jsonEscape(snap.clickBusId) << "\","
           << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
           << "\"clickPan\":" << finiteOrZero(snap.clickPan) << ","
+          << "\"clickMono\":" << (snap.clickMono ? "true" : "false") << ","
           << "\"clickSolo\":" << (snap.clickSolo ? "true" : "false") << ","
           << "\"clickSends\":[";
         for (size_t ci = 0; ci < snap.clickSends.size(); ++ci) {
@@ -1441,6 +1443,7 @@ std::string WebServer::buildStateJson(const char* view) const {
             o << "{\"id\":\"" << jsonEscape(b.id) << "\","
               << "\"name\":\"" << jsonEscape(b.name) << "\","
               << "\"gainDb\":" << finiteOrZero(b.gainDb) << ","
+              << "\"pan\":" << finiteOrZero(b.pan) << ","
               << "\"mute\":" << (b.mute ? "true" : "false") << ","
               << "\"solo\":" << (b.solo ? "true" : "false") << ","
               << "\"isAux\":" << (b.isAux ? "true" : "false") << ","

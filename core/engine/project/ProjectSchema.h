@@ -392,6 +392,9 @@ struct BusDef {
     int channels = 2;
     BusOutputDef output;
     double gainDb = 0.0;
+    // Balance pan on the bus → physical outs (-1..+1). Applied for master and
+    // aux/sends the same way track pan works (L/R attenuation).
+    double pan = 0.0;
     bool mute = false;
     bool solo = false; // if any bus is soloed, non-solo busses are silenced
     // Aux buses are primarily fed by TrackSendDef rows (monitor mixes).
@@ -428,6 +431,9 @@ struct Project {
     double builtInClickGainDb = -6.0;
     // Project-global metronome pan (-1..+1).
     double builtInClickPan = 0.0;
+    // Force mono click: L=R (ignore pan balance) so the strip can sit next to
+    // mono tracks. Default false = stereo balance via builtInClickPan.
+    bool builtInClickMono = false;
     // Soloing the metronome joins the same solo group as TrackDef::solo --
     // when true, every regular track is silenced exactly as if one of them
     // (rather than the click) had solo engaged. See AudioEngine::

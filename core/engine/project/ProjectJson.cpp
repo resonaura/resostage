@@ -86,6 +86,7 @@ struct WBus {
     int channels = 2;
     WBusOutput output;
     double gainDb = 0.0;
+    double pan = 0.0;
     bool mute = false;
     bool solo = false;
     bool isAux = false;
@@ -257,6 +258,7 @@ struct WProject {
     std::string builtInClickBusId;
     double builtInClickGainDb = -6.0;
     double builtInClickPan = 0.0;
+    bool builtInClickMono = false;
     bool builtInClickSolo = false;
     std::vector<WSend> builtInClickSends;
     std::vector<WBus> busses;
@@ -286,6 +288,7 @@ WProject toWire(const Project& p) {
     w.builtInClickBusId = p.builtInClickBusId;
     w.builtInClickGainDb = finiteOrZero(p.builtInClickGainDb);
     w.builtInClickPan = finiteOrZero(p.builtInClickPan);
+    w.builtInClickMono = p.builtInClickMono;
     w.builtInClickSolo = p.builtInClickSolo;
     w.builtInClickSends.reserve(p.builtInClickSends.size());
     for (const auto& s : p.builtInClickSends)
@@ -299,6 +302,7 @@ WProject toWire(const Project& p) {
         wb.channels = b.channels;
         wb.output.startChannel = b.output.startChannel;
         wb.gainDb = finiteOrZero(b.gainDb);
+        wb.pan = finiteOrZero(b.pan);
         wb.mute = b.mute;
         wb.solo = b.solo;
         wb.isAux = b.isAux;
@@ -553,6 +557,7 @@ Project fromWire(const WProject& w) {
     p.builtInClickBusId = w.builtInClickBusId;
     p.builtInClickGainDb = w.builtInClickGainDb;
     p.builtInClickPan = std::clamp(w.builtInClickPan, -1.0, 1.0);
+    p.builtInClickMono = w.builtInClickMono;
     p.builtInClickSolo = w.builtInClickSolo;
     p.builtInClickSends.reserve(w.builtInClickSends.size());
     for (const auto& s : w.builtInClickSends)
@@ -566,6 +571,7 @@ Project fromWire(const WProject& w) {
         bus.channels = b.channels;
         bus.output.startChannel = b.output.startChannel;
         bus.gainDb = b.gainDb;
+        bus.pan = std::clamp(b.pan, -1.0, 1.0);
         bus.mute = b.mute;
         bus.solo = b.solo;
         bus.isAux = b.isAux;

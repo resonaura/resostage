@@ -162,6 +162,10 @@ void MainComponent::builderSongUpdate(const std::string& json) {
         proj.builtInClickPan = std::clamp(numVal, -1.0, 1.0);
         clickTouched = true;
     }
+    if (getBool(doc, "clickMono", boolVal)) {
+        proj.builtInClickMono = boolVal;
+        clickTouched = true;
+    }
     if (const auto* clickSendsArr = getArray(doc, "clickSends")) {
         clickTouched = true;
         proj.builtInClickSends.clear();
@@ -793,6 +797,7 @@ void MainComponent::builderBusUpdate(const std::string& json) {
     }
     if (getInt(doc, "startChannel", intVal)) b.output.startChannel = intVal;
     if (getDouble(doc, "gainDb", numVal)) b.gainDb = numVal;
+    if (getDouble(doc, "pan", numVal)) b.pan = std::clamp(numVal, -1.0, 1.0);
     if (getBool(doc, "mute", boolVal)) b.mute = boolVal;
     if (getBool(doc, "solo", boolVal)) b.solo = boolVal;
     if (getBool(doc, "isAux", boolVal)) b.isAux = boolVal;

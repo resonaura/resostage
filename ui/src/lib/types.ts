@@ -210,6 +210,8 @@ export interface BusRow {
   id: string;
   name: string;
   gainDb: number;
+  /** Balance pan on physical outs (-1..+1). Master + aux/sends. */
+  pan?: number;
   mute: boolean;
   solo: boolean;
   isAux: boolean;
@@ -416,6 +418,8 @@ export interface WebUiState {
   clickGainDb: number;
   /** Project-global metronome pan (-1..+1). */
   clickPan?: number;
+  /** Force mono click (L=R). */
+  clickMono?: boolean;
   /** Metronome solo -- joins the same solo group as track solo. */
   clickSolo?: boolean;
   /** Project-global click aux sends. */
@@ -487,6 +491,7 @@ export const emptyState: WebUiState = {
   clickBusId: "",
   clickGainDb: -6,
   clickPan: 0,
+  clickMono: false,
   clickSolo: false,
   clickSends: [],
   clickPeakDb: -100,

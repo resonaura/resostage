@@ -26,6 +26,7 @@ struct BusOutput {
     int startChannel = 0; // first physical output channel index (0-based)
     int channelCount = 2; // 1 = mono, 2 = stereo
     float gainLinear = 1.0f;
+    float pan = 0.0f; // -1..+1 balance on physical L/R
     bool mute = false;
 };
 

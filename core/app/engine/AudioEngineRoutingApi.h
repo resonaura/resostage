@@ -60,6 +60,9 @@
 
     void setBusGainDb(size_t busIndex, double gainDb);
 
+    // Balance pan on bus → physical outs (-1..+1). Master + aux/sends.
+    void setBusPan(size_t busIndex, double pan);
+
     void setBusMute(size_t busIndex, bool mute);
 
     void setBusSolo(size_t busIndex, bool solo);
