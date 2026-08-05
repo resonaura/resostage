@@ -257,7 +257,7 @@ struct WProject {
     bool builtInClickEnabled = false;
     std::string builtInClickName = "Click";
     std::string builtInClickBusId;
-    double builtInClickGainDb = -6.0;
+    double builtInClickGainDb = 0.0;
     double builtInClickPan = 0.0;
     bool builtInClickMono = false;
     bool builtInClickSolo = false;

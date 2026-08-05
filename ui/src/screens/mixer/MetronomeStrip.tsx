@@ -17,7 +17,7 @@ export function MetronomeStrip({
   const currentSong = hasSongs ? state.songs[songIdx] : null;
   const isMetronomeOn = state.click ?? currentSong?.click ?? false;
   const currentClickBus = state.clickBusId ?? currentSong?.clickBusId ?? "";
-  const clickGain = state.clickGainDb ?? -6;
+  const clickGain = state.clickGainDb ?? 0;
   const clickPan = state.clickPan ?? 0;
   const clickName = state.clickName?.trim() || "Click";
 
@@ -50,7 +50,7 @@ export function MetronomeStrip({
       tsDen: currentSong?.tsDen ?? 4,
       click: partial.click ?? isMetronomeOn,
       clickBusId: nextClickBusId,
-      clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? -6,
+      clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? 0,
       clickPan: partial.clickPan ?? state.clickPan ?? 0,
       clickMono: partial.clickMono ?? state.clickMono ?? false,
       clickName: partial.clickName ?? state.clickName ?? "Click",
@@ -153,7 +153,7 @@ export function patchClickFields(
     click: partial.click ?? isMetronomeOn,
     clickBusId:
       partial.clickBusId !== undefined ? partial.clickBusId : currentClickBus,
-    clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? -6,
+    clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? 0,
     clickPan: partial.clickPan ?? state.clickPan ?? 0,
     clickMono: partial.clickMono ?? state.clickMono ?? false,
     clickName: partial.clickName ?? state.clickName ?? "Click",

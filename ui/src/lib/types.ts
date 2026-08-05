@@ -492,7 +492,7 @@ export const emptyState: WebUiState = {
   click: false,
   clickName: "Click",
   clickBusId: "",
-  clickGainDb: -6,
+  clickGainDb: 0,
   clickPan: 0,
   clickMono: false,
   clickSolo: false,

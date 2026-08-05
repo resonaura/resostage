@@ -283,7 +283,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                       patchClickFields(state, { clickName: name }),
                     onResetGainPan: () =>
                       patchClickFields(state, {
-                        clickGainDb: -6,
+                        clickGainDb: 0,
                         clickPan: 0,
                       }),
                     onClearMuteSolo: () => {

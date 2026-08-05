@@ -221,7 +221,7 @@ struct WebUiState {
     bool click = false;
     std::string clickName = "Click";
     std::string clickBusId;
-    double clickGainDb = -6.0;
+    double clickGainDb = 0.0;
     // Project-global metronome pan (-1..+1).
     double clickPan = 0.0;
     // Force mono click (L=R, pan balance ignored).
@@ -310,7 +310,7 @@ struct WebUiState {
         int tsDen = 4;
         bool click = false;
         std::string clickBusId;
-        double clickGainDb = -6.0;
+        double clickGainDb = 0.0;
         // click sends: extra buses (aux monitor mixes) the metronome feeds.
         struct ClickSendRow { std::string busId; double gainDb = 0.0; bool enabled = true; };
         std::vector<ClickSendRow> clickSends;

@@ -1269,12 +1269,36 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (scratchOffset + std::max(channels, 1) > scratchChannels)
             continue;
 
+        const float busGain = (out.mute || !std::isfinite(out.gainLinear)) ? 0.0f : out.gainLinear;
+        // Balance pan (same law as track pan): attenuate L or R.
+        const float pan = std::isfinite(out.pan) ? out.pan : 0.0f;
+        const float gL = busGain * (1.0f - std::max(0.0f, pan));
+        const float gR = busGain * (1.0f + std::min(0.0f, pan));
+
         if (!meteringMuted && out.busIndex < busLoudnessMeters.size()) {
-            const float* meterChannels[2] = {
-                busScratch.getReadPointer(scratchOffset),
-                channels > 1 ? busScratch.getReadPointer(scratchOffset + 1)
-                             : busScratch.getReadPointer(scratchOffset)};
-            busLoudnessMeters[out.busIndex].processBlock(meterChannels, numSamples);
+            const float* pL = busScratch.getReadPointer(scratchOffset);
+            const float* pR = channels > 1 ? busScratch.getReadPointer(scratchOffset + 1)
+                                         : pL;
+            if (pR == nullptr) pR = pL;
+
+            constexpr int kMaxMeterBuf = 2048;
+            float meterBufL[kMaxMeterBuf];
+            float meterBufR[kMaxMeterBuf];
+            const int sampleCount = std::min(numSamples, kMaxMeterBuf);
+            float peakL = 0.0f;
+            float peakR = 0.0f;
+
+            for (int i = 0; i < sampleCount; ++i) {
+                const float sampleL = (pL != nullptr && std::isfinite(pL[i])) ? pL[i] * gL : 0.0f;
+                const float sampleR = (pR != nullptr && std::isfinite(pR[i])) ? pR[i] * gR : sampleL;
+                meterBufL[i] = sampleL;
+                meterBufR[i] = sampleR;
+                peakL = std::max(peakL, std::abs(sampleL));
+                peakR = std::max(peakR, std::abs(sampleR));
+            }
+
+            const float* meterChannels[2] = { meterBufL, meterBufR };
+            busLoudnessMeters[out.busIndex].processBlock(meterChannels, sampleCount);
             if (out.busIndex < busMeters.size() && busMeters[out.busIndex] != nullptr)
                 busMeters[out.busIndex]->write(busLoudnessMeters[out.busIndex].currentFrame());
 
@@ -1284,16 +1308,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             // dedicated click strip fixed with clickPeakIntervalMax*.
             if (out.busIndex < busPeakIntervalCount && busPeakIntervalMaxL
                 && busPeakIntervalMaxR) {
-                const float* pL = meterChannels[0];
-                const float* pR = meterChannels[1];
-                float peakL = 0.0f;
-                float peakR = 0.0f;
-                for (int i = 0; i < numSamples; ++i) {
-                    const float l = (pL != nullptr && std::isfinite(pL[i])) ? pL[i] : 0.0f;
-                    const float r = (pR != nullptr && std::isfinite(pR[i])) ? pR[i] : l;
-                    peakL = std::max(peakL, std::abs(l));
-                    peakR = std::max(peakR, std::abs(r));
-                }
                 atomicMaxFloat(busPeakIntervalMaxL[out.busIndex], peakL);
                 atomicMaxFloat(busPeakIntervalMaxR[out.busIndex], peakR);
             }
@@ -1303,12 +1317,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
         if (out.mute)
             continue;
-
-        const float busGain = std::isfinite(out.gainLinear) ? out.gainLinear : 0.0f;
-        // Balance pan (same law as track pan): attenuate L or R.
-        const float pan = std::isfinite(out.pan) ? out.pan : 0.0f;
-        const float gL = busGain * (1.0f - std::max(0.0f, pan));
-        const float gR = busGain * (1.0f + std::min(0.0f, pan));
         if (channels == 1) {
             // Mono content → both speakers of the pair with pan balance.
             const float* src = busScratch.getReadPointer(scratchOffset + 0);

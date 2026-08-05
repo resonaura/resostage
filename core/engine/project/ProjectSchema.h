@@ -430,7 +430,7 @@ struct Project {
     std::string builtInClickBusId;
     // Aux monitor mixes the click is also mixed into.
     std::vector<TrackSendDef> builtInClickSends;
-    double builtInClickGainDb = -6.0;
+    double builtInClickGainDb = 0.0;
     // Project-global metronome pan (-1..+1).
     double builtInClickPan = 0.0;
     // Force mono click: L=R (ignore pan balance) so the strip can sit next to
