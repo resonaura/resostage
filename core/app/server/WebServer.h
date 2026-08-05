@@ -60,7 +60,7 @@ enum class WebCommandKind : uint8_t {
     // send record in place) -- `json` carries {trackIndex, busId}. See
     // AudioEngine::removeTrackSend()/MainComponent::removeTrackSendFromJson().
     RemoveTrackSend,
-    // Project lifecycle parity -- see app/web/WebServer.cpp's
+    // Project lifecycle parity -- see app/server/WebServer.cpp's
     // isMixerCommandPath-style routing and MainComponent::drainWebCommands().
     // New/OpenLoadDialog/SaveProject/SaveProjectAs just call the exact same
     // methods the native top-bar buttons call (message-thread only, may pop

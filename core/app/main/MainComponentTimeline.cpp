@@ -1,7 +1,7 @@
 // Timeline parity for the SPA: seek + peak-overview JSON for waveforms.
 
 #include "MainComponent.h"
-#include "web/BuilderJson.h"
+#include "server/BuilderJson.h"
 
 #include <sstream>
 

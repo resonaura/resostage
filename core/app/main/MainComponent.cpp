@@ -4,7 +4,7 @@
 #include "platform/TrayIcon.h"
 #include "project/ProjectJson.h"
 #include "timing/BarSeek.h"
-#include "web/BuilderJson.h"
+#include "server/BuilderJson.h"
 
 #include <algorithm>
 #include <cctype>

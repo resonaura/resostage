@@ -29,23 +29,28 @@ juce_add_gui_app(ResoStage
 
 target_sources(ResoStage PRIVATE
   Main.cpp
-  MainComponent.cpp
-  MainComponentBuilder.cpp
-  MainComponentSettings.cpp
-  MainComponentTimeline.cpp
-  MainComponentLighting.cpp
-  AppSettings.cpp
-  AudioEngine.cpp
-  LightEngine.cpp
+  main/MainComponent.cpp
+  main/MainComponentBuilder.cpp
+  main/MainComponentSettings.cpp
+  main/MainComponentTimeline.cpp
+  main/MainComponentLighting.cpp
+  config/AppSettings.cpp
+  engine/AudioEngine.cpp
+  engine/AudioEngineImport.cpp
+  engine/AudioEnginePeaks.cpp
+  engine/AudioEngineProject.cpp
+  engine/AudioEngineRouting.cpp
+  engine/AudioEngineTransport.cpp
+  light/LightEngine.cpp
+  light/LightHardwareServer.cpp
   midi/CoreMidiDispatcher.cpp
   midi/CoreMidiInputListener.cpp
   events/EventDispatcher.cpp
-  light/LightHardwareServer.cpp
   platform/AudioWorkgroup.cpp
   platform/MenuModel.cpp
   platform/ProcessPriority.cpp
   platform/TrayIcon.cpp
-  web/WebServer.cpp
+  server/WebServer.cpp
 )
 
 if(APPLE)
@@ -82,8 +87,16 @@ target_link_libraries(ResoStage
     juce::juce_recommended_warning_flags
 )
 
+# Flat include roots so existing #include "AudioEngine.h" / "MainComponent.h"
+# etc. keep working after sources moved into single-word subfolders (engine/,
+# main/, config/, light/). Quoted includes also resolve relative to the
+# including file's directory (same-folder fragments like AudioEngineMembers.h).
 target_include_directories(ResoStage PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/engine
+  ${CMAKE_CURRENT_SOURCE_DIR}/main
+  ${CMAKE_CURRENT_SOURCE_DIR}/config
+  ${CMAKE_CURRENT_SOURCE_DIR}/light
   ${libwebsockets_SOURCE_DIR}/include
   ${libwebsockets_BINARY_DIR}/include
 )

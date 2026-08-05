@@ -6,7 +6,7 @@
 #include "AudioEngine.h"
 #include "lighting/LightOutputResolver.h"
 #include "midi/CoreMidiInputListener.h"
-#include "web/WebServer.h"
+#include "server/WebServer.h"
 
 #include <chrono>
 #include <memory>

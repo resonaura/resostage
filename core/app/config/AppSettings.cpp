@@ -1,7 +1,7 @@
 #include "AppSettings.h"
 
 #include "project/ProjectJson.h" // jsonEscapeString
-#include "web/BuilderJson.h"
+#include "server/BuilderJson.h"
 
 #include <sstream>
 

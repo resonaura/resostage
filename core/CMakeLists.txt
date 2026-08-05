@@ -13,7 +13,6 @@ endif()
 
 option(RESOSTAGE_BUILD_TESTS "Build engine unit tests" ON)
 option(RESOSTAGE_BUILD_APP "Build the ResoStage JUCE app" ON)
-option(RESOSTAGE_BUILD_TOOLS "Build developer tools (test-project generator)" ON)
 
 include(FetchContent)
 
@@ -76,10 +75,6 @@ add_subdirectory(engine)
 
 if(RESOSTAGE_BUILD_APP)
   add_subdirectory(app)
-endif()
-
-if(RESOSTAGE_BUILD_TOOLS)
-  add_subdirectory(tools/make_test_project)
 endif()
 
 if(RESOSTAGE_BUILD_TESTS)
