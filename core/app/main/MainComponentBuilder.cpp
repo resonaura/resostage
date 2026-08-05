@@ -20,6 +20,7 @@ using namespace builder_json;
 void MainComponent::builderSongAdd(const std::string& json) {
     if (!engine.isProjectLoaded())
         return;
+    engine.projectHistoryBeginEdit("", "Add song");
     Project& proj = engine.project();
     std::vector<std::string> used;
     for (const auto& s : proj.songs)
@@ -53,6 +54,7 @@ void MainComponent::builderSongAdd(const std::string& json) {
     proj.songs.push_back(std::move(song));
 
     goToSong(static_cast<int>(proj.songs.size()) - 1);
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Song added");
 }
@@ -94,7 +96,7 @@ void MainComponent::builderSongImportFolder(const std::string& json) {
             setStatus("Song import failed: " + juce::String(error));
             return;
         }
-    notifyProjectStructureChanged();
+        notifyProjectStructureChanged();
         setStatus("Song imported");
     });
 }
@@ -108,9 +110,11 @@ void MainComponent::builderSongRemove(const std::string& json) {
     if (index < 0 || index >= static_cast<int>(proj.songs.size()))
         return;
 
+    engine.projectHistoryBeginEdit("", "Remove song");
     proj.songs.erase(proj.songs.begin() + index);
     if (!proj.songs.empty())
         goToSong(std::min(index, static_cast<int>(proj.songs.size()) - 1));
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Song removed");
 }
@@ -127,8 +131,10 @@ void MainComponent::builderSongMove(const std::string& json) {
         || to >= static_cast<int>(proj.songs.size()))
         return;
 
+    engine.projectHistoryBeginEdit("", "Move song");
     std::swap(proj.songs[static_cast<size_t>(index)], proj.songs[static_cast<size_t>(to)]);
     goToSong(to);
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
 }
 
@@ -137,6 +143,13 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     if (!parseJson(json, doc) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
+
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    if (gestureId.empty()) {
+        gestureId = "song_update";
+    }
+    engine.projectHistoryBeginEdit(gestureId, "Edit song");
 
     std::string strVal;
     double numVal;
@@ -193,8 +206,11 @@ void MainComponent::builderSongUpdate(const std::string& json) {
         || index >= static_cast<int>(proj.songs.size())) {
         // Click-only update (empty project / no valid song index).
         if (clickTouched) {
+            engine.projectHistoryCommitEdit();
             notifyProjectStructureChanged();
             setStatus("Click updated");
+        } else {
+            engine.projectHistoryCommitEdit();
         }
         return;
     }
@@ -217,6 +233,7 @@ void MainComponent::builderSongUpdate(const std::string& json) {
         // the pre-edit tempo indefinitely (see RESTORE_POINT.md).
         engine.notifyLightEngineBpmChanged(s.bpm);
     }
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Song updated");
 }

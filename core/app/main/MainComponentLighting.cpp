@@ -322,7 +322,12 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     if (fx == nullptr)
         return;
 
-    engine.projectHistoryBeginEdit("", "Edit fixture");
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    if (gestureId.empty() && fx != nullptr) {
+        gestureId = "fx_" + fx->id;
+    }
+    engine.projectHistoryBeginEdit(gestureId, "Edit fixture");
 
     std::string strVal;
     double numVal;

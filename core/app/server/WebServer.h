@@ -207,8 +207,8 @@ struct WebCommand {
     WebCommandKind kind = WebCommandKind::Stop;
     int arg = 0;        // SelectSong index, or track/bus index for mixer commands
     double value = 0.0; // gain (dB) / pan (-1..1) / bool (0.0 or 1.0) depending on kind
-    std::string path;   // LoadProjectFromPath / BuilderTrackImportWavUpload: temp file path
-    std::string json;   // Builder*: raw POST body, parsed message-thread-side
+    std::string path = {};   // LoadProjectFromPath / BuilderTrackImportWavUpload: temp file path
+    std::string json = {};   // Builder*: raw POST body, parsed message-thread-side
 };
 
 // Snapshot of everything the SPA needs, written by the message thread (~30 Hz)

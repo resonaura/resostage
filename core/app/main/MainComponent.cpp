@@ -720,7 +720,19 @@ void MainComponent::drainWebCommands() {
                 break;
             }
             case WebCommandKind::SetTrackSend: {
-                engine.projectHistoryBeginEdit("", "Set Track Send");
+                std::string gestureId;
+                glz::generic doc;
+                if (builder_json::parseJson(cmd.json, doc)) {
+                    builder_json::getString(doc, "gestureId", gestureId);
+                    if (gestureId.empty()) {
+                        int trackIndex = -1;
+                        std::string busId;
+                        builder_json::getInt(doc, "trackIndex", trackIndex);
+                        builder_json::getString(doc, "busId", busId);
+                        gestureId = "ts" + std::to_string(trackIndex) + "_" + busId;
+                    }
+                }
+                engine.projectHistoryBeginEdit(gestureId, "Set Track Send");
                 setTrackSendFromJson(cmd.json);
                 engine.projectHistoryCommitEdit();
                 break;
@@ -1698,6 +1710,7 @@ void MainComponent::setStatus(const juce::String& text) {
 void MainComponent::notifyProjectStructureChanged() {
     engine.rebuildBussesFromProject();
     ensureSongSelected();
+    engine.notifyLightEngineProjectChanged();
     setStatus("Project structure updated");
 }
 
