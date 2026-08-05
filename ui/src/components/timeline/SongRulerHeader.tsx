@@ -74,28 +74,38 @@ export function SongRulerHeader({
         return (
           <div
             key={i}
-            className="pointer-events-none absolute top-0"
+            className="pointer-events-none absolute top-0 overflow-hidden"
             style={{ left, width: w, height: RULER_HEIGHT }}
           >
             {i > 0 && (
               <div className="absolute left-0 top-0 h-full w-px bg-default/40" />
             )}
-            <div
-              className={`pointer-events-none absolute z-40 truncate rounded-b px-1 text-[8px] font-bold uppercase tracking-wide ${
-                isActive
-                  ? "bg-accent text-accent-foreground"
-                  : "bg-default/30 text-foreground/50"
-              }`}
-              style={{
-                // Above cycle fill + bar numbers; no pointer grab.
-                top: 1,
-                left: 6,
-                maxWidth: Math.max(20, w - 12),
-              }}
-              title={song.name}
-            >
-              {i + 1}. {song.name}
-            </div>
+            {/* Adaptive song badge: hide / compact when the song span is tight
+                so neighbouring songs don't paint over each other at low zoom. */}
+            {w >= 10 && (
+              <div
+                className={`pointer-events-none absolute z-40 truncate rounded-b font-bold uppercase tracking-wide ${
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "bg-default/30 text-foreground/50"
+                }`}
+                style={{
+                  top: 1,
+                  left: w < 28 ? 1 : 4,
+                  maxWidth: Math.max(0, w - (w < 28 ? 2 : 8)),
+                  padding: w < 40 ? "0 2px" : "0 4px",
+                  fontSize: w < 40 ? 7 : 8,
+                  lineHeight: "12px",
+                }}
+                title={song.name}
+              >
+                {w < 22
+                  ? `${i + 1}`
+                  : w < 48
+                    ? `${i + 1}.`
+                    : `${i + 1}. ${song.name}`}
+              </div>
+            )}
             {/* Stack: ticks → cycle fill → bar numbers (so digits never drown). */}
             <Ruler
               layer="backdrop"

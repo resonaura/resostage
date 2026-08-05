@@ -261,17 +261,46 @@ export function SectionMarkerLane({
         emptyPtrRef.current = null;
       }}
     >
-      {songs.map((song, i) =>
-        (song.sections ?? []).map((sec: SectionRow) => {
+      {songs.map((song, i) => {
+        const songLen = songLengths[i] ?? 0;
+        // Sort once per song so each chip can size to the gap until the next
+        // marker (or song end) — at low zoom chips would otherwise stack.
+        const ordered = [...(song.sections ?? [])].sort(
+          (a, b) => a.startSeconds - b.startSeconds,
+        );
+        return ordered.map((sec: SectionRow, si: number) => {
           const isDragging =
             liveDrag?.songIndex === i && liveDrag?.sectionId === sec.id;
           const startSeconds = isDragging ? liveDrag!.value : sec.startSeconds;
           const left = (songOffsets[i] + startSeconds) * pxPerSec;
+          const nextStart =
+            si + 1 < ordered.length
+              ? isDragging && liveDrag!.sectionId === ordered[si + 1].id
+                ? liveDrag!.value
+                : ordered[si + 1].startSeconds
+              : songLen;
+          // Room until the next marker (or song end), minus a hair of gap.
+          const availPx = Math.max(
+            0,
+            (nextStart - startSeconds) * pxPerSec - 2,
+          );
+          // < ~14px: line only (name stays in title tooltip).
+          // otherwise: chip capped to the free span so neighbours never overlap.
+          const showChip = availPx >= 14;
+          const chipMax = Math.max(0, availPx - 3);
+          const compact = chipMax < 36;
+
           return (
             <div
               key={`${i}:${sec.id}`}
-              className="absolute top-0 bottom-0 z-[1] flex items-center"
-              style={{ left, cursor: readOnly ? "default" : "ew-resize" }}
+              className="absolute top-0 bottom-0 z-[1] flex items-center overflow-hidden"
+              style={{
+                left,
+                // Clip this marker's chrome to its span so it can't paint over
+                // the next section even if text wants more room.
+                width: Math.max(1, availPx + 1),
+                cursor: readOnly ? "default" : "ew-resize",
+              }}
               title={`${sec.name} @ ${formatTimeShort(sec.startSeconds)}${readOnly ? "" : " (drag · double-click = cycle · right-click edit)"}`}
               onPointerDown={(e) => {
                 e.stopPropagation();
@@ -302,22 +331,27 @@ export function SectionMarkerLane({
               }}
             >
               <div
-                className="h-full w-px"
+                className="h-full w-px shrink-0"
                 style={{ background: SECTION_LINE }}
               />
-              <div
-                className="ml-0.5 truncate rounded px-1 py-0.5 text-[9px] font-medium leading-none"
-                style={{
-                  background: SECTION_CHIP_BG,
-                  color: SECTION_CHIP_FG,
-                }}
-              >
-                {sec.name}
-              </div>
+              {showChip && (
+                <div
+                  className="ml-0.5 truncate rounded font-medium leading-none"
+                  style={{
+                    maxWidth: chipMax,
+                    padding: compact ? "1px 3px" : "2px 4px",
+                    fontSize: compact ? 8 : 9,
+                    background: SECTION_CHIP_BG,
+                    color: SECTION_CHIP_FG,
+                  }}
+                >
+                  {sec.name}
+                </div>
+              )}
             </div>
           );
-        }),
-      )}
+        });
+      })}
 
       {menu && !renaming && (
         <ContextMenu x={menu.x} y={menu.y} width={168} onClose={closeMenu}>
