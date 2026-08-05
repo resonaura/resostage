@@ -101,6 +101,10 @@ export function MetronomeStrip({
           }
           patchClick({ clickSends: updatedSends });
         },
+        onRemoveSend: (busId) => {
+          const updatedSends = clickSends.filter((cs) => cs.busId !== busId);
+          patchClick({ clickSends: updatedSends });
+        },
       }}
       gainDb={clickGain}
       pan={clickPan}

@@ -4,7 +4,6 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "../../components/ContextMenu";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { builder, mixer } from "../../lib/api";
 import type { BusRow, TrackRow } from "../../lib/types";
 
@@ -53,16 +52,14 @@ export function StripContextMenu({
   target: StripMenuTarget;
   onClose: () => void;
 }) {
-  const initialName =
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(
     target.kind === "track"
       ? target.track.name || target.track.id
       : target.kind === "click"
         ? target.name
-        : target.bus.name || target.bus.id;
-
-  const [renaming, setRenaming] = useState(false);
-  const [nameDraft, setNameDraft] = useState(initialName);
-  const [confirmRemove, setConfirmRemove] = useState(false);
+        : target.bus.name || target.bus.id,
+  );
 
   const act = (fn: () => void) => {
     fn();
@@ -109,34 +106,6 @@ export function StripContextMenu({
     }
     onClose();
   };
-
-  if (confirmRemove) {
-    const label =
-      target.kind === "track"
-        ? target.track.name || target.track.id
-        : target.kind === "send"
-          ? target.bus.name || target.bus.id
-          : "";
-    return (
-      <ConfirmDialog
-        open
-        title={target.kind === "track" ? "Remove track" : "Remove send"}
-        message={`Remove "${label}"?`}
-        confirmLabel="Remove"
-        cancelLabel="Cancel"
-        danger
-        onCancel={onClose}
-        onConfirm={() => {
-          if (target.kind === "track") {
-            void builder.trackRemove(target.songIndex, target.index);
-          } else if (target.kind === "send") {
-            void builder.busRemove(target.index);
-          }
-          onClose();
-        }}
-      />
-    );
-  }
 
   const hasSends =
     target.kind === "track"
@@ -254,7 +223,18 @@ export function StripContextMenu({
       {showRemove && (
         <>
           <ContextMenuDivider />
-          <ContextMenuItem danger onClick={() => setConfirmRemove(true)}>
+          <ContextMenuItem
+            danger
+            onClick={() =>
+              act(() => {
+                if (target.kind === "track") {
+                  void builder.trackRemove(target.songIndex, target.index);
+                } else if (target.kind === "send") {
+                  void builder.busRemove(target.index);
+                }
+              })
+            }
+          >
             {target.kind === "send" ? "Remove Send" : "Remove Track"}
           </ContextMenuItem>
         </>

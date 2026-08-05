@@ -25,19 +25,40 @@ export function SendKnobs({
     busName: string;
   } | null>(null);
 
+  const [pendingRemoved, setPendingRemoved] = useState<Set<string>>(new Set());
+
   if (auxBusses.length === 0) return null;
   return (
     <div className="flex w-full flex-col gap-1 border-t border-default/20 py-1">
       {auxBusses.map((bus) => {
-        const existing = sends.find((s) => s.busId === bus.id);
+        const isPendingRemoved = pendingRemoved.has(bus.id);
+        const existing = isPendingRemoved
+          ? undefined
+          : sends.find((s) => s.busId === bus.id);
         const value = existing?.gainDb ?? SEND_FLOOR_DB;
+
         return (
           <div
             key={bus.id}
             className="flex items-center justify-between gap-1 w-full px-0.5 min-w-0"
+            onContextMenu={(e) => {
+              // Always stop propagation so right-clicking a send row doesn't
+              // trigger the outer track strip context menu (which would open
+              // "Remove track" / "Rename track" over this send item).
+              e.preventDefault();
+              e.stopPropagation();
+              if (onRemoveSend && existing) {
+                setRemoveMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  busId: bus.id,
+                  busName: bus.name || bus.id,
+                });
+              }
+            }}
           >
             <span
-              className="truncate text-[9px] font-mono font-medium min-w-0 flex-1 text-foreground/70"
+              className="truncate text-[9px] font-mono font-medium min-w-0 flex-1 text-foreground/70 select-none"
               title={bus.name || bus.id}
             >
               {bus.name || bus.id}
@@ -47,29 +68,25 @@ export function SendKnobs({
               min={SEND_FLOOR_DB}
               max={6}
               busColor="rgba(255,255,255,0.9)"
-              title={`Send to ${bus.name || bus.id} (right-click to remove)`}
-              onChange={(v) =>
-                onSendChange
-                  ? onSendChange(bus.id, v)
-                  : mixer.setTrackSend(trackIndex, bus.id, v)
+              title={
+                existing
+                  ? `Send to ${bus.name || bus.id} (right-click to remove)`
+                  : `Send to ${bus.name || bus.id}`
               }
-              onContextMenu={
-                onRemoveSend && existing
-                  ? (e) => {
-                      e.preventDefault();
-                      // Stop propagation so the outer track-strip onContextMenu
-                      // wrapper doesn't also fire (which would open the full
-                      // track context menu and hide this "Remove Send" popup).
-                      e.stopPropagation();
-                      setRemoveMenu({
-                        x: e.clientX,
-                        y: e.clientY,
-                        busId: bus.id,
-                        busName: bus.name || bus.id,
-                      });
-                    }
-                  : undefined
-              }
+              onChange={(v) => {
+                if (pendingRemoved.has(bus.id)) {
+                  setPendingRemoved((prev) => {
+                    const next = new Set(prev);
+                    next.delete(bus.id);
+                    return next;
+                  });
+                }
+                if (onSendChange) {
+                  onSendChange(bus.id, v);
+                } else {
+                  mixer.setTrackSend(trackIndex, bus.id, v);
+                }
+              }}
             />
           </div>
         );
@@ -78,13 +95,15 @@ export function SendKnobs({
         <ContextMenu
           x={removeMenu.x}
           y={removeMenu.y}
-          width={150}
+          width={160}
           onClose={() => setRemoveMenu(null)}
         >
           <ContextMenuItem
             danger
             onClick={() => {
-              onRemoveSend(removeMenu.busId);
+              const busId = removeMenu.busId;
+              setPendingRemoved((prev) => new Set(prev).add(busId));
+              onRemoveSend(busId);
               setRemoveMenu(null);
             }}
           >
