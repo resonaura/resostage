@@ -1111,19 +1111,15 @@ void WebServer::enqueueCommand(WebCommand cmd) {
     const WebCommandKind kind = cmd.kind;
     commands.try_enqueue(std::move(cmd));
     // Transport / setlist: wake the message thread immediately.
-    switch (kind) {
-        case WebCommandKind::Play:
-        case WebCommandKind::Stop:
-        case WebCommandKind::StopToStart:
-        case WebCommandKind::Next:
-        case WebCommandKind::Prev:
-        case WebCommandKind::SelectSong:
-        case WebCommandKind::Seek:
-            if (urgentCommandHook)
-                urgentCommandHook();
-            break;
-        default:
-            break;
+    if (kind == WebCommandKind::Play ||
+        kind == WebCommandKind::Stop ||
+        kind == WebCommandKind::StopToStart ||
+        kind == WebCommandKind::Next ||
+        kind == WebCommandKind::Prev ||
+        kind == WebCommandKind::SelectSong ||
+        kind == WebCommandKind::Seek) {
+        if (urgentCommandHook)
+            urgentCommandHook();
     }
 }
 

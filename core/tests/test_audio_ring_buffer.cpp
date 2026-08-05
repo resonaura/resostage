@@ -92,7 +92,6 @@ TEST_CASE("AudioRingBuffer survives concurrent producer/consumer without data lo
             const int64_t n = std::min<int64_t>(64, kTotalFrames - written);
             for (int64_t i = 0; i < n; ++i)
                 chunk[static_cast<size_t>(i)] = static_cast<float>(written + i);
-            const float* in[1] = {chunk.data()};
             int64_t pushed = 0;
             while (pushed < n) {
                 const float* inOffset[1] = {chunk.data() + pushed};

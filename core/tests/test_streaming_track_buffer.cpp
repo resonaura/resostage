@@ -59,8 +59,6 @@ std::vector<uint8_t> makeMonoWav16AtRate(int frames, double wavSampleRate) {
     return out;
 }
 
-std::vector<uint8_t> makeMonoWav16(int frames) { return makeMonoWav16AtRate(frames, kSampleRate); }
-
 // Builds a minimal .rsnraset-like archive with one mono WAV track and returns
 // its temp file path. `frames` controls the WAV's length. Tests run
 // sequentially (doctest default), so reusing one fixed path across TEST_CASEs

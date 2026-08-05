@@ -28,5 +28,11 @@ add_executable(resostage_engine_tests
 
 target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)
 target_compile_features(resostage_engine_tests PRIVATE cxx_std_20)
+if(MSVC)
+  target_compile_options(resostage_engine_tests PRIVATE /W4)
+else()
+  target_compile_options(resostage_engine_tests PRIVATE -Wall -Wextra -Wunused)
+endif()
 
 add_test(NAME resostage_engine_tests COMMAND resostage_engine_tests)
+

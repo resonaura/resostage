@@ -472,12 +472,18 @@ void ProjectLoader::clearAutosave() {
 }
 
 bool ProjectLoader::saveBackup(std::string& error) const {
-    if (openArchivePath.empty())
+    if (openArchivePath.empty()) {
+        error = "No open project archive path";
         return false;
+    }
     namespace fs = std::filesystem;
     fs::path backupDir = fs::path(openArchivePath) / "Backups";
     std::error_code ec;
     fs::create_directories(backupDir, ec);
+    if (ec) {
+        error = "Failed to create Backups directory: " + ec.message();
+        return false;
+    }
 
     const auto now = std::chrono::system_clock::now();
     const auto in_time_t = std::chrono::system_clock::to_time_t(now);
@@ -487,11 +493,18 @@ bool ProjectLoader::saveBackup(std::string& error) const {
     fs::path mainJson = fs::path(openArchivePath) / "project.json";
     if (fs::exists(mainJson, ec)) {
         fs::copy_file(mainJson, backupDir / ss.str(), fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            error = "Failed to copy project.json to backup: " + ec.message();
+            return false;
+        }
     } else {
         std::string json = serializeProjectJson(parsedProject);
         std::ofstream ofs(backupDir / ss.str(), std::ios::binary);
         if (ofs.is_open()) {
             ofs.write(json.data(), json.size());
+        } else {
+            error = "Failed to write backup project.json";
+            return false;
         }
     }
     return true;

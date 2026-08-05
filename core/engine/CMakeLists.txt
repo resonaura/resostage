@@ -39,3 +39,8 @@ if(APPLE)
 endif()
 
 target_compile_features(resostage_engine PUBLIC cxx_std_20)
+if(MSVC)
+  target_compile_options(resostage_engine PRIVATE /W4)
+else()
+  target_compile_options(resostage_engine PRIVATE -Wall -Wextra -Wunused)
+endif()

@@ -111,3 +111,8 @@ if(APPLE)
 endif()
 
 target_compile_features(ResoStage PRIVATE cxx_std_20)
+if(MSVC)
+  target_compile_options(ResoStage PRIVATE /W4)
+else()
+  target_compile_options(ResoStage PRIVATE -Wall -Wextra -Wunused)
+endif()
