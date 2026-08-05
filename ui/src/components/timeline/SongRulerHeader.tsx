@@ -86,7 +86,7 @@ export function SongRulerHeader({
               <div
                 className={`pointer-events-none absolute z-40 truncate rounded-b font-bold uppercase tracking-wide ${
                   isActive
-                    ? "bg-accent text-accent-foreground"
+                    ? "bg-default text-foreground/70"
                     : "bg-default/30 text-foreground/50"
                 }`}
                 style={{
