@@ -26,6 +26,8 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     (b) => b.id === "main" || b.isAux,
   );
   const pendingBusJobs = useRef<PendingBusJob[]>([]);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [menu, setMenu] = useState<StripMenuTarget | null>(null);
 
   useEffect(() => {
@@ -82,7 +84,13 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     });
   }
 
-  /** Shared Ext. Out: reuse bus on that start, else create a hidden non-aux target. */
+  /**
+   * Shared Ext. Out target: reuse a *hidden* non-main non-aux bus on that
+   * hardware start, else create one. Never reuse `main` — assigning Main as
+   * the Ext. Out target made the primary select snap back to "Main" (and
+   * flicker on the metronome) even though the user picked Ext. Out.
+   * Hidden buses stay off the mixer rail / destination list.
+   */
   function ensureDirectOutBus(
     startChannel: number,
     pair: boolean,
@@ -92,14 +100,14 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     const existing = state.busses.find(
       (b) =>
         !b.isAux &&
+        b.id !== "main" &&
         b.startChannel === startChannel &&
-        (pair ? b.channels >= 2 : true),
+        (pair ? b.channels >= 2 : b.channels === 1),
     );
     if (existing) {
       if (
-        existing.id !== "main" &&
-        (existing.startChannel !== startChannel ||
-          existing.channels !== channels)
+        existing.startChannel !== startChannel ||
+        existing.channels !== channels
       ) {
         const idx = state.busses.indexOf(existing);
         if (idx >= 0) {
@@ -150,7 +158,10 @@ export function MixerScreen({ state }: { state: WebUiState }) {
 
   function requestClickDirectOutput(startChannel: number, pair: boolean) {
     ensureDirectOutBus(startChannel, pair, (busId) => {
-      patchClickFields(state, { clickBusId: busId });
+      // Always patch against latest state — bus create is async and a
+      // closed-over `state` would stomp concurrent click edits / show a
+      // stale busId until the next WS tick (visible select flicker).
+      patchClickFields(stateRef.current, { clickBusId: busId });
     });
   }
 

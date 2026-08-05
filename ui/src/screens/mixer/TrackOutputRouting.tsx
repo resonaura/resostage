@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BusRow, SettingsState } from "../../lib/types";
 import {
   EXT_OUTPUT_VALUE,
@@ -10,8 +10,46 @@ import {
   directOutputOptions,
   matchOptionId,
   parseOptionId,
+  type DirectOutOption,
 } from "./directOutput";
 import { MonoStereoIcon } from "./MonoStereoIcon";
+
+type PendingRouting = {
+  /** Primary select: bus id, SENDS_ONLY_VALUE, or EXT_OUTPUT_VALUE. */
+  primary: string;
+  /** Secondary channel option id when primary is Ext. Out. */
+  channelId?: string;
+};
+
+function serverPrimary(
+  busId: string,
+  destinationBusses: BusRow[],
+  isExtAssigned: boolean,
+): string {
+  if (busId === "") return SENDS_ONLY_VALUE;
+  if (destinationBusses.some((b) => b.id === busId)) return busId;
+  if (isExtAssigned) return EXT_OUTPUT_VALUE;
+  // Unknown / stale id — fall back to main if present.
+  return destinationBusses.find((b) => b.id === "main")?.id ?? SENDS_ONLY_VALUE;
+}
+
+function serverMatchesPending(
+  pending: PendingRouting,
+  busId: string,
+  isExtAssigned: boolean,
+  assigned: BusRow | undefined,
+  destinationBusses: BusRow[],
+  options: DirectOutOption[],
+): boolean {
+  const primary = serverPrimary(busId, destinationBusses, isExtAssigned);
+  if (pending.primary !== primary) return false;
+  if (pending.primary !== EXT_OUTPUT_VALUE) return true;
+  if (!pending.channelId || !assigned) return isExtAssigned;
+  const want = parseOptionId(pending.channelId);
+  if (!want) return isExtAssigned;
+  const got = matchOptionId(options, assigned.startChannel, assigned.channels);
+  return got === pending.channelId;
+}
 
 export function TrackOutputRouting({
   busId,
@@ -37,31 +75,70 @@ export function TrackOutputRouting({
   const isExtAssigned = Boolean(
     assigned && assigned.id !== "main" && !assigned.isAux,
   );
-  const [directOutputOpen, setDirectOutputOpen] = useState(isExtAssigned);
-
-  useEffect(() => {
-    setDirectOutputOpen(isExtAssigned);
-  }, [isExtAssigned, busId]);
 
   // Mono strips list pairs + every single; stereo lists pairs + leftover singles.
   const options = directOutputOptions(settings, {
     includeAllSingles: mono,
   });
-  const channelValue = matchOptionId(
+
+  const serverChannelId = matchOptionId(
     options,
     assigned?.startChannel ?? 0,
     assigned?.channels ?? 2,
   );
+  const serverPrimaryValue = serverPrimary(busId, busses, isExtAssigned);
 
-  const currentValue = directOutputOpen
-    ? EXT_OUTPUT_VALUE
-    : busId === ""
-      ? SENDS_ONLY_VALUE
-      : busses.some((b) => b.id === busId)
-        ? busId
-        : isExtAssigned
-          ? EXT_OUTPUT_VALUE
-          : "main";
+  // Optimistic UI: keep the user's pick until the WS state catches up.
+  // Without this the metronome (and any Ext. Out strip) flickers — selecting
+  // Ext. Out / a channel fires an async bus create + clickBusId patch, and
+  // until that lands `isExtAssigned` is still false so the controlled
+  // <select> snaps back to Main.
+  const [pending, setPending] = useState<PendingRouting | null>(null);
+  const pendingGen = useRef(0);
+
+  useEffect(() => {
+    if (!pending) return;
+    if (
+      serverMatchesPending(
+        pending,
+        busId,
+        isExtAssigned,
+        assigned,
+        busses,
+        options,
+      )
+    ) {
+      setPending(null);
+    }
+  }, [
+    pending,
+    busId,
+    isExtAssigned,
+    assigned,
+    busses,
+    options,
+    serverChannelId,
+  ]);
+
+  // Drop stale pending if mono flip rebuilds the option list and the old
+  // channel id no longer exists (avoid a stuck optimistic value).
+  useEffect(() => {
+    if (!pending?.channelId) return;
+    if (!options.some((o) => o.id === pending.channelId)) {
+      setPending((p) =>
+        p ? { ...p, channelId: options[0]?.id ?? serverChannelId } : null,
+      );
+    }
+  }, [mono]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const currentValue = pending?.primary ?? serverPrimaryValue;
+  const directOutputOpen = currentValue === EXT_OUTPUT_VALUE;
+  const channelValue = pending?.channelId ?? serverChannelId;
+
+  const commitPending = (next: PendingRouting) => {
+    pendingGen.current += 1;
+    setPending(next);
+  };
 
   return (
     <div className="w-full my-1 flex flex-col items-center gap-1.5">
@@ -85,17 +162,15 @@ export function TrackOutputRouting({
       <select
         value={currentValue}
         onChange={(e) => {
-          if (e.target.value === EXT_OUTPUT_VALUE) {
-            setDirectOutputOpen(true);
-            if (options.length > 0) {
-              const pick = options[0];
-              onDirectOutput(mono, pick.startChannel, pick.pair);
-            }
+          const v = e.target.value;
+          if (v === EXT_OUTPUT_VALUE) {
+            const pick = options[0];
+            const channelId = pick?.id ?? serverChannelId;
+            commitPending({ primary: EXT_OUTPUT_VALUE, channelId });
+            if (pick) onDirectOutput(mono, pick.startChannel, pick.pair);
           } else {
-            setDirectOutputOpen(false);
-            onBusSelect(
-              e.target.value === SENDS_ONLY_VALUE ? "" : e.target.value,
-            );
+            commitPending({ primary: v });
+            onBusSelect(v === SENDS_ONLY_VALUE ? "" : v);
           }
         }}
         className={ROUTING_SELECT_CLASS}
@@ -113,7 +188,9 @@ export function TrackOutputRouting({
         <select
           value={channelValue}
           onChange={(e) => {
-            const parsed = parseOptionId(e.target.value);
+            const id = e.target.value;
+            const parsed = parseOptionId(id);
+            commitPending({ primary: EXT_OUTPUT_VALUE, channelId: id });
             if (parsed) onDirectOutput(mono, parsed.startChannel, parsed.pair);
           }}
           className={ROUTING_SELECT_CLASS}
