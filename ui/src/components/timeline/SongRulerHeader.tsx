@@ -81,13 +81,13 @@ export function SongRulerHeader({
               <div className="absolute left-0 top-0 h-full w-px bg-default/40" />
             )}
             <div
-              className={`pointer-events-none absolute z-10 truncate rounded-b px-1 text-[8px] font-bold uppercase tracking-wide ${
+              className={`pointer-events-none absolute z-40 truncate rounded-b px-1 text-[8px] font-bold uppercase tracking-wide ${
                 isActive
                   ? "bg-accent text-accent-foreground"
                   : "bg-default/30 text-foreground/50"
               }`}
               style={{
-                // Sit in the upper cycle tier without covering cycle handles.
+                // Above cycle fill + bar numbers; no pointer grab.
                 top: 1,
                 left: 6,
                 maxWidth: Math.max(20, w - 12),
@@ -96,7 +96,9 @@ export function SongRulerHeader({
             >
               {i + 1}. {song.name}
             </div>
+            {/* Stack: ticks → cycle fill → bar numbers (so digits never drown). */}
             <Ruler
+              layer="backdrop"
               pxPerSec={pxPerSec}
               contentWidth={w}
               songLength={songLengths[i]}
@@ -128,6 +130,19 @@ export function SongRulerHeader({
               }
               onToggleSkip={onCycleToggleSkip}
               onDragEnd={onCycleDragEnd}
+            />
+            <Ruler
+              layer="labels"
+              pxPerSec={pxPerSec}
+              contentWidth={w}
+              songLength={songLengths[i]}
+              bpm={song.bpm}
+              tsNum={song.tsNum}
+              scrollLeft={Math.max(
+                0,
+                scrollState.scrollLeft - songOffsets[i] * pxPerSec,
+              )}
+              viewportWidth={scrollState.viewportWidth}
             />
           </div>
         );

@@ -16,38 +16,39 @@ public:
         // rest of the system is thrashing (see ProcessPriority.cpp).
         boostAppProcessPriority();
 
-        mainWindow = std::make_unique<MainWindow>(getApplicationName());
+        // Headless host only: audio / lighting / WebServer / timers. The
+        // on-screen UI is always Electron (or a browser tab). Deliberately
+        // NO DocumentWindow / desktop peer -- a 1x1 black host window was
+        // flashing on launch and reappearing whenever a native FileChooser
+        // or Alert activated this process (orderFront of the hidden peer).
+        // JUCE's message loop does not require a visible window; FileChooser
+        // / NativeMessageBox / AlertWindow create their own peers when needed.
+        mainComponent = std::make_unique<MainComponent>();
 
         const auto path = commandLine.unquoted().trim();
         if (!path.isEmpty() && juce::File::isAbsolutePath(path)) {
             const juce::File file(path);
-            if (file.exists()) {
-                if (auto* mc = mainWindow->getMainComponent()) {
-                    mc->loadProjectFromPath(file);
-                }
-            }
+            if (file.exists())
+                mainComponent->loadProjectFromPath(file);
         }
     }
 
     void anotherInstanceStarted(const juce::String& commandLine) override {
         const auto path = commandLine.unquoted().trim();
-        if (!path.isEmpty() && juce::File::isAbsolutePath(path) && mainWindow != nullptr) {
+        if (!path.isEmpty() && juce::File::isAbsolutePath(path) && mainComponent != nullptr) {
             const juce::File file(path);
-            if (file.exists()) {
-                if (auto* mc = mainWindow->getMainComponent()) {
-                    mc->loadProjectFromPath(file);
-                }
-            }
+            if (file.exists())
+                mainComponent->loadProjectFromPath(file);
         }
     }
 
     void shutdown() override {
-        mainWindow = nullptr;
+        mainComponent = nullptr;
     }
 
     void systemRequestedQuit() override {
-        if (mainWindow != nullptr && mainWindow->getMainComponent() != nullptr) {
-            mainWindow->getMainComponent()->confirmQuitIfUnsaved([](bool canQuit) {
+        if (mainComponent != nullptr) {
+            mainComponent->confirmQuitIfUnsaved([](bool canQuit) {
                 if (canQuit)
                     quit();
             });
@@ -56,34 +57,8 @@ public:
         quit();
     }
 
-
 private:
-    // Headless host: message loop + optional OS FileChooser parent. The
-    // on-screen UI is always Electron (or a browser tab); this window is
-    // hidden as soon as MainComponent launches that shell.
-    class MainWindow final : public juce::DocumentWindow {
-    public:
-        explicit MainWindow(const juce::String& name)
-            : DocumentWindow(name,
-                              juce::Colours::black,
-                              DocumentWindow::closeButton) {
-            setUsingNativeTitleBar(true);
-            setContentOwned(new MainComponent(), true);
-            setResizable(false, false);
-            centreWithSize(1, 1);
-            setVisible(true); // required for message loop; immediately hidden by MainComponent
-        }
-
-        MainComponent* getMainComponent() const {
-            return dynamic_cast<MainComponent*>(getContentComponent());
-        }
-
-        void closeButtonPressed() override {
-            juce::JUCEApplication::getInstance()->systemRequestedQuit();
-        }
-    };
-
-    std::unique_ptr<MainWindow> mainWindow;
+    std::unique_ptr<MainComponent> mainComponent;
 };
 
 juce::JUCEApplicationBase* juce_CreateApplication();

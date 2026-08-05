@@ -6,12 +6,16 @@ import {
 } from "./constants";
 import { formatTimeShort, getTickConfig } from "./geometry";
 
+export type RulerLayer = "backdrop" | "labels" | "full";
+
 /**
  * Two-tier Logic-style bar ruler (canvas).
  * - Upper band: bar numbers + major ticks that span the full height
  * - Lower band: beat / subdivision ticks only
- * Cycle paints in the upper band (CycleStrip); scrub lives on the lower band
- * (SongRulerHeader hit layer) — they do not share pointer space.
+ *
+ * `layer` splits paint so CycleStrip can sit BETWEEN ticks and bar numbers:
+ *   backdrop → CycleStrip → labels (z-index). Numbers stay readable over the
+ * yellow cycle fill without fighting blend modes alone.
  */
 export function Ruler({
   pxPerSec,
@@ -21,6 +25,7 @@ export function Ruler({
   tsNum,
   scrollLeft = 0,
   viewportWidth,
+  layer = "full",
 }: {
   pxPerSec: number;
   contentWidth: number;
@@ -29,6 +34,7 @@ export function Ruler({
   tsNum: number;
   scrollLeft?: number;
   viewportWidth?: number;
+  layer?: RulerLayer;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -43,31 +49,39 @@ export function Ruler({
   );
   const bufferedWidth = Math.min(contentWidth, (viewportWidth || 1200) + 500);
 
+  const paintBackdrop = layer === "full" || layer === "backdrop";
+  const paintLabels = layer === "full" || layer === "labels";
+
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || bufferedWidth <= 0) return;
 
     const dpr = window.devicePixelRatio || 1;
+    // Labels layer only needs the cycle tier height.
+    const cssH =
+      paintLabels && !paintBackdrop ? RULER_CYCLE_HEIGHT : RULER_HEIGHT;
     const targetW = Math.max(1, Math.floor(bufferedWidth * dpr));
-    const targetH = Math.max(1, Math.floor(RULER_HEIGHT * dpr));
+    const targetH = Math.max(1, Math.floor(cssH * dpr));
     if (canvas.width !== targetW || canvas.height !== targetH) {
       canvas.width = targetW;
       canvas.height = targetH;
       canvas.style.width = `${bufferedWidth}px`;
-      canvas.style.height = `${RULER_HEIGHT}px`;
+      canvas.style.height = `${cssH}px`;
     }
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, bufferedWidth, RULER_HEIGHT);
+    ctx.clearRect(0, 0, bufferedWidth, cssH);
     if (minorStepSec <= 0 || majorStepSec <= 0) return;
 
-    // Cycle tier is intentionally more transparent than the beat tier.
-    ctx.fillStyle = "rgba(255,255,255,0.015)";
-    ctx.fillRect(0, 0, bufferedWidth, RULER_CYCLE_HEIGHT);
-    ctx.fillStyle = "rgba(0,0,0,0.14)";
-    ctx.fillRect(0, RULER_CYCLE_HEIGHT, bufferedWidth, 1);
+    if (paintBackdrop) {
+      // Cycle tier is intentionally more transparent than the beat tier.
+      ctx.fillStyle = "rgba(255,255,255,0.015)";
+      ctx.fillRect(0, 0, bufferedWidth, RULER_CYCLE_HEIGHT);
+      ctx.fillStyle = "rgba(0,0,0,0.14)";
+      ctx.fillRect(0, RULER_CYCLE_HEIGHT, bufferedWidth, 1);
+    }
 
     const startTime = Math.max(0, quantizedLeft / pxPerSec);
     const endTime = Math.min(
@@ -111,24 +125,28 @@ export function Ruler({
         (phaseMid < midStepSec * 0.02 || phaseMid > midStepSec * 0.98);
 
       if (isMajor) {
-        // Full-height bar lines; slightly softer in the cycle tier.
-        ctx.fillStyle = "rgba(255,255,255,0.14)";
-        ctx.fillRect(canvasX, 0, 1, RULER_CYCLE_HEIGHT);
-        ctx.fillStyle = "rgba(255,255,255,0.22)";
-        ctx.fillRect(canvasX, RULER_CYCLE_HEIGHT, 1, RULER_BEAT_HEIGHT);
+        if (paintBackdrop) {
+          // Full-height bar lines; slightly softer in the cycle tier.
+          ctx.fillStyle = "rgba(255,255,255,0.14)";
+          ctx.fillRect(canvasX, 0, 1, RULER_CYCLE_HEIGHT);
+          ctx.fillStyle = "rgba(255,255,255,0.22)";
+          ctx.fillRect(canvasX, RULER_CYCLE_HEIGHT, 1, RULER_BEAT_HEIGHT);
+        }
 
-        const label =
-          isBeatGrid && barSec > 0
-            ? `${Math.round(rounded / barSec) + 1}`
-            : formatTimeShort(rounded);
-        ctx.fillStyle = "rgba(255,255,255,0.38)";
-        ctx.fillText(label, canvasX + 3, RULER_CYCLE_HEIGHT * 0.5);
-      } else if (isMid) {
+        if (paintLabels) {
+          const label =
+            isBeatGrid && barSec > 0
+              ? `${Math.round(rounded / barSec) + 1}`
+              : formatTimeShort(rounded);
+          ctx.fillStyle = "rgba(255,255,255,0.38)";
+          ctx.fillText(label, canvasX + 3, RULER_CYCLE_HEIGHT * 0.5);
+        }
+      } else if (isMid && paintBackdrop) {
         // Medium tick: lower band only, taller than minors.
         const h = Math.min(RULER_BEAT_HEIGHT - 2, 10);
         ctx.fillStyle = "rgba(255,255,255,0.14)";
         ctx.fillRect(canvasX, RULER_HEIGHT - h, 1, h);
-      } else {
+      } else if (paintBackdrop) {
         // Short subdivision ticks in lower band only.
         const h = Math.min(RULER_BEAT_HEIGHT - 4, 5);
         ctx.fillStyle = "rgba(255,255,255,0.07)";
@@ -146,7 +164,19 @@ export function Ruler({
     beatSec,
     quantizedLeft,
     bufferedWidth,
+    paintBackdrop,
+    paintLabels,
   ]);
+
+  if (layer === "labels") {
+    return (
+      <canvas
+        ref={canvasRef}
+        className="pointer-events-none absolute top-0 z-30"
+        style={{ left: quantizedLeft, height: RULER_CYCLE_HEIGHT }}
+      />
+    );
+  }
 
   return (
     <div

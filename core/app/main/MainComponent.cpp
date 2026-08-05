@@ -124,10 +124,10 @@ MainComponent::MainComponent() {
         juce::MessageManager::callAsync([this] { drainWebCommands(); });
     });
 
-    // The Core is headless: the on-screen UI comes from the engine chosen in
-    // Settings -- the Electron shell (window/menu/Touch Bar) or the default
-    // browser tab. Either way the JUCE window backs off to an accessory
-    // process that keeps serving the backend (audio / lighting / WebServer).
+    // The Core is headless (no DocumentWindow peer -- see Main.cpp): the
+    // on-screen UI comes from the engine chosen in Settings -- the Electron
+    // shell (window/menu/Touch Bar) or the default browser tab. This process
+    // only keeps serving the backend (audio / lighting / WebServer).
     //
     // Exception: the shipped bundle nests this Core.app inside the Electron
     // shell's own .app (Contents/Resources/) and Electron is what the user
@@ -137,21 +137,14 @@ MainComponent::MainComponent() {
     // never overrides the flag for standalone/dev launches of this .app.
     const bool spawnedByShell = std::getenv("RESOSTAGE_SPAWNED_BY_SHELL") != nullptr;
     if (spawnedByShell) {
-        juce::MessageManager::callAsync([this] {
-            if (auto* tl = getTopLevelComponent())
-                tl->setVisible(false);
 #if JUCE_MAC
-            backOffToHeadlessShell();
+        juce::MessageManager::callAsync([] { backOffToHeadlessShell(); });
 #endif
-        });
     } else if (appSettings.uiRenderEngine == "electron") {
         launchElectronShell();
     } else {
         launchBrowserTab();
     }
-
-    // Tiny hidden host for the message loop / FileChooser parent.
-    setSize(1, 1);
 
     // Match WebServer::kTelemetryHz (60).
     startTimerHz(WebServer::kTelemetryHz);
@@ -287,15 +280,11 @@ void MainComponent::launchElectronShell() {
     }
 
     setStatus("Electron shell launched (UI engine: Electron)");
-    // Drop out of the foreground once the shell is up: hide the JUCE window
-    // and remove us from the Dock so Electron is the only visible ResoStage.
-    juce::MessageManager::callAsync([this] {
-        if (auto* tl = getTopLevelComponent())
-            tl->setVisible(false);
+    // Drop out of the foreground once the shell is up: accessory policy so
+    // Electron is the only visible ResoStage (no Dock icon for Core).
 #if JUCE_MAC
-        backOffToHeadlessShell();
+    juce::MessageManager::callAsync([] { backOffToHeadlessShell(); });
 #endif
-    });
 }
 
 void MainComponent::terminateElectronShell() {
@@ -317,17 +306,13 @@ void MainComponent::launchBrowserTab() {
         "http://localhost:" + juce::String(kWebPort) + "/";
     juce::URL(url).launchInDefaultBrowser();
 
-    juce::MessageManager::callAsync([this] {
-        if (auto* tl = getTopLevelComponent())
-            tl->setVisible(false);
 #if JUCE_MAC
-        backOffToHeadlessShell();
+    juce::MessageManager::callAsync([] { backOffToHeadlessShell(); });
 #endif
-    });
 }
 
-void MainComponent::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::black);
+void MainComponent::paint(juce::Graphics&) {
+    // Never on-desktop (headless host) -- nothing to paint.
 }
 
 void MainComponent::resized() {}

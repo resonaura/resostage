@@ -17,9 +17,10 @@
 namespace resostage {
 
 // Headless core: audio / lighting / transport + embedded WebServer.
-// All operator-facing UI lives in the Electron shell (or a browser tab);
-// this Component only hosts the JUCE message loop and occasional OS
-// FileChooser dialogs. No menus, banners, or overlays are drawn here.
+// All operator-facing UI lives in the Electron shell (or a browser tab).
+// Owned by ResoStageApplication with no DocumentWindow / desktop peer
+// (see Main.cpp) so native dialogs never resurrect a blank host window.
+// Occasional OS FileChooser / AlertWindow peers are created on demand.
 class MainComponent final : public juce::Component, private juce::Timer {
 public:
     MainComponent();

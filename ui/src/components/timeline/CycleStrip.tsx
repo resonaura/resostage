@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RULER_CYCLE_HEIGHT } from "./constants";
 import { snapToGridSec } from "./geometry";
 import type { CycleLocators } from "./useCycleState";
@@ -6,6 +6,46 @@ import type { CycleLocators } from "./useCycleState";
 type DragMode = "create" | "move" | "resizeL" | "resizeR" | "click";
 
 const EDGE_PX = 6;
+const DRAG_ATTR = "data-cycle-drag";
+const DRAG_VAR = "--cycle-drag-cursor";
+const STYLE_ID = "resostage-cycle-drag-cursor";
+
+/**
+ * Force cursor on the whole document while dragging. Setting body alone is
+ * not enough: the hit target (and Timeline's cursor-col-resize ancestors)
+ * keep their own cursor and win the cascade. Attribute + `* { cursor: var()
+ * !important }` overrides every descendant for the drag lifetime.
+ */
+function ensureDragCursorStyle() {
+  if (document.getElementById(STYLE_ID)) return;
+  const el = document.createElement("style");
+  el.id = STYLE_ID;
+  el.textContent = `
+    html[${DRAG_ATTR}],
+    html[${DRAG_ATTR}] * {
+      cursor: var(${DRAG_VAR}) !important;
+    }
+  `;
+  document.head.appendChild(el);
+}
+
+function setDragCursor(cursor: string | null) {
+  ensureDragCursorStyle();
+  const html = document.documentElement;
+  if (cursor) {
+    html.style.setProperty(DRAG_VAR, cursor);
+    html.setAttribute(DRAG_ATTR, "1");
+  } else {
+    html.removeAttribute(DRAG_ATTR);
+    html.style.removeProperty(DRAG_VAR);
+  }
+}
+
+function cursorForMode(mode: DragMode): string {
+  if (mode === "resizeL" || mode === "resizeR" || mode === "create")
+    return "ew-resize";
+  return "grabbing";
+}
 
 /**
  * Logic-style cycle zone — UPPER bar-ruler tier only.
@@ -59,6 +99,12 @@ export function CycleStrip({
     moved: boolean;
     option: boolean;
   } | null>(null);
+  // Idle hover cursor on the yellow bar (edges vs body).
+  const [barHoverCursor, setBarHoverCursor] = useState("grab");
+
+  useEffect(() => {
+    return () => setDragCursor(null);
+  }, []);
 
   const lo = Math.min(cycle.leftSec, cycle.rightSec);
   const hi = Math.max(cycle.leftSec, cycle.rightSec);
@@ -76,6 +122,16 @@ export function CycleStrip({
 
   const snapSec = (sec: number) =>
     snapToGridSec(sec, pxPerSec, bpm, tsNum, snapToGrid);
+
+  const barCursorAt = (clientX: number) => {
+    const local = clientXToLocalSec(clientX);
+    const xInSong = local * pxPerSec;
+    const leftEdge = lo * pxPerSec;
+    const rightEdge = hi * pxPerSec;
+    if (Math.abs(xInSong - leftEdge) <= EDGE_PX) return "ew-resize";
+    if (Math.abs(xInSong - rightEdge) <= EDGE_PX) return "ew-resize";
+    return cycle.active ? "grab" : "pointer";
+  };
 
   const beginDrag = (
     e: React.PointerEvent,
@@ -95,6 +151,11 @@ export function CycleStrip({
       moved: false,
       option: e.altKey,
     };
+    // click / create wait for a few px of motion before locking the cursor;
+    // move / resize show the drag cursor immediately.
+    if (mode === "move" || mode === "resizeL" || mode === "resizeR") {
+      setDragCursor(cursorForMode(mode));
+    }
   };
 
   const onBarPointerDown = (e: React.PointerEvent) => {
@@ -145,14 +206,19 @@ export function CycleStrip({
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
-    if (Math.abs(e.clientX - d.startX) > 3) d.moved = true;
+    if (Math.abs(e.clientX - d.startX) > 3) {
+      if (!d.moved) {
+        d.moved = true;
+        if (d.mode === "click") d.mode = "create";
+        setDragCursor(cursorForMode(d.mode));
+      }
+    }
     if (!d.moved && d.mode === "click") return;
     if (!d.moved && d.mode === "create") return;
 
     const local = snapSec(clientXToLocalSec(e.clientX));
 
-    if (d.mode === "create" || (d.mode === "click" && d.moved)) {
-      d.mode = "create";
+    if (d.mode === "create") {
       onSetRange(d.anchorSec, local, {
         activate: true,
         skip: d.option,
@@ -182,6 +248,7 @@ export function CycleStrip({
   const endDrag = (e: React.PointerEvent) => {
     const d = dragRef.current;
     dragRef.current = null;
+    setDragCursor(null);
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {
@@ -204,19 +271,20 @@ export function CycleStrip({
   let border: string | undefined;
   let bgImage: string | undefined;
   if (!active) {
-    barBg = "rgba(140, 142, 150, 0.07)";
-    handleBg = "rgba(200, 200, 210, 0.22)";
-    border = "1px dashed rgba(255,255,255,0.12)";
+    barBg = "rgba(140, 162, 150, 0.18)";
+    handleBg = "rgba(200, 200, 210, 0)";
+    border = "0px dashed rgba(255,255,255,0.18)";
   } else if (skip) {
-    barBg = "rgba(255, 146, 48, 0.12)";
-    handleBg = "rgba(255, 146, 48, 0.75)";
-    border = "1px solid rgba(255, 146, 48, 0.45)";
+    barBg = "rgba(255, 166, 48, 0.22)";
+    handleBg = "rgba(255, 166, 48, 0)";
+    border = "1px solid rgba(255, 146, 48, 0.5)";
     bgImage =
-      "repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(0,0,0,0.3) 3px, rgba(0,0,0,0.3) 5px)";
+      "repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(0,0,0,0.28) 3px, rgba(0,0,0,0.28) 5px)";
   } else {
-    barBg = "rgba(255, 146, 48, 0.32)";
-    handleBg = "rgba(255, 146, 48, 0.8)";
-    border = "1px solid transparent";
+    // Translucent fill; bar numbers paint above this layer (Ruler layer="labels").
+    barBg = "rgba(255, 166, 48, 0.45)";
+    handleBg = "rgba(255, 166, 48, 0)";
+    border = "0px solid rgba(255, 180, 72, 0.35)";
   }
 
   return (
@@ -227,7 +295,7 @@ export function CycleStrip({
     >
       {/* Always interactive: create/rebind cycle for THIS song. */}
       <div
-        className="pointer-events-auto absolute inset-0 touch-none cursor-default"
+        className="pointer-events-auto absolute inset-0 touch-none cursor-ew-resize"
         onPointerDown={onEmptyPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -245,11 +313,21 @@ export function CycleStrip({
             backgroundImage: bgImage,
             border,
             boxSizing: "border-box",
+            cursor: barHoverCursor,
             transition:
               "background-color 180ms ease, border-color 180ms ease, opacity 180ms ease",
           }}
           onPointerDown={onBarPointerDown}
-          onPointerMove={onPointerMove}
+          onPointerMove={(e) => {
+            if (!dragRef.current) {
+              setBarHoverCursor(barCursorAt(e.clientX));
+            }
+            onPointerMove(e);
+          }}
+          onPointerLeave={() => {
+            if (!dragRef.current)
+              setBarHoverCursor(active ? "grab" : "pointer");
+          }}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           title={
@@ -259,14 +337,14 @@ export function CycleStrip({
           }
         >
           <div
-            className="absolute inset-y-0 left-0 w-1 cursor-ew-resize"
+            className="absolute inset-y-0 left-0 w-1"
             style={{
               backgroundColor: handleBg,
               transition: "background-color 180ms ease",
             }}
           />
           <div
-            className="absolute inset-y-0 right-0 w-1 cursor-ew-resize"
+            className="absolute inset-y-0 right-0 w-1"
             style={{
               backgroundColor: handleBg,
               transition: "background-color 180ms ease",
