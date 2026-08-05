@@ -9,6 +9,7 @@
  */
 import { Slider } from "@heroui/react";
 import { useMemo, useRef, useState } from "react";
+import { useFocusDraft, useLiveValue, useNumberDraft } from "../../lib/optimistic";
 import {
   Activity,
   Barcode,
@@ -71,10 +72,9 @@ function Field({
   );
 }
 
-// Plain numeric stepper for timing values (fades, durations) -- unlike
-// color/effect parameters (Depth, Rate, HSL), a fade length is something you
-// want to type or nudge precisely, not drag a bar for, and it doesn't need
-// the accent-filled slider track's visual weight.
+// Plain numeric stepper for timing values (fades, durations).
+// Uses useNumberDraft so typing "2." mid-way is not reset by server echoes
+// while the field is focused.
 function SecondsField({
   label,
   value,
@@ -88,6 +88,11 @@ function SecondsField({
   max: number;
   step?: number;
 }) {
+  const { inputProps } = useNumberDraft(
+    value,
+    (v) => onChange(Math.min(Math.max(0, v), max)),
+    (v) => Number(v.toFixed(2)).toString(),
+  );
   return (
     <Field label={label}>
       <div className="flex items-center gap-1.5">
@@ -96,12 +101,11 @@ function SecondsField({
           min={0}
           max={max}
           step={step}
-          value={Number(value.toFixed(2))}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            onChange(Math.min(Math.max(0, Number.isFinite(v) ? v : 0), max));
-          }}
           className={inputCls}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          {...inputProps}
         />
         <span className="shrink-0 text-[10px] text-foreground/40">s</span>
       </div>
@@ -113,6 +117,8 @@ function SecondsField({
 // (same one MixerScreen.tsx uses for gain), not a hand-rolled <input
 // type=range>. Every plain 0..1-ish slider in this panel (intensity,
 // fades, effect depth/rate) goes through this one wrapper.
+// useLiveValue provides a 500ms lock after last local edit so server
+// echoes don't jump the thumb mid-drag when a remote client is also editing.
 export function LabeledSlider({
   label,
   value,
@@ -128,11 +134,12 @@ export function LabeledSlider({
   max?: number;
   step?: number;
 }) {
+  const [localValue, handleChange] = useLiveValue(value, onChange);
   return (
     <Field label={label}>
       <Slider
-        value={value}
-        onChange={(v) => onChange(Array.isArray(v) ? v[0] : v)}
+        value={localValue}
+        onChange={(v) => handleChange(Array.isArray(v) ? v[0] : v)}
         minValue={min}
         maxValue={max}
         step={step}
@@ -1323,6 +1330,28 @@ function TrackSettingsPanel({
 
 // ─── Cue Settings panel ───────────────────────────────────────────────────
 
+/** Cue label input with focus-aware draft so WS echoes don't reset the cursor. */
+function CueLabelInput({
+  cue,
+  update,
+}: {
+  cue: { label: string };
+  update: (partial: { label: string }) => void;
+}) {
+  const { inputProps } = useFocusDraft(cue.label, (v) => update({ label: v }));
+  return (
+    <input
+      type="text"
+      placeholder="Cue label (optional)"
+      className={inputCls}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      {...inputProps}
+    />
+  );
+}
+
 function CueSettingsPanel({
   cue,
   songIndex,
@@ -1470,13 +1499,7 @@ function CueSettingsPanel({
       </div>
 
       <Field label="Label">
-        <input
-          type="text"
-          value={cue.label}
-          placeholder="Cue label (optional)"
-          className={inputCls}
-          onChange={(e) => update({ label: e.target.value })}
-        />
+        <CueLabelInput cue={cue} update={update} />
       </Field>
 
       <LabeledSlider

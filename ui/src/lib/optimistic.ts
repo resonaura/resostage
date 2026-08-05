@@ -34,6 +34,135 @@ export function useLiveValue(
 }
 
 /**
+ * Focus-aware draft for text / number inputs that commit on every keystroke.
+ *
+ * Problem: a controlled input with `value={serverProp}` and
+ * `onChange={→ server}` creates a feedback loop when editing with a remote
+ * client. Each keystroke fires a commit → the server echoes back the new value
+ * → React re-renders with the updated prop → the input selection/cursor resets
+ * mid-word. Worse: a concurrent remote edit during the same WS tick overwrites
+ * what the local user is typing.
+ *
+ * Solution: keep a local `draft` string in state; sync from `serverValue` only
+ * while the input is NOT focused. The `commit` callback (optional) is still
+ * called on every change so the server receives updates immediately — we just
+ * don't let the echo land back while the field is active.
+ *
+ * Usage:
+ *   const { draft, inputProps } = useFocusDraft(fixture.name, (v) =>
+ *     lighting.fixtureUpdate({ fixtureId: fixture.id, name: v }),
+ *   );
+ *   <input value={draft} {...inputProps} onChange={(e) => { inputProps.onChange(e); }} />
+ *
+ * Or shorter — spread inputProps directly when no extra onChange logic needed:
+ *   <input {...inputProps} />  // includes value, onChange, onFocus, onBlur
+ */
+export function useFocusDraft(
+  serverValue: string,
+  commit?: (v: string) => void,
+): {
+  draft: string;
+  setDraft: (v: string) => void;
+  focused: boolean;
+  inputProps: {
+    value: string;
+    onFocus: () => void;
+    onBlur: () => void;
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  };
+} {
+  const [draft, setDraft] = useState(serverValue);
+  const [focused, setFocused] = useState(false);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+
+  // Sync from server only when not focused.
+  if (!focused && draft !== serverValue) {
+    setDraft(serverValue);
+  }
+
+  const inputProps = {
+    value: draft,
+    onFocus: () => setFocused(true),
+    onBlur: () => {
+      setFocused(false);
+      // On blur, sync back to server value in case our last commit was the
+      // same as current draft but the server diverged (e.g. validation
+      // rejected our value). Calling commit here again is a no-op if value
+      // was accepted, and corrects the display if it wasn't.
+      if (commitRef.current) commitRef.current(draft);
+    },
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const v = e.target.value;
+      setDraft(v);
+      if (commitRef.current) commitRef.current(v);
+    },
+  };
+
+  return { draft, setDraft, focused, inputProps };
+}
+
+/**
+ * Variant of useFocusDraft for number inputs. Accepts a numeric server value;
+ * locally holds the raw string so the user can type "1." mid-way without
+ * the browser rounding it. Parses and commits on every change; on blur
+ * re-formats from server to stay in sync.
+ *
+ * Usage:
+ *   const { inputProps } = useNumberDraft(fixture.posX, (v) =>
+ *     void lighting.fixtureUpdate({ fixtureId: fixture.id, posX: v }),
+ *   );
+ *   <input type="number" {...inputProps} />
+ */
+export function useNumberDraft(
+  serverValue: number,
+  commit?: (v: number) => void,
+  toStr: (v: number) => string = String,
+): {
+  draft: string;
+  focused: boolean;
+  inputProps: {
+    value: string;
+    onFocus: () => void;
+    onBlur: () => void;
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  };
+} {
+  const [draft, setDraft] = useState(toStr(serverValue));
+  const [focused, setFocused] = useState(false);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+
+  // Only sync from server when not focused — avoids reset mid-edit.
+  const serverStr = toStr(serverValue);
+  if (!focused && draft !== serverStr) {
+    setDraft(serverStr);
+  }
+
+  const inputProps = {
+    value: draft,
+    onFocus: () => setFocused(true),
+    onBlur: () => {
+      setFocused(false);
+      // Re-normalize on blur (removes trailing dots, adjusts to server format).
+      setDraft(toStr(serverValue));
+    },
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value;
+      setDraft(raw);
+      const parsed = parseFloat(raw);
+      if (Number.isFinite(parsed) && commitRef.current) {
+        commitRef.current(parsed);
+      }
+    },
+  };
+
+  return { draft, focused, inputProps };
+}
+
+
+
+/**
  * Absolute project-second bounds of an active loop cycle (not skip).
  * Written by Timeline each render; read LIVE by the rAF loop.
  * Playhead outside [loAbs, hiAbs) is intentional and left alone — only

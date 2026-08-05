@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useFocusDraft, useNumberDraft } from "../../lib/optimistic";
 import {
   Circle,
   Copy,
@@ -311,6 +312,78 @@ function HardwareHostField({ fixture }: { fixture: LightFixtureRow }) {
   );
 }
 
+/**
+ * Text input that commits immediately but ignores server echoes while focused.
+ * Prevents remote WS re-renders from resetting cursor position mid-typing.
+ */
+function FocusTextInput({
+  serverValue,
+  onCommit,
+  className,
+  placeholder,
+}: {
+  serverValue: string;
+  onCommit: (v: string) => void;
+  className?: string;
+  placeholder?: string;
+}) {
+  const { inputProps } = useFocusDraft(serverValue, onCommit);
+  return (
+    <input
+      type="text"
+      className={className ?? selectCls}
+      placeholder={placeholder}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      {...inputProps}
+    />
+  );
+}
+
+/**
+ * Number input that commits immediately but ignores server echoes while
+ * focused. Holds raw string state so the user can type "1." mid-way.
+ */
+function FocusNumberInput({
+  serverValue,
+  onCommit,
+  className,
+  min,
+  max,
+  step,
+  toStr,
+  disabled,
+  title,
+}: {
+  serverValue: number;
+  onCommit: (v: number) => void;
+  className?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  toStr?: (v: number) => string;
+  disabled?: boolean;
+  title?: string;
+}) {
+  const { inputProps } = useNumberDraft(serverValue, onCommit, toStr);
+  return (
+    <input
+      type="number"
+      className={className ?? numberCls}
+      min={min}
+      max={max}
+      step={step}
+      disabled={disabled}
+      title={title}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      {...inputProps}
+    />
+  );
+}
+
 // ─── ProjectLightingPanel ─────────────────────────────────────────────────
 // No Card wrapper -- SettingsScreen.tsx renders this inside its own Card.
 export function ProjectLightingPanel({
@@ -609,18 +682,13 @@ export function ProjectLightingPanel({
           <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3 flex flex-col gap-3">
             <Field label="Default Output Rate (Hz)">
               <div className="flex items-center gap-2">
-                <input
-                  type="number"
+                <FocusNumberInput
+                  serverValue={li.defaultRefreshRateHz}
                   min={1}
                   max={60}
-                  className={numberCls}
-                  value={li.defaultRefreshRateHz}
-                  onChange={(e) =>
+                  onCommit={(v) =>
                     void lighting.setConfig({
-                      defaultRefreshRateHz: Math.min(
-                        60,
-                        Math.max(1, Number(e.target.value) || 44),
-                      ),
+                      defaultRefreshRateHz: Math.min(60, Math.max(1, Math.round(v))),
                     })
                   }
                 />
@@ -633,14 +701,12 @@ export function ProjectLightingPanel({
             {li.kind === "dmxGeneric" && (
               <Field label="Art-Net Target Host">
                 <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    className={selectCls}
+                  <FocusTextInput
+                    serverValue={li.artNetTargetHost ?? ""}
                     placeholder="255.255.255.255 (broadcast)"
-                    value={li.artNetTargetHost ?? ""}
-                    onChange={(e) =>
+                    onCommit={(v) =>
                       void lighting.setConfig({
-                        artNetTargetHost: e.target.value.trim(),
+                        artNetTargetHost: v.trim(),
                       })
                     }
                   />
@@ -851,7 +917,10 @@ export function ProjectLightingPanel({
 
               {/* Selected fixture editor */}
               {selected && (
-                <div className="rounded-xl border border-default/30 bg-default/5 p-4 flex flex-col gap-3">
+                <div
+                  key={selected.id}
+                  className="rounded-xl border border-default/30 bg-default/5 p-4 flex flex-col gap-3"
+                >
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="text-xs font-semibold text-foreground/70 uppercase tracking-wide">
                       Editing: {selected.name}
@@ -877,32 +946,25 @@ export function ProjectLightingPanel({
                     }
                   >
                     <Field label="Name">
-                      <input
-                        type="text"
-                        className={selectCls}
-                        value={selected.name}
-                        onChange={(e) =>
+                      <FocusTextInput
+                        serverValue={selected.name}
+                        onCommit={(v) =>
                           void lighting.fixtureUpdate({
                             fixtureId: selected.id,
-                            name: e.target.value,
+                            name: v,
                           })
                         }
                       />
                     </Field>
                     {selected.kind === "resoLightBar" && (
                       <Field label="LEDs">
-                        <input
-                          type="number"
+                        <FocusNumberInput
+                          serverValue={selected.ledCount}
                           min={1}
-                          className={numberCls}
-                          value={selected.ledCount}
-                          onChange={(e) =>
+                          onCommit={(v) =>
                             void lighting.fixtureUpdate({
                               fixtureId: selected.id,
-                              ledCount: Math.max(
-                                1,
-                                Number(e.target.value) || 1,
-                              ),
+                              ledCount: Math.max(1, Math.round(v)),
                             })
                           }
                         />
@@ -958,19 +1020,14 @@ export function ProjectLightingPanel({
                   {selected.kind === "resoLightBar" &&
                     selected.shape === "matrix" && (
                       <Field label="Matrix Columns (0 = auto)">
-                        <input
-                          type="number"
+                        <FocusNumberInput
+                          serverValue={selected.matrixCols}
                           min={0}
                           max={31}
-                          className={numberCls}
-                          value={selected.matrixCols}
-                          onChange={(e) =>
+                          onCommit={(v) =>
                             void lighting.fixtureUpdate({
                               fixtureId: selected.id,
-                              matrixCols: Math.max(
-                                0,
-                                Number(e.target.value) || 0,
-                              ),
+                              matrixCols: Math.max(0, Math.round(v)),
                             })
                           }
                         />
@@ -1035,43 +1092,39 @@ export function ProjectLightingPanel({
 
                   <div className="grid grid-cols-3 gap-3">
                     <Field label="Height (m)">
-                      <input
-                        type="number"
+                      <FocusNumberInput
+                        serverValue={selected.posY}
                         step={0.1}
-                        className={numberCls}
-                        value={selected.posY}
-                        onChange={(e) =>
+                        onCommit={(v) =>
                           void lighting.fixtureUpdate({
                             fixtureId: selected.id,
-                            posY: Number(e.target.value) || 0,
+                            posY: v,
                           })
                         }
                       />
                     </Field>
                     <Field label="Pos X (m)">
-                      <input
-                        type="number"
+                      <FocusNumberInput
+                        serverValue={selected.posX}
                         step={0.1}
-                        className={numberCls}
-                        value={selected.posX.toFixed(2)}
-                        onChange={(e) =>
+                        toStr={(v) => v.toFixed(2)}
+                        onCommit={(v) =>
                           void lighting.fixtureUpdate({
                             fixtureId: selected.id,
-                            posX: Number(e.target.value) || 0,
+                            posX: v,
                           })
                         }
                       />
                     </Field>
                     <Field label="Pos Z (m)">
-                      <input
-                        type="number"
+                      <FocusNumberInput
+                        serverValue={selected.posZ}
                         step={0.1}
-                        className={numberCls}
-                        value={selected.posZ.toFixed(2)}
-                        onChange={(e) =>
+                        toStr={(v) => v.toFixed(2)}
+                        onCommit={(v) =>
                           void lighting.fixtureUpdate({
                             fixtureId: selected.id,
-                            posZ: Number(e.target.value) || 0,
+                            posZ: v,
                           })
                         }
                       />
@@ -1123,17 +1176,14 @@ export function ProjectLightingPanel({
 
                   <Field label="Yaw (°) -- which way it faces">
                     <div className="flex gap-2">
-                      {/* Custom rotation */}
-                      <input
-                        type="number"
+                      <FocusNumberInput
+                        serverValue={selected.rotationYDeg}
                         step={5}
                         className="w-20 rounded-lg border border-default/60 bg-default/20 px-2 py-1 text-xs outline-none focus:border-accent text-center"
-                        value={selected.rotationYDeg}
-                        title="Custom rotation (°)"
-                        onChange={(e) =>
+                        onCommit={(v) =>
                           void lighting.fixtureUpdate({
                             fixtureId: selected.id,
-                            rotationYDeg: Number(e.target.value) || 0,
+                            rotationYDeg: v,
                           })
                         }
                       />
@@ -1146,17 +1196,16 @@ export function ProjectLightingPanel({
                   {selected.kind === "dmxGeneric" && (
                     <Field label="Tilt (°) -- aim off vertical">
                       <div className="flex gap-2">
-                        <input
-                          type="number"
+                        <FocusNumberInput
+                          serverValue={selected.tiltDeg}
                           step={5}
                           min={-90}
                           max={90}
                           className="w-20 rounded-lg border border-default/60 bg-default/20 px-2 py-1 text-xs outline-none focus:border-accent text-center"
-                          value={selected.tiltDeg}
-                          onChange={(e) =>
+                          onCommit={(v) =>
                             void lighting.fixtureUpdate({
                               fixtureId: selected.id,
-                              tiltDeg: Number(e.target.value) || 0,
+                              tiltDeg: v,
                             })
                           }
                         />
@@ -1169,34 +1218,27 @@ export function ProjectLightingPanel({
                   {selected.kind === "resoLightBar" && (
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Grid Column">
-                        <input
-                          type="number"
+                        <FocusNumberInput
+                          serverValue={selected.gridColumn}
                           min={0}
                           max={31}
-                          className={numberCls}
-                          value={selected.gridColumn}
-                          onChange={(e) =>
+                          onCommit={(v) =>
                             void lighting.fixtureUpdate({
                               fixtureId: selected.id,
-                              gridColumn: Math.max(
-                                0,
-                                Number(e.target.value) || 0,
-                              ),
+                              gridColumn: Math.max(0, Math.round(v)),
                             })
                           }
                         />
                       </Field>
                       <Field label="Grid Row">
-                        <input
-                          type="number"
+                        <FocusNumberInput
+                          serverValue={selected.gridRow}
                           min={0}
                           max={31}
-                          className={numberCls}
-                          value={selected.gridRow}
-                          onChange={(e) =>
+                          onCommit={(v) =>
                             void lighting.fixtureUpdate({
                               fixtureId: selected.id,
-                              gridRow: Math.max(0, Number(e.target.value) || 0),
+                              gridRow: Math.max(0, Math.round(v)),
                             })
                           }
                         />
@@ -1291,57 +1333,46 @@ export function ProjectLightingPanel({
 
                       <div className="grid grid-cols-3 gap-3">
                         <Field label="Universe">
-                          <input
-                            type="number"
+                          <FocusNumberInput
+                            serverValue={selected.dmxUniverse}
                             min={0}
-                            className={numberCls}
-                            value={selected.dmxUniverse}
-                            onChange={(e) =>
+                            onCommit={(v) =>
                               void lighting.fixtureUpdate({
                                 fixtureId: selected.id,
-                                dmxUniverse: Number(e.target.value) || 0,
+                                dmxUniverse: Math.max(0, Math.round(v)),
                               })
                             }
                           />
                         </Field>
                         <Field label="Start Ch">
-                          <input
-                            type="number"
+                          <FocusNumberInput
+                            serverValue={selected.dmxStartChannel}
                             min={1}
                             max={512}
-                            className={numberCls}
-                            value={selected.dmxStartChannel}
-                            onChange={(e) =>
+                            onCommit={(v) =>
                               void lighting.fixtureUpdate({
                                 fixtureId: selected.id,
-                                dmxStartChannel: Math.max(
-                                  1,
-                                  Number(e.target.value) || 1,
-                                ),
+                                dmxStartChannel: Math.max(1, Math.round(v)),
                               })
                             }
                           />
                         </Field>
                         <Field label="Ch Count">
-                          <input
-                            type="number"
+                          <FocusNumberInput
+                            serverValue={selected.dmxChannelCount}
                             min={1}
                             max={512}
                             disabled={selected.channelProfile !== "custom"}
                             title={
                               selected.channelProfile !== "custom"
-                                ? "Set by the Channel Profile above -- switch to Custom to edit directly"
+                                ? "Set by the Channel Profile above — switch to Custom to edit directly"
                                 : undefined
                             }
                             className={`${numberCls} disabled:opacity-50 disabled:cursor-not-allowed`}
-                            value={selected.dmxChannelCount}
-                            onChange={(e) =>
+                            onCommit={(v) =>
                               void lighting.fixtureUpdate({
                                 fixtureId: selected.id,
-                                dmxChannelCount: Math.max(
-                                  1,
-                                  Number(e.target.value) || 1,
-                                ),
+                                dmxChannelCount: Math.max(1, Math.round(v)),
                               })
                             }
                           />
@@ -1359,19 +1390,14 @@ export function ProjectLightingPanel({
                     <Field
                       label={`Refresh Rate Override (Hz, 0 = use default: ${li.defaultRefreshRateHz})`}
                     >
-                      <input
-                        type="number"
+                      <FocusNumberInput
+                        serverValue={selected.refreshRateHz}
                         min={0}
                         max={60}
-                        className={numberCls}
-                        value={selected.refreshRateHz}
-                        onChange={(e) =>
+                        onCommit={(v) =>
                           void lighting.fixtureUpdate({
                             fixtureId: selected.id,
-                            refreshRateHz: Math.min(
-                              60,
-                              Math.max(0, Number(e.target.value) || 0),
-                            ),
+                            refreshRateHz: Math.min(60, Math.max(0, Math.round(v))),
                           })
                         }
                       />
