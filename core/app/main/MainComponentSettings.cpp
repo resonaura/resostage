@@ -154,6 +154,8 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
         appSettings.outputDeviceName = name;
         appSettings.activeOutputChannels.clear(); // reset to the new device's default channels
         saveAppSettingsToDisk();
+        engine.rebuildDirectOutBusses();
+        publishWebState();
         setStatus("Audio output: " + juce::String(name));
     } else {
         setStatus("Audio device error: " + error);
@@ -346,6 +348,8 @@ void MainComponent::settingsSetOutputChannels(const std::string& json) {
                 appSettings.activeOutputChannels.push_back(idx);
         }
         saveAppSettingsToDisk();
+        engine.rebuildDirectOutBusses();
+        publishWebState();
         setStatus("Output channels updated");
     } else {
         setStatus("Output channels error: " + error);

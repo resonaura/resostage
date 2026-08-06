@@ -10,9 +10,12 @@ import {
   directOutputOptions,
   matchOptionId,
   parseOptionId,
-  type DirectOutOption,
+  parseDirectLanes,
+  routeToOptionId,
+  channelAvailable,
 } from "./directOutput";
 import { MonoStereoIcon } from "./MonoStereoIcon";
+import { MissingSelectFrame } from "./MissingOutputSelect";
 
 type PendingRouting = {
   /** Primary select: bus id, SENDS_ONLY_VALUE, or EXT_OUTPUT_VALUE. */
@@ -35,20 +38,12 @@ function serverPrimary(
 
 function serverMatchesPending(
   pending: PendingRouting,
-  busId: string,
-  isExtAssigned: boolean,
-  assigned: BusRow | undefined,
-  destinationBusses: BusRow[],
-  options: DirectOutOption[],
+  primaryValue: string,
+  serverChannelId: string,
 ): boolean {
-  const primary = serverPrimary(busId, destinationBusses, isExtAssigned);
-  if (pending.primary !== primary) return false;
+  if (pending.primary !== primaryValue) return false;
   if (pending.primary !== EXT_OUTPUT_VALUE) return true;
-  if (!pending.channelId || !assigned) return isExtAssigned;
-  const want = parseOptionId(pending.channelId);
-  if (!want) return isExtAssigned;
-  const got = matchOptionId(options, assigned.startChannel, assigned.channels);
-  return got === pending.channelId;
+  return !pending.channelId || pending.channelId === serverChannelId;
 }
 
 export function TrackOutputRouting({
@@ -72,21 +67,39 @@ export function TrackOutputRouting({
   onDirectOutput: (mono: boolean, startChannel: number, pair: boolean) => void;
 }) {
   const assigned = allBusses.find((b) => b.id === busId);
-  const isExtAssigned = Boolean(
-    assigned && assigned.id !== "main" && !assigned.isAux,
-  );
+  // A direct route is banked by its id(s): one mono lane "direct:N" or a
+  // compound of two ("direct:1,direct:2"). Detect from the id so we never
+  // rely on a fabricated "stereo pair bus" (which no longer exists).
+  const directLanes = parseDirectLanes(busId);
+  const isExtAssigned = directLanes !== null;
+  const extTarget =
+    directLanes && directLanes.length > 0 ? routeToOptionId(busId) : null;
 
   // Mono strips list pairs + every single; stereo lists pairs + leftover singles.
   const options = directOutputOptions(settings, {
     includeAllSingles: mono,
   });
 
-  const serverChannelId = matchOptionId(
-    options,
-    assigned?.startChannel ?? 0,
-    assigned?.channels ?? 2,
-  );
+  const serverChannelId = isExtAssigned && extTarget
+    ? matchOptionId(options, extTarget.startChannel, extTarget.pair ? 2 : 1)
+    : matchOptionId(options, assigned?.startChannel ?? 0, assigned?.channels ?? 2);
   const serverPrimaryValue = serverPrimary(busId, busses, isExtAssigned);
+
+  // Outputs the track is actually routed to that aren't reachable on this
+  // device. A direct route is missing when ANY of its mono lanes is.
+  const missing = isExtAssigned && directLanes
+    ? directLanes.some((n) => !channelAvailable(settings, n - 1, 1))
+    : Boolean(
+        assigned?.isDirectOut &&
+          !channelAvailable(settings, assigned.startChannel, assigned.channels),
+      );
+  const firstLane = directLanes && directLanes.length > 0 ? directLanes[0] : undefined;
+  const missingOptionId = missing && firstLane != null
+    ? `u:${firstLane}` : undefined;
+  const missingLabel =
+    isExtAssigned && directLanes && directLanes.length > 0
+      ? directLanes.join("/")
+      : (assigned?.name ?? undefined);
 
   // Optimistic UI: keep the user's pick until the WS state catches up.
   // Without this the metronome (and any Ext. Out strip) flickers — selecting
@@ -99,26 +112,11 @@ export function TrackOutputRouting({
   useEffect(() => {
     if (!pending) return;
     if (
-      serverMatchesPending(
-        pending,
-        busId,
-        isExtAssigned,
-        assigned,
-        busses,
-        options,
-      )
+      serverMatchesPending(pending, serverPrimaryValue, serverChannelId)
     ) {
       setPending(null);
     }
-  }, [
-    pending,
-    busId,
-    isExtAssigned,
-    assigned,
-    busses,
-    options,
-    serverChannelId,
-  ]);
+  }, [pending, serverPrimaryValue, serverChannelId]);
 
   // Drop stale pending if mono flip rebuilds the option list and the old
   // channel id no longer exists (avoid a stuck optimistic value).
@@ -133,7 +131,10 @@ export function TrackOutputRouting({
 
   const currentValue = pending?.primary ?? serverPrimaryValue;
   const directOutputOpen = currentValue === EXT_OUTPUT_VALUE;
-  const channelValue = pending?.channelId ?? serverChannelId;
+  const channelValue =
+    missing && missingOptionId
+      ? missingOptionId
+      : (pending?.channelId ?? serverChannelId);
 
   const commitPending = (next: PendingRouting) => {
     pendingGen.current += 1;
@@ -185,22 +186,33 @@ export function TrackOutputRouting({
       </select>
 
       {directOutputOpen ? (
-        <select
-          value={channelValue}
-          onChange={(e) => {
-            const id = e.target.value;
-            const parsed = parseOptionId(id);
-            commitPending({ primary: EXT_OUTPUT_VALUE, channelId: id });
-            if (parsed) onDirectOutput(mono, parsed.startChannel, parsed.pair);
-          }}
-          className={ROUTING_SELECT_CLASS}
-        >
-          {options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <MissingSelectFrame missing={missing}>
+          <select
+            value={channelValue}
+            onChange={(e) => {
+              const id = e.target.value;
+              if (id === missingOptionId) return; // locked to the missing lane
+              const parsed = parseOptionId(id);
+              commitPending({ primary: EXT_OUTPUT_VALUE, channelId: id });
+              if (parsed) onDirectOutput(mono, parsed.startChannel, parsed.pair);
+            }}
+            className={ROUTING_SELECT_CLASS}
+          >
+            {options.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+            {missing && missingOptionId && firstLane != null && (
+              <>
+                <option disabled value="">
+                  Unavailable
+                </option>
+                <option value={missingOptionId}>{missingLabel}</option>
+              </>
+            )}
+          </select>
+        </MissingSelectFrame>
       ) : (
         <div className={ROUTING_SELECT_SPACER} aria-hidden />
       )}

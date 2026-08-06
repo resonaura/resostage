@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <sstream>
 #include <string_view>
 
@@ -536,6 +537,54 @@ bool ProjectLoader::reparseProject(std::string& error) {
             t.name = tname;
             t.busId = "main";
             proj.tracks.push_back(std::move(t));
+        }
+    }
+
+    // Legacy auto-update: older projects stored "Ext. Out" targets as *direct*
+    // non-main, non-aux busses INSIDE the project (the old mixer fabricated a
+    // hidden bus per physical output). Direct outputs are now GLOBAL -- derived
+    // from the device's active output channels, never persisted. Migrate by
+    // re-pointing every reference (track output + sends, metronome) at the
+    // matching global direct-bus id and dropping the legacy project busses.
+    {
+        std::map<std::string, std::string> oldToDirect;
+        for (const BusDef& b : proj.busses) {
+            // Only the vanished direct-output busses migrate: non-aux, non-main,
+            // and auto-labelled "Out N[/M]" by the old mixer. Never touch a main/
+            // aux bus or a user-named custom bus.
+            if (b.isAux || b.name.rfind("Out ", 0) != 0)
+                continue;
+            const int s = b.output.startChannel;
+            // 1-based mono lanes only; a legacy stereo bus fans the route into
+            // two mono Direct Output ids ("direct:1,direct:2").
+            const std::string directId = (b.channels >= 2)
+                ? "direct:" + std::to_string(s + 1) + ",direct:" + std::to_string(s + 2)
+                : "direct:" + std::to_string(s + 1);
+            oldToDirect[b.id] = directId;
+        }
+        if (!oldToDirect.empty()) {
+            for (auto& tr : proj.tracks) {
+                const auto it = oldToDirect.find(tr.busId);
+                if (it != oldToDirect.end())
+                    tr.busId = it->second;
+                for (auto& s : tr.sends) {
+                    const auto it2 = oldToDirect.find(s.busId);
+                    if (it2 != oldToDirect.end())
+                        s.busId = it2->second;
+                }
+            }
+            const auto cbIt = oldToDirect.find(proj.builtInClickBusId);
+            if (cbIt != oldToDirect.end())
+                proj.builtInClickBusId = cbIt->second;
+            for (auto& s : proj.builtInClickSends) {
+                const auto it = oldToDirect.find(s.busId);
+                if (it != oldToDirect.end())
+                    s.busId = it->second;
+            }
+            proj.busses.erase(
+                std::remove_if(proj.busses.begin(), proj.busses.end(),
+                               [&](const BusDef& b) { return oldToDirect.count(b.id) != 0; }),
+                proj.busses.end());
         }
     }
 

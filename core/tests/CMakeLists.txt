@@ -24,6 +24,7 @@ add_executable(resostage_engine_tests
   test_light_output_resolver.cpp
   test_light_gradient.cpp
   test_resolight_protocol.cpp
+  test_routing_math.cpp
 )
 
 target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)

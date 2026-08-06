@@ -684,7 +684,7 @@ export function PlayerScreen({
           </div>
           <ScrollShadow
             orientation="horizontal"
-            className="flex min-h-0 flex-1 items-center justify-center gap-6 p-4"
+            className="flex min-h-0 flex-1 items-center gap-6 p-4"
           >
             {state.meters.length === 0 ? (
               <div className="py-4 text-center text-sm text-foreground/40">

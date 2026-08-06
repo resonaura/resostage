@@ -10,6 +10,7 @@
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
+#include "RoutingMath.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1126,8 +1127,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 busScratch.addSample(scratchOffset + 0, i, preL * sm.gL);
                 busScratch.addSample(scratchOffset + 1, i, preR * sm.gR);
             } else {
-                busScratch.addSample(
-                    scratchOffset + 0, i, 0.5f * (preL * sm.gL + preR * sm.gR));
+                // Mono lane: honor which source channel(s) feed it. A stereo
+                // track routed to a PAIR of mono lanes places L in lane A and R
+                // in lane B (sourceChannel 0/1) to preserve the image; a track
+                // directly on one mono lane sums L+R (-1).
+                const routing_math::Placed p = routing_math::placeIntoBus(
+                    false, route.sourceChannel, preL, preR, sm.gL, sm.gR);
+                busScratch.addSample(scratchOffset + 0, i, p.ch0);
+                if (p.ch1 != 0.0f)
+                    busScratch.addSample(scratchOffset + 1, i, p.ch1);
             }
         }
     }
@@ -1141,15 +1149,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
     // Built-in click: sample-locked to song playhead so strong (bar 1) /
     // weak beats follow the current song's BPM + time-signature numerator.
-    // Empty clickTargetBusIndex = Sends Only -- still audible via sends.
+    // Empty clickTargetBusIndices = Sends Only -- still audible via sends.
     // Physical outs of those busses sum with `+=`, so master + aux + click
     // sharing the same Ext. Out channel all stack correctly.
     //
     // Always RENDER for the strip meter (post gain/pan), even when the
     // metronome is muted (isClickEnabled == false). Bus/send mix only when
     // enabled -- same strip-vs-bus rule as muted tracks above.
-    const bool clickActive = clickTargetBusIndex >= 0
-        && static_cast<size_t>(clickTargetBusIndex) < busses.size();
     {
         if (clickScratch.size() < static_cast<size_t>(numSamples))
             clickScratch.resize(static_cast<size_t>(numSamples), 0.0f);
@@ -1179,8 +1185,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
         // Bus mix only when the metronome is on.
         if (isClickEnabled) {
-            if (clickActive) {
-                const int scratchOffset = clickTargetBusIndex * 2;
+            for (const int clickTarget : clickTargetBusIndices) {
+                if (clickTarget < 0 || static_cast<size_t>(clickTarget) >= busses.size())
+                    continue;
+                const int scratchOffset = static_cast<int>(clickTarget) * 2;
                 if (scratchOffset + 2 <= scratchChannels) {
                     for (int i = 0; i < numSamples; ++i) {
                         const float s = clickScratch[static_cast<size_t>(i)];
@@ -1203,12 +1211,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 if (scratchOffset + 2 > scratchChannels)
                     continue;
                 const float sendGain = clickSendGainLinears[si];
-                const float sendTargetGL = clickMono
-                    ? sendGain
-                    : sendGain * (1.0f - std::max(0.0f, clickPan));
-                const float sendTargetGR = clickMono
-                    ? sendGain
-                    : sendGain * (1.0f + std::min(0.0f, clickPan));
+                float sendTargetGL = 0.0f, sendTargetGR = 0.0f;
+                // Include the metronome's own level so the send reacts to the
+                // click volume knob, not just the configures send gain.
+                routing_math::clickSendTargets(
+                    clickMono, clickGainLinear, sendGain, clickPan,
+                    sendTargetGL, sendTargetGR);
 
                 ClickSendSmooth& sm = clickSendSmooth[si];
                 if (!sm.inited) {
@@ -1255,10 +1263,22 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // Pass 3: bus scratch buffers -> metering + physical outputs.
     //
     // Multiple busses may share the same Ext. Out pair (master + aux send on
-    // Out 1/2 is the common case). Every non-muted bus ALWAYS accumulates
-    // into the physical channel with += -- never replaces. Mono busses
-    // (channelCount == 1) still hit BOTH speakers of the pair starting at
+    // Out 1/2 is the common case). Every non-muted source bus ALWAYS folds
+    // into the matching mono Direct Output lane(s) with += -- never replaces --
+    // and the lane is the single terminal writer to physical. Mono busses
+    // (channelCount == 1) still hit BOTH lanes of the pair starting at
     // startChannel so a mono master/track doesn't disappear from one side.
+
+    // physical channel -> the mono Direct Output lane's bus index (or -1).
+    std::vector<int> laneBusIndexFor(
+        numOutputChannels > 0 ? static_cast<size_t>(numOutputChannels) : 0, -1);
+    for (const BusOutput& o : snap->outputs) {
+        if (!o.singleChannel)
+            continue;
+        if (o.startChannel >= 0 && o.startChannel < numOutputChannels)
+            laneBusIndexFor[static_cast<size_t>(o.startChannel)] = static_cast<int>(o.busIndex);
+    }
+
     for (const BusOutput& out : snap->outputs) {
         if (out.busIndex >= busses.size())
             continue;
@@ -1317,41 +1337,78 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
         if (out.mute)
             continue;
-        if (channels == 1) {
-            // Mono content → both speakers of the pair with pan balance.
+        if (out.singleChannel) {
+            // Mono Direct Output lane: carries the accumulated mix of every
+            // source folded into it (main/aux/sends + lane sends) and is the
+            // terminal writer to its ONE physical channel.
             const float* src = busScratch.getReadPointer(scratchOffset + 0);
             if (src == nullptr)
                 continue;
-            const float gains[2] = { gL, gR };
-            for (int pairCh = 0; pairCh < 2; ++pairCh) {
-                const int physicalCh = out.startChannel + pairCh;
-                if (physicalCh < 0 || physicalCh >= numOutputChannels
-                    || outputChannelData[physicalCh] == nullptr)
-                    continue;
-                float* dst = outputChannelData[physicalCh];
-                const float g = gains[pairCh];
-                for (int i = 0; i < numSamples; ++i)
-                    dst[i] += src[i] * g;
-            }
-        } else {
-            const float* srcL = busScratch.getReadPointer(scratchOffset + 0);
-            const float* srcR = busScratch.getReadPointer(scratchOffset + 1);
-            if (srcL == nullptr)
+            const int physicalCh = out.startChannel;
+            if (physicalCh < 0 || physicalCh >= numOutputChannels
+                || outputChannelData[physicalCh] == nullptr)
                 continue;
-            if (srcR == nullptr)
-                srcR = srcL;
-            const float* srcs[2] = { srcL, srcR };
-            const float gains[2] = { gL, gR };
-            for (int ch = 0; ch < 2; ++ch) {
-                const int physicalCh = out.startChannel + ch;
-                if (physicalCh < 0 || physicalCh >= numOutputChannels
-                    || outputChannelData[physicalCh] == nullptr)
+            float* dst = outputChannelData[physicalCh];
+            const float g = busGain;
+            for (int i = 0; i < numSamples; ++i)
+                dst[i] += src[i] * g;
+            continue;
+        }
+
+        // Project bus (main / aux / send) physical egress: fold the bus into
+        // the matching mono Direct Output lane(s) -- the lane is the real
+        // terminal writer and its meter shows the actual channel content.
+        // An inactive lane (unavailable output) is simply absent, so that
+        // slice drops to silence without touching the mapping.
+        {
+            const int start = out.startChannel;
+            if (channels == 1) {
+                // MONO project / aux bush: plasma to exactly ONE physical
+                // channel (its start). The legacy "mono hits both speakers"
+                // pair-doubling overlapped adjacent sends and made a mono
+                // click / send louder in one ear (see egressChannels()).
+                int ch0 = 0, chDummy = 0;
+                routing_math::egressChannels(1, start, ch0, chDummy);
+                if (ch0 < 0 || ch0 >= numOutputChannels)
                     continue;
-                float* dst = outputChannelData[physicalCh];
-                const float* src = srcs[ch];
-                const float g = gains[ch];
+                const int laneBusIndex = laneBusIndexFor[static_cast<size_t>(ch0)];
+                if (laneBusIndex < 0)
+                    continue;
+                const float* src = busScratch.getReadPointer(scratchOffset + 0);
+                if (src == nullptr)
+                    continue;
+                const int laneOff = laneBusIndex * 2;
+                if (laneOff + 1 > scratchChannels)
+                    continue;
+                float* dst = busScratch.getWritePointer(laneOff + 0);
                 for (int i = 0; i < numSamples; ++i)
-                    dst[i] += src[i] * g;
+                    dst[i] += src[i] * gL;
+            } else {
+                // Stereo: L -> lane(start), R -> lane(start+1).
+                const float* srcL = busScratch.getReadPointer(scratchOffset + 0);
+                if (srcL == nullptr)
+                    continue;
+                const float* srcR = busScratch.getReadPointer(scratchOffset + 1);
+                if (srcR == nullptr)
+                    srcR = srcL;
+                const float* srcs[2] = { srcL, srcR };
+                const float gains[2] = { gL, gR };
+                for (int c = 0; c < 2; ++c) {
+                    if (start + c < 0 || start + c >= numOutputChannels)
+                        continue;
+                    const int laneBusIndex =
+                        laneBusIndexFor[static_cast<size_t>(start + c)];
+                    if (laneBusIndex < 0)
+                        continue;
+                    const int laneOff = laneBusIndex * 2;
+                    if (laneOff + 1 > scratchChannels)
+                        continue;
+                    float* dst = busScratch.getWritePointer(laneOff + 0);
+                    const float* src = srcs[c];
+                    const float g = gains[c];
+                    for (int i = 0; i < numSamples; ++i)
+                        dst[i] += src[i] * g;
+                }
             }
         }
     }

@@ -10,8 +10,14 @@ import {
   directOutputOptions,
   matchOptionId,
   parseOptionId,
+  channelAvailable,
 } from "./directOutput";
 import { MonoStereoIcon } from "./MonoStereoIcon";
+import {
+  MissingSelectFrame,
+  missingRouteLabel,
+  missingRouteOptionId,
+} from "./MissingOutputSelect";
 
 export function BusDestinationRouting({
   bus,
@@ -59,6 +65,15 @@ export function BusDestinationRouting({
   }, [isMaster]);
 
   const channelValue = matchOptionId(options, bus.startChannel, bus.channels);
+  // The bus's physical output isn't reachable on this device right now: keep
+  // the select on the ACTUAL (missing) pick via a dedicated option + a warning
+  // icon to its left, instead of silently snapping to some available output.
+  const missing = !channelAvailable(settings, bus.startChannel, bus.channels);
+  const missingId = missing
+    ? missingRouteOptionId(bus.startChannel, bus.channels)
+    : null;
+  const shownChannelValue =
+    missing && missingId ? missingId : (channelValue ?? "");
 
   if (isMaster) {
     // Master always: [Ext. Out only] + [channel list]. Native option text
@@ -89,22 +104,34 @@ export function BusDestinationRouting({
           <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
         </select>
 
-        <select
-          value={channelValue}
-          onChange={(e) => {
-            const parsed = parseOptionId(e.target.value);
-            if (parsed)
-              updateBusChannels(parsed.pair ? 2 : 1, parsed.startChannel);
-          }}
-          className={ROUTING_SELECT_CLASS}
-          title="Master physical output"
-        >
-          {options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <MissingSelectFrame missing={missing}>
+          <select
+            value={shownChannelValue}
+            onChange={(e) => {
+              const parsed = parseOptionId(e.target.value);
+              if (parsed)
+                updateBusChannels(parsed.pair ? 2 : 1, parsed.startChannel);
+            }}
+            className={ROUTING_SELECT_CLASS}
+            title="Master physical output"
+          >
+            {options.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+            {missing && missingId && (
+              <>
+                <option disabled value="">
+                  Unavailable
+                </option>
+                <option value={missingId}>
+                  {missingRouteLabel(bus.startChannel, bus.channels)}
+                </option>
+              </>
+            )}
+          </select>
+        </MissingSelectFrame>
       </div>
     );
   }
@@ -152,21 +179,33 @@ export function BusDestinationRouting({
       </select>
 
       {extOutputOpen ? (
-        <select
-          value={channelValue}
-          onChange={(e) => {
-            const parsed = parseOptionId(e.target.value);
-            if (parsed)
-              updateBusChannels(parsed.pair ? 2 : 1, parsed.startChannel);
-          }}
-          className={ROUTING_SELECT_CLASS}
-        >
-          {options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <MissingSelectFrame missing={missing}>
+          <select
+            value={shownChannelValue}
+            onChange={(e) => {
+              const parsed = parseOptionId(e.target.value);
+              if (parsed)
+                updateBusChannels(parsed.pair ? 2 : 1, parsed.startChannel);
+            }}
+            className={ROUTING_SELECT_CLASS}
+          >
+            {options.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+            {missing && missingId && (
+              <>
+                <option disabled value="">
+                  Unavailable
+                </option>
+                <option value={missingId}>
+                  {missingRouteLabel(bus.startChannel, bus.channels)}
+                </option>
+              </>
+            )}
+          </select>
+        </MissingSelectFrame>
       ) : (
         <div className={ROUTING_SELECT_SPACER} aria-hidden />
       )}

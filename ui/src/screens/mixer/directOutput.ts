@@ -21,6 +21,43 @@ export function parseOptionId(
   return { pair: m[1] === "p", startChannel: Number(m[2]) };
 }
 
+/** A route's comma-separated mono Direct Output lane numbers, or null when
+ *  the route isn't a direct egress ("", a project main/aux bus, sends). The
+ *  ids are 1-based ("direct:1", stereo = "direct:1,direct:2"). */
+export function parseDirectLanes(busId: string): number[] | null {
+  if (!busId) return null;
+  const parts = busId.split(",").map((t) => t.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  for (const t of parts) {
+    const m = /^direct:(\d+)$/.exec(t);
+    if (!m) return null;
+  }
+  return parts.map((t) => Number(t.slice("direct:".length)));
+}
+
+/** Map a route id onto the channel-picker option it should display:
+ *  two consecutive lanes -> pair option, a single lane -> mono option. The
+ *  option is 0-based internally (startChannel), matching directOutputOptions. */
+export function routeToOptionId(
+  busId: string,
+): { startChannel: number; pair: boolean } | null {
+  const lanes = parseDirectLanes(busId);
+  if (!lanes || lanes.length === 0) return null;
+  if (lanes.length >= 2 && lanes[1] === lanes[0] + 1)
+    return { startChannel: lanes[0] - 1, pair: true };
+  return { startChannel: lanes[0] - 1, pair: false };
+}
+
+/** Build the route id the backend stores for a physical pick. −*/
+export function routeIdForOutput(
+  startChannel: number, // 0-based physical index
+  pair: boolean,
+): string {
+  if (pair)
+    return `direct:${startChannel + 1},direct:${startChannel + 2}`;
+  return `direct:${startChannel + 1}`;
+}
+
 /**
  * Physical-output picks for Ext. Out / master channel lists.
  * Pairs first ("1/2", "3/4", …). Then singles:
@@ -31,7 +68,12 @@ export function directOutputOptions(
   settings: SettingsState,
   opts?: { includeAllSingles?: boolean },
 ): DirectOutOption[] {
-  const count = settings.outputChannelNames.length;
+  // The engine always assumes at least a default stereo pair when a device
+  // hasn't reported its channel names yet (see AudioEngine's `total = 2`).
+  // Mirror that here so Ext. Out / master / metronome always have SOMETHING to
+  // select, otherwise the secondary picker is empty and no channel can be
+  // chosen (and the previous value lingers until the device reports in).
+  const count = settings.outputChannelNames.length || 2;
   const isActive = (i: number) => settings.activeOutputChannels[i] !== false;
   const options: DirectOutOption[] = [];
   const inPair = new Set<number>();
@@ -60,6 +102,24 @@ export function directOutputOptions(
     });
   }
   return options;
+}
+
+/** True when a physical out target is currently reachable on the device. */
+export function channelAvailable(
+  settings: SettingsState,
+  startChannel: number,
+  channels: number,
+): boolean {
+  const count = settings.outputChannelNames.length;
+  // No device info yet — assume everything is available to avoid a warning flash.
+  if (count === 0) return true;
+  if (startChannel < 0 || startChannel >= count) return false;
+  if (settings.activeOutputChannels[startChannel] === false) return false;
+  if (channels >= 2) {
+    if (startChannel + 1 >= count) return false;
+    if (settings.activeOutputChannels[startChannel + 1] === false) return false;
+  }
+  return true;
 }
 
 /** Best option id for a bus already on a given hardware mapping. */

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <algorithm>
 
 using namespace resostage;
 
@@ -223,6 +224,58 @@ TEST_CASE("ProjectLoader parses and round-trips a sends-only track (empty bus)")
     CHECK(rIt->sends[0].busId == "bus_aux");
 
     std::remove(outPath.c_str());
+}
+
+TEST_CASE("ProjectLoader migrates legacy direct-out busses to global ext-out ids") {
+    // A legacy project where the master and a user-fold bus coexist with a
+    // mixer-fabricated direct-output bus auto-labelled "Out 3/4". The latter
+    // must be stripped from the project and its routes remapped to the global
+    // "direct:3,direct:4" convention, while main + user custom buses are preserved.
+    const std::string json = R"JSON(
+{
+  "formatVersion": 1, "name": "LegacyOut", "sampleRate": 48000,
+  "busses": [
+    { "id": "bus_main", "name": "Main", "channels": 2, "output": { "startChannel": 0 } },
+    { "id": "bus_fold", "name": "Master Fold", "channels": 2, "output": { "startChannel": 6 } },
+    { "id": "bus_direct", "name": "Out 3/4", "channels": 2, "output": { "startChannel": 2 } }
+  ],
+  "tracks": [
+    { "id": "t1", "name": "Drums", "bus": "bus_direct",
+      "sends": [ { "bus": "bus_fold", "gainDb": -6.0 } ] }
+  ],
+  "songs": [
+    { "id": "s1", "name": "S1", "bpm": 120,
+      "regions": [
+        { "id": "r1", "trackId": "t1", "file": "Audio/dummy.wav", "startSeconds": 0.0, "durationSeconds": 1.0 }
+      ],
+      "events": [] }
+  ]
+}
+)JSON";
+    const std::string path = makeProjectArchive(json);
+
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(path, error));
+
+    const Project& proj = loader.project();
+    // The direct-out bus is dropped; main + user bus survive.
+    bool hasDirect = std::any_of(proj.busses.begin(), proj.busses.end(), [](const BusDef& b) { return b.id == "bus_direct"; });
+    CHECK_FALSE(hasDirect);
+    bool hasMain = std::any_of(proj.busses.begin(), proj.busses.end(), [](const BusDef& b) { return b.id == "bus_main"; });
+    CHECK(hasMain);
+    bool hasFold = std::any_of(proj.busses.begin(), proj.busses.end(), [](const BusDef& b) { return b.id == "bus_fold"; });
+    CHECK(hasFold);
+
+    // Route on the stripped bus was remapped onto the global direct-out id
+    // (1-based mono lanes; a stereo bus fans out to two: Out 3/4 -> 3,4).
+    auto tIt = std::find_if(proj.tracks.begin(), proj.tracks.end(), [](const TrackDef& trk) { return trk.id == "t1"; });
+    REQUIRE(tIt != proj.tracks.end());
+    CHECK(tIt->busId == "direct:3,direct:4");
+    REQUIRE(tIt->sends.size() == 1);
+    CHECK(tIt->sends[0].busId == "bus_fold");
+
+    std::remove(path.c_str());
 }
 
 TEST_CASE("ProjectLoader rejects an event with an unknown type") {

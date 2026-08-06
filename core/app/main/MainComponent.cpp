@@ -57,6 +57,10 @@ MainComponent::MainComponent() {
         (void)engine.setAudioDeviceSetup(setup, true);
     }
 
+    // Derive the global Direct Output busses from the now-active device
+    // output channels (settings-driven, not persisted in any project).
+    engine.rebuildDirectOutBusses();
+
     midiInput.onAction = [this](const std::string& action) {
         juce::MessageManager::callAsync([this, action] { performAction(action); });
     };
@@ -1158,11 +1162,13 @@ void MainComponent::publishWebState() {
         br.gainDb = engine.busGainDb(i);
         br.mute = engine.isBusMuted(i);
         br.solo = engine.isBusSoloed(i);
+        br.startChannel = engine.busStartChannelAt(i);
+        br.channels = engine.busChannelCountAt(i);
+        br.isDirectOut = engine.busIsDirectAt(i);
+        br.unavailable = engine.busIsDirectAt(i) && !engine.busAvailableAt(i);
         if (i < proj.busses.size()) {
             br.pan = proj.busses[i].pan;
             br.isAux = proj.busses[i].isAux;
-            br.startChannel = proj.busses[i].output.startChannel;
-            br.channels = proj.busses[i].channels;
         }
         // Peaks already consumed into state.meters above; re-read LUFS frame
         // for bus rows without double-clearing the interval max. Prefer the

@@ -18,6 +18,14 @@ struct TrackRoute {
     bool isAuxSend = false;
     // Force mono sum of the track before pan (TrackDef.mono).
     bool forceMono = false;
+    // Which source channel feeds a ONE-channel (mono lane) destination:
+    //   -1 = sum L+R (mono collapse / single-lane target)
+    //    0 = place the LEFT source channel only
+    //    1 = place the RIGHT source channel only
+    // Routes a stereo track into a pair of mono lanes ("direct:3,direct:4") as
+    // true stereo (L -> first lane, R -> second) instead of collapsing both.
+    // Ignored when the destination bus has 2 channels.
+    int8_t sourceChannel = -1;
 };
 
 // A bus's assignment to a contiguous range of physical output channels.
@@ -28,6 +36,11 @@ struct BusOutput {
     float gainLinear = 1.0f;
     float pan = 0.0f; // -1..+1 balance on physical L/R
     bool mute = false;
+    // Global "Direct Output" lane buses write a mono signal to exactly ONE
+    // physical channel (no stereo-pair doubling). Set only for the global
+    // direct-out mono lanes fabricated from the active output channels --
+    // project busses keep the existing "mono hits both speakers" behavior.
+    bool singleChannel = false;
 };
 
 // An immutable, fully-formed routing configuration. Built on the message/UI

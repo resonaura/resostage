@@ -22,6 +22,26 @@
 
     const std::string& busNameAt(size_t index) const;
 
+    // Physical routing info for a runtime bus (project or a global Direct Out
+    // bus) so the web UI / mixer can render each bus's hardware destination.
+    int busStartChannelAt(size_t index) const;
+
+    int busChannelCountAt(size_t index) const;
+
+    // True when the bus at `index` is a fabricated global Direct Out bus (not
+    // an authorable project bus) -- such busses are hidden from the editable
+    // bus rail and never persist to the project file.
+    bool busIsDirectAt(size_t index) const;
+
+    // Rebuild the global Direct Output busses from the current device's active
+    // output channels and republish routing. Message thread. Called on load and
+    // whenever the user changes the output device / active channels in Settings.
+    void rebuildDirectOutBusses();
+
+    // True when the Direct Output lane at `index` has a live physical output.
+    // Project busses always report true; a missing direct-out lane is false.
+    bool busAvailableAt(size_t index) const;
+
     // Current STAGED song's track accessors (message thread). Empty if no
     // song staged. Index is relative to the staged song's track list --
     // for read-only display of the live/playing song (Mixer, web state),

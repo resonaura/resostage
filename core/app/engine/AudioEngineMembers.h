@@ -22,6 +22,29 @@
     std::vector<LoadedBus> busses; // global, built once per loadProject()
     std::unordered_map<std::string, size_t> busIndexById;
 
+    // Global "Direct Output" buses (one per active physical output lane/`pair`),
+    // derived from the current device's ACTIVE output channels. These mirror
+    // Device settings, NOT the project: they are never persisted in project.json
+    // and are rebuilt whenever the output device / channel selection changes
+    // (see rebuildDirectOutBusses()). They are appended to `busses`/`busIndexById`
+    // at runtime so tracks/metronome/master route to them like any project bus,
+    // and dropped when the corresponding output channel goes inactive.
+    struct DirectOutBus {
+        std::string id;
+        std::string name;
+        int startChannel = 0; // physical channel index (0-based)
+        int channels = 2;     // 1 = single lane, 2 = stereo pair
+        bool singleChannel = false; // mono lane writes one physical channel only
+        // false = the physical output is currently unavailable (inactive device
+        // channel), but the route id is STILL referenced by tracks/metronome.
+        // Such a shadow lane stays in the bus list (with a UI warning) and the
+        // track keeps its mapping -- it just routes to silence until the output
+        // returns, at which point this becomes available again automatically
+        // because its id is deterministic. Never published as a physical output.
+        bool available = true;
+    };
+    std::vector<DirectOutBus> directOutBusses;
+
     std::vector<std::string> trackIdByIndex; // rebuilt per selectSong(); index matches RoutingSnapshot::TrackRoute::trackIndex
     // Audio-thread only dezippers for pan/gain/mono so live knob moves don't
     // hard-jump coefficients (clicks). Indexed by trackIndex * kSmoothBusSlots + busIndex
@@ -156,10 +179,12 @@
     // Built-in click generator. Sample-locked to the song playhead so strong
     // (bar 1) / weak beats follow the current song's BPM + time signature.
     // Song hops retarget the grid (bpm/tsNum/tsDen); playhead 0 = downbeat.
-    // clickTargetBusIndex == -1 means "Sends Only" (empty builtInClickBusId) --
-    // click still mixes into clickSendBusIndices when those are set.
+    // clickTargetBusIndices empty means "Sends Only" (empty builtInClickBusId) --
+    // click still mixes into clickSendBusIndices when those are set. Holds the
+    // mono Direct Output lanes a stereo click target (e.g. "Out 1/2" = the two
+    // mono lanes direct:1,direct:2) fans out into, or the single target bus.
     ClickGenerator clickGenerator;
-    int clickTargetBusIndex = -1;
+    std::vector<int> clickTargetBusIndices;
     float clickGainLinear = 1.0f;
     float clickPan = 0.0f; // -1..+1, project-global
     bool clickMono = false; // L=R (pan balance ignored)

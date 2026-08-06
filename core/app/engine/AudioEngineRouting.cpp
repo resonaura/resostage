@@ -41,6 +41,17 @@ void AudioEngine::buildBusListFromProject() {
         busses.push_back(std::move(lb));
     }
 
+    // Append the global Direct Output busses (not persisted -- see
+    // rebuildDirectOutBusses()) so tracks/metronome can route into them via
+    // busIndexById like any project bus.
+    for (const DirectOutBus& dob : directOutBusses) {
+        LoadedBus lb;
+        lb.id = dob.id;
+        lb.channelCount = dob.channels;
+        busIndexById[dob.id] = busses.size();
+        busses.push_back(std::move(lb));
+    }
+
     busMeters.clear();
     busLoudnessMeters.clear();
     busMuted.assign(busses.size(), false);
@@ -98,18 +109,28 @@ void AudioEngine::publishRoutingSnapshot() {
         const float trackGain = dbToGain(trackDef.gainDb);
         const float trackPan = static_cast<float>(std::clamp(trackDef.pan, -1.0, 1.0));
 
-        // Main (FOH) route.
-        auto busIt = busIndexById.find(trackDef.busId);
-        if (busIt != busIndexById.end()) {
+        // Main (FOH) route. A compound id ("direct:1,direct:2") fans the track out
+        // to BOTH mono Direct Output lanes.
+        std::vector<size_t> mainTargets;
+        audio_engine_detail::collectRouteBusIndices(
+            trackDef.busId, busIndexById, mainTargets);
+        // A stereo source routed to a pair of mono Direct Output lanes must
+        // keep its image: L -> first lane, R -> second lane (NOT sum into both,
+        // which collapses the pair to mono). Additional/residual targets stay
+        // summed (-1).
+        const bool stereoPair = mainTargets.size() == 2;
+        for (size_t k = 0; k < mainTargets.size(); ++k) {
+            const size_t busIndex = mainTargets[k];
             TrackRoute route;
             route.trackIndex = static_cast<uint32_t>(i);
-            route.busIndex = static_cast<uint32_t>(busIt->second);
+            route.busIndex = static_cast<uint32_t>(busIndex);
             route.gainLinear = trackGain;
             route.sendGainLinear = 1.0f;
             route.pan = trackPan;
             route.mute = trackSilenced;
             route.isAuxSend = false;
             route.forceMono = trackDef.mono;
+            route.sourceChannel = stereoPair ? (k == 0 ? 0 : 1) : -1;
             snapshot->routes.push_back(route);
         }
 
@@ -151,6 +172,27 @@ void AudioEngine::publishRoutingSnapshot() {
         out.gainLinear = dbToGain(busDef.gainDb);
         out.pan = static_cast<float>(std::clamp(busDef.pan, -1.0, 1.0));
         out.mute = busDef.mute || (anyBusSolo && !busDef.solo);
+        snapshot->outputs.push_back(out);
+    }
+
+    // Global Direct Output buses: unity pass-throughs to their physical
+    // channel(s). Mono lanes write a single physical channel (singleChannel),
+    // stereo pair lanes write L/R. Never muted/soloed -- they're just physical
+    // egress points owned by the device config, not authorable strips.
+    for (const DirectOutBus& dob : directOutBusses) {
+        if (!dob.available)
+            continue; // shadow lane: keep the route id, but no physical output
+        auto busIt = busIndexById.find(dob.id);
+        if (busIt == busIndexById.end())
+            continue;
+        BusOutput out;
+        out.busIndex = static_cast<uint32_t>(busIt->second);
+        out.startChannel = dob.startChannel;
+        out.channelCount = dob.channels;
+        out.gainLinear = 1.0f;
+        out.pan = 0.0f;
+        out.mute = false;
+        out.singleChannel = dob.singleChannel;
         snapshot->outputs.push_back(out);
     }
 
@@ -216,8 +258,10 @@ void AudioEngine::setTrackBusId(size_t songIndex, size_t trackIndex, const std::
     TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
-    if (!busId.empty() && busIndexById.find(busId) == busIndexById.end())
-        return;
+    // Route target is a single id or a comma compound of mono Direct Output
+    // lanes ("direct:1,direct:2"). Rendering fans the track into every
+    // currently-live lane; a missing lane (unavailable output) is dropped to
+    // silence and self-restores, so we never reject or mangle the mapping.
     t->busId = busId;
     publishRoutingSnapshot();
 }
@@ -302,7 +346,7 @@ void AudioEngine::refreshClickState() {
     // song when one exists; empty projects use a 120 BPM / 4/4 default so
     // the metronome can still be toggled and metered.
     const Project& proj = loader.project();
-    clickTargetBusIndex = -1;
+    clickTargetBusIndices.clear();
     clickSendBusIndices.clear();
     clickSendGainLinears.clear();
     isClickEnabled = proj.builtInClickEnabled;
@@ -316,10 +360,10 @@ void AudioEngine::refreshClickState() {
 
     // Empty builtInClickBusId = Sends Only (no main target). Do NOT fall
     // back to the first bus -- that made "Sends Only" unselectable.
+    clickTargetBusIndices.clear();
     if (!proj.builtInClickBusId.empty()) {
-        auto clickBusIt = busIndexById.find(proj.builtInClickBusId);
-        if (clickBusIt != busIndexById.end())
-            clickTargetBusIndex = static_cast<int>(clickBusIt->second);
+        audio_engine_detail::collectRouteBusIndices(
+            proj.builtInClickBusId, busIndexById, clickTargetBusIndices);
     }
 
     double bpm = 120.0;
@@ -403,6 +447,163 @@ void AudioEngine::ensureScratchSizes() {
         scratch.setSize(2, samples, false, false, true);
 
     clickScratch.assign(static_cast<size_t>(samples), 0.0f);
+}
+
+int AudioEngine::busStartChannelAt(size_t index) const {
+    const auto& bp = loader.project().busses;
+    if (index < bp.size())
+        return bp[static_cast<size_t>(index)].output.startChannel;
+    const size_t d = static_cast<size_t>(index) - bp.size();
+    if (d < directOutBusses.size())
+        return directOutBusses[d].startChannel;
+    return 0;
+}
+
+int AudioEngine::busChannelCountAt(size_t index) const {
+    const auto& bp = loader.project().busses;
+    if (index < bp.size())
+        return bp[static_cast<size_t>(index)].channels;
+    const size_t d = static_cast<size_t>(index) - bp.size();
+    if (d < directOutBusses.size())
+        return directOutBusses[d].channels;
+    return 2;
+}
+
+bool AudioEngine::busIsDirectAt(size_t index) const {
+    return index >= project().busses.size();
+}
+
+bool AudioEngine::busAvailableAt(size_t index) const {
+    const auto& bp = loader.project().busses;
+    if (index < bp.size())
+        return true; // project busses are always present
+    const size_t d = static_cast<size_t>(index) - bp.size();
+    if (d < directOutBusses.size())
+        return directOutBusses[d].available;
+    return true;
+}
+
+void AudioEngine::rebuildDirectOutBusses() {
+    std::lock_guard<std::recursive_mutex> lock(routingMutex);
+
+    directOutBusses.clear();
+
+    const auto setup = deviceManagerInstance.getAudioDeviceSetup();
+    const juce::BigInteger active = setup.outputChannels;
+    const bool defaultMode = setup.useDefaultOutputChannels;
+    int highest = -1;
+    for (int i = 0; i < 512; ++i) {
+        if (active[i])
+            highest = i;
+    }
+    int total = highest + 1;
+    if (auto* dev = deviceManagerInstance.getCurrentAudioDevice()) {
+        total = std::max(total, dev->getOutputChannelNames().size());
+    }
+    if (total <= 0)
+        total = 2; // default stereo output
+
+    const auto activeAt = [&](int i) -> bool {
+        if (i >= total)
+            return false;
+        // Nothing explicitly configured yet -- assume all device channels active.
+        if (defaultMode)
+            return true;
+        return active[i];
+    };
+
+    // ONE mono lane per active output channel, numbered 1-based: physical
+    // channel 0 => id "direct:1". No stereo-pair "direct:a/b" lanes at all --
+    // a stereo route is expressed by a track/bus targeting both mono lanes
+    // (see rebuildShadowRoutingRefs' compound handling). IDs always count from
+    // 1 so the UI never shows a 0-based output.
+    for (int i = 0; i < total; ++i) {
+        if (!activeAt(i))
+            continue;
+        DirectOutBus b;
+        b.id = "direct:" + std::to_string(i + 1); // 1-based
+        b.name = "Out " + std::to_string(i + 1);
+        b.startChannel = i; // 0-based physical index
+        b.channels = 1;
+        b.singleChannel = true;
+        b.available = true;
+        directOutBusses.push_back(std::move(b));
+    }
+
+    // Append "shadow" lanes for direct ids still referenced by the project
+    // (tracks / metronome) whose physical output is currently inactive. They
+    // keep the bus list + routing id stable so track settings are untouched
+    // and mapping survives a device drop / missing-output project. Each is
+    // flagged unavailable (routes to silence) and re-wires itself once its
+    // output comes back, because its id is deterministic from the channel.
+    {
+        std::vector<std::string> refs;
+        auto collect = [&](const std::string& id) {
+            // A route id may be a compound ("direct:1,direct:2"); split so each
+            // mono lane is considered independently for shadowing.
+            std::size_t pos = 0;
+            while (pos <= id.size()) {
+                const std::size_t end = id.find(',', pos);
+                std::string tok = id.substr(
+                    pos, end == std::string::npos ? std::string::npos : end - pos);
+                pos = (end == std::string::npos) ? id.size() + 1 : end + 1;
+                if (!tok.empty() && tok.rfind("direct:", 0) == 0)
+                    refs.push_back(tok);
+            }
+        };
+        const Project& proj = loader.project();
+        for (const TrackDef& t : proj.tracks) {
+            collect(t.busId);
+            for (const TrackSendDef& s : t.sends)
+                collect(s.busId);
+        }
+        collect(proj.builtInClickBusId);
+        for (const TrackSendDef& cs : proj.builtInClickSends)
+            collect(cs.busId);
+
+        std::vector<bool> seen(directOutBusses.size(), false);
+        auto hasLane = [&](const std::string& id) -> bool {
+            for (size_t i = 0; i < directOutBusses.size(); ++i)
+                if (!seen[i] && directOutBusses[i].id == id) {
+                    seen[i] = true;
+                    return true;
+                }
+            return false;
+        };
+
+        for (const std::string& ref : refs) {
+            if (hasLane(ref))
+                continue;
+            // "direct:{N}" where N is 1-based (physical channel N-1).
+            int n = 0;
+            try {
+                n = std::stoi(ref.substr(7));
+            } catch (...) {
+                continue;
+            }
+            if (n < 1)
+                continue;
+            // Skip outright any Direct output the user has switched OFF in
+            // Settings → Active output channels. A lane the owner disabled is
+            // not a temporary device drop -- it must not reappear as a bus.
+            // (Temporary gaps -- a channel merely absent from the current
+            // device, or default-mode drops -- still keep their shadow lane so
+            // routing survives a re-plug.)
+            if (!defaultMode && n - 1 < total && !active[n - 1])
+                continue;
+            DirectOutBus b;
+            b.id = ref;
+            b.startChannel = n - 1; // 0-based physical index
+            b.channels = 1;
+            b.singleChannel = true;
+            b.name = "Out " + std::to_string(n);
+            b.available = false;
+            directOutBusses.push_back(std::move(b));
+        }
+    }
+
+    buildBusListFromProject();
+    publishRoutingSnapshot();
 }
 
 } // namespace resostage

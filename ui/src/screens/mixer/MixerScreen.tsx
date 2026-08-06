@@ -57,19 +57,12 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     void builder.busAdd();
   }
 
-  function nextOutputChannel(): number {
-    return state.busses.reduce(
-      (max, b) => Math.max(max, b.startChannel + b.channels),
-      0,
-    );
-  }
-
   function requestAddSend() {
     const label = `Send ${auxBusses.length + 1}`;
-    const freeStart = nextOutputChannel();
-    const hwCount = state.settings.outputChannelNames?.length ?? 2;
-    const startChannel =
-      freeStart + 2 <= hwCount ? freeStart : (master?.startChannel ?? 0);
+    // A freshly-added send points at Master (same outs as master) so its
+    // destination reads "Master" by default, not an awkward Ext. Out on some
+    // stray free channel (which made a just-added send look broken/unrouted).
+    const startChannel = master?.startChannel ?? 0;
     queueBusJob((_busId, index) => {
       void builder.busUpdate({
         index,
@@ -85,64 +78,16 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   }
 
   /**
-   * Shared Ext. Out target: reuse a *hidden* non-main non-aux bus on that
-   * hardware start, else create one. Never reuse `main` — assigning Main as
-   * the Ext. Out target made the primary select snap back to "Main" (and
-   * flicker on the metronome) even though the user picked Ext. Out.
-   * Hidden buses stay off the mixer rail / destination list.
+   * Global Direct Output buses are fabricated by the engine from the device's
+   * active output channels (NOT persisted in the project — see BusRow.
+   * isDirectOut). The id encodes the physical target: "direct:{start}" for a
+   * single mono lane, "direct:{start}/{start+1}" for a stereo pair. We only
+   * ever route to these — never create project busses for Ext. Out anymore.
    */
-  function ensureDirectOutBus(
-    startChannel: number,
-    pair: boolean,
-    onReady: (busId: string) => void,
-  ) {
-    const channels = pair ? 2 : 1;
-    const existing = state.busses.find(
-      (b) =>
-        !b.isAux &&
-        b.id !== "main" &&
-        b.startChannel === startChannel &&
-        (pair ? b.channels >= 2 : b.channels === 1),
-    );
-    if (existing) {
-      if (
-        existing.startChannel !== startChannel ||
-        existing.channels !== channels
-      ) {
-        const idx = state.busses.indexOf(existing);
-        if (idx >= 0) {
-          void builder.busUpdate({
-            index: idx,
-            name: existing.name,
-            channels,
-            startChannel,
-            gainDb: existing.gainDb,
-            pan: existing.pan,
-            mute: existing.mute,
-            solo: existing.solo,
-            isAux: false,
-          });
-        }
-      }
-      onReady(existing.id);
-      return;
-    }
-    const label = pair
-      ? `Out ${startChannel + 1}/${startChannel + 2}`
-      : `Out ${startChannel + 1}`;
-    queueBusJob((busId, index) => {
-      void builder.busUpdate({
-        index,
-        name: label,
-        channels,
-        startChannel,
-        gainDb: 0,
-        mute: false,
-        solo: false,
-        isAux: false,
-      });
-      onReady(busId);
-    });
+  function directBusIdFor(startChannel: number, pair: boolean): string {
+    return pair
+      ? `direct:${startChannel + 1},direct:${startChannel + 2}`
+      : `direct:${startChannel + 1}`;
   }
 
   function requestTrackDirectOutput(
@@ -151,17 +96,18 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     startChannel: number,
     pair: boolean,
   ) {
-    ensureDirectOutBus(startChannel, pair, (busId) => {
-      void mixer.setTrackBus(trackIndex, busId);
-    });
+    // Always switch: the lane id is deterministic from the channel and the
+    // engine's routing drops any lane that isn't currently present (shadow /
+    // unavailable) to silence without rejecting. Gating on the live bus list
+    // here made Ext. Out feel dead on tracks (race the moment a lane isn't
+    // yet in state.busses), while master -- a plain project bus -- always
+    // switched fine.
+    void mixer.setTrackBus(trackIndex, directBusIdFor(startChannel, pair));
   }
 
   function requestClickDirectOutput(startChannel: number, pair: boolean) {
-    ensureDirectOutBus(startChannel, pair, (busId) => {
-      // Always patch against latest state — bus create is async and a
-      // closed-over `state` would stomp concurrent click edits / show a
-      // stale busId until the next WS tick (visible select flicker).
-      patchClickFields(stateRef.current, { clickBusId: busId });
+    patchClickFields(stateRef.current, {
+      clickBusId: directBusIdFor(startChannel, pair),
     });
   }
 

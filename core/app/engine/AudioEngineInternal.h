@@ -13,10 +13,52 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace resostage {
 namespace audio_engine_detail {
+
+// Expand a (possibly compound) route id into bus indices.
+// A direct egress may be:
+//   ""                   -> Sends Only (nothing added)
+//   a project bus id     -> that single bus (main / aux / send)
+//   "direct:1"           -> one mono Direct Output lane
+//   "direct:1,direct:2"  -> stereo: BOTH mono lanes (source is fanned to
+//                           both physical outs). Direct lanes are mono-only.
+// Tokens not present in `busIndexById` are skipped: they dangle to silence
+// (unavailable output) and self-re-wire once the output returns.
+inline void collectRouteBusIndices(
+    const std::string& busId,
+    const std::unordered_map<std::string, size_t>& busIndexById,
+    std::vector<size_t>& out) {
+    if (busId.empty())
+        return;
+    size_t pos = 0;
+    while (pos <= busId.size()) {
+        const size_t end = busId.find(',', pos);
+        const std::string tok = busId.substr(
+            pos, end == std::string::npos ? std::string::npos : end - pos);
+        pos = (end == std::string::npos) ? busId.size() + 1 : end + 1;
+        if (tok.empty())
+            continue;
+        const auto it = busIndexById.find(tok);
+        if (it != busIndexById.end())
+            out.push_back(it->second);
+    }
+}
+
+inline void
+// collectRouteBusIndices into a vector<int> (for audio-thread indices).
+collectRouteBusIndices(
+    const std::string& busId,
+    const std::unordered_map<std::string, size_t>& busIndexById,
+    std::vector<int>& out) {
+    std::vector<size_t> tmp;
+    collectRouteBusIndices(busId, busIndexById, tmp);
+    for (const size_t ix : tmp)
+        out.push_back(static_cast<int>(ix));
+}
 
 inline float dbToGain(double db) {
     if (db <= -144.0)

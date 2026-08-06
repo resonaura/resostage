@@ -461,6 +461,15 @@ struct WebUiState {
         bool isAux = false;
         int startChannel = 0;
         int channels = 2;
+        // True when this is a fabricated global Direct Output bus (derived
+        // from the device's active channels, not persisted in the project).
+        bool isDirectOut = false;
+        // True when this direct-out lane's physical output is currently
+        // inactive (device dropped / missing channel). Its route is preserved
+        // so the mapping survives; the lane just routes to silence and gets a
+        // warning icon in the UI until the output returns. Never set on
+        // project buses.
+        bool unavailable = false;
         float peakDb = -144.0f;
         float peakDbL = -144.0f;
         float peakDbR = -144.0f;

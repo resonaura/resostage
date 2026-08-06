@@ -215,12 +215,129 @@ export interface BusRow {
   mute: boolean;
   solo: boolean;
   isAux: boolean;
+  /** True when this is a fabricated global Direct Output bus (derived from
+   *  the device's active output channels, never persisted in the project). */
+  isDirectOut?: boolean;
+  /** True when this direct-out lane's physical output is currently inactive
+   *  (device dropped / missing channel). Routing is preserved and silent until
+   *  the output returns; shown with a warning in the mixer. */
+  unavailable?: boolean;
   startChannel: number;
   channels: number;
   peakDb: number;
   peakDbL?: number;
   peakDbR?: number;
 }
+
+// ── Canonical output-routing model ──────────────────────────────────────────
+// The wire still carries a track's route as a bus string (TrackRow.busId), but
+// the client model represents it as a discriminated Output. Direct egress uses
+// 1-based mono lanes; ids ALWAYS count from 1 (never a 0-based output):
+//   ""                     -> Sends Only
+//   the main bus id        -> Main
+//   "direct:3"             -> Ext. Out single mono lane 3 (physical channel 2)
+//   "direct:1,direct:2"    -> Ext. Out stereo = BOTH mono lanes 1 and 2
+// There are no stereo-pair bus objects; a stereo target is a pair of mono lanes.
+// See ui/src/screens/mixer/MixerScreen.tsx and directOutput.ts.
+
+export const OutputTarget = {
+  Main: "main",
+  SendsOnly: "sends-only",
+  ExtOut: "ext-out",
+} as const;
+
+export type OutputTarget = (typeof OutputTarget)[keyof typeof OutputTarget];
+
+// Dynamic physical-output channel labels.
+export type StereoPairChannel =
+  | "1/2"
+  | "3/4"
+  | "5/6"
+  | "7/8"
+  | `${number}/${number}`;
+
+export type MonoChannel = "1" | "2" | "3" | "4" | `${number}`;
+
+export type ExtOutChannel = StereoPairChannel | MonoChannel;
+
+/**
+ * Send levels: a map of send-bus id -> amount mixed into that bus, in percent
+ * 0..100. E.g. { "send-a": 100, "reverb": 50 }.
+ */
+export type SendLevels<SendId extends string = string> = Record<SendId, number>;
+
+/** Discriminated output target, shared by project tracks / metronome. */
+export type Output<SendId extends string = string> =
+  | {
+      target: "main";
+      /** Send mix in percent (0-100). */
+      sends: SendLevels<SendId>;
+      extOut?: never;
+    }
+  | {
+      target: "sends-only";
+      sends: SendLevels<SendId>;
+      extOut?: never;
+    }
+  | {
+      target: "ext-out";
+      sends: SendLevels<SendId>;
+      extOut: ExtOutChannel;
+    };
+
+/** Master bus: only Ext. Out — sends are unavailable, "Sends Only" is invalid. */
+export type MasterOutput = {
+  target: "ext-out";
+  sends: never;
+  extOut: ExtOutChannel;
+};
+
+/** A send (aux/return) bus: can only fold to the master or an Ext. Out. */
+export type SendBusOutput =
+  | { target: "main"; sends: never }
+  | { target: "ext-out"; sends: never; extOut: ExtOutChannel };
+
+export function channelLabelForBus(
+  startChannel: number,
+  channels: number,
+): ExtOutChannel {
+  const a = startChannel + 1;
+  return channels >= 2 ? (`${a}/${a + 1}` as StereoPairChannel) : (`${a}` as MonoChannel);
+}
+
+/** Map the wire's bus-id routing back onto the canonical Output model.
+ *  A direct route uses comma-separated 1-based mono lanes ("direct:1",
+ *  "direct:1,direct:2"); main/aux use their bus id; "" is sends-only. */
+export function outputFromBus(
+  busId: string,
+  _directBusses: BusRow[],
+  sends: SendLevels,
+): Output {
+  if (busId === "") return { target: "sends-only", sends };
+  const lanes = busId
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => /^direct:(\d+)$/.exec(t))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => Number(m[1]));
+  if (lanes.length === 1) {
+    return { target: "ext-out", sends, extOut: `${lanes[0]}` as MonoChannel };
+  }
+  if (lanes.length >= 2 && lanes[1] === lanes[0] + 1) {
+    return {
+      target: "ext-out",
+      sends,
+      extOut: `${lanes[0]}/${lanes[0] + 1}` as StereoPairChannel,
+    };
+  }
+  if (lanes.length > 0) {
+    return { target: "ext-out", sends, extOut: `${lanes[0]}` as MonoChannel };
+  }
+  // Any project bus id resolves to Main (or an aux-send, still a "main" arm).
+  return { target: "main", sends };
+}
+
 
 // One physical light fixture -- project-level roster entry, mirrors
 // TrackRow's relationship to SongTrackRow (fixtures are patched once here;
