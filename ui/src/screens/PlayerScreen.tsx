@@ -10,6 +10,7 @@ import {
 import { useEffect, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
 import { LevelMeterBar } from "../components/LevelMeterBar";
+import { VUMeter } from "../components/VUMeter";
 import { ResoLightStage3D } from "../components/light/ResoLightStage3D";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
@@ -321,7 +322,7 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
   if (fixtures.length === 0) return null;
 
   return (
-    <div className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary relative mr-2">
+    <div className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary relative">
       <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35 flex items-center justify-between z-10">
         <span>Stage Lights</span>
         <span className="text-[9px] font-mono text-foreground/40">
@@ -336,6 +337,153 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
           chrome="minimal"
         />
       </div>
+    </div>
+  );
+}
+
+type BusMeterMode = "bars" | "vu";
+
+function BusMetersPanel({ state }: { state: WebUiState }) {
+  const [mode, setMode] = useState<BusMeterMode>("bars");
+  const groups = busMeterGroups(
+    state.meters,
+    state.busses,
+    state.tracks,
+    state.clickBusId,
+    state.clickSends,
+  );
+
+  const vuGetterFor = (g: BusMeterGroup) => () => {
+    let mx = -Infinity;
+    const levels = getLiveLevels().meters;
+    if (!levels.length) return -144;
+    for (const m of g.meters) {
+      for (const lm of levels) {
+        if (lm.id === m.id) {
+          const a = lm.peakDbL ?? -144;
+          const b = lm.peakDbR ?? -144;
+          if (a > mx) mx = a;
+          if (b > mx) mx = b;
+        }
+      }
+    }
+    return mx === -Infinity ? -144 : mx;
+  };
+
+  return (
+    <div className="flex min-h-0 max-w-[40%] shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
+      <div className="flex items-center justify-between border-b border-default/20 px-3 py-1.5">
+        <span className="text-[11px] font-bold uppercase tracking-widest text-foreground/35">
+          Bus meters
+        </span>
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant={mode === "bars" ? "secondary" : "outline"}
+            onPress={() => setMode("bars")}
+            className="!h-6 !min-h-0 !px-2 text-[10px]"
+          >
+            Bus
+          </Button>
+          <Button
+            size="sm"
+            variant={mode === "vu" ? "secondary" : "outline"}
+            onPress={() => setMode("vu")}
+            className="!h-6 !min-h-0 !px-2 text-[10px]"
+          >
+            VU
+          </Button>
+        </div>
+      </div>
+
+      {groups.length === 0 ? (
+        <div className="flex h-full items-center justify-center py-4 text-sm text-foreground/40">
+          No busses.
+        </div>
+      ) : mode === "vu" ? (
+        <ScrollShadow
+          orientation="horizontal"
+          className="flex min-h-0 flex-1 items-center gap-4 p-3"
+        >
+          {groups.map((g) => {
+            const db = Math.max(...g.meters.map((m) => m.peakDb));
+            return (
+              <div
+                key={g.id}
+                className="flex h-full w-[176px] shrink-0 items-center"
+              >
+                <VUMeter name={g.name} db={db} getDb={vuGetterFor(g)} />
+              </div>
+            );
+          })}
+        </ScrollShadow>
+      ) : (
+        <ScrollShadow
+          orientation="horizontal"
+          className="flex min-h-0 flex-1 items-center gap-3 p-4"
+        >
+          {groups.map((g) => {
+            const m0 = g.meters[0];
+            const m1 = g.meters[1];
+            const db = Math.max(...g.meters.map((m) => m.peakDb));
+            const dbL = m0.peakDbL ?? m0.peakDb;
+            const dbR = m1
+              ? (m1.peakDbR ?? m1.peakDb)
+              : (m0.peakDbR ?? m0.peakDb);
+            const lufs = Math.max(...g.meters.map((m) => m.shortTermLufs));
+            const live0 = () =>
+              getLiveLevels().meters.find((lm) => lm.id === m0.id);
+            const live1 = () =>
+              m1
+                ? getLiveLevels().meters.find((lm) => lm.id === m1.id)
+                : undefined;
+            return (
+              <div
+                key={g.id}
+                className="flex h-full flex-col items-center justify-between gap-1.5 py-1"
+              >
+                <div className="truncate text-center text-xs font-semibold text-foreground/80 w-[72px]">
+                  {g.name}
+                </div>
+                <div className="flex h-full min-h-0 flex-1 items-center justify-center">
+                  <LevelMeterBar
+                    db={db}
+                    dbL={dbL}
+                    dbR={dbR}
+                    getLiveDbL={() => live0()?.peakDbL ?? -144}
+                    getLiveDbR={() =>
+                      m1
+                        ? (live1()?.peakDbR ?? -144)
+                        : (live0()?.peakDbR ?? -144)
+                    }
+                    accent={g.accent}
+                    vertical={true}
+                    showValue={false}
+                    className="h-full"
+                    barClassName="h-full w-1.5"
+                  />
+                </div>
+                <div className="text-center text-[10px] tabular-nums text-foreground/50">
+                  <div
+                    className={
+                      db > -3
+                        ? "text-danger font-bold"
+                        : db > -9
+                          ? "text-warning font-semibold"
+                          : ""
+                    }
+                  >
+                    {db <= -99 ? "−∞" : db.toFixed(1)} dB
+                  </div>
+                  <div className="text-[9px] text-foreground/35">
+                    {lufs <= -144 ? "−∞ L" : `${lufs.toFixed(1)} L`}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </ScrollShadow>
+      )}
     </div>
   );
 }
@@ -817,96 +965,7 @@ export function PlayerScreen({
 
         <PlayerLightStagePreview state={state} />
 
-        {/* Bus meters — Vertical meters (Capped at max 40% screen width) */}
-        <div className="flex min-h-0 max-w-[40%] shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
-          <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
-            Bus meters
-          </div>
-          <ScrollShadow
-            orientation="horizontal"
-            className="flex min-h-0 flex-1 items-center gap-6 p-4"
-          >
-            {state.meters.length === 0 ? (
-              <div className="py-4 text-center text-sm text-foreground/40">
-                No busses.
-              </div>
-            ) : (
-              busMeterGroups(
-                state.meters,
-                state.busses,
-                state.tracks,
-                state.clickBusId,
-                state.clickSends,
-              ).map((g) => {
-                const m0 = g.meters[0];
-                const m1 = g.meters[1];
-                const db = Math.max(...g.meters.map((m) => m.peakDb));
-                const dbL = m0.peakDbL ?? m0.peakDb;
-                const dbR = m1
-                  ? (m1.peakDbR ?? m1.peakDb)
-                  : (m0.peakDbR ?? m0.peakDb);
-                const lufs = Math.max(...g.meters.map((m) => m.shortTermLufs));
-                const live0 = () =>
-                  getLiveLevels().meters.find((lm) => lm.id === m0.id);
-                const live1 = () =>
-                  m1
-                    ? getLiveLevels().meters.find((lm) => lm.id === m1.id)
-                    : undefined;
-                return (
-                  <div
-                    key={g.id}
-                    className="flex h-full flex-col items-center justify-between gap-1.5 py-1"
-                  >
-                    {/* Bus name */}
-                    <div
-                      className="truncate text-center text-xs font-semibold text-foreground/80 w-[72px]"
-                      title={g.name}
-                    >
-                      {g.name}
-                    </div>
-                    <div className="flex h-full min-h-0 flex-1 items-center justify-center">
-                      <LevelMeterBar
-                        db={db}
-                        dbL={dbL}
-                        dbR={dbR}
-                        getLiveDbL={() => live0()?.peakDbL ?? -144}
-                        getLiveDbR={() =>
-                          m1
-                            ? (live1()?.peakDbR ?? -144)
-                            : (live0()?.peakDbR ?? -144)
-                        }
-                        accent={g.accent}
-                        vertical={true}
-                        showValue={false}
-                        className="h-full"
-                        barClassName="h-full w-1.5"
-                      />
-                    </div>
-                    <div className="text-center text-[10px] tabular-nums text-foreground/50">
-                      <div
-                        className={
-                          db > -3
-                            ? "text-danger font-bold"
-                            : db > -9
-                              ? "text-warning font-semibold"
-                              : ""
-                        }
-                      >
-                        {db <= -99 ? "−∞" : db.toFixed(1)} dB
-                      </div>
-                      {/* Always-visible LUFS readout to prevent layout jump during silence */}
-                      <div className="text-[9px] text-foreground/35">
-                        {lufs <= -144
-                          ? "−∞ L"
-                          : `${lufs.toFixed(1)} L`}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </ScrollShadow>
-        </div>
+        <BusMetersPanel state={state} />
       </div>
 
       {/* ── 3. Bottom: Timeline (expands to fill remaining height) ── */}
