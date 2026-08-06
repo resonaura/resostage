@@ -118,6 +118,11 @@ enum class WebCommandKind : uint8_t {
     // cap) and just needs to recall which track it was for.
     BuilderTrackImportWavBegin,
     BuilderTrackImportWavUpload,
+    // Native "Open Audio File" picker (embedded webview only -- pencil-tool
+    // import): `json` carries {songIndex, index} parsed message-thread-side;
+    // MainComponent pops a JUCE FileChooser and imports the picked file
+    // straight from disk (no upload step).
+    BuilderTrackImportWavDialog,
     BuilderRegionAdd,
     BuilderRegionRemove,
     BuilderRegionUpdate,

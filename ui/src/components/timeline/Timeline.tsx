@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { transport } from "../../lib/api";
+import { builder, transport } from "../../lib/api";
 import {
   useContinuousPlayhead,
   type CycleWrapRange,
@@ -21,6 +21,13 @@ import { LightSidePanel } from "../light/LightSidePanel";
 import type { LightSidePanelSelection } from "../light/LightSidePanel";
 import { laneHeightPx } from "../TrackWaveformLane";
 import { AudioTrackLanes } from "./AudioTrackLanes";
+import { AudioDropGhost } from "./AudioDropGhost";
+import {
+  audioDragInfo,
+  audioFileDropEvent,
+  entryToFile,
+  loadAudioPreview,
+} from "./audioDrop";
 import { BeatGrid } from "./BeatGrid";
 import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
 import {
@@ -671,6 +678,165 @@ export function Timeline({
     () => buildRows(state.tracks, songs),
     [state.tracks, songs],
   );
+
+  // Drag & drop audio-file ghost preview (audio view only). While a file is
+  // dragged over the lanes, AudioDropGhost shows a fake region -- waveform +
+  // duration decoded from the local file -- but nothing is imported until the
+  // drop actually fires (then builder.trackImportWav runs the real import).
+  const audioDropFileRef = useRef<File | null>(null);
+  const audioDropEntryResolvedRef = useRef<string | null>(null);
+  const [audioDropFile, setAudioDropFile] = useState<{
+    file: File;
+    name: string;
+  } | null>(null);
+  const [audioDropPreview, setAudioDropPreview] = useState<{
+    duration: number;
+    min: number[];
+    max: number[];
+  } | null>(null);
+  const [audioDropPos, setAudioDropPos] = useState<{
+    rowIndex: number;
+    trackIndex: number;
+    songIndex: number;
+    startPx: number;
+  } | null>(null);
+
+  const clearAudioDrop = () => {
+    audioDropFileRef.current = null;
+    audioDropEntryResolvedRef.current = null;
+    setAudioDropFile(null);
+    setAudioDropPreview(null);
+    setAudioDropPos(null);
+  };
+
+  // Decode the dragged file once (cached in audioDrop.ts); preview fills in
+  // as soon as it resolves.
+  useEffect(() => {
+    if (!audioDropFile) return;
+    let cancelled = false;
+    void loadAudioPreview(audioDropFile.file).then((p) => {
+      if (!cancelled) setAudioDropPreview(p);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [audioDropFile]);
+
+  // Leaving audio view (or readOnly) dismisses any ghost.
+  useEffect(() => {
+    if (readOnly || effectiveViewMode !== "audio") clearAudioDrop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly, effectiveViewMode]);
+
+  const rowTrackIndexFor = (name: string) =>
+    state.tracks.findIndex((t) => (t.name || t.id) === name);
+
+  // Map a pointer position (relative to the tracks container) to the lane
+  // row, song and clamped region-start pixel offset under it.
+  const computeAudioDropPos = (x: number, y: number) => {
+    const laneH = laneHeightPx(verticalZoom);
+    const rowIndex = Math.max(
+      0,
+      Math.min(rows.length - 1, Math.floor(y / laneH)),
+    );
+    const trackIndex = rowTrackIndexFor(rows[rowIndex]?.name ?? "");
+    // Orphan rows (no staged track) can't hold an import.
+    if (trackIndex < 0) return null;
+    let songIndex = 0;
+    for (let i = 0; i < songOffsets.length; i++) {
+      const start = songOffsets[i] * pxPerSec;
+      if (x >= start && x < start + songLengths[i] * pxPerSec) {
+        songIndex = i;
+        break;
+      }
+    }
+    const duration = audioDropPreview?.duration ?? 0;
+    const durationPx = Math.max(8, duration * pxPerSec);
+    const segStart = songOffsets[songIndex] * pxPerSec;
+    const segEnd = segStart + Math.max(1, songLengths[songIndex] * pxPerSec);
+    // Clamp the region start so the ghost stays inside the song segment.
+    const maxStart = Math.max(segStart, segEnd - durationPx);
+    return {
+      rowIndex,
+      trackIndex,
+      songIndex,
+      startPx: Math.max(segStart, Math.min(x, maxStart)),
+    };
+  };
+
+  const onTracksDragOver = (e: React.DragEvent) => {
+    if (readOnly || effectiveViewMode !== "audio") return;
+    const info = audioDragInfo(e);
+    // Not a file drag at all -- leave the browser default (no drop target).
+    if (!info.anyFiles) return;
+    // Accept the drag (drop allowed). On macOS the dragover phase carries no
+    // File (audioDrop.ts docs the quirk) -- the audio check runs again on
+    // drop, and the ghost only shows when we positively identified audio.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+
+    if (info.audio) {
+      // Grab the File for the preview: sync when available, else async via
+      // the drop-entry (one resolution attempt per dragged filename).
+      if (info.file) {
+        if (audioDropFileRef.current !== info.file) {
+          audioDropFileRef.current = info.file;
+          setAudioDropFile({ file: info.file, name: info.name });
+        }
+      } else if (
+        info.entry &&
+        audioDropEntryResolvedRef.current !== info.name
+      ) {
+        audioDropEntryResolvedRef.current = info.name;
+        void entryToFile(info.entry).then((f) => {
+          if (f && audioDropFileRef.current !== f) {
+            audioDropFileRef.current = f;
+            setAudioDropFile({ file: f, name: f.name });
+          }
+        });
+      }
+    } else if (audioDropFile || audioDropPos) {
+      // A file we couldn't identify as audio -- hide any stale ghost.
+      clearAudioDrop();
+    }
+
+    const origin = tracksOriginRef.current;
+    if (!origin) return;
+    const rect = origin.getBoundingClientRect();
+    // tracksOrigin lives inside the scrolled body -- getBoundingClientRect()
+    // already shifts with scrollLeft (same rule as the marquee handlers).
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const pos = computeAudioDropPos(x, y);
+    setAudioDropPos(pos);
+  };
+
+  const onTracksDragLeave = (e: React.DragEvent) => {
+    const related = e.relatedTarget as Node | null;
+    if (related && e.currentTarget.contains(related)) return;
+    clearAudioDrop();
+  };
+
+  const onTracksDrop = (e: React.DragEvent) => {
+    if (readOnly || effectiveViewMode !== "audio") return;
+    const file = audioFileDropEvent(e);
+    if (!file) {
+      clearAudioDrop();
+      return;
+    }
+    e.preventDefault();
+    const origin = tracksOriginRef.current;
+    let pos = audioDropPos;
+    // Drags that skipped the ghost (unidentified during dragover) still land
+    // here with coordinates -- recompute so the import targets the right row.
+    if (!pos && origin) {
+      const rect = origin.getBoundingClientRect();
+      pos = computeAudioDropPos(e.clientX - rect.left, e.clientY - rect.top);
+    }
+    clearAudioDrop();
+    if (!pos) return;
+    void builder.trackImportWav(pos.songIndex, pos.trackIndex, file);
+  };
 
   // Keep window-level region-drag handlers on the latest layout/snap inputs.
   regionDragCtxRef.current = {
@@ -1898,6 +2064,9 @@ export function Timeline({
                 onPointerUp={onTracksPointerUp}
                 onPointerCancel={onTracksPointerCancel}
                 onLostPointerCapture={onTracksPointerCancel}
+                onDragOver={onTracksDragOver}
+                onDragLeave={onTracksDragLeave}
+                onDrop={onTracksDrop}
               >
                 {marqueeRect && (
                   <div
@@ -1908,6 +2077,24 @@ export function Timeline({
                       width: marqueeRect.width,
                       height: marqueeRect.height,
                     }}
+                  />
+                )}
+                {/* Dragged audio file -- fake region (waveform + duration),
+                    no import until the drop fires (see onTracksDrop). */}
+                {audioDropFile && audioDropPos && (
+                  <AudioDropGhost
+                    name={audioDropFile.name}
+                    duration={audioDropPreview?.duration ?? 0}
+                    min={audioDropPreview?.min ?? []}
+                    max={audioDropPreview?.max ?? []}
+                    color={rows[audioDropPos.rowIndex]?.color ?? "#fff"}
+                    leftPx={audioDropPos.startPx}
+                    topPx={audioDropPos.rowIndex * laneHeightPx(verticalZoom)}
+                    widthPx={Math.max(
+                      8,
+                      (audioDropPreview?.duration ?? 0) * pxPerSec,
+                    )}
+                    laneH={laneHeightPx(verticalZoom)}
                   />
                 )}
                 {/* Beat/bar vertical grid canvas, per song (Viewport Sliced) */}

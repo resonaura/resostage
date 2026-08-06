@@ -706,6 +706,46 @@ void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, c
     });
 }
 
+void MainComponent::builderTrackImportWavDialog(const std::string& json) {
+    if (!engine.isProjectLoaded())
+        return;
+    glz::generic doc;
+    int songIndex = -1, trackIndex = -1;
+    if (parseJson(json, doc)) {
+        getInt(doc, "songIndex", songIndex);
+        getInt(doc, "index", trackIndex);
+    }
+    if (songIndex < 0 || trackIndex < 0)
+        return;
+
+    // Native OS picker -- only reachable from the embedded webview (the
+    // plain-browser timeline keeps its own <input type=file> fallback, see
+    // AudioTrackLanes.tsx). The picked file imports straight from disk, no
+    // upload round-trip. importWavForTrackAsync auto-creates a default
+    // archive if the project was never saved, so no extra guard needed here.
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Open Audio File", juce::File(),
+        "*.wav;*.wave;*.aiff;*.aif;*.mp3;*.flac;*.ogg;*.m4a;*.aac;*.opus;*.wma;*.caf");
+    const auto flags = juce::FileBrowserComponent::openMode
+                       | juce::FileBrowserComponent::canSelectFiles;
+    const auto sIdx = static_cast<size_t>(songIndex);
+    const auto tIdx = static_cast<size_t>(trackIndex);
+    fileChooser->launchAsync(flags, [this, sIdx, tIdx](const juce::FileChooser& fc) {
+        const auto file = fc.getResult();
+        if (file == juce::File() || !file.existsAsFile())
+            return;
+        engine.importWavForTrackAsync(sIdx, tIdx, file.getFullPathName().toStdString(),
+                                      [this](bool ok, std::string error) {
+            if (!ok) {
+                setStatus("Import failed: " + juce::String(error));
+                return;
+            }
+            notifyProjectStructureChanged();
+            setStatus("Audio imported");
+        });
+    });
+}
+
 void MainComponent::builderBusAdd() {
     if (!engine.isProjectLoaded())
         return;

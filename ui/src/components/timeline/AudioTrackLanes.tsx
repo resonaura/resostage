@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { builder } from "../../lib/api";
+import { IS_EMBEDDED } from "../../lib/embedded";
 import type {
   AllPeaksResponse,
   PeaksResponse,
@@ -86,6 +87,14 @@ export function AudioTrackLanes({
   } | null>(null);
 
   const openWavPicker = (songIndex: number, trackIndex: number) => {
+    // Embedded in the native app's webview: pop the OS's own "Open Audio
+    // File" dialog through Core (shows up in the same window, matches
+    // project.loadDialog). A plain browser tab has no native window to show
+    // the dialog in, so it keeps the <input type=file> upload fallback.
+    if (IS_EMBEDDED) {
+      void builder.trackImportWavDialog(songIndex, trackIndex);
+      return;
+    }
     pendingImportRef.current = { songIndex, trackIndex };
     fileInputRef.current?.click();
   };

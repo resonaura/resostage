@@ -829,6 +829,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderTrackImportWavUpload:
                 builderTrackImportWavUpload(cmd.arg, static_cast<int>(cmd.value), cmd.path);
                 break;
+            case WebCommandKind::BuilderTrackImportWavDialog: builderTrackImportWavDialog(cmd.json); break;
             case WebCommandKind::BuilderRegionAdd: builderRegionAdd(cmd.json); break;
             case WebCommandKind::BuilderRegionRemove: builderRegionRemove(cmd.json); break;
             case WebCommandKind::BuilderRegionUpdate: builderRegionUpdate(cmd.json); break;

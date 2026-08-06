@@ -319,6 +319,14 @@ export const builder = {
     }
   },
 
+  // Native "Open Audio File" picker (embedded webview only -- see
+  // IS_EMBEDDED gating in AudioTrackLanes.tsx; a plain browser tab has no
+  // native window to show the dialog in and keeps the file-input fallback).
+  // The Core side pops a JUCE FileChooser and imports the picked file
+  // straight from disk, so no upload round-trip happens here.
+  trackImportWavDialog: (songIndex: number, index: number) =>
+    post("/api/v1/builder/track/import-wav/dialog", { songIndex, index }),
+
   busAdd: () => post("/api/v1/builder/bus/add"),
   busRemove: (index: number) => post("/api/v1/builder/bus/remove", { index }),
   busMove: (index: number, delta: number) =>

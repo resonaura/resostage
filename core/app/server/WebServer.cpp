@@ -387,6 +387,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/track/move", WebCommandKind::BuilderTrackMove},
     {"/api/v1/builder/track/update", WebCommandKind::BuilderTrackUpdate},
     {"/api/v1/builder/track/import-wav/begin", WebCommandKind::BuilderTrackImportWavBegin},
+    {"/api/v1/builder/track/import-wav/dialog", WebCommandKind::BuilderTrackImportWavDialog},
     {"/api/v1/builder/region/add", WebCommandKind::BuilderRegionAdd},
     {"/api/v1/builder/region/remove", WebCommandKind::BuilderRegionRemove},
     {"/api/v1/builder/region/update", WebCommandKind::BuilderRegionUpdate},
