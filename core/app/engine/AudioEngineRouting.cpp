@@ -561,6 +561,13 @@ void AudioEngine::rebuildDirectOutBusses() {
         for (const TrackSendDef& cs : proj.builtInClickSends)
             collect(cs.busId);
 
+        // Many tracks / sends may reference the SAME lane; process each id once.
+        // Otherwise hasLane() would consume the real (active) lane on the first
+        // occurrence and then fabricate one shadow lane per extra reference,
+        // duplicating that direct output in the bus list and in the UI.
+        std::sort(refs.begin(), refs.end());
+        refs.erase(std::unique(refs.begin(), refs.end()), refs.end());
+
         std::vector<bool> seen(directOutBusses.size(), false);
         auto hasLane = [&](const std::string& id) -> bool {
             for (size_t i = 0; i < directOutBusses.size(); ++i)
