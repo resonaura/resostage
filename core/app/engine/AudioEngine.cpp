@@ -1413,6 +1413,81 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
+    // Main (FOH) master meter = the physical output composite. Every bus
+    // whose destination is Main (the "same outs as Main" send routing) folds
+    // into the same Direct Output lanes with `+=`, so Main's own splice
+    // would miss sends/aux/click stacked on top of it. Read the summed lane
+    // content after the fold so the master needle shows what actually leaves.
+    {
+        const auto mainIt = busIndexById.find("main");
+        if (!meteringMuted && mainIt != busIndexById.end()) {
+            const size_t mainIdx = mainIt->second;
+            if (mainIdx < busses.size() && mainIdx < busMeters.size()
+                && busMeters[mainIdx] != nullptr) {
+                int mainStart = -1;
+                int mainChannels = 0;
+                for (const BusOutput& o : snap->outputs) {
+                    if (o.busIndex != mainIdx || o.singleChannel)
+                        continue;
+                    mainStart = o.startChannel;
+                    mainChannels = o.channelCount;
+                    break;
+                }
+                if (mainStart >= 0 && mainChannels > 0) {
+                    constexpr int kMaxMeterBuf = 2048;
+                    float meterBufL[kMaxMeterBuf];
+                    float meterBufR[kMaxMeterBuf];
+                    const int sampleCount = std::min(numSamples, kMaxMeterBuf);
+                    for (int i = 0; i < sampleCount; ++i) {
+                        meterBufL[i] = 0.0f;
+                        meterBufR[i] = 0.0f;
+                    }
+                    float peakL = 0.0f;
+                    float peakR = 0.0f;
+                    const int chCount = std::min(2, mainChannels);
+                    for (int c = 0; c < chCount; ++c) {
+                        const int phys = mainStart + c;
+                        if (phys < 0 || phys >= numOutputChannels)
+                            continue;
+                        const int laneBus =
+                            laneBusIndexFor[static_cast<size_t>(phys)];
+                        if (laneBus < 0)
+                            continue;
+                        const int laneOff = laneBus * 2;
+                        const float* src = busScratch.getReadPointer(laneOff);
+                        if (src == nullptr)
+                            continue;
+                        float* dst = c == 0 ? meterBufL : meterBufR;
+                        float& peakRef = c == 0 ? peakL : peakR;
+                        for (int i = 0; i < sampleCount; ++i) {
+                            const float v = src[i];
+                            dst[i] = v;
+                            if (std::abs(v) > peakRef)
+                                peakRef = std::abs(v);
+                        }
+                    }
+                    // Mono main: mirror the single lane into L and R.
+                    if (mainChannels == 1) {
+                        for (int i = 0; i < sampleCount; ++i)
+                            meterBufR[i] = meterBufL[i];
+                        peakR = peakL;
+                    }
+                    const float* meterChannels[2] = { meterBufL, meterBufR };
+                    if (mainIdx < busLoudnessMeters.size())
+                        busLoudnessMeters[mainIdx].processBlock(
+                            meterChannels, sampleCount);
+                    busMeters[mainIdx]->write(
+                        busLoudnessMeters[mainIdx].currentFrame());
+                    if (mainIdx < busPeakIntervalCount && busPeakIntervalMaxL
+                        && busPeakIntervalMaxR) {
+                        atomicMaxFloat(busPeakIntervalMaxL[mainIdx], peakL);
+                        atomicMaxFloat(busPeakIntervalMaxR[mainIdx], peakR);
+                    }
+                }
+            }
+        }
+    }
+
     // Spec micro-fade on the summed physical outputs:
     //   - linear fade-out on underrun / song-end (length = whatever armed it)
     //   - linear fade-in on recovery / new song start (PREFERRED over hold,

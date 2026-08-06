@@ -343,8 +343,27 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
 
 type BusMeterMode = "bars" | "vu";
 
+const BUS_METER_MODE_KEY = "resostage.player.busMeterMode";
+
+function readBusMeterMode(): BusMeterMode {
+  try {
+    const saved = localStorage.getItem(BUS_METER_MODE_KEY);
+    if (saved === "bars" || saved === "vu") return saved;
+  } catch {
+    /* private mode */
+  }
+  return "bars";
+}
+
 function BusMetersPanel({ state }: { state: WebUiState }) {
-  const [mode, setMode] = useState<BusMeterMode>("bars");
+  const [mode, setMode] = useState<BusMeterMode>(readBusMeterMode);
+  useEffect(() => {
+    try {
+      localStorage.setItem(BUS_METER_MODE_KEY, mode);
+    } catch {
+      /* best-effort */
+    }
+  }, [mode]);
   const groups = busMeterGroups(
     state.meters,
     state.busses,

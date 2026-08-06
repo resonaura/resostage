@@ -172,9 +172,9 @@ export function BusDestinationRouting({
           }
         }}
         className={ROUTING_SELECT_CLASS}
-        title="Where this bus goes (Master = same outs as master; both still sum)"
+        title="Where this bus goes (Main = same outs as the Main bus; both still sum)"
       >
-        <option value="master">Master</option>
+        <option value="master">Main</option>
         <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
       </select>
 
