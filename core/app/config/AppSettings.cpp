@@ -1,13 +1,10 @@
 #include "AppSettings.h"
 
-#include "project/ProjectJson.h" // jsonEscapeString
-#include "server/BuilderJson.h"
-
-#include <sstream>
+#include "server/WireTypes.h"
 
 namespace resostage {
 
-using namespace builder_json;
+using namespace wire;
 
 juce::File appSettingsFile() {
     const juce::File userData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
@@ -33,80 +30,52 @@ AppSettings loadAppSettings() {
     if (text.empty())
         return settings;
 
-    glz::generic doc;
-    if (!parseJson(text, doc))
+    WAppSettings wire{};
+    const auto ec = glz::read_json(wire, text);
+    if (ec)
         return settings; // corrupt file -- start from defaults rather than fail startup
 
-    getString(doc, "outputDeviceName", settings.outputDeviceName);
-    getDouble(doc, "sampleRate", settings.sampleRate);
-    getInt(doc, "bufferSize", settings.bufferSize);
-    getString(doc, "midiOutputName", settings.midiOutputName);
-    getString(doc, "midiInputName", settings.midiInputName);
-    getBool(doc, "virtualMidiPortEnabled", settings.virtualMidiPortEnabled);
+    settings.outputDeviceName = std::move(wire.outputDeviceName);
+    settings.sampleRate = wire.sampleRate;
+    settings.bufferSize = wire.bufferSize;
+    settings.midiOutputName = std::move(wire.midiOutputName);
+    settings.midiInputName = std::move(wire.midiInputName);
+    settings.virtualMidiPortEnabled = wire.virtualMidiPortEnabled;
 
-    std::string uiEngine;
-    if (getString(doc, "uiRenderEngine", uiEngine)) {
-        // Only the two current engines are valid; a stale persisted value
-        // (e.g. the retired "wkwebview" or "cef") must not reach the UI.
-        if (uiEngine == "browser" || uiEngine == "electron")
-            settings.uiRenderEngine = uiEngine;
+    if (wire.uiRenderEngine == "browser" || wire.uiRenderEngine == "electron") {
+        settings.uiRenderEngine = std::move(wire.uiRenderEngine);
     }
 
-    if (const auto* channelsArr = getArray(doc, "activeOutputChannels")) {
-        for (const auto& el : *channelsArr) {
-            int idx = 0;
-            if (asInt(el, idx))
-                settings.activeOutputChannels.push_back(idx);
-        }
+    settings.activeOutputChannels = std::move(wire.activeOutputChannels);
+    settings.keybindings = std::move(wire.keybindings);
+
+    for (auto& mm : wire.midiMappings) {
+        if (mm.action.empty())
+            continue;
+        MidiMapping mapping;
+        mapping.action = std::move(mm.action);
+        mapping.channel = mm.channel;
+        mapping.triggerType = (mm.triggerType == "controlChange")
+                                  ? MidiTriggerType::ControlChange
+                                  : MidiTriggerType::NoteOn;
+        mapping.number = mm.number;
+        settings.midiMappings.push_back(std::move(mapping));
     }
 
-    if (const auto* kbObj = getObject(doc, "keybindings")) {
-        for (const auto& [key, value] : *kbObj) {
-            std::string str;
-            if (asString(value, str))
-                settings.keybindings[key] = std::move(str);
-        }
-    }
-
-    if (const auto* mmArr = getArray(doc, "midiMappings")) {
-        for (const auto& mmEl : *mmArr) {
-            std::string action;
-            if (!getString(mmEl, "action", action))
-                continue; // skip malformed entry rather than fail the whole load
-            MidiMapping mapping;
-            mapping.action = std::move(action);
-
-            getInt(mmEl, "channel", mapping.channel);
-
-            std::string triggerType;
-            if (getString(mmEl, "triggerType", triggerType))
-                mapping.triggerType = (triggerType == "controlChange")
-                                          ? MidiTriggerType::ControlChange
-                                          : MidiTriggerType::NoteOn;
-
-            getInt(mmEl, "number", mapping.number);
-
-            settings.midiMappings.push_back(std::move(mapping));
-        }
-    }
-
-    if (const auto* rpArr = getArray(doc, "recentProjects")) {
-        for (const auto& rpEl : *rpArr) {
-            std::string pathStr;
-            if (!getString(rpEl, "path", pathStr))
-                continue; // skip malformed entry rather than fail the whole load
-            // .rsnraset projects are package directories (LSTypeIsPackage in
-            // Info.plist.in), not flat files -- existsAsFile() is always
-            // false for a directory, which was silently dropping every
-            // recent project on load. exists() covers both.
-            if (!juce::File(pathStr).exists())
-                continue; // skip projects that no longer exist on disk
-            RecentProjectEntry rp;
-            rp.path = std::move(pathStr);
-            getString(rpEl, "displayName", rp.displayName);
-            getString(rpEl, "lastOpenedIso", rp.lastOpenedIso);
-            settings.recentProjects.push_back(std::move(rp));
-        }
+    for (auto& rp : wire.recentProjects) {
+        if (rp.path.empty())
+            continue;
+        // .rsnraset projects are package directories (LSTypeIsPackage in
+        // Info.plist.in), not flat files -- existsAsFile() is always
+        // false for a directory, which was silently dropping every
+        // recent project on load. exists() covers both.
+        if (!juce::File(rp.path).exists())
+            continue; // skip projects that no longer exist on disk
+        RecentProjectEntry entry;
+        entry.path = std::move(rp.path);
+        entry.displayName = std::move(rp.displayName);
+        entry.lastOpenedIso = std::move(rp.lastOpenedIso);
+        settings.recentProjects.push_back(std::move(entry));
     }
 
     return settings;
@@ -120,59 +89,43 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
         return false;
     }
 
-    std::ostringstream o;
-    o << "{\n";
-    o << "  \"outputDeviceName\": \"" << jsonEscapeString(settings.outputDeviceName) << "\",\n";
-    o << "  \"sampleRate\": " << settings.sampleRate << ",\n";
-    o << "  \"bufferSize\": " << settings.bufferSize << ",\n";
-    o << "  \"midiOutputName\": \"" << jsonEscapeString(settings.midiOutputName) << "\",\n";
-    o << "  \"midiInputName\": \"" << jsonEscapeString(settings.midiInputName) << "\",\n";
-    o << "  \"virtualMidiPortEnabled\": " << (settings.virtualMidiPortEnabled ? "true" : "false") << ",\n";
-    o << "  \"uiRenderEngine\": \"" << jsonEscapeString(settings.uiRenderEngine) << "\",\n";
+    WAppSettings wire;
+    wire.outputDeviceName = settings.outputDeviceName;
+    wire.sampleRate = settings.sampleRate;
+    wire.bufferSize = settings.bufferSize;
+    wire.midiOutputName = settings.midiOutputName;
+    wire.midiInputName = settings.midiInputName;
+    wire.virtualMidiPortEnabled = settings.virtualMidiPortEnabled;
+    wire.uiRenderEngine = settings.uiRenderEngine;
+    wire.activeOutputChannels = settings.activeOutputChannels;
+    wire.keybindings = settings.keybindings;
 
-    o << "  \"activeOutputChannels\": [";
-    for (size_t i = 0; i < settings.activeOutputChannels.size(); ++i)
-        o << (i ? "," : "") << settings.activeOutputChannels[i];
-    o << "],\n";
-
-    o << "  \"keybindings\": {\n";
-    size_t kbCount = 0;
-    for (const auto& [k, v] : settings.keybindings) {
-        if (kbCount++)
-            o << ",\n";
-        o << "    \"" << jsonEscapeString(k) << "\": \"" << jsonEscapeString(v) << "\"";
+    for (const auto& m : settings.midiMappings) {
+        WMidiMapping mm;
+        mm.action = m.action;
+        mm.channel = m.channel;
+        mm.triggerType = (m.triggerType == MidiTriggerType::ControlChange) ? "controlChange" : "noteOn";
+        mm.number = m.number;
+        wire.midiMappings.push_back(std::move(mm));
     }
-    if (kbCount)
-        o << "\n";
-    o << "  },\n";
 
-    o << "  \"midiMappings\": [\n";
-    for (size_t i = 0; i < settings.midiMappings.size(); ++i) {
-        const MidiMapping& m = settings.midiMappings[i];
-        o << "    {\n";
-        o << "      \"action\": \"" << jsonEscapeString(m.action) << "\",\n";
-        o << "      \"channel\": " << m.channel << ",\n";
-        o << "      \"triggerType\": \""
-          << (m.triggerType == MidiTriggerType::ControlChange ? "controlChange" : "noteOn")
-          << "\",\n";
-        o << "      \"number\": " << m.number << "\n";
-        o << "    }" << (i + 1 < settings.midiMappings.size() ? "," : "") << "\n";
+    for (const auto& rp : settings.recentProjects) {
+        WRecentProject entry;
+        entry.path = rp.path;
+        entry.displayName = rp.displayName;
+        entry.lastOpenedIso = rp.lastOpenedIso;
+        wire.recentProjects.push_back(std::move(entry));
     }
-    o << "  ],\n";
 
-    o << "  \"recentProjects\": [\n";
-    for (size_t i = 0; i < settings.recentProjects.size(); ++i) {
-        const RecentProjectEntry& rp = settings.recentProjects[i];
-        o << "    {\n";
-        o << "      \"path\": \"" << jsonEscapeString(rp.path) << "\",\n";
-        o << "      \"displayName\": \"" << jsonEscapeString(rp.displayName) << "\",\n";
-        o << "      \"lastOpenedIso\": \"" << jsonEscapeString(rp.lastOpenedIso) << "\"\n";
-        o << "    }" << (i + 1 < settings.recentProjects.size() ? "," : "") << "\n";
+    std::string json;
+    const auto ec = glz::write<AppSettingsPrettyOpts{}>(wire, json);
+    if (ec) {
+        error = "Failed to serialize app settings";
+        return false;
     }
-    o << "  ]\n";
-    o << "}\n";
+    json.push_back('\n');
 
-    if (!file.replaceWithText(o.str())) {
+    if (!file.replaceWithText(json)) {
         error = "Failed to write " + file.getFullPathName().toStdString();
         return false;
     }

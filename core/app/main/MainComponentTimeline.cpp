@@ -1,65 +1,50 @@
 // Timeline parity for the SPA: seek + peak-overview JSON for waveforms.
 
 #include "MainComponent.h"
-#include "server/BuilderJson.h"
 
-#include <sstream>
+#include "server/WireTypes.h"
 
 namespace resostage {
 
-using namespace builder_json;
+using namespace wire;
 
 namespace {
-void writePeakOverviewJson(std::ostringstream& o, const PeakOverview* pk) {
-    o << "\"durationSeconds\":" << (pk != nullptr ? pk->durationSeconds : 0.0) << ","
-      << "\"levels\":[";
+
+WPeakOverview toWire(const PeakOverview* pk) {
+    WPeakOverview dto{};
     if (pk != nullptr) {
-        for (size_t li = 0; li < pk->levels.size(); ++li) {
-            if (li)
-                o << ",";
-            const PeakLevel& level = pk->levels[li];
-            o << "{\"samplesPerBin\":" << level.samplesPerBin << ",\"min\":[";
-            for (size_t b = 0; b < level.bins.size(); ++b) {
-                if (b)
-                    o << ",";
-                o << level.bins[b].minVal;
+        dto.durationSeconds = pk->durationSeconds;
+        dto.levels.reserve(pk->levels.size());
+        for (const auto& level : pk->levels) {
+            WPeakLevel wLevel{};
+            wLevel.samplesPerBin = level.samplesPerBin;
+            wLevel.min.reserve(level.bins.size());
+            wLevel.max.reserve(level.bins.size());
+            wLevel.rms.reserve(level.bins.size());
+            for (const auto& bin : level.bins) {
+                wLevel.min.push_back(bin.minVal);
+                wLevel.max.push_back(bin.maxVal);
+                wLevel.rms.push_back(bin.rms);
             }
-            o << "],\"max\":[";
-            for (size_t b = 0; b < level.bins.size(); ++b) {
-                if (b)
-                    o << ",";
-                o << level.bins[b].maxVal;
-            }
-            o << "],\"rms\":[";
-            for (size_t b = 0; b < level.bins.size(); ++b) {
-                if (b)
-                    o << ",";
-                o << level.bins[b].rms;
-            }
-            o << "]}";
+            dto.levels.push_back(std::move(wLevel));
         }
     }
-    o << "]";
+    return dto;
 }
+
 } // namespace
 
 void MainComponent::transportSeek(const std::string& json) {
-    glz::generic doc;
-    double seconds = 0.0;
-    if (!parseJson(json, doc) || !getDouble(doc, "seconds", seconds))
+    WSeekPayload payload{};
+    if (glz::read_json(payload, json))
         return;
 
-    // Optional cross-song seek: absent "songIndex" means "seek within the
-    // currently staged song", matching seekToSeconds()'s default-argument
-    // sentinel -- see Timeline.tsx's seekFromClientX for the drag-across-
-    // song-boundaries case this exists for.
-    int songIndexField = -1;
-    const size_t targetSong = getInt(doc, "songIndex", songIndexField) && songIndexField >= 0
-                                   ? static_cast<size_t>(songIndexField)
+    const size_t targetSong = (payload.songIndex.has_value() && *payload.songIndex >= 0)
+                                   ? static_cast<size_t>(*payload.songIndex)
                                    : static_cast<size_t>(-1);
 
     std::string error;
-    if (!engine.seekToSeconds(seconds, error, targetSong)) {
+    if (!engine.seekToSeconds(payload.seconds, error, targetSong)) {
         setStatus("Seek failed: " + juce::String(error));
         return;
     }
@@ -122,20 +107,20 @@ void MainComponent::maybePublishPeaks() {
 }
 
 std::string MainComponent::buildPeaksJson() const {
-    std::ostringstream o;
-    o.setf(std::ios::fixed);
-    o.precision(4);
-    o << "{\"tracks\":[";
+    WPeaksPayload wire{};
+    wire.tracks.reserve(engine.trackCount());
     for (size_t i = 0; i < engine.trackCount(); ++i) {
-        if (i)
-            o << ",";
         const PeakOverview* pk = engine.trackPeaksAt(i);
-        o << "{\"id\":\"" << engine.trackIdAt(i) << "\",";
-        writePeakOverviewJson(o, pk);
-        o << "}";
+        WTrackPeakOverview tPeak{};
+        tPeak.id = engine.trackIdAt(i);
+        auto ov = toWire(pk);
+        tPeak.durationSeconds = ov.durationSeconds;
+        tPeak.levels = std::move(ov.levels);
+        wire.tracks.push_back(std::move(tPeak));
     }
-    o << "]}";
-    return o.str();
+    std::string json;
+    (void)glz::write_json(wire, json);
+    return json;
 }
 
 void MainComponent::maybePublishAllPeaks() {
@@ -173,29 +158,27 @@ void MainComponent::maybePublishAllPeaks() {
 }
 
 std::string MainComponent::buildAllPeaksJson() const {
-    std::ostringstream o;
-    o.setf(std::ios::fixed);
-    o.precision(4);
-    o << "{\"songs\":[";
+    WAllPeaksPayload wire{};
     const auto& songs = engine.project().songs;
-    for (size_t s = 0; s < songs.size(); ++s) {
-        if (s)
-            o << ",";
-        o << "{\"tracks\":[";
-        const auto& regions = songs[s].regions;
-        for (size_t i = 0; i < regions.size(); ++i) {
-            if (i)
-                o << ",";
-            const PeakOverview* pk = regions[i].file.empty() ? nullptr : engine.cachedPeaksForFile(regions[i].file);
-            o << "{\"id\":\"" << regions[i].id << "\","
-              << "\"trackId\":\"" << regions[i].trackId << "\",";
-            writePeakOverviewJson(o, pk);
-            o << "}";
+    wire.songs.reserve(songs.size());
+    for (const auto& song : songs) {
+        WSongPeaks songPeaks{};
+        songPeaks.tracks.reserve(song.regions.size());
+        for (const auto& r : song.regions) {
+            const PeakOverview* pk = r.file.empty() ? nullptr : engine.cachedPeaksForFile(r.file);
+            WRegionPeakOverview rPeak{};
+            rPeak.id = r.id;
+            rPeak.trackId = r.trackId;
+            auto ov = toWire(pk);
+            rPeak.durationSeconds = ov.durationSeconds;
+            rPeak.levels = std::move(ov.levels);
+            songPeaks.tracks.push_back(std::move(rPeak));
         }
-        o << "]}";
+        wire.songs.push_back(std::move(songPeaks));
     }
-    o << "]}";
-    return o.str();
+    std::string json;
+    (void)glz::write_json(wire, json);
+    return json;
 }
 
 } // namespace resostage

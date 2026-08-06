@@ -3,6 +3,7 @@
 #include "audio/WavStreamDecoder.h"
 #include "platform/MenuModel.h"
 #include "project/ProjectLoader.h"
+#include "server/WireTypes.h"
 
 #include <libwebsockets.h>
 
@@ -16,11 +17,15 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace resostage {
+
+using namespace wire;
 
 namespace {
 
@@ -167,29 +172,6 @@ std::string makeUploadTempPath(const char* extension) {
     std::filesystem::path file =
         dir / ("resostage-upload-" + std::to_string(ts) + "-" + std::to_string(n) + extension);
     return file.string();
-}
-
-std::string jsonEscape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default:
-                if (static_cast<unsigned char>(c) < 0x20) {
-                    char buf[8];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-                    out += buf;
-                } else {
-                    out += c;
-                }
-        }
-    }
-    return out;
 }
 
 // Percent-decodes a URL query-string value (e.g. "Audio%2Fkick.wav" ->
@@ -1191,450 +1173,400 @@ std::string WebServer::buildStateJson(const char* view) const {
     const bool wantClick = all || isPlayer || isMixer;
     const bool wantHealth = all || isPlayer || isSettings;
     const bool wantHealthProcs = all || isSettings;
-    // Always ship full device/MIDI lists. They are tiny (~1–2 KB) and omitting
-    // them on non-settings views left the SPA with empty selects forever when
-    // the first hydrated frame had no lists and merge refused to "clear" later.
     const bool wantSettingsFull = true;
     (void)isSettings; // still used for midiBindings detail below
 
-    std::ostringstream o;
-    o.setf(std::ios::fixed);
-    o.precision(3);
+    WEngineTelemetryPayload wire;
 
-    // ── Always: transport / time / status ──────────────────────────────
-    o << "{"
-      << "\"projectName\":\"" << jsonEscape(snap.projectName) << "\","
-      << "\"songName\":\"" << jsonEscape(snap.songName) << "\","
-      << "\"playheadSeconds\":" << finiteOrZero(snap.playheadSeconds) << ","
-      << "\"globalPlayheadSeconds\":" << finiteOrZero(snap.globalPlayheadSeconds) << ","
-      << "\"globalBeatsElapsed\":" << finiteOrZero(snap.globalBeatsElapsed) << ","
-      << "\"sampleRate\":" << finiteOrZero(snap.sampleRate) << ","
-      << "\"drift\":" << finiteOrZero(snap.driftFactor) << ","
-      << "\"bpm\":" << finiteOrZero(snap.bpm) << ","
-      << "\"playing\":" << (snap.playing ? "true" : "false") << ","
-      << "\"hardwareAlarm\":" << (snap.hardwareAlarm ? "true" : "false") << ","
-      << "\"songIndex\":" << snap.songIndex << ","
-      << "\"songCount\":" << snap.songCount << ","
-      << "\"statusMessage\":\"" << jsonEscape(snap.statusMessage) << "\","
-      << "\"busy\":" << (snap.busy ? "true" : "false") << ","
-      << "\"quitConfirmPending\":" << (snap.quitConfirmPending ? "true" : "false") << ","
-      << "\"uiTab\":\"" << jsonEscape(snap.uiTab) << "\","
-      << "\"uiTabSeq\":" << snap.uiTabSeq << ","
-      << "\"canUndo\":" << (snap.canUndo ? "true" : "false") << ","
-      << "\"canRedo\":" << (snap.canRedo ? "true" : "false") << ","
-      << "\"undoLabel\":\"" << jsonEscape(snap.undoLabel) << "\","
-      << "\"redoLabel\":\"" << jsonEscape(snap.redoLabel) << "\","
-      << "\"lastAction\":\"" << jsonEscape(snap.lastAction) << "\","
-      << "\"lastActionNonce\":" << snap.lastActionNonce << ","
-      << "\"wsHz\":" << effectiveTelemetryHz();
+    wire.projectName = snap.projectName;
+    wire.songName = snap.songName;
+    wire.playheadSeconds = finiteOrZero(snap.playheadSeconds);
+    wire.globalPlayheadSeconds = finiteOrZero(snap.globalPlayheadSeconds);
+    wire.globalBeatsElapsed = finiteOrZero(snap.globalBeatsElapsed);
+    wire.sampleRate = finiteOrZero(snap.sampleRate);
+    wire.drift = finiteOrZero(snap.driftFactor);
+    wire.bpm = finiteOrZero(snap.bpm);
+    wire.playing = snap.playing;
+    wire.hardwareAlarm = snap.hardwareAlarm;
+    wire.songIndex = snap.songIndex;
+    wire.songCount = snap.songCount;
+    wire.statusMessage = snap.statusMessage;
+    wire.busy = snap.busy;
+    wire.quitConfirmPending = snap.quitConfirmPending;
+    wire.uiTab = snap.uiTab;
+    wire.uiTabSeq = snap.uiTabSeq;
+    wire.canUndo = snap.canUndo;
+    wire.canRedo = snap.canRedo;
+    wire.undoLabel = snap.undoLabel;
+    wire.redoLabel = snap.redoLabel;
+    wire.lastAction = snap.lastAction;
+    wire.lastActionNonce = snap.lastActionNonce;
+    wire.wsHz = effectiveTelemetryHz();
 
     if (wantClick) {
-        o << ","
-          << "\"click\":" << (snap.click ? "true" : "false") << ","
-          << "\"clickName\":\"" << jsonEscape(snap.clickName.empty() ? "Click" : snap.clickName) << "\","
-          << "\"clickBusId\":\"" << jsonEscape(snap.clickBusId) << "\","
-          << "\"clickGainDb\":" << finiteOrZero(snap.clickGainDb) << ","
-          << "\"clickPan\":" << finiteOrZero(snap.clickPan) << ","
-          << "\"clickMono\":" << (snap.clickMono ? "true" : "false") << ","
-          << "\"clickSolo\":" << (snap.clickSolo ? "true" : "false") << ","
-          << "\"clickSends\":[";
-        for (size_t ci = 0; ci < snap.clickSends.size(); ++ci) {
-            if (ci) o << ",";
-            const auto& cs = snap.clickSends[ci];
-            o << "{\"busId\":\"" << jsonEscape(cs.busId) << "\","
-              << "\"gainDb\":" << finiteOrZero(cs.gainDb) << ","
-              << "\"enabled\":" << (cs.enabled ? "true" : "false") << "}";
+        wire.click = snap.click;
+        wire.clickName = snap.clickName.empty() ? "Click" : snap.clickName;
+        wire.clickBusId = snap.clickBusId;
+        wire.clickGainDb = finiteOrZero(snap.clickGainDb);
+        wire.clickPan = finiteOrZero(snap.clickPan);
+        wire.clickMono = snap.clickMono;
+        wire.clickSolo = snap.clickSolo;
+
+        std::vector<WClickSendTelemetry> csVec;
+        csVec.reserve(snap.clickSends.size());
+        for (const auto& cs : snap.clickSends) {
+            WClickSendTelemetry wcs;
+            wcs.busId = cs.busId;
+            wcs.gainDb = finiteOrZero(cs.gainDb);
+            wcs.enabled = cs.enabled;
+            csVec.push_back(std::move(wcs));
         }
-        o << "],"
-          << "\"clickPeakDb\":" << finiteOrDbFloor(snap.clickPeakDb) << ","
-          << "\"clickPeakDbL\":" << finiteOrDbFloor(snap.clickPeakDbL) << ","
-          << "\"clickPeakDbR\":" << finiteOrDbFloor(snap.clickPeakDbR) << ","
-          << "\"streamBufferMinSec\":" << finiteOrZero(snap.streamBufferMinSec) << ","
-          << "\"streamBufferAvgSec\":" << finiteOrZero(snap.streamBufferAvgSec) << ","
-          << "\"streamResidentTracks\":" << snap.streamResidentTracks << ","
-          << "\"streamStreamingTracks\":" << snap.streamStreamingTracks << ","
-          << "\"streamBufferUrgent\":" << (snap.streamBufferUrgent ? "true" : "false") << ","
-          << "\"streamResidentMiB\":" << finiteOrZero(snap.streamResidentMiB);
+        wire.clickSends = std::move(csVec);
+        wire.clickPeakDb = finiteOrDbFloor(snap.clickPeakDb);
+        wire.clickPeakDbL = finiteOrDbFloor(snap.clickPeakDbL);
+        wire.clickPeakDbR = finiteOrDbFloor(snap.clickPeakDbR);
+        wire.streamBufferMinSec = finiteOrZero(snap.streamBufferMinSec);
+        wire.streamBufferAvgSec = finiteOrZero(snap.streamBufferAvgSec);
+        wire.streamResidentTracks = snap.streamResidentTracks;
+        wire.streamStreamingTracks = snap.streamStreamingTracks;
+        wire.streamBufferUrgent = snap.streamBufferUrgent;
+        wire.streamResidentMiB = finiteOrZero(snap.streamResidentMiB);
     }
 
     if (wantSongs) {
-        o << ",\"songs\":[";
-        for (size_t i = 0; i < snap.songs.size(); ++i) {
-            if (i) o << ",";
-            const auto& song = snap.songs[i];
-            o << "{\"name\":\"" << jsonEscape(song.name) << "\","
-              << "\"bpm\":" << finiteOrZero(song.bpm) << ","
-              << "\"mode\":\"" << (song.autoplay ? "auto" : "wait") << "\","
-              << "\"tsNum\":" << song.tsNum << ","
-              << "\"tsDen\":" << song.tsDen << ","
-              << "\"click\":" << (song.click ? "true" : "false") << ","
-              << "\"clickBusId\":\"" << jsonEscape(song.clickBusId) << "\","
-              << "\"clickGainDb\":" << finiteOrZero(song.clickGainDb) << ",";
+        std::vector<WSongTelemetry> songVec;
+        songVec.reserve(snap.songs.size());
+        for (const auto& song : snap.songs) {
+            WSongTelemetry wSong;
+            wSong.name = song.name;
+            wSong.bpm = finiteOrZero(song.bpm);
+            wSong.mode = song.autoplay ? "auto" : "wait";
+            wSong.tsNum = song.tsNum;
+            wSong.tsDen = song.tsDen;
+            wSong.click = song.click;
+            wSong.clickBusId = song.clickBusId;
+            wSong.clickGainDb = finiteOrZero(song.clickGainDb);
 
             if (wantSongsFull) {
-                o << "\"clickSends\":[";
-                for (size_t ci = 0; ci < song.clickSends.size(); ++ci) {
-                    if (ci) o << ",";
-                    const auto& cs = song.clickSends[ci];
-                    o << "{\"busId\":\"" << jsonEscape(cs.busId) << "\","
-                      << "\"gainDb\":" << finiteOrZero(cs.gainDb) << ","
-                      << "\"enabled\":" << (cs.enabled ? "true" : "false") << "}";
+                wSong.clickSends.reserve(song.clickSends.size());
+                for (const auto& cs : song.clickSends) {
+                    WClickSendTelemetry wcs;
+                    wcs.busId = cs.busId;
+                    wcs.gainDb = finiteOrZero(cs.gainDb);
+                    wcs.enabled = cs.enabled;
+                    wSong.clickSends.push_back(std::move(wcs));
                 }
-                o << "],";
-            } else {
-                o << "\"clickSends\":[],";
             }
 
-            // Regions: player needs bounds for timeline length; editor needs
-            // full fade/loop detail for the interactive editor.
-            o << "\"regions\":[";
-            for (size_t j = 0; j < song.regions.size(); ++j) {
-                if (j) o << ",";
-                const auto& r = song.regions[j];
-                o << "{\"id\":\"" << jsonEscape(r.id) << "\","
-                  << "\"trackId\":\"" << jsonEscape(r.trackId) << "\","
-                  << "\"file\":\"" << jsonEscape(r.file) << "\","
-                  << "\"startSeconds\":" << finiteOrZero(r.startSeconds) << ","
-                  << "\"sourceOffsetSeconds\":" << finiteOrZero(r.sourceOffsetSeconds) << ","
-                  << "\"durationSeconds\":" << finiteOrZero(r.durationSeconds) << ","
-                  << "\"gainDb\":" << finiteOrZero(r.gainDb);
+            wSong.regions.reserve(song.regions.size());
+            for (const auto& r : song.regions) {
+                WRegionTelemetry wReg;
+                wReg.id = r.id;
+                wReg.trackId = r.trackId;
+                wReg.file = r.file;
+                wReg.startSeconds = finiteOrZero(r.startSeconds);
+                wReg.sourceOffsetSeconds = finiteOrZero(r.sourceOffsetSeconds);
+                wReg.durationSeconds = finiteOrZero(r.durationSeconds);
+                wReg.gainDb = finiteOrZero(r.gainDb);
+
                 if (wantSongsFull || isPlayer) {
-                    o << ",\"fadeInSeconds\":" << finiteOrZero(r.fadeInSeconds)
-                      << ",\"fadeOutSeconds\":" << finiteOrZero(r.fadeOutSeconds)
-                      << ",\"fadeInCurve\":" << finiteOrZero(r.fadeInCurve)
-                      << ",\"fadeOutCurve\":" << finiteOrZero(r.fadeOutCurve)
-                      << ",\"loop\":" << (r.loop ? "true" : "false")
-                      << ",\"loopLengthSeconds\":" << finiteOrZero(r.loopLengthSeconds);
+                    wReg.fadeInSeconds = finiteOrZero(r.fadeInSeconds);
+                    wReg.fadeOutSeconds = finiteOrZero(r.fadeOutSeconds);
+                    wReg.fadeInCurve = finiteOrZero(r.fadeInCurve);
+                    wReg.fadeOutCurve = finiteOrZero(r.fadeOutCurve);
+                    wReg.loop = r.loop;
+                    wReg.loopLengthSeconds = finiteOrZero(r.loopLengthSeconds);
                 }
-                o << "}";
+                wSong.regions.push_back(std::move(wReg));
             }
-            o << "],";
 
             if (wantSongsFull) {
-                o << "\"events\":[";
-                for (size_t j = 0; j < song.events.size(); ++j) {
-                    if (j) o << ",";
-                    const auto& e = song.events[j];
-                    o << "{\"id\":\"" << jsonEscape(e.id) << "\","
-                      << "\"type\":\"" << jsonEscape(e.type) << "\","
-                      << "\"timeSeconds\":" << finiteOrZero(e.timeSeconds) << ","
-                      << "\"triggerOnLoad\":" << (e.triggerOnLoad ? "true" : "false") << ","
-                      << "\"latencyMs\":" << finiteOrZero(e.latencyMs) << ","
-                      << "\"midiChannel\":" << e.midiChannel << ","
-                      << "\"midiProgram\":" << e.midiProgram << ","
-                      << "\"midiCC\":" << e.midiCC << ","
-                      << "\"midiCCValue\":" << e.midiCCValue << ","
-                      << "\"midiNote\":" << e.midiNote << ","
-                      << "\"midiVelocity\":" << e.midiVelocity << ","
-                      << "\"httpUrl\":\"" << jsonEscape(e.httpUrl) << "\"}";
+                wSong.events.reserve(song.events.size());
+                for (const auto& e : song.events) {
+                    WEventTelemetry wEv;
+                    wEv.id = e.id;
+                    wEv.type = e.type;
+                    wEv.timeSeconds = finiteOrZero(e.timeSeconds);
+                    wEv.triggerOnLoad = e.triggerOnLoad;
+                    wEv.latencyMs = finiteOrZero(e.latencyMs);
+                    wEv.midiChannel = e.midiChannel;
+                    wEv.midiProgram = e.midiProgram;
+                    wEv.midiCC = e.midiCC;
+                    wEv.midiCCValue = e.midiCCValue;
+                    wEv.midiNote = e.midiNote;
+                    wEv.midiVelocity = e.midiVelocity;
+                    wEv.httpUrl = e.httpUrl;
+                    wSong.events.push_back(std::move(wEv));
                 }
-                o << "],";
-            } else {
-                o << "\"events\":[],";
             }
 
-            // Sections always with songs (section hotkeys on every page).
-            o << "\"sections\":[";
-            for (size_t j = 0; j < song.sections.size(); ++j) {
-                if (j) o << ",";
-                const auto& sec = song.sections[j];
-                o << "{\"id\":\"" << jsonEscape(sec.id) << "\","
-                  << "\"name\":\"" << jsonEscape(sec.name) << "\","
-                  << "\"startSeconds\":" << finiteOrZero(sec.startSeconds) << ","
-                  << "\"colorIndex\":" << sec.colorIndex << "}";
+            wSong.sections.reserve(song.sections.size());
+            for (const auto& sec : song.sections) {
+                WSectionTelemetry wSec;
+                wSec.id = sec.id;
+                wSec.name = sec.name;
+                wSec.startSeconds = finiteOrZero(sec.startSeconds);
+                wSec.colorIndex = sec.colorIndex;
+                wSong.sections.push_back(std::move(wSec));
             }
-            o << "],";
 
-            // Light cues always with songs too -- small dataset, and the
-            // Player's Timeline needs them for its non-clickable audio-mode
-            // hint strip even though it never edits them (see RESTORE_POINT.md
-            // Feature 6).
-            o << "\"lightCues\":[";
-            for (size_t j = 0; j < song.lightCues.size(); ++j) {
-                if (j) o << ",";
-                const auto& lc = song.lightCues[j];
-                o << "{\"id\":\"" << jsonEscape(lc.id) << "\","
-                  << "\"trackId\":\"" << jsonEscape(lc.trackId) << "\","
-                  << "\"startSeconds\":" << finiteOrZero(lc.startSeconds) << ","
-                  << "\"durationSeconds\":" << finiteOrZero(lc.durationSeconds) << ","
-                  << "\"colorR\":" << lc.colorR << ","
-                  << "\"colorG\":" << lc.colorG << ","
-                  << "\"colorB\":" << lc.colorB << ","
-                  << "\"intensity\":" << finiteOrZero(lc.intensity) << ","
-                  << "\"fadeInSeconds\":" << finiteOrZero(lc.fadeInSeconds) << ","
-                  << "\"fadeOutSeconds\":" << finiteOrZero(lc.fadeOutSeconds) << ","
-                  << "\"label\":\"" << jsonEscape(lc.label) << "\","
-                  << "\"effectType\":\"" << jsonEscape(lc.effectType) << "\","
-                  << "\"effectSourceType\":\"" << jsonEscape(lc.effectSourceType) << "\","
-                  << "\"effectSourceId\":\"" << jsonEscape(lc.effectSourceId) << "\","
-                  << "\"effectIntensity\":" << finiteOrZero(lc.effectIntensity) << ","
-                  << "\"tempoSync\":" << (lc.tempoSync ? "true" : "false") << ","
-                  << "\"tempoSubdiv\":\"" << jsonEscape(lc.tempoSubdiv) << "\","
-                  << "\"effectRateHz\":" << finiteOrZero(lc.effectRateHz) << ","
-                  << "\"gradientPreset\":\"" << jsonEscape(lc.gradientPreset) << "\","
-                  << "\"gradientColors\":\"" << jsonEscape(lc.gradientColors) << "\","
-                  << "\"blendMode\":\"" << jsonEscape(lc.blendMode) << "\"}";
+            wSong.lightCues.reserve(song.lightCues.size());
+            for (const auto& lc : song.lightCues) {
+                WLightCueTelemetry wLc;
+                wLc.id = lc.id;
+                wLc.trackId = lc.trackId;
+                wLc.startSeconds = finiteOrZero(lc.startSeconds);
+                wLc.durationSeconds = finiteOrZero(lc.durationSeconds);
+                wLc.colorR = lc.colorR;
+                wLc.colorG = lc.colorG;
+                wLc.colorB = lc.colorB;
+                wLc.intensity = finiteOrZero(lc.intensity);
+                wLc.fadeInSeconds = finiteOrZero(lc.fadeInSeconds);
+                wLc.fadeOutSeconds = finiteOrZero(lc.fadeOutSeconds);
+                wLc.label = lc.label;
+                wLc.effectType = lc.effectType;
+                wLc.effectSourceType = lc.effectSourceType;
+                wLc.effectSourceId = lc.effectSourceId;
+                wLc.effectIntensity = finiteOrZero(lc.effectIntensity);
+                wLc.tempoSync = lc.tempoSync;
+                wLc.tempoSubdiv = lc.tempoSubdiv;
+                wLc.effectRateHz = finiteOrZero(lc.effectRateHz);
+                wLc.gradientPreset = lc.gradientPreset;
+                wLc.gradientColors = lc.gradientColors;
+                wLc.blendMode = lc.blendMode;
+                wSong.lightCues.push_back(std::move(wLc));
             }
-            o << "]}";
+
+            songVec.push_back(std::move(wSong));
         }
-        o << "]";
-    }
+        wire.songs = std::move(songVec);
 
-    // Project-wide cycle (always with songs so every client shares one zone).
-    if (wantSongs) {
-        o << ",\"cycle\":{"
-          << "\"active\":" << (snap.cycle.active ? "true" : "false") << ","
-          << "\"skip\":" << (snap.cycle.skip ? "true" : "false") << ","
-          << "\"leftSec\":" << finiteOrZero(snap.cycle.leftSec) << ","
-          << "\"rightSec\":" << finiteOrZero(snap.cycle.rightSec) << ","
-          << "\"songIndex\":" << snap.cycle.songIndex
-          << "}";
+        WCycleTelemetry cyc;
+        cyc.active = snap.cycle.active;
+        cyc.skip = snap.cycle.skip;
+        cyc.leftSec = finiteOrZero(snap.cycle.leftSec);
+        cyc.rightSec = finiteOrZero(snap.cycle.rightSec);
+        cyc.songIndex = snap.cycle.songIndex;
+        wire.cycle = cyc;
     }
 
     if (wantMeters) {
-        o << ",\"meters\":[";
-        for (size_t i = 0; i < snap.meters.size(); ++i) {
-            if (i) o << ",";
-            o << "{\"id\":\"" << jsonEscape(snap.meters[i].id) << "\","
-              << "\"peakDb\":" << finiteOrDbFloor(snap.meters[i].peakDb) << ","
-              << "\"peakDbL\":" << finiteOrDbFloor(snap.meters[i].peakDbL) << ","
-              << "\"peakDbR\":" << finiteOrDbFloor(snap.meters[i].peakDbR) << ","
-              << "\"shortTermLufs\":" << finiteOrZero(snap.meters[i].shortTermLufs) << "}";
+        std::vector<WMeterTelemetry> meterVec;
+        meterVec.reserve(snap.meters.size());
+        for (const auto& m : snap.meters) {
+            WMeterTelemetry wM;
+            wM.id = m.id;
+            wM.peakDb = finiteOrDbFloor(m.peakDb);
+            wM.peakDbL = finiteOrDbFloor(m.peakDbL);
+            wM.peakDbR = finiteOrDbFloor(m.peakDbR);
+            wM.shortTermLufs = finiteOrZero(m.shortTermLufs);
+            meterVec.push_back(std::move(wM));
         }
-        o << "]";
+        wire.meters = std::move(meterVec);
     }
 
     if (wantTracks) {
-        o << ",\"tracks\":[";
-        for (size_t i = 0; i < snap.tracks.size(); ++i) {
-            if (i) o << ",";
-            const auto& t = snap.tracks[i];
-            o << "{\"id\":\"" << jsonEscape(t.id) << "\","
-              << "\"name\":\"" << jsonEscape(t.name) << "\","
-              << "\"busId\":\"" << jsonEscape(t.busId) << "\","
-              << "\"gainDb\":" << finiteOrZero(t.gainDb) << ","
-              << "\"pan\":" << finiteOrZero(t.pan) << ","
-              << "\"mute\":" << (t.mute ? "true" : "false") << ","
-              << "\"solo\":" << (t.solo ? "true" : "false") << ","
-              << "\"mono\":" << (t.mono ? "true" : "false") << ","
-              << "\"sends\":[";
-            for (size_t si = 0; si < t.sends.size(); ++si) {
-                if (si) o << ",";
-                o << "{\"busId\":\"" << jsonEscape(t.sends[si].busId) << "\","
-                  << "\"gainDb\":" << finiteOrZero(t.sends[si].gainDb) << "}";
+        std::vector<WTrackTelemetry> trkVec;
+        trkVec.reserve(snap.tracks.size());
+        for (const auto& t : snap.tracks) {
+            WTrackTelemetry wT;
+            wT.id = t.id;
+            wT.name = t.name;
+            wT.busId = t.busId;
+            wT.gainDb = finiteOrZero(t.gainDb);
+            wT.pan = finiteOrZero(t.pan);
+            wT.mute = t.mute;
+            wT.solo = t.solo;
+            wT.mono = t.mono;
+            wT.sends.reserve(t.sends.size());
+            for (const auto& s : t.sends) {
+                WSendTelemetry wS;
+                wS.busId = s.busId;
+                wS.gainDb = finiteOrZero(s.gainDb);
+                wT.sends.push_back(std::move(wS));
             }
-            o << "],"
-              << "\"peakDb\":" << finiteOrDbFloor(t.peakDb) << ","
-              << "\"peakDbL\":" << finiteOrDbFloor(t.peakDbL) << ","
-              << "\"peakDbR\":" << finiteOrDbFloor(t.peakDbR) << "}";
+            wT.peakDb = finiteOrDbFloor(t.peakDb);
+            wT.peakDbL = finiteOrDbFloor(t.peakDbL);
+            wT.peakDbR = finiteOrDbFloor(t.peakDbR);
+            trkVec.push_back(std::move(wT));
         }
-        o << "]";
+        wire.tracks = std::move(trkVec);
     }
 
     if (wantBusses) {
-        o << ",\"busses\":[";
-        for (size_t i = 0; i < snap.busses.size(); ++i) {
-            if (i) o << ",";
-            const auto& b = snap.busses[i];
-            o << "{\"id\":\"" << jsonEscape(b.id) << "\","
-              << "\"name\":\"" << jsonEscape(b.name) << "\","
-              << "\"gainDb\":" << finiteOrZero(b.gainDb) << ","
-              << "\"pan\":" << finiteOrZero(b.pan) << ","
-              << "\"mute\":" << (b.mute ? "true" : "false") << ","
-              << "\"solo\":" << (b.solo ? "true" : "false") << ","
-              << "\"isAux\":" << (b.isAux ? "true" : "false") << ","
-              << "\"startChannel\":" << b.startChannel << ","
-              << "\"channels\":" << b.channels << ","
-              << "\"peakDb\":" << finiteOrDbFloor(b.peakDb) << ","
-              << "\"peakDbL\":" << finiteOrDbFloor(b.peakDbL) << ","
-              << "\"peakDbR\":" << finiteOrDbFloor(b.peakDbR) << "}";
+        std::vector<WBusTelemetry> busVec;
+        busVec.reserve(snap.busses.size());
+        for (const auto& b : snap.busses) {
+            WBusTelemetry wB;
+            wB.id = b.id;
+            wB.name = b.name;
+            wB.gainDb = finiteOrZero(b.gainDb);
+            wB.pan = finiteOrZero(b.pan);
+            wB.mute = b.mute;
+            wB.solo = b.solo;
+            wB.isAux = b.isAux;
+            wB.startChannel = b.startChannel;
+            wB.channels = b.channels;
+            wB.peakDb = finiteOrDbFloor(b.peakDb);
+            wB.peakDbL = finiteOrDbFloor(b.peakDbL);
+            wB.peakDbR = finiteOrDbFloor(b.peakDbR);
+            busVec.push_back(std::move(wB));
         }
-        o << "]";
+        wire.busses = std::move(busVec);
     }
 
-    // Lighting config + fixture roster -- always shipped, tiny like the
-    // settings device/MIDI lists (a handful of fixtures at most), and needed
-    // by the Settings project card, the Editor's Light-mode timeline, and
-    // Player's non-clickable light hint strip alike.
-    {
-        const auto& li = snap.lighting;
-        o << ",\"lighting\":{"
-          << "\"enabled\":" << (li.enabled ? "true" : "false") << ","
-          << "\"kind\":\"" << jsonEscape(li.kind) << "\","
-          << "\"resoLightColumns\":" << li.resoLightColumns << ","
-          << "\"resoLightRows\":" << li.resoLightRows << ","
-          << "\"idleBehavior\":\"" << jsonEscape(li.idleBehavior) << "\","
-          << "\"idleColorR\":" << li.idleColorR << ","
-          << "\"idleColorG\":" << li.idleColorG << ","
-          << "\"idleColorB\":" << li.idleColorB << ","
-          << "\"idleIntensity\":" << finiteOrZero(li.idleIntensity) << ","
-          << "\"idleEffectType\":\"" << jsonEscape(li.idleEffectType) << "\","
-          << "\"idleEffectRateHz\":" << finiteOrZero(li.idleEffectRateHz) << ","
-          << "\"idleGradientPreset\":\"" << jsonEscape(li.idleGradientPreset) << "\","
-          << "\"idleGradientColors\":\"" << jsonEscape(li.idleGradientColors) << "\","
-          << "\"defaultRefreshRateHz\":" << finiteOrZero(li.defaultRefreshRateHz) << ","
-          << "\"fixtures\":[";
-        for (size_t i = 0; i < li.fixtures.size(); ++i) {
-            if (i) o << ",";
-            const auto& f = li.fixtures[i];
-            o << "{\"id\":\"" << jsonEscape(f.id) << "\","
-              << "\"name\":\"" << jsonEscape(f.name) << "\","
-              << "\"kind\":\"" << jsonEscape(f.kind) << "\","
-              << "\"gridColumn\":" << f.gridColumn << ","
-              << "\"gridRow\":" << f.gridRow << ","
-              << "\"ledCount\":" << f.ledCount << ","
-              << "\"addressable\":" << (f.addressable ? "true" : "false") << ","
-              << "\"posX\":" << finiteOrZero(f.posX) << ","
-              << "\"posY\":" << finiteOrZero(f.posY) << ","
-              << "\"posZ\":" << finiteOrZero(f.posZ) << ","
-              << "\"rotationYDeg\":" << finiteOrZero(f.rotationYDeg) << ","
-              << "\"mountedHorizontally\":" << (f.mountedHorizontally ? "true" : "false") << ","
-              << "\"dmxUniverse\":" << f.dmxUniverse << ","
-              << "\"dmxStartChannel\":" << f.dmxStartChannel << ","
-              << "\"dmxChannelCount\":" << f.dmxChannelCount << ","
-              << "\"shape\":\"" << jsonEscape(f.shape) << "\","
-              << "\"matrixCols\":" << f.matrixCols << ","
-              << "\"channelProfile\":\"" << jsonEscape(f.channelProfile) << "\","
-              << "\"tiltDeg\":" << finiteOrZero(f.tiltDeg) << ","
-              << "\"refreshRateHz\":" << finiteOrZero(f.refreshRateHz) << ","
-              << "\"networkHost\":\"" << jsonEscape(f.networkHost) << "\","
-              << "\"hwConfigured\":" << (f.hwConfigured ? "true" : "false") << ","
-              << "\"hwConnected\":" << (f.hwConnected ? "true" : "false") << ","
-              << "\"hwRssiDbm\":" << f.hwRssiDbm << ","
-              << "\"hwChipType\":\"" << jsonEscape(f.hwChipType) << "\"}";
-        }
-        o << "],\"artNetTargetHost\":\"" << jsonEscape(li.artNetTargetHost) << "\","
-          << "\"discoveredBoards\":[";
-        for (size_t bi = 0; bi < li.discoveredBoards.size(); ++bi) {
-            if (bi) o << ",";
-            const auto& b = li.discoveredBoards[bi];
-            o << "{\"mac\":\"" << jsonEscape(b.mac) << "\","
-              << "\"ip\":\"" << jsonEscape(b.ip) << "\","
-              << "\"name\":\"" << jsonEscape(b.name) << "\","
-              << "\"chipType\":\"" << jsonEscape(b.chipType) << "\","
-              << "\"lastSeenSecondsAgo\":" << finiteOrZero(b.lastSeenSecondsAgo) << "}";
-        }
-        o << "]}";
+    const auto& li = snap.lighting;
+    wire.lighting.enabled = li.enabled;
+    wire.lighting.kind = li.kind;
+    wire.lighting.resoLightColumns = li.resoLightColumns;
+    wire.lighting.resoLightRows = li.resoLightRows;
+    wire.lighting.idleBehavior = li.idleBehavior;
+    wire.lighting.idleColorR = li.idleColorR;
+    wire.lighting.idleColorG = li.idleColorG;
+    wire.lighting.idleColorB = li.idleColorB;
+    wire.lighting.idleIntensity = finiteOrZero(li.idleIntensity);
+    wire.lighting.idleEffectType = li.idleEffectType;
+    wire.lighting.idleEffectRateHz = finiteOrZero(li.idleEffectRateHz);
+    wire.lighting.idleGradientPreset = li.idleGradientPreset;
+    wire.lighting.idleGradientColors = li.idleGradientColors;
+    wire.lighting.defaultRefreshRateHz = finiteOrZero(li.defaultRefreshRateHz);
+    wire.lighting.artNetTargetHost = li.artNetTargetHost;
 
-        o << ",\"lightTracks\":[";
-        for (size_t i = 0; i < snap.lightTracks.size(); ++i) {
-            if (i) o << ",";
-            const auto& lt = snap.lightTracks[i];
-            o << "{\"id\":\"" << jsonEscape(lt.id) << "\","
-              << "\"name\":\"" << jsonEscape(lt.name) << "\","
-              << "\"fixtureIds\":[";
-            for (size_t fi = 0; fi < lt.fixtureIds.size(); ++fi) {
-                if (fi) o << ",";
-                o << "\"" << jsonEscape(lt.fixtureIds[fi]) << "\"";
-            }
-            o << "]}";
-        }
-        o << "]";
+    wire.lighting.fixtures.reserve(li.fixtures.size());
+    for (const auto& f : li.fixtures) {
+        WFixtureTelemetry wF;
+        wF.id = f.id;
+        wF.name = f.name;
+        wF.kind = f.kind;
+        wF.gridColumn = f.gridColumn;
+        wF.gridRow = f.gridRow;
+        wF.ledCount = f.ledCount;
+        wF.addressable = f.addressable;
+        wF.posX = finiteOrZero(f.posX);
+        wF.posY = finiteOrZero(f.posY);
+        wF.posZ = finiteOrZero(f.posZ);
+        wF.rotationYDeg = finiteOrZero(f.rotationYDeg);
+        wF.mountedHorizontally = f.mountedHorizontally;
+        wF.dmxUniverse = f.dmxUniverse;
+        wF.dmxStartChannel = f.dmxStartChannel;
+        wF.dmxChannelCount = f.dmxChannelCount;
+        wF.shape = f.shape;
+        wF.matrixCols = f.matrixCols;
+        wF.channelProfile = f.channelProfile;
+        wF.tiltDeg = finiteOrZero(f.tiltDeg);
+        wF.refreshRateHz = finiteOrZero(f.refreshRateHz);
+        wF.networkHost = f.networkHost;
+        wF.hwConfigured = f.hwConfigured;
+        wF.hwConnected = f.hwConnected;
+        wF.hwRssiDbm = f.hwRssiDbm;
+        wF.hwChipType = f.hwChipType;
+        wire.lighting.fixtures.push_back(std::move(wF));
+    }
+
+    wire.lighting.discoveredBoards.reserve(li.discoveredBoards.size());
+    for (const auto& b : li.discoveredBoards) {
+        WDiscoveredBoardTelemetry wB;
+        wB.mac = b.mac;
+        wB.ip = b.ip;
+        wB.name = b.name;
+        wB.chipType = b.chipType;
+        wB.lastSeenSecondsAgo = finiteOrZero(b.lastSeenSecondsAgo);
+        wire.lighting.discoveredBoards.push_back(std::move(wB));
+    }
+
+    wire.lightTracks.reserve(snap.lightTracks.size());
+    for (const auto& lt : snap.lightTracks) {
+        WLightTrackTelemetry wLt;
+        wLt.id = lt.id;
+        wLt.name = lt.name;
+        wLt.fixtureIds = lt.fixtureIds;
+        wire.lightTracks.push_back(std::move(wLt));
     }
 
     if (wantHealth) {
-        o << ",\"health\":{"
-          << "\"cpuPercent\":" << finiteOrZero(snap.cpuPercent) << ","
-          << "\"rssBytes\":" << snap.rssBytes << ","
-          << "\"freeBytes\":" << snap.freeBytes << ","
-          << "\"underrunCount\":" << snap.underrunCount << ","
-          << "\"audioCallbackCount\":" << snap.audioCallbackCount << ","
-          << "\"webClientCount\":" << snap.webClientCount << ","
-          << "\"processes\":[";
+        WHealthTelemetry wH;
+        wH.cpuPercent = finiteOrZero(snap.cpuPercent);
+        wH.rssBytes = snap.rssBytes;
+        wH.freeBytes = snap.freeBytes;
+        wH.underrunCount = snap.underrunCount;
+        wH.audioCallbackCount = snap.audioCallbackCount;
+        wH.webClientCount = snap.webClientCount;
         if (wantHealthProcs) {
-            for (size_t i = 0; i < snap.processes.size(); ++i) {
-                if (i) o << ",";
-                const auto& p = snap.processes[i];
-                o << "{\"pid\":" << p.pid
-                  << ",\"name\":\"" << jsonEscape(p.name) << "\""
-                  << ",\"rssBytes\":" << p.rssBytes
-                  << ",\"cpuPercent\":" << finiteOrZero(p.cpuPercent) << "}";
+            wH.processes.reserve(snap.processes.size());
+            for (const auto& p : snap.processes) {
+                WProcessTelemetry wP;
+                wP.pid = p.pid;
+                wP.name = p.name;
+                wP.rssBytes = p.rssBytes;
+                wP.cpuPercent = finiteOrZero(p.cpuPercent);
+                wH.processes.push_back(std::move(wP));
             }
         }
-        o << "]}";
+        wire.health = std::move(wH);
     }
 
-    // Settings: always ship keybindings (global hotkeys). Full device/MIDI
-    // lists only on settings (and mixer, for channel routing labels).
     const auto& s = snap.settings;
-    o << ",\"settings\":{";
     if (wantSettingsFull) {
-        o << "\"currentOutputDevice\":\"" << jsonEscape(s.currentOutputDevice) << "\","
-          << "\"outputDevices\":[";
-        for (size_t i = 0; i < s.outputDevices.size(); ++i) {
-            if (i) o << ",";
-            o << "\"" << jsonEscape(s.outputDevices[i]) << "\"";
-        }
-        o << "],"
-          << "\"sampleRate\":" << finiteOrZero(s.sampleRate) << ","
-          << "\"availableSampleRates\":[";
-        for (size_t i = 0; i < s.availableSampleRates.size(); ++i) {
-            if (i) o << ",";
-            o << finiteOrZero(s.availableSampleRates[i]);
-        }
-        o << "],"
-          << "\"bufferSize\":" << s.bufferSize << ","
-          << "\"availableBufferSizes\":[";
-        for (size_t i = 0; i < s.availableBufferSizes.size(); ++i) {
-            if (i) o << ",";
-            o << s.availableBufferSizes[i];
-        }
-        o << "],"
-          << "\"outputChannelNames\":[";
-        for (size_t i = 0; i < s.outputChannelNames.size(); ++i) {
-            if (i) o << ",";
-            o << "\"" << jsonEscape(s.outputChannelNames[i]) << "\"";
-        }
-        o << "],"
-          << "\"activeOutputChannels\":[";
-        for (size_t i = 0; i < s.activeOutputChannels.size(); ++i) {
-            if (i) o << ",";
-            o << (s.activeOutputChannels[i] ? "true" : "false");
-        }
-        o << "],"
-          << "\"midiOutputs\":[";
-        for (size_t i = 0; i < s.midiOutputs.size(); ++i) {
-            if (i) o << ",";
-            o << "\"" << jsonEscape(s.midiOutputs[i]) << "\"";
-        }
-        o << "],"
-          << "\"midiInputs\":[";
-        for (size_t i = 0; i < s.midiInputs.size(); ++i) {
-            if (i) o << ",";
-            o << "\"" << jsonEscape(s.midiInputs[i]) << "\"";
-        }
-        o << "],"
-          << "\"virtualMidiPortEnabled\":" << (s.virtualMidiPortEnabled ? "true" : "false") << ","
-          << "\"uiRenderEngine\":\"" << jsonEscape(s.uiRenderEngine) << "\",";
-    }
-    o << "\"keybindings\":[";
-    for (size_t i = 0; i < s.keybindings.size(); ++i) {
-        if (i) o << ",";
-        o << "{\"action\":\"" << jsonEscape(s.keybindings[i].action) << "\","
-          << "\"key\":\"" << jsonEscape(s.keybindings[i].key) << "\"}";
-    }
-    o << "],\"recentProjects\":[";
-    for (size_t i = 0; i < s.recentProjects.size(); ++i) {
-        if (i) o << ",";
-        o << "{\"path\":\"" << jsonEscape(s.recentProjects[i].path) << "\","
-          << "\"displayName\":\"" << jsonEscape(s.recentProjects[i].displayName) << "\","
-          << "\"lastOpenedIso\":\"" << jsonEscape(s.recentProjects[i].lastOpenedIso) << "\"}";
-    }
-    o << "],\"midiBindings\":[";
-    if (isSettings || all) {
-        for (size_t i = 0; i < s.midiBindings.size(); ++i) {
-            if (i) o << ",";
-            o << "{\"action\":\"" << jsonEscape(s.midiBindings[i].action) << "\","
-              << "\"trigger\":\"" << jsonEscape(s.midiBindings[i].trigger) << "\","
-              << "\"channel\":" << s.midiBindings[i].channel << ","
-              << "\"number\":" << s.midiBindings[i].number << "}";
-        }
-    }
-    o << "],\"midiLearnAction\":\"" << jsonEscape(s.midiLearnAction) << "\""
-      << "}"
-      << "}";
+        wire.settings.currentOutputDevice = s.currentOutputDevice;
+        wire.settings.outputDevices = s.outputDevices;
+        wire.settings.sampleRate = finiteOrZero(s.sampleRate);
 
-    return o.str();
+        std::vector<double> srVec;
+        srVec.reserve(s.availableSampleRates.size());
+        for (double sr : s.availableSampleRates)
+            srVec.push_back(finiteOrZero(sr));
+        wire.settings.availableSampleRates = std::move(srVec);
+
+        wire.settings.bufferSize = s.bufferSize;
+        wire.settings.availableBufferSizes = s.availableBufferSizes;
+        wire.settings.outputChannelNames = s.outputChannelNames;
+
+        std::vector<bool> chVec;
+        chVec.reserve(s.activeOutputChannels.size());
+        for (bool active : s.activeOutputChannels)
+            chVec.push_back(active);
+        wire.settings.activeOutputChannels = std::move(chVec);
+
+        wire.settings.midiOutputs = s.midiOutputs;
+        wire.settings.midiInputs = s.midiInputs;
+        wire.settings.virtualMidiPortEnabled = s.virtualMidiPortEnabled;
+        wire.settings.uiRenderEngine = s.uiRenderEngine;
+    }
+
+    wire.settings.keybindings.reserve(s.keybindings.size());
+    for (const auto& kb : s.keybindings) {
+        WKeybindingTelemetry wKb;
+        wKb.action = kb.action;
+        wKb.key = kb.key;
+        wire.settings.keybindings.push_back(std::move(wKb));
+    }
+
+    wire.settings.recentProjects.reserve(s.recentProjects.size());
+    for (const auto& rp : s.recentProjects) {
+        WRecentProjectTelemetry wRp;
+        wRp.path = rp.path;
+        wRp.displayName = rp.displayName;
+        wRp.lastOpenedIso = rp.lastOpenedIso;
+        wire.settings.recentProjects.push_back(std::move(wRp));
+    }
+
+    if (isSettings || all) {
+        wire.settings.midiBindings.reserve(s.midiBindings.size());
+        for (const auto& mb : s.midiBindings) {
+            WMidiBindingTelemetry wMb;
+            wMb.action = mb.action;
+            wMb.trigger = mb.trigger;
+            wMb.channel = mb.channel;
+            wMb.number = mb.number;
+            wire.settings.midiBindings.push_back(std::move(wMb));
+        }
+    }
+
+    wire.settings.midiLearnAction = s.midiLearnAction;
+
+    std::string json;
+    (void)glz::write_json(wire, json);
+    return json;
 }
 
 bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* method,
@@ -1887,69 +1819,74 @@ int WebServer::serveAllPeaks(struct lws* wsi) {
 // NSMenu). Not drawn by Core. Keybindings + recent projects ride along for
 // dynamic accelerators and File > Open Recent.
 std::string WebServer::buildMenuModelJson() const {
-    std::ostringstream o;
-    o << "{\"menus\":[";
+    WMenuModelPayload wire;
     const auto& menus = menuModel();
-    for (size_t mi = 0; mi < menus.size(); ++mi) {
-        if (mi) o << ",";
-        o << "{\"title\":\"" << jsonEscape(menus[mi].title) << "\",\"items\":[";
-        const auto& items = menus[mi].items;
-        for (size_t ii = 0; ii < items.size(); ++ii) {
-            if (ii) o << ",";
-            const auto& it = items[ii];
-            switch (it.kind) {
+    wire.menus.reserve(menus.size());
+
+    for (const auto& menu : menus) {
+        WMenu wMenu;
+        wMenu.title = menu.title;
+        wMenu.items.reserve(menu.items.size());
+
+        for (const auto& item : menu.items) {
+            WMenuItem wItem;
+            switch (item.kind) {
             case MenuItemModel::Kind::Separator:
-                o << "{\"separator\":true}";
-                continue;
+                wItem.separator = true;
+                break;
             case MenuItemModel::Kind::OpenRecent:
-                o << "{\"kind\":\"open-recent\",\"title\":\"" << jsonEscape(it.title) << "\"}";
-                continue;
+                wItem.kind = "open-recent";
+                wItem.title = item.title;
+                break;
             case MenuItemModel::Kind::Item:
+                wItem.title = item.title;
+                if (!item.role.empty()) {
+                    wItem.role = item.role;
+                } else {
+                    wItem.actionId = item.actionId;
+                    if (item.dynamicKey)
+                        wItem.dynamicKey = true;
+                    else if (!item.key.empty())
+                        wItem.key = item.key;
+                }
                 break;
             }
-            o << "{\"title\":\"" << jsonEscape(it.title) << "\"";
-            if (!it.role.empty()) {
-                o << ",\"role\":\"" << jsonEscape(it.role) << "\"";
-            } else {
-                o << ",\"actionId\":\"" << jsonEscape(it.actionId) << "\"";
-                if (it.dynamicKey)
-                    o << ",\"dynamicKey\":true";
-                else if (!it.key.empty())
-                    o << ",\"key\":\"" << jsonEscape(it.key) << "\"";
-            }
-            o << "}";
+            wMenu.items.push_back(std::move(wItem));
         }
-        o << "]}";
+        wire.menus.push_back(std::move(wMenu));
     }
-    o << "],\"touchbar\":[";
+
     const auto& tabs = touchBarTabs();
-    for (size_t i = 0; i < tabs.size(); ++i) {
-        if (i) o << ",";
-        o << "{\"id\":\"" << jsonEscape(tabs[i].id) << "\",\"label\":\""
-          << jsonEscape(tabs[i].label) << "\"}";
+    wire.touchbar.reserve(tabs.size());
+    for (const auto& tab : tabs) {
+        WTouchBarTab wTab;
+        wTab.id = tab.id;
+        wTab.label = tab.label;
+        wire.touchbar.push_back(std::move(wTab));
     }
-    o << "],\"keybindings\":{";
+
     WebUiState snap;
     {
         std::lock_guard<std::mutex> lock(stateMutex);
         snap = state;
     }
-    bool kFirst = true;
+
     for (const auto& kb : snap.settings.keybindings) {
-        if (!kFirst) o << ",";
-        kFirst = false;
-        o << "\"" << jsonEscape(kb.action) << "\":\"" << jsonEscape(kb.key) << "\"";
+        wire.keybindings[kb.action] = kb.key;
     }
-    o << "},\"recentProjects\":[";
-    for (size_t i = 0; i < snap.settings.recentProjects.size(); ++i) {
-        if (i) o << ",";
-        const auto& rp = snap.settings.recentProjects[i];
-        o << "{\"path\":\"" << jsonEscape(rp.path) << "\",\"displayName\":\""
-          << jsonEscape(rp.displayName) << "\",\"lastOpenedIso\":\""
-          << jsonEscape(rp.lastOpenedIso) << "\"}";
+
+    wire.recentProjects.reserve(snap.settings.recentProjects.size());
+    for (const auto& rp : snap.settings.recentProjects) {
+        WRecentProjectTelemetry wRp;
+        wRp.path = rp.path;
+        wRp.displayName = rp.displayName;
+        wRp.lastOpenedIso = rp.lastOpenedIso;
+        wire.recentProjects.push_back(std::move(wRp));
     }
-    o << "]}";
-    return o.str();
+
+    std::string json;
+    (void)glz::write_json(wire, json);
+    return json;
 }
 
 int WebServer::serveUiMenu(struct lws* wsi) {
@@ -2043,22 +1980,19 @@ int WebServer::serveWaveformRaw(struct lws* wsi, const char* queryArgs) {
         ptrs[static_cast<size_t>(c)] = planar[static_cast<size_t>(c)].data();
     const int64_t gotFrames = decoder.decodeFrames(readFn, ptrs.data(), framesWanted);
 
-    std::ostringstream o;
-    o.setf(std::ios::fixed);
-    o.precision(5);
-    o << "{\"sampleRate\":" << sr << ",\"startSec\":" << (static_cast<double>(startFrame) / sr)
-      << ",\"samples\":[";
+    WWaveformRawPayload wire;
+    wire.sampleRate = sr;
+    wire.startSec = static_cast<double>(startFrame) / sr;
+    wire.samples.reserve(static_cast<size_t>(gotFrames));
     for (int64_t i = 0; i < gotFrames; ++i) {
-        if (i)
-            o << ",";
         float mixed = 0.0f;
         for (int c = 0; c < numChannels; ++c)
             mixed += planar[static_cast<size_t>(c)][static_cast<size_t>(i)];
         mixed /= static_cast<float>(numChannels);
-        o << mixed;
+        wire.samples.push_back(mixed);
     }
-    o << "]}";
-    const std::string json = o.str();
+    std::string json;
+    (void)glz::write_json(wire, json);
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
@@ -2070,9 +2004,11 @@ int WebServer::serveExportStatus(struct lws* wsi) {
         ready = exportReady;
         name = exportFileName;
     }
-    std::ostringstream o;
-    o << "{\"ready\":" << (ready ? "true" : "false") << ",\"fileName\":\"" << jsonEscape(name) << "\"}";
-    const std::string json = o.str();
+    WExportStatusPayload wire;
+    wire.ready = ready;
+    wire.fileName = std::move(name);
+    std::string json;
+    (void)glz::write_json(wire, json);
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
