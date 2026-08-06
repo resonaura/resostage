@@ -1418,12 +1418,10 @@ std::string WebServer::buildStateJson(const char* view) const {
               << "\"solo\":" << (t.solo ? "true" : "false") << ","
               << "\"mono\":" << (t.mono ? "true" : "false") << ","
               << "\"sends\":[";
-            if (isMixer || all) {
-                for (size_t si = 0; si < t.sends.size(); ++si) {
-                    if (si) o << ",";
-                    o << "{\"busId\":\"" << jsonEscape(t.sends[si].busId) << "\","
-                      << "\"gainDb\":" << finiteOrZero(t.sends[si].gainDb) << "}";
-                }
+            for (size_t si = 0; si < t.sends.size(); ++si) {
+                if (si) o << ",";
+                o << "{\"busId\":\"" << jsonEscape(t.sends[si].busId) << "\","
+                  << "\"gainDb\":" << finiteOrZero(t.sends[si].gainDb) << "}";
             }
             o << "],"
               << "\"peakDb\":" << finiteOrDbFloor(t.peakDb) << ","

@@ -352,7 +352,7 @@ function readBusMeterMode(): BusMeterMode {
   } catch {
     /* private mode */
   }
-  return "bars";
+  return "vu";
 }
 
 function BusMetersPanel({ state }: { state: WebUiState }) {
@@ -402,7 +402,7 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
             onPress={() => setMode("bars")}
             className="!h-6 !min-h-0 !px-2 text-[10px]"
           >
-            Bus
+            Simple
           </Button>
           <Button
             size="sm"
@@ -431,7 +431,12 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
                 key={g.id}
                 className="flex h-full w-[176px] shrink-0 items-center"
               >
-                <VUMeter name={g.name} db={db} getDb={vuGetterFor(g)} />
+                <VUMeter
+                  name={g.name}
+                  db={db}
+                  getDb={vuGetterFor(g)}
+                  color={g.accent}
+                />
               </div>
             );
           })}

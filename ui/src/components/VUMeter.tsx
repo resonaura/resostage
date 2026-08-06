@@ -39,10 +39,22 @@ function dbToRotation(db: number): number {
 
 const SVG_BACKGROUND = `data:image/svg+xml;utf8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 600">
-  <rect x="0.5" y="0.5" width="1077" height="633" fill="#121214"/>
-  <path d="m 657,277.24518 c 85.60879,8.87328 173.21481,25.29511 295.97922,75.9692" fill="none" stroke="#ff3b30" stroke-width="15"/>
-  <path d="m 126.01626,357.7731 c 161.49448,-60.14366 315.01211,-98.096 531.2366,-81.4418" fill="none" stroke="#2a2a2e" stroke-width="15"/>
-  <g fill="none" stroke="#cccccc" stroke-width="8">
+  <defs>
+    <filter id="redGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feComponentTransfer in="blur" result="brightBlur">
+        <feFuncA type="linear" slope="0.4"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="brightBlur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <rect x="0.5" y="0.5" width="1077" height="598" rx="36" ry="36" fill="#000"/>
+  <path d="m 657,277.24518 c 85.60879,8.87328 173.21481,25.29511 295.97922,75.9692" fill="none" stroke="#ff3b30" stroke-width="15" filter="url(#redGlow)"/>
+  <path d="m 126.01626,357.7731 c 161.49448,-60.14366 315.01211,-98.096 531.2366,-81.4418" fill="none" stroke="#ccc" stroke-width="15"/>
+  <g fill="none" stroke="#ccc" stroke-width="8">
     <path d="m 210.72277,271.30126 34.37058,47.77511" />
     <path d="m 285.65064,249.6478 27.49646,52.24328" />
     <path d="m 365.73409,233.49363 18.56011,52.93069" />
@@ -50,13 +62,12 @@ const SVG_BACKGROUND = `data:image/svg+xml;utf8,${encodeURIComponent(`
     <path d="m 544.1174,217.33945 -0.68741,53.96181" />
     <path d="m 620.76379,220.0891 -8.59264,53.2744" />
   </g>
-  <path d="m 669.22631,226.96322 -14.43565,56.36775" fill="none" stroke="#ff3b30" stroke-width="8"/>
-  <path d="m 777.83734,243.8048 -24.40311,48.80622" fill="none" stroke="#ff3b30" stroke-width="8"/>
-  <path d="m 864.4512,318.73266 34.37058,-43.65063" fill="none" stroke="#ff3b30" stroke-width="8"/>
-  <g fill="#cccccc" font-family="sans-serif" font-size="40">
-    <text x="902.58594" y="255.49496">5</text>
-    <text x="775.54688" y="218.96762">3</text>
-    <text x="663.13672" y="202.96762">0</text>
+  <g fill="none" stroke="#ff3b30" stroke-width="8" filter="url(#redGlow)">
+    <path d="m 669.22631,226.96322 -14.43565,56.36775" />
+    <path d="m 777.83734,243.8048 -24.40311,48.80622" />
+    <path d="m 864.4512,318.73266 34.37058,-43.65063" />
+  </g>
+  <g fill="#ccc" font-family="sans-serif" font-size="40">
     <text x="612.89453" y="196.49496">1</text>
     <text x="530.54688" y="194.96762">3</text>
     <text x="439.58594" y="202.49496">5</text>
@@ -64,9 +75,16 @@ const SVG_BACKGROUND = `data:image/svg+xml;utf8,${encodeURIComponent(`
     <text x="251.89453" y="221.96762">10</text>
     <text x="160.42969" y="243.96762">20</text>
   </g>
+  <g fill="#ff3b30" font-family="sans-serif" font-size="40" font-weight="bold" filter="url(#redGlow)">
+    <text x="902.58594" y="255.49496">5</text>
+    <text x="775.54688" y="218.96762">3</text>
+    <text x="663.13672" y="202.96762">0</text>
+  </g>
   <text x="492.73926" y="393.86093" font-family="sans-serif" font-size="50" font-weight="900" fill="#cccccc">VU</text>
   <g fill="none" stroke="#fff" stroke-width="5">
     <path d="m 82,292 45.3061,0" />
+  </g>
+  <g fill="none" stroke="#ff3b30" stroke-width="5" filter="url(#redGlow)">
     <path d="m 948.30743,285.82189 45.3061,0" />
     <path d="m 970.96048,263.16884 0,45.3061" />
   </g>
@@ -77,10 +95,12 @@ export function VUMeter({
   name,
   db,
   getDb,
+  color,
 }: {
   name: string;
   db: number;
   getDb?: () => number;
+  color?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
@@ -212,8 +232,14 @@ export function VUMeter({
   return (
     <div className="relative block h-full w-full select-none">
       <canvas ref={canvasRef} className="block h-full w-full" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0.5 flex justify-center">
-        <span className="truncate px-1 text-[9px] font-semibold tracking-widest text-foreground/70 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0.5 flex items-center justify-center gap-1.5 px-2">
+        {color && (
+          <span
+            className="h-2 w-2 rounded-full shrink-0 shadow-[0_0_4px_rgba(0,0,0,0.6)]"
+            style={{ backgroundColor: color }}
+          />
+        )}
+        <span className="truncate text-[9px] font-bold tracking-widest text-foreground/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
           {name}
         </span>
       </div>

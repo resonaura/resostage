@@ -64,6 +64,7 @@ export function SendKnobs({
               {bus.name || bus.id}
             </span>
             <SendArcKnob
+              key={bus.id}
               value={value}
               min={SEND_FLOOR_DB}
               max={6}

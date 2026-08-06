@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Floor for a send knob that hasn't been touched yet -- matches native
@@ -31,7 +31,9 @@ export function SendArcKnob({
   onContextMenu?: (e: React.MouseEvent) => void;
   size?: number;
 }) {
-  const [localValue, setLocalValue] = useState(value);
+  const roundValue = (v: number) => Math.round(v * 10) / 10;
+
+  const [localValue, setLocalValue] = useState(() => roundValue(value));
   const dragging = useRef(false);
   const startY = useRef(0);
   const startValue = useRef(0);
@@ -39,14 +41,15 @@ export function SendArcKnob({
   const pendingCommit = useRef<number | null>(null);
   const lastEditTime = useRef(0);
 
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
   // Sync external value when not dragging and optimistic lock window (500ms) has expired
-  if (
-    !dragging.current &&
-    Date.now() - lastEditTime.current > 500 &&
-    localValue !== value
-  ) {
-    setLocalValue(value);
-  }
+  useEffect(() => {
+    if (!dragging.current && Date.now() - lastEditTime.current > 500) {
+      setLocalValue(roundValue(value));
+    }
+  }, [value]);
 
   const norm = Math.max(0, Math.min(1, (localValue - min) / (max - min)));
   const radius = 9;
@@ -61,7 +64,7 @@ export function SendArcKnob({
       rafId.current = requestAnimationFrame(() => {
         rafId.current = null;
         if (pendingCommit.current != null) {
-          onChange(pendingCommit.current);
+          onChangeRef.current(pendingCommit.current);
           pendingCommit.current = null;
         }
       });
@@ -73,22 +76,24 @@ export function SendArcKnob({
     lastEditTime.current = Date.now();
     startY.current = e.clientY;
     startValue.current = localValue;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
     e.preventDefault();
   };
+
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging.current) return;
     lastEditTime.current = Date.now();
     const dy = startY.current - e.clientY;
     const range = max - min;
-    const next = Math.max(
-      min,
-      Math.min(max, startValue.current + (dy / 120) * range),
-    );
+    const rawNext = startValue.current + (dy / 120) * range;
+    const next = roundValue(Math.max(min, Math.min(max, rawNext)));
     setLocalValue(next);
     scheduleCommit(next);
   };
-  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging.current) return;
     dragging.current = false;
     lastEditTime.current = Date.now();
@@ -97,10 +102,14 @@ export function SendArcKnob({
       rafId.current = null;
     }
     if (pendingCommit.current != null) {
-      onChange(pendingCommit.current);
+      onChangeRef.current(pendingCommit.current);
       pendingCommit.current = null;
     }
-    e.currentTarget.releasePointerCapture(e.pointerId);
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {}
   };
 
   return (
@@ -109,19 +118,26 @@ export function SendArcKnob({
       title={title}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
       onContextMenu={onContextMenu}
       onDoubleClick={() => {
-        setLocalValue(min);
-        onChange(min);
+        lastEditTime.current = Date.now();
+        const resetVal = roundValue(min);
+        setLocalValue(resetVal);
+        onChangeRef.current(resetVal);
       }}
       onWheel={(e) => {
         e.preventDefault();
+        lastEditTime.current = Date.now();
         const delta = e.deltaY < 0 ? 1 : -1;
         const step = (max - min) / 40;
-        const newVal = Math.max(min, Math.min(max, localValue + delta * step));
+        const newVal = roundValue(
+          Math.max(min, Math.min(max, localValue + delta * step)),
+        );
         setLocalValue(newVal);
-        onChange(newVal);
+        onChangeRef.current(newVal);
       }}
     >
       {/*
@@ -166,3 +182,4 @@ export function SendArcKnob({
     </div>
   );
 }
+

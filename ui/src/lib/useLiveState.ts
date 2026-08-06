@@ -26,7 +26,18 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
     ...next,
     songs: next.songs ?? prev.songs,
     meters: next.meters ?? prev.meters,
-    tracks: next.tracks ?? prev.tracks,
+    tracks: next.tracks
+      ? next.tracks.map((nt) => {
+          const pt = prev.tracks.find((t) => t.id === nt.id);
+          return {
+            ...nt,
+            sends:
+              nt.sends && nt.sends.length > 0
+                ? nt.sends
+                : (pt?.sends ?? nt.sends ?? []),
+          };
+        })
+      : prev.tracks,
     busses: next.busses ?? prev.busses,
     health: next.health
       ? {
