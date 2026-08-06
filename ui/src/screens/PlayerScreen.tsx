@@ -17,7 +17,9 @@ import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
 import type {
   AllPeaksResponse,
+  BusRow,
   ClickSendRow,
+  MeterRow,
   PeaksResponse,
   WebUiState,
 } from "../lib/types";
@@ -27,6 +29,144 @@ function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec - m * 60;
   return `${String(m).padStart(2, "0")}:${s.toFixed(3).padStart(6, "0")}`;
+}
+
+// One accent for every Direct Output lane (regardless of pairing), so the
+// device outputs read as a single family in the preview.
+const DIRECT_OUT_COLOR = "#7c3aed";
+const BUS_ACCENT_CYCLE = ["#30d158", "#ff9230", "#db34f2", "#00d2e0", "#ffd600"];
+
+/** "direct:3" -> 3; anything else -> null. */
+function laneNumber(id: string): number | null {
+  if (!id.startsWith("direct:")) return null;
+  const n = Number(id.slice("direct:".length));
+  return Number.isFinite(n) ? n : null;
+}
+
+type BusMeterGroup = {
+  id: string;
+  name: string;
+  accent: string;
+  meters: MeterRow[];
+};
+
+/** 1-based mono lanes referenced STANDALONE (any mono route / mono master /
+ *  mono send / metronome). Such lanes must not be folded into a stereo pair. */
+function collectSoloLanes(
+  busses: BusRow[],
+  tracks: WebUiState["tracks"],
+  clickBusId?: string,
+  clickSends?: ClickSendRow[],
+): Set<number> {
+  const solo = new Set<number>();
+
+  // A project bus (main / aux / send) with a mono physical target uses that
+  // single lane alone. channels>=2 marks a stereo pair, so it does NOT solo.
+  // Direct lanes themselves are the outputs, not route sources -- detect them
+  // by id (the wire does not flag isDirectOut).
+  for (const b of busses) {
+    if (b.id.startsWith("direct:")) continue;
+    if (b.channels <= 1) solo.add(b.startChannel + 1);
+  }
+
+  const applyRefs = (id: string | undefined) => {
+    if (!id || !id.startsWith("direct:")) return;
+    const lanes = id
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((t) => /^direct:(\d+)$/.exec(t))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => Number(m[1]));
+    // A single-lane route (compounds are a stereo pair of lanes) solos it.
+    if (lanes.length <= 1) {
+      for (const l of lanes) solo.add(l);
+    }
+  };
+
+  for (const t of tracks) {
+    applyRefs(t.busId);
+    for (const s of t.sends ?? []) applyRefs(s.busId);
+  }
+  applyRefs(clickBusId);
+  for (const cs of clickSends ?? []) applyRefs(cs.busId);
+
+  return solo;
+}
+
+/**
+ * Preview grouping for the Player "Bus meters" widget. Project busses
+ * (main / aux / sends) stay as their own meter columns; Direct Output lanes
+ * are folded into consecutive stereo pairs -- "Out 1/2", "Out 3/4" -- unless
+ * a lane is targeted standalone anywhere (mono route, mono master, mono send,
+ * metronome), in which case it is shown on its own ("Out 5") instead of being
+ * glued into a pair. Every direct group shares one colour.
+ */
+function busMeterGroups(
+  meters: MeterRow[],
+  busses: BusRow[],
+  tracks: WebUiState["tracks"],
+  clickBusId?: string,
+  clickSends?: ClickSendRow[],
+): BusMeterGroup[] {
+  const direct: MeterRow[] = [];
+  const groups: BusMeterGroup[] = [];
+  let auxIdx = 0;
+  for (const m of meters) {
+    if (laneNumber(m.id) != null) {
+      direct.push(m);
+      continue;
+    }
+    const busObj = busses.find((b) => b.id === m.id);
+    const isMaster =
+      busObj?.name?.toLowerCase() === "master" ||
+      m.id === "main" ||
+      m.id === "master";
+    const accent = isMaster
+      ? "#0091ff"
+      : busObj?.isAux
+        ? "#ff9230"
+        : BUS_ACCENT_CYCLE[auxIdx++ % BUS_ACCENT_CYCLE.length];
+    groups.push({
+      id: m.id,
+      name: busObj?.name || (m.id === "main" ? "Main" : m.id),
+      accent,
+      meters: [m],
+    });
+  }
+
+  const soloLanes = collectSoloLanes(busses, tracks, clickBusId, clickSends);
+  direct.sort((a, b) => (laneNumber(a.id) ?? 0) - (laneNumber(b.id) ?? 0));
+  for (let i = 0; i < direct.length; ) {
+    const a = direct[i];
+    const laneA = laneNumber(a.id) ?? 0;
+    const b = direct[i + 1];
+    const laneB = b ? (laneNumber(b.id) ?? -1) : -1;
+    const isPair =
+      b != null &&
+      laneA % 2 === 1 &&
+      laneB === laneA + 1 &&
+      !soloLanes.has(laneA) &&
+      !soloLanes.has(laneB);
+    if (isPair) {
+      groups.push({
+        id: `out:${laneA}/${laneB}`,
+        name: `Out ${laneA}/${laneB}`,
+        accent: DIRECT_OUT_COLOR,
+        meters: [a, b],
+      });
+      i += 2;
+    } else {
+      groups.push({
+        id: `out:${laneA}`,
+        name: `Out ${laneA}`,
+        accent: DIRECT_OUT_COLOR,
+        meters: [a],
+      });
+      i += 1;
+    }
+  }
+  return groups;
 }
 
 function barBeat(seconds: number, bpm: number, tsNum: number): string {
@@ -691,47 +831,51 @@ export function PlayerScreen({
                 No busses.
               </div>
             ) : (
-              state.meters.map((m, mi) => {
-                const busObj = state.busses.find((b) => b.id === m.id);
-                const displayName =
-                  busObj?.name || (m.id === "main" ? "Main" : m.id);
-                const isMaster =
-                  busObj?.name?.toLowerCase() === "master" ||
-                  m.id === "main" ||
-                  m.id === "master";
-                const accent = isMaster
-                  ? "#0091ff"
-                  : busObj?.isAux
-                    ? "#ff9230"
-                    : ["#30d158", "#ff9230", "#db34f2", "#00d2e0", "#ffd600"][
-                        mi % 5
-                      ];
+              busMeterGroups(
+                state.meters,
+                state.busses,
+                state.tracks,
+                state.clickBusId,
+                state.clickSends,
+              ).map((g) => {
+                const m0 = g.meters[0];
+                const m1 = g.meters[1];
+                const db = Math.max(...g.meters.map((m) => m.peakDb));
+                const dbL = m0.peakDbL ?? m0.peakDb;
+                const dbR = m1
+                  ? (m1.peakDbR ?? m1.peakDb)
+                  : (m0.peakDbR ?? m0.peakDb);
+                const lufs = Math.max(...g.meters.map((m) => m.shortTermLufs));
+                const live0 = () =>
+                  getLiveLevels().meters.find((lm) => lm.id === m0.id);
+                const live1 = () =>
+                  m1
+                    ? getLiveLevels().meters.find((lm) => lm.id === m1.id)
+                    : undefined;
                 return (
                   <div
-                    key={m.id}
+                    key={g.id}
                     className="flex h-full flex-col items-center justify-between gap-1.5 py-1"
                   >
                     {/* Bus name */}
                     <div
                       className="truncate text-center text-xs font-semibold text-foreground/80 w-[72px]"
-                      title={displayName}
+                      title={g.name}
                     >
-                      {displayName}
+                      {g.name}
                     </div>
                     <div className="flex h-full min-h-0 flex-1 items-center justify-center">
                       <LevelMeterBar
-                        db={m.peakDb}
-                        dbL={m.peakDbL ?? m.peakDb}
-                        dbR={m.peakDbR ?? m.peakDb}
-                        getLiveDbL={() =>
-                          getLiveLevels().meters.find((lm) => lm.id === m.id)
-                            ?.peakDbL ?? -144
-                        }
+                        db={db}
+                        dbL={dbL}
+                        dbR={dbR}
+                        getLiveDbL={() => live0()?.peakDbL ?? -144}
                         getLiveDbR={() =>
-                          getLiveLevels().meters.find((lm) => lm.id === m.id)
-                            ?.peakDbR ?? -144
+                          m1
+                            ? (live1()?.peakDbR ?? -144)
+                            : (live0()?.peakDbR ?? -144)
                         }
-                        accent={accent}
+                        accent={g.accent}
                         vertical={true}
                         showValue={false}
                         className="h-full"
@@ -741,20 +885,20 @@ export function PlayerScreen({
                     <div className="text-center text-[10px] tabular-nums text-foreground/50">
                       <div
                         className={
-                          m.peakDb > -3
+                          db > -3
                             ? "text-danger font-bold"
-                            : m.peakDb > -9
+                            : db > -9
                               ? "text-warning font-semibold"
                               : ""
                         }
                       >
-                        {m.peakDb <= -99 ? "−∞" : m.peakDb.toFixed(1)} dB
+                        {db <= -99 ? "−∞" : db.toFixed(1)} dB
                       </div>
                       {/* Always-visible LUFS readout to prevent layout jump during silence */}
                       <div className="text-[9px] text-foreground/35">
-                        {m.shortTermLufs <= -144
+                        {lufs <= -144
                           ? "−∞ L"
-                          : `${m.shortTermLufs.toFixed(1)} L`}
+                          : `${lufs.toFixed(1)} L`}
                       </div>
                     </div>
                   </div>
