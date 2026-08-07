@@ -65,6 +65,33 @@
     // may have changed).
     std::unordered_map<std::string, PeakOverview> peakOverviewSessionCache;
     mutable std::mutex peakCacheMutex; // guards peakOverviewSessionCache against background peak-build threads
+
+    // file -> full-file duration, published by atomic shared_ptr swap (same
+    // mechanism and rationale as RoutingEngine -- see its header).
+    //
+    // This exists ONLY so the audio thread can answer "how long is this file"
+    // without touching peakCacheMutex. It used to reach through
+    // regionEffectiveDurationSeconds() -> cachedPeaksForFile(), which locks
+    // that mutex once per region per block -- while background peak builders
+    // hold the very same mutex to copy whole PeakOverview objects into the
+    // cache, and ensureAllSongPeaksBuilt() holds it across a scan of every
+    // song's every region. A render callback that can be made to wait on a
+    // non-real-time thread's memcpy is a dropout waiting for the worst
+    // possible moment, and the worst moment here is right after a project
+    // load, when every region still has durationSeconds == 0 (= "full file")
+    // and the builders are at their busiest.
+    //
+    // Only ever grows, and durations never change for a given file, so a
+    // reader that races one insert simply behaves as it did one block
+    // earlier. Maintained exclusively by cachePeakOverview() /
+    // clearPeakOverviewCache() -- an insert that bypasses those is invisible
+    // to playback.
+    std::shared_ptr<const std::unordered_map<std::string, double>> peakDurationsByFile;
+
+    // Inserts into peakOverviewSessionCache and republishes
+    // peakDurationsByFile. Callable from any non-real-time thread.
+    void cachePeakOverview(const std::string& file, PeakOverview overview);
+    void clearPeakOverviewCache();
     std::atomic<bool> allPeaksBuildInFlight{false}; // one ensureAllSongPeaksBuilt() sweep at a time
 
     // Bounded worker pool shared by rebuildTrackPeaks() and
@@ -79,10 +106,13 @@
     int64_t currentSongLengthFrames = 0; // 0 = unknown/no tracks
 
     // Region::durationSeconds == 0 means "full file", not zero seconds -- for
-    // that case the real length comes from the peak cache (same one
-    // cachedPeaksForFile()/ensureAllSongPeaksBuilt() maintain project-wide),
-    // not from raw region metadata. Returns 0.0 if that file hasn't been
-    // peak-built yet (global timeline readout catches up once it is).
+    // that case the real length comes from peakDurationsByFile (the lock-free
+    // mirror of the peak cache; see its comment above), not from raw region
+    // metadata. Returns 0.0 if that file hasn't been peak-built yet (global
+    // timeline readout catches up once it is).
+    //
+    // Real-time safe: called once per region per block from the render
+    // callback, so it must never lock.
     double regionEffectiveDurationSeconds(const Region& r) const;
     // A song's authored length = the furthest region end across its tracks.
     double songAuthoredDurationSeconds(const SongDef& song) const;

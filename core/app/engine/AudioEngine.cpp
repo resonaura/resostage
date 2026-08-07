@@ -329,8 +329,14 @@ double AudioEngine::currentSongLengthSeconds() const {
 double AudioEngine::regionEffectiveDurationSeconds(const Region& r) const {
     if (r.durationSeconds > 0.0)
         return r.durationSeconds;
-    const PeakOverview* pk = cachedPeaksForFile(r.source.file);
-    return pk != nullptr ? pk->durationSeconds : 0.0;
+    // Deliberately NOT cachedPeaksForFile(): that locks peakCacheMutex, and
+    // this runs on the audio thread. See peakDurationsByFile in
+    // AudioEngineMembers.h for what that cost us.
+    const auto durations = std::atomic_load(&peakDurationsByFile);
+    if (durations == nullptr)
+        return 0.0;
+    const auto it = durations->find(r.source.file);
+    return it != durations->end() ? it->second : 0.0;
 }
 
 void AudioEngine::updateRegionWindow(const Region& r) {

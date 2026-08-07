@@ -53,7 +53,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     // requires !isDraftProject()).
     usingDraftArchive = false;
     midiClockEverStarted = false; // a new project's MIDI clock hasn't started yet -- next play() sends 0xFA, not 0xFB
-    peakOverviewSessionCache.clear(); // different archive -- same file path could mean different audio
+    clearPeakOverviewCache(); // different archive -- same file path could mean different audio
 
     // stop() above only freezes the playhead at wherever it was (so a normal
     // Stop/Play resumes in place) -- selectSong() is what actually zeroes it
@@ -113,7 +113,7 @@ void AudioEngine::newProject(const std::string& name) {
 
     loader.newProject(name);
     usingDraftArchive = false;
-    peakOverviewSessionCache.clear();
+    clearPeakOverviewCache();
     projectHistory.clear(); // a freshly created document has no history of its own
 
     // Auto-create a draft archive immediately so WAV/song-folder imports

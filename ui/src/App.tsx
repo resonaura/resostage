@@ -325,6 +325,10 @@ export default function App() {
   // background sweep fills the session cache.
   useEffect(() => {
     let cancelled = false;
+    // Region count at the moment this effect (re)ran -- the backend emits one
+    // payload entry per region, so a payload describing fewer than this is one
+    // it built before our change landed.
+    const expectedEntries = totalRegionCount;
     const poll = async () => {
       let lastFilled = -1;
       let stable = 0;
@@ -338,7 +342,16 @@ export default function App() {
             0,
           );
           const total = data.songs.reduce((n, s) => n + s.tracks.length, 0);
-          if (total > 0 && filled >= total) return;
+          // `total` counts entries in the PAYLOAD, not regions we know about.
+          // The backend rebuilds that payload on its own ~30 Hz tick, so the
+          // fetch this effect fires the instant a region appears (a split)
+          // normally beats it and gets the PREVIOUS blob -- which is
+          // internally complete, so this used to return immediately and never
+          // look again, leaving the new half spinning forever. Requiring the
+          // payload to cover every region we currently have is what closes
+          // that race; the plateau check below still ends polls that can
+          // never reach it (regions with no audio file never get levels).
+          if (total > 0 && total >= expectedEntries && filled >= total) return;
           if (filled === lastFilled) {
             stable += 1;
             if (stable >= 8 && (filled > 0 || attempt > 15)) return;

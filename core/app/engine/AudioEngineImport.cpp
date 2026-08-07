@@ -186,10 +186,8 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
 
             writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot);
 
-            if (writeOk && peaksOk) {
-                std::lock_guard<std::mutex> lock(peakCacheMutex);
-                peakOverviewSessionCache[entry] = std::move(overview);
-            }
+            if (writeOk && peaksOk)
+                cachePeakOverview(entry, std::move(overview));
         }
 
         auto finishFn = [this, readOk, writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, onComplete]() {
@@ -307,8 +305,7 @@ void AudioEngine::importSongStemsBatchAsync(size_t songIndex, const std::vector<
                         ofs.write(reinterpret_cast<const char*>(cacheExtra.data.data()),
                                   static_cast<std::streamsize>(cacheExtra.data.size()));
                     }
-                    std::lock_guard<std::mutex> lock(peakCacheMutex);
-                    peakOverviewSessionCache[entry] = std::move(overview);
+                    cachePeakOverview(entry, std::move(overview));
                 }
             }
         }
@@ -642,9 +639,8 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot);
 
             if (writeOk) {
-                std::lock_guard<std::mutex> lock(peakCacheMutex);
                 for (auto& [path, overview] : newPeakEntries)
-                    peakOverviewSessionCache[path] = std::move(overview);
+                    cachePeakOverview(path, std::move(overview));
             }
         }
 

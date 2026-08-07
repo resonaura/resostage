@@ -208,10 +208,7 @@ void AudioEngine::rebuildTrackPeaks() {
                         std::string error;
                         if (overview.buildFromBuffer(pb.data.data(), pb.data.size(), error)) {
                             threadExtras[t].push_back(PeakCache::makeCacheExtra(overview, pb.path));
-                            {
-                                std::lock_guard<std::mutex> lock(peakCacheMutex);
-                                peakOverviewSessionCache[pb.path] = overview;
-                            }
+                            cachePeakOverview(pb.path, overview);
                             buildResults[pb.index] = overview;
                             publishPartial(pb.index, std::move(overview));
                         } else {
@@ -271,6 +268,33 @@ const PeakOverview* AudioEngine::cachedPeaksForFile(const std::string& file) con
     return it != peakOverviewSessionCache.end() ? &it->second : nullptr;
 }
 
+// The one way into peakOverviewSessionCache. Rebuilding the duration snapshot
+// from scratch under the lock (rather than copy-and-add outside it) is what
+// makes concurrent inserts from the decode pool safe without a second lock:
+// whoever holds peakCacheMutex sees the whole cache and publishes a snapshot
+// that matches it exactly. It is O(files) per insert, on a background thread,
+// for a map of doubles -- nothing next to the decode that just happened.
+void AudioEngine::cachePeakOverview(const std::string& file, PeakOverview overview) {
+    auto durations = std::make_shared<std::unordered_map<std::string, double>>();
+    std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
+    peakOverviewSessionCache[file] = std::move(overview);
+    durations->reserve(peakOverviewSessionCache.size());
+    for (const auto& [path, cached] : peakOverviewSessionCache)
+        durations->emplace(path, cached.durationSeconds);
+    // Published inside the lock so nobody can observe a cache entry whose
+    // duration is missing from the snapshot.
+    std::atomic_store(&peakDurationsByFile,
+                      std::shared_ptr<const std::unordered_map<std::string, double>>(
+                          std::move(durations)));
+}
+
+void AudioEngine::clearPeakOverviewCache() {
+    std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
+    peakOverviewSessionCache.clear();
+    std::atomic_store(&peakDurationsByFile,
+                      std::shared_ptr<const std::unordered_map<std::string, double>>{});
+}
+
 void AudioEngine::ensureAllSongPeaksBuilt() {
     if (!projectLoaded)
         return;
@@ -315,8 +339,7 @@ void AudioEngine::ensureAllSongPeaksBuilt() {
                 PeakOverview overview;
                 std::string error;
                 if (PeakCache::loadFromArchive(peakLoader, file, overview, error)) {
-                    std::lock_guard<std::mutex> lock(peakCacheMutex);
-                    peakOverviewSessionCache[file] = std::move(overview);
+                    cachePeakOverview(file, std::move(overview));
                     continue;
                 }
                 std::vector<uint8_t> wavData;
@@ -340,10 +363,7 @@ void AudioEngine::ensureAllSongPeaksBuilt() {
                         std::string error;
                         if (overview.buildFromBuffer(pb.data.data(), pb.data.size(), error)) {
                             threadExtras[t].push_back(PeakCache::makeCacheExtra(overview, pb.path));
-                            {
-                                std::lock_guard<std::mutex> lock(peakCacheMutex);
-                                peakOverviewSessionCache[pb.path] = std::move(overview);
-                            }
+                            cachePeakOverview(pb.path, std::move(overview));
                         }
                     });
                 }

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { builder } from "../../lib/api";
 import { IS_EMBEDDED } from "../../lib/embedded";
 import type {
@@ -19,6 +19,7 @@ import {
   type RegionGeomDraft,
 } from "./regionDrag";
 import { splitRegionsAtPlayhead } from "./regionEdit";
+import { buildPeaksByFile, resolveRegionPeakEntry } from "./regionPeaks";
 import {
   regionSelKey,
   type RegionSelKey,
@@ -86,6 +87,14 @@ export function AudioTrackLanes({
     songIndex: number;
     trackIndex: number;
   } | null>(null);
+
+  // Per song: source file -> the peak entry of any region cut from it, so a
+  // region the payload has not caught up with yet (a fresh split) can draw
+  // from its sibling instead of spinning. See regionPeaks.ts.
+  const peaksByFilePerSong = useMemo(
+    () => songs.map((song, i) => buildPeaksByFile(song, allPeaks?.songs[i]?.tracks)),
+    [songs, allPeaks],
+  );
 
   const openWavPicker = (songIndex: number, trackIndex: number) => {
     // Embedded in the native app's webview: pop the OS's own "Open Audio
@@ -208,11 +217,12 @@ export function AudioTrackLanes({
               const segDuration = songLengths[i];
 
               const peakEntryFor = (r: RegionRow) =>
-                peaksForSong?.find((p) => {
-                  const withTrackId = p as { trackId?: string };
-                  if (withTrackId.trackId !== undefined) return p.id === r.id;
-                  return p.id === track?.id;
-                });
+                resolveRegionPeakEntry(
+                  r,
+                  peaksForSong,
+                  peaksByFilePerSong[i] ?? new Map(),
+                  track?.id,
+                );
 
               return (
                 <div
