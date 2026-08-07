@@ -224,6 +224,14 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         syncTransportCycleFromProject();
 
         // Publish routing while still holding routingMutex (recursive).
+        //
+        // Deliberately NOT narrowed the way refreshClickState() was: a song
+        // change has to be atomic against the render callback (see the CRITICAL
+        // note at the top of this function -- a half-applied restage crashed).
+        // The extra lock time is free here because the outputs are already
+        // being held silent through the handoff and ramped back in below, so
+        // there is no audio to protect. That is exactly what makes a knob move
+        // different: it must NOT silence anything.
         publishRoutingSnapshot();
 
         // Reset playhead + micro-fade state under the same lock the audio

@@ -552,6 +552,14 @@ export interface HealthState {
   rssBytes: number;
   freeBytes: number;
   underrunCount: number;
+  // Whole blocks that reached the outputs as silence while the transport was
+  // playing, because the render callback bailed out early. The driver was
+  // serviced on time so these never show up as underruns -- they are only
+  // audible, as a crackle. See SystemHealth::noteSilentBlock().
+  silentBlockCount: number;
+  // Times a stem's ring ran dry mid-block while the file still had audio: a
+  // step to zero inside a block. See StreamingTrackBuffer::starveCount().
+  streamStarveCount: number;
   audioCallbackCount: number;
   webClientCount: number;
   processes: ProcessHealthEntry[];
@@ -794,6 +802,8 @@ export const emptyState: WebUiState = {
     rssBytes: 0,
     freeBytes: 0,
     underrunCount: 0,
+    silentBlockCount: 0,
+    streamStarveCount: 0,
     audioCallbackCount: 0,
     webClientCount: 0,
     processes: [],

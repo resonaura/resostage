@@ -697,6 +697,8 @@ struct WebUiState {
     uint64_t freeBytes = 0;
     uint64_t underrunCount = 0;
     uint64_t audioCallbackCount = 0;
+    uint64_t silentBlockCount = 0;
+    uint64_t streamStarveCount = 0;
     int webClientCount = 0;
     // Per-process resource breakdown.
     struct ProcessEntry {
@@ -886,6 +888,10 @@ private:
     // lws thread: grab prebuilt frame for a view (empty if none yet).
     std::shared_ptr<const std::string> cachedFrameForView(const char* view) const;
     std::shared_ptr<const std::vector<uint8_t>> cachedBinaryFrame() const;
+    // Bumped only when a rebuilt frame's bytes actually differ from the cached
+    // one, so a client that already holds this generation has nothing to gain
+    // from another write. See publishState().
+    uint64_t frameGeneration() const;
     void enqueueCommand(WebCommand cmd);
     bool handleHttpApi(struct lws* wsi, const char* path, const char* method, const char* body, size_t bodyLen);
     int serveStatic(struct lws* wsi, const char* path);

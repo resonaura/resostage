@@ -479,6 +479,10 @@ struct WHealthTelemetry {
     uint64_t freeBytes = 0;
     uint64_t underrunCount = 0;
     uint64_t audioCallbackCount = 0;
+    // Blocks that left as silence while the transport was playing -- see
+    // SystemHealth::noteSilentBlock(). Not a driver dropout, but audible.
+    uint64_t silentBlockCount = 0;
+    uint64_t streamStarveCount = 0;
     uint32_t webClientCount = 0;
     std::vector<WProcessTelemetry> processes;
 };

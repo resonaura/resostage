@@ -184,6 +184,13 @@ public:
 
     const SystemHealth& health() const { return systemHealth; }
 
+    // Times a stem's ring buffer ran dry mid-block while the file still had
+    // audio to give -- see StreamingTrackBuffer::starveCount(). The render
+    // callback cannot react (the block is due now), so it emits part real
+    // audio and part silence: a step to zero inside a block, i.e. a click.
+    // The driver was serviced on time, so this never appears as an underrun.
+    uint64_t streamStarveCount() const { return StreamingTrackBuffer::totalStarveCount(); }
+
     // juce::AudioIODeviceCallback
     void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
                                            int numInputChannels,

@@ -61,6 +61,21 @@ public:
     int64_t read(float* const* outChannels, int64_t numFrames, int64_t expectedPosition);
     int64_t currentReadPosition() const { return readPosition.load(std::memory_order_relaxed); }
 
+    // Times read() came up short while the source still HAD more audio -- the
+    // ring ran dry because the I/O thread had not refilled it yet. The caller
+    // ignores read()'s return value (there is nothing useful it could do on
+    // the audio thread), so the block ends up part real audio and part the
+    // silence the scratch was cleared to: a step to zero in the middle of a
+    // block, i.e. a click. Distinct from hitting the end of the file, which is
+    // legitimate. Read from any thread.
+    uint64_t starveCount() const { return starves.load(std::memory_order_relaxed); }
+
+    // Same event, summed across every buffer in the process. There is one
+    // engine per process, so this is "has the disk kept up at all" without
+    // having to walk the staged song's buffers from the telemetry path (which
+    // would need a lock the audio thread also wants).
+    static uint64_t totalStarveCount();
+
     bool isExhausted() const {
         if (const auto window = residentSnapshot()) {
             const int64_t pos = readPosition.load(std::memory_order_relaxed);
@@ -148,6 +163,7 @@ private:
     std::atomic<int64_t> readPosition{0};
     std::atomic<int64_t> pendingSkipFrames{0};
     std::atomic<bool> sourceExhausted{false};
+    std::atomic<uint64_t> starves{0}; // see starveCount()
     std::atomic<bool> residentLoadInFlight{false};
     // false until ensureRingReadyUnlocked() — keeps stageSong off the huge
     // zeroed float alloc so song hops stay on the message-thread budget.

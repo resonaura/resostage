@@ -1556,6 +1556,10 @@ void MainComponent::publishWebState() {
     state.freeBytes = health.systemFreeBytes;
     state.underrunCount = health.underrunCount;
     state.audioCallbackCount = health.audioCallbackCount;
+    state.silentBlockCount = health.silentBlockCount;
+    // Sourced from the streaming layer rather than SystemHealth so telemetry/
+    // keeps no dependency on audio/.
+    state.streamStarveCount = engine.streamStarveCount();
     state.webClientCount = webServer.clientCount();
     state.processes.clear();
     for (const auto& p : health.processes) {

@@ -47,6 +47,10 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
           // Keep underrun/client counters live; freeze cpu/ram until 1 Hz tick.
           ...prev.health,
           underrunCount: next.health.underrunCount ?? prev.health.underrunCount,
+          silentBlockCount:
+            next.health.silentBlockCount ?? prev.health.silentBlockCount,
+          streamStarveCount:
+            next.health.streamStarveCount ?? prev.health.streamStarveCount,
           audioCallbackCount:
             next.health.audioCallbackCount ?? prev.health.audioCallbackCount,
           webClientCount:

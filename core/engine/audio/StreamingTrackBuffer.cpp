@@ -618,6 +618,19 @@ bool StreamingTrackBuffer::refill(int64_t maxDeviceFrames) {
     return true;
 }
 
+namespace {
+// Function-local static so it is initialised before any buffer can touch it,
+// whatever order translation units run in.
+std::atomic<uint64_t>& globalStarveCount() {
+    static std::atomic<uint64_t> counter{0};
+    return counter;
+}
+} // namespace
+
+uint64_t StreamingTrackBuffer::totalStarveCount() {
+    return globalStarveCount().load(std::memory_order_relaxed);
+}
+
 int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames, int64_t expectedPosition) {
     const int channels = decoder.numChannels();
     if (numFrames <= 0)
@@ -678,9 +691,20 @@ int64_t StreamingTrackBuffer::read(float* const* outChannels, int64_t numFrames,
     const int64_t got = ring.pop(outChannels, numFrames);
     readPosition.fetch_add(got, std::memory_order_relaxed);
 
-    if (got < numFrames && sourceExhausted.load(std::memory_order_acquire)
-        && ring.framesAvailable() <= 0) {
-        readPosition.fetch_add(numFrames - got, std::memory_order_relaxed);
+    if (got < numFrames) {
+        if (sourceExhausted.load(std::memory_order_acquire) && ring.framesAvailable() <= 0) {
+            // Genuine end of the file -- not a starve.
+            readPosition.fetch_add(numFrames - got, std::memory_order_relaxed);
+        } else {
+            // The file still has audio, the ring just didn't have it yet. The
+            // caller cannot react (it is the audio thread and the block is due
+            // now), so it emits `got` real frames followed by silence -- a step
+            // to zero inside the block, which is a click. Count it: this is
+            // invisible to the driver's underrun statistics and was the one
+            // dropout mechanism with no telemetry at all.
+            starves.fetch_add(1, std::memory_order_relaxed);
+            globalStarveCount().fetch_add(1, std::memory_order_relaxed);
+        }
     }
     return got;
 }

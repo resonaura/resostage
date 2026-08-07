@@ -194,8 +194,20 @@ SystemHealthSnapshot SystemHealth::sample() const {
     // sampling just makes the number jitter without more signal).
     if (lastWallNanos != 0 && wallNow >= lastWallNanos
         && (wallNow - lastWallNanos) < 1'000'000'000ull) {
+        // Deliberately NOT refreshing audioCallbackCount here: it ticks once
+        // per render callback (~50-200 Hz), so a live copy would make the
+        // telemetry frame differ from the previous one on nearly every tick
+        // even with the transport stopped and nobody touching anything -- it
+        // was measured to be the ONLY changing field in an idle frame, which
+        // is what kept an idle app pushing ~2 MB/s per client. It is a
+        // monotonic "is audio running" counter; 1 Hz is all it is read at.
+        //
+        // The rare-event counters stay live: they only move when something
+        // actually went wrong, so they cost nothing in frame churn, and
+        // whoever is staring at the panel trying to reproduce a glitch wants
+        // to see them the instant they move.
         cachedSnapshot.underrunCount = underrunCount.load(std::memory_order_relaxed);
-        cachedSnapshot.audioCallbackCount = audioCallbackCount.load(std::memory_order_relaxed);
+        cachedSnapshot.silentBlockCount = silentBlockCount.load(std::memory_order_relaxed);
         cachedSnapshot.webClientCount = webClientCount.load(std::memory_order_relaxed);
         return cachedSnapshot;
     }
@@ -294,6 +306,7 @@ SystemHealthSnapshot SystemHealth::sample() const {
     snap.systemTotalBytes = systemTotalMemoryBytes();
     snap.underrunCount = underrunCount.load(std::memory_order_relaxed);
     snap.audioCallbackCount = audioCallbackCount.load(std::memory_order_relaxed);
+    snap.silentBlockCount = silentBlockCount.load(std::memory_order_relaxed);
     snap.webClientCount = webClientCount.load(std::memory_order_relaxed);
 
     lastWallNanos = wallNow;

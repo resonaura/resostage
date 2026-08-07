@@ -1,5 +1,6 @@
 #include "doctest.h"
 
+#include "audio/MixMath.h"
 #include "audio/MixRenderer.h"
 
 #include <cmath>
@@ -364,4 +365,96 @@ TEST_CASE("renderer: a graph larger than the prepared capacity is refused, not w
     renderer.process(g, kBlock);
     renderer.writeToOutputs(g, outs, 2, kBlock);
     CHECK(left[0] == 0.0f);
+}
+
+// ── Glide landing ───────────────────────────────────────────────────────────
+// The coefficient glide is x += alpha * (target - x). In float that approaches
+// the target but STALLS short of it: once alpha*(target-x) falls below the last
+// bit of x the addition is a no-op, freezing roughly 1.4e-5 out (~-97 dBFS) and
+// never exactly equal. Anything that treats "settled" as exact equality --
+// including the renderer's own fast path -- would then never see a settled
+// strip again after the first fader move. These pin the landing.
+
+namespace {
+
+// Drives one renderer across several graphs, so a mid-flight coefficient
+// change glides from the state the previous graph left behind, exactly like a
+// knob move during playback does.
+struct Rig {
+    MixRenderer renderer;
+    std::vector<float> left{std::vector<float>(kBlock, 0.0f)};
+    std::vector<float> right{std::vector<float>(kBlock, 0.0f)};
+
+    void prepare(const MixGraph& g) { renderer.prepare(48000.0, kBlock, g.strips.size() + 4); }
+
+    void run(const MixGraph& g, const std::string& sourceId, float value, int blocks) {
+        float* outs[2] = {left.data(), right.data()};
+        for (int b = 0; b < blocks; ++b) {
+            std::fill(left.begin(), left.end(), 0.0f);
+            std::fill(right.begin(), right.end(), 0.0f);
+            renderer.beginBlock(g, kBlock);
+            const uint32_t index = g.find(sourceId);
+            REQUIRE(index != MixGraph::kNoStrip);
+            float* l = renderer.sourceChannel(index, 0);
+            float* r = renderer.sourceChannel(index, 1);
+            for (int i = 0; i < kBlock; ++i) {
+                l[i] = value;
+                r[i] = value;
+            }
+            renderer.process(g, kBlock);
+            renderer.writeToOutputs(g, outs, 2, kBlock);
+        }
+    }
+};
+
+} // namespace
+
+TEST_CASE("renderer: a fader move lands exactly on its target, not a hair short") {
+    Project p = twoTrackProject();
+    MixGraph g = buildMixGraph(p, stereoOut());
+
+    Rig rig;
+    rig.prepare(g);
+    rig.run(g, "audio::track:1", 0.5f, kSettleBlocks);
+    CHECK(rig.left[kBlock - 1] == 0.5f); // unity, exact from the very first block
+
+    // Pull the fader down and let it glide for far longer than the ~10 ms law
+    // needs. Deliberately an EXACT comparison: Approx would pass either way.
+    p.tracks[0].gainDb = -6.0;
+    g = buildMixGraph(p, stereoOut());
+    rig.run(g, "audio::track:1", 0.5f, 400);
+
+    CHECK(rig.left[kBlock - 1] == 0.5f * mix_math::dbToGain(-6.0));
+}
+
+TEST_CASE("renderer: a send level move lands exactly on its target") {
+    Project p = twoTrackProject();
+    SendBus bus;
+    bus.id = "audio::send:1";
+    bus.channels = 2;
+    bus.output.type = OutputType::ExtOut;
+    bus.output.target = "audio::out:1,audio::out:2";
+    p.sends.push_back(bus);
+
+    // Track 1 feeds ONLY the send, so the physical pair carries the send level
+    // alone -- no main path to blur the comparison.
+    p.tracks[0].output.type = OutputType::SendsOnly;
+    SendConfig send;
+    send.bus = "audio::send:1";
+    send.level = 100.0;
+    send.enabled = true;
+    p.tracks[0].output.sends.push_back(send);
+    p.tracks[1].output.type = OutputType::SendsOnly; // keep it silent
+
+    MixGraph g = buildMixGraph(p, stereoOut());
+    Rig rig;
+    rig.prepare(g);
+    rig.run(g, "audio::track:1", 0.5f, kSettleBlocks);
+    CHECK(rig.left[kBlock - 1] == 0.5f);
+
+    p.tracks[0].output.sends[0].level = 40.0; // 0.4 linear
+    g = buildMixGraph(p, stereoOut());
+    rig.run(g, "audio::track:1", 0.5f, 400);
+
+    CHECK(rig.left[kBlock - 1] == 0.5f * 0.4f);
 }

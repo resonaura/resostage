@@ -6,7 +6,7 @@
 // getters (setBusGainDb, busStartChannelAt, ...): 0 = Master, 1..
 // proj.sends.size() = Sends (in project order), beyond that = fabricated
 // Direct Output lanes (never persisted, not authorable strips). That rail is
-// derived from the published MixGraph in rebuildBusRowsFromGraph() below --
+// derived from the published MixGraph in buildBusRows() below --
 // this file no longer decides ANY routing itself, it only edits the Project
 // and republishes.
 
@@ -35,36 +35,41 @@ void AudioEngine::ensureTrackMeters(size_t count) {
         band.prepare(currentSampleRate, 2);
 }
 
-// Rebuilds the mixer's flat bus rail from a freshly-built graph, and resizes
-// the per-bus meter pools when the row count actually changed. The rail is a
-// VIEW of the graph -- Main, then the Sends in project order, then every
-// output lane -- so a row can never describe a channel the mix does not have.
-void AudioEngine::rebuildBusRowsFromGraph(const MixGraph& graph) {
-    const size_t previousCount = busses.size();
-
-    busses.clear();
-    busIndexById.clear();
-
+// Derives the mixer's flat bus rail from a freshly-built graph. Pure: touches
+// no member the audio thread reads, so it deliberately runs OUTSIDE
+// routingMutex -- see publishRoutingSnapshot() for why every microsecond under
+// that lock is a chance of an audible click. The rail is a VIEW of the graph --
+// Main, then the Sends in project order, then every output lane -- so a row can
+// never describe a channel the mix does not have.
+std::vector<LoadedBus> AudioEngine::buildBusRows(const MixGraph& graph) const {
+    std::vector<LoadedBus> rows;
     const Project& proj = loader.project();
+    rows.reserve(1 + proj.sends.size() + (graph.strips.size() - graph.firstLaneStrip));
 
-    // The physical channel a bus row reports: the first lane its output feeds.
-    // A bus folded into Main reports Main's, because that is where its signal
-    // physically leaves.
-    const auto firstLaneChannelOf = [&graph](uint32_t strip) -> int {
+    // The physical channel a bus row reports: the first (lowest) lane its
+    // output feeds. Resolved in ONE pass over the edges rather than a full
+    // edge scan per row -- that was O(rows x edges) with an id string parsed
+    // at every step, and on a 32-out rig it ran on every frame of every fader
+    // drag while the audio thread waited behind it.
+    std::unordered_map<uint32_t, int> firstLaneChannel;
+    for (const MixEdge& edge : graph.edges) {
+        if (edge.to >= graph.strips.size())
+            continue;
+        const MixStrip& dest = graph.strips[edge.to];
+        if (dest.kind != StripKind::OutputLane)
+            continue;
+        const int channel = outputLaneChannel(dest.id);
+        if (channel < 0)
+            continue;
+        const auto [it, inserted] = firstLaneChannel.try_emplace(edge.from, channel);
+        if (!inserted)
+            it->second = std::min(it->second, channel);
+    }
+    const auto firstLaneChannelOf = [&firstLaneChannel](uint32_t strip) -> int {
         if (strip == MixGraph::kNoStrip)
             return 0;
-        int best = -1;
-        for (const MixEdge& edge : graph.edges) {
-            if (edge.from != strip || edge.to >= graph.strips.size())
-                continue;
-            const MixStrip& dest = graph.strips[edge.to];
-            if (dest.kind != StripKind::OutputLane)
-                continue;
-            const int channel = outputLaneChannel(dest.id);
-            if (channel >= 0 && (best < 0 || channel < best))
-                best = channel;
-        }
-        return best < 0 ? 0 : best;
+        const auto it = firstLaneChannel.find(strip);
+        return it == firstLaneChannel.end() ? 0 : it->second;
     };
 
     const auto addRow = [&](const std::string& id, const std::string& name, int channels,
@@ -77,8 +82,7 @@ void AudioEngine::rebuildBusRowsFromGraph(const MixGraph& graph) {
         row.available = available;
         row.startChannel = startChannel;
         row.stripIndex = graph.find(id);
-        busIndexById[row.id] = busses.size();
-        busses.push_back(std::move(row));
+        rows.push_back(std::move(row));
     };
 
     {
@@ -92,7 +96,7 @@ void AudioEngine::rebuildBusRowsFromGraph(const MixGraph& graph) {
         const uint32_t strip = graph.find(send.id);
         // A send folded into Main leaves through Main's channels.
         const int channel = send.output.type == OutputType::Main
-                                ? busses[0].startChannel
+                                ? rows[0].startChannel
                                 : firstLaneChannelOf(strip);
         addRow(send.id, send.name.empty() ? send.id : send.name, send.channels,
                /*isDirectOut=*/false, /*available=*/true, channel);
@@ -106,6 +110,19 @@ void AudioEngine::rebuildBusRowsFromGraph(const MixGraph& graph) {
         addRow(lane.id, lane.name, 1, /*isDirectOut=*/true,
                /*available=*/lane.physicalChannel >= 0, channel < 0 ? 0 : channel);
     }
+
+    return rows;
+}
+
+// Swaps a prebuilt rail in. Caller must hold routingMutex: `busses` and the
+// meter pools are read by the render callback.
+void AudioEngine::installBusRows(std::vector<LoadedBus> rows) {
+    const size_t previousCount = busses.size();
+
+    busses = std::move(rows);
+    busIndexById.clear();
+    for (size_t i = 0; i < busses.size(); ++i)
+        busIndexById[busses[i].id] = i;
 
     // Meter pools are only reallocated when the row count genuinely changed --
     // a knob move republishes the graph on every drag and must not churn them.
@@ -135,21 +152,37 @@ void AudioEngine::rebuildBusRowsFromGraph(const MixGraph& graph) {
 }
 
 void AudioEngine::publishRoutingSnapshot() {
-    std::lock_guard<std::recursive_mutex> lock(routingMutex);
-
     if (!projectLoaded)
         return;
 
     markDirty();
 
+    // ── Everything below, up to the lock, runs UNLOCKED on purpose ──────────
+    //
+    // The render callback try_locks routingMutex and, when it misses, returns
+    // having written nothing -- a whole block of silence into a playing show.
+    // It cannot do better: a render callback must never wait on a
+    // non-real-time thread. So the only lever is how long this function holds
+    // that lock, and it used to hold it across two JUCE device queries (both
+    // allocate), a full graph rebuild (strings, hash maps, an edge sort) and
+    // the bus-rail derivation. Every fader drag fires this once per frame, and
+    // ~6% of those frames landed on top of a callback and silenced it -- which
+    // is exactly the crackle reported while turning sends, pan and gain, and
+    // (through builderCycleUpdate -> notifyProjectStructureChanged) while
+    // dragging loop locators.
+    //
+    // None of this touches state the audio thread reads. buildMixGraph only
+    // READS the project, and the audio thread only reads it too, so the two
+    // are not in conflict.
+    //
     // The whole routing decision -- solo groups, audibility, ext-out lane
     // placement, send levels, shadow lanes -- lives in buildMixGraph(). This
     // function only feeds it the device channel map, derives the UI's bus
-    // rail from the result and publishes. Every setter below just edits the
-    // Project and calls back in here, so there is exactly one path from "a
-    // value changed" to "the audio thread hears it" -- and no way for the
-    // master to be left out of it, which is what the old hand-rolled
-    // per-strip snapshot code kept managing to do.
+    // rail from the result and publishes. Every setter just edits the Project
+    // and calls back in here, so there is exactly one path from "a value
+    // changed" to "the audio thread hears it" -- and no way for the master to
+    // be left out of it, which is what the old hand-rolled per-strip snapshot
+    // code kept managing to do.
     OutputLaneConfig outputs;
     const auto setup = deviceManagerInstance.getAudioDeviceSetup();
     int total = 0;
@@ -166,17 +199,25 @@ void AudioEngine::publishRoutingSnapshot() {
     }
 
     auto graph = std::make_shared<const MixGraph>(buildMixGraph(loader.project(), outputs));
-
-    clickStripIndex = graph->find("audio::click");
-    rebuildBusRowsFromGraph(*graph);
-
-    // Size the renderer for this graph plus headroom, so adding a send later
-    // never has to allocate on the audio thread. Only ever grows.
+    const uint32_t clickStrip = graph->find("audio::click");
+    std::vector<LoadedBus> rows = buildBusRows(*graph);
     const size_t needed = graph->strips.size() + 16;
-    if (mixRenderer.capacity() < needed)
-        mixRenderer.prepare(currentSampleRate, std::max(currentBlockSize, 1), needed);
 
-    publishedGraph = graph;
+    // ── Critical section: swap the prebuilt state in ────────────────────────
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        clickStripIndex = clickStrip;
+        installBusRows(std::move(rows));
+        // Sizing the renderer reallocates buffers the callback reads, so it
+        // must happen here -- but only ever grows, i.e. never on a knob move.
+        if (mixRenderer.capacity() < needed)
+            mixRenderer.prepare(currentSampleRate, std::max(currentBlockSize, 1), needed);
+        publishedGraph = graph;
+    }
+
+    // Atomic shared_ptr swap -- its own synchronisation, no lock needed, and
+    // deliberately outside so the callback picks the new graph up even if it
+    // is mid-block.
     routing.publish(std::move(graph));
 }
 
@@ -352,8 +393,6 @@ void AudioEngine::setClickSolo(bool solo) {
 }
 
 void AudioEngine::refreshClickState() {
-    std::lock_guard<std::recursive_mutex> lock(routingMutex);
-
     if (!projectLoaded)
         return;
 
@@ -374,11 +413,24 @@ void AudioEngine::refreshClickState() {
 
     // Full tempo + meter grid (numerator = strong/weak period, denominator =
     // beat unit). Playhead-locked render keeps bar 1 = accented downbeat.
-    const double prevBpm = clickGenerator.currentBpm();
-    const int prevBpb = clickGenerator.currentBeatsPerBar();
-    const int prevUnit = clickGenerator.currentBeatUnit();
-    if (currentSampleRate > 0.0)
-        clickGenerator.prepare(currentSampleRate, bpm, tsNum, tsDen);
+    //
+    // Only the generator itself needs the render callback locked out, and the
+    // republish below deliberately runs UNLOCKED (see publishRoutingSnapshot).
+    // routingMutex is recursive, so holding it across that call would quietly
+    // put the whole graph rebuild back under the lock the callback try_locks
+    // -- undoing the fix for every path that edits a song's tempo or meter
+    // while the transport is live.
+    double prevBpm = 0.0;
+    int prevBpb = 0;
+    int prevUnit = 0;
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        prevBpm = clickGenerator.currentBpm();
+        prevBpb = clickGenerator.currentBeatsPerBar();
+        prevUnit = clickGenerator.currentBeatUnit();
+        if (currentSampleRate > 0.0)
+            clickGenerator.prepare(currentSampleRate, bpm, tsNum, tsDen);
+    }
 
     publishRoutingSnapshot();
 

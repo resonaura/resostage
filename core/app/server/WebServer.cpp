@@ -64,6 +64,12 @@ struct WsSession {
     int periodUs = kTelemetryPeriodUs;
     int badStreak = 0;
     int goodStreak = 0;
+    // Frame generation this client has already been sent. The cache only bumps
+    // its generation when the serialized bytes actually change, so this lets an
+    // idle app send nothing rather than re-pushing an identical ~20 KB frame at
+    // the telemetry rate. Plain integer on purpose: lws allocates WsSession
+    // with malloc and never runs a constructor, so no member here may have one.
+    uint64_t lastSentGeneration = 0;
 };
 
 ClientView parseClientView(const std::string& s) {
@@ -861,6 +867,19 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             if (pss == nullptr || server == nullptr || !pss->writePending)
                 return 0;
 
+            // Nothing has changed since this client's last frame -- skip the
+            // write entirely rather than re-push identical bytes. writePending
+            // is cleared either way, so the adaptive backoff still sees a clean
+            // tick and does not mistake a quiet app for a stalled client.
+            // Safe on the client: the SPA reconnects on `onclose`, never on a
+            // frame-staleness timer, and a frozen frame means a frozen state.
+            const uint64_t generation = server->frameGeneration();
+            if (generation != 0 && generation == pss->lastSentGeneration) {
+                pss->writePending = false;
+                pss->sendBinaryNext = false;
+                return 0;
+            }
+
             if (pss->sendBinaryNext) {
                 pss->sendBinaryNext = false;
                 const auto binFrame = server->cachedBinaryFrame();
@@ -897,6 +916,9 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             const int n = lws_write(wsi, buf.data() + LWS_PRE, frame->size(), LWS_WRITE_TEXT);
             if (n < 0)
                 return -1;
+            // Recorded only after the JSON half actually went out, so a client
+            // that dropped mid-pair re-sends both next tick.
+            pss->lastSentGeneration = generation;
             return 0;
     }
 
@@ -1061,6 +1083,29 @@ void WebServer::publishState(const WebUiState& next) {
 
     {
         std::lock_guard<std::mutex> lock(frameMutex);
+
+        // Only bump the generation when the bytes actually changed. Clients
+        // skip a write whose generation they already hold (see
+        // LWS_CALLBACK_SERVER_WRITEABLE), so an idle app -- transport stopped,
+        // nobody touching anything -- goes from pushing a full ~20 KB frame at
+        // the telemetry rate to pushing nothing at all.
+        //
+        // This only works because nothing in an idle frame ticks on its own
+        // any more: audioCallbackCount used to, and was measured to be the
+        // single reason consecutive idle frames differed (see
+        // SystemHealth::sample). It is now frozen between 1 Hz samples, which
+        // doubles as a natural keepalive -- an idle client still gets one
+        // frame a second.
+        const auto same = [](const auto& a, const auto& b) {
+            return a != nullptr && b != nullptr && *a == *b;
+        };
+        const bool unchanged = same(frames.player, player) && same(frames.mixer, mixer)
+                               && same(frames.editor, editor) && same(frames.settings, settings)
+                               && same(frames.light, light) && same(frames.all, all)
+                               && same(frames.binary, binary);
+        if (unchanged)
+            return;
+
         frames.player = std::move(player);
         frames.mixer = std::move(mixer);
         frames.editor = std::move(editor);
@@ -1090,6 +1135,11 @@ std::shared_ptr<const std::string> WebServer::cachedFrameForView(const char* vie
 std::shared_ptr<const std::vector<uint8_t>> WebServer::cachedBinaryFrame() const {
     std::lock_guard<std::mutex> lock(frameMutex);
     return frames.binary;
+}
+
+uint64_t WebServer::frameGeneration() const {
+    std::lock_guard<std::mutex> lock(frameMutex);
+    return frames.generation;
 }
 
 bool WebServer::pollCommand(WebCommand& out) {
@@ -1553,6 +1603,8 @@ std::string WebServer::buildStateJson(const char* view) const {
         wH.freeBytes = snap.freeBytes;
         wH.underrunCount = snap.underrunCount;
         wH.audioCallbackCount = snap.audioCallbackCount;
+        wH.silentBlockCount = snap.silentBlockCount;
+        wH.streamStarveCount = snap.streamStarveCount;
         wH.webClientCount = static_cast<uint32_t>(std::max(0, snap.webClientCount));
         if (wantHealthProcs) {
             wH.processes.reserve(snap.processes.size());

@@ -162,6 +162,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples) {
                 continue;
             }
 
+            const float smoothedAtBlockStart = smoothed;
             for (int i = 0; i < span; ++i) {
                 smoothed += alpha * (edge.gainLinear - smoothed);
                 if (destStereo) {
@@ -177,6 +178,17 @@ void MixRenderer::process(const MixGraph& graph, int numSamples) {
                     destL[i] += mono * smoothed;
                 }
             }
+
+            // Land it. `x += alpha*(target-x)` approaches the target but
+            // stalls short of it: once alpha*(target-x) is below the last bit
+            // of x the addition is a no-op and the glide freezes ~1.4e-5 out
+            // (-97 dBFS), forever unequal. Without this the fast path above
+            // would switch itself off permanently the first time anyone
+            // touched a send. Snapping only when a whole block moved the value
+            // nowhere means the step taken here is, by construction, one the
+            // float could not represent anyway.
+            if (smoothed == smoothedAtBlockStart)
+                smoothed = edge.gainLinear;
         }
 
         // 2 + 3. Fader, pan, mono fold, meter.
@@ -249,6 +261,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples) {
             }
         } else {
             // Something is still gliding: run the full recursion per sample.
+            const Smoother atBlockStart = smoother;
             for (int i = 0; i < span; ++i) {
                 smoother.gainL += alpha * (targetL - smoother.gainL);
                 smoother.gainR += alpha * (targetR - smoother.gainR);
@@ -275,6 +288,18 @@ void MixRenderer::process(const MixGraph& graph, int numSamples) {
                 peakL = std::max(peakL, std::abs(wetL));
                 peakR = std::max(peakR, std::abs(wetR));
             }
+
+            // Land each glide that a whole block could no longer move -- see
+            // the identical note on the edge smoother above. This is what
+            // lets `settled` become true again after a fader move; without it
+            // the exponential stalls ~1.4e-5 short of its target and the
+            // strip runs the slow path for the rest of the session.
+            if (smoother.gainL == atBlockStart.gainL)
+                smoother.gainL = targetL;
+            if (smoother.gainR == atBlockStart.gainR)
+                smoother.gainR = targetR;
+            if (smoother.monoMix == atBlockStart.monoMix)
+                smoother.monoMix = targetMono;
         }
 
         stripLevels[s].peakL = peakL;

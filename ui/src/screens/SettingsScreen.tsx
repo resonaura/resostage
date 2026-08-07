@@ -542,6 +542,8 @@ function HealthTab({ state }: { state: WebUiState }) {
           />
           <Stat label="Free system RAM" value={formatBytes(h.freeBytes)} />
           <Stat label="Underruns" value={String(h.underrunCount)} />
+          <Stat label="Silent blocks" value={String(h.silentBlockCount ?? 0)} />
+          <Stat label="Stream starves" value={String(h.streamStarveCount ?? 0)} />
           <Stat label="Audio callbacks" value={String(h.audioCallbackCount)} />
           <Stat label="Web clients" value={String(h.webClientCount)} />
         </div>

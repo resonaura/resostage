@@ -691,29 +691,44 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     metersSilencedSinceStop = false;
     wasPlayingLastCallback = true;
 
+    // Every `return` from here on leaves the output buffers as the zeroes they
+    // were filled with at the top -- i.e. it emits a whole block of silence
+    // into a playing show. The driver was serviced on time, so none of this
+    // shows up as an underrun; it is only audible, as a crackle. Counting them
+    // is the difference between "the health panel says 0 underruns" and
+    // knowing the outputs actually went quiet 40 times while a fader moved.
+    const auto bailSilently = [this]() { systemHealth.noteSilentBlock(); };
+
     // Gapless / restage handoff: keep outs silent and do not touch rings
     // until the message thread has reset the playhead to match the new song.
-    if (streamHandoff.load(std::memory_order_acquire))
+    if (streamHandoff.load(std::memory_order_acquire)) {
+        bailSilently();
         return;
+    }
 
     // The whole mix for this block runs against ONE graph, held alive by this
     // shared_ptr for as long as the callback needs it. The message thread may
     // republish meanwhile; that only swaps what the NEXT block acquires, so a
     // knob move can never tear a half-rendered block.
     const std::shared_ptr<const MixGraph> snap = routing.acquireForRender();
-    if (snap == nullptr)
+    if (snap == nullptr) {
+        bailSilently();
         return;
+    }
     const MixGraph& graph = *snap;
 
     std::unique_lock<std::recursive_mutex> routeLock(routingMutex, std::try_to_lock);
-    if (!routeLock.owns_lock())
+    if (!routeLock.owns_lock()) {
+        bailSilently();
         return;
-
+    }
 
     StreamingEngine::ActiveSongHandle activeSong = streaming.acquireActiveSong();
 
-    if (!activeSong)
+    if (!activeSong) {
+        bailSilently();
         return;
+    }
 
     const int64_t playheadSample = renderPlayheadSample;
 
@@ -1051,8 +1066,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // master are all just strips, and MixRenderer runs the identical four
     // steps on each of them (see engine/audio/MixRenderer.h). This file no
     // longer knows what a fader, a pan law or a solo group is.
-    if (!mixRenderer.canRender(graph))
+    if (!mixRenderer.canRender(graph)) {
+        bailSilently();
         return;
+    }
 
     mixRenderer.beginBlock(graph, numSamples);
 

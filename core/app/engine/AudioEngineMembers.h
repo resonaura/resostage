@@ -294,8 +294,11 @@
 
 
     void ensureScratchSizes();
-    // Derives the mixer's flat bus rail from a freshly built graph.
-    void rebuildBusRowsFromGraph(const MixGraph& graph);
+    // Derives the mixer's flat bus rail from a freshly built graph. Pure --
+    // runs outside routingMutex on purpose (see publishRoutingSnapshot).
+    std::vector<LoadedBus> buildBusRows(const MixGraph& graph) const;
+    // Swaps a prebuilt rail in. Caller MUST hold routingMutex.
+    void installBusRows(std::vector<LoadedBus> rows);
 
     // Re-invokes updateRegionWindow() for every region of the currently
     // staged/active song -- called after undoTimelineEdit()/redoTimelineEdit()

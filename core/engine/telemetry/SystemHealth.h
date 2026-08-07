@@ -34,6 +34,13 @@ struct SystemHealthSnapshot {
     // Audio-thread counters.
     uint64_t underrunCount = 0;
     uint64_t audioCallbackCount = 0;
+    // Blocks the transport was playing for but that reached the outputs as
+    // silence, because the render callback bailed out early -- see
+    // noteSilentBlock(). Distinct from underrunCount: the driver called us on
+    // time and we had nothing to give it, which is inaudible as a "dropout"
+    // in any driver statistic but is exactly what a listener hears as a
+    // crackle.
+    uint64_t silentBlockCount = 0;
     int webClientCount = 0;
 };
 
@@ -48,6 +55,12 @@ public:
     // Safe from the audio thread (atomic increments only).
     void noteAudioCallback() { audioCallbackCount.fetch_add(1, std::memory_order_relaxed); }
     void noteUnderrun() { underrunCount.fetch_add(1, std::memory_order_relaxed); }
+    // Called when the render callback returns while the transport is playing
+    // without having written anything -- the block leaves as silence. The
+    // driver never notices (it was serviced on time), so this is invisible to
+    // underrunCount, yet a handful of these per second is the "хрип" a
+    // listener reports while a fader is being dragged.
+    void noteSilentBlock() { silentBlockCount.fetch_add(1, std::memory_order_relaxed); }
 
     void setWebClientCount(int count) { webClientCount.store(count, std::memory_order_relaxed); }
 
@@ -58,6 +71,7 @@ public:
 private:
     std::atomic<uint64_t> underrunCount{0};
     std::atomic<uint64_t> audioCallbackCount{0};
+    std::atomic<uint64_t> silentBlockCount{0};
     std::atomic<int> webClientCount{0};
 
     // CPU estimation state (message-thread sample() only).
