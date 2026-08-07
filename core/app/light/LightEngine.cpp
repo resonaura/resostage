@@ -49,7 +49,7 @@ void writeWireColorsToDmx(const std::vector<LedWireColor>& wireColors,
     // personalities like Dimmer+RGB aren't offered for DmxGeneric).
     const int perPixelBytes = fixture.kind == LightFixture::Kind::ResoLightBar
         ? colorProfileByteCount(fixture.channelProfile)
-        : std::clamp(fixture.dmxChannelCount, 1, 3);
+        : std::clamp(fixture.dmx.channelCount, 1, 3);
 
     const auto writeOne = [&](int base, const LedWireColor& c) {
         if (base < 0 || base + perPixelBytes - 1 >= 512)
@@ -223,11 +223,12 @@ void LightEngine::threadLoop() {
         if (hardwareServer_ != nullptr) {
             std::vector<LightHardwareServer::ActiveFixtureTarget> active;
             for (const auto& f : proj->lighting.fixtures) {
-                if (f.kind != LightFixture::Kind::ResoLightBar || f.networkHost.empty())
+                if (f.kind != LightFixture::Kind::ResoLightBar
+                    || !f.networkHost.has_value() || f.networkHost->empty())
                     continue;
                 LightHardwareServer::ActiveFixtureTarget t;
                 t.fixtureId = f.id;
-                t.host = f.networkHost;
+                t.host = *f.networkHost;
                 // Port is a protocol constant (ResoLightProtocol.h), never
                 // per-fixture user config -- both ends hardcode the same value.
                 t.port = resolight::kDefaultBoardPort;
@@ -260,7 +261,7 @@ void LightEngine::threadLoop() {
         // see buildIdleTarget's doc comment. "holdLast" (the default) keeps
         // calling resolveLightOutputs() exactly as before this setting
         // existed, i.e. whatever the frozen playhead resolves to.
-        const bool useIdleOverride = !clock_->isRunning() && proj->lighting.idleBehavior != "holdLast";
+        const bool useIdleOverride = !clock_->isRunning() && proj->lighting.idle.behavior != "holdLast";
 
         // Idle-behavior transition bookkeeping. Leaving idle (resume or a
         // switch back to holdLast) starts a symmetric fade back out of the
@@ -337,11 +338,11 @@ void LightEngine::threadLoop() {
             // "effect" idle mode so the effect animates while stopped.
             const double effectPhase =
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - idleFadeStart).count();
-            const auto target = buildIdleTarget(proj->lighting.fixtures, proj->lighting.idleBehavior,
-                                                proj->lighting.idleColorR, proj->lighting.idleColorG,
-                                                proj->lighting.idleColorB, proj->lighting.idleIntensity,
-                                                proj->lighting.idleEffectType, proj->lighting.idleEffectRateHz,
-                                                proj->lighting.idleGradientPreset, proj->lighting.idleGradientColors,
+            const auto target = buildIdleTarget(proj->lighting.fixtures, proj->lighting.idle.behavior,
+                                                proj->lighting.idle.color.r, proj->lighting.idle.color.g,
+                                                proj->lighting.idle.color.b, proj->lighting.idle.intensity,
+                                                proj->lighting.idle.effect.type, proj->lighting.idle.effect.rateHz,
+                                                proj->lighting.idle.gradient.preset, proj->lighting.idle.gradient.colors.value_or(""),
                                                 effectPhase);
             const double t = effectPhase / kIdleFadeSeconds;
             resolved = blendTowardIdle(lastResolvedOutputs, target, t);
@@ -403,7 +404,7 @@ void LightEngine::threadLoop() {
             // fixtures that actually have a host configured, which is zero
             // for the common preview-only rig.
             if (hardwareServer_ != nullptr && fixture->kind == LightFixture::Kind::ResoLightBar &&
-                !fixture->networkHost.empty()) {
+                fixture->networkHost.has_value() && !fixture->networkHost->empty()) {
                 const std::vector<LedWireColor> wireColors = blendActive
                     ? resolveLedWireColorsBlended(*fromEntry, blendTo[i], *fixture, blendT)
                     : resolveLedWireColors(out, *fixture);
@@ -416,7 +417,7 @@ void LightEngine::threadLoop() {
                     if (perPixelBytes >= 3) flat.push_back(c.b);
                     if (perPixelBytes >= 4) flat.push_back(c.w);
                 }
-                hardwareServer_->updateFixtureFrame(fixture->id, fixture->networkHost,
+                hardwareServer_->updateFixtureFrame(fixture->id, *fixture->networkHost,
                                                     resolight::kDefaultBoardPort,
                                                     static_cast<uint8_t>(perPixelBytes), flat.data(),
                                                     flat.size(), hz);

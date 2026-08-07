@@ -259,11 +259,15 @@ MeterFrame AudioEngine::consumeBusMeterInterval(size_t busIndex) {
 }
 
 const std::string& AudioEngine::busNameAt(size_t index) const {
+    static const std::string kMain = "Main";
     static const std::string kEmpty;
-    const auto& buses = loader.project().busses;
-    if (index >= buses.size())
+    const Project& proj = loader.project();
+    if (index == 0)
+        return proj.main.name.empty() ? kMain : proj.main.name;
+    const size_t si = index - 1;
+    if (si >= proj.sends.size())
         return kEmpty;
-    return buses[index].name.empty() ? buses[index].id : buses[index].name;
+    return proj.sends[si].name.empty() ? proj.sends[si].id : proj.sends[si].name;
 }
 
 const TrackDef* AudioEngine::trackDefAt(size_t index) const {
@@ -290,22 +294,31 @@ TrackDef* AudioEngine::trackDefInSong(size_t songIndex, size_t trackIndex) {
 }
 
 bool AudioEngine::isBusMuted(size_t busIndex) const {
-    const auto& buses = loader.project().busses;
-    if (busIndex < buses.size())
-        return buses[busIndex].mute;
+    const Project& proj = loader.project();
+    if (busIndex == 0)
+        return proj.main.mute;
+    const size_t si = busIndex - 1;
+    if (si < proj.sends.size())
+        return proj.sends[si].mute;
     return busIndex < busMuted.size() && busMuted[busIndex];
 }
 
 bool AudioEngine::isBusSoloed(size_t busIndex) const {
-    const auto& buses = loader.project().busses;
-    return busIndex < buses.size() && buses[busIndex].solo;
+    const Project& proj = loader.project();
+    if (busIndex == 0)
+        return proj.main.solo;
+    const size_t si = busIndex - 1;
+    return si < proj.sends.size() && proj.sends[si].solo;
 }
 
 double AudioEngine::busGainDb(size_t busIndex) const {
-    const auto& buses = loader.project().busses;
-    if (busIndex >= buses.size())
+    const Project& proj = loader.project();
+    if (busIndex == 0)
+        return proj.main.gainDb;
+    const size_t si = busIndex - 1;
+    if (si >= proj.sends.size())
         return 0.0;
-    return buses[busIndex].gainDb;
+    return proj.sends[si].gainDb;
 }
 
 double AudioEngine::currentSongLengthSeconds() const {
@@ -317,7 +330,7 @@ double AudioEngine::currentSongLengthSeconds() const {
 double AudioEngine::regionEffectiveDurationSeconds(const Region& r) const {
     if (r.durationSeconds > 0.0)
         return r.durationSeconds;
-    const PeakOverview* pk = cachedPeaksForFile(r.file);
+    const PeakOverview* pk = cachedPeaksForFile(r.source.file);
     return pk != nullptr ? pk->durationSeconds : 0.0;
 }
 
@@ -855,20 +868,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             ? std::max<int64_t>(0, static_cast<int64_t>(std::llround(regDurSec * sr))) : 0;
         const int64_t regEnd = regStart + regLen;
         const int64_t srcOff = reg != nullptr
-            ? static_cast<int64_t>(std::llround(reg->sourceOffsetSeconds * sr)) : 0;
+            ? static_cast<int64_t>(std::llround(reg->source.offsetSeconds * sr)) : 0;
         const int64_t fadeInN = reg != nullptr
-            ? static_cast<int64_t>(std::llround(std::max(0.0, reg->fadeInSeconds) * sr)) : 0;
+            ? static_cast<int64_t>(std::llround(std::max(0.0, reg->fade.inSeconds) * sr)) : 0;
         const int64_t fadeOutN = reg != nullptr
-            ? static_cast<int64_t>(std::llround(std::max(0.0, reg->fadeOutSeconds) * sr)) : 0;
+            ? static_cast<int64_t>(std::llround(std::max(0.0, reg->fade.outSeconds) * sr)) : 0;
         const float regGain = reg != nullptr ? dbToGain(reg->gainDb) : 1.0f;
-        const double fadeInCurve = reg != nullptr ? reg->fadeInCurve : 0.0;
-        const double fadeOutCurve = reg != nullptr ? reg->fadeOutCurve : 0.0;
-        const bool loop = reg != nullptr && reg->loop;
+        const double fadeInCurve = reg != nullptr ? reg->fade.inCurve : 0.0;
+        const double fadeOutCurve = reg != nullptr ? reg->fade.outCurve : 0.0;
+        const bool loop = reg != nullptr && reg->loop.enabled;
         // Available source frames from sourceOffset to end of file.
         const int64_t totalSrc = buf->totalFrames();
         const int64_t sourceAvail = std::max<int64_t>(0, totalSrc - srcOff);
-        const double regLoopLen = (reg != nullptr && reg->loopLengthSeconds > 0.0)
-            ? reg->loopLengthSeconds
+        const double regLoopLen = (reg != nullptr && reg->loop.lengthSeconds > 0.0)
+            ? reg->loop.lengthSeconds
             : 0.0;
         const int64_t loopLenN = regLoopLen > 0.0
             ? static_cast<int64_t>(std::llround(regLoopLen * sr))
@@ -1007,7 +1020,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 const float pan = static_cast<float>(std::clamp(td.pan, -1.0, 1.0));
                 gL = g * (1.0f - std::max(0.0f, pan));
                 gR = g * (1.0f + std::min(0.0f, pan));
-                forceMono = forceMono || td.mono;
+                forceMono = forceMono || td.channels == 1;
             }
 
             const float* sL = scratch.getReadPointer(0);
@@ -1419,7 +1432,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // would miss sends/aux/click stacked on top of it. Read the summed lane
     // content after the fold so the master needle shows what actually leaves.
     {
-        const auto mainIt = busIndexById.find("main");
+        const auto mainIt = busIndexById.find("audio::main");
         if (!meteringMuted && mainIt != busIndexById.end()) {
             const size_t mainIdx = mainIt->second;
             if (mainIdx < busses.size() && mainIdx < busMeters.size()

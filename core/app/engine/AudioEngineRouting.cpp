@@ -1,9 +1,16 @@
 // Routing snapshot + live mix controls for AudioEngine (message thread).
 // Bus/track gain/pan/mute/solo/sends, click strip, scratch buffers.
 // Kept in its own translation unit so AudioEngine.cpp doesn't balloon.
+//
+// Flat bus-index convention used throughout this file's public setters/
+// getters (setBusGainDb, busStartChannelAt, ...): 0 = Master, 1..
+// proj.sends.size() = Sends (in project order), beyond that = fabricated
+// Direct Output lanes (never persisted, not authorable strips). This mirrors
+// `busses`/`busIndexById`'s build order in buildBusListFromProject() below.
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
+#include "project/ProjectJson.h"
 
 #include <algorithm>
 #include <string>
@@ -13,6 +20,7 @@
 namespace resostage {
 
 using audio_engine_detail::dbToGain;
+using audio_engine_detail::mainRouteId;
 
 void AudioEngine::ensureTrackMeters(size_t count) {
     trackMeters.resize(count);
@@ -28,12 +36,20 @@ void AudioEngine::ensureTrackMeters(size_t count) {
 void AudioEngine::buildBusListFromProject() {
     std::lock_guard<std::recursive_mutex> lock(routingMutex);
 
-
     busses.clear();
     busIndexById.clear();
 
+    const Project& proj = loader.project();
 
-    for (const BusDef& bus : loader.project().busses) {
+    {
+        LoadedBus lb;
+        lb.id = "audio::main";
+        lb.channelCount = proj.main.channels;
+        busIndexById[lb.id] = busses.size();
+        busses.push_back(std::move(lb));
+    }
+
+    for (const SendBus& bus : proj.sends) {
         LoadedBus lb;
         lb.id = bus.id;
         lb.channelCount = bus.channels;
@@ -55,8 +71,13 @@ void AudioEngine::buildBusListFromProject() {
     busMeters.clear();
     busLoudnessMeters.clear();
     busMuted.assign(busses.size(), false);
-    for (size_t i = 0; i < busses.size() && i < loader.project().busses.size(); ++i)
-        busMuted[i] = loader.project().busses[i].mute;
+    if (!busses.empty())
+        busMuted[0] = proj.main.mute;
+    for (size_t i = 0; i < proj.sends.size(); ++i) {
+        const size_t flat = i + 1;
+        if (flat < busMuted.size())
+            busMuted[flat] = proj.sends[i].mute;
+    }
     busMeters.resize(busses.size());
     busLoudnessMeters.resize(busses.size());
     for (size_t i = 0; i < busses.size(); ++i) {
@@ -90,15 +111,18 @@ void AudioEngine::publishRoutingSnapshot() {
     if (currentSong >= proj.songs.size())
         return;
 
-    bool anyTrackSolo = proj.builtInClickSolo;
+    // Solo groups: tracks + the click share one group; Sends have their own,
+    // independent group; Master is alone -- a group of one is inherently
+    // inert, since there's never another member to solo against it.
+    bool anyTrackSolo = proj.click.solo;
     for (size_t i = 0; i < proj.tracks.size() && i < trackIdByIndex.size(); ++i)
         if (proj.tracks[i].solo)
             anyTrackSolo = true;
 
-    bool anyBusSolo = false;
-    for (const BusDef& b : proj.busses)
+    bool anySendSolo = false;
+    for (const SendBus& b : proj.sends)
         if (b.solo)
-            anyBusSolo = true;
+            anySendSolo = true;
 
     auto snapshot = std::make_unique<RoutingSnapshot>();
     snapshot->busCount = static_cast<uint32_t>(busses.size());
@@ -109,11 +133,11 @@ void AudioEngine::publishRoutingSnapshot() {
         const float trackGain = dbToGain(trackDef.gainDb);
         const float trackPan = static_cast<float>(std::clamp(trackDef.pan, -1.0, 1.0));
 
-        // Main (FOH) route. A compound id ("direct:1,direct:2") fans the track out
-        // to BOTH mono Direct Output lanes.
+        // Main (FOH) route. A compound ext-out target ("audio::out:1,audio::out:2")
+        // fans the track out to BOTH mono Direct Output lanes.
         std::vector<size_t> mainTargets;
         audio_engine_detail::collectRouteBusIndices(
-            trackDef.busId, busIndexById, mainTargets);
+            mainRouteId(trackDef.output), busIndexById, mainTargets);
         // A stereo source routed to a pair of mono Direct Output lanes must
         // keep its image: L -> first lane, R -> second lane (NOT sum into both,
         // which collapses the pair to mono). Additional/residual targets stay
@@ -129,16 +153,16 @@ void AudioEngine::publishRoutingSnapshot() {
             route.pan = trackPan;
             route.mute = trackSilenced;
             route.isAuxSend = false;
-            route.forceMono = trackDef.mono;
+            route.forceMono = trackDef.channels == 1;
             route.sourceChannel = stereoPair ? (k == 0 ? 0 : 1) : -1;
             snapshot->routes.push_back(route);
         }
 
         // Aux-send matrix rows.
-        for (const TrackSendDef& send : trackDef.sends) {
+        for (const SendConfig& send : trackDef.output.sends) {
             if (!send.enabled)
                 continue;
-            auto sendBusIt = busIndexById.find(send.busId);
+            auto sendBusIt = busIndexById.find(send.bus);
             if (sendBusIt == busIndexById.end())
                 continue;
             TrackRoute route;
@@ -152,26 +176,62 @@ void AudioEngine::publishRoutingSnapshot() {
                 route.gainLinear = trackGain;
                 route.mute = trackSilenced;
             }
-            route.sendGainLinear = dbToGain(send.gainDb);
+            route.sendGainLinear = static_cast<float>(std::clamp(send.level, 0.0, 100.0) / 100.0);
             route.pan = trackPan;
             route.isAuxSend = true;
-            route.forceMono = trackDef.mono;
+            route.forceMono = trackDef.channels == 1;
             snapshot->routes.push_back(route);
         }
     }
 
-    for (size_t bi = 0; bi < proj.busses.size(); ++bi) {
-        const BusDef& busDef = proj.busses[bi];
+    // Master.
+    if (auto busIt = busIndexById.find("audio::main"); busIt != busIndexById.end()) {
+        BusOutput out;
+        out.busIndex = static_cast<uint32_t>(busIt->second);
+        int start = 0, ignoredCount = 2;
+        if (proj.main.output.target.has_value())
+            parseExtOutTarget(*proj.main.output.target, start, ignoredCount);
+        out.startChannel = start;
+        out.channelCount = proj.main.channels;
+        out.gainLinear = dbToGain(proj.main.gainDb);
+        out.pan = static_cast<float>(std::clamp(proj.main.pan, -1.0, 1.0));
+        out.mute = proj.main.mute; // own solo group of one -- never silenced by anySendSolo
+        snapshot->outputs.push_back(out);
+    }
+
+    // Send busses.
+    for (const SendBus& busDef : proj.sends) {
         auto busIt = busIndexById.find(busDef.id);
         if (busIt == busIndexById.end())
             continue;
         BusOutput out;
         out.busIndex = static_cast<uint32_t>(busIt->second);
-        out.startChannel = busDef.output.startChannel;
-        out.channelCount = busDef.channels;
         out.gainLinear = dbToGain(busDef.gainDb);
         out.pan = static_cast<float>(std::clamp(busDef.pan, -1.0, 1.0));
-        out.mute = busDef.mute || (anyBusSolo && !busDef.solo);
+        out.mute = busDef.mute || (anySendSolo && !busDef.solo);
+
+        if (busDef.output.type == OutputType::Main) {
+            // Milestone 1 (schema-only): a Send whose output is "fold into
+            // Master" is accepted and round-trips correctly, but the render
+            // path still resolves it onto whatever physical channels Master
+            // currently targets -- i.e. it preserves TODAY's behavior (a
+            // Send can share Master's Ext. Out and sum with `+=`), not yet
+            // a true pre-fader fold into Master's own signal (so Master's
+            // gain/pan/mute don't govern it yet either). That structural
+            // fix is the actual routing-engine rewrite -- see Milestone 2
+            // of the routing rewrite plan.
+            int start = 0, ignoredCount = 2;
+            if (proj.main.output.target.has_value())
+                parseExtOutTarget(*proj.main.output.target, start, ignoredCount);
+            out.startChannel = start;
+            out.channelCount = proj.main.channels;
+        } else {
+            int start = 0, ignoredCount = busDef.channels;
+            if (busDef.output.target.has_value())
+                parseExtOutTarget(*busDef.output.target, start, ignoredCount);
+            out.startChannel = start;
+            out.channelCount = busDef.channels;
+        }
         snapshot->outputs.push_back(out);
     }
 
@@ -231,7 +291,7 @@ void AudioEngine::setTrackMono(size_t songIndex, size_t trackIndex, bool mono) {
     TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
-    t->mono = mono;
+    t->channels = mono ? 1 : 2;
     publishRoutingSnapshot();
 }
 
@@ -258,87 +318,120 @@ void AudioEngine::setTrackBusId(size_t songIndex, size_t trackIndex, const std::
     TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
-    // Route target is a single id or a comma compound of mono Direct Output
-    // lanes ("direct:1,direct:2"). Rendering fans the track into every
-    // currently-live lane; a missing lane (unavailable output) is dropped to
-    // silence and self-restores, so we never reject or mangle the mapping.
-    t->busId = busId;
+    // `busId` is really "route id" here (kept the old parameter name for a
+    // minimal API diff): "" = Sends Only, "audio::main" = Main, otherwise an
+    // ext-out target (a single id or a comma compound of mono Direct Output
+    // lanes, e.g. "audio::out:1,audio::out:2"). Rendering fans the track
+    // into every currently-live lane; a missing lane (unavailable output) is
+    // dropped to silence and self-restores, so we never reject or mangle it.
+    if (busId.empty()) {
+        t->output.type = OutputType::SendsOnly;
+        t->output.target.reset();
+    } else if (busId == "audio::main") {
+        t->output.type = OutputType::Main;
+        t->output.target.reset();
+    } else {
+        t->output.type = OutputType::ExtOut;
+        t->output.target = busId;
+    }
     publishRoutingSnapshot();
 }
 
-void AudioEngine::setTrackSend(size_t songIndex, size_t trackIndex, size_t sendIndex, const TrackSendDef& send) {
+void AudioEngine::setTrackSend(size_t songIndex, size_t trackIndex, size_t sendIndex, const SendConfig& send) {
     (void)songIndex;
     TrackDef* t = trackDefAt(trackIndex);
-    if (t == nullptr || sendIndex >= t->sends.size())
+    if (t == nullptr || sendIndex >= t->output.sends.size())
         return;
-    if (busIndexById.find(send.busId) == busIndexById.end())
+    if (busIndexById.find(send.bus) == busIndexById.end())
         return;
-    t->sends[sendIndex] = send;
+    t->output.sends[sendIndex] = send;
     publishRoutingSnapshot();
 }
 
-void AudioEngine::addTrackSend(size_t songIndex, size_t trackIndex, const TrackSendDef& send) {
+void AudioEngine::addTrackSend(size_t songIndex, size_t trackIndex, const SendConfig& send) {
     (void)songIndex;
     TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
-    if (busIndexById.find(send.busId) == busIndexById.end())
+    if (busIndexById.find(send.bus) == busIndexById.end())
         return;
-    t->sends.push_back(send);
+    t->output.sends.push_back(send);
     publishRoutingSnapshot();
 }
 
 void AudioEngine::removeTrackSend(size_t songIndex, size_t trackIndex, size_t sendIndex) {
     (void)songIndex;
     TrackDef* t = trackDefAt(trackIndex);
-    if (t == nullptr || sendIndex >= t->sends.size())
+    if (t == nullptr || sendIndex >= t->output.sends.size())
         return;
-    t->sends.erase(t->sends.begin() + static_cast<std::ptrdiff_t>(sendIndex));
+    t->output.sends.erase(t->output.sends.begin() + static_cast<std::ptrdiff_t>(sendIndex));
     publishRoutingSnapshot();
 }
 
 void AudioEngine::setBusGainDb(size_t busIndex, double gainDb) {
-    auto& buses = loader.project().busses;
-    if (busIndex >= buses.size())
-        return;
-    buses[busIndex].gainDb = gainDb;
+    Project& proj = loader.project();
+    if (busIndex == 0) {
+        proj.main.gainDb = gainDb;
+    } else {
+        const size_t si = busIndex - 1;
+        if (si >= proj.sends.size())
+            return;
+        proj.sends[si].gainDb = gainDb;
+    }
     publishRoutingSnapshot();
 }
 
 void AudioEngine::setBusPan(size_t busIndex, double pan) {
-    auto& buses = loader.project().busses;
-    if (busIndex >= buses.size())
-        return;
-    buses[busIndex].pan = std::clamp(pan, -1.0, 1.0);
+    Project& proj = loader.project();
+    const double clamped = std::clamp(pan, -1.0, 1.0);
+    if (busIndex == 0) {
+        proj.main.pan = clamped;
+    } else {
+        const size_t si = busIndex - 1;
+        if (si >= proj.sends.size())
+            return;
+        proj.sends[si].pan = clamped;
+    }
     publishRoutingSnapshot();
 }
 
 void AudioEngine::setBusMute(size_t busIndex, bool mute) {
-    auto& buses = loader.project().busses;
-    if (busIndex >= buses.size())
-        return;
-    buses[busIndex].mute = mute;
+    Project& proj = loader.project();
+    if (busIndex == 0) {
+        proj.main.mute = mute;
+    } else {
+        const size_t si = busIndex - 1;
+        if (si >= proj.sends.size())
+            return;
+        proj.sends[si].mute = mute;
+    }
     if (busIndex < busMuted.size())
         busMuted[busIndex] = mute;
     publishRoutingSnapshot();
 }
 
 void AudioEngine::setBusSolo(size_t busIndex, bool solo) {
-    auto& buses = loader.project().busses;
-    if (busIndex >= buses.size())
-        return;
-    buses[busIndex].solo = solo;
+    Project& proj = loader.project();
+    if (busIndex == 0) {
+        // Master's solo group has only itself -- stored for UI fidelity, but
+        // publishRoutingSnapshot() never lets it silence anything.
+        proj.main.solo = solo;
+    } else {
+        const size_t si = busIndex - 1;
+        if (si >= proj.sends.size())
+            return;
+        proj.sends[si].solo = solo;
+    }
     publishRoutingSnapshot();
 }
 
 void AudioEngine::setClickSolo(bool solo) {
-    loader.project().builtInClickSolo = solo;
+    loader.project().click.solo = solo;
     publishRoutingSnapshot();
 }
 
 void AudioEngine::refreshClickState() {
     std::lock_guard<std::recursive_mutex> lock(routingMutex);
-
 
     if (!projectLoaded)
         return;
@@ -349,21 +442,22 @@ void AudioEngine::refreshClickState() {
     clickTargetBusIndices.clear();
     clickSendBusIndices.clear();
     clickSendGainLinears.clear();
-    isClickEnabled = proj.builtInClickEnabled;
+    isClickEnabled = proj.click.enabled;
 
     // Gain/pan are project-global. Always refresh so Sends Only still has a
     // level even without a main target bus.
-    clickGainLinear = dbToGain(proj.builtInClickGainDb);
+    clickGainLinear = dbToGain(proj.click.gainDb);
     clickPan = static_cast<float>(
-        std::clamp(proj.builtInClickPan, -1.0, 1.0));
-    clickMono = proj.builtInClickMono;
+        std::clamp(proj.click.pan, -1.0, 1.0));
+    clickMono = proj.click.channels == 1;
 
-    // Empty builtInClickBusId = Sends Only (no main target). Do NOT fall
-    // back to the first bus -- that made "Sends Only" unselectable.
+    // Empty route id = Sends Only. Do NOT fall back to Master -- that made
+    // "Sends Only" unselectable.
     clickTargetBusIndices.clear();
-    if (!proj.builtInClickBusId.empty()) {
+    const std::string routeId = mainRouteId(proj.click.output);
+    if (!routeId.empty()) {
         audio_engine_detail::collectRouteBusIndices(
-            proj.builtInClickBusId, busIndexById, clickTargetBusIndices);
+            routeId, busIndexById, clickTargetBusIndices);
     }
 
     double bpm = 120.0;
@@ -385,14 +479,14 @@ void AudioEngine::refreshClickState() {
         clickGenerator.prepare(currentSampleRate, bpm, tsNum, tsDen);
     }
 
-    for (const TrackSendDef& cs : proj.builtInClickSends) {
+    for (const SendConfig& cs : proj.click.output.sends) {
         if (!cs.enabled)
             continue;
-        auto it = busIndexById.find(cs.busId);
+        auto it = busIndexById.find(cs.bus);
         if (it == busIndexById.end())
             continue;
         clickSendBusIndices.push_back(static_cast<int>(it->second));
-        clickSendGainLinears.push_back(dbToGain(cs.gainDb));
+        clickSendGainLinears.push_back(static_cast<float>(std::clamp(cs.level, 0.0, 100.0) / 100.0));
     }
 
     // Live songUpdate of bpm/meter while playing: keep MIDI clock + SPP in
@@ -428,10 +522,18 @@ void AudioEngine::syncMidiTransportToCurrentSong(bool sendContinue) {
 }
 
 void AudioEngine::setBusOutputChannel(size_t busIndex, int startChannel) {
-    auto& buses = loader.project().busses;
-    if (busIndex >= buses.size())
-        return;
-    buses[busIndex].output.startChannel = std::max(0, startChannel);
+    Project& proj = loader.project();
+    const int sc = std::max(0, startChannel);
+    if (busIndex == 0) {
+        proj.main.output.type = OutputType::ExtOut;
+        proj.main.output.target = extOutTarget(sc, proj.main.channels);
+    } else {
+        const size_t si = busIndex - 1;
+        if (si >= proj.sends.size())
+            return;
+        proj.sends[si].output.type = OutputType::ExtOut;
+        proj.sends[si].output.target = extOutTarget(sc, proj.sends[si].channels);
+    }
     publishRoutingSnapshot();
 }
 
@@ -450,34 +552,50 @@ void AudioEngine::ensureScratchSizes() {
 }
 
 int AudioEngine::busStartChannelAt(size_t index) const {
-    const auto& bp = loader.project().busses;
-    if (index < bp.size())
-        return bp[static_cast<size_t>(index)].output.startChannel;
-    const size_t d = static_cast<size_t>(index) - bp.size();
+    const Project& proj = loader.project();
+    if (index == 0) {
+        int start = 0, ignoredCount = 2;
+        if (proj.main.output.target.has_value())
+            parseExtOutTarget(*proj.main.output.target, start, ignoredCount);
+        return start;
+    }
+    const size_t si = index - 1;
+    if (si < proj.sends.size()) {
+        const SendBus& b = proj.sends[si];
+        int start = 0, ignoredCount = b.channels;
+        const auto& target = (b.output.type == OutputType::Main) ? proj.main.output.target : b.output.target;
+        if (target.has_value())
+            parseExtOutTarget(*target, start, ignoredCount);
+        return start;
+    }
+    const size_t d = index - 1 - proj.sends.size();
     if (d < directOutBusses.size())
         return directOutBusses[d].startChannel;
     return 0;
 }
 
 int AudioEngine::busChannelCountAt(size_t index) const {
-    const auto& bp = loader.project().busses;
-    if (index < bp.size())
-        return bp[static_cast<size_t>(index)].channels;
-    const size_t d = static_cast<size_t>(index) - bp.size();
+    const Project& proj = loader.project();
+    if (index == 0)
+        return proj.main.channels;
+    const size_t si = index - 1;
+    if (si < proj.sends.size())
+        return proj.sends[si].channels;
+    const size_t d = index - 1 - proj.sends.size();
     if (d < directOutBusses.size())
         return directOutBusses[d].channels;
     return 2;
 }
 
 bool AudioEngine::busIsDirectAt(size_t index) const {
-    return index >= project().busses.size();
+    return index > project().sends.size();
 }
 
 bool AudioEngine::busAvailableAt(size_t index) const {
-    const auto& bp = loader.project().busses;
-    if (index < bp.size())
-        return true; // project busses are always present
-    const size_t d = static_cast<size_t>(index) - bp.size();
+    const Project& proj = loader.project();
+    if (index <= proj.sends.size())
+        return true; // Master + project Sends are always present
+    const size_t d = index - 1 - proj.sends.size();
     if (d < directOutBusses.size())
         return directOutBusses[d].available;
     return true;
@@ -513,15 +631,15 @@ void AudioEngine::rebuildDirectOutBusses() {
     };
 
     // ONE mono lane per active output channel, numbered 1-based: physical
-    // channel 0 => id "direct:1". No stereo-pair "direct:a/b" lanes at all --
-    // a stereo route is expressed by a track/bus targeting both mono lanes
-    // (see rebuildShadowRoutingRefs' compound handling). IDs always count from
+    // channel 0 => id "audio::out:1". No stereo-pair "audio::out:a/b" lanes
+    // at all -- a stereo route is expressed by a track/bus targeting both
+    // mono lanes (see the shadow-lane handling below). IDs always count from
     // 1 so the UI never shows a 0-based output.
     for (int i = 0; i < total; ++i) {
         if (!activeAt(i))
             continue;
         DirectOutBus b;
-        b.id = "direct:" + std::to_string(i + 1); // 1-based
+        b.id = "audio::out:" + std::to_string(i + 1); // 1-based
         b.name = "Out " + std::to_string(i + 1);
         b.startChannel = i; // 0-based physical index
         b.channels = 1;
@@ -531,35 +649,44 @@ void AudioEngine::rebuildDirectOutBusses() {
     }
 
     // Append "shadow" lanes for direct ids still referenced by the project
-    // (tracks / metronome) whose physical output is currently inactive. They
-    // keep the bus list + routing id stable so track settings are untouched
-    // and mapping survives a device drop / missing-output project. Each is
-    // flagged unavailable (routes to silence) and re-wires itself once its
-    // output comes back, because its id is deterministic from the channel.
+    // (tracks / metronome / master / sends) whose physical output is
+    // currently inactive. They keep the bus list + routing id stable so
+    // track settings are untouched and mapping survives a device drop /
+    // missing-output project. Each is flagged unavailable (routes to
+    // silence) and re-wires itself once its output comes back, because its
+    // id is deterministic from the channel.
     {
         std::vector<std::string> refs;
         auto collect = [&](const std::string& id) {
-            // A route id may be a compound ("direct:1,direct:2"); split so each
-            // mono lane is considered independently for shadowing.
+            // A route id may be a compound ("audio::out:1,audio::out:2"); split
+            // so each mono lane is considered independently for shadowing.
             std::size_t pos = 0;
             while (pos <= id.size()) {
                 const std::size_t end = id.find(',', pos);
                 std::string tok = id.substr(
                     pos, end == std::string::npos ? std::string::npos : end - pos);
                 pos = (end == std::string::npos) ? id.size() + 1 : end + 1;
-                if (!tok.empty() && tok.rfind("direct:", 0) == 0)
+                if (!tok.empty() && tok.rfind("audio::out:", 0) == 0)
                     refs.push_back(tok);
+                if (end == std::string::npos)
+                    break;
             }
         };
         const Project& proj = loader.project();
         for (const TrackDef& t : proj.tracks) {
-            collect(t.busId);
-            for (const TrackSendDef& s : t.sends)
-                collect(s.busId);
+            collect(mainRouteId(t.output));
+            for (const SendConfig& s : t.output.sends)
+                collect(s.bus);
         }
-        collect(proj.builtInClickBusId);
-        for (const TrackSendDef& cs : proj.builtInClickSends)
-            collect(cs.busId);
+        collect(mainRouteId(proj.click.output));
+        for (const SendConfig& cs : proj.click.output.sends)
+            collect(cs.bus);
+        if (proj.main.output.target.has_value())
+            collect(*proj.main.output.target);
+        for (const SendBus& b : proj.sends) {
+            if (b.output.target.has_value())
+                collect(*b.output.target);
+        }
 
         // Many tracks / sends may reference the SAME lane; process each id once.
         // Otherwise hasLane() would consume the real (active) lane on the first
@@ -581,10 +708,10 @@ void AudioEngine::rebuildDirectOutBusses() {
         for (const std::string& ref : refs) {
             if (hasLane(ref))
                 continue;
-            // "direct:{N}" where N is 1-based (physical channel N-1).
+            // "audio::out:{N}" where N is 1-based (physical channel N-1).
             int n = 0;
             try {
-                n = std::stoi(ref.substr(7));
+                n = std::stoi(ref.substr(11));
             } catch (...) {
                 continue;
             }

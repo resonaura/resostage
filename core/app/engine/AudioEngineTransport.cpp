@@ -123,33 +123,34 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // "prolag" between songs.
 
     // Validate track -> bus assignments before staging UI/routing state.
-    // An empty busId is valid and deliberate: a "sends-only" track with no
-    // main/FOH destination, routed purely through its TrackSendDef entries
-    // (publishRoutingSnapshot() already treats "busId not found" as simply
+    // A SendsOnly route is valid and deliberate: a track with no main/FOH
+    // destination, routed purely through its SendConfig entries
+    // (publishRoutingSnapshot() already treats "route not found" as simply
     // "no main route" -- only a *non-empty* dangling reference is an error).
     std::vector<std::string> newTrackIds;
     newTrackIds.reserve(proj.tracks.size());
     for (const TrackDef& trackDef : proj.tracks) {
-        if (trackDef.busId.empty())
-        {
+        const std::string routeId = audio_engine_detail::mainRouteId(trackDef.output);
+        if (routeId.empty()) {
             newTrackIds.push_back(trackDef.id);
             continue;
         }
-        // A bus id may be a comma compound of mono Direct Output lanes
-        // ("direct:3,direct:4"). Validate every non-empty token, following the
-        // routing rules: a "direct:*" token is always acceptable -- the lane
-        // id is deterministic and a currently-absent lane (unavailable /
-        // disabled output) silently drops to silence instead of erroring. Only
-        // a genuine dangling reference to a project/aux bus is a hard error.
+        // A route id may be a comma compound of mono Direct Output lanes
+        // ("audio::out:3,audio::out:4"). Validate every non-empty token,
+        // following the routing rules: an "audio::out:*" token is always
+        // acceptable -- the lane id is deterministic and a currently-absent
+        // lane (unavailable/disabled output) silently drops to silence
+        // instead of erroring. Only a genuine dangling reference to a
+        // project/send bus is a hard error.
         std::size_t pos = 0;
-        while (pos <= trackDef.busId.size()) {
-            const std::size_t end = trackDef.busId.find(',', pos);
-            const std::string tok = trackDef.busId.substr(
+        while (pos <= routeId.size()) {
+            const std::size_t end = routeId.find(',', pos);
+            const std::string tok = routeId.substr(
                 pos, end == std::string::npos ? std::string::npos : end - pos);
-            pos = (end == std::string::npos) ? trackDef.busId.size() + 1 : end + 1;
+            pos = (end == std::string::npos) ? routeId.size() + 1 : end + 1;
             if (tok.empty())
                 continue;
-            if (tok.rfind("direct:", 0) == 0)
+            if (tok.rfind("audio::out:", 0) == 0)
                 continue; // lane might exist or be shadowed -- never fatal
             if (busIndexById.find(tok) == busIndexById.end()) {
                 error = "Track '" + trackDef.id + "' references unknown bus '" + tok + "'";
@@ -174,25 +175,25 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // Prepare click routing offline, publish under the lock below.
     // Click routing is project-global (same for every song).
     std::vector<int> newClickTargets;
-    float newClickGain = dbToGain(loader.project().builtInClickGainDb);
+    float newClickGain = dbToGain(loader.project().click.gainDb);
     std::vector<int> newClickSends;
     std::vector<float> newClickSendGains;
-    const bool newClickEnabled = loader.project().builtInClickEnabled;
+    const bool newClickEnabled = loader.project().click.enabled;
     {
         std::vector<size_t> idxs;
         audio_engine_detail::collectRouteBusIndices(
-            loader.project().builtInClickBusId, busIndexById, idxs);
+            audio_engine_detail::mainRouteId(loader.project().click.output), busIndexById, idxs);
         for (const size_t ix : idxs)
             newClickTargets.push_back(static_cast<int>(ix));
     }
-    for (const TrackSendDef& cs : loader.project().builtInClickSends) {
+    for (const SendConfig& cs : loader.project().click.output.sends) {
         if (!cs.enabled)
             continue;
-        auto it = busIndexById.find(cs.busId);
+        auto it = busIndexById.find(cs.bus);
         if (it == busIndexById.end())
             continue;
         newClickSends.push_back(static_cast<int>(it->second));
-        newClickSendGains.push_back(dbToGain(cs.gainDb));
+        newClickSendGains.push_back(static_cast<float>(std::clamp(cs.level, 0.0, 100.0) / 100.0));
     }
 
     // CRITICAL: every field the audio thread reads under routingMutex must
@@ -234,8 +235,8 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         clickTargetBusIndices = std::move(newClickTargets);
         clickGainLinear = newClickGain;
         clickPan = static_cast<float>(
-            std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
-        clickMono = loader.project().builtInClickMono;
+            std::clamp(loader.project().click.pan, -1.0, 1.0));
+        clickMono = loader.project().click.channels == 1;
         clickSendBusIndices = std::move(newClickSends);
         clickSendGainLinears = std::move(newClickSendGains);
         isClickEnabled = newClickEnabled;
@@ -408,8 +409,8 @@ void AudioEngine::syncTransportCycleFromProject() {
     const bool appliesHere =
         c.active && c.songIndex >= 0
         && static_cast<size_t>(c.songIndex) == currentSong;
-    double lo = c.leftSec;
-    double hi = c.rightSec;
+    double lo = c.startSeconds;
+    double hi = c.endSeconds;
     if (hi < lo)
         std::swap(lo, hi);
     cycleActive.store(appliesHere, std::memory_order_relaxed);
@@ -465,25 +466,25 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     // Click routing for the new song (same fields the message-thread path sets).
     // Click routing is project-global (same for every song).
     std::vector<int> newClickTargets;
-    float newClickGain = dbToGain(loader.project().builtInClickGainDb);
+    float newClickGain = dbToGain(loader.project().click.gainDb);
     std::vector<int> newClickSends;
     std::vector<float> newClickSendGains;
-    const bool newClickEnabled = loader.project().builtInClickEnabled;
+    const bool newClickEnabled = loader.project().click.enabled;
     {
         std::vector<size_t> idxs;
         audio_engine_detail::collectRouteBusIndices(
-            loader.project().builtInClickBusId, busIndexById, idxs);
+            audio_engine_detail::mainRouteId(loader.project().click.output), busIndexById, idxs);
         for (const size_t ix : idxs)
             newClickTargets.push_back(static_cast<int>(ix));
     }
-    for (const TrackSendDef& cs : loader.project().builtInClickSends) {
+    for (const SendConfig& cs : loader.project().click.output.sends) {
         if (!cs.enabled)
             continue;
-        auto it = busIndexById.find(cs.busId);
+        auto it = busIndexById.find(cs.bus);
         if (it == busIndexById.end())
             continue;
         newClickSends.push_back(static_cast<int>(it->second));
-        newClickSendGains.push_back(dbToGain(cs.gainDb));
+        newClickSendGains.push_back(static_cast<float>(std::clamp(cs.level, 0.0, 100.0) / 100.0));
     }
 
     // Apply under the same mutex the render path holds, so the first post-
@@ -504,8 +505,8 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     clickTargetBusIndices = std::move(newClickTargets);
     clickGainLinear = newClickGain;
     clickPan = static_cast<float>(
-        std::clamp(loader.project().builtInClickPan, -1.0, 1.0));
-    clickMono = loader.project().builtInClickMono;
+        std::clamp(loader.project().click.pan, -1.0, 1.0));
+    clickMono = loader.project().click.channels == 1;
     clickSendBusIndices = std::move(newClickSends);
     clickSendGainLinears = std::move(newClickSendGains);
     isClickEnabled = newClickEnabled;
@@ -560,8 +561,8 @@ void AudioEngine::play() {
         const ProjectCycle& c = loader.project().cycle;
         if (c.active && !c.skip && c.songIndex >= 0
             && static_cast<size_t>(c.songIndex) < loader.project().songs.size()) {
-            double lo = c.leftSec;
-            double hi = c.rightSec;
+            double lo = c.startSeconds;
+            double hi = c.endSeconds;
             if (hi < lo)
                 std::swap(lo, hi);
             if (hi - lo >= 0.05) {
@@ -816,9 +817,9 @@ void AudioEngine::dispatchEvent(const TimelineEvent& ev, uint64_t targetHostTime
         }
         case EventType::Http: {
             HttpTriggerCommand cmd;
-            cmd.url = ev.httpUrl;
+            cmd.url = ev.httpUrl.value_or("");
             cmd.method = ev.httpMethod;
-            cmd.body = ev.httpBody;
+            cmd.body = ev.httpBody.value_or("");
             eventDispatcher.enqueueHttp(cmd);
             break;
         }

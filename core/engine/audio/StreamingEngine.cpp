@@ -22,10 +22,10 @@ void applyWindowFromRegion(StreamingTrackBuffer& buf, const Region& region, doub
     if (deviceSampleRate <= 0.0)
         deviceSampleRate = 48000.0;
     const int64_t total = buf.totalFrames();
-    const int64_t srcOff = static_cast<int64_t>(std::llround(std::max(0.0, region.sourceOffsetSeconds) * deviceSampleRate));
-    if (region.loop) {
+    const int64_t srcOff = static_cast<int64_t>(std::llround(std::max(0.0, region.source.offsetSeconds) * deviceSampleRate));
+    if (region.loop.enabled) {
         const int64_t sourceAvail = std::max<int64_t>(0, total - srcOff);
-        const double loopLenD = region.loopLengthSeconds > 0.0 ? region.loopLengthSeconds : 0.0;
+        const double loopLenD = region.loop.lengthSeconds > 0.0 ? region.loop.lengthSeconds : 0.0;
         const int64_t loopLenN = loopLenD > 0.0
             ? static_cast<int64_t>(std::llround(loopLenD * deviceSampleRate))
             : sourceAvail;
@@ -602,7 +602,7 @@ std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::bindSongToPool(
     std::vector<const Region*> regions;
     regions.reserve(song.regions.size());
     for (const Region& r : song.regions) {
-        if (!r.file.empty())
+        if (!r.source.file.empty())
             regions.push_back(&r);
     }
 
@@ -610,17 +610,17 @@ std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::bindSongToPool(
         std::shared_ptr<StreamingTrackBuffer> buf;
         {
             std::lock_guard<std::mutex> lock(filePoolMutex);
-            auto it = filePool.find(r->file);
+            auto it = filePool.find(r->source.file);
             if (it != filePool.end())
                 buf = it->second;
         }
         if (buf == nullptr) {
             if (!openMissing) {
-                error = "file not in pool: " + r->file;
+                error = "file not in pool: " + r->source.file;
                 return nullptr;
             }
             std::string openError;
-            buf = getOrOpenFile(r->file, ringCapacityFrames, deviceSampleRate, openError);
+            buf = getOrOpenFile(r->source.file, ringCapacityFrames, deviceSampleRate, openError);
             if (buf == nullptr) {
                 error = "Region '" + r->id + "': " + openError;
                 return nullptr;

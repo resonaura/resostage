@@ -31,24 +31,30 @@ std::string makeProjectArchive(const std::string& projectJson) {
 
 constexpr const char* kFullProjectJson = R"JSON(
 {
-  "formatVersion": 1,
+  "format": { "version": 2 },
   "name": "Full Parse Test",
   "sampleRate": 48000,
-  "busses": [
-    { "id": "bus_main", "name": "Main", "channels": 2, "output": { "startChannel": 0 }, "gainDb": -3.0 }
-  ],
+  "click": { "enabled": false, "name": "Click", "channels": 2, "gainDb": 0, "pan": 0, "mute": false, "solo": false,
+             "output": { "type": "sends-only", "target": null, "sends": [] } },
+  "main": { "enabled": true, "name": "Main", "channels": 2, "gainDb": -3.0, "pan": 0, "mute": false, "solo": false,
+            "output": { "type": "ext-out", "target": "audio::out:1,audio::out:2" } },
+  "sends": [],
   "tracks": [
-    { "id": "trk_1", "name": "Synths", "bus": "bus_main", "gainDb": -1.5, "pan": 0.25, "mute": true }
+    { "id": "audio::track:1", "name": "Synths", "channels": 2, "gainDb": -1.5, "pan": 0.25, "mute": true, "solo": false,
+      "output": { "type": "main", "target": "audio::main", "sends": [] } }
   ],
   "songs": [
     {
-      "id": "song_1",
+      "id": "meta::song:1",
       "name": "Opener",
       "bpm": 140.0,
       "timeSignature": { "numerator": 7, "denominator": 8 },
       "playbackMode": "autoplayNext",
       "regions": [
-        { "id": "reg_1", "trackId": "trk_1", "file": "Audio/dummy.wav", "startSeconds": 0.0, "durationSeconds": 4.0 }
+        { "id": "019fd93b-3662-7f5b-8162-45f5ecad98fa", "trackId": "audio::track:1", "startSeconds": 0.0, "durationSeconds": 4.0,
+          "gainDb": 0, "source": { "file": "Audio/dummy.wav", "offsetSeconds": 0 },
+          "fade": { "inSeconds": 0, "outSeconds": 0, "inCurve": 0, "outCurve": 0 },
+          "loop": { "enabled": false, "lengthSeconds": 0 } }
       ],
       "events": [
         { "id": "ev_pc", "type": "midiProgramChange", "triggerOnLoad": true, "midiChannel": 3, "midiProgram": 12, "latencyCompensationMs": 15.0 },
@@ -58,18 +64,17 @@ constexpr const char* kFullProjectJson = R"JSON(
       ]
     }
   ],
-  "cycle": { "active": false, "skip": false, "leftSec": 0.0, "rightSec": 4.0, "songIndex": -1 },
-  "keybindings": { "play": "space", "next": "n" },
-  "midiMappings": [
+  "cycle": { "active": false, "skip": false, "startSeconds": 0.0, "endSeconds": 4.0, "songIndex": -1 },
+  "midi": { "mappings": [
     { "action": "play", "channel": 1, "triggerType": "noteOn", "number": 60 },
     { "action": "next", "channel": 0, "triggerType": "controlChange", "number": 20 }
-  ]
+  ] }
 }
 )JSON";
 
 } // namespace
 
-TEST_CASE("ProjectLoader parses busses, songs, tracks, events, keybindings, and midiMappings") {
+TEST_CASE("ProjectLoader parses click, main, sends, tracks, songs, events, and midi mappings") {
     const std::string path = makeProjectArchive(kFullProjectJson);
 
     ProjectLoader loader;
@@ -77,28 +82,30 @@ TEST_CASE("ProjectLoader parses busses, songs, tracks, events, keybindings, and 
     REQUIRE(loader.open(path, error));
 
     const Project& proj = loader.project();
-    CHECK(proj.formatVersion == 1);
+    CHECK(proj.format.version == 2);
     CHECK(proj.name == "Full Parse Test");
     CHECK(proj.sampleRate == 48000.0);
 
-    REQUIRE(proj.busses.size() == 1);
-    CHECK(proj.busses[0].id == "bus_main");
-    CHECK(proj.busses[0].channels == 2);
-    CHECK(proj.busses[0].output.startChannel == 0);
-    CHECK(proj.busses[0].gainDb == doctest::Approx(-3.0));
+    CHECK(proj.main.channels == 2);
+    CHECK(proj.main.gainDb == doctest::Approx(-3.0));
+    CHECK(proj.main.output.type == OutputType::ExtOut);
+    REQUIRE(proj.main.output.target.has_value());
+    CHECK(*proj.main.output.target == "audio::out:1,audio::out:2");
+    CHECK(proj.sends.empty());
 
     REQUIRE(proj.songs.size() == 1);
     const SongDef& song = proj.songs[0];
-    CHECK(song.id == "song_1");
+    CHECK(song.id == "meta::song:1");
     CHECK(song.bpm == doctest::Approx(140.0));
     CHECK(song.timeSignature.numerator == 7);
     CHECK(song.timeSignature.denominator == 8);
     CHECK(song.playbackMode == PlaybackMode::AutoplayNext);
 
     REQUIRE_FALSE(proj.tracks.empty());
+    CHECK(proj.tracks[0].output.type == OutputType::Main);
     REQUIRE(song.regions.size() == 1);
-    CHECK(song.regions[0].trackId == "trk_1");
-    CHECK(song.regions[0].file == "Audio/dummy.wav");
+    CHECK(song.regions[0].trackId == "audio::track:1");
+    CHECK(song.regions[0].source.file == "Audio/dummy.wav");
 
     REQUIRE(song.events.size() == 4);
 
@@ -117,9 +124,11 @@ TEST_CASE("ProjectLoader parses busses, songs, tracks, events, keybindings, and 
 
     const TimelineEvent& httpEv = song.events[2];
     CHECK(httpEv.type == EventType::Http);
-    CHECK(httpEv.httpUrl == "http://example.local/cue");
+    REQUIRE(httpEv.httpUrl.has_value());
+    CHECK(*httpEv.httpUrl == "http://example.local/cue");
     CHECK(httpEv.httpMethod == "POST");
-    CHECK(httpEv.httpBody == "go");
+    REQUIRE(httpEv.httpBody.has_value());
+    CHECK(*httpEv.httpBody == "go");
 
     const TimelineEvent& dmxEv = song.events[3];
     CHECK(dmxEv.type == EventType::Dmx);
@@ -129,27 +138,23 @@ TEST_CASE("ProjectLoader parses busses, songs, tracks, events, keybindings, and 
     CHECK(dmxEv.dmxData[1] == 0);
     CHECK(dmxEv.dmxData[2] == 128);
 
-    REQUIRE(proj.keybindings.size() == 2);
-    CHECK(proj.keybindings.at("play") == "space");
-    CHECK(proj.keybindings.at("next") == "n");
-
-    REQUIRE(proj.midiMappings.size() == 2);
-    CHECK(proj.midiMappings[0].action == "play");
-    CHECK(proj.midiMappings[0].channel == 1);
-    CHECK(proj.midiMappings[0].triggerType == MidiTriggerType::NoteOn);
-    CHECK(proj.midiMappings[0].number == 60);
-    CHECK(proj.midiMappings[1].action == "next");
-    CHECK(proj.midiMappings[1].triggerType == MidiTriggerType::ControlChange);
-    CHECK(proj.midiMappings[1].number == 20);
+    REQUIRE(proj.midi.mappings.size() == 2);
+    CHECK(proj.midi.mappings[0].action == "play");
+    CHECK(proj.midi.mappings[0].channel == 1);
+    CHECK(proj.midi.mappings[0].triggerType == MidiTriggerType::NoteOn);
+    CHECK(proj.midi.mappings[0].number == 60);
+    CHECK(proj.midi.mappings[1].action == "next");
+    CHECK(proj.midi.mappings[1].triggerType == MidiTriggerType::ControlChange);
+    CHECK(proj.midi.mappings[1].number == 20);
 }
 
 TEST_CASE("ProjectLoader tolerates missing optional sections") {
     const std::string minimalJson = R"JSON(
 {
-  "formatVersion": 1,
+  "format": { "version": 2 },
   "name": "Minimal",
   "sampleRate": 44100,
-  "busses": [],
+  "sends": [],
   "songs": []
 }
 )JSON";
@@ -161,32 +166,35 @@ TEST_CASE("ProjectLoader tolerates missing optional sections") {
 
     const Project& proj = loader.project();
     CHECK(proj.name == "Minimal");
-    CHECK(proj.busses.empty());
+    CHECK(proj.sends.empty());
     CHECK(proj.songs.empty());
-    CHECK(proj.keybindings.empty());
-    CHECK(proj.midiMappings.empty());
+    CHECK(proj.midi.mappings.empty());
 }
 
-TEST_CASE("ProjectLoader parses and round-trips a sends-only track (empty bus)") {
-    // A track with no main/FOH bus, routed purely through aux sends -- the
-    // "only sends, no output" case AudioEngine's staging validation used to
-    // reject outright (empty busId treated as a dangling reference), fixed
-    // to treat an empty busId as "no main route" rather than an error.
+TEST_CASE("ProjectLoader parses and round-trips a sends-only track") {
+    // A track with no main/FOH route, routed purely through an aux send --
+    // the "only sends, no output" case AudioEngine's staging validation used
+    // to reject outright, fixed to treat SendsOnly as "no main route" rather
+    // than an error.
     const std::string json = R"JSON(
 {
-  "formatVersion": 1, "name": "SendsOnly", "sampleRate": 48000,
-  "busses": [
-    { "id": "bus_main", "name": "Main", "channels": 2, "output": { "startChannel": 0 } },
-    { "id": "bus_aux", "name": "Monitor", "channels": 2, "output": { "startChannel": 2 }, "isAux": true }
+  "format": { "version": 2 }, "name": "SendsOnly", "sampleRate": 48000,
+  "main": { "enabled": true, "name": "Main", "channels": 2, "gainDb": 0, "pan": 0, "mute": false, "solo": false,
+            "output": { "type": "ext-out", "target": "audio::out:1,audio::out:2" } },
+  "sends": [
+    { "id": "audio::send:1", "name": "Monitor", "channels": 2, "gainDb": 0, "pan": 0, "mute": false, "solo": false,
+      "output": { "type": "ext-out", "target": "audio::out:3,audio::out:4" } }
   ],
   "tracks": [
-    { "id": "t1", "name": "Click (monitor only)", "bus": "",
-      "sends": [ { "bus": "bus_aux", "gainDb": -3.0 } ] }
+    { "id": "t1", "name": "Click (monitor only)", "channels": 2, "gainDb": 0, "pan": 0, "mute": false, "solo": false,
+      "output": { "type": "sends-only", "target": null,
+        "sends": [ { "bus": "audio::send:1", "level": 70.7945784, "preFader": false, "enabled": true } ] } }
   ],
   "songs": [
     { "id": "s1", "name": "S1", "bpm": 120,
       "regions": [
-        { "id": "r1", "trackId": "t1", "file": "Audio/dummy.wav", "startSeconds": 0.0, "durationSeconds": 1.0 }
+        { "id": "r1", "trackId": "t1", "startSeconds": 0.0, "durationSeconds": 1.0,
+          "source": { "file": "Audio/dummy.wav", "offsetSeconds": 0 } }
       ],
       "events": [] }
   ]
@@ -204,9 +212,10 @@ TEST_CASE("ProjectLoader parses and round-trips a sends-only track (empty bus)")
     auto tIt = std::find_if(proj.tracks.begin(), proj.tracks.end(), [](const TrackDef& trk) { return trk.id == "t1"; });
     REQUIRE(tIt != proj.tracks.end());
     const TrackDef& t = *tIt;
-    CHECK(t.busId.empty());
-    REQUIRE(t.sends.size() == 1);
-    CHECK(t.sends[0].busId == "bus_aux");
+    CHECK(t.output.type == OutputType::SendsOnly);
+    REQUIRE(t.output.sends.size() == 1);
+    CHECK(t.output.sends[0].bus == "audio::send:1");
+    CHECK(t.output.sends[0].level == doctest::Approx(70.7945784));
 
     const std::string outPath =
         std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp")
@@ -219,37 +228,51 @@ TEST_CASE("ProjectLoader parses and round-trips a sends-only track (empty bus)")
     REQUIRE_FALSE(reopened.project().tracks.empty());
     auto rIt = std::find_if(reopened.project().tracks.begin(), reopened.project().tracks.end(), [](const TrackDef& trk) { return trk.id == "t1"; });
     REQUIRE(rIt != reopened.project().tracks.end());
-    CHECK(rIt->busId.empty());
-    REQUIRE(rIt->sends.size() == 1);
-    CHECK(rIt->sends[0].busId == "bus_aux");
+    CHECK(rIt->output.type == OutputType::SendsOnly);
+    REQUIRE(rIt->output.sends.size() == 1);
+    CHECK(rIt->output.sends[0].bus == "audio::send:1");
 
     std::remove(outPath.c_str());
 }
 
-TEST_CASE("ProjectLoader migrates legacy direct-out busses to global ext-out ids") {
-    // A legacy project where the master and a user-fold bus coexist with a
-    // mixer-fabricated direct-output bus auto-labelled "Out 3/4". The latter
-    // must be stripped from the project and its routes remapped to the global
-    // "direct:3,direct:4" convention, while main + user custom buses are preserved.
+TEST_CASE("ProjectLoader migrates a legacy (pre-v2) project.json to the current schema") {
+    // Exercises LegacyProjectMigration.h against every kind of legacy bus:
+    //  - "bus_main" (id == "main")                    -> Project::main
+    //  - "bus_fold" (non-aux, NOT "Out "-prefixed)     -> a "stray" SendBus
+    //  - "bus_out" (non-aux, name "Out 3/4")           -> folded into a raw
+    //                                                     ext-out target, not
+    //                                                     persisted as a bus
+    //  - "bus_aux" (isAux == true)                     -> an aux SendBus
+    // Also covers: click un-flattening, cycle rename, dB->level% send
+    // conversion, and id renumbering (trk_N -> audio::track:N, etc).
     const std::string json = R"JSON(
 {
-  "formatVersion": 1, "name": "LegacyOut", "sampleRate": 48000,
+  "formatVersion": 1, "name": "LegacyProject", "sampleRate": 48000,
+  "builtInClickEnabled": true, "builtInClickName": "Click", "builtInClickBusId": "bus_aux",
+  "builtInClickGainDb": -1.0, "builtInClickPan": 0.0, "builtInClickMono": true, "builtInClickSolo": false,
+  "builtInClickSends": [ { "bus": "bus_fold", "gainDb": 0.0, "preFader": false, "enabled": true } ],
   "busses": [
-    { "id": "bus_main", "name": "Main", "channels": 2, "output": { "startChannel": 0 } },
+    { "id": "main", "name": "Main", "channels": 2, "output": { "startChannel": 0 }, "gainDb": -2.0 },
     { "id": "bus_fold", "name": "Master Fold", "channels": 2, "output": { "startChannel": 6 } },
-    { "id": "bus_direct", "name": "Out 3/4", "channels": 2, "output": { "startChannel": 2 } }
+    { "id": "bus_out", "name": "Out 3/4", "channels": 2, "output": { "startChannel": 2 } },
+    { "id": "bus_aux", "name": "Monitor", "channels": 1, "output": { "startChannel": 10 }, "isAux": true }
   ],
   "tracks": [
-    { "id": "t1", "name": "Drums", "bus": "bus_direct",
-      "sends": [ { "bus": "bus_fold", "gainDb": -6.0 } ] }
+    { "id": "trk_1", "name": "Drums", "bus": "bus_out", "mono": true,
+      "sends": [ { "bus": "bus_fold", "gainDb": -6.0 }, { "bus": "bus_aux", "gainDb": 0.0 } ] },
+    { "id": "trk_2", "name": "Click Monitor", "bus": "" }
   ],
   "songs": [
-    { "id": "s1", "name": "S1", "bpm": 120,
+    { "id": "song_1", "name": "S1", "bpm": 120,
       "regions": [
-        { "id": "r1", "trackId": "t1", "file": "Audio/dummy.wav", "startSeconds": 0.0, "durationSeconds": 1.0 }
+        { "id": "reg_1", "trackId": "trk_1", "file": "Audio/dummy.wav", "startSeconds": 0.0, "durationSeconds": 1.0 }
       ],
+      "sections": [ { "id": "sec_1", "name": "Intro", "startSeconds": 0.0, "colorIndex": 0 } ],
       "events": [] }
-  ]
+  ],
+  "cycle": { "active": true, "skip": false, "leftSec": 8.0, "rightSec": 16.0, "songIndex": 0 },
+  "keybindings": { "play": "space" },
+  "midiMappings": [ { "action": "play", "channel": 1, "triggerType": "noteOn", "number": 60 } ]
 }
 )JSON";
     const std::string path = makeProjectArchive(json);
@@ -259,31 +282,86 @@ TEST_CASE("ProjectLoader migrates legacy direct-out busses to global ext-out ids
     REQUIRE(loader.open(path, error));
 
     const Project& proj = loader.project();
-    // The direct-out bus is dropped; main + user bus survive.
-    bool hasDirect = std::any_of(proj.busses.begin(), proj.busses.end(), [](const BusDef& b) { return b.id == "bus_direct"; });
-    CHECK_FALSE(hasDirect);
-    bool hasMain = std::any_of(proj.busses.begin(), proj.busses.end(), [](const BusDef& b) { return b.id == "bus_main"; });
-    CHECK(hasMain);
-    bool hasFold = std::any_of(proj.busses.begin(), proj.busses.end(), [](const BusDef& b) { return b.id == "bus_fold"; });
-    CHECK(hasFold);
+    CHECK(proj.format.version == kCurrentFormatVersion);
+    CHECK(proj.name == "LegacyProject");
 
-    // Route on the stripped bus was remapped onto the global direct-out id
-    // (1-based mono lanes; a stereo bus fans out to two: Out 3/4 -> 3,4).
-    auto tIt = std::find_if(proj.tracks.begin(), proj.tracks.end(), [](const TrackDef& trk) { return trk.id == "t1"; });
-    REQUIRE(tIt != proj.tracks.end());
-    CHECK(tIt->busId == "direct:3,direct:4");
-    REQUIRE(tIt->sends.size() == 1);
-    CHECK(tIt->sends[0].busId == "bus_fold");
+    // "bus_main" -> Project::main.
+    CHECK(proj.main.gainDb == doctest::Approx(-2.0));
+    CHECK(proj.main.output.type == OutputType::ExtOut);
+    REQUIRE(proj.main.output.target.has_value());
+    CHECK(*proj.main.output.target == "audio::out:1,audio::out:2");
+
+    // "bus_fold" (stray, non-aux, non-"Out ") and "bus_aux" (real aux) both
+    // survive as SendBus rows, contiguously numbered "audio::send:N".
+    REQUIRE(proj.sends.size() == 2);
+    const SendBus& sendFold = proj.sends[0];
+    CHECK(sendFold.id == "audio::send:1");
+    CHECK(sendFold.output.target.value_or("") == "audio::out:7,audio::out:8"); // startChannel 6 (0-based) -> 7,8 (1-based)
+    const SendBus& sendAux = proj.sends[1];
+    CHECK(sendAux.id == "audio::send:2");
+    CHECK(sendAux.channels == 1);
+    CHECK(sendAux.output.target.value_or("") == "audio::out:11");
+
+    // "bus_out" ("Out 3/4") is NOT a persisted bus at all -- it folded into a
+    // raw ext-out target wherever it was referenced.
+    REQUIRE_FALSE(proj.tracks.empty());
+    const TrackDef& t1 = proj.tracks[0];
+    CHECK(t1.id == "audio::track:1");
+    CHECK(t1.channels == 1); // old mono:true
+    CHECK(t1.output.type == OutputType::ExtOut);
+    CHECK(t1.output.target.value_or("") == "audio::out:3,audio::out:4");
+    REQUIRE(t1.output.sends.size() == 2);
+    CHECK(t1.output.sends[0].bus == "audio::send:1");
+    CHECK(t1.output.sends[0].level == doctest::Approx(50.1187) .epsilon(0.001)); // -6dB -> ~50.12%
+    CHECK(t1.output.sends[1].bus == "audio::send:2");
+    CHECK(t1.output.sends[1].level == doctest::Approx(100.0)); // 0dB -> unity -> 100%
+
+    REQUIRE(proj.tracks.size() > 1);
+    CHECK(proj.tracks[1].id == "audio::track:2");
+    CHECK(proj.tracks[1].output.type == OutputType::SendsOnly); // old empty busId
+
+    // Click un-flattened from builtInClick*.
+    CHECK(proj.click.enabled == true);
+    CHECK(proj.click.channels == 1); // old builtInClickMono:true
+    CHECK(proj.click.gainDb == doctest::Approx(-1.0));
+    CHECK(proj.click.output.type == OutputType::SendsOnly); // pointed at an aux bus, not "main"
+    REQUIRE(proj.click.output.sends.size() >= 1);
+    // The click's main-route target (bus_aux) had no faithful "main into an
+    // aux bus" representation, so it's approximated as a 100%-level send.
+    bool clickSendsIntoAux = std::any_of(proj.click.output.sends.begin(), proj.click.output.sends.end(),
+                                         [](const SendConfig& s) { return s.bus == "audio::send:2"; });
+    CHECK(clickSendsIntoAux);
+    bool clickSendsIntoFold = std::any_of(proj.click.output.sends.begin(), proj.click.output.sends.end(),
+                                          [](const SendConfig& s) { return s.bus == "audio::send:1"; });
+    CHECK(clickSendsIntoFold);
+
+    // Cycle renamed leftSec/rightSec -> startSeconds/endSeconds.
+    CHECK(proj.cycle.active == true);
+    CHECK(proj.cycle.startSeconds == doctest::Approx(8.0));
+    CHECK(proj.cycle.endSeconds == doctest::Approx(16.0));
+
+    // Region id becomes a UUIDv7 (not the old "reg_1"), section id is
+    // renumbered "meta::section:N", MIDI mappings pass through untouched.
+    REQUIRE(proj.songs.size() == 1);
+    REQUIRE(proj.songs[0].regions.size() == 1);
+    CHECK(proj.songs[0].regions[0].id != "reg_1");
+    CHECK(proj.songs[0].regions[0].id.size() == 36); // UUID string length
+    CHECK(proj.songs[0].regions[0].trackId == "audio::track:1");
+    REQUIRE(proj.songs[0].sections.size() == 1);
+    CHECK(proj.songs[0].sections[0].id == "meta::section:1");
+    REQUIRE(proj.midi.mappings.size() == 1);
+    CHECK(proj.midi.mappings[0].action == "play");
+    CHECK(proj.midi.mappings[0].number == 60);
 
     std::remove(path.c_str());
 }
 
-TEST_CASE("ProjectLoader rejects an event with an unknown type") {
+TEST_CASE("ProjectLoader rejects a current-format event with an unknown type") {
     const std::string badJson = R"JSON(
 {
-  "formatVersion": 1, "name": "Bad", "sampleRate": 48000, "busses": [],
+  "format": { "version": 2 }, "name": "Bad", "sampleRate": 48000, "sends": [],
   "songs": [
-    { "id": "s1", "name": "S1", "bpm": 120, "tracks": [],
+    { "id": "s1", "name": "S1", "bpm": 120,
       "events": [ { "id": "e1", "type": "notARealType" } ] }
   ]
 }
@@ -307,7 +385,7 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     loader.project().name = "Round Trip";
     loader.project().songs[0].bpm = 99.5;
     loader.project().tracks[0].gainDb = -6.0;
-    loader.project().busses[0].output.startChannel = 4;
+    loader.project().main.output.target = "audio::out:5,audio::out:6";
 
     const std::string outPath =
         std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp")
@@ -323,12 +401,13 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(p.songs[0].bpm == doctest::Approx(99.5));
     REQUIRE_FALSE(p.tracks.empty());
     CHECK(p.tracks[0].gainDb == doctest::Approx(-6.0));
-    REQUIRE_FALSE(p.busses.empty());
-    CHECK(p.busses[0].output.startChannel == 4);
+    CHECK(p.main.output.target.value_or("") == "audio::out:5,audio::out:6");
     // Events preserved
     REQUIRE(p.songs[0].events.size() == 4);
-    CHECK(p.songs[0].events[2].httpUrl == "http://example.local/cue");
-    CHECK(p.keybindings.at("play") == "space");
+    REQUIRE(p.songs[0].events[2].httpUrl.has_value());
+    CHECK(*p.songs[0].events[2].httpUrl == "http://example.local/cue");
+    REQUIRE(p.midi.mappings.size() == 2);
+    CHECK(p.midi.mappings[0].action == "play");
 
     std::remove(outPath.c_str());
 }
@@ -343,70 +422,68 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     Project& p = loader.project();
     p.lighting.enabled = true;
     p.lighting.kind = LightingKind::ResoLight;
-    p.lighting.resoLightColumns = 3;
-    p.lighting.resoLightRows = 2;
-    p.lighting.idleBehavior = "staticColor";
-    p.lighting.idleColorR = 12;
-    p.lighting.idleColorG = 34;
-    p.lighting.idleColorB = 56;
-    p.lighting.idleIntensity = 0.4;
+    p.lighting.resoLight.columns = 3;
+    p.lighting.resoLight.rows = 2;
+    p.lighting.idle.behavior = "staticColor";
+    p.lighting.idle.color.r = 12;
+    p.lighting.idle.color.g = 34;
+    p.lighting.idle.color.b = 56;
+    p.lighting.idle.intensity = 0.4;
     p.lighting.defaultRefreshRateHz = 30.0;
 
     LightFixture fx;
-    fx.id = "bar_1";
+    fx.id = "light::bar:1";
     fx.name = "Bar 1";
     fx.kind = LightFixture::Kind::ResoLightBar;
-    fx.gridColumn = 1;
-    fx.gridRow = 0;
+    fx.grid.column = 1;
+    fx.grid.row = 0;
     fx.ledCount = 60;
     fx.addressable = true;
-    fx.posX = 1.5;
-    fx.posY = 0.0;
-    fx.posZ = -2.25;
-    fx.rotationYDeg = 15.0;
+    fx.position.x = 1.5;
+    fx.position.y = 0.0;
+    fx.position.z = -2.25;
+    fx.rotation.y = 15.0;
     fx.shape = "matrix";
-    fx.matrixCols = 6;
+    fx.matrixColumns = 6;
     fx.refreshRateHz = 15.0;
     p.lighting.fixtures.push_back(fx);
 
     LightFixture generic;
-    generic.id = "mover_1";
+    generic.id = "light::fixture:2";
     generic.name = "House Left Mover";
     generic.kind = LightFixture::Kind::DmxGeneric;
-    generic.dmxUniverse = 2;
-    generic.dmxStartChannel = 17;
-    generic.dmxChannelCount = 16;
+    generic.dmx.universe = 2;
+    generic.dmx.startChannel = 17;
+    generic.dmx.channelCount = 16;
     generic.shape = "movingHead";
     generic.channelProfile = "rgbw";
-    generic.tiltDeg = 32.5;
+    generic.tiltDegrees = 32.5;
     p.lighting.fixtures.push_back(generic);
 
     LightTrack track;
-    track.id = "lt_1";
+    track.id = "light::track:1";
     track.name = "Front Wash";
-    track.fixtureIds = {"bar_1", "mover_1"};
+    track.fixtureIds = {"light::bar:1", "light::fixture:2"};
     p.lightTracks.push_back(track);
 
     LightCue cue;
-    cue.id = "cue_1";
-    cue.trackId = "lt_1";
+    cue.id = "019fd93c-d272-785e-8100-7d648e9a3273";
+    cue.trackId = "light::track:1";
     cue.startSeconds = 4.0;
     cue.durationSeconds = 8.0;
-    cue.colorR = 200;
-    cue.colorG = 40;
-    cue.colorB = 10;
+    cue.color = RgbColor{200, 40, 10};
     cue.intensity = 0.75;
-    cue.fadeInSeconds = 0.5;
-    cue.fadeOutSeconds = 1.0;
+    cue.fade.inSeconds = 0.5;
+    cue.fade.outSeconds = 1.0;
     cue.label = "Chorus wash";
-    cue.effectType = "meter";
-    cue.effectSourceType = "track";
-    cue.effectSourceId = "trk_3";
-    cue.effectIntensity = 0.65f;
-    cue.tempoSync = true;
-    cue.tempoSubdiv = "1/8";
-    cue.effectRateHz = 3.5f;
-    cue.gradientPreset = "greenYellowRed";
+    cue.effect.type = "meter";
+    cue.effect.sourceType = "track";
+    cue.effect.sourceId = "audio::track:1";
+    cue.effect.intensity = 0.65;
+    cue.effect.tempoSync = true;
+    cue.effect.tempoSubdivision = "1/8";
+    cue.effect.rateHz = 3.5;
+    cue.gradient.preset = "greenYellowRed";
     p.songs[0].lightCues.push_back(cue);
 
     const std::string outPath =
@@ -420,67 +497,70 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
 
     CHECK(p2.lighting.enabled == true);
     CHECK(p2.lighting.kind == LightingKind::ResoLight);
-    CHECK(p2.lighting.resoLightColumns == 3);
-    CHECK(p2.lighting.resoLightRows == 2);
-    CHECK(p2.lighting.idleBehavior == "staticColor");
-    CHECK(p2.lighting.idleColorR == 12);
-    CHECK(p2.lighting.idleColorG == 34);
-    CHECK(p2.lighting.idleColorB == 56);
-    CHECK(p2.lighting.idleIntensity == doctest::Approx(0.4));
+    CHECK(p2.lighting.resoLight.columns == 3);
+    CHECK(p2.lighting.resoLight.rows == 2);
+    CHECK(p2.lighting.idle.behavior == "staticColor");
+    CHECK(p2.lighting.idle.color.r == 12);
+    CHECK(p2.lighting.idle.color.g == 34);
+    CHECK(p2.lighting.idle.color.b == 56);
+    CHECK(p2.lighting.idle.intensity == doctest::Approx(0.4));
     CHECK(p2.lighting.defaultRefreshRateHz == doctest::Approx(30.0));
     REQUIRE(p2.lighting.fixtures.size() == 2);
 
     const LightFixture& fx2 = p2.lighting.fixtures[0];
-    CHECK(fx2.id == "bar_1");
+    CHECK(fx2.id == "light::bar:1");
     CHECK(fx2.name == "Bar 1");
     CHECK(fx2.kind == LightFixture::Kind::ResoLightBar);
-    CHECK(fx2.gridColumn == 1);
+    CHECK(fx2.grid.column == 1);
     CHECK(fx2.ledCount == 60);
     CHECK(fx2.addressable == true);
-    CHECK(fx2.posX == doctest::Approx(1.5));
-    CHECK(fx2.posZ == doctest::Approx(-2.25));
-    CHECK(fx2.rotationYDeg == doctest::Approx(15.0));
+    CHECK(fx2.position.x == doctest::Approx(1.5));
+    CHECK(fx2.position.z == doctest::Approx(-2.25));
+    CHECK(fx2.rotation.y == doctest::Approx(15.0));
     CHECK(fx2.shape == "matrix");
-    CHECK(fx2.matrixCols == 6);
+    CHECK(fx2.matrixColumns == 6);
     CHECK(fx2.refreshRateHz == doctest::Approx(15.0));
 
     const LightFixture& generic2 = p2.lighting.fixtures[1];
     CHECK(generic2.kind == LightFixture::Kind::DmxGeneric);
-    CHECK(generic2.dmxUniverse == 2);
-    CHECK(generic2.dmxStartChannel == 17);
-    CHECK(generic2.dmxChannelCount == 16);
+    CHECK(generic2.dmx.universe == 2);
+    CHECK(generic2.dmx.startChannel == 17);
+    CHECK(generic2.dmx.channelCount == 16);
     CHECK(generic2.shape == "movingHead");
     CHECK(generic2.channelProfile == "rgbw");
-    CHECK(generic2.tiltDeg == doctest::Approx(32.5));
+    CHECK(generic2.tiltDegrees == doctest::Approx(32.5));
 
     REQUIRE(p2.lightTracks.size() == 1);
-    CHECK(p2.lightTracks[0].id == "lt_1");
+    CHECK(p2.lightTracks[0].id == "light::track:1");
     CHECK(p2.lightTracks[0].name == "Front Wash");
     REQUIRE(p2.lightTracks[0].fixtureIds.size() == 2);
-    CHECK(p2.lightTracks[0].fixtureIds[0] == "bar_1");
-    CHECK(p2.lightTracks[0].fixtureIds[1] == "mover_1");
+    CHECK(p2.lightTracks[0].fixtureIds[0] == "light::bar:1");
+    CHECK(p2.lightTracks[0].fixtureIds[1] == "light::fixture:2");
 
     REQUIRE_FALSE(p2.songs.empty());
     REQUIRE(p2.songs[0].lightCues.size() == 1);
     const LightCue& cue2 = p2.songs[0].lightCues[0];
-    CHECK(cue2.trackId == "lt_1");
+    CHECK(cue2.trackId == "light::track:1");
     CHECK(cue2.startSeconds == doctest::Approx(4.0));
     CHECK(cue2.durationSeconds == doctest::Approx(8.0));
-    CHECK(cue2.colorR == 200);
-    CHECK(cue2.colorG == 40);
-    CHECK(cue2.colorB == 10);
+    CHECK(cue2.color.r == 200);
+    CHECK(cue2.color.g == 40);
+    CHECK(cue2.color.b == 10);
     CHECK(cue2.intensity == doctest::Approx(0.75));
-    CHECK(cue2.fadeInSeconds == doctest::Approx(0.5));
-    CHECK(cue2.fadeOutSeconds == doctest::Approx(1.0));
-    CHECK(cue2.label == "Chorus wash");
-    CHECK(cue2.effectType == "meter");
-    CHECK(cue2.effectSourceType == "track");
-    CHECK(cue2.effectSourceId == "trk_3");
-    CHECK(cue2.effectIntensity == doctest::Approx(0.65));
-    CHECK(cue2.tempoSync == true);
-    CHECK(cue2.tempoSubdiv == "1/8");
-    CHECK(cue2.effectRateHz == doctest::Approx(3.5));
-    CHECK(cue2.gradientPreset == "greenYellowRed");
+    CHECK(cue2.fade.inSeconds == doctest::Approx(0.5));
+    CHECK(cue2.fade.outSeconds == doctest::Approx(1.0));
+    REQUIRE(cue2.label.has_value());
+    CHECK(*cue2.label == "Chorus wash");
+    REQUIRE(cue2.effect.type.has_value());
+    CHECK(*cue2.effect.type == "meter");
+    CHECK(cue2.effect.sourceType == "track");
+    REQUIRE(cue2.effect.sourceId.has_value());
+    CHECK(*cue2.effect.sourceId == "audio::track:1");
+    CHECK(cue2.effect.intensity == doctest::Approx(0.65));
+    CHECK(cue2.effect.tempoSync == true);
+    CHECK(cue2.effect.tempoSubdivision == "1/8");
+    CHECK(cue2.effect.rateHz == doctest::Approx(3.5));
+    CHECK(cue2.gradient.preset == "greenYellowRed");
 
     std::remove(outPath.c_str());
 }
@@ -493,7 +573,7 @@ TEST_CASE("lighting defaults to disabled/none with no fixtures for a project wit
     const Project& p = loader.project();
     CHECK(p.lighting.enabled == false);
     CHECK(p.lighting.kind == LightingKind::None);
-    CHECK(p.lighting.idleBehavior == "holdLast");
+    CHECK(p.lighting.idle.behavior == "holdLast");
     CHECK(p.lighting.fixtures.empty());
     CHECK(p.lightTracks.empty());
     CHECK(p.songs[0].lightCues.empty());
@@ -512,8 +592,9 @@ TEST_CASE("newProject creates an unsaved project that can be saved for the first
     loader.newProject("Fresh Project");
     CHECK_FALSE(loader.isOpen());
     CHECK(loader.project().name == "Fresh Project");
-    REQUIRE_FALSE(loader.project().busses.empty());
-    CHECK(loader.project().busses[0].id == "main");
+    CHECK(loader.project().main.output.type == OutputType::ExtOut);
+    REQUIRE_FALSE(loader.project().tracks.empty());
+    CHECK(loader.project().tracks[0].id == "audio::track:1");
 
     loader.project().songs.push_back(SongDef{});
     loader.project().songs[0].id = "song1";

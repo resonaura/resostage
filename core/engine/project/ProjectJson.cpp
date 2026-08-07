@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <map>
 #include <string>
 #include <vector>
 
@@ -65,85 +64,209 @@ const char* lightingKindToString(LightingKind kind) {
     return "none";
 }
 
+const char* outputTypeToString(OutputType type) {
+    switch (type) {
+        case OutputType::Main: return "main";
+        case OutputType::SendsOnly: return "sends-only";
+        case OutputType::ExtOut: return "ext-out";
+    }
+    return "sends-only";
+}
+
+// Unrecognized/malformed type falls back to SendsOnly: audible nowhere by a
+// main route, but a track's sends still work -- never guess a physical
+// target or silently redirect into Main.
+OutputType outputTypeFromString(const std::string& s) {
+    if (s == "main") return OutputType::Main;
+    if (s == "ext-out") return OutputType::ExtOut;
+    return OutputType::SendsOnly;
+}
+
+std::string extOutTarget(int startChannel0Based, int channels) {
+    const int a = std::max(0, startChannel0Based) + 1; // 1-based
+    if (channels >= 2)
+        return "audio::out:" + std::to_string(a) + ",audio::out:" + std::to_string(a + 1);
+    return "audio::out:" + std::to_string(a);
+}
+
+void parseExtOutTarget(const std::string& target, int& startChannel0Based, int& channelCount) {
+    startChannel0Based = 0;
+    channelCount = 1;
+    std::vector<int> nums;
+    size_t pos = 0;
+    while (pos <= target.size()) {
+        const size_t end = target.find(',', pos);
+        const std::string tok = target.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+        pos = (end == std::string::npos) ? target.size() + 1 : end + 1;
+        constexpr std::string_view prefix = "audio::out:";
+        if (tok.rfind(prefix, 0) == 0) {
+            try {
+                nums.push_back(std::stoi(tok.substr(prefix.size())));
+            } catch (...) {
+                // ignore unparseable token
+            }
+        }
+        if (end == std::string::npos)
+            break;
+    }
+    if (nums.empty())
+        return;
+    startChannel0Based = std::max(0, nums.front() - 1);
+    channelCount = static_cast<int>(nums.size());
+}
+
 // Wire DTOs need external linkage for Glaze reflection (anonymous-namespace
 // types fail get_name). Names match project.json keys exactly.
 namespace project_json_wire {
 
-struct WSend {
+struct WFormat {
+    // 0 = absent from the JSON (tolerant parsing leaves missing keys at their
+    // DTO default) -- deliberately NOT kCurrentFormatVersion, so an old-shape
+    // file with no "format" key at all is unambiguously detected as needing
+    // LegacyProjectMigration.h rather than silently "succeeding" a tolerant
+    // parse with every other field at its new-schema default. See
+    // ProjectLoader::reparseProject()'s format.version gate.
+    int version = 0;
+};
+
+struct WSendConfig {
     std::string bus;
-    double gainDb = 0.0;
+    double level = 100.0;
     bool preFader = false;
     bool enabled = true;
 };
 
-struct WBusOutput {
-    int startChannel = 0;
+struct WSourceOutput {
+    std::string type = "main";
+    std::optional<std::string> target;
+    std::vector<WSendConfig> sends;
 };
 
-struct WBus {
-    std::string id;
-    std::string name;
+struct WBusOutput {
+    std::string type = "ext-out";
+    std::optional<std::string> target;
+};
+
+struct WClick {
+    bool enabled = false;
+    std::string name = "Click";
     int channels = 2;
-    WBusOutput output;
     double gainDb = 0.0;
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
-    bool isAux = false;
+    WSourceOutput output;
+};
+
+struct WMaster {
+    bool enabled = true;
+    std::string name = "Main";
+    int channels = 2;
+    double gainDb = 0.0;
+    double pan = 0.0;
+    bool mute = false;
+    bool solo = false;
+    WBusOutput output;
+};
+
+struct WSendBus {
+    std::string id;
+    std::string name;
+    int channels = 2;
+    double gainDb = 0.0;
+    double pan = 0.0;
+    bool mute = false;
+    bool solo = false;
+    WBusOutput output;
 };
 
 struct WTrack {
     std::string id;
     std::string name;
-    std::string bus;
+    int channels = 2;
     double gainDb = 0.0;
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
-    bool mono = false;
-    std::vector<WSend> sends;
+    WSourceOutput output;
+};
+
+struct WFixtureGrid {
+    int column = 0;
+    int row = 0;
+};
+
+struct WFixturePosition {
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+struct WFixtureRotation {
+    double y = 0.0;
+};
+
+struct WFixtureDmx {
+    int universe = 0;
+    int startChannel = 1;
+    int channelCount = 3;
 };
 
 struct WFixture {
     std::string id;
     std::string name;
     std::string kind;
-    int gridColumn = 0;
-    int gridRow = 0;
+    WFixtureGrid grid;
     int ledCount = 0;
     bool addressable = false;
-    double posX = 0.0;
-    double posY = 0.0;
-    double posZ = 0.0;
-    double rotationYDeg = 0.0;
+    WFixturePosition position;
+    WFixtureRotation rotation;
     bool mountedHorizontally = false;
-    int dmxUniverse = 0;
-    int dmxStartChannel = 0;
-    int dmxChannelCount = 0;
+    WFixtureDmx dmx;
     std::string shape;
-    int matrixCols = 0;
+    int matrixColumns = 0;
     std::string channelProfile;
-    double tiltDeg = 0.0;
+    double tiltDegrees = 0.0;
     double refreshRateHz = 0.0;
-    std::string networkHost;
+    std::optional<std::string> networkHost;
+};
+
+struct WColor {
+    int r = 255;
+    int g = 255;
+    int b = 255;
+};
+
+struct WLightGradient {
+    std::string preset = "solid";
+    std::optional<std::string> colors;
+};
+
+struct WLightingIdleEffect {
+    std::string type = "none";
+    double rateHz = 2.0;
+};
+
+struct WLightingIdle {
+    std::string behavior = "holdLast";
+    WColor color;
+    double intensity = 1.0;
+    WLightingIdleEffect effect;
+    WLightGradient gradient;
+};
+
+struct WLightingResoLight {
+    int columns = 2;
+    int rows = 1;
 };
 
 struct WLighting {
     bool enabled = false;
-    std::string kind;
-    int resoLightColumns = 0;
-    int resoLightRows = 0;
-    std::string idleBehavior;
-    int idleColorR = 0;
-    int idleColorG = 0;
-    int idleColorB = 0;
-    double idleIntensity = 1.0;
-    std::string idleEffectType;
-    double idleEffectRateHz = 2.0;
-    std::string idleGradientPreset;
-    std::string idleGradientColors;
-    double defaultRefreshRateHz = 0.0;
-    std::string artNetTargetHost;
+    std::string kind = "none";
+    WLightingResoLight resoLight;
+    WLightingIdle idle;
+    double defaultRefreshRateHz = 44.0;
+    std::optional<std::string> artNetTargetHost;
     std::vector<WFixture> fixtures;
 };
 
@@ -158,19 +281,32 @@ struct WTimeSig {
     int denominator = 4;
 };
 
+struct WRegionSource {
+    std::string file;
+    double offsetSeconds = 0.0;
+};
+
+struct WRegionFade {
+    double inSeconds = 0.0;
+    double outSeconds = 0.0;
+    double inCurve = 0.0;
+    double outCurve = 0.0;
+};
+
+struct WRegionLoop {
+    bool enabled = false;
+    double lengthSeconds = 0.0;
+};
+
 struct WRegion {
     std::string id;
     std::string trackId;
-    std::string file;
     double startSeconds = 0.0;
-    double sourceOffsetSeconds = 0.0;
     double durationSeconds = 0.0;
     double gainDb = 0.0;
-    double fadeInSeconds = 0.0;
-    double fadeOutSeconds = 0.0;
-    double fadeInCurve = 0.0;
-    double fadeOutCurve = 0.0;
-    bool loop = false;
+    WRegionSource source;
+    WRegionFade fade;
+    WRegionLoop loop;
 };
 
 struct WEvent {
@@ -185,9 +321,9 @@ struct WEvent {
     int midiCC = 0;
     int midiCCValue = 0;
     int midiProgram = 0;
-    std::string httpUrl;
+    std::optional<std::string> httpUrl;
     std::string httpMethod;
-    std::string httpBody;
+    std::optional<std::string> httpBody;
     int dmxUniverse = 0;
     std::vector<int> dmxData;
 };
@@ -199,28 +335,33 @@ struct WSection {
     int colorIndex = 0;
 };
 
+struct WLightCueFade {
+    double inSeconds = 0.0;
+    double outSeconds = 0.0;
+};
+
+struct WLightEffect {
+    std::optional<std::string> type;
+    std::string sourceType = "bus";
+    std::optional<std::string> sourceId;
+    double intensity = 0.8;
+    bool tempoSync = false;
+    std::string tempoSubdivision = "1/4";
+    double rateHz = 2.0;
+};
+
 struct WLightCue {
     std::string id;
     std::string trackId;
     double startSeconds = 0.0;
     double durationSeconds = 1.0;
-    int colorR = 255;
-    int colorG = 255;
-    int colorB = 255;
+    std::optional<std::string> label;
+    WColor color;
     double intensity = 1.0;
-    double fadeInSeconds = 0.0;
-    double fadeOutSeconds = 0.0;
-    std::string label;
-    std::string effectType;
-    std::string effectSourceType;
-    std::string effectSourceId;
-    double effectIntensity = 0.8;
-    bool tempoSync = false;
-    std::string tempoSubdiv;
-    double effectRateHz = 2.0;
-    std::string gradientPreset;
-    std::string gradientColors;
-    std::string blendMode;
+    WLightCueFade fade;
+    WLightEffect effect;
+    WLightGradient gradient;
+    std::string blendMode = "normal";
 };
 
 struct WSong {
@@ -238,8 +379,8 @@ struct WSong {
 struct WCycle {
     bool active = false;
     bool skip = false;
-    double leftSec = 0.0;
-    double rightSec = 4.0;
+    double startSeconds = 0.0;
+    double endSeconds = 4.0;
     int songIndex = -1;
 };
 
@@ -250,65 +391,150 @@ struct WMidiMapping {
     int number = 0;
 };
 
+struct WMidi {
+    std::vector<WMidiMapping> mappings;
+};
+
+// Standalone (needs external linkage for Glaze reflection, same as every
+// other wire DTO) -- used only to peek format.version before deciding
+// current-shape vs. legacy-shape parsing.
+struct WFormatOnly {
+    WFormat format;
+};
+
 struct WProject {
-    int formatVersion = 1;
+    WFormat format;
     std::string name;
     double sampleRate = 48000.0;
-    bool builtInClickEnabled = false;
-    std::string builtInClickName = "Click";
-    std::string builtInClickBusId;
-    double builtInClickGainDb = 0.0;
-    double builtInClickPan = 0.0;
-    bool builtInClickMono = false;
-    bool builtInClickSolo = false;
-    std::vector<WSend> builtInClickSends;
-    std::vector<WBus> busses;
+    WClick click;
+    WMaster main;
+    std::vector<WSendBus> sends;
     std::vector<WTrack> tracks;
     WLighting lighting;
     std::vector<WLightTrack> lightTracks;
     std::vector<WSong> songs;
     WCycle cycle;
-    std::map<std::string, std::string> keybindings;
-    std::vector<WMidiMapping> midiMappings;
+    WMidi midi;
 };
 
 double finiteOrZero(double v) {
     return std::isfinite(v) ? v : 0.0;
 }
 
-WSend toWireSend(const TrackSendDef& s) {
-    return WSend{s.busId, finiteOrZero(s.gainDb), s.preFader, s.enabled};
+WSendConfig toWireSend(const SendConfig& s) {
+    WSendConfig w;
+    w.bus = s.bus;
+    w.level = std::clamp(finiteOrZero(s.level), 0.0, 100.0);
+    w.preFader = s.preFader;
+    w.enabled = s.enabled;
+    return w;
+}
+
+SendConfig fromWireSend(const WSendConfig& w) {
+    SendConfig s;
+    s.bus = w.bus;
+    s.level = std::clamp(finiteOrZero(w.level), 0.0, 100.0);
+    s.preFader = w.preFader;
+    s.enabled = w.enabled;
+    return s;
+}
+
+WSourceOutput toWireSourceOutput(const SourceOutput& o) {
+    WSourceOutput w;
+    w.type = outputTypeToString(o.type);
+    w.target = o.target;
+    w.sends.reserve(o.sends.size());
+    for (const auto& s : o.sends)
+        w.sends.push_back(toWireSend(s));
+    return w;
+}
+
+SourceOutput fromWireSourceOutput(const WSourceOutput& w) {
+    SourceOutput o;
+    o.type = outputTypeFromString(w.type);
+    o.target = w.target;
+    o.sends.reserve(w.sends.size());
+    for (const auto& s : w.sends)
+        o.sends.push_back(fromWireSend(s));
+    return o;
+}
+
+WBusOutput toWireBusOutput(const BusRoute& o) {
+    WBusOutput w;
+    w.type = outputTypeToString(o.type);
+    w.target = o.target;
+    return w;
+}
+
+BusRoute fromWireBusOutput(const WBusOutput& w) {
+    BusRoute o;
+    o.type = outputTypeFromString(w.type);
+    o.target = w.target;
+    return o;
+}
+
+WColor toWireColor(const RgbColor& c) {
+    return WColor{c.r, c.g, c.b};
+}
+
+RgbColor fromWireColor(const WColor& w) {
+    RgbColor c;
+    c.r = static_cast<uint8_t>(std::clamp(w.r, 0, 255));
+    c.g = static_cast<uint8_t>(std::clamp(w.g, 0, 255));
+    c.b = static_cast<uint8_t>(std::clamp(w.b, 0, 255));
+    return c;
+}
+
+WLightGradient toWireGradient(const LightGradient& g) {
+    WLightGradient w;
+    w.preset = g.preset;
+    w.colors = g.colors;
+    return w;
+}
+
+LightGradient fromWireGradient(const WLightGradient& w) {
+    LightGradient g;
+    g.preset = w.preset;
+    g.colors = w.colors;
+    return g;
 }
 
 WProject toWire(const Project& p) {
     WProject w;
-    w.formatVersion = p.formatVersion;
+    w.format.version = p.format.version;
     w.name = p.name;
     w.sampleRate = finiteOrZero(p.sampleRate);
-    w.builtInClickEnabled = p.builtInClickEnabled;
-    w.builtInClickName = p.builtInClickName.empty() ? "Click" : p.builtInClickName;
-    w.builtInClickBusId = p.builtInClickBusId;
-    w.builtInClickGainDb = finiteOrZero(p.builtInClickGainDb);
-    w.builtInClickPan = finiteOrZero(p.builtInClickPan);
-    w.builtInClickMono = p.builtInClickMono;
-    w.builtInClickSolo = p.builtInClickSolo;
-    w.builtInClickSends.reserve(p.builtInClickSends.size());
-    for (const auto& s : p.builtInClickSends)
-        w.builtInClickSends.push_back(toWireSend(s));
 
-    w.busses.reserve(p.busses.size());
-    for (const auto& b : p.busses) {
-        WBus wb;
+    w.click.enabled = p.click.enabled;
+    w.click.name = p.click.name.empty() ? "Click" : p.click.name;
+    w.click.channels = std::clamp(p.click.channels, 1, 2);
+    w.click.gainDb = finiteOrZero(p.click.gainDb);
+    w.click.pan = finiteOrZero(p.click.pan);
+    w.click.mute = p.click.mute;
+    w.click.solo = p.click.solo;
+    w.click.output = toWireSourceOutput(p.click.output);
+
+    w.main.enabled = p.main.enabled;
+    w.main.name = p.main.name.empty() ? "Main" : p.main.name;
+    w.main.channels = std::clamp(p.main.channels, 1, 2);
+    w.main.gainDb = finiteOrZero(p.main.gainDb);
+    w.main.pan = finiteOrZero(p.main.pan);
+    w.main.mute = p.main.mute;
+    w.main.solo = p.main.solo;
+    w.main.output = toWireBusOutput(p.main.output);
+
+    w.sends.reserve(p.sends.size());
+    for (const auto& b : p.sends) {
+        WSendBus wb;
         wb.id = b.id;
         wb.name = b.name;
-        wb.channels = b.channels;
-        wb.output.startChannel = b.output.startChannel;
+        wb.channels = std::clamp(b.channels, 1, 2);
         wb.gainDb = finiteOrZero(b.gainDb);
         wb.pan = finiteOrZero(b.pan);
         wb.mute = b.mute;
         wb.solo = b.solo;
-        wb.isAux = b.isAux;
-        w.busses.push_back(std::move(wb));
+        wb.output = toWireBusOutput(b.output);
+        w.sends.push_back(std::move(wb));
     }
 
     w.tracks.reserve(p.tracks.size());
@@ -316,31 +542,25 @@ WProject toWire(const Project& p) {
         WTrack wt;
         wt.id = t.id;
         wt.name = t.name;
-        wt.bus = t.busId;
+        wt.channels = std::clamp(t.channels, 1, 2);
         wt.gainDb = finiteOrZero(t.gainDb);
         wt.pan = finiteOrZero(t.pan);
         wt.mute = t.mute;
         wt.solo = t.solo;
-        wt.mono = t.mono;
-        wt.sends.reserve(t.sends.size());
-        for (const auto& s : t.sends)
-            wt.sends.push_back(toWireSend(s));
+        wt.output = toWireSourceOutput(t.output);
         w.tracks.push_back(std::move(wt));
     }
 
     w.lighting.enabled = p.lighting.enabled;
     w.lighting.kind = lightingKindToString(p.lighting.kind);
-    w.lighting.resoLightColumns = p.lighting.resoLightColumns;
-    w.lighting.resoLightRows = p.lighting.resoLightRows;
-    w.lighting.idleBehavior = p.lighting.idleBehavior;
-    w.lighting.idleColorR = static_cast<int>(p.lighting.idleColorR);
-    w.lighting.idleColorG = static_cast<int>(p.lighting.idleColorG);
-    w.lighting.idleColorB = static_cast<int>(p.lighting.idleColorB);
-    w.lighting.idleIntensity = finiteOrZero(p.lighting.idleIntensity);
-    w.lighting.idleEffectType = p.lighting.idleEffectType;
-    w.lighting.idleEffectRateHz = finiteOrZero(p.lighting.idleEffectRateHz);
-    w.lighting.idleGradientPreset = p.lighting.idleGradientPreset;
-    w.lighting.idleGradientColors = p.lighting.idleGradientColors;
+    w.lighting.resoLight.columns = p.lighting.resoLight.columns;
+    w.lighting.resoLight.rows = p.lighting.resoLight.rows;
+    w.lighting.idle.behavior = p.lighting.idle.behavior;
+    w.lighting.idle.color = toWireColor(p.lighting.idle.color);
+    w.lighting.idle.intensity = finiteOrZero(p.lighting.idle.intensity);
+    w.lighting.idle.effect.type = p.lighting.idle.effect.type;
+    w.lighting.idle.effect.rateHz = finiteOrZero(p.lighting.idle.effect.rateHz);
+    w.lighting.idle.gradient = toWireGradient(p.lighting.idle.gradient);
     w.lighting.defaultRefreshRateHz = finiteOrZero(p.lighting.defaultRefreshRateHz);
     w.lighting.artNetTargetHost = p.lighting.artNetTargetHost;
     w.lighting.fixtures.reserve(p.lighting.fixtures.size());
@@ -349,22 +569,22 @@ WProject toWire(const Project& p) {
         wf.id = f.id;
         wf.name = f.name;
         wf.kind = lightFixtureKindToString(f.kind);
-        wf.gridColumn = f.gridColumn;
-        wf.gridRow = f.gridRow;
+        wf.grid.column = f.grid.column;
+        wf.grid.row = f.grid.row;
         wf.ledCount = f.ledCount;
         wf.addressable = f.addressable;
-        wf.posX = finiteOrZero(f.posX);
-        wf.posY = finiteOrZero(f.posY);
-        wf.posZ = finiteOrZero(f.posZ);
-        wf.rotationYDeg = finiteOrZero(f.rotationYDeg);
+        wf.position.x = finiteOrZero(f.position.x);
+        wf.position.y = finiteOrZero(f.position.y);
+        wf.position.z = finiteOrZero(f.position.z);
+        wf.rotation.y = finiteOrZero(f.rotation.y);
         wf.mountedHorizontally = f.mountedHorizontally;
-        wf.dmxUniverse = f.dmxUniverse;
-        wf.dmxStartChannel = f.dmxStartChannel;
-        wf.dmxChannelCount = f.dmxChannelCount;
+        wf.dmx.universe = f.dmx.universe;
+        wf.dmx.startChannel = f.dmx.startChannel;
+        wf.dmx.channelCount = f.dmx.channelCount;
         wf.shape = f.shape;
-        wf.matrixCols = f.matrixCols;
+        wf.matrixColumns = f.matrixColumns;
         wf.channelProfile = f.channelProfile;
-        wf.tiltDeg = finiteOrZero(f.tiltDeg);
+        wf.tiltDegrees = finiteOrZero(f.tiltDegrees);
         wf.refreshRateHz = finiteOrZero(f.refreshRateHz);
         wf.networkHost = f.networkHost;
         w.lighting.fixtures.push_back(std::move(wf));
@@ -390,21 +610,22 @@ WProject toWire(const Project& p) {
         ws.playbackMode = playbackModeToString(s.playbackMode);
 
         for (const auto& r : s.regions) {
-            if (r.file.empty())
+            if (r.source.file.empty())
                 continue;
             WRegion wr;
             wr.id = r.id;
             wr.trackId = r.trackId;
-            wr.file = r.file;
             wr.startSeconds = finiteOrZero(r.startSeconds);
-            wr.sourceOffsetSeconds = finiteOrZero(r.sourceOffsetSeconds);
             wr.durationSeconds = finiteOrZero(r.durationSeconds);
             wr.gainDb = finiteOrZero(r.gainDb);
-            wr.fadeInSeconds = finiteOrZero(r.fadeInSeconds);
-            wr.fadeOutSeconds = finiteOrZero(r.fadeOutSeconds);
-            wr.fadeInCurve = finiteOrZero(r.fadeInCurve);
-            wr.fadeOutCurve = finiteOrZero(r.fadeOutCurve);
-            wr.loop = r.loop;
+            wr.source.file = r.source.file;
+            wr.source.offsetSeconds = finiteOrZero(r.source.offsetSeconds);
+            wr.fade.inSeconds = finiteOrZero(r.fade.inSeconds);
+            wr.fade.outSeconds = finiteOrZero(r.fade.outSeconds);
+            wr.fade.inCurve = finiteOrZero(r.fade.inCurve);
+            wr.fade.outCurve = finiteOrZero(r.fade.outCurve);
+            wr.loop.enabled = r.loop.enabled;
+            wr.loop.lengthSeconds = finiteOrZero(r.loop.lengthSeconds);
             ws.regions.push_back(std::move(wr));
         }
 
@@ -446,22 +667,19 @@ WProject toWire(const Project& p) {
             wlc.trackId = lc.trackId;
             wlc.startSeconds = finiteOrZero(lc.startSeconds);
             wlc.durationSeconds = finiteOrZero(lc.durationSeconds);
-            wlc.colorR = static_cast<int>(lc.colorR);
-            wlc.colorG = static_cast<int>(lc.colorG);
-            wlc.colorB = static_cast<int>(lc.colorB);
-            wlc.intensity = finiteOrZero(lc.intensity);
-            wlc.fadeInSeconds = finiteOrZero(lc.fadeInSeconds);
-            wlc.fadeOutSeconds = finiteOrZero(lc.fadeOutSeconds);
             wlc.label = lc.label;
-            wlc.effectType = lc.effectType;
-            wlc.effectSourceType = lc.effectSourceType;
-            wlc.effectSourceId = lc.effectSourceId;
-            wlc.effectIntensity = finiteOrZero(lc.effectIntensity);
-            wlc.tempoSync = lc.tempoSync;
-            wlc.tempoSubdiv = lc.tempoSubdiv;
-            wlc.effectRateHz = finiteOrZero(lc.effectRateHz);
-            wlc.gradientPreset = lc.gradientPreset;
-            wlc.gradientColors = lc.gradientColors;
+            wlc.color = toWireColor(lc.color);
+            wlc.intensity = finiteOrZero(lc.intensity);
+            wlc.fade.inSeconds = finiteOrZero(lc.fade.inSeconds);
+            wlc.fade.outSeconds = finiteOrZero(lc.fade.outSeconds);
+            wlc.effect.type = lc.effect.type;
+            wlc.effect.sourceType = lc.effect.sourceType;
+            wlc.effect.sourceId = lc.effect.sourceId;
+            wlc.effect.intensity = finiteOrZero(lc.effect.intensity);
+            wlc.effect.tempoSync = lc.effect.tempoSync;
+            wlc.effect.tempoSubdivision = lc.effect.tempoSubdivision;
+            wlc.effect.rateHz = finiteOrZero(lc.effect.rateHz);
+            wlc.gradient = toWireGradient(lc.gradient);
             wlc.blendMode = lc.blendMode;
             ws.lightCues.push_back(std::move(wlc));
         }
@@ -471,28 +689,36 @@ WProject toWire(const Project& p) {
 
     w.cycle.active = p.cycle.active;
     w.cycle.skip = p.cycle.skip;
-    w.cycle.leftSec = finiteOrZero(p.cycle.leftSec);
-    w.cycle.rightSec = finiteOrZero(p.cycle.rightSec);
+    w.cycle.startSeconds = finiteOrZero(p.cycle.startSeconds);
+    w.cycle.endSeconds = finiteOrZero(p.cycle.endSeconds);
     w.cycle.songIndex = p.cycle.songIndex;
 
-    for (const auto& [k, v] : p.keybindings)
-        w.keybindings[k] = v;
-
-    w.midiMappings.reserve(p.midiMappings.size());
-    for (const auto& m : p.midiMappings) {
+    w.midi.mappings.reserve(p.midi.mappings.size());
+    for (const auto& m : p.midi.mappings) {
         WMidiMapping wm;
         wm.action = m.action;
         wm.channel = m.channel;
         wm.triggerType =
             m.triggerType == MidiTriggerType::ControlChange ? "controlChange" : "noteOn";
         wm.number = m.number;
-        w.midiMappings.push_back(std::move(wm));
+        w.midi.mappings.push_back(std::move(wm));
     }
 
     return w;
 }
 
 } // namespace project_json_wire
+
+int peekProjectFormatVersion(std::string_view json) {
+    project_json_wire::WFormatOnly w{};
+    constexpr glz::opts opts{
+        .error_on_unknown_keys = false,
+        .error_on_missing_keys = false,
+    };
+    if (glz::read<opts>(w, json))
+        return 0;
+    return w.format.version;
+}
 
 std::string serializeProjectJson(const Project& project) {
     using project_json_wire::toWire;
@@ -541,44 +767,42 @@ LightFixture::Kind fixtureKindFromString(const std::string& s) {
     return LightFixture::Kind::ResoLightBar;
 }
 
-TrackSendDef fromWireSend(const WSend& s) {
-    TrackSendDef t;
-    t.busId = s.bus;
-    t.gainDb = s.gainDb;
-    t.preFader = s.preFader;
-    t.enabled = s.enabled;
-    return t;
-}
-
 Project fromWire(const WProject& w) {
     Project p;
-    p.formatVersion = w.formatVersion;
+    p.format.version = w.format.version;
     p.name = w.name;
     p.sampleRate = w.sampleRate;
-    p.builtInClickEnabled = w.builtInClickEnabled;
-    p.builtInClickName = w.builtInClickName.empty() ? "Click" : w.builtInClickName;
-    p.builtInClickBusId = w.builtInClickBusId;
-    p.builtInClickGainDb = w.builtInClickGainDb;
-    p.builtInClickPan = std::clamp(w.builtInClickPan, -1.0, 1.0);
-    p.builtInClickMono = w.builtInClickMono;
-    p.builtInClickSolo = w.builtInClickSolo;
-    p.builtInClickSends.reserve(w.builtInClickSends.size());
-    for (const auto& s : w.builtInClickSends)
-        p.builtInClickSends.push_back(fromWireSend(s));
 
-    p.busses.reserve(w.busses.size());
-    for (const auto& b : w.busses) {
-        BusDef bus;
+    p.click.enabled = w.click.enabled;
+    p.click.name = w.click.name.empty() ? "Click" : w.click.name;
+    p.click.channels = std::clamp(w.click.channels, 1, 2);
+    p.click.gainDb = w.click.gainDb;
+    p.click.pan = std::clamp(w.click.pan, -1.0, 1.0);
+    p.click.mute = w.click.mute;
+    p.click.solo = w.click.solo;
+    p.click.output = fromWireSourceOutput(w.click.output);
+
+    p.main.enabled = w.main.enabled;
+    p.main.name = w.main.name.empty() ? "Main" : w.main.name;
+    p.main.channels = std::clamp(w.main.channels, 1, 2);
+    p.main.gainDb = w.main.gainDb;
+    p.main.pan = std::clamp(w.main.pan, -1.0, 1.0);
+    p.main.mute = w.main.mute;
+    p.main.solo = w.main.solo;
+    p.main.output = fromWireBusOutput(w.main.output);
+
+    p.sends.reserve(w.sends.size());
+    for (const auto& b : w.sends) {
+        SendBus bus;
         bus.id = b.id;
         bus.name = b.name;
-        bus.channels = b.channels;
-        bus.output.startChannel = b.output.startChannel;
+        bus.channels = std::clamp(b.channels, 1, 2);
         bus.gainDb = b.gainDb;
         bus.pan = std::clamp(b.pan, -1.0, 1.0);
         bus.mute = b.mute;
         bus.solo = b.solo;
-        bus.isAux = b.isAux;
-        p.busses.push_back(std::move(bus));
+        bus.output = fromWireBusOutput(b.output);
+        p.sends.push_back(std::move(bus));
     }
 
     p.tracks.reserve(w.tracks.size());
@@ -586,32 +810,25 @@ Project fromWire(const WProject& w) {
         TrackDef tr;
         tr.id = t.id;
         tr.name = t.name;
-        // Empty bus = sends-only track (no main route). Do not invent "main".
-        tr.busId = t.bus;
+        tr.channels = std::clamp(t.channels, 1, 2);
         tr.gainDb = t.gainDb;
         tr.pan = t.pan;
         tr.mute = t.mute;
         tr.solo = t.solo;
-        tr.mono = t.mono;
-        tr.sends.reserve(t.sends.size());
-        for (const auto& s : t.sends)
-            tr.sends.push_back(fromWireSend(s));
+        tr.output = fromWireSourceOutput(t.output);
         p.tracks.push_back(std::move(tr));
     }
 
     p.lighting.enabled = w.lighting.enabled;
     p.lighting.kind = lightingKindFromString(w.lighting.kind);
-    p.lighting.resoLightColumns = w.lighting.resoLightColumns;
-    p.lighting.resoLightRows = w.lighting.resoLightRows;
-    p.lighting.idleBehavior = w.lighting.idleBehavior.empty() ? "holdLast" : w.lighting.idleBehavior;
-    p.lighting.idleColorR = static_cast<uint8_t>(std::clamp(w.lighting.idleColorR, 0, 255));
-    p.lighting.idleColorG = static_cast<uint8_t>(std::clamp(w.lighting.idleColorG, 0, 255));
-    p.lighting.idleColorB = static_cast<uint8_t>(std::clamp(w.lighting.idleColorB, 0, 255));
-    p.lighting.idleIntensity = w.lighting.idleIntensity;
-    p.lighting.idleEffectType = w.lighting.idleEffectType;
-    p.lighting.idleEffectRateHz = static_cast<float>(w.lighting.idleEffectRateHz);
-    p.lighting.idleGradientPreset = w.lighting.idleGradientPreset;
-    p.lighting.idleGradientColors = w.lighting.idleGradientColors;
+    p.lighting.resoLight.columns = w.lighting.resoLight.columns;
+    p.lighting.resoLight.rows = w.lighting.resoLight.rows;
+    p.lighting.idle.behavior = w.lighting.idle.behavior.empty() ? "holdLast" : w.lighting.idle.behavior;
+    p.lighting.idle.color = fromWireColor(w.lighting.idle.color);
+    p.lighting.idle.intensity = w.lighting.idle.intensity;
+    p.lighting.idle.effect.type = w.lighting.idle.effect.type;
+    p.lighting.idle.effect.rateHz = w.lighting.idle.effect.rateHz;
+    p.lighting.idle.gradient = fromWireGradient(w.lighting.idle.gradient);
     p.lighting.defaultRefreshRateHz = w.lighting.defaultRefreshRateHz;
     p.lighting.artNetTargetHost = w.lighting.artNetTargetHost;
     p.lighting.fixtures.reserve(w.lighting.fixtures.size());
@@ -620,22 +837,22 @@ Project fromWire(const WProject& w) {
         fx.id = f.id;
         fx.name = f.name;
         fx.kind = fixtureKindFromString(f.kind);
-        fx.gridColumn = f.gridColumn;
-        fx.gridRow = f.gridRow;
+        fx.grid.column = f.grid.column;
+        fx.grid.row = f.grid.row;
         fx.ledCount = f.ledCount;
         fx.addressable = f.addressable;
-        fx.posX = f.posX;
-        fx.posY = f.posY;
-        fx.posZ = f.posZ;
-        fx.rotationYDeg = f.rotationYDeg;
+        fx.position.x = f.position.x;
+        fx.position.y = f.position.y;
+        fx.position.z = f.position.z;
+        fx.rotation.y = f.rotation.y;
         fx.mountedHorizontally = f.mountedHorizontally;
-        fx.dmxUniverse = f.dmxUniverse;
-        fx.dmxStartChannel = f.dmxStartChannel;
-        fx.dmxChannelCount = f.dmxChannelCount;
+        fx.dmx.universe = f.dmx.universe;
+        fx.dmx.startChannel = f.dmx.startChannel;
+        fx.dmx.channelCount = f.dmx.channelCount;
         fx.shape = f.shape;
-        fx.matrixCols = f.matrixCols;
+        fx.matrixColumns = f.matrixColumns;
         fx.channelProfile = f.channelProfile;
-        fx.tiltDeg = f.tiltDeg;
+        fx.tiltDegrees = f.tiltDegrees;
         fx.refreshRateHz = f.refreshRateHz;
         fx.networkHost = f.networkHost;
         p.lighting.fixtures.push_back(std::move(fx));
@@ -663,21 +880,22 @@ Project fromWire(const WProject& w) {
                                 : PlaybackMode::WaitForTrigger;
 
         for (const auto& r : s.regions) {
-            if (r.file.empty())
+            if (r.source.file.empty())
                 continue;
             Region reg;
             reg.id = r.id;
             reg.trackId = r.trackId;
-            reg.file = r.file;
             reg.startSeconds = r.startSeconds;
-            reg.sourceOffsetSeconds = r.sourceOffsetSeconds;
             reg.durationSeconds = r.durationSeconds;
             reg.gainDb = r.gainDb;
-            reg.fadeInSeconds = r.fadeInSeconds;
-            reg.fadeOutSeconds = r.fadeOutSeconds;
-            reg.fadeInCurve = r.fadeInCurve;
-            reg.fadeOutCurve = r.fadeOutCurve;
-            reg.loop = r.loop;
+            reg.source.file = r.source.file;
+            reg.source.offsetSeconds = r.source.offsetSeconds;
+            reg.fade.inSeconds = r.fade.inSeconds;
+            reg.fade.outSeconds = r.fade.outSeconds;
+            reg.fade.inCurve = r.fade.inCurve;
+            reg.fade.outCurve = r.fade.outCurve;
+            reg.loop.enabled = r.loop.enabled;
+            reg.loop.lengthSeconds = r.loop.lengthSeconds;
             song.regions.push_back(std::move(reg));
         }
 
@@ -718,22 +936,19 @@ Project fromWire(const WProject& w) {
             cue.trackId = lc.trackId;
             cue.startSeconds = lc.startSeconds;
             cue.durationSeconds = lc.durationSeconds;
-            cue.colorR = static_cast<uint8_t>(std::clamp(lc.colorR, 0, 255));
-            cue.colorG = static_cast<uint8_t>(std::clamp(lc.colorG, 0, 255));
-            cue.colorB = static_cast<uint8_t>(std::clamp(lc.colorB, 0, 255));
-            cue.intensity = lc.intensity;
-            cue.fadeInSeconds = lc.fadeInSeconds;
-            cue.fadeOutSeconds = lc.fadeOutSeconds;
             cue.label = lc.label;
-            cue.effectType = lc.effectType;
-            cue.effectSourceType = lc.effectSourceType;
-            cue.effectSourceId = lc.effectSourceId;
-            cue.effectIntensity = static_cast<float>(lc.effectIntensity);
-            cue.tempoSync = lc.tempoSync;
-            cue.tempoSubdiv = lc.tempoSubdiv;
-            cue.effectRateHz = static_cast<float>(lc.effectRateHz);
-            cue.gradientPreset = lc.gradientPreset;
-            cue.gradientColors = lc.gradientColors;
+            cue.color = fromWireColor(lc.color);
+            cue.intensity = lc.intensity;
+            cue.fade.inSeconds = lc.fade.inSeconds;
+            cue.fade.outSeconds = lc.fade.outSeconds;
+            cue.effect.type = lc.effect.type;
+            cue.effect.sourceType = lc.effect.sourceType;
+            cue.effect.sourceId = lc.effect.sourceId;
+            cue.effect.intensity = lc.effect.intensity;
+            cue.effect.tempoSync = lc.effect.tempoSync;
+            cue.effect.tempoSubdivision = lc.effect.tempoSubdivision;
+            cue.effect.rateHz = lc.effect.rateHz;
+            cue.gradient = fromWireGradient(lc.gradient);
             cue.blendMode = lc.blendMode;
             song.lightCues.push_back(std::move(cue));
         }
@@ -743,19 +958,16 @@ Project fromWire(const WProject& w) {
 
     p.cycle.active = w.cycle.active;
     p.cycle.skip = w.cycle.skip;
-    p.cycle.leftSec = std::max(0.0, w.cycle.leftSec);
-    p.cycle.rightSec = std::max(0.0, w.cycle.rightSec);
-    if (p.cycle.rightSec < p.cycle.leftSec)
-        std::swap(p.cycle.leftSec, p.cycle.rightSec);
+    p.cycle.startSeconds = std::max(0.0, w.cycle.startSeconds);
+    p.cycle.endSeconds = std::max(0.0, w.cycle.endSeconds);
+    if (p.cycle.endSeconds < p.cycle.startSeconds)
+        std::swap(p.cycle.startSeconds, p.cycle.endSeconds);
     p.cycle.songIndex = w.cycle.songIndex;
     if (p.cycle.songIndex >= static_cast<int>(p.songs.size()))
         p.cycle.songIndex = p.songs.empty() ? -1 : 0;
 
-    for (const auto& [k, v] : w.keybindings)
-        p.keybindings[k] = v;
-
-    p.midiMappings.reserve(w.midiMappings.size());
-    for (const auto& m : w.midiMappings) {
+    p.midi.mappings.reserve(w.midi.mappings.size());
+    for (const auto& m : w.midi.mappings) {
         MidiMapping mm;
         mm.action = m.action;
         mm.channel = m.channel;
@@ -763,7 +975,7 @@ Project fromWire(const WProject& w) {
                              ? MidiTriggerType::ControlChange
                              : MidiTriggerType::NoteOn;
         mm.number = m.number;
-        p.midiMappings.push_back(std::move(mm));
+        p.midi.mappings.push_back(std::move(mm));
     }
 
     return p;

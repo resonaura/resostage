@@ -666,8 +666,8 @@ inline LightCueValue resolveLightCueValue(const std::vector<LightCue>& cues,
         return {};
 
     const double dur = std::max(0.0, active->durationSeconds);
-    const double fadeIn = std::clamp(active->fadeInSeconds, 0.0, dur);
-    const double fadeOut = std::clamp(active->fadeOutSeconds, 0.0, dur - fadeIn);
+    const double fadeIn = std::clamp(active->fade.inSeconds, 0.0, dur);
+    const double fadeOut = std::clamp(active->fade.outSeconds, 0.0, dur - fadeIn);
     const double t = timeSeconds - active->startSeconds; // 0..dur
     const double fadeOutStart = dur - fadeOut;
 
@@ -678,9 +678,9 @@ inline LightCueValue resolveLightCueValue(const std::vector<LightCue>& cues,
         level = std::max(0.0, (dur - t) / fadeOut);
 
     LightCueValue out;
-    out.r = active->colorR;
-    out.g = active->colorG;
-    out.b = active->colorB;
+    out.r = active->color.r;
+    out.g = active->color.g;
+    out.b = active->color.b;
     out.intensity = active->intensity * level;
     return out;
 }

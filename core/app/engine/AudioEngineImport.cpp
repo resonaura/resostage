@@ -8,6 +8,7 @@
 
 #include "audio/PeakCache.h"
 #include "audio/WavMetadata.h"
+#include "project/Uuid.h"
 
 #include <algorithm>
 #include <cctype>
@@ -84,12 +85,12 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             }
             if (!regPtr) {
                 Region reg;
-                reg.id = "reg_" + s.id + "_" + trk->id;
+                reg.id = generateUuidV7();
                 reg.trackId = trk->id;
                 s.regions.push_back(reg);
                 regPtr = &s.regions.back();
             }
-            regPtr->file = entry;
+            regPtr->source.file = entry;
         }
     }
 
@@ -111,12 +112,12 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             }
             if (!regPtr) {
                 Region reg;
-                reg.id = "reg_" + s.id + "_" + trkId;
+                reg.id = generateUuidV7();
                 reg.trackId = trkId;
                 s.regions.push_back(reg);
                 regPtr = &s.regions.back();
             }
-            regPtr->file = entry;
+            regPtr->source.file = entry;
         }
     }
 
@@ -276,12 +277,12 @@ void AudioEngine::importSongStemsBatchAsync(size_t songIndex, const std::vector<
                 }
                 if (!regPtr) {
                     Region reg;
-                    reg.id = "reg_" + s.id + "_" + trkId;
+                    reg.id = generateUuidV7();
                     reg.trackId = trkId;
                     s.regions.push_back(reg);
                     regPtr = &s.regions.back();
                 }
-                regPtr->file = entry;
+                regPtr->source.file = entry;
             }
 
             std::vector<uint8_t> wavData;
@@ -488,11 +489,6 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
         fail("Save the project first (Save As...) so imported audio has an archive to live in");
         return;
     }
-    if (loader.project().busses.empty()) {
-        fail("Project has no busses to route imported tracks to");
-        return;
-    }
-
     // Fast (header-only reads) -- fine to do synchronously before spawning
     // the background thread for the actual slow work below.
     std::vector<std::string> wavPaths;
@@ -506,9 +502,9 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
     std::vector<std::string> existingIds;
     for (const auto& s : loader.project().songs)
         existingIds.push_back(s.id);
-    std::string songId = "song_x";
+    std::string songId = "meta::song:x";
     for (int n = 1; n < 100000; ++n) {
-        std::string candidate = "song_" + std::to_string(n);
+        std::string candidate = "meta::song:" + std::to_string(n);
         if (std::find(existingIds.begin(), existingIds.end(), candidate) == existingIds.end()) {
             songId = candidate;
             break;
@@ -525,7 +521,6 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
     // writes from -- see importWavForTrackAsync's matching comment for why
     // the shared loader.project() must stay untouched until completion.
     Project projectSnapshot = loader.project();
-    const std::string defaultBusId = projectSnapshot.busses.front().id;
     const std::string archivePath = loader.archivePath();
     // Container (directory) format must be updated in place: saveAsWithExtras
     // would otherwise write a whole second directory tree at archivePath+
@@ -541,7 +536,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
     busyImporting.store(true, std::memory_order_release);
 
     importThread = std::thread([this, folderPath, songName, bpm, tsNumerator, tsDenominator, wavPaths, songId,
-                                 defaultBusId, archivePath, isContainer, projectSnapshot, songToRestore, wasPlaying,
+                                 archivePath, isContainer, projectSnapshot, songToRestore, wasPlaying,
                                  onComplete]() mutable {
         std::string error;
 
@@ -607,7 +602,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             std::string category = autoDetectStemCategory(srcPath.filename().string());
             if (category == "Click") {
                 // Project-global metronome on when a Click stem is imported.
-                projectSnapshot.builtInClickEnabled = true;
+                projectSnapshot.click.enabled = true;
                 continue;
             }
 
@@ -620,17 +615,17 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             }
             if (trackId.empty()) {
                 TrackDef track;
-                track.id = "trk_" + std::to_string(projectSnapshot.tracks.size() + 1);
+                track.id = "audio::track:" + std::to_string(projectSnapshot.tracks.size() + 1);
                 track.name = category;
-                track.busId = defaultBusId;
+                track.output.type = OutputType::Main;
                 projectSnapshot.tracks.push_back(track);
                 trackId = track.id;
             }
 
             Region reg;
-            reg.id = "reg_" + song.id + "_" + std::to_string(i + 1);
+            reg.id = generateUuidV7();
             reg.trackId = trackId;
-            reg.file = entry;
+            reg.source.file = entry;
             reg.durationSeconds = overview.durationSeconds;
 
             song.regions.push_back(std::move(reg));

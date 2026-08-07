@@ -91,8 +91,9 @@ public:
     // without needing its own separate wiring at every load site.
     void notifyLightEngineProjectChanged() {
         lightEngine.setProject(std::make_shared<Project>(loader.project()));
-        const std::string& target = loader.project().lighting.artNetTargetHost;
-        eventDispatcher.setArtNetTargetAddress(target.empty() ? "255.255.255.255" : target);
+        const auto& target = loader.project().lighting.artNetTargetHost;
+        eventDispatcher.setArtNetTargetAddress(
+            (!target.has_value() || target->empty()) ? "255.255.255.255" : *target);
     }
 
     // Called by MainComponent when the CURRENTLY ACTIVE song's own BPM is

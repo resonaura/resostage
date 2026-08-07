@@ -65,11 +65,11 @@ LightCue makeCue(std::string trackId, double start, double dur, std::string effe
     c.trackId = std::move(trackId);
     c.startSeconds = start;
     c.durationSeconds = dur;
-    c.colorR = 100;
-    c.colorG = 150;
-    c.colorB = 200;
+    c.color.r = 100;
+    c.color.g = 150;
+    c.color.b = 200;
     c.intensity = 1.0;
-    c.effectType = std::move(effectType);
+    c.effect.type = std::move(effectType);
     return c;
 }
 
@@ -96,9 +96,9 @@ TEST_CASE("resolveLightOutputs: one row per fixture on an active track") {
 TEST_CASE("resolveLightOutputs: Meter effect reads the source level via the callback and sets meterLevel01") {
     std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
     std::vector<LightCue> cues = {makeCue("t1", 0.0, 10.0, "meter")};
-    cues[0].effectSourceType = "track";
-    cues[0].effectSourceId = "trk_5";
-    cues[0].effectIntensity = 1.0f;
+    cues[0].effect.sourceType = "track";
+    cues[0].effect.sourceId = "trk_5";
+    cues[0].effect.intensity = 1.0f;
 
     bool sawExpectedArgs = false;
     auto sourceLevelDb = [&](const std::string& type, const std::string& id) -> SourceLevels {
@@ -118,7 +118,7 @@ TEST_CASE("resolveLightOutputs: Meter effect reads the source level via the call
 TEST_CASE("resolveLightOutputs: gradient preset is carried through from the active cue") {
     std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
     std::vector<LightCue> cues = {makeCue("t1", 0.0, 10.0, "meter")};
-    cues[0].gradientPreset = "greenYellowRed";
+    cues[0].gradient.preset = "greenYellowRed";
     auto out = resolveLightOutputs(tracks, cues, 1.0, 120.0, [](const std::string&, const std::string&) { return SourceLevels{}; });
     REQUIRE(out.size() == 1);
     CHECK(out[0].gradient == GradientPreset::GreenYellowRed);
@@ -135,8 +135,8 @@ TEST_CASE("resolveLightOutputs: a null source-level callback just leaves meterLe
 TEST_CASE("resolveLightOutputs: tempo-synced effects phase-lock to absolute song time, not cue start") {
     std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
     std::vector<LightCue> cues = {makeCue("t1", 10.0, 20.0, "strobe")};
-    cues[0].tempoSync = true;
-    cues[0].tempoSubdiv = "1/4";
+    cues[0].effect.tempoSync = true;
+    cues[0].effect.tempoSubdivision = "1/4";
     // A cue starting mid-beat (not on a bar boundary) must still phase-lock
     // to the song's beat grid -- effectTSec should equal the absolute
     // playhead time, not (playhead - cue start).
@@ -148,7 +148,7 @@ TEST_CASE("resolveLightOutputs: tempo-synced effects phase-lock to absolute song
 TEST_CASE("resolveLightOutputs: free-rate (non-synced) effects stay relative to cue start") {
     std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
     std::vector<LightCue> cues = {makeCue("t1", 10.0, 20.0, "strobe")};
-    cues[0].tempoSync = false;
+    cues[0].effect.tempoSync = false;
     auto out = resolveLightOutputs(tracks, cues, 14.0, 120.0, nullptr);
     REQUIRE(out.size() == 1);
     CHECK(out[0].effectTSec == doctest::Approx(4.0)); // 14 - cue start (10)
@@ -157,7 +157,7 @@ TEST_CASE("resolveLightOutputs: free-rate (non-synced) effects stay relative to 
 TEST_CASE("resolveLightOutputs: forwards effect identity and phase for Converge/GradientFlow") {
     std::vector<LightTrack> tracks = {makeTrack("t1", {"fx1"})};
     std::vector<LightCue> cues = {makeCue("t1", 10.0, 20.0, "converge")};
-    cues[0].effectRateHz = 3.0f;
+    cues[0].effect.rateHz = 3.0f;
     auto out = resolveLightOutputs(tracks, cues, 14.0, 120.0, nullptr);
     REQUIRE(out.size() == 1);
     CHECK(out[0].effectType == EffectParams::Type::Converge);
@@ -191,9 +191,9 @@ TEST_CASE("resolveLightOutputs: two tracks sharing a fixture, second layer 'norm
         makeTrack("accent", {"fx1"}),
     };
     LightCue baseCue = makeCue("base", 0.0, 10.0);
-    baseCue.colorR = 10; baseCue.colorG = 20; baseCue.colorB = 30;
+    baseCue.color.r = 10; baseCue.color.g = 20; baseCue.color.b = 30;
     LightCue accentCue = makeCue("accent", 0.0, 10.0);
-    accentCue.colorR = 200; accentCue.colorG = 210; accentCue.colorB = 220;
+    accentCue.color.r = 200; accentCue.color.g = 210; accentCue.color.b = 220;
     accentCue.blendMode = "normal";
     std::vector<LightCue> cues = {baseCue, accentCue};
 
@@ -212,10 +212,10 @@ TEST_CASE("resolveLightOutputs: additive blend combines two layers' effective br
         makeTrack("accent", {"fx1"}),
     };
     LightCue baseCue = makeCue("base", 0.0, 10.0);
-    baseCue.colorR = 100; baseCue.colorG = 0; baseCue.colorB = 0;
+    baseCue.color.r = 100; baseCue.color.g = 0; baseCue.color.b = 0;
     baseCue.intensity = 1.0;
     LightCue accentCue = makeCue("accent", 0.0, 10.0);
-    accentCue.colorR = 0; accentCue.colorG = 0; accentCue.colorB = 80;
+    accentCue.color.r = 0; accentCue.color.g = 0; accentCue.color.b = 80;
     accentCue.intensity = 1.0;
     accentCue.blendMode = "additive";
     std::vector<LightCue> cues = {baseCue, accentCue};
@@ -233,9 +233,9 @@ TEST_CASE("resolveLightOutputs: additive blend clamps at full brightness, never 
         makeTrack("accent", {"fx1"}),
     };
     LightCue baseCue = makeCue("base", 0.0, 10.0);
-    baseCue.colorR = 200; baseCue.colorG = 200; baseCue.colorB = 200;
+    baseCue.color.r = 200; baseCue.color.g = 200; baseCue.color.b = 200;
     LightCue accentCue = makeCue("accent", 0.0, 10.0);
-    accentCue.colorR = 200; accentCue.colorG = 200; accentCue.colorB = 200;
+    accentCue.color.r = 200; accentCue.color.g = 200; accentCue.color.b = 200;
     accentCue.blendMode = "additive";
     std::vector<LightCue> cues = {baseCue, accentCue};
 
@@ -252,9 +252,9 @@ TEST_CASE("resolveLightOutputs: multiply blend uses the accent as a dimmer mask"
         makeTrack("accent", {"fx1"}),
     };
     LightCue baseCue = makeCue("base", 0.0, 10.0);
-    baseCue.colorR = 255; baseCue.colorG = 255; baseCue.colorB = 255;
+    baseCue.color.r = 255; baseCue.color.g = 255; baseCue.color.b = 255;
     LightCue accentCue = makeCue("accent", 0.0, 10.0);
-    accentCue.colorR = 0; accentCue.colorG = 128; accentCue.colorB = 255;
+    accentCue.color.r = 0; accentCue.color.g = 128; accentCue.color.b = 255;
     accentCue.blendMode = "multiply";
     std::vector<LightCue> cues = {baseCue, accentCue};
 
@@ -276,7 +276,7 @@ TEST_CASE("resolveLightOutputs: an idle second track never blacks out an active 
         makeTrack("accent", {"fx1"}),
     };
     LightCue baseCue = makeCue("base", 0.0, 10.0);
-    baseCue.colorR = 111; baseCue.colorG = 22; baseCue.colorB = 33;
+    baseCue.color.r = 111; baseCue.color.g = 22; baseCue.color.b = 33;
     LightCue accentCue = makeCue("accent", 50.0, 10.0); // active 50..60, not at t=5
     std::vector<LightCue> cues = {baseCue, accentCue};
 

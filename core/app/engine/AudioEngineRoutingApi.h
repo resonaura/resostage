@@ -10,9 +10,9 @@
     // routing update (audible immediately) when songIndex == currentSongIndex();
     // otherwise it's a pure Project-data edit that takes effect next time
     // that song is staged.
-    void setTrackSend(size_t songIndex, size_t trackIndex, size_t sendIndex, const TrackSendDef& send);
+    void setTrackSend(size_t songIndex, size_t trackIndex, size_t sendIndex, const SendConfig& send);
 
-    void addTrackSend(size_t songIndex, size_t trackIndex, const TrackSendDef& send);
+    void addTrackSend(size_t songIndex, size_t trackIndex, const SendConfig& send);
 
     void removeTrackSend(size_t songIndex, size_t trackIndex, size_t sendIndex);
 

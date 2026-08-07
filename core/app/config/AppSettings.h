@@ -6,9 +6,15 @@
 #include <juce_core/juce_core.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace resostage {
+
+// action name (e.g. "play", "stop", "next", "prev") -> key description string
+// parseable by juce::KeyPress::createFromDescription (e.g. "space", "n", "cmd + p").
+// Rig-wide (AppSettings), not project data -- see AppSettings::keybindings.
+using KeyBindingMap = std::unordered_map<std::string, std::string>;
 
 // Rig-wide preferences: hotkeys, MIDI bindings, and the audio/MIDI device
 // setup. These describe how the physical rig is wired up for a live show,

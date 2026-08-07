@@ -29,12 +29,9 @@ void MainComponent::builderSongAdd(const std::string& json) {
     song.id = makeUniqueId("song", used);
     song.name = "New Song";
     song.bpm = 120.0;
-    // Metronome is project-global -- only seed the project bus once when
-    // still unset (first song in a fresh project).
-    if (proj.builtInClickBusId.empty() && !proj.busses.empty())
-        proj.builtInClickBusId = proj.busses.front().id;
-
-    const std::string defaultBusId = !proj.busses.empty() ? proj.busses.front().id : "main";
+    // Metronome is project-global and already defaults to routing into
+    // Master (ClickChannel::output defaults OutputType::Main) -- no seeding
+    // needed here.
 
     // Callers that build their own exact track list right after adding the
     // song (e.g. ImportStemsModal.tsx mapping stem files to tracks) pass
@@ -160,41 +157,52 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     // (empty project) so the mixer/player can toggle the click freely.
     bool clickTouched = false;
     if (getBool(doc, "click", boolVal)) {
-        proj.builtInClickEnabled = boolVal;
+        proj.click.enabled = boolVal;
         clickTouched = true;
     }
     if (getString(doc, "clickName", strVal)) {
-        proj.builtInClickName = strVal.empty() ? "Click" : strVal;
+        proj.click.name = strVal.empty() ? "Click" : strVal;
         clickTouched = true;
     }
     if (getString(doc, "clickBusId", strVal)) {
-        proj.builtInClickBusId = strVal;
+        // Same 3-way route mapping as a track's main route: "" = Sends Only,
+        // "audio::main" = Main, otherwise an ext-out target.
+        if (strVal.empty()) {
+            proj.click.output.type = OutputType::SendsOnly;
+            proj.click.output.target.reset();
+        } else if (strVal == "audio::main") {
+            proj.click.output.type = OutputType::Main;
+            proj.click.output.target.reset();
+        } else {
+            proj.click.output.type = OutputType::ExtOut;
+            proj.click.output.target = strVal;
+        }
         clickTouched = true;
     }
     if (getDouble(doc, "clickGainDb", numVal)) {
-        proj.builtInClickGainDb = numVal;
+        proj.click.gainDb = numVal;
         clickTouched = true;
     }
     if (getDouble(doc, "clickPan", numVal)) {
-        proj.builtInClickPan = std::clamp(numVal, -1.0, 1.0);
+        proj.click.pan = std::clamp(numVal, -1.0, 1.0);
         clickTouched = true;
     }
     if (getBool(doc, "clickMono", boolVal)) {
-        proj.builtInClickMono = boolVal;
+        proj.click.channels = boolVal ? 1 : 2;
         clickTouched = true;
     }
     if (const auto* clickSendsArr = getArray(doc, "clickSends")) {
         clickTouched = true;
-        proj.builtInClickSends.clear();
+        proj.click.output.sends.clear();
         for (const auto& csEl : *clickSendsArr) {
-            TrackSendDef cs;
-            if (!getString(csEl, "busId", cs.busId))
+            SendConfig cs;
+            if (!getString(csEl, "busId", cs.bus))
                 continue; // busId is required
-            getDouble(csEl, "gainDb", cs.gainDb);
+            getDouble(csEl, "level", cs.level);
             bool enabled = true;
             getBool(csEl, "enabled", enabled);
             cs.enabled = enabled;
-            proj.builtInClickSends.push_back(std::move(cs));
+            proj.click.output.sends.push_back(std::move(cs));
         }
     }
     if (clickTouched) {

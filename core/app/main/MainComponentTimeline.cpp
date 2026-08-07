@@ -136,10 +136,10 @@ void MainComponent::maybePublishAllPeaks() {
     int totalFiles = 0, builtFiles = 0;
     for (const auto& song : engine.project().songs) {
         for (const auto& r : song.regions) {
-            if (r.file.empty())
+            if (r.source.file.empty())
                 continue;
             ++totalFiles;
-            if (engine.cachedPeaksForFile(r.file) != nullptr)
+            if (engine.cachedPeaksForFile(r.source.file) != nullptr)
                 ++builtFiles;
         }
     }
@@ -165,7 +165,7 @@ std::string MainComponent::buildAllPeaksJson() const {
         WSongPeaks songPeaks{};
         songPeaks.tracks.reserve(song.regions.size());
         for (const auto& r : song.regions) {
-            const PeakOverview* pk = r.file.empty() ? nullptr : engine.cachedPeaksForFile(r.file);
+            const PeakOverview* pk = r.source.file.empty() ? nullptr : engine.cachedPeaksForFile(r.source.file);
             WRegionPeakOverview rPeak{};
             rPeak.id = r.id;
             rPeak.trackId = r.trackId;

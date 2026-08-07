@@ -60,6 +60,23 @@ collectRouteBusIndices(
         out.push_back(static_cast<int>(ix));
 }
 
+// Maps a track/click SourceOutput onto the same "route id" string
+// collectRouteBusIndices() expects (a project bus id, a comma-compound
+// direct-out id, or "" for no main route) -- one function so every call
+// site (routing snapshot build, staging validation, click prep) agrees on
+// what "this source's main route" means.
+inline std::string mainRouteId(const SourceOutput& out) {
+    switch (out.type) {
+        case OutputType::Main:
+            return "audio::main";
+        case OutputType::ExtOut:
+            return out.target.value_or("");
+        case OutputType::SendsOnly:
+        default:
+            return "";
+    }
+}
+
 inline float dbToGain(double db) {
     if (db <= -144.0)
         return 0.0f;

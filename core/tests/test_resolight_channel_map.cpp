@@ -20,9 +20,9 @@ LightFixture makeGeneric(std::string id, int universe = 0, int startChannel = 1,
     LightFixture f;
     f.id = std::move(id);
     f.kind = LightFixture::Kind::DmxGeneric;
-    f.dmxUniverse = universe;
-    f.dmxStartChannel = startChannel;
-    f.dmxChannelCount = channelCount;
+    f.dmx.universe = universe;
+    f.dmx.startChannel = startChannel;
+    f.dmx.channelCount = channelCount;
     return f;
 }
 

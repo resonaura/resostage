@@ -5,6 +5,7 @@
 // Feature 6 for the overall design.
 
 #include "MainComponent.h"
+#include "project/Uuid.h"
 #include "server/BuilderJson.h"
 
 #include <algorithm>
@@ -21,7 +22,7 @@ namespace {
 // DmxGeneric entries. Idempotent -- calling it again with the same
 // columns/rows is a no-op copy.
 void regenerateResoLightFixtures(LightingConfig& cfg) {
-    const int desired = std::max(0, cfg.resoLightColumns) * std::max(0, cfg.resoLightRows);
+    const int desired = std::max(0, cfg.resoLight.columns) * std::max(0, cfg.resoLight.rows);
 
     std::vector<LightFixture> bars;
     std::vector<LightFixture> others;
@@ -43,25 +44,25 @@ void regenerateResoLightFixtures(LightingConfig& cfg) {
         constexpr double kSpacingMeters = 2.0;
         while (static_cast<int>(bars.size()) < desired) {
             const int index = static_cast<int>(bars.size());
-            const int col = cfg.resoLightColumns > 0 ? index % cfg.resoLightColumns : 0;
-            const int row = cfg.resoLightColumns > 0 ? index / cfg.resoLightColumns : 0;
+            const int col = cfg.resoLight.columns > 0 ? index % cfg.resoLight.columns : 0;
+            const int row = cfg.resoLight.columns > 0 ? index / cfg.resoLight.columns : 0;
             LightFixture f;
             f.id = makeUniqueId("bar", used);
             used.push_back(f.id);
             f.name = "Bar " + std::to_string(index + 1);
             f.kind = LightFixture::Kind::ResoLightBar;
-            f.gridColumn = col;
-            f.gridRow = row;
+            f.grid.column = col;
+            f.grid.row = row;
             f.ledCount = 120;
             f.addressable = true;
             // Center the grid around X=0 so two bars land at -1.0 and +1.0
             // instead of 0 and 2.0 -- the 3D preview then feels balanced,
             // with the audience/camera anchor at the center of the rig.
-            const double halfWidthX = (cfg.resoLightColumns > 1 ? (cfg.resoLightColumns - 1) * 0.5 * kSpacingMeters : 0.0);
-            const double halfWidthZ = (cfg.resoLightRows > 1    ? (cfg.resoLightRows    - 1) * 0.5 * kSpacingMeters : 0.0);
-            f.posX = col * kSpacingMeters - halfWidthX;
-            f.posY = 0.0;
-            f.posZ = row * kSpacingMeters - halfWidthZ;
+            const double halfWidthX = (cfg.resoLight.columns > 1 ? (cfg.resoLight.columns - 1) * 0.5 * kSpacingMeters : 0.0);
+            const double halfWidthZ = (cfg.resoLight.rows > 1    ? (cfg.resoLight.rows    - 1) * 0.5 * kSpacingMeters : 0.0);
+            f.position.x = col * kSpacingMeters - halfWidthX;
+            f.position.y = 0.0;
+            f.position.z = row * kSpacingMeters - halfWidthZ;
             // RGBW is the default for new ResoLight bars: the dedicated white
             // channel gives richer whites than mixing R+G+B to near-white,
             // which is exactly what a stage light is asked to do most often.
@@ -100,13 +101,13 @@ void MainComponent::lightingSetConfig(const std::string& json) {
         else cfg.kind = LightingKind::None;
     }
     if (getInt(doc, "resoLightColumns", intVal))
-        cfg.resoLightColumns = std::max(0, intVal);
+        cfg.resoLight.columns = std::max(0, intVal);
     if (getInt(doc, "resoLightRows", intVal))
-        cfg.resoLightRows = std::max(0, intVal);
+        cfg.resoLight.rows = std::max(0, intVal);
     double doubleVal;
     if (getString(doc, "idleBehavior", strVal)) {
         if (strVal == "blackout" || strVal == "staticColor" || strVal == "effect" || strVal == "holdLast")
-            cfg.idleBehavior = strVal;
+            cfg.idle.behavior = strVal;
     }
     if (getString(doc, "idleEffectType", strVal)) {
         // Validate against the same catalog buildIdleEffectOutputs will use
@@ -114,25 +115,25 @@ void MainComponent::lightingSetConfig(const std::string& json) {
         // the "off" value -- so reject anything that doesn't parse rather
         // than silently turning the effect off).
         if (parseEffectType(strVal) != EffectParams::Type::None)
-            cfg.idleEffectType = strVal;
+            cfg.idle.effect.type = strVal;
     }
     if (getDouble(doc, "idleEffectRateHz", doubleVal))
-        cfg.idleEffectRateHz = std::clamp(doubleVal, 0.05, 30.0);
+        cfg.idle.effect.rateHz = std::clamp(doubleVal, 0.05, 30.0);
     if (getString(doc, "idleGradientPreset", strVal)) {
         // Accept any value the frontend sends -- parseGradientPreset handles
         // unknown strings by falling back to Solid, so there's no invalid state.
-        cfg.idleGradientPreset = strVal;
+        cfg.idle.gradient.preset = strVal;
     }
     if (getString(doc, "idleGradientColors", strVal))
-        cfg.idleGradientColors = strVal;
+        cfg.idle.gradient.colors = strVal;
     if (getInt(doc, "idleColorR", intVal))
-        cfg.idleColorR = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+        cfg.idle.color.r = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
     if (getInt(doc, "idleColorG", intVal))
-        cfg.idleColorG = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+        cfg.idle.color.g = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
     if (getInt(doc, "idleColorB", intVal))
-        cfg.idleColorB = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+        cfg.idle.color.b = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
     if (getDouble(doc, "idleIntensity", doubleVal))
-        cfg.idleIntensity = std::clamp(doubleVal, 0.0, 1.0);
+        cfg.idle.intensity = std::clamp(doubleVal, 0.0, 1.0);
     if (getDouble(doc, "defaultRefreshRateHz", doubleVal))
         // Upper-bounded at LightEngine's internal compute tick (60Hz, see
         // LightEngine.h's kFrameRateHz) -- a configured rate faster than
@@ -193,7 +194,7 @@ void MainComponent::lightingFixtureAdd(const std::string& json) {
     // Aimed off vertical by default, purely cosmetic -- reads as a real
     // hung fixture aiming at the stage rather than every light standing
     // bolt upright like a ResoLightBar. Trivially overridden per-fixture.
-    f.tiltDeg = 25.0;
+    f.tiltDegrees = 25.0;
 
     // Auto-place right after the last occupied channel range in universe 0
     // so a freshly added fixture never silently overlaps an existing one's
@@ -201,20 +202,20 @@ void MainComponent::lightingFixtureAdd(const std::string& json) {
     // universe/range by hand afterward.
     int nextChannel = 1;
     for (const auto& other : cfg.fixtures) {
-        if (other.dmxUniverse == 0)
-            nextChannel = std::max(nextChannel, other.dmxStartChannel + other.dmxChannelCount);
+        if (other.dmx.universe == 0)
+            nextChannel = std::max(nextChannel, other.dmx.startChannel + other.dmx.channelCount);
     }
-    f.dmxUniverse = 0;
-    f.dmxStartChannel = std::min(nextChannel, 510);
-    f.dmxChannelCount = 3;
+    f.dmx.universe = 0;
+    f.dmx.startChannel = std::min(nextChannel, 510);
+    f.dmx.channelCount = 3;
 
     // Off to the side in the 3D stage, one step back per existing fixture,
     // so it never spawns on top of a ResoLight bar grid or another DMX
     // fixture -- same "just a starting point, drag it where it belongs"
     // spirit as regenerateResoLightFixtures' default spacing.
-    f.posX = 0.0;
-    f.posY = 0.0;
-    f.posZ = static_cast<double>(cfg.fixtures.size()) * -2.0;
+    f.position.x = 0.0;
+    f.position.y = 0.0;
+    f.position.z = static_cast<double>(cfg.fixtures.size()) * -2.0;
 
     engine.projectHistoryBeginEdit("", "Add DMX fixture");
     cfg.fixtures.push_back(std::move(f));
@@ -251,7 +252,7 @@ void MainComponent::lightingFixtureDuplicate(const std::string& json) {
     copy.name = src->name + " Copy";
     // Hardware is 1:1 with a physical board -- never let a duplicate steal
     // the source's IP. Operator re-pairs the copy if they want one.
-    copy.networkHost.clear();
+    copy.networkHost.reset();
 
     // Auto-place right after the last occupied channel range in the SAME
     // universe as the source -- same collision-avoidance lightingFixtureAdd
@@ -259,15 +260,15 @@ void MainComponent::lightingFixtureDuplicate(const std::string& json) {
     // pointing at identical DMX channels.
     int nextChannel = 1;
     for (const auto& other : cfg.fixtures) {
-        if (other.dmxUniverse == src->dmxUniverse)
-            nextChannel = std::max(nextChannel, other.dmxStartChannel + other.dmxChannelCount);
+        if (other.dmx.universe == src->dmx.universe)
+            nextChannel = std::max(nextChannel, other.dmx.startChannel + other.dmx.channelCount);
     }
-    copy.dmxStartChannel = std::min(nextChannel, 510);
+    copy.dmx.startChannel = std::min(nextChannel, 510);
 
     // Nudged in the 3D stage so the copy doesn't spawn exactly on top of
     // the fixture it came from.
-    copy.posX = src->posX + 0.5;
-    copy.posZ = src->posZ + 0.5;
+    copy.position.x = src->position.x + 0.5;
+    copy.position.z = src->position.z + 0.5;
 
     engine.projectHistoryBeginEdit("", "Duplicate fixture");
     cfg.fixtures.push_back(std::move(copy));
@@ -336,16 +337,16 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     if (getString(doc, "name", strVal)) fx->name = strVal;
     if (getInt(doc, "ledCount", intVal)) fx->ledCount = std::max(1, intVal);
     if (getBool(doc, "addressable", boolVal)) fx->addressable = boolVal;
-    if (getInt(doc, "gridColumn", intVal)) fx->gridColumn = std::max(0, intVal);
-    if (getInt(doc, "gridRow", intVal)) fx->gridRow = std::max(0, intVal);
-    if (getDouble(doc, "posX", numVal)) fx->posX = numVal;
-    if (getDouble(doc, "posY", numVal)) fx->posY = numVal;
-    if (getDouble(doc, "posZ", numVal)) fx->posZ = numVal;
-    if (getDouble(doc, "rotationYDeg", numVal)) fx->rotationYDeg = numVal;
+    if (getInt(doc, "gridColumn", intVal)) fx->grid.column = std::max(0, intVal);
+    if (getInt(doc, "gridRow", intVal)) fx->grid.row = std::max(0, intVal);
+    if (getDouble(doc, "posX", numVal)) fx->position.x = numVal;
+    if (getDouble(doc, "posY", numVal)) fx->position.y = numVal;
+    if (getDouble(doc, "posZ", numVal)) fx->position.z = numVal;
+    if (getDouble(doc, "rotationYDeg", numVal)) fx->rotation.y = numVal;
     if (getBool(doc, "mountedHorizontally", boolVal)) fx->mountedHorizontally = boolVal;
-    if (getInt(doc, "dmxUniverse", intVal)) fx->dmxUniverse = intVal;
-    if (getInt(doc, "dmxStartChannel", intVal)) fx->dmxStartChannel = intVal;
-    if (getInt(doc, "dmxChannelCount", intVal)) fx->dmxChannelCount = intVal;
+    if (getInt(doc, "dmxUniverse", intVal)) fx->dmx.universe = intVal;
+    if (getInt(doc, "dmxStartChannel", intVal)) fx->dmx.startChannel = intVal;
+    if (getInt(doc, "dmxChannelCount", intVal)) fx->dmx.channelCount = intVal;
     // Cosmetic-only strings (see LightFixture's doc comment) -- the engine
     // never branches on either, so no allowlist to keep in sync here; the
     // web UI owns the canonical set of known values.
@@ -355,9 +356,9 @@ void MainComponent::lightingFixtureUpdate(const std::string& json) {
     // API call or a hand-edited project file can't leave a Ring fixture
     // stuck addressable.
     if (fx->shape == "ring") fx->addressable = false;
-    if (getInt(doc, "matrixCols", intVal)) fx->matrixCols = std::max(0, intVal);
+    if (getInt(doc, "matrixCols", intVal)) fx->matrixColumns = std::max(0, intVal);
     if (getString(doc, "channelProfile", strVal)) fx->channelProfile = strVal;
-    if (getDouble(doc, "tiltDeg", numVal)) fx->tiltDeg = numVal;
+    if (getDouble(doc, "tiltDeg", numVal)) fx->tiltDegrees = numVal;
     // 0 = inherit the project default; otherwise clamp to LightEngine's
     // internal tick rate (60Hz, see LightEngine.h's kFrameRateHz) at the
     // top -- a deliberately slow override for a glitchy fixture is exactly
@@ -481,12 +482,8 @@ void MainComponent::lightingCueAdd(const std::string& json) {
         return;
     SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
-    std::vector<std::string> used;
-    for (const auto& c : s.lightCues)
-        used.push_back(c.id);
-
     LightCue cue;
-    cue.id = makeUniqueId("lc", used);
+    cue.id = generateUuidV7();
     cue.trackId = trackId;
     double startSeconds = 0.0;
     getDouble(doc, "startSeconds", startSeconds);
@@ -496,25 +493,25 @@ void MainComponent::lightingCueAdd(const std::string& json) {
     cue.durationSeconds = std::max(0.1, durationSeconds);
 
     int intVal = 0;
-    if (getInt(doc, "colorR", intVal)) cue.colorR = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
-    if (getInt(doc, "colorG", intVal)) cue.colorG = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
-    if (getInt(doc, "colorB", intVal)) cue.colorB = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "colorR", intVal)) cue.color.r = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "colorG", intVal)) cue.color.g = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "colorB", intVal)) cue.color.b = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
     double numVal = 0.0;
     if (getDouble(doc, "intensity", numVal)) cue.intensity = std::clamp(numVal, 0.0, 1.0);
-    if (getDouble(doc, "fadeInSeconds", numVal)) cue.fadeInSeconds = std::max(0.0, numVal);
-    if (getDouble(doc, "fadeOutSeconds", numVal)) cue.fadeOutSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "fadeInSeconds", numVal)) cue.fade.inSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "fadeOutSeconds", numVal)) cue.fade.outSeconds = std::max(0.0, numVal);
     std::string strVal;
     if (getString(doc, "label", strVal)) cue.label = strVal;
-    if (getString(doc, "effectType", strVal)) cue.effectType = strVal;
-    if (getString(doc, "effectSourceType", strVal)) cue.effectSourceType = strVal;
-    if (getString(doc, "effectSourceId", strVal)) cue.effectSourceId = strVal;
-    if (getDouble(doc, "effectIntensity", numVal)) cue.effectIntensity = static_cast<float>(std::clamp(numVal, 0.0, 1.0));
+    if (getString(doc, "effectType", strVal)) cue.effect.type = strVal;
+    if (getString(doc, "effectSourceType", strVal)) cue.effect.sourceType = strVal;
+    if (getString(doc, "effectSourceId", strVal)) cue.effect.sourceId = strVal;
+    if (getDouble(doc, "effectIntensity", numVal)) cue.effect.intensity = static_cast<float>(std::clamp(numVal, 0.0, 1.0));
     bool boolVal = false;
-    if (getBool(doc, "tempoSync", boolVal)) cue.tempoSync = boolVal;
-    if (getString(doc, "tempoSubdiv", strVal)) cue.tempoSubdiv = strVal;
-    if (getDouble(doc, "effectRateHz", numVal)) cue.effectRateHz = static_cast<float>(std::max(0.01, numVal));
-    if (getString(doc, "gradientPreset", strVal)) cue.gradientPreset = strVal;
-    if (getString(doc, "gradientColors", strVal)) cue.gradientColors = strVal;
+    if (getBool(doc, "tempoSync", boolVal)) cue.effect.tempoSync = boolVal;
+    if (getString(doc, "tempoSubdiv", strVal)) cue.effect.tempoSubdivision = strVal;
+    if (getDouble(doc, "effectRateHz", numVal)) cue.effect.rateHz = static_cast<float>(std::max(0.01, numVal));
+    if (getString(doc, "gradientPreset", strVal)) cue.gradient.preset = strVal;
+    if (getString(doc, "gradientColors", strVal)) cue.gradient.colors = strVal;
     if (getString(doc, "blendMode", strVal)) cue.blendMode = strVal;
 
     std::string gestureId;
@@ -585,27 +582,27 @@ void MainComponent::lightingCueUpdate(const std::string& json) {
     if (getString(doc, "trackId", strVal)) cue->trackId = strVal;
     if (getDouble(doc, "startSeconds", numVal)) cue->startSeconds = std::max(0.0, numVal);
     if (getDouble(doc, "durationSeconds", numVal)) cue->durationSeconds = std::max(0.1, numVal);
-    if (getInt(doc, "colorR", intVal)) cue->colorR = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
-    if (getInt(doc, "colorG", intVal)) cue->colorG = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
-    if (getInt(doc, "colorB", intVal)) cue->colorB = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "colorR", intVal)) cue->color.r = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "colorG", intVal)) cue->color.g = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
+    if (getInt(doc, "colorB", intVal)) cue->color.b = static_cast<uint8_t>(std::clamp(intVal, 0, 255));
     if (getDouble(doc, "intensity", numVal)) cue->intensity = std::clamp(numVal, 0.0, 1.0);
-    if (getDouble(doc, "fadeInSeconds", numVal)) cue->fadeInSeconds = std::max(0.0, numVal);
-    if (getDouble(doc, "fadeOutSeconds", numVal)) cue->fadeOutSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "fadeInSeconds", numVal)) cue->fade.inSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "fadeOutSeconds", numVal)) cue->fade.outSeconds = std::max(0.0, numVal);
     if (getString(doc, "label", strVal)) cue->label = strVal;
 
     // Audio-reactive effect fields.
-    if (getString(doc, "effectType", strVal)) cue->effectType = strVal;
-    if (getString(doc, "effectSourceType", strVal)) cue->effectSourceType = strVal;
-    if (getString(doc, "effectSourceId", strVal)) cue->effectSourceId = strVal;
+    if (getString(doc, "effectType", strVal)) cue->effect.type = strVal;
+    if (getString(doc, "effectSourceType", strVal)) cue->effect.sourceType = strVal;
+    if (getString(doc, "effectSourceId", strVal)) cue->effect.sourceId = strVal;
     if (getDouble(doc, "effectIntensity", numVal))
-        cue->effectIntensity = static_cast<float>(std::clamp(numVal, 0.0, 1.0));
+        cue->effect.intensity = static_cast<float>(std::clamp(numVal, 0.0, 1.0));
     bool boolVal = false;
-    if (getBool(doc, "tempoSync", boolVal)) cue->tempoSync = boolVal;
-    if (getString(doc, "tempoSubdiv", strVal)) cue->tempoSubdiv = strVal;
+    if (getBool(doc, "tempoSync", boolVal)) cue->effect.tempoSync = boolVal;
+    if (getString(doc, "tempoSubdiv", strVal)) cue->effect.tempoSubdivision = strVal;
     if (getDouble(doc, "effectRateHz", numVal))
-        cue->effectRateHz = static_cast<float>(std::max(0.01, numVal));
-    if (getString(doc, "gradientPreset", strVal)) cue->gradientPreset = strVal;
-    if (getString(doc, "gradientColors", strVal)) cue->gradientColors = strVal;
+        cue->effect.rateHz = static_cast<float>(std::max(0.01, numVal));
+    if (getString(doc, "gradientPreset", strVal)) cue->gradient.preset = strVal;
+    if (getString(doc, "gradientColors", strVal)) cue->gradient.colors = strVal;
     if (getString(doc, "blendMode", strVal)) cue->blendMode = strVal;
 
     engine.projectHistoryCommitEdit();

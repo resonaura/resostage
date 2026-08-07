@@ -1,5 +1,6 @@
 #include "ProjectLoader.h"
 #include "ProjectJson.h"
+#include "LegacyProjectMigration.h"
 
 #include "miniz.h"
 
@@ -48,26 +49,21 @@ void ProjectLoader::newProject(const std::string& name) {
     close();
     parsedProject = Project{};
     parsedProject.name = name;
-    // One default stereo FOH bus so the Builder/Mixer aren't staring at an
-    // empty routing matrix -- the user can rename/reassign/add more freely.
-    BusDef mainBus;
-    mainBus.id = "main";
-    mainBus.name = "Main";
-    mainBus.channels = 2;
-    mainBus.output.startChannel = 0;
-    parsedProject.busses.push_back(std::move(mainBus));
+    // Master defaults to the device's first stereo pair so the Builder/Mixer
+    // aren't staring at an unrouted strip -- the user can reassign freely.
+    parsedProject.main.output.type = OutputType::ExtOut;
+    parsedProject.main.output.target = "audio::out:1,audio::out:2";
 
     // Seed global project-level tracks (NO songs created, songs array remains empty)
-
     const std::vector<std::string> defaultTrackNames = {
         "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Guide"
     };
     int idCounter = 1;
     for (const auto& tname : defaultTrackNames) {
         TrackDef t;
-        t.id = "trk_" + std::to_string(idCounter++);
+        t.id = "audio::track:" + std::to_string(idCounter++);
         t.name = tname;
-        t.busId = "main";
+        t.output.type = OutputType::Main;
         parsedProject.tracks.push_back(std::move(t));
     }
 }
@@ -519,9 +515,21 @@ bool ProjectLoader::reparseProject(std::string& error) {
 
     const std::string_view json(
         reinterpret_cast<const char*>(jsonBytes.data()), jsonBytes.size());
+
     Project proj;
-    if (!parseProjectJson(json, proj, error))
-        return false;
+    // Decide current-shape vs. legacy-shape from format.version BEFORE
+    // running the strict parser: a current-format file that fails semantic
+    // validation (e.g. an unknown event type) must surface that real error,
+    // not silently launder through the lenient legacy migrator just because
+    // the strict parse also happened to fail. See LegacyProjectMigration.h
+    // for why the legacy path is a single bridge step, not a version chain.
+    if (peekProjectFormatVersion(json) < kCurrentFormatVersion) {
+        if (!migrateLegacyProject(json, proj, error))
+            return false;
+    } else {
+        if (!parseProjectJson(json, proj, error))
+            return false;
+    }
 
     // Empty track list: seed defaults (same as a new project) so Builder has
     // something to attach regions to.
@@ -533,58 +541,10 @@ bool ProjectLoader::reparseProject(std::string& error) {
         int idCounter = 1;
         for (const auto& tname : defaultTrackNames) {
             TrackDef t;
-            t.id = "trk_" + std::to_string(idCounter++);
+            t.id = "audio::track:" + std::to_string(idCounter++);
             t.name = tname;
-            t.busId = "main";
+            t.output.type = OutputType::Main;
             proj.tracks.push_back(std::move(t));
-        }
-    }
-
-    // Legacy auto-update: older projects stored "Ext. Out" targets as *direct*
-    // non-main, non-aux busses INSIDE the project (the old mixer fabricated a
-    // hidden bus per physical output). Direct outputs are now GLOBAL -- derived
-    // from the device's active output channels, never persisted. Migrate by
-    // re-pointing every reference (track output + sends, metronome) at the
-    // matching global direct-bus id and dropping the legacy project busses.
-    {
-        std::map<std::string, std::string> oldToDirect;
-        for (const BusDef& b : proj.busses) {
-            // Only the vanished direct-output busses migrate: non-aux, non-main,
-            // and auto-labelled "Out N[/M]" by the old mixer. Never touch a main/
-            // aux bus or a user-named custom bus.
-            if (b.isAux || b.name.rfind("Out ", 0) != 0)
-                continue;
-            const int s = b.output.startChannel;
-            // 1-based mono lanes only; a legacy stereo bus fans the route into
-            // two mono Direct Output ids ("direct:1,direct:2").
-            const std::string directId = (b.channels >= 2)
-                ? "direct:" + std::to_string(s + 1) + ",direct:" + std::to_string(s + 2)
-                : "direct:" + std::to_string(s + 1);
-            oldToDirect[b.id] = directId;
-        }
-        if (!oldToDirect.empty()) {
-            for (auto& tr : proj.tracks) {
-                const auto it = oldToDirect.find(tr.busId);
-                if (it != oldToDirect.end())
-                    tr.busId = it->second;
-                for (auto& s : tr.sends) {
-                    const auto it2 = oldToDirect.find(s.busId);
-                    if (it2 != oldToDirect.end())
-                        s.busId = it2->second;
-                }
-            }
-            const auto cbIt = oldToDirect.find(proj.builtInClickBusId);
-            if (cbIt != oldToDirect.end())
-                proj.builtInClickBusId = cbIt->second;
-            for (auto& s : proj.builtInClickSends) {
-                const auto it = oldToDirect.find(s.busId);
-                if (it != oldToDirect.end())
-                    s.busId = it->second;
-            }
-            proj.busses.erase(
-                std::remove_if(proj.busses.begin(), proj.busses.end(),
-                               [&](const BusDef& b) { return oldToDirect.count(b.id) != 0; }),
-                proj.busses.end());
         }
     }
 

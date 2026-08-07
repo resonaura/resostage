@@ -74,7 +74,7 @@ inline std::vector<ResoLightChannelAssignment> assignResoLightChannels(
     for (const auto& f : fixtures) {
         if (f.kind != LightFixture::Kind::DmxGeneric)
             continue;
-        out.push_back({f.id, f.dmxUniverse, f.dmxStartChannel, std::max(1, f.dmxChannelCount)});
+        out.push_back({f.id, f.dmx.universe, f.dmx.startChannel, std::max(1, f.dmx.channelCount)});
     }
     return out;
 }

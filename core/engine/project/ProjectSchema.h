@@ -1,56 +1,151 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace resostage {
 
-// One aux send from a track into an Aux bus (post-fader by default).
-// Multiple sends let a stem feed FOH + drummer monitor + guitarist mono, etc.
-struct TrackSendDef {
-    std::string busId;     // must reference a BusDef with isAux == true (or any bus)
-    double gainDb = 0.0;   // send level relative to unity
-    bool preFader = false; // if true, ignores track fader/mute (still respects solo)
+// Bumped whenever the on-disk shape changes. Checked by ProjectLoader against
+// ProjectFormat::version: anything less than this (or missing/unparseable as
+// the current shape) goes through LegacyProjectMigration.h once, then is
+// always re-saved at kCurrentFormatVersion. See that file's header comment
+// for why the migration itself is a single throwaway step, not a chain.
+inline constexpr int kCurrentFormatVersion = 2;
+
+struct ProjectFormat {
+    int version = kCurrentFormatVersion;
+};
+
+// One aux send from a track/click into a send bus (post-fader by default).
+struct SendConfig {
+    std::string bus;      // target send bus id, e.g. "audio::send:1"
+    double level = 100.0; // 0-100, LINEAR percent: gain = level / 100. 100 = unity (0 dB).
+    bool preFader = false; // if true, ignores the source's own mute (still respects solo)
     bool enabled = true;
 };
 
-// An audio clip placed on a global track for a specific song.
-struct Region {
-    std::string id;
-    std::string trackId; // references a TrackDef.id in Project::tracks
-    std::string file;    // archive path, e.g. "Audio/song1_synths1.wav"
-    double startSeconds = 0.0;        // position within the song timeline
-    double sourceOffsetSeconds = 0.0; // start offset into source audio file
-    double durationSeconds = 0.0;     // clip duration in seconds (0 = full file)
-    double gainDb = 0.0;
-    double fadeInSeconds = 0.0;
-    double fadeOutSeconds = 0.0;
-    // Fade curvature in [-1, +1]: 0 = linear. Positive = ease-out (fast
-    // attack / more area late), negative = ease-in (slow attack). Applied
-    // as pow(t, 2^(-curve*2)) so the UI drag direction matches DAW feel.
-    double fadeInCurve = 0.0;
-    double fadeOutCurve = 0.0;
-    // When true, source audio from sourceOffset..(source end) is repeated
-    // to fill durationSeconds on the timeline (clip may be longer than the
-    // remaining source material). When false, timeline duration is clamped
-    // to the remaining source length and silence fills any overrun.
-    bool loop = false;
-    double loopLengthSeconds = 0.0; // 0 = remaining source material from sourceOffset
+enum class OutputType {
+    Main,      // fold pre-egress into Master's own signal (Master's gain/pan/mute govern it)
+    SendsOnly, // no main route, audible only via `sends`
+    ExtOut,    // exclusive physical channel(s), see `target`
 };
 
-struct TrackDef {
-    std::string id;
-    std::string name;
-    std::string busId; // main (FOH) bus assignment
+// A track/click's output: may fan out to aux sends in addition to its main
+// route. `target` is only meaningful for ExtOut: a single physical channel
+// ("audio::out:11") or a stereo pair as two comma-joined mono channels
+// ("audio::out:3,audio::out:4") -- there are no persisted stereo-pair bus
+// objects, a stereo target is always a pair of mono physical channels.
+struct SourceOutput {
+    OutputType type = OutputType::Main;
+    std::optional<std::string> target; // null unless type == ExtOut
+    std::vector<SendConfig> sends;
+};
+
+// Master/send-bus output: a bus doesn't fan out to further sends, it either
+// owns physical channels directly (ExtOut) or folds pre-egress into Master
+// (Main) -- SendsOnly is not a valid bus output. Named BusRoute (not
+// BusOutput) to avoid colliding with the render-side resostage::BusOutput
+// in engine/audio/RoutingTypes.h -- a different concept (this is *project
+// data*: a bus's configured destination; that one is the *runtime* physical
+// egress point RoutingEngine publishes to the audio thread).
+struct BusRoute {
+    OutputType type = OutputType::ExtOut;
+    std::optional<std::string> target; // null unless type == ExtOut
+};
+
+// The project-global metronome. Same shape as a track (gain/pan/mute/solo/
+// channels/output) so it goes through the identical mix path instead of a
+// hand-duplicated one -- see Milestone 2 of the routing rewrite plan.
+struct ClickChannel {
+    bool enabled = false;
+    std::string name = "Click";
+    int channels = 2; // 1 = mono (force L=R, ignore pan)
     double gainDb = 0.0;
     double pan = 0.0; // -1..+1
     bool mute = false;
-    bool solo = false; // if any track is soloed, non-solo tracks are silenced
-    // Force mono: stereo regions are summed L+R → mono before pan/send.
-    bool mono = false;
-    std::vector<TrackSendDef> sends; // aux matrix rows for this track
+    bool solo = false; // joins the same solo group as TrackDef::solo
+    SourceOutput output; // type is Main or SendsOnly, never ExtOut (no persisted equivalent of a click on its own physical pair)
+};
+
+// Master (FOH) bus. Always owns its physical output channels directly
+// (output.type == ExtOut) -- Master never folds into anything else, and
+// nothing should silently share its physical channels (see BusRoute's
+// Main variant: sends that should be governed by Master's own gain/pan/mute
+// point AT Master via `type: Main`, they don't independently target
+// Master's physical channels).
+struct MasterChannel {
+    bool enabled = true;
+    std::string name = "Main";
+    int channels = 2;
+    double gainDb = 0.0;
+    double pan = 0.0;
+    bool mute = false;
+    bool solo = false; // solo group of one -- inert for now, see routing plan Milestone 2
+    BusRoute output;
+};
+
+// An aux/monitor/FX send bus. Fed by TrackDef::sends / ClickChannel::sends
+// rows (post- or pre-fader). Its own solo group is independent of
+// tracks+click's group.
+struct SendBus {
+    std::string id;   // "audio::send:N"
+    std::string name;
+    int channels = 2; // 1 = mono
+    double gainDb = 0.0;
+    double pan = 0.0;
+    bool mute = false;
+    bool solo = false;
+    BusRoute output;
+};
+
+struct TrackDef {
+    std::string id;   // "audio::track:N"
+    std::string name;
+    int channels = 2; // 1 = mono: stereo regions are summed L+R before pan/sends (replaces old TrackDef::mono bool)
+    double gainDb = 0.0;
+    double pan = 0.0; // -1..+1
+    bool mute = false;
+    bool solo = false; // joins the same solo group as ClickChannel::solo
+    SourceOutput output;
+};
+
+struct RegionSource {
+    std::string file; // archive path, e.g. "Audio/song1_synths1.wav"
+    double offsetSeconds = 0.0; // start offset into source audio file
+};
+
+struct RegionFade {
+    double inSeconds = 0.0;
+    double outSeconds = 0.0;
+    // Fade curvature in [-1, +1]: 0 = linear. Positive = ease-out, negative =
+    // ease-in. Applied as pow(t, 2^(-curve*2)).
+    double inCurve = 0.0;
+    double outCurve = 0.0;
+};
+
+struct RegionLoop {
+    // When true, source audio from source.offsetSeconds..(source end) repeats
+    // to fill durationSeconds (clip may be longer than remaining source
+    // material). lengthSeconds == 0 means "remaining source material".
+    bool enabled = false;
+    double lengthSeconds = 0.0;
+};
+
+// An audio clip placed on a global track for a specific song. Ids are
+// UUIDv7 (see Uuid.h) -- regions are created/deleted constantly while
+// editing a timeline, unlike tracks/busses/songs which are edited in place.
+struct Region {
+    std::string id;
+    std::string trackId; // references TrackDef.id
+    double startSeconds = 0.0;    // position within the song timeline
+    double durationSeconds = 0.0; // 0 = full file
+    double gainDb = 0.0;
+    RegionSource source;
+    RegionFade fade;
+    RegionLoop loop;
 };
 
 struct TimeSignature {
@@ -63,10 +158,6 @@ enum class PlaybackMode {
     AutoplayNext,
 };
 
-// A single timeline-triggered action. `type` selects which fields apply.
-// Fired either at an absolute time within the song (timeSeconds) or once
-// when the song is staged/loaded (triggerOnLoad -- e.g. sending a Program
-// Change to prepare outboard gear before the player presses Play).
 enum class EventType {
     MidiNoteOn,
     MidiNoteOff,
@@ -76,13 +167,13 @@ enum class EventType {
     Dmx,
 };
 
+// A single timeline-triggered action. `type` selects which fields apply.
 struct TimelineEvent {
     std::string id;
     EventType type = EventType::MidiProgramChange;
     double timeSeconds = 0.0;
     bool triggerOnLoad = false;
 
-    // MIDI fields (type == MidiNoteOn/MidiNoteOff/MidiCC/MidiProgramChange)
     int midiChannel = 1; // 1-16
     int midiNote = 60;
     int midiVelocity = 100;
@@ -90,13 +181,10 @@ struct TimelineEvent {
     int midiCCValue = 0;
     int midiProgram = 0;
 
-    // HTTP fields (type == Http)
-    std::string httpUrl;
+    std::optional<std::string> httpUrl;
     std::string httpMethod = "POST";
-    std::string httpBody;
+    std::optional<std::string> httpBody;
 
-    // DMX fields (type == Dmx). Untested without real Art-Net hardware --
-    // see DmxDispatcher's doc comment.
     int dmxUniverse = 0;
     std::vector<uint8_t> dmxData;
 
@@ -105,108 +193,47 @@ struct TimelineEvent {
     double latencyCompensationMs = 0.0;
 };
 
-// One physical light fixture in the rig -- project-level roster entry,
-// mirrors TrackDef's relationship to Region (fixtures are patched once here;
-// LightCue placements on a song's timeline reference a LightTrack, which in
-// turn references one or more fixtures it drives in unison).
+// One physical light fixture in the rig. Kind/shape/channelProfile keep the
+// exact same value sets as before this rewrite (unrelated to routing) --
+// only the container shape (grid/position/rotation/dmx nesting) changes.
 struct LightFixture {
-    std::string id;
+    std::string id; // "light::bar:N"
     std::string name;
     enum class Kind {
-        // ResoStage's own product: a vertical LED bar, positioned in 3D via
-        // the settings-card editor. See RESTORE_POINT.md Feature 6.
         ResoLightBar,
-        // Any third-party DMX/Art-Net fixture: a flat channel range, no
-        // fixture personality/profile system in Phase A (see RESTORE_POINT.md's
-        // "explicitly deferred" list) -- just enough to place cues that fire
-        // through the existing ArtNetPacket/EventDispatcher transport.
         DmxGeneric,
     };
     Kind kind = Kind::ResoLightBar;
 
-    // ResoLightBar fields. Nominal position comes from (gridColumn, gridRow)
-    // when the rig is first sized in the settings card; (posX, posY, posZ)
-    // is the real placement the user drags to in the 3D editor and is what
-    // actually drives rendering -- grid indices are not re-derived from it.
-    int gridColumn = 0;
-    int gridRow = 0;
+    struct Grid {
+        int column = 0;
+        int row = 0;
+    } grid;
     int ledCount = 120;
-    // true = every LED individually addressable (3 DMX channels each);
-    // false = one RGB triplet drives the whole bar uniformly.
     bool addressable = true;
-    double posX = 0.0;
-    double posY = 0.0;
-    double posZ = 0.0;
-    // Yaw around the vertical (world Y) axis -- which way the bar's face
-    // points. Independent of `mountedHorizontally`: a bar mounted flat can
-    // still yaw to point in any direction along the ground.
-    double rotationYDeg = 0.0;
-    // false = standing upright (the common case); true = laid on its side
-    // (e.g. a horizontal truss bar). A physically distinct mount, not a
-    // rotation value -- do not encode this as a magic rotationYDeg instead.
+
+    struct Position {
+        double x = 0.0;
+        double y = 0.0;
+        double z = 0.0;
+    } position;
+    struct Rotation {
+        double y = 0.0; // yaw around the vertical axis
+    } rotation;
     bool mountedHorizontally = false;
 
-    // DmxGeneric fields.
-    int dmxUniverse = 0;
-    int dmxStartChannel = 1; // 1-based
-    int dmxChannelCount = 3;
-    // Purely cosmetic/informational for DmxGeneric fixtures -- neither
-    // field feeds resolveLightOutputs/writeDmxChannels (a fixture's actual
-    // wire behavior is entirely a function of addressable/ledCount and the
-    // resolved cue value). `shape` picks the 3D stage's mesh so a rig
-    // reads as a mix of real fixture types instead of every DMX fixture
-    // rendering as a generic bar; `channelProfile` is a named preset the
-    // web UI uses to set dmxChannelCount and label each channel's role
-    // (e.g. "Ch1 Dimmer, Ch2 R, ...") -- purely a data-entry convenience,
-    // not consulted by the engine. See ui/src/lib/dmxProfiles.ts for the
-    // canonical profile -> channel-count/role table.
-    // `shape` also applies to ResoLightBar fixtures, not just DmxGeneric --
-    // "bar" is the ResoLightBar default (a vertical addressable tube);
-    // "strip"/"ring"/"matrix" rearrange the SAME linear ledCount LEDs into a
-    // different physical layout (flat tape / horizontal ring / grid panel),
-    // purely a 3D position transform in ui/src/components/light/
-    // ResoLightStage3D.tsx -- the addressing model stays one linear array
-    // either way, resolveLedWireColors doesn't know or care how the 3D
-    // stage arranges the LEDs it hands back. "par"/"wash"/"spot"/
-    // "movingHead" only make sense for DmxGeneric (a single non-addressable
-    // point has nothing to rearrange). See ui/src/lib/dmxProfiles.ts for
-    // the shape catalogue split by kind.
-    std::string shape = "bar";          // "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead"
-    // Only meaningful when shape == "matrix" -- how many columns the linear
-    // LED array wraps into (rows = ceil(ledCount / matrixCols)). 0 means
-    // "let the UI pick a default (roughly sqrt(ledCount))". Cosmetic only,
-    // like shape itself.
-    int matrixCols = 0;
-    std::string channelProfile = "rgb"; // "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom" -- see ui/src/lib/dmxProfiles.ts for why leading-channel personalities (Dimmer+RGB, Pan/Tilt+...) aren't offered
-    // Cosmetic pitch (3D stage only, like the pair above) -- a real moving
-    // head/PAR/spot is aimed at an angle off vertical via its yoke bracket,
-    // not standing bolt upright like a ResoLightBar; this is that aim
-    // angle. 0 = straight up. Not consulted by the engine.
-    double tiltDeg = 0.0;
-    // DMX output refresh rate for THIS fixture, in Hz. 0 means "inherit
-    // LightingConfig::defaultRefreshRateHz". Unlike shape/channelProfile/
-    // tiltDeg above, this DOES reach the real output path: LightEngine
-    // throttles how often it actually sends a universe's frame (see
-    // LightEngine.cpp's threadLoop), using the SLOWEST rate among every
-    // fixture patched into that universe -- a universe is one shared wire,
-    // so it can only go out at one rate, and the slowest configured
-    // fixture is the one a faster rate could actually hurt (flicker/
-    // dropped frames on older or glitchy gear). Applies to both fixture
-    // kinds; a real DMX fixture can be just as rate-sensitive as a
-    // ResoLight bar.
-    double refreshRateHz = 0.0;
+    struct Dmx {
+        int universe = 0;
+        int startChannel = 1; // 1-based
+        int channelCount = 3;
+    } dmx;
 
-    // Real-hardware transport (ResoLightBar only -- see
-    // resolight/firmware/shared/ResoLightProtocol.h and
-    // core/app/light/LightHardwareServer.h). Empty = preview-only, the
-    // default: no hardware required, nothing is dialed. Set once the
-    // operator types in (or pairs from the discovered-boards list) an
-    // ESP32/ESP8266 board's LAN IP; ResoStage then dials OUT to it as a WS
-    // client and streams live lighting frames at `refreshRateHz` above (or
-    // the project default). Unrelated to dmxUniverse/dmxStartChannel --
-    // this is a second, independent transport, not another way to reach
-    // the same Art-Net output.
-    std::string networkHost;
+    std::string shape = "bar";          // "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead"
+    int matrixColumns = 0;              // only meaningful when shape == "matrix"
+    std::string channelProfile = "rgb"; // "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom"
+    double tiltDegrees = 0.0;
+    double refreshRateHz = 0.0; // 0 = inherit LightingConfig::defaultRefreshRateHz
+    std::optional<std::string> networkHost; // null = preview-only, no hardware
 };
 
 enum class LightingKind {
@@ -215,163 +242,103 @@ enum class LightingKind {
     DmxGeneric,
 };
 
-// Project-scoped (not rig-wide AppSettings -- this is per-show data, see
-// RESTORE_POINT.md Feature 6). Lives on Project, edited from Settings'
-// "Project" card. Disabled by default: an audio-only rig should see nothing
-// new anywhere in the UI.
+struct RgbColor {
+    uint8_t r = 255;
+    uint8_t g = 255;
+    uint8_t b = 255;
+};
+
+struct LightingIdleEffect {
+    std::string type = "none";
+    double rateHz = 2.0;
+};
+
+struct LightGradient {
+    std::string preset = "solid";
+    std::optional<std::string> colors; // null = use the preset/base color; CSV #RRGGBB stops when set
+};
+
+// What every fixture shows while the transport is stopped. Same value set
+// as before this rewrite: "holdLast" | "blackout" | "staticColor" | "effect".
+struct LightingIdle {
+    std::string behavior = "holdLast";
+    RgbColor color{0, 0, 0};
+    double intensity = 1.0;
+    LightingIdleEffect effect;
+    LightGradient gradient;
+};
+
+// Project-scoped lighting rig config (per-show data, not rig-wide
+// AppSettings). Disabled by default.
 struct LightingConfig {
     bool enabled = false;
     LightingKind kind = LightingKind::None;
-    // Nominal ResoLight rig size (columns x rows of vertical bars) used to
-    // seed `fixtures` with a default layout; editing fixture count/position
-    // afterward doesn't retroactively resize this, it's a seed, not a
-    // constraint.
-    int resoLightColumns = 2;
-    int resoLightRows = 1;
-    std::vector<LightFixture> fixtures;
-
-    // What every fixture should show while the transport is stopped (not
-    // just between cues mid-song -- see MasterClock::isRunning()/
-    // AudioEngine::isPlaying()). "holdLast" is the original behavior: the
-    // rig keeps showing whatever the frozen playhead position resolves to,
-    // same as before this setting existed. "blackout" forces every fixture
-    // off; "staticColor" forces every fixture to idleColorR/G/B at
-    // idleIntensity -- e.g. a house-color wash between songs instead of
-    // whatever the last cue happened to leave lit; "effect" runs a
-    // rhythm-independent effect (idleEffectType, e.g. Strobe/Chase/Plasma)
-    // over the whole rig at idleEffectRateHz, with idleColorR/G/B as the
-    // effect's base color -- the effect keeps animating off wall-clock time
-    // even though the transport is stopped. See LightOutputResolver.h's
-    // buildIdleTarget, the single place both LightEngine's real DMX output
-    // and the web preview apply this.
-    std::string idleBehavior = "holdLast"; // "holdLast" | "blackout" | "staticColor" | "effect"
-    uint8_t idleColorR = 0;
-    uint8_t idleColorG = 0;
-    uint8_t idleColorB = 0;
-    double idleIntensity = 1.0;
-    // Effect run by idleBehavior "effect" (see parseEffectType's string
-    // catalog). Audio-driven effects (Meter/VuPeak/Geq/Blurz) are excluded:
-    // with the transport stopped there is no running audio to drive them.
-    std::string idleEffectType = "none";
-    double idleEffectRateHz = 2.0;
-    // Gradient palette for idle effects that have their own color (Fire,
-    // Fireworks, ColorWaves, Plasma, Helix, GradientFlow, Barberpole -- i.e.
-    // effects that ignore the base R/G/B and draw from a built-in palette).
-    // Same values as LightCue::gradientPreset; "solid" means use idleColorR/G/B.
-    std::string idleGradientPreset = "solid";
-    // Custom gradient stops (CSV #RRGGBB, same format as LightCue::gradientColors).
-    // Only consulted when idleGradientPreset == "custom".
-    std::string idleGradientColors;
-
-    // Default DMX output refresh rate (Hz) for every fixture that doesn't
-    // set its own LightFixture::refreshRateHz override. 44 Hz matches
-    // LightEngine's original hardcoded rate exactly, so a project that
-    // never touches this setting behaves identically to before it existed.
+    struct ResoLight {
+        int columns = 2;
+        int rows = 1;
+    } resoLight;
+    LightingIdle idle;
     double defaultRefreshRateHz = 44.0;
-
-    // Where Art-Net/DMX UDP packets actually go (EventDispatcher::sendDmx).
-    // Empty = broadcast to 255.255.255.255 (every Art-Net node on the
-    // subnet picks packets up -- the original, still-default behavior).
-    // Set to a specific node/converter's IP for unicast delivery, which
-    // real venues often need: some routers/APs block or rate-limit
-    // broadcast traffic, and a unicast target is also the only way to
-    // address one specific converter when more than one Art-Net node
-    // shares the LAN but should receive different universes.
-    std::string artNetTargetHost;
+    std::optional<std::string> artNetTargetHost; // null = broadcast
+    std::vector<LightFixture> fixtures;
 };
 
 // A named row on the Light timeline -- project-level roster, mirrors
-// TrackDef/Region's relationship (LightCue placements below reference this
-// by id, the same way Region::trackId references TrackDef::id).
+// TrackDef's relationship to Region.
 struct LightTrack {
-    std::string id;
+    std::string id; // "light::track:N"
     std::string name;
     std::vector<std::string> fixtureIds; // LightFixture.id refs, driven in unison
 };
 
-// A single light cue block placed on a song's Light timeline. Color is
-// fixed for the cue's whole span; fadeIn/fadeOut ramp INTENSITY only (color
-// snaps to full value at t=0, matching how a dimmer fade normally works on
-// a lighting console -- see engine/lighting/LightCueInterpolation.h for the
-// exact envelope math and Phase A's simplifications).
+struct LightCueFade {
+    double inSeconds = 0.0;
+    double outSeconds = 0.0;
+};
+
+// Audio-reactive effect for a LightCue. Resolved by
+// engine/lighting/LightOutputResolver.h.
+struct LightEffect {
+    std::optional<std::string> type; // null = no effect; "fire" | "pulse" | "strobe" | ... | "meter" | ...
+    std::string sourceType = "bus";  // "bus" | "track" -- which meter pool sourceId is looked up in
+    std::optional<std::string> sourceId; // null = master mix / first bus
+    double intensity = 0.8; // 0..1 depth of the effect
+    bool tempoSync = false;
+    std::string tempoSubdivision = "1/4"; // "2"|"1"|"1/2"|"1/3"|"1/4"|"1/6"|"1/8"|"1/16"|"1/32"|"1/64"
+    double rateHz = 2.0; // used when tempoSync == false
+};
+
+// A single light cue block placed on a song's Light timeline. Ids are
+// UUIDv7, same rationale as Region.
 struct LightCue {
     std::string id;
     std::string trackId; // references LightTrack.id
     double startSeconds = 0.0;
     double durationSeconds = 1.0;
-    uint8_t colorR = 255;
-    uint8_t colorG = 255;
-    uint8_t colorB = 255;
+    std::optional<std::string> label;
+    RgbColor color{255, 255, 255};
     double intensity = 1.0; // 0..1, the cue's own held-region intensity
-    double fadeInSeconds = 0.0;
-    double fadeOutSeconds = 0.0;
-    std::string label;
-
-    // Audio-reactive effect. Resolved by engine/lighting/LightOutputResolver.h,
-    // called from BOTH LightEngine's real-time DMX thread and MainComponent's
-    // ~30Hz WebUiState push -- one resolution function, so the live preview
-    // the user sees can never show something the real hardware isn't also
-    // doing. "none" | "meter" | "strobe" | "pulse" | "ripple"
-    std::string effectType;
-    // "bus" | "track" -- which meter pool effectSourceId is looked up in.
-    std::string effectSourceType = "bus";
-    // Id of the bus or track to read audio level from ("" = master mix /
-    // first bus, only meaningful when effectSourceType == "bus").
-    std::string effectSourceId;
-    float effectIntensity = 0.8f;  // 0..1 depth of the effect
-    // Rate control: either direct Hz or tempo-synced subdivision.
-    bool  tempoSync    = false;
-    // tempoSync=true: "2"|"1"|"1/2"|"1/3"|"1/4"|"1/6"|"1/8"|"1/16"|"1/32"|"1/64"
-    std::string tempoSubdiv = "1/4";
-    float effectRateHz = 2.0f;     // used when tempoSync=false
-
-    // Meter effect only, addressable fixtures only: how the lit LEDs (bottom
-    // -> up, progressive fill, like a real VU meter) are colored.
-    // "solid" = the cue's own colorR/G/B for every lit LED.
-    // "greenYellowRed" = classic VU coloring by position, ignores colorR/G/B.
-    std::string gradientPreset = "solid";
-    // Optional user palette, two or more CSS-style #RRGGBB stops separated
-    // by commas. Empty means the selected built-in preset.
-    std::string gradientColors;
-
-    // How this cue composites onto whatever's already resolved for a
-    // fixture this frame from OTHER tracks driving the same fixture
-    // simultaneously (base/accent layering -- see LightBlend.h). Only
-    // matters when a LightFixture is listed in more than one LightTrack's
-    // fixtureIds; a fixture driven by a single track (the common case)
-    // ignores this entirely. "normal" | "additive" | "multiply" |
-    // "difference" | "lighten" | "subtractive".
+    LightCueFade fade;
+    LightEffect effect;
+    LightGradient gradient;
+    // How this cue composites onto another track's simultaneously-active cue
+    // on the same fixture. "normal" | "additive" | "multiply" | "difference"
+    // | "lighten" | "subtractive".
     std::string blendMode = "normal";
 };
 
-// A named structural marker on the timeline ruler (Intro/Verse/Chorus/
-// Bridge/Outro/Custom). Sections are points, not explicit ranges -- the
-// region a section covers is implicitly "from this marker to the next one
-// (or song end)", matching how markers work in most DAWs.
+// A named structural marker on the timeline ruler (Intro/Verse/Chorus/...).
+// A point, not a range -- the region a marker covers is implicitly "from
+// here to the next marker (or song end)".
 struct SongSection {
-    std::string id;
+    std::string id; // "meta::section:N"
     std::string name = "Section";
     double startSeconds = 0.0;
     int colorIndex = 0; // cosmetic track colour index for the SPA
 };
 
-// ONE project-wide Logic-style cycle (not per-song). left/right are song-local
-// seconds on `songIndex`. Cross-song spans are unsupported (gapless restage).
-// Coordinates persist when inactive so toggling cycle on restores the range.
-// Applied by AudioEngine on the realtime path so every client hears the same
-// loop without SPA-side seeks.
-struct ProjectCycle {
-    bool active = false;
-    // When true: jump over [leftSec, rightSec) instead of looping it.
-    bool skip = false;
-    double leftSec = 0.0;
-    double rightSec = 4.0;
-    // Song the locators belong to (-1 = unset / no song yet).
-    int songIndex = -1;
-};
-
 struct SongDef {
-    std::string id;
+    std::string id; // "meta::song:N"
     std::string name;
     double bpm = 120.0;
     TimeSignature timeSignature;
@@ -382,29 +349,17 @@ struct SongDef {
     std::vector<LightCue> lightCues;
 };
 
-struct BusOutputDef {
-    int startChannel = 0;
+// ONE project-wide Logic-style cycle (not per-song). start/end are song-local
+// seconds on `songIndex`. Coordinates persist when inactive so toggling
+// cycle on restores the range.
+struct ProjectCycle {
+    bool active = false;
+    // When true: jump over [startSeconds, endSeconds) instead of looping it.
+    bool skip = false;
+    double startSeconds = 0.0;
+    double endSeconds = 4.0;
+    int songIndex = -1; // -1 = unset / no song yet
 };
-
-struct BusDef {
-    std::string id;
-    std::string name;
-    int channels = 2;
-    BusOutputDef output;
-    double gainDb = 0.0;
-    // Balance pan on the bus → physical outs (-1..+1). Applied for master and
-    // aux/sends the same way track pan works (L/R attenuation).
-    double pan = 0.0;
-    bool mute = false;
-    bool solo = false; // if any bus is soloed, non-solo busses are silenced
-    // Aux buses are primarily fed by TrackSendDef rows (monitor mixes).
-    // Main buses are the default track.busId destinations (FOH stems).
-    bool isAux = false;
-};
-
-// action name (e.g. "play", "stop", "next", "prev") -> key description string
-// parseable by juce::KeyPress::createFromDescription (e.g. "space", "n", "cmd + p").
-using KeyBindingMap = std::unordered_map<std::string, std::string>;
 
 enum class MidiTriggerType {
     NoteOn,
@@ -418,38 +373,25 @@ struct MidiMapping {
     int number = 0; // note number or CC number
 };
 
+struct MidiConfig {
+    std::vector<MidiMapping> mappings;
+};
+
 struct Project {
-    int formatVersion = 1;
+    ProjectFormat format;
     std::string name;
     double sampleRate = 48000.0;
-    // ── Project-global metronome (ClickGenerator). Same for every song. ──
-    bool builtInClickEnabled = false;
-    // Mixer strip label for the built-in metronome (default "Click").
-    std::string builtInClickName = "Click";
-    // Empty = Sends Only (no main target bus).
-    std::string builtInClickBusId;
-    // Aux monitor mixes the click is also mixed into.
-    std::vector<TrackSendDef> builtInClickSends;
-    double builtInClickGainDb = 0.0;
-    // Project-global metronome pan (-1..+1).
-    double builtInClickPan = 0.0;
-    // Force mono click: L=R (ignore pan balance) so the strip can sit next to
-    // mono tracks. Default false = stereo balance via builtInClickPan.
-    bool builtInClickMono = false;
-    // Soloing the metronome joins the same solo group as TrackDef::solo --
-    // when true, every regular track is silenced exactly as if one of them
-    // (rather than the click) had solo engaged. See AudioEngine::
-    // publishRoutingSnapshot()'s anyTrackSolo.
-    bool builtInClickSolo = false;
-    std::vector<BusDef> busses;
+    ClickChannel click;
+    MasterChannel main;
+    std::vector<SendBus> sends;
     std::vector<TrackDef> tracks;
-    std::vector<SongDef> songs;
-    // Single project-wide cycle zone (see ProjectCycle). Not per-song.
-    ProjectCycle cycle;
-    KeyBindingMap keybindings;
-    std::vector<MidiMapping> midiMappings;
     LightingConfig lighting;
     std::vector<LightTrack> lightTracks;
+    std::vector<SongDef> songs;
+    ProjectCycle cycle; // single project-wide cycle zone, not per-song
+    MidiConfig midi;
+    // Keybindings are no longer project data -- they're rig-wide, managed by
+    // AppSettings (see core/app/config/AppSettings.cpp's keybindings map).
 };
 
 } // namespace resostage

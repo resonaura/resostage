@@ -13,12 +13,12 @@ LightCue makeCue(double start, double dur, uint8_t r, uint8_t g, uint8_t b,
     c.trackId = std::move(trackId);
     c.startSeconds = start;
     c.durationSeconds = dur;
-    c.colorR = r;
-    c.colorG = g;
-    c.colorB = b;
+    c.color.r = r;
+    c.color.g = g;
+    c.color.b = b;
     c.intensity = intensity;
-    c.fadeInSeconds = fadeIn;
-    c.fadeOutSeconds = fadeOut;
+    c.fade.inSeconds = fadeIn;
+    c.fade.outSeconds = fadeOut;
     return c;
 }
 

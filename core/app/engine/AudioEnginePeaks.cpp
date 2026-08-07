@@ -80,7 +80,7 @@ void AudioEngine::rebuildTrackPeaks() {
     std::vector<std::string> trackFiles;
     trackFiles.reserve(song.regions.size());
     for (const auto& r : song.regions)
-        trackFiles.push_back(r.file);
+        trackFiles.push_back(r.source.file);
 
     // Waveform decode is read-only and feeds the UI only, never playback --
     // do it off the message thread so switching songs doesn't block on
@@ -282,9 +282,9 @@ void AudioEngine::ensureAllSongPeaksBuilt() {
         std::lock_guard<std::mutex> cacheLock(peakCacheMutex);
         for (const auto& song : loader.project().songs)
             for (const auto& r : song.regions)
-                if (!r.file.empty() && !peakOverviewSessionCache.count(r.file)
-                    && std::find(filesToBuild.begin(), filesToBuild.end(), r.file) == filesToBuild.end())
-                    filesToBuild.push_back(r.file);
+                if (!r.source.file.empty() && !peakOverviewSessionCache.count(r.source.file)
+                    && std::find(filesToBuild.begin(), filesToBuild.end(), r.source.file) == filesToBuild.end())
+                    filesToBuild.push_back(r.source.file);
     }
     if (filesToBuild.empty()) {
         allPeaksBuildInFlight.store(false, std::memory_order_release);

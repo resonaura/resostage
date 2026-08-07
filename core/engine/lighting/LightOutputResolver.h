@@ -224,12 +224,12 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                 ResolvedFixtureOutput r;
                 r.fixtureId = fxId;
                 r.value = baseVal;
-                r.gradient = parseGradientPreset(activeCue->gradientPreset);
-                r.gradientColors = activeCue->gradientColors;
+                r.gradient = parseGradientPreset(activeCue->gradient.preset);
+                r.gradientColors = activeCue->gradient.colors.value_or("");
 
                 EffectParams p;
-                p.type = parseEffectType(activeCue->effectType);
-                p.intensity = activeCue->effectIntensity;
+                p.type = parseEffectType(activeCue->effect.type.value_or(""));
+                p.intensity = activeCue->effect.intensity;
                 p.fixtureIndex = fixturePos;
                 // Tempo-synced effects phase-lock to the SONG's beat grid
                 // (t=0 is bar 1 beat 1, same convention BarSeek.h uses) so
@@ -241,16 +241,16 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                 // grid to lock to, so they keep starting their own phase
                 // fresh at the cue's start, which is the more intuitive
                 // "this effect begins when the cue begins" behavior there.
-                p.tSec = activeCue->tempoSync
+                p.tSec = activeCue->effect.tempoSync
                     ? std::max(0.0, tSec)
                     : std::max(0.0, tSec - activeCue->startSeconds);
-                p.rateHz = activeCue->tempoSync
-                    ? subdivToHz(activeCue->tempoSubdiv, bpm, activeCue->effectRateHz)
-                    : activeCue->effectRateHz;
+                p.rateHz = activeCue->effect.tempoSync
+                    ? subdivToHz(activeCue->effect.tempoSubdivision, bpm, activeCue->effect.rateHz)
+                    : activeCue->effect.rateHz;
 
                 if ((p.type == EffectParams::Type::Meter || p.type == EffectParams::Type::VuPeak ||
                      p.type == EffectParams::Type::Geq || p.type == EffectParams::Type::Blurz) && sourceLevelDb) {
-                    const SourceLevels lv = sourceLevelDb(activeCue->effectSourceType, activeCue->effectSourceId);
+                    const SourceLevels lv = sourceLevelDb(activeCue->effect.sourceType, activeCue->effect.sourceId.value_or(""));
                     p.audioLevel = dbToLinearLevel(lv.peakDb);
                     for (int b = 0; b < kLightBandCount; ++b)
                         p.bandLevel[b] = lv.bandLevel[b];

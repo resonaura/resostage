@@ -118,7 +118,7 @@ TEST_CASE("StreamingEngine survives concurrent stageSong() and acquireActiveSong
     Region regA;
     regA.id = "reg_a";
     regA.trackId = "track_a";
-    regA.file = "Audio/a.wav";
+    regA.source.file = "Audio/a.wav";
     songA.regions.push_back(regA);
 
     SongDef songB;
@@ -126,7 +126,7 @@ TEST_CASE("StreamingEngine survives concurrent stageSong() and acquireActiveSong
     Region regB;
     regB.id = "reg_b";
     regB.trackId = "track_b";
-    regB.file = "Audio/b.wav";
+    regB.source.file = "Audio/b.wav";
     songB.regions.push_back(regB);
 
     StreamingEngine engine;
@@ -197,11 +197,11 @@ TEST_CASE("StreamingEngine re-stages a song at a new device sample rate and ever
     Region regA;
     regA.id = "reg_a";
     regA.trackId = "track_a";
-    regA.file = "Audio/a44100.wav";
+    regA.source.file = "Audio/a44100.wav";
     Region regB;
     regB.id = "reg_b";
     regB.trackId = "track_b";
-    regB.file = "Audio/b48000.wav";
+    regB.source.file = "Audio/b48000.wav";
     song.regions = {regA, regB};
 
     StreamingEngine engine;
@@ -259,7 +259,7 @@ TEST_CASE("StreamingEngine::stageSong(asyncFill=true) defers head-fill off the c
     Region regA;
     regA.id = "reg_a";
     regA.trackId = "track_a";
-    regA.file = "Audio/a.wav";
+    regA.source.file = "Audio/a.wav";
     songA.regions = {regA};
 
     StreamingEngine engine;
@@ -318,7 +318,7 @@ TEST_CASE("StreamingEngine::stageSong defaults to synchronous fill and never def
     Region regA;
     regA.id = "reg_a";
     regA.trackId = "track_a";
-    regA.file = "Audio/a.wav";
+    regA.source.file = "Audio/a.wav";
     songA.regions = {regA};
 
     StreamingEngine engine;
