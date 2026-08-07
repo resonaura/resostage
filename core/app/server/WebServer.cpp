@@ -1195,13 +1195,13 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.busy = snap.busy;
     wire.quitConfirmPending = snap.quitConfirmPending;
     wire.uiTab = snap.uiTab;
-    wire.uiTabSeq = snap.uiTabSeq;
+    wire.uiTabSeq = static_cast<uint32_t>(snap.uiTabSeq);
     wire.canUndo = snap.canUndo;
     wire.canRedo = snap.canRedo;
     wire.undoLabel = snap.undoLabel;
     wire.redoLabel = snap.redoLabel;
     wire.lastAction = snap.lastAction;
-    wire.lastActionNonce = snap.lastActionNonce;
+    wire.lastActionNonce = static_cast<uint64_t>(std::max(0, snap.lastActionNonce));
     wire.wsHz = effectiveTelemetryHz();
 
     if (wantClick) {
@@ -1323,9 +1323,9 @@ std::string WebServer::buildStateJson(const char* view) const {
                 wLc.trackId = lc.trackId;
                 wLc.startSeconds = finiteOrZero(lc.startSeconds);
                 wLc.durationSeconds = finiteOrZero(lc.durationSeconds);
-                wLc.color.r = lc.color.r;
-                wLc.color.g = lc.color.g;
-                wLc.color.b = lc.color.b;
+                wLc.color.r = static_cast<uint8_t>(lc.color.r);
+                wLc.color.g = static_cast<uint8_t>(lc.color.g);
+                wLc.color.b = static_cast<uint8_t>(lc.color.b);
                 wLc.intensity = finiteOrZero(lc.intensity);
                 wLc.fade.inSeconds = finiteOrZero(lc.fade.inSeconds);
                 wLc.fade.outSeconds = finiteOrZero(lc.fade.outSeconds);
@@ -1430,9 +1430,9 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.lighting.resoLight.columns = li.resoLight.columns;
     wire.lighting.resoLight.rows = li.resoLight.rows;
     wire.lighting.idle.behavior = li.idle.behavior;
-    wire.lighting.idle.color.r = li.idle.color.r;
-    wire.lighting.idle.color.g = li.idle.color.g;
-    wire.lighting.idle.color.b = li.idle.color.b;
+    wire.lighting.idle.color.r = static_cast<uint8_t>(li.idle.color.r);
+    wire.lighting.idle.color.g = static_cast<uint8_t>(li.idle.color.g);
+    wire.lighting.idle.color.b = static_cast<uint8_t>(li.idle.color.b);
     wire.lighting.idle.intensity = finiteOrZero(li.idle.intensity);
     wire.lighting.idle.effect.type = li.idle.effect.type;
     wire.lighting.idle.effect.rateHz = finiteOrZero(li.idle.effect.rateHz);
@@ -1500,7 +1500,7 @@ std::string WebServer::buildStateJson(const char* view) const {
         wH.freeBytes = snap.freeBytes;
         wH.underrunCount = snap.underrunCount;
         wH.audioCallbackCount = snap.audioCallbackCount;
-        wH.webClientCount = snap.webClientCount;
+        wH.webClientCount = static_cast<uint32_t>(std::max(0, snap.webClientCount));
         if (wantHealthProcs) {
             wH.processes.reserve(snap.processes.size());
             for (const auto& p : snap.processes) {

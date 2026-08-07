@@ -229,7 +229,7 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
 
                 EffectParams p;
                 p.type = parseEffectType(activeCue->effect.type.value_or(""));
-                p.intensity = activeCue->effect.intensity;
+                p.intensity = static_cast<float>(activeCue->effect.intensity);
                 p.fixtureIndex = fixturePos;
                 // Tempo-synced effects phase-lock to the SONG's beat grid
                 // (t=0 is bar 1 beat 1, same convention BarSeek.h uses) so
@@ -245,8 +245,8 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
                     ? std::max(0.0, tSec)
                     : std::max(0.0, tSec - activeCue->startSeconds);
                 p.rateHz = activeCue->effect.tempoSync
-                    ? subdivToHz(activeCue->effect.tempoSubdivision, bpm, activeCue->effect.rateHz)
-                    : activeCue->effect.rateHz;
+                    ? subdivToHz(activeCue->effect.tempoSubdivision, bpm, static_cast<float>(activeCue->effect.rateHz))
+                    : static_cast<float>(activeCue->effect.rateHz);
 
                 if ((p.type == EffectParams::Type::Meter || p.type == EffectParams::Type::VuPeak ||
                      p.type == EffectParams::Type::Geq || p.type == EffectParams::Type::Blurz) && sourceLevelDb) {

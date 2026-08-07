@@ -838,7 +838,7 @@ void MainComponent::builderBusRemove(const std::string& json) {
     engine.projectHistoryBeginEdit("", "Remove send");
     const size_t sIdx = static_cast<size_t>(index - 1);
     const std::string removedId = proj.sends[sIdx].id;
-    proj.sends.erase(proj.sends.begin() + sIdx);
+    proj.sends.erase(proj.sends.begin() + static_cast<ptrdiff_t>(sIdx));
 
     // Anything that depends on the removed send needs to be untangled: a
     // dangling send row referencing a bus id that no longer exists is
