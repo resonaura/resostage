@@ -71,7 +71,7 @@ export function MetronomeStrip({
   };
 
   const destinationBusses = state.busses.filter(
-    (b) => b.id === "main" || b.isAux,
+    (b) => b.id === "audio::main" || b.id === "main" || b.isAux,
   );
   const clickMono = state.click ? state.click.channels === 1 : false;
 

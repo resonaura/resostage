@@ -32,8 +32,10 @@ function serverPrimary(
   if (busId === "") return SENDS_ONLY_VALUE;
   if (destinationBusses.some((b) => b.id === busId)) return busId;
   if (isExtAssigned) return EXT_OUTPUT_VALUE;
-  // Unknown / stale id — fall back to main if present.
-  return destinationBusses.find((b) => b.id === "main")?.id ?? SENDS_ONLY_VALUE;
+  return (
+    destinationBusses.find((b) => b.id === "audio::main" || b.id === "main")
+      ?.id ?? SENDS_ONLY_VALUE
+  );
 }
 
 function serverMatchesPending(

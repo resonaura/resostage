@@ -123,6 +123,7 @@ function busMeterGroups(
     const busObj = busses.find((b) => b.id === m.id);
     const isMaster =
       busObj?.name?.toLowerCase() === "master" ||
+      m.id === "audio::main" ||
       m.id === "main" ||
       m.id === "master";
     const accent = isMaster

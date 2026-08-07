@@ -30,7 +30,7 @@ export function BusDestinationRouting({
   master: BusRow | undefined;
   settings: SettingsState;
 }) {
-  const isMaster = bus.id === "main";
+  const isMaster = bus.id === "main" || bus.id === "audio::main";
   const stereo = bus.channels === 2;
   // Master / aux mono toggle: show all singles when mono.
   const options = directOutputOptions(settings, {

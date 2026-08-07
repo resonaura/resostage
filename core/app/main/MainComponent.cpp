@@ -1143,6 +1143,7 @@ void MainComponent::publishWebState() {
         tr.mute = def.mute;
         tr.solo = def.solo;
         switch (def.output.type) {
+            case OutputType::Main: tr.output.type = "main"; break;
             case OutputType::SendsOnly: tr.output.type = "sends-only"; break;
             case OutputType::ExtOut: tr.output.type = "ext-out"; break;
             default: tr.output.type = "main"; break;
