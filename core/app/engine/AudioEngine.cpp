@@ -1153,6 +1153,48 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
+    // Pass 2.5: Send buses with output.type == OutputType::Main fold into audio::main.
+    const auto mainIt = busIndexById.find("audio::main");
+    if (mainIt != busIndexById.end()) {
+        const size_t mainIdx = mainIt->second;
+        const int mainScratchOffset = static_cast<int>(mainIdx) * 2;
+        if (mainScratchOffset + 2 <= scratchChannels) {
+            for (const BusOutput& out : snap->outputs) {
+                if (out.outputType != OutputType::Main || out.busIndex == mainIdx || out.mute)
+                    continue;
+                const int srcOff = static_cast<int>(out.busIndex) * 2;
+                if (srcOff + 2 > scratchChannels)
+                    continue;
+                const float busGain = !std::isfinite(out.gainLinear) ? 0.0f : out.gainLinear;
+                const float pan = std::isfinite(out.pan) ? out.pan : 0.0f;
+                const float gL = busGain * (1.0f - std::max(0.0f, pan));
+                const float gR = busGain * (1.0f + std::min(0.0f, pan));
+
+                const float* srcL = busScratch.getReadPointer(srcOff + 0);
+                const float* srcR = busScratch.getReadPointer(srcOff + 1);
+                if (srcL == nullptr) continue;
+                if (srcR == nullptr) srcR = srcL;
+
+                float* mainDstL = busScratch.getWritePointer(mainScratchOffset + 0);
+                float* mainDstR = busScratch.getWritePointer(mainScratchOffset + 1);
+                if (mainDstL == nullptr || mainDstR == nullptr) continue;
+
+                if (out.channelCount == 1) {
+                    for (int i = 0; i < numSamples; ++i) {
+                        const float mid = 0.5f * (srcL[i] + srcR[i]);
+                        mainDstL[i] += mid * gL;
+                        mainDstR[i] += mid * gR;
+                    }
+                } else {
+                    for (int i = 0; i < numSamples; ++i) {
+                        mainDstL[i] += srcL[i] * gL;
+                        mainDstR[i] += srcR[i] * gR;
+                    }
+                }
+            }
+        }
+    }
+
     // During micro-fades / holds the physical outs are ramped, but meters used
     // to read the UN-faded busScratch and flash a full-scale peak (visible as
     // a pegged master meter with no audible click). Skip metering while
@@ -1302,7 +1344,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (scratchOffset + std::max(channels, 1) > scratchChannels)
             continue;
 
-        const float busGain = (out.mute || !std::isfinite(out.gainLinear)) ? 0.0f : out.gainLinear;
+        const float rawGain = !std::isfinite(out.gainLinear) ? 0.0f : out.gainLinear;
+        const float busGain = out.mute ? 0.0f : rawGain;
         // Balance pan (same law as track pan): attenuate L or R.
         const float pan = std::isfinite(out.pan) ? out.pan : 0.0f;
         const float gL = busGain * (1.0f - std::max(0.0f, pan));
@@ -1312,7 +1355,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             const float* pL = busScratch.getReadPointer(scratchOffset);
             const float* pR = channels > 1 ? busScratch.getReadPointer(scratchOffset + 1)
                                          : pL;
-            if (pR == nullptr) pR = pL;
 
             constexpr int kMaxMeterBuf = 2048;
             float meterBufL[kMaxMeterBuf];
@@ -1321,14 +1363,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             float peakL = 0.0f;
             float peakR = 0.0f;
 
-            for (int i = 0; i < sampleCount; ++i) {
-                const float sampleL = (pL != nullptr && std::isfinite(pL[i])) ? pL[i] * gL : 0.0f;
-                const float sampleR = (pR != nullptr && std::isfinite(pR[i])) ? pR[i] * gR : sampleL;
-                meterBufL[i] = sampleL;
-                meterBufR[i] = sampleR;
-                peakL = std::max(peakL, std::abs(sampleL));
-                peakR = std::max(peakR, std::abs(sampleR));
-            }
+            routing_math::calculateMeterFrame(pL, pR, sampleCount, rawGain, pan, channels,
+                                             meterBufL, meterBufR, peakL, peakR);
 
             const float* meterChannels[2] = { meterBufL, meterBufR };
             busLoudnessMeters[out.busIndex].processBlock(meterChannels, sampleCount);
@@ -1348,7 +1384,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             busMeters[out.busIndex]->write(MeterFrame{});
         }
 
-        if (out.mute)
+        if (out.mute || out.outputType == OutputType::Main)
             continue;
         if (out.singleChannel) {
             // Mono Direct Output lane: carries the accumulated mix of every
@@ -1375,42 +1411,47 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // slice drops to silence without touching the mapping.
         {
             const int start = out.startChannel;
+            const float* srcL = busScratch.getReadPointer(scratchOffset + 0);
+            if (srcL == nullptr)
+                continue;
+            const float* srcR = (scratchOffset + 1 < scratchChannels)
+                                    ? busScratch.getReadPointer(scratchOffset + 1)
+                                    : srcL;
+            if (srcR == nullptr)
+                srcR = srcL;
+
             if (channels == 1) {
-                // MONO project / aux bush: plasma to exactly ONE physical
-                // channel (its start). The legacy "mono hits both speakers"
-                // pair-doubling overlapped adjacent sends and made a mono
-                // click / send louder in one ear (see egressChannels()).
-                int ch0 = 0, chDummy = 0;
-                routing_math::egressChannels(1, start, ch0, chDummy);
-                if (ch0 < 0 || ch0 >= numOutputChannels)
-                    continue;
-                const int laneBusIndex = laneBusIndexFor[static_cast<size_t>(ch0)];
-                if (laneBusIndex < 0)
-                    continue;
-                const float* src = busScratch.getReadPointer(scratchOffset + 0);
-                if (src == nullptr)
-                    continue;
-                const int laneOff = laneBusIndex * 2;
-                if (laneOff + 1 > scratchChannels)
-                    continue;
-                float* dst = busScratch.getWritePointer(laneOff + 0);
-                for (int i = 0; i < numSamples; ++i)
-                    dst[i] += src[i] * gL;
+                // MONO project / aux bus: sum L+R to mono, then pan across L/R
+                // output channels of its physical target pair.
+                const float gains[2] = { gL, gR };
+                for (int c = 0; c < 2; ++c) {
+                    const int phys = start + c;
+                    if (phys < 0 || phys >= numOutputChannels)
+                        continue;
+                    const int laneBusIndex =
+                        laneBusIndexFor[static_cast<size_t>(phys)];
+                    if (laneBusIndex < 0)
+                        continue;
+                    const int laneOff = laneBusIndex * 2;
+                    if (laneOff + 1 > scratchChannels)
+                        continue;
+                    float* dst = busScratch.getWritePointer(laneOff + 0);
+                    const float g = gains[c];
+                    for (int i = 0; i < numSamples; ++i) {
+                        const float mid = 0.5f * (srcL[i] + srcR[i]);
+                        dst[i] += mid * g;
+                    }
+                }
             } else {
                 // Stereo: L -> lane(start), R -> lane(start+1).
-                const float* srcL = busScratch.getReadPointer(scratchOffset + 0);
-                if (srcL == nullptr)
-                    continue;
-                const float* srcR = busScratch.getReadPointer(scratchOffset + 1);
-                if (srcR == nullptr)
-                    srcR = srcL;
                 const float* srcs[2] = { srcL, srcR };
                 const float gains[2] = { gL, gR };
                 for (int c = 0; c < 2; ++c) {
-                    if (start + c < 0 || start + c >= numOutputChannels)
+                    const int phys = start + c;
+                    if (phys < 0 || phys >= numOutputChannels)
                         continue;
                     const int laneBusIndex =
-                        laneBusIndexFor[static_cast<size_t>(start + c)];
+                        laneBusIndexFor[static_cast<size_t>(phys)];
                     if (laneBusIndex < 0)
                         continue;
                     const int laneOff = laneBusIndex * 2;
@@ -1432,9 +1473,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // would miss sends/aux/click stacked on top of it. Read the summed lane
     // content after the fold so the master needle shows what actually leaves.
     {
-        const auto mainIt = busIndexById.find("audio::main");
-        if (!meteringMuted && mainIt != busIndexById.end()) {
-            const size_t mainIdx = mainIt->second;
+        const auto masterIt = busIndexById.find("audio::main");
+        if (!meteringMuted && masterIt != busIndexById.end()) {
+            const size_t mainIdx = masterIt->second;
             if (mainIdx < busses.size() && mainIdx < busMeters.size()
                 && busMeters[mainIdx] != nullptr) {
                 int mainStart = -1;

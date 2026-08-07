@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../project/ProjectSchema.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -41,6 +43,7 @@ struct BusOutput {
     // direct-out mono lanes fabricated from the active output channels --
     // project busses keep the existing "mono hits both speakers" behavior.
     bool singleChannel = false;
+    OutputType outputType = OutputType::ExtOut;
 };
 
 // An immutable, fully-formed routing configuration. Built on the message/UI

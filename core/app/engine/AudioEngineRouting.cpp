@@ -210,27 +210,15 @@ void AudioEngine::publishRoutingSnapshot() {
         out.pan = static_cast<float>(std::clamp(busDef.pan, -1.0, 1.0));
         out.mute = busDef.mute || (anySendSolo && !busDef.solo);
 
+        out.outputType = busDef.output.type;
+        out.channelCount = busDef.channels;
         if (busDef.output.type == OutputType::Main) {
-            // Milestone 1 (schema-only): a Send whose output is "fold into
-            // Master" is accepted and round-trips correctly, but the render
-            // path still resolves it onto whatever physical channels Master
-            // currently targets -- i.e. it preserves TODAY's behavior (a
-            // Send can share Master's Ext. Out and sum with `+=`), not yet
-            // a true pre-fader fold into Master's own signal (so Master's
-            // gain/pan/mute don't govern it yet either). That structural
-            // fix is the actual routing-engine rewrite -- see Milestone 2
-            // of the routing rewrite plan.
-            int start = 0, ignoredCount = 2;
-            if (proj.main.output.target.has_value())
-                parseExtOutTarget(*proj.main.output.target, start, ignoredCount);
-            out.startChannel = start;
-            out.channelCount = proj.main.channels;
+            out.startChannel = 0;
         } else {
             int start = 0, ignoredCount = busDef.channels;
             if (busDef.output.target.has_value())
                 parseExtOutTarget(*busDef.output.target, start, ignoredCount);
             out.startChannel = start;
-            out.channelCount = busDef.channels;
         }
         snapshot->outputs.push_back(out);
     }
@@ -423,6 +411,20 @@ void AudioEngine::setBusSolo(size_t busIndex, bool solo) {
         proj.sends[si].solo = solo;
     }
     publishRoutingSnapshot();
+}
+
+void AudioEngine::setBusChannels(size_t busIndex, int channels) {
+    Project& proj = loader.project();
+    const int c = (channels >= 2) ? 2 : 1;
+    if (busIndex == 0) {
+        proj.main.channels = c;
+    } else {
+        const size_t si = busIndex - 1;
+        if (si >= proj.sends.size())
+            return;
+        proj.sends[si].channels = c;
+    }
+    rebuildBussesFromProject();
 }
 
 void AudioEngine::setClickSolo(bool solo) {

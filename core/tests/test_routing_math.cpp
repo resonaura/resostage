@@ -59,3 +59,22 @@ TEST_CASE("routing_math::egressChannels stereo bus -> contiguous pair") {
     CHECK(c0 == 12);
     CHECK(c1 == 13);
 }
+
+TEST_CASE("routing_math::isChannelAudible respects mute and solo group") {
+    CHECK(routing_math::isChannelAudible(false, false, false) == true);
+    CHECK(routing_math::isChannelAudible(true, false, false) == false);  // muted
+    CHECK(routing_math::isChannelAudible(false, false, true) == false);  // dimmed by solo
+    CHECK(routing_math::isChannelAudible(false, true, true) == true);    // solo active
+}
+
+TEST_CASE("routing_math::calculateMeterFrame calculates post-fader peak") {
+    const float inL[4] = { 0.8f, 0.8f, 0.8f, 0.8f };
+    const float inR[4] = { 0.4f, 0.4f, 0.4f, 0.4f };
+    float outL[4] = { 0 };
+    float outR[4] = { 0 };
+    float peakL = 0.0f, peakR = 0.0f;
+
+    routing_math::calculateMeterFrame(inL, inR, 4, 0.5f, 0.0f, 2, outL, outR, peakL, peakR);
+    CHECK(peakL == doctest::Approx(0.4f)); // 0.8 * 0.5
+    CHECK(peakR == doctest::Approx(0.2f)); // 0.4 * 0.5
+}

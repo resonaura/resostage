@@ -87,6 +87,8 @@
 
     void setBusSolo(size_t busIndex, bool solo);
 
+    void setBusChannels(size_t busIndex, int channels);
+
     // Soloing the metronome joins the same solo group as track solo -- every
     // regular track goes silent exactly as if one of them had solo engaged
     // (see publishRoutingSnapshot()'s anyTrackSolo). Project-global, like

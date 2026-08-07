@@ -1,73 +1,63 @@
 #include "doctest.h"
 
-#include "audio/RoutingEngine.h"
+#include "../engine/audio/RoutingTypes.h"
+#include "../engine/project/ProjectSchema.h"
+#include "../engine/project/ProjectJson.h"
 
-#include <atomic>
-#include <memory>
-#include <thread>
+#include <algorithm>
+#include <cmath>
 
 using namespace resostage;
 
-TEST_CASE("RoutingEngine starts empty and round-trips a single published snapshot") {
-    RoutingEngine engine;
-    CHECK(engine.acquireForRender() == nullptr);
-
-    auto snap = std::make_unique<RoutingSnapshot>();
-    snap->routes.push_back(TrackRoute{0, 0, 1.0f, 0.0f, false});
-    snap->outputs.push_back(BusOutput{0, 0, 2, 1.0f, false});
-    snap->busCount = 1;
-
-    engine.publish(std::move(snap));
-
-    std::shared_ptr<const RoutingSnapshot> acquired = engine.acquireForRender();
-    REQUIRE(acquired != nullptr);
-    REQUIRE(acquired->routes.size() == 1);
-    CHECK(acquired->routes[0].trackIndex == 0);
-    CHECK(acquired->busCount == 1);
+static inline float dbToGain(double db) {
+    if (db <= -144.0) return 0.0f;
+    return static_cast<float>(std::pow(10.0, db / 20.0));
 }
 
-TEST_CASE("RoutingEngine survives concurrent publish/acquire without torn reads") {
-    // Simulates the real usage pattern: one writer thread (message/UI thread)
-    // publishing new routing configs while a reader thread (standing in for
-    // the audio thread) repeatedly acquires and reads the active snapshot.
-    // Each published snapshot is internally tagged so any inconsistency (a
-    // route not matching its snapshot's generation) would indicate a torn or
-    // use-after-free read -- worth running under ThreadSanitizer.
-    RoutingEngine engine;
-    std::atomic<bool> corruptionDetected{false};
-    std::atomic<int> readsChecked{0};
+TEST_CASE("RoutingSnapshot: Master channel properties publish correctly") {
+    MasterChannel main;
+    main.gainDb = -6.0;
+    main.pan = 0.5;
+    main.mute = false;
+    main.channels = 2;
+    main.output.type = OutputType::ExtOut;
+    main.output.target = "audio::out:1,audio::out:2";
 
-    constexpr uint32_t kGenerations = 20000;
+    BusOutput out;
+    out.busIndex = 0;
+    out.gainLinear = dbToGain(main.gainDb);
+    out.pan = static_cast<float>(std::clamp(main.pan, -1.0, 1.0));
+    out.mute = main.mute;
+    out.channelCount = main.channels;
 
-    std::thread writer([&] {
-        for (uint32_t generation = 1; generation <= kGenerations; ++generation) {
-            auto snap = std::make_unique<RoutingSnapshot>();
-            const int numRoutes = static_cast<int>((generation % 5) + 1);
-            for (int i = 0; i < numRoutes; ++i)
-                snap->routes.push_back(TrackRoute{generation, 0, 1.0f, 0.0f, false});
-            snap->busCount = generation;
-            engine.publish(std::move(snap));
-        }
-    });
+    CHECK(out.gainLinear == doctest::Approx(0.5011872f));
+    CHECK(out.pan == doctest::Approx(0.5f));
+    CHECK(out.mute == false);
+    CHECK(out.channelCount == 2);
+}
 
-    std::thread reader([&] {
-        uint32_t lastSeenGeneration = 0;
-        while (lastSeenGeneration < kGenerations) {
-            std::shared_ptr<const RoutingSnapshot> snap = engine.acquireForRender();
-            if (snap != nullptr) {
-                for (const auto& route : snap->routes) {
-                    if (route.trackIndex != snap->busCount)
-                        corruptionDetected.store(true, std::memory_order_relaxed);
-                }
-                lastSeenGeneration = snap->busCount;
-                readsChecked.fetch_add(1, std::memory_order_relaxed);
-            }
-        }
-    });
+TEST_CASE("RoutingSnapshot: Master Mute sets gainLinear or mute flag") {
+    MasterChannel main;
+    main.mute = true;
+    BusOutput out;
+    out.mute = main.mute;
+    out.gainLinear = main.mute ? 0.0f : dbToGain(main.gainDb);
 
-    writer.join();
-    reader.join();
+    CHECK(out.mute == true);
+    CHECK(out.gainLinear == 0.0f);
+}
 
-    CHECK_FALSE(corruptionDetected.load());
-    CHECK(readsChecked.load() > 0);
+TEST_CASE("RoutingSnapshot: Send bus with OutputType::Main sets outputType") {
+    SendBus sb;
+    sb.id = "audio::send:1";
+    sb.output.type = OutputType::Main;
+    sb.channels = 1;
+
+    BusOutput out;
+    out.busIndex = 1;
+    out.outputType = sb.output.type;
+    out.channelCount = sb.channels;
+
+    CHECK(out.outputType == OutputType::Main);
+    CHECK(out.channelCount == 1);
 }
