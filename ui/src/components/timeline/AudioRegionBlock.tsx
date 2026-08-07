@@ -1,17 +1,10 @@
 import type { PeakLevelData } from "../../lib/types";
 import type { RegionRow } from "../../lib/types";
-import {
-  isCompactLane,
-  laneHeightPx,
-  TrackWaveformLane,
-} from "../TrackWaveformLane";
+import { isCompactLane, laneHeightPx } from "./laneDimensions";
+import { TrackWaveformLane } from "../TrackWaveformLane";
 import { dimHexColor } from "./colors";
 import { FadeCurveOverlay } from "./FadeCurveOverlay";
-import type {
-  RegionDragMode,
-  RegionDragSession,
-  RegionGeom,
-} from "./regionDrag";
+import type { RegionDragMode, RegionGeom } from "./regionDrag";
 import { regionEdgeCursor, regionEdgeMode } from "./regionDrag";
 import type { RegionSelKey, RegionUiState } from "./regionUtils";
 
@@ -302,72 +295,4 @@ export function AudioRegionBlock({
   );
 }
 
-/** Build a RegionDragSession from the current region geometry (for startRegionDrag). */
-export function buildRegionDragSession(args: {
-  key: RegionSelKey;
-  mode: RegionDragMode;
-  clientX: number;
-  clientY: number;
-  songIndex: number;
-  regionId: string;
-  geom: RegionGeom;
-  originTrackId: string;
-  originRowIndex: number;
-  segDuration: number;
-  fileDuration: number;
-}): RegionDragSession {
-  const {
-    key,
-    mode,
-    clientX,
-    clientY,
-    songIndex,
-    regionId,
-    geom,
-    originTrackId,
-    originRowIndex,
-    segDuration,
-    fileDuration,
-  } = args;
-  const origLoopLen =
-    mode === "loopTrim"
-      ? geom.loop && geom.loopLengthSeconds && geom.loopLengthSeconds > 0
-        ? geom.loopLengthSeconds
-        : geom.duration
-      : (geom.loopLengthSeconds ?? 0);
-  const orig: RegionGeom = {
-    start: geom.start,
-    sourceOffset: geom.sourceOffset,
-    duration: geom.duration,
-    fadeIn: geom.fadeIn,
-    fadeOut: geom.fadeOut,
-    fadeInCurve: geom.fadeInCurve,
-    fadeOutCurve: geom.fadeOutCurve,
-    loop: geom.loop,
-    loopLengthSeconds: geom.loopLengthSeconds,
-    trackId: originTrackId,
-  };
-  return {
-    key,
-    mode,
-    startX: clientX,
-    startY: clientY,
-    songIndex,
-    regionId,
-    origStart: orig.start,
-    origSourceOffset: orig.sourceOffset,
-    origDuration: orig.duration,
-    origFadeIn: orig.fadeIn,
-    origFadeOut: orig.fadeOut,
-    origFadeInCurve: orig.fadeInCurve,
-    origFadeOutCurve: orig.fadeOutCurve,
-    origLoop: orig.loop,
-    origLoopLength: origLoopLen,
-    maxEnd: segDuration,
-    maxSourceDur: Math.max(0.05, fileDuration - orig.sourceOffset),
-    lastGeom: orig,
-    originRowIndex,
-    targetRowIndex: originRowIndex,
-    originTrackId,
-  };
-}
+

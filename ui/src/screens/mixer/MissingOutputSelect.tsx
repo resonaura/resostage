@@ -11,15 +11,7 @@ type SelectLike =
  * still shows exactly what the route targets, even though that output is gone
  * (rather than silently snapping to a different, available device output).
  */
-export function missingRouteOptionId(startChannel: number, channels: number): string {
-  return `u:${startChannel}:${channels}`;
-}
 
-/** Display label ("3/4" or "3") for a missing output pick. */
-export function missingRouteLabel(startChannel: number, channels: number): string {
-  if (channels >= 2) return `${startChannel + 1}/${startChannel + 2}`;
-  return `${startChannel + 1}`;
-}
 
 // Amber warning-triangle (lucide TriangleAlert) inlined as an SVG so it can be
 // painted as a background-image INSIDE the native <select> box -- exactly

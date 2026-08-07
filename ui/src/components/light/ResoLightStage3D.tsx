@@ -5,11 +5,7 @@ import { Maximize2, MoveUp } from "lucide-react";
 import * as THREE from "three";
 import type { LightFixtureRow } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
-import {
-  getLiveLedOutputs,
-  subscribeLiveLedOutputs,
-  type LiveLedColor,
-} from "../../lib/liveLevels";
+import type { LiveLedColor } from "../../lib/liveLevels";
 import type { FixtureShape } from "../../lib/dmxProfiles";
 
 // One stage-grid cell is deliberately small enough for practical placement,
@@ -539,33 +535,7 @@ export type PreviewColor = LightCueValue & {
 // React state update (not a ref+useFrame mutation) -- but it's now scoped to
 // exactly the one fixture whose color actually changed, instead of cascading
 // through the whole scene, every OTHER fixture, and the parent screen too.
-export function useLiveFixtureColor(
-  fixtureIndex: number,
-  live: boolean,
-): PreviewColor | undefined {
-  const [previewColor, setPreviewColor] = useState<PreviewColor | undefined>(
-    undefined,
-  );
-  useEffect(() => {
-    if (!live) {
-      setPreviewColor(undefined);
-      return;
-    }
-    const apply = () => {
-      const lo = getLiveLedOutputs().find(
-        (l) => l.fixtureIdx === fixtureIndex,
-      );
-      setPreviewColor(
-        lo
-          ? { r: 0, g: 0, b: 0, intensity: 1, ledColors: lo.ledColors }
-          : undefined,
-      );
-    };
-    apply();
-    return subscribeLiveLedOutputs(apply);
-  }, [live, fixtureIndex]);
-  return previewColor;
-}
+import { useLiveFixtureColor } from "../../hooks/useLiveFixtureColor";
 
 // Dark housing when a fixture has no live output (unbound, empty track,
 // blackout). Ambient/directional still pick up a faint charcoal so the

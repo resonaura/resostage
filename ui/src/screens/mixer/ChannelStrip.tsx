@@ -1,7 +1,5 @@
-import {
-  LevelMeterBar,
-  useChannelClipHold,
-} from "../../components/LevelMeterBar";
+import { LevelMeterBar } from "../../components/LevelMeterBar";
+import { useChannelClipHold } from "../../hooks/useChannelClipHold";
 import { Knob } from "../../components/Knob";
 import type { BusRow, SettingsState } from "../../lib/types";
 import { GainFader } from "./GainFader";

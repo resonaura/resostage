@@ -13,11 +13,11 @@ import {
   channelAvailable,
 } from "./directOutput";
 import { MonoStereoIcon } from "./MonoStereoIcon";
+import { MissingSelectFrame } from "./MissingOutputSelect";
 import {
-  MissingSelectFrame,
   missingRouteLabel,
   missingRouteOptionId,
-} from "./MissingOutputSelect";
+} from "./missingOutputUtils";
 
 export function BusDestinationRouting({
   bus,

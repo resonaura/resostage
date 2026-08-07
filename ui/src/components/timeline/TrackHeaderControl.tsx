@@ -4,7 +4,7 @@ import { getLiveLevels } from "../../lib/liveLevels";
 import { useLiveValue } from "../../lib/optimistic";
 import type { TrackRow } from "../../lib/types";
 import { LevelMeterBar } from "../LevelMeterBar";
-import { laneHeightPx } from "../TrackWaveformLane";
+import { laneHeightPx } from "./laneDimensions";
 import { Knob } from "../Knob";
 import { MiniSlider } from "./MiniSlider";
 

@@ -83,11 +83,7 @@ export function useCycleState(
   }, [
     activeSongIndex,
     cycleSongLength,
-    serverCycle?.active,
-    serverCycle?.skip,
-    serverCycle?.startSeconds,
-    serverCycle?.endSeconds,
-    serverCycle?.songIndex,
+    serverCycle,
   ]);
 
   const push = useCallback((next: CycleLocators, gestureId?: string) => {

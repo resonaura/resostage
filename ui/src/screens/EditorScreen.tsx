@@ -9,13 +9,13 @@ import {
   Upload,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { ImportStemsModal } from "../components/ImportStemsModal";
 import {
-  ImportStemsModal,
   autoDetectBpm,
   autoDetectSongName,
   autoDetectStemMappings,
   executeStemImport,
-} from "../components/ImportStemsModal";
+} from "../lib/stemImport";
 import { Timeline } from "../components/Timeline";
 import { builder } from "../lib/api";
 import type {

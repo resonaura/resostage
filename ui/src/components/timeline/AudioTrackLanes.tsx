@@ -9,9 +9,10 @@ import type {
   TrackRow,
   WebUiState,
 } from "../../lib/types";
-import { laneHeightPx } from "../TrackWaveformLane";
-import { AudioRegionBlock, buildRegionDragSession } from "./AudioRegionBlock";
+import { laneHeightPx } from "./laneDimensions";
+import { AudioRegionBlock } from "./AudioRegionBlock";
 import {
+  buildRegionDragSession,
   effectiveRegionGeom,
   type RegionDragMode,
   type RegionDragSession,

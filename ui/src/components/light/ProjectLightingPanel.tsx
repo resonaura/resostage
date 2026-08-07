@@ -22,19 +22,18 @@ import type {
   LightingState,
   WebUiState,
 } from "../../lib/types";
+import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
+import { useLiveFixtureColor } from "../../hooks/useLiveFixtureColor";
 import {
-  ResoLightStage3D,
-  useLiveFixtureColor,
-  type PreviewColor,
-} from "./ResoLightStage3D";
+  EFFECT_META,
+  GRADIENT_META,
+  effectUsesOwnColor,
+  effectSupportsGradient,
+} from "./lightEffectMeta";
 import {
   HslColorPicker,
   LabeledSlider,
-  EFFECT_META,
-  GRADIENT_META,
   GradientStopEditor,
-  effectUsesOwnColor,
-  effectSupportsGradient,
   type EffectType,
   type GradientPreset,
 } from "./LightSidePanel";

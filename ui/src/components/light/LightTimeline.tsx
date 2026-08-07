@@ -16,28 +16,14 @@ import {
   COMPACT_LANE_MAX_PX,
   LANE_HEIGHT,
   laneHeightPx,
-  TrackWaveformLane,
-} from "../TrackWaveformLane";
+} from "../timeline/laneDimensions";
+import { TrackWaveformLane } from "../TrackWaveformLane";
 import { splitCueAtPlayhead } from "../timeline/cueEdit";
 import { toolCursor, type TimelineTool } from "../timeline/tools";
-import {
-  effectUsesOwnColor,
-  EFFECT_META,
-  type EffectType,
-} from "./LightSidePanel";
+import { effectUsesOwnColor, EFFECT_META } from "./lightEffectMeta";
+import type { EffectType } from "./LightSidePanel";
 
-// Distinct palette for light tracks so they read as a different layer from
-// the audio track colors (which cycle TRACK_COLORS). Warm/amber-heavy.
-export const LIGHT_COLORS = [
-  "#ff9f0a",
-  "#ffd60a",
-  "#ff375f",
-  "#bf5af2",
-  "#64d2ff",
-  "#30d158",
-  "#ff453a",
-  "#00c7be",
-];
+
 
 // Fixed heights for the cross-mode hint strips (one strip per mode, the
 // opposite mode's content shown dimmed and non-clickable -- the "для света

@@ -30,7 +30,7 @@ import { PlayerScreen } from "./screens/PlayerScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { type ActionId, performAction } from "./lib/actions";
 import { transport } from "./lib/api";
-import { keyEventToDescription } from "./screens/SettingsScreen";
+import { keyEventToDescription } from "./lib/keyEvents";
 
 interface ToastNotification {
   id: string;
@@ -267,7 +267,7 @@ export default function App() {
       setTab(t);
       sendView(t);
     }
-  }, [state.uiTab, state.uiTabSeq]);
+  }, [state.uiTab, state.uiTabSeq, sendView]);
 
   // ── Shared timeline state (DRY: both Player and Editor use the same peaks + zoom) ──
   const [peaks, setPeaks] = useState<PeaksResponse | null>(null);

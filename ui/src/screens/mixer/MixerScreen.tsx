@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { builder, mixer } from "../../lib/api";
 import { outputSendsToClickRows, type WebUiState } from "../../lib/types";
 import { BusStrip } from "./BusStrip";
-import { MetronomeStrip, patchClickFields } from "./MetronomeStrip";
+import { MetronomeStrip } from "./MetronomeStrip";
+import { patchClickFields } from "./mixerUtils";
 import { StripContextMenu, type StripMenuTarget } from "./StripContextMenu";
 import { TrackStrip } from "./TrackStrip";
 

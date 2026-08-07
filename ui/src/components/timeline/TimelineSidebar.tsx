@@ -11,7 +11,7 @@ import {
   AUDIO_HINT_HEIGHT,
   LIGHT_HINT_HEIGHT,
 } from "../light/LightTimeline";
-import { laneHeightPx } from "../TrackWaveformLane";
+import { laneHeightPx } from "./laneDimensions";
 import {
   EVENT_LANE_HEIGHT,
   RULER_HEIGHT,

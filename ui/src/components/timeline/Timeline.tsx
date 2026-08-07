@@ -13,13 +13,13 @@ import type {
 import {
   AudioHintStrip,
   LightHintStrip,
-  LIGHT_COLORS,
   LIGHT_HINT_HEIGHT,
 } from "../light/LightTimeline";
+import { LIGHT_COLORS } from "../light/lightColors";
 import type { CueSelKey, LightCueDragState } from "../light/LightTimeline";
 import { LightSidePanel } from "../light/LightSidePanel";
 import type { LightSidePanelSelection } from "../light/LightSidePanel";
-import { laneHeightPx } from "../TrackWaveformLane";
+import { laneHeightPx } from "./laneDimensions";
 import { AudioTrackLanes } from "./AudioTrackLanes";
 import { AudioDropGhost } from "./AudioDropGhost";
 import {
@@ -1088,6 +1088,9 @@ export function Timeline({
     }
   }, [pxPerSec]);
 
+  const applyZoomAtRef = useRef(applyZoomAt);
+  applyZoomAtRef.current = applyZoomAt;
+
   // Non-passive wheel & gesture event listeners attached to root container (always present)
   useEffect(() => {
     const el = containerRef.current;
@@ -1110,7 +1113,7 @@ export function Timeline({
         let factor = Math.pow(base, -e.deltaY * speed * 4);
         factor = Math.max(0.2, Math.min(5, factor));
 
-        applyZoomAt(pxPerSecRef.current * factor, e.clientX);
+        applyZoomAtRef.current(pxPerSecRef.current * factor, e.clientX);
       }
     };
 
@@ -1130,7 +1133,7 @@ export function Timeline({
       if (typeof e.scale === "number" && e.scale > 0) {
         const deltaScale = e.scale / lastScale;
         lastScale = e.scale;
-        applyZoomAt(pxPerSecRef.current * deltaScale, e.clientX);
+        applyZoomAtRef.current(pxPerSecRef.current * deltaScale, e.clientX);
       }
     };
 

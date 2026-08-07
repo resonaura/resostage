@@ -1,15 +1,14 @@
 import { useMemo, useState } from "react";
 import { Button, Modal, ScrollShadow } from "@heroui/react";
 import { Check, FolderUp, Layers, Music } from "lucide-react";
-import { builder } from "../lib/api";
 import type { WebUiState } from "../lib/types";
-
-export interface StemImportItem {
-  file: File;
-  filename: string;
-  detectedCategory: string;
-  targetTrackName: string;
-}
+import {
+  autoDetectBpm,
+  autoDetectSongName,
+  autoDetectStemType,
+  executeStemImport,
+  type StemImportItem,
+} from "../lib/stemImport";
 
 const STANDARD_TRACK_NAMES = [
   "Click",
@@ -27,119 +26,6 @@ const STANDARD_TRACK_NAMES = [
   "Other",
 ];
 
-function autoDetectStemType(filename: string): string {
-  const upper = filename.toUpperCase();
-  if (
-    upper.includes("CLICK") ||
-    upper.includes("METRO") ||
-    upper.includes("COUNT")
-  )
-    return "Click";
-  if (
-    upper.includes("GUIDE") ||
-    upper.includes("CUE") ||
-    upper.includes("SLATE")
-  )
-    return "Guide";
-  if (upper.includes("BASS") || upper.includes("BS") || upper.includes("SUB"))
-    return "Bass";
-  if (
-    upper.includes("DRUM") ||
-    upper.includes("DRM") ||
-    upper.includes("KICK") ||
-    upper.includes("SNARE") ||
-    upper.includes("BEAT") ||
-    upper.includes("HAT") ||
-    upper.includes("CYMBAL") ||
-    upper.includes("TOM")
-  )
-    return "Drums";
-  if (
-    upper.includes("PERC") ||
-    upper.includes("SHAKER") ||
-    upper.includes("CONGA") ||
-    upper.includes("TAMB") ||
-    upper.includes("CLAP")
-  )
-    return "Percussion";
-  if (
-    upper.includes("LOOP") ||
-    upper.includes("TOPS") ||
-    upper.includes("GROOVE")
-  )
-    return "Loops";
-  if (
-    upper.includes("BACK") ||
-    upper.includes("BK") ||
-    upper.includes("BGV") ||
-    upper.includes("BVOX") ||
-    upper.includes("BACKING") ||
-    upper.includes("CHOIR") ||
-    upper.includes("HARMONY") ||
-    upper.includes("SECOND")
-  )
-    return "Backing Vocals";
-  if (
-    upper.includes("VOX") ||
-    upper.includes("VOCAL") ||
-    upper.includes("LEAD") ||
-    upper.includes("MAIN_VOX")
-  )
-    return "Vocals";
-  if (
-    upper.includes("KEY") ||
-    upper.includes("PIANO") ||
-    upper.includes("ORGAN") ||
-    upper.includes("RHODES")
-  )
-    return "Keys";
-  if (
-    upper.includes("SYNTH") ||
-    upper.includes("PAD") ||
-    upper.includes("ARP") ||
-    upper.includes("LEAD_SYNTH")
-  )
-    return "Synths";
-  if (
-    upper.includes("GUITAR") ||
-    upper.includes("GTR") ||
-    upper.includes("ACOUSTIC") ||
-    upper.includes("ELECTRIC")
-  )
-    return "Guitars";
-  if (
-    upper.includes("SFX") ||
-    upper.includes("FX") ||
-    upper.includes("RISER") ||
-    upper.includes("SWEEP") ||
-    upper.includes("HIT") ||
-    upper.includes("NOISE") ||
-    upper.includes("DROP")
-  )
-    return "SFX";
-  if (
-    upper.includes("BRASS") ||
-    upper.includes("HORN") ||
-    upper.includes("STRINGS") ||
-    upper.includes("ORCH")
-  )
-    return "Synths";
-  return "Other";
-}
-
-export function autoDetectBpm(filename: string): number {
-  const match =
-    filename.match(/(\d{2,3})\s*BPM/i) || filename.match(/BPM\s*(\d{2,3})/i);
-  if (match) return parseInt(match[1], 10);
-  return 120;
-}
-
-export function autoDetectSongName(folderNameOrFileName: string): string {
-  let name = folderNameOrFileName.replace(/\.(wav|mp3|aif|flac)$/i, "");
-  name = name.replace(/_\d{2,3}BPM/i, "").replace(/_\d{2,3}bpm/i, "");
-  name = name.replace(/[-_]/g, " ").trim();
-  return name ? name.toUpperCase() : "UNTITLED SONG";
-}
 
 export interface ImportStemsModalProps {
   isOpen: boolean;
@@ -159,7 +45,7 @@ export function ImportStemsModal({
   // Existing consolidated track names from current project state + standard defaults
   const availableTrackNames = useMemo(() => {
     const names = new Set<string>(STANDARD_TRACK_NAMES);
-    state.tracks.forEach((t) => {
+    state.tracks.forEach((t: { name?: string }) => {
       if (t.name) names.add(t.name);
     });
     return Array.from(names);
@@ -414,155 +300,4 @@ export function ImportStemsModal({
   );
 }
 
-export async function executeStemImport(
-  songName: string,
-  bpm: number,
-  tsNum: number,
-  tsDen: number,
-  stemMappings: StemImportItem[],
-  state: WebUiState,
-) {
-  await builder.songAdd(true);
-  const songIndex = state.songs.length;
 
-  const enableClick = stemMappings.some(
-    (s) =>
-      s.detectedCategory === "Click" ||
-      s.targetTrackName === "(Use Built-in Metronome)" ||
-      s.targetTrackName === "Click",
-  );
-
-  await builder.songUpdate({
-    index: songIndex,
-    name: songName,
-    bpm: bpm,
-    mode: "auto",
-    tsNum: tsNum,
-    tsDen: tsDen,
-    click: enableClick,
-    clickBusId: state.busses[0]?.id || "main",
-    clickSends: [],
-  });
-
-  const requiredTrackNames = Array.from(
-    new Set(
-      stemMappings
-        .map((s) => s.targetTrackName)
-        .filter((t) => t !== "(Skip)" && t !== "(Use Built-in Metronome)"),
-    ),
-  );
-
-  const currentGlobalTracks = [...state.tracks];
-  const trackIndexByName: Record<string, number> = {};
-
-  for (const trackName of requiredTrackNames) {
-    let globalIndex = currentGlobalTracks.findIndex(
-      (t) => (t.name || t.id).toLowerCase() === trackName.toLowerCase(),
-    );
-    if (globalIndex < 0) {
-      await builder.trackAdd(songIndex);
-      globalIndex = currentGlobalTracks.length;
-      const newTrack = {
-        id: `trk_${globalIndex + 1}`,
-        name: trackName,
-        channels: 2,
-        gainDb: 0,
-        pan: 0,
-        mute: false,
-        solo: false,
-        output: { type: "main" as const, target: "audio::main", sends: [] },
-        peakDb: -100,
-      };
-      currentGlobalTracks.push(newTrack);
-      await builder.trackUpdate({
-        songIndex,
-        index: globalIndex,
-        name: trackName,
-        busId: state.busses[0]?.id || "main",
-        gainDb: 0,
-        pan: 0,
-        mute: false,
-        solo: false,
-      });
-    }
-    trackIndexByName[trackName] = globalIndex;
-  }
-
-  const uploadCountByName: Record<string, number> = {};
-  for (const item of stemMappings) {
-    if (
-      item.targetTrackName === "(Skip)" ||
-      item.targetTrackName === "(Use Built-in Metronome)"
-    )
-      continue;
-
-    const baseName = item.targetTrackName;
-    const occurrence = (uploadCountByName[baseName] ?? 0) + 1;
-    uploadCountByName[baseName] = occurrence;
-
-    let targetIndex = trackIndexByName[baseName];
-    if (occurrence > 1) {
-      const disambiguatedName = `${baseName} ${occurrence}`;
-      let disambiguatedIndex = currentGlobalTracks.findIndex(
-        (t) =>
-          (t.name || t.id).toLowerCase() === disambiguatedName.toLowerCase(),
-      );
-      if (disambiguatedIndex < 0) {
-        await builder.trackAdd(songIndex);
-        disambiguatedIndex = currentGlobalTracks.length;
-        const newTrack = {
-          id: `trk_${disambiguatedIndex + 1}`,
-          name: disambiguatedName,
-          channels: 2,
-          gainDb: 0,
-          pan: 0,
-          mute: false,
-          solo: false,
-          output: { type: "main" as const, target: "audio::main", sends: [] },
-          peakDb: -100,
-        };
-        currentGlobalTracks.push(newTrack);
-        await builder.trackUpdate({
-          songIndex,
-          index: disambiguatedIndex,
-          name: disambiguatedName,
-          busId: state.busses[0]?.id || "main",
-          gainDb: 0,
-          pan: 0,
-          mute: false,
-          solo: false,
-        });
-      }
-      targetIndex = disambiguatedIndex;
-    }
-
-    if (targetIndex !== undefined) {
-      await builder.trackImportWav(songIndex, targetIndex, item.file);
-    }
-  }
-}
-
-export function autoDetectStemMappings(files: File[]): StemImportItem[] {
-  const seenCounts: Record<string, number> = {};
-  return files.map((file) => {
-    const category = autoDetectStemType(file.name);
-    const isClick = category === "Click";
-    if (isClick) {
-      return {
-        file,
-        filename: file.name,
-        detectedCategory: category,
-        targetTrackName: "(Use Built-in Metronome)",
-      };
-    }
-    const occurrence = (seenCounts[category] ?? 0) + 1;
-    seenCounts[category] = occurrence;
-    return {
-      file,
-      filename: file.name,
-      detectedCategory: category,
-      targetTrackName:
-        occurrence === 1 ? category : `${category} ${occurrence}`,
-    };
-  });
-}

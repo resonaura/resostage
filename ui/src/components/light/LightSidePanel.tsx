@@ -11,29 +11,15 @@ import { Slider } from "@heroui/react";
 import { useMemo, useRef, useState } from "react";
 import { useFocusDraft, useLiveValue, useNumberDraft } from "../../lib/optimistic";
 import {
-  Activity,
-  Barcode,
-  BarChart2,
-  CircleDot,
-  CloudLightning,
-  Droplet,
-  Flame,
   FlipHorizontal2,
   Lightbulb,
   Link2,
   Link2Off,
-  Merge,
-  Minus,
   Palette,
   Plus,
-  Rainbow,
-  ScanLine,
-  Sparkles,
   Trash2,
   TriangleAlert,
-  Waves,
   X,
-  Zap,
 } from "lucide-react";
 import { lighting } from "../../lib/api";
 import type {
@@ -655,227 +641,18 @@ export type EffectType =
   | "lightning"
   | "barberpole";
 
-export const EFFECT_META: Record<
-  EffectType,
-  { label: string; desc: string; icon: React.ReactNode }
-> = {
-  none: {
-    label: "None",
-    desc: "Static color, no modulation",
-    icon: <Minus size={12} />,
-  },
-  meter: {
-    label: "Meter",
-    desc: "Brightness follows audio level (VU meter)",
-    icon: <BarChart2 size={12} />,
-  },
-  strobe: {
-    label: "Strobe",
-    desc: "Rapid on/off flashes at set rate",
-    icon: <Zap size={12} />,
-  },
-  pulse: {
-    label: "Pulse",
-    desc: "Smooth brightness pulse",
-    icon: <Activity size={12} />,
-  },
-  ripple: {
-    label: "Ripple",
-    desc: "Travelling wave across fixtures left→right",
-    icon: <Waves size={12} />,
-  },
-  converge: {
-    label: "Converge",
-    desc: "Lines race in from both ends and meet at the centre",
-    icon: <Merge size={12} />,
-  },
-  gradientflow: {
-    label: "Gradient",
-    desc: "Flowing rainbow shimmer along the bar",
-    icon: <Rainbow size={12} />,
-  },
-  chase: {
-    label: "Chase",
-    desc: "Phase-locked bright runner travelling up the bar (addressable fixtures)",
-    icon: <Zap size={12} />,
-  },
-  helix: {
-    label: "Helix",
-    desc: "Double-strand colour wave projected onto the bar (addressable fixtures)",
-    icon: <Waves size={12} />,
-  },
-  plasma: {
-    label: "Plasma",
-    desc: "Liquid three-wave colour interference (addressable fixtures)",
-    icon: <Activity size={12} />,
-  },
-  twinkle: {
-    label: "Twinkle",
-    desc: "Deterministic sparkling star field (addressable fixtures)",
-    icon: <Lightbulb size={12} />,
-  },
-  sonicboom: {
-    label: "Boom",
-    desc: "Rhythmic wave expanding from the centre (addressable fixtures)",
-    icon: <Zap size={12} />,
-  },
-  fire: {
-    label: "Fire",
-    desc: "Procedural flame -- pick a palette below (Vulcan/Toxic/Cryo/Cyberpunk/custom) (addressable fixtures)",
-    icon: <Flame size={12} />,
-  },
-  bouncing: {
-    label: "Bounce",
-    desc: "Three balls bouncing with decaying energy (addressable fixtures)",
-    icon: <CircleDot size={12} />,
-  },
-  drip: {
-    label: "Drip",
-    desc: "Droplets falling from the tip and splashing at the base (addressable fixtures)",
-    icon: <Droplet size={12} />,
-  },
-  fireworks: {
-    label: "Fireworks",
-    desc: "Rockets launch and burst into fading sparks (addressable fixtures)",
-    icon: <Sparkles size={12} />,
-  },
-  colorwaves: {
-    label: "Waves",
-    desc: "Multi-wave palette scan that never quite repeats (addressable fixtures)",
-    icon: <Waves size={12} />,
-  },
-  strobeswipe: {
-    label: "Swipe",
-    desc: "Fast bottom-to-top fill on every beat, then decays (addressable fixtures)",
-    icon: <Zap size={12} />,
-  },
-  vupeak: {
-    label: "VU Peak",
-    desc: "Continuous VU fill with a highlighted peak cap",
-    icon: <BarChart2 size={12} />,
-  },
-  geq: {
-    label: "GEQ",
-    desc: "Graphic-equalizer columns riding the audio spectrum",
-    icon: <BarChart2 size={12} />,
-  },
-  blurz: {
-    label: "Blurz",
-    desc: "Spectrum smeared into a flowing colour wash",
-    icon: <Waves size={12} />,
-  },
-  scanner: {
-    label: "Scanner",
-    desc: "Larson-style bouncing point sweeps end to end with a trailing glow (addressable fixtures)",
-    icon: <ScanLine size={12} />,
-  },
-  lightning: {
-    label: "Lightning",
-    desc: "Sporadic white-hot bolt strikes flicker across a jagged span (addressable fixtures)",
-    icon: <CloudLightning size={12} />,
-  },
-  barberpole: {
-    label: "Barberpole",
-    desc: "Hard-edged stripes scroll continuously up the bar (addressable fixtures)",
-    icon: <Barcode size={12} />,
-  },
-};
-
-export function effectUsesOwnColor(
-  t: EffectType,
-  gradientPreset?: string,
-): boolean {
-  if (
-    t === "fire" ||
-    t === "gradientflow" ||
-    t === "helix" ||
-    t === "plasma" ||
-    t === "colorwaves" ||
-    t === "fireworks" ||
-    t === "twinkle" ||
-    t === "bouncing" ||
-    t === "blurz"
-  ) {
-    return true;
-  }
-  if (t === "barberpole" || t === "meter") {
-    return gradientPreset !== undefined && gradientPreset !== "solid";
-  }
-  return false;
-}
-
-export function effectSupportsGradient(t: EffectType): boolean {
-  return (
-    t === "fire" ||
-    t === "barberpole" ||
-    t === "colorwaves" ||
-    t === "meter" ||
-    t === "geq"
-  );
-}
-
-// Effects whose per-LED shape (addressableEffectLedColor in
-// LightCueInterpolation.h) is the whole point -- on a non-addressable
-// fixture, applyEffect's fallback for every one of these is the *static*
-// `level = p.intensity` case (no time modulation at all), so picking one
-// on a plain bar silently does nothing. Converge/GradientFlow/VuPeak/
-// Geq/Blurz are NOT in this set: their non-addressable fallback still
-// computes a real, animated/audio-reactive level, just without the
-// per-LED spatial pattern -- so they stay genuinely useful either way.
-function effectRequiresAddressable(t: EffectType): boolean {
-  return (
-    t === "chase" ||
-    t === "helix" ||
-    t === "plasma" ||
-    t === "twinkle" ||
-    t === "sonicboom" ||
-    t === "fire" ||
-    t === "bouncing" ||
-    t === "drip" ||
-    t === "fireworks" ||
-    t === "colorwaves" ||
-    t === "strobeswipe" ||
-    t === "scanner" ||
-    t === "lightning" ||
-    t === "barberpole"
-  );
-}
-
-// ─── Tempo subdivisions ───────────────────────────────────────────────────
-
-const SUBDIVISIONS = [
-  "2",
-  "1",
-  "1/2",
-  "1/3",
-  "1/4",
-  "1/6",
-  "1/8",
-  "1/16",
-  "1/32",
-  "1/64",
-] as const;
-type TempoSubdiv = (typeof SUBDIVISIONS)[number];
-
-type SourceType = "bus" | "track";
-export type GradientPreset =
-  | "solid"
-  | "greenYellowRed"
-  | "custom"
-  | "vulcanFire"
-  | "toxicFire"
-  | "cryoFire"
-  | "cyberpunkFire";
-
-export const GRADIENT_META: Record<GradientPreset, string> = {
-  solid: "Solid Color",
-  greenYellowRed: "Green → Yellow → Red",
-  vulcanFire: "Vulcan Flame",
-  toxicFire: "Toxic Alien",
-  cryoFire: "Cryo Ice",
-  cyberpunkFire: "Cyberpunk",
-  custom: "Custom palette",
-};
+import {
+  EFFECT_META,
+  effectUsesOwnColor,
+  effectSupportsGradient,
+  effectRequiresAddressable,
+  GRADIENT_META,
+  SUBDIVISIONS,
+  type TempoSubdiv,
+  type SourceType,
+  type GradientPreset,
+} from "./lightEffectMeta";
+export type { GradientPreset, SourceType, TempoSubdiv };
 
 type BlendModeUi =
   | "normal"
