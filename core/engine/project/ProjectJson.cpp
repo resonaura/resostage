@@ -76,6 +76,7 @@ const char* outputTypeToString(OutputType type) {
         case OutputType::Main: return "main";
         case OutputType::SendsOnly: return "sends-only";
         case OutputType::ExtOut: return "ext-out";
+        case OutputType::Bus: return "bus";
     }
     return "sends-only";
 }
@@ -86,6 +87,7 @@ const char* outputTypeToString(OutputType type) {
 OutputType outputTypeFromString(const std::string& s) {
     if (s == "main") return OutputType::Main;
     if (s == "ext-out") return OutputType::ExtOut;
+    if (s == "bus") return OutputType::Bus;
     return OutputType::SendsOnly;
 }
 

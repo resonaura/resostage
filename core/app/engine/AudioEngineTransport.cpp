@@ -4,6 +4,7 @@
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
+#include "project/RouteId.h"
 
 #include <algorithm>
 #include <cmath>
@@ -130,7 +131,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     std::vector<std::string> newTrackIds;
     newTrackIds.reserve(proj.tracks.size());
     for (const TrackDef& trackDef : proj.tracks) {
-        const std::string routeId = audio_engine_detail::mainRouteId(trackDef.output);
+        const std::string routeId = routeIdOf(trackDef.output);
         if (routeId.empty()) {
             newTrackIds.push_back(trackDef.id);
             continue;

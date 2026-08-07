@@ -226,7 +226,12 @@ struct WebUiState {
     // Project-global metronome (same for every song).
     bool click = false;
     std::string clickName = "Click";
+    // Flat route id (see engine/project/RouteId.h) plus the tagged form it
+    // decodes to. Both are carried because the SPA renders the flat id in a
+    // <select> but the wire contract mirrors the on-disk SourceOutput.
     std::string clickBusId;
+    std::string clickOutputType = "main"; // "main" | "sends-only" | "ext-out" | "bus"
+    std::string clickOutputTarget;        // empty unless type is ext-out or bus
     double clickGainDb = 0.0;
     // Project-global metronome pan (-1..+1).
     double clickPan = 0.0;
@@ -240,7 +245,10 @@ struct WebUiState {
     bool clickSoloActiveInGroup = false;
     struct ClickSendRow {
         std::string busId;
-        double gainDb = 0.0;
+        // 0-100 LINEAR percent, exactly as SendConfig::level stores it. Not
+        // dB: a round trip through dB and back can never land on exactly 0
+        // or exactly 100, which is what the send presets need.
+        double level = 100.0;
         bool enabled = true;
     };
     std::vector<ClickSendRow> clickSends;
@@ -321,7 +329,7 @@ struct WebUiState {
         std::string clickBusId;
         double clickGainDb = 0.0;
         // click sends: extra buses (aux monitor mixes) the metronome feeds.
-        struct ClickSendRow { std::string busId; double gainDb = 0.0; bool enabled = true; };
+        struct ClickSendRow { std::string busId; double level = 100.0; bool enabled = true; };
         std::vector<ClickSendRow> clickSends;
 
         struct TrackRow {
@@ -615,6 +623,47 @@ struct WebUiState {
         std::vector<DiscoveredBoardRow> discoveredBoards;
     };
     LightingRow lighting;
+
+    /**
+     * The signal flow the audio thread is ACTUALLY rendering, copied straight
+     * out of the published MixGraph -- not a second derivation of the routing
+     * rules. The Settings > Audio diagram draws this, so what it shows and
+     * what you hear cannot disagree.
+     *
+     * Only populated for the "mixgraph" view, since it is static between
+     * routing edits and has no business in every 30 Hz frame.
+     */
+    struct MixGraphRow {
+        struct StripRow {
+            std::string id;
+            std::string name;
+            std::string kind;      // "track" | "click" | "send" | "main" | "output"
+            std::string soloGroup; // "sources" | "sends" | "main" | "none"
+            int channels = 2;
+            double gainDb = 0.0;
+            double pan = 0.0;
+            bool mute = false;
+            bool solo = false;
+            // Resolved: false when muted OR silenced by someone else's solo.
+            bool audible = true;
+            // Output lanes only: 0-based device channel, -1 = shadow lane
+            // (referenced by the project, absent from the device right now).
+            int physicalChannel = -1;
+            float peakDb = -144.0f;
+        };
+        struct EdgeRow {
+            std::string from;
+            std::string to;
+            double level = 100.0; // 0-100 percent, 100 = unity
+            bool preFader = false;
+            bool active = true;
+            // -1 = sum L+R into a mono destination, 0 = left, 1 = right.
+            int sourceChannel = -1;
+        };
+        std::vector<StripRow> strips;
+        std::vector<EdgeRow> edges;
+    };
+    MixGraphRow mixGraph;
 
     // Backend-authoritative resolved lamp state, one row per fixture
     // currently driven by an active cue -- computed by the exact same

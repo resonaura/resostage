@@ -1,115 +1,151 @@
 import { useState } from "react";
 import { ContextMenu, ContextMenuItem } from "../../components/ContextMenu";
-import { SEND_FLOOR_DB, SendArcKnob } from "../../components/SendArcKnob";
+import {
+  SEND_CEILING_DB,
+  SEND_FLOOR_DB,
+  SendArcKnob,
+} from "../../components/SendArcKnob";
 import { mixer } from "../../lib/api";
-import type { BusRow } from "../../lib/types";
+import {
+  sendDbToLevel,
+  sendLevelToDb,
+  type BusRow,
+  type ClickSendRow,
+} from "../../lib/types";
 
+type SendMenu = {
+  x: number;
+  y: number;
+  busId: string;
+  busName: string;
+  enabled: boolean;
+};
+
+/**
+ * The aux-send column on a channel strip: one arc knob per send bus.
+ *
+ * A send has two independent states -- how much (level) and whether it is
+ * live at all (enabled). Disabling is not "turn it to zero": it parks the
+ * amount you dialled in so you can bring the send back exactly where it was,
+ * which is the whole point during a soundcheck. Disabled sends fade out
+ * rather than disappear, so the column never reflows under the cursor.
+ */
 export function SendKnobs({
   auxBusses,
   sends,
   trackIndex,
   onSendChange,
-  onRemoveSend,
+  onSendEnabledChange,
 }: {
   auxBusses: BusRow[];
-  sends: { busId: string; gainDb: number }[];
+  sends: ClickSendRow[];
   trackIndex: number;
-  onSendChange?: (busId: string, gainDb: number) => void;
-  /** Real per-track sends only — omit for click (uses onSendChange + enabled). */
-  onRemoveSend?: (busId: string) => void;
+  /** Overrides the default per-track send write (used by the click strip).
+   *  `level` is the schema's 0-100 percent, same as the wire. */
+  onSendChange?: (busId: string, level: number, enabled?: boolean) => void;
+  /** Enables the Enabled/Disabled toggle. Omit for surfaces without one. */
+  onSendEnabledChange?: (busId: string, enabled: boolean) => void;
 }) {
-  const [removeMenu, setRemoveMenu] = useState<{
-    x: number;
-    y: number;
-    busId: string;
-    busName: string;
-  } | null>(null);
-
-  const [pendingRemoved, setPendingRemoved] = useState<Set<string>>(new Set());
+  const [menu, setMenu] = useState<SendMenu | null>(null);
 
   if (auxBusses.length === 0) return null;
+
+  // Percent is the unit of record everywhere below: the knob is the only
+  // thing that thinks in dB, and it converts on the way out.
+  const writeLevel = (busId: string, level: number, enabled?: boolean) => {
+    if (onSendChange) {
+      onSendChange(busId, level, enabled);
+      return;
+    }
+    void mixer.setTrackSend(trackIndex, busId, level, enabled);
+  };
+
   return (
     <div className="flex w-full flex-col gap-1 border-t border-default/20 py-1">
       {auxBusses.map((bus) => {
-        const isPendingRemoved = pendingRemoved.has(bus.id);
-        const existing = isPendingRemoved
-          ? undefined
-          : sends.find((s) => s.busId === bus.id);
-        const value = existing?.gainDb ?? SEND_FLOOR_DB;
+        const existing = sends.find((s) => s.busId === bus.id);
+        const value =
+          existing !== undefined ? sendLevelToDb(existing.level) : SEND_FLOOR_DB;
+        // A send that was never created reads as enabled: the knob is at the
+        // floor, so there is nothing to grey out yet.
+        const enabled = existing ? existing.enabled !== false : true;
+        const label = bus.name || bus.id;
 
         return (
           <div
             key={bus.id}
-            className="flex items-center justify-between gap-1 w-full px-0.5 min-w-0"
+            className={`flex items-center justify-between gap-1 w-full px-0.5 min-w-0 transition-opacity duration-300 ${
+              enabled ? "opacity-100" : "opacity-35"
+            }`}
             onContextMenu={(e) => {
               // Always stop propagation so right-clicking a send row doesn't
-              // trigger the outer track strip context menu (which would open
-              // "Remove track" / "Rename track" over this send item).
+              // also open the track strip's own menu on top of this one.
               e.preventDefault();
               e.stopPropagation();
-              if (onRemoveSend && existing) {
-                setRemoveMenu({
-                  x: e.clientX,
-                  y: e.clientY,
-                  busId: bus.id,
-                  busName: bus.name || bus.id,
-                });
-              }
+              setMenu({
+                x: e.clientX,
+                y: e.clientY,
+                busId: bus.id,
+                busName: label,
+                enabled,
+              });
             }}
           >
             <span
               className="truncate text-[9px] font-mono font-medium min-w-0 flex-1 text-foreground/70 select-none"
-              title={bus.name || bus.id}
+              title={label}
             >
-              {bus.name || bus.id}
+              {label}
             </span>
             <SendArcKnob
-              key={bus.id}
               value={value}
               min={SEND_FLOOR_DB}
-              max={6}
+              max={SEND_CEILING_DB}
               busColor="rgba(255,255,255,0.9)"
               title={
-                existing
-                  ? `Send to ${bus.name || bus.id} (right-click to remove)`
-                  : `Send to ${bus.name || bus.id}`
+                enabled
+                  ? `Send to ${label} (right-click for options)`
+                  : `Send to ${label} — disabled`
               }
-              onChange={(v) => {
-                if (pendingRemoved.has(bus.id)) {
-                  setPendingRemoved((prev) => {
-                    const next = new Set(prev);
-                    next.delete(bus.id);
-                    return next;
-                  });
-                }
-                if (onSendChange) {
-                  onSendChange(bus.id, v);
-                } else {
-                  mixer.setTrackSend(trackIndex, bus.id, v);
-                }
-              }}
+              onChange={(v) => writeLevel(bus.id, sendDbToLevel(v))}
             />
           </div>
         );
       })}
-      {removeMenu && onRemoveSend && (
+
+      {menu && (
         <ContextMenu
-          x={removeMenu.x}
-          y={removeMenu.y}
-          width={160}
-          onClose={() => setRemoveMenu(null)}
+          x={menu.x}
+          y={menu.y}
+          width={190}
+          onClose={() => setMenu(null)}
         >
           <ContextMenuItem
-            danger
             onClick={() => {
-              const busId = removeMenu.busId;
-              setPendingRemoved((prev) => new Set(prev).add(busId));
-              onRemoveSend(busId);
-              setRemoveMenu(null);
+              writeLevel(menu.busId, 0);
+              setMenu(null);
             }}
           >
-            Remove Send to {removeMenu.busName}
+            Set to 0%
           </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              writeLevel(menu.busId, 100);
+              setMenu(null);
+            }}
+          >
+            Set to 100%
+          </ContextMenuItem>
+          {onSendEnabledChange && (
+            <ContextMenuItem
+              onClick={() => {
+                onSendEnabledChange(menu.busId, !menu.enabled);
+                setMenu(null);
+              }}
+            >
+              {menu.enabled ? "Disable send" : "Enable send"}
+            </ContextMenuItem>
+          )}
         </ContextMenu>
       )}
     </div>

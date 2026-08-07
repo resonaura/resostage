@@ -677,6 +677,11 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                     }
                     if (std::strcmp(uri, "/api/v1/ui/menu") == 0)
                         return server->serveUiMenu(wsi);
+                    if (std::strcmp(uri, "/api/v1/audio/mixgraph") == 0) {
+                        const std::string json = server->buildStateJson("mixgraph");
+                        return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
+                                                 json.c_str(), json.size());
+                    }
                     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
                                              "{\"error\":\"not found\"}", 27);
                 }
@@ -1175,6 +1180,11 @@ std::string WebServer::buildStateJson(const char* view) const {
     const bool wantHealth = all || isPlayer || isSettings;
     const bool wantHealthProcs = all || isSettings;
     const bool wantSettingsFull = true;
+    // Explicit-request only, never part of "all": the diagram is a modal the
+    // user opens on purpose, and the graph has no business riding along in
+    // every 30 Hz frame or in a plain /api/v1/state call.
+    const bool wantMixGraph =
+        view != nullptr && std::strcmp(view, "mixgraph") == 0;
     (void)isSettings; // still used for midiBindings detail below
 
     WEngineTelemetryPayload wire;
@@ -1214,14 +1224,16 @@ std::string WebServer::buildStateJson(const char* view) const {
         wc.solo = snap.clickSolo;
         wc.soloGroup = snap.clickSoloGroup;
         wc.soloActiveInGroup = snap.clickSoloActiveInGroup;
-        // Snapshot still routes click by flat bus-id string (empty = Sends
-        // Only, else Main -- click output never ExtOut).
-        wc.output.type = snap.clickBusId.empty() ? "sends-only" : "main";
+        // Mirrors the on-disk SourceOutput exactly, including ext-out and
+        // bus destinations -- the click is routed like any other source.
+        wc.output.type = snap.clickOutputType;
+        if (!snap.clickOutputTarget.empty())
+            wc.output.target = snap.clickOutputTarget;
         wc.output.sends.reserve(snap.clickSends.size());
         for (const auto& cs : snap.clickSends) {
             WSendConfig wS;
             wS.bus = cs.busId;
-            wS.level = sendDbToLevel(finiteOrZero(cs.gainDb));
+            wS.level = finiteOrZero(cs.level);
             wS.enabled = cs.enabled;
             wc.output.sends.push_back(std::move(wS));
         }
@@ -1256,7 +1268,7 @@ std::string WebServer::buildStateJson(const char* view) const {
                 for (const auto& cs : song.clickSends) {
                     WClickSendTelemetry wcs;
                     wcs.busId = cs.busId;
-                    wcs.gainDb = finiteOrZero(cs.gainDb);
+                    wcs.level = finiteOrZero(cs.level);
                     wcs.enabled = cs.enabled;
                     wSong.clickSends.push_back(std::move(wcs));
                 }
@@ -1499,6 +1511,39 @@ std::string WebServer::buildStateJson(const char* view) const {
         wLt.name = lt.name;
         wLt.fixtureIds = lt.fixtureIds;
         wire.lighting.tracks.push_back(std::move(wLt));
+    }
+
+    if (wantMixGraph) {
+        WMixGraphTelemetry wG;
+        wG.strips.reserve(snap.mixGraph.strips.size());
+        for (const auto& st : snap.mixGraph.strips) {
+            WMixStripTelemetry wS;
+            wS.id = st.id;
+            wS.name = st.name;
+            wS.kind = st.kind;
+            wS.soloGroup = st.soloGroup;
+            wS.channels = st.channels;
+            wS.gainDb = finiteOrZero(st.gainDb);
+            wS.pan = finiteOrZero(st.pan);
+            wS.mute = st.mute;
+            wS.solo = st.solo;
+            wS.audible = st.audible;
+            wS.physicalChannel = st.physicalChannel;
+            wS.peakDb = finiteOrDbFloor(st.peakDb);
+            wG.strips.push_back(std::move(wS));
+        }
+        wG.edges.reserve(snap.mixGraph.edges.size());
+        for (const auto& e : snap.mixGraph.edges) {
+            WMixEdgeTelemetry wE;
+            wE.from = e.from;
+            wE.to = e.to;
+            wE.level = finiteOrZero(e.level);
+            wE.preFader = e.preFader;
+            wE.active = e.active;
+            wE.sourceChannel = e.sourceChannel;
+            wG.edges.push_back(std::move(wE));
+        }
+        wire.mixGraph = std::move(wG);
     }
 
     if (wantHealth) {

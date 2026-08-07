@@ -1,8 +1,12 @@
 import { Button, ScrollShadow } from "@heroui/react";
 import {
   ChevronDown,
+  Gauge,
+  LayoutGrid,
   Pause,
   Play,
+  Rows3,
+  SignalHigh,
   SkipBack,
   SkipForward,
   Square,
@@ -37,6 +41,10 @@ function formatTime(sec: number): string {
 // One accent for every Direct Output lane (regardless of pairing), so the
 // device outputs read as a single family in the preview.
 const DIRECT_OUT_COLOR = "#7c3aed";
+/** TRACK_COLORS[1] -- the same green the timeline uses. A lone output lane is
+ *  a mono feed (a wedge, a sub, a mono IEM), and telling that apart from a
+ *  stereo pair at a glance matters more on the player than colour variety. */
+const MONO_OUT_COLOR = "#30d158";
 const BUS_ACCENT_CYCLE = ["#30d158", "#ff9230", "#db34f2", "#00d2e0", "#ffd600"];
 
 /** "audio::out:3" or "direct:3" -> 3; anything else -> null. */
@@ -166,7 +174,7 @@ function busMeterGroups(
       groups.push({
         id: `out:${laneA}`,
         name: `Out ${laneA}`,
-        accent: DIRECT_OUT_COLOR,
+        accent: MONO_OUT_COLOR,
         meters: [a],
       });
       i += 1;
@@ -348,7 +356,22 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
 
 type BusMeterMode = "bars" | "vu";
 
+/**
+ * How much fits on screen at once.
+ *
+ * "comfortable" is the original layout: full-size meters in a single row that
+ * scrolls sideways. It reads well from a metre away, which is what matters
+ * with four or five busses.
+ *
+ * "compact" trades size for count -- meters shrink and wrap, and the panel
+ * scrolls VERTICALLY instead. A rig with a master, four sends and a dozen
+ * output lanes is unusable as one long horizontal strip; nothing past the
+ * third meter is ever on screen.
+ */
+type BusMeterDensity = "comfortable" | "compact";
+
 const BUS_METER_MODE_KEY = "resostage.player.busMeterMode";
+const BUS_METER_DENSITY_KEY = "resostage.player.busMeterDensity";
 
 function readBusMeterMode(): BusMeterMode {
   try {
@@ -360,8 +383,49 @@ function readBusMeterMode(): BusMeterMode {
   return "vu";
 }
 
+function readBusMeterDensity(): BusMeterDensity {
+  try {
+    const saved = localStorage.getItem(BUS_METER_DENSITY_KEY);
+    if (saved === "comfortable" || saved === "compact") return saved;
+  } catch {
+    /* private mode */
+  }
+  return "comfortable";
+}
+
+/** Header icon toggle. Small, unlabelled, and always in the same two slots. */
+function MeterModeButton({
+  active,
+  title,
+  onPress,
+  children,
+}: {
+  active: boolean;
+  title: string;
+  onPress: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      onClick={onPress}
+      className={`flex h-6 w-6 items-center justify-center rounded-md border transition-colors ${
+        active
+          ? "border-accent/50 bg-accent/20 text-accent"
+          : "border-default/40 bg-default/10 text-foreground/45 hover:bg-default/25 hover:text-foreground/80"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function BusMetersPanel({ state }: { state: WebUiState }) {
   const [mode, setMode] = useState<BusMeterMode>(readBusMeterMode);
+  const [density, setDensity] = useState<BusMeterDensity>(readBusMeterDensity);
   useEffect(() => {
     try {
       localStorage.setItem(BUS_METER_MODE_KEY, mode);
@@ -369,6 +433,14 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
       /* best-effort */
     }
   }, [mode]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(BUS_METER_DENSITY_KEY, density);
+    } catch {
+      /* best-effort */
+    }
+  }, [density]);
+  const compact = density === "compact";
   const groups = busMeterGroups(
     state.meters,
     state.busses,
@@ -400,23 +472,40 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
         <span className="text-[11px] font-bold uppercase tracking-widest text-foreground/35">
           Bus meters
         </span>
-        <div className="flex gap-1">
-          <Button
-            size="sm"
-            variant={mode === "bars" ? "secondary" : "outline"}
-            onPress={() => setMode("bars")}
-            className="!h-6 !min-h-0 !px-2 text-[10px]"
-          >
-            Simple
-          </Button>
-          <Button
-            size="sm"
-            variant={mode === "vu" ? "secondary" : "outline"}
-            onPress={() => setMode("vu")}
-            className="!h-6 !min-h-0 !px-2 text-[10px]"
-          >
-            VU
-          </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1">
+            <MeterModeButton
+              active={mode === "bars"}
+              title="Bar meters"
+              onPress={() => setMode("bars")}
+            >
+              <SignalHigh size={13} />
+            </MeterModeButton>
+            <MeterModeButton
+              active={mode === "vu"}
+              title="VU meters"
+              onPress={() => setMode("vu")}
+            >
+              <Gauge size={13} />
+            </MeterModeButton>
+          </div>
+          <div className="h-4 w-px bg-default/40" />
+          <div className="flex gap-1">
+            <MeterModeButton
+              active={density === "comfortable"}
+              title="Comfortable — full size, scrolls sideways"
+              onPress={() => setDensity("comfortable")}
+            >
+              <Rows3 size={13} />
+            </MeterModeButton>
+            <MeterModeButton
+              active={compact}
+              title="Compact — fits more, scrolls vertically"
+              onPress={() => setDensity("compact")}
+            >
+              <LayoutGrid size={13} />
+            </MeterModeButton>
+          </div>
         </div>
       </div>
 
@@ -426,15 +515,23 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
         </div>
       ) : mode === "vu" ? (
         <ScrollShadow
-          orientation="horizontal"
-          className="flex min-h-0 flex-1 items-center gap-4 p-3"
+          orientation={compact ? "vertical" : "horizontal"}
+          className={
+            compact
+              ? "flex min-h-0 flex-1 flex-wrap content-start justify-center gap-2 p-2"
+              : "flex min-h-0 flex-1 items-center gap-4 p-3"
+          }
         >
           {groups.map((g) => {
             const db = Math.max(...g.meters.map((m) => m.peakDb));
             return (
               <div
                 key={g.id}
-                className="flex h-full w-[176px] shrink-0 items-center"
+                className={
+                  compact
+                    ? "flex h-[88px] w-[104px] shrink-0 items-center"
+                    : "flex h-full w-[176px] shrink-0 items-center"
+                }
               >
                 <VUMeter
                   name={g.name}
@@ -448,8 +545,12 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
         </ScrollShadow>
       ) : (
         <ScrollShadow
-          orientation="horizontal"
-          className="flex min-h-0 flex-1 items-center gap-3 p-4"
+          orientation={compact ? "vertical" : "horizontal"}
+          className={
+            compact
+              ? "flex min-h-0 flex-1 flex-wrap content-start justify-center gap-x-2 gap-y-1 p-2"
+              : "flex min-h-0 flex-1 items-center gap-3 p-4"
+          }
         >
           {groups.map((g) => {
             const m0 = g.meters[0];
@@ -469,9 +570,18 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
             return (
               <div
                 key={g.id}
-                className="flex h-full flex-col items-center justify-between gap-1.5 py-1"
+                className={
+                  compact
+                    ? "flex h-[104px] w-[68px] shrink-0 flex-col items-center justify-between gap-0.5"
+                    : "flex h-full flex-col items-center justify-between gap-1.5 py-1"
+                }
               >
-                <div className="truncate text-center text-xs font-semibold text-foreground/80 w-[72px]">
+                <div
+                  className={`truncate text-center font-semibold text-foreground/80 ${
+                    compact ? "w-[64px] text-[10px]" : "w-[72px] text-xs"
+                  }`}
+                  title={g.name}
+                >
                   {g.name}
                 </div>
                 <div className="flex h-full min-h-0 flex-1 items-center justify-center">
@@ -489,10 +599,14 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
                     vertical={true}
                     showValue={false}
                     className="h-full"
-                    barClassName="h-full w-1.5"
+                    barClassName={compact ? "h-full w-1" : "h-full w-1.5"}
                   />
                 </div>
-                <div className="text-center text-[10px] tabular-nums text-foreground/50">
+                <div
+                  className={`text-center tabular-nums text-foreground/50 ${
+                    compact ? "text-[9px]" : "text-[10px]"
+                  }`}
+                >
                   <div
                     className={
                       db > -3
@@ -504,9 +618,13 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
                   >
                     {db <= -99 ? "−∞" : db.toFixed(1)} dB
                   </div>
-                  <div className="text-[9px] text-foreground/35">
-                    {lufs <= -144 ? "−∞ L" : `${lufs.toFixed(1)} L`}
-                  </div>
+                  {/* LUFS is the first thing to go when space is tight -- peak
+                      is what you glance at during a show. */}
+                  {!compact && (
+                    <div className="text-[9px] text-foreground/35">
+                      {lufs <= -144 ? "−∞ L" : `${lufs.toFixed(1)} L`}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -595,7 +713,7 @@ export function PlayerScreen({
         []
       ).map((cs) => ({
         busId: cs.busId,
-        gainDb: cs.gainDb,
+        level: cs.level,
         enabled: cs.enabled,
       })),
     });
@@ -619,10 +737,7 @@ export function PlayerScreen({
         cs.busId === busId ? { ...cs, enabled: !cs.enabled } : cs,
       );
     } else {
-      newSends = [
-        ...clickSends,
-        { busId, gainDb: 0.0, enabled: true },
-      ];
+      newSends = [...clickSends, { busId, level: 100, enabled: true }];
     }
     patchProjectClick({ clickSends: newSends });
   };

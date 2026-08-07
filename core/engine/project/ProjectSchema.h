@@ -43,16 +43,22 @@ enum class OutputType {
     Main,      // fold pre-egress into Master's own signal (Master's gain/pan/mute govern it)
     SendsOnly, // no main route, audible only via `sends`
     ExtOut,    // exclusive physical channel(s), see `target`
+    // Main route into an aux/group bus, `target` = that bus id. Distinct from
+    // an `sends` row: this is where the source's signal GOES, not an extra
+    // tap off it. Not spelled "send" because `sends` already means the aux
+    // taps, and a type named after them would read as one.
+    Bus,
 };
 
 // A track/click's output: may fan out to aux sends in addition to its main
-// route. `target` is only meaningful for ExtOut: a single physical channel
+// route. `target` is set for ExtOut -- a single physical channel
 // ("audio::out:11") or a stereo pair as two comma-joined mono channels
-// ("audio::out:3,audio::out:4") -- there are no persisted stereo-pair bus
-// objects, a stereo target is always a pair of mono physical channels.
+// ("audio::out:3,audio::out:4"); there are no persisted stereo-pair bus
+// objects, a stereo target is always a pair of mono physical channels -- and
+// for Bus, where it is the destination bus id ("audio::send:2").
 struct SourceOutput {
     OutputType type = OutputType::Main;
-    std::optional<std::string> target; // null unless type == ExtOut
+    std::optional<std::string> target; // null unless type is ExtOut or Bus
     std::vector<SendConfig> sends;
 };
 

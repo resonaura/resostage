@@ -9,13 +9,23 @@ import { useEffect, useRef, useState } from "react";
 export const SEND_FLOOR_DB = -60;
 
 /**
+ * Unity, and the knob's hard ceiling. A send's level is stored as the
+ * schema's 0-100 LINEAR percent, so 100% (= 0 dB) is the most that can ever
+ * be persisted -- SendConfig::level clamps there. The knob used to run to
+ * +6 dB, which meant a send saved at 100% still showed a fifth of the arc
+ * unfilled and let you keep dragging into a range the format silently threw
+ * away. The ceiling is the format's, not a taste call.
+ */
+export const SEND_CEILING_DB = 0;
+
+/**
  * Ableton-style arc send knob. Shared so any surface that exposes aux sends
  * (mixer strips today) uses the same look and drag feel.
  */
 export function SendArcKnob({
   value,
   min = SEND_FLOOR_DB,
-  max = 6,
+  max = SEND_CEILING_DB,
   busColor,
   title,
   onChange,

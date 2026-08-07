@@ -24,6 +24,11 @@
     // frontend greys out exactly the strips the engine is silencing instead of
     // re-deriving the grouping rule and drifting from it.
     const char* busSoloGroupAt(size_t index) const;
+
+    // The graph the audio thread is currently rendering. Null until the first
+    // publish. Handed out so telemetry can describe the REAL signal flow --
+    // the Settings diagram draws this, not a second guess at the same rules.
+    std::shared_ptr<const MixGraph> mixGraph() const { return publishedGraph; }
     const char* trackSoloGroup() const;
     bool anySoloInGroup(const char* groupName) const;
 

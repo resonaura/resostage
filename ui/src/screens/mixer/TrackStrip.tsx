@@ -64,7 +64,12 @@ export function TrackStrip({
         auxBusses,
         values: outputSendsToClickRows(t.output),
         trackIndex: index,
-        onRemoveSend: (sBusId) => void mixer.removeTrackSend(index, sBusId),
+        onSendEnabledChange: (sBusId, enabled) => {
+          const current = outputSendsToClickRows(t.output).find(
+            (s) => s.busId === sBusId,
+          );
+          void mixer.setTrackSend(index, sBusId, current?.level ?? 100, enabled);
+        },
       }}
       gainDb={t.gainDb ?? 0}
       pan={t.pan ?? 0}

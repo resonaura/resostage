@@ -19,23 +19,6 @@
 namespace resostage {
 namespace audio_engine_detail {
 
-// Maps a track/click SourceOutput onto the flat "route id" string the SPA
-// and the Builder still speak: a bus id, a comma-compound of Direct Output
-// lane ids, or "" for no main route. Purely a presentation/back-compat
-// shape -- the actual routing is edges in the MixGraph, built from the
-// SourceOutput directly (see engine/audio/MixGraph.cpp).
-inline std::string mainRouteId(const SourceOutput& out) {
-    switch (out.type) {
-        case OutputType::Main:
-            return "audio::main";
-        case OutputType::ExtOut:
-            return out.target.value_or("");
-        case OutputType::SendsOnly:
-        default:
-            return "";
-    }
-}
-
 inline float dbToGain(double db) {
     if (db <= -144.0)
         return 0.0f;

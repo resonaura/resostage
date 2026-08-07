@@ -162,6 +162,9 @@ struct MixGraph {
 // the audio thread through RoutingEngine).
 MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs);
 
+// Wire name for a strip kind: "track" | "click" | "send" | "main" | "output".
+const char* stripKindName(StripKind kind);
+
 // Wire name for a solo group. Published per mixer row so the SPA can grey out
 // exactly the strips the engine is silencing, instead of re-deriving the
 // grouping rule (and drifting from it) in TypeScript.

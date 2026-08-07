@@ -1,4 +1,5 @@
 import { apiUrl } from "./backend";
+import type { MixGraphPayload } from "../components/audio/signalFlowLayout";
 import type {
   AllPeaksResponse,
   EventTypeWire,
@@ -62,6 +63,19 @@ export async function fetchPeaks(): Promise<PeaksResponse> {
 export async function fetchAllPeaks(): Promise<AllPeaksResponse> {
   const res = await fetch(apiUrl("/api/v1/player/peaks-all"));
   return (await res.json()) as AllPeaksResponse;
+}
+
+/**
+ * The signal flow the audio thread is rendering right now -- a verbatim
+ * projection of the engine's MixGraph (core/engine/audio/MixGraph.h).
+ *
+ * Deliberately its own endpoint rather than part of the 30 Hz state frame:
+ * it only changes when routing does, and only one screen ever wants it.
+ */
+export async function fetchMixGraph(): Promise<MixGraphPayload> {
+  const res = await fetch(apiUrl("/api/v1/audio/mixgraph"));
+  const body = (await res.json()) as { mixGraph?: MixGraphPayload };
+  return body.mixGraph ?? { strips: [], edges: [] };
 }
 
 export interface WaveformRawResponse {
@@ -129,16 +143,30 @@ export const mixer = {
   // AudioEngine::setClickSolo(). `index` is unused (server ignores it).
   setClickSolo: (value: boolean) =>
     post("/api/v1/click/solo", { index: 0, value }),
-  // Ableton-style send knob: find-or-create this track's send to busId at
-  // gainDb. Matches native MixerStrip::onSendChanged -- turning a knob up
-  // from its floor implicitly creates the send, no separate "add" call
-  // needed. See MainComponent::setTrackSendFromJson().
-  setTrackSend: (trackIndex: number, busId: string, gainDb: number) =>
-    post("/api/v1/mixer/track/send", { trackIndex, busId, gainDb }),
-  // Actually erases the track's TrackSendDef for busId (as opposed to
-  // setTrackSend'ing it down to SEND_FLOOR_DB, which just silences it but
-  // leaves the send entry -- and its sendsCount -- in place). See
-  // MainComponent::removeTrackSendFromJson()/AudioEngine::removeTrackSend().
+  /**
+   * Find-or-create this track's send to busId at `level`, the schema's own
+   * 0-100 LINEAR percent (100 = unity / 0 dB). Turning a knob up from its
+   * floor implicitly creates the send, so there is no separate "add" call.
+   *
+   * `enabled` is optional and omitted by the knob: leaving it out means
+   * "just move the level", so muting a send from the context menu and then
+   * nudging its knob doesn't silently switch it back on.
+   */
+  setTrackSend: (
+    trackIndex: number,
+    busId: string,
+    level: number,
+    enabled?: boolean,
+  ) =>
+    post("/api/v1/mixer/track/send", {
+      trackIndex,
+      busId,
+      level,
+      ...(enabled === undefined ? {} : { enabled }),
+    }),
+  // Actually erases the track's TrackSendDef for busId (as opposed to setting
+  // its level to 0 or disabling it, both of which keep the send entry). Still
+  // used by "Remove all sends" in the strip context menu.
   removeTrackSend: (trackIndex: number, busId: string) =>
     post("/api/v1/mixer/track/send/remove", { trackIndex, busId }),
 };
@@ -238,7 +266,7 @@ export const builder = {
     clickPan?: number;
     clickMono?: boolean;
     clickName?: string;
-    clickSends: { busId: string; gainDb: number; enabled: boolean }[];
+    clickSends: { busId: string; level: number; enabled: boolean }[];
   }) => post("/api/v1/builder/song/update", patch),
 
   trackAdd: (songIndex: number) =>

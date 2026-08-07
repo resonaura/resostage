@@ -1,7 +1,7 @@
 import { LevelMeterBar } from "../../components/LevelMeterBar";
 import { useChannelClipHold } from "../../hooks/useChannelClipHold";
 import { Knob } from "../../components/Knob";
-import type { BusRow, SettingsState } from "../../lib/types";
+import type { BusRow, ClickSendRow, SettingsState } from "../../lib/types";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
 import { SendKnobs } from "./SendKnobs";
@@ -89,10 +89,11 @@ export function ChannelStrip({
   };
   sends?: {
     auxBusses: BusRow[];
-    values: { busId: string; gainDb: number }[];
+    values: ClickSendRow[];
     trackIndex: number;
-    onSendChange?: (busId: string, gainDb: number) => void;
-    onRemoveSend?: (busId: string) => void;
+    /** Overrides the default per-track write. `level` is 0-100 percent. */
+    onSendChange?: (busId: string, level: number, enabled?: boolean) => void;
+    onSendEnabledChange?: (busId: string, enabled: boolean) => void;
   };
   busDestination?: React.ReactNode;
   gainDb: number;
@@ -233,7 +234,7 @@ export function ChannelStrip({
           sends={sends.values}
           trackIndex={sends.trackIndex}
           onSendChange={sends.onSendChange}
-          onRemoveSend={sends.onRemoveSend}
+          onSendEnabledChange={sends.onSendEnabledChange}
         />
       )}
 

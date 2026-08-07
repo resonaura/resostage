@@ -10,6 +10,7 @@
 #include "MainComponent.h"
 #include "engine/AudioEngineInternal.h"
 #include "project/ProjectJson.h"
+#include "project/RouteId.h"
 #include "server/BuilderJson.h"
 
 #include <algorithm>
@@ -167,18 +168,10 @@ void MainComponent::builderSongUpdate(const std::string& json) {
         clickTouched = true;
     }
     if (getString(doc, "clickBusId", strVal)) {
-        // Same 3-way route mapping as a track's main route: "" = Sends Only,
-        // "audio::main" = Main, otherwise an ext-out target.
-        if (strVal.empty()) {
-            proj.click.output.type = OutputType::SendsOnly;
-            proj.click.output.target.reset();
-        } else if (strVal == "audio::main") {
-            proj.click.output.type = OutputType::Main;
-            proj.click.output.target.reset();
-        } else {
-            proj.click.output.type = OutputType::ExtOut;
-            proj.click.output.target = strVal;
-        }
+        // Same flat route id a track's main destination uses -- one decoder
+        // for both, so the metronome can never end up supporting a different
+        // set of destinations than a track (see engine/project/RouteId.h).
+        applyRouteId(proj.click.output, strVal, proj);
         clickTouched = true;
     }
     if (getDouble(doc, "clickGainDb", numVal)) {
@@ -347,7 +340,7 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
 
     engine.setTrackGainDb(0, static_cast<size_t>(index), t.gainDb);
     engine.setTrackPan(0, static_cast<size_t>(index), t.pan);
-    engine.setTrackBusId(0, static_cast<size_t>(index), audio_engine_detail::mainRouteId(t.output));
+    engine.setTrackBusId(0, static_cast<size_t>(index), routeIdOf(t.output));
     engine.setTrackMute(0, static_cast<size_t>(index), t.mute);
     engine.setTrackSolo(0, static_cast<size_t>(index), t.solo);
     engine.setTrackMono(0, static_cast<size_t>(index), t.channels == 1);
@@ -638,34 +631,42 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
     glz::generic doc;
     int trackIndex = -1;
     std::string busId;
-    double gainDb = 0.0;
-    if (!parseJson(json, doc) || !getInt(doc, "trackIndex", trackIndex) || !getString(doc, "busId", busId)
-        || !getDouble(doc, "gainDb", gainDb) || !engine.isProjectLoaded())
+    double level = 0.0;
+    if (!parseJson(json, doc) || !getInt(doc, "trackIndex", trackIndex)
+        || !getString(doc, "busId", busId) || !getDouble(doc, "level", level)
+        || !engine.isProjectLoaded())
         return;
+    // `level` is the schema's own unit: 0-100 LINEAR percent, 100 = unity.
+    // The wire used to carry dB and convert here, which is why a send saved
+    // at "100%" could never be set to exactly 0 or exactly 100 from the UI --
+    // the round trip through dB and back always landed just off.
+    level = std::clamp(level, 0.0, 100.0);
+
+    // Absent `enabled` means "just move the level" -- an enabled send stays
+    // enabled, and turning a knob up from the floor implicitly creates one.
+    bool enabled = true;
+    const bool enabledGiven = getBool(doc, "enabled", enabled);
+
     const size_t idx = static_cast<size_t>(trackIndex);
     const size_t songIdx = engine.currentSongIndex();
     const TrackDef* t = engine.trackDefAt(idx);
     if (t == nullptr)
         return;
 
-    // Mirrors MixerPanel.cpp's onSendChanged: find this track's existing send
-    // to busId and update its level, or create one if this is the first time
-    // (turning a knob up from its floor implicitly creates the send).
-    const double level = sendDbToLevel(gainDb);
     for (size_t si = 0; si < t->output.sends.size(); ++si) {
         if (t->output.sends[si].bus == busId) {
             SendConfig updated = t->output.sends[si];
             updated.level = level;
-            updated.enabled = true;
+            updated.enabled = enabledGiven ? enabled : updated.enabled;
             engine.setTrackSend(songIdx, idx, si, updated);
-    notifyRoutingChanged();
+            notifyRoutingChanged();
             return;
         }
     }
     SendConfig newSend;
     newSend.bus = busId;
     newSend.level = level;
-    newSend.enabled = true;
+    newSend.enabled = enabledGiven ? enabled : true;
     engine.addTrackSend(songIdx, idx, newSend);
     notifyRoutingChanged();
 }

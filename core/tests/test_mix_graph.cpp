@@ -1,6 +1,7 @@
 #include "doctest.h"
 
 #include "audio/MixGraph.h"
+#include "project/RouteId.h"
 
 #include <algorithm>
 
@@ -168,6 +169,55 @@ TEST_CASE("buildMixGraph: a send routed to Main folds into it instead of grabbin
     const MixGraph g = buildMixGraph(p, outputs16());
     CHECK(hasEdge(g, "audio::send:2", "audio::main"));
     CHECK_FALSE(hasEdge(g, "audio::send:2", "audio::out:1"));
+}
+
+TEST_CASE("buildMixGraph: a track whose main route targets an aux lands on that bus") {
+    Project p = makeProject();
+    p.tracks[0].output.type = OutputType::Bus;
+    p.tracks[0].output.target = "audio::send:2";
+
+    const MixGraph g = buildMixGraph(p, outputs16());
+    CHECK(hasEdge(g, "audio::track:1", "audio::send:2"));
+    CHECK_FALSE(hasEdge(g, "audio::track:1", "audio::main"));
+    // ...and it is a real edge, not a lane lookup that quietly found nothing.
+    const auto into = edgesInto(g, "audio::send:2");
+    REQUIRE(into.size() == 1);
+    CHECK(into[0]->gainLinear == doctest::Approx(1.0f));
+}
+
+TEST_CASE("buildMixGraph: a bus-routed source still runs forward, so no cycle") {
+    Project p = makeProject();
+    p.tracks[0].output.type = OutputType::Bus;
+    p.tracks[0].output.target = "audio::send:1";
+    p.click.output.type = OutputType::Bus;
+    p.click.output.target = "audio::send:1";
+
+    const MixGraph g = buildMixGraph(p, outputs16());
+    for (const MixEdge& e : g.edges)
+        CHECK(e.from < e.to);
+}
+
+TEST_CASE("buildMixGraph: a bus is never allowed to route into another bus") {
+    Project p = makeProject();
+    // Bus -> Bus is the one edge that could close a feedback loop.
+    p.sends[0].output.type = OutputType::Bus;
+    p.sends[0].output.target = "audio::send:2";
+
+    const MixGraph g = buildMixGraph(p, outputs16());
+    CHECK_FALSE(hasEdge(g, "audio::send:1", "audio::send:2"));
+    for (const MixEdge& e : g.edges)
+        CHECK(e.from < e.to);
+}
+
+TEST_CASE("buildMixGraph: a main route at a deleted bus is dropped, not turned into a lane") {
+    Project p = makeProject();
+    p.tracks[0].output.type = OutputType::Bus;
+    p.tracks[0].output.target = "audio::send:99";
+
+    const MixGraph g = buildMixGraph(p, outputs16());
+    const uint32_t track = g.find("audio::track:1");
+    for (const MixEdge& e : g.edges)
+        CHECK(e.from != track);
 }
 
 TEST_CASE("buildMixGraph: send rows become edges carrying their 0-100 level") {
@@ -391,4 +441,54 @@ TEST_CASE("buildMixGraph: an empty project still yields a usable master and lane
     CHECK(g.find("audio::main") != MixGraph::kNoStrip);
     CHECK(hasEdge(g, "audio::main", "audio::out:1"));
     CHECK(hasEdge(g, "audio::main", "audio::out:2"));
+}
+
+// ── Flat route ids (engine/project/RouteId.h) ───────────────────────────────
+
+TEST_CASE("routeId: every destination the UI can pick survives a round trip") {
+    Project p = makeProject();
+
+    struct Case {
+        const char* routeId;
+        OutputType expected;
+    };
+    const Case cases[] = {
+        {"", OutputType::SendsOnly},
+        {"audio::main", OutputType::Main},
+        {"audio::send:1", OutputType::Bus},
+        {"audio::send:2", OutputType::Bus},
+        {"audio::out:11", OutputType::ExtOut},
+        {"audio::out:3,audio::out:4", OutputType::ExtOut},
+    };
+
+    for (const Case& c : cases) {
+        SourceOutput output;
+        applyRouteId(output, c.routeId, p);
+        CHECK(output.type == c.expected);
+        // The flat id the SPA sent must be exactly what it reads back, or the
+        // destination <select> snaps to something the user never chose.
+        CHECK(routeIdOf(output) == c.routeId);
+    }
+}
+
+TEST_CASE("routeId: an unknown id is treated as an output lane, never as a bus") {
+    Project p = makeProject();
+    SourceOutput output;
+    applyRouteId(output, "audio::send:99", p);
+    // No such bus -> falls through to ext-out, where buildMixGraph finds no
+    // lanes and simply produces no edges (silent, but never mis-routed).
+    CHECK(output.type == OutputType::ExtOut);
+}
+
+TEST_CASE("routeId: applying a new destination clears the previous target") {
+    Project p = makeProject();
+    SourceOutput output;
+    applyRouteId(output, "audio::out:5", p);
+    REQUIRE(output.target.has_value());
+    applyRouteId(output, "audio::main", p);
+    CHECK(output.type == OutputType::Main);
+    CHECK_FALSE(output.target.has_value());
+    applyRouteId(output, "", p);
+    CHECK(output.type == OutputType::SendsOnly);
+    CHECK_FALSE(output.target.has_value());
 }

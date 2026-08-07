@@ -119,7 +119,7 @@ struct WSourceOutput {
 // duplicate it for Builder convenience.
 struct WClickSendTelemetry {
     std::string busId;
-    double gainDb = 0.0;
+    double level = 100.0; // 0-100 LINEAR percent, same unit as SendConfig::level
     bool enabled = true;
 };
 
@@ -415,6 +415,39 @@ struct WLightingTelemetry {
     std::vector<WDiscoveredBoardTelemetry> discoveredBoards;
 };
 
+// ── Signal flow diagram ──────────────────────────────────────────────────────
+// A direct projection of the engine's published MixGraph (see
+// core/engine/audio/MixGraph.h). Shipped only for the "mixgraph" view.
+
+struct WMixStripTelemetry {
+    std::string id;
+    std::string name;
+    std::string kind;
+    std::string soloGroup;
+    int channels = 2;
+    double gainDb = 0.0;
+    double pan = 0.0;
+    bool mute = false;
+    bool solo = false;
+    bool audible = true;
+    int physicalChannel = -1;
+    double peakDb = -144.0;
+};
+
+struct WMixEdgeTelemetry {
+    std::string from;
+    std::string to;
+    double level = 100.0;
+    bool preFader = false;
+    bool active = true;
+    int sourceChannel = -1;
+};
+
+struct WMixGraphTelemetry {
+    std::vector<WMixStripTelemetry> strips;
+    std::vector<WMixEdgeTelemetry> edges;
+};
+
 struct WProcessTelemetry {
     int pid = 0;
     std::string name;
@@ -518,6 +551,9 @@ struct WEngineTelemetryPayload {
     std::optional<std::vector<WBusTelemetry>> busses;
 
     WLightingTelemetry lighting; // fixtures + light tracks both nested inside
+
+    // Only present for the "mixgraph" view -- see WebUiState::MixGraphRow.
+    std::optional<WMixGraphTelemetry> mixGraph;
 
     std::optional<WHealthTelemetry> health;
     WSettingsTelemetry settings;

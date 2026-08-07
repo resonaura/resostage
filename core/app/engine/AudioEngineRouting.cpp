@@ -13,6 +13,7 @@
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
 #include "project/ProjectJson.h"
+#include "project/RouteId.h"
 
 #include <algorithm>
 #include <string>
@@ -22,7 +23,6 @@
 namespace resostage {
 
 using audio_engine_detail::dbToGain;
-using audio_engine_detail::mainRouteId;
 
 void AudioEngine::ensureTrackMeters(size_t count) {
     trackMeters.resize(count);
@@ -238,22 +238,9 @@ void AudioEngine::setTrackBusId(size_t songIndex, size_t trackIndex, const std::
     TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
-    // `busId` is really "route id" here (kept the old parameter name for a
-    // minimal API diff): "" = Sends Only, "audio::main" = Main, otherwise an
-    // ext-out target (a single id or a comma compound of mono Direct Output
-    // lanes, e.g. "audio::out:1,audio::out:2"). Rendering fans the track
-    // into every currently-live lane; a missing lane (unavailable output) is
-    // dropped to silence and self-restores, so we never reject or mangle it.
-    if (busId.empty()) {
-        t->output.type = OutputType::SendsOnly;
-        t->output.target.reset();
-    } else if (busId == "audio::main") {
-        t->output.type = OutputType::Main;
-        t->output.target.reset();
-    } else {
-        t->output.type = OutputType::ExtOut;
-        t->output.target = busId;
-    }
+    // `busId` is the flat route id the SPA speaks -- see engine/project/
+    // RouteId.h for the whole vocabulary and the single place it is decoded.
+    applyRouteId(t->output, busId, loader.project());
     publishRoutingSnapshot();
 }
 

@@ -72,6 +72,17 @@ bool OutputLaneConfig::isActive(int channel) const {
     return channel < static_cast<int>(active.size()) && active[static_cast<size_t>(channel)];
 }
 
+const char* stripKindName(StripKind kind) {
+    switch (kind) {
+        case StripKind::Track: return "track";
+        case StripKind::Click: return "click";
+        case StripKind::Send: return "send";
+        case StripKind::Main: return "main";
+        case StripKind::OutputLane: return "output";
+    }
+    return "track";
+}
+
 const char* soloGroupName(SoloGroup group) {
     switch (group) {
         case SoloGroup::Sources: return "sources";
@@ -303,6 +314,12 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
             case OutputType::Main:
                 addEdge(from, mainStrip, 1.0f, /*preFader=*/false, /*sourceChannel=*/-1);
                 break;
+            case OutputType::Bus:
+                // Main route into an aux/group bus. Always forward (sources
+                // precede busses in `strips`), so it cannot form a cycle.
+                addEdge(from, graph.find(output.target.value_or("")), 1.0f,
+                        /*preFader=*/false, /*sourceChannel=*/-1);
+                break;
             case OutputType::ExtOut:
                 addExtOutEdges(from, output.target, 1.0f, /*preFader=*/false);
                 break;
@@ -335,8 +352,13 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
             case OutputType::ExtOut:
                 addExtOutEdges(from, send.output.target, 1.0f, /*preFader=*/false);
                 break;
+            case OutputType::Bus:
             case OutputType::SendsOnly:
-                break; // not a valid bus destination; renders silent
+                // Neither is a valid bus destination. Bus -> Bus is refused on
+                // purpose: it is the one edge that could close a cycle, and a
+                // feedback loop in a live rig is not a thing to discover on
+                // stage. Renders silent.
+                break;
         }
     }
 

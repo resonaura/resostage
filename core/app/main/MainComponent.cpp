@@ -4,6 +4,7 @@
 #include "platform/MacShellMode.h"
 #include "platform/TrayIcon.h"
 #include "project/ProjectJson.h"
+#include "project/RouteId.h"
 #include "timing/BarSeek.h"
 #include "server/BuilderJson.h"
 
@@ -955,18 +956,20 @@ void MainComponent::publishWebState() {
     state.projectName = proj.name;
     state.click = proj.click.enabled;
     state.clickName = proj.click.name.empty() ? "Click" : proj.click.name;
-    state.clickBusId = audio_engine_detail::mainRouteId(proj.click.output);
+    state.clickBusId = routeIdOf(proj.click.output);
     state.clickGainDb = proj.click.gainDb;
     state.clickPan = proj.click.pan;
     state.clickMono = proj.click.channels == 1;
     state.clickSolo = proj.click.solo;
+    state.clickOutputType = outputTypeToString(proj.click.output.type);
+    state.clickOutputTarget = proj.click.output.target.value_or("");
     state.clickSoloGroup = engine.trackSoloGroup();
     state.clickSoloActiveInGroup = engine.anySoloInGroup(state.clickSoloGroup.c_str());
     state.clickSends.clear();
     for (const SendConfig& cs : proj.click.output.sends) {
         WebUiState::ClickSendRow csr;
         csr.busId = cs.bus;
-        csr.gainDb = sendLevelToDb(cs.level);
+        csr.level = cs.level;
         csr.enabled = cs.enabled;
         state.clickSends.push_back(std::move(csr));
     }
@@ -1015,12 +1018,12 @@ void MainComponent::publishWebState() {
         // Metronome is project-global — mirror onto every song row so older
         // SPA code that still reads song.click / song.clickSends stays correct.
         row.click = proj.click.enabled;
-        row.clickBusId = audio_engine_detail::mainRouteId(proj.click.output);
+        row.clickBusId = routeIdOf(proj.click.output);
         row.clickGainDb = proj.click.gainDb;
         for (const SendConfig& cs : proj.click.output.sends) {
             WebUiState::SongRow::ClickSendRow csr;
             csr.busId = cs.bus;
-            csr.gainDb = sendLevelToDb(cs.level);
+            csr.level = cs.level;
             csr.enabled = cs.enabled;
             row.clickSends.push_back(std::move(csr));
         }
@@ -1211,6 +1214,63 @@ void MainComponent::publishWebState() {
             br.peakDbR = frame.peakDbR;
         }
         state.busses.push_back(std::move(br));
+    }
+
+    // Signal-flow diagram data: a direct projection of the graph the audio
+    // thread is rendering right now. Deliberately a copy of the engine's own
+    // structure rather than a re-derivation -- the whole value of the diagram
+    // is that it cannot disagree with what you hear.
+    state.mixGraph.strips.clear();
+    state.mixGraph.edges.clear();
+    if (const auto graph = engine.mixGraph()) {
+        state.mixGraph.strips.reserve(graph->strips.size());
+        for (const MixStrip& strip : graph->strips) {
+            WebUiState::MixGraphRow::StripRow row;
+            row.id = strip.id;
+            row.name = strip.name;
+            row.kind = stripKindName(strip.kind);
+            row.soloGroup = soloGroupName(strip.soloGroup);
+            row.channels = strip.channels;
+            // The graph stores linear gain; the diagram labels dB like every
+            // other surface does.
+            row.gainDb = strip.gainLinear > 0.0f
+                             ? 20.0 * std::log10(static_cast<double>(strip.gainLinear))
+                             : -144.0;
+            row.pan = strip.pan;
+            row.mute = strip.mute;
+            row.solo = strip.solo;
+            row.audible = strip.audible;
+            row.physicalChannel = strip.physicalChannel;
+            // Live level, so the diagram shows which paths are actually
+            // carrying signal rather than only how they are wired.
+            if (strip.kind == StripKind::Click) {
+                row.peakDb = state.clickPeakDb;
+            } else if (strip.kind == StripKind::Track) {
+                if (strip.projectIndex < state.tracks.size())
+                    row.peakDb = state.tracks[strip.projectIndex].peakDb;
+            } else {
+                for (const auto& bus : state.busses) {
+                    if (bus.id == strip.id) {
+                        row.peakDb = bus.peakDb;
+                        break;
+                    }
+                }
+            }
+            state.mixGraph.strips.push_back(std::move(row));
+        }
+        state.mixGraph.edges.reserve(graph->edges.size());
+        for (const MixEdge& edge : graph->edges) {
+            if (edge.from >= graph->strips.size() || edge.to >= graph->strips.size())
+                continue;
+            WebUiState::MixGraphRow::EdgeRow row;
+            row.from = graph->strips[edge.from].id;
+            row.to = graph->strips[edge.to].id;
+            row.level = static_cast<double>(edge.gainLinear) * 100.0;
+            row.preFader = edge.preFader;
+            row.active = edge.active;
+            row.sourceChannel = edge.sourceChannel;
+            state.mixGraph.edges.push_back(std::move(row));
+        }
     }
 
     state.lighting.enabled = proj.lighting.enabled;

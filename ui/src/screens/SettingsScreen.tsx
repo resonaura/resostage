@@ -1,6 +1,7 @@
-import { Card, Tabs } from "@heroui/react";
+import { Button, Card, Tabs } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, Music3, SlidersHorizontal } from "lucide-react";
+import { Activity, Music3, SlidersHorizontal, Workflow } from "lucide-react";
+import { SignalFlowDialog } from "../components/audio/SignalFlowDialog";
 import { FontIcon } from "../components/FontIcon";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
@@ -262,6 +263,7 @@ function Section({
 
 // ─── Audio Tab ────────────────────────────────────────────────────────────
 function AudioTab({ state }: { state: WebUiState }) {
+  const [flowOpen, setFlowOpen] = useState(false);
   const s = state.settings;
   const outputDevices =
     s.outputDevices.length > 0
@@ -295,6 +297,20 @@ function AudioTab({ state }: { state: WebUiState }) {
           restart ResoStage (the native backend on :2899 must be running).
         </div>
       )}
+
+      <Section
+        title="Signal Flow"
+        description="Every route the engine is currently rendering: tracks and the metronome through sends and the master, out to physical channels. Mute, solo and send levels are shown live."
+      >
+        <div>
+          <Button size="sm" variant="outline" onPress={() => setFlowOpen(true)}>
+            <Workflow size={14} />
+            View signal flow
+          </Button>
+        </div>
+      </Section>
+
+      {flowOpen && <SignalFlowDialog onClose={() => setFlowOpen(false)} />}
 
       <Section title="Output Device">
         <Field label="Output device">

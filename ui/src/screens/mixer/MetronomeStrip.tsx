@@ -96,25 +96,24 @@ export function MetronomeStrip({
         auxBusses,
         values: clickSends,
         trackIndex: -1,
-        onSendChange: (busId, gainDb) => {
+        onSendChange: (busId, level, enabled) => {
           const existing = clickSends.find((cs) => cs.busId === busId);
-          let updatedSends: typeof clickSends;
-          if (existing) {
-            updatedSends = clickSends.map((cs) =>
-              cs.busId === busId
-                ? { ...cs, gainDb, enabled: gainDb > -59 }
-                : cs,
-            );
-          } else {
-            updatedSends = [
-              ...clickSends,
-              { busId, gainDb, enabled: gainDb > -59 },
-            ];
-          }
+          const updatedSends = existing
+            ? clickSends.map((cs) =>
+                cs.busId === busId
+                  ? { ...cs, level, enabled: enabled ?? cs.enabled }
+                  : cs,
+              )
+            : [...clickSends, { busId, level, enabled: enabled ?? true }];
           patchClick({ clickSends: updatedSends });
         },
-        onRemoveSend: (busId) => {
-          const updatedSends = clickSends.filter((cs) => cs.busId !== busId);
+        onSendEnabledChange: (busId, enabled) => {
+          const existing = clickSends.find((cs) => cs.busId === busId);
+          const updatedSends = existing
+            ? clickSends.map((cs) =>
+                cs.busId === busId ? { ...cs, enabled } : cs,
+              )
+            : [...clickSends, { busId, level: 100, enabled }];
           patchClick({ clickSends: updatedSends });
         },
       }}

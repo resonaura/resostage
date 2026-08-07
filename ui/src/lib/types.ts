@@ -89,9 +89,13 @@ export interface SongEventRow {
 }
 
 /** Per-song flat click mirror (back-compat for SPA code reading song.click). */
+/** One aux send row as the send controls consume it. `level` is the schema's
+ *  own 0-100 LINEAR percent (100 = unity / 0 dB) -- deliberately NOT dB, so
+ *  "set to 0%" and "set to 100%" land on exactly 0 and exactly 100 instead of
+ *  whatever a dB round trip happens to produce. */
 export interface ClickSendRow {
   busId: string;
-  gainDb: number;
+  level: number;
   enabled: boolean;
 }
 
@@ -420,6 +424,14 @@ export function sendLevelToDb(level: number): number {
   return 20 * Math.log10(level / 100);
 }
 
+/** The dB a send strip shows → SendConfig.level (0..100 linear percent).
+ *  Exact mirror of ProjectJson.h sendDbToLevel(), including its clamp: the
+ *  format cannot store a send above unity, so neither can the UI. */
+export function sendDbToLevel(db: number): number {
+  if (!Number.isFinite(db)) return 0;
+  return Math.min(100, Math.max(0, Math.pow(10, db / 20) * 100));
+}
+
 /** Wire sends (output.sends) → the flat {busId, gainDb, enabled} rows the
  *  mixer send controls and the per-song flat click mirror consume. */
 export function outputSendsToClickRows(
@@ -428,7 +440,7 @@ export function outputSendsToClickRows(
   if (!output) return [];
   return (output.sends ?? []).map((s) => ({
     busId: s.bus,
-    gainDb: sendLevelToDb(s.level),
+    level: s.level,
     enabled: s.enabled ?? true,
   }));
 }
