@@ -2,6 +2,7 @@
 
 #include "audio/WavStreamDecoder.h"
 #include "platform/MenuModel.h"
+#include "project/ProjectJson.h"
 #include "project/ProjectLoader.h"
 #include "server/WireTypes.h"
 
@@ -1204,24 +1205,25 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.wsHz = effectiveTelemetryHz();
 
     if (wantClick) {
-        wire.click = snap.click;
-        wire.clickName = snap.clickName.empty() ? "Click" : snap.clickName;
-        wire.clickBusId = snap.clickBusId;
-        wire.clickGainDb = finiteOrZero(snap.clickGainDb);
-        wire.clickPan = finiteOrZero(snap.clickPan);
-        wire.clickMono = snap.clickMono;
-        wire.clickSolo = snap.clickSolo;
-
-        std::vector<WClickSendTelemetry> csVec;
-        csVec.reserve(snap.clickSends.size());
+        WClickTelemetry wc;
+        wc.enabled = snap.click;
+        wc.name = snap.clickName.empty() ? "Click" : snap.clickName;
+        wc.gainDb = finiteOrZero(snap.clickGainDb);
+        wc.pan = finiteOrZero(snap.clickPan);
+        wc.channels = snap.clickMono ? 1 : 2;
+        wc.solo = snap.clickSolo;
+        // Snapshot still routes click by flat bus-id string (empty = Sends
+        // Only, else Main -- click output never ExtOut).
+        wc.output.type = snap.clickBusId.empty() ? "sends-only" : "main";
+        wc.output.sends.reserve(snap.clickSends.size());
         for (const auto& cs : snap.clickSends) {
-            WClickSendTelemetry wcs;
-            wcs.busId = cs.busId;
-            wcs.gainDb = finiteOrZero(cs.gainDb);
-            wcs.enabled = cs.enabled;
-            csVec.push_back(std::move(wcs));
+            WSendConfig wS;
+            wS.bus = cs.busId;
+            wS.level = sendDbToLevel(finiteOrZero(cs.gainDb));
+            wS.enabled = cs.enabled;
+            wc.output.sends.push_back(std::move(wS));
         }
-        wire.clickSends = std::move(csVec);
+        wire.click = std::move(wc);
         wire.clickPeakDb = finiteOrDbFloor(snap.clickPeakDb);
         wire.clickPeakDbL = finiteOrDbFloor(snap.clickPeakDbL);
         wire.clickPeakDbR = finiteOrDbFloor(snap.clickPeakDbR);
@@ -1263,19 +1265,23 @@ std::string WebServer::buildStateJson(const char* view) const {
                 WRegionTelemetry wReg;
                 wReg.id = r.id;
                 wReg.trackId = r.trackId;
-                wReg.file = r.file;
                 wReg.startSeconds = finiteOrZero(r.startSeconds);
-                wReg.sourceOffsetSeconds = finiteOrZero(r.sourceOffsetSeconds);
                 wReg.durationSeconds = finiteOrZero(r.durationSeconds);
                 wReg.gainDb = finiteOrZero(r.gainDb);
+                wReg.source.file = r.source.file;
+                wReg.source.offsetSeconds = finiteOrZero(r.source.offsetSeconds);
 
                 if (wantSongsFull || isPlayer) {
-                    wReg.fadeInSeconds = finiteOrZero(r.fadeInSeconds);
-                    wReg.fadeOutSeconds = finiteOrZero(r.fadeOutSeconds);
-                    wReg.fadeInCurve = finiteOrZero(r.fadeInCurve);
-                    wReg.fadeOutCurve = finiteOrZero(r.fadeOutCurve);
-                    wReg.loop = r.loop;
-                    wReg.loopLengthSeconds = finiteOrZero(r.loopLengthSeconds);
+                    WRegionFade wFade;
+                    wFade.inSeconds = finiteOrZero(r.fade.inSeconds);
+                    wFade.outSeconds = finiteOrZero(r.fade.outSeconds);
+                    wFade.inCurve = finiteOrZero(r.fade.inCurve);
+                    wFade.outCurve = finiteOrZero(r.fade.outCurve);
+                    wReg.fade = wFade;
+                    WRegionLoop wLoop;
+                    wLoop.enabled = r.loop.enabled;
+                    wLoop.lengthSeconds = finiteOrZero(r.loop.lengthSeconds);
+                    wReg.loop = wLoop;
                 }
                 wSong.regions.push_back(std::move(wReg));
             }
@@ -1317,22 +1323,22 @@ std::string WebServer::buildStateJson(const char* view) const {
                 wLc.trackId = lc.trackId;
                 wLc.startSeconds = finiteOrZero(lc.startSeconds);
                 wLc.durationSeconds = finiteOrZero(lc.durationSeconds);
-                wLc.colorR = lc.colorR;
-                wLc.colorG = lc.colorG;
-                wLc.colorB = lc.colorB;
+                wLc.color.r = lc.color.r;
+                wLc.color.g = lc.color.g;
+                wLc.color.b = lc.color.b;
                 wLc.intensity = finiteOrZero(lc.intensity);
-                wLc.fadeInSeconds = finiteOrZero(lc.fadeInSeconds);
-                wLc.fadeOutSeconds = finiteOrZero(lc.fadeOutSeconds);
+                wLc.fade.inSeconds = finiteOrZero(lc.fade.inSeconds);
+                wLc.fade.outSeconds = finiteOrZero(lc.fade.outSeconds);
                 wLc.label = lc.label;
-                wLc.effectType = lc.effectType;
-                wLc.effectSourceType = lc.effectSourceType;
-                wLc.effectSourceId = lc.effectSourceId;
-                wLc.effectIntensity = finiteOrZero(lc.effectIntensity);
-                wLc.tempoSync = lc.tempoSync;
-                wLc.tempoSubdiv = lc.tempoSubdiv;
-                wLc.effectRateHz = finiteOrZero(lc.effectRateHz);
-                wLc.gradientPreset = lc.gradientPreset;
-                wLc.gradientColors = lc.gradientColors;
+                wLc.effect.type = lc.effect.type;
+                wLc.effect.sourceType = lc.effect.sourceType;
+                wLc.effect.sourceId = lc.effect.sourceId;
+                wLc.effect.intensity = finiteOrZero(lc.effect.intensity);
+                wLc.effect.tempoSync = lc.effect.tempoSync;
+                wLc.effect.tempoSubdivision = lc.effect.tempoSubdivision;
+                wLc.effect.rateHz = finiteOrZero(lc.effect.rateHz);
+                wLc.gradient.preset = lc.gradient.preset;
+                wLc.gradient.colors = lc.gradient.colors;
                 wLc.blendMode = lc.blendMode;
                 wSong.lightCues.push_back(std::move(wLc));
             }
@@ -1344,8 +1350,8 @@ std::string WebServer::buildStateJson(const char* view) const {
         WCycleTelemetry cyc;
         cyc.active = snap.cycle.active;
         cyc.skip = snap.cycle.skip;
-        cyc.leftSec = finiteOrZero(snap.cycle.leftSec);
-        cyc.rightSec = finiteOrZero(snap.cycle.rightSec);
+        cyc.startSeconds = finiteOrZero(snap.cycle.startSeconds);
+        cyc.endSeconds = finiteOrZero(snap.cycle.endSeconds);
         cyc.songIndex = snap.cycle.songIndex;
         wire.cycle = cyc;
     }
@@ -1372,18 +1378,21 @@ std::string WebServer::buildStateJson(const char* view) const {
             WTrackTelemetry wT;
             wT.id = t.id;
             wT.name = t.name;
-            wT.busId = t.busId;
+            wT.channels = t.channels;
             wT.gainDb = finiteOrZero(t.gainDb);
             wT.pan = finiteOrZero(t.pan);
             wT.mute = t.mute;
             wT.solo = t.solo;
-            wT.mono = t.mono;
-            wT.sends.reserve(t.sends.size());
-            for (const auto& s : t.sends) {
-                WSendTelemetry wS;
-                wS.busId = s.busId;
-                wS.gainDb = finiteOrZero(s.gainDb);
-                wT.sends.push_back(std::move(wS));
+            wT.output.type = t.output.type;
+            wT.output.target = t.output.target;
+            wT.output.sends.reserve(t.output.sends.size());
+            for (const auto& s : t.output.sends) {
+                WSendConfig wS;
+                wS.bus = s.bus;
+                wS.level = s.level;
+                wS.preFader = s.preFader;
+                wS.enabled = s.enabled;
+                wT.output.sends.push_back(std::move(wS));
             }
             wT.peakDb = finiteOrDbFloor(t.peakDb);
             wT.peakDbL = finiteOrDbFloor(t.peakDbL);
@@ -1418,19 +1427,20 @@ std::string WebServer::buildStateJson(const char* view) const {
     const auto& li = snap.lighting;
     wire.lighting.enabled = li.enabled;
     wire.lighting.kind = li.kind;
-    wire.lighting.resoLightColumns = li.resoLightColumns;
-    wire.lighting.resoLightRows = li.resoLightRows;
-    wire.lighting.idleBehavior = li.idleBehavior;
-    wire.lighting.idleColorR = li.idleColorR;
-    wire.lighting.idleColorG = li.idleColorG;
-    wire.lighting.idleColorB = li.idleColorB;
-    wire.lighting.idleIntensity = finiteOrZero(li.idleIntensity);
-    wire.lighting.idleEffectType = li.idleEffectType;
-    wire.lighting.idleEffectRateHz = finiteOrZero(li.idleEffectRateHz);
-    wire.lighting.idleGradientPreset = li.idleGradientPreset;
-    wire.lighting.idleGradientColors = li.idleGradientColors;
+    wire.lighting.resoLight.columns = li.resoLight.columns;
+    wire.lighting.resoLight.rows = li.resoLight.rows;
+    wire.lighting.idle.behavior = li.idle.behavior;
+    wire.lighting.idle.color.r = li.idle.color.r;
+    wire.lighting.idle.color.g = li.idle.color.g;
+    wire.lighting.idle.color.b = li.idle.color.b;
+    wire.lighting.idle.intensity = finiteOrZero(li.idle.intensity);
+    wire.lighting.idle.effect.type = li.idle.effect.type;
+    wire.lighting.idle.effect.rateHz = finiteOrZero(li.idle.effect.rateHz);
+    wire.lighting.idle.gradient.preset = li.idle.gradient.preset;
+    wire.lighting.idle.gradient.colors = li.idle.gradient.colors;
     wire.lighting.defaultRefreshRateHz = finiteOrZero(li.defaultRefreshRateHz);
-    wire.lighting.artNetTargetHost = li.artNetTargetHost;
+    if (!li.artNetTargetHost.empty())
+        wire.lighting.artNetTargetHost = li.artNetTargetHost;
 
     wire.lighting.fixtures.reserve(li.fixtures.size());
     for (const auto& f : li.fixtures) {
@@ -1438,22 +1448,22 @@ std::string WebServer::buildStateJson(const char* view) const {
         wF.id = f.id;
         wF.name = f.name;
         wF.kind = f.kind;
-        wF.gridColumn = f.gridColumn;
-        wF.gridRow = f.gridRow;
+        wF.grid.column = f.grid.column;
+        wF.grid.row = f.grid.row;
         wF.ledCount = f.ledCount;
         wF.addressable = f.addressable;
-        wF.posX = finiteOrZero(f.posX);
-        wF.posY = finiteOrZero(f.posY);
-        wF.posZ = finiteOrZero(f.posZ);
-        wF.rotationYDeg = finiteOrZero(f.rotationYDeg);
+        wF.position.x = finiteOrZero(f.position.x);
+        wF.position.y = finiteOrZero(f.position.y);
+        wF.position.z = finiteOrZero(f.position.z);
+        wF.rotation.y = finiteOrZero(f.rotation.y);
         wF.mountedHorizontally = f.mountedHorizontally;
-        wF.dmxUniverse = f.dmxUniverse;
-        wF.dmxStartChannel = f.dmxStartChannel;
-        wF.dmxChannelCount = f.dmxChannelCount;
+        wF.dmx.universe = f.dmx.universe;
+        wF.dmx.startChannel = f.dmx.startChannel;
+        wF.dmx.channelCount = f.dmx.channelCount;
         wF.shape = f.shape;
-        wF.matrixCols = f.matrixCols;
+        wF.matrixColumns = f.matrixColumns;
         wF.channelProfile = f.channelProfile;
-        wF.tiltDeg = finiteOrZero(f.tiltDeg);
+        wF.tiltDegrees = finiteOrZero(f.tiltDegrees);
         wF.refreshRateHz = finiteOrZero(f.refreshRateHz);
         wF.networkHost = f.networkHost;
         wF.hwConfigured = f.hwConfigured;

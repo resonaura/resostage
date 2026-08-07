@@ -170,7 +170,7 @@ export function AudioRegionBlock({
           <TrackWaveformLane
             levels={peakLevels}
             durationSeconds={fileDuration}
-            regionFile={songRegion.file}
+            regionFile={songRegion.source.file}
             gestureActive={gestureActive}
             verticalZoom={verticalZoom}
             contentWidth={regionWidth}

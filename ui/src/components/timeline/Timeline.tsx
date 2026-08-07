@@ -605,8 +605,8 @@ export function Timeline({
       typeof sc.songIndex === "number" &&
       sc.songIndex >= 0
     ) {
-      const lo = Math.min(sc.leftSec, sc.rightSec);
-      const hi = Math.max(sc.leftSec, sc.rightSec);
+      const lo = Math.min(sc.startSeconds, sc.endSeconds);
+      const hi = Math.max(sc.startSeconds, sc.endSeconds);
       if (hi - lo >= 0.05) {
         const off = songOffsets[sc.songIndex] ?? 0;
         wrap = { loAbs: off + lo, hiAbs: off + hi };

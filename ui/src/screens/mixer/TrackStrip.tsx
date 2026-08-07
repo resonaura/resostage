@@ -1,10 +1,12 @@
 import { mixer } from "../../lib/api";
 import { getLiveLevels } from "../../lib/liveLevels";
-import type {
-  BusRow,
-  MeterRow,
-  SettingsState,
-  TrackRow,
+import {
+  outputSendsToClickRows,
+  sourceOutputBusId,
+  type BusRow,
+  type MeterRow,
+  type SettingsState,
+  type TrackRow,
 } from "../../lib/types";
 import { ChannelStrip } from "./ChannelStrip";
 import { colorForIndex } from "./constants";
@@ -36,7 +38,8 @@ export function TrackStrip({
   ) => void;
 }) {
   const color = colorForIndex(index);
-  const busMeter = meters.find((m) => m.id === t.busId);
+  const busId = sourceOutputBusId(t.output);
+  const busMeter = meters.find((m) => m.id === busId);
   const peakDb = t.peakDb ?? busMeter?.peakDb;
   const peakDbL = t.peakDbL ?? busMeter?.peakDbL ?? peakDb;
   const peakDbR = t.peakDbR ?? busMeter?.peakDbR ?? peakDb;
@@ -47,21 +50,21 @@ export function TrackStrip({
       subtitle={`Track ${index + 1}`}
       color={color}
       busses={destinationBusses}
-      busId={t.busId}
+      busId={busId}
       onBusSelect={(bId) => mixer.setTrackBus(index, bId)}
       directOutput={{
         settings,
         allBusses,
-        mono: Boolean(t.mono),
+        mono: t.channels === 1,
         onMonoChange: (m) => void mixer.setTrackMono(index, m),
         onDirectOutput: (mono, ch, pair) =>
           onDirectOutput(index, mono, ch, pair),
       }}
       sends={{
         auxBusses,
-        values: t.sends,
+        values: outputSendsToClickRows(t.output),
         trackIndex: index,
-        onRemoveSend: (busId) => void mixer.removeTrackSend(index, busId),
+        onRemoveSend: (sBusId) => void mixer.removeTrackSend(index, sBusId),
       }}
       gainDb={t.gainDb ?? 0}
       pan={t.pan ?? 0}

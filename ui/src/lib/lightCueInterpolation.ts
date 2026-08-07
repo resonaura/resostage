@@ -71,8 +71,8 @@ export function resolveLightCueValue(
   if (active === null) return BLACK;
 
   const dur = Math.max(0, active.durationSeconds);
-  const fadeIn = Math.min(Math.max(active.fadeInSeconds, 0), dur);
-  const fadeOut = Math.min(Math.max(active.fadeOutSeconds, 0), dur - fadeIn);
+  const fadeIn = Math.min(Math.max(active.fade.inSeconds, 0), dur);
+  const fadeOut = Math.min(Math.max(active.fade.outSeconds, 0), dur - fadeIn);
   const t = timeSeconds - active.startSeconds;
   const fadeOutStart = dur - fadeOut;
 
@@ -82,9 +82,9 @@ export function resolveLightCueValue(
     level = Math.max(0, (dur - t) / fadeOut);
 
   return {
-    r: active.colorR,
-    g: active.colorG,
-    b: active.colorB,
+    r: active.color.r,
+    g: active.color.g,
+    b: active.color.b,
     intensity: active.intensity * level,
   };
 }

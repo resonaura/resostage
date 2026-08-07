@@ -60,15 +60,14 @@ function cueKey(songIndex: number, cueId: string): string {
  * Fades share the cue duration without overlapping (same clamp as the side
  * panel sliders / lightCueInterpolation). */
 function cueClipPath(
-  cue: Pick<
-    LightCueRow,
-    "durationSeconds" | "fadeInSeconds" | "fadeOutSeconds"
-  >,
+  cue: Pick<LightCueRow, "durationSeconds"> & {
+    fade: Pick<LightCueRow["fade"], "inSeconds" | "outSeconds">;
+  },
   pxPerSec: number,
 ): string | undefined {
   const dur = Math.max(0, cue.durationSeconds);
-  const fi = Math.min(Math.max(0, cue.fadeInSeconds), dur);
-  const fo = Math.min(Math.max(0, cue.fadeOutSeconds), Math.max(0, dur - fi));
+  const fi = Math.min(Math.max(0, cue.fade.inSeconds), dur);
+  const fo = Math.min(Math.max(0, cue.fade.outSeconds), Math.max(0, dur - fi));
   const fadeInPx = fi * pxPerSec;
   const fadeOutPx = fo * pxPerSec;
   if (fadeInPx <= 0 && fadeOutPx <= 0) return undefined;
@@ -77,23 +76,19 @@ function cueClipPath(
 
 /** Shared fill for timeline cues and player/hint previews. */
 function lightCueFill(
-  cue: Pick<
-    LightCueRow,
-    | "colorR"
-    | "colorG"
-    | "colorB"
-    | "intensity"
-    | "effectType"
-    | "gradientPreset"
-  >,
+  cue: Pick<LightCueRow, "intensity"> & {
+    color: Pick<LightCueRow["color"], "r" | "g" | "b">;
+    effect: Pick<LightCueRow["effect"], "type">;
+    gradient: Pick<LightCueRow["gradient"], "preset">;
+  },
 ): { background: string; opacity: number; isOwnColor: boolean } {
-  const cueEt = cue.effectType as EffectType;
-  const isOwnColor = effectUsesOwnColor(cueEt, cue.gradientPreset);
+  const cueEt = cue.effect.type as EffectType;
+  const isOwnColor = effectUsesOwnColor(cueEt, cue.gradient.preset);
   return {
     isOwnColor,
     background: isOwnColor
       ? "rgb(80, 85, 100)"
-      : `rgb(${cue.colorR},${cue.colorG},${cue.colorB})`,
+      : `rgb(${cue.color.r},${cue.color.g},${cue.color.b})`,
     opacity: Math.max(isOwnColor ? 0.45 : 0.12, cue.intensity),
   };
 }
@@ -132,8 +127,8 @@ function LightCueBody({
   const clip = cueClipPath(cue, pxPerSec);
   const labelText =
     (label ?? cue.label) ||
-    (cue.effectType && cue.effectType !== "none"
-      ? EFFECT_META[cue.effectType as EffectType]?.label || cue.effectType
+    (cue.effect.type && cue.effect.type !== "none"
+      ? EFFECT_META[cue.effect.type as EffectType]?.label || cue.effect.type
       : "");
   const labelShown = showLabel && Boolean(labelText) && widthPx > 24;
 
@@ -304,7 +299,7 @@ export function AudioHintStrip({
               return (song.regions ?? [])
                 .filter(
                   (r) =>
-                    Boolean(r.file) &&
+                    Boolean(r.source.file) &&
                     (r.trackId === track?.id || r.trackId === row.name),
                 )
                 .map((r) => {
@@ -345,7 +340,7 @@ export function AudioHintStrip({
                       <TrackWaveformLane
                         levels={peakEntry?.levels ?? []}
                         durationSeconds={fileDur}
-                        regionFile={r.file}
+                        regionFile={r.source.file}
                         gestureActive={false}
                         verticalZoom={AUDIO_HINT_WAVEFORM_ZOOM}
                         contentWidth={widthPx}
@@ -354,7 +349,7 @@ export function AudioHintStrip({
                         pxPerSec={pxPerSec}
                         color={row.color}
                         muted={false}
-                        sourceOffsetSec={r.sourceOffsetSeconds}
+                        sourceOffsetSec={r.source.offsetSeconds}
                         embedded
                       />
                     </div>
@@ -808,9 +803,9 @@ export function LightTrackLane({
               );
               const labelText =
                 cue.label ||
-                (cue.effectType && cue.effectType !== "none"
-                  ? EFFECT_META[cue.effectType as EffectType]?.label ||
-                    cue.effectType
+                (cue.effect.type && cue.effect.type !== "none"
+                  ? EFFECT_META[cue.effect.type as EffectType]?.label ||
+                    cue.effect.type
                   : "");
               const edge = hoverEdge[cue.id];
               return (

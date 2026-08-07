@@ -1,5 +1,10 @@
 // Mirrors WebServer::buildStateJson() in app/web/WebServer.cpp exactly --
 // keep these two in sync by hand (there's no shared schema generator yet).
+//
+// The wire contract mirrors the on-disk project format's canonical nested keys
+// (see core/engine/project/ProjectJson.cpp's project_json_wire DTOs). Send
+// levels are the schema's 0-100 LINEAR percent (100 == unity / 0 dB), NOT dB
+// values -- see sendLevelToDb/sendDbToLevel on the C++ side.
 
 export type EventTypeWire =
   | "programChange"
@@ -9,9 +14,45 @@ export type EventTypeWire =
   | "http"
   | "dmx";
 
+/** One aux send from a track/click into a send bus. level is 0-100 LINEAR
+ *  percent (100 = unity/0 dB). */
+export interface SendConfig {
+  bus: string;
+  level: number;
+  preFader?: boolean;
+  enabled?: boolean;
+}
+
+/** A track/click source output: main route + aux sends ("main" only ever
+ *  means Master; there are no stereo-pair bus objects -- aside from the
+ *  send bus css all send buses are per-momo-lane). */
+export interface SourceOutput {
+  type: "main" | "sends-only" | "ext-out";
+  /** null unless type === "ext-out"; a stereo target is a pair of mono
+   *  channels joined with a comma. */
+  target?: string | null;
+  sends: SendConfig[];
+}
+
+export interface Click {
+  enabled: boolean;
+  name: string;
+  /** 1 = mono (force L=R, ignore pan), 2 = stereo. */
+  channels: number;
+  gainDb: number;
+  pan: number;
+  mute: boolean;
+  /** Joins the same solo group as a TrackDef. */
+  solo: boolean;
+  /** Click output -- type is main or sends-only, never ext-out. */
+  output: SourceOutput;
+}
+
 export interface SongTrackRow {
   id: string;
   name: string;
+  /** Route target as a flat legacy string ("" = Sends Only, "audio::main" =
+   *  Main, else an ext-out target). Kept for back-compat reads. */
   busId: string;
   file: string;
   gainDb: number;
@@ -36,28 +77,43 @@ export interface SongEventRow {
   httpUrl: string;
 }
 
+/** Per-song flat click mirror (back-compat for SPA code reading song.click). */
 export interface ClickSendRow {
   busId: string;
   gainDb: number;
   enabled: boolean;
 }
 
+export interface RegionSource {
+  file: string;
+  offsetSeconds: number;
+}
+
+export interface RegionFade {
+  /** Curvature [-1, 1]: 0 linear, + ease-out, − ease-in. */
+  inCurve?: number;
+  outCurve?: number;
+  inSeconds: number;
+  outSeconds: number;
+}
+
+export interface RegionLoop {
+  /** When true, source content repeats to fill durationSeconds. */
+  enabled: boolean;
+  /** 0 = remaining source material. */
+  lengthSeconds?: number;
+}
+
 export interface RegionRow {
   id: string;
   trackId: string;
-  file: string;
   startSeconds: number;
-  sourceOffsetSeconds: number;
   durationSeconds: number;
   gainDb: number;
-  fadeInSeconds: number;
-  fadeOutSeconds: number;
-  /** Fade curvature [-1, 1]: 0 linear, + ease-out, − ease-in. */
-  fadeInCurve?: number;
-  fadeOutCurve?: number;
-  /** When true, source content repeats to fill durationSeconds. */
-  loop?: boolean;
-  loopLengthSeconds?: number;
+  source: RegionSource;
+  /** View-scoped: absent unless the frame conveys region detail. */
+  fade?: RegionFade;
+  loop?: RegionLoop;
 }
 
 // Structural marker (Intro/Verse/Chorus/Bridge/Outro/Solo/custom). A point,
@@ -70,95 +126,85 @@ export interface SectionRow {
   colorIndex: number;
 }
 
+export type LightEffectType =
+  | "none"
+  | "meter"
+  | "strobe"
+  | "pulse"
+  | "ripple"
+  | "converge"
+  | "gradientflow"
+  | "chase"
+  | "helix"
+  | "plasma"
+  | "twinkle"
+  | "sonicboom"
+  | "fire"
+  | "bouncing"
+  | "drip"
+  | "fireworks"
+  | "colorwaves"
+  | "strobeswipe"
+  | "vupeak"
+  | "geq"
+  | "blurz"
+  | "scanner"
+  | "lightning"
+  | "barberpole"
+  | "";
+
+export type GradientPreset =
+  | "solid"
+  | "greenYellowRed"
+  | "custom"
+  | "vulcanFire"
+  | "toxicFire"
+  | "cryoFire"
+  | "cyberpunkFire"
+  | "";
+
+export type LightBlendMode =
+  | "normal"
+  | "additive"
+  | "multiply"
+  | "difference"
+  | "lighten"
+  | "subtractive"
+  | "";
+
 // A single light cue block placed on a song's Light timeline -- mirrors
 // SectionRow above. Color is fixed for the cue's span; fadeIn/fadeOut ramp
-// intensity only (see engine/lighting/LightCueInterpolation.h).
+// intensity only (see engine/lighting/LightCueInterpolation.h). Mirrors the
+// on-disk LightCue exactly (nested color/effect/gradient/fade).
 export interface LightCueRow {
   id: string;
   trackId: string;
   startSeconds: number;
   durationSeconds: number;
-  colorR: number; // 0-255
-  colorG: number;
-  colorB: number;
+  color: { r: number; g: number; b: number }; // 0-255
   intensity: number; // 0-1
-  fadeInSeconds: number;
-  fadeOutSeconds: number;
-  label: string;
-  // Audio-reactive effect -- mirrors LightCue's own fields in
-  // ProjectSchema.h exactly (persisted, resolved by LightEngine AND
-  // MainComponent's WebUiState push through the same
-  // engine/lighting/LightOutputResolver.h call -- see lightOutput below).
-  effectType:
-    | "none"
-    | "meter"
-    | "strobe"
-    | "pulse"
-    | "ripple"
-    | "converge"
-    | "gradientflow"
-    | "chase"
-    | "helix"
-    | "plasma"
-    | "twinkle"
-    | "sonicboom"
-    | "fire"
-    | "bouncing"
-    | "drip"
-    | "fireworks"
-    | "colorwaves"
-    | "strobeswipe"
-    | "vupeak"
-    | "geq"
-    | "blurz"
-    | "scanner"
-    | "lightning"
-    | "barberpole"
-    | "";
-  effectSourceType: "bus" | "track" | "";
-  effectSourceId: string;
-  effectIntensity: number; // 0-1 depth of the effect
-  tempoSync: boolean;
-  tempoSubdiv: string; // "2"|"1"|"1/2"|"1/3"|"1/4"|"1/6"|"1/8"|"1/16"|"1/32"|"1/64"
-  effectRateHz: number; // used when tempoSync is false
-  gradientPreset:
-    | "solid"
-    | "greenYellowRed"
-    | "custom"
-    | "vulcanFire"
-    | "toxicFire"
-    | "cryoFire"
-    | "cyberpunkFire"
-    | "";
-  gradientColors?: string;
-  // How this cue composites onto another track's simultaneously-active cue
-  // on the same fixture (base/accent layering) -- see LightBlend.h. No
-  // effect unless the fixture is driven by more than one LightTrack.
-  blendMode?:
-    | "normal"
-    | "additive"
-    | "multiply"
-    | "difference"
-    | "lighten"
-    | "subtractive"
-    | "";
+  fade: { inSeconds: number; outSeconds: number };
+  label?: string;
+  // Audio-reactive effect -- persisted, resolved by the exact same
+  // engine/lighting/LightOutputResolver.h call LightEngine's real-time DMX
+  // thread uses (see lightOutput below).
+  effect: {
+    type?: LightEffectType | null; // null = no effect
+    sourceType: "bus" | "track";
+    sourceId?: string | null; // null = master mix / first bus
+    intensity: number; // 0-1 depth of the effect
+    tempoSync: boolean;
+    tempoSubdivision: string; // "2"|"1"|"1/2"|"1/3"|"1/4"|"1/6"|"1/8"|"1/16"|"1/32"|"1/64"
+    rateHz: number; // used when tempoSync is false
+  };
+  gradient: {
+    preset: GradientPreset;
+    colors?: string | null; // CSV #RRGGBB stops; null/empty = preset/base color
+  };
+  // See LightBlend.h -- only meaningful when the fixture is driven by another
+  // LightTrack active at the same instant.
+  blendMode?: LightBlendMode;
 }
-
-/**
- * Single project-wide cycle. left/right are song-local seconds on `songIndex`.
- * Not per-song — there is only one zone in the project.
- */
-export interface ProjectCycleRow {
-  active: boolean;
-  skip: boolean;
-  leftSec: number;
-  rightSec: number;
-  /** Song the locators belong to (-1 = unset). */
-  songIndex: number;
-}
-
-/** @deprecated Use ProjectCycleRow */
-export type SongCycleRow = ProjectCycleRow;
 
 export interface SongRow {
   name: string;
@@ -185,22 +231,16 @@ export interface MeterRow {
   shortTermLufs: number;
 }
 
-export interface TrackSendRow {
-  busId: string;
-  gainDb: number;
-}
-
 export interface TrackRow {
   id: string;
   name: string;
-  busId: string;
+  /** 1 = mono (stereo regions summed L+R before pan/sends). */
+  channels: number;
   gainDb: number;
   pan: number;
   mute: boolean;
   solo: boolean;
-  /** Force mono sum of the stem before pan/sends. */
-  mono?: boolean;
-  sends: TrackSendRow[];
+  output: SourceOutput;
   peakDb: number;
   peakDbL?: number;
   peakDbR?: number;
@@ -230,13 +270,11 @@ export interface BusRow {
 }
 
 // ── Canonical output-routing model ──────────────────────────────────────────
-// The wire still carries a track's route as a bus string (TrackRow.busId), but
-// the client model represents it as a discriminated Output. Direct egress uses
-// 1-based mono lanes; ids ALWAYS count from 1 (never a 0-based output):
-//   ""                     -> Sends Only
-//   the main bus id        -> Main
-//   "direct:3"             -> Ext. Out single mono lane 3 (physical channel 2)
-//   "direct:1,direct:2"    -> Ext. Out stereo = BOTH mono lanes 1 and 2
+// The wire carries a track's route as the on-disk SourceOutput object
+// (type/target/sends). This client-side discriminated Output is the layer the
+// mixer UI edits on top of that. Direct egress uses 1-based mono lanes:
+//   type main / sends-only → target "audio::main" or "";
+//   type ext-out           → target holds 1-based mono lanes ("audio::out:3").
 // There are no stereo-pair bus objects; a stereo target is a pair of mono lanes.
 // See ui/src/screens/mixer/MixerScreen.tsx and directOutput.ts.
 
@@ -305,61 +343,97 @@ export function channelLabelForBus(
   return channels >= 2 ? (`${a}/${a + 1}` as StereoPairChannel) : (`${a}` as MonoChannel);
 }
 
-/** Map the wire's bus-id routing back onto the canonical Output model.
- *  A direct route uses comma-separated 1-based mono lanes ("direct:1",
- *  "direct:1,direct:2"); main/aux use their bus id; "" is sends-only. */
+/** Map back from the edge of a nested SourceOutput (TS direct-output/unrecognized
+ *  target strings) onto the canonical Output model. Accepts either the modern
+ *  wire object or the legacy flat bus string ("" = sends-only). */
+export function outputFromWire(
+  output: { type?: string; target?: string | null } | undefined | null,
+): Output | null {
+  if (!output) return null;
+  const type = output.type ?? "main";
+  if (type === "sends-only") return { target: "sends-only", sends: {} };
+  if (type === "ext-out") {
+    const target = (output.target ?? "").trim().replace(/^audio::out:/, "");
+    if (!target) return { target: "sends-only", sends: {} };
+    const lanes = target.split(",").map((t) => t.trim()).filter(Boolean);
+    if (lanes.length >= 2 && Number(lanes[1]) === Number(lanes[0]) + 1)
+      return {
+        target: "ext-out",
+        sends: {},
+        extOut: `${lanes[0]}/${lanes[0] + 1}` as StereoPairChannel,
+      };
+    return { target: "ext-out", sends: {}, extOut: `${lanes[0]}` as MonoChannel };
+  }
+  // main (or anything unrecognized) → main
+  return { target: "main", sends: {} };
+}
+
+/** Legacy helper: a flat bus-id string ("", "audio::main", or an ext-out
+ *  target) → the canonical Output model. Kept for any code still working with
+ *  the flat per-song mirror fields. */
 export function outputFromBus(
   busId: string,
-  _directBusses: BusRow[],
+  _busses: BusRow[],
   sends: SendLevels,
 ): Output {
   if (busId === "") return { target: "sends-only", sends };
-  const lanes = busId
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .map((t) => /^direct:(\d+)$/.exec(t))
-    .filter((m): m is RegExpExecArray => m !== null)
-    .map((m) => Number(m[1]));
-  if (lanes.length === 1) {
-    return { target: "ext-out", sends, extOut: `${lanes[0]}` as MonoChannel };
-  }
-  if (lanes.length >= 2 && lanes[1] === lanes[0] + 1) {
-    return {
-      target: "ext-out",
-      sends,
-      extOut: `${lanes[0]}/${lanes[0] + 1}` as StereoPairChannel,
-    };
-  }
-  if (lanes.length > 0) {
-    return { target: "ext-out", sends, extOut: `${lanes[0]}` as MonoChannel };
-  }
-  // Any project bus id resolves to Main (or an aux-send, still a "main" arm).
+  const out = outputFromWire({ type: "ext-out", target: busId });
+  if (out && out.target === "ext-out") return { ...out, sends };
   return { target: "main", sends };
 }
 
+/** Flat legacy bus-id string derived from a nested SourceOutput — the exact
+ *  string the old wire carried in TrackRow.busId / clickBusId ("" = Sends
+ *  Only, "audio::main" = Main, otherwise the ext-out target). */
+export function sourceOutputBusId(
+  output: SourceOutput | null | undefined,
+): string {
+  if (!output) return "";
+  if (output.type === "sends-only") return "";
+  if (output.type === "main") return "audio::main";
+  return output.target ?? "";
+}
 
-// One physical light fixture -- project-level roster entry, mirrors
-// TrackRow's relationship to SongTrackRow (fixtures are patched once here;
-// LightTrackRow groups fixtures for a Light-timeline row to drive in unison).
+/** SendConfig.level (0..100 linear percent, 100 = unity / 0 dB) → the dB
+ *  value the mixer send strips read/write. Exact mirror of
+ *  ProjectJson.h sendLevelToDb(). */
+export function sendLevelToDb(level: number): number {
+  if (!(level > 0)) return -144;
+  return 20 * Math.log10(level / 100);
+}
+
+/** Wire sends (output.sends) → the flat {busId, gainDb, enabled} rows the
+ *  mixer send controls and the per-song flat click mirror consume. */
+export function outputSendsToClickRows(
+  output: SourceOutput | null | undefined,
+): ClickSendRow[] {
+  if (!output) return [];
+  return (output.sends ?? []).map((s) => ({
+    busId: s.bus,
+    gainDb: sendLevelToDb(s.level),
+    enabled: s.enabled ?? true,
+  }));
+}
+
+// One physical light fixture -- project-level roster entry. Nested
+// grid/position/rotation/dmx mirror the on-disk LightFixture exactly.
 export interface LightFixtureRow {
   id: string;
   name: string;
   kind: "resoLightBar" | "dmxGeneric";
-  gridColumn: number;
-  gridRow: number;
+  grid: { column: number; row: number };
   ledCount: number;
   addressable: boolean;
-  posX: number;
-  posY: number;
-  posZ: number;
+  position: { x: number; y: number; z: number };
   /** Yaw around the vertical axis -- independent of mountedHorizontally. */
-  rotationYDeg: number;
+  rotation: { y: number };
   /** false = standing upright, true = laid on its side (e.g. a truss bar). */
   mountedHorizontally: boolean;
-  dmxUniverse: number;
-  dmxStartChannel: number;
-  dmxChannelCount: number;
+  dmx: {
+    universe: number;
+    startChannel: number;
+    channelCount: number;
+  };
   /** Cosmetic-only (3D stage mesh) -- see ui/src/lib/dmxProfiles.ts. */
   shape:
     | "bar"
@@ -371,11 +445,11 @@ export interface LightFixtureRow {
     | "spot"
     | "movingHead";
   /** Only meaningful when shape === "matrix" -- 0 = let the UI pick a default. */
-  matrixCols: number;
-  /** Cosmetic-only (sets dmxChannelCount + channel-role labels in the UI). */
+  matrixColumns: number;
+  /** Cosmetic-only (sets dmx.const.default when it's a variable field). */
   channelProfile: "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
   /** Cosmetic aim/pitch off vertical (3D stage only) -- 0 = straight up. */
-  tiltDeg: number;
+  tiltDegrees: number;
   /** DMX send rate override for this fixture's universe, in Hz. 0 = inherit LightingState.defaultRefreshRateHz. */
   refreshRateHz: number;
   /**
@@ -406,28 +480,21 @@ export interface DiscoveredBoardRow {
 export interface LightingState {
   enabled: boolean;
   kind: "none" | "resoLight" | "dmxGeneric";
-  resoLightColumns: number;
-  resoLightRows: number;
-  /** What every fixture shows while the transport is stopped. */
-  idleBehavior: "holdLast" | "blackout" | "staticColor" | "effect";
-  idleColorR: number;
-  idleColorG: number;
-  idleColorB: number;
-  idleIntensity: number;
-  /** Effect run while stopped when idleBehavior === "effect". */
-  idleEffectType: string;
-  /** Animation rate (Hz) of the stopped-stopped effect. */
-  idleEffectRateHz: number;
-  /** Palette preset for self-colored idle effects (Fire/Fireworks/ColorWaves/etc). */
-  idleGradientPreset?: string;
-  /** Custom gradient stops for idle effect (CSV #RRGGBB). */
-  idleGradientColors?: string;
-  /** Default DMX send rate (Hz) for fixtures that don't set their own refreshRateHz. */
+  /** Rig grid (only meaningful when kind === "resoLight"). */
+  resoLight: { columns: number; rows: number };
+  idle: {
+    /** "holdLast" | "blackout" | "staticColor" | "effect" */
+    behavior: string;
+    color: { r: number; g: number; b: number };
+    intensity: number;
+    effect: { type: string; rateHz: number };
+    gradient: { preset: GradientPreset; colors?: string | null };
+  };
   defaultRefreshRateHz: number;
   /** Art-Net unicast target; empty = broadcast (255.255.255.255). */
   artNetTargetHost?: string;
   fixtures: LightFixtureRow[];
-  /** Live ESP boards discovered on the LAN (last ~30s). */
+  /** Live ESP board monitors... */
   discoveredBoards?: DiscoveredBoardRow[];
 }
 
@@ -461,8 +528,7 @@ export interface KeybindingRow {
 
 export interface MidiBindingRow {
   action: string;
-  /** "note" | "cc" | "" when unbound */
-  trigger: string;
+  trigger: "note" | "cc" | ""; // 0 = any channel
   channel: number;
   number: number;
 }
@@ -485,7 +551,7 @@ export interface SettingsState {
   activeOutputChannels: boolean[];
   midiOutputs: string[];
   midiInputs: string[];
-  /** Whether the "ResoStage Sync" virtual MIDI source is enabled (see settings.setMidiVirtualPort). */
+  /** Whether the "AboutStage Sync" virtual MIDI source is enabled (see settings.setMidiVirtualPort). */
   virtualMidiPortEnabled: boolean;
   /** "browser" = open the SPA in the system browser (default), "electron" = Electron shell. */
   uiRenderEngine?: "browser" | "electron";
@@ -525,24 +591,26 @@ export interface AllPeaksResponse {
   songs: { tracks: TrackPeaks[] }[];
 }
 
+export interface ProjectCycleRow {
+  active: boolean;
+  skip: boolean;
+  /** Cycle/skip-zone left edge, song-local seconds. */
+  startSeconds: number;
+  /** Cycle/skip-zone right edge, song-local seconds. */
+  endSeconds: number;
+  /** Song the locators belong to (-1 = unset). */
+  songIndex: number;
+}
+
+/** @deprecated Use ProjectCycleRow */
+export type SongCycleRow = ProjectCycleRow;
+
 export interface WebUiState {
   projectName: string;
-  /** Project-global metronome on/off (same for every song). */
-  click?: boolean;
-  /** Mixer strip label for the built-in metronome. */
-  clickName?: string;
-  /** Project-global main bus for click; empty = Sends Only. */
-  clickBusId?: string;
-  /** Project-global metronome level (dB). */
-  clickGainDb: number;
-  /** Project-global metronome pan (-1..+1). */
-  clickPan?: number;
-  /** Force mono click (L=R). */
-  clickMono?: boolean;
-  /** Metronome solo -- joins the same solo group as track solo. */
-  clickSolo?: boolean;
-  /** Project-global click aux sends. */
-  clickSends?: ClickSendRow[];
+  /** Project-global metronome channel (mirrors ClickChannel; carry the routing
+   *  nested exactly like a track. Null when the player/mixer view doesn't
+   *  include it. */
+  click?: Click;
   /** Metronome-only peak (not the bus it routes into). */
   clickPeakDb?: number;
   clickPeakDbL?: number;
@@ -567,12 +635,12 @@ export interface WebUiState {
   /**
    * Action id last executed via native hotkey, MIDI, or the macOS menu bar
    * (all three funnel through MainComponent::performAction). Paired with
-   * lastActionNonce (bumped every firing, including repeats of the same
+   * lastActionNonce (bumped on every firing, including repeats of the same
    * action) so SettingsScreen can flash only the matching binding row.
    */
   lastAction: string;
   lastActionNonce: number;
-  /** Backend's actual current WS send rate for this connection (adaptive, see WebServer.cpp). */
+  /** Backend's actual current WS send rate for this connection (adaptive, see WebServer.h). */
   wsHz: number;
   songIndex: number;
   songCount: number;
@@ -582,7 +650,7 @@ export interface WebUiState {
   quitConfirmPending: boolean;
   /**
    * Mode-switch request from keyboard/MIDI (`player`/`mixer`/`editor`/`settings`).
-   * `uiTabSeq` increments on every request so re-selecting the active tab still applies.
+   * `uiTabSeq` increments on every request so re-selecting the active tab still may fire.
    */
   uiTab?: string;
   uiTabSeq?: number;
@@ -597,7 +665,7 @@ export interface WebUiState {
   meters: MeterRow[];
   tracks: TrackRow[];
   busses: BusRow[];
-  /** Project-scoped lighting rig config -- see Settings' "Project" card. Always shipped (tiny). */
+  /** Project-scoped lighting rig config -- see Settings "Project" card. Always shipped (tiny). */
   lighting: LightingState;
   lightTracks: LightTrackRow[];
   health: HealthState;
@@ -606,14 +674,6 @@ export interface WebUiState {
 
 export const emptyState: WebUiState = {
   projectName: "",
-  click: false,
-  clickName: "Click",
-  clickBusId: "",
-  clickGainDb: 0,
-  clickPan: 0,
-  clickMono: false,
-  clickSolo: false,
-  clickSends: [],
   clickPeakDb: -100,
   clickPeakDbL: -100,
   clickPeakDbR: -100,
@@ -650,8 +710,8 @@ export const emptyState: WebUiState = {
   cycle: {
     active: false,
     skip: false,
-    leftSec: 0,
-    rightSec: 4,
+    startSeconds: 0,
+    endSeconds: 4,
     songIndex: -1,
   },
   meters: [],
@@ -660,15 +720,14 @@ export const emptyState: WebUiState = {
   lighting: {
     enabled: false,
     kind: "none",
-    resoLightColumns: 2,
-    resoLightRows: 1,
-    idleBehavior: "holdLast",
-    idleColorR: 0,
-    idleColorG: 0,
-    idleColorB: 0,
-    idleIntensity: 1,
-    idleEffectType: "none",
-    idleEffectRateHz: 2,
+    resoLight: { columns: 2, rows: 1 },
+    idle: {
+      behavior: "holdLast",
+      color: { r: 0, g: 0, b: 0 },
+      intensity: 1,
+      effect: { type: "none", rateHz: 2 },
+      gradient: { preset: "solid" },
+    },
     defaultRefreshRateHz: 44,
     artNetTargetHost: "",
     fixtures: [],

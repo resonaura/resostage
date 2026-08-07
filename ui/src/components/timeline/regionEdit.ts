@@ -19,13 +19,13 @@ export function resolveSelectedRegions(
     out.push({
       songIndex: hit.songIndex,
       trackId: r.trackId,
-      file: r.file,
+      file: r.source.file,
       startSeconds: r.startSeconds,
-      sourceOffsetSeconds: r.sourceOffsetSeconds,
+      sourceOffsetSeconds: r.source.offsetSeconds,
       durationSeconds: r.durationSeconds,
       gainDb: r.gainDb,
-      fadeInSeconds: r.fadeInSeconds,
-      fadeOutSeconds: r.fadeOutSeconds,
+      fadeInSeconds: r.fade?.inSeconds ?? 0,
+      fadeOutSeconds: r.fade?.outSeconds ?? 0,
     });
   }
   return out;
@@ -138,7 +138,7 @@ export async function splitRegionsAtPlayhead(
 
     const leftDur = localPlayhead - regionStart;
     const rightDur = regionEnd - localPlayhead;
-    const rightSourceOffset = r.sourceOffsetSeconds + leftDur;
+    const rightSourceOffset = r.source.offsetSeconds + leftDur;
 
     await builder.regionUpdate({
       songIndex,
@@ -150,13 +150,13 @@ export async function splitRegionsAtPlayhead(
     await builder.regionAdd({
       songIndex,
       trackId: r.trackId,
-      file: r.file,
+      file: r.source.file,
       startSeconds: localPlayhead,
       sourceOffsetSeconds: rightSourceOffset,
       durationSeconds: rightDur,
       gainDb: r.gainDb,
       fadeInSeconds: 0,
-      fadeOutSeconds: r.fadeOutSeconds,
+      fadeOutSeconds: r.fade?.outSeconds ?? 0,
       gestureId,
     });
     splitCount += 1;

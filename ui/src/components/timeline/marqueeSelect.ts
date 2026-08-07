@@ -63,7 +63,7 @@ export function marqueeHitRegions(
     songs.forEach((song, si) => {
       const segStart = (songOffsets[si] ?? 0) * pxPerSec;
       for (const r of song.regions ?? []) {
-        if (!r.file) continue;
+        if (!r.source.file) continue;
         if (!(r.trackId === track?.id || r.trackId === row.name)) continue;
         const start = r.startSeconds;
         const dur =

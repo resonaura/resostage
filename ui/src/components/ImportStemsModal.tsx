@@ -465,12 +465,12 @@ export async function executeStemImport(
       const newTrack = {
         id: `trk_${globalIndex + 1}`,
         name: trackName,
-        busId: state.busses[0]?.id || "main",
+        channels: 2,
         gainDb: 0,
         pan: 0,
         mute: false,
         solo: false,
-        sends: [],
+        output: { type: "main" as const, target: "audio::main", sends: [] },
         peakDb: -100,
       };
       currentGlobalTracks.push(newTrack);
@@ -513,12 +513,12 @@ export async function executeStemImport(
         const newTrack = {
           id: `trk_${disambiguatedIndex + 1}`,
           name: disambiguatedName,
-          busId: state.busses[0]?.id || "main",
+          channels: 2,
           gainDb: 0,
           pan: 0,
           mute: false,
           solo: false,
-          sends: [],
+          output: { type: "main" as const, target: "audio::main", sends: [] },
           peakDb: -100,
         };
         currentGlobalTracks.push(newTrack);

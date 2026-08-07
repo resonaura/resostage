@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "engine/AudioEngineInternal.h"
 #include "lighting/LightOutputResolver.h"
 #include "platform/MacShellMode.h"
 #include "platform/TrayIcon.h"
@@ -952,18 +953,18 @@ void MainComponent::publishWebState() {
 
     const Project& proj = engine.project();
     state.projectName = proj.name;
-    state.click = proj.builtInClickEnabled;
-    state.clickName = proj.builtInClickName.empty() ? "Click" : proj.builtInClickName;
-    state.clickBusId = proj.builtInClickBusId;
-    state.clickGainDb = proj.builtInClickGainDb;
-    state.clickPan = proj.builtInClickPan;
-    state.clickMono = proj.builtInClickMono;
-    state.clickSolo = proj.builtInClickSolo;
+    state.click = proj.click.enabled;
+    state.clickName = proj.click.name.empty() ? "Click" : proj.click.name;
+    state.clickBusId = audio_engine_detail::mainRouteId(proj.click.output);
+    state.clickGainDb = proj.click.gainDb;
+    state.clickPan = proj.click.pan;
+    state.clickMono = proj.click.channels == 1;
+    state.clickSolo = proj.click.solo;
     state.clickSends.clear();
-    for (const TrackSendDef& cs : proj.builtInClickSends) {
+    for (const SendConfig& cs : proj.click.output.sends) {
         WebUiState::ClickSendRow csr;
-        csr.busId = cs.busId;
-        csr.gainDb = cs.gainDb;
+        csr.busId = cs.bus;
+        csr.gainDb = sendLevelToDb(cs.level);
         csr.enabled = cs.enabled;
         state.clickSends.push_back(std::move(csr));
     }
@@ -1011,13 +1012,13 @@ void MainComponent::publishWebState() {
         row.tsDen = song.timeSignature.denominator;
         // Metronome is project-global — mirror onto every song row so older
         // SPA code that still reads song.click / song.clickSends stays correct.
-        row.click = proj.builtInClickEnabled;
-        row.clickBusId = proj.builtInClickBusId;
-        row.clickGainDb = proj.builtInClickGainDb;
-        for (const TrackSendDef& cs : proj.builtInClickSends) {
+        row.click = proj.click.enabled;
+        row.clickBusId = audio_engine_detail::mainRouteId(proj.click.output);
+        row.clickGainDb = proj.click.gainDb;
+        for (const SendConfig& cs : proj.click.output.sends) {
             WebUiState::SongRow::ClickSendRow csr;
-            csr.busId = cs.busId;
-            csr.gainDb = cs.gainDb;
+            csr.busId = cs.bus;
+            csr.gainDb = sendLevelToDb(cs.level);
             csr.enabled = cs.enabled;
             row.clickSends.push_back(std::move(csr));
         }
@@ -1027,16 +1028,17 @@ void MainComponent::publishWebState() {
             WebUiState::SongRow::RegionRow rr;
             rr.id = r.id;
             rr.trackId = r.trackId;
-            rr.file = r.file;
             rr.startSeconds = r.startSeconds;
-            rr.sourceOffsetSeconds = r.sourceOffsetSeconds;
             rr.durationSeconds = r.durationSeconds;
             rr.gainDb = r.gainDb;
-            rr.fadeInSeconds = r.fadeInSeconds;
-            rr.fadeOutSeconds = r.fadeOutSeconds;
-            rr.fadeInCurve = r.fadeInCurve;
-            rr.fadeOutCurve = r.fadeOutCurve;
-            rr.loop = r.loop;
+            rr.source.file = r.source.file;
+            rr.source.offsetSeconds = r.source.offsetSeconds;
+            rr.fade.inSeconds = r.fade.inSeconds;
+            rr.fade.outSeconds = r.fade.outSeconds;
+            rr.fade.inCurve = r.fade.inCurve;
+            rr.fade.outCurve = r.fade.outCurve;
+            rr.loop.enabled = r.loop.enabled;
+            rr.loop.lengthSeconds = r.loop.lengthSeconds;
             row.regions.push_back(std::move(rr));
         }
 
@@ -1054,7 +1056,7 @@ void MainComponent::publishWebState() {
             er.midiCCValue = e.midiCCValue;
             er.midiNote = e.midiNote;
             er.midiVelocity = e.midiVelocity;
-            er.httpUrl = e.httpUrl;
+            er.httpUrl = e.httpUrl.value_or("");
             row.events.push_back(std::move(er));
         }
 
@@ -1075,22 +1077,22 @@ void MainComponent::publishWebState() {
             lcr.trackId = lc.trackId;
             lcr.startSeconds = lc.startSeconds;
             lcr.durationSeconds = lc.durationSeconds;
-            lcr.colorR = lc.colorR;
-            lcr.colorG = lc.colorG;
-            lcr.colorB = lc.colorB;
+            lcr.color.r = lc.color.r;
+            lcr.color.g = lc.color.g;
+            lcr.color.b = lc.color.b;
             lcr.intensity = lc.intensity;
-            lcr.fadeInSeconds = lc.fadeInSeconds;
-            lcr.fadeOutSeconds = lc.fadeOutSeconds;
-            lcr.label = lc.label;
-            lcr.effectType = lc.effectType;
-            lcr.effectSourceType = lc.effectSourceType;
-            lcr.effectSourceId = lc.effectSourceId;
-            lcr.effectIntensity = lc.effectIntensity;
-            lcr.tempoSync = lc.tempoSync;
-            lcr.tempoSubdiv = lc.tempoSubdiv;
-            lcr.effectRateHz = lc.effectRateHz;
-            lcr.gradientPreset = lc.gradientPreset;
-            lcr.gradientColors = lc.gradientColors;
+            lcr.fade.inSeconds = lc.fade.inSeconds;
+            lcr.fade.outSeconds = lc.fade.outSeconds;
+            lcr.label = lc.label.value_or("");
+            lcr.effect.type = lc.effect.type.value_or("");
+            lcr.effect.sourceType = lc.effect.sourceType;
+            lcr.effect.sourceId = lc.effect.sourceId.value_or("");
+            lcr.effect.intensity = lc.effect.intensity;
+            lcr.effect.tempoSync = lc.effect.tempoSync;
+            lcr.effect.tempoSubdivision = lc.effect.tempoSubdivision;
+            lcr.effect.rateHz = lc.effect.rateHz;
+            lcr.gradient.preset = lc.gradient.preset;
+            lcr.gradient.colors = lc.gradient.colors.value_or("");
             lcr.blendMode = lc.blendMode;
             row.lightCues.push_back(std::move(lcr));
         }
@@ -1101,8 +1103,8 @@ void MainComponent::publishWebState() {
     // Project-wide cycle (one zone; songIndex binds left/right to a song).
     state.cycle.active = proj.cycle.active;
     state.cycle.skip = proj.cycle.skip;
-    state.cycle.leftSec = proj.cycle.leftSec;
-    state.cycle.rightSec = proj.cycle.rightSec;
+    state.cycle.startSeconds = proj.cycle.startSeconds;
+    state.cycle.endSeconds = proj.cycle.endSeconds;
     state.cycle.songIndex = proj.cycle.songIndex;
 
     if (state.songIndex >= 0 && static_cast<size_t>(state.songIndex) < proj.songs.size()) {
@@ -1135,14 +1137,25 @@ void MainComponent::publishWebState() {
         WebUiState::TrackRow tr;
         tr.id = def.id;
         tr.name = def.name.empty() ? def.id : def.name;
-        tr.busId = def.busId;
+        tr.channels = def.channels;
         tr.gainDb = def.gainDb;
         tr.pan = def.pan;
         tr.mute = def.mute;
         tr.solo = def.solo;
-        tr.mono = def.mono;
-        for (const auto& send : def.sends)
-            tr.sends.push_back({send.busId, send.gainDb});
+        switch (def.output.type) {
+            case OutputType::SendsOnly: tr.output.type = "sends-only"; break;
+            case OutputType::ExtOut: tr.output.type = "ext-out"; break;
+            default: tr.output.type = "main"; break;
+        }
+        tr.output.target = def.output.target.value_or("");
+        for (const auto& send : def.output.sends) {
+            WebUiState::TrackRow::SendRow sr;
+            sr.bus = send.bus;
+            sr.level = send.level;
+            sr.preFader = send.preFader;
+            sr.enabled = send.enabled;
+            tr.output.sends.push_back(std::move(sr));
+        }
 
         if (const auto* meter = engine.trackMeterAt(i)) {
             MeterFrame frame;
@@ -1167,9 +1180,15 @@ void MainComponent::publishWebState() {
         br.channels = engine.busChannelCountAt(i);
         br.isDirectOut = engine.busIsDirectAt(i);
         br.unavailable = engine.busIsDirectAt(i) && !engine.busAvailableAt(i);
-        if (i < proj.busses.size()) {
-            br.pan = proj.busses[i].pan;
-            br.isAux = proj.busses[i].isAux;
+        if (i == 0) {
+            br.pan = proj.main.pan;
+            br.isAux = false;
+        } else if (i <= proj.sends.size()) {
+            br.pan = proj.sends[i - 1].pan;
+            br.isAux = true;
+        } else {
+            br.pan = 0.0;
+            br.isAux = false;
         }
         // Peaks already consumed into state.meters above; re-read LUFS frame
         // for bus rows without double-clearing the interval max. Prefer the
@@ -1189,17 +1208,17 @@ void MainComponent::publishWebState() {
 
     state.lighting.enabled = proj.lighting.enabled;
     state.lighting.kind = lightingKindToString(proj.lighting.kind);
-    state.lighting.resoLightColumns = proj.lighting.resoLightColumns;
-    state.lighting.resoLightRows = proj.lighting.resoLightRows;
-    state.lighting.idleBehavior = proj.lighting.idleBehavior;
-    state.lighting.idleColorR = proj.lighting.idleColorR;
-    state.lighting.idleColorG = proj.lighting.idleColorG;
-    state.lighting.idleColorB = proj.lighting.idleColorB;
-    state.lighting.idleIntensity = proj.lighting.idleIntensity;
-    state.lighting.idleEffectType = proj.lighting.idleEffectType;
-    state.lighting.idleEffectRateHz = proj.lighting.idleEffectRateHz;
-    state.lighting.idleGradientPreset = proj.lighting.idleGradientPreset;
-    state.lighting.idleGradientColors = proj.lighting.idleGradientColors;
+    state.lighting.resoLight.columns = proj.lighting.resoLight.columns;
+    state.lighting.resoLight.rows = proj.lighting.resoLight.rows;
+    state.lighting.idle.behavior = proj.lighting.idle.behavior;
+    state.lighting.idle.color.r = proj.lighting.idle.color.r;
+    state.lighting.idle.color.g = proj.lighting.idle.color.g;
+    state.lighting.idle.color.b = proj.lighting.idle.color.b;
+    state.lighting.idle.intensity = proj.lighting.idle.intensity;
+    state.lighting.idle.effect.type = proj.lighting.idle.effect.type;
+    state.lighting.idle.effect.rateHz = proj.lighting.idle.effect.rateHz;
+    state.lighting.idle.gradient.preset = proj.lighting.idle.gradient.preset;
+    state.lighting.idle.gradient.colors = proj.lighting.idle.gradient.colors.value_or("");
     state.lighting.defaultRefreshRateHz = proj.lighting.defaultRefreshRateHz;
     state.lighting.fixtures.reserve(proj.lighting.fixtures.size());
     for (const LightFixture& f : proj.lighting.fixtures) {
@@ -1207,25 +1226,25 @@ void MainComponent::publishWebState() {
         fr.id = f.id;
         fr.name = f.name;
         fr.kind = lightFixtureKindToString(f.kind);
-        fr.gridColumn = f.gridColumn;
-        fr.gridRow = f.gridRow;
+        fr.grid.column = f.grid.column;
+        fr.grid.row = f.grid.row;
         fr.ledCount = f.ledCount;
         fr.addressable = f.addressable;
-        fr.posX = f.posX;
-        fr.posY = f.posY;
-        fr.posZ = f.posZ;
-        fr.rotationYDeg = f.rotationYDeg;
+        fr.position.x = f.position.x;
+        fr.position.y = f.position.y;
+        fr.position.z = f.position.z;
+        fr.rotation.y = f.rotation.y;
         fr.mountedHorizontally = f.mountedHorizontally;
-        fr.dmxUniverse = f.dmxUniverse;
-        fr.dmxStartChannel = f.dmxStartChannel;
-        fr.dmxChannelCount = f.dmxChannelCount;
+        fr.dmx.universe = f.dmx.universe;
+        fr.dmx.startChannel = f.dmx.startChannel;
+        fr.dmx.channelCount = f.dmx.channelCount;
         fr.shape = f.shape;
-        fr.matrixCols = f.matrixCols;
+        fr.matrixColumns = f.matrixColumns;
         fr.channelProfile = f.channelProfile;
-        fr.tiltDeg = f.tiltDeg;
+        fr.tiltDegrees = f.tiltDegrees;
         fr.refreshRateHz = f.refreshRateHz;
-        fr.networkHost = f.networkHost;
-        if (!f.networkHost.empty()) {
+        fr.networkHost = f.networkHost.value_or("");
+        if (f.networkHost.has_value() && !f.networkHost->empty()) {
             const auto link = engine.lightHardware().fixtureLinkStatus(f.id);
             fr.hwConfigured = link.configured;
             fr.hwConnected = link.connected;
@@ -1234,7 +1253,7 @@ void MainComponent::publishWebState() {
         }
         state.lighting.fixtures.push_back(std::move(fr));
     }
-    state.lighting.artNetTargetHost = proj.lighting.artNetTargetHost;
+    state.lighting.artNetTargetHost = proj.lighting.artNetTargetHost.value_or("");
     {
         const auto boards = engine.lightHardware().discoveredBoards();
         state.lighting.discoveredBoards.reserve(boards.size());
@@ -1266,7 +1285,7 @@ void MainComponent::publishWebState() {
         && static_cast<size_t>(state.songIndex) < proj.songs.size()) {
         const SongDef& activeSong = proj.songs[static_cast<size_t>(state.songIndex)];
         const auto& allTracks = proj.tracks;
-        const auto sourceLevelDb = [this, &allTracks, &proj](const std::string& type, const std::string& id) -> SourceLevels {
+        const auto sourceLevelDb = [this, &allTracks](const std::string& type, const std::string& id) -> SourceLevels {
             const auto toLevels = [](const MeterFrame& f) {
                 SourceLevels lv;
                 lv.peakDb = f.peakDb;
@@ -1287,8 +1306,8 @@ void MainComponent::publishWebState() {
                 }
                 return SourceLevels{};
             }
-            for (size_t i = 0; i < proj.busses.size(); ++i) {
-                if (!id.empty() && proj.busses[i].id != id)
+            for (size_t i = 0; i < engine.busCount(); ++i) {
+                if (!id.empty() && engine.busIdAt(i) != id)
                     continue;
                 if (id.empty() && i != 0)
                     continue; // empty id = master mix / first bus
@@ -1321,7 +1340,7 @@ void MainComponent::publishWebState() {
         // every light preview in the SPA (Light tab, Editor's Light-mode,
         // wherever) -- the frontend draws the backend-rendered per-LED rows
         // as-is and never re-simulates idle behavior client-side anymore.
-        const bool useIdleOverride = !state.playing && proj.lighting.idleBehavior != "holdLast";
+        const bool useIdleOverride = !state.playing && proj.lighting.idle.behavior != "holdLast";
 
         // Mirror of LightEngine's transition bookkeeping -- see threadLoop.
         // Each transition fires once (edge-triggered): leaving idle keys on
@@ -1391,11 +1410,11 @@ void MainComponent::publishWebState() {
             const double effectPhase = std::chrono::duration<double>(
                                            std::chrono::steady_clock::now() - lightingPreviewIdleFadeStart)
                                            .count();
-            const auto target = buildIdleTarget(proj.lighting.fixtures, proj.lighting.idleBehavior,
-                                                proj.lighting.idleColorR, proj.lighting.idleColorG,
-                                                proj.lighting.idleColorB, proj.lighting.idleIntensity,
-                                                proj.lighting.idleEffectType, proj.lighting.idleEffectRateHz,
-                                                proj.lighting.idleGradientPreset, proj.lighting.idleGradientColors,
+            const auto target = buildIdleTarget(proj.lighting.fixtures, proj.lighting.idle.behavior,
+                                                proj.lighting.idle.color.r, proj.lighting.idle.color.g,
+                                                proj.lighting.idle.color.b, proj.lighting.idle.intensity,
+                                                proj.lighting.idle.effect.type, proj.lighting.idle.effect.rateHz,
+                                                proj.lighting.idle.gradient.preset, proj.lighting.idle.gradient.colors.value_or(""),
                                                 effectPhase);
             const double t = effectPhase / kIdleFadeSeconds;
             resolved = blendTowardIdle(lightingPreviewLastResolved, target, t);

@@ -186,7 +186,7 @@ export function AudioTrackLanes({
               );
               if (viewEnd <= viewStart) return null;
               const trackRegions = (song.regions ?? []).filter((r) => {
-                if (!r.file) return false;
+                if (!r.source.file) return false;
                 // A region actively being dragged across tracks renders in
                 // whichever row its draft's trackId points at.
                 const draftTrackId =
@@ -234,7 +234,7 @@ export function AudioTrackLanes({
 
                     const peakEntry = peakEntryFor(songRegion);
                     const peaksLoading =
-                      Boolean(songRegion.file) &&
+                      Boolean(songRegion.source.file) &&
                       (!peakEntry || peakEntry.levels.length === 0);
                     const fileDuration =
                       peakEntry?.durationSeconds ??

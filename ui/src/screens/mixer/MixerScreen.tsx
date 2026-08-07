@@ -2,7 +2,7 @@ import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { builder, mixer } from "../../lib/api";
-import type { WebUiState } from "../../lib/types";
+import { outputSendsToClickRows, type WebUiState } from "../../lib/types";
 import { BusStrip } from "./BusStrip";
 import { MetronomeStrip, patchClickFields } from "./MetronomeStrip";
 import { StripContextMenu, type StripMenuTarget } from "./StripContextMenu";
@@ -112,10 +112,10 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   }
 
   const anyTrackSolo =
-    (state.clickSolo ?? false) || state.tracks.some((tr) => tr.solo);
+    (state.click?.solo ?? false) || state.tracks.some((tr) => tr.solo);
   const anyAuxSolo = auxBusses.some((b) => b.solo);
   const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
-  const clickSends = state.clickSends ?? [];
+  const clickSends = state.click ? outputSendsToClickRows(state.click.output) : [];
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
@@ -224,7 +224,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                     kind: "click",
                     x: e.clientX,
                     y: e.clientY,
-                    name: state.clickName?.trim() || "Click",
+                    name: state.click?.name?.trim() || "Click",
                     onRename: (name) =>
                       patchClickFields(state, { clickName: name }),
                     onResetGainPan: () =>

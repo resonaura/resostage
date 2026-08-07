@@ -16,13 +16,15 @@ import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
 import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
-import type {
-  AllPeaksResponse,
-  BusRow,
-  ClickSendRow,
-  MeterRow,
-  PeaksResponse,
-  WebUiState,
+import {
+  outputSendsToClickRows,
+  sourceOutputBusId,
+  type AllPeaksResponse,
+  type BusRow,
+  type ClickSendRow,
+  type MeterRow,
+  type PeaksResponse,
+  type WebUiState,
 } from "../lib/types";
 
 function formatTime(sec: number): string {
@@ -86,8 +88,8 @@ function collectSoloLanes(
   };
 
   for (const t of tracks) {
-    applyRefs(t.busId);
-    for (const s of t.sends ?? []) applyRefs(s.busId);
+    applyRefs(sourceOutputBusId(t.output));
+    for (const s of t.output.sends) applyRefs(s.bus);
   }
   applyRefs(clickBusId);
   for (const cs of clickSends ?? []) applyRefs(cs.busId);
@@ -368,8 +370,8 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
     state.meters,
     state.busses,
     state.tracks,
-    state.clickBusId,
-    state.clickSends,
+    state.click ? sourceOutputBusId(state.click.output) : undefined,
+    state.click ? outputSendsToClickRows(state.click.output) : undefined,
   );
 
   const vuGetterFor = (g: BusMeterGroup) => () => {
@@ -552,11 +554,14 @@ export function PlayerScreen({
   const hasSongs = state.songs.length > 0;
   // Project-global metronome (not per-song). Optimistic override until
   // state.click catches up from the WS snapshot.
-  const isMetronomeOn = metronomeOverride ?? state.click ?? false;
+  const isMetronomeOn = metronomeOverride ?? state.click?.enabled ?? false;
   useEffect(() => {
-    if (metronomeOverride != null && state.click === metronomeOverride)
+    if (
+      metronomeOverride != null &&
+      state.click?.enabled === metronomeOverride
+    )
       setMetronomeOverride(null);
-  }, [state.click, metronomeOverride]);
+  }, [state.click?.enabled, metronomeOverride]);
 
   const patchProjectClick = (partial: {
     click?: boolean;
@@ -572,15 +577,17 @@ export function PlayerScreen({
       mode: s?.mode ?? "wait",
       tsNum: s?.tsNum ?? 4,
       tsDen: s?.tsDen ?? 4,
-      click: partial.click ?? state.click ?? false,
+      click: partial.click ?? state.click?.enabled ?? false,
       // Preserve empty clickBusId (Sends Only) — never coerce "" → main.
       clickBusId:
         partial.clickBusId !== undefined
           ? partial.clickBusId
-          : (state.clickBusId ?? s?.clickBusId ?? ""),
+          : (state.click
+              ? sourceOutputBusId(state.click.output)
+              : (s?.clickBusId ?? "")),
       clickSends: (
         partial.clickSends ??
-        state.clickSends ??
+        (state.click ? outputSendsToClickRows(state.click.output) : undefined) ??
         s?.clickSends ??
         []
       ).map((cs) => ({
@@ -599,15 +606,18 @@ export function PlayerScreen({
 
   // Toggle a send on/off for the metronome (aux bus click routing)
   const toggleClickSend = (busId: string) => {
-    const existing = (state.clickSends ?? []).find((cs) => cs.busId === busId);
+    const clickSends = state.click
+      ? outputSendsToClickRows(state.click.output)
+      : [];
+    const existing = clickSends.find((cs) => cs.busId === busId);
     let newSends: ClickSendRow[];
     if (existing) {
-      newSends = (state.clickSends ?? []).map((cs) =>
+      newSends = clickSends.map((cs) =>
         cs.busId === busId ? { ...cs, enabled: !cs.enabled } : cs,
       );
     } else {
       newSends = [
-        ...(state.clickSends ?? []),
+        ...clickSends,
         { busId, gainDb: 0.0, enabled: true },
       ];
     }
@@ -659,7 +669,9 @@ export function PlayerScreen({
   const displaySeconds = Math.max(0, displayGlobalSeconds - songOffset);
 
   // Empty string = Sends Only (must not fall back to main via falsy ||).
-  const currentClickBus = state.clickBusId ?? "";
+  const currentClickBus = state.click
+    ? sourceOutputBusId(state.click.output)
+    : "";
   const auxBusses = state.busses.filter((b) => b.isAux);
 
   const changeClickBus = (busId: string) => {
@@ -866,9 +878,10 @@ export function PlayerScreen({
                     </div>
                   ) : (
                     auxBusses.map((bus) => {
-                      const send = (state.clickSends ?? []).find(
-                        (cs) => cs.busId === bus.id,
-                      );
+                      const send = (state.click
+                        ? outputSendsToClickRows(state.click.output)
+                        : []
+                      ).find((cs) => cs.busId === bus.id);
                       const isActive = send?.enabled === true;
                       return (
                         <div

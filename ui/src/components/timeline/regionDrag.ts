@@ -144,14 +144,14 @@ export function effectiveRegionGeom(
       : Math.max(0.05, segDuration - start));
   return {
     start,
-    sourceOffset: draft?.sourceOffset ?? r.sourceOffsetSeconds,
+    sourceOffset: draft?.sourceOffset ?? r.source.offsetSeconds,
     duration,
-    fadeIn: draft?.fadeIn ?? r.fadeInSeconds ?? 0,
-    fadeOut: draft?.fadeOut ?? r.fadeOutSeconds ?? 0,
-    fadeInCurve: draft?.fadeInCurve ?? r.fadeInCurve ?? 0,
-    fadeOutCurve: draft?.fadeOutCurve ?? r.fadeOutCurve ?? 0,
-    loop: draft?.loop ?? r.loop ?? false,
-    loopLengthSeconds: draft?.loopLengthSeconds ?? r.loopLengthSeconds ?? 0,
+    fadeIn: draft?.fadeIn ?? r.fade?.inSeconds ?? 0,
+    fadeOut: draft?.fadeOut ?? r.fade?.outSeconds ?? 0,
+    fadeInCurve: draft?.fadeInCurve ?? r.fade?.inCurve ?? 0,
+    fadeOutCurve: draft?.fadeOutCurve ?? r.fade?.outCurve ?? 0,
+    loop: draft?.loop ?? r.loop?.enabled ?? false,
+    loopLengthSeconds: draft?.loopLengthSeconds ?? r.loop?.lengthSeconds ?? 0,
     trackId: draft?.trackId,
   };
 }
@@ -166,17 +166,18 @@ export function regionDraftMatchesCommitted(
     r.durationSeconds > 0 ? r.durationSeconds : Math.max(0.05, d.duration);
   return (
     Math.abs(r.startSeconds - d.start) < eps &&
-    Math.abs(r.sourceOffsetSeconds - d.sourceOffset) < eps &&
+    Math.abs(r.source.offsetSeconds - d.sourceOffset) < eps &&
     Math.abs(dur - d.duration) < eps &&
     (d.fadeIn === undefined ||
-      Math.abs((r.fadeInSeconds ?? 0) - d.fadeIn) < eps) &&
+      Math.abs((r.fade?.inSeconds ?? 0) - d.fadeIn) < eps) &&
     (d.fadeOut === undefined ||
-      Math.abs((r.fadeOutSeconds ?? 0) - d.fadeOut) < eps) &&
+      Math.abs((r.fade?.outSeconds ?? 0) - d.fadeOut) < eps) &&
     (d.fadeInCurve === undefined ||
-      Math.abs((r.fadeInCurve ?? 0) - d.fadeInCurve) < 0.05) &&
+      Math.abs((r.fade?.inCurve ?? 0) - d.fadeInCurve) < 0.05) &&
     (d.fadeOutCurve === undefined ||
-      Math.abs((r.fadeOutCurve ?? 0) - d.fadeOutCurve) < 0.05) &&
-    (d.loop === undefined || Boolean(r.loop) === Boolean(d.loop)) &&
+      Math.abs((r.fade?.outCurve ?? 0) - d.fadeOutCurve) < 0.05) &&
+    (d.loop === undefined ||
+      Boolean(r.loop?.enabled) === Boolean(d.loop)) &&
     (d.trackId === undefined || r.trackId === d.trackId)
   );
 }

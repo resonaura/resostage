@@ -48,9 +48,9 @@ function fromServer(
   songLen: number,
 ): CycleLocators {
   const pair = clampPair(
-    server?.leftSec ?? DEFAULT_RANGE.leftSec,
-    server?.rightSec ?? DEFAULT_RANGE.rightSec,
-    songLen > 0 ? songLen : Math.max(server?.rightSec ?? 4, 4),
+    server?.startSeconds ?? DEFAULT_RANGE.leftSec,
+    server?.endSeconds ?? DEFAULT_RANGE.rightSec,
+    songLen > 0 ? songLen : Math.max(server?.endSeconds ?? 4, 4),
   );
   const si =
     typeof server?.songIndex === "number" && server.songIndex >= 0
@@ -85,8 +85,8 @@ export function useCycleState(
     cycleSongLength,
     serverCycle?.active,
     serverCycle?.skip,
-    serverCycle?.leftSec,
-    serverCycle?.rightSec,
+    serverCycle?.startSeconds,
+    serverCycle?.endSeconds,
     serverCycle?.songIndex,
   ]);
 

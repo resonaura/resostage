@@ -2,9 +2,29 @@
 
 #include "ProjectSchema.h"
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace resostage {
+
+// Convert a SendConfig::level (0-100 linear percent, 100 == unity / 0 dB) to
+// the dB value the wire has always carried for sends. level <= 0 floors to
+// -144 dB. Exact inverse of sendDbToLevel().
+inline double sendLevelToDb(double level) {
+    if (!(level > 0.0))
+        return -144.0;
+    return 20.0 * std::log10(level / 100.0);
+}
+
+// Convert a wire dB send value to the schema's 0-100 linear level. Same curve
+// LegacyProjectMigration uses for old projects (gain past unity clamps to
+// 100%) so round-trips and migrated projects agree on one mapping.
+inline double sendDbToLevel(double db) {
+    if (!std::isfinite(db))
+        return 0.0;
+    return std::clamp(std::pow(10.0, db / 20.0) * 100.0, 0.0, 100.0);
+}
 
 // Serialize Project → project.json via Glaze (reflection wire DTOs).
 // Output is UTF-8 pretty JSON with a trailing newline.

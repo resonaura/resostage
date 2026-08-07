@@ -88,28 +88,82 @@ struct WSeekPayload {
 };
 
 // ── Web Server Telemetry ─────────────────────────────────────────────────────
+//
+// Mirrors the canonical nested keys of the on-disk project format (see
+// core/engine/project/ProjectJson.cpp's project_json_wire DTOs -- those are
+// the source of truth for names). Rows that map 1:1 onto project data carry
+// nested containers (source/fade/loop/output/color/effect/gradient/grid/
+// position/rotation/dmx/idle/resoLight) instead of the flat duplicates an
+// earlier wire format used. Send level is the schema's 0-100 linear percent
+// (100 == unity / 0 dB), NOT a dB value -- see sendLevelToDb/sendDbToLevel.
 
+struct WSendConfig {
+    std::string bus;
+    double level = 100.0;
+    bool preFader = false;
+    bool enabled = true;
+};
+
+// A source's main route + aux sends (tracks/clicks). `type` is the on-disk
+// OutputType string: "main" | "sends-only" | "ext-out". `target` is only set
+// for "ext-out" (one or two comma-joined "audio::out:N" mono lanes).
+struct WSourceOutput {
+    std::string type = "main";
+    std::optional<std::string> target;
+    std::vector<WSendConfig> sends;
+};
+
+// Per-song flat click mirror (back-compat for older SPA code that reads
+// song.click / song.clickSends). Kept flat on purpose -- the *root* click's
+// routing lives in WClickChannel.output (below), the projected rows just
+// duplicate it for Builder convenience.
 struct WClickSendTelemetry {
     std::string busId;
     double gainDb = 0.0;
     bool enabled = true;
 };
 
+// Project-global metronome, mirrored field-for-field from ClickChannel in
+// ProjectSchema.h (type/target/sends carry the routing exactly like a track).
+struct WClickTelemetry {
+    bool enabled = false;
+    std::string name = "Click";
+    int channels = 2;
+    double gainDb = 0.0;
+    double pan = 0.0;
+    bool mute = false;
+    bool solo = false;
+    WSourceOutput output;
+};
+
+struct WRegionSource {
+    std::string file;
+    double offsetSeconds = 0.0;
+};
+
+struct WRegionFade {
+    double inSeconds = 0.0;
+    double outSeconds = 0.0;
+    double inCurve = 0.0;
+    double outCurve = 0.0;
+};
+
+struct WRegionLoop {
+    bool enabled = false;
+    double lengthSeconds = 0.0;
+};
+
 struct WRegionTelemetry {
     std::string id;
     std::string trackId;
-    std::string file;
     double startSeconds = 0.0;
-    double sourceOffsetSeconds = 0.0;
     double durationSeconds = 0.0;
     double gainDb = 0.0;
-
-    std::optional<double> fadeInSeconds;
-    std::optional<double> fadeOutSeconds;
-    std::optional<double> fadeInCurve;
-    std::optional<double> fadeOutCurve;
-    std::optional<bool> loop;
-    std::optional<double> loopLengthSeconds;
+    WRegionSource source;
+    // Fade/loop are view-scoped like the old flat fade/loop keys were: only
+    // emitted by full-detail views (editor) and the player timeline.
+    std::optional<WRegionFade> fade;
+    std::optional<WRegionLoop> loop;
 };
 
 struct WEventTelemetry {
@@ -134,28 +188,49 @@ struct WSectionTelemetry {
     int colorIndex = 0;
 };
 
+// ── Nested telemetry DTOs ────────────────────────────────────────────────────
+// These mirror the on-disk format's project_json_wire structs (see
+// core/engine/project/ProjectJson.cpp) so the wire contract and the persisted
+// contract share the exact same key names, and the SPA can treat them as one.
+
+struct WColorTelemetry {
+    uint8_t r = 255;
+    uint8_t g = 255;
+    uint8_t b = 255;
+};
+
+struct WLightCueFadeTelemetry {
+    double inSeconds = 0.0;
+    double outSeconds = 0.0;
+};
+
+struct WLightEffectTelemetry {
+    std::optional<std::string> type; // null = no effect
+    std::string sourceType = "bus";  // "bus" | "track"
+    std::optional<std::string> sourceId;
+    double intensity = 0.8;
+    bool tempoSync = false;
+    std::string tempoSubdivision = "1/4";
+    double rateHz = 2.0;
+};
+
+struct WLightGradientTelemetry {
+    std::string preset = "solid";
+    std::optional<std::string> colors; // CSV #RRGGBB stops; empty = preset/base color
+};
+
 struct WLightCueTelemetry {
     std::string id;
     std::string trackId;
     double startSeconds = 0.0;
-    double durationSeconds = 0.0;
-    uint8_t colorR = 255;
-    uint8_t colorG = 255;
-    uint8_t colorB = 255;
+    double durationSeconds = 1.0;
+    std::optional<std::string> label;
+    WColorTelemetry color{255, 255, 255};
     double intensity = 1.0;
-    double fadeInSeconds = 0.0;
-    double fadeOutSeconds = 0.0;
-    std::string label;
-    std::string effectType;
-    std::string effectSourceType;
-    std::string effectSourceId;
-    double effectIntensity = 0.0;
-    bool tempoSync = false;
-    std::string tempoSubdiv;
-    double effectRateHz = 0.0;
-    std::string gradientPreset;
-    std::string gradientColors;
-    std::string blendMode;
+    WLightCueFadeTelemetry fade;
+    WLightEffectTelemetry effect;
+    WLightGradientTelemetry gradient;
+    std::string blendMode = "normal";
 };
 
 struct WSongTelemetry {
@@ -177,8 +252,8 @@ struct WSongTelemetry {
 struct WCycleTelemetry {
     bool active = false;
     bool skip = false;
-    double leftSec = 0.0;
-    double rightSec = 0.0;
+    double startSeconds = 0.0;
+    double endSeconds = 4.0;
     int songIndex = -1;
 };
 
@@ -198,13 +273,12 @@ struct WSendTelemetry {
 struct WTrackTelemetry {
     std::string id;
     std::string name;
-    std::string busId;
+    int channels = 2; // 1 = mono (stereo regions summed L+R before pan/sends)
     double gainDb = 0.0;
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
-    bool mono = false;
-    std::vector<WSendTelemetry> sends;
+    WSourceOutput output; // type/target/sends, same as ClickChannel/track on disk
     double peakDb = -100.0;
     double peakDbL = -100.0;
     double peakDbR = -100.0;
@@ -225,28 +299,46 @@ struct WBusTelemetry {
     double peakDbR = -100.0;
 };
 
+struct WFixtureGridTelemetry {
+    int column = 0;
+    int row = 0;
+};
+
+struct WFixturePositionTelemetry {
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+struct WFixtureRotationTelemetry {
+    double y = 0.0;
+};
+
+struct WFixtureDmxTelemetry {
+    int universe = 0;
+    int startChannel = 1;
+    int channelCount = 3;
+};
+
 struct WFixtureTelemetry {
     std::string id;
     std::string name;
     std::string kind;
-    int gridColumn = 0;
-    int gridRow = 0;
+    WFixtureGridTelemetry grid;
     int ledCount = 0;
     bool addressable = false;
-    double posX = 0.0;
-    double posY = 0.0;
-    double posZ = 0.0;
-    double rotationYDeg = 0.0;
+    WFixturePositionTelemetry position;
+    WFixtureRotationTelemetry rotation;
     bool mountedHorizontally = false;
-    int dmxUniverse = 1;
-    int dmxStartChannel = 1;
-    int dmxChannelCount = 1;
+    WFixtureDmxTelemetry dmx;
     std::string shape;
-    int matrixCols = 0;
+    int matrixColumns = 0;
     std::string channelProfile;
-    double tiltDeg = 0.0;
+    double tiltDegrees = 0.0;
     double refreshRateHz = 0.0;
+    // Real-hardware transport (ResoLightBar only). Empty = preview-only.
     std::string networkHost;
+    // Live link status from LightHardwareServer (not persisted).
     bool hwConfigured = false;
     bool hwConnected = false;
     int hwRssiDbm = 0;
@@ -261,23 +353,43 @@ struct WDiscoveredBoardTelemetry {
     double lastSeenSecondsAgo = 0.0;
 };
 
+struct WIdleColorTelemetry {
+    uint8_t r = 0;
+    uint8_t g = 0;
+    uint8_t b = 0;
+};
+
+struct WIdleEffectTelemetry {
+    std::string type = "none";
+    double rateHz = 2.0;
+};
+
+struct WIdleGradientTelemetry {
+    std::string preset = "solid";
+    std::optional<std::string> colors;
+};
+
+struct WIdleTelemetry {
+    std::string behavior = "holdLast";
+    WIdleColorTelemetry color{0, 0, 0};
+    double intensity = 1.0;
+    WIdleEffectTelemetry effect;
+    WIdleGradientTelemetry gradient;
+};
+
+struct WResoLightGridTelemetry {
+    int columns = 2;
+    int rows = 1;
+};
+
 struct WLightingTelemetry {
     bool enabled = false;
-    std::string kind;
-    int resoLightColumns = 0;
-    int resoLightRows = 0;
-    std::string idleBehavior;
-    uint8_t idleColorR = 0;
-    uint8_t idleColorG = 0;
-    uint8_t idleColorB = 0;
-    double idleIntensity = 0.0;
-    std::string idleEffectType;
-    double idleEffectRateHz = 0.0;
-    std::string idleGradientPreset;
-    std::string idleGradientColors;
-    double defaultRefreshRateHz = 0.0;
+    std::string kind = "none";
+    WResoLightGridTelemetry resoLight;
+    WIdleTelemetry idle;
+    double defaultRefreshRateHz = 44.0;
+    std::optional<std::string> artNetTargetHost; // null = broadcast
     std::vector<WFixtureTelemetry> fixtures;
-    std::string artNetTargetHost;
     std::vector<WDiscoveredBoardTelemetry> discoveredBoards;
 };
 
@@ -368,14 +480,11 @@ struct WEngineTelemetryPayload {
     uint64_t lastActionNonce = 0;
     int wsHz = 0;
 
-    std::optional<bool> click;
-    std::optional<std::string> clickName;
-    std::optional<std::string> clickBusId;
-    std::optional<double> clickGainDb;
-    std::optional<double> clickPan;
-    std::optional<bool> clickMono;
-    std::optional<bool> clickSolo;
-    std::optional<std::vector<WClickSendTelemetry>> clickSends;
+    // Project-global metronome channel, mirrored from ClickChannel
+    // (enabled/name/channels/gainDb/pan/mute/solo/output). Null when the
+    // player/mixer view doesn't need it.
+    std::optional<WClickTelemetry> click;
+    // Metronome-only peak (not the destination bus). Mono source → L=R.
     std::optional<double> clickPeakDb;
     std::optional<double> clickPeakDbL;
     std::optional<double> clickPeakDbR;

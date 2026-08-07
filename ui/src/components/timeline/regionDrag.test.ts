@@ -4,6 +4,7 @@ import {
   regionDraftMatchesCommitted,
   regionEdgeCursor,
   regionEdgeMode,
+  type RegionDragCtx,
   type RegionDragSession,
   type RegionGeom,
 } from "./regionDrag";
@@ -44,7 +45,7 @@ const session = (
   ...partial,
 });
 
-const ctx = {
+const ctx: RegionDragCtx = {
   pxPerSec: 10,
   verticalZoom: 1,
   snapToGrid: false,
@@ -57,34 +58,34 @@ const ctx = {
     {
       id: "trk_a",
       name: "A",
-      busId: "m",
+      channels: 1,
       gainDb: 0,
       pan: 0,
       mute: false,
       solo: false,
-      sends: [],
+      output: { type: "main", sends: [] },
       peakDb: -100,
     },
     {
       id: "trk_b",
       name: "B",
-      busId: "m",
+      channels: 1,
       gainDb: 0,
       pan: 0,
       mute: false,
       solo: false,
-      sends: [],
+      output: { type: "main", sends: [] },
       peakDb: -100,
     },
     {
       id: "trk_c",
       name: "C",
-      busId: "m",
+      channels: 1,
       gainDb: 0,
       pan: 0,
       mute: false,
       solo: false,
-      sends: [],
+      output: { type: "main", sends: [] },
       peakDb: -100,
     },
   ],
@@ -154,17 +155,15 @@ describe("computeRegionDragGeom", () => {
 
 describe("regionDraftMatchesCommitted", () => {
   it("matches when geometry agrees", () => {
-    const r = {
+    const r: RegionRow = {
       id: "r1",
       trackId: "t",
-      file: "a.wav",
       startSeconds: 1,
-      sourceOffsetSeconds: 0,
       durationSeconds: 4,
       gainDb: 0,
-      fadeInSeconds: 0.1,
-      fadeOutSeconds: 0,
-    } as RegionRow;
+      source: { file: "a.wav", offsetSeconds: 0 },
+      fade: { inSeconds: 0.1, outSeconds: 0 },
+    };
     const d: RegionGeom = {
       start: 1,
       sourceOffset: 0,

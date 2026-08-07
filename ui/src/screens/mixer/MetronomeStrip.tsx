@@ -1,6 +1,11 @@
 import { builder, mixer } from "../../lib/api";
 import { getClickPeaks } from "../../lib/liveLevels";
-import type { WebUiState } from "../../lib/types";
+import {
+  outputSendsToClickRows,
+  sourceOutputBusId,
+  type ClickSendRow,
+  type WebUiState,
+} from "../../lib/types";
 import { ChannelStrip } from "./ChannelStrip";
 
 export function MetronomeStrip({
@@ -11,18 +16,24 @@ export function MetronomeStrip({
   /** Shared Ext. Out helper — reuses/creates a bus then sets clickBusId. */
   onDirectOutput: (startChannel: number, pair: boolean) => void;
 }) {
-  const clickSolo = state.clickSolo ?? false;
+  const clickSolo = state.click?.solo ?? false;
   const hasSongs = state.songs.length > 0;
   const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
   const currentSong = hasSongs ? state.songs[songIdx] : null;
-  const isMetronomeOn = state.click ?? currentSong?.click ?? false;
-  const currentClickBus = state.clickBusId ?? currentSong?.clickBusId ?? "";
-  const clickGain = state.clickGainDb ?? 0;
-  const clickPan = state.clickPan ?? 0;
-  const clickName = state.clickName?.trim() || "Click";
+  // Project-global metronome (nested wire click). Fall back to the flat
+  // per-song mirror when the view didn't ship the click channel.
+  const isMetronomeOn = state.click?.enabled ?? currentSong?.click ?? false;
+  const currentClickBus = state.click
+    ? sourceOutputBusId(state.click.output)
+    : (currentSong?.clickBusId ?? "");
+  const clickGain = state.click?.gainDb ?? currentSong?.clickGainDb ?? 0;
+  const clickPan = state.click?.pan ?? 0;
+  const clickName = state.click?.name?.trim() || "Click";
 
   const auxBusses = state.busses.filter((b) => b.isAux);
-  const clickSends = state.clickSends ?? currentSong?.clickSends ?? [];
+  const clickSends = state.click
+    ? outputSendsToClickRows(state.click.output)
+    : (currentSong?.clickSends ?? []);
   const clickPeak = state.clickPeakDb ?? -100;
   const clickPeakL = state.clickPeakDbL ?? state.clickPeakDb ?? -100;
   const clickPeakR = state.clickPeakDbR ?? state.clickPeakDb ?? -100;
@@ -50,10 +61,11 @@ export function MetronomeStrip({
       tsDen: currentSong?.tsDen ?? 4,
       click: partial.click ?? isMetronomeOn,
       clickBusId: nextClickBusId,
-      clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? 0,
-      clickPan: partial.clickPan ?? state.clickPan ?? 0,
-      clickMono: partial.clickMono ?? state.clickMono ?? false,
-      clickName: partial.clickName ?? state.clickName ?? "Click",
+      clickGainDb: partial.clickGainDb ?? state.click?.gainDb ?? 0,
+      clickPan: partial.clickPan ?? state.click?.pan ?? 0,
+      clickMono:
+        partial.clickMono ?? (state.click ? state.click.channels === 1 : false),
+      clickName: partial.clickName ?? state.click?.name ?? "Click",
       clickSends: partial.clickSends ?? clickSends,
     });
   };
@@ -61,7 +73,7 @@ export function MetronomeStrip({
   const destinationBusses = state.busses.filter(
     (b) => b.id === "main" || b.isAux,
   );
-  const clickMono = state.clickMono ?? false;
+  const clickMono = state.click ? state.click.channels === 1 : false;
 
   return (
     <ChannelStrip
@@ -134,15 +146,19 @@ export function patchClickFields(
     clickPan?: number;
     clickMono?: boolean;
     clickName?: string;
-    clickSends?: WebUiState["clickSends"];
+    clickSends?: ClickSendRow[];
   },
 ) {
   const hasSongs = state.songs.length > 0;
   const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
   const currentSong = hasSongs ? state.songs[songIdx] : null;
-  const isMetronomeOn = state.click ?? currentSong?.click ?? false;
-  const currentClickBus = state.clickBusId ?? currentSong?.clickBusId ?? "";
-  const clickSends = state.clickSends ?? currentSong?.clickSends ?? [];
+  const isMetronomeOn = state.click?.enabled ?? currentSong?.click ?? false;
+  const currentClickBus = state.click
+    ? sourceOutputBusId(state.click.output)
+    : (currentSong?.clickBusId ?? "");
+  const clickSends = state.click
+    ? outputSendsToClickRows(state.click.output)
+    : (currentSong?.clickSends ?? []);
   void builder.songUpdate({
     index: hasSongs ? songIdx : -1,
     name: currentSong?.name ?? "",
@@ -153,10 +169,11 @@ export function patchClickFields(
     click: partial.click ?? isMetronomeOn,
     clickBusId:
       partial.clickBusId !== undefined ? partial.clickBusId : currentClickBus,
-    clickGainDb: partial.clickGainDb ?? state.clickGainDb ?? 0,
-    clickPan: partial.clickPan ?? state.clickPan ?? 0,
-    clickMono: partial.clickMono ?? state.clickMono ?? false,
-    clickName: partial.clickName ?? state.clickName ?? "Click",
+    clickGainDb: partial.clickGainDb ?? state.click?.gainDb ?? 0,
+    clickPan: partial.clickPan ?? state.click?.pan ?? 0,
+    clickMono:
+      partial.clickMono ?? (state.click ? state.click.channels === 1 : false),
+    clickName: partial.clickName ?? state.click?.name ?? "Click",
     clickSends: partial.clickSends ?? clickSends,
   });
 }

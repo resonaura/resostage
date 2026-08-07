@@ -122,12 +122,12 @@ function findDmxChannelConflicts(fixtures: LightFixtureRow[]): Set<string> {
   const generic = fixtures.filter((f) => f.kind === "dmxGeneric");
   for (let i = 0; i < generic.length; i++) {
     const a = generic[i];
-    const aEnd = a.dmxStartChannel + Math.max(1, a.dmxChannelCount);
+    const aEnd = a.dmx.startChannel + Math.max(1, a.dmx.channelCount);
     for (let j = i + 1; j < generic.length; j++) {
       const b = generic[j];
-      if (a.dmxUniverse !== b.dmxUniverse) continue;
-      const bEnd = b.dmxStartChannel + Math.max(1, b.dmxChannelCount);
-      const overlaps = a.dmxStartChannel < bEnd && b.dmxStartChannel < aEnd;
+      if (a.dmx.universe !== b.dmx.universe) continue;
+      const bEnd = b.dmx.startChannel + Math.max(1, b.dmx.channelCount);
+      const overlaps = a.dmx.startChannel < bEnd && b.dmx.startChannel < aEnd;
       if (overlaps) {
         conflicting.add(a.id);
         conflicting.add(b.id);
@@ -254,7 +254,7 @@ function FixtureItem({
           }
         >
           {fixture.kind === "dmxGeneric"
-            ? `U${fixture.dmxUniverse}:${fixture.dmxStartChannel}`
+            ? `U${fixture.dmx.universe}:${fixture.dmx.startChannel}`
             : `${fixture.ledCount}L · ${fixture.mountedHorizontally ? "H" : "V"}${fixture.addressable ? " · addr" : ""}`}
         </span>
       </button>
@@ -489,7 +489,7 @@ export function ProjectLightingPanel({
                       void lighting.setConfig({ idleBehavior: opt.value })
                     }
                     className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
-                      li.idleBehavior === opt.value
+                      li.idle.behavior === opt.value
                         ? "border-accent bg-accent/20 text-accent"
                         : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
                     }`}
@@ -500,12 +500,12 @@ export function ProjectLightingPanel({
               </div>
             </Field>
 
-            {li.idleBehavior === "staticColor" && (
+            {li.idle.behavior === "staticColor" && (
               <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
                 <HslColorPicker
-                  r={li.idleColorR}
-                  g={li.idleColorG}
-                  b={li.idleColorB}
+                  r={li.idle.color.r}
+                  g={li.idle.color.g}
+                  b={li.idle.color.b}
                   onChange={(r, g, b) =>
                     void lighting.setConfig({
                       idleColorR: r,
@@ -515,8 +515,8 @@ export function ProjectLightingPanel({
                   }
                 />
                 <LabeledSlider
-                  label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
-                  value={li.idleIntensity}
+                  label={`Intensity: ${Math.round(li.idle.intensity * 100)}%`}
+                  value={li.idle.intensity}
                   onChange={(v) =>
                     void lighting.setConfig({ idleIntensity: v })
                   }
@@ -524,10 +524,10 @@ export function ProjectLightingPanel({
               </div>
             )}
 
-            {li.idleBehavior === "effect" &&
+            {li.idle.behavior === "effect" &&
               (() => {
-                const idleEt = li.idleEffectType as EffectType;
-                const idlePreset = (li.idleGradientPreset ||
+                const idleEt = li.idle.effect.type as EffectType;
+                const idlePreset = (li.idle.gradient.preset ||
                   "solid") as GradientPreset;
                 const idleUsesOwnColor = effectUsesOwnColor(idleEt, idlePreset);
                 const idleSupportsGradient = effectSupportsGradient(idleEt);
@@ -570,7 +570,7 @@ export function ProjectLightingPanel({
                                 void lighting.setConfig({ idleEffectType: et })
                               }
                               className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
-                                li.idleEffectType === et
+                                li.idle.effect.type === et
                                   ? "border-accent bg-accent/20 text-accent"
                                   : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
                               }`}
@@ -581,21 +581,21 @@ export function ProjectLightingPanel({
                           );
                         })}
                       </div>
-                      {li.idleEffectType && li.idleEffectType !== "none" && (
+                      {li.idle.effect.type && li.idle.effect.type !== "none" && (
                         <div className="mt-1 text-[10px] text-foreground/40 italic">
                           {EFFECT_META[idleEt]?.desc}
                         </div>
                       )}
                     </Field>
 
-                    {li.idleEffectType !== "none" && (
+                    {li.idle.effect.type !== "none" && (
                       <>
                         <LabeledSlider
-                          label={`Rate: ${li.idleEffectRateHz.toFixed(1)} Hz`}
+                          label={`Rate: ${li.idle.effect.rateHz.toFixed(1)} Hz`}
                           min={0.05}
                           max={10}
                           step={0.05}
-                          value={li.idleEffectRateHz}
+                          value={li.idle.effect.rateHz}
                           onChange={(v) =>
                             void lighting.setConfig({ idleEffectRateHz: v })
                           }
@@ -616,7 +616,7 @@ export function ProjectLightingPanel({
                                     })
                                   }
                                   className={`rounded-lg border px-2 py-1 text-left text-xs font-medium transition-colors ${
-                                    (li.idleGradientPreset || "solid") === g
+                                    (li.idle.gradient.preset || "solid") === g
                                       ? "border-accent bg-accent/20 text-accent"
                                       : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
                                   }`}
@@ -625,10 +625,10 @@ export function ProjectLightingPanel({
                                 </button>
                               ))}
                             </div>
-                            {li.idleGradientPreset === "custom" && (
+                            {li.idle.gradient.preset === "custom" && (
                               <div className="mt-2">
                                 <GradientStopEditor
-                                  value={li.idleGradientColors || ""}
+                                  value={li.idle.gradient.colors || ""}
                                   onChange={(colors) =>
                                     void lighting.setConfig({
                                       idleGradientColors: colors,
@@ -649,9 +649,9 @@ export function ProjectLightingPanel({
                       </div>
                     ) : (
                       <HslColorPicker
-                        r={li.idleColorR}
-                        g={li.idleColorG}
-                        b={li.idleColorB}
+                        r={li.idle.color.r}
+                        g={li.idle.color.g}
+                        b={li.idle.color.b}
                         onChange={(r, g, b) =>
                           void lighting.setConfig({
                             idleColorR: r,
@@ -663,8 +663,8 @@ export function ProjectLightingPanel({
                     )}
 
                     <LabeledSlider
-                      label={`Intensity: ${Math.round(li.idleIntensity * 100)}%`}
-                      value={li.idleIntensity}
+                      label={`Intensity: ${Math.round(li.idle.intensity * 100)}%`}
+                      value={li.idle.intensity}
                       onChange={(v) =>
                         void lighting.setConfig({ idleIntensity: v })
                       }
@@ -819,7 +819,7 @@ export function ProjectLightingPanel({
                         min={0}
                         max={32}
                         className={numberCls}
-                        value={li.resoLightColumns}
+                        value={li.resoLight.columns}
                         onChange={(e) =>
                           void lighting.setConfig({
                             resoLightColumns: Math.max(
@@ -836,7 +836,7 @@ export function ProjectLightingPanel({
                         min={0}
                         max={32}
                         className={numberCls}
-                        value={li.resoLightRows}
+                        value={li.resoLight.rows}
                         onChange={(e) =>
                           void lighting.setConfig({
                             resoLightRows: Math.max(
@@ -1021,7 +1021,7 @@ export function ProjectLightingPanel({
                     selected.shape === "matrix" && (
                       <Field label="Matrix Columns (0 = auto)">
                         <FocusNumberInput
-                          serverValue={selected.matrixCols}
+                          serverValue={selected.matrixColumns}
                           min={0}
                           max={31}
                           onCommit={(v) =>
@@ -1093,7 +1093,7 @@ export function ProjectLightingPanel({
                   <div className="grid grid-cols-3 gap-3">
                     <Field label="Height (m)">
                       <FocusNumberInput
-                        serverValue={selected.posY}
+                        serverValue={selected.position.y}
                         step={0.1}
                         onCommit={(v) =>
                           void lighting.fixtureUpdate({
@@ -1105,7 +1105,7 @@ export function ProjectLightingPanel({
                     </Field>
                     <Field label="Pos X (m)">
                       <FocusNumberInput
-                        serverValue={selected.posX}
+                        serverValue={selected.position.x}
                         step={0.1}
                         toStr={(v) => v.toFixed(2)}
                         onCommit={(v) =>
@@ -1118,7 +1118,7 @@ export function ProjectLightingPanel({
                     </Field>
                     <Field label="Pos Z (m)">
                       <FocusNumberInput
-                        serverValue={selected.posZ}
+                        serverValue={selected.position.z}
                         step={0.1}
                         toStr={(v) => v.toFixed(2)}
                         onCommit={(v) =>
@@ -1177,7 +1177,7 @@ export function ProjectLightingPanel({
                   <Field label="Yaw (°) -- which way it faces">
                     <div className="flex gap-2">
                       <FocusNumberInput
-                        serverValue={selected.rotationYDeg}
+                        serverValue={selected.rotation.y}
                         step={5}
                         className="w-20 rounded-lg border border-default/60 bg-default/20 px-2 py-1 text-xs outline-none focus:border-accent text-center"
                         onCommit={(v) =>
@@ -1197,7 +1197,7 @@ export function ProjectLightingPanel({
                     <Field label="Tilt (°) -- aim off vertical">
                       <div className="flex gap-2">
                         <FocusNumberInput
-                          serverValue={selected.tiltDeg}
+                          serverValue={selected.tiltDegrees}
                           step={5}
                           min={-90}
                           max={90}
@@ -1219,7 +1219,7 @@ export function ProjectLightingPanel({
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Grid Column">
                         <FocusNumberInput
-                          serverValue={selected.gridColumn}
+                          serverValue={selected.grid.column}
                           min={0}
                           max={31}
                           onCommit={(v) =>
@@ -1232,7 +1232,7 @@ export function ProjectLightingPanel({
                       </Field>
                       <Field label="Grid Row">
                         <FocusNumberInput
-                          serverValue={selected.gridRow}
+                          serverValue={selected.grid.row}
                           min={0}
                           max={31}
                           onCommit={(v) =>
@@ -1326,7 +1326,7 @@ export function ProjectLightingPanel({
                         <div className="text-[10px] text-foreground/40 font-mono">
                           {channelRoleLabels(
                             selected.channelProfile,
-                            selected.dmxStartChannel,
+                            selected.dmx.startChannel,
                           ).join(" · ")}
                         </div>
                       )}
@@ -1334,7 +1334,7 @@ export function ProjectLightingPanel({
                       <div className="grid grid-cols-3 gap-3">
                         <Field label="Universe">
                           <FocusNumberInput
-                            serverValue={selected.dmxUniverse}
+                            serverValue={selected.dmx.universe}
                             min={0}
                             onCommit={(v) =>
                               void lighting.fixtureUpdate({
@@ -1346,7 +1346,7 @@ export function ProjectLightingPanel({
                         </Field>
                         <Field label="Start Ch">
                           <FocusNumberInput
-                            serverValue={selected.dmxStartChannel}
+                            serverValue={selected.dmx.startChannel}
                             min={1}
                             max={512}
                             onCommit={(v) =>
@@ -1359,7 +1359,7 @@ export function ProjectLightingPanel({
                         </Field>
                         <Field label="Ch Count">
                           <FocusNumberInput
-                            serverValue={selected.dmxChannelCount}
+                            serverValue={selected.dmx.channelCount}
                             min={1}
                             max={512}
                             disabled={selected.channelProfile !== "custom"}

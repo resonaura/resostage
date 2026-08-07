@@ -8,22 +8,22 @@ export interface CueClipboardEntry extends LightCueRow {
 
 function cueStyleFields(cue: LightCueRow) {
   return {
-    colorR: cue.colorR,
-    colorG: cue.colorG,
-    colorB: cue.colorB,
+    colorR: cue.color.r,
+    colorG: cue.color.g,
+    colorB: cue.color.b,
     intensity: cue.intensity,
-    fadeInSeconds: cue.fadeInSeconds,
-    fadeOutSeconds: cue.fadeOutSeconds,
+    fadeInSeconds: cue.fade.inSeconds,
+    fadeOutSeconds: cue.fade.outSeconds,
     label: cue.label,
-    effectType: cue.effectType,
-    effectSourceType: cue.effectSourceType,
-    effectSourceId: cue.effectSourceId,
-    effectIntensity: cue.effectIntensity,
-    tempoSync: cue.tempoSync,
-    tempoSubdiv: cue.tempoSubdiv,
-    effectRateHz: cue.effectRateHz,
-    gradientPreset: cue.gradientPreset,
-    gradientColors: cue.gradientColors,
+    effectType: cue.effect.type ?? null,
+    effectSourceType: cue.effect.sourceType,
+    effectSourceId: cue.effect.sourceId ?? null,
+    effectIntensity: cue.effect.intensity,
+    tempoSync: cue.effect.tempoSync,
+    tempoSubdiv: cue.effect.tempoSubdivision,
+    effectRateHz: cue.effect.rateHz,
+    gradientPreset: cue.gradient.preset,
+    gradientColors: cue.gradient.colors ?? null,
   };
 }
 
@@ -125,10 +125,14 @@ export async function splitCueAtPlayhead(
     gestureId,
   });
 
-  await lighting.cueAdd(sel.songIndex, cue.trackId, localPlayhead, rightDur, {
+  const splitStyle = {
     ...cueStyleFields(cue),
     fadeInSeconds: 0,
-    fadeOutSeconds: cue.fadeOutSeconds,
+    fadeOutSeconds: cue.fade.outSeconds,
+  };
+
+  await lighting.cueAdd(sel.songIndex, cue.trackId, localPlayhead, rightDur, {
+    ...splitStyle,
     gestureId,
   });
 

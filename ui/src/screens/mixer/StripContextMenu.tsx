@@ -5,7 +5,11 @@ import {
   ContextMenuItem,
 } from "../../components/ContextMenu";
 import { builder, mixer } from "../../lib/api";
-import type { BusRow, TrackRow } from "../../lib/types";
+import {
+  sourceOutputBusId,
+  type BusRow,
+  type TrackRow,
+} from "../../lib/types";
 
 /** Kind of mixer strip — drives which menu items are visible. */
 export type StripMenuKind = "track" | "master" | "send" | "click";
@@ -83,7 +87,7 @@ export function StripContextMenu({
         songIndex: target.songIndex,
         index: target.index,
         name,
-        busId: target.track.busId,
+        busId: sourceOutputBusId(target.track.output),
         gainDb: target.track.gainDb,
         pan: target.track.pan,
         mute: target.track.mute,
@@ -109,7 +113,7 @@ export function StripContextMenu({
 
   const hasSends =
     target.kind === "track"
-      ? target.track.sends.length > 0
+      ? target.track.output.sends.length > 0
       : target.kind === "click"
         ? target.hasSends
         : false;
@@ -208,8 +212,8 @@ export function StripContextMenu({
           onClick={() =>
             act(() => {
               if (target.kind === "track") {
-                for (const s of target.track.sends)
-                  void mixer.removeTrackSend(target.index, s.busId);
+                for (const s of target.track.output.sends)
+                  void mixer.removeTrackSend(target.index, s.bus);
               } else if (target.kind === "click") {
                 target.onRemoveAllSends();
               }

@@ -138,10 +138,10 @@ function frameCameraToFixtures(
     return;
   }
 
-  const xs = fixtures.map((f) => f.posX);
-  const zs = fixtures.map((f) => f.posZ);
+  const xs = fixtures.map((f) => f.position.x);
+  const zs = fixtures.map((f) => f.position.z);
   const ys = fixtures.map(
-    (f) => f.posY + Math.min(3, Math.max(0.3, f.ledCount / 30)),
+    (f) => f.position.y + Math.min(3, Math.max(0.3, f.ledCount / 30)),
   );
 
   const minX = Math.min(...xs);
@@ -235,8 +235,8 @@ function TopViewHelper({
 
   useEffect(() => {
     triggerRef.current = () => {
-      const xs = fixtures.length ? fixtures.map((f) => f.posX) : [0];
-      const zs = fixtures.length ? fixtures.map((f) => f.posZ) : [0];
+      const xs = fixtures.length ? fixtures.map((f) => f.position.x) : [0];
+      const zs = fixtures.length ? fixtures.map((f) => f.position.z) : [0];
       const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
       const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
 
@@ -477,8 +477,8 @@ export function ResoLightStage3D({
 
         {fixtures.map((f, i) => {
           const isDragging = dragId === f.id;
-          const x = isDragging && dragPos ? dragPos.x : snapToStageGrid(f.posX);
-          const z = isDragging && dragPos ? dragPos.z : snapToStageGrid(f.posZ);
+          const x = isDragging && dragPos ? dragPos.x : snapToStageGrid(f.position.x);
+          const z = isDragging && dragPos ? dragPos.z : snapToStageGrid(f.position.z);
           const commonProps = {
             fixture: f,
             fixtureIndex: i,
@@ -798,9 +798,9 @@ function ResoLightBar({
         fixture.shape,
         segmentCount,
         heightMeters,
-        fixture.matrixCols,
+        fixture.matrixColumns,
       ),
-    [fixture.shape, segmentCount, heightMeters, fixture.matrixCols],
+    [fixture.shape, segmentCount, heightMeters, fixture.matrixColumns],
   );
   const glowScale = showShapeSegments ? 0.22 : 0.42;
 
@@ -818,8 +818,8 @@ function ResoLightBar({
   // mean "lying down" (which produced a squashed/near-square bar).
   return (
     <group
-      position={[x, fixture.posY, z]}
-      rotation={[0, THREE.MathUtils.degToRad(fixture.rotationYDeg), 0]}
+      position={[x, fixture.position.y, z]}
+      rotation={[0, THREE.MathUtils.degToRad(fixture.rotation.y), 0]}
     >
       <group rotation={[0, 0, fixture.mountedHorizontally ? Math.PI / 2 : 0]}>
         {segments ? (
@@ -1031,15 +1031,15 @@ function GenericFixture({
 
   return (
     <group
-      position={[x, fixture.posY, z]}
-      rotation={[0, THREE.MathUtils.degToRad(fixture.rotationYDeg), 0]}
+      position={[x, fixture.position.y, z]}
+      rotation={[0, THREE.MathUtils.degToRad(fixture.rotation.y), 0]}
     >
       {/* Tilt (aim pitch) nests inside yaw, same two-group composition
           ResoLightBar uses for yaw+mount -- so tilting always pitches the
           fixture in whatever horizontal direction it's already yawed to
           face, not some fixed world axis. Selection ring stays outside:
           it's a floor-anchored UI affordance, not part of the fixture. */}
-      <group rotation={[THREE.MathUtils.degToRad(fixture.tiltDeg), 0, 0]}>
+      <group rotation={[THREE.MathUtils.degToRad(fixture.tiltDegrees), 0, 0]}>
         {body}
 
         <sprite position={[0, lensY, 0]} scale={[0.5, 0.5, 1]}>

@@ -8,6 +8,8 @@
 // functions with full access to engine / web-command handlers.
 
 #include "MainComponent.h"
+#include "engine/AudioEngineInternal.h"
+#include "project/ProjectJson.h"
 #include "server/BuilderJson.h"
 
 #include <algorithm>
@@ -198,7 +200,12 @@ void MainComponent::builderSongUpdate(const std::string& json) {
             SendConfig cs;
             if (!getString(csEl, "busId", cs.bus))
                 continue; // busId is required
-            getDouble(csEl, "level", cs.level);
+            double levelVal = 0.0;
+            if (getDouble(csEl, "level", levelVal)) {
+                cs.level = levelVal;
+            } else if (getDouble(csEl, "gainDb", levelVal)) {
+                cs.level = sendDbToLevel(levelVal);
+            }
             bool enabled = true;
             getBool(csEl, "enabled", enabled);
             cs.enabled = enabled;
@@ -257,7 +264,7 @@ void MainComponent::builderTrackAdd(const std::string& /*json*/) {
     TrackDef track;
     track.id = makeUniqueId("trk", used);
     track.name = "New Track";
-    track.busId = proj.busses.empty() ? "main" : proj.busses.front().id;
+    track.output.type = OutputType::Main;
     engine.projectHistoryBeginEdit("", "Add track");
     proj.tracks.push_back(track);
     engine.projectHistoryCommitEdit();
@@ -318,19 +325,32 @@ void MainComponent::builderTrackUpdate(const std::string& json) {
     double numVal;
     bool boolVal;
     if (getString(doc, "name", strVal)) t.name = strVal;
-    if (getString(doc, "busId", strVal)) t.busId = strVal;
+    if (getString(doc, "busId", strVal)) {
+        // Same 3-way route mapping as the click's busId: "" = Sends Only,
+        // "audio::main" = Main, otherwise an ext-out target string.
+        if (strVal.empty()) {
+            t.output.type = OutputType::SendsOnly;
+            t.output.target.reset();
+        } else if (strVal == "audio::main") {
+            t.output.type = OutputType::Main;
+            t.output.target.reset();
+        } else {
+            t.output.type = OutputType::ExtOut;
+            t.output.target = strVal;
+        }
+    }
     if (getDouble(doc, "gainDb", numVal)) t.gainDb = numVal;
     if (getDouble(doc, "pan", numVal)) t.pan = numVal;
     if (getBool(doc, "mute", boolVal)) t.mute = boolVal;
     if (getBool(doc, "solo", boolVal)) t.solo = boolVal;
-    if (getBool(doc, "mono", boolVal)) t.mono = boolVal;
+    if (getBool(doc, "mono", boolVal)) t.channels = boolVal ? 1 : 2;
 
     engine.setTrackGainDb(0, static_cast<size_t>(index), t.gainDb);
     engine.setTrackPan(0, static_cast<size_t>(index), t.pan);
-    engine.setTrackBusId(0, static_cast<size_t>(index), t.busId);
+    engine.setTrackBusId(0, static_cast<size_t>(index), audio_engine_detail::mainRouteId(t.output));
     engine.setTrackMute(0, static_cast<size_t>(index), t.mute);
     engine.setTrackSolo(0, static_cast<size_t>(index), t.solo);
-    engine.setTrackMono(0, static_cast<size_t>(index), t.mono);
+    engine.setTrackMono(0, static_cast<size_t>(index), t.channels == 1);
 
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
@@ -354,19 +374,21 @@ void MainComponent::builderRegionAdd(const std::string& json) {
     Region reg;
     reg.id = makeUniqueId("reg", used);
     reg.trackId = trackId;
-    getString(doc, "file", reg.file);
-    if (reg.file.empty())
+    getString(doc, "file", reg.source.file);
+    if (reg.source.file.empty())
         return;
 
     getDouble(doc, "startSeconds", reg.startSeconds);
-    getDouble(doc, "sourceOffsetSeconds", reg.sourceOffsetSeconds);
+    getDouble(doc, "sourceOffsetSeconds", reg.source.offsetSeconds);
     getDouble(doc, "durationSeconds", reg.durationSeconds);
     getDouble(doc, "gainDb", reg.gainDb);
-    getDouble(doc, "fadeInSeconds", reg.fadeInSeconds);
-    getDouble(doc, "fadeOutSeconds", reg.fadeOutSeconds);
-    getDouble(doc, "fadeInCurve", reg.fadeInCurve);
-    getDouble(doc, "fadeOutCurve", reg.fadeOutCurve);
-    getBool(doc, "loop", reg.loop);
+    getDouble(doc, "fadeInSeconds", reg.fade.inSeconds);
+    getDouble(doc, "fadeOutSeconds", reg.fade.outSeconds);
+    getDouble(doc, "fadeInCurve", reg.fade.inCurve);
+    getDouble(doc, "fadeOutCurve", reg.fade.outCurve);
+    bool loopEnabled = false;
+    getBool(doc, "loop", loopEnabled);
+    reg.loop.enabled = loopEnabled;
 
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
@@ -428,28 +450,28 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
     std::string strVal;
     double numVal;
     if (getString(doc, "trackId", strVal)) regPtr->trackId = strVal;
-    if (getString(doc, "file", strVal)) regPtr->file = strVal;
+    if (getString(doc, "file", strVal)) regPtr->source.file = strVal;
     if (getDouble(doc, "startSeconds", numVal)) regPtr->startSeconds = numVal;
-    if (getDouble(doc, "sourceOffsetSeconds", numVal)) regPtr->sourceOffsetSeconds = numVal;
+    if (getDouble(doc, "sourceOffsetSeconds", numVal)) regPtr->source.offsetSeconds = numVal;
     if (getDouble(doc, "durationSeconds", numVal)) regPtr->durationSeconds = numVal;
     if (getDouble(doc, "gainDb", numVal)) regPtr->gainDb = numVal;
-    if (getDouble(doc, "fadeInSeconds", numVal)) regPtr->fadeInSeconds = std::max(0.0, numVal);
-    if (getDouble(doc, "fadeOutSeconds", numVal)) regPtr->fadeOutSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "fadeInSeconds", numVal)) regPtr->fade.inSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "fadeOutSeconds", numVal)) regPtr->fade.outSeconds = std::max(0.0, numVal);
     if (getDouble(doc, "fadeInCurve", numVal))
-        regPtr->fadeInCurve = std::clamp(numVal, -1.0, 1.0);
+        regPtr->fade.inCurve = std::clamp(numVal, -1.0, 1.0);
     if (getDouble(doc, "fadeOutCurve", numVal))
-        regPtr->fadeOutCurve = std::clamp(numVal, -1.0, 1.0);
-    bool boolVal = false;
-    if (getBool(doc, "loop", boolVal))
-        regPtr->loop = boolVal;
+        regPtr->fade.outCurve = std::clamp(numVal, -1.0, 1.0);
+    bool loopEnabled = false;
+    if (getBool(doc, "loop", loopEnabled))
+        regPtr->loop.enabled = loopEnabled;
     if (getDouble(doc, "loopLengthSeconds", numVal))
-        regPtr->loopLengthSeconds = std::max(0.0, numVal);
+        regPtr->loop.lengthSeconds = std::max(0.0, numVal);
 
     // Keep fades from exceeding the clip length (each side ≤ half duration).
     if (regPtr->durationSeconds > 0.0) {
         const double maxFade = std::max(0.0, regPtr->durationSeconds * 0.5);
-        regPtr->fadeInSeconds = std::min(regPtr->fadeInSeconds, maxFade);
-        regPtr->fadeOutSeconds = std::min(regPtr->fadeOutSeconds, maxFade);
+        regPtr->fade.inSeconds = std::min(regPtr->fade.inSeconds, maxFade);
+        regPtr->fade.outSeconds = std::min(regPtr->fade.outSeconds, maxFade);
     }
 
     engine.projectHistoryCommitEdit();
@@ -594,11 +616,11 @@ void MainComponent::builderCycleUpdate(const std::string& json) {
     if (getBool(doc, "skip", boolVal))
         proj.cycle.skip = boolVal;
     if (getDouble(doc, "leftSec", numVal))
-        proj.cycle.leftSec = std::max(0.0, numVal);
+        proj.cycle.startSeconds = std::max(0.0, numVal);
     if (getDouble(doc, "rightSec", numVal))
-        proj.cycle.rightSec = std::max(0.0, numVal);
-    if (proj.cycle.rightSec < proj.cycle.leftSec)
-        std::swap(proj.cycle.leftSec, proj.cycle.rightSec);
+        proj.cycle.endSeconds = std::max(0.0, numVal);
+    if (proj.cycle.endSeconds < proj.cycle.startSeconds)
+        std::swap(proj.cycle.startSeconds, proj.cycle.endSeconds);
 
     // If still unbound, attach to the currently staged song.
     if (proj.cycle.songIndex < 0 && !proj.songs.empty())
@@ -627,20 +649,22 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
         return;
 
     // Mirrors MixerPanel.cpp's onSendChanged: find this track's existing send
-    // to busId and update its gain, or create one if this is the first time
+    // to busId and update its level, or create one if this is the first time
     // (turning a knob up from its floor implicitly creates the send).
-    for (size_t si = 0; si < t->sends.size(); ++si) {
-        if (t->sends[si].busId == busId) {
-            TrackSendDef updated = t->sends[si];
-            updated.gainDb = gainDb;
+    const double level = sendDbToLevel(gainDb);
+    for (size_t si = 0; si < t->output.sends.size(); ++si) {
+        if (t->output.sends[si].bus == busId) {
+            SendConfig updated = t->output.sends[si];
+            updated.level = level;
+            updated.enabled = true;
             engine.setTrackSend(songIdx, idx, si, updated);
     notifyRoutingChanged();
             return;
         }
     }
-    TrackSendDef newSend;
-    newSend.busId = busId;
-    newSend.gainDb = gainDb;
+    SendConfig newSend;
+    newSend.bus = busId;
+    newSend.level = level;
     newSend.enabled = true;
     engine.addTrackSend(songIdx, idx, newSend);
     notifyRoutingChanged();
@@ -674,8 +698,8 @@ void MainComponent::removeTrackSendFromJson(const std::string& json) {
     if (t == nullptr)
         return;
 
-    for (size_t si = 0; si < t->sends.size(); ++si) {
-        if (t->sends[si].busId == busId) {
+    for (size_t si = 0; si < t->output.sends.size(); ++si) {
+        if (t->output.sends[si].bus == busId) {
             engine.removeTrackSend(songIdx, idx, si);
     notifyRoutingChanged();
             return;
@@ -758,22 +782,47 @@ void MainComponent::builderBusAdd() {
     if (!engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    std::vector<std::string> used;
-    for (const auto& b : proj.busses)
-        used.push_back(b.id);
-    BusDef bus;
-    bus.id = makeUniqueId("bus", used);
+
+    // Sends own a sequential "audio::send:N" id -- reuse any gaps left by
+    // earlier removals by continuing past the highest existing suffix.
+    int maxSend = 0;
+    constexpr const char* kSendPrefix = "audio::send:";
+    for (const auto& s : proj.sends) {
+        if (s.id.rfind(kSendPrefix, 0) != 0)
+            continue;
+        try {
+            maxSend = std::max(maxSend, std::stoi(s.id.substr(std::string(kSendPrefix).size())));
+        } catch (...) {
+            continue;
+        }
+    }
+    SendBus bus;
+    bus.id = kSendPrefix + std::to_string(maxSend + 1);
     bus.name = "New Bus";
     bus.channels = 2;
+    bus.output.type = OutputType::ExtOut;
+
+    // Place the new send on the first physical channel past every bus that
+    // already owns direct channels (master included).
     int nextCh = 0;
-    for (const auto& b : proj.busses)
-        nextCh = std::max(nextCh, b.output.startChannel + b.channels);
-    bus.output.startChannel = nextCh;
-    engine.projectHistoryBeginEdit("", "Add bus");
-    proj.busses.push_back(std::move(bus));
+    const auto extendFrom = [&nextCh](const std::optional<std::string>& target) {
+        if (!target.has_value())
+            return;
+        int start = 0, count = 0;
+        parseExtOutTarget(*target, start, count);
+        nextCh = std::max(nextCh, start + count);
+    };
+    extendFrom(proj.main.output.target);
+    for (const auto& s : proj.sends)
+        extendFrom(s.output.target);
+    bus.output.target = extOutTarget(nextCh, bus.channels);
+
+    engine.projectHistoryBeginEdit("", "Add Send");
+    proj.sends.push_back(std::move(bus));
     engine.projectHistoryCommitEdit();
+    engine.rebuildBussesFromProject();
     notifyProjectStructureChanged();
-    setStatus("Bus added");
+    setStatus("Send added");
 }
 
 void MainComponent::builderBusRemove(const std::string& json) {
@@ -782,39 +831,35 @@ void MainComponent::builderBusRemove(const std::string& json) {
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    if (index < 0 || index >= static_cast<int>(proj.busses.size()) || proj.busses.size() <= 1)
-        return; // keep at least one bus, matches BuilderPanel::removeItem()
+    // Bus rail indexes: 0 = Master (never removable), 1..N = Sends.
+    if (index <= 0 || index > static_cast<int>(proj.sends.size()))
+        return;
 
-    engine.projectHistoryBeginEdit("", "Remove bus");
-    const std::string removedId = proj.busses[static_cast<size_t>(index)].id;
-    proj.busses.erase(proj.busses.begin() + index);
-    const std::string fallback = proj.busses.front().id;
+    engine.projectHistoryBeginEdit("", "Remove send");
+    const size_t sIdx = static_cast<size_t>(index - 1);
+    const std::string removedId = proj.sends[sIdx].id;
+    proj.sends.erase(proj.sends.begin() + sIdx);
 
-    // Anything that *depends* on the removed bus needs to be untangled, not
-    // just the tracks that had it as their primary output above: a dangling
-    // TrackSendDef/click-send referencing a bus id that no longer exists is
+    // Anything that depends on the removed send needs to be untangled: a
+    // dangling send row referencing a bus id that no longer exists is
     // silently skipped by AudioEngine's routing build (see busIndexById
     // lookups there), so it wouldn't crash or misroute audio -- but it'd sit
     // in the project forever as dead weight, and sendsCount/UI would keep
     // showing a send that can never do anything. Drop those send rows
     // outright instead of leaving them dangling or silently re-pointing them
     // at some other bus (which would be a surprising routing change).
-    auto dropsRemovedSend = [&removedId](const TrackSendDef& s) { return s.busId == removedId; };
-    for (auto& tr : proj.tracks) {
-        if (tr.busId == removedId)
-            tr.busId = fallback;
-        tr.sends.erase(std::remove_if(tr.sends.begin(), tr.sends.end(), dropsRemovedSend),
-                        tr.sends.end());
-    }
+    auto dropsRemovedSend = [&removedId](const SendConfig& s) { return s.bus == removedId; };
+    for (auto& tr : proj.tracks)
+        tr.output.sends.erase(std::remove_if(tr.output.sends.begin(), tr.output.sends.end(), dropsRemovedSend),
+                              tr.output.sends.end());
     // Project-global metronome routing.
-    if (!proj.builtInClickBusId.empty() && proj.builtInClickBusId == removedId)
-        proj.builtInClickBusId = fallback;
-    proj.builtInClickSends.erase(
-        std::remove_if(proj.builtInClickSends.begin(), proj.builtInClickSends.end(), dropsRemovedSend),
-        proj.builtInClickSends.end());
+    proj.click.output.sends.erase(
+        std::remove_if(proj.click.output.sends.begin(), proj.click.output.sends.end(), dropsRemovedSend),
+        proj.click.output.sends.end());
     engine.projectHistoryCommitEdit();
+    engine.rebuildBussesFromProject();
     notifyProjectStructureChanged();
-    setStatus("Bus removed");
+    setStatus("Send removed");
 }
 
 void MainComponent::builderBusMove(const std::string& json) {
@@ -825,13 +870,15 @@ void MainComponent::builderBusMove(const std::string& json) {
         return;
     Project& proj = engine.project();
     const int to = index + delta;
-    if (index < 0 || index >= static_cast<int>(proj.busses.size()) || to < 0
-        || to >= static_cast<int>(proj.busses.size()))
+    // Bus rail indexes: 0 = Master (fixed), 1..N = Sends.
+    if (index <= 0 || index > static_cast<int>(proj.sends.size()) || to <= 0
+        || to > static_cast<int>(proj.sends.size()))
         return;
 
-    engine.projectHistoryBeginEdit("", "Move bus");
-    std::swap(proj.busses[static_cast<size_t>(index)], proj.busses[static_cast<size_t>(to)]);
+    engine.projectHistoryBeginEdit("", "Move send");
+    std::swap(proj.sends[static_cast<size_t>(index - 1)], proj.sends[static_cast<size_t>(to - 1)]);
     engine.projectHistoryCommitEdit();
+    engine.rebuildBussesFromProject();
     notifyProjectStructureChanged();
 }
 
@@ -841,9 +888,8 @@ void MainComponent::builderBusUpdate(const std::string& json) {
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    if (index < 0 || index >= static_cast<int>(proj.busses.size()))
+    if (index < 0 || index > static_cast<int>(proj.sends.size()))
         return;
-    BusDef& b = proj.busses[static_cast<size_t>(index)];
 
     // Covers every field this endpoint can touch, including bus creation's
     // follow-up configure step (queueBusJob in MixerScreen.tsx -- "Add Send"
@@ -857,30 +903,42 @@ void MainComponent::builderBusUpdate(const std::string& json) {
     double numVal;
     int intVal;
     bool boolVal;
-    if (getString(doc, "name", strVal)) b.name = strVal;
-    bool channelsChanged = false;
-    if (getInt(doc, "channels", intVal)) {
-        const int nextCh = (intVal >= 2) ? 2 : 1;
-        channelsChanged = (b.channels != nextCh);
-        b.channels = nextCh;
+    if (index == 0) {
+        // Master strip -- lives in proj.main (never a send).
+        if (getString(doc, "name", strVal)) proj.main.name = strVal;
+        if (getInt(doc, "channels", intVal)) proj.main.channels = (intVal >= 2) ? 2 : 1;
+        int startChannel = -1;
+        if (getInt(doc, "startChannel", intVal)) startChannel = intVal;
+        if (getDouble(doc, "gainDb", numVal)) proj.main.gainDb = numVal;
+        if (getDouble(doc, "pan", numVal)) proj.main.pan = std::clamp(numVal, -1.0, 1.0);
+        if (getBool(doc, "mute", boolVal)) proj.main.mute = boolVal;
+        if (getBool(doc, "solo", boolVal)) proj.main.solo = boolVal;
+        if (startChannel >= 0) {
+            proj.main.output.type = OutputType::ExtOut;
+            proj.main.output.target = extOutTarget(startChannel, proj.main.channels);
+        }
+    } else {
+        SendBus& b = proj.sends[static_cast<size_t>(index - 1)];
+        if (getString(doc, "name", strVal)) b.name = strVal;
+        if (getInt(doc, "channels", intVal)) b.channels = (intVal >= 2) ? 2 : 1;
+        int startChannel = -1;
+        if (getInt(doc, "startChannel", intVal)) startChannel = intVal;
+        if (getDouble(doc, "gainDb", numVal)) b.gainDb = numVal;
+        if (getDouble(doc, "pan", numVal)) b.pan = std::clamp(numVal, -1.0, 1.0);
+        if (getBool(doc, "mute", boolVal)) b.mute = boolVal;
+        if (getBool(doc, "solo", boolVal)) b.solo = boolVal;
+        if (startChannel >= 0) {
+            b.output.type = OutputType::ExtOut;
+            b.output.target = extOutTarget(startChannel, b.channels);
+        }
     }
-    if (getInt(doc, "startChannel", intVal)) b.output.startChannel = intVal;
-    if (getDouble(doc, "gainDb", numVal)) b.gainDb = numVal;
-    if (getDouble(doc, "pan", numVal)) b.pan = std::clamp(numVal, -1.0, 1.0);
-    if (getBool(doc, "mute", boolVal)) b.mute = boolVal;
-    if (getBool(doc, "solo", boolVal)) b.solo = boolVal;
-    if (getBool(doc, "isAux", boolVal)) b.isAux = boolVal;
 
     engine.projectHistoryCommitEdit();
 
     // Always rebuild the live bus list from project so LoadedBus.channelCount
-    // stays in lockstep with BusDef.channels / startChannel. A stale
-    // channelCount of 0 used to make Pass 3 skip the physical write
-    // (channels = min(2, 0) == 0), which silenced any aux/send whose Ext. Out
-    // shared the master's hardware pair even though busScratch had signal.
+    // stays in lockstep with SendBus.channels and the ext-out targets.
     // rebuildBussesFromProject also republishes the routing snapshot (gain/
     // mute/solo/startChannel all read from project).
-    (void)channelsChanged;
     engine.rebuildBussesFromProject();
     notifyRoutingChanged();
     setStatus("Bus updated");

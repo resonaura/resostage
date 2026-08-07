@@ -43,7 +43,7 @@ export function allRegionSelKeys(songs: SongRow[]): RegionSelKey[] {
   const keys: RegionSelKey[] = [];
   songs.forEach((song, si) => {
     for (const r of song.regions ?? []) {
-      if (r.file && r.id) keys.push(regionSelKey(si, r.id));
+      if (r.source.file && r.id) keys.push(regionSelKey(si, r.id));
     }
   });
   return keys;

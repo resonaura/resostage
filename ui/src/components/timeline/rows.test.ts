@@ -5,25 +5,23 @@ import { buildRows, songDurationSeconds } from "./rows";
 const track = (id: string, name: string): TrackRow => ({
   id,
   name,
-  busId: "master",
+  channels: 1,
   gainDb: 0,
   pan: 0,
   mute: false,
   solo: false,
-  sends: [],
+  output: { type: "main", sends: [] },
   peakDb: -100,
 });
 
 const region = (
   partial: Partial<RegionRow> & Pick<RegionRow, "id" | "trackId">,
 ): RegionRow => ({
-  file: "a.wav",
   startSeconds: 0,
-  sourceOffsetSeconds: 0,
   durationSeconds: 4,
   gainDb: 0,
-  fadeInSeconds: 0,
-  fadeOutSeconds: 0,
+  source: { file: "a.wav", offsetSeconds: 0 },
+  fade: { inSeconds: 0, outSeconds: 0 },
   ...partial,
 });
 

@@ -31,10 +31,13 @@ function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
           const pt = prev.tracks.find((t) => t.id === nt.id);
           return {
             ...nt,
-            sends:
-              nt.sends && nt.sends.length > 0
-                ? nt.sends
-                : (pt?.sends ?? nt.sends ?? []),
+            output: {
+              ...nt.output,
+              sends:
+                nt.output.sends.length > 0
+                  ? nt.output.sends
+                  : (pt?.output?.sends ?? nt.output.sends),
+            },
           };
         })
       : prev.tracks,

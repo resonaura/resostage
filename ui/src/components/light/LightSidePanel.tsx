@@ -1335,10 +1335,12 @@ function CueLabelInput({
   cue,
   update,
 }: {
-  cue: { label: string };
+  cue: { label?: string };
   update: (partial: { label: string }) => void;
 }) {
-  const { inputProps } = useFocusDraft(cue.label, (v) => update({ label: v }));
+  const { inputProps } = useFocusDraft(cue.label ?? "", (v) =>
+    update({ label: v }),
+  );
   return (
     <input
       type="text"
@@ -1490,9 +1492,9 @@ function CueSettingsPanel({
           </div>
         ) : (
           <HslColorPicker
-            r={cue.colorR}
-            g={cue.colorG}
-            b={cue.colorB}
+            r={cue.color.r}
+            g={cue.color.g}
+            b={cue.color.b}
             onChange={(r, g, b) => update({ colorR: r, colorG: g, colorB: b })}
           />
         )}
@@ -1514,8 +1516,8 @@ function CueSettingsPanel({
         //   fadeOut ≤ duration − fadeIn   (remaining after fade-in ends)
         // Matches resolveLightCueValue in lightCueInterpolation.ts.
         const dur = Math.max(0, cue.durationSeconds);
-        const fadeIn = Math.max(0, cue.fadeInSeconds);
-        const fadeOut = Math.max(0, cue.fadeOutSeconds);
+        const fadeIn = Math.max(0, cue.fade.inSeconds);
+        const fadeOut = Math.max(0, cue.fade.outSeconds);
         const maxFadeIn = Math.max(0, dur - fadeOut);
         const maxFadeOut = Math.max(0, dur - fadeIn);
         return (
@@ -1630,15 +1632,15 @@ export function LightSidePanel({
   if (prevCueId.current !== currentCueId) {
     prevCueId.current = currentCueId;
     const cue = selection?.type === "cue" ? selection.cue : null;
-    setEffectType((cue?.effectType || "none") as EffectType);
-    setEffectSourceType((cue?.effectSourceType || "bus") as SourceType);
-    setEffectSourceId(cue?.effectSourceId ?? "");
-    setEffectIntensity(cue?.effectIntensity ?? 0.8);
-    setEffectRate(cue?.effectRateHz ?? 2);
-    setTempoSync(cue?.tempoSync ?? false);
-    setTempoSubdiv((cue?.tempoSubdiv || "1/4") as TempoSubdiv);
-    setGradientPreset((cue?.gradientPreset || "solid") as GradientPreset);
-    setGradientColors(cue?.gradientColors ?? "");
+    setEffectType((cue?.effect.type || "none") as EffectType);
+    setEffectSourceType((cue?.effect.sourceType || "bus") as SourceType);
+    setEffectSourceId(cue?.effect.sourceId ?? "");
+    setEffectIntensity(cue?.effect.intensity ?? 0.8);
+    setEffectRate(cue?.effect.rateHz ?? 2);
+    setTempoSync(cue?.effect.tempoSync ?? false);
+    setTempoSubdiv((cue?.effect.tempoSubdivision || "1/4") as TempoSubdiv);
+    setGradientPreset((cue?.gradient.preset || "solid") as GradientPreset);
+    setGradientColors(cue?.gradient.colors ?? "");
     setBlendMode(((cue?.blendMode as BlendModeUi) || "normal") as BlendModeUi);
   }
 

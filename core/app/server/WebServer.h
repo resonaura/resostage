@@ -51,12 +51,13 @@ enum class WebCommandKind : uint8_t {
     SetClickSolo,
     // Ableton-style per-track send routing -- `json` carries
     // {trackIndex, busId, gainDb}. Mirrors MixerPanel.cpp's onSendChanged:
-    // find the track's existing TrackSendDef for busId and update its gain,
-    // or create a new one if this is the first time this bus was sent to
+    // find the track's existing send row for busId and update its level
+    // (gainDb is converted to the schema's 0-100 SendConfig::level), or
+    // create a new one if this is the first time this bus was sent to
     // (turning a knob up from its floor implicitly creates the send). Always
     // targets engine.currentSongIndex(), same as the other mixer commands.
     SetTrackSend,
-    // Actually erases a track's TrackSendDef for a bus (as opposed to
+    // Actually erases a track's send row for a bus (as opposed to
     // SetTrackSend'ing its gain down to the UI's floor, which leaves the
     // send record in place) -- `json` carries {trackIndex, busId}. See
     // AudioEngine::removeTrackSend()/MainComponent::removeTrackSendFromJson().
@@ -336,17 +337,25 @@ struct WebUiState {
         struct RegionRow {
             std::string id;
             std::string trackId;
-            std::string file;
             double startSeconds = 0.0;
-            double sourceOffsetSeconds = 0.0;
             double durationSeconds = 0.0;
             double gainDb = 0.0;
-            double fadeInSeconds = 0.0;
-            double fadeOutSeconds = 0.0;
-            double fadeInCurve = 0.0;
-            double fadeOutCurve = 0.0;
-            bool loop = false;
-            double loopLengthSeconds = 0.0;
+            struct Source {
+                std::string file;
+                double offsetSeconds = 0.0;
+            } source;
+            struct Fade {
+                double inSeconds = 0.0;
+                double outSeconds = 0.0;
+                // Curvature [-1, +1]: 0 = linear, + ease-out, - ease-in.
+                double inCurve = 0.0;
+                double outCurve = 0.0;
+            } fade;
+            struct Loop {
+                // Repeat source to fill durationSeconds; lengthSeconds==0 = rest.
+                bool enabled = false;
+                double lengthSeconds = 0.0;
+            } loop;
         };
         std::vector<RegionRow> regions;
 
@@ -386,27 +395,35 @@ struct WebUiState {
             std::string trackId;
             double startSeconds = 0.0;
             double durationSeconds = 1.0;
-            int colorR = 255;
-            int colorG = 255;
-            int colorB = 255;
+            struct Color {
+                int r = 255;
+                int g = 255;
+                int b = 255;
+            } color;
             double intensity = 1.0;
-            double fadeInSeconds = 0.0;
-            double fadeOutSeconds = 0.0;
+            struct Fade {
+                double inSeconds = 0.0;
+                double outSeconds = 0.0;
+            } fade;
             std::string label;
             // Audio-reactive effect -- see LightCue's own field docs in
             // ProjectSchema.h. Read back here (not just write-only via the
             // cueUpdate command) so the effect panel reflects the real
             // stored value instead of resetting to defaults every time the
             // selection changes.
-            std::string effectType;
-            std::string effectSourceType;
-            std::string effectSourceId;
-            double effectIntensity = 0.8;
-            bool tempoSync = false;
-            std::string tempoSubdiv;
-            double effectRateHz = 2.0;
-            std::string gradientPreset;
-            std::string gradientColors;
+            struct Effect {
+                std::string type;                    // "" = none
+                std::string sourceType;              // "bus" | "track"
+                std::string sourceId;                // "" = master mix
+                double intensity = 0.8;
+                bool tempoSync = false;
+                std::string tempoSubdivision = "1/4";
+                double rateHz = 2.0;
+            } effect;
+            struct Gradient {
+                std::string preset = "solid";
+                std::string colors; // CSV #RRGGBB stops; empty = preset/base color
+            } gradient;
             // "normal" | "additive" | "multiply" | "difference" | "lighten"
             // | "subtractive" -- see engine/lighting/LightBlend.h. Only
             // meaningful when this cue's fixture is also driven by another
@@ -421,8 +438,8 @@ struct WebUiState {
     struct CycleRow {
         bool active = false;
         bool skip = false;
-        double leftSec = 0.0;
-        double rightSec = 4.0;
+        double startSeconds = 0.0;
+        double endSeconds = 4.0;
         int songIndex = -1;
     };
     CycleRow cycle;
@@ -439,17 +456,22 @@ struct WebUiState {
     struct TrackRow {
         std::string id;
         std::string name;
-        std::string busId;
+        int channels = 2; // 1 = mono (stereo regions summed L+R before pan/sends)
         double gainDb = 0.0;
         double pan = 0.0;
         bool mute = false;
         bool solo = false;
-        bool mono = false;
         struct SendRow {
-            std::string busId;
-            double gainDb = 0.0;
+            std::string bus;
+            double level = 100.0; // 0-100 LINEAR percent, 100 = unity/0 dB
+            bool preFader = false;
+            bool enabled = true;
         };
-        std::vector<SendRow> sends;
+        struct Output {
+            std::string type = "main"; // "main" | "sends-only" | "ext-out"
+            std::string target;        // empty unless type == "ext-out"
+            std::vector<SendRow> sends;
+        } output;
         float peakDb = -144.0f;
         float peakDbL = -144.0f;
         float peakDbR = -144.0f;
@@ -489,24 +511,32 @@ struct WebUiState {
         std::string id;
         std::string name;
         std::string kind; // "resoLightBar" | "dmxGeneric"
-        int gridColumn = 0;
-        int gridRow = 0;
+        struct Grid {
+            int column = 0;
+            int row = 0;
+        } grid;
         int ledCount = 120;
         bool addressable = true;
-        double posX = 0.0;
-        double posY = 0.0;
-        double posZ = 0.0;
-        double rotationYDeg = 0.0;
+        struct Position {
+            double x = 0.0;
+            double y = 0.0;
+            double z = 0.0;
+        } position;
+        struct Rotation {
+            double y = 0.0; // yaw around the vertical axis
+        } rotation;
         bool mountedHorizontally = false;
-        int dmxUniverse = 0;
-        int dmxStartChannel = 1;
-        int dmxChannelCount = 3;
+        struct Dmx {
+            int universe = 0;
+            int startChannel = 1;
+            int channelCount = 3;
+        } dmx;
         // Cosmetic/informational only -- see ProjectSchema.h's LightFixture
         // doc comment. Neither field affects real DMX output.
         std::string shape = "bar";
-        int matrixCols = 0;
+        int matrixColumns = 0;
         std::string channelProfile = "rgb";
-        double tiltDeg = 0.0;
+        double tiltDegrees = 0.0;
         // 0 = inherit LightingRow::defaultRefreshRateHz. See
         // ProjectSchema.h's LightFixture::refreshRateHz doc comment -- this
         // one DOES reach real DMX output, unlike the cosmetic fields above.
@@ -531,22 +561,31 @@ struct WebUiState {
     struct LightingRow {
         bool enabled = false;
         std::string kind = "none"; // "none" | "resoLight" | "dmxGeneric"
-        int resoLightColumns = 2;
-        int resoLightRows = 1;
+        struct ResoLight {
+            int columns = 2;
+            int rows = 1;
+        } resoLight;
         // See engine/project/ProjectSchema.h's LightingConfig::idleBehavior.
-        std::string idleBehavior = "holdLast"; // "holdLast" | "blackout" | "staticColor" | "effect"
-        int idleColorR = 0;
-        int idleColorG = 0;
-        int idleColorB = 0;
-        double idleIntensity = 1.0;
-        // See LightingConfig::idleEffectType/idleEffectRateHz -- used only
-        // when idleBehavior == "effect".
-        std::string idleEffectType = "none";
-        double idleEffectRateHz = 2.0;
-        // Gradient palette for idle effect mode (Fire/Fireworks/ColorWaves/etc).
-        // "solid" = use idleColorR/G/B; named presets = built-in palettes.
-        std::string idleGradientPreset = "solid";
-        std::string idleGradientColors;
+        struct Idle {
+            std::string behavior = "holdLast"; // "holdLast" | "blackout" | "staticColor" | "effect"
+            struct Color {
+                int r = 0;
+                int g = 0;
+                int b = 0;
+            } color;
+            double intensity = 1.0;
+            // See LightingConfig's idle effect -- used only when behavior == "effect".
+            struct Effect {
+                std::string type = "none";
+                double rateHz = 2.0;
+            } effect;
+            // Gradient palette for idle effect mode (Fire/Fireworks/etc).
+            // "solid" = use color; named presets = built-in palettes.
+            struct Gradient {
+                std::string preset = "solid";
+                std::string colors;
+            } gradient;
+        } idle;
         double defaultRefreshRateHz = 44.0;
         // Art-Net unicast target; empty / "255.255.255.255" = broadcast.
         std::string artNetTargetHost;
