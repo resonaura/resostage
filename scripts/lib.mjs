@@ -2,7 +2,7 @@
  * Shared helpers for root pnpm / Node scripts (ESM).
  */
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync } from "node:fs";
+import { cpSync, existsSync, readFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,7 +17,13 @@ export const ROOT = join(__dirname, "..");
 // below at the true repo root's build/<platform>/<arch>/.
 export const CORE_DIR = join(ROOT, "core");
 export const BUILD_DIR = process.env.BUILD_DIR || join(CORE_DIR, "build");
-export const BUILD_TYPE = process.env.BUILD_TYPE || "Debug";
+// RelWithDebInfo, not Debug: the engine's render path is per-sample DSP, and an
+// unoptimised build of it costs ~3x the CPU of an optimised one -- enough, on a
+// rig with many outputs and sends, to turn a comfortable audio block into a
+// dropout. -O2 with full debug symbols keeps stack traces and source-level
+// debugging usable, so this buys the speed without giving up diagnosability.
+// Override per-invocation with BUILD_TYPE=Debug for a genuine unoptimised build.
+export const BUILD_TYPE = process.env.BUILD_TYPE || "RelWithDebInfo";
 // CMake target + JUCE artefact dir. Kept "ResoStage" even though the bundle
 // is now branded "ResoStage Core" -- the target name drives _artefacts/.
 export const APP_TARGET = "ResoStage";
@@ -129,9 +135,26 @@ export function sleepMs(ms) {
   );
 }
 
+// Reads CMAKE_BUILD_TYPE back out of an existing cache, so a BUILD_TYPE change
+// actually takes effect instead of silently reusing whatever the build dir was
+// first configured with. Without this the default below would have been
+// invisible on every machine that had already built once.
+function cachedBuildType() {
+  const cache = join(BUILD_DIR, "CMakeCache.txt");
+  if (!existsSync(cache)) return null;
+  const line = readFileSync(cache, "utf8")
+    .split("\n")
+    .find((l) => l.startsWith("CMAKE_BUILD_TYPE:"));
+  return line ? line.slice(line.indexOf("=") + 1).trim() : null;
+}
+
 export function ensureCmakeConfigured() {
-  if (existsSync(join(BUILD_DIR, "CMakeCache.txt"))) return;
-  log(`CMake not configured at ${BUILD_DIR} -- configuring (${BUILD_TYPE})...`);
+  const cached = cachedBuildType();
+  if (cached === BUILD_TYPE) return;
+  if (cached === null)
+    log(`CMake not configured at ${BUILD_DIR} -- configuring (${BUILD_TYPE})...`);
+  else
+    log(`Build type changed (${cached} -> ${BUILD_TYPE}) -- reconfiguring ${BUILD_DIR}...`);
   run("cmake", [
     "-S",
     CORE_DIR,

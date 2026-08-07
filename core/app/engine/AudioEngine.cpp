@@ -534,6 +534,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                                                      int numOutputChannels,
                                                      int numSamples,
                                                      const juce::AudioIODeviceCallbackContext& context) {
+    // Flush-to-zero for the whole callback. Everything downstream of a strip is
+    // a recursive filter -- the fader/pan glide, the K-weighting stages, the six
+    // band-pass biquads per meter point -- and every one of them decays into
+    // denormals the moment its input goes quiet (a muted track, the gap between
+    // songs, a send nobody is feeding). Denormal arithmetic traps to microcode
+    // on x86 and is slow enough on some cores to turn a comfortable block into a
+    // dropout, and it happens exactly when the mix is quiet, which is when
+    // nobody expects a glitch. The values involved are below -700 dBFS, so
+    // rounding them to zero is inaudible by many orders of magnitude.
+    const juce::ScopedNoDenormals noDenormals;
+
     for (int ch = 0; ch < numOutputChannels; ++ch)
         if (outputChannelData[ch] != nullptr)
             std::fill(outputChannelData[ch], outputChannelData[ch] + numSamples, 0.0f);
@@ -963,6 +974,37 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             // Window + fades + region gain (sample-accurate at edges).
             // Non-loop past sourceAvail → silence even if still inside clip.
             if (reg != nullptr) {
+                // Interior fast path: the whole block sits inside the clip,
+                // past the fade-in, before the fade-out, with source behind
+                // every sample -- so the sample-accurate loop below would
+                // compute the same constant `regGain` numSamples times. That
+                // is the state a region is in for all but a few blocks of its
+                // life, and skipping it entirely when the gain is unity is
+                // what keeps a 24-track song from paying a per-sample branch
+                // ladder per track per block for nothing.
+                const int64_t into0Abs = playheadSample - regStart;
+                const int64_t intoEnd = into0Abs + numSamples; // exclusive
+                const bool blockInsideClip =
+                    regLen > 0 && into0Abs >= 0 && playheadSample + numSamples <= regEnd;
+                const bool sourceUnderWholeBlock =
+                    loop ? (sourceAvail > 0) : (intoEnd <= sourceAvail);
+                const bool clearOfFades =
+                    (fadeInN <= 0 || into0Abs >= fadeInN)
+                    && (fadeOutN <= 0 || (intoEnd - 1) < regLen - fadeOutN);
+
+                if (blockInsideClip && sourceUnderWholeBlock && clearOfFades) {
+                    if (regGain != 1.0f) {
+                        for (int ch = 0; ch < trackChannels; ++ch) {
+                            float* p = ptrs[ch];
+                            if (p == nullptr)
+                                continue;
+                            for (int i = 0; i < numSamples; ++i)
+                                p[i] *= regGain;
+                        }
+                    }
+                    continue; // next track
+                }
+
                 for (int i = 0; i < numSamples; ++i) {
                     const int64_t absS = playheadSample + i;
                     float g = 0.0f;
@@ -1077,6 +1119,16 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         const StripLevels& level = mixRenderer.levels(strip);
         const float* postL = mixRenderer.postChannel(strip, 0);
         const float* postR = mixRenderer.postChannel(strip, 1);
+
+        // An output lane is a mono strip whose fader and pan are constants the
+        // graph never touches, so MixRenderer leaves its right row a
+        // bit-identical copy of its left. Handing the meters the SAME pointer
+        // twice is how they know to filter it once instead of twice (see
+        // LoudnessMeter::processBlock). On a many-out rig the lanes are most of
+        // the meter pool, so this halves most of it for identical readings.
+        if (strip < graph.strips.size()
+            && graph.strips[strip].kind == StripKind::OutputLane)
+            postR = postL;
 
         MeterFrame frame;
         if (loudness != nullptr && postL != nullptr && postR != nullptr) {

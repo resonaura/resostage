@@ -134,6 +134,34 @@ void MixRenderer::process(const MixGraph& graph, int numSamples) {
             if (smoothed < 0.0f)
                 smoothed = edge.gainLinear;
 
+            // Settled send level -- true for every block in which nobody has a
+            // hand on that fader, i.e. almost all of them. Once `smoothed`
+            // equals the target the glide recursion adds exactly zero, so
+            // hoisting it out is bit-identical; what it buys is a loop the
+            // compiler can vectorise instead of a serial dependency chain, and
+            // that matters because this is the loop that runs once per send
+            // per source (tracks x sends, the thing that grows fastest on a
+            // big rig).
+            if (smoothed == edge.gainLinear) {
+                const float g = smoothed;
+                if (destStereo) {
+                    for (int i = 0; i < span; ++i) {
+                        destL[i] += srcL[i] * g;
+                        destR[i] += srcR[i] * g;
+                    }
+                } else if (edge.sourceChannel == 0) {
+                    for (int i = 0; i < span; ++i)
+                        destL[i] += srcL[i] * g;
+                } else if (edge.sourceChannel == 1) {
+                    for (int i = 0; i < span; ++i)
+                        destL[i] += srcR[i] * g;
+                } else {
+                    for (int i = 0; i < span; ++i)
+                        destL[i] += mix_math::monoSum(srcL[i], srcR[i]) * g;
+                }
+                continue;
+            }
+
             for (int i = 0; i < span; ++i) {
                 smoothed += alpha * (edge.gainLinear - smoothed);
                 if (destStereo) {
@@ -179,31 +207,74 @@ void MixRenderer::process(const MixGraph& graph, int numSamples) {
 
         float peakL = 0.0f;
         float peakR = 0.0f;
-        for (int i = 0; i < span; ++i) {
-            smoother.gainL += alpha * (targetL - smoother.gainL);
-            smoother.gainR += alpha * (targetR - smoother.gainR);
-            smoother.monoMix += alpha * (targetMono - smoother.monoMix);
 
-            // A denormal or a NaN from a decoder must not poison the whole
-            // downstream mix, so it is scrubbed at the one point every signal
-            // passes through.
-            const float inL = std::isfinite(destL[i]) ? destL[i] : 0.0f;
-            const float inR = std::isfinite(destR[i]) ? destR[i] : 0.0f;
+        // Settled: all three glide states sit exactly on their targets, so
+        // every `x += alpha * (target - x)` below is a no-op and `monoMix` is
+        // exactly 0 or exactly 1. Splitting that case out costs nothing in
+        // fidelity -- the arithmetic left in each branch is the general
+        // expression with the constant substituted in, so the samples are
+        // bit-identical -- and it is what makes a 32-lane output rig cheap,
+        // because an output lane is settled from its very first block (its
+        // fader and pan are constants the graph never changes).
+        const bool settled = smoother.gainL == targetL && smoother.gainR == targetR
+                             && smoother.monoMix == targetMono;
 
-            // Crossfade stereo <-> mono so the mono toggle does not click. At
-            // monoMix == 1 both sides carry `mid`, which is what lets a mono
-            // bus still be balanced across a stereo pair of output lanes.
-            const float mid = foldsOwnStereo ? mix_math::monoSum(inL, inR) : inL;
-            const float foldedL = inL + smoother.monoMix * (mid - inL);
-            const float foldedR = inR + smoother.monoMix * (mid - inR);
+        if (settled && targetMono == 1.0f) {
+            // Mono strip: both sides carry the same `mid`.
+            for (int i = 0; i < span; ++i) {
+                const float inL = std::isfinite(destL[i]) ? destL[i] : 0.0f;
+                const float inR = std::isfinite(destR[i]) ? destR[i] : 0.0f;
+                const float mid = foldsOwnStereo ? mix_math::monoSum(inL, inR) : inL;
+                // Written as the general lerp with monoMix == 1 rather than
+                // plain `mid`, because `a + (b - a)` is not exactly `b` in
+                // IEEE arithmetic and this must not drift from the slow path.
+                const float wetL = (inL + (mid - inL)) * targetL;
+                const float wetR = (inR + (mid - inR)) * targetR;
+                outL[i] = wetL;
+                outR[i] = wetR;
+                peakL = std::max(peakL, std::abs(wetL));
+                peakR = std::max(peakR, std::abs(wetR));
+            }
+        } else if (settled) {
+            // Stereo strip: monoMix == 0, so the fold lerp is the identity.
+            for (int i = 0; i < span; ++i) {
+                const float inL = std::isfinite(destL[i]) ? destL[i] : 0.0f;
+                const float inR = std::isfinite(destR[i]) ? destR[i] : 0.0f;
+                const float wetL = inL * targetL;
+                const float wetR = inR * targetR;
+                outL[i] = wetL;
+                outR[i] = wetR;
+                peakL = std::max(peakL, std::abs(wetL));
+                peakR = std::max(peakR, std::abs(wetR));
+            }
+        } else {
+            // Something is still gliding: run the full recursion per sample.
+            for (int i = 0; i < span; ++i) {
+                smoother.gainL += alpha * (targetL - smoother.gainL);
+                smoother.gainR += alpha * (targetR - smoother.gainR);
+                smoother.monoMix += alpha * (targetMono - smoother.monoMix);
 
-            const float wetL = foldedL * smoother.gainL;
-            const float wetR = foldedR * smoother.gainR;
-            outL[i] = wetL;
-            outR[i] = wetR;
+                // A denormal or a NaN from a decoder must not poison the whole
+                // downstream mix, so it is scrubbed at the one point every
+                // signal passes through.
+                const float inL = std::isfinite(destL[i]) ? destL[i] : 0.0f;
+                const float inR = std::isfinite(destR[i]) ? destR[i] : 0.0f;
 
-            peakL = std::max(peakL, std::abs(wetL));
-            peakR = std::max(peakR, std::abs(wetR));
+                // Crossfade stereo <-> mono so the mono toggle does not click.
+                // At monoMix == 1 both sides carry `mid`, which is what lets a
+                // mono bus still be balanced across a stereo pair of lanes.
+                const float mid = foldsOwnStereo ? mix_math::monoSum(inL, inR) : inL;
+                const float foldedL = inL + smoother.monoMix * (mid - inL);
+                const float foldedR = inR + smoother.monoMix * (mid - inR);
+
+                const float wetL = foldedL * smoother.gainL;
+                const float wetR = foldedR * smoother.gainR;
+                outL[i] = wetL;
+                outR[i] = wetR;
+
+                peakL = std::max(peakL, std::abs(wetL));
+                peakR = std::max(peakR, std::abs(wetR));
+            }
         }
 
         stripLevels[s].peakL = peakL;

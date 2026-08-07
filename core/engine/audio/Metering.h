@@ -48,6 +48,17 @@ struct KWeightingFilter {
 // could clip after D/A reconstruction but wouldn't show up in a naive
 // per-sample peak scan. Taps are precomputed at prepare() time (may
 // allocate); processBlock() never allocates.
+//
+// NOT currently wired into any meter. It used to run inside LoudnessMeter on
+// every bus, every block -- 4 phases x 8 taps (with two integer modulos in the
+// inner loop) per sample per channel -- and every one of those results was
+// then discarded: AudioEngine::publishStripMeter overwrites MeterFrame::
+// truePeakDb with the sample peak before the frame is ever published, and
+// nothing downstream (UI included) reads a true-peak value. It was the single
+// most expensive thing on the audio thread on a many-output rig. Kept here,
+// correct and ready, for whoever actually wants to SHOW inter-sample peaks --
+// at which point it needs a way to be enabled per meter point rather than
+// unconditionally on all of them.
 class TruePeakEstimator {
 public:
     void prepare(int oversampleFactor = 4);
@@ -127,7 +138,6 @@ private:
     int channelCount = 2;
 
     std::vector<KWeightingFilter> kFilters;
-    std::vector<TruePeakEstimator> truePeakEstimators;
 
     // Per-band (GEQ/Blurz) energy analysis, processed alongside the peak/LUFS
     // path from the same block.

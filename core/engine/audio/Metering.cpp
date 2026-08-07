@@ -270,10 +270,6 @@ void LoudnessMeter::prepare(double sampleRateHzIn, int numChannels) {
     for (auto& f : kFilters)
         f.prepare(sampleRateHz);
 
-    truePeakEstimators.assign(static_cast<size_t>(channelCount), TruePeakEstimator{});
-    for (auto& tp : truePeakEstimators)
-        tp.prepare(4);
-
     bandEnergy.prepare(sampleRateHz, channelCount);
 
     blockSizeSamples = static_cast<int>(sampleRateHz * 0.4);
@@ -288,8 +284,6 @@ void LoudnessMeter::prepare(double sampleRateHzIn, int numChannels) {
 void LoudnessMeter::reset() {
     for (auto& f : kFilters)
         f.reset();
-    for (auto& tp : truePeakEstimators)
-        tp.reset();
 
     bandEnergy.reset();
 
@@ -321,11 +315,20 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
     float peakLinear = 0.0f;
     float peakLinearL = 0.0f;
     float peakLinearR = 0.0f;
-    float truePeakLinear = 0.0f;
 
-    const int chs = std::min(channelCount, std::min(static_cast<int>(truePeakEstimators.size()), static_cast<int>(kFilters.size())));
+    const int chs = std::min(channelCount, static_cast<int>(kFilters.size()));
 
-    for (int ch = 0; ch < chs; ++ch) {
+    // A strip whose right side is a bit-identical copy of its left is handed
+    // the SAME pointer twice by the caller (see AudioEngine::publishStripMeter
+    // -- every mono output lane does this). Filtering it once and mirroring the
+    // result is arithmetically identical to running two K-weighting filters
+    // over two identical buffers, and it halves the cost of the whole meter
+    // pool on a rig where output lanes outnumber real busses.
+    const bool duplicatedMono =
+        chs >= 2 && channels[0] != nullptr && channels[1] == channels[0];
+    const int filteredChannels = duplicatedMono ? 1 : chs;
+
+    for (int ch = 0; ch < filteredChannels; ++ch) {
         const float* in = channels[ch];
         if (in == nullptr)
             continue;
@@ -343,8 +346,6 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
         else if (ch == 1)
             peakLinearR = chPeak;
 
-        truePeakLinear = std::max(truePeakLinear, truePeakEstimators[static_cast<size_t>(ch)].processBlock(in, numSamples));
-
         double sumSq = sumSquaresPerChannel[static_cast<size_t>(ch)];
         auto& filter = kFilters[static_cast<size_t>(ch)];
         for (int i = 0; i < numSamples; ++i) {
@@ -359,6 +360,15 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
     if (chs < 2)
         peakLinearR = peakLinearL;
 
+    // Mirror, rather than skip, so the gated LUFS sum below still counts the
+    // duplicated side -- a mono bus fanned across a stereo pair really is 3 LU
+    // louder than the same signal on one channel, and dropping it here would
+    // silently change every mono strip's reported loudness.
+    if (duplicatedMono) {
+        peakLinearR = peakLinearL;
+        sumSquaresPerChannel[1] = sumSquaresPerChannel[0];
+    }
+
     // Per-band energy uses the raw (unweighted) signal, so the light engine's
     // GEQ/Blurz sees the actual spectrum rather than the K-weighted loudness
     // curve. Mono signals (chs < 2) are handled inside BandEnergyMeter.
@@ -369,7 +379,9 @@ void LoudnessMeter::processBlock(const float* const* channels, int numSamples) {
     currentPeakDb = linearToDb(peakLinear);
     currentPeakDbL = linearToDb(peakLinearL);
     currentPeakDbR = linearToDb(peakLinearR);
-    currentTruePeakDb = linearToDb(truePeakLinear);
+    // Sample peak, not an oversampled inter-sample peak -- see TruePeakEstimator's
+    // doc comment for why the real thing is no longer computed here.
+    currentTruePeakDb = currentPeakDb;
 
     samplesAccumulated += numSamples;
     while (samplesAccumulated >= hopSizeSamples) {
