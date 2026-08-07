@@ -1,13 +1,14 @@
 #include "doctest.h"
 
 #include "audio/StreamingEngine.h"
-#include "miniz.h"
 #include "project/ProjectLoader.h"
 
 #include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <thread>
 #include <vector>
 
@@ -52,45 +53,56 @@ std::vector<uint8_t> makeSilentMonoWav16(int frames, uint32_t sampleRate = 48000
 // One song, two tracks with DIFFERENT native sample rates (44.1kHz and
 // 48kHz), one second each -- for the rate-change restage test below.
 std::string makeMixedRateArchive() {
+    namespace fs = std::filesystem;
     const std::string path = std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp") +
                               "/resoset_streaming_engine_mixed_rate_test.rsnraset";
 
-    mz_zip_archive zip;
-    std::memset(&zip, 0, sizeof(zip));
-    mz_zip_writer_init_file(&zip, path.c_str(), 0);
+    std::error_code ec;
+    fs::remove_all(path, ec);
+    fs::create_directories(fs::path(path) / "Audio", ec);
 
-    const std::string projectJson = R"({"formatVersion":1,"name":"t","sampleRate":48000,"busses":[],"songs":[]})";
-    mz_zip_writer_add_mem(&zip, "project.json", projectJson.data(), projectJson.size(), MZ_BEST_SPEED);
+    const std::string projectJson = R"({"format":{"version":2},"name":"t","sampleRate":48000,"click":{"enabled":false,"name":"Click","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"sends-only","target":null,"sends":[]}},"main":{"enabled":true,"name":"Main","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"ext-out","target":"audio::out:1,audio::out:2"}},"sends":[],"tracks":[],"songs":[]})";
+    std::ofstream jsonOfs(fs::path(path) / "project.json", std::ios::binary);
+    jsonOfs.write(projectJson.data(), projectJson.size());
+    jsonOfs.close();
 
-    auto wav44100 = makeSilentMonoWav16(44100, 44100); // 1s @ 44.1kHz
-    auto wav48000 = makeSilentMonoWav16(48000, 48000); // 1s @ 48kHz
-    mz_zip_writer_add_mem(&zip, "Audio/a44100.wav", wav44100.data(), wav44100.size(), MZ_BEST_SPEED);
-    mz_zip_writer_add_mem(&zip, "Audio/b48000.wav", wav48000.data(), wav48000.size(), MZ_BEST_SPEED);
+    auto wav44100 = makeSilentMonoWav16(44100, 44100);
+    auto wav48000 = makeSilentMonoWav16(48000, 48000);
+    std::ofstream wav1Ofs(fs::path(path) / "Audio" / "a44100.wav", std::ios::binary);
+    wav1Ofs.write(reinterpret_cast<const char*>(wav44100.data()), wav44100.size());
+    wav1Ofs.close();
 
-    mz_zip_writer_finalize_archive(&zip);
-    mz_zip_writer_end(&zip);
+    std::ofstream wav2Ofs(fs::path(path) / "Audio" / "b48000.wav", std::ios::binary);
+    wav2Ofs.write(reinterpret_cast<const char*>(wav48000.data()), wav48000.size());
+    wav2Ofs.close();
+
     return path;
 }
 
-// Two songs, one mono track each, in one archive.
 std::string makeTwoSongArchive() {
+    namespace fs = std::filesystem;
     const std::string path = std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp") +
                               "/resoset_streaming_engine_test.rsnraset";
 
-    mz_zip_archive zip;
-    std::memset(&zip, 0, sizeof(zip));
-    mz_zip_writer_init_file(&zip, path.c_str(), 0);
+    std::error_code ec;
+    fs::remove_all(path, ec);
+    fs::create_directories(fs::path(path) / "Audio", ec);
 
-    const std::string projectJson = R"({"formatVersion":1,"name":"t","sampleRate":48000,"busses":[],"songs":[]})";
-    mz_zip_writer_add_mem(&zip, "project.json", projectJson.data(), projectJson.size(), MZ_BEST_SPEED);
+    const std::string projectJson = R"({"format":{"version":2},"name":"t","sampleRate":48000,"click":{"enabled":false,"name":"Click","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"sends-only","target":null,"sends":[]}},"main":{"enabled":true,"name":"Main","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"ext-out","target":"audio::out:1,audio::out:2"}},"sends":[],"tracks":[],"songs":[]})";
+    std::ofstream jsonOfs(fs::path(path) / "project.json", std::ios::binary);
+    jsonOfs.write(projectJson.data(), projectJson.size());
+    jsonOfs.close();
 
-    auto wavA = makeSilentMonoWav16(48000); // 1s
+    auto wavA = makeSilentMonoWav16(48000);
     auto wavB = makeSilentMonoWav16(48000);
-    mz_zip_writer_add_mem(&zip, "Audio/a.wav", wavA.data(), wavA.size(), MZ_BEST_SPEED);
-    mz_zip_writer_add_mem(&zip, "Audio/b.wav", wavB.data(), wavB.size(), MZ_BEST_SPEED);
+    std::ofstream wavAOfs(fs::path(path) / "Audio" / "a.wav", std::ios::binary);
+    wavAOfs.write(reinterpret_cast<const char*>(wavA.data()), wavA.size());
+    wavAOfs.close();
 
-    mz_zip_writer_finalize_archive(&zip);
-    mz_zip_writer_end(&zip);
+    std::ofstream wavBOfs(fs::path(path) / "Audio" / "b.wav", std::ios::binary);
+    wavBOfs.write(reinterpret_cast<const char*>(wavB.data()), wavB.size());
+    wavBOfs.close();
+
     return path;
 }
 

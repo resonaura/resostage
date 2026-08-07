@@ -1,12 +1,13 @@
 #include "doctest.h"
 
 #include "audio/StreamingTrackBuffer.h"
-#include "miniz.h"
 #include "project/ProjectLoader.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <vector>
 
 using namespace resostage;
@@ -64,21 +65,24 @@ std::vector<uint8_t> makeMonoWav16AtRate(int frames, double wavSampleRate) {
 // sequentially (doctest default), so reusing one fixed path across TEST_CASEs
 // is safe -- each ProjectLoader is closed (RAII) before the next test overwrites it.
 std::string makeTestArchive(int frames, double wavSampleRate = kSampleRate) {
+    namespace fs = std::filesystem;
     const std::string fixedPath = std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp") +
                                    "/resoset_streaming_test.rsnraset";
 
-    mz_zip_archive zip;
-    std::memset(&zip, 0, sizeof(zip));
-    mz_zip_writer_init_file(&zip, fixedPath.c_str(), 0);
+    std::error_code ec;
+    fs::remove_all(fixedPath, ec);
+    fs::create_directories(fs::path(fixedPath) / "Audio", ec);
 
-    const std::string projectJson = R"({"formatVersion":1,"name":"t","sampleRate":48000,"busses":[],"songs":[]})";
-    mz_zip_writer_add_mem(&zip, "project.json", projectJson.data(), projectJson.size(), MZ_BEST_SPEED);
+    const std::string projectJson = R"({"format":{"version":2},"name":"t","sampleRate":48000,"click":{"enabled":false,"name":"Click","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"sends-only","target":null,"sends":[]}},"main":{"enabled":true,"name":"Main","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"ext-out","target":"audio::out:1,audio::out:2"}},"sends":[],"tracks":[],"songs":[]})";
+    std::ofstream jsonOfs(fs::path(fixedPath) / "project.json", std::ios::binary);
+    jsonOfs.write(projectJson.data(), projectJson.size());
+    jsonOfs.close();
 
     auto wav = makeMonoWav16AtRate(frames, wavSampleRate);
-    mz_zip_writer_add_mem(&zip, "Audio/tone.wav", wav.data(), wav.size(), MZ_BEST_SPEED);
+    std::ofstream wavOfs(fs::path(fixedPath) / "Audio" / "tone.wav", std::ios::binary);
+    wavOfs.write(reinterpret_cast<const char*>(wav.data()), wav.size());
+    wavOfs.close();
 
-    mz_zip_writer_finalize_archive(&zip);
-    mz_zip_writer_end(&zip);
     return fixedPath;
 }
 

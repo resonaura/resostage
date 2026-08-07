@@ -1,12 +1,13 @@
 #include "doctest.h"
 
 #include "audio/PeakOverview.h"
-#include "miniz.h"
 #include "project/ProjectLoader.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -46,19 +47,25 @@ std::vector<uint8_t> makeSineWav(double freq, double sr, double dur) {
 }
 
 std::string makeArchiveWithWav() {
+    namespace fs = std::filesystem;
     const std::string path =
         std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp")
         + "/resoset_peak_overview_test.rsnraset";
-    const auto wav = makeSineWav(440.0, 48000.0, 0.25);
-    const char* json = R"JSON({"formatVersion":1,"name":"P","sampleRate":48000,"busses":[],"songs":[]})JSON";
 
-    mz_zip_archive zip;
-    std::memset(&zip, 0, sizeof(zip));
-    mz_zip_writer_init_file(&zip, path.c_str(), 0);
-    mz_zip_writer_add_mem(&zip, "project.json", json, std::strlen(json), MZ_BEST_SPEED);
-    mz_zip_writer_add_mem(&zip, "Audio/tone.wav", wav.data(), wav.size(), MZ_BEST_SPEED);
-    mz_zip_writer_finalize_archive(&zip);
-    mz_zip_writer_end(&zip);
+    std::error_code ec;
+    fs::remove_all(path, ec);
+    fs::create_directories(fs::path(path) / "Audio", ec);
+
+    const auto wav = makeSineWav(440.0, 48000.0, 0.25);
+    const char* json = R"JSON({"format":{"version":2},"name":"P","sampleRate":48000,"click":{"enabled":false,"name":"Click","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"sends-only","target":null,"sends":[]}},"main":{"enabled":true,"name":"Main","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"ext-out","target":"audio::out:1,audio::out:2"}},"sends":[],"tracks":[],"songs":[]})JSON";
+    std::ofstream jsonOfs(fs::path(path) / "project.json", std::ios::binary);
+    jsonOfs.write(json, std::strlen(json));
+    jsonOfs.close();
+
+    std::ofstream wavOfs(fs::path(path) / "Audio" / "tone.wav", std::ios::binary);
+    wavOfs.write(reinterpret_cast<const char*>(wav.data()), wav.size());
+    wavOfs.close();
+
     return path;
 }
 

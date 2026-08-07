@@ -15,7 +15,6 @@ add_library(resostage_engine STATIC
   project/ProjectLoader.cpp
   project/ProjectJson.cpp
   project/ProjectHistory.cpp
-  project/LegacyProjectMigration.cpp
   telemetry/SystemHealth.cpp
 )
 

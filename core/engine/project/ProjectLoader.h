@@ -9,20 +9,12 @@
 
 namespace resostage {
 
-// Reads a .rsnraset container (ZIP: project.json + /Audio/*.wav) and parses its
-// metadata. WAV *format* decoding is done by WavStreamDecoder (also portable,
-// JUCE-free) fed from a StreamCursor obtained here -- so audio never has to be
-// either fully decompressed or fully decoded to RAM up front.
+// Reads a .rsnraset directory container (project.json + /Audio/*.wav) and parses its
+// metadata. WAV *format* decoding is done by WavStreamDecoder (portable, JUCE-free)
+// fed from a StreamCursor obtained here.
 class ProjectLoader {
 public:
-    // Incremental, forward-only decompression of one archive entry, backed by
-    // miniz's coroutine-style extraction iterator (mz_zip_reader_extract_iter_*).
-    // Nothing is materialized in RAM beyond the requested read size.
-    //
-    // IMPORTANT: all StreamCursors obtained from the same ProjectLoader share
-    // one underlying zip file handle. They (and extractFile()) must only ever
-    // be driven from a single thread at a time -- see StreamingEngine, which
-    // owns exactly one background I/O thread for this reason.
+    // Sequential reading of a file in the project container.
     class StreamCursor {
     public:
         StreamCursor();

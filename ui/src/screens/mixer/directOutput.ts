@@ -23,16 +23,19 @@ export function parseOptionId(
 
 /** A route's comma-separated mono Direct Output lane numbers, or null when
  *  the route isn't a direct egress ("", a project main/aux bus, sends). The
- *  ids are 1-based ("direct:1", stereo = "direct:1,direct:2"). */
+ *  ids are 1-based ("audio::out:1", stereo = "audio::out:1,audio::out:2"). */
 export function parseDirectLanes(busId: string): number[] | null {
   if (!busId) return null;
   const parts = busId.split(",").map((t) => t.trim()).filter(Boolean);
   if (parts.length === 0) return null;
   for (const t of parts) {
-    const m = /^direct:(\d+)$/.exec(t);
+    const m = /^(?:audio::out:|direct:)(\d+)$/.exec(t);
     if (!m) return null;
   }
-  return parts.map((t) => Number(t.slice("direct:".length)));
+  return parts.map((t) => {
+    if (t.startsWith("audio::out:")) return Number(t.slice("audio::out:".length));
+    return Number(t.slice("direct:".length));
+  });
 }
 
 /** Map a route id onto the channel-picker option it should display:
@@ -48,14 +51,14 @@ export function routeToOptionId(
   return { startChannel: lanes[0] - 1, pair: false };
 }
 
-/** Build the route id the backend stores for a physical pick. −*/
+/** Build the route id the backend stores for a physical pick. */
 export function routeIdForOutput(
   startChannel: number, // 0-based physical index
   pair: boolean,
 ): string {
   if (pair)
-    return `direct:${startChannel + 1},direct:${startChannel + 2}`;
-  return `direct:${startChannel + 1}`;
+    return `audio::out:${startChannel + 1},audio::out:${startChannel + 2}`;
+  return `audio::out:${startChannel + 1}`;
 }
 
 /**

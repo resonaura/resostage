@@ -30,6 +30,7 @@
     "configure": "node scripts/dev.mjs configure",
     "clean": "node scripts/dev.mjs clean",
     "clean:all": "node scripts/dev.mjs clean --ui",
+    "migrate": "node scripts/migrate.mjs",
     "scripts": "node scripts/dev.mjs help",
     "firmware:build": "pnpm --dir resolight/firmware build",
     "firmware:flash": "pnpm --dir resolight/firmware flash",

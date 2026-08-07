@@ -1,8 +1,5 @@
 #include "ProjectLoader.h"
 #include "ProjectJson.h"
-#include "LegacyProjectMigration.h"
-
-#include "miniz.h"
 
 #include <algorithm>
 #include <chrono>
@@ -18,24 +15,13 @@
 namespace resostage {
 
 struct ProjectLoader::Impl {
-    mz_zip_archive zip{};
-    bool zipOpen = false;
     bool isContainerDir = false;
-
-    ~Impl() {
-        if (zipOpen)
-            mz_zip_reader_end(&zip);
-    }
 };
 
 ProjectLoader::ProjectLoader() : impl(std::make_unique<Impl>()) {}
 ProjectLoader::~ProjectLoader() = default;
 
 void ProjectLoader::close() {
-    if (impl->zipOpen) {
-        mz_zip_reader_end(&impl->zip);
-        impl->zipOpen = false;
-    }
     impl->isContainerDir = false;
     parsedProject = Project{};
     openArchivePath.clear();
@@ -49,12 +35,9 @@ void ProjectLoader::newProject(const std::string& name) {
     close();
     parsedProject = Project{};
     parsedProject.name = name;
-    // Master defaults to the device's first stereo pair so the Builder/Mixer
-    // aren't staring at an unrouted strip -- the user can reassign freely.
     parsedProject.main.output.type = OutputType::ExtOut;
     parsedProject.main.output.target = "audio::out:1,audio::out:2";
 
-    // Seed global project-level tracks (NO songs created, songs array remains empty)
     const std::vector<std::string> defaultTrackNames = {
         "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys", "Vocals", "Backing Vocals", "SFX", "Guide"
     };
@@ -69,8 +52,7 @@ void ProjectLoader::newProject(const std::string& name) {
 }
 
 bool ProjectLoader::isOpen() const {
-
-    return impl != nullptr && (impl->isContainerDir || impl->zipOpen);
+    return impl != nullptr && impl->isContainerDir;
 }
 
 bool ProjectLoader::saveAs(const std::string& path, std::string& error) const {
@@ -85,13 +67,11 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
     const fs::path dest(path);
     std::error_code ec;
 
-    // Package Container Bundle Directory Format (.rsnraset/)
     fs::create_directories(dest / "Audio", ec);
     fs::create_directories(dest / "Peaks", ec);
     fs::create_directories(dest / "Autosave", ec);
     fs::create_directories(dest / "Backups", ec);
 
-    // If copying from an existing container directory, copy existing audio and peak files
     if (impl->isContainerDir && !openArchivePath.empty() && openArchivePath != path) {
         fs::path srcPath(openArchivePath);
         if (fs::exists(srcPath, ec)) {
@@ -106,25 +86,8 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
                 }
             }
         }
-    } else if (impl->zipOpen) {
-        // Unpack legacy ZIP entries directly into destination package container
-        const mz_uint numFiles = mz_zip_reader_get_num_files(const_cast<mz_zip_archive*>(&impl->zip));
-        for (mz_uint i = 0; i < numFiles; ++i) {
-            mz_zip_archive_file_stat st;
-            if (!mz_zip_reader_file_stat(const_cast<mz_zip_archive*>(&impl->zip), i, &st))
-                continue;
-            if (st.m_is_directory || std::strcmp(st.m_filename, "project.json") == 0)
-                continue;
-            fs::path targetFile = dest / st.m_filename;
-            fs::create_directories(targetFile.parent_path(), ec);
-            mz_zip_reader_extract_to_file(const_cast<mz_zip_archive*>(&impl->zip), i, targetFile.string().c_str(), 0);
-        }
     }
 
-    // Write extra files (e.g. newly imported WAVs or generated peak .rpk files).
-    // Fail hard on a short/failed write: a 0-byte "Audio/foo.wav" later surfaces
-    // as "Truncated RIFF header" on selectSong and leaves the project looking
-    // like "No song selected" with no useful recovery path.
     for (const auto& ex : extraFiles) {
         if (ex.archivePath.empty() || ex.archivePath == "project.json")
             continue;
@@ -148,7 +111,6 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
             return false;
         }
         ofs.close();
-        // Defence-in-depth against silent disk-full truncation.
         const auto written = fs::file_size(extraDest, ec);
         if (ec || written != ex.data.size()) {
             error = "Size mismatch writing " + extraDest.string()
@@ -159,7 +121,6 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
         }
     }
 
-    // Write project.json
     const std::string json = serializeProjectJson(projectOverride != nullptr ? *projectOverride : parsedProject);
     fs::path jsonPath = dest / "project.json";
     std::ofstream jsonFile(jsonPath, std::ios::binary);
@@ -170,60 +131,36 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
     jsonFile.write(json.data(), json.size());
     jsonFile.close();
 
-    // Deliberately do NOT mutate openArchivePath / isContainerDir here.
-    // Async save writes to a temp package while streaming still holds live
-    // FILE* cursors into the open project; rewriting openArchivePath to the
-    // temp path used to redirect any new openStream() at a half-written tree
-    // and race the IO thread. Callers that want the destination as the live
-    // archive must close()+open() (or reopenArchiveKeepProject) themselves.
     return true;
 }
 
 bool ProjectLoader::extractFile(const std::string& archivePath, std::vector<uint8_t>& outData, std::string& error) const {
     if (!isOpen()) {
-        error = "Archive or container not open";
+        error = "Container not open";
         return false;
     }
 
-    if (impl->isContainerDir) {
-        namespace fs = std::filesystem;
-        fs::path filePath = fs::path(openArchivePath) / archivePath;
-        std::ifstream ifs(filePath, std::ios::binary | std::ios::ate);
-        if (!ifs.is_open()) {
-            error = "Failed to open file in container: " + filePath.string();
-            return false;
-        }
-        std::streamsize size = ifs.tellg();
-        ifs.seekg(0, std::ios::beg);
-        outData.resize(static_cast<size_t>(size));
-        if (size > 0 && ifs.read(reinterpret_cast<char*>(outData.data()), size)) {
-            return true;
-        }
-        error = "Failed to read file in container: " + filePath.string();
+    namespace fs = std::filesystem;
+    fs::path filePath = fs::path(openArchivePath) / archivePath;
+    std::ifstream ifs(filePath, std::ios::binary | std::ios::ate);
+    if (!ifs.is_open()) {
+        error = "Failed to open file in container: " + filePath.string();
         return false;
-    } else if (impl->zipOpen) {
-        size_t size = 0;
-        void* data = mz_zip_reader_extract_file_to_heap(&impl->zip, archivePath.c_str(), &size, 0);
-        if (data == nullptr) {
-            error = "Failed to extract '" + archivePath + "' from archive";
-            return false;
-        }
-        outData.assign(static_cast<uint8_t*>(data), static_cast<uint8_t*>(data) + size);
-        mz_free(data);
+    }
+    std::streamsize size = ifs.tellg();
+    ifs.seekg(0, std::ios::beg);
+    outData.resize(static_cast<size_t>(size));
+    if (size > 0 && ifs.read(reinterpret_cast<char*>(outData.data()), size)) {
         return true;
     }
-
-    error = "No open project container";
+    error = "Failed to read file in container: " + filePath.string();
     return false;
 }
 
 struct ProjectLoader::StreamCursor::Impl {
-    mz_zip_reader_extract_iter_state* zipState = nullptr;
     FILE* containerFile = nullptr;
 
     ~Impl() {
-        if (zipState != nullptr)
-            mz_zip_reader_extract_iter_free(zipState);
         if (containerFile != nullptr)
             std::fclose(containerFile);
     }
@@ -235,43 +172,22 @@ ProjectLoader::StreamCursor::StreamCursor(StreamCursor&&) noexcept = default;
 ProjectLoader::StreamCursor& ProjectLoader::StreamCursor::operator=(StreamCursor&&) noexcept = default;
 
 bool ProjectLoader::StreamCursor::isValid() const {
-    return impl != nullptr && (impl->containerFile != nullptr || impl->zipState != nullptr);
+    return impl != nullptr && impl->containerFile != nullptr;
 }
 
 size_t ProjectLoader::StreamCursor::read(void* buf, size_t bufSize) {
     if (!isValid())
         return 0;
-    if (impl->containerFile != nullptr) {
-        return std::fread(buf, 1, bufSize, impl->containerFile);
-    }
-    if (impl->zipState != nullptr) {
-        return mz_zip_reader_extract_iter_read(impl->zipState, buf, bufSize);
-    }
-    return 0;
+    return std::fread(buf, 1, bufSize, impl->containerFile);
 }
 
 size_t ProjectLoader::StreamCursor::skip(size_t bytesToSkip) {
     if (!isValid())
         return 0;
-    if (impl->containerFile != nullptr) {
-        long current = std::ftell(impl->containerFile);
-        std::fseek(impl->containerFile, static_cast<long>(bytesToSkip), SEEK_CUR);
-        long after = std::ftell(impl->containerFile);
-        return static_cast<size_t>(after - current);
-    }
-    if (impl->zipState != nullptr) {
-        uint8_t discard[4096];
-        size_t remaining = bytesToSkip;
-        while (remaining > 0) {
-            const size_t chunk = std::min(remaining, sizeof(discard));
-            const size_t got = read(discard, chunk);
-            if (got == 0)
-                break;
-            remaining -= got;
-        }
-        return bytesToSkip - remaining;
-    }
-    return 0;
+    long current = std::ftell(impl->containerFile);
+    std::fseek(impl->containerFile, static_cast<long>(bytesToSkip), SEEK_CUR);
+    long after = std::ftell(impl->containerFile);
+    return static_cast<size_t>(after - current);
 }
 
 int64_t ProjectLoader::StreamCursor::tell() const {
@@ -291,63 +207,30 @@ ProjectLoader::StreamCursor ProjectLoader::openStream(const std::string& archive
     StreamCursor cursor;
 
     if (!isOpen()) {
-        error = "Archive or container not open";
+        error = "Container not open";
         return cursor;
     }
 
-    if (impl->isContainerDir) {
-        namespace fs = std::filesystem;
-        fs::path filePath = fs::path(openArchivePath) / archivePath;
-        FILE* f = std::fopen(filePath.string().c_str(), "rb");
-        if (f == nullptr) {
-            error = "File not found in container: " + filePath.string();
-            return cursor;
-        }
-        auto cursorImpl = std::make_unique<StreamCursor::Impl>();
-        cursorImpl->containerFile = f;
-        cursor.impl = std::move(cursorImpl);
+    namespace fs = std::filesystem;
+    fs::path filePath = fs::path(openArchivePath) / archivePath;
+    FILE* f = std::fopen(filePath.string().c_str(), "rb");
+    if (f == nullptr) {
+        error = "File not found in container: " + filePath.string();
         return cursor;
     }
-
-    if (impl->zipOpen) {
-        mz_uint32 fileIndex = 0;
-        if (!mz_zip_reader_locate_file_v2(&impl->zip, archivePath.c_str(), nullptr, 0, &fileIndex)) {
-            error = "File not found in archive: " + archivePath;
-            return cursor;
-        }
-
-        auto cursorImpl = std::make_unique<StreamCursor::Impl>();
-        cursorImpl->zipState = mz_zip_reader_extract_iter_new(&impl->zip, fileIndex, 0);
-        if (cursorImpl->zipState == nullptr) {
-            error = "Failed to open streaming extraction for: " + archivePath;
-            return cursor;
-        }
-
-        cursor.impl = std::move(cursorImpl);
-        return cursor;
-    }
-
-    error = "No open archive or container";
+    auto cursorImpl = std::make_unique<StreamCursor::Impl>();
+    cursorImpl->containerFile = f;
+    cursor.impl = std::move(cursorImpl);
     return cursor;
 }
 
 bool ProjectLoader::reopenArchiveKeepProject(const std::string& path, std::string& error) {
-    if (impl->zipOpen) {
-        mz_zip_reader_end(&impl->zip);
-        impl->zipOpen = false;
-    }
     namespace fs = std::filesystem;
-    if (fs::is_directory(path)) {
-        impl->isContainerDir = true;
-        openArchivePath = path;
-        return true;
-    }
-    std::memset(&impl->zip, 0, sizeof(impl->zip));
-    if (!mz_zip_reader_init_file(&impl->zip, path.c_str(), 0)) {
-        error = "Failed to open archive: " + path;
+    if (!fs::is_directory(path)) {
+        error = "Failed to open project container: " + path;
         return false;
     }
-    impl->zipOpen = true;
+    impl->isContainerDir = true;
     openArchivePath = path;
     return true;
 }
@@ -356,24 +239,15 @@ bool ProjectLoader::open(const std::string& path, std::string& error) {
     close();
 
     namespace fs = std::filesystem;
-    if (fs::is_directory(path)) {
-        impl->isContainerDir = true;
-        openArchivePath = path;
-        return reparseProject(error);
+    if (!fs::is_directory(path)) {
+        error = "Failed to open project container: " + path;
+        return false;
     }
 
-    // Check if it's a legacy ZIP file
-    std::memset(&impl->zip, 0, sizeof(impl->zip));
-    if (mz_zip_reader_init_file(&impl->zip, path.c_str(), 0)) {
-        impl->zipOpen = true;
-        openArchivePath = path;
-        return reparseProject(error);
-    }
-
-    error = "Failed to open package container or archive: " + path;
-    return false;
+    impl->isContainerDir = true;
+    openArchivePath = path;
+    return reparseProject(error);
 }
-
 
 bool ProjectLoader::saveAutosave(std::string& error) const {
     if (openArchivePath.empty() || !impl->isContainerDir)
@@ -393,7 +267,6 @@ bool ProjectLoader::saveAutosave(std::string& error) const {
     ofs.write(json.data(), json.size());
     ofs.close();
 
-    // Write timestamp info file
     const auto now = std::chrono::system_clock::now();
     const auto in_time_t = std::chrono::system_clock::to_time_t(now);
     std::stringstream ss;
@@ -507,7 +380,6 @@ bool ProjectLoader::saveBackup(std::string& error) const {
     return true;
 }
 
-
 bool ProjectLoader::reparseProject(std::string& error) {
     std::vector<uint8_t> jsonBytes;
     if (!extractFile("project.json", jsonBytes, error))
@@ -517,22 +389,13 @@ bool ProjectLoader::reparseProject(std::string& error) {
         reinterpret_cast<const char*>(jsonBytes.data()), jsonBytes.size());
 
     Project proj;
-    // Decide current-shape vs. legacy-shape from format.version BEFORE
-    // running the strict parser: a current-format file that fails semantic
-    // validation (e.g. an unknown event type) must surface that real error,
-    // not silently launder through the lenient legacy migrator just because
-    // the strict parse also happened to fail. See LegacyProjectMigration.h
-    // for why the legacy path is a single bridge step, not a version chain.
     if (peekProjectFormatVersion(json) < kCurrentFormatVersion) {
-        if (!migrateLegacyProject(json, proj, error))
-            return false;
-    } else {
-        if (!parseProjectJson(json, proj, error))
-            return false;
+        error = "Outdated project format version. Please run 'pnpm migrate <path>' to convert it to the current schema.";
+        return false;
     }
+    if (!parseProjectJson(json, proj, error))
+        return false;
 
-    // Empty track list: seed defaults (same as a new project) so Builder has
-    // something to attach regions to.
     if (proj.tracks.empty()) {
         const std::vector<std::string> defaultTrackNames = {
             "Drums", "Percussion", "Loops", "Bass", "Guitars", "Synths", "Keys",

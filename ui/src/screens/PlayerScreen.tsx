@@ -39,11 +39,17 @@ function formatTime(sec: number): string {
 const DIRECT_OUT_COLOR = "#7c3aed";
 const BUS_ACCENT_CYCLE = ["#30d158", "#ff9230", "#db34f2", "#00d2e0", "#ffd600"];
 
-/** "direct:3" -> 3; anything else -> null. */
+/** "audio::out:3" or "direct:3" -> 3; anything else -> null. */
 function laneNumber(id: string): number | null {
-  if (!id.startsWith("direct:")) return null;
-  const n = Number(id.slice("direct:".length));
-  return Number.isFinite(n) ? n : null;
+  if (id.startsWith("audio::out:")) {
+    const n = Number(id.slice("audio::out:".length));
+    return Number.isFinite(n) ? n : null;
+  }
+  if (id.startsWith("direct:")) {
+    const n = Number(id.slice("direct:".length));
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
 type BusMeterGroup = {
@@ -63,22 +69,18 @@ function collectSoloLanes(
 ): Set<number> {
   const solo = new Set<number>();
 
-  // A project bus (main / aux / send) with a mono physical target uses that
-  // single lane alone. channels>=2 marks a stereo pair, so it does NOT solo.
-  // Direct lanes themselves are the outputs, not route sources -- detect them
-  // by id (the wire does not flag isDirectOut).
   for (const b of busses) {
-    if (b.id.startsWith("direct:")) continue;
+    if (b.id.startsWith("audio::out:") || b.id.startsWith("direct:")) continue;
     if (b.channels <= 1) solo.add(b.startChannel + 1);
   }
 
   const applyRefs = (id: string | undefined) => {
-    if (!id || !id.startsWith("direct:")) return;
+    if (!id) return;
     const lanes = id
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
-      .map((t) => /^direct:(\d+)$/.exec(t))
+      .map((t) => /^(?:audio::out:|direct:)(\d+)$/.exec(t))
       .filter((m): m is RegExpExecArray => m !== null)
       .map((m) => Number(m[1]));
     // A single-lane route (compounds are a stereo pair of lanes) solos it.

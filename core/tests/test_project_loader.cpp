@@ -1,31 +1,37 @@
 #include "doctest.h"
 
-#include "miniz.h"
 #include "project/ProjectJson.h"
 #include "project/ProjectLoader.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
-#include <algorithm>
 
 using namespace resostage;
 
 namespace {
 
 std::string makeProjectArchive(const std::string& projectJson) {
+    namespace fs = std::filesystem;
     const std::string path =
         std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp") + "/resoset_project_loader_test.rsnraset";
 
-    mz_zip_archive zip;
-    std::memset(&zip, 0, sizeof(zip));
-    mz_zip_writer_init_file(&zip, path.c_str(), 0);
-    mz_zip_writer_add_mem(&zip, "project.json", projectJson.data(), projectJson.size(), MZ_BEST_SPEED);
-    // A tiny placeholder WAV so track file references resolve if ever opened.
+    std::error_code ec;
+    fs::remove_all(path, ec);
+    fs::create_directories(fs::path(path) / "Audio", ec);
+
+    std::ofstream jsonOfs(fs::path(path) / "project.json", std::ios::binary);
+    jsonOfs.write(projectJson.data(), projectJson.size());
+    jsonOfs.close();
+
     const uint8_t wav[] = {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'A', 'V', 'E'};
-    mz_zip_writer_add_mem(&zip, "Audio/dummy.wav", wav, sizeof(wav), MZ_BEST_SPEED);
-    mz_zip_writer_finalize_archive(&zip);
-    mz_zip_writer_end(&zip);
+    std::ofstream wavOfs(fs::path(path) / "Audio" / "dummy.wav", std::ios::binary);
+    wavOfs.write(reinterpret_cast<const char*>(wav), sizeof(wav));
+    wavOfs.close();
+
     return path;
 }
 
@@ -235,123 +241,14 @@ TEST_CASE("ProjectLoader parses and round-trips a sends-only track") {
     std::remove(outPath.c_str());
 }
 
-TEST_CASE("ProjectLoader migrates a legacy (pre-v2) project.json to the current schema") {
-    // Exercises LegacyProjectMigration.h against every kind of legacy bus:
-    //  - "bus_main" (id == "main")                    -> Project::main
-    //  - "bus_fold" (non-aux, NOT "Out "-prefixed)     -> a "stray" SendBus
-    //  - "bus_out" (non-aux, name "Out 3/4")           -> folded into a raw
-    //                                                     ext-out target, not
-    //                                                     persisted as a bus
-    //  - "bus_aux" (isAux == true)                     -> an aux SendBus
-    // Also covers: click un-flattening, cycle rename, dB->level% send
-    // conversion, and id renumbering (trk_N -> audio::track:N, etc).
-    const std::string json = R"JSON(
-{
-  "formatVersion": 1, "name": "LegacyProject", "sampleRate": 48000,
-  "builtInClickEnabled": true, "builtInClickName": "Click", "builtInClickBusId": "bus_aux",
-  "builtInClickGainDb": -1.0, "builtInClickPan": 0.0, "builtInClickMono": true, "builtInClickSolo": false,
-  "builtInClickSends": [ { "bus": "bus_fold", "gainDb": 0.0, "preFader": false, "enabled": true } ],
-  "busses": [
-    { "id": "main", "name": "Main", "channels": 2, "output": { "startChannel": 0 }, "gainDb": -2.0 },
-    { "id": "bus_fold", "name": "Master Fold", "channels": 2, "output": { "startChannel": 6 } },
-    { "id": "bus_out", "name": "Out 3/4", "channels": 2, "output": { "startChannel": 2 } },
-    { "id": "bus_aux", "name": "Monitor", "channels": 1, "output": { "startChannel": 10 }, "isAux": true }
-  ],
-  "tracks": [
-    { "id": "trk_1", "name": "Drums", "bus": "bus_out", "mono": true,
-      "sends": [ { "bus": "bus_fold", "gainDb": -6.0 }, { "bus": "bus_aux", "gainDb": 0.0 } ] },
-    { "id": "trk_2", "name": "Click Monitor", "bus": "" }
-  ],
-  "songs": [
-    { "id": "song_1", "name": "S1", "bpm": 120,
-      "regions": [
-        { "id": "reg_1", "trackId": "trk_1", "file": "Audio/dummy.wav", "startSeconds": 0.0, "durationSeconds": 1.0 }
-      ],
-      "sections": [ { "id": "sec_1", "name": "Intro", "startSeconds": 0.0, "colorIndex": 0 } ],
-      "events": [] }
-  ],
-  "cycle": { "active": true, "skip": false, "leftSec": 8.0, "rightSec": 16.0, "songIndex": 0 },
-  "keybindings": { "play": "space" },
-  "midiMappings": [ { "action": "play", "channel": 1, "triggerType": "noteOn", "number": 60 } ]
-}
-)JSON";
+TEST_CASE("ProjectLoader rejects outdated format version 1 with migration error") {
+    const std::string json = R"JSON({"formatVersion": 1, "name": "LegacyProject", "sampleRate": 48000})JSON";
     const std::string path = makeProjectArchive(json);
 
     ProjectLoader loader;
     std::string error;
-    REQUIRE(loader.open(path, error));
-
-    const Project& proj = loader.project();
-    CHECK(proj.format.version == kCurrentFormatVersion);
-    CHECK(proj.name == "LegacyProject");
-
-    // "bus_main" -> Project::main.
-    CHECK(proj.main.gainDb == doctest::Approx(-2.0));
-    CHECK(proj.main.output.type == OutputType::ExtOut);
-    REQUIRE(proj.main.output.target.has_value());
-    CHECK(*proj.main.output.target == "audio::out:1,audio::out:2");
-
-    // "bus_fold" (stray, non-aux, non-"Out ") and "bus_aux" (real aux) both
-    // survive as SendBus rows, contiguously numbered "audio::send:N".
-    REQUIRE(proj.sends.size() == 2);
-    const SendBus& sendFold = proj.sends[0];
-    CHECK(sendFold.id == "audio::send:1");
-    CHECK(sendFold.output.target.value_or("") == "audio::out:7,audio::out:8"); // startChannel 6 (0-based) -> 7,8 (1-based)
-    const SendBus& sendAux = proj.sends[1];
-    CHECK(sendAux.id == "audio::send:2");
-    CHECK(sendAux.channels == 1);
-    CHECK(sendAux.output.target.value_or("") == "audio::out:11");
-
-    // "bus_out" ("Out 3/4") is NOT a persisted bus at all -- it folded into a
-    // raw ext-out target wherever it was referenced.
-    REQUIRE_FALSE(proj.tracks.empty());
-    const TrackDef& t1 = proj.tracks[0];
-    CHECK(t1.id == "audio::track:1");
-    CHECK(t1.channels == 1); // old mono:true
-    CHECK(t1.output.type == OutputType::ExtOut);
-    CHECK(t1.output.target.value_or("") == "audio::out:3,audio::out:4");
-    REQUIRE(t1.output.sends.size() == 2);
-    CHECK(t1.output.sends[0].bus == "audio::send:1");
-    CHECK(t1.output.sends[0].level == doctest::Approx(50.1187) .epsilon(0.001)); // -6dB -> ~50.12%
-    CHECK(t1.output.sends[1].bus == "audio::send:2");
-    CHECK(t1.output.sends[1].level == doctest::Approx(100.0)); // 0dB -> unity -> 100%
-
-    REQUIRE(proj.tracks.size() > 1);
-    CHECK(proj.tracks[1].id == "audio::track:2");
-    CHECK(proj.tracks[1].output.type == OutputType::SendsOnly); // old empty busId
-
-    // Click un-flattened from builtInClick*.
-    CHECK(proj.click.enabled == true);
-    CHECK(proj.click.channels == 1); // old builtInClickMono:true
-    CHECK(proj.click.gainDb == doctest::Approx(-1.0));
-    CHECK(proj.click.output.type == OutputType::SendsOnly); // pointed at an aux bus, not "main"
-    REQUIRE(proj.click.output.sends.size() >= 1);
-    // The click's main-route target (bus_aux) had no faithful "main into an
-    // aux bus" representation, so it's approximated as a 100%-level send.
-    bool clickSendsIntoAux = std::any_of(proj.click.output.sends.begin(), proj.click.output.sends.end(),
-                                         [](const SendConfig& s) { return s.bus == "audio::send:2"; });
-    CHECK(clickSendsIntoAux);
-    bool clickSendsIntoFold = std::any_of(proj.click.output.sends.begin(), proj.click.output.sends.end(),
-                                          [](const SendConfig& s) { return s.bus == "audio::send:1"; });
-    CHECK(clickSendsIntoFold);
-
-    // Cycle renamed leftSec/rightSec -> startSeconds/endSeconds.
-    CHECK(proj.cycle.active == true);
-    CHECK(proj.cycle.startSeconds == doctest::Approx(8.0));
-    CHECK(proj.cycle.endSeconds == doctest::Approx(16.0));
-
-    // Region id becomes a UUIDv7 (not the old "reg_1"), section id is
-    // renumbered "meta::section:N", MIDI mappings pass through untouched.
-    REQUIRE(proj.songs.size() == 1);
-    REQUIRE(proj.songs[0].regions.size() == 1);
-    CHECK(proj.songs[0].regions[0].id != "reg_1");
-    CHECK(proj.songs[0].regions[0].id.size() == 36); // UUID string length
-    CHECK(proj.songs[0].regions[0].trackId == "audio::track:1");
-    REQUIRE(proj.songs[0].sections.size() == 1);
-    CHECK(proj.songs[0].sections[0].id == "meta::section:1");
-    REQUIRE(proj.midi.mappings.size() == 1);
-    CHECK(proj.midi.mappings[0].action == "play");
-    CHECK(proj.midi.mappings[0].number == 60);
+    CHECK_FALSE(loader.open(path, error));
+    CHECK(error.find("pnpm migrate") != std::string::npos);
 
     std::remove(path.c_str());
 }
