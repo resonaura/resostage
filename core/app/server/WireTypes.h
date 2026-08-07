@@ -67,11 +67,28 @@ struct WPeaksPayload {
     std::vector<WTrackPeakOverview> tracks;
 };
 
+// One source file's peak levels, carried ONCE per payload however many regions
+// are cut from it. Peak overviews are a property of the file, not of the clip:
+// every region sharing a wav gets identical level arrays and differs only in
+// the window it draws. Emitting them per region meant a stem sliced ten ways
+// shipped ten copies of the same few hundred kilobytes, in a blob that is
+// rebuilt on the message thread and re-downloaded on every region edit.
+struct WPeakFileLevels {
+    std::string file;
+    double durationSeconds = 0.0;
+    std::vector<WPeakLevel> levels;
+};
+
 struct WRegionPeakOverview {
     std::string id;
     std::string trackId;
+    // Kept here as well as on the file entry: it is what the SPA's song-length
+    // math reads straight off these rows, and it is 8 bytes against the
+    // kilobytes that moved out.
     double durationSeconds = 0.0;
-    std::vector<WPeakLevel> levels;
+    // Index into WAllPeaksPayload::files, or -1 when this region's file has no
+    // peaks built yet.
+    int levelsIndex = -1;
 };
 
 struct WSongPeaks {
@@ -79,6 +96,7 @@ struct WSongPeaks {
 };
 
 struct WAllPeaksPayload {
+    std::vector<WPeakFileLevels> files;
     std::vector<WSongPeaks> songs;
 };
 

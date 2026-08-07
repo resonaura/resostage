@@ -19,7 +19,7 @@ import {
   type RegionGeomDraft,
 } from "./regionDrag";
 import { splitRegionsAtPlayhead } from "./regionEdit";
-import { buildPeaksByFile, resolveRegionPeakEntry } from "./regionPeaks";
+import { buildSongPeakLookup } from "./regionPeaks";
 import {
   regionSelKey,
   type RegionSelKey,
@@ -88,12 +88,18 @@ export function AudioTrackLanes({
     trackIndex: number;
   } | null>(null);
 
-  // Per song: source file -> the peak entry of any region cut from it, so a
-  // region the payload has not caught up with yet (a fresh split) can draw
-  // from its sibling instead of spinning. See regionPeaks.ts.
-  const peaksByFilePerSong = useMemo(
-    () => songs.map((song, i) => buildPeaksByFile(song, allPeaks?.songs[i]?.tracks)),
-    [songs, allPeaks],
+  // One resolver per song: region -> waveform data, including the by-file
+  // fallback that lets a fresh split draw immediately. See regionPeaks.ts.
+  const peakLookupPerSong = useMemo(
+    () =>
+      songs.map((_song, i) =>
+        buildSongPeakLookup(
+          allPeaks?.songs[i]?.tracks,
+          allPeaks?.files,
+          i === state.songIndex ? peaks?.tracks : undefined,
+        ),
+      ),
+    [songs, allPeaks, peaks, state.songIndex],
   );
 
   const openWavPicker = (songIndex: number, trackIndex: number) => {
@@ -209,20 +215,9 @@ export function AudioTrackLanes({
               });
               if (trackRegions.length === 0) return null;
 
-              // Per-region entries (allPeaks) are keyed by region id; the
-              // coarser per-track fallback (peaks) is keyed by track id.
-              const peaksForSong =
-                allPeaks?.songs[i]?.tracks ??
-                (i === state.songIndex ? peaks?.tracks : undefined);
               const segDuration = songLengths[i];
-
               const peakEntryFor = (r: RegionRow) =>
-                resolveRegionPeakEntry(
-                  r,
-                  peaksForSong,
-                  peaksByFilePerSong[i] ?? new Map(),
-                  track?.id,
-                );
+                peakLookupPerSong[i]?.forRegion(r, track?.id);
 
               return (
                 <div

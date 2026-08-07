@@ -620,11 +620,31 @@ export interface PeaksResponse {
   tracks: TrackPeaks[];
 }
 
-// Peak data for every song's tracks (not just the currently-staged one) --
+// One source file's peak levels. Peaks are a property of the FILE, not of the
+// clip -- every region cut from a wav draws the same levels through a
+// different window -- so the payload carries them once and regions point at
+// them by index. See WPeakFileLevels in core/app/server/WireTypes.h.
+export interface PeakFileLevels {
+  file: string;
+  durationSeconds: number;
+  levels: PeakLevelData[];
+}
+
+// A region's row in the all-peaks payload: its own length, plus where to find
+// its levels. `levelsIndex` is -1 while that file has no peaks built yet.
+export interface RegionPeaks {
+  id: string;
+  trackId?: string;
+  durationSeconds: number;
+  levelsIndex: number;
+}
+
+// Peak data for every song's regions (not just the currently-staged song) --
 // see AudioEngine::ensureAllSongPeaksBuilt()/MainComponent::buildAllPeaksJson().
 // Powers the continuous multi-song Timeline view.
 export interface AllPeaksResponse {
-  songs: { tracks: TrackPeaks[] }[];
+  files: PeakFileLevels[];
+  songs: { tracks: RegionPeaks[] }[];
 }
 
 export interface ProjectCycleRow {

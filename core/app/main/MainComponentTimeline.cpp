@@ -4,6 +4,8 @@
 
 #include "server/WireTypes.h"
 
+#include <unordered_map>
+
 namespace resostage {
 
 using namespace wire;
@@ -133,13 +135,21 @@ void MainComponent::maybePublishAllPeaks() {
     if (!lastAllPeaksComplete)
         engine.ensureAllSongPeaksBuilt();
 
+    // Counted per region (that is what the SPA's coverage check compares
+    // against) but resolved per FILE -- cachedPeaksForFile() takes
+    // peakCacheMutex, and this runs every tick, so asking it once per slice of
+    // the same stem was pure lock traffic.
     int totalFiles = 0, builtFiles = 0;
+    std::unordered_map<std::string, bool> builtByFile;
     for (const auto& song : engine.project().songs) {
         for (const auto& r : song.regions) {
             if (r.source.file.empty())
                 continue;
             ++totalFiles;
-            if (engine.cachedPeaksForFile(r.source.file) != nullptr)
+            auto [it, inserted] = builtByFile.try_emplace(r.source.file, false);
+            if (inserted)
+                it->second = engine.cachedPeaksForFile(r.source.file) != nullptr;
+            if (it->second)
                 ++builtFiles;
         }
     }
@@ -161,17 +171,45 @@ std::string MainComponent::buildAllPeaksJson() const {
     WAllPeaksPayload wire{};
     const auto& songs = engine.project().songs;
     wire.songs.reserve(songs.size());
+
+    // Each distinct file's levels are serialized once and referenced by index
+    // (see WPeakFileLevels). Memoising by path also means cachedPeaksForFile()
+    // -- which locks peakCacheMutex -- is called once per FILE rather than
+    // once per region.
+    std::unordered_map<std::string, int> levelsIndexByFile;
+    const auto levelsIndexFor = [&](const std::string& file) -> int {
+        if (file.empty())
+            return -1;
+        if (const auto it = levelsIndexByFile.find(file); it != levelsIndexByFile.end())
+            return it->second;
+        const PeakOverview* pk = engine.cachedPeaksForFile(file);
+        if (pk == nullptr) {
+            levelsIndexByFile.emplace(file, -1); // don't re-lock for the same miss
+            return -1;
+        }
+        auto ov = toWire(pk);
+        WPeakFileLevels entry{};
+        entry.file = file;
+        entry.durationSeconds = ov.durationSeconds;
+        entry.levels = std::move(ov.levels);
+        const int index = static_cast<int>(wire.files.size());
+        wire.files.push_back(std::move(entry));
+        levelsIndexByFile.emplace(file, index);
+        return index;
+    };
+
     for (const auto& song : songs) {
         WSongPeaks songPeaks{};
         songPeaks.tracks.reserve(song.regions.size());
         for (const auto& r : song.regions) {
-            const PeakOverview* pk = r.source.file.empty() ? nullptr : engine.cachedPeaksForFile(r.source.file);
             WRegionPeakOverview rPeak{};
             rPeak.id = r.id;
             rPeak.trackId = r.trackId;
-            auto ov = toWire(pk);
-            rPeak.durationSeconds = ov.durationSeconds;
-            rPeak.levels = std::move(ov.levels);
+            rPeak.levelsIndex = levelsIndexFor(r.source.file);
+            rPeak.durationSeconds =
+                rPeak.levelsIndex >= 0
+                    ? wire.files[static_cast<size_t>(rPeak.levelsIndex)].durationSeconds
+                    : 0.0;
             songPeaks.tracks.push_back(std::move(rPeak));
         }
         wire.songs.push_back(std::move(songPeaks));

@@ -337,8 +337,10 @@ export default function App() {
         if (cancelled) return;
         if (data) {
           setAllPeaks(data);
+          // levelsIndex >= 0 means this region's file made it into the shared
+          // file table, i.e. its waveform is drawable.
           const filled = data.songs.reduce(
-            (n, s) => n + s.tracks.filter((t) => t.levels.length > 0).length,
+            (n, s) => n + s.tracks.filter((t) => t.levelsIndex >= 0).length,
             0,
           );
           const total = data.songs.reduce((n, s) => n + s.tracks.length, 0);

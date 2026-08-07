@@ -19,6 +19,7 @@ import {
 } from "../timeline/laneDimensions";
 import { TrackWaveformLane } from "../TrackWaveformLane";
 import { splitCueAtPlayhead } from "../timeline/cueEdit";
+import { buildSongPeakLookup } from "../timeline/regionPeaks";
 import { toolCursor, type TimelineTool } from "../timeline/tools";
 import { effectUsesOwnColor, EFFECT_META } from "./lightEffectMeta";
 import type { EffectType } from "./LightSidePanel";
@@ -268,9 +269,11 @@ export function AudioHintStrip({
         const segStart = songOffsets[i] * pxPerSec;
         const segEnd = segStart + songLengths[i] * pxPerSec;
         if (viewEnd <= segStart || viewStart >= segEnd) return null;
-        const peaksForSong =
-          allPeaks?.songs[i]?.tracks ??
-          (i === state.songIndex ? peaks?.tracks : undefined);
+        const peakLookup = buildSongPeakLookup(
+          allPeaks?.songs[i]?.tracks,
+          allPeaks?.files,
+          i === state.songIndex ? peaks?.tracks : undefined,
+        );
         const segDuration = songLengths[i];
         return (
           <div
@@ -289,11 +292,7 @@ export function AudioHintStrip({
                     (r.trackId === track?.id || r.trackId === row.name),
                 )
                 .map((r) => {
-                  const peakEntry = peaksForSong?.find((p) => {
-                    const withTrackId = p as { trackId?: string };
-                    if (withTrackId.trackId !== undefined) return p.id === r.id;
-                    return p.id === track?.id;
-                  });
+                  const peakEntry = peakLookup.forRegion(r, track?.id);
                   const fileDur =
                     peakEntry?.durationSeconds ??
                     r.durationSeconds ??
