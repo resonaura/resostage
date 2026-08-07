@@ -197,7 +197,10 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
         id: `${e.from}->${e.to}#${i}`,
         source: e.from,
         target: e.to,
-        animated: e.active,
+        // Deliberately NOT React Flow's `animated`: that renders a dashed
+        // marching line, which would collide with dashes meaning "silenced".
+        // Dash is reserved for one thing here.
+        animated: false,
         label: label || undefined,
         labelBgPadding: [4, 2] as [number, number],
         labelBgBorderRadius: 3,
