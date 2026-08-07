@@ -325,7 +325,7 @@ std::vector<LightFixture> makeIdleFixtures() {
 
 TEST_CASE("buildIdleLightOutputs: holdLast (or any unrecognised value) returns nothing -- caller keeps resolveLightOutputs") {
     auto fixtures = makeIdleFixtures();
-    CHECK(buildIdleLightOutputs(fixtures, "holdLast", 10, 20, 30, 1.0).empty());
+    CHECK(buildIdleLightOutputs(fixtures, "hold", 10, 20, 30, 1.0).empty());
     CHECK(buildIdleLightOutputs(fixtures, "bogus", 10, 20, 30, 1.0).empty());
     CHECK(buildIdleLightOutputs({}, "blackout", 10, 20, 30, 1.0).empty()); // no fixtures at all
 }
@@ -344,7 +344,7 @@ TEST_CASE("buildIdleLightOutputs: blackout forces every fixture to black, zero i
 }
 
 TEST_CASE("buildIdleLightOutputs: staticColor forces every fixture to the configured idle color/intensity") {
-    auto out = buildIdleLightOutputs(makeIdleFixtures(), "staticColor", 200, 100, 50, 0.75);
+    auto out = buildIdleLightOutputs(makeIdleFixtures(), "static", 200, 100, 50, 0.75);
     REQUIRE(out.size() == 2);
     for (const auto& r : out) {
         CHECK(r.value.r == 200);
@@ -355,7 +355,7 @@ TEST_CASE("buildIdleLightOutputs: staticColor forces every fixture to the config
 }
 
 TEST_CASE("buildIdleLightOutputs: staticColor clamps an out-of-range intensity") {
-    auto out = buildIdleLightOutputs(makeIdleFixtures(), "staticColor", 1, 2, 3, 1.5);
+    auto out = buildIdleLightOutputs(makeIdleFixtures(), "static", 1, 2, 3, 1.5);
     REQUIRE(out.size() == 2);
     CHECK(out[0].value.intensity == doctest::Approx(1.0));
 }
@@ -396,7 +396,7 @@ TEST_CASE("buildIdleTarget: effect delegates to the effect builder; other modes 
     CHECK(eff[0].effectType == EffectParams::Type::Chase);
     CHECK(eff[0].effectRateHz == doctest::Approx(4.0f));
 
-    auto sc = buildIdleTarget(fixtures, "staticColor", 200, 100, 50, 0.75, "chase", 4.0, "solid", "", 0.5);
+    auto sc = buildIdleTarget(fixtures, "static", 200, 100, 50, 0.75, "chase", 4.0, "solid", "", 0.5);
     REQUIRE(sc.size() == 2);
     CHECK(sc[0].value.r == 200);
     CHECK(sc[0].value.g == 100);
@@ -410,7 +410,7 @@ TEST_CASE("buildIdleTarget: effect delegates to the effect builder; other modes 
 
     // holdLast is not a buildIdleTarget mode -- it's the caller's "keep
     // resolving normally" fallback, so the target stays empty.
-    CHECK(buildIdleTarget(fixtures, "holdLast", 200, 100, 50, 0.75, "chase", 4.0, "solid", "", 0.5).empty());
+    CHECK(buildIdleTarget(fixtures, "hold", 200, 100, 50, 0.75, "chase", 4.0, "solid", "", 0.5).empty());
 }
 
 TEST_CASE("buildIdleTarget effect: per-LED colors keep animating across wall-clock phase") {

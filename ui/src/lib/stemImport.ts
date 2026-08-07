@@ -150,6 +150,8 @@ export async function executeStemImport(
         pan: 0,
         mute: false,
         solo: false,
+        soloGroup: "sources" as const,
+        soloActiveInGroup: false,
         output: { type: "main" as const, target: "audio::main", sends: [] },
         peakDb: -100,
       };
@@ -198,6 +200,8 @@ export async function executeStemImport(
           pan: 0,
           mute: false,
           solo: false,
+          soloGroup: "sources" as const,
+          soloActiveInGroup: false,
           output: { type: "main" as const, target: "audio::main", sends: [] },
           peakDb: -100,
         };

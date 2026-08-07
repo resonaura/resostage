@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isMainBusId } from "./mixerIds";
 import { builder } from "../../lib/api";
 import type { BusRow, SettingsState } from "../../lib/types";
 import {
@@ -30,7 +31,7 @@ export function BusDestinationRouting({
   master: BusRow | undefined;
   settings: SettingsState;
 }) {
-  const isMaster = bus.id === "main" || bus.id === "audio::main";
+  const isMaster = isMainBusId(bus.id);
   const stereo = bus.channels === 2;
   // Master / aux mono toggle: show all singles when mono.
   const options = directOutputOptions(settings, {

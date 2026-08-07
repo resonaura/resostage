@@ -133,6 +133,10 @@ struct WClickTelemetry {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    // The metronome shares the tracks' solo group -- soloing a track during a
+    // show means "against the click", not "kill the click".
+    std::string soloGroup = "sources";
+    bool soloActiveInGroup = false;
     WSourceOutput output;
 };
 
@@ -278,6 +282,8 @@ struct WTrackTelemetry {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    std::string soloGroup = "sources";
+    bool soloActiveInGroup = false;
     WSourceOutput output; // type/target/sends, same as ClickChannel/track on disk
     double peakDb = -100.0;
     double peakDbL = -100.0;
@@ -291,7 +297,16 @@ struct WBusTelemetry {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    // See WebServer.h's BusRow -- solo is always scoped to a group.
+    std::string soloGroup = "none";
+    bool soloActiveInGroup = false;
     bool isAux = false;
+    // A fabricated output lane rather than an authorable project bus, and
+    // whether its physical channel is currently reachable. The SPA reads both
+    // to flag a route whose output has gone missing (device unplugged, channel
+    // switched off) instead of silently showing it as fine.
+    bool isDirectOut = false;
+    bool unavailable = false;
     int startChannel = 0;
     int channels = 2;
     double peakDb = -100.0;
@@ -370,7 +385,7 @@ struct WIdleGradientTelemetry {
 };
 
 struct WIdleTelemetry {
-    std::string behavior = "holdLast";
+    std::string behavior = "hold";
     WIdleColorTelemetry color{0, 0, 0};
     double intensity = 1.0;
     WIdleEffectTelemetry effect;
@@ -382,21 +397,22 @@ struct WResoLightGridTelemetry {
     int rows = 1;
 };
 
-struct WLightingTelemetry {
-    bool enabled = false;
-    std::string kind = "none";
-    WResoLightGridTelemetry resoLight;
-    WIdleTelemetry idle;
-    double defaultRefreshRateHz = 44.0;
-    std::optional<std::string> artNetTargetHost; // null = broadcast
-    std::vector<WFixtureTelemetry> fixtures;
-    std::vector<WDiscoveredBoardTelemetry> discoveredBoards;
-};
-
 struct WLightTrackTelemetry {
     std::string id;
     std::string name;
     std::vector<std::string> fixtureIds;
+};
+
+struct WLightingTelemetry {
+    bool enabled = false;
+    std::string kind = "none";
+    WResoLightGridTelemetry resolight;
+    WIdleTelemetry idle;
+    double defaultRefreshRateHz = 44.0;
+    std::optional<std::string> artNetTargetHost; // null = broadcast
+    std::vector<WFixtureTelemetry> fixtures;
+    std::vector<WLightTrackTelemetry> tracks;
+    std::vector<WDiscoveredBoardTelemetry> discoveredBoards;
 };
 
 struct WProcessTelemetry {
@@ -501,8 +517,7 @@ struct WEngineTelemetryPayload {
     std::optional<std::vector<WTrackTelemetry>> tracks;
     std::optional<std::vector<WBusTelemetry>> busses;
 
-    WLightingTelemetry lighting;
-    std::vector<WLightTrackTelemetry> lightTracks;
+    WLightingTelemetry lighting; // fixtures + light tracks both nested inside
 
     std::optional<WHealthTelemetry> health;
     WSettingsTelemetry settings;

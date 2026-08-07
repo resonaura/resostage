@@ -26,7 +26,7 @@ TEST_CASE("PeakCache serialize/deserialize round-trip") {
 
     const auto bytes = PeakCache::serialize(ov);
     REQUIRE(bytes.size() >= 4);
-    CHECK(std::memcmp(bytes.data(), "RPK3", 4) == 0);
+    CHECK(std::memcmp(bytes.data(), "RSN1", 4) == 0);
 
     PeakOverview back;
     std::string error;
@@ -44,7 +44,7 @@ TEST_CASE("PeakCache serialize/deserialize round-trip") {
 
 TEST_CASE("PeakCache entry path sanitizes slashes") {
     CHECK(PeakCache::cacheEntryPath("Audio/song1/kick.wav")
-          == "Peaks/Audio_song1_kick.wav.rpk");
+          == "Peaks/Audio_song1_kick.wav.rsnrapeak");
 }
 
 TEST_CASE("PeakCache rejects bad magic") {

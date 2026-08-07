@@ -1,63 +1,112 @@
 #include "doctest.h"
 
-#include "../engine/audio/RoutingTypes.h"
-#include "../engine/project/ProjectSchema.h"
-#include "../engine/project/ProjectJson.h"
+#include "audio/RoutingEngine.h"
 
-#include <algorithm>
-#include <cmath>
+#include <atomic>
+#include <thread>
+#include <vector>
 
 using namespace resostage;
 
-static inline float dbToGain(double db) {
-    if (db <= -144.0) return 0.0f;
-    return static_cast<float>(std::pow(10.0, db / 20.0));
+namespace {
+
+// A graph small enough to build in a tight loop, distinctive enough that a
+// torn or freed read is detectable.
+std::shared_ptr<const MixGraph> makeGraph(uint32_t marker) {
+    auto graph = std::make_shared<MixGraph>();
+    MixStrip strip;
+    strip.id = "audio::main";
+    strip.kind = StripKind::Main;
+    strip.projectIndex = marker;
+    graph->strips.push_back(strip);
+
+    MixStrip lane;
+    lane.id = "audio::out:1";
+    lane.kind = StripKind::OutputLane;
+    lane.channels = 1;
+    lane.physicalChannel = 0;
+    lane.projectIndex = marker;
+    graph->strips.push_back(lane);
+
+    graph->indexById["audio::main"] = 0;
+    graph->indexById["audio::out:1"] = 1;
+    graph->firstLaneStrip = 1;
+
+    MixEdge edge;
+    edge.from = 0;
+    edge.to = 1;
+    graph->edges.push_back(edge);
+    return graph;
 }
 
-TEST_CASE("RoutingSnapshot: Master channel properties publish correctly") {
-    MasterChannel main;
-    main.gainDb = -6.0;
-    main.pan = 0.5;
-    main.mute = false;
-    main.channels = 2;
-    main.output.type = OutputType::ExtOut;
-    main.output.target = "audio::out:1,audio::out:2";
+} // namespace
 
-    BusOutput out;
-    out.busIndex = 0;
-    out.gainLinear = dbToGain(main.gainDb);
-    out.pan = static_cast<float>(std::clamp(main.pan, -1.0, 1.0));
-    out.mute = main.mute;
-    out.channelCount = main.channels;
-
-    CHECK(out.gainLinear == doctest::Approx(0.5011872f));
-    CHECK(out.pan == doctest::Approx(0.5f));
-    CHECK(out.mute == false);
-    CHECK(out.channelCount == 2);
+TEST_CASE("RoutingEngine: no publish yet reads as null rather than a stale graph") {
+    RoutingEngine engine;
+    CHECK(engine.acquireForRender() == nullptr);
 }
 
-TEST_CASE("RoutingSnapshot: Master Mute sets gainLinear or mute flag") {
-    MasterChannel main;
-    main.mute = true;
-    BusOutput out;
-    out.mute = main.mute;
-    out.gainLinear = main.mute ? 0.0f : dbToGain(main.gainDb);
-
-    CHECK(out.mute == true);
-    CHECK(out.gainLinear == 0.0f);
+TEST_CASE("RoutingEngine: acquireForRender sees the most recent publish") {
+    RoutingEngine engine;
+    engine.publish(makeGraph(1));
+    {
+        auto held = engine.acquireForRender();
+        REQUIRE(held != nullptr);
+        CHECK(held->strips[0].projectIndex == 1);
+    }
+    engine.publish(makeGraph(2));
+    auto held = engine.acquireForRender();
+    REQUIRE(held != nullptr);
+    CHECK(held->strips[0].projectIndex == 2);
 }
 
-TEST_CASE("RoutingSnapshot: Send bus with OutputType::Main sets outputType") {
-    SendBus sb;
-    sb.id = "audio::send:1";
-    sb.output.type = OutputType::Main;
-    sb.channels = 1;
+TEST_CASE("RoutingEngine: a reader's graph stays alive across later publishes") {
+    RoutingEngine engine;
+    engine.publish(makeGraph(7));
 
-    BusOutput out;
-    out.busIndex = 1;
-    out.outputType = sb.output.type;
-    out.channelCount = sb.channels;
+    // The audio thread holds its snapshot for the whole block; the message
+    // thread may republish several times meanwhile. The held graph must keep
+    // reading back as itself -- this is the use-after-free the hand-rolled
+    // hazard-pointer versions kept getting wrong.
+    auto held = engine.acquireForRender();
+    REQUIRE(held != nullptr);
+    for (uint32_t i = 0; i < 100; ++i)
+        engine.publish(makeGraph(i));
 
-    CHECK(out.outputType == OutputType::Main);
-    CHECK(out.channelCount == 1);
+    CHECK(held->strips[0].projectIndex == 7);
+    CHECK(held->strips.size() == 2);
+    CHECK(held->edges.size() == 1);
+}
+
+TEST_CASE("RoutingEngine: concurrent publish and render never tear or free early") {
+    RoutingEngine engine;
+    engine.publish(makeGraph(0));
+
+    std::atomic<bool> stop{false};
+    std::atomic<int> mismatches{0};
+
+    std::thread writer([&] {
+        for (uint32_t i = 1; i < 20000 && !stop.load(); ++i)
+            engine.publish(makeGraph(i));
+        stop.store(true);
+    });
+
+    std::thread reader([&] {
+        while (!stop.load()) {
+            auto held = engine.acquireForRender();
+            if (held == nullptr)
+                continue;
+            // Every strip in a given graph carries the same marker, so a torn
+            // read shows up as two strips disagreeing.
+            if (held->strips.size() != 2
+                || held->strips[0].projectIndex != held->strips[1].projectIndex
+                || held->edges.size() != 1) {
+                mismatches.fetch_add(1);
+            }
+        }
+    });
+
+    writer.join();
+    reader.join();
+    CHECK(mismatches.load() == 0);
 }

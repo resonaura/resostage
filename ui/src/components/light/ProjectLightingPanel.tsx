@@ -62,7 +62,7 @@ const SHAPE_ICON: Record<
   par: Lamp,
   wash: Disc3,
   spot: Spotlight,
-  movingHead: Move3D,
+  "moving-head": Move3D,
 };
 
 const selectCls =
@@ -118,7 +118,7 @@ function autoLayoutPositions(
 // just to cross-check would drift the moment the packer's algorithm changes.
 function findDmxChannelConflicts(fixtures: LightFixtureRow[]): Set<string> {
   const conflicting = new Set<string>();
-  const generic = fixtures.filter((f) => f.kind === "dmxGeneric");
+  const generic = fixtures.filter((f) => f.kind === "dmx::generic");
   for (let i = 0; i < generic.length; i++) {
     const a = generic[i];
     const aEnd = a.dmx.startChannel + Math.max(1, a.dmx.channelCount);
@@ -189,7 +189,7 @@ function FixtureItem({
   // every ResoLightBar starts as "bar", so showing the icon for that case
   // would just be visual noise on every single row.
   const ShapeIcon =
-    fixture.kind === "dmxGeneric" || fixture.shape !== "bar"
+    fixture.kind === "dmx::generic" || fixture.shape !== "bar"
       ? SHAPE_ICON[fixture.shape]
       : null;
   return (
@@ -225,7 +225,7 @@ function FixtureItem({
         <span className="flex-1 truncate text-xs font-medium text-foreground/80">
           {fixture.name}
         </span>
-        {fixture.kind === "resoLightBar" && fixture.networkHost ? (
+        {fixture.kind === "resolight::bar" && fixture.networkHost ? (
           <span
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${
               fixture.hwConnected ? "bg-success" : "bg-foreground/30"
@@ -252,7 +252,7 @@ function FixtureItem({
               : undefined
           }
         >
-          {fixture.kind === "dmxGeneric"
+          {fixture.kind === "dmx::generic"
             ? `U${fixture.dmx.universe}:${fixture.dmx.startChannel}`
             : `${fixture.ledCount}L · ${fixture.mountedHorizontally ? "H" : "V"}${fixture.addressable ? " · addr" : ""}`}
         </span>
@@ -446,8 +446,8 @@ export function ProjectLightingPanel({
                 }
               >
                 <option value="none">Not set</option>
-                <option value="resoLight">ResoLight (vertical LED bars)</option>
-                <option value="dmxGeneric">Generic DMX / Art-Net / HTTP</option>
+                <option value="resolight">ResoLight (vertical LED bars)</option>
+                <option value="dmx::generic">Generic DMX / Art-Net / HTTP</option>
               </select>
             </Field>
           </div>
@@ -459,7 +459,7 @@ export function ProjectLightingPanel({
                 {(
                   [
                     {
-                      value: "holdLast",
+                      value: "hold",
                       label: "Hold Last",
                       desc: "Keep showing whatever the frozen playhead position resolves to",
                     },
@@ -469,7 +469,7 @@ export function ProjectLightingPanel({
                       desc: "Force every fixture off",
                     },
                     {
-                      value: "staticColor",
+                      value: "static",
                       label: "Static Color",
                       desc: "Force every fixture to a fixed idle color",
                     },
@@ -499,7 +499,7 @@ export function ProjectLightingPanel({
               </div>
             </Field>
 
-            {li.idle.behavior === "staticColor" && (
+            {li.idle.behavior === "static" && (
               <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
                 <HslColorPicker
                   r={li.idle.color.r}
@@ -697,7 +697,7 @@ export function ProjectLightingPanel({
                 </span>
               </div>
             </Field>
-            {li.kind === "dmxGeneric" && (
+            {li.kind === "dmx::generic" && (
               <Field label="Art-Net Target Host">
                 <div className="flex items-center gap-2">
                   <FocusTextInput
@@ -721,7 +721,7 @@ export function ProjectLightingPanel({
           {/* ResoLight real-hardware discovery (ESP32/ESP8266 on LAN).
               Preview-only by default -- boards only appear when powered and
               broadcasting; pairing is opt-in per fixture below. */}
-          {li.kind === "resoLight" && (
+          {li.kind === "resolight" && (
             <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3 flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <span className={labelCls}>ResoLight Hardware</span>
@@ -772,7 +772,7 @@ export function ProjectLightingPanel({
               never distinguish fixture kind, only addressable/ledCount, so
               the only thing DMX fixtures were actually missing was a way to
               create/remove them and see this editor at all. */}
-          {(li.kind === "resoLight" || li.kind === "dmxGeneric") && (
+          {(li.kind === "resolight" || li.kind === "dmx::generic") && (
             <div className="flex flex-col gap-4">
               {/* Rig size + auto-layout */}
               <div className="rounded-xl border border-default/30 bg-default/5 p-4 flex flex-col gap-3">
@@ -797,7 +797,7 @@ export function ProjectLightingPanel({
                       <Wand2 size={12} />
                       Auto-layout
                     </button>
-                    {li.kind === "dmxGeneric" && (
+                    {li.kind === "dmx::generic" && (
                       <button
                         type="button"
                         onClick={() => void lighting.fixtureAdd()}
@@ -810,7 +810,7 @@ export function ProjectLightingPanel({
                     )}
                   </div>
                 </div>
-                {li.kind === "resoLight" ? (
+                {li.kind === "resolight" ? (
                   <div className="flex flex-wrap gap-3">
                     <Field label="Columns">
                       <input
@@ -818,10 +818,10 @@ export function ProjectLightingPanel({
                         min={0}
                         max={32}
                         className={numberCls}
-                        value={li.resoLight.columns}
+                        value={li.resolight.columns}
                         onChange={(e) =>
                           void lighting.setConfig({
-                            resoLightColumns: Math.max(
+                            resolightColumns: Math.max(
                               0,
                               Number(e.target.value) || 0,
                             ),
@@ -835,10 +835,10 @@ export function ProjectLightingPanel({
                         min={0}
                         max={32}
                         className={numberCls}
-                        value={li.resoLight.rows}
+                        value={li.resolight.rows}
                         onChange={(e) =>
                           void lighting.setConfig({
-                            resoLightRows: Math.max(
+                            resolightRows: Math.max(
                               0,
                               Number(e.target.value) || 0,
                             ),
@@ -939,7 +939,7 @@ export function ProjectLightingPanel({
 
                   <div
                     className={
-                      selected.kind === "dmxGeneric"
+                      selected.kind === "dmx::generic"
                         ? "grid grid-cols-1 gap-3"
                         : "grid grid-cols-2 gap-3"
                     }
@@ -955,7 +955,7 @@ export function ProjectLightingPanel({
                         }
                       />
                     </Field>
-                    {selected.kind === "resoLightBar" && (
+                    {selected.kind === "resolight::bar" && (
                       <Field label="LEDs">
                         <FocusNumberInput
                           serverValue={selected.ledCount}
@@ -978,7 +978,7 @@ export function ProjectLightingPanel({
                       different physical layout (see ResoLightStage3D.tsx). */}
                   <Field label="Fixture Shape">
                     <div className="grid grid-cols-5 gap-1.5">
-                      {(selected.kind === "resoLightBar"
+                      {(selected.kind === "resolight::bar"
                         ? RESOLIGHT_SHAPES
                         : DMX_GENERIC_SHAPES
                       ).map((shape) => {
@@ -1016,7 +1016,7 @@ export function ProjectLightingPanel({
                     </div>
                   </Field>
 
-                  {selected.kind === "resoLightBar" &&
+                  {selected.kind === "resolight::bar" &&
                     selected.shape === "matrix" && (
                       <Field label="Matrix Columns (0 = auto)">
                         <FocusNumberInput
@@ -1037,7 +1037,7 @@ export function ProjectLightingPanel({
                       label only), this genuinely changes how many bytes get
                       written per pixel (see resoLightRealChannelCount /
                       ResoLightChannelMap.h's colorProfileByteCount). */}
-                  {selected.kind === "resoLightBar" &&
+                  {selected.kind === "resolight::bar" &&
                     (() => {
                       // Only dimmer/rgb/rgbw are offered, but the stored field
                       // is the wider shared ChannelProfile type -- fall back to
@@ -1133,7 +1133,7 @@ export function ProjectLightingPanel({
                   {/* Mount: standing vs. laid on its side -- a physical
                       mount choice, independent of yaw (which way it faces).
                       Only meaningful for a ResoLight bar's shape. */}
-                  {selected.kind === "resoLightBar" && (
+                  {selected.kind === "resolight::bar" && (
                     <Field label="Mount">
                       <div className="flex gap-2">
                         {(
@@ -1192,7 +1192,7 @@ export function ProjectLightingPanel({
                   {/* Tilt: cosmetic aim/pitch off vertical -- a real hung
                       fixture is angled at the stage via its yoke, not
                       standing bolt upright like a ResoLightBar. */}
-                  {selected.kind === "dmxGeneric" && (
+                  {selected.kind === "dmx::generic" && (
                     <Field label="Tilt (°) -- aim off vertical">
                       <div className="flex gap-2">
                         <FocusNumberInput
@@ -1214,7 +1214,7 @@ export function ProjectLightingPanel({
 
                   {/* Grid position -- only meaningful for a ResoLight bar
                       seeded from the Columns x Rows layout above. */}
-                  {selected.kind === "resoLightBar" && (
+                  {selected.kind === "resolight::bar" && (
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Grid Column">
                         <FocusNumberInput
@@ -1248,7 +1248,7 @@ export function ProjectLightingPanel({
                   {/* A Ring is always uniform-color (no per-pixel control) --
                       not offering the option at all instead of showing it
                       forced-unchecked. */}
-                  {selected.kind === "resoLightBar" &&
+                  {selected.kind === "resolight::bar" &&
                     selected.shape !== "ring" && (
                       <label className="flex items-center gap-2 text-sm">
                         <input
@@ -1271,7 +1271,7 @@ export function ProjectLightingPanel({
                       never from these stored fields, so showing them here
                       for a bar would just be lying about what controls the
                       real output. */}
-                  {selected.kind === "dmxGeneric" && (
+                  {selected.kind === "dmx::generic" && (
                     <div className="border-t border-default/20 pt-3 flex flex-col gap-2">
                       <div className={labelCls + " mb-1"}>DMX Output</div>
                       {dmxConflicts.has(selected.id) && (
@@ -1406,7 +1406,7 @@ export function ProjectLightingPanel({
                   {/* Real-hardware transport -- ResoLightBar only. Empty host
                       = preview-only (default). Setting an IP makes ResoStage
                       dial the board as a WS client and stream binary frames. */}
-                  {selected.kind === "resoLightBar" && (
+                  {selected.kind === "resolight::bar" && (
                     <div className="border-t border-default/20 pt-3 flex flex-col gap-2">
                       <div className="flex items-center justify-between">
                         <span className={labelCls}>Hardware Link</span>

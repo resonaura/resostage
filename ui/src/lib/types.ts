@@ -34,6 +34,15 @@ export interface SourceOutput {
   sends: SendConfig[];
 }
 
+/**
+ * Solo is always scoped to a group, decided engine-side (see SoloGroup in
+ * core/engine/audio/MixGraph.h): tracks and the metronome share one, the aux
+ * sends have their own, the master is alone in its own. Shipped per row so
+ * the mixer greys out exactly the strips the engine is silencing instead of
+ * re-deriving the rule here.
+ */
+export type SoloGroup = "sources" | "sends" | "main" | "none";
+
 export interface Click {
   enabled: boolean;
   name: string;
@@ -44,6 +53,8 @@ export interface Click {
   mute: boolean;
   /** Joins the same solo group as a TrackDef. */
   solo: boolean;
+  soloGroup: SoloGroup;
+  soloActiveInGroup: boolean;
   /** Click output -- type is main or sends-only, never ext-out. */
   output: SourceOutput;
 }
@@ -240,6 +251,11 @@ export interface TrackRow {
   pan: number;
   mute: boolean;
   solo: boolean;
+  /** Solo group this strip belongs to, as decided by the engine. */
+  soloGroup: SoloGroup;
+  /** True when something in `soloGroup` is soloed -- i.e. this strip is
+   *  silenced unless it is the soloed one. Draw it dimmed. */
+  soloActiveInGroup: boolean;
   output: SourceOutput;
   peakDb: number;
   peakDbL?: number;
@@ -254,6 +270,8 @@ export interface BusRow {
   pan?: number;
   mute: boolean;
   solo: boolean;
+  soloGroup: SoloGroup;
+  soloActiveInGroup: boolean;
   isAux: boolean;
   /** True when this is a fabricated global Direct Output bus (derived from
    *  the device's active output channels, never persisted in the project). */
@@ -420,7 +438,7 @@ export function outputSendsToClickRows(
 export interface LightFixtureRow {
   id: string;
   name: string;
-  kind: "resoLightBar" | "dmxGeneric";
+  kind: "resolight::bar" | "dmx::generic";
   grid: { column: number; row: number };
   ledCount: number;
   addressable: boolean;
@@ -443,7 +461,7 @@ export interface LightFixtureRow {
     | "par"
     | "wash"
     | "spot"
-    | "movingHead";
+    | "moving-head";
   /** Only meaningful when shape === "matrix" -- 0 = let the UI pick a default. */
   matrixColumns: number;
   /** Cosmetic-only (sets dmx.const.default when it's a variable field). */
@@ -479,11 +497,11 @@ export interface DiscoveredBoardRow {
 
 export interface LightingState {
   enabled: boolean;
-  kind: "none" | "resoLight" | "dmxGeneric";
-  /** Rig grid (only meaningful when kind === "resoLight"). */
-  resoLight: { columns: number; rows: number };
+  kind: "none" | "resolight" | "dmx::generic";
+  /** Rig grid (only meaningful when kind === "resolight"). */
+  resolight: { columns: number; rows: number };
   idle: {
-    /** "holdLast" | "blackout" | "staticColor" | "effect" */
+    /** "hold" | "blackout" | "static" | "effect" */
     behavior: string;
     color: { r: number; g: number; b: number };
     intensity: number;
@@ -494,6 +512,12 @@ export interface LightingState {
   /** Art-Net unicast target; empty = broadcast (255.255.255.255). */
   artNetTargetHost?: string;
   fixtures: LightFixtureRow[];
+  /**
+   * Light-timeline rows. Nested under `lighting` (not a top-level
+   * `lightTracks`) to match LightingConfig::tracks on disk -- the fixture
+   * roster and the rows that drive it are one thing.
+   */
+  tracks: LightTrackRow[];
   /** Live ESP board monitors... */
   discoveredBoards?: DiscoveredBoardRow[];
 }
@@ -667,7 +691,6 @@ export interface WebUiState {
   busses: BusRow[];
   /** Project-scoped lighting rig config -- see Settings "Project" card. Always shipped (tiny). */
   lighting: LightingState;
-  lightTracks: LightTrackRow[];
   health: HealthState;
   settings: SettingsState;
 }
@@ -720,9 +743,9 @@ export const emptyState: WebUiState = {
   lighting: {
     enabled: false,
     kind: "none",
-    resoLight: { columns: 2, rows: 1 },
+    resolight: { columns: 2, rows: 1 },
     idle: {
-      behavior: "holdLast",
+      behavior: "hold",
       color: { r: 0, g: 0, b: 0 },
       intensity: 1,
       effect: { type: "none", rateHz: 2 },
@@ -731,9 +754,9 @@ export const emptyState: WebUiState = {
     defaultRefreshRateHz: 44,
     artNetTargetHost: "",
     fixtures: [],
+    tracks: [],
     discoveredBoards: [],
   },
-  lightTracks: [],
   health: {
     cpuPercent: 0,
     rssBytes: 0,

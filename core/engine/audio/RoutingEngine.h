@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RoutingTypes.h"
+#include "MixGraph.h"
 
 #include <atomic>
 #include <memory>
@@ -43,16 +43,19 @@ public:
     RoutingEngine(const RoutingEngine&) = delete;
     RoutingEngine& operator=(const RoutingEngine&) = delete;
 
-    // Called from the message/UI thread. Takes ownership of `next`.
-    void publish(std::unique_ptr<RoutingSnapshot> next);
+    // Called from the message/UI thread. Takes a shared graph rather than an
+    // owned one so the publisher can keep reading the same object it just
+    // handed over (telemetry answers "what is the mix doing" from exactly the
+    // graph the audio thread is rendering, never a re-derived copy).
+    void publish(std::shared_ptr<const MixGraph> next);
 
     // Called from the audio thread. Returns a shared_ptr keeping the
     // snapshot alive for as long as the caller holds it. Never allocates;
     // returns nullptr only if publish() has never been called yet.
-    std::shared_ptr<const RoutingSnapshot> acquireForRender();
+    std::shared_ptr<const MixGraph> acquireForRender();
 
 private:
-    std::shared_ptr<const RoutingSnapshot> active;
+    std::shared_ptr<const MixGraph> active;
 };
 
 } // namespace resostage

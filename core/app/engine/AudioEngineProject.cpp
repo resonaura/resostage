@@ -34,15 +34,19 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
         return false;
 
     projectHistory.clear(); // a freshly loaded document has no history of its own
-    buildBusListFromProject();
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
     trackScratch.clear();
-    trackGainSmooth.clear();
-    clickSendSmooth.clear();
+    // Drop every gain/pan glide: the strip layout is about to change, so
+    // gliding from the old coefficients would be an artefact, not a de-click.
+    mixRenderer.resetSmoothing();
     trackMeters.clear();
     trackBandMeters.clear();
     projectLoaded = true;
+    // Only meaningful once projectLoaded is set: publishRoutingSnapshot()
+    // deliberately no-ops before that, so the first graph has to be published
+    // from here rather than earlier in the load.
+    publishRoutingSnapshot();
     // A user-chosen / loaded archive is never a draft -- without this, a
     // prior newProject()'s usingDraftArchive=true leaked across Load and
     // made plain Save always open the file picker (hasRealSaveLocation
@@ -122,8 +126,8 @@ void AudioEngine::newProject(const std::string& name) {
         usingDraftArchive = true;
     }
 
-    buildBusListFromProject();
     projectLoaded = true;
+    publishRoutingSnapshot();
     midiClockEverStarted = false;
 
     if (!loader.project().songs.empty()) {
@@ -291,15 +295,16 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
         }
     }
 
-    buildBusListFromProject();
     projectLoaded = true;
+    publishRoutingSnapshot();
     streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
 
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
     trackScratch.clear();
-    trackGainSmooth.clear();
-    clickSendSmooth.clear();
+    // Drop every gain/pan glide: the strip layout is about to change, so
+    // gliding from the old coefficients would be an artefact, not a de-click.
+    mixRenderer.resetSmoothing();
     trackMeters.clear();
     trackBandMeters.clear();
 
@@ -476,15 +481,16 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                 fs::remove_all(oldDraftPath, ec);
             }
 
-            buildBusListFromProject();
             projectLoaded = true;
+            publishRoutingSnapshot();
             streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
 
             currentSong = static_cast<size_t>(-1);
             trackIdByIndex.clear();
             trackScratch.clear();
-            trackGainSmooth.clear();
-            clickSendSmooth.clear();
+            // Drop every gain/pan glide: the strip layout is about to change, so
+            // gliding from the old coefficients would be an artefact, not a de-click.
+            mixRenderer.resetSmoothing();
             trackMeters.clear();
     trackBandMeters.clear();
             const auto& projTracks = loader.project().tracks;

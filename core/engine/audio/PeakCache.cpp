@@ -61,7 +61,7 @@ std::string PeakCache::cacheEntryPath(const std::string& audioArchivePath) {
         if (c == '/' || c == '\\' || c == ' ')
             c = '_';
     }
-    return "Peaks/" + key + ".rpk";
+    return "Peaks/" + key + ".rsnrapeak";
 }
 
 std::vector<uint8_t> PeakCache::serialize(const PeakOverview& overview) {

@@ -18,6 +18,15 @@
 
     size_t busCount() const { return busses.size(); }
 
+    // Solo-group membership for a mixer row, as the wire name the SPA uses
+    // ("sources" | "sends" | "main" | "none"), plus whether anything in that
+    // group is currently soloed. Answered from the published MixGraph, so the
+    // frontend greys out exactly the strips the engine is silencing instead of
+    // re-deriving the grouping rule and drifting from it.
+    const char* busSoloGroupAt(size_t index) const;
+    const char* trackSoloGroup() const;
+    bool anySoloInGroup(const char* groupName) const;
+
     const std::string& busIdAt(size_t index) const { return busses[index].id; }
 
     const std::string& busNameAt(size_t index) const;

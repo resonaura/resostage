@@ -400,10 +400,10 @@ export const builder = {
 export const lighting = {
   setConfig: (patch: {
     enabled?: boolean;
-    kind?: "none" | "resoLight" | "dmxGeneric";
-    resoLightColumns?: number;
-    resoLightRows?: number;
-    idleBehavior?: "holdLast" | "blackout" | "staticColor" | "effect";
+    kind?: "none" | "resolight" | "dmx::generic";
+    resolightColumns?: number;
+    resolightRows?: number;
+    idleBehavior?: "hold" | "blackout" | "static" | "effect";
     idleColorR?: number;
     idleColorG?: number;
     idleColorB?: number;
@@ -445,7 +445,7 @@ export const lighting = {
       | "par"
       | "wash"
       | "spot"
-      | "movingHead";
+      | "moving-head";
     matrixCols?: number;
     channelProfile?: "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom";
     tiltDeg?: number;

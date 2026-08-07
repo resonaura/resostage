@@ -357,7 +357,7 @@ inline std::vector<ResolvedFixtureOutput> resolveLightOutputs(
 // forces a value for the whole roster instead of leaving untouched fixtures
 // to whatever they last held.
 //
-// "holdLast" (the default) returns empty: the caller's contract is to fall
+// "hold" (the default) returns empty: the caller's contract is to fall
 // back to a normal resolveLightOutputs(..., tSec, ...) call in that case,
 // i.e. literally hold whatever the frozen playhead position resolves to --
 // this function is only ever called for the other three modes.
@@ -366,13 +366,13 @@ inline std::vector<ResolvedFixtureOutput> buildIdleLightOutputs(
     const std::string& idleBehavior,
     uint8_t idleR, uint8_t idleG, uint8_t idleB, double idleIntensity) {
     std::vector<ResolvedFixtureOutput> out;
-    if (idleBehavior != "blackout" && idleBehavior != "staticColor")
+    if (idleBehavior != "blackout" && idleBehavior != "static")
         return out;
     out.reserve(fixtures.size());
     for (const auto& f : fixtures) {
         ResolvedFixtureOutput r;
         r.fixtureId = f.id;
-        if (idleBehavior == "staticColor")
+        if (idleBehavior == "static")
             r.value = {idleR, idleG, idleB, std::clamp(idleIntensity, 0.0, 1.0)};
         // else "blackout": default-constructed LightCueValue is already
         // {0, 0, 0, intensity 0.0}.

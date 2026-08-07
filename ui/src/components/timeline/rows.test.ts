@@ -10,6 +10,8 @@ const track = (id: string, name: string): TrackRow => ({
   pan: 0,
   mute: false,
   solo: false,
+  soloGroup: "sources",
+  soloActiveInGroup: false,
   output: { type: "main", sends: [] },
   peakDb: -100,
 });

@@ -1,0 +1,2265 @@
+{
+  "format": {
+    "version": 1
+  },
+  "name": "first",
+  "sampleRate": 48000,
+  "click": {
+    "enabled": true,
+    "name": "Click",
+    "channels": 2,
+    "gainDb": 0,
+    "pan": 0,
+    "mute": false,
+    "solo": false,
+    "output": {
+      "type": "sends-only",
+      "target": null,
+      "sends": [
+        {
+          "bus": "audio::send:1",
+          "level": 100,
+          "preFader": false,
+          "enabled": true
+        },
+        {
+          "bus": "audio::send:2",
+          "level": 100,
+          "preFader": false,
+          "enabled": true
+        },
+        {
+          "bus": "audio::send:3",
+          "level": 100,
+          "preFader": false,
+          "enabled": true
+        },
+        {
+          "bus": "audio::send:4",
+          "level": 100,
+          "preFader": false,
+          "enabled": true
+        }
+      ]
+    }
+  },
+  "main": {
+    "enabled": true,
+    "name": "Main",
+    "channels": 2,
+    "gainDb": 0,
+    "pan": 0,
+    "mute": false,
+    "solo": false,
+    "output": {
+      "type": "ext-out",
+      "target": "audio::out:1,audio::out:2"
+    }
+  },
+  "sends": [
+    {
+      "id": "audio::send:1",
+      "name": "Send 1",
+      "channels": 1,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:11"
+      }
+    },
+    {
+      "id": "audio::send:2",
+      "name": "Send 2",
+      "channels": 1,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:12"
+      }
+    },
+    {
+      "id": "audio::send:3",
+      "name": "Send 3",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:13,audio::out:14"
+      }
+    },
+    {
+      "id": "audio::send:4",
+      "name": "Send 4",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "main",
+        "target": "audio::main"
+      }
+    }
+  ],
+  "tracks": [
+    {
+      "id": "audio::track:1",
+      "name": "Drums",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:3,audio::out:4",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:2",
+      "name": "Percussion",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:3,audio::out:4",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:3",
+      "name": "Loops",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:3,audio::out:4",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:4",
+      "name": "Bass",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:5,audio::out:6",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:5",
+      "name": "Guitars",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:7,audio::out:8",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:6",
+      "name": "Synths",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:7,audio::out:8",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 0,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:7",
+      "name": "Keys",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:7,audio::out:8",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 0,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:8",
+      "name": "Vocals",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:7,audio::out:8",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 0,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:9",
+      "name": "Backing Vocals",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:7,audio::out:8",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 0,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:10",
+      "name": "SFX",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:7,audio::out:8",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 0,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audio::track:11",
+      "name": "Guide",
+      "channels": 2,
+      "gainDb": 0,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "output": {
+        "type": "ext-out",
+        "target": "audio::out:7,audio::out:8",
+        "sends": [
+          {
+            "bus": "audio::send:1",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:2",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:3",
+            "level": 0,
+            "preFader": false,
+            "enabled": true
+          },
+          {
+            "bus": "audio::send:4",
+            "level": 100,
+            "preFader": false,
+            "enabled": true
+          }
+        ]
+      }
+    }
+  ],
+  "lighting": {
+    "enabled": true,
+    "kind": "resolight",
+    "resolight": {
+      "columns": 2,
+      "rows": 1
+    },
+    "idle": {
+      "behavior": "static",
+      "color": {
+        "r": 255,
+        "g": 255,
+        "b": 255
+      },
+      "intensity": 1,
+      "effect": {
+        "type": "none",
+        "rateHz": 2
+      },
+      "gradient": {
+        "preset": "solid",
+        "colors": null
+      }
+    },
+    "defaultRefreshRateHz": 44,
+    "artNetTargetHost": null,
+    "fixtures": [
+      {
+        "id": "light::bar:1",
+        "name": "Bar 1",
+        "kind": "resolight:bar",
+        "grid": {
+          "column": 0,
+          "row": 0
+        },
+        "ledCount": 120,
+        "addressable": true,
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "y": 0
+        },
+        "mountedHorizontally": false,
+        "dmx": {
+          "universe": 0,
+          "startChannel": 1,
+          "channelCount": 3
+        },
+        "shape": "bar",
+        "matrixColumns": 0,
+        "channelProfile": "rgb",
+        "tiltDegrees": 0,
+        "refreshRateHz": 0,
+        "networkHost": null
+      },
+      {
+        "id": "light::bar:2",
+        "name": "Bar 2",
+        "kind": "resolight:bar",
+        "grid": {
+          "column": 1,
+          "row": 0
+        },
+        "ledCount": 120,
+        "addressable": true,
+        "position": {
+          "x": 2,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "y": 0
+        },
+        "mountedHorizontally": false,
+        "dmx": {
+          "universe": 0,
+          "startChannel": 1,
+          "channelCount": 3
+        },
+        "shape": "bar",
+        "matrixColumns": 0,
+        "channelProfile": "rgb",
+        "tiltDegrees": 0,
+        "refreshRateHz": 0,
+        "networkHost": null
+      }
+    ],
+    "tracks": [
+      {
+        "id": "light::track:1",
+        "name": "Both",
+        "fixtureIds": ["light::bar:1", "light::bar:2"]
+      },
+      {
+        "id": "light::track:2",
+        "name": "Left",
+        "fixtureIds": ["light::bar:1"]
+      },
+      {
+        "id": "track:3",
+        "name": "Right  ",
+        "fixtureIds": ["light::bar:2"]
+      }
+    ]
+  },
+  "songs": [
+    {
+      "id": "meta::song:1",
+      "name": "NEVERLAND",
+      "bpm": 120,
+      "timeSignature": {
+        "numerator": 4,
+        "denominator": 4
+      },
+      "onEnded": "next",
+      "regions": [
+        {
+          "id": "019fd93b-3662-7f5b-8162-45f5ecad98fa",
+          "trackId": "audio::track:4",
+          "startSeconds": 0,
+          "durationSeconds": 166,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418366720-NVRLND_BASS_120BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        },
+        {
+          "id": "019fd93b-3662-79a9-83b8-91e5943f055c",
+          "trackId": "audio::track:9",
+          "startSeconds": 0,
+          "durationSeconds": 166,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418369280-NVRLND_VOX_BK_120BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        },
+        {
+          "id": "019fd93c-d272-7321-bded-0eddf5336d67",
+          "trackId": "audio::track:6",
+          "startSeconds": 0,
+          "durationSeconds": 226.411917,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418366720-NVRLND_SYNTHS_120BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        },
+        {
+          "id": "019fd93c-d272-7f3b-82d7-7e3c658acdb4",
+          "trackId": "audio::track:10",
+          "startSeconds": 0,
+          "durationSeconds": 117.173021,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418362880-NVRLND_SFX_120BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        },
+        {
+          "id": "019fd93c-d272-7bac-bf2a-57a4808d761b",
+          "trackId": "audio::track:2",
+          "startSeconds": 0,
+          "durationSeconds": 166,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418369280-NVRLND_PERC_120BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        },
+        {
+          "id": "019fd93c-d272-785e-8100-7d648e9a3273",
+          "trackId": "audio::track:1",
+          "startSeconds": 0,
+          "durationSeconds": 166,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418362880-NVRLND_DRUMS_120BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        }
+      ],
+      "events": [],
+      "sections": [
+        {
+          "id": "meta::section:1",
+          "name": "Intro",
+          "startSeconds": 0,
+          "colorIndex": 0
+        },
+        {
+          "id": "meta::section:2",
+          "name": "Verse",
+          "startSeconds": 8,
+          "colorIndex": 1
+        },
+        {
+          "id": "meta::section:3",
+          "name": "Chorus",
+          "startSeconds": 34,
+          "colorIndex": 2
+        },
+        {
+          "id": "meta::section:4",
+          "name": "Verse",
+          "startSeconds": 66,
+          "colorIndex": 3
+        },
+        {
+          "id": "meta::section:5",
+          "name": "Chorus",
+          "startSeconds": 98,
+          "colorIndex": 4
+        },
+        {
+          "id": "meta::section:6",
+          "name": "Solo",
+          "startSeconds": 130,
+          "colorIndex": 5
+        }
+      ],
+      "lightCues": [
+        {
+          "id": "light::cue:1",
+          "trackId": "light::track:1",
+          "startSeconds": 0,
+          "durationSeconds": 8,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 9.1,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": "fire",
+            "sourceType": "track",
+            "sourceId": "audio::track:6",
+            "intensity": 0.8,
+            "tempoSync": true,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "cyberpunkFire",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:2",
+          "trackId": "light::track:2",
+          "startSeconds": 8,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:3",
+          "trackId": "light::track:3",
+          "startSeconds": 8.5,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:4",
+          "trackId": "light::track:2",
+          "startSeconds": 9.25,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:5",
+          "trackId": "light::track:3",
+          "startSeconds": 9.5,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:6",
+          "trackId": "light::track:2",
+          "startSeconds": 10,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:7",
+          "trackId": "light::track:3",
+          "startSeconds": 10.5,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:8",
+          "trackId": "light::track:2",
+          "startSeconds": 11.25,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:9",
+          "trackId": "light::track:3",
+          "startSeconds": 11.5,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:10",
+          "trackId": "light::track:1",
+          "startSeconds": 9.75,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 0,
+            "b": 0
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:11",
+          "trackId": "light::track:1",
+          "startSeconds": 11.75,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 110,
+            "g": 0,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:12",
+          "trackId": "light::track:1",
+          "startSeconds": 13.75,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 0,
+            "b": 0
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:13",
+          "trackId": "light::track:1",
+          "startSeconds": 15.75,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 110,
+            "g": 0,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": "pulse",
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": true,
+            "tempoSubdivision": "1/8",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:14",
+          "trackId": "light::track:2",
+          "startSeconds": 12,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:15",
+          "trackId": "light::track:2",
+          "startSeconds": 13.25,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:16",
+          "trackId": "light::track:2",
+          "startSeconds": 14,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:17",
+          "trackId": "light::track:2",
+          "startSeconds": 15.25,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 0,
+            "b": 0
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:18",
+          "trackId": "light::track:3",
+          "startSeconds": 12.5,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:19",
+          "trackId": "light::track:3",
+          "startSeconds": 13.5,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:20",
+          "trackId": "light::track:3",
+          "startSeconds": 14.5,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:21",
+          "trackId": "light::track:3",
+          "startSeconds": 15.5,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 0,
+            "b": 0
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:22",
+          "trackId": "light::track:1",
+          "startSeconds": 17.75,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 0,
+            "b": 0
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:23",
+          "trackId": "light::track:1",
+          "startSeconds": 19.75,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 110,
+            "g": 0,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:24",
+          "trackId": "light::track:2",
+          "startSeconds": 16,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:25",
+          "trackId": "light::track:2",
+          "startSeconds": 17.25,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:26",
+          "trackId": "light::track:2",
+          "startSeconds": 18,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:27",
+          "trackId": "light::track:2",
+          "startSeconds": 19.25,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:28",
+          "trackId": "light::track:3",
+          "startSeconds": 16.5,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:29",
+          "trackId": "light::track:3",
+          "startSeconds": 17.5,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:30",
+          "trackId": "light::track:3",
+          "startSeconds": 18.5,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:31",
+          "trackId": "light::track:3",
+          "startSeconds": 19.5,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:32",
+          "trackId": "light::track:1",
+          "startSeconds": 21.75,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 0,
+            "b": 0
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:33",
+          "trackId": "light::track:1",
+          "startSeconds": 23.75,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 110,
+            "g": 0,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": "pulse",
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": true,
+            "tempoSubdivision": "1/8",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:34",
+          "trackId": "light::track:2",
+          "startSeconds": 20,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:35",
+          "trackId": "light::track:2",
+          "startSeconds": 21.25,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:36",
+          "trackId": "light::track:2",
+          "startSeconds": 22,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:37",
+          "trackId": "light::track:2",
+          "startSeconds": 23.25,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:38",
+          "trackId": "light::track:3",
+          "startSeconds": 20.5,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:39",
+          "trackId": "light::track:3",
+          "startSeconds": 21.5,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:40",
+          "trackId": "light::track:3",
+          "startSeconds": 22.5,
+          "durationSeconds": 0.5,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:41",
+          "trackId": "light::track:3",
+          "startSeconds": 23.5,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        },
+        {
+          "id": "light::cue:42",
+          "trackId": "light::track:1",
+          "startSeconds": 14.75,
+          "durationSeconds": 0.25,
+          "label": null,
+          "color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+          },
+          "intensity": 1,
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0
+          },
+          "effect": {
+            "type": null,
+            "sourceType": "bus",
+            "sourceId": null,
+            "intensity": 0.8,
+            "tempoSync": false,
+            "tempoSubdivision": "1/4",
+            "rateHz": 2
+          },
+          "gradient": {
+            "preset": "solid",
+            "colors": null
+          },
+          "blendMode": "normal"
+        }
+      ]
+    },
+    {
+      "id": "meta::song:2",
+      "name": "RUN",
+      "bpm": 140,
+      "timeSignature": {
+        "numerator": 4,
+        "denominator": 4
+      },
+      "playbackMode": "autoplayNext",
+      "regions": [
+        {
+          "id": "019fd93b-3663-7abf-b120-6aa48711ee53",
+          "trackId": "audio::track:3",
+          "startSeconds": 0,
+          "durationSeconds": 267.428562,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418362880-RUN_LOOPS_140BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        },
+        {
+          "id": "019fd93b-3663-7805-a66f-4310e337c9e9",
+          "trackId": "audio::track:6",
+          "startSeconds": 0,
+          "durationSeconds": 267.428562,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418369280-RUN_SYNTHS_140BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        },
+        {
+          "id": "019fd93b-3663-7306-8246-3a0736477f0d",
+          "trackId": "audio::track:4",
+          "startSeconds": 0,
+          "durationSeconds": 267.428562,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418366720-RUN_BASS_140BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        },
+        {
+          "id": "019fd93b-3663-7c47-9ff9-16e05326ccc4",
+          "trackId": "audio::track:9",
+          "startSeconds": 0,
+          "durationSeconds": 267.428562,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418362880-RUN_BACKVOX_140BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        },
+        {
+          "id": "019fd93b-3663-77a2-8394-dc72ee5467f0",
+          "trackId": "audio::track:10",
+          "startSeconds": 0,
+          "durationSeconds": 267.428562,
+          "gainDb": 0,
+          "source": {
+            "file": "Audio/516418369280-RUN_SFX_140BPM.wav",
+            "offsetSeconds": 0
+          },
+          "fade": {
+            "inSeconds": 0,
+            "outSeconds": 0,
+            "inCurve": 0,
+            "outCurve": 0
+          },
+          "loop": {
+            "enabled": false,
+            "lengthSeconds": 0
+          }
+        }
+      ],
+      "events": [],
+      "sections": [],
+      "lightCues": []
+    }
+  ],
+  "cycle": {
+    "active": false,
+    "skip": false,
+    "startSeconds": 16,
+    "endSeconds": 32,
+    "songIndex": 0
+  },
+  "midi": {
+    "mappings": []
+  }
+}

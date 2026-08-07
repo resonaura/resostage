@@ -379,14 +379,15 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         return;
     }
     projectLoaded = true;
-    buildBusListFromProject();
+    publishRoutingSnapshot();
     streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
 
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
     trackScratch.clear();
-    trackGainSmooth.clear();
-    clickSendSmooth.clear();
+    // Drop every gain/pan glide: the strip layout is about to change, so
+    // gliding from the old coefficients would be an artefact, not a de-click.
+    mixRenderer.resetSmoothing();
     trackMeters.clear();
     trackBandMeters.clear();
     trackPeaks.clear();
@@ -546,7 +547,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
         song.bpm = bpm > 0.0 ? bpm : 120.0;
         song.timeSignature.numerator = tsNumerator > 0 ? tsNumerator : 4;
         song.timeSignature.denominator = tsDenominator > 0 ? tsDenominator : 4;
-        song.playbackMode = PlaybackMode::WaitForTrigger;
+        song.onEnded = SongEnd::Stop;
 
         std::vector<ProjectLoader::ExtraFile> extras;
         extras.reserve(wavPaths.size());

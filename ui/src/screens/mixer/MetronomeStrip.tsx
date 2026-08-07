@@ -1,4 +1,5 @@
 import { builder, mixer } from "../../lib/api";
+import { isMainBusId } from "./mixerIds";
 import { getClickPeaks } from "../../lib/liveLevels";
 import {
   outputSendsToClickRows,
@@ -70,7 +71,7 @@ export function MetronomeStrip({
   };
 
   const destinationBusses = state.busses.filter(
-    (b) => b.id === "audio::main" || b.id === "main" || b.isAux,
+    (b) => isMainBusId(b.id) || b.isAux,
   );
   const clickMono = state.click ? state.click.channels === 1 : false;
 

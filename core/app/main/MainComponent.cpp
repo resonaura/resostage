@@ -960,6 +960,8 @@ void MainComponent::publishWebState() {
     state.clickPan = proj.click.pan;
     state.clickMono = proj.click.channels == 1;
     state.clickSolo = proj.click.solo;
+    state.clickSoloGroup = engine.trackSoloGroup();
+    state.clickSoloActiveInGroup = engine.anySoloInGroup(state.clickSoloGroup.c_str());
     state.clickSends.clear();
     for (const SendConfig& cs : proj.click.output.sends) {
         WebUiState::ClickSendRow csr;
@@ -1007,7 +1009,7 @@ void MainComponent::publishWebState() {
         WebUiState::SongRow row;
         row.name = song.name;
         row.bpm = song.bpm;
-        row.autoplay = (song.playbackMode == PlaybackMode::AutoplayNext);
+        row.autoplay = (song.onEnded == SongEnd::Next);
         row.tsNum = song.timeSignature.numerator;
         row.tsDen = song.timeSignature.denominator;
         // Metronome is project-global — mirror onto every song row so older
@@ -1142,6 +1144,8 @@ void MainComponent::publishWebState() {
         tr.pan = def.pan;
         tr.mute = def.mute;
         tr.solo = def.solo;
+        tr.soloGroup = engine.trackSoloGroup();
+        tr.soloActiveInGroup = engine.anySoloInGroup(tr.soloGroup.c_str());
         switch (def.output.type) {
             case OutputType::Main: tr.output.type = "main"; break;
             case OutputType::SendsOnly: tr.output.type = "sends-only"; break;
@@ -1177,6 +1181,8 @@ void MainComponent::publishWebState() {
         br.gainDb = engine.busGainDb(i);
         br.mute = engine.isBusMuted(i);
         br.solo = engine.isBusSoloed(i);
+        br.soloGroup = engine.busSoloGroupAt(i);
+        br.soloActiveInGroup = engine.anySoloInGroup(br.soloGroup.c_str());
         br.startChannel = engine.busStartChannelAt(i);
         br.channels = engine.busChannelCountAt(i);
         br.isDirectOut = engine.busIsDirectAt(i);
@@ -1209,8 +1215,8 @@ void MainComponent::publishWebState() {
 
     state.lighting.enabled = proj.lighting.enabled;
     state.lighting.kind = lightingKindToString(proj.lighting.kind);
-    state.lighting.resoLight.columns = proj.lighting.resoLight.columns;
-    state.lighting.resoLight.rows = proj.lighting.resoLight.rows;
+    state.lighting.resolight.columns = proj.lighting.resolight.columns;
+    state.lighting.resolight.rows = proj.lighting.resolight.rows;
     state.lighting.idle.behavior = proj.lighting.idle.behavior;
     state.lighting.idle.color.r = proj.lighting.idle.color.r;
     state.lighting.idle.color.g = proj.lighting.idle.color.g;
@@ -1269,13 +1275,13 @@ void MainComponent::publishWebState() {
         }
     }
 
-    state.lightTracks.reserve(proj.lightTracks.size());
-    for (const LightTrack& lt : proj.lightTracks) {
-        WebUiState::LightTrackRow ltr;
+    state.lighting.tracks.reserve(proj.lighting.tracks.size());
+    for (const LightTrack& lt : proj.lighting.tracks) {
+        WebUiState::LightingRow::LightTrackRow ltr;
         ltr.id = lt.id;
         ltr.name = lt.name;
         ltr.fixtureIds = lt.fixtureIds;
-        state.lightTracks.push_back(std::move(ltr));
+        state.lighting.tracks.push_back(std::move(ltr));
     }
 
     // Backend-authoritative resolved lamp state -- the exact same
@@ -1333,7 +1339,7 @@ void MainComponent::publishWebState() {
             transport.playheadSeconds.load(std::memory_order_relaxed);
 
         // Apply the same idle-behavior override LightEngine's real DMX thread
-        // applies: while the transport is stopped with a non-"holdLast"
+        // applies: while the transport is stopped with a non-"hold"
         // idleBehavior (blackout/staticColor/effect), the whole preview feed
         // fades to/from the idle target via the shared blendTowardIdle +
         // kIdleFadeSeconds, exactly like the hardware -- resuming playback
@@ -1341,7 +1347,7 @@ void MainComponent::publishWebState() {
         // every light preview in the SPA (Light tab, Editor's Light-mode,
         // wherever) -- the frontend draws the backend-rendered per-LED rows
         // as-is and never re-simulates idle behavior client-side anymore.
-        const bool useIdleOverride = !state.playing && proj.lighting.idle.behavior != "holdLast";
+        const bool useIdleOverride = !state.playing && proj.lighting.idle.behavior != "hold";
 
         // Mirror of LightEngine's transition bookkeeping -- see threadLoop.
         // Each transition fires once (edge-triggered): leaving idle keys on
@@ -1379,7 +1385,7 @@ void MainComponent::publishWebState() {
             // idle state turned on but that no cue drives anymore get an
             // explicit off-row so they fade to black instead of snapping.
             auto normal = resolveLightOutputs(
-                proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
+                proj.lighting.tracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
             const double t = std::chrono::duration<double>(
                                  std::chrono::steady_clock::now() - lightingPreviewResumeFadeStart)
                                  .count() /
@@ -1426,7 +1432,7 @@ void MainComponent::publishWebState() {
             }
         } else {
             resolved = resolveLightOutputs(
-                proj.lightTracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
+                proj.lighting.tracks, activeSong.lightCues, livePlayheadSec, activeSong.bpm, sourceLevelDb);
             lightingPreviewLastResolved = resolved;
         }
         lightingPreviewLastFrame = resolved;

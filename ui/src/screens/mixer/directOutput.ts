@@ -1,4 +1,5 @@
 import type { SettingsState } from "../../lib/types";
+import { extOutTarget, parseOutputLanes } from "./mixerIds";
 
 export type DirectOutOption = {
   /** Unique option id — must not collide when both pair and single share a start channel. */
@@ -21,21 +22,10 @@ export function parseOptionId(
   return { pair: m[1] === "p", startChannel: Number(m[2]) };
 }
 
-/** A route's comma-separated mono Direct Output lane numbers, or null when
- *  the route isn't a direct egress ("", a project main/aux bus, sends). The
- *  ids are 1-based ("audio::out:1", stereo = "audio::out:1,audio::out:2"). */
+/** A route's mono output lane numbers (1-based), or null when the route isn't
+ *  a direct egress ("", the master bus, an aux, sends-only). */
 export function parseDirectLanes(busId: string): number[] | null {
-  if (!busId) return null;
-  const parts = busId.split(",").map((t) => t.trim()).filter(Boolean);
-  if (parts.length === 0) return null;
-  for (const t of parts) {
-    const m = /^(?:audio::out:|direct:)(\d+)$/.exec(t);
-    if (!m) return null;
-  }
-  return parts.map((t) => {
-    if (t.startsWith("audio::out:")) return Number(t.slice("audio::out:".length));
-    return Number(t.slice("direct:".length));
-  });
+  return parseOutputLanes(busId);
 }
 
 /** Map a route id onto the channel-picker option it should display:
@@ -56,9 +46,7 @@ export function routeIdForOutput(
   startChannel: number, // 0-based physical index
   pair: boolean,
 ): string {
-  if (pair)
-    return `audio::out:${startChannel + 1},audio::out:${startChannel + 2}`;
-  return `audio::out:${startChannel + 1}`;
+  return extOutTarget(startChannel, pair);
 }
 
 /**

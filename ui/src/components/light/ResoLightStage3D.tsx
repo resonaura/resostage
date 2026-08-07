@@ -488,7 +488,7 @@ export function ResoLightStage3D({
               if (mode === "edit") setDragId(f.id);
             },
           };
-          return f.kind === "resoLightBar" ? (
+          return f.kind === "resolight::bar" ? (
             <ResoLightBar key={f.id} {...commonProps} />
           ) : (
             <GenericFixture key={f.id} {...commonProps} />
@@ -945,7 +945,7 @@ function GenericFixture({
         </mesh>
       );
       break;
-    case "movingHead":
+    case "moving-head":
       lensY = 0.19;
       labelY = 0.34;
       body = (

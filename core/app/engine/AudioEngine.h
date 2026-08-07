@@ -20,6 +20,7 @@
 #include "audio/Metering.h"
 #include "audio/PeakBuildThreadPool.h"
 #include "audio/PeakOverview.h"
+#include "audio/MixRenderer.h"
 #include "audio/RoutingEngine.h"
 #include "audio/StreamingEngine.h"
 #include "events/EventDispatcher.h"
@@ -45,9 +46,24 @@
 
 namespace resostage {
 
+// One row of the mixer's flat bus rail (0 = Main, 1..N = Sends in project
+// order, then the fabricated Direct Output lanes). Derived wholesale from the
+// published MixGraph -- never assembled independently, which is how the rail
+// and the actual mix used to drift apart.
 struct LoadedBus {
     std::string id;
+    std::string name;
     int channelCount = 2;
+    int startChannel = 0; // first physical output channel (0-based)
+    // A fabricated Direct Output lane rather than an authorable project bus:
+    // hidden from the editable rail, never persisted.
+    bool isDirectOut = false;
+    // False when a Direct Output lane's physical channel is currently gone
+    // (device dropped / channel switched off). Routing is preserved and the
+    // lane simply renders to silence until the channel returns.
+    bool available = true;
+    // This row's strip in the MixGraph, for meter reads.
+    uint32_t stripIndex = MixGraph::kNoStrip;
 };
 
 // The only piece of the engine that touches JUCE audio APIs. Owns the

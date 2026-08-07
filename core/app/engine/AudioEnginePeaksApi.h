@@ -15,7 +15,7 @@
     // ensureAllSongPeaksBuilt() to kick that off, then poll again).
     const PeakOverview* cachedPeaksForFile(const std::string& file) const;
 
-    // Background-builds (or loads from the archive's Peaks/*.rpk cache)
+    // Background-builds (or loads from the archive's Peaks/*.rsnrapeak cache)
     // peak overviews for every track in every song, not just the staged one.
     // Safe to call repeatedly/every tick -- it's a no-op once every file is
     // already cached, and only ever adds to the cache, so calling it again

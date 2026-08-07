@@ -19,44 +19,24 @@
     // Previous callback host time for underrun detection (audio thread only).
     uint64_t lastCallbackHostNanos = 0;
 
+    // Runs the published MixGraph on the audio thread. Owns no routing state
+    // of its own -- see engine/audio/MixRenderer.h.
+    MixRenderer mixRenderer;
+
+    // The metronome's strip in the graph. kNoStrip until a graph exists.
+    uint32_t clickStripIndex = MixGraph::kNoStrip;
+    // Message-thread copy of the most recently published graph, so telemetry
+    // can answer "which solo group is this row in, and is anything soloed in
+    // it" from the same structure the audio thread renders -- rather than a
+    // second, drifting implementation of the grouping rule.
+    std::shared_ptr<const MixGraph> publishedGraph;
+
     std::vector<LoadedBus> busses; // global, built once per loadProject()
     std::unordered_map<std::string, size_t> busIndexById;
 
-    // Global "Direct Output" buses (one per active physical output lane/`pair`),
-    // derived from the current device's ACTIVE output channels. These mirror
-    // Device settings, NOT the project: they are never persisted in project.json
-    // and are rebuilt whenever the output device / channel selection changes
-    // (see rebuildDirectOutBusses()). They are appended to `busses`/`busIndexById`
-    // at runtime so tracks/metronome/master route to them like any project bus,
-    // and dropped when the corresponding output channel goes inactive.
-    struct DirectOutBus {
-        std::string id;
-        std::string name;
-        int startChannel = 0; // physical channel index (0-based)
-        int channels = 2;     // 1 = single lane, 2 = stereo pair
-        bool singleChannel = false; // mono lane writes one physical channel only
-        // false = the physical output is currently unavailable (inactive device
-        // channel), but the route id is STILL referenced by tracks/metronome.
-        // Such a shadow lane stays in the bus list (with a UI warning) and the
-        // track keeps its mapping -- it just routes to silence until the output
-        // returns, at which point this becomes available again automatically
-        // because its id is deterministic. Never published as a physical output.
-        bool available = true;
-    };
-    std::vector<DirectOutBus> directOutBusses;
-
-    std::vector<std::string> trackIdByIndex; // rebuilt per selectSong(); index matches RoutingSnapshot::TrackRoute::trackIndex
-    // Audio-thread only dezippers for pan/gain/mono so live knob moves don't
-    // hard-jump coefficients (clicks). Indexed by trackIndex * kSmoothBusSlots + busIndex
-    // so main vs aux routes (different send gains) don't fight one smoother.
-    static constexpr size_t kSmoothBusSlots = 32;
-    struct TrackGainSmooth {
-        float gL = 1.0f;
-        float gR = 1.0f;
-        float monoMix = 0.0f; // 0 = stereo, 1 = mono sum
-        bool inited = false;
-    };
-    std::vector<TrackGainSmooth> trackGainSmooth;
+    // Rebuilt per selectSong(); index matches the track's strip index in the
+    // MixGraph, which lays project tracks out first and in project order.
+    std::vector<std::string> trackIdByIndex;
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> busMeters;
     std::vector<LoudnessMeter> busLoudnessMeters;
     // Per-bus interval peak (linear), parallel to busMeters. Audio thread
@@ -79,7 +59,7 @@
     // Session-lifetime cache keyed by archive path (TrackDef::file), so
     // switching songs back and forth (Prev/Next, reselecting) doesn't
     // redecode the whole file every time just to redraw the same waveform --
-    // only the on-disk PeakCache (Peaks/*.rpk, written on save) survived
+    // only the on-disk PeakCache (Peaks/*.rsnrapeak, written on save) survived
     // across sessions before; this covers the common "haven't saved yet"
     // case within one run. Cleared on project load/import (file identity
     // may have changed).
@@ -179,37 +159,10 @@
     // Built-in click generator. Sample-locked to the song playhead so strong
     // (bar 1) / weak beats follow the current song's BPM + time signature.
     // Song hops retarget the grid (bpm/tsNum/tsDen); playhead 0 = downbeat.
-    // clickTargetBusIndices empty means "Sends Only" (empty builtInClickBusId) --
-    // click still mixes into clickSendBusIndices when those are set. Holds the
-    // mono Direct Output lanes a stereo click target (e.g. "Out 1/2" = the two
-    // mono lanes direct:1,direct:2) fans out into, or the single target bus.
+    // Its LEVEL, pan, mono fold, mute, routing and meter are not here: the
+    // metronome is an ordinary strip in the MixGraph (see clickStripIndex),
+    // so it shares one implementation of all of those with every track.
     ClickGenerator clickGenerator;
-    std::vector<int> clickTargetBusIndices;
-    float clickGainLinear = 1.0f;
-    float clickPan = 0.0f; // -1..+1, project-global
-    bool clickMono = false; // L=R (pan balance ignored)
-    // Dezippered click strip gains (audio thread only).
-    float clickSmoothGL = 1.0f;
-    float clickSmoothGR = 1.0f;
-    bool clickSmoothInited = false;
-    bool isClickEnabled = false;
-    // Additional send destinations for the click (monitor mixes). Resolved
-    // from Project::builtInClickSends in refreshClickState(); parallel arrays.
-    std::vector<int> clickSendBusIndices;
-    std::vector<float> clickSendGainLinears;
-    // Dezippered click SEND gains (audio thread only) -- parallel to
-    // clickSendBusIndices/clickSendGainLinears, indexed by the same `si`.
-    // Without this, a click send-gain change (or the track-send-style
-    // "turn a knob up from the floor" move) was an unramped hard per-block
-    // jump, unlike every other gain path here (track gain/pan/sends, and the
-    // click's own main-bus target) which already go through an exponential
-    // dezipper.
-    struct ClickSendSmooth {
-        float gL = 1.0f;
-        float gR = 1.0f;
-        bool inited = false;
-    };
-    std::vector<ClickSendSmooth> clickSendSmooth;
     std::vector<float> clickScratch;
     // Dedicated click strip meter (pre-bus mix); never shares the destination bus meter.
     SeqLock<MeterFrame> clickMeterFrame;
@@ -311,7 +264,8 @@
 
 
     void ensureScratchSizes();
-    void buildBusListFromProject();
+    // Derives the mixer's flat bus rail from a freshly built graph.
+    void rebuildBusRowsFromGraph(const MixGraph& graph);
 
     // Re-invokes updateRegionWindow() for every region of the currently
     // staged/active song -- called after undoTimelineEdit()/redoTimelineEdit()

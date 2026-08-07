@@ -150,7 +150,7 @@ enum class WebCommandKind : uint8_t {
     // MainComponentLighting.cpp (mirrors the Builder handlers above:
     // `json` carries the raw POST body, field parsing happens
     // message-thread-side). SetLightingConfig also auto-resizes
-    // LightingConfig::fixtures to match a changed resoLightColumns/Rows
+    // LightingConfig::fixtures to match a changed resolightColumns/Rows
     // (see MainComponentLighting.cpp's regenerateResoLightFixtures()) --
     // LightFixtureUpdate then edits an individual fixture's real position/
     // LED count/addressable flag from there (3D editor drag, settings-card
@@ -235,6 +235,9 @@ struct WebUiState {
     // Metronome solo -- joins the same solo group as track solo (see
     // AudioEngine::setClickSolo()).
     bool clickSolo = false;
+    // The metronome is in the tracks' solo group -- see BusRow's soloGroup.
+    std::string clickSoloGroup = "sources";
+    bool clickSoloActiveInGroup = false;
     struct ClickSendRow {
         std::string busId;
         double gainDb = 0.0;
@@ -461,6 +464,9 @@ struct WebUiState {
         double pan = 0.0;
         bool mute = false;
         bool solo = false;
+        // Solo group + whether anything in it is soloed -- see BusRow.
+        std::string soloGroup = "sources";
+        bool soloActiveInGroup = false;
         struct SendRow {
             std::string bus;
             double level = 100.0; // 0-100 LINEAR percent, 100 = unity/0 dB
@@ -485,6 +491,12 @@ struct WebUiState {
         double pan = 0.0; // -1..+1 balance on physical outs
         bool mute = false;
         bool solo = false;
+        // Which solo group this row belongs to ("sources" | "sends" | "main"
+        // | "none") and whether anything in that group is currently soloed.
+        // Together they tell the SPA which strips to draw as silenced without
+        // it re-implementing the engine's grouping rule.
+        std::string soloGroup = "none";
+        bool soloActiveInGroup = false;
         bool isAux = false;
         int startChannel = 0;
         int channels = 2;
@@ -510,7 +522,7 @@ struct WebUiState {
     struct LightFixtureRow {
         std::string id;
         std::string name;
-        std::string kind; // "resoLightBar" | "dmxGeneric"
+        std::string kind; // "resolight::bar" | "dmx::generic"
         struct Grid {
             int column = 0;
             int row = 0;
@@ -560,14 +572,14 @@ struct WebUiState {
     };
     struct LightingRow {
         bool enabled = false;
-        std::string kind = "none"; // "none" | "resoLight" | "dmxGeneric"
+        std::string kind = "none"; // "none" | "resolight" | "dmx::generic"
         struct ResoLight {
             int columns = 2;
             int rows = 1;
-        } resoLight;
-        // See engine/project/ProjectSchema.h's LightingConfig::idleBehavior.
+        } resolight;
+        // See engine/project/ProjectSchema.h's LightingConfig::idle.
         struct Idle {
-            std::string behavior = "holdLast"; // "holdLast" | "blackout" | "staticColor" | "effect"
+            std::string behavior = "hold"; // "hold" | "blackout" | "static" | "effect"
             struct Color {
                 int r = 0;
                 int g = 0;
@@ -590,18 +602,19 @@ struct WebUiState {
         // Art-Net unicast target; empty / "255.255.255.255" = broadcast.
         std::string artNetTargetHost;
         std::vector<LightFixtureRow> fixtures;
+        // Authoring roster (Light timeline rows). Nested here, not a stray
+        // top-level list, exactly like LightingConfig::tracks on disk.
+        struct LightTrackRow {
+            std::string id;
+            std::string name;
+            std::vector<std::string> fixtureIds;
+        };
+        std::vector<LightTrackRow> tracks;
         // ESP boards heard on the LAN discovery beacon (last ~30s). Not
         // project data -- live from LightHardwareServer.
         std::vector<DiscoveredBoardRow> discoveredBoards;
     };
     LightingRow lighting;
-
-    struct LightTrackRow {
-        std::string id;
-        std::string name;
-        std::vector<std::string> fixtureIds;
-    };
-    std::vector<LightTrackRow> lightTracks;
 
     // Backend-authoritative resolved lamp state, one row per fixture
     // currently driven by an active cue -- computed by the exact same

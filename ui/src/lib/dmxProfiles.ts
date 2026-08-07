@@ -12,7 +12,7 @@
  * to know this table exists.
  */
 
-export type FixtureShape = "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead";
+export type FixtureShape = "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "moving-head";
 
 export const SHAPE_META: Record<FixtureShape, { label: string }> = {
   bar: { label: "Bar" },
@@ -22,14 +22,14 @@ export const SHAPE_META: Record<FixtureShape, { label: string }> = {
   par: { label: "PAR Can" },
   wash: { label: "Wash" },
   spot: { label: "Spot" },
-  movingHead: { label: "Moving Head" },
+  "moving-head": { label: "Moving Head" },
 };
 
 // Shapes offered to DmxGeneric fixtures -- a single non-addressable point
 // has nothing to spatially rearrange, so these are all about overall
 // housing silhouette (which real third-party instrument this is), not
 // pixel layout.
-export const DMX_GENERIC_SHAPES: FixtureShape[] = ["par", "wash", "spot", "movingHead", "strip"];
+export const DMX_GENERIC_SHAPES: FixtureShape[] = ["par", "wash", "spot", "moving-head", "strip"];
 
 // Shapes offered to ResoLightBar fixtures -- ResoStage's own addressable
 // product, so these rearrange the SAME linear ledCount pixel array into a

@@ -61,7 +61,7 @@ std::string makeMixedRateArchive() {
     fs::remove_all(path, ec);
     fs::create_directories(fs::path(path) / "Audio", ec);
 
-    const std::string projectJson = R"({"format":{"version":2},"name":"t","sampleRate":48000,"click":{"enabled":false,"name":"Click","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"sends-only","target":null,"sends":[]}},"main":{"enabled":true,"name":"Main","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"ext-out","target":"audio::out:1,audio::out:2"}},"sends":[],"tracks":[],"songs":[]})";
+    const std::string projectJson = R"({"format":{"version":3},"name":"t","sampleRate":48000,"click":{"enabled":false,"name":"Click","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"sends-only","target":null,"sends":[]}},"main":{"enabled":true,"name":"Main","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"ext-out","target":"audio::out:1,audio::out:2"}},"sends":[],"tracks":[],"songs":[]})";
     std::ofstream jsonOfs(fs::path(path) / "project.json", std::ios::binary);
     jsonOfs.write(projectJson.data(), projectJson.size());
     jsonOfs.close();
@@ -88,7 +88,7 @@ std::string makeTwoSongArchive() {
     fs::remove_all(path, ec);
     fs::create_directories(fs::path(path) / "Audio", ec);
 
-    const std::string projectJson = R"({"format":{"version":2},"name":"t","sampleRate":48000,"click":{"enabled":false,"name":"Click","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"sends-only","target":null,"sends":[]}},"main":{"enabled":true,"name":"Main","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"ext-out","target":"audio::out:1,audio::out:2"}},"sends":[],"tracks":[],"songs":[]})";
+    const std::string projectJson = R"({"format":{"version":3},"name":"t","sampleRate":48000,"click":{"enabled":false,"name":"Click","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"sends-only","target":null,"sends":[]}},"main":{"enabled":true,"name":"Main","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"ext-out","target":"audio::out:1,audio::out:2"}},"sends":[],"tracks":[],"songs":[]})";
     std::ofstream jsonOfs(fs::path(path) / "project.json", std::ios::binary);
     jsonOfs.write(projectJson.data(), projectJson.size());
     jsonOfs.close();

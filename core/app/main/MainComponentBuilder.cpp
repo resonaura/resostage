@@ -235,7 +235,7 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     if (getString(doc, "name", strVal)) s.name = strVal;
     if (getDouble(doc, "bpm", numVal)) { s.bpm = numVal; bpmChanged = true; }
     if (getString(doc, "mode", strVal))
-        s.playbackMode = (strVal == "auto") ? PlaybackMode::AutoplayNext : PlaybackMode::WaitForTrigger;
+        s.onEnded = (strVal == "auto") ? SongEnd::Next : SongEnd::Stop;
     if (getInt(doc, "tsNum", intVal)) s.timeSignature.numerator = intVal;
     if (getInt(doc, "tsDen", intVal)) s.timeSignature.denominator = intVal;
 

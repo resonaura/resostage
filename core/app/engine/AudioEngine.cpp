@@ -10,7 +10,6 @@
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
-#include "RoutingMath.h"
 
 #include <algorithm>
 #include <chrono>
@@ -680,9 +679,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     if (streamHandoff.load(std::memory_order_acquire))
         return;
 
-    const std::shared_ptr<const RoutingSnapshot> snap = routing.acquireForRender();
-    if (snap == nullptr || busses.empty())
+    // The whole mix for this block runs against ONE graph, held alive by this
+    // shared_ptr for as long as the callback needs it. The message thread may
+    // republish meanwhile; that only swaps what the NEXT block acquires, so a
+    // knob move can never tear a half-rendered block.
+    const std::shared_ptr<const MixGraph> snap = routing.acquireForRender();
+    if (snap == nullptr)
         return;
+    const MixGraph& graph = *snap;
 
     std::unique_lock<std::recursive_mutex> routeLock(routingMutex, std::try_to_lock);
     if (!routeLock.owns_lock())
@@ -790,7 +794,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     underrunFadeOutLength = kSongEndFadeSamples;
                     underrunFadeOutRemaining = kSongEndFadeSamples;
                 }
-                pendingSongEndAction = (song.playbackMode == PlaybackMode::AutoplayNext
+                pendingSongEndAction = (song.onEnded == SongEnd::Next
                                          && currentSong + 1 < proj.songs.size())
                                             ? SongEndAction::GaplessAdvance
                                             : SongEndAction::StopTransport;
@@ -991,556 +995,150 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // else: leave scratch cleared (silence) -- do not pull from the stream
         // past the clip end (that was the meter-flash path).
 
-        // Strip peak meter: post track fader + pan (+ mono), NEVER derived from
-        // send routing. A Sends Only track with zero sends still has signal in
-        // the strip and must show it; send knobs only affect destinations.
-        if (t < trackMeters.size() && trackMeters[t] != nullptr) {
-            // Same floor/ceiling as Metering.cpp::linearToDb -- a single
-            // non-finite or absurd sample must not peg the strip at +400 dB.
-            auto toDb = [](float p) -> float {
-                if (!(p > 1.0e-9f) || !std::isfinite(p))
-                    return -144.0f;
-                constexpr float kMaxLinear = 32.0f;
-                const float c = std::min(p, kMaxLinear);
-                return 20.0f * std::log10(c);
-            };
-            auto finiteSample = [](float s) -> float {
-                return std::isfinite(s) ? s : 0.0f;
-            };
-
-            float gL = 1.0f;
-            float gR = 1.0f;
-            bool forceMono = trackChannels < 2;
-            if (t < proj.tracks.size()) {
-                const TrackDef& td = proj.tracks[t];
-                // Strip meters always show post-fader/pan signal, even when
-                // the track is muted or dimmed by another solo. Mute/solo
-                // only affect bus routing (Pass 2 below), not strip needles.
-                const float g = dbToGain(td.gainDb);
-                const float pan = static_cast<float>(std::clamp(td.pan, -1.0, 1.0));
-                gL = g * (1.0f - std::max(0.0f, pan));
-                gR = g * (1.0f + std::min(0.0f, pan));
-                forceMono = forceMono || td.channels == 1;
-            }
-
-            const float* sL = scratch.getReadPointer(0);
-            const float* sR =
-                trackChannels > 1 ? scratch.getReadPointer(1) : sL;
-            float peakL = 0.0f;
-            float peakR = 0.0f;
-            for (int i = 0; i < numSamples; ++i) {
-                const float l = finiteSample(sL != nullptr ? sL[i] : 0.0f);
-                const float r = finiteSample(sR != nullptr ? sR[i] : l);
-                if (forceMono) {
-                    const float m = 0.5f * (l + r);
-                    peakL = std::max(peakL, std::abs(m * gL));
-                    peakR = std::max(peakR, std::abs(m * gR));
-                } else {
-                    peakL = std::max(peakL, std::abs(l * gL));
-                    peakR = std::max(peakR, std::abs(r * gR));
-                }
-            }
-            // Mono strip: same post-fader mono peak on both bars when pan
-            // is centre; with pan, L/R already reflect balance.
-            if (forceMono && std::abs(gL - gR) < 1.0e-6f) {
-                const float p = std::max(peakL, peakR);
-                peakL = peakR = p;
-            }
-            MeterFrame frame;
-            frame.peakDb = toDb(std::max(peakL, peakR));
-            frame.peakDbL = toDb(peakL);
-            frame.peakDbR = toDb(peakR);
-            frame.truePeakDb = frame.peakDb;
-            // Band-energy analysis for the light engine's GEQ/Blurz: same
-            // post-fader signal the peaks see, so the columns follow what's
-            // on the strip (including muted channels). The uniform fader
-            // gain is a scalar on every band, so the spectrum *shape* is
-            // unaffected -- exactly what the visual needs.
-            if (t < trackBandMeters.size()) {
-                const float* bandCh[2] = {sL != nullptr ? sL : sR, sR};
-                trackBandMeters[t].processBlock(bandCh, numSamples);
-                trackBandMeters[t].currentLevels(frame.bandLevel);
-            }
-            trackMeters[t]->write(frame);
-        }
     }
 
-    busScratch.clear();
-    const int scratchChannels = busScratch.getNumChannels();
+    // ── Mix ─────────────────────────────────────────────────────────────────
+    // Everything from here to the physical outputs is the MixGraph published
+    // by publishRoutingSnapshot(): tracks, the metronome, the sends and the
+    // master are all just strips, and MixRenderer runs the identical four
+    // steps on each of them (see engine/audio/MixRenderer.h). This file no
+    // longer knows what a fader, a pan law or a solo group is.
+    if (!mixRenderer.canRender(graph))
+        return;
 
-    // Pass 2: tracks -> bus scratch buffers.
-    for (const TrackRoute& route : snap->routes) {
-        if (route.mute || route.trackIndex >= trackIdByIndex.size() || route.busIndex >= busses.size())
-            continue;
+    mixRenderer.beginBlock(graph, numSamples);
 
-        StreamingTrackBuffer* buf = activeSong.track(trackIdByIndex[route.trackIndex]);
-        if (buf == nullptr)
+    // Hand each track's decoded block to its strip. Strip index == track
+    // index by construction: buildMixGraph() lays the project's tracks out
+    // first, in project order, exactly like trackIdByIndex.
+    for (size_t t = 0; t < trackIdByIndex.size() && t < trackScratch.size(); ++t) {
+        const juce::AudioBuffer<float>& scratch = trackScratch[t];
+        if (scratch.getNumChannels() < 1 || scratch.getNumSamples() < numSamples)
             continue;
-
-        if (route.trackIndex >= trackScratch.size())
+        float* dstL = mixRenderer.sourceChannel(static_cast<uint32_t>(t), 0);
+        float* dstR = mixRenderer.sourceChannel(static_cast<uint32_t>(t), 1);
+        if (dstL == nullptr || dstR == nullptr)
             continue;
-        const juce::AudioBuffer<float>& trackBuf = trackScratch[route.trackIndex];
-        if (trackBuf.getNumChannels() < 1 || trackBuf.getNumSamples() < numSamples)
-            continue;
-        const int trackChannels = std::min(2, buf->numChannels());
-        // Prefer live LoadedBus channel count; never treat a bus as 0-ch
-        // (that skipped the mix and silenced sends on shared Ext. Outs).
-        int busChannels = std::min(2, busses[route.busIndex].channelCount);
-        if (busChannels < 1)
-            busChannels = 2;
-        const int scratchOffset = static_cast<int>(route.busIndex) * 2;
-        if (scratchOffset + busChannels > scratchChannels)
-            continue;
-
-        const float* srcL = trackBuf.getReadPointer(0);
+        const float* srcL = scratch.getReadPointer(0);
         if (srcL == nullptr)
             continue;
-        const float* srcR = trackChannels > 1 ? trackBuf.getReadPointer(1) : srcL;
+        // A mono file feeds both sides; the strip's own channel count decides
+        // whether that then gets folded, not the file's.
+        const float* srcR =
+            scratch.getNumChannels() > 1 ? scratch.getReadPointer(1) : srcL;
         if (srcR == nullptr)
             srcR = srcL;
+        std::copy_n(srcL, numSamples, dstL);
+        std::copy_n(srcR, numSamples, dstR);
+    }
 
-        const float g = route.gainLinear * route.sendGainLinear;
-        // Balance-style pan targets (L/R attenuation).
-        const float targetGL = g * (1.0f - std::max(0.0f, route.pan));
-        const float targetGR = g * (1.0f + std::min(0.0f, route.pan));
-        // Force-mono track flag or mono file → sum L+R, then pan into bus.
-        const float targetMono =
-            (route.forceMono || trackChannels < 2) ? 1.0f : 0.0f;
-
-        const size_t smoothIdx =
-            static_cast<size_t>(route.trackIndex) * kSmoothBusSlots
-            + static_cast<size_t>(route.busIndex % kSmoothBusSlots);
-        if (smoothIdx >= trackGainSmooth.size())
-            trackGainSmooth.resize(smoothIdx + 1);
-        TrackGainSmooth& sm = trackGainSmooth[smoothIdx];
-        if (!sm.inited) {
-            sm.gL = targetGL;
-            sm.gR = targetGR;
-            sm.monoMix = targetMono;
-            sm.inited = true;
-        }
-
-        // ~10 ms exponential dezipper (avoids pan/gain/mono hard jumps → clicks).
-        const float sr = static_cast<float>(std::max(1.0, currentSampleRate));
-        const float a = 1.0f - std::exp(-1.0f / (0.010f * sr));
-
-        for (int i = 0; i < numSamples; ++i) {
-            sm.gL += a * (targetGL - sm.gL);
-            sm.gR += a * (targetGR - sm.gR);
-            sm.monoMix += a * (targetMono - sm.monoMix);
-
-            const float lIn = srcL[i];
-            const float rIn = srcR[i];
-            const float mid = 0.5f * (lIn + rIn);
-            // Crossfade stereo ↔ mono sum so the mono toggle doesn't click.
-            const float preL = lIn + sm.monoMix * (mid - lIn);
-            const float preR = rIn + sm.monoMix * (mid - rIn);
-
-            if (busChannels >= 2) {
-                busScratch.addSample(scratchOffset + 0, i, preL * sm.gL);
-                busScratch.addSample(scratchOffset + 1, i, preR * sm.gR);
-            } else {
-                // Mono lane: honor which source channel(s) feed it. A stereo
-                // track routed to a PAIR of mono lanes places L in lane A and R
-                // in lane B (sourceChannel 0/1) to preserve the image; a track
-                // directly on one mono lane sums L+R (-1).
-                const routing_math::Placed p = routing_math::placeIntoBus(
-                    false, route.sourceChannel, preL, preR, sm.gL, sm.gR);
-                busScratch.addSample(scratchOffset + 0, i, p.ch0);
-                if (p.ch1 != 0.0f)
-                    busScratch.addSample(scratchOffset + 1, i, p.ch1);
-            }
+    // Built-in click: sample-locked to the song playhead so strong (bar 1) /
+    // weak beats follow the current song's BPM + time signature. Rendered
+    // unconditionally, even when the metronome is off -- "off" is a mute on
+    // its strip, so the meter still shows the beat you are about to unmute
+    // while nothing reaches a bus.
+    if (clickStripIndex != MixGraph::kNoStrip) {
+        if (clickScratch.size() < static_cast<size_t>(numSamples))
+            clickScratch.resize(static_cast<size_t>(numSamples), 0.0f);
+        clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
+        float* dstL = mixRenderer.sourceChannel(clickStripIndex, 0);
+        float* dstR = mixRenderer.sourceChannel(clickStripIndex, 1);
+        if (dstL != nullptr && dstR != nullptr) {
+            std::copy_n(clickScratch.data(), numSamples, dstL);
+            std::copy_n(clickScratch.data(), numSamples, dstR);
         }
     }
 
-    // Pass 2.5: Send buses with output.type == OutputType::Main fold into audio::main.
-    const auto mainIt = busIndexById.find("audio::main");
-    if (mainIt != busIndexById.end()) {
-        const size_t mainIdx = mainIt->second;
-        const int mainScratchOffset = static_cast<int>(mainIdx) * 2;
-        if (mainScratchOffset + 2 <= scratchChannels) {
-            for (const BusOutput& out : snap->outputs) {
-                if (out.outputType != OutputType::Main || out.busIndex == mainIdx || out.mute)
-                    continue;
-                const int srcOff = static_cast<int>(out.busIndex) * 2;
-                if (srcOff + 2 > scratchChannels)
-                    continue;
-                const float busGain = !std::isfinite(out.gainLinear) ? 0.0f : out.gainLinear;
-                const float pan = std::isfinite(out.pan) ? out.pan : 0.0f;
-                const float gL = busGain * (1.0f - std::max(0.0f, pan));
-                const float gR = busGain * (1.0f + std::min(0.0f, pan));
+    mixRenderer.process(graph, numSamples);
 
-                const float* srcL = busScratch.getReadPointer(srcOff + 0);
-                const float* srcR = busScratch.getReadPointer(srcOff + 1);
-                if (srcL == nullptr) continue;
-                if (srcR == nullptr) srcR = srcL;
-
-                float* mainDstL = busScratch.getWritePointer(mainScratchOffset + 0);
-                float* mainDstR = busScratch.getWritePointer(mainScratchOffset + 1);
-                if (mainDstL == nullptr || mainDstR == nullptr) continue;
-
-                if (out.channelCount == 1) {
-                    for (int i = 0; i < numSamples; ++i) {
-                        const float mid = 0.5f * (srcL[i] + srcR[i]);
-                        mainDstL[i] += mid * gL;
-                        mainDstR[i] += mid * gR;
-                    }
-                } else {
-                    for (int i = 0; i < numSamples; ++i) {
-                        mainDstL[i] += srcL[i] * gL;
-                        mainDstR[i] += srcR[i] * gR;
-                    }
-                }
-            }
-        }
-    }
-
-    // During micro-fades / holds the physical outs are ramped, but meters used
-    // to read the UN-faded busScratch and flash a full-scale peak (visible as
-    // a pegged master meter with no audible click). Skip metering while
-    // ramping so the UI tracks what you actually hear.
+    // During micro-fades / holds the physical outs are ramped, but the meters
+    // read the UN-faded mix and would flash a full-scale peak (a pegged master
+    // with no audible click). Skip metering while ramping so the UI tracks
+    // what you actually hear.
     const bool meteringMuted = (underrunFadeOutRemaining > 0 || recoveryFadeInRemaining > 0
                                 || outputHeldSilent);
 
-    // Built-in click: sample-locked to song playhead so strong (bar 1) /
-    // weak beats follow the current song's BPM + time-signature numerator.
-    // Empty clickTargetBusIndices = Sends Only -- still audible via sends.
-    // Physical outs of those busses sum with `+=`, so master + aux + click
-    // sharing the same Ext. Out channel all stack correctly.
-    //
-    // Always RENDER for the strip meter (post gain/pan), even when the
-    // metronome is muted (isClickEnabled == false). Bus/send mix only when
-    // enabled -- same strip-vs-bus rule as muted tracks above.
-    {
-        if (clickScratch.size() < static_cast<size_t>(numSamples))
-            clickScratch.resize(static_cast<size_t>(numSamples), 0.0f);
-        // playheadSample == 0 → beat 0 → accented downbeat under current meter.
-        clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
-
-        // Balance pan on the mono click (same law as track pan), unless
-        // clickMono forces L=R.
-        const float targetGL = clickMono
-            ? clickGainLinear
-            : clickGainLinear * (1.0f - std::max(0.0f, clickPan));
-        const float targetGR = clickMono
-            ? clickGainLinear
-            : clickGainLinear * (1.0f + std::min(0.0f, clickPan));
-        if (!clickSmoothInited) {
-            clickSmoothGL = targetGL;
-            clickSmoothGR = targetGR;
-            clickSmoothInited = true;
+    // ── Meters ──────────────────────────────────────────────────────────────
+    // Every needle reads the same place: the strip's own post-fader/post-pan
+    // signal. So gain, pan and any sends mixed in all show, and mute or
+    // someone else's solo never do -- those happen after this tap.
+    const auto publishStripMeter = [&](uint32_t strip, SeqLock<MeterFrame>* slot,
+                                       LoudnessMeter* loudness, BandEnergyMeter* bands,
+                                       std::atomic<float>* intervalL,
+                                       std::atomic<float>* intervalR) {
+        if (slot == nullptr)
+            return;
+        if (meteringMuted) {
+            slot->write(MeterFrame{});
+            if (intervalL != nullptr) intervalL->store(0.0f, std::memory_order_relaxed);
+            if (intervalR != nullptr) intervalR->store(0.0f, std::memory_order_relaxed);
+            return;
         }
-        const float sr = static_cast<float>(std::max(1.0, currentSampleRate));
-        const float a = 1.0f - std::exp(-1.0f / (0.010f * sr));
-        // Advance dezippers even when muted so re-enabling doesn't jump.
-        for (int i = 0; i < numSamples; ++i) {
-            clickSmoothGL += a * (targetGL - clickSmoothGL);
-            clickSmoothGR += a * (targetGR - clickSmoothGR);
+        const StripLevels& level = mixRenderer.levels(strip);
+        const float* postL = mixRenderer.postChannel(strip, 0);
+        const float* postR = mixRenderer.postChannel(strip, 1);
+
+        MeterFrame frame;
+        if (loudness != nullptr && postL != nullptr && postR != nullptr) {
+            const float* channels[2] = {postL, postR};
+            loudness->processBlock(channels, numSamples);
+            frame = loudness->currentFrame();
         }
+        frame.peakDbL = linearPeakToDb(level.peakL);
+        frame.peakDbR = linearPeakToDb(level.peakR);
+        frame.peakDb = linearPeakToDb(std::max(level.peakL, level.peakR));
+        frame.truePeakDb = frame.peakDb;
 
-        // Bus mix only when the metronome is on.
-        if (isClickEnabled) {
-            for (const int clickTarget : clickTargetBusIndices) {
-                if (clickTarget < 0 || static_cast<size_t>(clickTarget) >= busses.size())
-                    continue;
-                const int scratchOffset = static_cast<int>(clickTarget) * 2;
-                if (scratchOffset + 2 <= scratchChannels) {
-                    for (int i = 0; i < numSamples; ++i) {
-                        const float s = clickScratch[static_cast<size_t>(i)];
-                        busScratch.addSample(
-                            scratchOffset + 0, i, s * clickSmoothGL);
-                        busScratch.addSample(
-                            scratchOffset + 1, i, s * clickSmoothGR);
-                    }
-                }
-            }
-
-            // Send buses (aux monitor mixes) — send gain × pan balance.
-            if (clickSendSmooth.size() < clickSendBusIndices.size())
-                clickSendSmooth.resize(clickSendBusIndices.size());
-            for (size_t si = 0; si < clickSendBusIndices.size(); ++si) {
-                const int sendBusIdx = clickSendBusIndices[si];
-                if (static_cast<size_t>(sendBusIdx) >= busses.size())
-                    continue;
-                const int scratchOffset = sendBusIdx * 2;
-                if (scratchOffset + 2 > scratchChannels)
-                    continue;
-                const float sendGain = clickSendGainLinears[si];
-                float sendTargetGL = 0.0f, sendTargetGR = 0.0f;
-                // Include the metronome's own level so the send reacts to the
-                // click volume knob, not just the configures send gain.
-                routing_math::clickSendTargets(
-                    clickMono, clickGainLinear, sendGain, clickPan,
-                    sendTargetGL, sendTargetGR);
-
-                ClickSendSmooth& sm = clickSendSmooth[si];
-                if (!sm.inited) {
-                    sm.gL = sendTargetGL;
-                    sm.gR = sendTargetGR;
-                    sm.inited = true;
-                }
-
-                for (int i = 0; i < numSamples; ++i) {
-                    sm.gL += a * (sendTargetGL - sm.gL);
-                    sm.gR += a * (sendTargetGR - sm.gR);
-                    const float s = clickScratch[static_cast<size_t>(i)];
-                    busScratch.addSample(scratchOffset + 0, i, s * sm.gL);
-                    busScratch.addSample(scratchOffset + 1, i, s * sm.gR);
-                }
-            }
+        // Band-energy analysis for the light engine's GEQ/Blurz reads the same
+        // post-fader signal, so the columns follow what is on the strip. The
+        // fader is a scalar on every band, so the spectrum *shape* is
+        // unaffected -- exactly what the visual needs.
+        if (bands != nullptr && postL != nullptr && postR != nullptr) {
+            const float* channels[2] = {postL, postR};
+            bands->processBlock(channels, numSamples);
+            bands->currentLevels(frame.bandLevel);
         }
 
-        // Click strip meter: always post gain+pan, even when muted.
-        if (!meteringMuted) {
-            float peakL = 0.0f;
-            float peakR = 0.0f;
-            for (int i = 0; i < numSamples; ++i) {
-                const float s =
-                    std::abs(clickScratch[static_cast<size_t>(i)]);
-                peakL = std::max(peakL, s * clickSmoothGL);
-                peakR = std::max(peakR, s * clickSmoothGR);
-            }
-            atomicMaxFloat(clickPeakIntervalMaxL, peakL);
-            atomicMaxFloat(clickPeakIntervalMaxR, peakR);
-            MeterFrame frame;
-            frame.peakDb = linearPeakToDb(std::max(peakL, peakR));
-            frame.peakDbL = linearPeakToDb(peakL);
-            frame.peakDbR = linearPeakToDb(peakR);
-            frame.truePeakDb = frame.peakDb;
-            clickMeterFrame.write(frame);
-        } else {
-            clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
-            clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
-            clickMeterFrame.write(MeterFrame{});
-        }
+        slot->write(frame);
+
+        // Interval max: a ~30 ms click is often gone before the next 30 Hz UI
+        // poll reads the SeqLock, so peaks are also latched atomically.
+        if (intervalL != nullptr) atomicMaxFloat(*intervalL, level.peakL);
+        if (intervalR != nullptr) atomicMaxFloat(*intervalR, level.peakR);
+    };
+
+    for (size_t t = 0; t < trackIdByIndex.size() && t < trackMeters.size(); ++t) {
+        publishStripMeter(static_cast<uint32_t>(t), trackMeters[t].get(), nullptr,
+                          t < trackBandMeters.size() ? &trackBandMeters[t] : nullptr,
+                          nullptr, nullptr);
     }
 
-    // Pass 3: bus scratch buffers -> metering + physical outputs.
-    //
-    // Multiple busses may share the same Ext. Out pair (master + aux send on
-    // Out 1/2 is the common case). Every non-muted source bus ALWAYS folds
-    // into the matching mono Direct Output lane(s) with += -- never replaces --
-    // and the lane is the single terminal writer to physical. Mono busses
-    // (channelCount == 1) still hit BOTH lanes of the pair starting at
-    // startChannel so a mono master/track doesn't disappear from one side.
-
-    // physical channel -> the mono Direct Output lane's bus index (or -1).
-    std::vector<int> laneBusIndexFor(
-        numOutputChannels > 0 ? static_cast<size_t>(numOutputChannels) : 0, -1);
-    for (const BusOutput& o : snap->outputs) {
-        if (!o.singleChannel)
-            continue;
-        if (o.startChannel >= 0 && o.startChannel < numOutputChannels)
-            laneBusIndexFor[static_cast<size_t>(o.startChannel)] = static_cast<int>(o.busIndex);
+    if (clickStripIndex != MixGraph::kNoStrip) {
+        publishStripMeter(clickStripIndex, &clickMeterFrame, nullptr, nullptr,
+                          &clickPeakIntervalMaxL, &clickPeakIntervalMaxR);
     }
 
-    for (const BusOutput& out : snap->outputs) {
-        if (out.busIndex >= busses.size())
+    // Bus rows keep their own flat index (0 = Main, 1.. = Sends, then the
+    // Direct Output lanes) because that is what the mixer API addresses;
+    // each row carries the strip it was derived from.
+    for (size_t b = 0; b < busses.size() && b < busMeters.size(); ++b) {
+        const uint32_t strip = busses[b].stripIndex;
+        if (strip == MixGraph::kNoStrip)
             continue;
-        const int scratchOffset = static_cast<int>(out.busIndex) * 2;
-        // Never treat a bus as 0-channel (would skip the physical write entirely
-        // and silence a send that shares the master's Ext. Out).
-        const int channels = std::max(1, std::min(2, out.channelCount));
-        if (scratchOffset + std::max(channels, 1) > scratchChannels)
-            continue;
-
-        const float rawGain = !std::isfinite(out.gainLinear) ? 0.0f : out.gainLinear;
-        const float busGain = out.mute ? 0.0f : rawGain;
-        // Balance pan (same law as track pan): attenuate L or R.
-        const float pan = std::isfinite(out.pan) ? out.pan : 0.0f;
-        const float gL = busGain * (1.0f - std::max(0.0f, pan));
-        const float gR = busGain * (1.0f + std::min(0.0f, pan));
-
-        if (!meteringMuted && out.busIndex < busLoudnessMeters.size()) {
-            const float* pL = busScratch.getReadPointer(scratchOffset);
-            const float* pR = channels > 1 ? busScratch.getReadPointer(scratchOffset + 1)
-                                         : pL;
-
-            constexpr int kMaxMeterBuf = 2048;
-            float meterBufL[kMaxMeterBuf];
-            float meterBufR[kMaxMeterBuf];
-            const int sampleCount = std::min(numSamples, kMaxMeterBuf);
-            float peakL = 0.0f;
-            float peakR = 0.0f;
-
-            routing_math::calculateMeterFrame(pL, pR, sampleCount, rawGain, pan, channels,
-                                             meterBufL, meterBufR, peakL, peakR);
-
-            const float* meterChannels[2] = { meterBufL, meterBufR };
-            busLoudnessMeters[out.busIndex].processBlock(meterChannels, sampleCount);
-            if (out.busIndex < busMeters.size() && busMeters[out.busIndex] != nullptr)
-                busMeters[out.busIndex]->write(busLoudnessMeters[out.busIndex].currentFrame());
-
-            // Interval max of post-mix bus peaks (includes metronome mixed
-            // into this bus above). A ~30ms click is often gone before the
-            // next 30 Hz UI poll reads the SeqLock -- same class of bug the
-            // dedicated click strip fixed with clickPeakIntervalMax*.
-            if (out.busIndex < busPeakIntervalCount && busPeakIntervalMaxL
-                && busPeakIntervalMaxR) {
-                atomicMaxFloat(busPeakIntervalMaxL[out.busIndex], peakL);
-                atomicMaxFloat(busPeakIntervalMaxR[out.busIndex], peakR);
-            }
-        } else if (meteringMuted && out.busIndex < busMeters.size() && busMeters[out.busIndex] != nullptr) {
-            busMeters[out.busIndex]->write(MeterFrame{});
-        }
-
-        if (out.mute || out.outputType == OutputType::Main)
-            continue;
-        if (out.singleChannel) {
-            // Mono Direct Output lane: carries the accumulated mix of every
-            // source folded into it (main/aux/sends + lane sends) and is the
-            // terminal writer to its ONE physical channel.
-            const float* src = busScratch.getReadPointer(scratchOffset + 0);
-            if (src == nullptr)
-                continue;
-            const int physicalCh = out.startChannel;
-            if (physicalCh < 0 || physicalCh >= numOutputChannels
-                || outputChannelData[physicalCh] == nullptr)
-                continue;
-            float* dst = outputChannelData[physicalCh];
-            const float g = busGain;
-            for (int i = 0; i < numSamples; ++i)
-                dst[i] += src[i] * g;
-            continue;
-        }
-
-        // Project bus (main / aux / send) physical egress: fold the bus into
-        // the matching mono Direct Output lane(s) -- the lane is the real
-        // terminal writer and its meter shows the actual channel content.
-        // An inactive lane (unavailable output) is simply absent, so that
-        // slice drops to silence without touching the mapping.
-        {
-            const int start = out.startChannel;
-            const float* srcL = busScratch.getReadPointer(scratchOffset + 0);
-            if (srcL == nullptr)
-                continue;
-            const float* srcR = (scratchOffset + 1 < scratchChannels)
-                                    ? busScratch.getReadPointer(scratchOffset + 1)
-                                    : srcL;
-            if (srcR == nullptr)
-                srcR = srcL;
-
-            if (channels == 1) {
-                // MONO project / aux bus: sum L+R to mono, then pan across L/R
-                // output channels of its physical target pair.
-                const float gains[2] = { gL, gR };
-                for (int c = 0; c < 2; ++c) {
-                    const int phys = start + c;
-                    if (phys < 0 || phys >= numOutputChannels)
-                        continue;
-                    const int laneBusIndex =
-                        laneBusIndexFor[static_cast<size_t>(phys)];
-                    if (laneBusIndex < 0)
-                        continue;
-                    const int laneOff = laneBusIndex * 2;
-                    if (laneOff + 1 > scratchChannels)
-                        continue;
-                    float* dst = busScratch.getWritePointer(laneOff + 0);
-                    const float g = gains[c];
-                    for (int i = 0; i < numSamples; ++i) {
-                        const float mid = 0.5f * (srcL[i] + srcR[i]);
-                        dst[i] += mid * g;
-                    }
-                }
-            } else {
-                // Stereo: L -> lane(start), R -> lane(start+1).
-                const float* srcs[2] = { srcL, srcR };
-                const float gains[2] = { gL, gR };
-                for (int c = 0; c < 2; ++c) {
-                    const int phys = start + c;
-                    if (phys < 0 || phys >= numOutputChannels)
-                        continue;
-                    const int laneBusIndex =
-                        laneBusIndexFor[static_cast<size_t>(phys)];
-                    if (laneBusIndex < 0)
-                        continue;
-                    const int laneOff = laneBusIndex * 2;
-                    if (laneOff + 1 > scratchChannels)
-                        continue;
-                    float* dst = busScratch.getWritePointer(laneOff + 0);
-                    const float* src = srcs[c];
-                    const float g = gains[c];
-                    for (int i = 0; i < numSamples; ++i)
-                        dst[i] += src[i] * g;
-                }
-            }
-        }
+        publishStripMeter(strip, busMeters[b].get(),
+                          b < busLoudnessMeters.size() ? &busLoudnessMeters[b] : nullptr,
+                          nullptr,
+                          busPeakIntervalMaxL && b < busPeakIntervalCount
+                              ? &busPeakIntervalMaxL[b] : nullptr,
+                          busPeakIntervalMaxR && b < busPeakIntervalCount
+                              ? &busPeakIntervalMaxR[b] : nullptr);
     }
 
-    // Main (FOH) master meter = the physical output composite. Every bus
-    // whose destination is Main (the "same outs as Main" send routing) folds
-    // into the same Direct Output lanes with `+=`, so Main's own splice
-    // would miss sends/aux/click stacked on top of it. Read the summed lane
-    // content after the fold so the master needle shows what actually leaves.
-    {
-        const auto masterIt = busIndexById.find("audio::main");
-        if (!meteringMuted && masterIt != busIndexById.end()) {
-            const size_t mainIdx = masterIt->second;
-            if (mainIdx < busses.size() && mainIdx < busMeters.size()
-                && busMeters[mainIdx] != nullptr) {
-                int mainStart = -1;
-                int mainChannels = 0;
-                for (const BusOutput& o : snap->outputs) {
-                    if (o.busIndex != mainIdx || o.singleChannel)
-                        continue;
-                    mainStart = o.startChannel;
-                    mainChannels = o.channelCount;
-                    break;
-                }
-                if (mainStart >= 0 && mainChannels > 0) {
-                    constexpr int kMaxMeterBuf = 2048;
-                    float meterBufL[kMaxMeterBuf];
-                    float meterBufR[kMaxMeterBuf];
-                    const int sampleCount = std::min(numSamples, kMaxMeterBuf);
-                    for (int i = 0; i < sampleCount; ++i) {
-                        meterBufL[i] = 0.0f;
-                        meterBufR[i] = 0.0f;
-                    }
-                    float peakL = 0.0f;
-                    float peakR = 0.0f;
-                    const int chCount = std::min(2, mainChannels);
-                    for (int c = 0; c < chCount; ++c) {
-                        const int phys = mainStart + c;
-                        if (phys < 0 || phys >= numOutputChannels)
-                            continue;
-                        const int laneBus =
-                            laneBusIndexFor[static_cast<size_t>(phys)];
-                        if (laneBus < 0)
-                            continue;
-                        const int laneOff = laneBus * 2;
-                        const float* src = busScratch.getReadPointer(laneOff);
-                        if (src == nullptr)
-                            continue;
-                        float* dst = c == 0 ? meterBufL : meterBufR;
-                        float& peakRef = c == 0 ? peakL : peakR;
-                        for (int i = 0; i < sampleCount; ++i) {
-                            const float v = src[i];
-                            dst[i] = v;
-                            if (std::abs(v) > peakRef)
-                                peakRef = std::abs(v);
-                        }
-                    }
-                    // Mono main: mirror the single lane into L and R.
-                    if (mainChannels == 1) {
-                        for (int i = 0; i < sampleCount; ++i)
-                            meterBufR[i] = meterBufL[i];
-                        peakR = peakL;
-                    }
-                    const float* meterChannels[2] = { meterBufL, meterBufR };
-                    if (mainIdx < busLoudnessMeters.size())
-                        busLoudnessMeters[mainIdx].processBlock(
-                            meterChannels, sampleCount);
-                    busMeters[mainIdx]->write(
-                        busLoudnessMeters[mainIdx].currentFrame());
-                    if (mainIdx < busPeakIntervalCount && busPeakIntervalMaxL
-                        && busPeakIntervalMaxR) {
-                        atomicMaxFloat(busPeakIntervalMaxL[mainIdx], peakL);
-                        atomicMaxFloat(busPeakIntervalMaxR[mainIdx], peakR);
-                    }
-                }
-            }
-        }
-    }
+    // ── Physical output ─────────────────────────────────────────────────────
+    // Output lanes are the single terminal writer per device channel, summing
+    // with += so Main and an aux sharing outs 1/2 stack instead of one
+    // clobbering the other.
+    mixRenderer.writeToOutputs(graph, outputChannelData, numOutputChannels, numSamples);
 
     // Spec micro-fade on the summed physical outputs:
     //   - linear fade-out on underrun / song-end (length = whatever armed it)

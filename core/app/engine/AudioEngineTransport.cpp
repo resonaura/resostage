@@ -172,37 +172,13 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         }
     }
 
-    // Prepare click routing offline, publish under the lock below.
-    // Click routing is project-global (same for every song).
-    std::vector<int> newClickTargets;
-    float newClickGain = dbToGain(loader.project().click.gainDb);
-    std::vector<int> newClickSends;
-    std::vector<float> newClickSendGains;
-    const bool newClickEnabled = loader.project().click.enabled;
-    {
-        std::vector<size_t> idxs;
-        audio_engine_detail::collectRouteBusIndices(
-            audio_engine_detail::mainRouteId(loader.project().click.output), busIndexById, idxs);
-        for (const size_t ix : idxs)
-            newClickTargets.push_back(static_cast<int>(ix));
-    }
-    for (const SendConfig& cs : loader.project().click.output.sends) {
-        if (!cs.enabled)
-            continue;
-        auto it = busIndexById.find(cs.bus);
-        if (it == busIndexById.end())
-            continue;
-        newClickSends.push_back(static_cast<int>(it->second));
-        newClickSendGains.push_back(static_cast<float>(std::clamp(cs.level, 0.0, 100.0) / 100.0));
-    }
-
     // CRITICAL: every field the audio thread reads under routingMutex must
     // flip atomically relative to that lock. The previous code reassigned
     // trackScratch to a vector of EMPTY AudioBuffers *outside* the lock,
     // then called ensureScratchSizes() which blocked on the mutex -- so the
     // audio callback could (and did) try_to_lock successfully, read a null
     // getWritePointer/getReadPointer from a 0-channel buffer, and SIGSEGV
-    // (see crash: audioDeviceIOCallbackWithContext @ busScratch.addSample
+    // (see crash: audioDeviceIOCallbackWithContext reading a track scratch
     // with srcL == nullptr, while the message thread was stuck in
     // ensureScratchSizes during gapless switchToSongGapless).
     {
@@ -217,10 +193,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             ensureTrackMeters(trackIdByIndex.size());
         }
         {
-            const int busChannels = std::max<int>(2, static_cast<int>(busses.size()) * 2);
             const int samples = std::max(currentBlockSize, 1);
-            if (busScratch.getNumChannels() != busChannels || busScratch.getNumSamples() != samples)
-                busScratch.setSize(busChannels, samples, false, false, true);
             for (auto& scratch : trackScratch) {
                 if (scratch.getNumChannels() != 2 || scratch.getNumSamples() != samples)
                     scratch.setSize(2, samples, false, false, true);
@@ -232,14 +205,6 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         currentSongLengthFrames = newSongLengthFrames;
         eventFiredFlags.assign(song.events.size(), 0);
 
-        clickTargetBusIndices = std::move(newClickTargets);
-        clickGainLinear = newClickGain;
-        clickPan = static_cast<float>(
-            std::clamp(loader.project().click.pan, -1.0, 1.0));
-        clickMono = loader.project().click.channels == 1;
-        clickSendBusIndices = std::move(newClickSends);
-        clickSendGainLinears = std::move(newClickSendGains);
-        isClickEnabled = newClickEnabled;
         // Retarget full tempo + meter grid. Playhead resets to 0 below →
         // next render is bar 1 / strong downbeat under the new signature.
         if (currentSampleRate > 0.0) {
@@ -465,28 +430,6 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
 
     // Click routing for the new song (same fields the message-thread path sets).
     // Click routing is project-global (same for every song).
-    std::vector<int> newClickTargets;
-    float newClickGain = dbToGain(loader.project().click.gainDb);
-    std::vector<int> newClickSends;
-    std::vector<float> newClickSendGains;
-    const bool newClickEnabled = loader.project().click.enabled;
-    {
-        std::vector<size_t> idxs;
-        audio_engine_detail::collectRouteBusIndices(
-            audio_engine_detail::mainRouteId(loader.project().click.output), busIndexById, idxs);
-        for (const size_t ix : idxs)
-            newClickTargets.push_back(static_cast<int>(ix));
-    }
-    for (const SendConfig& cs : loader.project().click.output.sends) {
-        if (!cs.enabled)
-            continue;
-        auto it = busIndexById.find(cs.bus);
-        if (it == busIndexById.end())
-            continue;
-        newClickSends.push_back(static_cast<int>(it->second));
-        newClickSendGains.push_back(static_cast<float>(std::clamp(cs.level, 0.0, 100.0) / 100.0));
-    }
-
     // Apply under the same mutex the render path holds, so the first post-
     // handoff callback sees a coherent song 0 / click / length snapshot.
     // We already hold nothing here (called from the render path before the
@@ -502,14 +445,6 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     currentSong = nextSongIndex;
     currentSongLengthFrames = newLen;
     eventFiredFlags.assign(song.events.size(), 0);
-    clickTargetBusIndices = std::move(newClickTargets);
-    clickGainLinear = newClickGain;
-    clickPan = static_cast<float>(
-        std::clamp(loader.project().click.pan, -1.0, 1.0));
-    clickMono = loader.project().click.channels == 1;
-    clickSendBusIndices = std::move(newClickSends);
-    clickSendGainLinears = std::move(newClickSendGains);
-    isClickEnabled = newClickEnabled;
     // Gapless hop: new BPM + full meter; playhead 0 = strong downbeat.
     if (currentSampleRate > 0.0) {
         clickGenerator.prepare(currentSampleRate, song.bpm,

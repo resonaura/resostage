@@ -9,10 +9,10 @@
 namespace resostage {
 
 // On-disk peak overview format stored inside .rsnraset as
-//   Peaks/<sanitized-audio-path>.rpk
+//   Peaks/<sanitized-audio-path>.rsnrapeak
 //
 // Binary little-endian:
-//   char magic[4] = "RPK3"
+//   char magic[4] = "RSN1"
 //   double durationSeconds
 //   int32_t numChannels
 //   uint32_t numLevels
@@ -24,13 +24,14 @@ namespace resostage {
 //     float rms[numBins]
 //
 // Cache key is derived from the archive-relative audio path so import/replace
-// of a stem naturally invalidates the old file when the path changes. Files
-// written by the older single-resolution "RPK2" format are treated as a
-// cache miss and rebuilt -- cheap, not worth a bit-for-bit migration.
+// of a stem naturally invalidates the old file when the path changes. Anything
+// that isn't this exact extension + magic (the older .rpk "RPK2"/"RPK3" files)
+// is simply a cache miss and gets rebuilt in the background -- peaks are
+// derived data, never worth a bit-for-bit migration.
 struct PeakCache {
-    static constexpr char kMagic[4] = {'R', 'P', 'K', '3'};
+    static constexpr char kMagic[4] = {'R', 'S', 'N', '1'};
 
-    // "Audio/song1_kick.wav" -> "Peaks/Audio_song1_kick.wav.rpk"
+    // "Audio/song1_kick.wav" -> "Peaks/Audio_song1_kick.wav.rsnrapeak"
     static std::string cacheEntryPath(const std::string& audioArchivePath);
 
     static std::vector<uint8_t> serialize(const PeakOverview& overview);

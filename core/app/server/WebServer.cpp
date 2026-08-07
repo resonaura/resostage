@@ -1212,6 +1212,8 @@ std::string WebServer::buildStateJson(const char* view) const {
         wc.pan = finiteOrZero(snap.clickPan);
         wc.channels = snap.clickMono ? 1 : 2;
         wc.solo = snap.clickSolo;
+        wc.soloGroup = snap.clickSoloGroup;
+        wc.soloActiveInGroup = snap.clickSoloActiveInGroup;
         // Snapshot still routes click by flat bus-id string (empty = Sends
         // Only, else Main -- click output never ExtOut).
         wc.output.type = snap.clickBusId.empty() ? "sends-only" : "main";
@@ -1383,6 +1385,8 @@ std::string WebServer::buildStateJson(const char* view) const {
             wT.pan = finiteOrZero(t.pan);
             wT.mute = t.mute;
             wT.solo = t.solo;
+            wT.soloGroup = t.soloGroup;
+            wT.soloActiveInGroup = t.soloActiveInGroup;
             wT.output.type = t.output.type;
             wT.output.target = t.output.target;
             wT.output.sends.reserve(t.output.sends.size());
@@ -1413,6 +1417,10 @@ std::string WebServer::buildStateJson(const char* view) const {
             wB.pan = finiteOrZero(b.pan);
             wB.mute = b.mute;
             wB.solo = b.solo;
+            wB.soloGroup = b.soloGroup;
+            wB.soloActiveInGroup = b.soloActiveInGroup;
+            wB.isDirectOut = b.isDirectOut;
+            wB.unavailable = b.unavailable;
             wB.isAux = b.isAux;
             wB.startChannel = b.startChannel;
             wB.channels = b.channels;
@@ -1427,8 +1435,8 @@ std::string WebServer::buildStateJson(const char* view) const {
     const auto& li = snap.lighting;
     wire.lighting.enabled = li.enabled;
     wire.lighting.kind = li.kind;
-    wire.lighting.resoLight.columns = li.resoLight.columns;
-    wire.lighting.resoLight.rows = li.resoLight.rows;
+    wire.lighting.resolight.columns = li.resolight.columns;
+    wire.lighting.resolight.rows = li.resolight.rows;
     wire.lighting.idle.behavior = li.idle.behavior;
     wire.lighting.idle.color.r = static_cast<uint8_t>(li.idle.color.r);
     wire.lighting.idle.color.g = static_cast<uint8_t>(li.idle.color.g);
@@ -1484,13 +1492,13 @@ std::string WebServer::buildStateJson(const char* view) const {
         wire.lighting.discoveredBoards.push_back(std::move(wB));
     }
 
-    wire.lightTracks.reserve(snap.lightTracks.size());
-    for (const auto& lt : snap.lightTracks) {
+    wire.lighting.tracks.reserve(li.tracks.size());
+    for (const auto& lt : li.tracks) {
         WLightTrackTelemetry wLt;
         wLt.id = lt.id;
         wLt.name = lt.name;
         wLt.fixtureIds = lt.fixtureIds;
-        wire.lightTracks.push_back(std::move(wLt));
+        wire.lighting.tracks.push_back(std::move(wLt));
     }
 
     if (wantHealth) {

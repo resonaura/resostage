@@ -851,8 +851,8 @@ export function Timeline({
   // Light-mode derived data (Feature 6). Guarded with optional chaining so an
   // older WebUiState snapshot without the lighting fields still renders.
   const lightTracks = useMemo(
-    () => state.lightTracks ?? [],
-    [state.lightTracks],
+    () => state.lighting.tracks ?? [],
+    [state.lighting.tracks],
   );
   const lightTrackIds = useMemo(
     () => lightTracks.map((t) => t.id),

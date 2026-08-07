@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { isMainBusId } from "./mixerIds";
 import type { BusRow, SettingsState } from "../../lib/types";
 import {
   EXT_OUTPUT_VALUE,
@@ -33,7 +34,7 @@ function serverPrimary(
   if (destinationBusses.some((b) => b.id === busId)) return busId;
   if (isExtAssigned) return EXT_OUTPUT_VALUE;
   return (
-    destinationBusses.find((b) => b.id === "audio::main" || b.id === "main")
+    destinationBusses.find((b) => isMainBusId(b.id))
       ?.id ?? SENDS_ONLY_VALUE
   );
 }
@@ -69,8 +70,8 @@ export function TrackOutputRouting({
   onDirectOutput: (mono: boolean, startChannel: number, pair: boolean) => void;
 }) {
   const assigned = allBusses.find((b) => b.id === busId);
-  // A direct route is banked by its id(s): one mono lane "direct:N" or a
-  // compound of two ("direct:1,direct:2"). Detect from the id so we never
+  // A direct route is banked by its id(s): one mono lane "audio::out:N" or a
+  // compound of two ("audio::out:1,audio::out:2"). Detect from the id so we never
   // rely on a fabricated "stereo pair bus" (which no longer exists).
   const directLanes = parseDirectLanes(busId);
   const isExtAssigned = directLanes !== null;

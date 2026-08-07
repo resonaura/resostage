@@ -1,80 +1,75 @@
 #include "doctest.h"
 
-#include "../app/engine/RoutingMath.h"
+#include "audio/MixMath.h"
 
 #include <cmath>
 
 using namespace resostage;
+using namespace resostage::mix_math;
 
-TEST_CASE("routing_math::placeIntoBus keeps stereo into a stereo bus") {
-    // Stereo destination: untouched L/R with balanced pan (pan = 0).
-    const auto p = routing_math::placeIntoBus(true, -1, 0.9f, -0.9f, 1.0f, 1.0f);
-    CHECK(std::abs(p.ch0 - 0.9f) < 1e-6f);
-    CHECK(std::abs(p.ch1 - (-0.9f)) < 1e-6f);
+TEST_CASE("isAudible: mute always wins") {
+    CHECK_FALSE(isAudible(/*mute=*/true, /*solo=*/false, /*anySoloInGroup=*/false));
+    // Muting a strip you also soloed still silences it -- solo selects among
+    // the un-muted, it does not override an explicit mute.
+    CHECK_FALSE(isAudible(/*mute=*/true, /*solo=*/true, /*anySoloInGroup=*/true));
 }
 
-TEST_CASE("routing_math::placeIntoBus places L into the first mono lane") {
-    const auto p = routing_math::placeIntoBus(false, 0, 0.5f, -0.5f, 1.0f, 1.0f);
-    CHECK(std::abs(p.ch0 - 0.5f) < 1e-6f); // only L
-    CHECK(p.ch1 == 0.0f);
+TEST_CASE("isAudible: nothing soloed leaves every un-muted strip up") {
+    CHECK(isAudible(/*mute=*/false, /*solo=*/false, /*anySoloInGroup=*/false));
 }
 
-TEST_CASE("routing_math::placeIntoBus places R into the second mono lane") {
-    const auto p = routing_math::placeIntoBus(false, 1, 0.5f, -0.5f, 1.0f, 1.0f);
-    CHECK(std::abs(p.ch0 - (-0.5f)) < 1e-6f); // only R
-    CHECK(p.ch1 == 0.0f);
+TEST_CASE("isAudible: someone else's solo silences the rest of the group") {
+    CHECK_FALSE(isAudible(/*mute=*/false, /*solo=*/false, /*anySoloInGroup=*/true));
+    CHECK(isAudible(/*mute=*/false, /*solo=*/true, /*anySoloInGroup=*/true));
 }
 
-TEST_CASE("routing_math::placeIntoBus sums L+R into a single mono lane") {
-    const auto p = routing_math::placeIntoBus(false, -1, 0.4f, -0.2f, 1.0f, 1.0f);
-    CHECK(std::abs(p.ch0 - 0.1f) < 1e-6f); // 0.5*(0.4 + -0.2)
+TEST_CASE("dbToGain: unity at 0 dB, exact silence at the floor") {
+    CHECK(dbToGain(0.0) == doctest::Approx(1.0f));
+    CHECK(dbToGain(-6.0) == doctest::Approx(0.5011872f).epsilon(1e-5));
+    CHECK(dbToGain(6.0) == doctest::Approx(1.9952624f).epsilon(1e-5));
+    // A fader at the bottom must be true zero, not a residual trickle.
+    CHECK(dbToGain(-144.0) == 0.0f);
+    CHECK(dbToGain(-1000.0) == 0.0f);
 }
 
-TEST_CASE("routing_math::clickSendTargets applies the click master gain") {
-    // Regression: send gain alone was used, ignoring the click's own volume.
-    float tl = 0.f, tr = 0.f;
-    routing_math::clickSendTargets(false, 0.5f, 0.25f, 0.0f, tl, tr);
-    CHECK(std::abs(tl - 0.125f) < 1e-6f); // 0.5 * 0.25
-    CHECK(std::abs(tr - 0.125f) < 1e-6f);
-    // Mono click forces equal sides regardless of pan.
-    routing_math::clickSendTargets(true, 1.0f, 2.0f, 0.9f, tl, tr);
-    CHECK(std::abs(tl - 2.0f) < 1e-6f);
-    CHECK(std::abs(tr - 2.0f) < 1e-6f);
-    // Stereo click pans correctly (balance law: pan right attenuates L, R stays 1×).
-    routing_math::clickSendTargets(false, 1.0f, 1.0f, 0.5f, tl, tr);
-    CHECK(std::abs(tl - 0.5f) < 1e-6f);
-    CHECK(std::abs(tr - 1.0f) < 1e-6f);
+TEST_CASE("panGains: centre is unity on both sides") {
+    float l = 0.0f, r = 0.0f;
+    panGains(1.0f, 0.0f, l, r);
+    CHECK(l == doctest::Approx(1.0f));
+    CHECK(r == doctest::Approx(1.0f));
 }
 
-TEST_CASE("routing_math::egressChannels mono bus -> ONE physical channel") {
-    int c0 = -1, c1 = 0;
-    routing_math::egressChannels(1, 10, c0, c1);
-    CHECK(c0 == 10);
-    CHECK(c1 == -1); // no pair overlap
+TEST_CASE("panGains: balance attenuates the far side, never boosts the near one") {
+    float l = 0.0f, r = 0.0f;
+    panGains(1.0f, 1.0f, l, r); // hard right
+    CHECK(l == doctest::Approx(0.0f));
+    CHECK(r == doctest::Approx(1.0f));
+
+    panGains(1.0f, -1.0f, l, r); // hard left
+    CHECK(l == doctest::Approx(1.0f));
+    CHECK(r == doctest::Approx(0.0f));
+
+    panGains(1.0f, 0.5f, l, r);
+    CHECK(l == doctest::Approx(0.5f));
+    CHECK(r == doctest::Approx(1.0f));
 }
 
-TEST_CASE("routing_math::egressChannels stereo bus -> contiguous pair") {
-    int c0 = -1, c1 = 0;
-    routing_math::egressChannels(2, 12, c0, c1);
-    CHECK(c0 == 12);
-    CHECK(c1 == 13);
+TEST_CASE("panGains: out-of-range pan is clamped, not wrapped") {
+    float l = 0.0f, r = 0.0f;
+    panGains(1.0f, 4.0f, l, r);
+    CHECK(l == doctest::Approx(0.0f));
+    CHECK(r == doctest::Approx(1.0f));
 }
 
-TEST_CASE("routing_math::isChannelAudible respects mute and solo group") {
-    CHECK(routing_math::isChannelAudible(false, false, false) == true);
-    CHECK(routing_math::isChannelAudible(true, false, false) == false);  // muted
-    CHECK(routing_math::isChannelAudible(false, false, true) == false);  // dimmed by solo
-    CHECK(routing_math::isChannelAudible(false, true, true) == true);    // solo active
+TEST_CASE("panGains: the fader scales both sides") {
+    float l = 0.0f, r = 0.0f;
+    panGains(0.25f, -0.5f, l, r);
+    CHECK(l == doctest::Approx(0.25f));
+    CHECK(r == doctest::Approx(0.125f));
 }
 
-TEST_CASE("routing_math::calculateMeterFrame calculates post-fader peak") {
-    const float inL[4] = { 0.8f, 0.8f, 0.8f, 0.8f };
-    const float inR[4] = { 0.4f, 0.4f, 0.4f, 0.4f };
-    float outL[4] = { 0 };
-    float outR[4] = { 0 };
-    float peakL = 0.0f, peakR = 0.0f;
-
-    routing_math::calculateMeterFrame(inL, inR, 4, 0.5f, 0.0f, 2, outL, outR, peakL, peakR);
-    CHECK(peakL == doctest::Approx(0.4f)); // 0.8 * 0.5
-    CHECK(peakR == doctest::Approx(0.2f)); // 0.4 * 0.5
+TEST_CASE("monoSum averages, so a correlated pair keeps its level") {
+    CHECK(monoSum(1.0f, 1.0f) == doctest::Approx(1.0f));
+    CHECK(monoSum(0.4f, -0.2f) == doctest::Approx(0.1f));
+    CHECK(monoSum(1.0f, -1.0f) == doctest::Approx(0.0f));
 }

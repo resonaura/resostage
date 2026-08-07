@@ -9,7 +9,7 @@ function makeFixture(id: string): LightFixtureRow {
   return {
     id,
     name: id,
-    kind: "resoLightBar",
+    kind: "resolight::bar",
     grid: { column: 0, row: 0 },
     ledCount: 48,
     addressable: true,

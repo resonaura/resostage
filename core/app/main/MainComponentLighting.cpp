@@ -17,12 +17,12 @@ using namespace builder_json;
 namespace {
 
 // Keeps the ResoLightBar subset of `cfg.fixtures` in sync with
-// resoLightColumns x resoLightRows: grows/shrinks the tail, leaving every
+// resolightColumns x resolightRows: grows/shrinks the tail, leaving every
 // existing bar's id/position/LED count untouched, and never touches
 // DmxGeneric entries. Idempotent -- calling it again with the same
 // columns/rows is a no-op copy.
 void regenerateResoLightFixtures(LightingConfig& cfg) {
-    const int desired = std::max(0, cfg.resoLight.columns) * std::max(0, cfg.resoLight.rows);
+    const int desired = std::max(0, cfg.resolight.columns) * std::max(0, cfg.resolight.rows);
 
     std::vector<LightFixture> bars;
     std::vector<LightFixture> others;
@@ -44,8 +44,8 @@ void regenerateResoLightFixtures(LightingConfig& cfg) {
         constexpr double kSpacingMeters = 2.0;
         while (static_cast<int>(bars.size()) < desired) {
             const int index = static_cast<int>(bars.size());
-            const int col = cfg.resoLight.columns > 0 ? index % cfg.resoLight.columns : 0;
-            const int row = cfg.resoLight.columns > 0 ? index / cfg.resoLight.columns : 0;
+            const int col = cfg.resolight.columns > 0 ? index % cfg.resolight.columns : 0;
+            const int row = cfg.resolight.columns > 0 ? index / cfg.resolight.columns : 0;
             LightFixture f;
             f.id = makeUniqueId("bar", used);
             used.push_back(f.id);
@@ -58,8 +58,8 @@ void regenerateResoLightFixtures(LightingConfig& cfg) {
             // Center the grid around X=0 so two bars land at -1.0 and +1.0
             // instead of 0 and 2.0 -- the 3D preview then feels balanced,
             // with the audience/camera anchor at the center of the rig.
-            const double halfWidthX = (cfg.resoLight.columns > 1 ? (cfg.resoLight.columns - 1) * 0.5 * kSpacingMeters : 0.0);
-            const double halfWidthZ = (cfg.resoLight.rows > 1    ? (cfg.resoLight.rows    - 1) * 0.5 * kSpacingMeters : 0.0);
+            const double halfWidthX = (cfg.resolight.columns > 1 ? (cfg.resolight.columns - 1) * 0.5 * kSpacingMeters : 0.0);
+            const double halfWidthZ = (cfg.resolight.rows > 1    ? (cfg.resolight.rows    - 1) * 0.5 * kSpacingMeters : 0.0);
             f.position.x = col * kSpacingMeters - halfWidthX;
             f.position.y = 0.0;
             f.position.z = row * kSpacingMeters - halfWidthZ;
@@ -96,17 +96,17 @@ void MainComponent::lightingSetConfig(const std::string& json) {
     if (getBool(doc, "enabled", boolVal))
         cfg.enabled = boolVal;
     if (getString(doc, "kind", strVal)) {
-        if (strVal == "resoLight") cfg.kind = LightingKind::ResoLight;
-        else if (strVal == "dmxGeneric") cfg.kind = LightingKind::DmxGeneric;
+        if (strVal == "resolight") cfg.kind = LightingKind::ResoLight;
+        else if (strVal == "dmx::generic") cfg.kind = LightingKind::DmxGeneric;
         else cfg.kind = LightingKind::None;
     }
-    if (getInt(doc, "resoLightColumns", intVal))
-        cfg.resoLight.columns = std::max(0, intVal);
-    if (getInt(doc, "resoLightRows", intVal))
-        cfg.resoLight.rows = std::max(0, intVal);
+    if (getInt(doc, "resolightColumns", intVal))
+        cfg.resolight.columns = std::max(0, intVal);
+    if (getInt(doc, "resolightRows", intVal))
+        cfg.resolight.rows = std::max(0, intVal);
     double doubleVal;
     if (getString(doc, "idleBehavior", strVal)) {
-        if (strVal == "blackout" || strVal == "staticColor" || strVal == "effect" || strVal == "holdLast")
+        if (strVal == "blackout" || strVal == "static" || strVal == "effect" || strVal == "hold")
             cfg.idle.behavior = strVal;
     }
     if (getString(doc, "idleEffectType", strVal)) {
@@ -159,7 +159,7 @@ void MainComponent::lightingSetConfig(const std::string& json) {
 
 // Manual fixture add/remove -- the counterpart to regenerateResoLightFixtures
 // above, which only ever manages the ResoLightBar subset via
-// resoLightColumns/Rows. DmxGeneric fixtures (a moving head, a PAR can, any
+// resolightColumns/Rows. DmxGeneric fixtures (a moving head, a PAR can, any
 // non-ResoLight instrument) have no grid concept to seed them from, so they
 // need their own explicit add/remove, driven the same way as a ResoLight bar
 // otherwise: one entry in cfg.fixtures, placed in the 3D stage, assignable to
@@ -297,7 +297,7 @@ void MainComponent::lightingFixtureRemove(const std::string& json) {
     // orphaned fixtureId would never resolve to anything again (same
     // cleanup lightingTrackRemove does for cues referencing a removed
     // track).
-    for (auto& lt : proj.lightTracks) {
+    for (auto& lt : proj.lighting.tracks) {
         auto fit = std::remove(lt.fixtureIds.begin(), lt.fixtureIds.end(), fixtureId);
         lt.fixtureIds.erase(fit, lt.fixtureIds.end());
     }
@@ -381,14 +381,14 @@ void MainComponent::lightingTrackAdd(const std::string& /*json*/) {
         return;
     Project& proj = engine.project();
     std::vector<std::string> used;
-    for (const auto& lt : proj.lightTracks)
+    for (const auto& lt : proj.lighting.tracks)
         used.push_back(lt.id);
     LightTrack lt;
     lt.id = makeUniqueId("lt", used);
     lt.name = "New Light Track";
 
     engine.projectHistoryBeginEdit("", "Add light track");
-    proj.lightTracks.push_back(std::move(lt));
+    proj.lighting.tracks.push_back(std::move(lt));
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     engine.notifyLightEngineProjectChanged();
@@ -401,12 +401,12 @@ void MainComponent::lightingTrackRemove(const std::string& json) {
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    if (index < 0 || index >= static_cast<int>(proj.lightTracks.size()))
+    if (index < 0 || index >= static_cast<int>(proj.lighting.tracks.size()))
         return;
-    const std::string removedId = proj.lightTracks[static_cast<size_t>(index)].id;
+    const std::string removedId = proj.lighting.tracks[static_cast<size_t>(index)].id;
 
     engine.projectHistoryBeginEdit("", "Remove light track");
-    proj.lightTracks.erase(proj.lightTracks.begin() + index);
+    proj.lighting.tracks.erase(proj.lighting.tracks.begin() + index);
     // An orphaned LightCue::trackId would never resolve to a fixture again --
     // drop cues on the removed track from every song rather than leave dead
     // weight in the file.
@@ -429,12 +429,12 @@ void MainComponent::lightingTrackMove(const std::string& json) {
         return;
     Project& proj = engine.project();
     const int to = index + delta;
-    if (index < 0 || index >= static_cast<int>(proj.lightTracks.size())
-        || to < 0 || to >= static_cast<int>(proj.lightTracks.size()))
+    if (index < 0 || index >= static_cast<int>(proj.lighting.tracks.size())
+        || to < 0 || to >= static_cast<int>(proj.lighting.tracks.size()))
         return;
 
     engine.projectHistoryBeginEdit("", "Move light track");
-    std::swap(proj.lightTracks[static_cast<size_t>(index)], proj.lightTracks[static_cast<size_t>(to)]);
+    std::swap(proj.lighting.tracks[static_cast<size_t>(index)], proj.lighting.tracks[static_cast<size_t>(to)]);
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     engine.notifyLightEngineProjectChanged();
@@ -446,9 +446,9 @@ void MainComponent::lightingTrackUpdate(const std::string& json) {
     if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    if (index < 0 || index >= static_cast<int>(proj.lightTracks.size()))
+    if (index < 0 || index >= static_cast<int>(proj.lighting.tracks.size()))
         return;
-    LightTrack& lt = proj.lightTracks[static_cast<size_t>(index)];
+    LightTrack& lt = proj.lighting.tracks[static_cast<size_t>(index)];
 
     engine.projectHistoryBeginEdit("", "Edit light track");
 

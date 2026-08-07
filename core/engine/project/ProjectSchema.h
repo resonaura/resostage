@@ -8,12 +8,24 @@
 
 namespace resostage {
 
-// Bumped whenever the on-disk shape changes. Checked by ProjectLoader against
-// ProjectFormat::version: anything less than this (or missing/unparseable as
-// the current shape) goes through LegacyProjectMigration.h once, then is
-// always re-saved at kCurrentFormatVersion. See that file's header comment
-// for why the migration itself is a single throwaway step, not a chain.
-inline constexpr int kCurrentFormatVersion = 2;
+// Bumped whenever the on-disk shape changes. ProjectLoader refuses to open
+// anything below this and tells the user to run `pnpm migrate <project>`
+// (scripts/migrate.mjs) -- there is deliberately NO in-engine migration path.
+// The app is pre-public-beta, so a one-shot external converter is the whole
+// story: when the format finally freezes, delete scripts/migrate.mjs and the
+// version gate in ProjectLoader::reparseProject() and nothing else changes.
+//
+// Identifier canon, applied everywhere in this file:
+//   * namespaced ids     "<ns>::<kind>:<n>"  -- audio::track:1, audio::send:2,
+//                                               audio::out:11, light::bar:1,
+//                                               light::track:3, meta::song:1
+//   * namespaced singletons "<ns>::<kind>"   -- audio::main
+//   * namespaced enum values "<ns>::<value>" -- resolight::bar, dmx::generic
+//   * churn-heavy rows (regions, cues, sections) use UUIDv7 (see Uuid.h)
+//     because they're created and destroyed constantly while editing, so a
+//     dense counter would collide across copy/paste and undo.
+// Optional strings are std::optional and serialize as JSON null, never "".
+inline constexpr int kCurrentFormatVersion = 3;
 
 struct ProjectFormat {
     int version = kCurrentFormatVersion;
@@ -66,8 +78,8 @@ struct ClickChannel {
     double gainDb = 0.0;
     double pan = 0.0; // -1..+1
     bool mute = false;
-    bool solo = false; // joins the same solo group as TrackDef::solo
-    SourceOutput output; // type is Main or SendsOnly, never ExtOut (no persisted equivalent of a click on its own physical pair)
+    bool solo = false;   // joins the same solo group as TrackDef::solo
+    SourceOutput output; // any of the three types -- the click is routed exactly like a track
 };
 
 // Master (FOH) bus. Always owns its physical output channels directly
@@ -153,9 +165,11 @@ struct TimeSignature {
     int denominator = 4;
 };
 
-enum class PlaybackMode {
-    WaitForTrigger,
-    AutoplayNext,
+// What the transport does when a song reaches its end. Serialized as
+// SongDef::onEnded ("stop" | "next").
+enum class SongEnd {
+    Stop, // hold at the end and wait for the next trigger
+    Next, // roll straight into the following song
 };
 
 enum class EventType {
@@ -228,7 +242,7 @@ struct LightFixture {
         int channelCount = 3;
     } dmx;
 
-    std::string shape = "bar";          // "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "movingHead"
+    std::string shape = "bar";          // "bar" | "strip" | "ring" | "matrix" | "par" | "wash" | "spot" | "moving-head"
     int matrixColumns = 0;              // only meaningful when shape == "matrix"
     std::string channelProfile = "rgb"; // "dimmer" | "rgb" | "rgbw" | "rgbwa" | "custom"
     double tiltDegrees = 0.0;
@@ -258,29 +272,14 @@ struct LightGradient {
     std::optional<std::string> colors; // null = use the preset/base color; CSV #RRGGBB stops when set
 };
 
-// What every fixture shows while the transport is stopped. Same value set
-// as before this rewrite: "holdLast" | "blackout" | "staticColor" | "effect".
+// What every fixture shows while the transport is stopped.
+// "hold" | "blackout" | "static" | "effect".
 struct LightingIdle {
-    std::string behavior = "holdLast";
+    std::string behavior = "hold";
     RgbColor color{0, 0, 0};
     double intensity = 1.0;
     LightingIdleEffect effect;
     LightGradient gradient;
-};
-
-// Project-scoped lighting rig config (per-show data, not rig-wide
-// AppSettings). Disabled by default.
-struct LightingConfig {
-    bool enabled = false;
-    LightingKind kind = LightingKind::None;
-    struct ResoLight {
-        int columns = 2;
-        int rows = 1;
-    } resoLight;
-    LightingIdle idle;
-    double defaultRefreshRateHz = 44.0;
-    std::optional<std::string> artNetTargetHost; // null = broadcast
-    std::vector<LightFixture> fixtures;
 };
 
 // A named row on the Light timeline -- project-level roster, mirrors
@@ -289,6 +288,25 @@ struct LightTrack {
     std::string id; // "light::track:N"
     std::string name;
     std::vector<std::string> fixtureIds; // LightFixture.id refs, driven in unison
+};
+
+// Project-scoped lighting rig config (per-show data, not rig-wide
+// AppSettings). Disabled by default. Owns BOTH halves of the rig: the
+// physical roster (`fixtures`) and the authoring roster (`tracks`) -- they
+// are meaningless apart, so they live under one key instead of `fixtures`
+// here and a stray top-level `lightTracks` next to `songs`.
+struct LightingConfig {
+    bool enabled = false;
+    LightingKind kind = LightingKind::None;
+    struct ResoLight {
+        int columns = 2;
+        int rows = 1;
+    } resolight;
+    LightingIdle idle;
+    double defaultRefreshRateHz = 44.0;
+    std::optional<std::string> artNetTargetHost; // null = broadcast
+    std::vector<LightFixture> fixtures;
+    std::vector<LightTrack> tracks;
 };
 
 struct LightCueFade {
@@ -331,7 +349,7 @@ struct LightCue {
 // A point, not a range -- the region a marker covers is implicitly "from
 // here to the next marker (or song end)".
 struct SongSection {
-    std::string id; // "meta::section:N"
+    std::string id; // UUIDv7 -- same churn rationale as Region/LightCue
     std::string name = "Section";
     double startSeconds = 0.0;
     int colorIndex = 0; // cosmetic track colour index for the SPA
@@ -342,7 +360,7 @@ struct SongDef {
     std::string name;
     double bpm = 120.0;
     TimeSignature timeSignature;
-    PlaybackMode playbackMode = PlaybackMode::WaitForTrigger;
+    SongEnd onEnded = SongEnd::Stop;
     std::vector<Region> regions;
     std::vector<TimelineEvent> events;
     std::vector<SongSection> sections;
@@ -385,8 +403,7 @@ struct Project {
     MasterChannel main;
     std::vector<SendBus> sends;
     std::vector<TrackDef> tracks;
-    LightingConfig lighting;
-    std::vector<LightTrack> lightTracks;
+    LightingConfig lighting; // fixtures + light tracks both live in here
     std::vector<SongDef> songs;
     ProjectCycle cycle; // single project-wide cycle zone, not per-song
     MidiConfig midi;

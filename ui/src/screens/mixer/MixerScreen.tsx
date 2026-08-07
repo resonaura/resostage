@@ -2,6 +2,7 @@ import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { builder, mixer } from "../../lib/api";
+import { extOutTarget, isMainBusId } from "./mixerIds";
 import { outputSendsToClickRows, type WebUiState } from "../../lib/types";
 import { BusStrip } from "./BusStrip";
 import { MetronomeStrip } from "./MetronomeStrip";
@@ -16,15 +17,17 @@ interface PendingBusJob {
 
 export function MixerScreen({ state }: { state: WebUiState }) {
   const auxBusses = state.busses.filter((b) => b.isAux);
-  const master =
-    state.busses.find((b) => b.id === "main") ??
-    state.busses.find((b) => !b.isAux);
+  // Match the master by its canonical id and nothing else. The old code fell
+  // back to "the first non-aux bus" when the id didn't match, which quietly
+  // selected an output LANE -- so every control on the master strip was being
+  // addressed to the wrong bus index.
+  const master = state.busses.find((b) => isMainBusId(b.id));
   const masterBusses = master ? [master] : [];
   // Track destination list: master + aux only (no hidden Ext. Out sub-buses).
   // Aux → aux is never offered as a main destination here; track sends only
   // target aux via SendKnobs (no send→send loop).
   const destinationBusses = state.busses.filter(
-    (b) => b.id === "main" || b.isAux,
+    (b) => isMainBusId(b.id) || b.isAux,
   );
   const pendingBusJobs = useRef<PendingBusJob[]>([]);
   const stateRef = useRef(state);
@@ -79,16 +82,13 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   }
 
   /**
-   * Global Direct Output buses are fabricated by the engine from the device's
-   * active output channels (NOT persisted in the project — see BusRow.
-   * isDirectOut). The id encodes the physical target: "direct:{start}" for a
-   * single mono lane, "direct:{start}/{start+1}" for a stereo pair. We only
-   * ever route to these — never create project busses for Ext. Out anymore.
+   * Output lanes are fabricated by the engine from the device's active output
+   * channels (never persisted — see BusRow.isDirectOut). Lanes are always
+   * mono, so a stereo pick is a pair of them. We only ever route to these —
+   * never create project busses for Ext. Out.
    */
   function directBusIdFor(startChannel: number, pair: boolean): string {
-    return pair
-      ? `direct:${startChannel + 1},direct:${startChannel + 2}`
-      : `direct:${startChannel + 1}`;
+    return extOutTarget(startChannel, pair);
   }
 
   function requestTrackDirectOutput(
@@ -112,9 +112,12 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     });
   }
 
-  const anyTrackSolo =
-    (state.click?.solo ?? false) || state.tracks.some((tr) => tr.solo);
-  const anyAuxSolo = auxBusses.some((b) => b.solo);
+  // Solo grouping is the engine's rule, not the mixer's: every row arrives
+  // tagged with its group and whether anything in that group is soloed, so a
+  // strip is drawn dimmed for exactly the reason it is actually silenced.
+  const anyTrackSolo = state.tracks.some((tr) => tr.soloActiveInGroup)
+    || (state.click?.soloActiveInGroup ?? false);
+  const anyAuxSolo = auxBusses.some((b) => b.soloActiveInGroup);
   const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
   const clickSends = state.click ? outputSendsToClickRows(state.click.output) : [];
 
@@ -272,6 +275,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                     meters={state.meters}
                     master={master}
                     settings={state.settings}
+                    anySoloInGroup={b.soloActiveInGroup}
                     isMaster
                   />
                 </div>

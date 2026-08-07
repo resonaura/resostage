@@ -37,7 +37,7 @@ std::string makeProjectArchive(const std::string& projectJson) {
 
 constexpr const char* kFullProjectJson = R"JSON(
 {
-  "format": { "version": 2 },
+  "format": { "version": 3 },
   "name": "Full Parse Test",
   "sampleRate": 48000,
   "click": { "enabled": false, "name": "Click", "channels": 2, "gainDb": 0, "pan": 0, "mute": false, "solo": false,
@@ -55,7 +55,7 @@ constexpr const char* kFullProjectJson = R"JSON(
       "name": "Opener",
       "bpm": 140.0,
       "timeSignature": { "numerator": 7, "denominator": 8 },
-      "playbackMode": "autoplayNext",
+      "onEnded": "next",
       "regions": [
         { "id": "019fd93b-3662-7f5b-8162-45f5ecad98fa", "trackId": "audio::track:1", "startSeconds": 0.0, "durationSeconds": 4.0,
           "gainDb": 0, "source": { "file": "Audio/dummy.wav", "offsetSeconds": 0 },
@@ -88,7 +88,7 @@ TEST_CASE("ProjectLoader parses click, main, sends, tracks, songs, events, and m
     REQUIRE(loader.open(path, error));
 
     const Project& proj = loader.project();
-    CHECK(proj.format.version == 2);
+    CHECK(proj.format.version == 3);
     CHECK(proj.name == "Full Parse Test");
     CHECK(proj.sampleRate == 48000.0);
 
@@ -105,7 +105,7 @@ TEST_CASE("ProjectLoader parses click, main, sends, tracks, songs, events, and m
     CHECK(song.bpm == doctest::Approx(140.0));
     CHECK(song.timeSignature.numerator == 7);
     CHECK(song.timeSignature.denominator == 8);
-    CHECK(song.playbackMode == PlaybackMode::AutoplayNext);
+    CHECK(song.onEnded == SongEnd::Next);
 
     REQUIRE_FALSE(proj.tracks.empty());
     CHECK(proj.tracks[0].output.type == OutputType::Main);
@@ -157,7 +157,7 @@ TEST_CASE("ProjectLoader parses click, main, sends, tracks, songs, events, and m
 TEST_CASE("ProjectLoader tolerates missing optional sections") {
     const std::string minimalJson = R"JSON(
 {
-  "format": { "version": 2 },
+  "format": { "version": 3 },
   "name": "Minimal",
   "sampleRate": 44100,
   "sends": [],
@@ -184,7 +184,7 @@ TEST_CASE("ProjectLoader parses and round-trips a sends-only track") {
     // than an error.
     const std::string json = R"JSON(
 {
-  "format": { "version": 2 }, "name": "SendsOnly", "sampleRate": 48000,
+  "format": { "version": 3 }, "name": "SendsOnly", "sampleRate": 48000,
   "main": { "enabled": true, "name": "Main", "channels": 2, "gainDb": 0, "pan": 0, "mute": false, "solo": false,
             "output": { "type": "ext-out", "target": "audio::out:1,audio::out:2" } },
   "sends": [
@@ -256,7 +256,7 @@ TEST_CASE("ProjectLoader rejects outdated format version 1 with migration error"
 TEST_CASE("ProjectLoader rejects a current-format event with an unknown type") {
     const std::string badJson = R"JSON(
 {
-  "format": { "version": 2 }, "name": "Bad", "sampleRate": 48000, "sends": [],
+  "format": { "version": 3 }, "name": "Bad", "sampleRate": 48000, "sends": [],
   "songs": [
     { "id": "s1", "name": "S1", "bpm": 120,
       "events": [ { "id": "e1", "type": "notARealType" } ] }
@@ -319,9 +319,9 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     Project& p = loader.project();
     p.lighting.enabled = true;
     p.lighting.kind = LightingKind::ResoLight;
-    p.lighting.resoLight.columns = 3;
-    p.lighting.resoLight.rows = 2;
-    p.lighting.idle.behavior = "staticColor";
+    p.lighting.resolight.columns = 3;
+    p.lighting.resolight.rows = 2;
+    p.lighting.idle.behavior = "static";
     p.lighting.idle.color.r = 12;
     p.lighting.idle.color.g = 34;
     p.lighting.idle.color.b = 56;
@@ -352,7 +352,7 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     generic.dmx.universe = 2;
     generic.dmx.startChannel = 17;
     generic.dmx.channelCount = 16;
-    generic.shape = "movingHead";
+    generic.shape = "moving-head";
     generic.channelProfile = "rgbw";
     generic.tiltDegrees = 32.5;
     p.lighting.fixtures.push_back(generic);
@@ -361,7 +361,7 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     track.id = "light::track:1";
     track.name = "Front Wash";
     track.fixtureIds = {"light::bar:1", "light::fixture:2"};
-    p.lightTracks.push_back(track);
+    p.lighting.tracks.push_back(track);
 
     LightCue cue;
     cue.id = "019fd93c-d272-785e-8100-7d648e9a3273";
@@ -394,9 +394,9 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
 
     CHECK(p2.lighting.enabled == true);
     CHECK(p2.lighting.kind == LightingKind::ResoLight);
-    CHECK(p2.lighting.resoLight.columns == 3);
-    CHECK(p2.lighting.resoLight.rows == 2);
-    CHECK(p2.lighting.idle.behavior == "staticColor");
+    CHECK(p2.lighting.resolight.columns == 3);
+    CHECK(p2.lighting.resolight.rows == 2);
+    CHECK(p2.lighting.idle.behavior == "static");
     CHECK(p2.lighting.idle.color.r == 12);
     CHECK(p2.lighting.idle.color.g == 34);
     CHECK(p2.lighting.idle.color.b == 56);
@@ -423,16 +423,16 @@ TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips throug
     CHECK(generic2.dmx.universe == 2);
     CHECK(generic2.dmx.startChannel == 17);
     CHECK(generic2.dmx.channelCount == 16);
-    CHECK(generic2.shape == "movingHead");
+    CHECK(generic2.shape == "moving-head");
     CHECK(generic2.channelProfile == "rgbw");
     CHECK(generic2.tiltDegrees == doctest::Approx(32.5));
 
-    REQUIRE(p2.lightTracks.size() == 1);
-    CHECK(p2.lightTracks[0].id == "light::track:1");
-    CHECK(p2.lightTracks[0].name == "Front Wash");
-    REQUIRE(p2.lightTracks[0].fixtureIds.size() == 2);
-    CHECK(p2.lightTracks[0].fixtureIds[0] == "light::bar:1");
-    CHECK(p2.lightTracks[0].fixtureIds[1] == "light::fixture:2");
+    REQUIRE(p2.lighting.tracks.size() == 1);
+    CHECK(p2.lighting.tracks[0].id == "light::track:1");
+    CHECK(p2.lighting.tracks[0].name == "Front Wash");
+    REQUIRE(p2.lighting.tracks[0].fixtureIds.size() == 2);
+    CHECK(p2.lighting.tracks[0].fixtureIds[0] == "light::bar:1");
+    CHECK(p2.lighting.tracks[0].fixtureIds[1] == "light::fixture:2");
 
     REQUIRE_FALSE(p2.songs.empty());
     REQUIRE(p2.songs[0].lightCues.size() == 1);
@@ -470,9 +470,9 @@ TEST_CASE("lighting defaults to disabled/none with no fixtures for a project wit
     const Project& p = loader.project();
     CHECK(p.lighting.enabled == false);
     CHECK(p.lighting.kind == LightingKind::None);
-    CHECK(p.lighting.idle.behavior == "holdLast");
+    CHECK(p.lighting.idle.behavior == "hold");
     CHECK(p.lighting.fixtures.empty());
-    CHECK(p.lightTracks.empty());
+    CHECK(p.lighting.tracks.empty());
     CHECK(p.songs[0].lightCues.empty());
 }
 

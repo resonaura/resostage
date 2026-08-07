@@ -47,18 +47,25 @@ const char* eventTypeToString(EventType type) {
     return "midiProgramChange";
 }
 
-const char* playbackModeToString(PlaybackMode mode) {
-    return mode == PlaybackMode::AutoplayNext ? "autoplayNext" : "waitForTrigger";
+const char* songEndToString(SongEnd mode) {
+    return mode == SongEnd::Next ? "next" : "stop";
 }
 
+SongEnd songEndFromString(const std::string& s) {
+    return s == "next" ? SongEnd::Next : SongEnd::Stop;
+}
+
+// Fixture/rig kinds are namespaced values ("<vendor-or-protocol>::<model>")
+// so a second ResoLight product or a second protocol slots in without
+// re-reading like a compound word. `resolight` is one word, never `resoLight`.
 const char* lightFixtureKindToString(LightFixture::Kind kind) {
-    return kind == LightFixture::Kind::DmxGeneric ? "dmxGeneric" : "resoLightBar";
+    return kind == LightFixture::Kind::DmxGeneric ? "dmx::generic" : "resolight::bar";
 }
 
 const char* lightingKindToString(LightingKind kind) {
     switch (kind) {
-        case LightingKind::ResoLight: return "resoLight";
-        case LightingKind::DmxGeneric: return "dmxGeneric";
+        case LightingKind::ResoLight: return "resolight";
+        case LightingKind::DmxGeneric: return "dmx::generic";
         case LightingKind::None: return "none";
     }
     return "none";
@@ -248,7 +255,7 @@ struct WLightingIdleEffect {
 };
 
 struct WLightingIdle {
-    std::string behavior = "holdLast";
+    std::string behavior = "hold";
     WColor color;
     double intensity = 1.0;
     WLightingIdleEffect effect;
@@ -260,20 +267,21 @@ struct WLightingResoLight {
     int rows = 1;
 };
 
-struct WLighting {
-    bool enabled = false;
-    std::string kind = "none";
-    WLightingResoLight resoLight;
-    WLightingIdle idle;
-    double defaultRefreshRateHz = 44.0;
-    std::optional<std::string> artNetTargetHost;
-    std::vector<WFixture> fixtures;
-};
-
 struct WLightTrack {
     std::string id;
     std::string name;
     std::vector<std::string> fixtureIds;
+};
+
+struct WLighting {
+    bool enabled = false;
+    std::string kind = "none";
+    WLightingResoLight resolight;
+    WLightingIdle idle;
+    double defaultRefreshRateHz = 44.0;
+    std::optional<std::string> artNetTargetHost;
+    std::vector<WFixture> fixtures;
+    std::vector<WLightTrack> tracks;
 };
 
 struct WTimeSig {
@@ -369,7 +377,7 @@ struct WSong {
     std::string name;
     double bpm = 120.0;
     WTimeSig timeSignature;
-    std::string playbackMode;
+    std::string onEnded = "stop";
     std::vector<WRegion> regions;
     std::vector<WEvent> events;
     std::vector<WSection> sections;
@@ -411,7 +419,6 @@ struct WProject {
     std::vector<WSendBus> sends;
     std::vector<WTrack> tracks;
     WLighting lighting;
-    std::vector<WLightTrack> lightTracks;
     std::vector<WSong> songs;
     WCycle cycle;
     WMidi midi;
@@ -553,8 +560,8 @@ WProject toWire(const Project& p) {
 
     w.lighting.enabled = p.lighting.enabled;
     w.lighting.kind = lightingKindToString(p.lighting.kind);
-    w.lighting.resoLight.columns = p.lighting.resoLight.columns;
-    w.lighting.resoLight.rows = p.lighting.resoLight.rows;
+    w.lighting.resolight.columns = p.lighting.resolight.columns;
+    w.lighting.resolight.rows = p.lighting.resolight.rows;
     w.lighting.idle.behavior = p.lighting.idle.behavior;
     w.lighting.idle.color = toWireColor(p.lighting.idle.color);
     w.lighting.idle.intensity = finiteOrZero(p.lighting.idle.intensity);
@@ -590,13 +597,13 @@ WProject toWire(const Project& p) {
         w.lighting.fixtures.push_back(std::move(wf));
     }
 
-    w.lightTracks.reserve(p.lightTracks.size());
-    for (const auto& lt : p.lightTracks) {
+    w.lighting.tracks.reserve(p.lighting.tracks.size());
+    for (const auto& lt : p.lighting.tracks) {
         WLightTrack wlt;
         wlt.id = lt.id;
         wlt.name = lt.name;
         wlt.fixtureIds = lt.fixtureIds;
-        w.lightTracks.push_back(std::move(wlt));
+        w.lighting.tracks.push_back(std::move(wlt));
     }
 
     w.songs.reserve(p.songs.size());
@@ -607,7 +614,7 @@ WProject toWire(const Project& p) {
         ws.bpm = finiteOrZero(s.bpm);
         ws.timeSignature.numerator = s.timeSignature.numerator;
         ws.timeSignature.denominator = s.timeSignature.denominator;
-        ws.playbackMode = playbackModeToString(s.playbackMode);
+        ws.onEnded = songEndToString(s.onEnded);
 
         for (const auto& r : s.regions) {
             if (r.source.file.empty())
@@ -727,9 +734,17 @@ std::string serializeProjectJson(const Project& project) {
     // Pretty JSON for human-readable archives (loader ignores whitespace).
     // indentation_width is not on base glz::opts in Glaze v5+; carry it on a
     // derived options struct (see glaze/core/opts.hpp "OTHER AVAILABLE OPTIONS").
+    //
+    // skip_null_members = false is deliberate: an absent optional is written
+    // as an explicit `null`, never omitted. "This cue has no label" and "this
+    // file predates labels" are different facts, and a reader shouldn't have
+    // to know the schema by heart to tell a missing key from an empty value.
+    // It also keeps every object in the file the same shape, which is what
+    // makes the format diffable and hand-editable.
     struct pretty_opts : glz::opts {
         bool prettify = true;
         uint8_t indentation_width = 2;
+        bool skip_null_members = false;
     };
     const auto ec = glz::write<pretty_opts{}>(wire, buffer);
     if (ec) {
@@ -757,13 +772,13 @@ EventType eventTypeFromString(const std::string& s) {
 }
 
 LightingKind lightingKindFromString(const std::string& s) {
-    if (s == "resoLight") return LightingKind::ResoLight;
-    if (s == "dmxGeneric") return LightingKind::DmxGeneric;
+    if (s == "resolight") return LightingKind::ResoLight;
+    if (s == "dmx::generic") return LightingKind::DmxGeneric;
     return LightingKind::None;
 }
 
 LightFixture::Kind fixtureKindFromString(const std::string& s) {
-    if (s == "dmxGeneric") return LightFixture::Kind::DmxGeneric;
+    if (s == "dmx::generic") return LightFixture::Kind::DmxGeneric;
     return LightFixture::Kind::ResoLightBar;
 }
 
@@ -821,9 +836,9 @@ Project fromWire(const WProject& w) {
 
     p.lighting.enabled = w.lighting.enabled;
     p.lighting.kind = lightingKindFromString(w.lighting.kind);
-    p.lighting.resoLight.columns = w.lighting.resoLight.columns;
-    p.lighting.resoLight.rows = w.lighting.resoLight.rows;
-    p.lighting.idle.behavior = w.lighting.idle.behavior.empty() ? "holdLast" : w.lighting.idle.behavior;
+    p.lighting.resolight.columns = w.lighting.resolight.columns;
+    p.lighting.resolight.rows = w.lighting.resolight.rows;
+    p.lighting.idle.behavior = w.lighting.idle.behavior.empty() ? "hold" : w.lighting.idle.behavior;
     p.lighting.idle.color = fromWireColor(w.lighting.idle.color);
     p.lighting.idle.intensity = w.lighting.idle.intensity;
     p.lighting.idle.effect.type = w.lighting.idle.effect.type;
@@ -858,13 +873,13 @@ Project fromWire(const WProject& w) {
         p.lighting.fixtures.push_back(std::move(fx));
     }
 
-    p.lightTracks.reserve(w.lightTracks.size());
-    for (const auto& lt : w.lightTracks) {
+    p.lighting.tracks.reserve(w.lighting.tracks.size());
+    for (const auto& lt : w.lighting.tracks) {
         LightTrack t;
         t.id = lt.id;
         t.name = lt.name;
         t.fixtureIds = lt.fixtureIds;
-        p.lightTracks.push_back(std::move(t));
+        p.lighting.tracks.push_back(std::move(t));
     }
 
     p.songs.reserve(w.songs.size());
@@ -875,9 +890,7 @@ Project fromWire(const WProject& w) {
         song.bpm = s.bpm;
         song.timeSignature.numerator = s.timeSignature.numerator;
         song.timeSignature.denominator = s.timeSignature.denominator;
-        song.playbackMode = (s.playbackMode == "autoplayNext")
-                                ? PlaybackMode::AutoplayNext
-                                : PlaybackMode::WaitForTrigger;
+        song.onEnded = songEndFromString(s.onEnded);
 
         for (const auto& r : s.regions) {
             if (r.source.file.empty())

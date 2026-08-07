@@ -258,10 +258,10 @@ void LightEngine::threadLoop() {
 
         // Stopped transport + a configured idle behavior (blackout/static
         // color/effect) overrides the normal cue-driven resolve entirely --
-        // see buildIdleTarget's doc comment. "holdLast" (the default) keeps
+        // see buildIdleTarget's doc comment. "hold" (the default) keeps
         // calling resolveLightOutputs() exactly as before this setting
         // existed, i.e. whatever the frozen playhead resolves to.
-        const bool useIdleOverride = !clock_->isRunning() && proj->lighting.idle.behavior != "holdLast";
+        const bool useIdleOverride = !clock_->isRunning() && proj->lighting.idle.behavior != "hold";
 
         // Idle-behavior transition bookkeeping. Leaving idle (resume or a
         // switch back to holdLast) starts a symmetric fade back out of the
@@ -308,7 +308,7 @@ void LightEngine::threadLoop() {
             // idle state turned on but that no cue drives anymore get an
             // explicit off-row so they fade to black instead of snapping.
             auto normal = resolveLightOutputs(
-                proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
+                proj->lighting.tracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
             const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - resumeFadeStart)
                                  .count() /
                              kResumeFadeSeconds;
@@ -353,7 +353,7 @@ void LightEngine::threadLoop() {
             }
         } else {
             resolved = resolveLightOutputs(
-                proj->lightTracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
+                proj->lighting.tracks, song.lightCues, tSec, bpm_.load(std::memory_order_relaxed), sourceLevelDb);
             lastResolvedOutputs = resolved;
         }
         lastFrame = resolved;
