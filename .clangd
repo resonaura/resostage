@@ -18,3 +18,29 @@ Diagnostics:
   # anywhere it can see. That is a fact about the build shape, not a defect.
   UnusedIncludes: None
   MissingIncludes: None
+
+---
+# AudioEngine is split across several files that are #included INSIDE the class
+# body (see the bottom of AudioEngine.h). They have no include guard, no
+# includes of their own and no enclosing `class` -- their first line is a bare
+# member declaration. They are text fragments, not translation units.
+#
+# clangd opens any .h as a standalone file, so it parses these starting halfway
+# through a class and reports 20-30 errors that do not exist in any real build.
+# Verified: compiling one with the project's own flags from
+# compile_commands.json fails identically, so this is not a missing include
+# path or a missing #include -- nothing about the flags can fix a file that is
+# not a compilation unit.
+#
+# This silences the diagnostics; it does NOT make the file parse, so completion
+# and go-to-definition inside these five stay unreliable. The structural fixes
+# are to rename them .inc (what that extension means -- editors then stop
+# treating them as compilable at all) or to stop including them inside the class
+# body; both are bigger calls than a tooling config should make on its own.
+#
+# `fatal_too_many_errors` is listed explicitly: "*" does not cover fatals, and
+# without it each file still showed one error on line 1 where the parse gave up.
+If:
+  PathMatch: (.*/)?core/app/engine/AudioEngine(Members|ProjectApi|TransportApi|RoutingApi|PeaksApi)\.h
+Diagnostics:
+  Suppress: ["*", "fatal_too_many_errors", "too_many_errors"]
