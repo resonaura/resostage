@@ -1,5 +1,6 @@
+import { withHexAlpha } from "../../lib/cssColor";
 import type { SongRow } from "../../lib/types";
-import { EVENT_COLORS, EVENT_LANE_HEIGHT } from "./constants";
+import { EVENT_LANE_HEIGHT, getEventColor } from "./constants";
 
 /** Events from every song, each at its song's absolute offset. */
 export function EventMarkerLane({
@@ -36,7 +37,7 @@ export function EventMarkerLane({
           song.events
             .filter((e) => !e.triggerOnLoad)
             .map((e) => {
-              const color = EVENT_COLORS[e.type] ?? "#8e8e93";
+              const color = getEventColor(e.type);
               const left = (songOffsets[i] + e.timeSeconds) * pxPerSec - 5;
               return (
                 <div
@@ -47,7 +48,7 @@ export function EventMarkerLane({
                 >
                   <div
                     className="h-3 w-px"
-                    style={{ background: color + "aa" }}
+                    style={{ background: withHexAlpha(color, "aa") }}
                   />
                   <div
                     className="h-1.5 w-1.5 rounded-full"

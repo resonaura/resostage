@@ -21,6 +21,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { useMemo } from "react";
+import { extOutColor, masterColor, sendColor } from "../../lib/mixerColors";
 import {
   NODE_HEIGHT,
   NODE_WIDTH,
@@ -100,11 +101,21 @@ function StripNode({ data }: NodeProps<Node<StripNodeData>>) {
         style.ring
       } ${s.audible ? "opacity-100" : "opacity-55"}`}
     >
-      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !border-0 !bg-foreground/30" />
-      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !border-0 !bg-foreground/30" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!h-2 !w-2 !border-0 !bg-foreground/30"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!h-2 !w-2 !border-0 !bg-foreground/30"
+      />
 
       <div className="flex items-center gap-1.5">
-        <span className={`flex items-center gap-1 rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide ${style.chip}`}>
+        <span
+          className={`flex items-center gap-1 rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide ${style.chip}`}
+        >
           {style.icon}
           {style.label}
         </span>
@@ -135,7 +146,10 @@ function StripNode({ data }: NodeProps<Node<StripNodeData>>) {
         )}
       </div>
 
-      <div className="truncate text-[12px] font-semibold text-foreground" title={s.name || s.id}>
+      <div
+        className="truncate text-[12px] font-semibold text-foreground"
+        title={s.name || s.id}
+      >
         {s.name || s.id}
       </div>
 
@@ -167,7 +181,11 @@ function StripNode({ data }: NodeProps<Node<StripNodeData>>) {
 
 const NODE_TYPES = { strip: StripNode };
 
-function edgeLabel(level: number, preFader: boolean, sourceChannel: number): string {
+function edgeLabel(
+  level: number,
+  preFader: boolean,
+  sourceChannel: number,
+): string {
   const parts: string[] = [];
   // A plain 100% main route needs no label -- only the things that differ
   // from "all of it, straight through" are worth the ink.
@@ -244,7 +262,12 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
       edgesFocusable={false}
       colorMode="dark"
     >
-      <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="rgba(255,255,255,0.07)" />
+      <Background
+        variant={BackgroundVariant.Dots}
+        gap={18}
+        size={1}
+        color="rgba(255,255,255,0.07)"
+      />
       <MiniMap
         pannable
         zoomable
@@ -252,9 +275,9 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
         className="!bg-background-secondary"
         nodeColor={(n) => {
           const kind = (n.data as StripNodeData | undefined)?.strip.kind;
-          if (kind === "main") return "#0091ff";
-          if (kind === "send") return "#ff9230";
-          if (kind === "output") return "#30d158";
+          if (kind === "main") return masterColor();
+          if (kind === "send") return sendColor();
+          if (kind === "output") return extOutColor();
           return "#6b7280";
         }}
       />

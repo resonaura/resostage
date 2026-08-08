@@ -1,3 +1,5 @@
+import { resolveCssVar } from "../../lib/cssColor";
+
 export const SIDEBAR_WIDTH = 240;
 export const EVENT_LANE_HEIGHT = 24;
 export const SECTION_LANE_HEIGHT = 22;
@@ -20,7 +22,10 @@ export const SECTION_PRESETS = [
 export const MIN_PX_PER_SEC = 0.25; // allow zoom-out until whole set fits (no H-scroll)
 export const MAX_PX_PER_SEC = 400;
 
-export const TRACK_COLORS = [
+export const TRACK_COLOR_COUNT = 12;
+
+/** Fallback hexes if theme.css has not loaded yet (SSR / first paint). */
+const TRACK_COLOR_FALLBACKS = [
   "#0091ff",
   "#30d158",
   "#ff9230",
@@ -35,14 +40,37 @@ export const TRACK_COLORS = [
   "#b78a66",
 ];
 
+/**
+ * Resolved `#rrggbb` for an audio track palette slot.
+ * Reads `--track-color-N` from theme.css so themes can recolour freely.
+ * Returns concrete hex (not `var(...)`) so canvas, dimHexColor, and
+ * `${color}55` alpha suffixes all keep working.
+ */
+export function getTrackColor(index: number): string {
+  const i =
+    ((index % TRACK_COLOR_COUNT) + TRACK_COLOR_COUNT) % TRACK_COLOR_COUNT;
+  return resolveCssVar(`--track-color-${i}`, TRACK_COLOR_FALLBACKS[i]);
+}
+
 /** Edge hit zone width (fade / trim / loop / duration). */
 export const EDGE_PX = 12;
 
-export const EVENT_COLORS: Record<string, string> = {
-  programChange: "#30d158",
-  noteOn: "#30d158",
-  noteOff: "#30d158",
-  cc: "#0091ff",
-  http: "#ff9230",
-  dmx: "#db34f2",
-};
+const EVENT_COLOR_VARS: Record<string, { varName: string; fallback: string }> =
+  {
+    programChange: {
+      varName: "--event-color-program-change",
+      fallback: "#30d158",
+    },
+    noteOn: { varName: "--event-color-note-on", fallback: "#30d158" },
+    noteOff: { varName: "--event-color-note-off", fallback: "#30d158" },
+    cc: { varName: "--event-color-cc", fallback: "#0091ff" },
+    http: { varName: "--event-color-http", fallback: "#ff9230" },
+    dmx: { varName: "--event-color-dmx", fallback: "#db34f2" },
+  };
+
+/** Resolved event-marker colour by event type. */
+export function getEventColor(type: string): string {
+  const entry = EVENT_COLOR_VARS[type];
+  if (!entry) return "#8e8e93";
+  return resolveCssVar(entry.varName, entry.fallback);
+}

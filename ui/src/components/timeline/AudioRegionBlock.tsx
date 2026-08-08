@@ -1,9 +1,9 @@
-import type { PeakLevelData } from "../../lib/types";
-import type { RegionRow } from "../../lib/types";
-import { isCompactLane, laneHeightPx } from "./laneDimensions";
+import { withHexAlpha } from "../../lib/cssColor";
+import type { PeakLevelData, RegionRow } from "../../lib/types";
 import { TrackWaveformLane } from "../TrackWaveformLane";
 import { dimHexColor } from "./colors";
 import { FadeCurveOverlay } from "./FadeCurveOverlay";
+import { isCompactLane, laneHeightPx } from "./laneDimensions";
 import type { RegionDragMode, RegionGeom } from "./regionDrag";
 import { regionEdgeCursor, regionEdgeMode } from "./regionDrag";
 import type { RegionSelKey, RegionUiState } from "./regionUtils";
@@ -120,7 +120,7 @@ export function AudioRegionBlock({
               : `1px solid ${dimHexColor(rowColor, regionUi.muted ? 0.52 : 0.68, 1.2)}`
             : isRegionSelected
               ? `2px solid ${rowColor}`
-              : `1.5px solid ${rowColor}55`,
+              : `1.5px solid ${withHexAlpha(rowColor, "55")}`,
           background: compactLane
             ? dimHexColor(
                 rowColor,
@@ -128,11 +128,11 @@ export function AudioRegionBlock({
                 regionUi.muted ? 1.05 : 1.22,
               )
             : isRegionSelected
-              ? `${rowColor}30`
-              : `${rowColor}12`,
+              ? withHexAlpha(rowColor, "30")
+              : withHexAlpha(rowColor, "12"),
           boxShadow:
             isRegionSelected && !compactLane
-              ? `0 0 0 1px ${rowColor}aa, 0 0 10px ${rowColor}44`
+              ? `0 0 0 1px ${withHexAlpha(rowColor, "aa")}, 0 0 10px ${withHexAlpha(rowColor, "44")}`
               : isRegionSelected && compactLane
                 ? "0 0 0 1px rgba(255,255,255,0.5)"
                 : undefined,
@@ -294,5 +294,3 @@ export function AudioRegionBlock({
     </div>
   );
 }
-
-

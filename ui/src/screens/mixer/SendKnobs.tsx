@@ -12,6 +12,7 @@ import {
   type BusRow,
   type ClickSendRow,
 } from "../../lib/types";
+import { sendColor } from "./constants";
 
 type SendMenu = {
   x: number;
@@ -65,7 +66,9 @@ export function SendKnobs({
       {auxBusses.map((bus) => {
         const existing = sends.find((s) => s.busId === bus.id);
         const value =
-          existing !== undefined ? sendLevelToDb(existing.level) : SEND_FLOOR_DB;
+          existing !== undefined
+            ? sendLevelToDb(existing.level)
+            : SEND_FLOOR_DB;
         // A send that was never created reads as enabled: the knob is at the
         // floor, so there is nothing to grey out yet.
         const enabled = existing ? existing.enabled !== false : true;
@@ -101,7 +104,7 @@ export function SendKnobs({
               value={value}
               min={SEND_FLOOR_DB}
               max={SEND_CEILING_DB}
-              busColor="rgba(255,255,255,0.9)"
+              busColor={sendColor()}
               title={
                 enabled
                   ? `Send to ${label} (right-click for options)`

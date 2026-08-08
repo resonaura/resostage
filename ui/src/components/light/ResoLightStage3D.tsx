@@ -1,13 +1,14 @@
-import { Canvas, useThree } from "@react-three/fiber";
+import { Button } from "@heroui/react";
 import { Grid, OrbitControls, Text } from "@react-three/drei";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
 import { Maximize2, MoveUp } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import type { FixtureShape } from "../../lib/dmxProfiles";
 import { beginCancellableDrag } from "../../lib/dragCancel";
-import type { LightFixtureRow } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
 import type { LiveLedColor } from "../../lib/liveLevels";
-import type { FixtureShape } from "../../lib/dmxProfiles";
+import type { LightFixtureRow } from "../../lib/types";
 
 // One stage-grid cell is deliberately small enough for practical placement,
 // while still guaranteeing panels never slowly drift off the visual grid.
@@ -399,24 +400,24 @@ export function ResoLightStage3D({
       {/* 3D Controls overlay — hidden on compact player preview */}
       {!minimal && (
         <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
-          <button
-            type="button"
-            onClick={() => frameAllRef.current?.()}
-            className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-sm transition-colors hover:bg-default/90"
-            title="Frame all fixtures"
+          <Button
+            size="sm"
+            variant="secondary"
+            onPress={() => frameAllRef.current?.()}
+            aria-label="Frame all fixtures"
           >
-            <Maximize2 size={12} />
+            <Maximize2 size={14} />
             Frame All
-          </button>
-          <button
-            type="button"
-            onClick={() => topViewRef.current?.()}
-            className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/80 px-2.5 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-sm transition-colors hover:bg-default/90"
-            title="Top-down view"
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onPress={() => topViewRef.current?.()}
+            aria-label="Top-down view"
           >
-            <MoveUp size={12} />
+            <MoveUp size={14} />
             Top View
-          </button>
+          </Button>
         </div>
       )}
 

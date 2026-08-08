@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { fetchWaveformRaw } from "../lib/api";
+import { withHexAlpha } from "../lib/cssColor";
 import type { PeakLevelData } from "../lib/types";
 
 import { isCompactLane, laneHeightPx } from "./timeline/laneDimensions";
@@ -356,7 +357,7 @@ export function TrackWaveformLane({
             top: "50%",
             height: 1,
             transform: "translateY(-50%)",
-            background: color + "55",
+            background: withHexAlpha(color, "55"),
           }}
         />
       ) : (

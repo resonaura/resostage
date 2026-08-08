@@ -1,3 +1,15 @@
+import { getTrackColor } from "../../components/timeline/constants";
+
+// Re-export mixer role colours so strip files can import from one place.
+export {
+  busCycleColor,
+  extOutColor,
+  masterColor,
+  metronomeColor,
+  monoOutColor,
+  sendColor,
+} from "../../lib/mixerColors";
+
 // Sentinel for the primary routing <select>: picking it reveals the channel
 // list in the secondary select (two-step Ext. Out UX).
 export const EXT_OUTPUT_VALUE = "__ext_output__";
@@ -15,23 +27,9 @@ export const ROUTING_SELECT_CLASS =
 export const ROUTING_SELECT_SPACER =
   "w-full box-border rounded border border-default/40 bg-background px-1 py-0.5 h-[22px]";
 
-export const TRACK_COLORS = [
-  "#0091ff",
-  "#30d158",
-  "#ff9230",
-  "#db34f2",
-  "#ff375f",
-  "#00d2e0",
-  "#ff4245",
-  "#6d7cff",
-  "#00dac3",
-  "#3cd3fe",
-  "#ffd600",
-  "#b78a66",
-];
-
+/** Track strip accent — resolved hex from theme.css `--track-color-N`. */
 export function colorForIndex(i: number): string {
-  return TRACK_COLORS[i % TRACK_COLORS.length];
+  return getTrackColor(i);
 }
 
 export const GAIN_MIN = -60;

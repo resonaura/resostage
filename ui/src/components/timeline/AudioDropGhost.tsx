@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { withHexAlpha } from "../../lib/cssColor";
 import { formatTimeShort } from "./geometry";
 
 // Visual ghost of an audio file being dragged over the timeline: "as if
@@ -74,7 +75,7 @@ export function AudioDropGhost({
       top.push([x, mid - Math.min(0.98, max[b]) * halfH]);
       bot.push([x, mid - Math.max(-0.98, min[b]) * halfH]);
     }
-    ctx.fillStyle = `${color}55`;
+    ctx.fillStyle = withHexAlpha(color, "55");
     ctx.beginPath();
     ctx.moveTo(top[0][0], top[0][1]);
     for (const [x, y] of top) ctx.lineTo(x, y);
@@ -109,7 +110,7 @@ export function AudioDropGhost({
         className="absolute top-1 bottom-1 left-0 right-0 overflow-hidden rounded-md"
         style={{
           border: `1.5px dashed ${color}`,
-          background: `${color}22`,
+          background: withHexAlpha(color, "22"),
           opacity: 0.85,
         }}
       >

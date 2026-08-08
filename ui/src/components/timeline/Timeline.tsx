@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { builder, transport } from "../../lib/api";
 import {
   beginCancellableDrag,
   type CancellableDrag,
 } from "../../lib/dragCancel";
-import { builder, transport } from "../../lib/api";
 import {
   useContinuousPlayhead,
   type CycleWrapRange,
@@ -14,30 +14,29 @@ import type {
   PeaksResponse,
   WebUiState,
 } from "../../lib/types";
+import { getLightColor } from "../light/lightColors";
+import type { LightSidePanelSelection } from "../light/LightSidePanel";
+import { LightSidePanel } from "../light/LightSidePanel";
+import type { CueSelKey, LightCueDragState } from "../light/LightTimeline";
 import {
   AudioHintStrip,
-  LightHintStrip,
   LIGHT_HINT_HEIGHT,
+  LightHintStrip,
 } from "../light/LightTimeline";
-import { LIGHT_COLORS } from "../light/lightColors";
-import type { CueSelKey, LightCueDragState } from "../light/LightTimeline";
-import { LightSidePanel } from "../light/LightSidePanel";
-import type { LightSidePanelSelection } from "../light/LightSidePanel";
-import { laneHeightPx } from "./laneDimensions";
-import { AudioTrackLanes } from "./AudioTrackLanes";
-import { AudioDropGhost } from "./AudioDropGhost";
 import {
   audioDragInfo,
   audioFileDropEvent,
   entryToFile,
   loadAudioPreview,
 } from "./audioDrop";
+import { AudioDropGhost } from "./AudioDropGhost";
+import { AudioTrackLanes } from "./AudioTrackLanes";
 import { BeatGrid } from "./BeatGrid";
 import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
 import {
+  deleteCues,
   duplicateCue,
   findCue,
-  deleteCues,
   offsetCuesToPlayhead,
   pasteCues,
   splitCueAtPlayhead,
@@ -45,7 +44,18 @@ import {
 } from "./cueEdit";
 import { EventMarkerLane } from "./EventMarkerLane";
 import { snapToGridSec } from "./geometry";
+import { laneHeightPx } from "./laneDimensions";
 import { LightTrackLanes } from "./LightTrackLanes";
+import {
+  marqueeHitCues,
+  marqueeHitRegions,
+  normalizeMarquee,
+  type MarqueeRect,
+} from "./marqueeSelect";
+import {
+  RegionContextMenu,
+  type RegionContextMenuState,
+} from "./RegionContextMenu";
 import {
   addRegionEntries,
   deleteSelectedRegions as deleteRegionsOp,
@@ -61,19 +71,9 @@ import {
   type RegionSelKey,
   type RegionUiState,
 } from "./regionUtils";
-import {
-  RegionContextMenu,
-  type RegionContextMenuState,
-} from "./RegionContextMenu";
-import {
-  marqueeHitCues,
-  marqueeHitRegions,
-  normalizeMarquee,
-  type MarqueeRect,
-} from "./marqueeSelect";
 import { buildRows } from "./rows";
-import { SelectionContextMenu } from "./SelectionContextMenu";
 import { SectionMarkerLane } from "./SectionMarkerLane";
+import { SelectionContextMenu } from "./SelectionContextMenu";
 import { SongRulerHeader } from "./SongRulerHeader";
 import { TimelineSidebar } from "./TimelineSidebar";
 import { TimelineToolbar } from "./TimelineToolbar";
@@ -867,8 +867,7 @@ export function Timeline({
     [state.lighting?.fixtures],
   );
   const lightEnabled = Boolean(state.lighting?.enabled);
-  const lightTrackColor = (index: number) =>
-    LIGHT_COLORS[Math.max(0, index) % LIGHT_COLORS.length];
+  const lightTrackColor = (index: number) => getLightColor(Math.max(0, index));
   const lightTrackColorForId = (trackId: string) =>
     lightTrackColor(lightTracks.findIndex((t) => t.id === trackId));
   const hasLightContent =

@@ -3,6 +3,7 @@ import { getLiveLevels } from "../../lib/liveLevels";
 import type { BusRow, MeterRow, SettingsState } from "../../lib/types";
 import { BusDestinationRouting } from "./BusDestinationRouting";
 import { ChannelStrip } from "./ChannelStrip";
+import { masterColor, sendColor } from "./constants";
 
 export function BusStrip({
   b,
@@ -22,7 +23,7 @@ export function BusStrip({
   anySoloInGroup?: boolean;
 }) {
   const meter = meters.find((m) => m.id === b.id);
-  const color = isMaster ? "#0091ff" : "#ff9230";
+  const color = isMaster ? masterColor() : sendColor();
   const peakDb = meter?.peakDb ?? b.peakDb;
   const peakDbL = meter?.peakDbL ?? b.peakDbL ?? peakDb;
   const peakDbR = meter?.peakDbR ?? b.peakDbR ?? peakDb;

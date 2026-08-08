@@ -1,5 +1,5 @@
 import type { SongRow, TrackRow } from "../../lib/types";
-import { TRACK_COLORS } from "./constants";
+import { getTrackColor } from "./constants";
 
 // One row per unique track NAME across the whole project (tracks belong to
 // individual songs in this schema, so "continuous" means aligning
@@ -28,7 +28,7 @@ export function buildRows(
     trackIdToRowName.set(t.id, name);
     rows.push({
       name,
-      color: TRACK_COLORS[i % TRACK_COLORS.length],
+      color: getTrackColor(i),
       headerIndex: i,
     });
   });
@@ -39,7 +39,7 @@ export function buildRows(
       seen.add(name);
       rows.push({
         name,
-        color: TRACK_COLORS[rows.length % TRACK_COLORS.length],
+        color: getTrackColor(rows.length),
         headerIndex: null,
       });
     }

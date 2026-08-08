@@ -1,13 +1,12 @@
-import { useMemo, useState } from "react";
-import { useFocusDraft, useNumberDraft } from "../../lib/optimistic";
+import { Button, ButtonGroup } from "@heroui/react";
 import {
   Circle,
   Copy,
   Disc3,
   Grid3x3,
   Lamp,
-  MoveHorizontal,
   Move3D,
+  MoveHorizontal,
   MoveVertical,
   Plus,
   Rows3,
@@ -16,32 +15,14 @@ import {
   TriangleAlert,
   Wand2,
 } from "lucide-react";
-import { lighting } from "../../lib/api";
-import type {
-  LightFixtureRow,
-  LightingState,
-  WebUiState,
-} from "../../lib/types";
-import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
+import { useMemo, useState } from "react";
 import { useLiveFixtureColor } from "../../hooks/useLiveFixtureColor";
-import {
-  EFFECT_META,
-  GRADIENT_META,
-  effectUsesOwnColor,
-  effectSupportsGradient,
-} from "./lightEffectMeta";
-import {
-  HslColorPicker,
-  LabeledSlider,
-  GradientStopEditor,
-  type EffectType,
-  type GradientPreset,
-} from "./LightSidePanel";
+import { lighting } from "../../lib/api";
 import {
   CHANNEL_PROFILES,
   DMX_GENERIC_SHAPES,
-  RESOLIGHT_COLOR_TYPE_META,
   RESOLIGHT_COLOR_TYPES,
+  RESOLIGHT_COLOR_TYPE_META,
   RESOLIGHT_SHAPES,
   SHAPE_META,
   channelRoleLabels,
@@ -50,6 +31,26 @@ import {
   type FixtureShape,
   type ResoLightColorType,
 } from "../../lib/dmxProfiles";
+import { useFocusDraft, useNumberDraft } from "../../lib/optimistic";
+import type {
+  LightFixtureRow,
+  LightingState,
+  WebUiState,
+} from "../../lib/types";
+import {
+  EFFECT_META,
+  GRADIENT_META,
+  effectSupportsGradient,
+  effectUsesOwnColor,
+} from "./lightEffectMeta";
+import {
+  GradientStopEditor,
+  HslColorPicker,
+  LabeledSlider,
+  type EffectType,
+  type GradientPreset,
+} from "./LightSidePanel";
+import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
 
 const SHAPE_ICON: Record<
   FixtureShape,
@@ -447,7 +448,9 @@ export function ProjectLightingPanel({
               >
                 <option value="none">Not set</option>
                 <option value="resolight">ResoLight (vertical LED bars)</option>
-                <option value="dmx::generic">Generic DMX / Art-Net / HTTP</option>
+                <option value="dmx::generic">
+                  Generic DMX / Art-Net / HTTP
+                </option>
               </select>
             </Field>
           </div>
@@ -580,11 +583,12 @@ export function ProjectLightingPanel({
                           );
                         })}
                       </div>
-                      {li.idle.effect.type && li.idle.effect.type !== "none" && (
-                        <div className="mt-1 text-[10px] text-foreground/40 italic">
-                          {EFFECT_META[idleEt]?.desc}
-                        </div>
-                      )}
+                      {li.idle.effect.type &&
+                        li.idle.effect.type !== "none" && (
+                          <div className="mt-1 text-[10px] text-foreground/40 italic">
+                            {EFFECT_META[idleEt]?.desc}
+                          </div>
+                        )}
                     </Field>
 
                     {li.idle.effect.type !== "none" && (
@@ -687,7 +691,10 @@ export function ProjectLightingPanel({
                   max={60}
                   onCommit={(v) =>
                     void lighting.setConfig({
-                      defaultRefreshRateHz: Math.min(60, Math.max(1, Math.round(v))),
+                      defaultRefreshRateHz: Math.min(
+                        60,
+                        Math.max(1, Math.round(v)),
+                      ),
                     })
                   }
                 />
@@ -740,7 +747,7 @@ export function ProjectLightingPanel({
                   {(li.discoveredBoards ?? []).map((b) => (
                     <div
                       key={b.mac}
-                      className="flex items-center gap-2 rounded-lg border border-default/30 bg-default/10 px-2.5 py-1.5 text-xs"
+                      className="flex items-center gap-2 rounded-lg border border-default/20 bg-default/5 px-2.5 py-1.5 text-xs"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
                       <span className="font-medium text-foreground/80 truncate">
@@ -778,10 +785,9 @@ export function ProjectLightingPanel({
               <div className="rounded-xl border border-default/30 bg-default/5 p-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <span className={labelCls}>Rig Layout</span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
+                  <ButtonGroup size="sm" variant="tertiary">
+                    <Button
+                      onPress={() => {
                         const positions = autoLayoutPositions(li.fixtures);
                         for (const p of positions) {
                           void lighting.fixtureUpdate({
@@ -791,24 +797,22 @@ export function ProjectLightingPanel({
                           });
                         }
                       }}
-                      className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/20 px-3 py-1 text-xs font-medium text-foreground/70 hover:bg-default/35 transition-colors"
-                      title="Evenly spread all fixtures in a horizontal line"
+                      aria-label="Evenly spread all fixtures in a horizontal line"
                     >
-                      <Wand2 size={12} />
+                      <Wand2 size={14} />
                       Auto-layout
-                    </button>
+                    </Button>
                     {li.kind === "dmx::generic" && (
-                      <button
-                        type="button"
-                        onClick={() => void lighting.fixtureAdd()}
-                        className="flex items-center gap-1.5 rounded-lg border border-default/50 bg-default/20 px-3 py-1 text-xs font-medium text-foreground/70 hover:bg-default/35 transition-colors"
-                        title="Add a new DMX fixture"
+                      <Button
+                        onPress={() => void lighting.fixtureAdd()}
+                        aria-label="Add a new DMX fixture"
                       >
-                        <Plus size={12} />
+                        <ButtonGroup.Separator />
+                        <Plus size={14} />
                         Add Fixture
-                      </button>
+                      </Button>
                     )}
-                  </div>
+                  </ButtonGroup>
                 </div>
                 {li.kind === "resolight" ? (
                   <div className="flex flex-wrap gap-3">
@@ -924,17 +928,17 @@ export function ProjectLightingPanel({
                     <span className="text-xs font-semibold text-foreground/70 uppercase tracking-wide">
                       Editing: {selected.name}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() =>
+                    <Button
+                      size="sm"
+                      variant="tertiary"
+                      onPress={() =>
                         void lighting.fixtureDuplicate(selected.id)
                       }
-                      className="flex items-center gap-1 rounded-lg border border-default/50 bg-default/20 px-2 py-1 text-[10px] font-medium text-foreground/70 hover:bg-default/35 transition-colors"
-                      title="Duplicate this fixture (same settings, offset position, next free DMX channels)"
+                      aria-label="Duplicate this fixture (same settings, offset position, next free DMX channels)"
                     >
-                      <Copy size={11} />
+                      <Copy size={14} />
                       Duplicate
-                    </button>
+                    </Button>
                   </div>
 
                   <div
@@ -1396,7 +1400,10 @@ export function ProjectLightingPanel({
                         onCommit={(v) =>
                           void lighting.fixtureUpdate({
                             fixtureId: selected.id,
-                            refreshRateHz: Math.min(60, Math.max(0, Math.round(v))),
+                            refreshRateHz: Math.min(
+                              60,
+                              Math.max(0, Math.round(v)),
+                            ),
                           })
                         }
                       />

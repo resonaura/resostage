@@ -1,5 +1,4 @@
 import { builder, mixer } from "../../lib/api";
-import { isMainBusId } from "./mixerIds";
 import { getClickPeaks } from "../../lib/liveLevels";
 import {
   outputSendsToClickRows,
@@ -7,6 +6,8 @@ import {
   type WebUiState,
 } from "../../lib/types";
 import { ChannelStrip } from "./ChannelStrip";
+import { metronomeColor } from "./constants";
+import { isMainBusId } from "./mixerIds";
 
 export function MetronomeStrip({
   state,
@@ -79,7 +80,7 @@ export function MetronomeStrip({
     <ChannelStrip
       name={clickName}
       subtitle="Metronome"
-      color="#ff9230"
+      color={metronomeColor()}
       busses={destinationBusses}
       busId={currentClickBus}
       onBusSelect={(busId) => patchClick({ clickBusId: busId })}
@@ -134,5 +135,3 @@ export function MetronomeStrip({
     />
   );
 }
-
-

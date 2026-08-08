@@ -1,14 +1,20 @@
+import { toHexColor } from "../../lib/cssColor";
+
 /**
  * Compact-lane fill: lower lightness of a hex color, optionally push
  * saturation. Done in HSL (no CSS filter) so hue is preserved.
  * `lightness` / `saturation` are multipliers on the source L / S channels.
+ *
+ * Accepts any CSS color (hex, rgb, theme-resolved hex). Non-hex input is
+ * normalised first so track palette CSS vars keep working after resolve.
  */
 export function dimHexColor(
   color: string,
   lightness: number,
   saturation = 1,
 ): string {
-  const m = color.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  const resolved = toHexColor(color, color);
+  const m = resolved.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
   if (!m) return color;
   let hex = m[1];
   if (hex.length === 3)

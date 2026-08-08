@@ -1,6 +1,11 @@
+import { resolveCssVar } from "../../lib/cssColor";
+
 // Distinct palette for light tracks so they read as a different layer from
-// the audio track colors (which cycle TRACK_COLORS). Warm/amber-heavy.
-export const LIGHT_COLORS = [
+// the audio track colors (which cycle getTrackColor). Warm/amber-heavy.
+// Source of truth: theme.css `--light-color-N`.
+export const LIGHT_COLOR_COUNT = 8;
+
+const LIGHT_COLOR_FALLBACKS = [
   "#ff9f0a",
   "#ffd60a",
   "#ff375f",
@@ -10,3 +15,13 @@ export const LIGHT_COLORS = [
   "#ff453a",
   "#00c7be",
 ];
+
+/**
+ * Resolved `#rrggbb` for a light-track palette slot.
+ * Concrete hex so canvas and alpha suffixes keep working.
+ */
+export function getLightColor(index: number): string {
+  const i =
+    ((index % LIGHT_COLOR_COUNT) + LIGHT_COLOR_COUNT) % LIGHT_COLOR_COUNT;
+  return resolveCssVar(`--light-color-${i}`, LIGHT_COLOR_FALLBACKS[i]);
+}

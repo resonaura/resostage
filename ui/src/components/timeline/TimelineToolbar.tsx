@@ -1,4 +1,12 @@
-import { Button, Slider } from "@heroui/react";
+import {
+  Button,
+  ButtonGroup,
+  Separator,
+  Slider,
+  ToggleButton,
+  ToggleButtonGroup,
+  Toolbar,
+} from "@heroui/react";
 import {
   AudioLines,
   Copy,
@@ -26,7 +34,6 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "../ContextMenu";
-import { ToggleButton } from "../daw";
 import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
 import { formatTimeShort } from "./geometry";
 import { TIMELINE_TOOLS, type TimelineTool } from "./tools";
@@ -127,71 +134,72 @@ export function TimelineToolbar({
       <div className="flex items-center gap-1 ml-auto h-7">
         {!readOnly && (
           <>
+            <ButtonGroup size="sm" variant="tertiary">
+              <Button
+                isIconOnly
+                aria-label={undoLabel ? `Undo: ${undoLabel} (⌘Z)` : "Undo (⌘Z)"}
+                isDisabled={!canUndo}
+                onPress={() => void timelineHistory.undo()}
+              >
+                <Undo2 size={13} />
+              </Button>
+              <Button
+                isIconOnly
+                aria-label={
+                  redoLabel ? `Redo: ${redoLabel} (⌘⇧Z)` : "Redo (⌘⇧Z)"
+                }
+                isDisabled={!canRedo}
+                onPress={() => void timelineHistory.redo()}
+              >
+                <ButtonGroup.Separator />
+                <Redo2 size={13} />
+              </Button>
+            </ButtonGroup>
+            <Separator orientation="vertical" />
+            <ButtonGroup size="sm" variant="tertiary">
+              <Button
+                isIconOnly
+                aria-label={
+                  light
+                    ? "Copy selected cue (⌘C)"
+                    : "Copy selected regions (⌘C)"
+                }
+                isDisabled={selectionEmpty}
+                onPress={onCopy}
+              >
+                <Copy size={13} />
+              </Button>
+              <Button
+                isIconOnly
+                aria-label={
+                  light
+                    ? "Delete selected cue (⌫)"
+                    : "Delete selected regions (⌫)"
+                }
+                isDisabled={selectionEmpty}
+                onPress={onDelete}
+              >
+                <ButtonGroup.Separator />
+                <Trash2 size={13} />
+              </Button>
+              <Button
+                isIconOnly
+                aria-label={
+                  light
+                    ? "Split selected cue at playhead (⌘T)"
+                    : "Trim/split selected regions at playhead (⌘T)"
+                }
+                isDisabled={selectionEmpty}
+                onPress={onSplit}
+              >
+                <ButtonGroup.Separator />
+                <Scissors size={13} />
+              </Button>
+            </ButtonGroup>
+            <Separator orientation="vertical" />
             <Button
               size="sm"
-              variant="outline"
-              isIconOnly
-              aria-label={undoLabel ? `Undo: ${undoLabel} (⌘Z)` : "Undo (⌘Z)"}
-              isDisabled={!canUndo}
-              onPress={() => void timelineHistory.undo()}
-            >
-              <Undo2 size={13} />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              isIconOnly
-              aria-label={redoLabel ? `Redo: ${redoLabel} (⌘⇧Z)` : "Redo (⌘⇧Z)"}
-              isDisabled={!canRedo}
-              onPress={() => void timelineHistory.redo()}
-            >
-              <Redo2 size={13} />
-            </Button>
-            <div className="w-px h-4 bg-default/30 mx-0.5" />
-            <Button
-              size="sm"
-              variant="outline"
-              isIconOnly
-              aria-label={
-                light ? "Copy selected cue (⌘C)" : "Copy selected regions (⌘C)"
-              }
-              isDisabled={selectionEmpty}
-              onPress={onCopy}
-            >
-              <Copy size={13} />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              isIconOnly
-              aria-label={
-                light
-                  ? "Delete selected cue (⌫)"
-                  : "Delete selected regions (⌫)"
-              }
-              isDisabled={selectionEmpty}
-              onPress={onDelete}
-            >
-              <Trash2 size={13} />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              isIconOnly
-              aria-label={
-                light
-                  ? "Split selected cue at playhead (⌘T)"
-                  : "Trim/split selected regions at playhead (⌘T)"
-              }
-              isDisabled={selectionEmpty}
-              onPress={onSplit}
-            >
-              <Scissors size={13} />
-            </Button>
-            <div className="w-px h-4 bg-default/30 mx-0.5" />
-            <Button
-              size="sm"
-              variant={snapToGrid ? "primary" : "outline"}
+              variant={snapToGrid ? "primary" : "tertiary"}
               isIconOnly
               aria-label={snapToGrid ? "Snap to grid: ON" : "Snap to grid: OFF"}
               onPress={() => setSnapToGrid((v) => !v)}
@@ -203,49 +211,66 @@ export function TimelineToolbar({
 
         {!readOnly && (
           <>
-            <div className="w-px h-4 bg-default/30 mx-0.5" />
-            <div className="flex items-center rounded-lg border border-default/40 bg-default/10 p-0.5">
-              <ToggleButton
-                active={effectiveViewMode === "audio"}
-                onClick={() => setViewMode("audio")}
-                className="h-auto px-2 py-1 text-[10px] font-semibold"
+            <Separator orientation="vertical" />
+            <Toolbar aria-label="View mode">
+              <ToggleButtonGroup
+                aria-label="Timeline view mode"
+                selectionMode="single"
+                disallowEmptySelection
+                selectedKeys={[effectiveViewMode]}
+                onSelectionChange={(keys) => {
+                  // keys это Set, берем первый элемент или Array.from(keys)
+                  const mode = Array.from(keys)[0] as TimelineViewMode;
+                  if (mode) setViewMode(mode);
+                }}
+                size="sm"
               >
-                <AudioLines size={11} /> Audio
-              </ToggleButton>
-              <ToggleButton
-                active={effectiveViewMode === "light"}
-                onClick={() => setViewMode("light")}
-                className="h-auto px-2 py-1 text-[10px] font-semibold"
-              >
-                <Lightbulb size={11} /> Light
-              </ToggleButton>
-            </div>
+                <ToggleButton id="audio">
+                  <AudioLines size={14} /> Audio
+                </ToggleButton>
+                <ToggleButton id="light">
+                  <ToggleButtonGroup.Separator />
+                  <Lightbulb size={14} /> Light
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Toolbar>
           </>
         )}
 
         {!readOnly && (
           <>
-            <div className="w-px h-4 bg-default/30 mx-0.5" />
-            <div className="flex items-center gap-0.5 rounded-lg border border-default/30 bg-default/10 p-0.5">
-              {TIMELINE_TOOLS.map((t) => (
-                <ToggleButton
-                  key={t.id}
-                  active={tool === t.id}
-                  onClick={() => setTool(t.id)}
-                  ariaLabel={`${t.label} (${t.shortcut}) — ${t.tip}`}
-                  className="h-6 w-6 px-0"
-                >
-                  {TOOL_ICONS[t.id]}
-                </ToggleButton>
-              ))}
-            </div>
+            <Separator orientation="vertical" />
+            <Toolbar aria-label="Timeline tools">
+              <ToggleButtonGroup
+                aria-label="Timeline editing tools"
+                selectionMode="single"
+                selectedKeys={[tool]}
+                onSelectionChange={(keys) => {
+                  const t = [...keys][0] as TimelineTool;
+                  if (t) setTool(t);
+                }}
+                size="sm"
+              >
+                {TIMELINE_TOOLS.map((t, idx) => (
+                  <ToggleButton
+                    key={t.id}
+                    id={t.id}
+                    isIconOnly
+                    aria-label={`${t.label} (${t.shortcut}) — ${t.tip}`}
+                  >
+                    {idx > 0 && <ToggleButtonGroup.Separator />}
+                    {TOOL_ICONS[t.id]}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            </Toolbar>
           </>
         )}
 
-        <div className="w-px h-4 bg-default/30 mx-0.5" />
+        <Separator orientation="vertical" />
         <Button
           size="sm"
-          variant={followMode === "off" ? "outline" : "primary"}
+          variant={followMode === "off" ? "tertiary" : "primary"}
           isIconOnly
           aria-label={
             followMode === "off"
@@ -332,21 +357,9 @@ export function TimelineToolbar({
               }}
               className="flex-1 min-w-0 -mt-1"
             >
-              <Slider.Track
-                style={{
-                  borderLeftColor: "var(--default)",
-                  background: "var(--background)",
-                }}
-              >
-                <Slider.Fill style={{ background: "var(--default)" }} />
-                <Slider.Thumb
-                  style={
-                    {
-                      boxSizing: "border-box",
-                      background: "var(--default)",
-                    } as React.CSSProperties
-                  }
-                />
+              <Slider.Track>
+                <Slider.Fill />
+                <Slider.Thumb />
               </Slider.Track>
             </Slider>
           </div>
@@ -366,21 +379,9 @@ export function TimelineToolbar({
               }}
               className="flex-1 min-w-0 -mt-1"
             >
-              <Slider.Track
-                style={{
-                  borderLeftColor: "var(--default)",
-                  background: "var(--background)",
-                }}
-              >
-                <Slider.Fill style={{ background: "var(--default)" }} />
-                <Slider.Thumb
-                  style={
-                    {
-                      boxSizing: "border-box",
-                      background: "var(--default)",
-                    } as React.CSSProperties
-                  }
-                />
+              <Slider.Track>
+                <Slider.Fill />
+                <Slider.Thumb />
               </Slider.Track>
             </Slider>
           </div>

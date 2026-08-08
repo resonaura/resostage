@@ -12,12 +12,12 @@ import {
   Square,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { FontIcon } from "../components/FontIcon";
 import {
   formatClockPrecise as formatTime,
   LevelMeterBar,
   VUMeter,
 } from "../components/daw";
+import { FontIcon } from "../components/FontIcon";
 import { ResoLightStage3D } from "../components/light/ResoLightStage3D";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
@@ -34,20 +34,13 @@ import {
   type WebUiState,
 } from "../lib/types";
 
-// One accent for every Direct Output lane (regardless of pairing), so the
-// device outputs read as a single family in the preview.
-const DIRECT_OUT_COLOR = "#7c3aed";
-/** TRACK_COLORS[1] -- the same green the timeline uses. A lone output lane is
- *  a mono feed (a wedge, a sub, a mono IEM), and telling that apart from a
- *  stereo pair at a glance matters more on the player than colour variety. */
-const MONO_OUT_COLOR = "#30d158";
-const BUS_ACCENT_CYCLE = [
-  "#30d158",
-  "#ff9230",
-  "#db34f2",
-  "#00d2e0",
-  "#ffd600",
-];
+import {
+  busCycleColor,
+  extOutColor,
+  masterColor,
+  monoOutColor,
+  sendColor,
+} from "../lib/mixerColors";
 
 /** "audio::out:3" or "direct:3" -> 3; anything else -> null. */
 function laneNumber(id: string): number | null {
@@ -139,10 +132,10 @@ function busMeterGroups(
       m.id === "main" ||
       m.id === "master";
     const accent = isMaster
-      ? "#0091ff"
+      ? masterColor()
       : busObj?.isAux
-        ? "#ff9230"
-        : BUS_ACCENT_CYCLE[auxIdx++ % BUS_ACCENT_CYCLE.length];
+        ? sendColor()
+        : busCycleColor(auxIdx++);
     groups.push({
       id: m.id,
       name: busObj?.name || (m.id === "main" ? "Main" : m.id),
@@ -168,7 +161,7 @@ function busMeterGroups(
       groups.push({
         id: `out:${laneA}/${laneB}`,
         name: `Out ${laneA}/${laneB}`,
-        accent: DIRECT_OUT_COLOR,
+        accent: extOutColor(),
         meters: [a, b],
       });
       i += 2;
@@ -176,7 +169,7 @@ function busMeterGroups(
       groups.push({
         id: `out:${laneA}`,
         name: `Out ${laneA}`,
-        accent: MONO_OUT_COLOR,
+        accent: monoOutColor(),
         meters: [a],
       });
       i += 1;
@@ -286,7 +279,7 @@ function SystemHealthWidget({
       {/* Graph 1: CPU (Accent Color #0091ff) */}
       <Sparkline
         history={cpuHistory}
-        color="var(--accent, #0091ff)"
+        color="var(--accent)"
         gradientId="cpuGrad"
         label="CPU"
         valueText={`${cpuVal.toFixed(1)}%`}
@@ -296,7 +289,7 @@ function SystemHealthWidget({
       {/* Graph 2: RAM (Purple Color #a855f7) */}
       <Sparkline
         history={ramHistory}
-        color="#a855f7"
+        color="var(--accent)"
         gradientId="ramGrad"
         label="RAM"
         valueText={`${ramVal.toFixed(0)} MB`}
@@ -1087,7 +1080,7 @@ export function PlayerScreen({
                       <span
                         className={`h-1.5 w-1.5 shrink-0 rounded-full transition-all ${
                           isActive && state.playing
-                            ? "animate-pulse scale-125 bg-success shadow-[0_0_4px_#30d158]"
+                            ? "animate-pulse scale-125 bg-success shadow-[0_0_4px_var(--player-active-glow)]"
                             : isActive
                               ? "bg-accent"
                               : "bg-foreground/12"

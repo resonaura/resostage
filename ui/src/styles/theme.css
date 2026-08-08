@@ -63,6 +63,7 @@
   color-scheme: dark;
   /* Theme Colors (Dark Mode) */
   --accent: oklch(94.48% 0.0021 279.31);
+  --accent-soft: color-mix(in oklab, var(--accent) 20%, transparent) !important;
   --accent-foreground: oklch(15% 0.0004 279.31);
   --background: oklch(12% 0.0045 279.31);
   --border: oklch(28% 0.0045 279.31);
@@ -100,7 +101,11 @@
    equivalent. Meter *fill* colours deliberately stay in TypeScript
    (components/daw/LevelMeterBar.tsx exports CLIP_COLOR / CLIP_GLOW): the
    meters paint to canvas, and canvas cannot resolve var(), so restating them
-   here would create a second source of truth that drifts silently. */
+   here would create a second source of truth that drifts silently.
+
+   Track / light / event palettes below ARE themable here. TypeScript reads
+   them via resolveCssVar() (lib/cssColor.ts) into concrete #rrggbb so canvas
+   painting and hex-alpha suffixes keep working. */
 :root,
 .dark,
 [data-theme="dark"] {
@@ -121,4 +126,63 @@
      stay findable across a window full of saturated regions, and it is the
      one element allowed to be pure white. */
   --daw-playhead: oklch(1 0 0);
+
+  /* Track color palette — cycles through these for audio tracks. Cool/blue-heavy
+     to contrast with warm light-track palette. */
+  --track-color-0: #0091ff;
+  --track-color-1: #30d158;
+  --track-color-2: #ff9230;
+  --track-color-3: #db34f2;
+  --track-color-4: #ff375f;
+  --track-color-5: #00d2e0;
+  --track-color-6: #ff4245;
+  --track-color-7: #6d7cff;
+  --track-color-8: #00dac3;
+  --track-color-9: #3cd3fe;
+  --track-color-10: #ffd600;
+  --track-color-11: #b78a66;
+
+  /* Light track color palette — warm/amber-heavy to visually separate from
+     audio tracks. */
+  --light-color-0: #ff9f0a;
+  --light-color-1: #ffd60a;
+  --light-color-2: #ff375f;
+  --light-color-3: #bf5af2;
+  --light-color-4: #64d2ff;
+  --light-color-5: #30d158;
+  --light-color-6: #ff453a;
+  --light-color-7: #00c7be;
+
+  /* Event marker colors by type */
+  --event-color-program-change: #30d158;
+  --event-color-note-on: #30d158;
+  --event-color-note-off: #30d158;
+  --event-color-cc: #0091ff;
+  --event-color-http: #ff9230;
+  --event-color-dmx: #db34f2;
+
+  /* Mixer / bus role colours — master, aux sends, metronome, Ext. Out.
+     Distinct from the per-track palette so strips and meters always read as
+     roles, not as "track #N". TypeScript resolves via lib/mixerColors.ts. */
+  --mixer-master: #0091ff;
+  --mixer-send: #ff9230;
+  --mixer-metronome: #ff9230;
+  --mixer-ext-out: #7c3aed;
+  --mixer-mono-out: #30d158;
+  /* Extra non-aux bus accents on the player meters panel (cycles). */
+  --mixer-bus-0: #30d158;
+  --mixer-bus-1: #ff9230;
+  --mixer-bus-2: #db34f2;
+  --mixer-bus-3: #00d2e0;
+  --mixer-bus-4: #ffd600;
+
+  /* Player-screen aliases (same tokens, stable names for that surface). */
+  --player-direct-out: var(--mixer-ext-out);
+  --player-mono-out: var(--mixer-mono-out);
+  --player-bus-0: var(--mixer-bus-0);
+  --player-bus-1: var(--mixer-bus-1);
+  --player-bus-2: var(--mixer-bus-2);
+  --player-bus-3: var(--mixer-bus-3);
+  --player-bus-4: var(--mixer-bus-4);
+  --player-active-glow: var(--mixer-mono-out);
 }

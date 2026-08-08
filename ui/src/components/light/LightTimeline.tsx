@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { lighting } from "../../lib/api";
+import { withHexAlpha } from "../../lib/cssColor";
 import {
   beginCancellableDrag,
   type CancellableDrag,
@@ -16,16 +17,16 @@ import type {
   WebUiState,
 } from "../../lib/types";
 import { ContextMenu, ContextMenuItem } from "../ContextMenu";
+import { splitCueAtPlayhead } from "../timeline/cueEdit";
 import {
   COMPACT_LANE_MAX_PX,
   LANE_HEIGHT,
   laneHeightPx,
 } from "../timeline/laneDimensions";
-import { TrackWaveformLane } from "../TrackWaveformLane";
-import { splitCueAtPlayhead } from "../timeline/cueEdit";
 import { buildSongPeakLookup } from "../timeline/regionPeaks";
 import { toolCursor, type TimelineTool } from "../timeline/tools";
-import { effectUsesOwnColor, EFFECT_META } from "./lightEffectMeta";
+import { TrackWaveformLane } from "../TrackWaveformLane";
+import { EFFECT_META, effectUsesOwnColor } from "./lightEffectMeta";
 import type { EffectType } from "./LightSidePanel";
 
 // Fixed heights for the cross-mode hint strips (one strip per mode, the
@@ -90,7 +91,7 @@ function lightCueSelectionStyle(
   if (!selected) return { border: "none" };
   return {
     border: `1.5px solid ${accentColor}`,
-    boxShadow: `0 0 0 1px ${accentColor}aa, 0 0 8px ${accentColor}44`,
+    boxShadow: `0 0 0 1px ${withHexAlpha(accentColor, "aa")}, 0 0 8px ${withHexAlpha(accentColor, "44")}`,
   };
 }
 
