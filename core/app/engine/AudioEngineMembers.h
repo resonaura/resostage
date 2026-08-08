@@ -2,6 +2,15 @@
 // Included only from AudioEngine.h inside `class AudioEngine { private: ... }`.
 // Not a standalone header — no includes, no namespace, no class wrapper.
 
+#ifndef RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
+// Opened on its own (an editor, a grep-and-jump, clangd indexing a header):
+// this file is a fragment of AudioEngine's class body, not a translation unit,
+// so parsing it from line 1 is meaningless. Pull in the real header instead --
+// it defines the guard below and re-includes this file in its proper place, so
+// the editor still gets a full, correct AST for everything written here.
+#include "AudioEngine.h"
+#else
+
     juce::AudioDeviceManager deviceManagerInstance;
 
     ProjectLoader loader;
@@ -356,3 +365,5 @@
     void checkForDeviceLoss();
     std::atomic<bool> isChangingSetup{false};
     std::string lastKnownDeviceName;
+
+#endif // RESOSTAGE_INSIDE_AUDIOENGINE_CLASS

@@ -2,6 +2,15 @@
 // Included only from AudioEngine.h inside `class AudioEngine { public: ... }`.
 // Implementation: AudioEngineRouting.cpp.
 
+#ifndef RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
+// Opened on its own (an editor, a grep-and-jump, clangd indexing a header):
+// this file is a fragment of AudioEngine's class body, not a translation unit,
+// so parsing it from line 1 is meaningless. Pull in the real header instead --
+// it defines the guard below and re-includes this file in its proper place, so
+// the editor still gets a full, correct AST for everything written here.
+#include "AudioEngine.h"
+#else
+
     // Aux-send matrix API (message thread). Takes an explicit songIndex --
     // NOT tied to whichever song happens to be staged/playing -- so editing
     // a song in the Builder can never corrupt a *different*, currently
@@ -126,3 +135,5 @@
     // sendContinue=true also emits 0xFB (seek/resume); false is tempo+SPP only
     // (gapless hop -- clock already running).
     void syncMidiTransportToCurrentSong(bool sendContinue = false);
+
+#endif // RESOSTAGE_INSIDE_AUDIOENGINE_CLASS

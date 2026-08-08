@@ -124,10 +124,16 @@ public:
         lightEngine.setBpm(bpm);
     }
 
+// The four public-API fragments and the private-members one below are class
+// body text, not headers. The guard is what lets an editor open one of them
+// directly and still get a real AST: on its own each file sees the guard
+// undefined and pulls this header in, which then includes it here, in context.
+#define RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
 #include "AudioEngineProjectApi.h"
 #include "AudioEngineTransportApi.h"
 #include "AudioEngineRoutingApi.h"
 #include "AudioEnginePeaksApi.h"
+#undef RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
 
     // Safe wrapper around AudioDeviceManager::initialiseWithDefaultDevices and setAudioDeviceSetup
     // that suppresses false-positive hardwareAlarm triggers during intentional device re-configuration.
@@ -204,7 +210,9 @@ public:
     void audioDeviceStopped() override;
 
 private:
+#define RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
 #include "AudioEngineMembers.h"
+#undef RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
 };
 
 } // namespace resostage

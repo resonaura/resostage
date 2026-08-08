@@ -2,6 +2,15 @@
 // Included only from AudioEngine.h inside `class AudioEngine { public: ... }`.
 // Implementation: AudioEngineTransport.cpp (plus timeline helpers in AudioEngine.cpp).
 
+#ifndef RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
+// Opened on its own (an editor, a grep-and-jump, clangd indexing a header):
+// this file is a fragment of AudioEngine's class body, not a translation unit,
+// so parsing it from line 1 is meaningless. Pull in the real header instead --
+// it defines the guard below and re-includes this file in its proper place, so
+// the editor still gets a full, correct AST for everything written here.
+#include "AudioEngine.h"
+#else
+
     // Stages the given song's tracks for streaming and publishes its
     // routing. If already PLAYING, the new song starts immediately from 0
     // (transport stays live — setlist hop while playing). If stopped, only
@@ -113,3 +122,5 @@
     StreamingEngine::BufferHealth streamBufferHealth() const {
         return streaming.activeBufferHealth(currentSampleRate);
     }
+
+#endif // RESOSTAGE_INSIDE_AUDIOENGINE_CLASS

@@ -1,11 +1,48 @@
 # Overrides the repo-root .clangd for the firmware, which is a completely
-# different toolchain (xtensa/ESP-IDF via PlatformIO, Arduino framework) and is
-# not in the desktop build's compile database at all. Without this the root
-# config would point these files at core/build and clangd would fall back to
-# guessing -- no Arduino headers, no RESOLIGHT_* defines from the generated
+# different toolchain (xtensa-esp-elf-g++ via PlatformIO, Arduino framework)
+# and is not in the desktop build's compile database at all. Without this the
+# root config would point these files at core/build and clangd would fall back
+# to guessing -- no Arduino headers, no RESOLIGHT_* defines from the generated
 # BoardConfig.h.
 #
-# Regenerate after adding files or changing platformio.ini:
+# Regenerate the database after adding files or changing platformio.ini:
 #   pio run -e esp32 -t compiledb
 CompileFlags:
   CompilationDatabase: .
+
+  # The database records xtensa GCC's own command line, and clangd replays it
+  # with Apple clang, which rejects these outright and then gives up on the
+  # file entirely. They are GCC-only spellings or xtensa codegen switches; none
+  # of them affects whether the code parses.
+  Remove:
+    - -mlongcalls
+    - -mdisable-hardware-atomics
+    - -mtext-section-literals
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+    - -freorder-blocks
+    - -fno-shrink-wrap
+    - -mfix-esp32-psram-cache-issue
+    - -mfix-esp32-psram-cache-strategy=*
+
+  Add:
+    - -Wno-unknown-warning-option
+    - -Wno-unused-command-line-argument
+
+# KNOWN LIMITATION: a few diagnostics remain in src/main.cpp, all downstream of
+# ESP-IDF's headers not resolving under a host compiler -- <sys/reent.h> is
+# newlib's, and esp_cpu.h/spinlock.h branch on __XTENSA__ vs __riscv, neither
+# of which Apple clang defines.
+#
+# Every attempt to paper over that just trades one error class for another,
+# which is why none of them is in this file: adding the toolchain's newlib
+# include path fixes reent.h and then breaks libc++'s <ctype.h> ordering;
+# defining __XTENSA__ fixes the arch branch and brings reent.h straight back.
+# (It would also hardcode this machine's home directory.) Apple clang cannot be
+# made to model an xtensa ESP-IDF build.
+#
+# The real fix, if firmware IntelliSense ever matters enough, is to generate the
+# database with an LLVM-based ESP toolchain (PlatformIO's toolchain-esp-clang)
+# so clangd replays flags from a compiler of its own family. Until then
+# `pio run -e esp32` is the authoritative check here -- it takes ~10 s and it is
+# what actually ships.

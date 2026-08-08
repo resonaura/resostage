@@ -2,6 +2,15 @@
 // Included only from AudioEngine.h inside `class AudioEngine { public: ... }`.
 // Implementation: AudioEnginePeaks.cpp.
 
+#ifndef RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
+// Opened on its own (an editor, a grep-and-jump, clangd indexing a header):
+// this file is a fragment of AudioEngine's class body, not a translation unit,
+// so parsing it from line 1 is meaningless. Pull in the real header instead --
+// it defines the guard below and re-includes this file in its proper place, so
+// the editor still gets a full, correct AST for everything written here.
+#include "AudioEngine.h"
+#else
+
     // Peak overview for timeline waveform (empty if not yet built / failed).
     const PeakOverview* trackPeaksAt(size_t index) const;
 
@@ -29,3 +38,5 @@
     int activePeakBuildCount() const {
         return activePeakBuilds.load(std::memory_order_acquire);
     }
+
+#endif // RESOSTAGE_INSIDE_AUDIOENGINE_CLASS

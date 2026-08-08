@@ -2,6 +2,15 @@
 // Included only from AudioEngine.h inside `class AudioEngine { public: ... }`.
 // Implementation: AudioEngineProject.cpp, AudioEngineImport.cpp.
 
+#ifndef RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
+// Opened on its own (an editor, a grep-and-jump, clangd indexing a header):
+// this file is a fragment of AudioEngine's class body, not a translation unit,
+// so parsing it from line 1 is meaningless. Pull in the real header instead --
+// it defines the guard below and re-includes this file in its proper place, so
+// the editor still gets a full, correct AST for everything written here.
+#include "AudioEngine.h"
+#else
+
     // Loads a .rsnraset and its global bus list, and (re)starts the
     // background streaming I/O thread against it. Does not stage any song's
     // tracks yet -- call selectSong() next. Returns false + fills `error` on failure.
@@ -108,3 +117,5 @@
         return busyImporting.load(std::memory_order_acquire)
                || busySaving.load(std::memory_order_acquire);
     }
+
+#endif // RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
