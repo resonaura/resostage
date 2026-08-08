@@ -210,9 +210,50 @@ function backendPort(): number {
 
 const PORT = backendPort();
 const BACKEND = `http://localhost:${PORT}`;
-// Vite dev server first (live HMR while iterating), embedded assets fallback.
-const DEV_URL = "http://localhost:2900/?embedded=1";
+// Must match ui/vite.config.ts's DEV_PORT.
+const DEV_PORT = 2900;
+const DEV_URL = `http://localhost:${DEV_PORT}/?embedded=1`;
 const EMBED_URL = `${BACKEND}/?embedded=1`;
+
+// How hard to look for a Vite dev server before falling back to the UI build
+// embedded in the app bundle.
+//
+//   "off"   never look -- what a show machine or a shipped build wants.
+//   "probe" one fast check (default). Nothing listening on a local port is
+//           refused immediately, so this costs well under a millisecond and
+//           the app starts on the embedded build with no delay and no flash of
+//           a failed load. `pnpm ui:dev` already running -> HMR, as before.
+//   "wait"  poll for a few seconds, so `pnpm ui:dev` and the app can be
+//           started in either order.
+//
+// Deliberately NOT keyed on app.isPackaged: the normal dev loop here is
+// `pnpm rebuild:run`, which builds and launches the real .app bundle -- that
+// IS packaged, and keying off it would silently kill HMR in the one workflow
+// this is meant to serve.
+const DEV_UI: "off" | "probe" | "wait" = (() => {
+  const forced = process.env.RESOSTAGE_UI_DEV;
+  if (forced === "0" || forced === "false" || forced === "off") return "off";
+  if (forced === "wait") return "wait";
+  return "probe";
+})();
+
+/** True once the Vite dev server answers; gives up after `budgetMs`. */
+async function findDevServer(budgetMs: number): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    try {
+      const res = await fetch(DEV_URL, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(500),
+      });
+      if (res.ok || res.status === 404) return true; // answering at all is enough
+    } catch {
+      /* refused or timed out */
+    }
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
 
 // Standalone launch (double-clicked ResoStage.app directly -- no
 // --backend-port arg, which only the JUCE-spawned dev flow passes): we own
@@ -765,13 +806,20 @@ function createWindow(): void {
     /* ignore */
   }
 
+  // Only a MAIN-FRAME failure is worth falling back for, and only once. This
+  // used to fire for any failed load in the page -- a missing favicon, an
+  // aborted fetch, a navigation the user cancelled -- and yank the whole
+  // window over to the embedded build mid-session.
   let triedEmbed = false;
-  mainWindow.webContents.on("did-fail-load", () => {
-    if (!triedEmbed) {
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_e, errorCode, _desc, _url, isMainFrame) => {
+      // -3 is ERR_ABORTED: a load we superseded ourselves, not a failure.
+      if (!isMainFrame || errorCode === -3 || triedEmbed) return;
       triedEmbed = true;
       void mainWindow?.loadURL(EMBED_URL);
-    }
-  });
+    },
+  );
 
   // Window close button goes through the same unsaved-changes prompt as the
   // Quit menu item (POST /api/v1/action "quit"). Only hard-close when the
@@ -799,7 +847,24 @@ function createWindow(): void {
   mainWindow.on("show", () => recoverRenderer("show"));
   mainWindow.on("restore", () => recoverRenderer("restore"));
 
-  void mainWindow.loadURL(DEV_URL);
+  // Decide BEFORE loading rather than loading the dev URL and letting it fail:
+  // that failure was a visible flash of Chromium's error page on every launch
+  // without a dev server, and it burned a real navigation to discover
+  // something a refused connection answers instantly.
+  if (DEV_UI === "off") {
+    void mainWindow.loadURL(EMBED_URL);
+    return;
+  }
+  void findDevServer(DEV_UI === "wait" ? 10_000 : 0).then((up) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    console.log(
+      up
+        ? `[resostage] using the Vite dev server on :${DEV_PORT} (HMR live)`
+        : `[resostage] no dev server on :${DEV_PORT} -- using the embedded UI build` +
+            ` (RESOSTAGE_UI_DEV=wait to wait for one)`,
+    );
+    void mainWindow.loadURL(up ? DEV_URL : EMBED_URL);
+  });
 }
 
 ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {

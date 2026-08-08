@@ -876,6 +876,15 @@ public:
     // the same file" pattern AudioEngine's background peak builds use.
     void publishArchivePath(std::string path);
 
+    // Per-view connected-client census, maintained by the WS sessions. Used by
+    // publishState() to serialise ONLY the views somebody is actually looking
+    // at -- it used to build all five plus the REST snapshot on every tick
+    // regardless, which for one client on one tab is six payloads of wasted
+    // work per frame on the message thread.
+    enum class ViewSlot { Player = 0, Mixer, Editor, Settings, Light, Count };
+    void noteViewOpened(ViewSlot slot);
+    void noteViewClosed(ViewSlot slot);
+
 private:
     friend int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
     friend int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t len);
@@ -892,6 +901,7 @@ private:
     // one, so a client that already holds this generation has nothing to gain
     // from another write. See publishState().
     uint64_t frameGeneration() const;
+
     void enqueueCommand(WebCommand cmd);
     bool handleHttpApi(struct lws* wsi, const char* path, const char* method, const char* body, size_t bodyLen);
     int serveStatic(struct lws* wsi, const char* path);
@@ -933,12 +943,16 @@ private:
         std::shared_ptr<const std::string> editor;
         std::shared_ptr<const std::string> settings;
         std::shared_ptr<const std::string> light;
-        std::shared_ptr<const std::string> all; // REST full snapshot
+        // No `all` slot: GET /api/v1/state builds that live (see
+        // cachedFrameForView) so the periodic publish never serialises a
+        // whole-project snapshot nobody is streaming.
         std::shared_ptr<const std::vector<uint8_t>> binary; // High-frequency telemetry (binary)
         uint64_t generation = 0;
     };
     mutable std::mutex frameMutex;
     FrameCache frames;
+
+    std::atomic<int> viewClients_[static_cast<size_t>(ViewSlot::Count)]{};
 
     // SPA tab last reported by embedded/remote clients (message-thread read).
     // Empty until the first {"view":...} — do not default to "player" or the

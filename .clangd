@@ -1,0 +1,20 @@
+# clangd cannot find this project's compile database on its own.
+#
+# CMake writes compile_commands.json into core/build (CMAKE_EXPORT_COMPILE_COMMANDS
+# is ON in core/CMakeLists.txt), but clangd only looks in the directory of the
+# file being edited and its PARENTS. For core/app/engine/AudioEngine.cpp that is
+# core/app/engine → core/app → core → repo root -- and core/build is on none of
+# those paths. Without this file clangd falls back to guessing flags, which means
+# no JUCE include paths, no JUCE_* defines and no C++20 -- so every JUCE header
+# lights up with errors that do not exist in a real build.
+#
+# Path is relative to this file, so it works from any editor's working directory.
+CompileFlags:
+  CompilationDatabase: core/build
+
+Diagnostics:
+  # JUCE's modules are built as unity .cpp/.mm files; opening one of the headers
+  # they include directly makes clangd complain the header is never included
+  # anywhere it can see. That is a fact about the build shape, not a defect.
+  UnusedIncludes: None
+  MissingIncludes: None

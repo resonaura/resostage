@@ -31,10 +31,12 @@ namespace resostage {
 //   - start()/stop()                    -- call from any thread.
 //   - updateFixtureFrame()               -- call from LightEngine's
 //     real-time thread, every tick, only for fixtures with a configured
-//     host. Never touches libwebsockets directly (that would be unsafe --
-//     lws is only ever driven from its own service thread below); it just
-//     writes into a small per-fixture mutex-guarded slot. O(1) amortized,
-//     safe under a real-time deadline.
+//     host. Never touches libwebsockets (that would be unsafe -- lws is only
+//     ever driven from its own service thread below); it encodes the frame
+//     and hands it to a non-blocking UDP socket right there, which is what
+//     keeps light latency down to the engine tick. O(1), one syscall, and it
+//     cannot block: a full socket buffer drops the frame, which is the right
+//     answer for periodic full-state data.
 //   - syncActiveFixtures()               -- call from LightEngine's thread
 //     once per tick with the full current "should have a live connection"
 //     fixture set, independent of which fixtures actually resolved a cue

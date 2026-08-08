@@ -72,6 +72,17 @@ struct WsSession {
     uint64_t lastSentGeneration = 0;
 };
 
+WebServer::ViewSlot slotForView(ClientView v) {
+    switch (v) {
+        case ClientView::Mixer: return WebServer::ViewSlot::Mixer;
+        case ClientView::Editor: return WebServer::ViewSlot::Editor;
+        case ClientView::Settings: return WebServer::ViewSlot::Settings;
+        case ClientView::Light: return WebServer::ViewSlot::Light;
+        case ClientView::Player: break;
+    }
+    return WebServer::ViewSlot::Player;
+}
+
 ClientView parseClientView(const std::string& s) {
     if (s == "mixer") return ClientView::Mixer;
     if (s == "editor" || s == "builder") return ClientView::Editor;
@@ -807,6 +818,7 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             pss->wsi = wsi;
             pss->writePending = false;
             pss->view = ClientView::Player;
+            server->noteViewOpened(WebServer::ViewSlot::Player);
             pss->periodUs = kTelemetryPeriodUs;
             pss->badStreak = 0;
             pss->goodStreak = 0;
@@ -822,8 +834,11 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
     }
 
     if (why == LWS_CALLBACK_CLOSED) {
-            if (server != nullptr)
+            if (server != nullptr) {
+                if (pss != nullptr)
+                    server->noteViewClosed(slotForView(pss->view));
                 server->onClientClosed();
+            }
             return 0;
     }
 
@@ -932,8 +947,14 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             if (findJsonField(msg, "\"view\"", viewRaw)
                 && viewRaw.size() >= 2 && viewRaw.front() == '"' && viewRaw.back() == '"') {
                 const std::string viewName = viewRaw.substr(1, viewRaw.size() - 2);
-                if (pss != nullptr)
-                    pss->view = parseClientView(viewName);
+                if (pss != nullptr) {
+                    const ClientView next = parseClientView(viewName);
+                    if (next != pss->view) {
+                        server->noteViewClosed(slotForView(pss->view));
+                        server->noteViewOpened(slotForView(next));
+                        pss->view = next;
+                    }
+                }
                 // Mirror into server so native UI (Touch Bar highlight) tracks
                 // the embedded SPA tab, not a hardcoded "player".
                 server->noteClientView(viewName);
@@ -1070,15 +1091,25 @@ void WebServer::publishState(const WebUiState& next) {
     // only does shared_ptr copies of these strings — rebuild cost no longer
     // scales with client count and no longer blocks lws_service.
     //
-    // Note: each buildStateJson re-copies `state` under the mutex; at 30 Hz
-    // with a single client that is still far cheaper than rebuilding per
-    // WS writable (the previous path).
-    auto player = std::make_shared<const std::string>(buildStateJson("player"));
-    auto mixer = std::make_shared<const std::string>(buildStateJson("mixer"));
-    auto editor = std::make_shared<const std::string>(buildStateJson("editor"));
-    auto settings = std::make_shared<const std::string>(buildStateJson("settings"));
-    auto light = std::make_shared<const std::string>(buildStateJson("light"));
-    auto all = std::make_shared<const std::string>(buildStateJson("all"));
+    // Serialise only what somebody is looking at. Every view used to be built
+    // on every tick -- five JSON payloads plus the full REST snapshot -- so a
+    // single client on a single tab paid six times over, on the message
+    // thread, at the telemetry rate. `all` is not built here at all any more:
+    // its only consumer is GET /api/v1/state, which already falls back to a
+    // live build when the cache is empty.
+    const auto watched = [this](ViewSlot slot) {
+        return viewClients_[static_cast<size_t>(slot)].load(std::memory_order_relaxed) > 0;
+    };
+    const auto buildIf = [this](bool wanted, const char* view) {
+        return wanted ? std::make_shared<const std::string>(buildStateJson(view))
+                      : std::shared_ptr<const std::string>{};
+    };
+
+    auto player = buildIf(watched(ViewSlot::Player), "player");
+    auto mixer = buildIf(watched(ViewSlot::Mixer), "mixer");
+    auto editor = buildIf(watched(ViewSlot::Editor), "editor");
+    auto settings = buildIf(watched(ViewSlot::Settings), "settings");
+    auto light = buildIf(watched(ViewSlot::Light), "light");
     auto binary = std::make_shared<const std::vector<uint8_t>>(buildBinaryTelemetryFrame(next));
 
     {
@@ -1096,31 +1127,42 @@ void WebServer::publishState(const WebUiState& next) {
         // SystemHealth::sample). It is now frozen between 1 Hz samples, which
         // doubles as a natural keepalive -- an idle client still gets one
         // frame a second.
-        const auto same = [](const auto& a, const auto& b) {
-            return a != nullptr && b != nullptr && *a == *b;
+        // A view nobody is watching was not rebuilt; it keeps whatever it had
+        // and counts as unchanged, so an unwatched tab can never by itself
+        // force a generation bump and defeat the skip.
+        bool changed = false;
+        const auto adopt = [&changed](std::shared_ptr<const std::string>& cached,
+                                      std::shared_ptr<const std::string>& fresh) {
+            if (fresh == nullptr)
+                return;
+            if (cached == nullptr || *cached != *fresh) {
+                cached = std::move(fresh);
+                changed = true;
+            }
         };
-        const bool unchanged = same(frames.player, player) && same(frames.mixer, mixer)
-                               && same(frames.editor, editor) && same(frames.settings, settings)
-                               && same(frames.light, light) && same(frames.all, all)
-                               && same(frames.binary, binary);
-        if (unchanged)
-            return;
+        adopt(frames.player, player);
+        adopt(frames.mixer, mixer);
+        adopt(frames.editor, editor);
+        adopt(frames.settings, settings);
+        adopt(frames.light, light);
 
-        frames.player = std::move(player);
-        frames.mixer = std::move(mixer);
-        frames.editor = std::move(editor);
-        frames.settings = std::move(settings);
-        frames.light = std::move(light);
-        frames.all = std::move(all);
-        frames.binary = std::move(binary);
-        ++frames.generation;
+        if (frames.binary == nullptr || *frames.binary != *binary) {
+            frames.binary = std::move(binary);
+            changed = true;
+        }
+
+        if (changed)
+            ++frames.generation;
     }
 }
 
 std::shared_ptr<const std::string> WebServer::cachedFrameForView(const char* view) const {
     std::lock_guard<std::mutex> lock(frameMutex);
+    // "all" is never cached: its only consumer is GET /api/v1/state, a
+    // low-frequency endpoint that builds it live rather than have the 30 Hz
+    // publish pay for a full snapshot nobody is streaming.
     if (view == nullptr || view[0] == '\0' || std::strcmp(view, "all") == 0)
-        return frames.all;
+        return {};
     if (std::strcmp(view, "mixer") == 0)
         return frames.mixer;
     if (std::strcmp(view, "editor") == 0 || std::strcmp(view, "builder") == 0)
@@ -1178,6 +1220,19 @@ std::string WebServer::lastClientView() const {
 
 void WebServer::onClientOpened() {
     clients.fetch_add(1, std::memory_order_relaxed);
+}
+
+void WebServer::noteViewOpened(ViewSlot slot) {
+    viewClients_[static_cast<size_t>(slot)].fetch_add(1, std::memory_order_relaxed);
+}
+
+void WebServer::noteViewClosed(ViewSlot slot) {
+    auto& counter = viewClients_[static_cast<size_t>(slot)];
+    int expected = counter.load(std::memory_order_relaxed);
+    while (expected > 0
+           && !counter.compare_exchange_weak(expected, expected - 1, std::memory_order_relaxed)) {
+        // retry
+    }
 }
 
 void WebServer::reportClientPeriodUs(int periodUs) {

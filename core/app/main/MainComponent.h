@@ -201,6 +201,30 @@ private:
     void settingsMidiLearnCancel();
     void settingsMidiClear(const std::string& json);
     void populateSettingsState(WebUiState::SettingsRow& out);
+    // Snapshot of everything in the settings payload that has to be asked of
+    // the OS -- audio device enumeration (a full CoreAudio HAL rescan) and the
+    // MIDI endpoint lists. Refreshed on a slow timer from
+    // populateSettingsState(), not per telemetry frame; see there for why.
+    struct HardwareSettingsCache {
+        std::vector<std::string> outputDevices;
+        std::string currentOutputDevice;
+        double sampleRate = 0.0;
+        int bufferSize = 0;
+        std::vector<double> availableSampleRates;
+        std::vector<int> availableBufferSizes;
+        std::vector<std::string> outputChannelNames;
+        std::vector<bool> activeOutputChannels;
+        std::vector<std::string> midiOutputs;
+        std::vector<std::string> midiInputs;
+        bool virtualMidiPortEnabled = false;
+    };
+    HardwareSettingsCache hardwareSettingsCache;
+    juce::uint32 hardwareSettingsCacheMs = 0;
+    void rescanHardwareSettings();
+    // Forces the next populateSettingsState() to re-ask the OS. Call after
+    // anything that deliberately changes the device/MIDI setup, so the UI does
+    // not wait out the slow refresh to show what the user just picked.
+    void invalidateHardwareSettingsCache();
     void handleMidiLearnMessage(MidiTriggerType type, int channel1to16, int number);
 
     void transportSeek(const std::string& json);

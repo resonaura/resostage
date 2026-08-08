@@ -44,8 +44,9 @@ inline constexpr uint16_t kDefaultLightUdpPort = 7863;
 
 // ---- Light frame: server -> board (lighting data) -------------------------
 //
-// Transport: UDP unicast, with the WebSocket kept as a fallback for boards
-// that have not reported a UDP port yet.
+// Transport: UDP unicast. The WebSocket connection still exists, but only to
+// hold the link up and carry the board's status heartbeat back -- light
+// frames never travel over it.
 //
 // Why not TCP/WebSocket for the frames themselves: this is periodic
 // full-state data at 60 Hz. Every frame supersedes the one before it, so a

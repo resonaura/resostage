@@ -1,0 +1,11 @@
+# Overrides the repo-root .clangd for the firmware, which is a completely
+# different toolchain (xtensa/ESP-IDF via PlatformIO, Arduino framework) and is
+# not in the desktop build's compile database at all. Without this the root
+# config would point these files at core/build and clangd would fall back to
+# guessing -- no Arduino headers, no RESOLIGHT_* defines from the generated
+# BoardConfig.h.
+#
+# Regenerate after adding files or changing platformio.ini:
+#   pio run -e esp32 -t compiledb
+CompileFlags:
+  CompilationDatabase: .
