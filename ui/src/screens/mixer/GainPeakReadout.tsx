@@ -1,4 +1,4 @@
-import { CLIP_COLOR, CLIP_GLOW } from "../../components/LevelMeterBar";
+import { CLIP_COLOR, CLIP_GLOW } from "../../components/daw";
 
 function formatDbReadout(v: number): string {
   if (!Number.isFinite(v) || v <= -100) return "-inf";

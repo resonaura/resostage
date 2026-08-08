@@ -1,32 +1,16 @@
 import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
-import { useState } from "react";
 import { transport } from "../lib/api";
 import type { WebUiState } from "../lib/types";
-
-function formatTime(sec: number): string {
-  if (!Number.isFinite(sec) || sec < 0) sec = 0;
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  const f = Math.floor((sec % 1) * 10);
-  return `${m}:${s < 10 ? "0" : ""}${s}.${f}`;
-}
-
-function barBeat(seconds: number, bpm: number, tsNum: number): string {
-  if (bpm <= 0 || seconds < 0) return "—";
-  const beatsPerBar = Math.max(1, tsNum);
-  const totalBeats = seconds / (60 / bpm);
-  const bar = Math.floor(totalBeats / beatsPerBar) + 1;
-  const beat = (Math.floor(totalBeats) % beatsPerBar) + 1;
-  return `${bar} | ${beat}`;
-}
+import { IconButton, TimeDisplay } from "./daw";
 
 /**
- * Compact transport for the app header (non-Player tabs). Fixed-width
- * time chip (click toggles time ↔ bar|beat), song+BPM, transport buttons.
- * Parent owns center placement + show/hide fade.
+ * Compact transport for the app header (non-Player tabs): clock chip, song +
+ * BPM, transport buttons. Parent owns center placement + show/hide fade.
+ *
+ * The clock and the icon buttons are DAW primitives now (see components/daw)
+ * — this file is arrangement only.
  */
 export function GlobalTransportBar({ state }: { state: WebUiState }) {
-  const [clockMode, setClockMode] = useState<"time" | "bars">("time");
   const song =
     state.songIndex >= 0 && state.songs[state.songIndex]
       ? state.songs[state.songIndex]
@@ -36,59 +20,40 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-default/40 bg-default/10 px-1.5">
-      {/* Fixed-width time chip — click toggles display mode */}
-      <button
-        type="button"
-        onClick={() => setClockMode((m) => (m === "time" ? "bars" : "time"))}
-        className={`flex h-7 w-[5.5rem] shrink-0 items-center justify-center rounded-md px-1 font-mono text-xs tabular-nums transition-colors hover:bg-default/20 ${
-          state.playing ? "text-success" : "text-foreground/70"
-        }`}
-        title={
-          clockMode === "time"
-            ? "Time — click for bar|beat"
-            : "Bar|beat — click for time"
-        }
-      >
-        {clockMode === "time"
-          ? formatTime(state.playheadSeconds)
-          : song
-            ? barBeat(state.playheadSeconds, bpm || 120, tsNum)
-            : "—"}
-      </button>
+      <TimeDisplay
+        seconds={state.playheadSeconds}
+        bpm={bpm}
+        tsNum={tsNum}
+        playing={state.playing}
+        hasSong={song !== null}
+      />
 
-      <button
-        type="button"
-        onClick={() => transport.prev()}
-        className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/55 transition-colors hover:bg-default/25 hover:text-foreground"
-        title="Previous"
-      >
+      <IconButton onClick={() => transport.prev()} title="Previous">
         <SkipBack size={14} />
-      </button>
+      </IconButton>
+
+      {/* Play/pause is the one wide button: it is the control you hit without
+          looking, so it gets a target the others do not. */}
       <button
         type="button"
         onClick={() => (state.playing ? transport.stop() : transport.play())}
-        className="flex h-7 w-[4.75rem] shrink-0 items-center justify-center gap-1 rounded-md bg-accent/20 text-xs font-semibold text-accent transition-colors hover:bg-accent/30"
+        className="flex h-7 w-[4.75rem] shrink-0 items-center justify-center gap-1 rounded-md bg-accent-soft text-xs font-semibold text-accent-soft-foreground transition-colors hover:bg-accent-soft-hover"
         title={state.playing ? "Pause" : "Play"}
       >
         {state.playing ? <Pause size={13} /> : <Play size={13} />}
         <span className="tabular-nums">{state.playing ? "Pause" : "Play"}</span>
       </button>
-      <button
-        type="button"
+
+      <IconButton
         onClick={() => void transport.stopToStart()}
-        className="flex h-7 w-7 items-center justify-center rounded-md text-danger/55 transition-colors hover:bg-danger/15 hover:text-danger"
+        tone="danger"
         title="Stop (again at song start → project start)"
       >
         <Square size={13} />
-      </button>
-      <button
-        type="button"
-        onClick={() => transport.next()}
-        className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/55 transition-colors hover:bg-default/25 hover:text-foreground"
-        title="Next"
-      >
+      </IconButton>
+      <IconButton onClick={() => transport.next()} title="Next">
         <SkipForward size={14} />
-      </button>
+      </IconButton>
 
       {/* Fixed song + BPM chip */}
       <div

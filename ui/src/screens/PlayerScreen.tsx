@@ -13,8 +13,11 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
-import { LevelMeterBar } from "../components/LevelMeterBar";
-import { VUMeter } from "../components/VUMeter";
+import {
+  formatClockPrecise as formatTime,
+  LevelMeterBar,
+  VUMeter,
+} from "../components/daw";
 import { ResoLightStage3D } from "../components/light/ResoLightStage3D";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
@@ -31,13 +34,6 @@ import {
   type WebUiState,
 } from "../lib/types";
 
-function formatTime(sec: number): string {
-  if (!Number.isFinite(sec) || sec < 0) sec = 0;
-  const m = Math.floor(sec / 60);
-  const s = sec - m * 60;
-  return `${String(m).padStart(2, "0")}:${s.toFixed(3).padStart(6, "0")}`;
-}
-
 // One accent for every Direct Output lane (regardless of pairing), so the
 // device outputs read as a single family in the preview.
 const DIRECT_OUT_COLOR = "#7c3aed";
@@ -45,7 +41,13 @@ const DIRECT_OUT_COLOR = "#7c3aed";
  *  a mono feed (a wedge, a sub, a mono IEM), and telling that apart from a
  *  stereo pair at a glance matters more on the player than colour variety. */
 const MONO_OUT_COLOR = "#30d158";
-const BUS_ACCENT_CYCLE = ["#30d158", "#ff9230", "#db34f2", "#00d2e0", "#ffd600"];
+const BUS_ACCENT_CYCLE = [
+  "#30d158",
+  "#ff9230",
+  "#db34f2",
+  "#00d2e0",
+  "#ffd600",
+];
 
 /** "audio::out:3" or "direct:3" -> 3; anything else -> null. */
 function laneNumber(id: string): number | null {
@@ -677,10 +679,7 @@ export function PlayerScreen({
   // state.click catches up from the WS snapshot.
   const isMetronomeOn = metronomeOverride ?? state.click?.enabled ?? false;
   useEffect(() => {
-    if (
-      metronomeOverride != null &&
-      state.click?.enabled === metronomeOverride
-    )
+    if (metronomeOverride != null && state.click?.enabled === metronomeOverride)
       setMetronomeOverride(null);
   }, [state.click?.enabled, metronomeOverride]);
 
@@ -703,12 +702,14 @@ export function PlayerScreen({
       clickBusId:
         partial.clickBusId !== undefined
           ? partial.clickBusId
-          : (state.click
-              ? sourceOutputBusId(state.click.output)
-              : (s?.clickBusId ?? "")),
+          : state.click
+            ? sourceOutputBusId(state.click.output)
+            : (s?.clickBusId ?? ""),
       clickSends: (
         partial.clickSends ??
-        (state.click ? outputSendsToClickRows(state.click.output) : undefined) ??
+        (state.click
+          ? outputSendsToClickRows(state.click.output)
+          : undefined) ??
         s?.clickSends ??
         []
       ).map((cs) => ({
@@ -996,9 +997,10 @@ export function PlayerScreen({
                     </div>
                   ) : (
                     auxBusses.map((bus) => {
-                      const send = (state.click
-                        ? outputSendsToClickRows(state.click.output)
-                        : []
+                      const send = (
+                        state.click
+                          ? outputSendsToClickRows(state.click.output)
+                          : []
                       ).find((cs) => cs.busId === bus.id);
                       const isActive = send?.enabled === true;
                       return (

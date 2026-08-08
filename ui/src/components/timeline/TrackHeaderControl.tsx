@@ -3,9 +3,8 @@ import { mixer } from "../../lib/api";
 import { getLiveLevels } from "../../lib/liveLevels";
 import { useLiveValue } from "../../lib/optimistic";
 import type { TrackRow } from "../../lib/types";
-import { LevelMeterBar } from "../LevelMeterBar";
+import { Knob, LevelMeterBar } from "../daw";
 import { laneHeightPx } from "./laneDimensions";
-import { Knob } from "../Knob";
 import { MiniSlider } from "./MiniSlider";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with

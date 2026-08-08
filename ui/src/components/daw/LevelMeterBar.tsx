@@ -73,7 +73,6 @@ interface ChannelBallistics {
 // bars -- need one clip flag both sides agree on). `maxDb` should be
 // max(dbL, dbR): either channel clipping counts.
 
-
 // Glow around the clip band, drawn via ctx.shadow* to match the DOM
 // version's box-shadow (CLIP_GLOW: "0 0 4px rgba(255,59,48,0.7)").
 const CLIP_GLOW_BLUR_PX = 4;

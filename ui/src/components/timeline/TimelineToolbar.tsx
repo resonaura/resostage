@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { ToggleButton } from "../daw";
 import { useEscRevert } from "../../lib/useEscRevert";
 import { timelineHistory } from "../../lib/api";
 import {
@@ -204,30 +205,20 @@ export function TimelineToolbar({
           <>
             <div className="w-px h-4 bg-default/30 mx-0.5" />
             <div className="flex items-center rounded-lg border border-default/40 bg-default/10 p-0.5">
-              <button
-                type="button"
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${
-                  effectiveViewMode === "audio"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-foreground/50 hover:text-foreground"
-                }`}
-                aria-pressed={effectiveViewMode === "audio"}
+              <ToggleButton
+                active={effectiveViewMode === "audio"}
                 onClick={() => setViewMode("audio")}
+                className="h-auto px-2 py-1 text-[10px] font-semibold"
               >
                 <AudioLines size={11} /> Audio
-              </button>
-              <button
-                type="button"
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${
-                  effectiveViewMode === "light"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-foreground/50 hover:text-foreground"
-                }`}
-                aria-pressed={effectiveViewMode === "light"}
+              </ToggleButton>
+              <ToggleButton
+                active={effectiveViewMode === "light"}
                 onClick={() => setViewMode("light")}
+                className="h-auto px-2 py-1 text-[10px] font-semibold"
               >
                 <Lightbulb size={11} /> Light
-              </button>
+              </ToggleButton>
             </div>
           </>
         )}
@@ -237,21 +228,15 @@ export function TimelineToolbar({
             <div className="w-px h-4 bg-default/30 mx-0.5" />
             <div className="flex items-center gap-0.5 rounded-lg border border-default/30 bg-default/10 p-0.5">
               {TIMELINE_TOOLS.map((t) => (
-                <button
+                <ToggleButton
                   key={t.id}
-                  type="button"
-                  title={`${t.label} (${t.shortcut}) — ${t.tip}`}
-                  aria-label={t.label}
-                  aria-pressed={tool === t.id}
-                  className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
-                    tool === t.id
-                      ? "bg-accent text-accent-foreground"
-                      : "text-foreground/55 hover:text-foreground hover:bg-default/30"
-                  }`}
+                  active={tool === t.id}
                   onClick={() => setTool(t.id)}
+                  title={`${t.label} (${t.shortcut}) — ${t.tip}`}
+                  className="h-6 w-6 px-0"
                 >
                   {TOOL_ICONS[t.id]}
-                </button>
+                </ToggleButton>
               ))}
             </div>
           </>

@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @import "@heroui/styles";
+/* After @heroui/styles: this is the design layer that neutralises HeroUI's
+   blue accent and adds what it does not ship. See styles/theme.css. */
+@import "./styles/theme.css";
 @import "./assets/fontaudio/fontaudio.css";
 
 html,

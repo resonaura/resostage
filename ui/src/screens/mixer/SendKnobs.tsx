@@ -4,7 +4,7 @@ import {
   SEND_CEILING_DB,
   SEND_FLOOR_DB,
   SendArcKnob,
-} from "../../components/SendArcKnob";
+} from "../../components/daw";
 import { mixer } from "../../lib/api";
 import {
   sendDbToLevel,

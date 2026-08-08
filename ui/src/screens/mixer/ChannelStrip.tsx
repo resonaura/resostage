@@ -1,6 +1,5 @@
-import { LevelMeterBar } from "../../components/LevelMeterBar";
+import { Knob, LevelMeterBar } from "../../components/daw";
 import { useChannelClipHold } from "../../hooks/useChannelClipHold";
-import { Knob } from "../../components/Knob";
 import type { BusRow, ClickSendRow, SettingsState } from "../../lib/types";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
