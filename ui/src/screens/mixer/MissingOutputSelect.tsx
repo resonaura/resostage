@@ -1,9 +1,19 @@
-import { Children, cloneElement, isValidElement } from "react";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useState,
+} from "react";
+import { resolveCssVar } from "../../lib/cssColor";
 
 type SelectLike =
   | ReactElement<{ style?: CSSProperties }>
-  | ReactElement<{ style?: CSSProperties }, string | ((props: { style?: CSSProperties }) => ReactElement | null)>;
+  | ReactElement<
+      { style?: CSSProperties },
+      string | ((props: { style?: CSSProperties }) => ReactElement | null)
+    >;
 
 /**
  * Serialise a physical-output pick that is present in the mapping but no
@@ -12,13 +22,15 @@ type SelectLike =
  * (rather than silently snapping to a different, available device output).
  */
 
-
-// Amber warning-triangle (lucide TriangleAlert) inlined as an SVG so it can be
+// Warning-triangle (lucide TriangleAlert) inlined as an SVG so it can be
 // painted as a background-image INSIDE the native <select> box -- exactly
 // aligned with the control's own text line, instead of an overlay next to it.
-const WARN_ICON_SVG = encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
-);
+// Stroke color will be injected dynamically from --warning CSS variable.
+function getWarnIconSvg(color: string): string {
+  return encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
+  );
+}
 
 /**
  * Wrapper that injects an attention triangle INTO the select box itself (left
@@ -35,7 +47,17 @@ export function MissingSelectFrame({
   missing: boolean;
   children: ReactNode;
 }) {
+  const [warningColor, setWarningColor] = useState("#fbbf24");
+
+  useEffect(() => {
+    const color = resolveCssVar("--warning", "#fbbf24");
+    setWarningColor(color);
+  }, []);
+
   if (!missing) return <>{children}</>;
+
+  const warnIconSvg = getWarnIconSvg(warningColor);
+
   return (
     <>
       {Children.map(children, (child) => {
@@ -47,15 +69,17 @@ export function MissingSelectFrame({
             appearance: "none",
             WebkitAppearance: "none",
             MozAppearance: "textfield",
-            backgroundImage: `url("data:image/svg+xml,${WARN_ICON_SVG}")`,
+            backgroundImage: `url("data:image/svg+xml,${warnIconSvg}")`,
             backgroundPosition: "6px center",
             backgroundRepeat: "no-repeat",
             backgroundSize: "12px 12px",
             paddingLeft: "20px",
             // Warning colour the whole control when it holds a missing output.
-            backgroundColor: "rgba(245, 158, 11, 0.15)",
-            boxShadow: "inset 0 0 0 1px rgba(245, 158, 11, 0.5)",
-            color: "#fbbf24",
+            backgroundColor:
+              "color-mix(in oklab, var(--warning) 15%, transparent)",
+            boxShadow:
+              "inset 0 0 0 1px color-mix(in oklab, var(--warning) 50%, transparent)",
+            color: "var(--warning)",
           },
         });
       })}
