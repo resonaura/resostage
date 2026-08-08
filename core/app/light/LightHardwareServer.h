@@ -111,10 +111,19 @@ private:
     void discoveryThreadLoop();
     void networkThreadLoop();
 
+    // Called on the LightEngine thread from updateFixtureFrame(). See its
+    // definition for why the send happens there rather than on the network
+    // thread.
+    void sendFrameOverUdp(Connection& conn, uint8_t channelsPerPixel, const uint8_t* pixelBytes,
+                          size_t pixelByteCount, double refreshHz, const std::string& host);
+
     std::atomic<bool> running_{false};
     std::thread discoveryThread_;
     std::thread networkThread_;
     int discoverySocket_ = -1;
+    // Non-blocking, send-only. One socket for every board: the destination is
+    // per-sendto, so there is nothing per-connection to keep.
+    int udpSocket_ = -1;
 
     mutable std::mutex connectionsMutex_;
     // Keyed by fixtureId. Never erased once created (see syncActiveFixtures

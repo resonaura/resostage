@@ -65,6 +65,26 @@ struct LightHardwareServer::Connection {
     bool hasFrame = false;
     std::chrono::steady_clock::time_point lastSentAt{};
 
+    // UDP light-frame delivery. `udpPort` is 0 until the board's status frame
+    // reports one; while it is 0 the WebSocket path below carries the frames,
+    // so a board on older firmware keeps working.
+    //
+    // Everything here is touched ONLY by the LightEngine thread (which does
+    // the sendto) except udpPort, which the network thread writes when a
+    // status frame arrives -- hence the atomic. Sending straight from the
+    // engine thread is the entire point: it is what removes the hand-off to
+    // the service loop, and with it up to a full refresh period plus the
+    // 5 ms lws_service poll quantisation.
+    std::atomic<uint16_t> udpPort{0};
+    std::atomic<uint32_t> udpAddr{0}; // network byte order, resolved on the engine thread
+    std::string udpAddrHost; // host string udpAddr was resolved from
+    // Atomic because the two transports increment it from different threads.
+    // They are mutually exclusive (the WS path is skipped once udpPort is
+    // known) but the changeover itself would otherwise be a torn read.
+    std::atomic<uint32_t> sequence{0};
+    std::chrono::steady_clock::time_point lastUdpSentAt{};
+    std::vector<uint8_t> udpScratch;
+
     // Status last reported by the board (StatusFrame). Written from the
     // network thread's LWS_CALLBACK_CLIENT_RECEIVE, read from any thread.
     mutable std::mutex statusMutex;
@@ -133,7 +153,8 @@ int clientCallback(struct lws* wsi, enum lws_callback_reasons reason, void* user
             const uint16_t pixelCount = static_cast<uint16_t>(conn->pixelBytes.size() / cpp);
             const size_t total = resolight::lightFramePayloadSize(pixelCount, cpp);
             buf.resize(LWS_PRE + total);
-            resolight::encodeLightFrameHeader(buf.data() + LWS_PRE, pixelCount, cpp, 0);
+            resolight::encodeLightFrameHeader(buf.data() + LWS_PRE, pixelCount, cpp, 0,
+                                              conn->sequence.fetch_add(1, std::memory_order_relaxed));
             std::memcpy(buf.data() + LWS_PRE + resolight::kLightFrameHeaderSize,
                         conn->pixelBytes.data(), conn->pixelBytes.size());
             conn->lastSentAt = std::chrono::steady_clock::now();
@@ -147,6 +168,11 @@ int clientCallback(struct lws* wsi, enum lws_callback_reasons reason, void* user
         if (conn != nullptr && in != nullptr) {
             resolight::StatusFrame sf{};
             if (resolight::decodeStatusFrame(static_cast<const uint8_t*>(in), len, sf)) {
+                // The board naming its UDP port is what moves light frames off
+                // this socket -- see sendFrameOverUdp(). Until then (or on a
+                // board reporting 0) the writable path below keeps carrying
+                // them, so older firmware still lights up.
+                conn->udpPort.store(sf.lightUdpPort, std::memory_order_relaxed);
                 std::lock_guard<std::mutex> lk(conn->statusMutex);
                 conn->rssiDbm = -static_cast<int>(sf.rssiAbs);
                 conn->chipType = chipTypeName(sf.chipType);
@@ -202,6 +228,21 @@ void LightHardwareServer::start() {
     info.protocols = protocols;
     info.options = 0;
 
+    // Send-only, non-blocking UDP socket for light frames. Created before the
+    // threads so the very first frame can already go out on it. A failure
+    // here is survivable: udpPort stays unusable and every board falls back
+    // to the WebSocket path.
+    udpSocket_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (udpSocket_ >= 0) {
+        const int flags = ::fcntl(udpSocket_, F_GETFL, 0);
+        if (flags >= 0)
+            ::fcntl(udpSocket_, F_SETFL, flags | O_NONBLOCK);
+        // A light frame is one datagram; make sure the kernel will take a
+        // burst of them (one per board) without blocking the engine thread.
+        const int sndbuf = 256 * 1024;
+        ::setsockopt(udpSocket_, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+    }
+
     clientContext_ = lws_create_context(&info);
     // clientContext_ == nullptr is survivable: networkThreadLoop below
     // simply has nothing to service and every connection attempt is
@@ -223,6 +264,10 @@ void LightHardwareServer::stop() {
         // just re-checks `running_` and exits.
         ::close(discoverySocket_);
         discoverySocket_ = -1;
+    }
+    if (udpSocket_ >= 0) {
+        ::close(udpSocket_);
+        udpSocket_ = -1;
     }
     if (discoveryThread_.joinable())
         discoveryThread_.join();
@@ -269,6 +314,69 @@ void LightHardwareServer::updateFixtureFrame(const std::string& fixtureId, const
         conn->refreshHz = refreshHz;
         conn->hasFrame = true;
     }
+
+    // Preferred path: straight out of this thread, the instant the frame
+    // exists. The WebSocket path in networkThreadLoop() stays as the fallback
+    // for a board that has not told us a UDP port (older firmware), and its
+    // own rate limiter keeps it from double-sending when UDP is carrying the
+    // frames.
+    sendFrameOverUdp(*conn, channelsPerPixel, pixelBytes, pixelByteCount, refreshHz, host);
+}
+
+// Called on the LightEngine thread. One non-blocking sendto per frame per
+// board -- cheaper than the vector work the caller already did to build the
+// pixel bytes, and it never blocks: a full socket buffer returns EWOULDBLOCK
+// and we simply drop that frame, which for periodic full-state data is
+// exactly the right answer.
+void LightHardwareServer::sendFrameOverUdp(Connection& conn, uint8_t channelsPerPixel,
+                                            const uint8_t* pixelBytes, size_t pixelByteCount,
+                                            double refreshHz, const std::string& host) {
+    const uint16_t port = conn.udpPort.load(std::memory_order_relaxed);
+    if (port == 0 || udpSocket_ < 0 || pixelBytes == nullptr || pixelByteCount == 0)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    const double interval = 1.0 / std::max(1.0, refreshHz);
+    if (conn.lastUdpSentAt.time_since_epoch().count() != 0
+        && std::chrono::duration<double>(now - conn.lastUdpSentAt).count() < interval)
+        return;
+
+    // Resolve the host once and cache it -- inet_pton on a dotted quad is
+    // cheap, but this runs 60 times a second per board and the address only
+    // changes when the operator retypes it.
+    if (conn.udpAddrHost != host) {
+        in_addr addr{};
+        if (::inet_pton(AF_INET, host.c_str(), &addr) != 1)
+            return; // not a literal IP; the WS path resolves names for us
+        conn.udpAddr.store(addr.s_addr, std::memory_order_relaxed);
+        conn.udpAddrHost = host;
+    }
+    const uint32_t rawAddr = conn.udpAddr.load(std::memory_order_relaxed);
+    if (rawAddr == 0)
+        return;
+
+    const uint8_t cpp = channelsPerPixel > 0 ? channelsPerPixel : 1;
+    const size_t pixels = pixelByteCount / cpp;
+    if (pixels == 0 || pixels > 0xFFFF)
+        return;
+    const size_t total = resolight::lightFramePayloadSize(static_cast<uint16_t>(pixels), cpp);
+
+    conn.udpScratch.resize(total);
+    resolight::encodeLightFrameHeader(conn.udpScratch.data(), static_cast<uint16_t>(pixels), cpp,
+                                      /*flags=*/0,
+                                      conn.sequence.fetch_add(1, std::memory_order_relaxed));
+    std::memcpy(conn.udpScratch.data() + resolight::kLightFrameHeaderSize, pixelBytes,
+                pixelByteCount);
+
+    sockaddr_in dest{};
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(port);
+    dest.sin_addr.s_addr = rawAddr;
+
+    const ssize_t sent = ::sendto(udpSocket_, conn.udpScratch.data(), conn.udpScratch.size(),
+                                  0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
+    if (sent >= 0)
+        conn.lastUdpSentAt = now;
 }
 
 void LightHardwareServer::syncActiveFixtures(const std::vector<ActiveFixtureTarget>& active) {
@@ -465,8 +573,13 @@ void LightHardwareServer::networkThreadLoop() {
                                                         std::chrono::duration<double>(conn.backoffSeconds));
                     }
                 } else if (conn.state == Connection::State::Open && conn.wsi != nullptr) {
+                    // Fallback only. Once the board has named a UDP port the
+                    // frames go out from the engine thread the moment they
+                    // exist (sendFrameOverUdp), and re-sending them here would
+                    // be both redundant and, at this loop's 5 ms poll
+                    // granularity, later.
                     bool due = false;
-                    {
+                    if (conn.udpPort.load(std::memory_order_relaxed) == 0) {
                         std::lock_guard<std::mutex> flk(conn.frameMutex);
                         const double intervalSec = 1.0 / std::max(1.0, conn.refreshHz);
                         due = conn.hasFrame &&

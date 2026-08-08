@@ -143,7 +143,14 @@ export function useLiveState(view: string = "player") {
   // Structural state is rAF-coalesced (latest wins). Meter levels are pushed
   // on every frame into liveLevels so short impulses (metronome) are never
   // dropped by coalesce.
-  const pendingRawRef = useRef<string | null>(null);
+  // The PARSED frame, not the raw text. Every telemetry frame used to be
+  // JSON.parse'd twice -- once in onmessage for the meter fallback and again
+  // here for the React state -- which at ~20 KB and ~60 frames/s is a couple
+  // of megabytes a second of parsing plus two whole object graphs per frame
+  // for the collector to clean up. That garbage is what the light preview and
+  // the VU meters were periodically stuttering on: they share this thread, so
+  // they hitch together on the same GC pause.
+  const pendingStateRef = useRef<Partial<WebUiState> | null>(null);
   const rafRef = useRef<number>(0);
   const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasSnapshotRef = useRef(false);
@@ -154,24 +161,13 @@ export function useLiveState(view: string = "player") {
       clearTimeout(flushTimeoutRef.current);
       flushTimeoutRef.current = null;
     }
-    const raw = pendingRawRef.current;
-    pendingRawRef.current = null;
-    if (raw == null) return;
-    try {
-      const parsed = JSON.parse(raw) as Partial<WebUiState>;
-      setState((prev) => mergeState(prev, parsed));
-      if (!hasSnapshotRef.current) {
-        hasSnapshotRef.current = true;
-        setHasLiveSnapshot(true);
-      }
-      if (parsed.health) {
-        latestHealthRef.current = {
-          cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
-          ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
-        };
-      }
-    } catch {
-      // ignore malformed
+    const parsed = pendingStateRef.current;
+    pendingStateRef.current = null;
+    if (parsed == null) return;
+    setState((prev) => mergeState(prev, parsed));
+    if (!hasSnapshotRef.current) {
+      hasSnapshotRef.current = true;
+      setHasLiveSnapshot(true);
     }
   };
 
@@ -248,29 +244,31 @@ export function useLiveState(view: string = "player") {
 
         const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
         // 2) Structural JSON: levels fallback + React state update.
+        // Parsed EXACTLY once and handed to both -- see pendingStateRef.
+        let parsed: Partial<WebUiState>;
         try {
-          const parsed = JSON.parse(raw) as Partial<WebUiState>;
-          if (parsed.meters) {
-            setMeterIds(parsed.meters.map((m) => m.id));
-          }
-          pushLiveLevels({
-            clickPeakDb: parsed.clickPeakDb,
-            clickPeakDbL: parsed.clickPeakDbL,
-            clickPeakDbR: parsed.clickPeakDbR,
-            tracks: parsed.tracks,
-            meters: parsed.meters,
-          });
-          if (parsed.health) {
-            latestHealthRef.current = {
-              cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
-              ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
-            };
-          }
+          parsed = JSON.parse(raw) as Partial<WebUiState>;
         } catch {
-          // ignore
+          return; // malformed frame; the next one supersedes it anyway
+        }
+        if (parsed.meters) {
+          setMeterIds(parsed.meters.map((m) => m.id));
+        }
+        pushLiveLevels({
+          clickPeakDb: parsed.clickPeakDb,
+          clickPeakDbL: parsed.clickPeakDbL,
+          clickPeakDbR: parsed.clickPeakDbR,
+          tracks: parsed.tracks,
+          meters: parsed.meters,
+        });
+        if (parsed.health) {
+          latestHealthRef.current = {
+            cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
+            ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
+          };
         }
         // Full React state: coalesce to paint rate (with a stall safety net).
-        pendingRawRef.current = raw;
+        pendingStateRef.current = parsed;
         scheduleFlush();
       };
       ws.onerror = () => {

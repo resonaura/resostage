@@ -11,7 +11,7 @@ using namespace resolight;
 TEST_CASE("light frame header round-trips") {
     uint8_t buf[kLightFrameHeaderSize];
     encodeLightFrameHeader(buf, /*pixelCount*/ 120, /*channelsPerPixel*/ 3,
-                            /*flags*/ 0);
+                            /*flags*/ 0, /*sequence*/ 0);
 
     LightFrameHeader h{};
     REQUIRE(decodeLightFrameHeader(buf, sizeof(buf), h));
@@ -43,7 +43,7 @@ TEST_CASE("light frame payload size matches header + pixel bytes") {
 
 TEST_CASE("light frame pixel count survives the 16-bit little-endian split") {
     uint8_t buf[kLightFrameHeaderSize];
-    encodeLightFrameHeader(buf, 0xABCD, 1, kFlagBlackout);
+    encodeLightFrameHeader(buf, 0xABCD, 1, kFlagBlackout, /*sequence*/ 7);
     CHECK(buf[4] == 0xCD);
     CHECK(buf[5] == 0xAB);
 
@@ -56,7 +56,8 @@ TEST_CASE("light frame pixel count survives the 16-bit little-endian split") {
 TEST_CASE("status frame round-trips, including negative RSSI") {
     uint8_t buf[kStatusFrameSize];
     encodeStatusFrame(buf, ChipType::Esp32, /*rssiDbm*/ -62,
-                       /*uptimeSec*/ 123456u, /*freeHeapBytes*/ 87654321u);
+                       /*uptimeSec*/ 123456u, /*freeHeapBytes*/ 87654321u,
+                       /*lightUdpPort*/ kDefaultLightUdpPort);
 
     StatusFrame s{};
     REQUIRE(decodeStatusFrame(buf, sizeof(buf), s));
@@ -68,7 +69,7 @@ TEST_CASE("status frame round-trips, including negative RSSI") {
 
 TEST_CASE("status frame clamps an out-of-range RSSI magnitude") {
     uint8_t buf[kStatusFrameSize];
-    encodeStatusFrame(buf, ChipType::Esp8266, -999, 0, 0);
+    encodeStatusFrame(buf, ChipType::Esp8266, -999, 0, 0, 0);
     StatusFrame s{};
     REQUIRE(decodeStatusFrame(buf, sizeof(buf), s));
     CHECK(s.rssiAbs == 255);
@@ -77,7 +78,7 @@ TEST_CASE("status frame clamps an out-of-range RSSI magnitude") {
 
 TEST_CASE("status frame rejects wrong magic/version") {
     uint8_t buf[kStatusFrameSize];
-    encodeStatusFrame(buf, ChipType::Esp32, -50, 1, 1);
+    encodeStatusFrame(buf, ChipType::Esp32, -50, 1, 1, 0);
     buf[0] = 0x00;
     StatusFrame s{};
     CHECK_FALSE(decodeStatusFrame(buf, sizeof(buf), s));
@@ -112,4 +113,60 @@ TEST_CASE("discovery beacon rejects short input") {
     DiscoveryBeacon b{};
     uint8_t short_buf[4] = {kDiscoveryMagic, kProtocolVersion, 0, 0};
     CHECK_FALSE(decodeDiscoveryBeacon(short_buf, sizeof(short_buf), b));
+}
+
+// ── v2: sequence numbers ────────────────────────────────────────────────────
+// UDP may reorder and the desktop restarts its counter whenever it reopens a
+// board, so "is this frame newer" is not a plain `>`.
+
+TEST_CASE("light frame sequence survives the 32-bit little-endian split") {
+    uint8_t buf[kLightFrameHeaderSize];
+    encodeLightFrameHeader(buf, 120, 3, 0, 0xDEADBEEFu);
+    CHECK(buf[6] == 0xEF);
+    CHECK(buf[7] == 0xBE);
+    CHECK(buf[8] == 0xAD);
+    CHECK(buf[9] == 0xDE);
+
+    LightFrameHeader h{};
+    REQUIRE(decodeLightFrameHeader(buf, sizeof(buf), h));
+    CHECK(h.sequence == 0xDEADBEEFu);
+}
+
+TEST_CASE("a newer sequence is accepted and an older one refused") {
+    CHECK(lightFrameIsNewer(2, 1));
+    CHECK_FALSE(lightFrameIsNewer(1, 2));
+    // Same frame arriving twice must not be shown twice.
+    CHECK_FALSE(lightFrameIsNewer(5, 5));
+}
+
+TEST_CASE("sequence comparison survives 32-bit wraparound") {
+    // The counter rolling over must not look like a thirty-year jump backwards.
+    CHECK(lightFrameIsNewer(0u, 0xFFFFFFFFu));
+    CHECK(lightFrameIsNewer(3u, 0xFFFFFFFEu));
+    CHECK_FALSE(lightFrameIsNewer(0xFFFFFFFEu, 3u));
+}
+
+TEST_CASE("a restarted sender is accepted rather than locking the board out") {
+    // ResoStage restarts its per-board counter at 0 on every reconnect. A board
+    // that has been running for a while would otherwise reject every frame
+    // until the counter climbed back past where it left off -- minutes of dark.
+    CHECK(lightFrameIsNewer(0u, 1'000'000u));
+    CHECK(lightFrameIsNewer(3u, 500u));
+    // Just behind is still just behind, though -- that is reordering, not a
+    // restart, and must be dropped.
+    CHECK_FALSE(lightFrameIsNewer(990u, 1000u));
+}
+
+TEST_CASE("status frame carries the board's UDP light port") {
+    uint8_t buf[kStatusFrameSize];
+    encodeStatusFrame(buf, ChipType::Esp32, -40, 10, 20, kDefaultLightUdpPort);
+    StatusFrame s{};
+    REQUIRE(decodeStatusFrame(buf, sizeof(buf), s));
+    CHECK(s.lightUdpPort == kDefaultLightUdpPort);
+
+    // 0 means "no UDP -- keep using the WebSocket", the fallback older
+    // firmware relies on.
+    encodeStatusFrame(buf, ChipType::Esp8266, -40, 10, 20, 0);
+    REQUIRE(decodeStatusFrame(buf, sizeof(buf), s));
+    CHECK(s.lightUdpPort == 0);
 }

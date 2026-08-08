@@ -69,10 +69,24 @@ export function subscribeLiveLedOutputs(listener: Listener): () => void {
 }
 
 let paintRaf = 0;
+let lightDirty = false;
+let lastPaintTickMs = 0;
+// If rAF stalls (occluded window, Electron backgroundThrottling, devtools) the
+// preview must not freeze -- same hazard useLiveState guards its own flush
+// against. Past this gap a frame notifies its listeners inline instead.
+const kPaintStallMs = 100;
 
 /**
  * Shared paint ticker: rolls pending → display once per frame so stereo
  * ballistics never double-consume, then starts a fresh wire interval.
+ *
+ * It also fans out the light-output notification. That used to fire
+ * synchronously from every binary frame, which meant a React state update per
+ * fixture per FRAME OFF THE WIRE -- so when paint slowed down, telemetry kept
+ * queueing setState work into an already-late frame and the preview lurched.
+ * Bounding it by paint rate instead is the same discipline the meters have
+ * always had (they are read during paint, never pushed), and it is why they
+ * stayed smooth while the lights did not.
  */
 function ensurePaintTicker() {
   if (paintRaf) return;
@@ -83,6 +97,11 @@ function ensurePaintTicker() {
     pendingClickMax = latestClick;
     pendingClickMaxL = latestClickL;
     pendingClickMaxR = latestClickR;
+    lastPaintTickMs = performance.now();
+    if (lightDirty) {
+      lightDirty = false;
+      for (const l of lightListeners) l();
+    }
     paintRaf = requestAnimationFrame(tick);
   };
   paintRaf = requestAnimationFrame(tick);
@@ -241,8 +260,15 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     }
   }
   liveLedOutputs = nextLights;
-  for (const l of lightListeners) l();
+  // Normally notified from the paint ticker, not here -- see
+  // ensurePaintTicker(). The inline path is only for a stalled rAF.
+  lightDirty = true;
 
   seq += 1;
   ensurePaintTicker();
+
+  if (lastPaintTickMs !== 0 && performance.now() - lastPaintTickMs > kPaintStallMs) {
+    lightDirty = false;
+    for (const l of lightListeners) l();
+  }
 }

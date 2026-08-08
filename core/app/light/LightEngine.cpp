@@ -403,6 +403,15 @@ void LightEngine::threadLoop() {
             // the proven DMX output path -- the cost only exists for
             // fixtures that actually have a host configured, which is zero
             // for the common preview-only rig.
+            // A ResoLight board is not an Art-Net universe: the 44 Hz default
+            // above exists because Art-Net's spec floor is 40 Hz and older DMX
+            // gear dislikes being pushed faster, neither of which applies to a
+            // board we wrote the firmware for. Give it the engine's full tick
+            // rate unless the operator pinned a rate on the fixture.
+            const double boardHz = fixture->refreshRateHz > 0.0
+                                       ? fixture->refreshRateHz
+                                       : static_cast<double>(kFrameRateHz);
+
             if (hardwareServer_ != nullptr && fixture->kind == LightFixture::Kind::ResoLightBar &&
                 fixture->networkHost.has_value() && !fixture->networkHost->empty()) {
                 const std::vector<LedWireColor> wireColors = blendActive
@@ -420,7 +429,7 @@ void LightEngine::threadLoop() {
                 hardwareServer_->updateFixtureFrame(fixture->id, *fixture->networkHost,
                                                     resolight::kDefaultBoardPort,
                                                     static_cast<uint8_t>(perPixelBytes), flat.data(),
-                                                    flat.size(), hz);
+                                                    flat.size(), boardHz);
             }
         }
 

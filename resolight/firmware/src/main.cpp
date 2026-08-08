@@ -60,10 +60,24 @@ static uint8_t gDiscoverScratch[resolight::kDiscoveryBeaconSize];
 
 // Port + subprotocol are protocol constants (ResoLightProtocol.h), not config.
 static WebSocketsServer gWs(resolight::kDefaultBoardPort, "", "resolight");
-static WiFiUDP gUdp;
+static WiFiUDP gUdp;      // discovery beacons (transmit)
+static WiFiUDP gLightUdp; // light frames (receive) -- see kDefaultLightUdpPort
 static uint8_t gWsClientNum = 0xFF;
 static uint32_t gLastStatusMs = 0;
 static uint32_t gLastDiscoverMs = 0;
+
+// Largest frame we will accept: the strip we actually have, at 4 channels.
+// Two buffers so a drain can hold on to the newest datagram seen so far while
+// still reading the next one -- see serviceLightUdp().
+static uint8_t gLightRx[resolight::kLightFrameHeaderSize +
+                        static_cast<size_t>(RESOLIGHT_LED_COUNT) * 4];
+static uint8_t gLightBest[sizeof(gLightRx)];
+
+// Highest sequence applied so far. UDP may reorder, and an out-of-order frame
+// is a frame from the PAST -- applying it would show older light than what is
+// already on the strip, i.e. a visible stutter. See lightFrameIsNewer().
+static uint32_t gLastSeq = 0;
+static bool gHaveSeq = false;
 
 static void blackoutLeds() {
   fill_solid(gLeds, RESOLIGHT_LED_COUNT, CRGB::Black);
@@ -79,6 +93,12 @@ static void applyLightFrame(const uint8_t* data, size_t len) {
       resolight::lightFramePayloadSize(hdr.pixelCount, hdr.channelsPerPixel);
   if (len < need)
     return;
+
+  // Drop anything that is not strictly newer than what is already showing.
+  if (gHaveSeq && !resolight::lightFrameIsNewer(hdr.sequence, gLastSeq))
+    return;
+  gLastSeq = hdr.sequence;
+  gHaveSeq = true;
 
   if (hdr.flags & resolight::kFlagBlackout) {
     blackoutLeds();
@@ -126,7 +146,10 @@ static void sendStatus(uint8_t clientNum) {
   const int rssi = WiFi.RSSI();
   const uint32_t uptime = millis() / 1000u;
   const uint32_t heap = ESP.getFreeHeap();
-  resolight::encodeStatusFrame(gStatusScratch, kChip, rssi, uptime, heap);
+  // Advertising the port is what makes ResoStage switch light frames onto UDP
+  // (see ResoLightProtocol.h). Report 0 and it keeps using this WebSocket.
+  resolight::encodeStatusFrame(gStatusScratch, kChip, rssi, uptime, heap,
+                               resolight::kDefaultLightUdpPort);
   gWs.sendBIN(clientNum, gStatusScratch, resolight::kStatusFrameSize);
 }
 
@@ -234,6 +257,7 @@ void setup() {
   gWs.begin();
   gWs.onEvent(onWsEvent);
   gUdp.begin(0);
+  gLightUdp.begin(resolight::kDefaultLightUdpPort);
 
   // Boot blip so a freshly flashed board is obviously alive.
   const uint16_t blip = RESOLIGHT_LED_COUNT < 8 ? RESOLIGHT_LED_COUNT : 8;
@@ -243,8 +267,53 @@ void setup() {
   blackoutLeds();
 }
 
+// Drains every light datagram waiting on the socket and shows only the last
+// one. If the board fell behind (a slow FastLED.show, a Wi-Fi retry burst)
+// there may be several queued, and every one but the newest is already stale
+// -- clocking them all out would spend 3.6 ms per strip write showing light
+// nobody needs to see and put us further behind. Newest wins, the rest are
+// dropped, which is exactly the freedom UDP buys over a stream.
+static void serviceLightUdp() {
+  size_t bestLen = 0;
+  uint32_t bestSeq = 0;
+  bool haveBest = false;
+
+  int packetSize = 0;
+  while ((packetSize = gLightUdp.parsePacket()) > 0) {
+    if (packetSize > static_cast<int>(sizeof(gLightRx))) {
+      // Oversized for this strip: skip it. No explicit discard call -- the
+      // next parsePacket() drops whatever is left of the current datagram,
+      // and the two cores disagree about what flush() even means on a UDP
+      // socket (rx discard on ESP8266, tx flush on ESP32).
+      continue;
+    }
+    const int got = gLightUdp.read(gLightRx, sizeof(gLightRx));
+    if (got <= 0)
+      continue;
+
+    resolight::LightFrameHeader hdr{};
+    if (!resolight::decodeLightFrameHeader(gLightRx, static_cast<size_t>(got), hdr))
+      continue;
+
+    // Pick by sequence rather than by arrival order: the last datagram off the
+    // socket is not necessarily the newest one, and showing an older frame
+    // after a newer one is a visible stutter.
+    if (haveBest && !resolight::lightFrameIsNewer(hdr.sequence, bestSeq))
+      continue;
+
+    memcpy(gLightBest, gLightRx, static_cast<size_t>(got));
+    bestLen = static_cast<size_t>(got);
+    bestSeq = hdr.sequence;
+    haveBest = true;
+  }
+
+  if (haveBest)
+    applyLightFrame(gLightBest, bestLen);
+}
+
 void loop() {
   gWs.loop();
+  serviceLightUdp();
 
   const uint32_t now = millis();
 
