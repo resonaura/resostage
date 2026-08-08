@@ -1,10 +1,20 @@
 import React, { memo, useCallback, useMemo, useRef } from "react";
-import { useLiveValue } from "../../lib/optimistic";
 import { useEscRevert } from "../../lib/useEscRevert";
 import { GAIN_MAX, GAIN_MIN } from "./constants";
 
 interface GainFaderProps {
-  gainDb: number;
+  /**
+   * The dB the fader should draw RIGHT NOW -- already optimistic.
+   *
+   * This used to be the raw server value, with the fader holding its own
+   * optimistic copy privately. That made the knob follow the pointer instantly
+   * while everything else on the strip -- above all the dB readout directly
+   * above it -- kept showing whatever the engine had last echoed back, so a
+   * drag read as the number lagging the handle by a couple of frames. The
+   * optimistic value now belongs to the strip, which hands the same one to
+   * both. See ChannelStrip.
+   */
+  value: number;
   onChange: (v: number) => void;
   defaultValue?: number;
   step?: number;
@@ -132,14 +142,13 @@ const FaderVisuals = memo<{
 FaderVisuals.displayName = "FaderVisuals";
 
 export const GainFader = memo<GainFaderProps>(function GainFader({
-  gainDb,
+  value,
   onChange,
   defaultValue = 0,
   step = 0.1,
   accent,
 }) {
-  const [value, handleChange] = useLiveValue(gainDb, onChange);
-  const escRevert = useEscRevert(() => value, handleChange);
+  const escRevert = useEscRevert(() => value, onChange);
   const trackRef = useRef<HTMLDivElement>(null);
 
   const getNormalized = useCallback(
@@ -166,9 +175,9 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
       const steppedVal = Math.round(rawVal / step) * step;
       const finalVal = Math.max(GAIN_MIN, Math.min(GAIN_MAX, steppedVal));
 
-      handleChange(finalVal);
+      onChange(finalVal);
     },
-    [handleChange, step],
+    [onChange, step],
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -193,9 +202,9 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      handleChange(defaultValue);
+      onChange(defaultValue);
     },
-    [handleChange, defaultValue],
+    [onChange, defaultValue],
   );
 
   return (

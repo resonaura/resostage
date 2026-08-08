@@ -1,10 +1,14 @@
 import { Knob, LevelMeterBar } from "../../components/daw";
 import { useChannelClipHold } from "../../hooks/useChannelClipHold";
+import { useLiveValue } from "../../lib/optimistic";
 import type { BusRow, ClickSendRow, SettingsState } from "../../lib/types";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
 import { SendKnobs } from "./SendKnobs";
 import { TrackOutputRouting } from "./TrackOutputRouting";
+
+/** Stable identity so useLiveValue's commit ref doesn't churn. */
+const noop = () => {};
 
 function StripButton({
   active,
@@ -117,6 +121,25 @@ export function ChannelStrip({
     return `R${Math.round(p * 100)}`;
   };
 
+  // ── What this strip currently SHOWS, as opposed to what the engine has
+  // last confirmed ────────────────────────────────────────────────────────
+  //
+  // Both live here rather than inside the fader and the knob, because a
+  // control and its numeric readout have to agree. When the fader kept its
+  // optimistic copy to itself, dragging it moved the handle instantly while
+  // the dB box directly above it stayed on the last echoed server value --
+  // measurably a couple of frames behind, and it read as the mixer waiting on
+  // the backend. Pan had the same split between the knob and its L/C/R label.
+  //
+  // useLiveValue publishes the new value locally AND commits it, then ignores
+  // server echoes for a short window so a stale in-flight frame can't yank the
+  // control back mid-gesture. The engine remains the authority the moment that
+  // window closes -- this changes when the UI believes itself, not who wins.
+  const [displayGainDb, commitGain] = useLiveValue(gainDb, onGain);
+  // Hooks cannot be conditional, and a strip without pan (metronome routed to
+  // sends only) passes null for both. The value is then never rendered.
+  const [displayPan, commitPan] = useLiveValue(pan ?? 0, onPan ?? noop);
+
   const isDimmed = !!anySoloInGroup && !solo;
   const stripLeftDb = peakDbL ?? peakDb ?? -100;
   const stripRightDb = peakDbR ?? peakDb ?? -100;
@@ -184,17 +207,17 @@ export function ChannelStrip({
       {onPan && pan !== null ? (
         <div className="flex flex-col items-center gap-0.5 my-1">
           <Knob
-            value={pan}
+            value={displayPan}
             min={-1}
             max={1}
             defaultValue={0}
             accent="rgba(255,255,255,0.9)"
-            onCommit={onPan}
+            onCommit={commitPan}
             size={24}
             title="Pan"
           />
           <div className="text-[9px] font-mono text-foreground/50">
-            {formatPan(pan)}
+            {formatPan(displayPan)}
           </div>
         </div>
       ) : (
@@ -202,7 +225,7 @@ export function ChannelStrip({
       )}
 
       <GainPeakReadout
-        gainDb={gainDb}
+        gainDb={displayGainDb}
         liveAvgDb={(stripLeftDb + stripRightDb) / 2}
         clipped={stripClip.clipped}
         heldPeakDb={stripClip.heldPeakDb}
@@ -210,7 +233,11 @@ export function ChannelStrip({
       />
 
       <div className="flex min-h-0 flex-1 items-center justify-center gap-2 py-2">
-        <GainFader gainDb={gainDb} accent={color} onChange={onGain} />
+        <GainFader
+          value={displayGainDb}
+          accent={color}
+          onChange={commitGain}
+        />
         <LevelMeterBar
           db={peakDb ?? -100}
           dbL={stripLeftDb}
