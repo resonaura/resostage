@@ -1,3 +1,4 @@
+import { EmptyState } from "@heroui/react";
 import type { LightTrackRow, SongRow } from "../../lib/types";
 import {
   LightTrackLane,
@@ -56,18 +57,18 @@ export function LightTrackLanes({
 }) {
   if (!lightEnabled) {
     return (
-      <div className="flex h-24 items-center justify-center px-6 text-center text-xs text-foreground/40">
+      <EmptyState className="flex h-24 items-center justify-center px-6 text-center text-xs">
         Lighting is disabled. Enable it in Settings &gt; Project to author light
         cues.
-      </div>
+      </EmptyState>
     );
   }
   if (lightTracks.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center px-6 text-center text-xs text-foreground/40">
+      <EmptyState className="flex h-24 items-center justify-center px-6 text-center text-xs">
         No light tracks yet — add one from the sidebar, then use the Pencil tool
         and click an empty lane to place a cue.
-      </div>
+      </EmptyState>
     );
   }
   return (

@@ -18,6 +18,7 @@ import {
 } from "../lib/stemImport";
 import { Timeline } from "../components/Timeline";
 import { builder } from "../lib/api";
+import { useIsCompact } from "../lib/useMediaQuery";
 import type {
   AllPeaksResponse,
   PeaksResponse,
@@ -304,6 +305,7 @@ export function EditorScreen({
   pxPerSec: number;
   setPxPerSec: React.Dispatch<React.SetStateAction<number>>;
 }) {
+  const compact = useIsCompact();
   const [tab, setTab] = useState<EditorTab>("timeline");
   const [selected, setSelected] = useState(-1);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -384,10 +386,16 @@ export function EditorScreen({
     );
   }
 
-  const TABS: { id: EditorTab; label: string }[] = [
-    { id: "timeline", label: "Timeline" },
-    { id: "songs", label: "Songs" },
-  ];
+  // On a phone the arrangement view is not offered at all -- see the Timeline
+  // block below for why -- so Songs is the only tab, and it is what the editor
+  // opens on regardless of what was last selected on a bigger screen.
+  const TABS: { id: EditorTab; label: string }[] = compact
+    ? [{ id: "songs", label: "Songs" }]
+    : [
+        { id: "timeline", label: "Timeline" },
+        { id: "songs", label: "Songs" },
+      ];
+  const activeTab: EditorTab = compact ? "songs" : tab;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden">
@@ -416,7 +424,7 @@ export function EditorScreen({
             <Button
               key={t.id}
               size="sm"
-              variant={tab === t.id ? "secondary" : "outline"}
+              variant={activeTab === t.id ? "secondary" : "outline"}
               onPress={() => setTab(t.id)}
             >
               {t.id === "timeline" && (
@@ -429,7 +437,12 @@ export function EditorScreen({
       </div>
 
       {/* ── Timeline Tab ──────────────────────────────────────────────── */}
-      {tab === "timeline" && (
+      {/* Editing a multi-song arrangement -- region trims, fades, light cues,
+          marquee selection -- is a pointer-and-pixels job. It is not mounted
+          on phones at all, both because it cannot be driven by touch at that
+          width and because building every lane's waveform canvas is the most
+          expensive thing this app does. */}
+      {activeTab === "timeline" && (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <Timeline
             state={state}
@@ -442,7 +455,7 @@ export function EditorScreen({
       )}
 
       {/* ── Songs Tab ────────────────────────────────────────────────── */}
-      {tab === "songs" && (
+      {activeTab === "songs" && (
         <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
           <input
             ref={folderInputRef}

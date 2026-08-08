@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { isRenderActive, setTransportPlaying } from "./appActivity";
 import { wsUrl } from "./backend";
 import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds } from "./liveLevels";
+import { shareStructure } from "./structuralShare";
 import { emptyState, type WebUiState } from "./types";
 
 export type ConnectionStatus = "connecting" | "live" | "reconnecting";
@@ -21,6 +23,13 @@ export type TransportKind = "ws" | "none";
  * sample tick so the Player widget doesn't jitter.
  */
 function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
+  return shareStructure(prev, buildMergedState(prev, next));
+}
+
+function buildMergedState(
+  prev: WebUiState,
+  next: Partial<WebUiState>,
+): WebUiState {
   return {
     ...prev,
     ...next,
@@ -254,6 +263,10 @@ export function useLiveState(view: string = "player") {
         if (parsed.meters) {
           setMeterIds(parsed.meters.map((m) => m.id));
         }
+        // Straight off the wire, not via React state: a hidden window must go
+        // fully live the instant the transport starts, without waiting for a
+        // render to propagate the flag (see appActivity).
+        if (parsed.playing !== undefined) setTransportPlaying(parsed.playing);
         pushLiveLevels({
           clickPeakDb: parsed.clickPeakDb,
           clickPeakDbL: parsed.clickPeakDbL,
@@ -326,18 +339,27 @@ export function useLiveState(view: string = "player") {
     window.addEventListener("resoshell-resume", onShellResume);
 
     // 1 Hz: sparkline history + freeze CPU/RAM numbers into React state.
+    // Skipped entirely while nothing is on screen: this is the one timer that
+    // would otherwise re-render the whole app once a second forever, purely to
+    // scroll a sparkline nobody is looking at. It picks straight back up on
+    // the next tick after the window returns.
     const sampleInterval = setInterval(() => {
+      if (!isRenderActive()) return;
       const sample = latestHealthRef.current;
       setCpuHistory((prev) => [...prev.slice(1), sample.cpu]);
       setRamHistory((prev) => [...prev.slice(1), sample.ram]);
-      setState((prev) => ({
-        ...prev,
-        health: {
-          ...prev.health,
-          cpuPercent: sample.cpu,
-          rssBytes: sample.ram * 1024 * 1024,
-        },
-      }));
+      setState((prev) => {
+        const rssBytes = sample.ram * 1024 * 1024;
+        if (
+          prev.health.cpuPercent === sample.cpu &&
+          prev.health.rssBytes === rssBytes
+        )
+          return prev;
+        return {
+          ...prev,
+          health: { ...prev.health, cpuPercent: sample.cpu, rssBytes },
+        };
+      });
     }, 1000);
 
     return () => {

@@ -8,6 +8,7 @@ import {
   useContinuousPlayhead,
   type CycleWrapRange,
 } from "../../lib/optimistic";
+import { addRafTask } from "../../lib/rafLoop";
 import { isPositionVisible } from "../../lib/timelineVisibility";
 import type {
   AllPeaksResponse,
@@ -157,12 +158,25 @@ export function Timeline({
       zoomActive,
       dragging,
       cycleWrapRef,
+      // Nothing this component RENDERS reads the clock -- the marker is a
+      // direct style write from the frame loop below. Mirroring it into React
+      // state as well re-rendered the whole arrangement every frame of every
+      // song. See useContinuousPlayhead's publishToReact note.
+      false,
     );
   // Live clock getter for the rAF follow/marker loop -- never go through the
   // React-state mirror (playheadAbsoluteSec), which can lag a commit behind
   // the rAF that advances the clock and made smooth-follow advance in steps.
   const getLivePlayheadAbsoluteRef = useRef(getLivePlayheadAbsolute);
   getLivePlayheadAbsoluteRef.current = getLivePlayheadAbsolute;
+  /**
+   * The clock as of RIGHT NOW, for the edit handlers below (paste/split at
+   * playhead). They used to close over the rendered value, which is what made
+   * the per-frame re-render load-bearing: with it gone, a handler that read a
+   * render-time snapshot would act on wherever the playhead was at the last
+   * commit rather than where it is when the user hits the key.
+   */
+  const playheadAbsNow = () => getLivePlayheadAbsoluteRef.current();
 
   const {
     followMode,
@@ -408,7 +422,7 @@ export function Timeline({
     const { songIndex, localSeconds } = resolveSongLocal(
       songOffsets,
       songLengths,
-      playheadAbsoluteSec,
+      playheadAbsNow(),
     );
     const placed = offsetCuesToPlayhead(
       clipboardCues.current,
@@ -433,7 +447,7 @@ export function Timeline({
       state.songs,
       cueSelection,
       songOffsets,
-      playheadAbsoluteSec,
+      playheadAbsNow(),
     );
     if (status === "playhead-outside") {
       showToast("Playhead is not inside the selected cue");
@@ -483,7 +497,7 @@ export function Timeline({
     const { songIndex, localSeconds } = resolveSongLocal(
       songOffsets,
       songLengths,
-      playheadAbsoluteSec,
+      playheadAbsNow(),
     );
     const placed = offsetRegionsToPlayhead(
       clipboardRegions.current,
@@ -662,7 +676,7 @@ export function Timeline({
       state.songs,
       songOffsets,
       songLengths,
-      playheadAbsoluteSec,
+      playheadAbsNow(),
     );
     if (splitCount === 0) {
       showToast("Playhead is not inside the selected region");
@@ -1534,13 +1548,15 @@ export function Timeline({
       setSelectedRegionKeys,
     }),
     // Handlers close over latest state; rebind when selection / mode shifts.
+    // The playhead is deliberately NOT a dependency: these handlers read it
+    // live via playheadAbsNow(), so rebinding them on it would be both
+    // pointless and (at 60 fps) the most expensive dep in the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       cueSelection,
       selectedCueKeys,
       selectedRegionKeys,
       state.songs,
-      playheadAbsoluteSec,
       songOffsets,
       songLengths,
       effectiveViewMode,
@@ -1631,7 +1647,6 @@ export function Timeline({
   };
 
   useEffect(() => {
-    let raf = 0;
     // Engine-owned scrollLeft; null while idle (not following / not panning).
     let engineScrollLeft: number | null = null;
     let displayPx = playheadAbsoluteSecRef.current * pxPerSecRef.current;
@@ -1933,11 +1948,12 @@ export function Timeline({
       if (pendingScrollLeftRef.current === null) {
         placePlayhead(displayPx);
       }
-
-      raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    // Shared frame driver: this loop follows/animates a playhead that cannot
+    // move while the window is hidden with the transport stopped, so it is
+    // suspended with everything else in that state and resumes on the frame
+    // the window comes back (see rafLoop / appActivity).
+    return addRafTask(tick);
   }, []);
 
   // ── Toolbar ──────────────────────────────────────────────────────────────

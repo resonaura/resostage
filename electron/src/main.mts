@@ -205,6 +205,8 @@ interface MenuState {
   projectName: string;
   lastAction: string;
   lastActionNonce: number;
+  /** Live transport state -- the idle policy's absolute override. */
+  playing: boolean;
 }
 
 function backendPort(): number {
@@ -319,6 +321,7 @@ let menuState: MenuState = {
   projectName: "",
   lastAction: "",
   lastActionNonce: 0,
+  playing: false,
 };
 let lastTouchBarTab: string | null = null;
 
@@ -789,6 +792,109 @@ function recoverRenderer(
     });
 }
 
+// ── Idle policy ───────────────────────────────────────────────────────────
+//
+// The live-by-default switches above are what let this app keep metering and
+// previewing while it sits behind the DAW -- and they are also, on their own,
+// a promise never to save any power at all. On a laptop that is not the right
+// trade for the case where the window is put away and the transport is
+// stopped: nothing is being watched and nothing is moving, but the renderer is
+// still painting sixty frames a second and the process is still pinned out of
+// App Nap.
+//
+// So the switches stay (they are the show-time guarantee) and this narrow,
+// explicitly-gated policy sits on top:
+//
+//   idle  ⟺  the window is NOT on screen  AND  the transport is stopped
+//            AND it has been that way for IDLE_AFTER_MS
+//
+// "Not on screen" means hidden or minimized -- NOT merely unfocused. A window
+// the operator can see keeps running at full rate even while they work in
+// another app, which is the whole point of the app. And `playing` is an
+// absolute override: a hidden window mid-song is doing its job.
+//
+// Waking is deliberately not symmetric with sleeping. There is no delay and no
+// debounce on the way back: the first show/focus/restore/activate event, or
+// the transport starting, restores everything before the window has painted,
+// so the operator never sees the UI catch up.
+const IDLE_AFTER_MS = 30_000;
+
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+let isIdle = false;
+let transportPlaying = false;
+
+function windowOnScreen(): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  try {
+    return mainWindow.isVisible() && !mainWindow.isMinimized();
+  } catch {
+    return true; // never guess "hidden" when we cannot tell
+  }
+}
+
+function shouldBeIdle(): boolean {
+  return !windowOnScreen() && !transportPlaying;
+}
+
+function sendToRenderer(channel: string, reason: string): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const wc = mainWindow.webContents;
+  if (wc.isDestroyed()) return;
+  try {
+    wc.send(channel, { reason });
+  } catch {
+    /* renderer may be mid-navigation */
+  }
+}
+
+function enterIdle(reason: string): void {
+  if (isIdle || !mainWindow || mainWindow.isDestroyed()) return;
+  isIdle = true;
+  // Tell the page first: it stands its own animation loops down, which is
+  // where nearly all of the cost actually is.
+  sendToRenderer("shell-idle", reason);
+  try {
+    mainWindow.webContents.setBackgroundThrottling(true);
+  } catch {
+    /* older electron */
+  }
+  // Let the OS suspend/nap this process. The JUCE backend is a separate
+  // process and keeps the audio and the lighting rig running regardless.
+  releaseAppSuspensionBlocker();
+}
+
+function exitIdle(reason: string): void {
+  if (idleTimer) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+  if (!isIdle) return;
+  isIdle = false;
+  ensureAppNotSuspended();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.webContents.setBackgroundThrottling(false);
+    } catch {
+      /* older electron */
+    }
+  }
+  sendToRenderer("shell-active", reason);
+}
+
+/** Re-decide after anything that could change visibility or transport state. */
+function reevaluateIdle(reason: string): void {
+  if (!shouldBeIdle()) {
+    exitIdle(reason);
+    return;
+  }
+  if (isIdle || idleTimer) return;
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    // Conditions are re-checked at the deadline, never assumed to still hold.
+    if (shouldBeIdle()) enterIdle(reason);
+  }, IDLE_AFTER_MS);
+}
+
 /**
  * Apply menu to the appropriate location based on platform:
  * - macOS: global menu bar (Menu.setApplicationMenu)
@@ -859,7 +965,12 @@ function createWindow(): void {
       sandbox: true,
       // Default off: rAF/timers must keep firing when minimized/occluded
       // (live meters, playhead, stage preview). See applyLiveRendererDefaults.
+      // The idle policy flips this on only while the window is genuinely away
+      // and the transport is stopped.
       backgroundThrottling: false,
+      // Nothing in this UI is prose. The spell checker otherwise downloads and
+      // holds a dictionary and runs over every text field for no benefit.
+      spellcheck: false,
     },
   });
   // API mirror of webPreferences.backgroundThrottling (some Electron builds
@@ -904,12 +1015,26 @@ function createWindow(): void {
   // menu-state, but build the bar (with the latest known tab) as soon as the
   // window exists so nothing shows up empty/control-strip on first open.
   refreshTouchBar();
+  // Wake FIRST, then recover: exitIdle re-enables the renderer and re-acquires
+  // the suspension blocker, so the reflow/compositor nudge recoverRenderer
+  // does lands on a window that is already allowed to paint at full rate.
   mainWindow.on("focus", () => {
+    exitIdle("focus");
     refreshTouchBar();
     recoverRenderer("focus");
   });
-  mainWindow.on("show", () => recoverRenderer("show"));
-  mainWindow.on("restore", () => recoverRenderer("restore"));
+  mainWindow.on("show", () => {
+    exitIdle("show");
+    recoverRenderer("show");
+  });
+  mainWindow.on("restore", () => {
+    exitIdle("restore");
+    recoverRenderer("restore");
+  });
+  // The only paths INTO idle. Both are re-checked at the deadline, so a
+  // hide/show inside the delay window never sleeps the app.
+  mainWindow.on("hide", () => reevaluateIdle("hide"));
+  mainWindow.on("minimize", () => reevaluateIdle("minimize"));
 
   // Decide BEFORE loading rather than loading the dev URL and letting it fail:
   // that failure was a visible flash of Chromium's error page on every launch
@@ -936,6 +1061,12 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
     const prev = menuState;
     const prevNonce = prev.lastActionNonce;
     menuState = { ...menuState, ...s };
+    if (typeof s.playing === "boolean" && s.playing !== transportPlaying) {
+      transportPlaying = s.playing;
+      // Starting playback while hidden must cancel a pending sleep (and undo
+      // one already taken) immediately -- reevaluateIdle handles both.
+      reevaluateIdle(s.playing ? "transport-play" : "transport-stop");
+    }
     if (mainWindow) {
       mainWindow.setTitle(
         s.projectName ? `ResoStage — ${s.projectName}` : "ResoStage",
@@ -1076,6 +1207,7 @@ void app.whenReady().then(async () => {
   // System sleep / display off → wake: GPU + compositor often leave a black
   // frame. Recover automatically (double-pass: GPU may not be ready at +50ms).
   const onSystemWake = (reason: string) => {
+    exitIdle(reason);
     lastRecoverAt = 0;
     setTimeout(() => recoverRenderer(reason), 80);
     setTimeout(() => {
@@ -1089,10 +1221,17 @@ void app.whenReady().then(async () => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
     else {
+      exitIdle("activate");
       lastRecoverAt = 0;
       recoverRenderer("activate");
     }
   });
+
+  // Dock-hide / Cmd+H puts every window out of view without a per-window
+  // "hide" on some platforms; app-level focus is the reliable signal that the
+  // user is back regardless of which path took the window away.
+  app.on("browser-window-focus", () => exitIdle("app-focus"));
+  app.on("did-become-active", () => exitIdle("app-active"));
 });
 
 app.on("window-all-closed", () => {

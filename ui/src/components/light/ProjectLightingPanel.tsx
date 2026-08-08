@@ -1,4 +1,22 @@
-import { Button, ButtonGroup } from "@heroui/react";
+import {
+  Alert,
+  Button,
+  ButtonGroup,
+  Card,
+  Checkbox,
+  Chip,
+  Description,
+  Input,
+  Label,
+  ListBox,
+  Select,
+  Separator,
+  Switch,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Tooltip,
+} from "@heroui/react";
 import {
   Circle,
   Copy,
@@ -31,26 +49,30 @@ import {
   type FixtureShape,
   type ResoLightColorType,
 } from "../../lib/dmxProfiles";
-import { useFocusDraft, useNumberDraft } from "../../lib/optimistic";
 import type {
   LightFixtureRow,
   LightingState,
   WebUiState,
 } from "../../lib/types";
 import {
+  EffectTypeGrid,
+  Field,
+  GradientPresetGroup,
+  LabeledSlider,
+  LightColorPicker,
+  NumberFieldControl,
+  TextFieldControl,
+} from "./LightControls";
+import {
   EFFECT_META,
-  GRADIENT_META,
+  IDLE_EFFECT_TYPES,
   effectSupportsGradient,
   effectUsesOwnColor,
-} from "./lightEffectMeta";
-import {
-  GradientStopEditor,
-  HslColorPicker,
-  LabeledSlider,
-  type EffectType,
   type GradientPreset,
-} from "./LightSidePanel";
-import { ResoLightStage3D, type PreviewColor } from "./ResoLightStage3D";
+} from "./lightEffectMeta";
+import type { EffectType } from "./LightSidePanel";
+import { CAPTION_CLS, TOGGLE_GROUP_CLS } from "./lightStyles";
+import { ResoLightStage3D, type PreviewColor } from "./LazyResoLightStage3D";
 
 const SHAPE_ICON: Record<
   FixtureShape,
@@ -66,25 +88,34 @@ const SHAPE_ICON: Record<
   "moving-head": Move3D,
 };
 
-const selectCls =
-  "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
-const labelCls =
-  "text-[11px] font-semibold uppercase tracking-wide text-foreground/50";
-const numberCls =
-  "w-20 rounded-lg border border-default/60 bg-default/20 px-2 py-1 text-sm outline-none focus:border-accent";
+/** What the rig shows while the transport is stopped (LightingState.idle
+ *  stores it untyped; these are the four the backend accepts). */
+type IdleBehavior = NonNullable<
+  Parameters<typeof lighting.setConfig>[0]["idleBehavior"]
+>;
 
-function Field({
-  label,
+/** One bordered block of the panel. */
+function Section({
+  title,
+  action,
   children,
 }: {
-  label: string;
+  title?: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className={labelCls}>{label}</span>
-      {children}
-    </div>
+    <Card>
+      <Card.Content className="flex flex-col gap-3 p-4">
+        {(title || action) && (
+          <div className="flex items-center justify-between gap-2">
+            {title ? <Label className={CAPTION_CLS}>{title}</Label> : <span />}
+            {action}
+          </div>
+        )}
+        {children}
+      </Card.Content>
+    </Card>
   );
 }
 
@@ -165,20 +196,21 @@ function summarizeSwatchColor(
   return { r, g, b, intensity: Math.max(r, g, b) / 255 };
 }
 
+/**
+ * One row of the fixture list: a ToggleButton carrying the selection (the
+ * whole list is one single-selection ToggleButtonGroup) plus its own remove
+ * button as a sibling, since a button inside a button is not a thing.
+ */
 function FixtureItem({
   fixture,
   fixtureIndex,
   live,
-  selected,
-  onSelect,
   onRemove,
   hasChannelConflict,
 }: {
   fixture: LightFixtureRow;
   fixtureIndex: number;
   live: boolean;
-  selected: boolean;
-  onSelect: () => void;
   onRemove: () => void;
   hasChannelConflict: boolean;
 }) {
@@ -194,22 +226,16 @@ function FixtureItem({
       ? SHAPE_ICON[fixture.shape]
       : null;
   return (
-    <div
-      className={`flex items-center gap-1 w-full rounded-lg border transition-all ${
-        hasChannelConflict
-          ? "border-warning/60 bg-warning/10"
-          : selected
-            ? "border-foreground/25 bg-default/25"
-            : "border-default/30 bg-default/10 hover:bg-default/20"
-      }`}
-    >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="flex flex-1 min-w-0 items-center gap-2.5 px-3 py-2 text-left"
+    <div className="flex w-full items-center gap-1">
+      <ToggleButton
+        id={fixture.id}
+        variant="ghost"
+        className={`min-w-0 flex-1 justify-start gap-2.5 ${
+          hasChannelConflict ? "border border-warning" : ""
+        }`}
       >
         {/* Live color dot */}
-        <div
+        <span
           className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/10 transition-colors"
           style={{
             background: hasColor
@@ -220,16 +246,14 @@ function FixtureItem({
               : "none",
           }}
         />
-        {ShapeIcon && (
-          <ShapeIcon size={11} className="shrink-0 text-foreground/40" />
-        )}
-        <span className="flex-1 truncate text-xs font-medium text-foreground/80">
+        {ShapeIcon && <ShapeIcon size={11} className="shrink-0 text-muted" />}
+        <span className="flex-1 truncate text-left text-xs font-medium">
           {fixture.name}
         </span>
         {fixture.kind === "resolight::bar" && fixture.networkHost ? (
           <span
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-              fixture.hwConnected ? "bg-success" : "bg-foreground/30"
+              fixture.hwConnected ? "bg-success" : "bg-default"
             }`}
             title={
               fixture.hwConnected
@@ -246,7 +270,9 @@ function FixtureItem({
           />
         )}
         <span
-          className={`shrink-0 text-[9px] font-mono ${hasChannelConflict ? "text-warning" : "text-foreground/40"}`}
+          className={`shrink-0 font-mono text-[9px] ${
+            hasChannelConflict ? "text-warning" : "text-muted"
+          }`}
           title={
             hasChannelConflict
               ? "Overlaps another fixture's DMX channels"
@@ -257,21 +283,25 @@ function FixtureItem({
             ? `U${fixture.dmx.universe}:${fixture.dmx.startChannel}`
             : `${fixture.ledCount}L · ${fixture.mountedHorizontally ? "H" : "V"}${fixture.addressable ? " · addr" : ""}`}
         </span>
-      </button>
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove ${fixture.name}`}
-        title="Remove fixture"
-        className="shrink-0 rounded-md p-1.5 mr-1 text-foreground/30 hover:bg-danger/15 hover:text-danger transition-colors"
-      >
-        <Trash2 size={12} />
-      </button>
+      </ToggleButton>
+      <Tooltip>
+        <Button
+          isIconOnly
+          size="sm"
+          variant="ghost"
+          aria-label={`Remove ${fixture.name}`}
+          onPress={onRemove}
+        >
+          <Trash2 size={12} />
+        </Button>
+        <Tooltip.Content>Remove fixture</Tooltip.Content>
+      </Tooltip>
     </div>
   );
 }
 
-/** Local-draft host so typing an IP doesn't fight live WS re-renders.
+/** Local-draft host so typing an IP doesn't fight live WS re-renders, and so
+ *  a half-typed address is never dialled -- commit lands on blur/Enter only.
  *  Port is always resolight::kDefaultBoardPort on both ends — no UI for it. */
 function HardwareHostField({ fixture }: { fixture: LightFixtureRow }) {
   const [hostDraft, setHostDraft] = useState(fixture.networkHost);
@@ -285,102 +315,30 @@ function HardwareHostField({ fixture }: { fixture: LightFixtureRow }) {
     setFocused(false);
     const host = hostDraft.trim();
     if (host === fixture.networkHost) return;
-    void lighting.fixtureUpdate({
-      fixtureId: fixture.id,
-      networkHost: host,
-    });
+    void lighting.fixtureUpdate({ fixtureId: fixture.id, networkHost: host });
   };
 
   return (
-    <Field label="Board IP">
-      <input
-        type="text"
-        className={`${selectCls} select-text`}
+    <TextField
+      className="gap-1"
+      value={hostDraft}
+      onChange={setHostDraft}
+      aria-label="Board IP"
+    >
+      <Label className={CAPTION_CLS}>Board IP</Label>
+      <Input
+        className="select-text"
         placeholder="e.g. 192.168.1.50"
-        value={hostDraft}
         onFocus={() => setFocused(true)}
-        onChange={(e) => setHostDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
         }}
       />
-      <div className="text-[10px] text-foreground/40 mt-1">
+      <Description className="text-[10px]">
         Leave empty for preview only (no hardware).
-      </div>
-    </Field>
-  );
-}
-
-/**
- * Text input that commits immediately but ignores server echoes while focused.
- * Prevents remote WS re-renders from resetting cursor position mid-typing.
- */
-function FocusTextInput({
-  serverValue,
-  onCommit,
-  className,
-  placeholder,
-}: {
-  serverValue: string;
-  onCommit: (v: string) => void;
-  className?: string;
-  placeholder?: string;
-}) {
-  const { inputProps } = useFocusDraft(serverValue, onCommit);
-  return (
-    <input
-      type="text"
-      className={className ?? selectCls}
-      placeholder={placeholder}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      {...inputProps}
-    />
-  );
-}
-
-/**
- * Number input that commits immediately but ignores server echoes while
- * focused. Holds raw string state so the user can type "1." mid-way.
- */
-function FocusNumberInput({
-  serverValue,
-  onCommit,
-  className,
-  min,
-  max,
-  step,
-  toStr,
-  disabled,
-  title,
-}: {
-  serverValue: number;
-  onCommit: (v: number) => void;
-  className?: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  toStr?: (v: number) => string;
-  disabled?: boolean;
-  title?: string;
-}) {
-  const { inputProps } = useNumberDraft(serverValue, onCommit, toStr);
-  return (
-    <input
-      type="number"
-      className={className ?? numberCls}
-      min={min}
-      max={max}
-      step={step}
-      disabled={disabled}
-      title={title}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      {...inputProps}
-    />
+      </Description>
+    </TextField>
   );
 }
 
@@ -407,58 +365,82 @@ export function ProjectLightingPanel({
   return (
     <div className="flex flex-col gap-4">
       {/* Enable toggle */}
-      <div className="flex items-center justify-between rounded-xl border border-default/30 bg-default/10 px-4 py-3">
-        <div>
-          <div className="text-sm font-semibold">Light System</div>
-          <div className="text-xs text-foreground/50">
-            Drive a light rig alongside the show, synced to the timeline.
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => void lighting.setConfig({ enabled: !li.enabled })}
-          className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${
-            li.enabled
-              ? "border-accent tint--soft text-accent"
-              : "border-default/60 bg-default/20 text-foreground/60 hover:bg-default/30"
-          }`}
-        >
-          <span
-            className={`h-2 w-2 rounded-full transition-colors ${
-              li.enabled ? "bg-accent" : "bg-default/40"
-            }`}
-          />
-          {li.enabled ? "Enabled" : "Disabled"}
-        </button>
-      </div>
+      <Card>
+        <Card.Content className="p-4">
+          <Switch
+            isSelected={li.enabled}
+            onChange={(enabled) => void lighting.setConfig({ enabled })}
+          >
+            <Switch.Content>
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+              <Label className="text-sm font-semibold">Light System</Label>
+            </Switch.Content>
+            <Description>
+              Drive a light rig alongside the show, synced to the timeline.
+            </Description>
+          </Switch>
+        </Card.Content>
+      </Card>
 
       {li.enabled && (
         <>
           {/* Fixture type */}
-          <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3">
-            <Field label="Fixture type">
-              <select
-                className={selectCls}
-                value={li.kind}
-                onChange={(e) =>
-                  void lighting.setConfig({
-                    kind: e.target.value as LightingState["kind"],
-                  })
-                }
-              >
-                <option value="none">Not set</option>
-                <option value="resolight">ResoLight (vertical LED bars)</option>
-                <option value="dmx::generic">
-                  Generic DMX / Art-Net / HTTP
-                </option>
-              </select>
-            </Field>
-          </div>
+          <Section>
+            <Select
+              className="w-full"
+              value={li.kind}
+              onChange={(v) =>
+                void lighting.setConfig({ kind: v as LightingState["kind"] })
+              }
+            >
+              <Label className={CAPTION_CLS}>Fixture type</Label>
+              <Select.Trigger>
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  <ListBox.Item id="none" textValue="Not set">
+                    Not set
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                  <ListBox.Item
+                    id="resolight"
+                    textValue="ResoLight (vertical LED bars)"
+                  >
+                    ResoLight (vertical LED bars)
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                  <ListBox.Item
+                    id="dmx::generic"
+                    textValue="Generic DMX / Art-Net / HTTP"
+                  >
+                    Generic DMX / Art-Net / HTTP
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                </ListBox>
+              </Select.Popover>
+            </Select>
+          </Section>
 
           {/* Idle behavior -- what fixtures show while the transport is stopped */}
-          <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3 flex flex-col gap-3">
+          <Section>
             <Field label="When playback is stopped">
-              <div className="grid grid-cols-2 gap-1.5">
+              <ToggleButtonGroup
+                isDetached
+                aria-label="Idle behavior"
+                className={`grid grid-cols-2 gap-1.5 ${TOGGLE_GROUP_CLS}`}
+                disallowEmptySelection
+                selectionMode="single"
+                selectedKeys={[li.idle.behavior]}
+                size="sm"
+                onSelectionChange={(keys) => {
+                  const next = [...keys][0] as IdleBehavior | undefined;
+                  if (next) void lighting.setConfig({ idleBehavior: next });
+                }}
+              >
                 {(
                   [
                     {
@@ -483,28 +465,20 @@ export function ProjectLightingPanel({
                     },
                   ] as const
                 ).map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    title={opt.desc}
-                    onClick={() =>
-                      void lighting.setConfig({ idleBehavior: opt.value })
-                    }
-                    className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
-                      li.idle.behavior === opt.value
-                        ? "border-accent tint--soft text-accent"
-                        : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
+                  <Tooltip key={opt.value}>
+                    <ToggleButton id={opt.value}>
+                      {opt.label}
+                    </ToggleButton>
+                    <Tooltip.Content>{opt.desc}</Tooltip.Content>
+                  </Tooltip>
                 ))}
-              </div>
+              </ToggleButtonGroup>
             </Field>
 
             {li.idle.behavior === "static" && (
-              <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
-                <HslColorPicker
+              <>
+                <Separator />
+                <LightColorPicker
                   r={li.idle.color.r}
                   g={li.idle.color.g}
                   b={li.idle.color.b}
@@ -517,13 +491,13 @@ export function ProjectLightingPanel({
                   }
                 />
                 <LabeledSlider
-                  label={`Intensity: ${Math.round(li.idle.intensity * 100)}%`}
+                  label="Intensity"
                   value={li.idle.intensity}
                   onChange={(v) =>
                     void lighting.setConfig({ idleIntensity: v })
                   }
                 />
-              </div>
+              </>
             )}
 
             {li.idle.behavior === "effect" &&
@@ -535,66 +509,20 @@ export function ProjectLightingPanel({
                 const idleSupportsGradient = effectSupportsGradient(idleEt);
 
                 return (
-                  <div className="flex flex-col gap-3 border-t border-default/20 pt-3">
-                    <Field label="Effect">
-                      <div className="grid grid-cols-4 gap-1">
-                        {(
-                          [
-                            "none",
-                            "strobe",
-                            "pulse",
-                            "ripple",
-                            "converge",
-                            "gradientflow",
-                            "chase",
-                            "helix",
-                            "plasma",
-                            "twinkle",
-                            "sonicboom",
-                            "fire",
-                            "bouncing",
-                            "drip",
-                            "fireworks",
-                            "colorwaves",
-                            "strobeswipe",
-                            "scanner",
-                            "lightning",
-                            "barberpole",
-                          ] as EffectType[]
-                        ).map((et) => {
-                          const meta = EFFECT_META[et];
-                          return (
-                            <button
-                              key={et}
-                              type="button"
-                              title={meta.desc}
-                              onClick={() =>
-                                void lighting.setConfig({ idleEffectType: et })
-                              }
-                              className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
-                                li.idle.effect.type === et
-                                  ? "border-accent tint--soft text-accent"
-                                  : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
-                              }`}
-                            >
-                              {meta.icon}
-                              <span>{meta.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {li.idle.effect.type &&
-                        li.idle.effect.type !== "none" && (
-                          <div className="mt-1 text-[10px] text-foreground/40 italic">
-                            {EFFECT_META[idleEt]?.desc}
-                          </div>
-                        )}
-                    </Field>
+                  <>
+                    <Separator />
+                    <EffectTypeGrid
+                      types={IDLE_EFFECT_TYPES}
+                      value={idleEt}
+                      onChange={(et) =>
+                        void lighting.setConfig({ idleEffectType: et })
+                      }
+                    />
 
-                    {li.idle.effect.type !== "none" && (
+                    {idleEt !== "none" && (
                       <>
                         <LabeledSlider
-                          label={`Rate: ${li.idle.effect.rateHz.toFixed(1)} Hz`}
+                          label="Rate"
                           min={0.05}
                           max={10}
                           step={0.05}
@@ -602,56 +530,38 @@ export function ProjectLightingPanel({
                           onChange={(v) =>
                             void lighting.setConfig({ idleEffectRateHz: v })
                           }
+                          format={(v) => `${v.toFixed(1)} Hz`}
                         />
 
                         {idleSupportsGradient && (
-                          <Field label="Gradient Palette">
-                            <div className="grid grid-cols-2 gap-1.5">
-                              {(
-                                Object.keys(GRADIENT_META) as GradientPreset[]
-                              ).map((g) => (
-                                <button
-                                  key={g}
-                                  type="button"
-                                  onClick={() =>
-                                    void lighting.setConfig({
-                                      idleGradientPreset: g,
-                                    })
-                                  }
-                                  className={`rounded-lg border px-2 py-1 text-left text-xs font-medium transition-colors ${
-                                    (li.idle.gradient.preset || "solid") === g
-                                      ? "border-accent tint--soft text-accent"
-                                      : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
-                                  }`}
-                                >
-                                  {GRADIENT_META[g]}
-                                </button>
-                              ))}
-                            </div>
-                            {li.idle.gradient.preset === "custom" && (
-                              <div className="mt-2">
-                                <GradientStopEditor
-                                  value={li.idle.gradient.colors || ""}
-                                  onChange={(colors) =>
-                                    void lighting.setConfig({
-                                      idleGradientColors: colors,
-                                    })
-                                  }
-                                />
-                              </div>
-                            )}
-                          </Field>
+                          <GradientPresetGroup
+                            label="Gradient Palette"
+                            value={idlePreset}
+                            colors={li.idle.gradient.colors || ""}
+                            onChange={(g) =>
+                              void lighting.setConfig({ idleGradientPreset: g })
+                            }
+                            onColorsChange={(colors) =>
+                              void lighting.setConfig({
+                                idleGradientColors: colors,
+                              })
+                            }
+                          />
                         )}
                       </>
                     )}
 
                     {idleUsesOwnColor ? (
-                      <div className="rounded-lg border border-default/30 bg-default/10 px-3 py-2 text-xs text-foreground/50 italic">
-                        Color is driven by{" "}
-                        {EFFECT_META[idleEt]?.label || idleEt} palette
-                      </div>
+                      <Alert status="default">
+                        <Alert.Content>
+                          <Alert.Description className="text-xs italic">
+                            Color is driven by{" "}
+                            {EFFECT_META[idleEt]?.label || idleEt} palette
+                          </Alert.Description>
+                        </Alert.Content>
+                      </Alert>
                     ) : (
-                      <HslColorPicker
+                      <LightColorPicker
                         r={li.idle.color.r}
                         g={li.idle.color.g}
                         b={li.idle.color.b}
@@ -666,111 +576,99 @@ export function ProjectLightingPanel({
                     )}
 
                     <LabeledSlider
-                      label={`Intensity: ${Math.round(li.idle.intensity * 100)}%`}
+                      label="Intensity"
                       value={li.idle.intensity}
                       onChange={(v) =>
                         void lighting.setConfig({ idleIntensity: v })
                       }
                     />
-                  </div>
+                  </>
                 );
               })()}
-          </div>
+          </Section>
 
           {/* Default DMX send rate -- a universe is one shared wire, so a
               fixture can only slow it down (not speed it up) below this;
               see LightFixture::refreshRateHz for the per-fixture override
               and why the slowest one on a universe wins. Also the default
               rate for ResoLight real-hardware WS frames. */}
-          <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3 flex flex-col gap-3">
-            <Field label="Default Output Rate (Hz)">
-              <div className="flex items-center gap-2">
-                <FocusNumberInput
-                  serverValue={li.defaultRefreshRateHz}
-                  min={1}
-                  max={60}
-                  onCommit={(v) =>
-                    void lighting.setConfig({
-                      defaultRefreshRateHz: Math.min(
-                        60,
-                        Math.max(1, Math.round(v)),
-                      ),
-                    })
-                  }
-                />
-                <span className="text-[10px] text-foreground/40">
-                  DMX/Art-Net and ResoLight hardware frames. Per-fixture
-                  overrides below win when set.
-                </span>
-              </div>
-            </Field>
+          <Section>
+            <NumberFieldControl
+              label="Default Output Rate (Hz)"
+              value={li.defaultRefreshRateHz}
+              min={1}
+              max={60}
+              maxFractionDigits={0}
+              description="DMX/Art-Net and ResoLight hardware frames. Per-fixture overrides below win when set."
+              onCommit={(v) =>
+                void lighting.setConfig({
+                  defaultRefreshRateHz: Math.min(
+                    60,
+                    Math.max(1, Math.round(v)),
+                  ),
+                })
+              }
+            />
             {li.kind === "dmx::generic" && (
-              <Field label="Art-Net Target Host">
-                <div className="flex items-center gap-2">
-                  <FocusTextInput
-                    serverValue={li.artNetTargetHost ?? ""}
-                    placeholder="255.255.255.255 (broadcast)"
-                    onCommit={(v) =>
-                      void lighting.setConfig({
-                        artNetTargetHost: v.trim(),
-                      })
-                    }
-                  />
-                </div>
-                <div className="text-[10px] text-foreground/40 mt-1">
-                  Empty or 255.255.255.255 = LAN broadcast. Unicast IP for a
-                  specific Art-Net node.
-                </div>
-              </Field>
+              <TextFieldControl
+                label="Art-Net Target Host"
+                placeholder="255.255.255.255 (broadcast)"
+                value={li.artNetTargetHost ?? ""}
+                description="Empty or 255.255.255.255 = LAN broadcast. Unicast IP for a specific Art-Net node."
+                onCommit={(v) =>
+                  void lighting.setConfig({ artNetTargetHost: v.trim() })
+                }
+              />
             )}
-          </div>
+          </Section>
 
           {/* ResoLight real-hardware discovery (ESP32/ESP8266 on LAN).
               Preview-only by default -- boards only appear when powered and
               broadcasting; pairing is opt-in per fixture below. */}
           {li.kind === "resolight" && (
-            <div className="rounded-xl border border-default/30 bg-default/5 px-4 py-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className={labelCls}>ResoLight Hardware</span>
-                <span className="text-[10px] text-foreground/40">
+            <Section
+              title="ResoLight Hardware"
+              action={
+                <Description className="text-[10px]">
                   Preview-only until a board IP is set per fixture
-                </span>
-              </div>
+                </Description>
+              }
+            >
               {(li.discoveredBoards?.length ?? 0) === 0 ? (
-                <div className="text-[11px] text-foreground/45 leading-relaxed">
+                <Description className="text-[11px] leading-relaxed">
                   No boards discovered on the LAN yet. Power an ESP32/ESP8266
                   running the ResoLight firmware on the same Wi-Fi; it will
                   appear here automatically. Or type an IP on a fixture below.
-                </div>
+                </Description>
               ) : (
                 <div className="flex flex-col gap-1">
                   {(li.discoveredBoards ?? []).map((b) => (
                     <div
                       key={b.mac}
-                      className="flex items-center gap-2 rounded-lg border border-default/20 bg-default/5 px-2.5 py-1.5 text-xs"
+                      className="flex items-center gap-2 rounded-lg border border-default px-2.5 py-1.5 text-xs"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
-                      <span className="font-medium text-foreground/80 truncate">
+                      <span className="truncate font-medium">
                         {b.name || "ResoLight"}
                       </span>
-                      <span className="font-mono text-[10px] text-foreground/50">
+                      <Chip size="sm" variant="soft" className="font-mono">
                         {b.ip}
-                      </span>
-                      <span className="text-[10px] text-foreground/35 uppercase">
+                      </Chip>
+                      <span className="text-[10px] uppercase text-muted">
                         {b.chipType}
                       </span>
-                      <span className="ml-auto text-[10px] text-foreground/35 font-mono">
+                      <span className="ml-auto font-mono text-[10px] text-muted">
                         {b.mac}
                       </span>
                     </div>
                   ))}
-                  <div className="text-[10px] text-foreground/40 mt-0.5">
+                  <Description className="text-[10px]">
                     Click a fixture below, then use &quot;Use discovered&quot;
                     or type the IP to bind it.
-                  </div>
+                  </Description>
                 </div>
               )}
-            </div>
+            </Section>
           )}
 
           {/* DMX generic fixtures are driven through the exact same
@@ -782,9 +680,9 @@ export function ProjectLightingPanel({
           {(li.kind === "resolight" || li.kind === "dmx::generic") && (
             <div className="flex flex-col gap-4">
               {/* Rig size + auto-layout */}
-              <div className="rounded-xl border border-default/30 bg-default/5 p-4 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <span className={labelCls}>Rig Layout</span>
+              <Section
+                title="Rig Layout"
+                action={
                   <ButtonGroup size="sm" variant="tertiary">
                     <Button
                       onPress={() => {
@@ -813,62 +711,53 @@ export function ProjectLightingPanel({
                       </Button>
                     )}
                   </ButtonGroup>
-                </div>
+                }
+              >
                 {li.kind === "resolight" ? (
-                  <div className="flex flex-wrap gap-3">
-                    <Field label="Columns">
-                      <input
-                        type="number"
-                        min={0}
-                        max={32}
-                        className={numberCls}
-                        value={li.resolight.columns}
-                        onChange={(e) =>
-                          void lighting.setConfig({
-                            resolightColumns: Math.max(
-                              0,
-                              Number(e.target.value) || 0,
-                            ),
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field label="Rows">
-                      <input
-                        type="number"
-                        min={0}
-                        max={32}
-                        className={numberCls}
-                        value={li.resolight.rows}
-                        onChange={(e) =>
-                          void lighting.setConfig({
-                            resolightRows: Math.max(
-                              0,
-                              Number(e.target.value) || 0,
-                            ),
-                          })
-                        }
-                      />
-                    </Field>
-                    <div className="flex-1 self-end pb-1.5 text-xs text-foreground/50">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <NumberFieldControl
+                      label="Columns"
+                      value={li.resolight.columns}
+                      min={0}
+                      max={32}
+                      maxFractionDigits={0}
+                      onCommit={(v) =>
+                        void lighting.setConfig({
+                          resolightColumns: Math.max(0, Math.round(v)),
+                        })
+                      }
+                    />
+                    <NumberFieldControl
+                      label="Rows"
+                      value={li.resolight.rows}
+                      min={0}
+                      max={32}
+                      maxFractionDigits={0}
+                      onCommit={(v) =>
+                        void lighting.setConfig({
+                          resolightRows: Math.max(0, Math.round(v)),
+                        })
+                      }
+                    />
+                    <Description className="flex-1 pb-2 text-xs">
                       {li.fixtures.length} bar
                       {li.fixtures.length === 1 ? "" : "s"} total
-                    </div>
+                    </Description>
                   </div>
                 ) : (
-                  <div className="text-xs text-foreground/50">
+                  <Description className="text-xs">
                     {li.fixtures.length} fixture
                     {li.fixtures.length === 1 ? "" : "s"} total -- add or remove
                     individually below; each drives through the same
                     tracks/cues/effects as a ResoLight bar.
-                  </div>
+                  </Description>
                 )}
-              </div>
+              </Section>
 
               {/* 3D Viewport */}
-              <div className="rounded-xl border border-default/30 overflow-hidden">
+              <Card className="overflow-hidden p-0">
                 <div
-                  className="relative h-72 w-full bg-background"
+                  className="relative h-72 w-full"
                   onWheel={(e) => e.stopPropagation()}
                 >
                   <ResoLightStage3D
@@ -886,26 +775,35 @@ export function ProjectLightingPanel({
                     live={li.enabled}
                   />
                 </div>
-              </div>
+              </Card>
 
               {/* Fixture list */}
               {li.fixtures.length > 0 && (
-                <div className="rounded-xl border border-default/30 bg-default/5 p-3 flex flex-col gap-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={labelCls}>Fixtures</span>
-                    <span className="text-[10px] text-foreground/40">
+                <Section
+                  title="Fixtures"
+                  action={
+                    <Description className="text-[10px]">
                       Click to select · drag in 3D to reposition
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+                    </Description>
+                  }
+                >
+                  <ToggleButtonGroup
+                    isDetached
+                    aria-label="Fixtures"
+                    className={`flex max-h-48 flex-col gap-1.5 overflow-y-auto ${TOGGLE_GROUP_CLS}`}
+                    selectionMode="single"
+                    selectedKeys={selectedFixtureId ? [selectedFixtureId] : []}
+                    size="sm"
+                    onSelectionChange={(keys) =>
+                      setSelectedFixtureId(([...keys][0] as string) ?? null)
+                    }
+                  >
                     {li.fixtures.map((f, i) => (
                       <FixtureItem
                         key={f.id}
                         fixture={f}
                         fixtureIndex={i}
                         live={li.enabled}
-                        selected={f.id === selectedFixtureId}
-                        onSelect={() => setSelectedFixtureId(f.id)}
                         onRemove={() => {
                           if (selectedFixtureId === f.id)
                             setSelectedFixtureId(null);
@@ -914,33 +812,34 @@ export function ProjectLightingPanel({
                         hasChannelConflict={dmxConflicts.has(f.id)}
                       />
                     ))}
-                  </div>
-                </div>
+                  </ToggleButtonGroup>
+                </Section>
               )}
 
               {/* Selected fixture editor */}
               {selected && (
-                <div
+                <Section
                   key={selected.id}
-                  className="rounded-xl border border-default/30 bg-default/5 p-4 flex flex-col gap-3"
+                  title={`Editing: ${selected.name}`}
+                  action={
+                    <Tooltip>
+                      <Button
+                        size="sm"
+                        variant="tertiary"
+                        onPress={() =>
+                          void lighting.fixtureDuplicate(selected.id)
+                        }
+                      >
+                        <Copy size={14} />
+                        Duplicate
+                      </Button>
+                      <Tooltip.Content>
+                        Duplicate this fixture (same settings, offset position,
+                        next free DMX channels)
+                      </Tooltip.Content>
+                    </Tooltip>
+                  }
                 >
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-xs font-semibold text-foreground/70 uppercase tracking-wide">
-                      Editing: {selected.name}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="tertiary"
-                      onPress={() =>
-                        void lighting.fixtureDuplicate(selected.id)
-                      }
-                      aria-label="Duplicate this fixture (same settings, offset position, next free DMX channels)"
-                    >
-                      <Copy size={14} />
-                      Duplicate
-                    </Button>
-                  </div>
-
                   <div
                     className={
                       selected.kind === "dmx::generic"
@@ -948,30 +847,29 @@ export function ProjectLightingPanel({
                         : "grid grid-cols-2 gap-3"
                     }
                   >
-                    <Field label="Name">
-                      <FocusTextInput
-                        serverValue={selected.name}
+                    <TextFieldControl
+                      label="Name"
+                      value={selected.name}
+                      onCommit={(v) =>
+                        void lighting.fixtureUpdate({
+                          fixtureId: selected.id,
+                          name: v,
+                        })
+                      }
+                    />
+                    {selected.kind === "resolight::bar" && (
+                      <NumberFieldControl
+                        label="LEDs"
+                        value={selected.ledCount}
+                        min={1}
+                        maxFractionDigits={0}
                         onCommit={(v) =>
                           void lighting.fixtureUpdate({
                             fixtureId: selected.id,
-                            name: v,
+                            ledCount: Math.max(1, Math.round(v)),
                           })
                         }
                       />
-                    </Field>
-                    {selected.kind === "resolight::bar" && (
-                      <Field label="LEDs">
-                        <FocusNumberInput
-                          serverValue={selected.ledCount}
-                          min={1}
-                          onCommit={(v) =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              ledCount: Math.max(1, Math.round(v)),
-                            })
-                          }
-                        />
-                      </Field>
                     )}
                   </div>
 
@@ -981,60 +879,68 @@ export function ProjectLightingPanel({
                       it rearranges the same linear pixel array into a
                       different physical layout (see ResoLightStage3D.tsx). */}
                   <Field label="Fixture Shape">
-                    <div className="grid grid-cols-5 gap-1.5">
+                    <ToggleButtonGroup
+                      isDetached
+                      aria-label="Fixture shape"
+                      // One row either way: four ResoLight layouts, five DMX
+                      // housings.
+                      className={`grid gap-1.5 ${TOGGLE_GROUP_CLS} ${
+                        selected.kind === "resolight::bar"
+                          ? "grid-cols-4"
+                          : "grid-cols-5"
+                      }`}
+                      disallowEmptySelection
+                      selectionMode="single"
+                      selectedKeys={[selected.shape]}
+                      size="sm"
+                      onSelectionChange={(keys) => {
+                        const shape = [...keys][0] as FixtureShape | undefined;
+                        if (!shape) return;
+                        void lighting.fixtureUpdate(
+                          // A Ring is always uniform-color -- force
+                          // addressable off so stale per-pixel data
+                          // from a previous shape never lingers.
+                          shape === "ring"
+                            ? {
+                                fixtureId: selected.id,
+                                shape,
+                                addressable: false,
+                              }
+                            : { fixtureId: selected.id, shape },
+                        );
+                      }}
+                    >
                       {(selected.kind === "resolight::bar"
                         ? RESOLIGHT_SHAPES
                         : DMX_GENERIC_SHAPES
                       ).map((shape) => {
                         const Icon = SHAPE_ICON[shape];
                         return (
-                          <button
-                            key={shape}
-                            type="button"
-                            onClick={() =>
-                              void lighting.fixtureUpdate(
-                                // A Ring is always uniform-color -- force
-                                // addressable off so stale per-pixel data
-                                // from a previous shape never lingers.
-                                shape === "ring"
-                                  ? {
-                                      fixtureId: selected.id,
-                                      shape,
-                                      addressable: false,
-                                    }
-                                  : { fixtureId: selected.id, shape },
-                              )
-                            }
-                            title={SHAPE_META[shape].label}
-                            className={`flex flex-col items-center gap-1 rounded-lg border py-2 text-[10px] font-medium transition-colors ${
-                              selected.shape === shape
-                                ? "border-accent tint--soft text-accent"
-                                : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
-                            }`}
-                          >
+                          <ToggleButton key={shape} id={shape}>
                             <Icon size={16} />
                             {SHAPE_META[shape].label}
-                          </button>
+                          </ToggleButton>
                         );
                       })}
-                    </div>
+                    </ToggleButtonGroup>
                   </Field>
 
                   {selected.kind === "resolight::bar" &&
                     selected.shape === "matrix" && (
-                      <Field label="Matrix Columns (0 = auto)">
-                        <FocusNumberInput
-                          serverValue={selected.matrixColumns}
-                          min={0}
-                          max={31}
-                          onCommit={(v) =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              matrixCols: Math.max(0, Math.round(v)),
-                            })
-                          }
-                        />
-                      </Field>
+                      <NumberFieldControl
+                        label="Matrix Columns"
+                        description="0 = auto"
+                        value={selected.matrixColumns}
+                        min={0}
+                        max={31}
+                        maxFractionDigits={0}
+                        onCommit={(v) =>
+                          void lighting.fixtureUpdate({
+                            fixtureId: selected.id,
+                            matrixCols: Math.max(0, Math.round(v)),
+                          })
+                        }
+                      />
                     )}
 
                   {/* Color Type -- unlike DmxGeneric's Channel Profile (a UI
@@ -1054,84 +960,89 @@ export function ProjectLightingPanel({
                           ? selected.channelProfile
                           : "rgb";
                       return (
-                        <Field label="Color Type">
-                          <div className="grid grid-cols-3 gap-1.5">
+                        <Field
+                          label="Color Type"
+                          description={
+                            <>
+                              {RESOLIGHT_COLOR_TYPE_META[colorType].description}{" "}
+                              Real channel count:{" "}
+                              {resoLightRealChannelCount(
+                                colorType,
+                                selected.ledCount,
+                                selected.addressable,
+                              )}
+                              .
+                            </>
+                          }
+                        >
+                          <ToggleButtonGroup
+                            isDetached
+                            aria-label="Color type"
+                            className={`grid grid-cols-3 gap-1.5 ${TOGGLE_GROUP_CLS}`}
+                            disallowEmptySelection
+                            selectionMode="single"
+                            selectedKeys={[colorType]}
+                            size="sm"
+                            onSelectionChange={(keys) => {
+                              const ct = [...keys][0] as
+                                | ResoLightColorType
+                                | undefined;
+                              if (ct)
+                                void lighting.fixtureUpdate({
+                                  fixtureId: selected.id,
+                                  channelProfile: ct,
+                                });
+                            }}
+                          >
                             {RESOLIGHT_COLOR_TYPES.map((ct) => (
-                              <button
-                                key={ct}
-                                type="button"
-                                onClick={() =>
-                                  void lighting.fixtureUpdate({
-                                    fixtureId: selected.id,
-                                    channelProfile: ct,
-                                  })
-                                }
-                                title={
-                                  RESOLIGHT_COLOR_TYPE_META[ct].description
-                                }
-                                className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
-                                  colorType === ct
-                                    ? "border-accent tint--soft text-accent"
-                                    : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
-                                }`}
-                              >
-                                {RESOLIGHT_COLOR_TYPE_META[ct].label}
-                              </button>
+                              <Tooltip key={ct}>
+                                <ToggleButton id={ct}>
+                                  {RESOLIGHT_COLOR_TYPE_META[ct].label}
+                                </ToggleButton>
+                                <Tooltip.Content>
+                                  {RESOLIGHT_COLOR_TYPE_META[ct].description}
+                                </Tooltip.Content>
+                              </Tooltip>
                             ))}
-                          </div>
-                          <div className="mt-1 text-[10px] text-foreground/40 italic">
-                            {RESOLIGHT_COLOR_TYPE_META[colorType].description}{" "}
-                            Real channel count:{" "}
-                            {resoLightRealChannelCount(
-                              colorType,
-                              selected.ledCount,
-                              selected.addressable,
-                            )}
-                            .
-                          </div>
+                          </ToggleButtonGroup>
                         </Field>
                       );
                     })()}
 
                   <div className="grid grid-cols-3 gap-3">
-                    <Field label="Height (m)">
-                      <FocusNumberInput
-                        serverValue={selected.position.y}
-                        step={0.1}
-                        onCommit={(v) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            posY: v,
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field label="Pos X (m)">
-                      <FocusNumberInput
-                        serverValue={selected.position.x}
-                        step={0.1}
-                        toStr={(v) => v.toFixed(2)}
-                        onCommit={(v) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            posX: v,
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field label="Pos Z (m)">
-                      <FocusNumberInput
-                        serverValue={selected.position.z}
-                        step={0.1}
-                        toStr={(v) => v.toFixed(2)}
-                        onCommit={(v) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            posZ: v,
-                          })
-                        }
-                      />
-                    </Field>
+                    <NumberFieldControl
+                      label="Height (m)"
+                      value={selected.position.y}
+                      step={0.1}
+                      onCommit={(v) =>
+                        void lighting.fixtureUpdate({
+                          fixtureId: selected.id,
+                          posY: v,
+                        })
+                      }
+                    />
+                    <NumberFieldControl
+                      label="Pos X (m)"
+                      value={selected.position.x}
+                      step={0.1}
+                      onCommit={(v) =>
+                        void lighting.fixtureUpdate({
+                          fixtureId: selected.id,
+                          posX: v,
+                        })
+                      }
+                    />
+                    <NumberFieldControl
+                      label="Pos Z (m)"
+                      value={selected.position.z}
+                      step={0.1}
+                      onCommit={(v) =>
+                        void lighting.fixtureUpdate({
+                          fixtureId: selected.id,
+                          posZ: v,
+                        })
+                      }
+                    />
                   </div>
 
                   {/* Mount: standing vs. laid on its side -- a physical
@@ -1139,113 +1050,103 @@ export function ProjectLightingPanel({
                       Only meaningful for a ResoLight bar's shape. */}
                   {selected.kind === "resolight::bar" && (
                     <Field label="Mount">
-                      <div className="flex gap-2">
-                        {(
-                          [
-                            {
-                              label: "Vertical",
-                              icon: MoveVertical,
-                              value: false,
-                            },
-                            {
-                              label: "Horizontal",
-                              icon: MoveHorizontal,
-                              value: true,
-                            },
-                          ] as const
-                        ).map((opt) => (
-                          <button
-                            key={opt.label}
-                            type="button"
-                            onClick={() =>
-                              void lighting.fixtureUpdate({
-                                fixtureId: selected.id,
-                                mountedHorizontally: opt.value,
-                              })
-                            }
-                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                              selected.mountedHorizontally === opt.value
-                                ? "border-accent tint--soft text-accent"
-                                : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
-                            }`}
-                          >
-                            <opt.icon size={13} />
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
+                      <ToggleButtonGroup
+                        isDetached
+                        fullWidth
+                        aria-label="Mount"
+                        className={`gap-2 ${TOGGLE_GROUP_CLS}`}
+                        disallowEmptySelection
+                        selectionMode="single"
+                        selectedKeys={[
+                          selected.mountedHorizontally
+                            ? "horizontal"
+                            : "vertical",
+                        ]}
+                        size="sm"
+                        onSelectionChange={(keys) => {
+                          const mount = [...keys][0] as string | undefined;
+                          if (!mount) return;
+                          void lighting.fixtureUpdate({
+                            fixtureId: selected.id,
+                            mountedHorizontally: mount === "horizontal",
+                          });
+                        }}
+                      >
+                        <ToggleButton id="vertical">
+                          <MoveVertical />
+                          Vertical
+                        </ToggleButton>
+                        <ToggleButton id="horizontal">
+                          <MoveHorizontal />
+                          Horizontal
+                        </ToggleButton>
+                      </ToggleButtonGroup>
                     </Field>
                   )}
 
-                  <Field label="Yaw (°) -- which way it faces">
-                    <div className="flex gap-2">
-                      <FocusNumberInput
-                        serverValue={selected.rotation.y}
-                        step={5}
-                        className="w-20 rounded-lg border border-default/60 bg-default/20 px-2 py-1 text-xs outline-none focus:border-accent text-center"
-                        onCommit={(v) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            rotationYDeg: v,
-                          })
-                        }
-                      />
-                    </div>
-                  </Field>
+                  <NumberFieldControl
+                    label="Yaw (°)"
+                    description="Which way the fixture faces"
+                    value={selected.rotation.y}
+                    step={5}
+                    onCommit={(v) =>
+                      void lighting.fixtureUpdate({
+                        fixtureId: selected.id,
+                        rotationYDeg: v,
+                      })
+                    }
+                  />
 
                   {/* Tilt: cosmetic aim/pitch off vertical -- a real hung
                       fixture is angled at the stage via its yoke, not
                       standing bolt upright like a ResoLightBar. */}
                   {selected.kind === "dmx::generic" && (
-                    <Field label="Tilt (°) -- aim off vertical">
-                      <div className="flex gap-2">
-                        <FocusNumberInput
-                          serverValue={selected.tiltDegrees}
-                          step={5}
-                          min={-90}
-                          max={90}
-                          className="w-20 rounded-lg border border-default/60 bg-default/20 px-2 py-1 text-xs outline-none focus:border-accent text-center"
-                          onCommit={(v) =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              tiltDeg: v,
-                            })
-                          }
-                        />
-                      </div>
-                    </Field>
+                    <NumberFieldControl
+                      label="Tilt (°)"
+                      description="Aim off vertical"
+                      value={selected.tiltDegrees}
+                      step={5}
+                      min={-90}
+                      max={90}
+                      onCommit={(v) =>
+                        void lighting.fixtureUpdate({
+                          fixtureId: selected.id,
+                          tiltDeg: v,
+                        })
+                      }
+                    />
                   )}
 
                   {/* Grid position -- only meaningful for a ResoLight bar
                       seeded from the Columns x Rows layout above. */}
                   {selected.kind === "resolight::bar" && (
                     <div className="grid grid-cols-2 gap-3">
-                      <Field label="Grid Column">
-                        <FocusNumberInput
-                          serverValue={selected.grid.column}
-                          min={0}
-                          max={31}
-                          onCommit={(v) =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              gridColumn: Math.max(0, Math.round(v)),
-                            })
-                          }
-                        />
-                      </Field>
-                      <Field label="Grid Row">
-                        <FocusNumberInput
-                          serverValue={selected.grid.row}
-                          min={0}
-                          max={31}
-                          onCommit={(v) =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              gridRow: Math.max(0, Math.round(v)),
-                            })
-                          }
-                        />
-                      </Field>
+                      <NumberFieldControl
+                        label="Grid Column"
+                        value={selected.grid.column}
+                        min={0}
+                        max={31}
+                        maxFractionDigits={0}
+                        onCommit={(v) =>
+                          void lighting.fixtureUpdate({
+                            fixtureId: selected.id,
+                            gridColumn: Math.max(0, Math.round(v)),
+                          })
+                        }
+                      />
+                      <NumberFieldControl
+                        label="Grid Row"
+                        value={selected.grid.row}
+                        min={0}
+                        max={31}
+                        maxFractionDigits={0}
+                        onCommit={(v) =>
+                          void lighting.fixtureUpdate({
+                            fixtureId: selected.id,
+                            gridRow: Math.max(0, Math.round(v)),
+                          })
+                        }
+                      />
                     </div>
                   )}
 
@@ -1254,19 +1155,24 @@ export function ProjectLightingPanel({
                       forced-unchecked. */}
                   {selected.kind === "resolight::bar" &&
                     selected.shape !== "ring" && (
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selected.addressable}
-                          onChange={(e) =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              addressable: e.target.checked,
-                            })
-                          }
-                        />
-                        <span>Addressable strip (individual LED control)</span>
-                      </label>
+                      <Checkbox
+                        isSelected={selected.addressable}
+                        onChange={(addressable) =>
+                          void lighting.fixtureUpdate({
+                            fixtureId: selected.id,
+                            addressable,
+                          })
+                        }
+                      >
+                        <Checkbox.Content>
+                          <Checkbox.Control>
+                            <Checkbox.Indicator />
+                          </Checkbox.Control>
+                          <Label className="text-sm">
+                            Addressable strip (individual LED control)
+                          </Label>
+                        </Checkbox.Content>
+                      </Checkbox>
                     )}
 
                   {/* DMX fields -- only meaningful for a DmxGeneric fixture.
@@ -1276,28 +1182,33 @@ export function ProjectLightingPanel({
                       for a bar would just be lying about what controls the
                       real output. */}
                   {selected.kind === "dmx::generic" && (
-                    <div className="border-t border-default/20 pt-3 flex flex-col gap-2">
-                      <div className={labelCls + " mb-1"}>DMX Output</div>
-                      {dmxConflicts.has(selected.id) && (
-                        <div className="flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[10px] text-warning">
-                          <TriangleAlert size={12} className="shrink-0" />
-                          Overlaps another fixture's DMX channels in this
-                          universe.
-                        </div>
-                      )}
+                    <>
+                      <Separator />
+                      <div className="flex flex-col gap-2">
+                        <Label className={CAPTION_CLS}>DMX Output</Label>
+                        {dmxConflicts.has(selected.id) && (
+                          <Alert status="warning">
+                            <Alert.Indicator />
+                            <Alert.Content>
+                              <Alert.Description className="text-[10px]">
+                                Overlaps another fixture&apos;s DMX channels in
+                                this universe.
+                              </Alert.Description>
+                            </Alert.Content>
+                          </Alert>
+                        )}
 
-                      {/* Channel Profile: a named personality preset --
-                          picking one sets Ch Count for you and labels what
-                          each channel actually does (real fixtures ship
-                          with a fixed channel layout; this documents it
-                          instead of making the user remember it). Custom
-                          leaves Ch Count exactly as typed below. */}
-                      <Field label="Channel Profile">
-                        <select
-                          className={selectCls}
+                        {/* Channel Profile: a named personality preset --
+                            picking one sets Ch Count for you and labels what
+                            each channel actually does (real fixtures ship
+                            with a fixed channel layout; this documents it
+                            instead of making the user remember it). Custom
+                            leaves Ch Count exactly as typed below. */}
+                        <Select
+                          className="w-full"
                           value={selected.channelProfile}
-                          onChange={(e) => {
-                            const profile = e.target.value as ChannelProfile;
+                          onChange={(v) => {
+                            const profile = v as ChannelProfile;
                             const meta = CHANNEL_PROFILES[profile];
                             void lighting.fixtureUpdate(
                               meta.channelCount > 0
@@ -1313,32 +1224,48 @@ export function ProjectLightingPanel({
                             );
                           }}
                         >
-                          {(
-                            Object.keys(CHANNEL_PROFILES) as ChannelProfile[]
-                          ).map((p) => (
-                            <option key={p} value={p}>
-                              {CHANNEL_PROFILES[p].label}
-                              {CHANNEL_PROFILES[p].channelCount > 0
-                                ? ` (${CHANNEL_PROFILES[p].channelCount}ch)`
-                                : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      {selected.channelProfile !== "custom" && (
-                        <div className="text-[10px] text-foreground/40 font-mono">
-                          {channelRoleLabels(
-                            selected.channelProfile,
-                            selected.dmx.startChannel,
-                          ).join(" · ")}
-                        </div>
-                      )}
+                          <Label className={CAPTION_CLS}>Channel Profile</Label>
+                          <Select.Trigger>
+                            <Select.Value />
+                            <Select.Indicator />
+                          </Select.Trigger>
+                          <Select.Popover>
+                            <ListBox>
+                              {(
+                                Object.keys(
+                                  CHANNEL_PROFILES,
+                                ) as ChannelProfile[]
+                              ).map((p) => {
+                                const text = `${CHANNEL_PROFILES[p].label}${
+                                  CHANNEL_PROFILES[p].channelCount > 0
+                                    ? ` (${CHANNEL_PROFILES[p].channelCount}ch)`
+                                    : ""
+                                }`;
+                                return (
+                                  <ListBox.Item key={p} id={p} textValue={text}>
+                                    {text}
+                                    <ListBox.ItemIndicator />
+                                  </ListBox.Item>
+                                );
+                              })}
+                            </ListBox>
+                          </Select.Popover>
+                        </Select>
+                        {selected.channelProfile !== "custom" && (
+                          <Description className="font-mono text-[10px]">
+                            {channelRoleLabels(
+                              selected.channelProfile,
+                              selected.dmx.startChannel,
+                            ).join(" · ")}
+                          </Description>
+                        )}
 
-                      <div className="grid grid-cols-3 gap-3">
-                        <Field label="Universe">
-                          <FocusNumberInput
-                            serverValue={selected.dmx.universe}
+                        <div className="grid grid-cols-3 gap-3">
+                          <NumberFieldControl
+                            label="Universe"
+                            value={selected.dmx.universe}
                             min={0}
+                            maxFractionDigits={0}
                             onCommit={(v) =>
                               void lighting.fixtureUpdate({
                                 fixtureId: selected.id,
@@ -1346,12 +1273,12 @@ export function ProjectLightingPanel({
                               })
                             }
                           />
-                        </Field>
-                        <Field label="Start Ch">
-                          <FocusNumberInput
-                            serverValue={selected.dmx.startChannel}
+                          <NumberFieldControl
+                            label="Start Ch"
+                            value={selected.dmx.startChannel}
                             min={1}
                             max={512}
+                            maxFractionDigits={0}
                             onCommit={(v) =>
                               void lighting.fixtureUpdate({
                                 fixtureId: selected.id,
@@ -1359,19 +1286,18 @@ export function ProjectLightingPanel({
                               })
                             }
                           />
-                        </Field>
-                        <Field label="Ch Count">
-                          <FocusNumberInput
-                            serverValue={selected.dmx.channelCount}
+                          <NumberFieldControl
+                            label="Ch Count"
+                            value={selected.dmx.channelCount}
                             min={1}
                             max={512}
-                            disabled={selected.channelProfile !== "custom"}
-                            title={
+                            maxFractionDigits={0}
+                            isDisabled={selected.channelProfile !== "custom"}
+                            description={
                               selected.channelProfile !== "custom"
                                 ? "Set by the Channel Profile above — switch to Custom to edit directly"
                                 : undefined
                             }
-                            className={`${numberCls} disabled:opacity-50 disabled:cursor-not-allowed`}
                             onCommit={(v) =>
                               void lighting.fixtureUpdate({
                                 fixtureId: selected.id,
@@ -1379,9 +1305,9 @@ export function ProjectLightingPanel({
                               })
                             }
                           />
-                        </Field>
+                        </div>
                       </div>
-                    </div>
+                    </>
                   )}
 
                   {/* Refresh Rate override -- applies to either fixture
@@ -1389,94 +1315,99 @@ export function ProjectLightingPanel({
                       of what's patched into it (see LightFixture::
                       refreshRateHz's doc comment on why the SLOWEST rate
                       on a universe wins). */}
-                  <div className="border-t border-default/20 pt-3">
-                    <Field
-                      label={`Refresh Rate Override (Hz, 0 = use default: ${li.defaultRefreshRateHz})`}
-                    >
-                      <FocusNumberInput
-                        serverValue={selected.refreshRateHz}
-                        min={0}
-                        max={60}
-                        onCommit={(v) =>
-                          void lighting.fixtureUpdate({
-                            fixtureId: selected.id,
-                            refreshRateHz: Math.min(
-                              60,
-                              Math.max(0, Math.round(v)),
-                            ),
-                          })
-                        }
-                      />
-                    </Field>
-                  </div>
+                  <Separator />
+                  <NumberFieldControl
+                    label="Refresh Rate Override (Hz)"
+                    description={`0 = use the default: ${li.defaultRefreshRateHz} Hz`}
+                    value={selected.refreshRateHz}
+                    min={0}
+                    max={60}
+                    maxFractionDigits={0}
+                    onCommit={(v) =>
+                      void lighting.fixtureUpdate({
+                        fixtureId: selected.id,
+                        refreshRateHz: Math.min(60, Math.max(0, Math.round(v))),
+                      })
+                    }
+                  />
 
                   {/* Real-hardware transport -- ResoLightBar only. Empty host
                       = preview-only (default). Setting an IP makes ResoStage
                       dial the board as a WS client and stream binary frames. */}
                   {selected.kind === "resolight::bar" && (
-                    <div className="border-t border-default/20 pt-3 flex flex-col gap-2">
-                      <div className="flex items-center justify-between">
-                        <span className={labelCls}>Hardware Link</span>
-                        {selected.networkHost ? (
-                          <span
-                            className={`text-[10px] font-medium ${
-                              selected.hwConnected
-                                ? "text-success"
-                                : "text-foreground/45"
-                            }`}
-                          >
-                            {selected.hwConnected
-                              ? `Linked${selected.hwRssiDbm ? ` · ${selected.hwRssiDbm} dBm` : ""}${selected.hwChipType && selected.hwChipType !== "unknown" ? ` · ${selected.hwChipType}` : ""}`
-                              : "Connecting…"}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-foreground/40">
-                            Preview only
-                          </span>
-                        )}
-                      </div>
-                      <HardwareHostField fixture={selected} />
-                      {(li.discoveredBoards?.length ?? 0) > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {(li.discoveredBoards ?? []).map((b) => (
-                            <button
-                              key={b.mac}
-                              type="button"
-                              title={`Bind ${b.name || b.mac} (${b.ip})`}
-                              onClick={() =>
-                                void lighting.fixtureUpdate({
-                                  fixtureId: selected.id,
-                                  networkHost: b.ip,
-                                })
+                    <>
+                      <Separator />
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <Label className={CAPTION_CLS}>Hardware Link</Label>
+                          {selected.networkHost ? (
+                            <Chip
+                              size="sm"
+                              variant="soft"
+                              color={
+                                selected.hwConnected ? "success" : "default"
                               }
-                              className={`rounded-md border px-2 py-1 text-[10px] font-mono transition-colors ${
-                                selected.networkHost === b.ip
-                                  ? "border-foreground/30 bg-default/30 text-foreground/80"
-                                  : "border-default/40 bg-default/10 text-foreground/55 hover:bg-default/20"
-                              }`}
                             >
-                              {b.ip}
-                            </button>
-                          ))}
+                              {selected.hwConnected
+                                ? `Linked${selected.hwRssiDbm ? ` · ${selected.hwRssiDbm} dBm` : ""}${selected.hwChipType && selected.hwChipType !== "unknown" ? ` · ${selected.hwChipType}` : ""}`
+                                : "Connecting…"}
+                            </Chip>
+                          ) : (
+                            <Chip size="sm" variant="soft">
+                              Preview only
+                            </Chip>
+                          )}
                         </div>
-                      )}
-                      {selected.networkHost ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void lighting.fixtureUpdate({
-                              fixtureId: selected.id,
-                              networkHost: "",
-                            })
-                          }
-                          className="self-start rounded-md border border-default/40 bg-default/10 px-2 py-1 text-[10px] text-foreground/55 hover:bg-default/20 transition-colors"
-                        >
-                          Clear — back to preview only
-                        </button>
-                      ) : null}
-                    </div>
+                        <HardwareHostField fixture={selected} />
+                        {(li.discoveredBoards?.length ?? 0) > 0 && (
+                          <ToggleButtonGroup
+                            isDetached
+                            aria-label="Discovered boards"
+                            className={`flex flex-wrap gap-1 ${TOGGLE_GROUP_CLS}`}
+                            selectionMode="single"
+                            selectedKeys={
+                              selected.networkHost ? [selected.networkHost] : []
+                            }
+                            size="sm"
+                            onSelectionChange={(keys) => {
+                              const ip = [...keys][0] as string | undefined;
+                              void lighting.fixtureUpdate({
+                                fixtureId: selected.id,
+                                networkHost: ip ?? "",
+                              });
+                            }}
+                          >
+                            {(li.discoveredBoards ?? []).map((b) => (
+                              <Tooltip key={b.mac}>
+                                <ToggleButton id={b.ip} className="font-mono">
+                                  {b.ip}
+                                </ToggleButton>
+                                <Tooltip.Content>
+                                  Bind {b.name || b.mac} ({b.ip})
+                                </Tooltip.Content>
+                              </Tooltip>
+                            ))}
+                          </ToggleButtonGroup>
+                        )}
+                        {selected.networkHost ? (
+                          <Button
+                            size="sm"
+                            variant="tertiary"
+                            className="self-start text-[10px]"
+                            onPress={() =>
+                              void lighting.fixtureUpdate({
+                                fixtureId: selected.id,
+                                networkHost: "",
+                              })
+                            }
+                          >
+                            Clear — back to preview only
+                          </Button>
+                        ) : null}
+                      </div>
+                    </>
                   )}
-                </div>
+                </Section>
               )}
             </div>
           )}

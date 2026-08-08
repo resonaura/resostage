@@ -13,6 +13,9 @@
  * hold after silence.
  */
 
+import { isRenderActive } from "./appActivity";
+import { addRafTask } from "./rafLoop";
+
 export type LiveLevels = {
   clickPeakDb: number;
   clickPeakDbL: number;
@@ -49,6 +52,34 @@ export type LiveLedOutput = {
 };
 
 let liveLedOutputs: LiveLedOutput[] = [];
+/**
+ * The exact wire bytes `liveLedOutputs` was decoded from.
+ *
+ * The backend suppresses a telemetry frame only when the WHOLE frame is
+ * byte-identical, so a moving playhead over a static lighting look still ships
+ * the same LED rows 30 times a second. Decoding those rebuilt one small object
+ * per LED per frame and then told every fixture in the scene that its colour
+ * had "changed" -- a full React pass plus a THREE.Color per segment, sixty
+ * times a second, to arrive at the picture already on screen. Comparing the
+ * raw bytes first is far cheaper than decoding them, and it is exact: equal
+ * bytes are equal colours, so nothing about preview fidelity is being traded
+ * away here. A real change still lands on the very next frame.
+ */
+let lastLightBytes: Uint8Array | null = null;
+
+function sameBytes(a: Uint8Array, b: Uint8Array | null): boolean {
+  if (b === null || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function sameLeds(a: LiveLedColor[], b: LiveLedColor[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].r !== b[i].r || a[i].g !== b[i].g || a[i].b !== b[i].b) return false;
+  }
+  return true;
+}
 
 type Listener = () => void;
 const lightListeners = new Set<Listener>();
@@ -68,13 +99,23 @@ export function subscribeLiveLedOutputs(listener: Listener): () => void {
   };
 }
 
-let paintRaf = 0;
+let stopPaintTicker: (() => void) | null = null;
 let lightDirty = false;
 let lastPaintTickMs = 0;
-// If rAF stalls (occluded window, Electron backgroundThrottling, devtools) the
-// preview must not freeze -- same hazard useLiveState guards its own flush
-// against. Past this gap a frame notifies its listeners inline instead.
+let lastPushMs = 0;
+// If the frame driver stalls (occluded window, Electron backgroundThrottling,
+// devtools) the preview must not freeze -- same hazard useLiveState guards its
+// own flush against. Past this gap a frame notifies its listeners inline
+// instead. Only ever consulted while the UI is meant to be painting at all:
+// a deliberately suspended window (hidden + stopped) is not a stall, and
+// treating it as one would resurrect exactly the per-wire-frame React storm
+// the paint-rate bound exists to prevent.
 const kPaintStallMs = 100;
+// How long the ticker keeps spinning after the last telemetry frame before it
+// retires itself. Nothing it does has any effect once the wire goes quiet, and
+// the widgets that read it hold their own frame subscriptions, so an idle app
+// settles to zero scheduled work instead of one permanent 60 Hz no-op.
+const kTickerIdleMs = 1000;
 
 /**
  * Shared paint ticker: rolls pending → display once per frame so stereo
@@ -89,22 +130,27 @@ const kPaintStallMs = 100;
  * stayed smooth while the lights did not.
  */
 function ensurePaintTicker() {
-  if (paintRaf) return;
-  const tick = () => {
+  if (stopPaintTicker) return;
+  stopPaintTicker = addRafTask((nowMs) => {
     displayClick = pendingClickMax;
     displayClickL = pendingClickMaxL;
     displayClickR = pendingClickMaxR;
     pendingClickMax = latestClick;
     pendingClickMaxL = latestClickL;
     pendingClickMaxR = latestClickR;
-    lastPaintTickMs = performance.now();
+    lastPaintTickMs = nowMs;
     if (lightDirty) {
       lightDirty = false;
       for (const l of lightListeners) l();
     }
-    paintRaf = requestAnimationFrame(tick);
-  };
-  paintRaf = requestAnimationFrame(tick);
+    if (lastPushMs !== 0 && nowMs - lastPushMs > kTickerIdleMs) {
+      const stop = stopPaintTicker;
+      stopPaintTicker = null;
+      // Rolling has already settled (pending === latest === the last wire
+      // value) so there is nothing in flight to lose by standing down.
+      stop?.();
+    }
+  });
 }
 
 /** Push levels from one telemetry frame (call for every WS message). */
@@ -160,6 +206,7 @@ export function pushLiveLevels(frame: {
 
   if (changed) {
     seq += 1;
+    lastPushMs = performance.now();
     ensurePaintTicker();
   }
 }
@@ -239,35 +286,67 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   }
   meters = nextMeters;
 
-  const nextLights: LiveLedOutput[] = [];
   if (version >= 2) {
-    for (let i = 0; i < numLights; i++) {
-      if (offset + 4 > buffer.byteLength) break;
-      const fixtureIdx = view.getUint16(offset, true);
-      const ledCount = view.getUint16(offset + 2, true);
-      offset += 4;
-      const leds: LiveLedColor[] = [];
-      for (let j = 0; j < ledCount; j++) {
-        if (offset + 3 > buffer.byteLength) break;
-        leds.push({
-          r: view.getUint8(offset),
-          g: view.getUint8(offset + 1),
-          b: view.getUint8(offset + 2),
-        });
-        offset += 3;
+    // Compare the encoded LED block before decoding it: an unchanged look is
+    // the common case (see lastLightBytes) and skipping it costs one memcmp
+    // instead of an object graph plus a scene-wide re-render.
+    const lightBytes = new Uint8Array(buffer, offset, buffer.byteLength - offset);
+    if (!sameBytes(lightBytes, lastLightBytes)) {
+      lastLightBytes = lightBytes.slice();
+      const nextLights: LiveLedOutput[] = [];
+      for (let i = 0; i < numLights; i++) {
+        if (offset + 4 > buffer.byteLength) break;
+        const fixtureIdx = view.getUint16(offset, true);
+        const ledCount = view.getUint16(offset + 2, true);
+        offset += 4;
+        const leds: LiveLedColor[] = [];
+        for (let j = 0; j < ledCount; j++) {
+          if (offset + 3 > buffer.byteLength) break;
+          leds.push({
+            r: view.getUint8(offset),
+            g: view.getUint8(offset + 1),
+            b: view.getUint8(offset + 2),
+          });
+          offset += 3;
+        }
+        // Structural sharing: a fixture whose colours did not move keeps its
+        // previous object, so a consumer holding one reference per fixture
+        // (useLiveFixtureColor → one 3D fixture) can skip re-rendering with a
+        // reference check. Without this, one blinking bar in a twelve-bar rig
+        // re-rendered all twelve.
+        const prev = liveLedOutputs[i];
+        nextLights.push(
+          prev !== undefined &&
+            prev.fixtureIdx === fixtureIdx &&
+            sameLeds(prev.ledColors, leds)
+            ? prev
+            : { fixtureIdx, ledColors: leds },
+        );
       }
-      nextLights.push({ fixtureIdx, ledColors: leds });
+      liveLedOutputs = nextLights;
+      // Normally notified from the paint ticker, not here -- see
+      // ensurePaintTicker(). The inline path is only for a stalled rAF.
+      lightDirty = true;
     }
+  } else if (liveLedOutputs.length > 0) {
+    // v1 sender (no LED rows at all): drop whatever a v2 sender left behind.
+    liveLedOutputs = [];
+    lastLightBytes = null;
+    lightDirty = true;
   }
-  liveLedOutputs = nextLights;
-  // Normally notified from the paint ticker, not here -- see
-  // ensurePaintTicker(). The inline path is only for a stalled rAF.
-  lightDirty = true;
 
   seq += 1;
+  lastPushMs = performance.now();
   ensurePaintTicker();
 
-  if (lastPaintTickMs !== 0 && performance.now() - lastPaintTickMs > kPaintStallMs) {
+  // Only meaningful while the UI is supposed to be painting: a window we
+  // deliberately suspended is not a stalled one.
+  if (
+    lightDirty &&
+    isRenderActive() &&
+    lastPaintTickMs !== 0 &&
+    lastPushMs - lastPaintTickMs > kPaintStallMs
+  ) {
     lightDirty = false;
     for (const l of lightListeners) l();
   }

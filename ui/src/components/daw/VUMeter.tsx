@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { addRafTask } from "../../lib/rafLoop";
 
 const VU_MIN_DB = -40;
 const VU_MAX_DB = 7;
@@ -91,6 +92,21 @@ const SVG_BACKGROUND = `data:image/svg+xml;utf8,${encodeURIComponent(`
 </svg>
 `)}`;
 
+// The dial face is a static SVG data URL. Decoding it is per-document work,
+// not per-meter work, so every VU on screen shares one <img> instead of each
+// one kicking off its own decode of the same bytes.
+let sharedFaceImage: HTMLImageElement | null = null;
+function faceImage(): HTMLImageElement {
+  if (!sharedFaceImage) {
+    sharedFaceImage = new Image();
+    sharedFaceImage.src = SVG_BACKGROUND;
+  }
+  return sharedFaceImage;
+}
+
+/** Needle movement below this (in degrees) is invisible -- treat as at rest. */
+const REST_EPSILON_DEG = 0.02;
+
 export function VUMeter({
   name,
   db,
@@ -103,35 +119,62 @@ export function VUMeter({
   color?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const bgImageRef = useRef<HTMLImageElement | null>(null);
   const dbRef = useRef(db);
   dbRef.current = db;
   const getRef = useRef(getDb);
   getRef.current = getDb;
 
   useEffect(() => {
-    const img = new Image();
-    img.src = SVG_BACKGROUND;
-    bgImageRef.current = img;
-
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    const img = faceImage();
+
+    // The dial face never changes, but it used to be re-rasterized from the
+    // SVG on every single frame of every meter -- for a rig with eight bus
+    // meters that is eight full-plate SVG rasterizations sixty times a second
+    // to redraw a needle that had not moved. Rasterize it ONCE into an
+    // offscreen bitmap at the exact device size and blit that instead.
+    let face: HTMLCanvasElement | null = null;
+    let faceW = 0;
+    let faceH = 0;
+
+    const buildFace = (w: number, h: number, dpr: number) => {
+      if (!img.complete || img.naturalWidth === 0) return;
+      const bw = Math.max(1, Math.round(w * dpr));
+      const bh = Math.max(1, Math.round(h * dpr));
+      if (face && faceW === bw && faceH === bh) return;
+      const off = document.createElement("canvas");
+      off.width = bw;
+      off.height = bh;
+      const octx = off.getContext("2d");
+      if (!octx) return;
+      octx.scale(dpr, dpr);
+      const scale = Math.min(w / 1080, h / 600);
+      octx.translate((w - 1080 * scale) / 2, (h - 600 * scale) / 2);
+      octx.scale(scale, scale);
+      octx.drawImage(img, 0, 0, 1080, 600);
+      face = off;
+      faceW = bw;
+      faceH = bh;
+    };
 
     // Сохраняем состояние текущего угла и сглаженного входного уровня
     const anim = {
       currentRot: DB_MAP[0].rot,
       smoothedDb: VU_MIN_DB,
-      lastT: 0,
     };
-    let raf = 0;
+    // Everything the last painted frame depended on. When none of it moves,
+    // the canvas already holds the right pixels and the whole draw is skipped
+    // -- which is the normal state of a stopped or silent channel.
+    let paintedRot = Number.NaN;
+    let paintedW = 0;
+    let paintedH = 0;
+    let paintedDpr = 0;
+    let paintedFace: HTMLCanvasElement | null = null;
 
-    const render = (t: number) => {
-      const dt =
-        anim.lastT > 0 ? Math.min(0.1, (t - anim.lastT) / 1000) : 1 / 60;
-      anim.lastT = t;
-
+    const render = (_nowMs: number, dt: number) => {
       const live = getRef.current?.();
       const raw =
         live !== undefined && Number.isFinite(live) ? live : dbRef.current;
@@ -164,15 +207,40 @@ export function VUMeter({
       const rect = canvas.getBoundingClientRect();
       const w = rect.width;
       const h = rect.height;
+      if (w <= 0 || h <= 0) return;
 
-      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
+      buildFace(w, h, dpr);
+
+      const geometryChanged =
+        w !== paintedW || h !== paintedH || dpr !== paintedDpr;
+      const needleMoved =
+        !Number.isFinite(paintedRot) ||
+        Math.abs(anim.currentRot - paintedRot) >= REST_EPSILON_DEG;
+      // `face` flips from null to a bitmap once the SVG finishes decoding --
+      // that first arrival has to force a repaint or the dial stays blank
+      // until the needle happens to move.
+      if (!geometryChanged && !needleMoved && face === paintedFace) return;
+
+      paintedRot = anim.currentRot;
+      paintedW = w;
+      paintedH = h;
+      paintedDpr = dpr;
+      paintedFace = face;
+
+      const bw = Math.max(1, Math.round(w * dpr));
+      const bh = Math.max(1, Math.round(h * dpr));
+      if (canvas.width !== bw || canvas.height !== bh) {
+        canvas.width = bw;
+        canvas.height = bh;
       }
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Background (pre-rasterized at exactly this size — 1:1 device blit).
+      if (face) ctx.drawImage(face, 0, 0);
 
       ctx.save();
       ctx.scale(dpr, dpr);
-      ctx.clearRect(0, 0, w, h);
 
       const scale = Math.min(w / 1080, h / 600);
       const offsetX = (w - 1080 * scale) / 2;
@@ -185,11 +253,6 @@ export function VUMeter({
       ctx.beginPath();
       ctx.rect(0, 0, 1080, 600);
       ctx.clip();
-
-      // Background
-      if (bgImageRef.current && bgImageRef.current.complete) {
-        ctx.drawImage(bgImageRef.current, 0, 0, 1080, 600);
-      }
 
       // Needle
       const rotRad = (anim.currentRot * Math.PI) / 180;
@@ -222,11 +285,9 @@ export function VUMeter({
       ctx.stroke();
 
       ctx.restore();
-      raf = requestAnimationFrame(render);
     };
 
-    raf = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(raf);
+    return addRafTask(render);
   }, []);
 
   return (

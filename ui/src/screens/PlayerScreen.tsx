@@ -11,26 +11,30 @@ import {
   SkipForward,
   Square,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   formatClockPrecise as formatTime,
   LevelMeterBar,
   VUMeter,
 } from "../components/daw";
 import { FontIcon } from "../components/FontIcon";
-import { ResoLightStage3D } from "../components/light/ResoLightStage3D";
+import { ResoLightStage3D } from "../components/light/LazyResoLightStage3D";
 import { Timeline } from "../components/Timeline";
 import { builder, transport } from "../lib/api";
 import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
+import { useIsCompact } from "../lib/useMediaQuery";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
   type AllPeaksResponse,
   type BusRow,
+  type Click,
   type ClickSendRow,
+  type LightFixtureRow,
   type MeterRow,
   type PeaksResponse,
+  type SongRow,
   type WebUiState,
 } from "../lib/types";
 
@@ -54,6 +58,9 @@ function laneNumber(id: string): number | null {
   }
   return null;
 }
+
+/** Stable empty roster so a rig with no fixtures doesn't churn the memo. */
+const EMPTY_FIXTURES: LightFixtureRow[] = [];
 
 type BusMeterGroup = {
   id: string;
@@ -255,16 +262,22 @@ function Sparkline({
 }
 
 // Live system health widget with 2 separate graphs (CPU: Accent, RAM: Purple)
-function SystemHealthWidget({
-  state,
+//
+// Memoized on the few fields it reads rather than taking the whole state: the
+// telemetry feed hands out a new state object on every frame, and without this
+// two SVG sparklines were being rebuilt thirty times a second to show numbers
+// that only change once a second by construction.
+const SystemHealthWidget = memo(function SystemHealthWidget({
+  health: h,
+  playing,
   cpuHistory,
   ramHistory,
 }: {
-  state: WebUiState;
+  health: WebUiState["health"];
+  playing: boolean;
   cpuHistory: number[];
   ramHistory: number[];
 }) {
-  const h = state.health;
   // Numbers track the 1 Hz history sample (not every telemetry frame) so
   // the readout doesn't jitter between SystemHealth samples.
   const cpuVal = Math.max(
@@ -275,7 +288,7 @@ function SystemHealthWidget({
     ramHistory[ramHistory.length - 1] ?? (h?.rssBytes ?? 0) / (1024 * 1024);
 
   return (
-    <div className="flex shrink-0 items-center gap-4 border-l border-default/30 px-4 py-2 tabular-nums">
+    <div className="hidden shrink-0 items-center gap-4 border-l border-default/30 px-4 py-2 tabular-nums lg:flex">
       {/* Graph 1: CPU (Accent Color #0091ff) */}
       <Sparkline
         history={cpuHistory}
@@ -299,12 +312,12 @@ function SystemHealthWidget({
       {/* Status details */}
       <div className="flex flex-col gap-0.5 text-[10px] text-foreground/40">
         <div
-          className={`flex items-center gap-1 font-bold ${state.playing ? "text-success" : "text-danger"}`}
+          className={`flex items-center gap-1 font-bold ${playing ? "text-success" : "text-danger"}`}
         >
           <span
-            className={`inline-block h-1.5 w-1.5 rounded-full ${state.playing ? "animate-pulse bg-success" : "bg-danger"}`}
+            className={`inline-block h-1.5 w-1.5 rounded-full ${playing ? "animate-pulse bg-success" : "bg-danger"}`}
           />
-          {state.playing ? "PLAYING" : "STOPPED"}
+          {playing ? "PLAYING" : "STOPPED"}
         </div>
         {(h?.underrunCount ?? 0) > 0 ? (
           <span className="font-bold text-danger">
@@ -321,16 +334,24 @@ function SystemHealthWidget({
       </div>
     </div>
   );
-}
+});
 
-function PlayerLightStagePreview({ state }: { state: WebUiState }) {
-  const li = state.lighting;
-  const fixtures = li?.fixtures ?? [];
-
+// Memoized on the fixture roster alone. That roster is shipped on every
+// telemetry frame ("lighting ... always shipped" in WebServer.cpp) but rarely
+// actually changes, and structural sharing in the live-state merge keeps its
+// reference stable when it doesn't -- so the WebGL stage now mounts once and
+// stays put instead of being re-rendered under the live LED stream.
+const PlayerLightStagePreview = memo(function PlayerLightStagePreview({
+  fixtures,
+  enabled,
+}: {
+  fixtures: LightFixtureRow[];
+  enabled: boolean;
+}) {
   if (fixtures.length === 0) return null;
 
   return (
-    <div className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary relative">
+    <div className="relative flex h-40 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary sm:h-full sm:w-52">
       <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35 flex items-center justify-between z-10">
         <span>Stage Lights</span>
         <span className="text-[9px] font-mono text-foreground/40">
@@ -341,13 +362,13 @@ function PlayerLightStagePreview({ state }: { state: WebUiState }) {
         <ResoLightStage3D
           mode="preview"
           fixtures={fixtures}
-          live={Boolean(li?.enabled)}
+          live={enabled}
           chrome="minimal"
         />
       </div>
     </div>
   );
-}
+});
 
 type BusMeterMode = "bars" | "vu";
 
@@ -418,7 +439,24 @@ function MeterModeButton({
   );
 }
 
-function BusMetersPanel({ state }: { state: WebUiState }) {
+// Memoized on exactly the four wire arrays the grouping depends on. All four
+// keep their identity across frames while the routing holds still (structural
+// sharing in the live-state merge), so a panel full of meters stops being
+// re-rendered -- and its group list stops being recomputed -- thirty times a
+// second just because the playhead moved. The meters themselves never needed
+// those renders anyway: they read levels through getLiveLevels() during their
+// own paint.
+const BusMetersPanel = memo(function BusMetersPanel({
+  meters,
+  busses,
+  tracks,
+  click,
+}: {
+  meters: MeterRow[];
+  busses: BusRow[];
+  tracks: WebUiState["tracks"];
+  click?: Click;
+}) {
   const [mode, setMode] = useState<BusMeterMode>(readBusMeterMode);
   const [density, setDensity] = useState<BusMeterDensity>(readBusMeterDensity);
   useEffect(() => {
@@ -436,12 +474,16 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
     }
   }, [density]);
   const compact = density === "compact";
-  const groups = busMeterGroups(
-    state.meters,
-    state.busses,
-    state.tracks,
-    state.click ? sourceOutputBusId(state.click.output) : undefined,
-    state.click ? outputSendsToClickRows(state.click.output) : undefined,
+  const groups = useMemo(
+    () =>
+      busMeterGroups(
+        meters,
+        busses,
+        tracks,
+        click ? sourceOutputBusId(click.output) : undefined,
+        click ? outputSendsToClickRows(click.output) : undefined,
+      ),
+    [meters, busses, tracks, click],
   );
 
   const vuGetterFor = (g: BusMeterGroup) => () => {
@@ -462,7 +504,7 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
   };
 
   return (
-    <div className="flex min-h-0 max-w-[40%] shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
+    <div className="flex h-56 min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary sm:h-auto sm:max-w-[40%]">
       <div className="flex items-center justify-between border-b border-default/20 px-3 py-1.5">
         <span className="text-[11px] font-bold uppercase tracking-widest text-foreground/35">
           Bus meters
@@ -628,7 +670,86 @@ function BusMetersPanel({ state }: { state: WebUiState }) {
       )}
     </div>
   );
-}
+});
+
+// The setlist is pure project data plus two booleans, but it used to be
+// rebuilt -- one <button> subtree per song -- on every telemetry frame simply
+// because it lived inline in a component the playhead re-renders. Memoized on
+// what it actually reads, it now re-renders when the setlist, the staged song
+// or the transport state changes, which is the entire set of things that can
+// change how it looks.
+const SetlistPanel = memo(function SetlistPanel({
+  songs,
+  activeIndex,
+  playing,
+  onSelect,
+}: {
+  songs: SongRow[];
+  activeIndex: number;
+  playing: boolean;
+  onSelect: (index: number) => void;
+}) {
+  return (
+    <div className="flex h-56 min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary sm:h-auto">
+      <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
+        Setlist
+      </div>
+      <ScrollShadow orientation="vertical" className="min-h-0 flex-1">
+        {songs.length === 0 ? (
+          /* Centered vertically when setlist is empty */
+          <div className="flex h-full items-center justify-center px-4 py-6 text-center text-sm text-foreground/40">
+            No songs in this project.
+          </div>
+        ) : (
+          <div className="flex flex-col divide-y divide-default/15">
+            {songs.map((s, i) => {
+              const isActive = i === activeIndex;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => onSelect(i)}
+                  className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-${isActive ? "accent/20" : "default/20"} ${
+                    isActive ? "tint--subtle" : ""
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full transition-all ${
+                      isActive && playing
+                        ? "animate-pulse scale-125 bg-success shadow-[0_0_4px_var(--player-active-glow)]"
+                        : isActive
+                          ? "bg-accent"
+                          : "bg-foreground/12"
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className={`truncate text-sm ${isActive ? "font-semibold text-foreground" : "text-foreground/80"}`}
+                    >
+                      {i + 1}. {s.name}
+                    </div>
+                    <div className="text-[10px] text-foreground/35">
+                      {s.bpm.toFixed(1)} bpm ·{" "}
+                      {s.mode === "auto" ? "auto" : "wait"} ·{" "}
+                      {s.regions?.length ?? 0} clips
+                    </div>
+                  </div>
+                  {isActive && (
+                    <span
+                      className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold ${playing ? "bg-success/15 text-success" : "bg-default/30 text-foreground/30"}`}
+                    >
+                      {playing ? "NOW" : "CUE"}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </ScrollShadow>
+    </div>
+  );
+});
 
 export function PlayerScreen({
   state,
@@ -647,6 +768,7 @@ export function PlayerScreen({
   pxPerSec: number;
   setPxPerSec: React.Dispatch<React.SetStateAction<number>>;
 }) {
+  const compact = useIsCompact();
   const [metronomeOverride, setMetronomeOverride] = useState<boolean | null>(
     null,
   );
@@ -666,6 +788,12 @@ export function PlayerScreen({
   }, [state.songIndex, optimisticSongIndex]);
   const displaySongIndex =
     optimisticSongIndex != null ? optimisticSongIndex : state.songIndex;
+  // Stable identity so the memoized setlist isn't invalidated every frame by
+  // a freshly-allocated click handler.
+  const selectSong = useCallback((i: number) => {
+    setOptimisticSongIndex(i);
+    void transport.select(i);
+  }, []);
 
   const hasSongs = state.songs.length > 0;
   // Project-global metronome (not per-song). Optimistic override until
@@ -792,14 +920,16 @@ export function PlayerScreen({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto sm:gap-3 sm:overflow-visible">
       {/* ── 1. Top Transport bar ──────────────────────────────── */}
-      <div className="flex shrink-0 items-stretch gap-0 overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
+      {/* Stacks on phones: the desktop row is one ~900px-wide line of clock,
+          title, transport and health graphs that cannot usefully shrink. */}
+      <div className="flex shrink-0 flex-col items-stretch gap-0 overflow-hidden rounded-xl border border-default/30 bg-background-secondary sm:flex-row">
         {/* Clock + bar/beat + abs (full info — header has compact clock) */}
-        <div className="flex shrink-0 flex-col justify-center border-r border-default/30 px-5 py-2.5">
+        <div className="flex shrink-0 flex-col justify-center border-b border-default/30 px-4 py-2 sm:border-b-0 sm:border-r sm:px-5 sm:py-2.5">
           <div
             style={{ fontWeight: "100" }}
-            className={`font-mono text-3xl tabular-nums tracking-tight leading-none ${
+            className={`font-mono text-2xl tabular-nums tracking-tight leading-none sm:text-3xl ${
               state.playing ? "text-success" : "text-foreground"
             }`}
           >
@@ -839,7 +969,7 @@ export function PlayerScreen({
 
         {/* Song metadata — flex-1 so the card fills evenly (clock + transport
             + health stay fixed; title/BPM claim the leftover width). */}
-        <div className="flex min-w-0 flex-1 flex-col items-center justify-center border-r border-default/30 px-4 py-2.5 text-center">
+        <div className="flex min-w-0 flex-1 flex-col items-center justify-center border-b border-default/30 px-4 py-2 text-center sm:border-b-0 sm:border-r sm:py-2.5">
           <div className="w-full max-w-full truncate text-sm font-semibold">
             {state.songName || "No song selected"}
           </div>
@@ -866,7 +996,7 @@ export function PlayerScreen({
         </div>
 
         {/* Transport control buttons */}
-        <div className="flex shrink-0 items-center gap-1.5 px-3 py-2.5">
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 px-3 py-2.5">
           <button
             type="button"
             onClick={() => transport.prev()}
@@ -1042,93 +1172,52 @@ export function PlayerScreen({
 
         {/* Dual sparkline graphs: CPU & RAM */}
         <SystemHealthWidget
-          state={state}
+          health={state.health}
+          playing={state.playing}
           cpuHistory={cpuHistory}
           ramHistory={ramHistory}
         />
       </div>
 
       {/* ── 2. Middle: Setlist + Bus meters (flex layout, max 40% meters width) ─ */}
-      <div className="flex h-[210px] shrink-0 gap-3">
-        {/* Setlist (occupies all remaining available width) */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary">
-          <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
-            Setlist
-          </div>
-          <ScrollShadow orientation="vertical" className="min-h-0 flex-1">
-            {state.songs.length === 0 ? (
-              /* Centered vertically when setlist is empty */
-              <div className="flex h-full items-center justify-center px-4 py-6 text-center text-sm text-foreground/40">
-                No songs in this project.
-              </div>
-            ) : (
-              <div className="flex flex-col divide-y divide-default/15">
-                {state.songs.map((s, i) => {
-                  const isActive = i === displaySongIndex;
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => {
-                        setOptimisticSongIndex(i);
-                        void transport.select(i);
-                      }}
-                      className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-${isActive ? "accent/20" : "default/20"} ${
-                        isActive ? "tint--subtle" : ""
-                      }`}
-                    >
-                      <span
-                        className={`h-1.5 w-1.5 shrink-0 rounded-full transition-all ${
-                          isActive && state.playing
-                            ? "animate-pulse scale-125 bg-success shadow-[0_0_4px_var(--player-active-glow)]"
-                            : isActive
-                              ? "bg-accent"
-                              : "bg-foreground/12"
-                        }`}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div
-                          className={`truncate text-sm ${isActive ? "font-semibold text-foreground" : "text-foreground/80"}`}
-                        >
-                          {i + 1}. {s.name}
-                        </div>
-                        <div className="text-[10px] text-foreground/35">
-                          {s.bpm.toFixed(1)} bpm ·{" "}
-                          {s.mode === "auto" ? "auto" : "wait"} ·{" "}
-                          {s.regions?.length ?? 0} clips
-                        </div>
-                      </div>
-                      {isActive && (
-                        <span
-                          className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold ${state.playing ? "bg-success/15 text-success" : "bg-default/30 text-foreground/30"}`}
-                        >
-                          {state.playing ? "NOW" : "CUE"}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </ScrollShadow>
-        </div>
+      <div className="flex shrink-0 flex-col gap-2 sm:h-[210px] sm:flex-row sm:gap-3">
+        <SetlistPanel
+          songs={state.songs}
+          activeIndex={displaySongIndex}
+          playing={state.playing}
+          onSelect={selectSong}
+        />
 
-        <PlayerLightStagePreview state={state} />
+        <PlayerLightStagePreview
+          fixtures={state.lighting?.fixtures ?? EMPTY_FIXTURES}
+          enabled={Boolean(state.lighting?.enabled)}
+        />
 
-        <BusMetersPanel state={state} />
-      </div>
-
-      {/* ── 3. Bottom: Timeline (expands to fill remaining height) ── */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <Timeline
-          state={state}
-          peaks={peaks}
-          allPeaks={allPeaks}
-          pxPerSec={pxPerSec}
-          setPxPerSec={setPxPerSec}
-          readOnly
+        <BusMetersPanel
+          meters={state.meters}
+          busses={state.busses}
+          tracks={state.tracks}
+          click={state.click}
         />
       </div>
+
+      {/* ── 3. Bottom: Timeline (expands to fill remaining height) ──
+          Deliberately NOT rendered on phones: a multi-song arrangement with
+          per-region waveform canvases is neither usable at that width nor
+          affordable on that hardware, and `display: none` would still build
+          and animate all of it. */}
+      {!compact && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <Timeline
+            state={state}
+            peaks={peaks}
+            allPeaks={allPeaks}
+            pxPerSec={pxPerSec}
+            setPxPerSec={setPxPerSec}
+            readOnly
+          />
+        </div>
+      )}
     </div>
   );
 }

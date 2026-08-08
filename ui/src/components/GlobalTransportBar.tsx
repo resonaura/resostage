@@ -1,5 +1,10 @@
-import { Button, ButtonGroup, Separator, Toolbar } from "@heroui/react";
-import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
+import {
+  Separator,
+  ToggleButton,
+  ToggleButtonGroup,
+  Toolbar,
+} from "@heroui/react";
+import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { transport } from "../lib/api";
 import type { WebUiState } from "../lib/types";
 import { TimeDisplay } from "./daw";
@@ -20,7 +25,11 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
   const tsNum = song && song.tsNum > 0 ? song.tsNum : 4;
 
   return (
-    <Toolbar isAttached aria-label="Transport controls" className="h-9">
+    <Toolbar
+      isAttached
+      aria-label="Transport controls"
+      className="h-9 flex items-center bg-transparent"
+    >
       <TimeDisplay
         seconds={state.playheadSeconds}
         bpm={bpm}
@@ -29,41 +38,38 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
         hasSong={song !== null}
       />
       <Separator orientation="vertical" />
-      <ButtonGroup size="sm" variant="tertiary">
-        <Button
+      <ToggleButtonGroup size="sm">
+        <ToggleButton
           isIconOnly
+          isSelected={false}
           onPress={() => transport.prev()}
           aria-label="Previous"
+          variant="ghost"
         >
           <SkipBack size={14} />
-        </Button>
+        </ToggleButton>
         {/* Play/pause is the one wide button: it is the control you hit without
             looking, so it gets a target the others do not. */}
-        <Button
+        <ToggleButton
+          isIconOnly
+          isSelected={true}
           onPress={() => (state.playing ? transport.stop() : transport.play())}
           aria-label={state.playing ? "Pause" : "Play"}
-          className="w-[4.75rem] font-semibold"
+          className="font-semibold"
+          variant="ghost"
         >
-          <ButtonGroup.Separator />
           {state.playing ? <Pause size={13} /> : <Play size={13} />}
-          <span className="tabular-nums">
-            {state.playing ? "Pause" : "Play"}
-          </span>
-        </Button>
-        <Button
+        </ToggleButton>
+        <ToggleButton
           isIconOnly
-          onPress={() => void transport.stopToStart()}
-          aria-label="Stop (again at song start → project start)"
-          className="text-danger"
+          isSelected={false}
+          onPress={() => transport.next()}
+          aria-label="Next"
+          variant="ghost"
         >
-          <ButtonGroup.Separator />
-          <Square size={13} />
-        </Button>
-        <Button isIconOnly onPress={() => transport.next()} aria-label="Next">
-          <ButtonGroup.Separator />
           <SkipForward size={14} />
-        </Button>
-      </ButtonGroup>
+        </ToggleButton>
+      </ToggleButtonGroup>
       <Separator orientation="vertical" />
       {/* Fixed song + BPM chip */}
       <div

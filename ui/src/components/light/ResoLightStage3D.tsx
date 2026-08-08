@@ -4,6 +4,7 @@ import { Canvas, useThree } from "@react-three/fiber";
 import { Maximize2, MoveUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { useRenderActive } from "../../lib/appActivity";
 import type { FixtureShape } from "../../lib/dmxProfiles";
 import { beginCancellableDrag } from "../../lib/dragCancel";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
@@ -285,6 +286,7 @@ export function ResoLightStage3D({
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; z: number } | null>(null);
+  const renderActive = useRenderActive();
   const stageColors = useHeroStageColors();
   const minimal = chrome === "minimal";
   const orbitEnabled = !minimal && dragId === null;
@@ -425,6 +427,17 @@ export function ResoLightStage3D({
         key={canvasEpoch}
         camera={{ position: [4, 3.5, 5], fov: 50 }}
         style={{ width: "100%", height: "100%" }}
+        // On screen this is an ordinary continuous render loop -- unchanged,
+        // so nothing about how the stage looks or how the shaders run is
+        // being traded away. "never" only ever applies while the window is
+        // genuinely not being shown AND the transport is stopped, where the
+        // GPU was previously redrawing the same frame sixty times a second
+        // for nobody. Resuming is one prop flip on the next event; the WebGL
+        // context, camera and scene all stay exactly as they were.
+        frameloop={renderActive ? "always" : "never"}
+        // A 3x+ HiDPI panel would otherwise render this preview at nine times
+        // the pixels of a 1x one for no visible gain at these sizes.
+        dpr={[1, 2]}
         onCreated={({ gl }) => {
           const el = gl.domElement;
           const lost = (e: Event) => {

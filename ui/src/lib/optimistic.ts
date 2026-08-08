@@ -56,6 +56,11 @@ export function useLiveValue(
  *
  * Or shorter — spread inputProps directly when no extra onChange logic needed:
  *   <input {...inputProps} />  // includes value, onChange, onFocus, onBlur
+ *
+ * `fieldProps` is the same draft in the shape HeroUI's (React Aria's) TextField
+ * wants -- `onChange` takes the string itself, not a DOM event, and focus is
+ * tracked on the inner Input rather than on the field root:
+ *   <TextField {...fieldProps}><Input {...fieldProps.focusProps} /></TextField>
  */
 export function useFocusDraft(
   serverValue: string,
@@ -70,6 +75,11 @@ export function useFocusDraft(
     onBlur: () => void;
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
   };
+  fieldProps: {
+    value: string;
+    onChange: (v: string) => void;
+    focusProps: { onFocus: () => void; onBlur: () => void };
+  };
 } {
   const [draft, setDraft] = useState(serverValue);
   const [focused, setFocused] = useState(false);
@@ -81,25 +91,35 @@ export function useFocusDraft(
     setDraft(serverValue);
   }
 
-  const inputProps = {
-    value: draft,
-    onFocus: () => setFocused(true),
-    onBlur: () => {
-      setFocused(false);
-      // On blur, sync back to server value in case our last commit was the
-      // same as current draft but the server diverged (e.g. validation
-      // rejected our value). Calling commit here again is a no-op if value
-      // was accepted, and corrects the display if it wasn't.
-      if (commitRef.current) commitRef.current(draft);
-    },
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const v = e.target.value;
-      setDraft(v);
-      if (commitRef.current) commitRef.current(v);
-    },
+  const onFocus = () => setFocused(true);
+  const onBlur = () => {
+    setFocused(false);
+    // On blur, sync back to server value in case our last commit was the
+    // same as current draft but the server diverged (e.g. validation
+    // rejected our value). Calling commit here again is a no-op if value
+    // was accepted, and corrects the display if it wasn't.
+    if (commitRef.current) commitRef.current(draft);
+  };
+  const onChangeValue = (v: string) => {
+    setDraft(v);
+    if (commitRef.current) commitRef.current(v);
   };
 
-  return { draft, setDraft, focused, inputProps };
+  const inputProps = {
+    value: draft,
+    onFocus,
+    onBlur,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      onChangeValue(e.target.value),
+  };
+
+  const fieldProps = {
+    value: draft,
+    onChange: onChangeValue,
+    focusProps: { onFocus, onBlur },
+  };
+
+  return { draft, setDraft, focused, inputProps, fieldProps };
 }
 
 /**
@@ -276,13 +296,38 @@ export function useContinuousPlayhead(
   frozen = false,
   draggingRef?: { current: boolean },
   cycleWrapRef?: { current: CycleWrapRange | null },
+  /**
+   * Whether the clock is mirrored into React state.
+   *
+   * A caller that DISPLAYS the time (the Player's big clock) needs the mirror
+   * -- that is what re-renders the readout sixty times a second. A caller that
+   * only paints imperatively needs no such thing: Timeline moves its playhead
+   * marker by writing `style.left` straight to the DOM from its own frame loop
+   * (see the long note at that loop) and reads the clock through
+   * `getLiveAbsolute`, so the state mirror was re-rendering the entire
+   * arrangement -- every lane, every region, every cue -- once per frame for a
+   * value nothing in the returned JSX actually reads.
+   *
+   * With the mirror off, the returned `absoluteSeconds` is read live at render
+   * time instead of at commit time, so it stays correct for the render that
+   * asks for it; it simply stops being a reason TO render.
+   */
+  publishToReact = true,
 ): [
   absoluteSeconds: number,
   seekAbsolute: (v: number, lockMs?: number) => void,
   /** Live read of the clock without waiting for a React commit (rAF loops). */
   getLiveAbsolute: () => number,
 ] {
-  const [absolute, setAbsolute] = useState(serverAbsoluteSeconds);
+  const [absolute, setAbsoluteState] = useState(serverAbsoluteSeconds);
+  const publishRef = useRef(publishToReact);
+  publishRef.current = publishToReact;
+  // Every write below goes through here, so "don't mirror into React" is one
+  // decision in one place rather than a condition at each of the six sites
+  // that move the clock.
+  const setAbsolute = useRef((v: number) => {
+    if (publishRef.current) setAbsoluteState(v);
+  }).current;
   const localRef = useRef(serverAbsoluteSeconds);
   const serverRef = useRef(serverAbsoluteSeconds);
   const playingRef = useRef(playing);
@@ -314,7 +359,7 @@ export function useContinuousPlayhead(
       lastFrameTs.current = null;
       lastServerRxAt.current = Date.now();
     }
-  }, [resetKey, serverAbsoluteSeconds]);
+  }, [resetKey, serverAbsoluteSeconds, setAbsolute]);
 
   // Server snapshots.
   useEffect(() => {
@@ -343,7 +388,7 @@ export function useContinuousPlayhead(
       setAbsolute(serverAbsoluteSeconds);
       lastFrameTs.current = null;
     }
-  }, [serverAbsoluteSeconds, frozen, draggingRef]);
+  }, [serverAbsoluteSeconds, frozen, draggingRef, setAbsolute]);
 
   // rAF advance while playing.
   useEffect(() => {
@@ -384,7 +429,7 @@ export function useContinuousPlayhead(
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, frozen, resetKey, draggingRef, cycleWrapRef]);
+  }, [playing, frozen, resetKey, draggingRef, cycleWrapRef, setAbsolute]);
 
   const seekAbsolute = (v: number, lockMs = SEEK_LOCK_MS) => {
     const clamped = Math.max(0, v);
@@ -404,5 +449,9 @@ export function useContinuousPlayhead(
   // display frame, which made smooth-follow scroll in discrete steps).
   const getLiveAbsolute = useRef(() => localRef.current).current;
 
-  return [absolute, seekAbsolute, getLiveAbsolute];
+  return [
+    publishToReact ? absolute : localRef.current,
+    seekAbsolute,
+    getLiveAbsolute,
+  ];
 }

@@ -22,20 +22,34 @@ contextBridge.exposeInMainWorld("resostageElectron", {
     ipcRenderer.send("haptic-feedback", pattern ?? "alignment"),
 });
 
-// Shell → SPA: wake after sleep / minimize. IPC is more reliable than
-// executeJavaScript after the GPU process has been suspended.
-ipcRenderer.on("shell-resume", (_event, detail: { reason?: string }) => {
+type BridgeGlobal = typeof globalThis & {
+  dispatchEvent: (e: Event) => boolean;
+  CustomEvent: new (type: string, init?: { detail?: unknown }) => Event;
+};
+
+function emit(type: string, detail?: unknown): void {
   try {
-    const w = globalThis as unknown as {
-      dispatchEvent: (e: Event) => boolean;
-      CustomEvent: new (type: string, init?: { detail?: unknown }) => Event;
-    };
-    w.dispatchEvent(
-      new w.CustomEvent("resoshell-resume", {
-        detail: detail ?? { reason: "shell" },
-      }),
-    );
+    const w = globalThis as BridgeGlobal;
+    w.dispatchEvent(new w.CustomEvent(type, { detail }));
   } catch {
     /* ignore */
   }
+}
+
+// Shell → SPA: wake after sleep / minimize. IPC is more reliable than
+// executeJavaScript after the GPU process has been suspended.
+ipcRenderer.on("shell-resume", (_event, detail: { reason?: string }) => {
+  emit("resoshell-resume", detail ?? { reason: "shell" });
+});
+
+// Shell → SPA: the idle policy (see main.mts). "idle" means the window is
+// genuinely not on screen AND the transport is stopped, so the page can stand
+// its animation loops down; "active" is sent the instant either stops being
+// true, before the window is even shown, so the UI is already caught up by the
+// time it is visible.
+ipcRenderer.on("shell-idle", (_event, detail: { reason?: string }) => {
+  emit("resoshell-idle", detail ?? { reason: "shell" });
+});
+ipcRenderer.on("shell-active", (_event, detail: { reason?: string }) => {
+  emit("resoshell-active", detail ?? { reason: "shell" });
 });

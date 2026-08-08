@@ -1,6 +1,7 @@
 import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useIsCompact } from "../../lib/useMediaQuery";
 import { builder, mixer } from "../../lib/api";
 import { extOutTarget, isMainBusId } from "./mixerIds";
 import { outputSendsToClickRows, type WebUiState } from "../../lib/types";
@@ -15,7 +16,35 @@ interface PendingBusJob {
   finalize: (busId: string, index: number) => void;
 }
 
+/**
+ * One group of strips (tracks / sends / master).
+ *
+ * On a desktop console each group is its own horizontal scroller so the master
+ * stays pinned on the right while the track pane scrolls under it. That
+ * division needs width to make sense: on a phone the master and sends alone
+ * eat the entire viewport and the track pane collapses to a sliver. There, the
+ * groups stop scrolling individually and the console becomes one continuous
+ * strip you swipe through -- the same order, just laid end to end.
+ */
+function ConsolePane({
+  compact,
+  className,
+  children,
+}: {
+  compact: boolean;
+  className: string;
+  children: React.ReactNode;
+}) {
+  if (compact) return <div className={className}>{children}</div>;
+  return (
+    <ScrollShadow orientation="horizontal" className={className}>
+      {children}
+    </ScrollShadow>
+  );
+}
+
 export function MixerScreen({ state }: { state: WebUiState }) {
+  const compact = useIsCompact();
   const auxBusses = state.busses.filter((b) => b.isAux);
   // Match the master by its canonical id and nothing else. The old code fell
   // back to "the first non-aux bus" when the id didn't match, which quietly
@@ -131,16 +160,20 @@ export function MixerScreen({ state }: { state: WebUiState }) {
         <span>{state.busses.length} busses</span>
       </div>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-default/30 bg-background p-3">
+      <div
+        className={`flex min-h-0 flex-1 rounded-xl border border-default/30 bg-background p-1.5 sm:p-3 ${
+          compact ? "overflow-x-auto" : "overflow-hidden"
+        }`}
+      >
         {state.tracks.length === 0 && state.busses.length === 0 ? (
           <div className="flex h-full w-full items-center justify-center px-4 py-6 text-center text-sm text-foreground/40">
             No tracks staged in this project.
           </div>
         ) : (
           <>
-            <ScrollShadow
-              orientation="horizontal"
-              className="flex min-h-0 flex-1 gap-2 pr-1"
+            <ConsolePane
+              compact={compact}
+              className={`flex min-h-0 gap-2 pr-1 ${compact ? "shrink-0" : "flex-1"}`}
             >
               {state.tracks.map((t, i) => (
                 <div
@@ -171,13 +204,13 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                   />
                 </div>
               ))}
-            </ScrollShadow>
+            </ConsolePane>
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
-            <ScrollShadow
-              orientation="horizontal"
-              className="flex shrink-0 gap-2 max-w-[35%]"
+            <ConsolePane
+              compact={compact}
+              className={`flex shrink-0 gap-2 ${compact ? "" : "max-w-[35%]"}`}
             >
               <div className="flex h-full w-20 shrink-0 flex-col items-center justify-center">
                 <button
@@ -215,7 +248,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                   />
                 </div>
               ))}
-            </ScrollShadow>
+            </ConsolePane>
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { addRafTask } from "../../lib/rafLoop";
 
 // Ballistic peak meter: instant attack, release, peak-hold, clip latch at
 // the TOP only (never paints the whole bar red). Stereo L/R; solid track
@@ -140,6 +141,23 @@ function ChannelBar({
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
 
+    // Everything the last painted frame depended on. A meter at rest -- the
+    // overwhelmingly common state on a stopped transport, and true of most
+    // strips even mid-song -- then costs one comparison per frame instead of
+    // a clear plus two or three fills, multiplied by every bar on screen.
+    let paintedFill = Number.NaN;
+    let paintedPeak = Number.NaN;
+    let paintedShowPeak = false;
+    let paintedLatched = false;
+    let paintedFillStyle = "";
+    let paintedW = 0;
+    let paintedH = 0;
+    let paintedVertical = verticalRef.current;
+    /** Forget the last-painted snapshot -- next frame must redraw. */
+    const invalidate = () => {
+      paintedFill = Number.NaN;
+    };
+
     let cssW = 0;
     let cssH = 0;
     // Only reallocate the backing store when the integer CSS size changes.
@@ -162,16 +180,17 @@ function ChannelBar({
       canvas.width = bw;
       canvas.height = bh;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Reallocating the backing store clears it. Without this the skip check
+      // below would happily conclude "nothing moved" and leave a blank bar
+      // after any resize or DPI change.
+      invalidate();
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
-    let raf = 0;
-    const tick = (t: number) => {
+    const tick = (_nowMs: number, dt: number) => {
       const s = anim.current;
-      const dt = s.lastT > 0 ? Math.min(0.25, (t - s.lastT) / 1000) : 1 / 30;
-      s.lastT = t;
 
       // Prefer live sampler (may consume interval-max). Fall back to prop.
       const live = getLiveRef.current?.();
@@ -205,6 +224,33 @@ function ChannelBar({
       const peakPct = normFor(s.peak);
       const showPeak = s.peak > RANGE_LOW_DB + 0.5 && peakPct > 0.002;
       const latched = clipOverrideRef.current ?? s.clipLatched;
+      const fillStyle = fillRef.current;
+
+      // Sub-pixel movement is not worth a repaint; quantize to the bar's own
+      // pixel grid so "unchanged" means "identical pixels", not "close".
+      const span = Math.max(1, v ? cssH : cssW);
+      const qFill = Math.round(fillPct * span);
+      const qPeak = Math.round(peakPct * span);
+      if (
+        qFill === paintedFill &&
+        qPeak === paintedPeak &&
+        showPeak === paintedShowPeak &&
+        latched === paintedLatched &&
+        fillStyle === paintedFillStyle &&
+        cssW === paintedW &&
+        cssH === paintedH &&
+        v === paintedVertical
+      ) {
+        return;
+      }
+      paintedFill = qFill;
+      paintedPeak = qPeak;
+      paintedShowPeak = showPeak;
+      paintedLatched = latched;
+      paintedFillStyle = fillStyle;
+      paintedW = cssW;
+      paintedH = cssH;
+      paintedVertical = v;
 
       ctx.clearRect(0, 0, cssW, cssH);
 
@@ -243,12 +289,10 @@ function ChannelBar({
         }
         ctx.restore();
       }
-
-      raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
+    const stop = addRafTask(tick);
     return () => {
-      cancelAnimationFrame(raf);
+      stop();
       ro.disconnect();
     };
   }, []);

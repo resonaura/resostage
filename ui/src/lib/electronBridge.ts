@@ -24,6 +24,9 @@ interface ElectronMenuState {
   // matching menu item, mirroring the old AppKit MacMenuBar behavior.
   lastAction: string;
   lastActionNonce: number;
+  /** Live transport state. Drives the shell's idle policy (electron/src/
+   *  main.mts): a hidden window is only ever allowed to sleep while stopped. */
+  playing: boolean;
 }
 
 type BridgeWindow = typeof window & {
@@ -51,6 +54,7 @@ function fingerprint(s: WebUiState): string {
     s.projectName,
     s.lastAction,
     s.lastActionNonce,
+    s.playing,
   ]);
 }
 
@@ -71,5 +75,6 @@ export function forwardMenuState(s: WebUiState): void {
     projectName: s.projectName ?? "",
     lastAction: s.lastAction ?? "",
     lastActionNonce: s.lastActionNonce ?? 0,
+    playing: s.playing ?? false,
   });
 }

@@ -410,7 +410,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="relative flex h-14 shrink-0 items-center border-b border-default/60 bg-background px-4">
+      <header className="relative flex h-14 shrink-0 items-center border-b border-default/60 bg-background px-2 sm:px-4">
         <div className="z-10 flex shrink-0 items-center">
           <img
             src="/logo.svg"
@@ -421,8 +421,10 @@ export default function App() {
           />
         </div>
 
-        {/* Center transport: always mounted, fades out on Player tab. */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        {/* Center transport: always mounted, fades out on Player tab. Hidden
+            outright on phones -- it cannot fit beside the logo and the status
+            badge, and every screen that needs transport has its own. */}
+        <div className="pointer-events-none absolute inset-0 hidden items-center justify-center md:flex">
           <div
             className={`pointer-events-auto transition-opacity duration-200 ease-out ${
               tab !== "player"
@@ -455,31 +457,31 @@ export default function App() {
         }}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <Tabs.ListContainer className="shrink-0 border-b border-default/30 px-2 bg-transparent">
+        <Tabs.ListContainer className="shrink-0 overflow-x-auto border-b border-default/30 px-1 sm:px-2 bg-transparent">
           <Tabs.List aria-label="Sections" className="bg-transparent">
             <Tabs.Tab id="player">
-              <Music4 size={15} className="mr-1.5 inline-block" />
-              Player
+              <Music4 size={15} className="inline-block sm:mr-1.5" />
+              <span className="hidden sm:inline">Player</span>
               <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
             <Tabs.Tab id="mixer">
-              <Sliders size={15} className="mr-1.5 inline-block" />
-              Mixer
+              <Sliders size={15} className="inline-block sm:mr-1.5" />
+              <span className="hidden sm:inline">Mixer</span>
               <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
             <Tabs.Tab id="editor">
-              <Gauge size={15} className="mr-1.5 inline-block" />
-              Editor
+              <Gauge size={15} className="inline-block sm:mr-1.5" />
+              <span className="hidden sm:inline">Editor</span>
               <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
             <Tabs.Tab id="light">
-              <Lightbulb size={15} className="mr-1.5 inline-block" />
-              Light
+              <Lightbulb size={15} className="inline-block sm:mr-1.5" />
+              <span className="hidden sm:inline">Light</span>
               <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
             <Tabs.Tab id="settings">
-              <Settings2 size={15} className="mr-1.5 inline-block" />
-              Settings
+              <Settings2 size={15} className="inline-block sm:mr-1.5" />
+              <span className="hidden sm:inline">Settings</span>
               <Tabs.Indicator className="bg-background-tertiary" />
             </Tabs.Tab>
           </Tabs.List>
@@ -487,7 +489,7 @@ export default function App() {
 
         <Tabs.Panel
           id="player"
-          className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden p-1.5 sm:p-3"
         >
           <PlayerScreen
             state={state}
@@ -501,13 +503,13 @@ export default function App() {
         </Tabs.Panel>
         <Tabs.Panel
           id="mixer"
-          className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden p-1.5 sm:p-3"
         >
           <MixerScreen state={state} />
         </Tabs.Panel>
         <Tabs.Panel
           id="editor"
-          className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden p-1.5 sm:p-3"
         >
           <EditorScreen
             state={state}
@@ -517,15 +519,15 @@ export default function App() {
             setPxPerSec={setPxPerSec}
           />
         </Tabs.Panel>
-        <Tabs.Panel id="light" className="flex-1 overflow-auto p-3">
+        <Tabs.Panel id="light" className="flex-1 overflow-auto p-1.5 sm:p-3">
           <LightScreen state={state} />
         </Tabs.Panel>
-        <Tabs.Panel id="settings" className="flex-1 overflow-auto p-3">
+        <Tabs.Panel id="settings" className="flex-1 overflow-auto p-1.5 sm:p-3">
           <SettingsScreen state={state} />
         </Tabs.Panel>
       </Tabs>
 
-      <footer className="shrink-0 border-t border-default/60 px-4 py-1.5 text-center text-xs text-foreground/40">
+      <footer className="hidden shrink-0 border-t border-default/60 px-4 py-1.5 text-center text-xs text-foreground/40 sm:block">
         <span className="inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5">
           <span>
             {state.statusMessage || "ResoStage remote · mirrors desktop state"}

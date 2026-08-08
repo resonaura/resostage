@@ -220,6 +220,15 @@ export function effectRequiresAddressable(t: EffectType): boolean {
   );
 }
 
+/** Every effect a cue can run, in the order the effect grid shows them. */
+export const CUE_EFFECT_TYPES = Object.keys(EFFECT_META) as EffectType[];
+
+/** The idle rig runs with no audio behind it, so the meter-driven effects
+ *  have nothing to follow and are not offered while playback is stopped. */
+export const IDLE_EFFECT_TYPES: EffectType[] = CUE_EFFECT_TYPES.filter(
+  (t) => t !== "meter" && t !== "vupeak" && t !== "geq" && t !== "blurz",
+);
+
 export const GRADIENT_META: Record<GradientPreset, string> = {
   solid: "Solid Color",
   greenYellowRed: "Green → Yellow → Red",

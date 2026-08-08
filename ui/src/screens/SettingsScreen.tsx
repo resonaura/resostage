@@ -1,7 +1,14 @@
 import { Button, Card, Tabs } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 import { Activity, Music3, SlidersHorizontal, Workflow } from "lucide-react";
-import { SignalFlowDialog } from "../components/audio/SignalFlowDialog";
+import { lazy, Suspense } from "react";
+// @xyflow/react is a heavy graph library behind exactly one modal. Loading it
+// on demand keeps it out of the startup bundle entirely.
+const SignalFlowDialog = lazy(() =>
+  import("../components/audio/SignalFlowDialog").then((m) => ({
+    default: m.SignalFlowDialog,
+  })),
+);
 import { FontIcon } from "../components/FontIcon";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
@@ -310,7 +317,11 @@ function AudioTab({ state }: { state: WebUiState }) {
         </div>
       </Section>
 
-      {flowOpen && <SignalFlowDialog onClose={() => setFlowOpen(false)} />}
+      {flowOpen && (
+        <Suspense fallback={null}>
+          <SignalFlowDialog onClose={() => setFlowOpen(false)} />
+        </Suspense>
+      )}
 
       <Section title="Output Device">
         <Field label="Output device">

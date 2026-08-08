@@ -131,7 +131,7 @@ export function TimelineToolbar({
         </span>
       </span>
 
-      <div className="flex items-center gap-1 ml-auto h-7">
+      <Toolbar aria-label="Timeline controls" className="ml-auto gap-1.5">
         {!readOnly && (
           <>
             <ButtonGroup size="sm" variant="tertiary">
@@ -197,23 +197,22 @@ export function TimelineToolbar({
               </Button>
             </ButtonGroup>
             <Separator orientation="vertical" />
-            <Button
+            <ToggleButton
               size="sm"
-              variant={snapToGrid ? "primary" : "tertiary"}
               isIconOnly
               aria-label={snapToGrid ? "Snap to grid: ON" : "Snap to grid: OFF"}
-              onPress={() => setSnapToGrid((v) => !v)}
+              isSelected={snapToGrid}
+              onChange={setSnapToGrid}
             >
               <Magnet size={13} />
-            </Button>
+            </ToggleButton>
           </>
         )}
 
         {!readOnly && (
           <>
             <Separator orientation="vertical" />
-            <Toolbar aria-label="View mode">
-              <ToggleButtonGroup
+            <ToggleButtonGroup
                 aria-label="Timeline view mode"
                 selectionMode="single"
                 disallowEmptySelection
@@ -232,16 +231,14 @@ export function TimelineToolbar({
                   <ToggleButtonGroup.Separator />
                   <Lightbulb size={14} /> Light
                 </ToggleButton>
-              </ToggleButtonGroup>
-            </Toolbar>
+            </ToggleButtonGroup>
           </>
         )}
 
         {!readOnly && (
           <>
             <Separator orientation="vertical" />
-            <Toolbar aria-label="Timeline tools">
-              <ToggleButtonGroup
+            <ToggleButtonGroup
                 aria-label="Timeline editing tools"
                 selectionMode="single"
                 selectedKeys={[tool]}
@@ -262,16 +259,15 @@ export function TimelineToolbar({
                     {TOOL_ICONS[t.id]}
                   </ToggleButton>
                 ))}
-              </ToggleButtonGroup>
-            </Toolbar>
+            </ToggleButtonGroup>
           </>
         )}
 
         <Separator orientation="vertical" />
-        <Button
+        <ToggleButton
           size="sm"
-          variant={followMode === "off" ? "tertiary" : "primary"}
           isIconOnly
+          isSelected={followMode !== "off"}
           aria-label={
             followMode === "off"
               ? "Playhead autofollow: off (click cycles mode, right-click options)"
@@ -292,7 +288,7 @@ export function TimelineToolbar({
           ) : (
             <LocateFixed size={13} />
           )}
-        </Button>
+        </ToggleButton>
 
         {followMenu && (
           <ContextMenu
@@ -328,7 +324,7 @@ export function TimelineToolbar({
           </ContextMenu>
         )}
 
-        <div className="flex items-center gap-1.5 ml-1 w-[17.5rem] shrink-0">
+        <div className="flex w-64 shrink-0 items-center gap-1.5">
           <MoveHorizontalIcon
             style={{ opacity: 0.2, width: "16px", height: "16px" }}
           />
@@ -355,7 +351,7 @@ export function TimelineToolbar({
                 markZoomActive();
                 applyZoomAt(next);
               }}
-              className="flex-1 min-w-0 -mt-1"
+              className="min-w-0 flex-1"
             >
               <Slider.Track>
                 <Slider.Fill />
@@ -377,7 +373,7 @@ export function TimelineToolbar({
                 const z = Array.isArray(v) ? v[0] : v;
                 setVerticalZoom(z);
               }}
-              className="flex-1 min-w-0 -mt-1"
+              className="min-w-0 flex-1"
             >
               <Slider.Track>
                 <Slider.Fill />
@@ -386,7 +382,7 @@ export function TimelineToolbar({
             </Slider>
           </div>
         </div>
-      </div>
+      </Toolbar>
     </div>
   );
 }
