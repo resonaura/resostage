@@ -19,14 +19,14 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { ToggleButton } from "../daw";
-import { useEscRevert } from "../../lib/useEscRevert";
 import { timelineHistory } from "../../lib/api";
+import { useEscRevert } from "../../lib/useEscRevert";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
 } from "../ContextMenu";
+import { ToggleButton } from "../daw";
 import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
 import { formatTimeShort } from "./geometry";
 import { TIMELINE_TOOLS, type TimelineTool } from "./tools";
@@ -232,7 +232,7 @@ export function TimelineToolbar({
                   key={t.id}
                   active={tool === t.id}
                   onClick={() => setTool(t.id)}
-                  title={`${t.label} (${t.shortcut}) — ${t.tip}`}
+                  ariaLabel={`${t.label} (${t.shortcut}) — ${t.tip}`}
                   className="h-6 w-6 px-0"
                 >
                   {TOOL_ICONS[t.id]}

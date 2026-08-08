@@ -231,7 +231,7 @@ export function ImportStemsModal({
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-accent/15 text-accent border border-accent/20">
+                          <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded tint--soft text-accent border border-accent/20">
                             {item.detectedCategory}
                           </span>
 

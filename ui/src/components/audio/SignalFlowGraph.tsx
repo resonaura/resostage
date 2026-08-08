@@ -71,7 +71,7 @@ const KIND_STYLE: Record<
   },
   main: {
     ring: "border-accent/60",
-    chip: "bg-accent/20 text-accent",
+    chip: "tint--soft text-accent",
     icon: <Volume2 size={12} />,
     label: "Master",
   },
@@ -109,7 +109,7 @@ function StripNode({ data }: NodeProps<Node<StripNodeData>>) {
           {style.label}
         </span>
         {s.solo && (
-          <span className="rounded bg-accent/20 px-1 py-px text-[9px] font-bold text-accent">
+          <span className="rounded tint--soft px-1 py-px text-[9px] font-bold text-accent">
             SOLO
           </span>
         )}

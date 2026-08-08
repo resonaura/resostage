@@ -1,158 +1,98 @@
-/* ResoStage design layer — overrides on top of @heroui/styles.
-   ============================================================
+/* ResoStage design layer — DAW component styles on top of @heroui/styles.
 
-   WHY THIS FILE EXISTS
+   HeroUI variables are customized below to use neutral tones instead of the
+   default saturated blue, so the accent doesn't compete with authored track/
+   bus/fixture colours. */
 
-   HeroUI's default accent is a saturated blue (--accent: oklch(0.6204 0.195
-   253.83)). That is a fine accent for a web app and the wrong one for this
-   app: a ResoStage window is mostly *other people's colours* — every track,
-   bus and light fixture carries an authored colour, and those colours are the
-   information. A saturated blue accent competes with all of them at once, so
-   every surface ended up hand-overriding it, which is how a codebase acquires
-   35 `text-accent` overrides that each mean something slightly different.
+/*
+ * HeroUI Theme Customization
+ * Add this to your global.css after importing @heroui/styles
+ * Only includes variables users need to customize
+ * @see https://heroui.com/docs/react/getting-started/theming
+ */
 
-   So the accent is neutralised here, once. Chroma goes to ~0: "accent" now
-   means *emphasis* (this thing is active/selected) and carries no hue of its
-   own, the way Ableton and Logic use white/grey for selection. Track colour
-   stays the only saturated thing on screen.
-
-   Everything downstream recomputes for free, because HeroUI derives it all
-   with color-mix() off --accent: --accent-hover, --accent-soft,
-   --accent-soft-foreground, --accent-soft-hover, --focus, and the
-   .button--primary / .button--secondary variants.
-
-   WHY NOTHING HERE IS IN AN @layer
-
-   HeroUI declares `@layer theme, base, components, utilities` and ships its
-   variables inside them. Unlayered rules beat layered ones in the cascade
-   regardless of order, so keeping this file unlayered means the overrides win
-   without having to know or track HeroUI's internal layer ordering — which is
-   an implementation detail that can change in a patch release. */
-
-/* ── Accent ───────────────────────────────────────────────────────────────
-   The app forces dark (see main.tsx), but both selectors are covered so a
-   stray unthemed subtree can never fall back to blue. */
 :root,
+.light,
+.default,
+[data-theme="light"],
+[data-theme="default"] {
+  /* Theme Colors (Light Mode) */
+  --accent: oklch(94.48% 0.0021 279.31);
+  --accent-foreground: oklch(15% 0.0004 279.31);
+  --background: oklch(97.02% 0.0045 279.31);
+  --border: oklch(90% 0.0045 279.31);
+  --danger: oklch(65.32% 0.2349 28.8);
+  --danger-foreground: oklch(99.11% 0 0);
+  --default: oklch(94% 0.0045 279.31);
+  --default-foreground: oklch(21.03% 0.0059 279.31);
+  --field-background: oklch(100% 0.0022 279.31);
+  --field-border: transparent;
+  --field-foreground: oklch(21.03% 0.0045 279.31);
+  --field-placeholder: oklch(55.17% 0.009 279.31);
+  --focus: oklch(94.48% 0.0021 279.31);
+  --foreground: oklch(21.03% 0.0045 279.31);
+  --muted: oklch(55.17% 0.009 279.31);
+  --overlay: oklch(100% 0.0013 279.31);
+  --overlay-foreground: oklch(21.03% 0.0045 279.31);
+  --scrollbar: oklch(87.1% 0.0045 279.31);
+  --segment: oklch(100% 0.0045 279.31);
+  --segment-foreground: oklch(21.03% 0.0045 279.31);
+  --separator: oklch(92% 0.0045 279.31);
+  --success: oklch(73.29% 0.1952 153.87);
+  --success-foreground: oklch(21.03% 0.0059 153.87);
+  --surface: oklch(100% 0.0022 279.31);
+  --surface-foreground: oklch(21.03% 0.0045 279.31);
+  --surface-secondary: oklch(95.24% 0.0036 279.31);
+  --surface-secondary-foreground: oklch(21.03% 0.0045 279.31);
+  --surface-tertiary: oklch(93.73% 0.0036 279.31);
+  --surface-tertiary-foreground: oklch(21.03% 0.0045 279.31);
+  --warning: oklch(78.19% 0.1599 75.39);
+  --warning-foreground: oklch(21.03% 0.0059 75.39);
+
+  /* Border Radius */
+  --radius: 0.5rem;
+  --field-radius: 0.75rem;
+
+  /* Font Family */
+  /* Make sure to load Inter font in your app */
+  --font-sans: var(--font-inter);
+}
+
 .dark,
 [data-theme="dark"] {
-  /* Light neutral: bright enough to read as "on" against the 12% background,
-     with just enough chroma (0.006, matching HeroUI's own surface hue family
-     at 286) to avoid looking like a dead grey next to the tinted surfaces. */
-  --accent: oklch(0.78 0.006 286);
-  /* --accent is now LIGHT, so text on a solid accent fill has to be dark.
-     HeroUI's default here is --snow (white), which would be unreadable. */
-  --accent-foreground: oklch(0.18 0.006 286);
-
-  /* --focus defaults to var(--accent) and therefore follows it automatically.
-     Restated rather than inherited: a focus ring is the one place where the
-     neutral accent is genuinely too quiet, so it gets extra lightness. This
-     is a keyboard-accessibility affordance, not decoration. */
-  --focus: oklch(0.86 0.006 286);
-}
-
-/* ── Emphasis scale ───────────────────────────────────────────────────────
-   The fixed hierarchy that replaces ad-hoc opacities. The codebase had grown
-   bg-accent/5, /8, /10, /15, /20, /30 and /80 — seven weights for what are
-   really four levels, with no rule saying which to reach for or what the
-   hover of each one should be.
-
-   Four levels, and one rule: HOVER IS THE NEXT LEVEL UP. That is what makes
-   the scale predictable — you pick a resting weight and the interaction
-   follows, instead of picking two numbers that happen to look right today.
-
-     quiet   0%   — no fill until you touch it (bare icon buttons)
-     subtle  8%   — present but recessive (inactive segments, row chrome)
-     soft   16%   — the default tinted fill (the old bg-accent/20)
-     strong 28%   — asserted, still not solid (armed, pending, selected)
-     solid  100%  — unambiguously ON, with a contrasting foreground
-
-   Every level mixes into transparent rather than into a fixed background, so
-   the same class works over the app background, over a panel, and over a
-   waveform without three variants of itself.
-
-   TINTED BY ANY COLOUR
-   --tint defaults to the accent, so these are "accent buttons" out of the
-   box. Set --tint to a track/bus/fixture colour (see tintVars() in
-   components/daw/tint.ts) and the whole scale re-derives in that colour —
-   which is how a button can belong to a coloured lane without a second set of
-   hand-written classes. --tint-foreground only matters at `solid`, where the
-   text sits on the full-strength colour; tint.ts computes it, because a
-   readable foreground depends on the tint's luminance and CSS cannot branch
-   on that. */
-.tint--quiet,
-.tint--subtle,
-.tint--soft,
-.tint--strong,
-.tint--solid {
-  /* HeroUI's Button consumes exactly these four custom properties, so one
-     class set styles both HeroUI's .button and our own .daw-button. */
-  --button-bg: transparent;
-  --button-bg-hover: color-mix(in oklab, var(--tint, var(--accent)) 10%, transparent);
-  --button-bg-pressed: var(--button-bg-hover);
-  --button-fg: color-mix(
-    in oklab,
-    var(--tint, var(--accent)) 80%,
-    var(--foreground) 30%
-  );
-}
-
-.tint--subtle {
-  --button-bg: color-mix(in oklab, var(--tint, var(--accent)) 8%, transparent);
-  --button-bg-hover: color-mix(in oklab, var(--tint, var(--accent)) 16%, transparent);
-  --button-bg-pressed: var(--button-bg-hover);
-}
-
-.tint--soft {
-  --button-bg: color-mix(in oklab, var(--tint, var(--accent)) 16%, transparent);
-  --button-bg-hover: color-mix(in oklab, var(--tint, var(--accent)) 28%, transparent);
-  --button-bg-pressed: var(--button-bg-hover);
-}
-
-.tint--strong {
-  --button-bg: color-mix(in oklab, var(--tint, var(--accent)) 28%, transparent);
-  --button-bg-hover: color-mix(in oklab, var(--tint, var(--accent)) 40%, transparent);
-  --button-bg-pressed: var(--button-bg-hover);
-}
-
-.tint--solid {
-  --button-bg: var(--tint, var(--accent));
-  /* One step toward the foreground, matching how HeroUI derives its own
-     --accent-hover, so a solid tinted button hovers like a solid accent one. */
-  --button-bg-hover: color-mix(
-    in oklab,
-    var(--tint, var(--accent)) 90%,
-    var(--tint-foreground, var(--accent-foreground)) 10%
-  );
-  --button-bg-pressed: var(--button-bg-hover);
-  --button-fg: var(--tint-foreground, var(--accent-foreground));
-}
-
-/* ── Dense button base ────────────────────────────────────────────────────
-   HeroUI's button scale bottoms out around 32-36px, and timeline/mixer chrome
-   needs 24-28px. Rather than fight .button's sizing with overrides, dense
-   controls get their own base that consumes the SAME --button-* contract, so
-   the emphasis scale above is literally the same code for both. Sizing,
-   layout and disabled state come from Tailwind at the call site
-   (components/daw/Buttons.tsx). */
-.daw-button {
-  background: var(--button-bg, transparent);
-  color: var(--button-fg, inherit);
-  transition:
-    background-color 0.12s ease,
-    color 0.12s ease;
-}
-
-.daw-button:hover:not(:disabled) {
-  background: var(--button-bg-hover, transparent);
-}
-
-.daw-button:active:not(:disabled) {
-  background: var(--button-bg-pressed, transparent);
-}
-
-.daw-button:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
+  color-scheme: dark;
+  /* Theme Colors (Dark Mode) */
+  --accent: oklch(94.48% 0.0021 279.31);
+  --accent-foreground: oklch(15% 0.0004 279.31);
+  --background: oklch(12% 0.0045 279.31);
+  --border: oklch(28% 0.0045 279.31);
+  --danger: oklch(59.4% 0.1985 27.69);
+  --danger-foreground: oklch(99.11% 0 0);
+  --default: oklch(27.4% 0.0045 279.31);
+  --default-foreground: oklch(99.11% 0 0);
+  --field-background: oklch(21.03% 0.009 279.31);
+  --field-border: transparent;
+  --field-foreground: oklch(99.11% 0.0045 279.31);
+  --field-placeholder: oklch(70.5% 0.009 279.31);
+  --focus: oklch(94.48% 0.0021 279.31);
+  --foreground: oklch(99.11% 0.0045 279.31);
+  --muted: oklch(70.5% 0.009 279.31);
+  --overlay: oklch(21.03% 0.009 279.31);
+  --overlay-foreground: oklch(99.11% 0.0045 279.31);
+  --scrollbar: oklch(70.5% 0.0045 279.31);
+  --segment: oklch(39.64% 0.0045 279.31);
+  --segment-foreground: oklch(99.11% 0.0045 279.31);
+  --separator: oklch(25% 0.0045 279.31);
+  --success: oklch(73.29% 0.1952 153.87);
+  --success-foreground: oklch(21.03% 0.0059 153.87);
+  --surface: oklch(21.03% 0.009 279.31);
+  --surface-foreground: oklch(99.11% 0.0045 279.31);
+  --surface-secondary: oklch(25.7% 0.0067 279.31);
+  --surface-secondary-foreground: oklch(99.11% 0.0045 279.31);
+  --surface-tertiary: oklch(27.21% 0.0067 279.31);
+  --surface-tertiary-foreground: oklch(99.11% 0.0045 279.31);
+  --warning: oklch(82.03% 0.14 79.4);
+  --warning-foreground: oklch(21.03% 0.0059 79.4);
 }
 
 /* ── DAW surface tokens ───────────────────────────────────────────────────

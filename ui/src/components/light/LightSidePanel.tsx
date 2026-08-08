@@ -494,7 +494,7 @@ export function GradientStopEditor({
         <button
           type="button"
           onClick={reverseStops}
-          className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-default/60 bg-surface text-foreground/60 hover:bg-accent/20 hover:text-accent transition-colors"
+          className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-default/60 bg-surface text-foreground/60 hover:tint--soft hover:text-accent transition-colors"
           title="Reverse gradient direction"
           aria-label="Reverse gradient direction"
         >
@@ -513,7 +513,7 @@ export function GradientStopEditor({
                 type="button"
                 onClick={() => insertStopBetween(i - 1)}
                 disabled={stops.length >= 8}
-                className="h-7 w-3 shrink-0 flex items-center justify-center rounded text-foreground/15 hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-0 disabled:pointer-events-none"
+                className="h-7 w-3 shrink-0 flex items-center justify-center rounded text-foreground/15 hover:text-accent hover:tint--subtle transition-colors disabled:opacity-0 disabled:pointer-events-none"
                 title={stops.length >= 8 ? undefined : "Insert a stop here"}
                 aria-label={`Insert a stop between ${i} and ${i + 1}`}
               >
@@ -799,7 +799,7 @@ function EffectPanel({
                   onClick={() => onType(et)}
                   className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
                     effectType === et
-                      ? "border-accent bg-accent/20 text-accent"
+                      ? "border-accent tint--soft text-accent"
                       : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
                   }`}
                 >
@@ -866,7 +866,7 @@ function EffectPanel({
                     onClick={() => onGradientPreset(g)}
                     className={`rounded-lg border px-2 py-1.5 text-[10px] font-medium transition-colors ${
                       gradientPreset === g
-                        ? "border-accent bg-accent/20 text-accent"
+                        ? "border-accent tint--soft text-accent"
                         : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
                     }`}
                   >
@@ -923,7 +923,7 @@ function EffectPanel({
                   }
                   className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
                     tempoSync
-                      ? "bg-accent/20 text-accent border border-accent/40"
+                      ? "tint--soft text-accent border border-accent/40"
                       : "bg-default/10 text-foreground/40 border border-default/30 hover:text-foreground/70"
                   }`}
                 >
@@ -942,7 +942,7 @@ function EffectPanel({
                       onClick={() => onTempoSubdiv(sub)}
                       className={`rounded py-1 text-[9px] font-mono font-medium border transition-colors ${
                         tempoSubdiv === sub
-                          ? "border-accent bg-accent/20 text-accent"
+                          ? "border-accent tint--soft text-accent"
                           : "border-default/30 bg-default/10 text-foreground/50 hover:bg-default/20"
                       }`}
                     >

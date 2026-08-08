@@ -1039,7 +1039,7 @@ export function LightTrackHeader({
     <div
       className={`flex items-center gap-2 border-b border-default/15 select-none overflow-hidden cursor-pointer transition-colors ${
         selected
-          ? "bg-accent/10 border-l-2 border-l-accent"
+          ? "tint--subtle border-l-2 border-l-accent"
           : "bg-surface/20 hover:bg-surface/40"
       }`}
       style={{ height: h, padding: `0 ${padX}px` }}

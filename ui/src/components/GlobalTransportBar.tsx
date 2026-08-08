@@ -1,3 +1,4 @@
+import { Button } from "@heroui/react";
 import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
 import { transport } from "../lib/api";
 import type { WebUiState } from "../lib/types";
@@ -28,30 +29,31 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
         hasSong={song !== null}
       />
 
-      <IconButton onClick={() => transport.prev()} title="Previous">
+      <IconButton onClick={() => transport.prev()} ariaLabel="Previous">
         <SkipBack size={14} />
       </IconButton>
 
       {/* Play/pause is the one wide button: it is the control you hit without
           looking, so it gets a target the others do not. */}
-      <button
-        type="button"
-        onClick={() => (state.playing ? transport.stop() : transport.play())}
-        className="flex h-7 w-[4.75rem] shrink-0 items-center justify-center gap-1 rounded-md bg-accent-soft text-xs font-semibold text-accent-soft-foreground transition-colors hover:bg-accent-soft-hover"
-        title={state.playing ? "Pause" : "Play"}
+      <Button
+        size="sm"
+        variant="secondary"
+        onPress={() => (state.playing ? transport.stop() : transport.play())}
+        aria-label={state.playing ? "Pause" : "Play"}
+        className="w-[4.75rem] font-semibold"
       >
         {state.playing ? <Pause size={13} /> : <Play size={13} />}
         <span className="tabular-nums">{state.playing ? "Pause" : "Play"}</span>
-      </button>
+      </Button>
 
       <IconButton
         onClick={() => void transport.stopToStart()}
-        tone="danger"
-        title="Stop (again at song start → project start)"
+        danger
+        ariaLabel="Stop (again at song start → project start)"
       >
         <Square size={13} />
       </IconButton>
-      <IconButton onClick={() => transport.next()} title="Next">
+      <IconButton onClick={() => transport.next()} ariaLabel="Next">
         <SkipForward size={14} />
       </IconButton>
 

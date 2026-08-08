@@ -170,7 +170,7 @@ function ListPanel({
                 onClick={() => onSelect(i)}
                 className={`flex flex-col items-start rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                   i === selected
-                    ? "bg-accent/15 text-foreground"
+                    ? "tint--soft text-foreground"
                     : "text-foreground/70 hover:bg-default/20"
                 }`}
               >

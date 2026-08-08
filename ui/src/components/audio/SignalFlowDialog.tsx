@@ -13,7 +13,7 @@ const REFRESH_MS = 700;
 const LEGEND: { swatch: string; label: string }[] = [
   { swatch: "bg-default/60", label: "Track / metronome" },
   { swatch: "bg-warning/70", label: "Aux send" },
-  { swatch: "bg-accent/80", label: "Master" },
+  { swatch: "tint--subtle0", label: "Master" },
   { swatch: "bg-success/70", label: "Physical output" },
 ];
 

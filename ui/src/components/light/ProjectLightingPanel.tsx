@@ -418,7 +418,7 @@ export function ProjectLightingPanel({
           onClick={() => void lighting.setConfig({ enabled: !li.enabled })}
           className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${
             li.enabled
-              ? "border-accent bg-accent/20 text-accent"
+              ? "border-accent tint--soft text-accent"
               : "border-default/60 bg-default/20 text-foreground/60 hover:bg-default/30"
           }`}
         >
@@ -489,7 +489,7 @@ export function ProjectLightingPanel({
                     }
                     className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
                       li.idle.behavior === opt.value
-                        ? "border-accent bg-accent/20 text-accent"
+                        ? "border-accent tint--soft text-accent"
                         : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
                     }`}
                   >
@@ -570,7 +570,7 @@ export function ProjectLightingPanel({
                               }
                               className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 px-1 text-[10px] font-medium transition-colors ${
                                 li.idle.effect.type === et
-                                  ? "border-accent bg-accent/20 text-accent"
+                                  ? "border-accent tint--soft text-accent"
                                   : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
                               }`}
                             >
@@ -616,7 +616,7 @@ export function ProjectLightingPanel({
                                   }
                                   className={`rounded-lg border px-2 py-1 text-left text-xs font-medium transition-colors ${
                                     (li.idle.gradient.preset || "solid") === g
-                                      ? "border-accent bg-accent/20 text-accent"
+                                      ? "border-accent tint--soft text-accent"
                                       : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
                                   }`}
                                 >
@@ -1004,7 +1004,7 @@ export function ProjectLightingPanel({
                             title={SHAPE_META[shape].label}
                             className={`flex flex-col items-center gap-1 rounded-lg border py-2 text-[10px] font-medium transition-colors ${
                               selected.shape === shape
-                                ? "border-accent bg-accent/20 text-accent"
+                                ? "border-accent tint--soft text-accent"
                                 : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
                             }`}
                           >
@@ -1067,7 +1067,7 @@ export function ProjectLightingPanel({
                                 }
                                 className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
                                   colorType === ct
-                                    ? "border-accent bg-accent/20 text-accent"
+                                    ? "border-accent tint--soft text-accent"
                                     : "border-default/40 bg-default/10 text-foreground/60 hover:bg-default/20"
                                 }`}
                               >
@@ -1161,7 +1161,7 @@ export function ProjectLightingPanel({
                             }
                             className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
                               selected.mountedHorizontally === opt.value
-                                ? "border-accent bg-accent/20 text-accent"
+                                ? "border-accent tint--soft text-accent"
                                 : "border-default/50 bg-default/10 text-foreground/60 hover:bg-default/20"
                             }`}
                           >

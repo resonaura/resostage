@@ -416,7 +416,7 @@ function MeterModeButton({
       onClick={onPress}
       className={`flex h-6 w-6 items-center justify-center rounded-md border transition-colors ${
         active
-          ? "border-accent/50 bg-accent/20 text-accent"
+          ? "border-accent/50 tint--soft text-accent"
           : "border-default/40 bg-default/10 text-foreground/45 hover:bg-default/25 hover:text-foreground/80"
       }`}
     >
@@ -885,7 +885,7 @@ export function PlayerScreen({
           {/* Fixed width so Play ↔ Pause does not reflow the transport bar */}
           <Button
             variant="secondary"
-            className="flex h-9 w-[5.75rem] shrink-0 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold bg-accent/20 text-accent hover:bg-accent/30 transition-colors"
+            className="flex h-9 w-[5.75rem] shrink-0 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold tint--soft text-accent hover:tint--strong transition-colors"
             onPress={() =>
               state.playing ? transport.stop() : transport.play()
             }
@@ -921,7 +921,7 @@ export function PlayerScreen({
               onClick={toggleMetronome}
               className={`flex h-9 items-center gap-1.5 px-2.5 text-xs font-semibold transition-colors ${
                 isMetronomeOn
-                  ? "bg-accent/20 text-accent"
+                  ? "tint--soft text-accent"
                   : "bg-default/10 text-foreground/40 hover:bg-default/25 hover:text-foreground"
               }`}
               title={isMetronomeOn ? "Metronome: ON" : "Metronome: OFF"}
@@ -935,7 +935,7 @@ export function PlayerScreen({
               onClick={() => setClickSendsOpen((o) => !o)}
               className={`flex h-9 items-center border-l border-default/40 px-1.5 transition-colors ${
                 clickSendsOpen
-                  ? "bg-accent/10 text-accent"
+                  ? "tint--subtle text-accent"
                   : "bg-default/10 text-foreground/40 hover:bg-default/25 hover:text-foreground"
               }`}
               title="Click send routing"
@@ -1031,7 +1031,7 @@ export function PlayerScreen({
                             onClick={() => toggleClickSend(bus.id)}
                             className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
                               isActive
-                                ? "bg-accent/20 text-accent border border-accent/40"
+                                ? "tint--soft text-accent border border-accent/40"
                                 : "bg-default/20 text-foreground/40 hover:bg-default/30"
                             }`}
                           >
@@ -1081,7 +1081,7 @@ export function PlayerScreen({
                         void transport.select(i);
                       }}
                       className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-${isActive ? "accent/20" : "default/20"} ${
-                        isActive ? "bg-accent/8" : ""
+                        isActive ? "tint--subtle" : ""
                       }`}
                     >
                       <span

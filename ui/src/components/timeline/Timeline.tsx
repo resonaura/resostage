@@ -2149,7 +2149,7 @@ export function Timeline({
               >
                 {marqueeRect && (
                   <div
-                    className="pointer-events-none absolute z-40 border border-accent/80 bg-accent/15"
+                    className="pointer-events-none absolute z-40 border border-accent/80 tint--soft"
                     style={{
                       left: marqueeRect.left,
                       top: marqueeRect.top,

@@ -150,7 +150,7 @@ function BindingRow({
           onClick={() => setListening(true)}
           className={`min-w-[7.5rem] rounded-lg border px-3 py-1 text-sm tabular-nums ${
             listening
-              ? "border-accent bg-accent/10 text-accent"
+              ? "border-accent tint--subtle text-accent"
               : "border-default/60 bg-default/20 hover:bg-default/30"
           }`}
           title="Click, then press a key (Esc cancels)"
@@ -164,7 +164,7 @@ function BindingRow({
           }}
           className={`flex min-w-[7.5rem] items-center justify-center gap-1.5 rounded-lg border px-3 py-1 text-sm ${
             learning
-              ? "border-accent bg-accent/10 text-accent"
+              ? "border-accent tint--subtle text-accent"
               : "border-default/60 bg-default/20 hover:bg-default/30"
           }`}
           title="Arm MIDI learn — press a pad or CC on the remote input"
@@ -391,7 +391,7 @@ function AudioTab({ state }: { state: WebUiState }) {
                     }}
                     className={`rounded-lg border px-3 py-1.5 text-sm ${
                       active
-                        ? "border-accent bg-accent/15 text-accent"
+                        ? "border-accent tint--soft text-accent"
                         : "border-default/60 bg-default/10 text-foreground/50 hover:bg-default/20"
                     }`}
                   >
@@ -463,7 +463,7 @@ function MidiTab({ state }: { state: WebUiState }) {
               }
               className={`self-start rounded-lg border px-3 py-1.5 text-sm ${
                 s.virtualMidiPortEnabled
-                  ? "border-accent bg-accent/15 text-accent"
+                  ? "border-accent tint--soft text-accent"
                   : "border-default/60 bg-default/10 text-foreground/50 hover:bg-default/20"
               }`}
             >
