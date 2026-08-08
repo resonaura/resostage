@@ -104,7 +104,7 @@ export function SendArcKnob({
           cy={12}
           r={radius}
           fill="none"
-          stroke={busColor || "rgba(255,255,255,0.9)"}
+          stroke={busColor || "var(--muted)"}
           strokeWidth={strokeWidth}
           strokeDasharray={`${arcLength} ${circumference}`}
           strokeDashoffset={strokeDashoffset}

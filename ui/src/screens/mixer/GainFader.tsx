@@ -67,8 +67,8 @@ FaderScale.displayName = "FaderScale";
 const FaderVisuals = memo<{
   normalized: number;
   accent?: string;
-}>(({ normalized, accent }) => {
-  const accentColor = accent || "var(--accent)";
+}>(({ normalized, accent: _accent }) => {
+  const accentColor = "var(--muted)";
 
   return (
     <>

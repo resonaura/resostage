@@ -12,7 +12,6 @@ import {
   type BusRow,
   type ClickSendRow,
 } from "../../lib/types";
-import { sendColor } from "./constants";
 
 type SendMenu = {
   x: number;
@@ -104,7 +103,7 @@ export function SendKnobs({
               value={value}
               min={SEND_FLOOR_DB}
               max={SEND_CEILING_DB}
-              busColor={sendColor()}
+              busColor="var(--muted)"
               title={
                 enabled
                   ? `Send to ${label} (right-click for options)`
