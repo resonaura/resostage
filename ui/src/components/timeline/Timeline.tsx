@@ -1,4 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  beginCancellableDrag,
+  type CancellableDrag,
+} from "../../lib/dragCancel";
 import { builder, transport } from "../../lib/api";
 import {
   useContinuousPlayhead,
@@ -1251,6 +1255,23 @@ export function Timeline({
     void transport.seek(clampedLocal);
   };
 
+  /**
+   * Seek to an absolute project position that is already known -- no cursor,
+   * no snapping. Used to undo a scrub, where the target is a position the
+   * playhead genuinely held, so re-snapping it would move it.
+   */
+  const seekToAbsolute = (absSeconds: number) => {
+    const clampedAbs = Math.max(0, absSeconds);
+    const { songIndex, localSeconds } = resolveSong(clampedAbs);
+    if (songIndex < 0) return;
+    setPlayheadAbsoluteSec(clampedAbs, 800);
+    if (songIndex !== state.songIndex) {
+      void transport.seek(localSeconds, songIndex);
+      return;
+    }
+    void transport.seek(localSeconds);
+  };
+
   // Light-lane coordinate helpers (mirror seekFromClientX's math): absolute
   // project seconds from a clientX, and grid-snapped local seconds.
   const toAbsSec = (clientX: number) => {
@@ -1275,9 +1296,37 @@ export function Timeline({
   // needle; commit seeks the engine. Edge auto-scroll lives in the rAF
   // loop (dragging.current) so scrubbing past the viewport pans the
   // timeline like a DAW.
+  const scrubCancelRef = useRef<CancellableDrag | null>(null);
+  /**
+   * Esc mid-scrub: back to wherever the playhead was when the drag started,
+   * and seek the engine there. A scrub only moves the optimistic needle until
+   * pointerup, so the engine is usually still on the original position -- but
+   * not always (crossing into another song commits), and re-seeking costs
+   * nothing next to leaving the two disagreeing.
+   */
+  const cancelScrub = () => {
+    const origin = scrubOriginRef.current;
+    scrubOriginRef.current = null;
+    dragging.current = false;
+    scrubCancelRef.current?.end();
+    scrubCancelRef.current = null;
+    if (origin == null) return;
+    seekToAbsolute(origin);
+  };
+  const scrubOriginRef = useRef<number | null>(null);
+  const disarmScrub = () => {
+    scrubOriginRef.current = null;
+    scrubCancelRef.current?.end();
+    scrubCancelRef.current = null;
+  };
   const onPointerDown = (e: React.PointerEvent) => {
     if (!hasSongs) return;
     dragging.current = true;
+    // Captured BEFORE the first seekFromClientX -- pointerdown already jumps
+    // the needle, so reading it afterwards would record the click position.
+    scrubOriginRef.current = getLivePlayheadAbsoluteRef.current();
+    scrubCancelRef.current?.end();
+    scrubCancelRef.current = beginCancellableDrag(cancelScrub);
     e.currentTarget.setPointerCapture?.(e.pointerId);
     seekFromClientX(e.clientX, false);
   };
@@ -1285,6 +1334,7 @@ export function Timeline({
     if (!dragging.current) return;
     if (e.buttons === 0) {
       dragging.current = false;
+      disarmScrub();
       seekFromClientX(e.clientX, true);
       return;
     }
@@ -1293,17 +1343,36 @@ export function Timeline({
   const onPointerUp = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
+    disarmScrub();
     seekFromClientX(e.clientX, true);
   };
   const onPointerCancelOrLost = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
+    disarmScrub();
     seekFromClientX(e.clientX, true);
   };
   // Empty track-lane gesture: click = seek + clear selection; drag = marquee.
   // Regions/cues stopPropagation so this only sees empty space.
   // While dragging, selection updates live (before mouse-up).
   const tracksOriginRef = useRef<HTMLDivElement>(null);
+  const marqueeCancelRef = useRef<CancellableDrag | null>(null);
+  /**
+   * Esc mid-marquee: drop the rubber band and put the selection back to what it
+   * was before the drag. The marquee highlights live (applyMarqueeHits runs on
+   * every move), so the baseline it captured at pointerdown is exactly what
+   * needs restoring.
+   */
+  const cancelMarquee = () => {
+    const m = marqueeRef.current;
+    marqueeRef.current = null;
+    setMarqueeRect(null);
+    marqueeCancelRef.current?.end();
+    marqueeCancelRef.current = null;
+    if (!m) return;
+    setSelectedRegionKeys(m.baseRegionKeys);
+    setSelectedCueKeys(m.baseCueKeys);
+  };
   const onTracksPointerDown = (e: React.PointerEvent) => {
     if (!hasSongs || readOnly || e.button !== 0) return;
     const origin = tracksOriginRef.current;
@@ -1323,6 +1392,8 @@ export function Timeline({
       baseRegionKeys: [...selectedRegionKeys],
       baseCueKeys: [...selectedCueKeys],
     };
+    marqueeCancelRef.current?.end();
+    marqueeCancelRef.current = beginCancellableDrag(cancelMarquee);
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const onTracksPointerMove = (e: React.PointerEvent) => {
@@ -1346,6 +1417,8 @@ export function Timeline({
     const m = marqueeRef.current;
     marqueeRef.current = null;
     setMarqueeRect(null);
+    marqueeCancelRef.current?.end();
+    marqueeCancelRef.current = null;
     if (!m) return;
     const origin = tracksOriginRef.current;
     if (!origin) return;
@@ -1369,6 +1442,8 @@ export function Timeline({
   const onTracksPointerCancel = (_e: React.PointerEvent) => {
     marqueeRef.current = null;
     setMarqueeRect(null);
+    marqueeCancelRef.current?.end();
+    marqueeCancelRef.current = null;
   };
 
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
@@ -1999,6 +2074,7 @@ export function Timeline({
                 contentWidth={contentWidth}
                 readOnly={readOnly}
                 snapToGrid={snapToGrid}
+                getPlayheadAbsoluteSec={getLivePlayheadAbsolute}
                 onCycleFromSection={(songIndex, leftSec, rightSec) => {
                   // Song section span (Intro/Verse/…), not an audio region.
                   // Rebinds the single project cycle to this song.

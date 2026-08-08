@@ -95,8 +95,13 @@ private:
         {"section_last", "end"},
         {"bar_prev", "left"},
         {"bar_next", "right"},
+#if JUCE_MAC
         {"undo", "cmd + z"},
         {"redo", "cmd + shift + z"},
+#else
+        {"undo", "ctrl + z"},
+        {"redo", "ctrl + shift + z"},
+#endif
     };
     // Multi-key actions (same action, extra accelerators) for the Electron menu.
     std::vector<std::pair<std::string, std::string>> extraKeyBindings = {

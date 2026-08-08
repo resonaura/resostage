@@ -18,6 +18,8 @@ import {
   Undo2,
 } from "lucide-react";
 import { useState } from "react";
+
+import { useEscRevert } from "../../lib/useEscRevert";
 import { timelineHistory } from "../../lib/api";
 import {
   ContextMenu,
@@ -106,6 +108,10 @@ export function TimelineToolbar({
   const [followMenu, setFollowMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
+  // Zoom is applied live as the slider moves, so Esc has to re-apply the
+  // original -- there is no uncommitted draft to throw away.
+  const hZoomEscRevert = useEscRevert(() => pxPerSec, applyZoomAt);
+  const vZoomEscRevert = useEscRevert(() => verticalZoom, setVerticalZoom);
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default/30 px-3 py-1.5 bg-background-secondary z-20">
@@ -316,78 +322,83 @@ export function TimelineToolbar({
           <MoveHorizontalIcon
             style={{ opacity: 0.2, width: "16px", height: "16px" }}
           />
-          <Slider
-            aria-label="Horizontal zoom"
-            minValue={0}
-            maxValue={1}
-            step={0.001}
-            value={Math.max(
-              0,
-              Math.min(
-                1,
-                Math.log(pxPerSec / MIN_PX_PER_SEC) /
-                  Math.log(MAX_PX_PER_SEC / MIN_PX_PER_SEC),
-              ),
-            )}
-            onChange={(v) => {
-              const t = Array.isArray(v) ? v[0] : v;
-              const next =
-                MIN_PX_PER_SEC * Math.pow(MAX_PX_PER_SEC / MIN_PX_PER_SEC, t);
-              markGestureActive();
-              markZoomActive();
-              applyZoomAt(next);
-            }}
-            className="flex-1 min-w-0 -mt-1"
-          >
-            <Slider.Track
-              style={{
-                borderLeftColor: "var(--default)",
-                background: "var(--background)",
+          {/* Esc mid-drag restores the zoom the slider was grabbed at. */}
+          <div className="flex-1 min-w-0" {...hZoomEscRevert}>
+            <Slider
+              aria-label="Horizontal zoom"
+              minValue={0}
+              maxValue={1}
+              step={0.001}
+              value={Math.max(
+                0,
+                Math.min(
+                  1,
+                  Math.log(pxPerSec / MIN_PX_PER_SEC) /
+                    Math.log(MAX_PX_PER_SEC / MIN_PX_PER_SEC),
+                ),
+              )}
+              onChange={(v) => {
+                const t = Array.isArray(v) ? v[0] : v;
+                const next =
+                  MIN_PX_PER_SEC * Math.pow(MAX_PX_PER_SEC / MIN_PX_PER_SEC, t);
+                markGestureActive();
+                markZoomActive();
+                applyZoomAt(next);
               }}
+              className="flex-1 min-w-0 -mt-1"
             >
-              <Slider.Fill style={{ background: "var(--default)" }} />
-              <Slider.Thumb
-                style={
-                  {
-                    boxSizing: "border-box",
-                    background: "var(--default)",
-                  } as React.CSSProperties
-                }
-              />
-            </Slider.Track>
-          </Slider>
+              <Slider.Track
+                style={{
+                  borderLeftColor: "var(--default)",
+                  background: "var(--background)",
+                }}
+              >
+                <Slider.Fill style={{ background: "var(--default)" }} />
+                <Slider.Thumb
+                  style={
+                    {
+                      boxSizing: "border-box",
+                      background: "var(--default)",
+                    } as React.CSSProperties
+                  }
+                />
+              </Slider.Track>
+            </Slider>
+          </div>
           <MoveVerticalIcon
             style={{ opacity: 0.2, width: "16px", height: "16px" }}
           />
-          <Slider
-            aria-label="Vertical zoom"
-            minValue={0.3}
-            maxValue={4}
-            step={0.01}
-            value={verticalZoom}
-            onChange={(v) => {
-              const z = Array.isArray(v) ? v[0] : v;
-              setVerticalZoom(z);
-            }}
-            className="flex-1 min-w-0 -mt-1"
-          >
-            <Slider.Track
-              style={{
-                borderLeftColor: "var(--default)",
-                background: "var(--background)",
+          <div className="flex-1 min-w-0" {...vZoomEscRevert}>
+            <Slider
+              aria-label="Vertical zoom"
+              minValue={0.3}
+              maxValue={4}
+              step={0.01}
+              value={verticalZoom}
+              onChange={(v) => {
+                const z = Array.isArray(v) ? v[0] : v;
+                setVerticalZoom(z);
               }}
+              className="flex-1 min-w-0 -mt-1"
             >
-              <Slider.Fill style={{ background: "var(--default)" }} />
-              <Slider.Thumb
-                style={
-                  {
-                    boxSizing: "border-box",
-                    background: "var(--default)",
-                  } as React.CSSProperties
-                }
-              />
-            </Slider.Track>
-          </Slider>
+              <Slider.Track
+                style={{
+                  borderLeftColor: "var(--default)",
+                  background: "var(--background)",
+                }}
+              >
+                <Slider.Fill style={{ background: "var(--default)" }} />
+                <Slider.Thumb
+                  style={
+                    {
+                      boxSizing: "border-box",
+                      background: "var(--default)",
+                    } as React.CSSProperties
+                  }
+                />
+              </Slider.Track>
+            </Slider>
+          </div>
         </div>
       </div>
     </div>

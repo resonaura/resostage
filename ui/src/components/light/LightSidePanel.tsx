@@ -9,7 +9,11 @@
  */
 import { Slider } from "@heroui/react";
 import { useMemo, useRef, useState } from "react";
-import { useFocusDraft, useLiveValue, useNumberDraft } from "../../lib/optimistic";
+import {
+  useFocusDraft,
+  useLiveValue,
+  useNumberDraft,
+} from "../../lib/optimistic";
 import {
   FlipHorizontal2,
   Lightbulb,
@@ -22,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { lighting } from "../../lib/api";
+import { useEscRevert } from "../../lib/useEscRevert";
 import type {
   BusRow,
   LightCueRow,
@@ -121,21 +126,26 @@ export function LabeledSlider({
   step?: number;
 }) {
   const [localValue, handleChange] = useLiveValue(value, onChange);
+  // HeroUI's Slider only reports values, so the Esc revert is armed on a
+  // wrapper the pointerdown bubbles through.
+  const escRevert = useEscRevert(() => localValue, handleChange);
   return (
     <Field label={label}>
-      <Slider
-        value={localValue}
-        onChange={(v) => handleChange(Array.isArray(v) ? v[0] : v)}
-        minValue={min}
-        maxValue={max}
-        step={step}
-        aria-label={label}
-      >
-        <Slider.Track className="relative h-1.5 w-full rounded-full bg-default/30">
-          <Slider.Fill className="bg-accent" />
-          <Slider.Thumb className="h-3.5 w-3.5 rounded-full border-2 border-accent bg-background shadow" />
-        </Slider.Track>
-      </Slider>
+      <div {...escRevert}>
+        <Slider
+          value={localValue}
+          onChange={(v) => handleChange(Array.isArray(v) ? v[0] : v)}
+          minValue={min}
+          maxValue={max}
+          step={step}
+          aria-label={label}
+        >
+          <Slider.Track className="relative h-1.5 w-full rounded-full bg-default/30">
+            <Slider.Fill className="bg-accent" />
+            <Slider.Thumb className="h-3.5 w-3.5 rounded-full border-2 border-accent bg-background shadow" />
+          </Slider.Track>
+        </Slider>
+      </div>
     </Field>
   );
 }
@@ -244,6 +254,10 @@ export function HslColorPicker({
   };
 
   const hex = rgbToHex(r, g, b);
+  // One handle for all three sliders: they edit a single colour, so Esc on any
+  // of them restores the whole triple. Native <input type="range"> reports only
+  // values, never a drag start, hence the hook rather than local drag state.
+  const escRevert = useEscRevert(() => hsl, applyHsl);
 
   return (
     <div className="flex flex-col gap-3">
@@ -330,7 +344,7 @@ export function HslColorPicker({
           color: `hsl(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%)`,
         },
       ].map(({ label, index, max, unit, color }) => (
-        <div key={label} className="flex items-center gap-2">
+        <div key={label} className="flex items-center gap-2" {...escRevert}>
           <span className="w-4 shrink-0 text-xs text-foreground/50 font-mono">
             {label}
           </span>
@@ -732,6 +746,7 @@ function EffectPanel({
 }) {
   const hasRate = effectHasRate(effectType);
   const sourceItems = effectSourceType === "track" ? tracks : busses;
+  const rateEscRevert = useEscRevert(() => effectRate, onRate);
   return (
     <div className="flex flex-col gap-3">
       <Field label="Audio Effect">
@@ -936,19 +951,21 @@ function EffectPanel({
                   ))}
                 </div>
               ) : (
-                <Slider
-                  value={effectRate}
-                  onChange={(v) => onRate(Array.isArray(v) ? v[0] : v)}
-                  minValue={0.1}
-                  maxValue={20}
-                  step={0.1}
-                  aria-label="Effect rate (Hz)"
-                >
-                  <Slider.Track className="relative h-1.5 w-full rounded-full bg-default/30">
-                    <Slider.Fill className="bg-accent" />
-                    <Slider.Thumb className="h-3.5 w-3.5 rounded-full border-2 border-accent bg-background shadow" />
-                  </Slider.Track>
-                </Slider>
+                <div {...rateEscRevert}>
+                  <Slider
+                    value={effectRate}
+                    onChange={(v) => onRate(Array.isArray(v) ? v[0] : v)}
+                    minValue={0.1}
+                    maxValue={20}
+                    step={0.1}
+                    aria-label="Effect rate (Hz)"
+                  >
+                    <Slider.Track className="relative h-1.5 w-full rounded-full bg-default/30">
+                      <Slider.Fill className="bg-accent" />
+                      <Slider.Thumb className="h-3.5 w-3.5 rounded-full border-2 border-accent bg-background shadow" />
+                    </Slider.Track>
+                  </Slider>
+                </div>
               )}
               <div className="text-[10px] text-foreground/35 text-right">
                 {tempoSync

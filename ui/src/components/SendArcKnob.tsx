@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useKnobDrag } from "../lib/knobDrag";
 
 /**
  * Floor for a send knob that hasn't been touched yet -- matches native
@@ -20,7 +20,12 @@ export const SEND_CEILING_DB = 0;
 
 /**
  * Ableton-style arc send knob. Shared so any surface that exposes aux sends
- * (mixer strips today) uses the same look and drag feel.
+ * (mixer strips today) uses the same look and drag feel. Esc mid-drag puts the
+ * send back where the drag started.
+ *
+ * Drag behaviour lives in useKnobDrag, shared with Knob — including the rule
+ * that only the primary button starts a drag, which matters most here: the
+ * right button opens this knob's own context menu.
  */
 export function SendArcKnob({
   value,
@@ -43,111 +48,33 @@ export function SendArcKnob({
 }) {
   const roundValue = (v: number) => Math.round(v * 10) / 10;
 
-  const [localValue, setLocalValue] = useState(() => roundValue(value));
-  const dragging = useRef(false);
-  const startY = useRef(0);
-  const startValue = useRef(0);
-  const rafId = useRef<number | null>(null);
-  const pendingCommit = useRef<number | null>(null);
-  const lastEditTime = useRef(0);
+  const knob = useKnobDrag({
+    value,
+    min,
+    max,
+    onCommit: onChange,
+    round: roundValue,
+  });
 
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-
-  // Sync external value when not dragging and optimistic lock window (500ms) has expired
-  useEffect(() => {
-    if (!dragging.current && Date.now() - lastEditTime.current > 500) {
-      setLocalValue(roundValue(value));
-    }
-  }, [value]);
-
-  const norm = Math.max(0, Math.min(1, (localValue - min) / (max - min)));
+  const norm = Math.max(0, Math.min(1, (knob.value - min) / (max - min)));
   const radius = 9;
   const strokeWidth = 2.5;
   const circumference = 2 * Math.PI * radius;
   const arcLength = circumference * (270 / 360);
   const strokeDashoffset = arcLength * (1 - norm);
 
-  const scheduleCommit = (v: number) => {
-    pendingCommit.current = v;
-    if (rafId.current == null) {
-      rafId.current = requestAnimationFrame(() => {
-        rafId.current = null;
-        if (pendingCommit.current != null) {
-          onChangeRef.current(pendingCommit.current);
-          pendingCommit.current = null;
-        }
-      });
-    }
-  };
-
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    dragging.current = true;
-    lastEditTime.current = Date.now();
-    startY.current = e.clientY;
-    startValue.current = localValue;
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
-    e.preventDefault();
-  };
-
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragging.current) return;
-    lastEditTime.current = Date.now();
-    const dy = startY.current - e.clientY;
-    const range = max - min;
-    const rawNext = startValue.current + (dy / 120) * range;
-    const next = roundValue(Math.max(min, Math.min(max, rawNext)));
-    setLocalValue(next);
-    scheduleCommit(next);
-  };
-
-  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragging.current) return;
-    dragging.current = false;
-    lastEditTime.current = Date.now();
-    if (rafId.current != null) {
-      cancelAnimationFrame(rafId.current);
-      rafId.current = null;
-    }
-    if (pendingCommit.current != null) {
-      onChangeRef.current(pendingCommit.current);
-      pendingCommit.current = null;
-    }
-    try {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-    } catch {}
-  };
-
   return (
     <div
       className="relative flex items-center justify-center cursor-ns-resize select-none touch-none"
       title={title}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      onLostPointerCapture={endDrag}
+      {...knob.dragProps}
       onContextMenu={onContextMenu}
-      onDoubleClick={() => {
-        lastEditTime.current = Date.now();
-        const resetVal = roundValue(min);
-        setLocalValue(resetVal);
-        onChangeRef.current(resetVal);
-      }}
+      onDoubleClick={() => knob.setValue(min)}
       onWheel={(e) => {
         e.preventDefault();
-        lastEditTime.current = Date.now();
-        const delta = e.deltaY < 0 ? 1 : -1;
-        const step = (max - min) / 40;
-        const newVal = roundValue(
-          Math.max(min, Math.min(max, localValue + delta * step)),
+        knob.setValue(
+          knob.value + (e.deltaY < 0 ? 1 : -1) * ((max - min) / 40),
         );
-        setLocalValue(newVal);
-        onChangeRef.current(newVal);
       }}
     >
       {/*
@@ -183,7 +110,11 @@ export function SendArcKnob({
           strokeDashoffset={strokeDashoffset}
           strokeLinecap="round"
           style={{
-            transition: dragging.current
+            // No easing while the finger is down -- the arc must track the
+            // cursor, not lag it. `dragging` is real state (not a ref) so this
+            // actually re-renders when the drag starts and ends; reading a ref
+            // here never did.
+            transition: knob.dragging
               ? "none"
               : "stroke-dashoffset 0.1s ease-out",
           }}
@@ -192,4 +123,3 @@ export function SendArcKnob({
     </div>
   );
 }
-

@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+
+import {
+  beginCancellableDrag,
+  type CancellableDrag,
+} from "../../lib/dragCancel";
 import { RULER_CYCLE_HEIGHT } from "./constants";
 import { snapToGridSec } from "./geometry";
 import type { CycleLocators } from "./useCycleState";
@@ -98,12 +103,21 @@ export function CycleStrip({
     anchorSec: number;
     moved: boolean;
     option: boolean;
+    /** Cycle state as it was at pointerdown -- what Esc restores. */
+    originActive: boolean;
+    originSkip: boolean;
+    originHadRange: boolean;
   } | null>(null);
+  const dragCancelRef = useRef<CancellableDrag | null>(null);
   // Idle hover cursor on the yellow bar (edges vs body).
   const [barHoverCursor, setBarHoverCursor] = useState("grab");
 
   useEffect(() => {
-    return () => setDragCursor(null);
+    return () => {
+      setDragCursor(null);
+      dragCancelRef.current?.end();
+      dragCancelRef.current = null;
+    };
   }, []);
 
   const lo = Math.min(cycle.leftSec, cycle.rightSec);
@@ -150,7 +164,12 @@ export function CycleStrip({
       anchorSec: local,
       moved: false,
       option: e.altKey,
+      originActive: cycle.active,
+      originSkip: cycle.skip,
+      originHadRange: hasRange,
     };
+    dragCancelRef.current?.end();
+    dragCancelRef.current = beginCancellableDrag(cancelDrag);
     // click / create wait for a few px of motion before locking the cursor;
     // move / resize show the drag cursor immediately.
     if (mode === "move" || mode === "resizeL" || mode === "resizeR") {
@@ -245,10 +264,42 @@ export function CycleStrip({
     }
   };
 
+  /**
+   * Esc: put the locators back exactly where the drag found them.
+   *
+   * `dragging: true` keeps the revert LOCAL, the same as every move in this
+   * gesture did -- useCycleState only POSTs on commitDrag, so the engine still
+   * holds the original range and re-sending it would be a wasted round trip
+   * (and a second one, since onDragEnd below commits too). Restoring the local
+   * state and letting the normal commit path close the gesture is both cheaper
+   * and keeps useCycleState's draggingRef state machine honest.
+   *
+   * `create` on a song with no cycle yet is the one case with nothing to
+   * restore: the drag invented the range, so cancelling deactivates instead.
+   */
+  const cancelDrag = () => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setDragCursor(null);
+    dragCancelRef.current?.end();
+    dragCancelRef.current = null;
+    if (!d) return;
+    if (d.moved) {
+      onSetRange(d.originLeft, d.originRight, {
+        activate: d.originHadRange && d.originActive,
+        skip: d.originSkip,
+        dragging: true,
+      });
+    }
+    onDragEnd?.();
+  };
+
   const endDrag = (e: React.PointerEvent) => {
     const d = dragRef.current;
     dragRef.current = null;
     setDragCursor(null);
+    dragCancelRef.current?.end();
+    dragCancelRef.current = null;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {

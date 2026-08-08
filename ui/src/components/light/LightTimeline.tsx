@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { lighting } from "../../lib/api";
+import {
+  beginCancellableDrag,
+  type CancellableDrag,
+} from "../../lib/dragCancel";
 import { triggerHaptic } from "../../lib/haptics";
 import type {
   AllPeaksResponse,
@@ -23,8 +27,6 @@ import { buildSongPeakLookup } from "../timeline/regionPeaks";
 import { toolCursor, type TimelineTool } from "../timeline/tools";
 import { effectUsesOwnColor, EFFECT_META } from "./lightEffectMeta";
 import type { EffectType } from "./LightSidePanel";
-
-
 
 // Fixed heights for the cross-mode hint strips (one strip per mode, the
 // opposite mode's content shown dimmed and non-clickable -- the "для света
@@ -459,11 +461,44 @@ export function LightTrackLane({
     targetTrackIndex: number;
   } | null>(null);
 
+  const dragCancelRef = useRef<CancellableDrag | null>(null);
+
   const laneClickRef = useRef<{
     x: number;
     y: number;
     songIndex: number;
   } | null>(null);
+
+  /**
+   * Esc: abandon the cue gesture, move and trim alike.
+   *
+   * A cue drag only reaches the backend in onCueDragUp, so there is nothing to
+   * un-commit -- dropping the draft (and any cross-lane activeDrag) snaps the
+   * cue back onto its committed geometry and its original lane.
+   */
+  const cancelCueDrag = () => {
+    const rd = dragRef.current;
+    dragRef.current = null;
+    dragCancelRef.current?.end();
+    dragCancelRef.current = null;
+    if (!rd) return;
+    onActiveDragChange(null);
+    const next = { ...draftsRef.current };
+    delete next[rd.key];
+    draftsRef.current = next;
+    setDrafts(next);
+    triggerHaptic("generic");
+  };
+
+  // A lane unmounted mid-drag must not leave a listener that fires on a later,
+  // unrelated Esc.
+  useEffect(
+    () => () => {
+      dragCancelRef.current?.end();
+      dragCancelRef.current = null;
+    },
+    [],
+  );
 
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
@@ -579,6 +614,8 @@ export function LightTrackLane({
       targetTrackIndex: trackIndex,
     };
     triggerHaptic("generic");
+    dragCancelRef.current?.end();
+    dragCancelRef.current = beginCancellableDrag(cancelCueDrag);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
@@ -656,6 +693,9 @@ export function LightTrackLane({
 
   const onCueDragUp = (e: React.PointerEvent) => {
     const rd = dragRef.current;
+    // Always disarm: pointerup still arrives after an Esc cancel.
+    dragCancelRef.current?.end();
+    dragCancelRef.current = null;
     if (!rd) return;
     const final = rd.lastGeom;
     const updated = { ...draftsRef.current, [rd.key]: final };
@@ -851,7 +891,7 @@ export function LightTrackLane({
                   }}
                   onPointerUp={readOnly ? undefined : onCueDragUp}
                   onPointerCancel={() => {
-                    if (dragRef.current) dragRef.current = null;
+                    if (dragRef.current) cancelCueDrag();
                   }}
                   onContextMenu={(e) => {
                     if (readOnly) return;

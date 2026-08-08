@@ -58,6 +58,12 @@ if(APPLE)
   set(FILE_ICON "${CMAKE_SOURCE_DIR}/../icons/file.icns")
   set_source_files_properties(${FILE_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   target_sources(ResoStage PRIVATE ${FILE_ICON})
+elseif(WIN32)
+  # Windows-specific source files (if needed in future)
+  # target_sources(ResoStage PRIVATE platform/WinShellMode.cpp)
+elseif(UNIX)
+  # Linux-specific source files (if needed in future)
+  # target_sources(ResoStage PRIVATE platform/LinuxShellMode.cpp)
 endif()
 
 target_compile_definitions(ResoStage
@@ -108,6 +114,12 @@ if(APPLE)
     "-framework CoreAudio"
     "-framework AppKit"
   )
+elseif(UNIX)
+  # Linux: link against ALSA and potentially other audio libraries
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(ALSA REQUIRED alsa)
+  target_link_libraries(ResoStage PRIVATE ${ALSA_LIBRARIES})
+  target_include_directories(ResoStage PRIVATE ${ALSA_INCLUDE_DIRS})
 endif()
 
 target_compile_features(ResoStage PRIVATE cxx_std_20)

@@ -17,21 +17,26 @@
 //
 // Quit (menu item or window close) goes through the backend's unsaved-
 // changes prompt; the backend then kills this process on shutdown.
+//
+// Platform menu behavior:
+//   * macOS   — global menu bar (top of screen)
+//   * Windows — menu in window title bar (setMenu)
+//   * Linux   — detects global menu support (KDE/Unity); falls back to window menu
 
 import {
   app,
   BrowserWindow,
-  Menu,
-  TouchBar,
   ipcMain,
+  Menu,
   powerMonitor,
   powerSaveBlocker,
+  TouchBar,
   type MenuItemConstructorOptions,
 } from "electron";
-import path from "node:path";
-import { existsSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
+import path from "node:path";
 
 // koffi loads dist/*.dylib (native/mac/*.m). Optional — missing dylib or
 // non-mac simply skips the feature. Eager-loaded on app ready so load
@@ -664,6 +669,39 @@ function buildMenu(): Menu | null {
       submenu: (section.items ?? []).map((it) => buildMenuItem(it)),
     }),
   );
+
+  // On Windows/Linux, adapt the first menu section for platform conventions
+  if (process.platform !== "darwin" && sections.length > 0) {
+    // On non-macOS, the first section is typically "ResoStage" (app menu)
+    // Rename it to "File" or merge into File menu for Windows/Linux conventions
+    const firstSection = sections[0];
+    if (firstSection?.label === "ResoStage") {
+      // Move app menu items to File menu, rename "Quit" appropriately
+      const appItems = Array.isArray(firstSection.submenu)
+        ? firstSection.submenu
+        : [];
+      const fileIdx = sections.findIndex((s) => s.label === "File");
+
+      if (fileIdx >= 0) {
+        const fileSubmenu = Array.isArray(sections[fileIdx].submenu)
+          ? sections[fileIdx].submenu
+          : [];
+        // Add separator and quit to end of File menu
+        const quitItem = appItems.find(
+          (item: MenuItemConstructorOptions) =>
+            item.label?.includes("Quit") || (item as any).actionId === "quit",
+        );
+        if (quitItem) {
+          fileSubmenu.push({ type: "separator" });
+          fileSubmenu.push(quitItem);
+        }
+        sections[fileIdx].submenu = fileSubmenu;
+      }
+      // Remove the ResoStage menu
+      sections.shift();
+    }
+  }
+
   const editIdx = sections.findIndex((s) => s.label === "Edit");
   if (editIdx >= 0) {
     const edit = sections[editIdx];
@@ -751,9 +789,35 @@ function recoverRenderer(
     });
 }
 
+/**
+ * Apply menu to the appropriate location based on platform:
+ * - macOS: global menu bar (Menu.setApplicationMenu)
+ * - Windows: window menu bar (mainWindow.setMenu)
+ * - Linux: Electron auto-detects D-Bus com.canonical.AppMenu.Registrar;
+ *          we attempt setApplicationMenu first (works in KDE/Unity/etc),
+ *          fallback to window menu if environment suggests no global menu support
+ */
 function refreshMenu(): void {
   const menu = buildMenu();
-  if (menu) Menu.setApplicationMenu(menu);
+  if (!menu) return;
+
+  if (process.platform === "darwin") {
+    // macOS: always use global application menu
+    Menu.setApplicationMenu(menu);
+  } else if (process.platform === "win32") {
+    // Windows: menu in window title bar
+    Menu.setApplicationMenu(null);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setMenu(menu);
+    }
+  } else {
+    // Linux: Let Electron handle D-Bus detection internally.
+    // We use setApplicationMenu which will:
+    // - Export to D-Bus if com.canonical.AppMenu.Registrar is available (KDE/Unity/etc)
+    // - Render in window if D-Bus registrar is not found (GNOME/minimal WMs)
+    // This is the recommended approach per Electron documentation.
+    Menu.setApplicationMenu(menu);
+  }
 }
 
 function buildTouchBar(): TouchBar | undefined {

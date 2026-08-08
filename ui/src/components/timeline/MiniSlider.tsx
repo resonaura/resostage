@@ -1,4 +1,9 @@
-/** Compact track volume slider with track-color accent. */
+import { useEscRevert } from "../../lib/useEscRevert";
+
+/**
+ * Compact track volume slider with track-color accent. Double-click resets;
+ * Esc mid-drag puts it back where the drag started.
+ */
 export function MiniSlider({
   value,
   min,
@@ -20,11 +25,13 @@ export function MiniSlider({
     0,
     Math.min(100, ((value - min) / (max - min)) * 100),
   );
+  const escRevert = useEscRevert(() => value, onChange);
 
   return (
     <div
       className="relative flex-1 flex items-center h-3 select-none touch-none"
       title="Double-click to reset"
+      {...escRevert}
       onDoubleClick={(e) => {
         e.preventDefault();
         e.stopPropagation();

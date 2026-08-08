@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { builder } from "../../lib/api";
+import {
+  beginCancellableDrag,
+  type CancellableDrag,
+} from "../../lib/dragCancel";
 import { triggerHaptic } from "../../lib/haptics";
 import type { SongRow } from "../../lib/types";
 import { lookupRegion, type RegionSelKey } from "./regionUtils";
@@ -40,6 +44,7 @@ export function useRegionDrag({
     songs: [],
   });
   const regionDragWindowCleanupRef = useRef<(() => void) | null>(null);
+  const dragCancelRef = useRef<CancellableDrag | null>(null);
   // Always-latest gesture marker so window listeners don't hold a stale ref.
   const markGestureActiveRef = useRef(markGestureActive);
   markGestureActiveRef.current = markGestureActive;
@@ -133,6 +138,30 @@ export function useRegionDrag({
     regionDragRef.current = null;
     regionDragWindowCleanupRef.current?.();
     regionDragWindowCleanupRef.current = null;
+    dragCancelRef.current?.end();
+    dragCancelRef.current = null;
+  };
+
+  /**
+   * Esc: drop the whole gesture, move/trim/fade alike.
+   *
+   * Nothing needs un-committing -- a region drag only reaches the engine in
+   * finishRegionDrag -- so cancelling is purely deleting the draft, which puts
+   * the region straight back on its committed geometry.
+   */
+  const cancelRegionDrag = () => {
+    const rd = regionDragRef.current;
+    regionDragRef.current = null;
+    regionDragWindowCleanupRef.current?.();
+    regionDragWindowCleanupRef.current = null;
+    dragCancelRef.current?.end();
+    dragCancelRef.current = null;
+    if (!rd) return;
+    const next = { ...regionGeomDraftRef.current };
+    delete next[rd.key];
+    regionGeomDraftRef.current = next;
+    setRegionGeomDraft(next);
+    triggerHaptic("generic");
   };
 
   const attachRegionDragWindowListeners = () => {
@@ -164,6 +193,8 @@ export function useRegionDrag({
       regionDragWindowCleanupRef.current?.();
       regionDragWindowCleanupRef.current = null;
       regionDragRef.current = null;
+      dragCancelRef.current?.end();
+      dragCancelRef.current = null;
     },
     [],
   );
@@ -171,6 +202,8 @@ export function useRegionDrag({
   const startRegionDrag = (session: RegionDragSession) => {
     regionDragRef.current = session;
     attachRegionDragWindowListeners();
+    dragCancelRef.current?.end();
+    dragCancelRef.current = beginCancellableDrag(cancelRegionDrag);
     markGestureActiveRef.current();
     triggerHaptic("generic");
   };
@@ -182,5 +215,6 @@ export function useRegionDrag({
     regionDragCtxRef,
     writeGeomDraft,
     startRegionDrag,
+    cancelRegionDrag,
   };
 }

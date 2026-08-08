@@ -1,8 +1,10 @@
 import { defineConfig } from "vitest/config";
 
-// Pure-logic unit tests only (no DOM/component rendering yet) -- see
-// src/lib/timelineVisibility.test.ts. Plain "node" environment is enough and
-// keeps this fast; add jsdom here if/when a test actually needs it.
+// Default is "node": most tests here are pure logic (src/lib/optimistic.ts,
+// timelineVisibility.ts, regionPeaks.ts) and node starts far faster. The few
+// that genuinely need a DOM -- currently src/lib/dragCancel.test.ts, which
+// exercises real window keydown capture -- opt in per file with
+// `// @vitest-environment jsdom`.
 export default defineConfig({
   test: {
     environment: "node",

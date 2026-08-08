@@ -3,6 +3,7 @@ import { Grid, OrbitControls, Text } from "@react-three/drei";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, MoveUp } from "lucide-react";
 import * as THREE from "three";
+import { beginCancellableDrag } from "../../lib/dragCancel";
 import type { LightFixtureRow } from "../../lib/types";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
 import type { LiveLedColor } from "../../lib/liveLevels";
@@ -318,9 +319,18 @@ export function ResoLightStage3D({
       setDragId(null);
       setDragPos(null);
     };
+    // Esc: leave the fixture where it was. A move only reaches the project in
+    // endDrag above, so dropping the drag state is the whole revert -- and
+    // clearing dragId re-runs this effect's cleanup, which unhooks endDrag so
+    // the pointerup that follows can't commit the abandoned position.
+    const cancel = beginCancellableDrag(() => {
+      setDragId(null);
+      setDragPos(null);
+    });
     window.addEventListener("pointerup", endDrag);
     window.addEventListener("pointercancel", endDrag);
     return () => {
+      cancel.end();
       window.removeEventListener("pointerup", endDrag);
       window.removeEventListener("pointercancel", endDrag);
     };
@@ -473,8 +483,10 @@ export function ResoLightStage3D({
 
         {fixtures.map((f, i) => {
           const isDragging = dragId === f.id;
-          const x = isDragging && dragPos ? dragPos.x : snapToStageGrid(f.position.x);
-          const z = isDragging && dragPos ? dragPos.z : snapToStageGrid(f.position.z);
+          const x =
+            isDragging && dragPos ? dragPos.x : snapToStageGrid(f.position.x);
+          const z =
+            isDragging && dragPos ? dragPos.z : snapToStageGrid(f.position.z);
           const commonProps = {
             fixture: f,
             fixtureIndex: i,

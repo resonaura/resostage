@@ -1,7 +1,9 @@
 import { Slider } from "@heroui/react";
 import { useLiveValue } from "../../lib/optimistic";
+import { useEscRevert } from "../../lib/useEscRevert";
 import { GAIN_MAX, GAIN_MIN } from "./constants";
 
+/** Double-click resets to unity; Esc mid-drag puts the fader back. */
 export function GainFader({
   gainDb,
   onChange,
@@ -13,10 +15,14 @@ export function GainFader({
   defaultValue?: number;
 }) {
   const [value, handleChange] = useLiveValue(gainDb, onChange);
+  // HeroUI's Slider has no drag lifecycle of its own -- it only reports values
+  // -- so the revert is armed on the wrapper, where the pointerdown bubbles to.
+  const escRevert = useEscRevert(() => value, handleChange);
   return (
     <div
       className="h-full"
       title="Double-click to reset"
+      {...escRevert}
       onDoubleClick={(e) => {
         e.preventDefault();
         e.stopPropagation();

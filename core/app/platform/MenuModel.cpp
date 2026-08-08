@@ -1,10 +1,21 @@
 #include "platform/MenuModel.h"
+#include <juce_core/juce_core.h>
 
 namespace resostage {
+
+// Platform-adaptive modifier key: "cmd" on macOS, "ctrl" on Windows/Linux
+static std::string platformModifier() {
+#if JUCE_MAC
+    return "cmd";
+#else
+    return "ctrl";
+#endif
+}
 
 static const std::vector<MenuSectionModel> kMenuModel = [] {
     std::vector<MenuSectionModel> menus;
     menus.reserve(6);
+    const std::string mod = platformModifier();
 
     // ── ResoStage ──────────────────────────────────────────────────────────
     {
@@ -20,7 +31,7 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
         MenuItemModel quit;
         quit.title = "Quit ResoStage";
         quit.actionId = "quit";
-        quit.key = "cmd + q";
+        quit.key = mod + " + q";
         section.items.push_back(std::move(quit));
         menus.push_back(std::move(section));
     }
@@ -33,14 +44,14 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
             MenuItemModel item;
             item.title = "New Project";
             item.actionId = "new_project";
-            item.key = "cmd + n";
+            item.key = mod + " + n";
             section.items.push_back(std::move(item));
         }
         {
             MenuItemModel item;
             item.title = "Open…";
             item.actionId = "open_project";
-            item.key = "cmd + o";
+            item.key = mod + " + o";
             section.items.push_back(std::move(item));
         }
         {
@@ -58,14 +69,14 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
             MenuItemModel item;
             item.title = "Save";
             item.actionId = "save_project";
-            item.key = "cmd + s";
+            item.key = mod + " + s";
             section.items.push_back(std::move(item));
         }
         {
             MenuItemModel item;
             item.title = "Save As…";
             item.actionId = "save_project_as";
-            item.key = "cmd + shift + s";
+            item.key = mod + " + shift + s";
             section.items.push_back(std::move(item));
         }
         {
@@ -161,7 +172,7 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
             MenuItemModel item;
             item.title = "Minimize";
             item.role = "minimize";
-            item.key = "cmd + m";
+            item.key = mod + " + m";
             section.items.push_back(std::move(item));
         }
         {
