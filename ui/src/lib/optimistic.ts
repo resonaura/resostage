@@ -173,6 +173,74 @@ export type CycleWrapRange = {
   hiAbs: number;
 };
 
+/** One display frame of the local playhead clock. Pure, so it is testable. */
+export interface PlayheadStep {
+  /** Where the local clock is now, in absolute project seconds. */
+  prevPos: number;
+  /** Seconds since the previous frame, already clamped by the caller. */
+  dt: number;
+  /** Latest position the engine published. */
+  serverSeconds: number;
+  /** How long ago that engine frame arrived, in seconds. */
+  serverAgeSec: number;
+  playing: boolean;
+  /**
+   * True while a just-committed seek still owns the clock. The correction
+   * term is skipped: `serverSeconds` is still a pre-seek frame, so measuring
+   * error against it would only pull the playhead back toward where the user
+   * dragged it FROM.
+   */
+  seekLocked: boolean;
+  cycleWrap?: CycleWrapRange | null;
+}
+
+/**
+ * Advances the local playhead one frame and soft-corrects toward the engine.
+ *
+ * Always advances by `dt` -- a seek does not pause the clock, it relocates it.
+ * Freezing the advance during the seek lock is what made the playhead sit dead
+ * still for up to 800 ms after a committed drag before suddenly taking off.
+ */
+export function advancePlayhead(step: PlayheadStep): number {
+  const { prevPos, dt, serverSeconds, serverAgeSec, playing, seekLocked } = step;
+
+  const targetServer = serverSeconds + (playing ? Math.max(0, serverAgeSec) : 0);
+  const err = targetServer - prevPos;
+
+  // Bounded speed correction (max ±5% speed variation) to filter jitter and
+  // prevent overshoots/jumps.
+  const maxAdjust = 0.05 * dt;
+  const adjust = seekLocked
+    ? 0
+    : Math.max(-maxAdjust, Math.min(maxAdjust, err * 2.0 * dt));
+
+  let next = prevPos + dt + adjust;
+  if (next < 0) next = 0;
+
+  // Local cycle wrap (display parity with AudioEngine). Only when the needle
+  // was *inside* the loop and crosses the right locator -- a playhead sitting
+  // before/after the cycle is intentional and stays.
+  const wrap = step.cycleWrap;
+  if (wrap) {
+    const span = wrap.hiAbs - wrap.loAbs;
+    if (
+      span >= 0.05 &&
+      prevPos >= wrap.loAbs &&
+      prevPos < wrap.hiAbs &&
+      next >= wrap.hiAbs
+    ) {
+      // Carry overshoot so multi-frame skips on tiny cycles stay accurate.
+      next = wrap.loAbs + (next - wrap.hiAbs);
+      if (next >= wrap.hiAbs) {
+        next = wrap.loAbs + ((next - wrap.loAbs) % span);
+      }
+      if (next < wrap.loAbs) next = wrap.loAbs;
+    }
+  }
+
+  return next;
+}
+
 /**
  * Single continuous project playhead.
  *
@@ -289,52 +357,25 @@ export function useContinuousPlayhead(
     const tick = (ts: number) => {
       const prev = lastFrameTs.current;
       lastFrameTs.current = ts;
-      if (
-        prev != null &&
-        !draggingRef?.current &&
-        Date.now() - lastSeekAt.current > SEEK_LOCK_MS
-      ) {
-        const dt = Math.min(0.08, Math.max(0, (ts - prev) / 1000));
-        // Extrapolate expected server time considering elapsed time since packet arrival
-        const serverAge = Math.max(
-          0,
-          (Date.now() - lastServerRxAt.current) / 1000,
-        );
-        const targetServer =
-          serverRef.current + (playingRef.current ? serverAge : 0);
-        const err = targetServer - localRef.current;
-
-        // Bounded speed correction (max ±5% speed variation) to filter jitter & prevent overshoots/jumps
-        const maxAdjust = 0.05 * dt;
-        const adjust = Math.max(
-          -maxAdjust,
-          Math.min(maxAdjust, err * 2.0 * dt),
-        );
-
-        const prevPos = localRef.current;
-        let next = prevPos + dt + adjust;
-        if (next < 0) next = 0;
-
-        // Local cycle wrap (display parity with AudioEngine). Only when the
-        // needle was *inside* the loop and crosses the right locator —
-        // playhead sitting before/after the cycle is intentional and stays.
-        const wrap = cycleWrapRef?.current;
-        if (wrap) {
-          const span = wrap.hiAbs - wrap.loAbs;
-          if (
-            span >= 0.05 &&
-            prevPos >= wrap.loAbs &&
-            prevPos < wrap.hiAbs &&
-            next >= wrap.hiAbs
-          ) {
-            // Carry overshoot so multi-frame skips on tiny cycles stay accurate.
-            next = wrap.loAbs + (next - wrap.hiAbs);
-            if (next >= wrap.hiAbs) {
-              next = wrap.loAbs + ((next - wrap.loAbs) % span);
-            }
-            if (next < wrap.loAbs) next = wrap.loAbs;
-          }
-        }
+      // The seek lock deliberately does NOT gate this advance. seekAbsolute
+      // has already put localRef exactly where the user dropped the playhead,
+      // and that value is authoritative -- so the clock must start running
+      // from it immediately. Gating the advance too is what made the playhead
+      // sit dead still for the whole lock window (800 ms on a committed drag,
+      // see Timeline's setPlayheadAbsoluteSec call) before suddenly taking
+      // off. What the lock is actually for is the stale pre-seek server frame,
+      // and that is handled by ignoring the correction term below and by the
+      // server-snapshot effect above.
+      if (prev != null && !draggingRef?.current) {
+        const next = advancePlayhead({
+          prevPos: localRef.current,
+          dt: Math.min(0.08, Math.max(0, (ts - prev) / 1000)),
+          serverSeconds: serverRef.current,
+          serverAgeSec: (Date.now() - lastServerRxAt.current) / 1000,
+          playing: playingRef.current,
+          seekLocked: Date.now() - lastSeekAt.current <= SEEK_LOCK_MS,
+          cycleWrap: cycleWrapRef?.current,
+        });
 
         localRef.current = next;
         setAbsolute(next);
