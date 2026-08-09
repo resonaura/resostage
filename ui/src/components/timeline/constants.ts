@@ -1,4 +1,9 @@
-import { resolveCssVar } from "../../lib/cssColor";
+import {
+  paletteColor,
+  paletteSize,
+  roleColor,
+  type ColorRole,
+} from "../../lib/theme";
 
 export const SIDEBAR_WIDTH = 240;
 export const EVENT_LANE_HEIGHT = 24;
@@ -22,34 +27,15 @@ export const SECTION_PRESETS = [
 export const MIN_PX_PER_SEC = 0.25; // allow zoom-out until whole set fits (no H-scroll)
 export const MAX_PX_PER_SEC = 400;
 
-export const TRACK_COLOR_COUNT = 12;
-
-/** Fallback hexes if theme.css has not loaded yet (SSR / first paint). */
-const TRACK_COLOR_FALLBACKS = [
-  "#0091ff",
-  "#30d158",
-  "#ff9230",
-  "#db34f2",
-  "#ff375f",
-  "#00d2e0",
-  "#ff4245",
-  "#6d7cff",
-  "#00dac3",
-  "#3cd3fe",
-  "#ffd600",
-  "#b78a66",
-];
+export const TRACK_COLOR_COUNT = paletteSize("track");
 
 /**
  * Resolved `#rrggbb` for an audio track palette slot.
- * Reads `--track-color-N` from theme.css so themes can recolour freely.
- * Returns concrete hex (not `var(...)`) so canvas, dimHexColor, and
- * `${color}55` alpha suffixes all keep working.
+ * Concrete hex (not `var(...)`) so canvas, dimHexColor and `${color}55` alpha
+ * suffixes all keep working. Values live in lib/theme's PALETTES.
  */
 export function getTrackColor(index: number): string {
-  const i =
-    ((index % TRACK_COLOR_COUNT) + TRACK_COLOR_COUNT) % TRACK_COLOR_COUNT;
-  return resolveCssVar(`--track-color-${i}`, TRACK_COLOR_FALLBACKS[i]);
+  return paletteColor("track", index);
 }
 
 /** Edge hit zone width (fade / trim / loop / duration). */
@@ -70,22 +56,18 @@ export const EDGE_PX = 12;
 export const TRAILING_SLACK_SECONDS = 30;
 export const TRAILING_SLACK_MIN_PX = 240;
 
-const EVENT_COLOR_VARS: Record<string, { varName: string; fallback: string }> =
-  {
-    programChange: {
-      varName: "--event-color-program-change",
-      fallback: "#30d158",
-    },
-    noteOn: { varName: "--event-color-note-on", fallback: "#30d158" },
-    noteOff: { varName: "--event-color-note-off", fallback: "#30d158" },
-    cc: { varName: "--event-color-cc", fallback: "#0091ff" },
-    http: { varName: "--event-color-http", fallback: "#ff9230" },
-    dmx: { varName: "--event-color-dmx", fallback: "#db34f2" },
-  };
+/** Event type on the wire -> the role that names its colour. */
+const EVENT_COLOR_ROLES: Record<string, ColorRole> = {
+  programChange: "eventProgramChange",
+  noteOn: "eventNoteOn",
+  noteOff: "eventNoteOff",
+  cc: "eventCc",
+  http: "eventHttp",
+  dmx: "eventDmx",
+};
 
-/** Resolved event-marker colour by event type. */
+/** Resolved event-marker colour by event type; grey for an unknown type. */
 export function getEventColor(type: string): string {
-  const entry = EVENT_COLOR_VARS[type];
-  if (!entry) return "#8e8e93";
-  return resolveCssVar(entry.varName, entry.fallback);
+  const role = EVENT_COLOR_ROLES[type];
+  return role ? roleColor(role) : "#8e8e93";
 }

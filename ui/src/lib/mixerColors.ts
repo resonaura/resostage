@@ -1,38 +1,38 @@
-import { resolveCssVar } from "./cssColor";
+import { paletteColor, roleColor } from "./theme";
 
 /**
- * Mixer role accents — source of truth is theme.css `--mixer-*`.
- * Always returns concrete `#rrggbb` for canvas / meter fill / hex math.
+ * Mixer role accents.
+ *
+ * Thin names over the one colour registry (lib/theme) rather than a second
+ * copy of the resolve-and-fall-back logic -- these are the words the mixer
+ * code speaks, and keeping them means call sites read as "this strip is the
+ * master" instead of "this strip is --mixer-master".
  */
 
 export function masterColor(): string {
-  return resolveCssVar("--mixer-master", "#0091ff");
+  return roleColor("master");
 }
 
 /** Aux / send bus strip + send-knob arc. */
 export function sendColor(): string {
-  return resolveCssVar("--mixer-send", "#ff9230");
+  return roleColor("send");
 }
 
 export function metronomeColor(): string {
-  return resolveCssVar("--mixer-metronome", "#ff9230");
+  return roleColor("metronome");
 }
 
 /** Stereo Ext. Out / Direct Output family. */
 export function extOutColor(): string {
-  return resolveCssVar("--mixer-ext-out", "#7c3aed");
+  return roleColor("extOut");
 }
 
 /** Mono physical output lane (wedge / sub / mono IEM). */
 export function monoOutColor(): string {
-  return resolveCssVar("--mixer-mono-out", "#30d158");
+  return roleColor("monoOut");
 }
-
-const BUS_CYCLE_COUNT = 5;
 
 /** Non-master, non-aux bus accent on the player meters panel. */
 export function busCycleColor(index: number): string {
-  const i = ((index % BUS_CYCLE_COUNT) + BUS_CYCLE_COUNT) % BUS_CYCLE_COUNT;
-  const fallbacks = ["#30d158", "#ff9230", "#db34f2", "#00d2e0", "#ffd600"];
-  return resolveCssVar(`--mixer-bus-${i}`, fallbacks[i]);
+  return paletteColor("bus", index);
 }

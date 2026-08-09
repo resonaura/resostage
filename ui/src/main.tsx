@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
+import { applyTheme } from "./lib/theme";
 
 // Applied synchronously, before the first render -- this app is a
 // stage-side remote/mirror of the native (always-dark) desktop app, so it
@@ -12,8 +13,7 @@ import App from "./App.tsx";
 // tab's 3D stage, resolving --background/--default for its grid colors)
 // could otherwise run before the "dark" class landed and permanently
 // capture the light theme's near-white values.
-document.documentElement.classList.add("dark");
-document.documentElement.setAttribute("data-theme", "dark");
+applyTheme("dark");
 
 // Page Lifecycle / visibility: after OS sleep or long background the
 // compositor can leave a black frame. Dispatch the same resume event the

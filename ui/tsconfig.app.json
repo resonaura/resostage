@@ -4,7 +4,11 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    // "node" is here for the test files under src/ -- theme.test.ts reads
+    // styles/theme.css off disk to check it has not drifted from the palette
+    // in lib/theme (see the note there). App code importing a node builtin
+    // would still fail loudly at bundle time.
+    "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 
