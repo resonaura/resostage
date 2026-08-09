@@ -1,8 +1,15 @@
-import { Button, Card, ScrollShadow } from "@heroui/react";
+import { ScrollShadow } from "@heroui/react";
+import {
+  Button,
+  Card,
+  ToggleButton,
+  ToggleButtonGroup,
+} from "../components/ui";
 import {
   ChevronDown,
   ChevronUp,
   Gauge,
+  ListMusic,
   Loader2,
   Plus,
   Trash2,
@@ -417,23 +424,30 @@ export function EditorScreen({
         </div>
       )}
 
-      {/* Tab Bar */}
+      {/* Tab Bar — one exclusive choice, so a single-selection toggle group
+          rather than N buttons each re-deriving "am I the active one?" from a
+          comparison. Same control the timeline toolbar uses for its own
+          Audio/Light view mode. */}
       <div className="flex shrink-0 items-center justify-between gap-1.5">
-        <div className="flex items-center gap-1.5">
-          {TABS.map((t) => (
-            <Button
-              key={t.id}
-              size="sm"
-              variant={activeTab === t.id ? "secondary" : "outline"}
-              onPress={() => setTab(t.id)}
-            >
-              {t.id === "timeline" && (
-                <Gauge size={13} className="mr-1 inline-block" />
-              )}
+        <ToggleButtonGroup
+          aria-label="Editor view"
+          size="sm"
+          selectionMode="single"
+          disallowEmptySelection
+          selectedKeys={[activeTab]}
+          onSelectionChange={(keys) => {
+            const next = Array.from(keys)[0] as EditorTab | undefined;
+            if (next) setTab(next);
+          }}
+        >
+          {TABS.flatMap((t, i) => [
+            ...(i > 0 ? [<ToggleButtonGroup.Separator key={`${t.id}-sep`} />] : []),
+            <ToggleButton key={t.id} id={t.id}>
+              {t.id === "timeline" ? <Gauge size={13} /> : <ListMusic size={13} />}
               {t.label}
-            </Button>
-          ))}
-        </div>
+            </ToggleButton>,
+          ])}
+        </ToggleButtonGroup>
       </div>
 
       {/* ── Timeline Tab ──────────────────────────────────────────────── */}

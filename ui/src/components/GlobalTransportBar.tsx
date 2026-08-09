@@ -1,13 +1,9 @@
-import {
-  Separator,
-  ToggleButton,
-  ToggleButtonGroup,
-  Toolbar,
-} from "@heroui/react";
+import { Separator, Toolbar } from "@heroui/react";
 import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { transport } from "../lib/api";
 import type { WebUiState } from "../lib/types";
 import { TimeDisplay } from "./daw";
+import { ToggleButton, ToggleButtonGroup } from "./ui";
 
 /**
  * Compact transport for the app header (non-Player tabs): clock chip, song +
@@ -38,7 +34,12 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
         hasSong={song !== null}
       />
       <Separator orientation="vertical" />
-      <ToggleButtonGroup size="sm">
+      <ToggleButtonGroup
+        size="sm"
+        orientation="horizontal"
+        isDetached={false}
+        fullWidth={false}
+      >
         <ToggleButton
           isIconOnly
           isSelected={false}

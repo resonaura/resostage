@@ -12,8 +12,6 @@
  * in LightControls.tsx.
  */
 import {
-  Alert,
-  Button,
   Checkbox,
   CheckboxGroup,
   CloseButton,
@@ -25,11 +23,10 @@ import {
   Select,
   Separator,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
 } from "@heroui/react";
 import { Lightbulb, Link2, Link2Off, Palette, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
+import { Alert, Button, ToggleButton, ToggleButtonGroup } from "../ui";
 
 import { lighting } from "../../lib/api";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
@@ -41,6 +38,7 @@ import type {
   TrackRow,
   WebUiState,
 } from "../../lib/types";
+import { ResoLightStage3D } from "./LazyResoLightStage3D";
 import {
   EffectTypeGrid,
   Field,
@@ -66,7 +64,6 @@ import {
   TIGHT_TOGGLE_CLS,
   TOGGLE_GROUP_CLS,
 } from "./lightStyles";
-import { ResoLightStage3D } from "./LazyResoLightStage3D";
 
 export type { GradientPreset, SourceType, TempoSubdiv };
 

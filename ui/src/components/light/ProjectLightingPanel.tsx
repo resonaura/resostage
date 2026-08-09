@@ -1,8 +1,4 @@
 import {
-  Alert,
-  Button,
-  ButtonGroup,
-  Card,
   Checkbox,
   Chip,
   Description,
@@ -11,10 +7,7 @@ import {
   ListBox,
   Select,
   Separator,
-  Switch,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
 } from "@heroui/react";
 import {
@@ -55,6 +48,16 @@ import type {
   WebUiState,
 } from "../../lib/types";
 import {
+  Alert,
+  Button,
+  ButtonGroup,
+  Card,
+  Switch,
+  ToggleButton,
+  ToggleButtonGroup,
+} from "../ui";
+import { ResoLightStage3D, type PreviewColor } from "./LazyResoLightStage3D";
+import {
   EffectTypeGrid,
   Field,
   GradientPresetGroup,
@@ -72,7 +75,6 @@ import {
 } from "./lightEffectMeta";
 import type { EffectType } from "./LightSidePanel";
 import { CAPTION_CLS, TOGGLE_GROUP_CLS } from "./lightStyles";
-import { ResoLightStage3D, type PreviewColor } from "./LazyResoLightStage3D";
 
 const SHAPE_ICON: Record<
   FixtureShape,
@@ -466,9 +468,7 @@ export function ProjectLightingPanel({
                   ] as const
                 ).map((opt) => (
                   <Tooltip key={opt.value}>
-                    <ToggleButton id={opt.value}>
-                      {opt.label}
-                    </ToggleButton>
+                    <ToggleButton id={opt.value}>{opt.label}</ToggleButton>
                     <Tooltip.Content>{opt.desc}</Tooltip.Content>
                   </Tooltip>
                 ))}

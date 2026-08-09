@@ -3,6 +3,10 @@
 /* After @heroui/styles: this is the design layer that neutralises HeroUI's
    blue accent and adds what it does not ship. See styles/theme.css. */
 @import "./styles/theme.css";
+/* Colour tones for the local control wrappers (components/ui/). Must come
+   after @heroui/styles -- though every selector in it is written to outrank
+   HeroUI's on specificity alone, so order is belt and braces. */
+@import "./styles/tones.css";
 @import "./assets/fontaudio/fontaudio.css";
 
 html,

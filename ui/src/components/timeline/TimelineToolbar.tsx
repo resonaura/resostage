@@ -1,12 +1,11 @@
+import { Separator, Toolbar } from "@heroui/react";
 import {
   Button,
   ButtonGroup,
-  Separator,
   Slider,
   ToggleButton,
   ToggleButtonGroup,
-  Toolbar,
-} from "@heroui/react";
+} from "../ui";
 import {
   AudioLines,
   Copy,

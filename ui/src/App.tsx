@@ -1,4 +1,3 @@
-import { Button, Tabs } from "@heroui/react";
 import {
   AlertTriangle,
   Gauge,
@@ -15,22 +14,22 @@ import {
   ContextMenuItem,
 } from "./components/ContextMenu";
 import { GlobalTransportBar } from "./components/GlobalTransportBar";
-import { fetchAllPeaks, fetchPeaks, project } from "./lib/api";
+import { Button, Tabs } from "./components/ui";
+import { performAction, type ActionId } from "./lib/actions";
+import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/api";
 import { apiUrl } from "./lib/backend";
-import { IS_EMBEDDED } from "./lib/embedded";
+import { SHOW_TRANSPORT_LABEL } from "./lib/devFlags";
 import { IS_ELECTRON } from "./lib/electron";
 import { forwardMenuState } from "./lib/electronBridge";
+import { IS_EMBEDDED } from "./lib/embedded";
+import { keyEventToDescription } from "./lib/keyEvents";
 import type { AllPeaksResponse, PeaksResponse, WebUiState } from "./lib/types";
-import { SHOW_TRANSPORT_LABEL } from "./lib/devFlags";
 import { useLiveState, type TransportKind } from "./lib/useLiveState";
 import { EditorScreen } from "./screens/EditorScreen";
 import { LightScreen } from "./screens/LightScreen";
 import { MixerScreen } from "./screens/MixerScreen";
 import { PlayerScreen } from "./screens/PlayerScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
-import { type ActionId, performAction } from "./lib/actions";
-import { transport } from "./lib/api";
-import { keyEventToDescription } from "./lib/keyEvents";
 
 interface ToastNotification {
   id: string;
@@ -410,7 +409,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="relative flex h-14 shrink-0 items-center border-b border-default/60 bg-background px-2 sm:px-4">
+      <header className="relative flex h-14 shrink-0 items-center bg-background px-2 sm:px-4">
         <div className="z-10 flex shrink-0 items-center">
           <img
             src="/logo.svg"
@@ -427,9 +426,7 @@ export default function App() {
         <div className="pointer-events-none absolute inset-0 hidden items-center justify-center md:flex">
           <div
             className={`pointer-events-auto transition-opacity duration-200 ease-out ${
-              tab !== "player"
-                ? "opacity-100"
-                : "pointer-events-none opacity-0"
+              tab !== "player" ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
           >
             <GlobalTransportBar state={state} />
@@ -437,9 +434,7 @@ export default function App() {
         </div>
 
         <div className="z-10 ml-auto flex shrink-0 items-center gap-3">
-          {!IS_EMBEDDED && !IS_ELECTRON ? (
-            <ProjectMenu state={state} />
-          ) : null}
+          {!IS_EMBEDDED && !IS_ELECTRON ? <ProjectMenu state={state} /> : null}
           <ConnectionBadge
             status={status}
             transport={transport}
@@ -449,6 +444,7 @@ export default function App() {
       </header>
 
       <Tabs
+        variant="nav"
         selectedKey={tab}
         onSelectionChange={(k) => {
           const v = String(k);
@@ -462,27 +458,27 @@ export default function App() {
             <Tabs.Tab id="player">
               <Music4 size={15} className="inline-block sm:mr-1.5" />
               <span className="hidden sm:inline">Player</span>
-              <Tabs.Indicator className="bg-background-tertiary" />
+              <Tabs.Indicator />
             </Tabs.Tab>
             <Tabs.Tab id="mixer">
               <Sliders size={15} className="inline-block sm:mr-1.5" />
               <span className="hidden sm:inline">Mixer</span>
-              <Tabs.Indicator className="bg-background-tertiary" />
+              <Tabs.Indicator />
             </Tabs.Tab>
             <Tabs.Tab id="editor">
               <Gauge size={15} className="inline-block sm:mr-1.5" />
               <span className="hidden sm:inline">Editor</span>
-              <Tabs.Indicator className="bg-background-tertiary" />
+              <Tabs.Indicator />
             </Tabs.Tab>
             <Tabs.Tab id="light">
               <Lightbulb size={15} className="inline-block sm:mr-1.5" />
               <span className="hidden sm:inline">Light</span>
-              <Tabs.Indicator className="bg-background-tertiary" />
+              <Tabs.Indicator />
             </Tabs.Tab>
             <Tabs.Tab id="settings">
               <Settings2 size={15} className="inline-block sm:mr-1.5" />
               <span className="hidden sm:inline">Settings</span>
-              <Tabs.Indicator className="bg-background-tertiary" />
+              <Tabs.Indicator />
             </Tabs.Tab>
           </Tabs.List>
         </Tabs.ListContainer>

@@ -7,7 +7,6 @@
  * hand-rolled twice from raw <input>s.
  */
 import {
-  Button,
   ColorArea,
   ColorField,
   ColorPicker,
@@ -18,14 +17,12 @@ import {
   Input,
   Label,
   NumberField,
-  Slider,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
   parseColor,
   type Color,
 } from "@heroui/react";
+import { Button, Slider, ToggleButton, ToggleButtonGroup } from "../ui";
 import { ChevronDown, FlipHorizontal2, Plus, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 

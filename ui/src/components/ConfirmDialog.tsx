@@ -1,4 +1,4 @@
-import { Button } from "@heroui/react";
+import { Button } from "./ui";
 
 /** In-app confirm dialog (replaces native window.confirm / AlertWindow for web). */
 export function ConfirmDialog({

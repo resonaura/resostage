@@ -1,6 +1,6 @@
-import { Alert } from "@heroui/react";
 import { FolderOpen } from "lucide-react";
 import { ProjectLightingPanel } from "../components/light/ProjectLightingPanel";
+import { Alert } from "../components/ui";
 import type { WebUiState } from "../lib/types";
 
 export function LightScreen({ state }: { state: WebUiState }) {

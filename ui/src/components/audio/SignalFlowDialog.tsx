@@ -1,4 +1,4 @@
-import { Button } from "@heroui/react";
+import { Button } from "../ui";
 import { RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetchMixGraph } from "../../lib/api";

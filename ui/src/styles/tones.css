@@ -1,0 +1,166 @@
+/* ── Shared tone palette for local control wrappers ────────────────────────── */
+
+:root {
+  --tone-well: color-mix(
+    in oklab,
+    var(--accent) 0%,
+    var(--color-background-tertiary) 100%
+  );
+}
+
+.rs-tone--accent {
+  --tone: var(--accent);
+  --tone-hover: var(--accent-hover);
+  --tone-fg: var(--accent-foreground);
+  --tone-knob: var(--accent-foreground);
+  --tone-knob-fg: var(--accent);
+  --tone-track: var(--default);
+}
+
+.rs-tone--accent-soft {
+  --tone: var(--accent-soft);
+  --tone-hover: var(--accent-soft-hover);
+  --tone-fg: var(--accent-soft-foreground);
+  --tone-knob: var(--accent-soft-foreground);
+  --tone-knob-fg: var(--background);
+  --tone-track: var(--tone-well);
+}
+
+.rs-tone--success {
+  --tone: var(--success);
+  --tone-hover: var(--success-hover);
+  --tone-fg: var(--success-foreground);
+  --tone-knob: var(--success-foreground);
+  --tone-knob-fg: var(--success);
+  --tone-track: var(--default);
+}
+
+.rs-tone--success-soft {
+  --tone: var(--success-soft);
+  --tone-hover: var(--success-soft-hover);
+  --tone-fg: var(--success-soft-foreground);
+  --tone-knob: var(--success-soft-foreground);
+  --tone-knob-fg: var(--background);
+  --tone-track: var(--tone-well);
+}
+
+.rs-tone--warning {
+  --tone: var(--warning);
+  --tone-hover: var(--warning-hover);
+  --tone-fg: var(--warning-foreground);
+  --tone-knob: var(--warning-foreground);
+  --tone-knob-fg: var(--warning);
+  --tone-track: var(--default);
+}
+
+.rs-tone--warning-soft {
+  --tone: var(--warning-soft);
+  --tone-hover: var(--warning-soft-hover);
+  --tone-fg: var(--warning-soft-foreground);
+  --tone-knob: var(--warning-soft-foreground);
+  --tone-knob-fg: var(--background);
+  --tone-track: var(--tone-well);
+}
+
+.rs-tone--danger {
+  --tone: var(--danger);
+  --tone-hover: var(--danger-hover);
+  --tone-fg: var(--danger-foreground);
+  --tone-knob: var(--danger-foreground);
+  --tone-knob-fg: var(--danger);
+  --tone-track: var(--default);
+}
+
+.rs-tone--danger-soft {
+  --tone: var(--danger-soft);
+  --tone-hover: var(--danger-soft-hover);
+  --tone-fg: var(--danger-soft-foreground);
+  --tone-knob: var(--danger-soft-foreground);
+  --tone-knob-fg: var(--background);
+  --tone-track: var(--tone-well);
+}
+
+.rs-tone--default {
+  --tone: var(--default);
+  --tone-hover: var(--default-hover);
+  --tone-fg: var(--default-foreground);
+  --tone-knob: var(--default-foreground);
+  --tone-knob-fg: var(--default);
+  --tone-track: var(--default);
+}
+
+.rs-tone--default-soft {
+  --tone: var(--default-soft);
+  --tone-hover: var(--default-soft-hover);
+  --tone-fg: var(--default-soft-foreground);
+  --tone-knob: var(--default-soft-foreground);
+  --tone-knob-fg: var(--background);
+  --tone-track: var(--tone-well);
+}
+
+/* ── 2. Component bridges ─────────────────────────────────────────────── */
+
+.button.rs-tone {
+  --button-bg: var(--tone);
+  --button-bg-hover: var(--tone-hover);
+  --button-bg-pressed: var(--tone-hover);
+  --button-fg: var(--tone-fg);
+}
+
+.toggle-button.rs-tone {
+  --toggle-button-bg-selected: var(--tone);
+  --toggle-button-bg-selected-hover: var(--tone-hover);
+  --toggle-button-bg-selected-pressed: var(--tone-hover);
+  --toggle-button-fg-selected: var(--tone-fg);
+}
+
+.switch.rs-tone {
+  --switch-control-bg-checked: var(--tone);
+  --switch-control-bg-checked-hover: var(--tone-hover);
+}
+
+.switch.rs-tone[aria-checked="true"] .switch__thumb,
+.switch.rs-tone[data-selected="true"] .switch__thumb {
+  background-color: var(--tone-knob);
+  color: var(--tone-knob-fg);
+}
+
+/* Slider — soft tone paints a translucent fill track and a picked-out knob handle */
+.slider.rs-tone .slider__track {
+  background-color: var(--tone-track);
+}
+
+.slider.rs-tone .slider__fill,
+.slider.rs-tone .slider__thumb {
+  background-color: var(--tone);
+}
+
+.slider.rs-tone .slider__thumb::after {
+  background-color: var(--tone-knob);
+  color: var(--tone-knob-fg);
+}
+
+.slider.rs-tone[data-orientation="horizontal"]
+  .slider__track[data-fill-start="true"] {
+  border-inline-start-color: var(--tone);
+}
+
+.slider.rs-tone[data-orientation="horizontal"]
+  .slider__track[data-fill-end="true"] {
+  border-inline-end-color: var(--tone);
+}
+
+.slider.rs-tone[data-orientation="vertical"]
+  .slider__track[data-fill-start="true"] {
+  border-bottom-color: var(--tone);
+}
+
+.slider.rs-tone[data-orientation="vertical"]
+  .slider__track[data-fill-end="true"] {
+  border-top-color: var(--tone);
+}
+
+.rs-card-surface {
+  background-color: var(--color-background-secondary);
+  border: 1px solid var(--color-background-tertiary);
+}

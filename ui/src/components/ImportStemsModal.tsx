@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Button, Modal, ScrollShadow } from "@heroui/react";
+import { Modal, ScrollShadow } from "@heroui/react";
+import { Button } from "./ui";
 import { Check, FolderUp, Layers, Music } from "lucide-react";
 import type { WebUiState } from "../lib/types";
 import {

@@ -1,7 +1,9 @@
-import { Button, Card, Tabs } from "@heroui/react";
-import { useEffect, useRef, useState } from "react";
 import { Activity, Music3, SlidersHorizontal, Workflow } from "lucide-react";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { FontIcon } from "../components/FontIcon";
+import { Button, Card, Tabs } from "../components/ui";
+import { settings as settingsApi } from "../lib/api";
+import type { MidiBindingRow, WebUiState } from "../lib/types";
 // @xyflow/react is a heavy graph library behind exactly one modal. Loading it
 // on demand keeps it out of the startup bundle entirely.
 const SignalFlowDialog = lazy(() =>
@@ -9,9 +11,6 @@ const SignalFlowDialog = lazy(() =>
     default: m.SignalFlowDialog,
   })),
 );
-import { FontIcon } from "../components/FontIcon";
-import { settings as settingsApi } from "../lib/api";
-import type { MidiBindingRow, WebUiState } from "../lib/types";
 
 function formatBytes(n: number): string {
   if (!n || n <= 0) return "0 B";
@@ -554,7 +553,10 @@ function HealthTab({ state }: { state: WebUiState }) {
           <Stat label="Free system RAM" value={formatBytes(h.freeBytes)} />
           <Stat label="Underruns" value={String(h.underrunCount)} />
           <Stat label="Silent blocks" value={String(h.silentBlockCount ?? 0)} />
-          <Stat label="Stream starves" value={String(h.streamStarveCount ?? 0)} />
+          <Stat
+            label="Stream starves"
+            value={String(h.streamStarveCount ?? 0)}
+          />
           <Stat label="Audio callbacks" value={String(h.audioCallbackCount)} />
           <Stat label="Web clients" value={String(h.webClientCount)} />
         </div>
@@ -605,6 +607,7 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col">
       <Tabs
+        variant="accent-soft"
         selectedKey={activeTab}
         onSelectionChange={(k) => setActiveTab(String(k) as SettingsTab)}
         className="flex min-h-0 flex-1 flex-col"
@@ -615,7 +618,7 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
               <Tabs.Tab key={tab.id} id={tab.id}>
                 <tab.icon size={15} className="mr-1.5 inline-block" />
                 {tab.label}
-                <Tabs.Indicator className="bg-accent" />
+                <Tabs.Indicator />
               </Tabs.Tab>
             ))}
           </Tabs.List>

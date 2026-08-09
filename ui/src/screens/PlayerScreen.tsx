@@ -1,4 +1,4 @@
-import { Button, ScrollShadow } from "@heroui/react";
+import { Popover, ScrollShadow, Separator, Tooltip } from "@heroui/react";
 import {
   ChevronDown,
   Gauge,
@@ -11,7 +11,14 @@ import {
   SkipForward,
   Square,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   formatClockPrecise as formatTime,
   LevelMeterBar,
@@ -20,10 +27,15 @@ import {
 import { FontIcon } from "../components/FontIcon";
 import { ResoLightStage3D } from "../components/light/LazyResoLightStage3D";
 import { Timeline } from "../components/Timeline";
+import {
+  Button,
+  ButtonGroup,
+  ToggleButton,
+  ToggleButtonGroup,
+} from "../components/ui";
 import { builder, transport } from "../lib/api";
 import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
-import { useIsCompact } from "../lib/useMediaQuery";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
@@ -37,6 +49,7 @@ import {
   type SongRow,
   type WebUiState,
 } from "../lib/types";
+import { useIsCompact } from "../lib/useMediaQuery";
 
 import {
   busCycleColor,
@@ -409,36 +422,6 @@ function readBusMeterDensity(): BusMeterDensity {
   return "comfortable";
 }
 
-/** Header icon toggle. Small, unlabelled, and always in the same two slots. */
-function MeterModeButton({
-  active,
-  title,
-  onPress,
-  children,
-}: {
-  active: boolean;
-  title: string;
-  onPress: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      aria-pressed={active}
-      onClick={onPress}
-      className={`flex h-6 w-6 items-center justify-center rounded-md border transition-colors ${
-        active
-          ? "border-accent/50 tint--soft text-accent"
-          : "border-default/40 bg-default/10 text-foreground/45 hover:bg-default/25 hover:text-foreground/80"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 // Memoized on exactly the four wire arrays the grouping depends on. All four
 // keep their identity across frames while the routing holds still (structural
 // sharing in the live-state merge), so a panel full of meters stops being
@@ -509,40 +492,68 @@ const BusMetersPanel = memo(function BusMetersPanel({
         <span className="text-[11px] font-bold uppercase tracking-widest text-foreground/35">
           Bus meters
         </span>
+        {/* Two independent single-selects: what the meters look like, and how
+            many of them fit. Both are exclusive and neither may be emptied. */}
         <div className="flex items-center gap-2">
-          <div className="flex gap-1">
-            <MeterModeButton
-              active={mode === "bars"}
-              title="Bar meters"
-              onPress={() => setMode("bars")}
-            >
-              <SignalHigh size={13} />
-            </MeterModeButton>
-            <MeterModeButton
-              active={mode === "vu"}
-              title="VU meters"
-              onPress={() => setMode("vu")}
-            >
-              <Gauge size={13} />
-            </MeterModeButton>
-          </div>
-          <div className="h-4 w-px bg-default/40" />
-          <div className="flex gap-1">
-            <MeterModeButton
-              active={density === "comfortable"}
-              title="Comfortable — full size, scrolls sideways"
-              onPress={() => setDensity("comfortable")}
-            >
-              <Rows3 size={13} />
-            </MeterModeButton>
-            <MeterModeButton
-              active={compact}
-              title="Compact — fits more, scrolls vertically"
-              onPress={() => setDensity("compact")}
-            >
-              <LayoutGrid size={13} />
-            </MeterModeButton>
-          </div>
+          <ToggleButtonGroup
+            aria-label="Meter style"
+            size="sm"
+            selectionMode="single"
+            disallowEmptySelection
+            selectedKeys={[mode]}
+            onSelectionChange={(keys) => {
+              const next = Array.from(keys)[0] as BusMeterMode | undefined;
+              if (next) setMode(next);
+            }}
+          >
+            <Tooltip>
+              <ToggleButton id="bars" isIconOnly aria-label="Bar meters">
+                <SignalHigh size={14} />
+              </ToggleButton>
+              <Tooltip.Content>Bar meters</Tooltip.Content>
+            </Tooltip>
+            <ToggleButtonGroup.Separator />
+            <Tooltip>
+              <ToggleButton id="vu" isIconOnly aria-label="VU meters">
+                <Gauge size={14} />
+              </ToggleButton>
+              <Tooltip.Content>VU meters</Tooltip.Content>
+            </Tooltip>
+          </ToggleButtonGroup>
+          <Separator orientation="vertical" className="h-4" />
+          <ToggleButtonGroup
+            aria-label="Meter density"
+            size="sm"
+            selectionMode="single"
+            disallowEmptySelection
+            selectedKeys={[density]}
+            onSelectionChange={(keys) => {
+              const next = Array.from(keys)[0] as BusMeterDensity | undefined;
+              if (next) setDensity(next);
+            }}
+          >
+            <Tooltip>
+              <ToggleButton
+                id="comfortable"
+                isIconOnly
+                aria-label="Comfortable"
+              >
+                <Rows3 size={14} />
+              </ToggleButton>
+              <Tooltip.Content>
+                Comfortable — full size, scrolls sideways
+              </Tooltip.Content>
+            </Tooltip>
+            <ToggleButtonGroup.Separator />
+            <Tooltip>
+              <ToggleButton id="compact" isIconOnly aria-label="Compact">
+                <LayoutGrid size={14} />
+              </ToggleButton>
+              <Tooltip.Content>
+                Compact — fits more, scrolls vertically
+              </Tooltip.Content>
+            </Tooltip>
+          </ToggleButtonGroup>
         </div>
       </div>
 
@@ -709,8 +720,14 @@ const SetlistPanel = memo(function SetlistPanel({
                   key={i}
                   type="button"
                   onClick={() => onSelect(i)}
-                  className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-${isActive ? "accent/20" : "default/20"} ${
-                    isActive ? "tint--subtle" : ""
+                  /* Static class names on both branches: Tailwind scans source
+                     text, so an interpolated `hover:bg-${...}` is never emitted
+                     at all -- which is why neither the active tint nor the
+                     hover was reaching the screen. */
+                  className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
+                    isActive
+                      ? "bg-accent-soft hover:bg-accent-soft-hover"
+                      : "hover:bg-default"
                   }`}
                 >
                   <span
@@ -773,6 +790,8 @@ export function PlayerScreen({
     null,
   );
   const [clickSendsOpen, setClickSendsOpen] = useState(false);
+  // Anchors the routing popover; see the note at its trigger.
+  const clickRoutingAnchorRef = useRef<HTMLDivElement>(null);
   // Optimistic setlist highlight: flip immediately on click so hopscotch
   // never waits for the ~30 Hz WS round-trip / stageSong to paint.
   const [optimisticSongIndex, setOptimisticSongIndex] = useState<number | null>(
@@ -913,6 +932,11 @@ export function PlayerScreen({
     ? sourceOutputBusId(state.click.output)
     : "";
   const auxBusses = state.busses.filter((b) => b.isAux);
+  const enabledClickSendIds = (
+    state.click ? outputSendsToClickRows(state.click.output) : []
+  )
+    .filter((cs) => cs.enabled)
+    .map((cs) => cs.busId);
 
   const changeClickBus = (busId: string) => {
     // busId may be "" for Sends Only. Project-global.
@@ -996,81 +1020,120 @@ export function PlayerScreen({
         </div>
 
         {/* Transport control buttons */}
-        <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 px-3 py-2.5">
-          <button
-            type="button"
-            onClick={() => transport.prev()}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-default/40 bg-default/10 text-foreground/60 transition-colors hover:bg-default/25 hover:text-foreground"
-            title="Previous"
-          >
-            <SkipBack size={16} />
-          </button>
-          {/* Fixed width so Play ↔ Pause does not reflow the transport bar */}
-          <Button
-            variant="secondary"
-            className="flex h-9 w-[5.75rem] shrink-0 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold tint--soft text-accent hover:tint--strong transition-colors"
-            onPress={() =>
-              state.playing ? transport.stop() : transport.play()
-            }
-            aria-label={state.playing ? "Pause" : "Play"}
-          >
-            {state.playing ? <Pause size={15} /> : <Play size={15} />}
-            <span className="tabular-nums">
-              {state.playing ? "Pause" : "Play"}
-            </span>
-          </Button>
-          <button
-            type="button"
-            onClick={() => void transport.stopToStart()}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-danger/20 bg-danger/10 text-danger/60 transition-colors hover:bg-danger/20 hover:text-danger"
-            title="Stop (press again at song start to jump to project start)"
-          >
-            <Square size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={() => transport.next()}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-default/40 bg-default/10 text-foreground/60 transition-colors hover:bg-default/25 hover:text-foreground"
-            title="Next"
-          >
-            <SkipForward size={16} />
-          </button>
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-3 py-2.5">
+          {/* `size` is repeated on every button rather than left to the group.
+              ButtonGroup shares it by marking its DIRECT children, and these
+              are wrapped in Tooltip -- so the mark lands on the tooltip and the
+              buttons inside fall back to the default size, which is what made
+              Play stand a notch taller than the icons beside it. (The group's
+              own rounding still works: Tooltip renders no wrapper element, so
+              the buttons remain its first and last DOM children.) */}
+          <ButtonGroup aria-label="Transport">
+            <Tooltip>
+              <Button
+                size="sm"
+                isIconOnly
+                variant="default-soft"
+                onPress={() => transport.prev()}
+                aria-label="Previous"
+              >
+                <SkipBack size={16} />
+              </Button>
+              <Tooltip.Content>Previous</Tooltip.Content>
+            </Tooltip>
+            <Button
+              size="sm"
+              variant={state.playing ? "success-soft" : "accent-soft"}
+              onPress={() =>
+                state.playing ? transport.stop() : transport.play()
+              }
+              aria-label={state.playing ? "Pause" : "Play"}
+            >
+              {state.playing ? <Pause size={15} /> : <Play size={15} />}
+            </Button>
+            <Tooltip>
+              <Button
+                size="sm"
+                isIconOnly
+                variant="danger-soft"
+                onPress={() => void transport.stopToStart()}
+                aria-label="Stop"
+              >
+                <Square size={16} />
+              </Button>
+              <Tooltip.Content>
+                Stop — press again at song start to jump to project start
+              </Tooltip.Content>
+            </Tooltip>
+            <Tooltip>
+              <Button
+                size="sm"
+                isIconOnly
+                variant="default-soft"
+                onPress={() => transport.next()}
+                aria-label="Next"
+              >
+                <SkipForward size={16} />
+              </Button>
+              <Tooltip.Content>Next</Tooltip.Content>
+            </Tooltip>
+          </ButtonGroup>
 
-          {/* Global Metronome Toggle + Send routing */}
-          <div className="relative flex items-stretch rounded-lg border border-default/40 overflow-hidden">
-            {/* Main click toggle */}
-            <button
-              type="button"
-              onClick={toggleMetronome}
-              className={`flex h-9 items-center gap-1.5 px-2.5 text-xs font-semibold transition-colors ${
-                isMetronomeOn
-                  ? "tint--soft text-accent"
-                  : "bg-default/10 text-foreground/40 hover:bg-default/25 hover:text-foreground"
-              }`}
-              title={isMetronomeOn ? "Metronome: ON" : "Metronome: OFF"}
+          {/* Global metronome + its send routing. Two unrelated booleans, hence
+              a multiple-selection group rather than an exclusive one: the click
+              can be on with the routing panel shut, and vice versa.
+              
+              The routing panel is a real Popover: it renders in an overlay
+              portal, so it is no longer clipped away by the transport card's
+              own `overflow-hidden` (which is what kept it invisible), and it
+              closes on an outside click or Escape instead of only on a second
+              press of the chevron. `triggerRef` anchors it to the group --
+              HeroUI's Popover normally takes its anchor from a Button child,
+              and a ToggleButton is a different primitive that never registers
+              itself as one. */}
+          <Popover isOpen={clickSendsOpen} onOpenChange={setClickSendsOpen}>
+            <div ref={clickRoutingAnchorRef}>
+            <ToggleButtonGroup
+              aria-label="Metronome"
+              size="sm"
+              selectionMode="multiple"
+              selectedKeys={[
+                ...(isMetronomeOn ? ["on"] : []),
+                ...(clickSendsOpen ? ["routing"] : []),
+              ]}
+              onSelectionChange={(keys) => {
+                const next = new Set(Array.from(keys, String));
+                if (next.has("on") !== isMetronomeOn) toggleMetronome();
+                setClickSendsOpen(next.has("routing"));
+              }}
             >
-              <FontIcon name="metronome" size={16} />
-              <span>Click</span>
-            </button>
-            {/* Send routing chevron */}
-            <button
-              type="button"
-              onClick={() => setClickSendsOpen((o) => !o)}
-              className={`flex h-9 items-center border-l border-default/40 px-1.5 transition-colors ${
-                clickSendsOpen
-                  ? "tint--subtle text-accent"
-                  : "bg-default/10 text-foreground/40 hover:bg-default/25 hover:text-foreground"
-              }`}
-              title="Click send routing"
+              <ToggleButton id="on">
+                <FontIcon name="metronome" size={16} />
+                <span>Click</span>
+              </ToggleButton>
+              <ToggleButtonGroup.Separator />
+              <Tooltip>
+                <ToggleButton
+                  id="routing"
+                  isIconOnly
+                  aria-label="Click send routing"
+                >
+                  <ChevronDown
+                    size={12}
+                    className={`transition-transform ${clickSendsOpen ? "rotate-180" : ""}`}
+                  />
+                </ToggleButton>
+                <Tooltip.Content>Click send routing</Tooltip.Content>
+              </Tooltip>
+            </ToggleButtonGroup>
+            </div>
+            {/* 1-to-1 track parity with Output Bus select + Aux Sends list */}
+            <Popover.Content
+              triggerRef={clickRoutingAnchorRef}
+              placement="bottom end"
+              className="w-64"
             >
-              <ChevronDown
-                size={12}
-                className={`transition-transform ${clickSendsOpen ? "rotate-180" : ""}`}
-              />
-            </button>
-            {/* Popover: 1-to-1 track parity with Output Bus select + Aux Sends list */}
-            {clickSendsOpen && (
-              <div className="absolute left-0 top-full z-50 mt-1.5 w-64 rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md p-3 shadow-2xl space-y-3 select-none">
+              <Popover.Dialog className="space-y-3 select-none">
                 <div className="flex items-center justify-between border-b border-default/20 pb-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-foreground/50">
                     Click Routing
@@ -1119,55 +1182,39 @@ export function PlayerScreen({
                       No Aux buses
                     </div>
                   ) : (
-                    auxBusses.map((bus) => {
-                      const send = (
-                        state.click
-                          ? outputSendsToClickRows(state.click.output)
-                          : []
-                      ).find((cs) => cs.busId === bus.id);
-                      const isActive = send?.enabled === true;
-                      return (
-                        <div
-                          key={bus.id}
-                          className="flex items-center justify-between gap-2 bg-default/10 p-1.5 rounded-lg border border-default/20"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleClickSend(bus.id)}
-                            className={`flex items-center gap-1.5 text-xs font-medium truncate ${
-                              isActive
-                                ? "text-accent"
-                                : "text-foreground/50 hover:text-foreground"
-                            }`}
-                          >
-                            <span
-                              className={`h-2 w-2 rounded-full shrink-0 ${
-                                isActive ? "bg-accent" : "bg-default/40"
-                              }`}
-                            />
-                            <span className="truncate">
-                              {bus.name || bus.id}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleClickSend(bus.id)}
-                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                              isActive
-                                ? "tint--soft text-accent border border-accent/40"
-                                : "bg-default/20 text-foreground/40 hover:bg-default/30"
-                            }`}
-                          >
-                            {isActive ? "ACTIVE" : "OFF"}
-                          </button>
-                        </div>
-                      );
-                    })
+                    /* Independent on/off per bus -- a multiple-selection group,
+                       detached so each send reads as its own row rather than a
+                       segment of one bar. */
+                    <ToggleButtonGroup
+                      aria-label="Aux sends"
+                      orientation="vertical"
+                      isDetached
+                      fullWidth
+                      size="sm"
+                      selectionMode="multiple"
+                      selectedKeys={enabledClickSendIds}
+                      onSelectionChange={(keys) => {
+                        const next = new Set(Array.from(keys, String));
+                        for (const bus of auxBusses) {
+                          if (
+                            next.has(bus.id) !==
+                            enabledClickSendIds.includes(bus.id)
+                          )
+                            toggleClickSend(bus.id);
+                        }
+                      }}
+                    >
+                      {auxBusses.map((bus) => (
+                        <ToggleButton key={bus.id} id={bus.id}>
+                          <span className="truncate">{bus.name || bus.id}</span>
+                        </ToggleButton>
+                      ))}
+                    </ToggleButtonGroup>
                   )}
                 </div>
-              </div>
-            )}
-          </div>
+              </Popover.Dialog>
+            </Popover.Content>
+          </Popover>
         </div>
 
         {/* Dual sparkline graphs: CPU & RAM */}

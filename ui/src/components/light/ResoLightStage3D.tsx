@@ -1,4 +1,4 @@
-import { Button } from "@heroui/react";
+import { Button } from "../ui";
 import { Grid, OrbitControls, Text } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import { Maximize2, MoveUp } from "lucide-react";
