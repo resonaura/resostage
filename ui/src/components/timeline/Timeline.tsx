@@ -21,6 +21,11 @@ import { addRafTask } from "../../lib/rafLoop";
 import { useScrollShadow } from "@heroui/react";
 import { isPositionVisible } from "../../lib/timelineVisibility";
 import { RegionSidePanel } from "./RegionSidePanel";
+import {
+  quantizeScrollWindow,
+  sameScrollWindow,
+  type ScrollWindow,
+} from "./scrollWindow";
 import type {
   AllPeaksResponse,
   PeaksResponse,
@@ -172,10 +177,38 @@ export function Timeline({
   // onScroll (sync with the browser) + rAF as a safety net — never via
   // React state (that lagged a frame and skew-synced track labels).
   const sidebarContentRef = useRef<HTMLDivElement>(null);
-  const [scrollState, setScrollState] = useState({
-    scrollLeft: 0,
-    viewportWidth: 1000,
-  });
+  // The COARSE window, not the live scroll position -- see scrollWindow.ts.
+  // Everything in the tree that reads this culls or re-quantizes anyway, and
+  // the follow loop writes the real scrollLeft straight to the DOM.
+  const [scrollState, setScrollState] = useState<ScrollWindow>(() =>
+    quantizeScrollWindow(0, 1000),
+  );
+  const scrollStateRef = useRef(scrollState);
+  scrollStateRef.current = scrollState;
+
+  /**
+   * Publish a scroll position to React, quantized, and only when the window
+   * it lands in actually changed.
+   *
+   * Every caller passes the live pixel position; the filtering happens here
+   * so no call site has to remember to do it. This is the whole reason a
+   * screen of scrolling costs a handful of commits instead of a hundred and
+   * fifty -- see scrollWindow.ts for why the tree does not miss the
+   * precision.
+   */
+  const commitScrollState = useCallback(
+    (scrollLeft: number, viewportWidth: number) => {
+      const next = quantizeScrollWindow(scrollLeft, viewportWidth);
+      if (sameScrollWindow(scrollStateRef.current, next)) return;
+      scrollStateRef.current = next;
+      setScrollState(next);
+    },
+    [],
+  );
+  // Window listeners and the rAF loop both outlive the render that created
+  // the callback; they go through this ref so they never hold a stale one.
+  const commitScrollStateRef = useRef(commitScrollState);
+  commitScrollStateRef.current = commitScrollState;
 
   // ZOOM-only flag feeding the playhead clock FREEZE below. Declared here so
   // the clock hook can read it; the setter lives with the other gesture
@@ -237,8 +270,6 @@ export function Timeline({
     setVerticalZoom,
     effectiveTool,
     setTool,
-    crossfadeOnOverlap,
-    setCrossfadeOnOverlap,
   } = useTimelinePrefs(readOnly);
 
   // Selected light cue (Light-mode editor), drives the cue editor panel.
@@ -274,13 +305,34 @@ export function Timeline({
   // a one-frame tug-of-war between the two, which is what made the playhead
   // visibly jump during a zoom gesture while autofollowing.
   const gestureActiveNowRef = useRef(false);
+  // Mirror of the REACT flag, so the setters below can be skipped when the
+  // value would not change. This is not micro-optimisation: markGestureActive
+  // fires on every `scroll` event, and calling a useState setter with the
+  // value it already holds still re-runs this component -- React only bails
+  // out of re-rendering the CHILDREN. Timeline is a large tree, so that was
+  // one full element-creation pass per scrolled frame for a boolean that had
+  // been true since the gesture started. Same reasoning for zoomActive.
+  const gestureActiveStateRef = useRef(false);
+  const setGestureActiveDeduped = (v: boolean) => {
+    if (gestureActiveStateRef.current === v) return;
+    gestureActiveStateRef.current = v;
+    setGestureActive(v);
+  };
+  const zoomActiveStateRef = useRef(false);
+  const setZoomActiveDeduped = (v: boolean) => {
+    if (zoomActiveStateRef.current === v) return;
+    zoomActiveStateRef.current = v;
+    setZoomActive(v);
+  };
   const markGestureActiveRef = useRef(() => {
     gestureActiveNowRef.current = true;
-    setGestureActive(true);
+    setGestureActiveDeduped(true);
+    // The timer is always refreshed -- that is what keeps the gesture alive
+    // -- but refreshing a timeout costs nothing next to a React render.
     if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
     gestureTimerRef.current = setTimeout(() => {
       gestureActiveNowRef.current = false;
-      setGestureActive(false);
+      setGestureActiveDeduped(false);
     }, 700);
   });
   // ZOOM-only flag feeding the playhead clock FREEZE: while the user is
@@ -298,10 +350,10 @@ export function Timeline({
   // ("автоскролл не пашет никакой теперь").
   const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markZoomActiveRef = useRef(() => {
-    setZoomActive(true);
+    setZoomActiveDeduped(true);
     if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
     zoomTimerRef.current = setTimeout(() => {
-      setZoomActive(false);
+      setZoomActiveDeduped(false);
     }, 700);
   });
   // Explicit end-of-gesture clear. The settle timer above is a fallback for
@@ -314,8 +366,8 @@ export function Timeline({
   // while fingers were still down).
   const endGestureRef = useRef(() => {
     gestureActiveNowRef.current = false;
-    setGestureActive(false);
-    setZoomActive(false);
+    setGestureActiveDeduped(false);
+    setZoomActiveDeduped(false);
     if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
     gestureTimerRef.current = null;
     if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
@@ -599,7 +651,6 @@ export function Timeline({
     useRegionDrag({
       songs: state.songs,
       markGestureActive: () => markGestureActiveRef.current(),
-      crossfadeOnOverlap,
     });
 
   // Light cue actively being dragged across LightTrackLane instances (each
@@ -1197,16 +1248,10 @@ export function Timeline({
         if (playheadRef.current) playheadRef.current.style.left = `${px}px`;
         if (playheadHandleRef.current)
           playheadHandleRef.current.style.left = `${px}px`;
-        setScrollState({
-          scrollLeft: targetScrollLeft,
-          viewportWidth: scroller.clientWidth || 1000,
-        });
+        commitScrollStateRef.current(targetScrollLeft, scroller.clientWidth || 1000);
         pendingScrollLeftRef.current = null;
       } else {
-        setScrollState({
-          scrollLeft: scroller.scrollLeft,
-          viewportWidth: scroller.clientWidth || 1000,
-        });
+        commitScrollStateRef.current(scroller.scrollLeft, scroller.clientWidth || 1000);
       }
     }
   }, [pxPerSec]);
@@ -1622,10 +1667,7 @@ export function Timeline({
       // Manual pan while playing suspends follow; catch flags re-enable later.
       if (playingRef.current) suspendFollowFromUserScroll();
     }
-    setScrollState({
-      scrollLeft: left,
-      viewportWidth: scroller.clientWidth,
-    });
+    commitScrollStateRef.current(left, scroller.clientWidth);
   };
 
   const keyboardActions = useMemo(
@@ -1891,10 +1933,7 @@ export function Timeline({
           lastCommittedScrollLeftRef.current = engineScrollLeft;
           lastScrollStateCommitAtRef.current = nowCommit;
           lastScrollLeftRef.current = engineScrollLeft;
-          setScrollState({
-            scrollLeft: engineScrollLeft,
-            viewportWidth: viewWidth,
-          });
+          commitScrollStateRef.current(engineScrollLeft, viewWidth);
         }
         // Marker: during active large panning (song change / far seek), hold
         // marker pinned at 25% viewport while timeline slides under it.
@@ -1934,10 +1973,7 @@ export function Timeline({
             lastProgrammaticWriteAtRef.current = performance.now();
             lastCommittedScrollLeftRef.current = scroller.scrollLeft;
             lastScrollLeftRef.current = scroller.scrollLeft;
-            setScrollState({
-              scrollLeft: scroller.scrollLeft,
-              viewportWidth: viewWidth,
-            });
+            commitScrollStateRef.current(scroller.scrollLeft, viewWidth);
           }
           revealScroll = null;
         }
@@ -2027,10 +2063,7 @@ export function Timeline({
               lastCommittedScrollLeftRef.current = revealLeft;
               lastScrollStateCommitAtRef.current = performance.now();
               lastScrollLeftRef.current = revealLeft;
-              setScrollState({
-                scrollLeft: revealLeft,
-                viewportWidth: viewWidth,
-              });
+              commitScrollStateRef.current(revealLeft, viewWidth);
             }
             if (settled) revealScroll = null;
           }
@@ -2085,8 +2118,6 @@ export function Timeline({
         effectiveViewMode={effectiveViewMode}
         setViewMode={setViewMode}
         snapToGrid={snapToGrid}
-        crossfadeOnOverlap={crossfadeOnOverlap}
-        setCrossfadeOnOverlap={setCrossfadeOnOverlap}
         setSnapToGrid={setSnapToGrid}
         followMode={followMode}
         cycleFollowMode={cycleFollowMode}

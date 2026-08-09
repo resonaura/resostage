@@ -141,6 +141,52 @@ function faceImage(): HTMLImageElement {
   return sharedFaceImage;
 }
 
+/**
+ * Rasterized dial faces, shared by every meter drawing at the same size.
+ *
+ * The face is already rasterized once per meter rather than once per frame,
+ * which was the big win. This is the next one: a player with a master, four
+ * sends and a dozen output lanes draws a dozen meters at *identical* sizes,
+ * and each was keeping its own pixel-for-pixel duplicate of the same plate --
+ * at 2x DPR that is a dozen 352x288 bitmaps of the same picture.
+ *
+ * Keyed on the source image too, so a theme swap (which replaces the <img>)
+ * invalidates every entry without anyone having to remember to clear it.
+ */
+const faceCache = new Map<string, HTMLCanvasElement>();
+let faceCacheImage: HTMLImageElement | null = null;
+
+function sharedFace(
+  img: HTMLImageElement,
+  w: number,
+  h: number,
+  dpr: number,
+): HTMLCanvasElement | null {
+  if (!img.complete || img.naturalWidth === 0) return null;
+  if (faceCacheImage !== img) {
+    faceCache.clear();
+    faceCacheImage = img;
+  }
+  const bw = Math.max(1, Math.round(w * dpr));
+  const bh = Math.max(1, Math.round(h * dpr));
+  const key = `${bw}x${bh}`;
+  const hit = faceCache.get(key);
+  if (hit) return hit;
+
+  const off = document.createElement("canvas");
+  off.width = bw;
+  off.height = bh;
+  const octx = off.getContext("2d");
+  if (!octx) return null;
+  octx.scale(dpr, dpr);
+  const scale = Math.min(w / 1080, h / 600);
+  octx.translate((w - 1080 * scale) / 2, (h - 600 * scale) / 2);
+  octx.scale(scale, scale);
+  octx.drawImage(img, 0, 0, 1080, 600);
+  faceCache.set(key, off);
+  return off;
+}
+
 /** The needle and pivot, which are painted live rather than baked into the face. */
 function needleColors(): { needle: string; plate: string } {
   const c = sharedFaceColors ?? currentFaceColors();
@@ -178,43 +224,9 @@ export function VUMeter({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // The dial face never changes, but it used to be re-rasterized from the
-    // SVG on every single frame of every meter -- for a rig with eight bus
-    // meters that is eight full-plate SVG rasterizations sixty times a second
-    // to redraw a needle that had not moved. Rasterize it ONCE into an
-    // offscreen bitmap at the exact device size and blit that instead.
+    // Never null once the SVG has decoded; sharedFace hands back the one
+    // bitmap every meter of this size is using.
     let face: HTMLCanvasElement | null = null;
-    let faceW = 0;
-    let faceH = 0;
-    let faceSource: HTMLImageElement | null = null;
-
-    const buildFace = (
-      img: HTMLImageElement,
-      w: number,
-      h: number,
-      dpr: number,
-    ) => {
-      if (!img.complete || img.naturalWidth === 0) return;
-      const bw = Math.max(1, Math.round(w * dpr));
-      const bh = Math.max(1, Math.round(h * dpr));
-      // faceSource in the check: a theme swap hands back a different <img> at
-      // the same size, and that has to re-rasterize even though nothing moved.
-      if (face && faceW === bw && faceH === bh && faceSource === img) return;
-      const off = document.createElement("canvas");
-      off.width = bw;
-      off.height = bh;
-      const octx = off.getContext("2d");
-      if (!octx) return;
-      octx.scale(dpr, dpr);
-      const scale = Math.min(w / 1080, h / 600);
-      octx.translate((w - 1080 * scale) / 2, (h - 600 * scale) / 2);
-      octx.scale(scale, scale);
-      octx.drawImage(img, 0, 0, 1080, 600);
-      face = off;
-      faceW = bw;
-      faceH = bh;
-      faceSource = img;
-    };
 
     // Сохраняем состояние текущего угла и сглаженного входного уровня
     const anim = {
@@ -265,7 +277,7 @@ export function VUMeter({
       const h = rect.height;
       if (w <= 0 || h <= 0) return;
 
-      buildFace(faceImage(), w, h, dpr);
+      face = sharedFace(faceImage(), w, h, dpr);
 
       const geometryChanged =
         w !== paintedW || h !== paintedH || dpr !== paintedDpr;
@@ -346,7 +358,59 @@ export function VUMeter({
       ctx.restore();
     };
 
-    return addRafTask(render);
+    // ── Only run while on screen ────────────────────────────────────────
+    //
+    // The bus panel renders every group, and a real rig has a master, four
+    // sends and a dozen output lanes: measured on the player, twelve canvases
+    // laid out to x=3393 in a 1680px window. Eleven of them were stepping
+    // ballistics and scanning the whole live-levels array sixty times a
+    // second to move a needle nobody could see.
+    //
+    // Gating beats windowing the DOM here. The canvas stays mounted and keeps
+    // the pixels it last painted, so scrolling one back into view shows a
+    // dial rather than a blank -- and it works unchanged for the compact
+    // density, which wraps and scrolls vertically instead.
+    let stopRaf: (() => void) | null = null;
+    const start = () => {
+      if (stopRaf) return;
+      // Re-entering after a pause: the needle would otherwise sweep up from
+      // wherever it was parked, which reads as a meter catching up rather
+      // than a meter that was simply off screen.
+      const live = getRef.current?.();
+      const at = live !== undefined && Number.isFinite(live) ? live : dbRef.current;
+      anim.smoothedDb = Math.max(VU_MIN_DB, Math.min(VU_MAX_DB, at));
+      anim.currentRot = dbToRotation(anim.smoothedDb);
+      stopRaf = addRafTask(render);
+    };
+    const stop = () => {
+      stopRaf?.();
+      stopRaf = null;
+    };
+
+    // No IntersectionObserver (jsdom, ancient webview): just always run, which
+    // is exactly the old behaviour.
+    if (typeof IntersectionObserver === "undefined") {
+      start();
+      return stop;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) start();
+          else stop();
+        }
+      },
+      // A screen of slack on each side: a meter is already live by the time
+      // the scroll actually reaches it, so it is never caught mid-sweep.
+      { rootMargin: "200px" },
+    );
+    observer.observe(canvas);
+
+    return () => {
+      observer.disconnect();
+      stop();
+    };
   }, []);
 
   return (

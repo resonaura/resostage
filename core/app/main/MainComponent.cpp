@@ -863,6 +863,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::TimelineUndo: performTimelineUndo(); break;
             case WebCommandKind::TimelineRedo: performTimelineRedo(); break;
             case WebCommandKind::SetAudioOutputDevice: settingsSetAudioOutputDevice(cmd.json); break;
+            case WebCommandKind::SetAudioDeviceType: settingsSetAudioDeviceType(cmd.json); break;
             case WebCommandKind::SetSampleRate: settingsSetSampleRate(cmd.json); break;
             case WebCommandKind::SetBufferSize: settingsSetBufferSize(cmd.json); break;
             case WebCommandKind::SetMidiOutput: settingsSetMidiOutput(cmd.json); break;

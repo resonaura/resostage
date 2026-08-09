@@ -36,6 +36,7 @@ AppSettings loadAppSettings() {
         return settings; // corrupt file -- start from defaults rather than fail startup
 
     settings.outputDeviceName = std::move(wire.outputDeviceName);
+    settings.audioDeviceType = std::move(wire.audioDeviceType);
     settings.sampleRate = wire.sampleRate;
     settings.bufferSize = wire.bufferSize;
     settings.midiOutputName = std::move(wire.midiOutputName);
@@ -47,6 +48,15 @@ AppSettings loadAppSettings() {
     }
 
     settings.activeOutputChannels = std::move(wire.activeOutputChannels);
+    for (auto& [name, wp] : wire.deviceProfiles) {
+        if (name.empty())
+            continue;
+        AppSettings::DeviceProfile profile;
+        profile.sampleRate = wp.sampleRate;
+        profile.bufferSize = wp.bufferSize;
+        profile.activeOutputChannels = wp.activeOutputChannels;
+        settings.deviceProfiles.emplace(name, std::move(profile));
+    }
     settings.keybindings = std::move(wire.keybindings);
 
     for (auto& mm : wire.midiMappings) {
@@ -91,6 +101,7 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
 
     WAppSettings wire;
     wire.outputDeviceName = settings.outputDeviceName;
+    wire.audioDeviceType = settings.audioDeviceType;
     wire.sampleRate = settings.sampleRate;
     wire.bufferSize = settings.bufferSize;
     wire.midiOutputName = settings.midiOutputName;
@@ -98,6 +109,13 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
     wire.virtualMidiPortEnabled = settings.virtualMidiPortEnabled;
     wire.uiRenderEngine = settings.uiRenderEngine;
     wire.activeOutputChannels = settings.activeOutputChannels;
+    for (const auto& [name, profile] : settings.deviceProfiles) {
+        WDeviceProfile wp;
+        wp.sampleRate = profile.sampleRate;
+        wp.bufferSize = profile.bufferSize;
+        wp.activeOutputChannels = profile.activeOutputChannels;
+        wire.deviceProfiles.emplace(name, std::move(wp));
+    }
     wire.keybindings = settings.keybindings;
 
     for (const auto& m : settings.midiMappings) {

@@ -66,9 +66,38 @@ elseif(UNIX)
   # target_sources(ResoStage PRIVATE platform/LinuxShellMode.cpp)
 endif()
 
+# ── ASIO (Windows) ───────────────────────────────────────────────────────
+#
+# ASIO is the only Windows API that gives a live rig usable latency and real
+# multi-channel output; WASAPI shared mode is neither. JUCE can drive it, but
+# the SDK is Steinberg's and cannot be redistributed, so it is not vendored
+# here -- point RESOSTAGE_ASIO_SDK_DIR at an unpacked asiosdk (the directory
+# containing common/iasiodrv.h) and this build picks it up.
+#
+# Off means the Windows build still works, on WASAPI/DirectSound, and the
+# device-type list simply does not offer ASIO.
+set(RESOSTAGE_ASIO_SDK_DIR "$ENV{RESOSTAGE_ASIO_SDK_DIR}" CACHE PATH
+    "Path to the Steinberg ASIO SDK (enables ASIO on Windows)")
+
+set(RESOSTAGE_HAVE_ASIO 0)
+if(WIN32 AND RESOSTAGE_ASIO_SDK_DIR)
+  if(EXISTS "${RESOSTAGE_ASIO_SDK_DIR}/common/iasiodrv.h")
+    set(RESOSTAGE_HAVE_ASIO 1)
+    target_include_directories(ResoStage PRIVATE "${RESOSTAGE_ASIO_SDK_DIR}/common")
+    message(STATUS "ASIO enabled from ${RESOSTAGE_ASIO_SDK_DIR}")
+  else()
+    message(WARNING
+      "RESOSTAGE_ASIO_SDK_DIR set but ${RESOSTAGE_ASIO_SDK_DIR}/common/iasiodrv.h "
+      "is missing -- building without ASIO")
+  endif()
+elseif(WIN32)
+  message(STATUS "ASIO disabled (set RESOSTAGE_ASIO_SDK_DIR to enable)")
+endif()
+
 target_compile_definitions(ResoStage
   PRIVATE
     JUCE_USE_CURL=0
+    JUCE_ASIO=${RESOSTAGE_HAVE_ASIO}
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ResoStage,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:ResoStage,JUCE_VERSION>"
 )

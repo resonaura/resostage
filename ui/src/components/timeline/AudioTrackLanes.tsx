@@ -171,8 +171,15 @@ export function AudioTrackLanes({
               if (readOnly || tool !== "pencil") return;
               // Empty-lane pencil only — region blocks stopPropagation on
               // their own handlers so this won't fire when clicking a region.
+              // No scrollLeft term: this lane IS the full-width content
+              // element, so its bounding rect has already moved left by the
+              // scroll and `clientX - rect.left` is content space. Adding the
+              // scroll offset double-counted it and picked the wrong song
+              // once the timeline was scrolled past the first one -- which
+              // also made this the only place in the tree that needed a
+              // pixel-exact scroll position (see scrollWindow.ts).
               const rect = e.currentTarget.getBoundingClientRect();
-              const x = e.clientX - rect.left + scrollState.scrollLeft;
+              const x = e.clientX - rect.left;
               // Find song under click
               let songIndex = 0;
               for (let i = 0; i < songOffsets.length; i++) {
@@ -195,6 +202,9 @@ export function AudioTrackLanes({
                 Math.round(songLengths[i] * pxPerSec),
               );
               const segEnd = segStart + segWidth;
+              // scrollState is the QUANTIZED window, which is why this can
+              // be a plain overlap test with no overscan of its own: the
+              // window already carries it. See scrollWindow.ts.
               const viewStart = Math.max(segStart, scrollState.scrollLeft);
               const viewEnd = Math.min(
                 segEnd,

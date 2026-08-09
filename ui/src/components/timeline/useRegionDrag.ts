@@ -30,13 +30,10 @@ import {
 export function useRegionDrag({
   songs,
   markGestureActive,
-  crossfadeOnOverlap = false,
   crossfadeShape = DEFAULT_CROSSFADE_SHAPE,
 }: {
   songs: SongRow[];
   markGestureActive: () => void;
-  /** X-Fade drag mode: an overlap left by a drag becomes a crossfade. */
-  crossfadeOnOverlap?: boolean;
   crossfadeShape?: CrossfadeShape;
 }) {
   const [regionGeomDraft, setRegionGeomDraft] = useState<
@@ -60,9 +57,9 @@ export function useRegionDrag({
   const markGestureActiveRef = useRef(markGestureActive);
   markGestureActiveRef.current = markGestureActive;
   // Read at pointer-up from window listeners, which outlive the render that
-  // started the drag -- the toggle could have been flipped mid-gesture.
-  const crossfadeRef = useRef({ crossfadeOnOverlap, crossfadeShape });
-  crossfadeRef.current = { crossfadeOnOverlap, crossfadeShape };
+  // started the drag.
+  const crossfadeRef = useRef({ crossfadeShape });
+  crossfadeRef.current = { crossfadeShape };
   const songsRef = useRef(songs);
   songsRef.current = songs;
 
@@ -131,6 +128,13 @@ export function useRegionDrag({
   /**
    * Turn any overlap this drag created into a crossfade.
    *
+   * Unconditional. An overlap between two regions on one track has exactly
+   * one sensible reading -- they play together through the overlap -- and
+   * that is what the engine now does, so the fades that make it sound like a
+   * join rather than a doubling belong there too. There is no mode to turn
+   * on; the toggle that used to gate this only ever meant "make the overlap
+   * behave".
+   *
    * Runs on the geometry that was just committed rather than on `songs`,
    * which still holds the pre-drag position -- the engine echo has not
    * arrived yet, and waiting for it would make the fades appear a frame after
@@ -142,9 +146,7 @@ export function useRegionDrag({
     finalGeom: RegionGeom,
     gestureId: string,
   ) => {
-    const { crossfadeOnOverlap: enabled, crossfadeShape: shape } =
-      crossfadeRef.current;
-    if (!enabled) return;
+    const { crossfadeShape: shape } = crossfadeRef.current;
     const song = songsRef.current[songIndex];
     if (!song) return;
     const siblings = song.regions ?? [];

@@ -195,6 +195,11 @@ private:
     void lightingCueUpdate(const std::string& json);
 
     void settingsSetAudioOutputDevice(const std::string& json);
+    void settingsSetAudioDeviceType(const std::string& json);
+    // Snapshots the live device's rate/buffer/channels into
+    // AppSettings::deviceProfiles. Call before leaving a device and after
+    // changing its routing.
+    void rememberCurrentDeviceProfile();
     void settingsSetSampleRate(const std::string& json);
     void settingsSetBufferSize(const std::string& json);
     void settingsSetMidiOutput(const std::string& json);
@@ -214,6 +219,10 @@ private:
     struct HardwareSettingsCache {
         std::vector<std::string> outputDevices;
         std::string currentOutputDevice;
+        // Host audio APIs this build can drive (ASIO / CoreAudio / ALSA /
+        // JACK / Windows Audio ...). More than one only on Windows and Linux.
+        std::vector<std::string> audioDrivers;
+        std::string currentAudioDriver;
         double sampleRate = 0.0;
         int bufferSize = 0;
         std::vector<double> availableSampleRates;

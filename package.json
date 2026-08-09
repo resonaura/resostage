@@ -2,7 +2,7 @@
   "name": "resoset",
   "private": true,
   "version": "0.1.0",
-  "description": "ResoStage — stage playback engine + web UI",
+  "description": "ResoStage \u2014 stage playback engine + web UI",
   "type": "module",
   "packageManager": "pnpm@10.0.0",
   "engines": {
@@ -24,6 +24,8 @@
     "build:app": "node scripts/dev.mjs app",
     "app:run": "node scripts/dev.mjs app:run",
     "build:app:run": "node scripts/dev.mjs app:run",
+    "publish": "node scripts/dev.mjs publish",
+    "publish:rebuild": "node scripts/dev.mjs publish:rebuild",
     "test": "node scripts/dev.mjs test",
     "lint": "node scripts/dev.mjs lint",
     "typecheck": "pnpm --dir ui exec tsc -b --pretty false",

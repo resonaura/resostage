@@ -25,10 +25,19 @@ struct WRecentProject {
     std::string lastOpenedIso;
 };
 
-struct WAppSettings {
-    std::string outputDeviceName;
+struct WDeviceProfile {
     double sampleRate = 0.0;
     int bufferSize = 0;
+    std::vector<int> activeOutputChannels;
+};
+
+struct WAppSettings {
+    std::string outputDeviceName;
+    std::string audioDeviceType;
+    double sampleRate = 0.0;
+    int bufferSize = 0;
+    // Keyed by device name -- see AppSettings::deviceProfiles.
+    std::unordered_map<std::string, WDeviceProfile> deviceProfiles;
     std::string midiOutputName;
     std::string midiInputName;
     bool virtualMidiPortEnabled = false;
@@ -515,6 +524,8 @@ struct WMidiBindingTelemetry {
 struct WSettingsTelemetry {
     std::optional<std::string> currentOutputDevice;
     std::optional<std::vector<std::string>> outputDevices;
+    std::optional<std::vector<std::string>> audioDrivers;
+    std::optional<std::string> currentAudioDriver;
     std::optional<double> sampleRate;
     std::optional<std::vector<double>> availableSampleRates;
     std::optional<int> bufferSize;

@@ -491,6 +491,7 @@ void AudioEngine::ensureScratchSizes() {
 
     for (auto& scratch : trackScratch)
         scratch.setSize(2, samples, false, false, true);
+    regionMixScratch.setSize(2, samples, false, false, true);
 
     clickScratch.assign(static_cast<size_t>(samples), 0.0f);
 }

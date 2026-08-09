@@ -178,6 +178,7 @@ enum class WebCommandKind : uint8_t {
     // device selection, keybindings. Same raw-JSON-passthrough routing as
     // the Builder commands above; handled in MainComponentSettings.cpp.
     SetAudioOutputDevice,
+    SetAudioDeviceType,
     SetSampleRate,
     SetBufferSize,
     SetMidiOutput,
@@ -726,6 +727,8 @@ struct WebUiState {
     struct SettingsRow {
         std::string currentOutputDevice;
         std::vector<std::string> outputDevices;
+        std::vector<std::string> audioDrivers;
+        std::string currentAudioDriver;
         double sampleRate = 0.0;
         std::vector<double> availableSampleRates;
         int bufferSize = 0;

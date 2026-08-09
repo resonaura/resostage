@@ -596,6 +596,9 @@ export const timelineHistory = {
 export const settings = {
   setAudioOutputDevice: (name: string) =>
     post("/api/v1/settings/audio-device", { name }),
+  /** Switch host audio API (ASIO / CoreAudio / ALSA / JACK / Windows Audio). */
+  setAudioDriver: (type: string) =>
+    post("/api/v1/settings/audio-driver", { type }),
   setSampleRate: (value: number) =>
     post("/api/v1/settings/sample-rate", { value }),
   setBufferSize: (value: number) =>

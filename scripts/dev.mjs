@@ -18,6 +18,7 @@ import {
   runTests,
   startApp,
 } from "./lib.mjs";
+import { publish } from "./publish.mjs";
 
 const COMMANDS = {
   kill: {
@@ -66,6 +67,18 @@ const COMMANDS = {
       buildApp();
       killApp();
       startApp();
+    },
+  },
+  publish: {
+    desc: "Build installers for this platform into build/publish",
+    run: () => publish(),
+  },
+  "publish:rebuild": {
+    desc: "Full rebuild, then build installers",
+    run: () => {
+      buildUi();
+      buildApp();
+      publish();
     },
   },
   test: {

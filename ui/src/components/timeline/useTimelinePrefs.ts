@@ -5,7 +5,6 @@ import type { TimelineTool } from "./tools";
 const FOLLOW_KEY = "resostage.timeline.followMode";
 const VIEW_KEY = "resostage.timeline.viewMode";
 const CATCH_PLAY_KEY = "resostage.timeline.catchOnPlay";
-const XFADE_KEY = "resostage.timeline.crossfadeOnOverlap";
 const CATCH_SEEK_KEY = "resostage.timeline.catchOnSeek";
 const TOOL_KEY = "resostage.timeline.tool";
 
@@ -78,12 +77,6 @@ export function useTimelinePrefs(readOnly: boolean) {
   const [catchOnSeek, setCatchOnSeek] = useState(() =>
     readBool(CATCH_SEEK_KEY, true),
   );
-  // X-Fade drag mode. Off by default: it rewrites the neighbours' fades on
-  // every drag that lands on one, which is only ever what you want when you
-  // are deliberately assembling takes.
-  const [crossfadeOnOverlap, setCrossfadeOnOverlap] = useState(() =>
-    readBool(XFADE_KEY, false),
-  );
 
   // Last non-off mode so we can restore after a manual-scroll suspend.
   const preferredFollowRef = useRef<Exclude<TimelineFollowMode, "off">>(
@@ -105,9 +98,6 @@ export function useTimelinePrefs(readOnly: boolean) {
   useEffect(() => {
     persist(CATCH_PLAY_KEY, catchOnPlay ? "1" : "0");
   }, [catchOnPlay]);
-  useEffect(() => {
-    persist(XFADE_KEY, crossfadeOnOverlap ? "1" : "0");
-  }, [crossfadeOnOverlap]);
   useEffect(() => {
     persist(CATCH_SEEK_KEY, catchOnSeek ? "1" : "0");
   }, [catchOnSeek]);
@@ -162,7 +152,5 @@ export function useTimelinePrefs(readOnly: boolean) {
     tool,
     setTool,
     effectiveTool,
-    crossfadeOnOverlap,
-    setCrossfadeOnOverlap,
   };
 }

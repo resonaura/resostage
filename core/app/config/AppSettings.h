@@ -34,6 +34,30 @@ struct AppSettings {
     int bufferSize = 0;
     std::vector<int> activeOutputChannels; // indices into the device's channel list
 
+    // Which host audio API to drive: "ASIO", "CoreAudio", "ALSA", "JACK",
+    // "Windows Audio"... Empty means "let the platform decide", which is what
+    // every existing settings file says.
+    //
+    // Worth storing separately from the device name because the same box can
+    // expose the same interface through two APIs with wildly different
+    // latency -- an ASIO rig that falls back to WASAPI on the next launch is
+    // a rig that misses its cues.
+    std::string audioDeviceType;
+
+    // Per-device memory of what was selected ON that device.
+    //
+    // Without this, switching to the laptop's built-in output to check
+    // something and switching back leaves the interface on its default
+    // stereo pair -- every wedge, sub and IEM feed silently unrouted, which
+    // on a stage is discovered during the show. Keyed by device name, which
+    // is what the OS gives back when the interface is plugged in again.
+    struct DeviceProfile {
+        double sampleRate = 0.0;
+        int bufferSize = 0;
+        std::vector<int> activeOutputChannels;
+    };
+    std::unordered_map<std::string, DeviceProfile> deviceProfiles;
+
     std::string midiOutputName;
     std::string midiInputName;
     bool virtualMidiPortEnabled = false;

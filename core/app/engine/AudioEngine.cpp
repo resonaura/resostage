@@ -865,12 +865,25 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         scratch.clear();
 
         const std::string& trackId = trackIdByIndex[t];
-        const Region* reg = nullptr;
+        // EVERY region sounding in this block, not just the first.
+        //
+        // A track can have two regions overlapping, and when it does both
+        // have to play: their fade-out and fade-in sum, and that sum IS the
+        // crossfade. This used to stop at the first match, so an overlap
+        // silently dropped one side -- the fades the timeline drew over a
+        // join could never be heard, no matter what the UI wrote.
+        //
+        // Fixed cap, no allocation: this is the audio thread. Two is a
+        // crossfade; anything past kMaxRegionsPerBlock is a pile-up the user
+        // has to sort out in the editor.
+        static constexpr int kMaxRegionsPerBlock = 8;
+        const Region* sounding[kMaxRegionsPerBlock];
+        int soundingCount = 0;
+        const Region* fallback = nullptr;
         if (currentSong < proj.songs.size()) {
             const SongDef& song = proj.songs[currentSong];
             const double blockT0 = static_cast<double>(playheadSample) / currentSampleRate;
             const double blockT1 = static_cast<double>(playheadSample + numSamples) / currentSampleRate;
-            const Region* fallback = nullptr;
             for (const Region& r : song.regions) {
                 if (r.trackId != trackId)
                     continue;
@@ -878,13 +891,41 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     fallback = &r;
                 const double dur = regionEffectiveDurationSeconds(r);
                 const double end = r.startSeconds + dur;
-                if (blockT1 > r.startSeconds && blockT0 < end) {
-                    reg = &r;
-                    break;
+                if (blockT1 > r.startSeconds && blockT0 < end
+                    && soundingCount < kMaxRegionsPerBlock) {
+                    sounding[soundingCount++] = &r;
                 }
             }
-            if (reg == nullptr)
-                reg = fallback;
+        }
+        // Nothing under the playhead: still render the fallback so a staged
+        // track clears its scratch exactly the way it always did (the window
+        // check below turns it into silence).
+        if (soundingCount == 0 && fallback != nullptr)
+            sounding[soundingCount++] = fallback;
+        if (soundingCount == 0)
+            sounding[soundingCount++] = nullptr;
+
+        // Folds a side-buffered region into the track's scratch. Both are
+        // two channels wide and cleared before use, so summing both is right
+        // whether the source was mono or stereo.
+        auto sumIntoScratch = [&]() {
+            const int chans =
+                std::min(scratch.getNumChannels(), regionMixScratch.getNumChannels());
+            for (int ch = 0; ch < chans; ++ch)
+                scratch.addFrom(ch, 0, regionMixScratch, ch, 0, numSamples);
+        };
+
+      for (int regionSlot = 0; regionSlot < soundingCount; ++regionSlot) {
+        const Region* reg = sounding[regionSlot];
+        // The first region owns the track's scratch; the rest render into a
+        // side buffer and are summed in at the end of the iteration.
+        const bool additive = regionSlot > 0;
+        juce::AudioBuffer<float>& dst = additive ? regionMixScratch : scratch;
+        if (additive) {
+            if (regionMixScratch.getNumChannels() < 1
+                || regionMixScratch.getNumSamples() < numSamples)
+                break;
+            regionMixScratch.clear();
         }
 
         StreamingTrackBuffer* buf = nullptr;
@@ -896,7 +937,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             continue;
 
         const int trackChannels = std::min(2, buf->numChannels());
-        float* ptrs[2] = {scratch.getWritePointer(0), trackChannels > 1 ? scratch.getWritePointer(1) : scratch.getWritePointer(0)};
+        float* ptrs[2] = {dst.getWritePointer(0), trackChannels > 1 ? dst.getWritePointer(1) : dst.getWritePointer(0)};
         if (ptrs[0] == nullptr)
             continue;
 
@@ -1027,7 +1068,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                                 p[i] *= regGain;
                         }
                     }
-                    continue; // next track
+                    if (additive)
+                        sumIntoScratch();
+                    continue; // next region
                 }
 
                 for (int i = 0; i < numSamples; ++i) {
@@ -1062,6 +1105,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // else: leave scratch cleared (silence) -- do not pull from the stream
         // past the clip end (that was the meter-flash path).
 
+        if (additive)
+            sumIntoScratch();
+      }
     }
 
     // ── Mix ─────────────────────────────────────────────────────────────────

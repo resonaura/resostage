@@ -620,6 +620,10 @@ export interface RecentProjectEntry {
 export interface SettingsState {
   currentOutputDevice: string;
   outputDevices: string[];
+  /** Host audio APIs this build can drive. One entry on macOS; ASIO shows up
+   *  here on Windows only when the build found the Steinberg SDK. */
+  audioDrivers: string[];
+  currentAudioDriver: string;
   sampleRate: number;
   availableSampleRates: number[];
   bufferSize: number;
@@ -848,6 +852,8 @@ export const emptyState: WebUiState = {
   settings: {
     currentOutputDevice: "",
     outputDevices: [],
+    audioDrivers: [],
+    currentAudioDriver: "",
     sampleRate: 0,
     availableSampleRates: [],
     bufferSize: 0,

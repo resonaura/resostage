@@ -47,6 +47,8 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
 
     out.outputDevices = hardwareSettingsCache.outputDevices;
     out.currentOutputDevice = hardwareSettingsCache.currentOutputDevice;
+    out.audioDrivers = hardwareSettingsCache.audioDrivers;
+    out.currentAudioDriver = hardwareSettingsCache.currentAudioDriver;
     out.sampleRate = hardwareSettingsCache.sampleRate;
     out.bufferSize = hardwareSettingsCache.bufferSize;
     out.availableSampleRates = hardwareSettingsCache.availableSampleRates;
@@ -111,6 +113,18 @@ void MainComponent::rescanHardwareSettings() {
         if (type != nullptr)
             type->scanForDevices();
     }
+
+    // The host APIs available in this build: CoreAudio alone on macOS,
+    // Windows Audio plus ASIO when the SDK was present at build time (see
+    // RESOSTAGE_ASIO_SDK_DIR), ALSA plus JACK on Linux. Offered as a choice
+    // because the same interface reached through two APIs can differ by an
+    // order of magnitude in latency.
+    for (auto* type : dm.getAvailableDeviceTypes()) {
+        if (type != nullptr)
+            out.audioDrivers.push_back(type->getTypeName().toStdString());
+    }
+    if (auto* curType = dm.getCurrentDeviceTypeObject())
+        out.currentAudioDriver = curType->getTypeName().toStdString();
 
     // Prefer the currently selected type's names first.
     if (auto* curType = dm.getCurrentDeviceTypeObject()) {
@@ -187,6 +201,42 @@ void MainComponent::rescanHardwareSettings() {
     out.virtualMidiPortEnabled = engine.midi().hasVirtualSource();
 }
 
+// Remember what is selected on the device we are about to leave.
+//
+// Called before every switch. Without it, stepping onto the laptop's built-in
+// output to check something and stepping back leaves the interface on its
+// default stereo pair -- every wedge, sub and IEM feed silently unrouted,
+// which on a stage gets discovered during the show.
+void MainComponent::rememberCurrentDeviceProfile() {
+    const auto setup = engine.deviceManager().getAudioDeviceSetup();
+    std::string name = setup.outputDeviceName.toStdString();
+    if (name.empty()) {
+        if (auto* dev = engine.deviceManager().getCurrentAudioDevice())
+            name = dev->getName().toStdString();
+    }
+    if (name.empty())
+        return;
+
+    AppSettings::DeviceProfile profile;
+    profile.sampleRate = setup.sampleRate;
+    profile.bufferSize = setup.bufferSize;
+    if (auto* device = engine.deviceManager().getCurrentAudioDevice()) {
+        if (profile.sampleRate <= 0.0)
+            profile.sampleRate = device->getCurrentSampleRate();
+        if (profile.bufferSize <= 0)
+            profile.bufferSize = device->getCurrentBufferSizeSamples();
+        // The DEVICE's own view of what is active, not the settings mirror:
+        // a driver can refuse a channel we asked for, and remembering the
+        // request rather than the result would re-fight that every switch.
+        const auto active = device->getActiveOutputChannels();
+        for (int i = 0; i < active.getHighestBit() + 1; ++i) {
+            if (active[i])
+                profile.activeOutputChannels.push_back(i);
+        }
+    }
+    appSettings.deviceProfiles[name] = std::move(profile);
+}
+
 void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
     invalidateHardwareSettingsCache();
     glz::generic doc;
@@ -194,20 +244,103 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
 
+    rememberCurrentDeviceProfile();
+
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.outputDeviceName = name;
-    setup.useDefaultOutputChannels = true;
+
+    // Restore what this device had last time, if we have ever seen it.
+    const auto known = appSettings.deviceProfiles.find(name);
+    const bool haveProfile = known != appSettings.deviceProfiles.end();
+    if (haveProfile) {
+        const auto& p = known->second;
+        if (p.sampleRate > 0.0)
+            setup.sampleRate = p.sampleRate;
+        if (p.bufferSize > 0)
+            setup.bufferSize = p.bufferSize;
+        if (!p.activeOutputChannels.empty()) {
+            juce::BigInteger bits;
+            for (int idx : p.activeOutputChannels) {
+                if (idx >= 0)
+                    bits.setBit(idx);
+            }
+            setup.outputChannels = bits;
+            setup.useDefaultOutputChannels = false;
+        } else {
+            setup.useDefaultOutputChannels = true;
+        }
+    } else {
+        // Never seen: let the driver pick both, which is also what happens
+        // after a reset. 0 means "your choice" to JUCE, not "zero".
+        setup.useDefaultOutputChannels = true;
+        setup.sampleRate = 0;
+        setup.bufferSize = 0;
+    }
+
     const juce::String error = engine.setAudioDeviceSetup(setup, true);
     if (error.isEmpty()) {
         appSettings.outputDeviceName = name;
-        appSettings.activeOutputChannels.clear(); // reset to the new device's default channels
+        appSettings.activeOutputChannels.clear();
+        if (haveProfile) {
+            appSettings.activeOutputChannels = known->second.activeOutputChannels;
+            if (known->second.sampleRate > 0.0)
+                appSettings.sampleRate = known->second.sampleRate;
+            if (known->second.bufferSize > 0)
+                appSettings.bufferSize = known->second.bufferSize;
+        }
         saveAppSettingsToDisk();
         engine.rebuildDirectOutBusses();
         publishWebState();
-        setStatus("Audio output: " + juce::String(name));
+        setStatus(haveProfile
+                      ? "Audio output: " + juce::String(name) + " (restored its saved routing)"
+                      : "Audio output: " + juce::String(name));
     } else {
         setStatus("Audio device error: " + error);
     }
+}
+
+// Switch host audio API (ASIO / CoreAudio / ALSA / JACK / Windows Audio).
+//
+// Separate from picking a device because the same interface can be reachable
+// through two APIs with wildly different latency -- an ASIO rig that comes
+// back on WASAPI after a restart is a rig that misses its cues.
+void MainComponent::settingsSetAudioDeviceType(const std::string& json) {
+    invalidateHardwareSettingsCache();
+    glz::generic doc;
+    std::string type;
+    if (!parseJson(json, doc) || !getString(doc, "type", type) || type.empty())
+        return;
+
+    rememberCurrentDeviceProfile();
+    auto& dm = engine.deviceManager();
+
+    bool known = false;
+    for (auto* t : dm.getAvailableDeviceTypes()) {
+        if (t != nullptr && t->getTypeName() == juce::String(type)) {
+            known = true;
+            break;
+        }
+    }
+    if (!known) {
+        setStatus("Audio driver not available: " + juce::String(type));
+        return;
+    }
+
+    // true: open the new type's default device immediately, so the rig is
+    // audible again without a second round trip.
+    dm.setCurrentAudioDeviceType(juce::String(type), true);
+    if (dm.getCurrentAudioDevice() == nullptr) {
+        setStatus("Audio driver " + juce::String(type) + " has no usable device");
+        return;
+    }
+
+    appSettings.audioDeviceType = type;
+    appSettings.outputDeviceName = dm.getCurrentAudioDevice()->getName().toStdString();
+    appSettings.activeOutputChannels.clear();
+    saveAppSettingsToDisk();
+    engine.rebuildDirectOutBusses();
+    publishWebState();
+    setStatus("Audio driver: " + juce::String(type));
 }
 
 void MainComponent::settingsSetSampleRate(const std::string& json) {
@@ -401,6 +534,7 @@ void MainComponent::settingsSetOutputChannels(const std::string& json) {
             if (asInt(v, idx) && idx >= 0)
                 appSettings.activeOutputChannels.push_back(idx);
         }
+        rememberCurrentDeviceProfile();
         saveAppSettingsToDisk();
         engine.rebuildDirectOutBusses();
         publishWebState();

@@ -368,6 +368,21 @@ function AudioTab({ state }: { state: WebUiState }) {
       )}
 
       <Section title="Output Device">
+        {/* Only worth showing when there is a choice: macOS has CoreAudio and
+            nothing else, and a select with one option is furniture. On Windows
+            this is where ASIO appears -- and where a rig that came back on
+            WASAPI after a restart gets put back. */}
+        {s.audioDrivers.length > 1 && (
+          <Field label="Driver">
+            <Select
+              aria-label="Audio driver"
+              title="The host audio API. ASIO and JACK reach the same interface with far lower latency than the shared-mode default."
+              options={s.audioDrivers.map((d) => ({ id: d, label: d }))}
+              value={s.currentAudioDriver || s.audioDrivers[0] || ""}
+              onChange={(d) => void settingsApi.setAudioDriver(d)}
+            />
+          </Field>
+        )}
         <Field label="Output device">
           <Select
             aria-label="Output device"

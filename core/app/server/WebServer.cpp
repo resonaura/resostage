@@ -431,6 +431,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/timeline/undo", WebCommandKind::TimelineUndo},
     {"/api/v1/timeline/redo", WebCommandKind::TimelineRedo},
     {"/api/v1/settings/audio-device", WebCommandKind::SetAudioOutputDevice},
+    {"/api/v1/settings/audio-driver", WebCommandKind::SetAudioDeviceType},
     {"/api/v1/settings/sample-rate", WebCommandKind::SetSampleRate},
     {"/api/v1/settings/buffer-size", WebCommandKind::SetBufferSize},
     {"/api/v1/settings/midi-output", WebCommandKind::SetMidiOutput},
@@ -1729,6 +1730,8 @@ std::string WebServer::buildStateJson(const char* view) const {
     if (wantSettingsFull) {
         wire.settings.currentOutputDevice = s.currentOutputDevice;
         wire.settings.outputDevices = s.outputDevices;
+        wire.settings.audioDrivers = s.audioDrivers;
+        wire.settings.currentAudioDriver = s.currentAudioDriver;
         wire.settings.sampleRate = finiteOrZero(s.sampleRate);
 
         std::vector<double> srVec;

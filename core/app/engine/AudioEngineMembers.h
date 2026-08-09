@@ -316,6 +316,11 @@
     juce::AudioBuffer<float> busScratch;
     // Per-track decode scratch (up to 2 channels), indexed like trackIdByIndex.
     std::vector<juce::AudioBuffer<float>> trackScratch;
+    // Scratch for the SECOND and subsequent regions overlapping one track in
+    // one block -- i.e. a crossfade. One buffer, not one per region: the
+    // overlapping regions are rendered one at a time and summed into the
+    // track's own scratch as each finishes, so they never need to coexist.
+    juce::AudioBuffer<float> regionMixScratch;
 
     mutable std::recursive_mutex routingMutex;
 
