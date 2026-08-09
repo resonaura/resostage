@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { isMainBusId } from "./mixerIds";
 import { builder } from "../../lib/api";
+import { Select, type SelectOption } from "../../components/ui";
 import type { BusRow, SettingsState } from "../../lib/types";
 import {
   EXT_OUTPUT_VALUE,
-  ROUTING_SELECT_CLASS,
+  ROUTING_SELECT_SIZE,
   ROUTING_SELECT_SPACER,
 } from "./constants";
 import {
@@ -14,7 +15,7 @@ import {
   channelAvailable,
 } from "./directOutput";
 import { MonoStereoIcon } from "./MonoStereoIcon";
-import { MissingSelectFrame } from "./MissingOutputSelect";
+import { missingOutputSelectProps } from "./MissingOutputSelect";
 import {
   missingRouteLabel,
   missingRouteOptionId,
@@ -76,85 +77,84 @@ export function BusDestinationRouting({
   const shownChannelValue =
     missing && missingId ? missingId : (channelValue ?? "");
 
+  // Option text stays plain ("1/2", "3") — no "Out: " decoration.
+  const channelOptions: SelectOption[] = options.map((o) => ({
+    id: o.id,
+    label: o.label,
+  }));
+  if (missing && missingId)
+    channelOptions.push({
+      id: missingId,
+      label: missingRouteLabel(bus.startChannel, bus.channels),
+      section: "Unavailable",
+    });
+
+  const channelSelect = (title: string) => (
+    <Select
+      aria-label={title}
+      title={title}
+      size={ROUTING_SELECT_SIZE}
+      options={channelOptions}
+      value={shownChannelValue}
+      onChange={(id) => {
+        const parsed = parseOptionId(id);
+        if (parsed) updateBusChannels(parsed.pair ? 2 : 1, parsed.startChannel);
+      }}
+      {...missingOutputSelectProps(missing)}
+    />
+  );
+
+  const monoStereoToggle = (
+    <button
+      type="button"
+      className="mx-auto flex items-center justify-center rounded-md p-1 text-foreground/60 transition-colors hover:bg-default/40 hover:text-foreground"
+      title={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
+      onClick={() => updateBusChannels(stereo ? 1 : 2, bus.startChannel)}
+    >
+      <MonoStereoIcon stereo={stereo} />
+    </button>
+  );
+
   if (isMaster) {
-    // Master always: [Ext. Out only] + [channel list]. Native option text
-    // stays plain ("1/2", "3") — no "Out: " decoration.
+    // Master always: [Ext. Out only] + [channel list].
     return (
-      <div className="w-full my-1 flex flex-col items-center gap-1.5">
-        <div className="w-full flex items-center justify-center my-0.5">
-          <button
-            type="button"
-            className="flex items-center justify-center p-1 text-foreground/70 transition-colors hover:text-foreground mx-auto"
-            title={
-              stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"
-            }
-            onClick={() => updateBusChannels(stereo ? 1 : 2, bus.startChannel)}
-          >
-            <MonoStereoIcon stereo={stereo} />
-          </button>
+      <div className="my-1 flex w-full flex-col items-center gap-1.5">
+        <div className="my-0.5 flex w-full items-center justify-center">
+          {monoStereoToggle}
         </div>
 
-        <select
-          value={EXT_OUTPUT_VALUE}
-          onChange={() => {
-            /* only one option */
-          }}
-          className={ROUTING_SELECT_CLASS}
+        <Select
+          aria-label="Master destination"
           title="Master always routes to a physical Ext. Out"
-        >
-          <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
-        </select>
+          size={ROUTING_SELECT_SIZE}
+          options={[{ id: EXT_OUTPUT_VALUE, label: "Ext. Out" }]}
+          value={EXT_OUTPUT_VALUE}
+          isDisabled
+        />
 
-        <MissingSelectFrame missing={missing}>
-          <select
-            value={shownChannelValue}
-            onChange={(e) => {
-              const parsed = parseOptionId(e.target.value);
-              if (parsed)
-                updateBusChannels(parsed.pair ? 2 : 1, parsed.startChannel);
-            }}
-            className={ROUTING_SELECT_CLASS}
-            title="Master physical output"
-          >
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-            {missing && missingId && (
-              <>
-                <option disabled value="">
-                  Unavailable
-                </option>
-                <option value={missingId}>
-                  {missingRouteLabel(bus.startChannel, bus.channels)}
-                </option>
-              </>
-            )}
-          </select>
-        </MissingSelectFrame>
+        {channelSelect("Master physical output")}
       </div>
     );
   }
 
   // Aux / send bus: Master | Ext. Out, then channel picker when Ext. Out.
   return (
-    <div className="w-full my-1 flex flex-col items-center gap-1.5">
-      <div className="w-full flex items-center justify-center my-0.5">
-        <button
-          type="button"
-          className="flex items-center justify-center p-1 text-foreground/70 transition-colors hover:text-foreground mx-auto"
-          title={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
-          onClick={() => updateBusChannels(stereo ? 1 : 2, bus.startChannel)}
-        >
-          <MonoStereoIcon stereo={stereo} />
-        </button>
+    <div className="my-1 flex w-full flex-col items-center gap-1.5">
+      <div className="my-0.5 flex w-full items-center justify-center">
+        {monoStereoToggle}
       </div>
 
-      <select
+      <Select
+        aria-label="Bus destination"
+        title="Where this bus goes (Main = same outs as the Main bus; both still sum)"
+        size={ROUTING_SELECT_SIZE}
+        options={[
+          { id: "master", label: "Main" },
+          { id: EXT_OUTPUT_VALUE, label: "Ext. Out" },
+        ]}
         value={extOutputOpen ? EXT_OUTPUT_VALUE : "master"}
-        onChange={(e) => {
-          if (e.target.value === EXT_OUTPUT_VALUE) {
+        onChange={(v) => {
+          if (v === EXT_OUTPUT_VALUE) {
             setExtOutputOpen(true);
             if (options.length > 0) {
               const free = master
@@ -172,41 +172,10 @@ export function BusDestinationRouting({
               );
           }
         }}
-        className={ROUTING_SELECT_CLASS}
-        title="Where this bus goes (Main = same outs as the Main bus; both still sum)"
-      >
-        <option value="master">Main</option>
-        <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
-      </select>
+      />
 
       {extOutputOpen ? (
-        <MissingSelectFrame missing={missing}>
-          <select
-            value={shownChannelValue}
-            onChange={(e) => {
-              const parsed = parseOptionId(e.target.value);
-              if (parsed)
-                updateBusChannels(parsed.pair ? 2 : 1, parsed.startChannel);
-            }}
-            className={ROUTING_SELECT_CLASS}
-          >
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-            {missing && missingId && (
-              <>
-                <option disabled value="">
-                  Unavailable
-                </option>
-                <option value={missingId}>
-                  {missingRouteLabel(bus.startChannel, bus.channels)}
-                </option>
-              </>
-            )}
-          </select>
-        </MissingSelectFrame>
+        channelSelect("Bus physical output")
       ) : (
         <div className={ROUTING_SELECT_SPACER} aria-hidden />
       )}

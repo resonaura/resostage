@@ -31,7 +31,11 @@ import {
   parseGradientStops,
   type GradientStop,
 } from "../../lib/lightCueInterpolation";
-import { useFocusDraft, useLiveValue } from "../../lib/optimistic";
+import {
+  useCoalescedCommit,
+  useFocusDraft,
+  useLiveValue,
+} from "../../lib/optimistic";
 import { useEscRevert } from "../../lib/useEscRevert";
 import {
   EFFECT_META,
@@ -303,12 +307,19 @@ function useRgbColor(
     }
   }
 
+  // The area and the hue slider report a colour on every pointermove. The
+  // swatch follows the pointer from local state; only the write to the engine
+  // is held to one a frame -- see useCoalescedCommit.
+  const [send] = useCoalescedCommit((triple: [number, number, number]) =>
+    onChange(...triple),
+  );
+
   const apply = (next: Color) => {
     const hsb = next.toFormat("hsb");
     setColor(hsb);
     const triple = toRgbTriple(hsb);
     lastRgb.current = triple;
-    onChange(...triple);
+    send(triple);
   };
 
   return [color, apply];

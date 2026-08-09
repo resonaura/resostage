@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <thread>
 #include <unordered_map>
 
 namespace resostage {
@@ -304,6 +305,8 @@ SystemHealthSnapshot SystemHealth::sample() const {
 
     snap.systemFreeBytes = systemFreeMemoryBytes();
     snap.systemTotalBytes = systemTotalMemoryBytes();
+    static const uint32_t kCores = std::max(1u, std::thread::hardware_concurrency());
+    snap.cpuCoreCount = kCores;
     snap.underrunCount = underrunCount.load(std::memory_order_relaxed);
     snap.audioCallbackCount = audioCallbackCount.load(std::memory_order_relaxed);
     snap.silentBlockCount = silentBlockCount.load(std::memory_order_relaxed);

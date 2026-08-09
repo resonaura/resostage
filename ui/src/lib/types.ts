@@ -362,7 +362,9 @@ export function channelLabelForBus(
   channels: number,
 ): ExtOutChannel {
   const a = startChannel + 1;
-  return channels >= 2 ? (`${a}/${a + 1}` as StereoPairChannel) : (`${a}` as MonoChannel);
+  return channels >= 2
+    ? (`${a}/${a + 1}` as StereoPairChannel)
+    : (`${a}` as MonoChannel);
 }
 
 /** Map back from the edge of a nested SourceOutput (TS direct-output/unrecognized
@@ -377,14 +379,21 @@ export function outputFromWire(
   if (type === "ext-out") {
     const target = (output.target ?? "").trim().replace(/^audio::out:/, "");
     if (!target) return { target: "sends-only", sends: {} };
-    const lanes = target.split(",").map((t) => t.trim()).filter(Boolean);
+    const lanes = target
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
     if (lanes.length >= 2 && Number(lanes[1]) === Number(lanes[0]) + 1)
       return {
         target: "ext-out",
         sends: {},
         extOut: `${lanes[0]}/${lanes[0] + 1}` as StereoPairChannel,
       };
-    return { target: "ext-out", sends: {}, extOut: `${lanes[0]}` as MonoChannel };
+    return {
+      target: "ext-out",
+      sends: {},
+      extOut: `${lanes[0]}` as MonoChannel,
+    };
   }
   // main (or anything unrecognized) → main
   return { target: "main", sends: {} };
@@ -551,6 +560,8 @@ export interface HealthState {
   cpuPercent: number;
   rssBytes: number;
   freeBytes: number;
+  systemTotalBytes?: number;
+  cpuCoreCount?: number;
   underrunCount: number;
   // Whole blocks that reached the outputs as silence while the transport was
   // playing, because the render callback bailed out early. The driver was
@@ -801,6 +812,8 @@ export const emptyState: WebUiState = {
     cpuPercent: 0,
     rssBytes: 0,
     freeBytes: 0,
+    systemTotalBytes: 0,
+    cpuCoreCount: 1,
     underrunCount: 0,
     silentBlockCount: 0,
     streamStarveCount: 0,

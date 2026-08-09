@@ -1,11 +1,13 @@
+import { memo } from "react";
 import { mixer } from "../../lib/api";
+import { rowsSameExceptLevels, sameExceptLevels } from "../../lib/levelFields";
 import { getLiveLevels } from "../../lib/liveLevels";
 import type { BusRow, MeterRow, SettingsState } from "../../lib/types";
 import { BusDestinationRouting } from "./BusDestinationRouting";
 import { ChannelStrip } from "./ChannelStrip";
 import { masterColor, sendColor } from "./constants";
 
-export function BusStrip({
+function BusStripInner({
   b,
   index,
   meters,
@@ -62,3 +64,16 @@ export function BusStrip({
     />
   );
 }
+
+/** Same reasoning as TrackStrip's memo -- see there and lib/levelFields. */
+export const BusStrip = memo(BusStripInner, (prev, next) => {
+  return (
+    prev.index === next.index &&
+    prev.isMaster === next.isMaster &&
+    prev.anySoloInGroup === next.anySoloInGroup &&
+    prev.settings === next.settings &&
+    sameExceptLevels(prev.b, next.b) &&
+    sameExceptLevels(prev.master, next.master) &&
+    rowsSameExceptLevels(prev.meters, next.meters)
+  );
+});

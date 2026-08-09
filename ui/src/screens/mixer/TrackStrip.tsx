@@ -1,4 +1,6 @@
+import { memo } from "react";
 import { mixer } from "../../lib/api";
+import { rowsSameExceptLevels, sameExceptLevels } from "../../lib/levelFields";
 import { getLiveLevels } from "../../lib/liveLevels";
 import {
   outputSendsToClickRows,
@@ -11,7 +13,7 @@ import {
 import { ChannelStrip } from "./ChannelStrip";
 import { colorForIndex } from "./constants";
 
-export function TrackStrip({
+function TrackStripInner({
   t,
   index,
   destinationBusses,
@@ -88,3 +90,26 @@ export function TrackStrip({
     />
   );
 }
+
+/**
+ * A strip is expensive -- two routing selects, a send knob per aux, a fader --
+ * and none of it depends on how loud the track currently is. The default
+ * shallow compare would still re-render all of it on every telemetry frame,
+ * because `t` and `meters` are new objects whenever a peak moves; see
+ * lib/levelFields.
+ */
+export const TrackStrip = memo(TrackStripInner, (prev, next) => {
+  return (
+    prev.index === next.index &&
+    prev.anySoloInGroup === next.anySoloInGroup &&
+    prev.settings === next.settings &&
+    prev.onDirectOutput === next.onDirectOutput &&
+    // The bus lists are `.filter()` results, so they are new arrays every
+    // render even when nothing moved -- compare them by content.
+    rowsSameExceptLevels(prev.destinationBusses, next.destinationBusses) &&
+    sameExceptLevels(prev.t, next.t) &&
+    rowsSameExceptLevels(prev.allBusses, next.allBusses) &&
+    rowsSameExceptLevels(prev.auxBusses, next.auxBusses) &&
+    rowsSameExceptLevels(prev.meters, next.meters)
+  );
+});

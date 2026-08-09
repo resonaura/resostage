@@ -31,6 +31,7 @@ struct SystemHealthSnapshot {
     // System-wide memory.
     uint64_t systemFreeBytes = 0;
     uint64_t systemTotalBytes = 0;
+    uint32_t cpuCoreCount = 1;
     // Audio-thread counters.
     uint64_t underrunCount = 0;
     uint64_t audioCallbackCount = 0;

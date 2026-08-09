@@ -1656,6 +1656,8 @@ std::string WebServer::buildStateJson(const char* view) const {
         wH.cpuPercent = finiteOrZero(snap.cpuPercent);
         wH.rssBytes = snap.rssBytes;
         wH.freeBytes = snap.freeBytes;
+        wH.systemTotalBytes = snap.systemTotalBytes;
+        wH.cpuCoreCount = snap.cpuCoreCount;
         wH.underrunCount = snap.underrunCount;
         wH.audioCallbackCount = snap.audioCallbackCount;
         wH.silentBlockCount = snap.silentBlockCount;

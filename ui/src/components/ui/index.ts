@@ -17,6 +17,9 @@ export type {
   ToggleButtonVariant,
 } from "./ToggleButton";
 
+export { Select } from "./Select";
+export type { SelectOption, SelectProps, SelectSize } from "./Select";
+
 export { Slider } from "./Slider";
 export type { SliderProps } from "./Slider";
 

@@ -1,83 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addRafTask } from "../../lib/rafLoop";
+import {
+  CLIP_COLOR,
+  CLIP_GLOW_BLUR_PX,
+  CLIP_GLOW_COLOR,
+  createBallistics,
+  FLOOR_DB,
+  meterFill,
+  normFor,
+  RANGE_LOW_DB,
+  stepBallistics,
+} from "./meterBallistics";
 
 // Ballistic peak meter: instant attack, release, peak-hold, clip latch at
 // the TOP only (never paints the whole bar red). Stereo L/R; solid track
-// colour fill via height clip (no CSS mask residue).
-const FLOOR_DB = -100;
-const RANGE_LOW_DB = -60;
-const RANGE_HIGH_DB = 6;
-const BAR_DECAY_DB_PER_SEC = 80;
-const PEAK_HOLD_SECONDS = 0.8;
-const PEAK_DECAY_DB_PER_SEC = 50;
+// colour fill via height clip (no CSS mask residue). The ballistics
+// themselves are shared with the timeline's MeterFader -- see
+// ./meterBallistics.
 /** Clip latch band as % of bar height (top only). */
 const CLIP_BAND_PCT = 6;
 
 const DEFAULT_ACCENT = "#34c759";
-/** Single source of truth for "clipping" red -- anything else showing a clip
- * indicator (e.g. MixerScreen's GainPeakReadout box) should import this
- * instead of hardcoding its own shade, so the two always match exactly. */
-export const CLIP_COLOR = "#ff3b30";
-export const CLIP_GLOW = "0 0 4px rgba(255,59,48,0.7)";
-
-function normFor(db: number): number {
-  return Math.max(
-    0,
-    Math.min(1, (db - RANGE_LOW_DB) / (RANGE_HIGH_DB - RANGE_LOW_DB)),
-  );
-}
-
-function parseColor(input: string): [number, number, number] {
-  const s = input.trim();
-  if (s.startsWith("#")) {
-    const hex = s.slice(1);
-    if (hex.length === 3) {
-      return [
-        parseInt(hex[0] + hex[0], 16),
-        parseInt(hex[1] + hex[1], 16),
-        parseInt(hex[2] + hex[2], 16),
-      ];
-    }
-    if (hex.length >= 6) {
-      return [
-        parseInt(hex.slice(0, 2), 16),
-        parseInt(hex.slice(2, 4), 16),
-        parseInt(hex.slice(4, 6), 16),
-      ];
-    }
-  }
-  const m = s.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
-  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
-  return parseColor(DEFAULT_ACCENT);
-}
-
-function rgb(r: number, g: number, b: number): string {
-  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
-}
-
-function meterFill(accent: string): string {
-  const [r, g, b] = parseColor(accent);
-  return rgb(r, g, b);
-}
-
-interface ChannelBallistics {
-  display: number;
-  peak: number;
-  holdRemaining: number;
-  clipLatched: boolean;
-}
-
-// Shared, "held forever" clip state -- distinct from useMeterBallistics'
-// own per-channel clip latch (which is fine for a standalone meter, but
-// callers wiring a meter together with something else that should clip/clear
-// in lockstep -- e.g. MixerScreen's GainPeakReadout box next to the L/R
-// bars -- need one clip flag both sides agree on). `maxDb` should be
-// max(dbL, dbR): either channel clipping counts.
-
-// Glow around the clip band, drawn via ctx.shadow* to match the DOM
-// version's box-shadow (CLIP_GLOW: "0 0 4px rgba(255,59,48,0.7)").
-const CLIP_GLOW_BLUR_PX = 4;
-const CLIP_GLOW_COLOR = "rgba(255,59,48,0.7)";
 
 function ChannelBar({
   db,
@@ -124,13 +67,7 @@ function ChannelBar({
   const fillRef = useRef(fill);
   fillRef.current = fill;
 
-  const anim = useRef<ChannelBallistics & { lastT: number }>({
-    display: FLOOR_DB,
-    peak: FLOOR_DB,
-    holdRemaining: 0,
-    clipLatched: false,
-    lastT: 0,
-  });
+  const anim = useRef(createBallistics());
 
   // Draw loop: fully imperative canvas painting, no React state/re-render
   // per frame -- this is the whole point of moving off DOM/CSS divs (each
@@ -196,28 +133,10 @@ function ChannelBar({
       const live = getLiveRef.current?.();
       const raw =
         live !== undefined && Number.isFinite(live) ? live : dbRef.current;
-      const target = Math.max(raw, FLOOR_DB);
-      s.display =
-        target >= s.display
-          ? target
-          : Math.max(target, s.display - BAR_DECAY_DB_PER_SEC * dt);
-
-      if (target >= s.peak) {
-        s.peak = target;
-        s.holdRemaining = PEAK_HOLD_SECONDS;
-      } else if (s.holdRemaining > 0) {
-        s.holdRemaining -= dt;
-      } else {
-        s.peak = Math.max(target, s.peak - PEAK_DECAY_DB_PER_SEC * dt);
-      }
-
-      // Clip latch: only when over 0 dBFS; stays until user clicks. Synced
-      // into React state (rare event, not per-frame) so the "click to
-      // clear" affordance/title can react to it.
-      if (target > 0 && !s.clipLatched) {
-        s.clipLatched = true;
-        setInternalClipLatched(true);
-      }
+      // Clip latch is synced into React state on the frame it flips (a rare
+      // event, not per-frame) so the "click to clear" affordance/title can
+      // react to it.
+      if (stepBallistics(s, raw, dt)) setInternalClipLatched(true);
 
       const v = verticalRef.current;
       const fillPct = normFor(s.display);

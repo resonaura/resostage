@@ -15,6 +15,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   formatClockPrecise as formatTime,
   LevelMeterBar,
+  LiveReadout,
   VUMeter,
 } from "../components/daw";
 import { FontIcon } from "../components/FontIcon";
@@ -291,25 +292,52 @@ const SystemHealthWidget = memo(function SystemHealthWidget({
     0,
     cpuHistory[cpuHistory.length - 1] ?? h?.cpuPercent ?? 0,
   );
+  const cpuMax = Math.max(cpuVal, ...cpuHistory);
+
   const ramVal =
     ramHistory[ramHistory.length - 1] ?? (h?.rssBytes ?? 0) / (1024 * 1024);
+  const ramMax = Math.max(ramVal, ...ramHistory);
+
+  // Hardware limits derived dynamically from C++ JUCE SystemHealth:
+  const cores = Math.max(1, h?.cpuCoreCount ?? 8);
+  const totalCpuMax = cores * 100;
+  const cpuRatio = cpuMax / totalCpuMax;
+
+  const totalRamMb = (h?.systemTotalBytes ?? 0) / (1024 * 1024);
+  const ramRatio = totalRamMb > 0 ? ramMax / totalRamMb : ramMax / 16384;
+
+  // Warning (>= 65% total system CPU / >= 50% total system RAM)
+  // Danger (>= 85% total system CPU / >= 75% total system RAM)
+  const cpuColor =
+    cpuRatio >= 0.85
+      ? "var(--danger)"
+      : cpuRatio >= 0.65
+        ? "var(--warning)"
+        : "var(--segment)";
+
+  const ramColor =
+    ramRatio >= 0.75
+      ? "var(--danger)"
+      : ramRatio >= 0.5
+        ? "var(--warning)"
+        : "var(--segment)";
 
   return (
     <div className="hidden shrink-0 items-center gap-4 border-l border-default/30 px-4 py-2 tabular-nums lg:flex">
-      {/* Graph 1: CPU (Accent Color #0091ff) */}
+      {/* Graph 1: CPU */}
       <Sparkline
         history={cpuHistory}
-        color="var(--accent)"
+        color={cpuColor}
         gradientId="cpuGrad"
         label="CPU"
         valueText={`${cpuVal.toFixed(1)}%`}
         maxMinVal={Math.max(100, Math.ceil(Math.max(cpuVal, 1) / 100) * 100)}
       />
 
-      {/* Graph 2: RAM (Purple Color #a855f7) */}
+      {/* Graph 2: RAM */}
       <Sparkline
         history={ramHistory}
-        color="var(--accent)"
+        color={ramColor}
         gradientId="ramGrad"
         label="RAM"
         valueText={`${ramVal.toFixed(0)} MB`}
@@ -706,37 +734,43 @@ const SetlistPanel = memo(function SetlistPanel({
           <div className="flex flex-col divide-y divide-default/15">
             {songs.map((s, i) => {
               const isActive = i === activeIndex;
+              const isCurrentPlaying = isActive && playing;
+
+              const toneClass = isCurrentPlaying
+                ? "bg-accent-soft hover:bg-accent-soft-hover text-accent-soft-foreground"
+                : isActive
+                  ? "bg-default-soft hover:bg-default-soft-hover text-foreground"
+                  : "hover:bg-default/30 text-foreground/80";
+
               return (
                 <button
                   key={i}
                   type="button"
                   onClick={() => onSelect(i)}
-                  /* Static class names on both branches: Tailwind scans source
-                     text, so an interpolated `hover:bg-${...}` is never emitted
-                     at all -- which is why neither the active tint nor the
-                     hover was reaching the screen. */
-                  className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
-                    isActive
-                      ? "bg-accent-soft hover:bg-accent-soft-hover"
-                      : "hover:bg-default"
-                  }`}
+                  className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${toneClass}`}
                 >
                   <span
                     className={`h-1.5 w-1.5 shrink-0 rounded-full transition-all ${
-                      isActive && playing
-                        ? "animate-pulse scale-125 bg-success shadow-[0_0_4px_var(--player-active-glow)]"
+                      isCurrentPlaying
+                        ? "animate-pulse scale-125 bg-accent shadow-[0_0_4px_var(--player-active-glow)]"
                         : isActive
-                          ? "bg-accent"
+                          ? "bg-foreground/50"
                           : "bg-foreground/12"
                     }`}
                   />
                   <div className="min-w-0 flex-1">
                     <div
-                      className={`truncate text-sm ${isActive ? "font-semibold text-foreground" : "text-foreground/80"}`}
+                      className={`truncate text-sm ${
+                        isActive ? "font-semibold" : "text-foreground/80"
+                      }`}
                     >
                       {i + 1}. {s.name}
                     </div>
-                    <div className="text-[10px] text-foreground/35">
+                    <div
+                      className={`text-[10px] ${
+                        isActive ? "opacity-75" : "text-foreground/35"
+                      }`}
+                    >
                       {s.bpm.toFixed(1)} bpm ·{" "}
                       {s.mode === "auto" ? "auto" : "wait"} ·{" "}
                       {s.regions?.length ?? 0} clips
@@ -744,7 +778,11 @@ const SetlistPanel = memo(function SetlistPanel({
                   </div>
                   {isActive && (
                     <span
-                      className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold ${playing ? "bg-success/15 text-success" : "bg-default/30 text-foreground/30"}`}
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide ${
+                        isCurrentPlaying
+                          ? "bg-accent/20 text-accent"
+                          : "bg-default/40 text-foreground/60"
+                      }`}
                     >
                       {playing ? "NOW" : "CUE"}
                     </span>
@@ -876,10 +914,21 @@ export function PlayerScreen({
 
   // ONE continuous absolute clock for transport. Song-local is derived from
   // the current song's offset so gapless boundaries don't reset a second clock.
-  const [displayGlobalSeconds] = useContinuousPlayhead(
+  //
+  // Deliberately NOT mirrored into React state (the trailing `false`): the
+  // only things that read this clock are the four readouts below, and each
+  // paints itself off the shared frame driver. Mirroring it re-rendered the
+  // entire Player -- setlist, meter bay, light preview, transport -- sixty
+  // times a second to move a handful of digits. Timeline already reads its
+  // playhead this way; see useContinuousPlayhead's `publishToReact`.
+  const [, , getLiveAbsolute] = useContinuousPlayhead(
     state.globalPlayheadSeconds,
     state.playing,
     state.projectName,
+    false,
+    undefined,
+    undefined,
+    false,
   );
 
   const song =
@@ -916,7 +965,8 @@ export function PlayerScreen({
     }
   }
   // Song-local = absolute − offset of current song (one timeline, not two).
-  const displaySeconds = Math.max(0, displayGlobalSeconds - songOffset);
+  // A live read, not a rendered value -- see the clock above.
+  const liveSongSeconds = () => Math.max(0, getLiveAbsolute() - songOffset);
 
   // Empty string = Sends Only (must not fall back to main via falsy ||).
   const currentClickBus = state.click
@@ -948,7 +998,13 @@ export function PlayerScreen({
               state.playing ? "text-success" : "text-foreground"
             }`}
           >
-            {formatTime(displaySeconds)}
+            {/* The clock runs at the full frame rate; the readouts below it
+                are coarser on purpose -- a bar/beat that only changes a few
+                times a second does not need sampling sixty. */}
+            <LiveReadout
+              sample={() => formatTime(liveSongSeconds())}
+              intervalMs={0}
+            />
             {songLength > 0 && (
               <span className="ml-2 text-sm font-normal text-foreground/25">
                 / {formatTime(songLength)}
@@ -956,28 +1012,35 @@ export function PlayerScreen({
             )}
           </div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="font-mono text-base font-semibold tabular-nums text-accent">
-              {song ? barBeat(displaySeconds, song.bpm, song.tsNum) : "—"}
-            </span>
+            <LiveReadout
+              className="font-mono text-base font-semibold tabular-nums text-accent"
+              sample={() =>
+                song ? barBeat(liveSongSeconds(), song.bpm, song.tsNum) : "—"
+              }
+            />
             <span className="text-[11px] text-foreground/30">bar | beat</span>
           </div>
           <div className="mt-0.5 flex items-baseline gap-1.5 opacity-60">
-            <span className="font-mono text-[10px] tabular-nums text-foreground/35">
-              {formatTime(displayGlobalSeconds)}
-            </span>
-            <span className="font-mono text-[10px] tabular-nums text-foreground/35">
-              {song
-                ? globalBarBeat(
-                    state.globalBeatsElapsed +
-                      Math.max(
-                        0,
-                        displayGlobalSeconds - state.globalPlayheadSeconds,
-                      ) *
-                        ((song.bpm > 0 ? song.bpm : 120) / 60),
-                    song.tsNum,
-                  )
-                : "—"}
-            </span>
+            <LiveReadout
+              className="font-mono text-[10px] tabular-nums text-foreground/35"
+              sample={() => formatTime(getLiveAbsolute())}
+            />
+            <LiveReadout
+              className="font-mono text-[10px] tabular-nums text-foreground/35"
+              sample={() =>
+                song
+                  ? globalBarBeat(
+                      state.globalBeatsElapsed +
+                        Math.max(
+                          0,
+                          getLiveAbsolute() - state.globalPlayheadSeconds,
+                        ) *
+                          ((song.bpm > 0 ? song.bpm : 120) / 60),
+                      song.tsNum,
+                    )
+                  : "—"
+              }
+            />
             <span className="text-[9px] text-foreground/25">abs</span>
           </div>
         </div>

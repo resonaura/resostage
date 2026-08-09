@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { isMainBusId } from "./mixerIds";
+import { Select, type SelectOption } from "../../components/ui";
 import type { BusRow, SettingsState } from "../../lib/types";
 import {
   EXT_OUTPUT_VALUE,
-  ROUTING_SELECT_CLASS,
+  ROUTING_SELECT_SIZE,
   ROUTING_SELECT_SPACER,
   SENDS_ONLY_VALUE,
 } from "./constants";
@@ -16,7 +17,7 @@ import {
   channelAvailable,
 } from "./directOutput";
 import { MonoStereoIcon } from "./MonoStereoIcon";
-import { MissingSelectFrame } from "./MissingOutputSelect";
+import { missingOutputSelectProps } from "./MissingOutputSelect";
 
 type PendingRouting = {
   /** Primary select: bus id, SENDS_ONLY_VALUE, or EXT_OUTPUT_VALUE. */
@@ -144,13 +145,33 @@ export function TrackOutputRouting({
     setPending(next);
   };
 
+  const destinationOptions: SelectOption[] = [
+    ...busses.map((b) => ({ id: b.id, label: b.name || b.id })),
+    { id: SENDS_ONLY_VALUE, label: "Sends Only" },
+    { id: EXT_OUTPUT_VALUE, label: "Ext. Out" },
+  ];
+
+  // The unreachable lane is offered as its own option under a heading, so the
+  // list still shows exactly what the track targets without implying it is a
+  // usable pick alongside the real ones.
+  const channelOptions: SelectOption[] = options.map((o) => ({
+    id: o.id,
+    label: o.label,
+  }));
+  if (missing && missingOptionId && missingLabel)
+    channelOptions.push({
+      id: missingOptionId,
+      label: missingLabel,
+      section: "Unavailable",
+    });
+
   return (
-    <div className="w-full my-1 flex flex-col items-center gap-1.5">
+    <div className="my-1 flex w-full flex-col items-center gap-1.5">
       {onMonoChange && (
-        <div className="w-full flex items-center justify-center my-0.5">
+        <div className="my-0.5 flex w-full items-center justify-center">
           <button
             type="button"
-            className="flex items-center justify-center p-1 text-foreground/70 transition-colors hover:text-foreground mx-auto"
+            className="mx-auto flex items-center justify-center rounded-md p-1 text-foreground/60 transition-colors hover:bg-default/40 hover:text-foreground"
             title={
               mono
                 ? "Mono — click for stereo"
@@ -163,10 +184,12 @@ export function TrackOutputRouting({
         </div>
       )}
 
-      <select
+      <Select
+        aria-label="Track output"
+        size={ROUTING_SELECT_SIZE}
+        options={destinationOptions}
         value={currentValue}
-        onChange={(e) => {
-          const v = e.target.value;
+        onChange={(v) => {
           if (v === EXT_OUTPUT_VALUE) {
             const pick = options[0];
             const channelId = pick?.id ?? serverChannelId;
@@ -177,45 +200,22 @@ export function TrackOutputRouting({
             onBusSelect(v === SENDS_ONLY_VALUE ? "" : v);
           }
         }}
-        className={ROUTING_SELECT_CLASS}
-      >
-        {busses.map((b) => (
-          <option key={b.id} value={b.id}>
-            {b.name || b.id}
-          </option>
-        ))}
-        <option value={SENDS_ONLY_VALUE}>Sends Only</option>
-        <option value={EXT_OUTPUT_VALUE}>Ext. Out</option>
-      </select>
+      />
 
       {directOutputOpen ? (
-        <MissingSelectFrame missing={missing}>
-          <select
-            value={channelValue}
-            onChange={(e) => {
-              const id = e.target.value;
-              if (id === missingOptionId) return; // locked to the missing lane
-              const parsed = parseOptionId(id);
-              commitPending({ primary: EXT_OUTPUT_VALUE, channelId: id });
-              if (parsed) onDirectOutput(mono, parsed.startChannel, parsed.pair);
-            }}
-            className={ROUTING_SELECT_CLASS}
-          >
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-            {missing && missingOptionId && firstLane != null && (
-              <>
-                <option disabled value="">
-                  Unavailable
-                </option>
-                <option value={missingOptionId}>{missingLabel}</option>
-              </>
-            )}
-          </select>
-        </MissingSelectFrame>
+        <Select
+          aria-label="Physical output"
+          size={ROUTING_SELECT_SIZE}
+          options={channelOptions}
+          value={channelValue}
+          onChange={(id) => {
+            if (id === missingOptionId) return; // locked to the missing lane
+            const parsed = parseOptionId(id);
+            commitPending({ primary: EXT_OUTPUT_VALUE, channelId: id });
+            if (parsed) onDirectOutput(mono, parsed.startChannel, parsed.pair);
+          }}
+          {...missingOutputSelectProps(missing)}
+        />
       ) : (
         <div className={ROUTING_SELECT_SPACER} aria-hidden />
       )}

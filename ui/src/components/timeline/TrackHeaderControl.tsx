@@ -3,12 +3,12 @@ import { mixer } from "../../lib/api";
 import { getLiveLevels } from "../../lib/liveLevels";
 import { useLiveValue } from "../../lib/optimistic";
 import type { TrackRow } from "../../lib/types";
-import { Knob, LevelMeterBar } from "../daw";
+import { Knob, LevelMeterBar, MeterFader } from "../daw";
 import { laneHeightPx } from "./laneDimensions";
-import { MiniSlider } from "./MiniSlider";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with
-// waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ vol + taller meter).
+// waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ the combined
+// meter/fader row).
 
 export const TrackHeaderControl = memo(
   function TrackHeaderControl({
@@ -42,7 +42,10 @@ export const TrackHeaderControl = memo(
     // Density tiers keyed to lane height (LANE_HEIGHT=56 at zoom 1).
     const showVol = h >= 48;
     const showPan = h >= 36;
-    const showMeter = h >= 28;
+    // The fader row IS the meter, so the standalone bar is only for lanes too
+    // short to fit that row -- two meters on one track would just be the same
+    // number twice.
+    const showMeter = h >= 28 && !showVol;
     const padY = h < 32 ? 2 : h < 48 ? 4 : h < 80 ? 6 : 8;
     const padX = h < 36 ? 8 : 12;
     const nameSize = h < 32 ? 10 : h < 64 ? 12 : 13;
@@ -51,10 +54,9 @@ export const TrackHeaderControl = memo(
     const knobSize = h < 48 ? 16 : h < 80 ? 20 : 24;
     // Quantize meter height so vertical zoom doesn't thrash ResizeObserver
     // (and flash the canvas meters) on every sub-step.
-    const meterHRaw = showVol
-      ? Math.max(14, Math.round(h * 0.38))
-      : Math.max(12, h - padY * 2 - 4);
-    const meterH = Math.round(meterHRaw / 4) * 4;
+    const meterH = Math.round(Math.max(12, h - padY * 2 - 4) / 4) * 4;
+    // Bar height; the handle is drawn a few px proud of it (see MeterFader).
+    const faderH = h < 64 ? 13 : h < 96 ? 15 : 17;
     const swatchH = h < 32 ? 10 : 14;
     const swatchW = h < 32 ? 6 : 8;
 
@@ -168,23 +170,23 @@ export const TrackHeaderControl = memo(
         </div>
 
         {showVol && (
-          <div
-            className="flex shrink-0 items-center gap-1.5 font-mono text-foreground/60"
-            style={{ fontSize: Math.max(8, nameSize - 3) }}
-          >
-            <span className="shrink-0 uppercase tracking-wider font-semibold text-foreground/40">
-              Vol
-            </span>
-            <MiniSlider
+          <div className="flex shrink-0 items-center gap-1.5">
+            <MeterFader
               value={gain}
               min={-60}
               max={12}
               step={0.5}
-              accent={color}
               onChange={(v) => setGain(v)}
+              dbL={track.peakDbL ?? track.peakDb ?? -100}
+              dbR={track.peakDbR ?? track.peakDb ?? -100}
+              getLiveDbL={() => getLiveLevels().tracks[index]?.peakDbL ?? -144}
+              getLiveDbR={() => getLiveLevels().tracks[index]?.peakDbR ?? -144}
+              accent={color}
+              height={faderH}
+              aria-label={`${track.name || track.id} volume`}
             />
             <span
-              className="w-8 shrink-0 text-right font-medium tabular-nums"
+              className="w-8 shrink-0 text-right font-mono font-medium tabular-nums text-foreground/60"
               style={{ fontSize: Math.max(8, nameSize - 2) }}
             >
               {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}

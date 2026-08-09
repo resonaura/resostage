@@ -1,7 +1,9 @@
 import { Knob, LevelMeterBar } from "../../components/daw";
+import { Select } from "../../components/ui";
 import { useChannelClipHold } from "../../hooks/useChannelClipHold";
 import { useLiveValue } from "../../lib/optimistic";
 import type { BusRow, ClickSendRow, SettingsState } from "../../lib/types";
+import { ROUTING_SELECT_SIZE } from "./constants";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
 import { SendKnobs } from "./SendKnobs";
@@ -25,15 +27,15 @@ function StripButton({
 }) {
   const activeCls =
     color === "danger"
-      ? "bg-danger text-white border-danger"
-      : "bg-warning text-black border-warning";
+      ? "bg-danger text-white"
+      : "bg-warning text-black";
   return (
     <button
       onClick={onClick}
-      className={`flex h-5 w-full items-center justify-center rounded border text-[10px] font-bold transition-colors ${
+      className={`flex h-5 w-full items-center justify-center rounded-md text-[10px] font-bold tracking-wide transition-colors ${
         active
           ? activeCls
-          : "border-default/50 bg-default/10 text-foreground/50 hover:bg-default/25"
+          : "bg-default/25 text-foreground/45 hover:bg-default/45 hover:text-foreground/70"
       }`}
     >
       <span
@@ -141,30 +143,38 @@ export function ChannelStrip({
   const [displayPan, commitPan] = useLiveValue(pan ?? 0, onPan ?? noop);
 
   const isDimmed = !!anySoloInGroup && !solo;
+  // First-paint fallbacks only. Everything that has to FOLLOW the signal --
+  // the meter bars, the dB box, the clip latch -- samples the live getters
+  // during its own paint, which is what lets the strip stop re-rendering at
+  // telemetry rate (see lib/levelFields).
   const stripLeftDb = peakDbL ?? peakDb ?? -100;
   const stripRightDb = peakDbR ?? peakDb ?? -100;
-  const stripClip = useChannelClipHold(Math.max(stripLeftDb, stripRightDb));
+  const liveLeft = () => getLiveDbL?.() ?? getLiveDb?.() ?? stripLeftDb;
+  const liveRight = () => getLiveDbR?.() ?? getLiveDb?.() ?? stripRightDb;
+  const stripClip = useChannelClipHold(() =>
+    Math.max(liveLeft(), liveRight()),
+  );
 
   return (
     <div
-      className={`flex h-full min-h-0 w-24 shrink-0 flex-col items-center justify-between rounded-lg border border-default/30 bg-background-secondary p-2 select-none transition-opacity duration-300 ${
+      className={`flex h-full min-h-0 w-24 shrink-0 select-none flex-col items-center justify-between rounded-xl border border-default/25 bg-background-secondary p-2 transition-opacity duration-300 ${
         isDimmed ? "opacity-35" : "opacity-100"
       }`}
     >
-      <div className="flex flex-col items-center gap-0.5 w-full min-w-0 text-center">
+      <div className="flex w-full min-w-0 flex-col items-center gap-1 text-center">
         <div
-          className="h-1 w-full rounded-full shrink-0"
+          className="h-[3px] w-full shrink-0 rounded-full"
           style={{ backgroundColor: color }}
         />
         <div
-          className="truncate text-xs font-semibold text-foreground w-full min-w-0"
+          className="w-full min-w-0 truncate text-xs font-semibold text-foreground"
           title={name}
         >
           {name}
         </div>
         {subtitle && (
           <div
-            className="text-[9px] text-foreground/40 font-mono truncate w-full min-w-0"
+            className="w-full min-w-0 truncate font-mono text-[9px] uppercase tracking-wide text-foreground/35"
             title={subtitle}
           >
             {subtitle}
@@ -186,18 +196,14 @@ export function ChannelStrip({
       ) : (
         busses &&
         onBusSelect && (
-          <div className="w-full my-1">
-            <select
+          <div className="my-1 w-full">
+            <Select
+              aria-label="Output bus"
+              size={ROUTING_SELECT_SIZE}
+              options={busses.map((b) => ({ id: b.id, label: b.name || b.id }))}
               value={busId || ""}
-              onChange={(e) => onBusSelect(e.target.value)}
-              className="w-full box-border rounded border border-default/40 bg-default/20 px-1 py-0.5 text-[9px] font-medium text-foreground focus:outline-none h-[22px]"
-            >
-              {busses.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name || b.id}
-                </option>
-              ))}
-            </select>
+              onChange={onBusSelect}
+            />
           </div>
         )
       )}
@@ -226,18 +232,14 @@ export function ChannelStrip({
 
       <GainPeakReadout
         gainDb={displayGainDb}
-        liveAvgDb={(stripLeftDb + stripRightDb) / 2}
+        getLiveDb={() => (liveLeft() + liveRight()) / 2}
         clipped={stripClip.clipped}
         heldPeakDb={stripClip.heldPeakDb}
         onClear={stripClip.clear}
       />
 
       <div className="flex min-h-0 flex-1 items-center justify-center gap-2 py-2">
-        <GainFader
-          value={displayGainDb}
-          accent={color}
-          onChange={commitGain}
-        />
+        <GainFader value={displayGainDb} onChange={commitGain} />
         <LevelMeterBar
           db={peakDb ?? -100}
           dbL={stripLeftDb}

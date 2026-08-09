@@ -160,8 +160,113 @@
   border-top-color: var(--tone);
 }
 
+/* Select — the trigger is the coloured surface; the popover is portalled and
+   therefore toned through its own class (see Select.tsx). */
+.select.rs-tone .select__trigger {
+  background-color: var(--tone);
+  border-color: transparent;
+  color: var(--tone-fg);
+}
+
+.select.rs-tone .select__trigger:hover,
+.select.rs-tone .select__trigger[data-hovered="true"] {
+  background-color: var(--tone-hover);
+}
+
+.select.rs-tone .select__value,
+.select.rs-tone .select__indicator {
+  color: inherit;
+}
+
 .rs-card-surface {
   background-color: var(--color-background-secondary);
   border: 1px solid var(--color-background-tertiary);
   border-radius: 1rem;
+}
+
+/* ── 3. Select density ────────────────────────────────────────────────────
+   HeroUI's field size (36px tall, 14px type) is right for a settings form and
+   far too big for a mixer strip, where two routing selects sit above the
+   fader and every pixel they take is a pixel the fader loses -- and where all
+   strips must agree to the pixel or the faders stop lining up across the
+   console. These are the two smaller steps; `md` is HeroUI untouched. */
+
+.select.rs-select--xs .select__trigger {
+  align-items: center;
+  border-radius: 0.5rem;
+  font-size: 9px;
+  line-height: 1;
+  min-height: 22px;
+  padding-block: 0;
+  padding-inline: 0.375rem;
+}
+
+.select.rs-select--xs .select__trigger:has(.select__indicator) {
+  padding-inline-end: 1.125rem;
+}
+
+.select.rs-select--xs .select__indicator {
+  inset-inline-end: 0.25rem;
+}
+
+.select.rs-select--xs .select__indicator[data-slot="select-default-indicator"] {
+  height: 0.625rem;
+  width: 0.625rem;
+}
+
+.select.rs-select--sm .select__trigger {
+  align-items: center;
+  border-radius: 0.625rem;
+  font-size: 11px;
+  line-height: 1;
+  min-height: 28px;
+  padding-block: 0;
+  padding-inline: 0.5rem;
+}
+
+.select.rs-select--sm .select__trigger:has(.select__indicator) {
+  padding-inline-end: 1.375rem;
+}
+
+.select.rs-select--sm .select__indicator {
+  inset-inline-end: 0.375rem;
+}
+
+.select.rs-select--sm .select__indicator[data-slot="select-default-indicator"] {
+  height: 0.75rem;
+  width: 0.75rem;
+}
+
+/* One line, ellipsised: a bus called "Guitar Amp Left" must not reflow a
+   96px-wide strip into two rows. */
+.select.rs-select--xs .select__value,
+.select.rs-select--sm .select__value {
+  font-size: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select__popover.rs-select-popover--xs,
+.select__popover.rs-select-popover--sm {
+  border-radius: 0.75rem;
+}
+
+.select__popover.rs-select-popover--xs [data-slot="list-box"],
+.select__popover.rs-select-popover--sm [data-slot="list-box"] {
+  padding: 0.25rem;
+}
+
+.select__popover.rs-select-popover--xs .list-box-item {
+  border-radius: 0.5rem;
+  font-size: 11px;
+  min-height: 26px;
+  padding-block: 0.125rem;
+}
+
+.select__popover.rs-select-popover--sm .list-box-item {
+  border-radius: 0.5rem;
+  font-size: 12px;
+  min-height: 28px;
+  padding-block: 0.125rem;
 }

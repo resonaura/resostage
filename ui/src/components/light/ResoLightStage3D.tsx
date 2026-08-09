@@ -353,18 +353,40 @@ export function ResoLightStage3D({
     [],
   );
 
+  // The canvas this instance is currently showing, and whether it is still
+  // mounted -- both are what tells a real GPU fault apart from the teardown of
+  // a canvas we have already walked away from. See the context-lost handler.
+  const liveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    // Re-armed on mount, not just cleared on unmount: React re-mounts a
+    // component after tearing it down (StrictMode does it on purpose in dev,
+    // and Suspense/offscreen can do it in production). A flag that is only
+    // ever set to false left the stage unable to rebuild itself after a real
+    // context loss -- it came back as an empty white panel.
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     const remount = () => {
       setFadedIn(false);
       setCanvasEpoch((n) => n + 1);
     };
-    const onContextLost = (e: Event) => {
-      e.preventDefault();
-      remount();
-    };
     // Soft recover on plain focus/show (don't tear down the GL context —
-    // that flickers the stage every alt-tab). Hard remount after sleep /
-    // unlock / long background, where the GPU surface is often dead.
+    // that flickers the stage every alt-tab). Hard remount only after the
+    // events that actually leave a dead GPU surface: sleep, screen unlock,
+    // a discarded/restored page.
+    //
+    // "visibility" is deliberately NOT one of them. It fires whenever the
+    // window merely becomes visible -- including once at startup, since the
+    // shell shows the window after the page has mounted -- and remounting
+    // <Canvas> there tore down a GL context that had just been built, took
+    // the fade back to zero and re-framed the camera. That was the flicker on
+    // first open. Becoming visible is the ordinary case and the existing
+    // context is fine; the genuinely broken-surface cases stay hard below.
     const onShellResume = (e: Event) => {
       const reason =
         e instanceof CustomEvent
@@ -376,20 +398,17 @@ export function ResoLightStage3D({
         reason === "restore" ||
         reason === "menu" ||
         reason === "page-resume" ||
-        reason === "pageshow-bfcache" ||
-        reason === "visibility";
+        reason === "pageshow-bfcache";
       if (hard) {
         remount();
         return;
       }
-      // focus/show/activate: keep canvas, just ensure we're visible.
+      // focus/show/activate/visibility: keep the canvas, just be visible.
       setFadedIn(true);
       requestAnimationFrame(() => frameAllRef.current?.());
     };
-    window.addEventListener("webglcontextlost", onContextLost, true);
     window.addEventListener("resoshell-resume", onShellResume);
     return () => {
-      window.removeEventListener("webglcontextlost", onContextLost, true);
       window.removeEventListener("resoshell-resume", onShellResume);
     };
   }, []);
@@ -440,8 +459,22 @@ export function ResoLightStage3D({
         dpr={[1, 2]}
         onCreated={({ gl }) => {
           const el = gl.domElement;
+          liveCanvasRef.current = el;
+          // Bound to THIS canvas, not to window.
+          //
+          // It used to be a capture listener on window, which meant any
+          // canvas anywhere losing its context rebuilt this stage -- including
+          // the context of a canvas this component had itself just discarded.
+          // On startup that is exactly what happened: the stage faded in,
+          // the superseded canvas released its context a beat later, and the
+          // fade was yanked back to zero and restarted. Hence the blink.
+          //
+          // A canvas that is no longer in the document, or is not the one
+          // currently on screen, has nothing worth rebuilding.
           const lost = (e: Event) => {
             e.preventDefault();
+            if (!aliveRef.current) return;
+            if (!el.isConnected || liveCanvasRef.current !== el) return;
             setFadedIn(false);
             setCanvasEpoch((n) => n + 1);
           };

@@ -103,7 +103,7 @@ export function SendKnobs({
               value={value}
               min={SEND_FLOOR_DB}
               max={SEND_CEILING_DB}
-              busColor="var(--muted)"
+              busColor="var(--foreground)"
               title={
                 enabled
                   ? `Send to ${label} (right-click for options)`

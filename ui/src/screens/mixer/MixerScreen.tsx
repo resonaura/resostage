@@ -1,6 +1,7 @@
 import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useHorizontalWindow } from "../../hooks/useHorizontalWindow";
 import { useIsCompact } from "../../lib/useMediaQuery";
 import { builder, mixer } from "../../lib/api";
 import { extOutTarget, isMainBusId } from "./mixerIds";
@@ -15,6 +16,25 @@ interface PendingBusJob {
   knownIds: Set<string>;
   finalize: (busId: string, index: number) => void;
 }
+
+/**
+ * One strip's footprint: the 96px strip (ChannelStrip's `w-24`) plus the 8px
+ * that separates it from the next. The virtualised panes carry that gap as a
+ * right margin on each item rather than as the flex `gap-2` the other panes
+ * use, so a spacer standing in for N strips is exactly N * this and the
+ * scrollbar is the same length virtualised or not.
+ */
+const STRIP_PITCH_PX = 104;
+
+/**
+ * Below this many strips, mount the lot.
+ *
+ * Windowing is only ever a saving for strips that are off screen, and a pane
+ * this short has none on any normal window -- so the threshold costs nothing
+ * and keeps small rigs on the simplest possible path. Raise or drop it freely;
+ * the windowed and unwindowed renders are identical when everything fits.
+ */
+const VIRTUALIZE_FROM = 12;
 
 /**
  * One group of strips (tracks / sends / master).
@@ -46,6 +66,16 @@ function ConsolePane({
 export function MixerScreen({ state }: { state: WebUiState }) {
   const compact = useIsCompact();
   const auxBusses = state.busses.filter((b) => b.isAux);
+  const trackWindow = useHorizontalWindow({
+    count: state.tracks.length,
+    pitchPx: STRIP_PITCH_PX,
+    enabled: state.tracks.length >= VIRTUALIZE_FROM,
+  });
+  const sendWindow = useHorizontalWindow({
+    count: auxBusses.length,
+    pitchPx: STRIP_PITCH_PX,
+    enabled: auxBusses.length >= VIRTUALIZE_FROM,
+  });
   // Match the master by its canonical id and nothing else. The old code fell
   // back to "the first non-aux bus" when the id didn't match, which quietly
   // selected an output LANE -- so every control on the master strip was being
@@ -120,26 +150,34 @@ export function MixerScreen({ state }: { state: WebUiState }) {
     return extOutTarget(startChannel, pair);
   }
 
-  function requestTrackDirectOutput(
-    trackIndex: number,
-    _mono: boolean,
-    startChannel: number,
-    pair: boolean,
-  ) {
-    // Always switch: the lane id is deterministic from the channel and the
-    // engine's routing drops any lane that isn't currently present (shadow /
-    // unavailable) to silence without rejecting. Gating on the live bus list
-    // here made Ext. Out feel dead on tracks (race the moment a lane isn't
-    // yet in state.busses), while master -- a plain project bus -- always
-    // switched fine.
-    void mixer.setTrackBus(trackIndex, directBusIdFor(startChannel, pair));
-  }
+  // Stable identities: every strip is memoised (see TrackStrip), and a handler
+  // rebuilt each render would defeat that on its own.
+  const requestTrackDirectOutput = useCallback(
+    (
+      trackIndex: number,
+      _mono: boolean,
+      startChannel: number,
+      pair: boolean,
+    ) => {
+      // Always switch: the lane id is deterministic from the channel and the
+      // engine's routing drops any lane that isn't currently present (shadow /
+      // unavailable) to silence without rejecting. Gating on the live bus list
+      // here made Ext. Out feel dead on tracks (race the moment a lane isn't
+      // yet in state.busses), while master -- a plain project bus -- always
+      // switched fine.
+      void mixer.setTrackBus(trackIndex, directBusIdFor(startChannel, pair));
+    },
+    [],
+  );
 
-  function requestClickDirectOutput(startChannel: number, pair: boolean) {
-    patchClickFields(stateRef.current, {
-      clickBusId: directBusIdFor(startChannel, pair),
-    });
-  }
+  const requestClickDirectOutput = useCallback(
+    (startChannel: number, pair: boolean) => {
+      patchClickFields(stateRef.current, {
+        clickBusId: directBusIdFor(startChannel, pair),
+      });
+    },
+    [],
+  );
 
   // Solo grouping is the engine's rule, not the mixer's: every row arrives
   // tagged with its group and whether anything in that group is soloed, so a
@@ -173,46 +211,67 @@ export function MixerScreen({ state }: { state: WebUiState }) {
           <>
             <ConsolePane
               compact={compact}
-              className={`flex min-h-0 gap-2 pr-1 ${compact ? "shrink-0" : "flex-1"}`}
+              className={`flex min-h-0 pr-1 ${compact ? "shrink-0" : "flex-1"}`}
             >
-              {state.tracks.map((t, i) => (
-                <div
-                  key={t.id}
-                  className="flex h-full min-h-0 shrink-0"
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({
-                      kind: "track",
-                      x: e.clientX,
-                      y: e.clientY,
-                      index: i,
-                      track: t,
-                      songIndex,
-                    });
-                  }}
-                >
-                  <TrackStrip
-                    t={t}
-                    index={i}
-                    destinationBusses={destinationBusses}
-                    allBusses={state.busses}
-                    auxBusses={auxBusses}
-                    meters={state.meters}
-                    settings={state.settings}
-                    anySoloInGroup={anyTrackSolo}
-                    onDirectOutput={requestTrackDirectOutput}
-                  />
-                </div>
-              ))}
+              {/* Spacers stand in for the strips that are not mounted, so the
+                  scroll extent and every strip's position are unchanged.
+                  The leading one also carries the ref: it is the row's first
+                  child, so its left edge IS the row's left edge, which is the
+                  offset the window is computed from. */}
+              <div
+                ref={trackWindow.contentRef}
+                className="h-full shrink-0"
+                style={{ width: trackWindow.window.padStartPx }}
+                aria-hidden
+              />
+              {state.tracks
+                .slice(trackWindow.window.start, trackWindow.window.end)
+                .map((t, offset) => {
+                  const i = trackWindow.window.start + offset;
+                  return (
+                    <div
+                      key={t.id}
+                      className="mr-2 flex h-full min-h-0 shrink-0"
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setMenu({
+                          kind: "track",
+                          x: e.clientX,
+                          y: e.clientY,
+                          index: i,
+                          track: t,
+                          songIndex,
+                        });
+                      }}
+                    >
+                      <TrackStrip
+                        t={t}
+                        index={i}
+                        destinationBusses={destinationBusses}
+                        allBusses={state.busses}
+                        auxBusses={auxBusses}
+                        meters={state.meters}
+                        settings={state.settings}
+                        anySoloInGroup={anyTrackSolo}
+                        onDirectOutput={requestTrackDirectOutput}
+                      />
+                    </div>
+                  );
+                })}
+              <div
+                className="h-full shrink-0"
+                style={{ width: trackWindow.window.padEndPx }}
+                aria-hidden
+              />
             </ConsolePane>
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
             <ConsolePane
               compact={compact}
-              className={`flex shrink-0 gap-2 ${compact ? "" : "max-w-[35%]"}`}
+              className={`flex shrink-0 ${compact ? "" : "max-w-[35%]"}`}
             >
-              <div className="flex h-full w-20 shrink-0 flex-col items-center justify-center">
+              <div className="mr-2 flex h-full w-20 shrink-0 flex-col items-center justify-center">
                 <button
                   onClick={() => requestAddSend()}
                   title="Add a new return/send bus"
@@ -223,31 +282,45 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                 </button>
               </div>
 
-              {auxBusses.map((b) => (
-                <div
-                  key={b.id}
-                  className="flex h-full min-h-0 shrink-0"
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({
-                      kind: "send",
-                      x: e.clientX,
-                      y: e.clientY,
-                      index: state.busses.indexOf(b),
-                      bus: b,
-                    });
-                  }}
-                >
-                  <BusStrip
-                    b={b}
-                    index={state.busses.indexOf(b)}
-                    meters={state.meters}
-                    master={master}
-                    settings={state.settings}
-                    anySoloInGroup={anyAuxSolo}
-                  />
-                </div>
-              ))}
+              {/* See the track pane above for what the spacers are doing. */}
+              <div
+                ref={sendWindow.contentRef}
+                className="h-full shrink-0"
+                style={{ width: sendWindow.window.padStartPx }}
+                aria-hidden
+              />
+              {auxBusses
+                .slice(sendWindow.window.start, sendWindow.window.end)
+                .map((b) => (
+                  <div
+                    key={b.id}
+                    className="mr-2 flex h-full min-h-0 shrink-0"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setMenu({
+                        kind: "send",
+                        x: e.clientX,
+                        y: e.clientY,
+                        index: state.busses.indexOf(b),
+                        bus: b,
+                      });
+                    }}
+                  >
+                    <BusStrip
+                      b={b}
+                      index={state.busses.indexOf(b)}
+                      meters={state.meters}
+                      master={master}
+                      settings={state.settings}
+                      anySoloInGroup={anyAuxSolo}
+                    />
+                  </div>
+                ))}
+              <div
+                className="h-full shrink-0"
+                style={{ width: sendWindow.window.padEndPx }}
+                aria-hidden
+              />
             </ConsolePane>
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />

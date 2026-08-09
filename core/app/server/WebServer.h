@@ -695,6 +695,8 @@ struct WebUiState {
     double cpuPercent = 0.0;
     uint64_t rssBytes = 0;
     uint64_t freeBytes = 0;
+    uint64_t systemTotalBytes = 0;
+    uint32_t cpuCoreCount = 1;
     uint64_t underrunCount = 0;
     uint64_t audioCallbackCount = 0;
     uint64_t silentBlockCount = 0;

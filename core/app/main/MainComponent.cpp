@@ -1554,6 +1554,8 @@ void MainComponent::publishWebState() {
     state.cpuPercent = health.totalCpuPercent;
     state.rssBytes = health.totalRssBytes;
     state.freeBytes = health.systemFreeBytes;
+    state.systemTotalBytes = health.systemTotalBytes;
+    state.cpuCoreCount = health.cpuCoreCount;
     state.underrunCount = health.underrunCount;
     state.audioCallbackCount = health.audioCallbackCount;
     state.silentBlockCount = health.silentBlockCount;

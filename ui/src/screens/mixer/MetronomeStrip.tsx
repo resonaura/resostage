@@ -1,4 +1,6 @@
+import { memo } from "react";
 import { builder, mixer } from "../../lib/api";
+import { rowsSameExceptLevels } from "../../lib/levelFields";
 import { getClickPeaks } from "../../lib/liveLevels";
 import {
   outputSendsToClickRows,
@@ -9,7 +11,7 @@ import { ChannelStrip } from "./ChannelStrip";
 import { metronomeColor } from "./constants";
 import { isMainBusId } from "./mixerIds";
 
-export function MetronomeStrip({
+function MetronomeStripInner({
   state,
   onDirectOutput,
 }: {
@@ -135,3 +137,21 @@ export function MetronomeStrip({
     />
   );
 }
+
+/**
+ * Same reasoning as TrackStrip's memo, but this strip is handed the whole
+ * state object, so the comparator has to name the slices it actually reads --
+ * notably NOT clickPeakDb*, which the meters sample live (getClickPeaks).
+ */
+export const MetronomeStrip = memo(MetronomeStripInner, (prev, next) => {
+  const a = prev.state;
+  const b = next.state;
+  return (
+    prev.onDirectOutput === next.onDirectOutput &&
+    a.click === b.click &&
+    a.songs === b.songs &&
+    a.songIndex === b.songIndex &&
+    a.settings === b.settings &&
+    rowsSameExceptLevels(a.busses, b.busses)
+  );
+});

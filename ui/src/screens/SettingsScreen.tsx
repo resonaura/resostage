@@ -1,7 +1,15 @@
+import { Tooltip } from "@heroui/react";
 import { Activity, Music3, SlidersHorizontal, Workflow } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
-import { Button, Card, Tabs } from "../components/ui";
+import {
+  Button,
+  Card,
+  Select,
+  Tabs,
+  ToggleButton,
+  type SelectOption,
+} from "../components/ui";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 // @xyflow/react is a heavy graph library behind exactly one modal. Loading it
@@ -35,8 +43,6 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-const selectCls =
-  "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
 const labelCls =
   "text-[11px] font-semibold uppercase tracking-wide text-foreground/50";
 
@@ -152,47 +158,56 @@ function BindingRow({
         <span className="min-w-[10rem] text-sm">{actionLabel(action)}</span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          onClick={() => setListening(true)}
-          className={`min-w-[7.5rem] rounded-lg border px-3 py-1 text-sm tabular-nums ${
-            listening
-              ? "border-accent tint--subtle text-accent"
-              : "border-default/60 bg-default/20 hover:bg-default/30"
-          }`}
-          title="Click, then press a key (Esc cancels)"
-        >
-          {listening ? "Press a key…" : currentKey || "(unbound)"}
-        </button>
-        <button
-          onClick={() => {
-            if (learning) void settingsApi.midiLearnCancel();
-            else void settingsApi.midiLearn(action);
-          }}
-          className={`flex min-w-[7.5rem] items-center justify-center gap-1.5 rounded-lg border px-3 py-1 text-sm ${
-            learning
-              ? "border-accent tint--subtle text-accent"
-              : "border-default/60 bg-default/20 hover:bg-default/30"
-          }`}
-          title="Arm MIDI learn — press a pad or CC on the remote input"
-          aria-label={
-            learning
-              ? "Listening for MIDI"
-              : midiBound
-                ? formatMidi(midi)
-                : "MIDI Learn"
-          }
-        >
-          <FontIcon name="midiplug" size={13} />
-          {learning ? "Listening…" : midiBound ? formatMidi(midi) : "MIDI"}
-        </button>
+        {/* Both bindings are armed states, not one-shot actions -- "listening"
+            has to look held down until a key or a pad arrives. */}
+        <Tooltip>
+          <ToggleButton
+            size="sm"
+            tone="accent-soft"
+            isSelected={listening}
+            onChange={(on) => setListening(on)}
+            className="min-w-[7.5rem] tabular-nums"
+          >
+            {listening ? "Press a key…" : currentKey || "(unbound)"}
+          </ToggleButton>
+          <Tooltip.Content>
+            Click, then press a key (Esc cancels)
+          </Tooltip.Content>
+        </Tooltip>
+        <Tooltip>
+          <ToggleButton
+            size="sm"
+            tone="accent-soft"
+            isSelected={learning}
+            onChange={(on) => {
+              if (on) void settingsApi.midiLearn(action);
+              else void settingsApi.midiLearnCancel();
+            }}
+            className="min-w-[7.5rem]"
+            aria-label={
+              learning
+                ? "Listening for MIDI"
+                : midiBound
+                  ? formatMidi(midi)
+                  : "MIDI Learn"
+            }
+          >
+            <FontIcon name="midiplug" size={13} />
+            {learning ? "Listening…" : midiBound ? formatMidi(midi) : "MIDI"}
+          </ToggleButton>
+          <Tooltip.Content>
+            Arm MIDI learn — press a pad or CC on the remote input
+          </Tooltip.Content>
+        </Tooltip>
         {midiBound && !learning && (
-          <button
-            onClick={() => void settingsApi.midiClear(action)}
-            className="rounded-lg border border-default/40 px-2 py-1 text-xs text-foreground/60 hover:bg-default/20"
-            title="Clear MIDI binding"
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label="Clear MIDI binding"
+            onPress={() => void settingsApi.midiClear(action)}
           >
             Clear MIDI
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -295,6 +310,13 @@ function AudioTab({ state }: { state: WebUiState }) {
     sampleRates.length === 0 &&
     (s.midiOutputs?.length ?? 0) === 0;
 
+  const deviceOptions: SelectOption[] = [
+    ...(s.currentOutputDevice && !outputDevices.includes(s.currentOutputDevice)
+      ? [{ id: s.currentOutputDevice, label: s.currentOutputDevice }]
+      : []),
+    ...outputDevices.map((d) => ({ id: d, label: d })),
+  ];
+
   return (
     <div className="flex flex-col gap-4">
       {devicesEmpty && (
@@ -324,61 +346,41 @@ function AudioTab({ state }: { state: WebUiState }) {
 
       <Section title="Output Device">
         <Field label="Output device">
-          <select
-            className={selectCls}
+          <Select
+            aria-label="Output device"
+            placeholder="No devices reported"
+            // A device that has gone away is still what the engine is
+            // configured for, so it stays in the list rather than the control
+            // silently reading as some other device.
+            options={deviceOptions}
             value={s.currentOutputDevice || outputDevices[0] || ""}
-            onChange={(e) =>
-              void settingsApi.setAudioOutputDevice(e.target.value)
-            }
-          >
-            {outputDevices.length === 0 && (
-              <option value="">No devices reported</option>
-            )}
-            {s.currentOutputDevice &&
-              !outputDevices.includes(s.currentOutputDevice) && (
-                <option value={s.currentOutputDevice}>
-                  {s.currentOutputDevice}
-                </option>
-              )}
-            {outputDevices.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
+            onChange={(d) => void settingsApi.setAudioOutputDevice(d)}
+          />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Sample rate">
-            <select
-              className={selectCls}
-              value={s.sampleRate || sampleRates[0] || ""}
-              onChange={(e) =>
-                void settingsApi.setSampleRate(Number(e.target.value))
-              }
-            >
-              {sampleRates.length === 0 && <option value="">—</option>}
-              {sampleRates.map((r) => (
-                <option key={r} value={r}>
-                  {r.toLocaleString()} Hz
-                </option>
-              ))}
-            </select>
+            <Select
+              aria-label="Sample rate"
+              placeholder="—"
+              options={sampleRates.map((r) => ({
+                id: String(r),
+                label: `${r.toLocaleString()} Hz`,
+              }))}
+              value={String(s.sampleRate || sampleRates[0] || "")}
+              onChange={(v) => void settingsApi.setSampleRate(Number(v))}
+            />
           </Field>
           <Field label="Buffer size">
-            <select
-              className={selectCls}
-              value={s.bufferSize || bufferSizes[0] || ""}
-              onChange={(e) =>
-                void settingsApi.setBufferSize(Number(e.target.value))
-              }
-            >
-              {bufferSizes.length === 0 && <option value="">—</option>}
-              {bufferSizes.map((b) => (
-                <option key={b} value={b}>
-                  {b} samples
-                </option>
-              ))}
-            </select>
+            <Select
+              aria-label="Buffer size"
+              placeholder="—"
+              options={bufferSizes.map((b) => ({
+                id: String(b),
+                label: `${b} samples`,
+              }))}
+              value={String(s.bufferSize || bufferSizes[0] || "")}
+              onChange={(v) => void settingsApi.setBufferSize(Number(v))}
+            />
           </Field>
         </div>
         {s.outputChannelNames.length > 0 && (
@@ -387,9 +389,12 @@ function AudioTab({ state }: { state: WebUiState }) {
               {s.outputChannelNames.map((name, i) => {
                 const active = s.activeOutputChannels[i] ?? false;
                 return (
-                  <button
+                  <ToggleButton
                     key={i}
-                    onClick={() => {
+                    size="sm"
+                    tone="accent-soft"
+                    isSelected={active}
+                    onChange={() => {
                       const activeIndices = s.outputChannelNames
                         .map((_, idx) => idx)
                         .filter((idx) =>
@@ -399,14 +404,9 @@ function AudioTab({ state }: { state: WebUiState }) {
                         );
                       void settingsApi.setOutputChannels(activeIndices);
                     }}
-                    className={`rounded-lg border px-3 py-1.5 text-sm ${
-                      active
-                        ? "border-accent tint--soft text-accent"
-                        : "border-default/60 bg-default/10 text-foreground/50 hover:bg-default/20"
-                    }`}
                   >
                     {name}
-                  </button>
+                  </ToggleButton>
                 );
               })}
             </div>
@@ -426,61 +426,53 @@ function MidiTab({ state }: { state: WebUiState }) {
   );
   const learningAction = s.midiLearnAction ?? "";
 
+  // The engine reports which ports EXIST but not which one it has open, so
+  // these two pickers remember the session's choice locally. That is exactly
+  // what the uncontrolled `<select defaultValue="">` they replace did -- the
+  // difference is that the state is now visible rather than living in the DOM.
+  const [midiOutValue, setMidiOutValue] = useState("");
+  const [midiInValue, setMidiInValue] = useState("");
+
   return (
     <div className="flex flex-col gap-4">
       <Section title="MIDI I/O">
         <Field label="MIDI output (Live Stage / hardware)">
-          <select
-            className={selectCls}
-            defaultValue=""
-            onChange={(e) =>
-              e.target.value && void settingsApi.setMidiOutput(e.target.value)
-            }
-          >
-            <option value="" disabled>
-              Select MIDI output…
-            </option>
-            {s.midiOutputs.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          <Select
+            aria-label="MIDI output"
+            placeholder="Select MIDI output…"
+            options={s.midiOutputs.map((m) => ({ id: m, label: m }))}
+            value={midiOutValue}
+            onChange={(m) => {
+              setMidiOutValue(m);
+              void settingsApi.setMidiOutput(m);
+            }}
+          />
         </Field>
         <Field label="MIDI remote input (footswitch / pads)">
-          <select
-            className={selectCls}
-            defaultValue=""
-            onChange={(e) =>
-              e.target.value && void settingsApi.setMidiInput(e.target.value)
-            }
-          >
-            <option value="" disabled>
-              Select MIDI remote…
-            </option>
-            {s.midiInputs.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          <Select
+            aria-label="MIDI remote input"
+            placeholder="Select MIDI remote…"
+            options={s.midiInputs.map((m) => ({ id: m, label: m }))}
+            value={midiInValue}
+            onChange={(m) => {
+              setMidiInValue(m);
+              void settingsApi.setMidiInput(m);
+            }}
+          />
         </Field>
         <Field label="Virtual MIDI port (DAW sync test)">
           <div className="flex flex-col gap-1.5">
-            <button
-              onClick={() =>
-                void settingsApi.setMidiVirtualPort(!s.virtualMidiPortEnabled)
-              }
-              className={`self-start rounded-lg border px-3 py-1.5 text-sm ${
-                s.virtualMidiPortEnabled
-                  ? "border-accent tint--soft text-accent"
-                  : "border-default/60 bg-default/10 text-foreground/50 hover:bg-default/20"
-              }`}
+            <ToggleButton
+              size="sm"
+              tone="accent-soft"
+              className="self-start"
+              isSelected={s.virtualMidiPortEnabled}
+              onChange={(on) => void settingsApi.setMidiVirtualPort(on)}
             >
               {s.virtualMidiPortEnabled
                 ? "ResoStage Sync — enabled"
                 : "Enable ResoStage Sync"}
-            </button>
+            </ToggleButton>
             <div className="text-xs text-foreground/40">
               {s.virtualMidiPortEnabled
                 ? "Select \u201cResoStage Sync\u201d as a MIDI input in your DAW to receive the clock/Start/Stop/SPP."

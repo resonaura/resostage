@@ -10,6 +10,98 @@ import { useEffect, useRef, useState } from "react";
 
 export const OPTIMISTIC_LOCK_MS = 500;
 
+/**
+ * One write per frame, latest wins.
+ *
+ * A control that "applies immediately" reports a value on every pointermove,
+ * and every one of those used to become its own POST -- around sixty a second
+ * for a single colour-area drag, each answered by a full state broadcast that
+ * the whole UI then re-rendered against. The engine only ever needed the value
+ * the pointer is on NOW, so the intermediate ones are pure cost, paid on the
+ * main thread in the middle of the gesture that is asking it to be smooth.
+ *
+ * Local state is NOT what is being deferred here -- callers publish that
+ * instantly, which is what keeps the control glued to the pointer. Only the
+ * network write is coalesced, and never by more than a frame.
+ *
+ * Deliberately a private rAF rather than the shared driver in lib/rafLoop:
+ * that one is a render loop and stops entirely when nothing is on screen (see
+ * appActivity), which for a one-shot write would mean silently stranding the
+ * user's last edit. The timeout is the same safety net useLiveState uses for
+ * its own flush, for the same reason -- rAF can stall indefinitely in a
+ * backgrounded window.
+ */
+/** Injectable so the coalescer can be unit-tested without a browser clock. */
+export interface CommitScheduler {
+  requestFrame: (cb: () => void) => number;
+  cancelFrame: (handle: number) => void;
+  setTimer: (cb: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  clearTimer: (handle: ReturnType<typeof setTimeout>) => void;
+}
+
+const defaultScheduler: CommitScheduler = {
+  requestFrame: (cb) => requestAnimationFrame(cb),
+  cancelFrame: (h) => cancelAnimationFrame(h),
+  setTimer: (cb, ms) => setTimeout(cb, ms),
+  clearTimer: (h) => clearTimeout(h),
+};
+
+/** How long to wait for a frame that may never come. */
+const COMMIT_STALL_MS = 100;
+
+/** The hook's mechanism, free of React so it can be tested directly. */
+export function createCoalescedCommit<T>(
+  commit: (v: T) => void,
+  scheduler: CommitScheduler = defaultScheduler,
+): { send: (v: T) => void; flush: () => void } {
+  let pending: { value: T } | null = null;
+  let frame = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const flush = () => {
+    if (frame) {
+      scheduler.cancelFrame(frame);
+      frame = 0;
+    }
+    if (timer !== null) {
+      scheduler.clearTimer(timer);
+      timer = null;
+    }
+    const p = pending;
+    pending = null;
+    if (p) commit(p.value);
+  };
+
+  const send = (v: T) => {
+    pending = { value: v };
+    if (frame) return;
+    frame = scheduler.requestFrame(flush);
+    timer = scheduler.setTimer(flush, COMMIT_STALL_MS);
+  };
+
+  return { send, flush };
+}
+
+export function useCoalescedCommit<T>(
+  commit: (v: T) => void,
+): [send: (v: T) => void, flush: () => void] {
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  // Built once; it calls through the ref so a caller may pass a fresh closure
+  // on every render without restarting the scheduler mid-gesture.
+  const impl = useRef<{ send: (v: T) => void; flush: () => void } | null>(null);
+  if (impl.current === null) {
+    impl.current = createCoalescedCommit<T>((v) => commitRef.current(v));
+  }
+  const { send, flush } = impl.current;
+
+  // A gesture that ends by unmounting the control -- closing a colour popover
+  // on the same click that moved it -- must still deliver its last value.
+  useEffect(() => flush, [flush]);
+
+  return [send, flush];
+}
+
 export function useLiveValue(
   serverValue: number,
   commit: (v: number) => void,
@@ -17,17 +109,19 @@ export function useLiveValue(
 ): [number, (v: number) => void] {
   const [value, setValue] = useState(serverValue);
   const lastLocalEdit = useRef(0);
-  const commitRef = useRef(commit);
-  commitRef.current = commit;
+  const [send] = useCoalescedCommit(commit);
 
   useEffect(() => {
     if (Date.now() - lastLocalEdit.current > lockMs) setValue(serverValue);
   }, [serverValue, lockMs]);
 
   const onChange = (v: number) => {
+    // Stamped on the EDIT, not on the write, so the window during which server
+    // echoes are ignored starts when the user acted rather than up to a frame
+    // later.
     lastLocalEdit.current = Date.now();
     setValue(v);
-    commitRef.current(v);
+    send(v);
   };
 
   return [value, onChange];
