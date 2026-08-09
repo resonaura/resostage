@@ -34,6 +34,7 @@ type BridgeWindow = typeof window & {
     isElectron?: boolean;
     sendMenuState: (state: ElectronMenuState) => void;
     sendAction: (action: string) => void;
+    setTypingFocus?: (focused: boolean) => void;
   };
 };
 
@@ -77,4 +78,18 @@ export function forwardMenuState(s: WebUiState): void {
     lastActionNonce: s.lastActionNonce ?? 0,
     playing: s.playing ?? false,
   });
+}
+
+
+/**
+ * Tell the shell whether a text field has focus.
+ *
+ * The shell dispatches keybindings itself (see installHotkeyHandler in
+ * electron/src/main.mts) and cannot see focus inside the document, so without
+ * this a binding on a bare letter would eat that letter in every name field
+ * in the app.
+ */
+export function sendTypingFocus(focused: boolean): void {
+  if (!IS_ELECTRON) return;
+  bridge()?.setTypingFocus?.(focused);
 }

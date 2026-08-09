@@ -487,6 +487,111 @@ const NAMED_KEYS: Record<string, string> = {
   f12: "F12",
 };
 
+/**
+ * Whether the page currently has a text field focused.
+ *
+ * The renderer tells us, because the main process cannot see focus inside the
+ * document. Without it, binding "n" to Next Song would make the letter n
+ * unusable in every name field in the app.
+ */
+let typingFocus = false;
+
+/**
+ * Electron's `input.key` for a binding token, lowercased.
+ *
+ * The binding strings come from JUCE (`KeyPress::createFromDescription`) and
+ * name a few keys differently from the DOM, so the two vocabularies meet here
+ * rather than in a dozen comparisons.
+ */
+const INPUT_KEY_ALIASES: Record<string, string[]> = {
+  space: [" ", "spacebar"],
+  escape: ["escape", "esc"],
+  return: ["enter", "return"],
+  enter: ["enter", "return"],
+  tab: ["tab"],
+  delete: ["delete"],
+  backspace: ["backspace"],
+  up: ["arrowup"],
+  down: ["arrowdown"],
+  left: ["arrowleft"],
+  right: ["arrowright"],
+  home: ["home"],
+  end: ["end"],
+};
+
+/** Does this key event match a binding like "cmd + shift + s" / "space" / "n"? */
+function inputMatchesBinding(
+  input: Electron.Input,
+  binding: string | undefined,
+): boolean {
+  if (!binding) return false;
+  const tokens = binding.split("+").map((t) => t.trim().toLowerCase()).filter(Boolean);
+  if (tokens.length === 0) return false;
+
+  let wantCmd = false;
+  let wantCtrl = false;
+  let wantAlt = false;
+  let wantShift = false;
+  let key = "";
+  for (const t of tokens) {
+    if (t === "cmd" || t === "command") wantCmd = true;
+    else if (t === "ctrl" || t === "control") wantCtrl = true;
+    else if (t === "alt" || t === "option") wantAlt = true;
+    else if (t === "shift") wantShift = true;
+    else key = t;
+  }
+  if (!key) return false;
+
+  // "cmd" is CommandOrControl, matching how the menu displays it: Command on
+  // macOS, Control everywhere else. A binding that says "ctrl" outright means
+  // Control on every platform.
+  const cmdHeld = process.platform === "darwin" ? input.meta : input.control;
+  if (wantCmd !== cmdHeld) return false;
+  if (wantCtrl && !input.control) return false;
+  if (wantAlt !== input.alt) return false;
+  if (wantShift !== input.shift) return false;
+  // A binding with no modifiers must not fire while one is held -- ⌘N is New
+  // Project, not Next Song.
+  if (!wantCmd && !wantCtrl && (input.meta || input.control)) return false;
+
+  const pressed = (input.key ?? "").toLowerCase();
+  const accepted = INPUT_KEY_ALIASES[key] ?? [key];
+  return accepted.includes(pressed);
+}
+
+/**
+ * Dispatch keybindings from the shell instead of from the page.
+ *
+ * The page used to own every binding, which meant the shell never learned a
+ * key had been pressed -- so the menu-bar flash that confirms an action only
+ * ever fired when you clicked the menu item itself, never when you used its
+ * shortcut. Handling them here fixes that at the source: the same postAction
+ * path runs for a key and for a click, so they cannot behave differently.
+ *
+ * `before-input-event` is Chromium-level, so this is one implementation for
+ * macOS, Windows and Linux rather than three. It only fires for the focused
+ * webContents, and the explicit isFocused() check below covers the rest: a
+ * background window must never eat a keystroke meant for whatever the user is
+ * actually looking at.
+ */
+function installHotkeyHandler(win: BrowserWindow): void {
+  win.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    // Held keys must not machine-gun Next Song.
+    if (input.isAutoRepeat) return;
+    if (typingFocus) return;
+    if (!win.isFocused()) return;
+
+    const bindings = menuModel?.keybindings ?? {};
+    for (const [action, binding] of Object.entries(bindings)) {
+      if (!inputMatchesBinding(input, binding)) continue;
+      event.preventDefault();
+      void postAction(action);
+      return;
+    }
+  });
+}
+
 function keybindingFor(action: string): string {
   return menuModel?.keybindings?.[action] ?? "";
 }
@@ -1036,6 +1141,10 @@ function createWindow(): void {
       spellcheck: false,
     },
   });
+
+  // Keybindings are dispatched here rather than in the page -- see
+  // installHotkeyHandler for why, and for the focus rules.
+  installHotkeyHandler(mainWindow);
   // API mirror of webPreferences.backgroundThrottling (some Electron builds
   // only honor the runtime setter after the window exists).
   try {
@@ -1118,6 +1227,12 @@ function createWindow(): void {
     void mainWindow.loadURL(up ? DEV_URL : EMBED_URL);
   });
 }
+
+// The page tells us when a text field has focus, so bare-letter bindings
+// ("n" for Next Song) do not eat characters while someone is naming a track.
+ipcMain.on("typing-focus", (_event, focused: boolean) => {
+  typingFocus = Boolean(focused);
+});
 
 ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
   if (s && typeof s === "object") {

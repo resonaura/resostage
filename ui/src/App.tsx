@@ -20,6 +20,7 @@ import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/api";
 import { apiUrl } from "./lib/backend";
 import { SHOW_TRANSPORT_LABEL } from "./lib/devFlags";
 import { IS_ELECTRON } from "./lib/electron";
+import { sendTypingFocus } from "./lib/electronBridge";
 import { forwardMenuState } from "./lib/electronBridge";
 import { IS_EMBEDDED } from "./lib/embedded";
 import { keyEventToDescription } from "./lib/keyEvents";
@@ -72,12 +73,43 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
   // In the Electron shell the native monitor belongs to a different (and
   // inactive) process, so the SPA takes over ALL bindings -- exactly like a
   // plain browser tab, except the shell also owns the native menu bar.
+  // Under the Electron shell, keep the shell told whether a text field has
+  // focus -- it dispatches the bindings itself and cannot see into the
+  // document, so without this a binding on a bare letter would eat that
+  // letter while someone is naming a track.
   useEffect(() => {
-    // Always handle SPA keybindings when not pure-JUCE-embedded, OR when
-    // running in Electron (MacKeyMonitor lives in the wrong process there).
-    // Pure embedded still gets arrow/Home conveniences below via a second
-    // path if needed — see the always-on arrow block after this branch.
-    if (!IS_EMBEDDED || IS_ELECTRON) {
+    if (!IS_ELECTRON) return;
+    const update = () => {
+      const el = document.activeElement as HTMLElement | null;
+      sendTypingFocus(
+        !!el &&
+          (el.tagName === "INPUT" ||
+            el.tagName === "TEXTAREA" ||
+            el.isContentEditable),
+      );
+    };
+    update();
+    document.addEventListener("focusin", update);
+    document.addEventListener("focusout", update);
+    return () => {
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("focusout", update);
+      sendTypingFocus(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Who owns the configurable bindings:
+    //
+    //   Electron shell  -> the shell's main process (before-input-event), so
+    //                      a shortcut and a menu click take the identical
+    //                      path and the menu-bar flash cannot go missing.
+    //   plain browser   -> here, because there is no shell to ask.
+    //
+    // The built-in conveniences (song digits, arrows, Home) are NOT in the
+    // binding table and run in BOTH modes -- the listener is always
+    // installed, and only the binding loop inside it is gated.
+    {
       const handleKeyDown = (e: KeyboardEvent) => {
         const target = e.target as HTMLElement | null;
         if (
@@ -94,7 +126,18 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
         // bar_prev/bar_next / undo/redo). Route through the backend action
         // endpoint so lastAction/nonce updates (native menu flash + settings
         // dots). Mode switches also update the SPA tab optimistically.
+        // Anything in the binding table is the shell's under Electron.
+        // Bailing here rather than just skipping the loop is what stops the
+        // conveniences below from acting on a key the shell has already
+        // handled -- left/right are bound to bar_prev/bar_next, so without
+        // this every arrow press would seek twice.
+        const isBound = bindingsRef.current.some(
+          (kb) => kb.key && eventMatchesBinding(e, kb.key),
+        );
+        if (IS_ELECTRON && isBound) return;
+
         for (const kb of bindingsRef.current) {
+          if (IS_ELECTRON) break;
           if (!eventMatchesBinding(e, kb.key)) continue;
           e.preventDefault();
           e.stopPropagation();
@@ -129,17 +172,26 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
         }
 
         // Built-in conveniences that aren't rebindable yet.
-        if (
-          e.key >= "1" &&
-          e.key <= "9" &&
-          !e.metaKey &&
-          !e.ctrlKey &&
-          !e.altKey
-        ) {
+        const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+        if (e.key >= "1" && e.key <= "9" && plain) {
           const songIdx = parseInt(e.key, 10) - 1;
           e.preventDefault();
           e.stopPropagation();
           void transport.select(songIdx);
+        } else if (e.key === "0" && plain) {
+          // 0 sits at the end of the song-picker row and means "back to the
+          // top", which is the same thing the Stop button does -- the one
+          // key you want under your hand when a cue goes wrong.
+          e.preventDefault();
+          e.stopPropagation();
+          void fetch(apiUrl("/api/v1/action"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "stop_to_start" }),
+          }).catch(() => {
+            void transport.stop();
+            void transport.seek(0);
+          });
         } else if (e.code === "ArrowLeft") {
           e.preventDefault();
           performAction(
