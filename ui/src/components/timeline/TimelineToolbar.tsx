@@ -1,12 +1,5 @@
 import { Separator, Toolbar } from "@heroui/react";
 import {
-  Button,
-  ButtonGroup,
-  Slider,
-  ToggleButton,
-  ToggleButtonGroup,
-} from "../ui";
-import {
   AudioLines,
   Copy,
   Eraser,
@@ -25,6 +18,13 @@ import {
   Undo2,
 } from "lucide-react";
 import { useState } from "react";
+import {
+  Button,
+  ButtonGroup,
+  Slider,
+  ToggleButton,
+  ToggleButtonGroup,
+} from "../ui";
 
 import { timelineHistory } from "../../lib/api";
 import { useEscRevert } from "../../lib/useEscRevert";
@@ -138,6 +138,7 @@ export function TimelineToolbar({
                 isIconOnly
                 aria-label={undoLabel ? `Undo: ${undoLabel} (⌘Z)` : "Undo (⌘Z)"}
                 isDisabled={!canUndo}
+                variant="default-soft"
                 onPress={() => void timelineHistory.undo()}
               >
                 <Undo2 size={13} />
@@ -148,6 +149,7 @@ export function TimelineToolbar({
                   redoLabel ? `Redo: ${redoLabel} (⌘⇧Z)` : "Redo (⌘⇧Z)"
                 }
                 isDisabled={!canRedo}
+                variant="default-soft"
                 onPress={() => void timelineHistory.redo()}
               >
                 <ButtonGroup.Separator />
@@ -164,6 +166,7 @@ export function TimelineToolbar({
                     : "Copy selected regions (⌘C)"
                 }
                 isDisabled={selectionEmpty}
+                variant="default-soft"
                 onPress={onCopy}
               >
                 <Copy size={13} />
@@ -176,6 +179,7 @@ export function TimelineToolbar({
                     : "Delete selected regions (⌫)"
                 }
                 isDisabled={selectionEmpty}
+                variant="default-soft"
                 onPress={onDelete}
               >
                 <ButtonGroup.Separator />
@@ -189,6 +193,7 @@ export function TimelineToolbar({
                     : "Trim/split selected regions at playhead (⌘T)"
                 }
                 isDisabled={selectionEmpty}
+                variant="default-soft"
                 onPress={onSplit}
               >
                 <ButtonGroup.Separator />
@@ -212,24 +217,24 @@ export function TimelineToolbar({
           <>
             <Separator orientation="vertical" />
             <ToggleButtonGroup
-                aria-label="Timeline view mode"
-                selectionMode="single"
-                disallowEmptySelection
-                selectedKeys={[effectiveViewMode]}
-                onSelectionChange={(keys) => {
-                  // keys это Set, берем первый элемент или Array.from(keys)
-                  const mode = Array.from(keys)[0] as TimelineViewMode;
-                  if (mode) setViewMode(mode);
-                }}
-                size="sm"
-              >
-                <ToggleButton id="audio">
-                  <AudioLines size={14} /> Audio
-                </ToggleButton>
-                <ToggleButton id="light">
-                  <ToggleButtonGroup.Separator />
-                  <Lightbulb size={14} /> Light
-                </ToggleButton>
+              aria-label="Timeline view mode"
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[effectiveViewMode]}
+              onSelectionChange={(keys) => {
+                // keys это Set, берем первый элемент или Array.from(keys)
+                const mode = Array.from(keys)[0] as TimelineViewMode;
+                if (mode) setViewMode(mode);
+              }}
+              size="sm"
+            >
+              <ToggleButton id="audio">
+                <AudioLines size={14} /> Audio
+              </ToggleButton>
+              <ToggleButton id="light">
+                <ToggleButtonGroup.Separator />
+                <Lightbulb size={14} /> Light
+              </ToggleButton>
             </ToggleButtonGroup>
           </>
         )}
@@ -238,26 +243,26 @@ export function TimelineToolbar({
           <>
             <Separator orientation="vertical" />
             <ToggleButtonGroup
-                aria-label="Timeline editing tools"
-                selectionMode="single"
-                selectedKeys={[tool]}
-                onSelectionChange={(keys) => {
-                  const t = [...keys][0] as TimelineTool;
-                  if (t) setTool(t);
-                }}
-                size="sm"
-              >
-                {TIMELINE_TOOLS.map((t, idx) => (
-                  <ToggleButton
-                    key={t.id}
-                    id={t.id}
-                    isIconOnly
-                    aria-label={`${t.label} (${t.shortcut}) — ${t.tip}`}
-                  >
-                    {idx > 0 && <ToggleButtonGroup.Separator />}
-                    {TOOL_ICONS[t.id]}
-                  </ToggleButton>
-                ))}
+              aria-label="Timeline editing tools"
+              selectionMode="single"
+              selectedKeys={[tool]}
+              onSelectionChange={(keys) => {
+                const t = [...keys][0] as TimelineTool;
+                if (t) setTool(t);
+              }}
+              size="sm"
+            >
+              {TIMELINE_TOOLS.map((t, idx) => (
+                <ToggleButton
+                  key={t.id}
+                  id={t.id}
+                  isIconOnly
+                  aria-label={`${t.label} (${t.shortcut}) — ${t.tip}`}
+                >
+                  {idx > 0 && <ToggleButtonGroup.Separator />}
+                  {TOOL_ICONS[t.id]}
+                </ToggleButton>
+              ))}
             </ToggleButtonGroup>
           </>
         )}
@@ -328,7 +333,7 @@ export function TimelineToolbar({
             style={{ opacity: 0.2, width: "16px", height: "16px" }}
           />
           {/* Esc mid-drag restores the zoom the slider was grabbed at. */}
-          <div className="flex-1 min-w-0" {...hZoomEscRevert}>
+          <div className="flex-1 min-w-0 flex items-center" {...hZoomEscRevert}>
             <Slider
               aria-label="Horizontal zoom"
               minValue={0}
@@ -350,7 +355,7 @@ export function TimelineToolbar({
                 markZoomActive();
                 applyZoomAt(next);
               }}
-              className="min-w-0 flex-1"
+              className="min-w-0 flex-1 flex items-center justify-center"
             >
               <Slider.Track>
                 <Slider.Fill />
@@ -372,7 +377,7 @@ export function TimelineToolbar({
                 const z = Array.isArray(v) ? v[0] : v;
                 setVerticalZoom(z);
               }}
-              className="min-w-0 flex-1"
+              className="min-w-0 flex-1 flex items-center justify-center"
             >
               <Slider.Track>
                 <Slider.Fill />

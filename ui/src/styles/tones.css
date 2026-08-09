@@ -134,7 +134,13 @@
   background-color: var(--tone-knob);
   color: var(--tone-knob-fg);
 }
-
+.slider.rs-tone {
+  --slider-fill: color-mix(
+    in oklab,
+    oklab(from var(--tone) l a b / 0.4) 100%,
+    var(--background) 100%
+  );
+}
 /* Slider — soft tone paints a translucent fill track and a picked-out knob handle */
 .slider.rs-tone .slider__track {
   background-color: var(--tone-track);
@@ -142,7 +148,7 @@
 
 .slider.rs-tone .slider__fill,
 .slider.rs-tone .slider__thumb {
-  background-color: var(--tone);
+  background-color: var(--slider-fill);
 }
 
 .slider.rs-tone .slider__thumb::after {
@@ -152,22 +158,22 @@
 
 .slider.rs-tone[data-orientation="horizontal"]
   .slider__track[data-fill-start="true"] {
-  border-inline-start-color: var(--tone);
+  border-inline-start-color: var(--slider-fill);
 }
 
 .slider.rs-tone[data-orientation="horizontal"]
   .slider__track[data-fill-end="true"] {
-  border-inline-end-color: var(--tone);
+  border-inline-end-color: var(--slider-fill);
 }
 
 .slider.rs-tone[data-orientation="vertical"]
   .slider__track[data-fill-start="true"] {
-  border-bottom-color: var(--tone);
+  border-bottom-color: var(--slider-fill);
 }
 
 .slider.rs-tone[data-orientation="vertical"]
   .slider__track[data-fill-end="true"] {
-  border-top-color: var(--tone);
+  border-top-color: var(--slider-fill);
 }
 
 /* Select — the trigger is the coloured surface; the popover is portalled and
