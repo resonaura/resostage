@@ -47,7 +47,16 @@ export function buildRows(
   return rows;
 }
 
-export function songDurationSeconds(
+/** Shortest song the timeline will draw, so an empty one is still workable. */
+export const MIN_SONG_SECONDS = 1;
+
+/**
+ * How long the song's CONTENT is -- the furthest thing in it.
+ *
+ * This is the floor the end marker can be dragged down to, and the length used
+ * when no end has been authored.
+ */
+export function songContentSeconds(
   song: SongRow,
   peaksForSong:
     | { id: string; trackId?: string; durationSeconds: number }[]
@@ -55,7 +64,8 @@ export function songDurationSeconds(
 ): number {
   let max = 0;
   for (const r of song.regions ?? []) {
-    if (r.durationSeconds) max = Math.max(max, r.durationSeconds);
+    if (r.durationSeconds)
+      max = Math.max(max, (r.startSeconds ?? 0) + r.durationSeconds);
   }
   for (const p of peaksForSong ?? []) {
     if (p.durationSeconds) max = Math.max(max, p.durationSeconds);
@@ -63,5 +73,28 @@ export function songDurationSeconds(
   for (const e of song.events) {
     if (e.timeSeconds) max = Math.max(max, e.timeSeconds);
   }
-  return Math.max(max, 1);
+  for (const s of song.sections ?? []) {
+    if (s.startSeconds) max = Math.max(max, s.startSeconds);
+  }
+  return max;
+}
+
+/**
+ * How long the song IS.
+ *
+ * An authored end (`endSeconds`, the draggable marker) wins over the content:
+ * that is the entire point of having one. A song can then be longer than
+ * anything in it -- room to write into, and the only way an empty song has a
+ * length at all -- or shorter, which shows the tail as out of bounds rather
+ * than silently deleting it.
+ */
+export function songDurationSeconds(
+  song: SongRow,
+  peaksForSong:
+    | { id: string; trackId?: string; durationSeconds: number }[]
+    | undefined,
+): number {
+  const authored = song.endSeconds ?? 0;
+  if (authored > 0) return Math.max(authored, MIN_SONG_SECONDS);
+  return Math.max(songContentSeconds(song, peaksForSong), MIN_SONG_SECONDS);
 }

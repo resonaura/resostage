@@ -166,7 +166,12 @@ function SelectRoot({
       className={cx(toneClass(tone), SIZE_CLASS[size], className)}
     >
       <HeroSelect.Trigger className={triggerClassName}>
-        {startContent}
+        {startContent !== undefined && startContent !== null && (
+          // Wrapped rather than rendered bare so the gap between a status icon
+          // and the value is one rule in the stylesheet instead of a margin
+          // every caller has to remember.
+          <span className="rs-select-start">{startContent}</span>
+        )}
         <HeroSelect.Value />
         <HeroSelect.Indicator />
       </HeroSelect.Trigger>

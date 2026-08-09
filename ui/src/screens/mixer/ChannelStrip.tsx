@@ -1,5 +1,9 @@
 import { Knob, LevelMeterBar } from "../../components/daw";
-import { Select } from "../../components/ui";
+import {
+  Select,
+  TOGGLE_BLINK_ACCENT,
+  ToggleButton,
+} from "../../components/ui";
 import { useChannelClipHold } from "../../hooks/useChannelClipHold";
 import { useLiveValue } from "../../lib/optimistic";
 import type { BusRow, ClickSendRow, SettingsState } from "../../lib/types";
@@ -12,40 +16,39 @@ import { TrackOutputRouting } from "./TrackOutputRouting";
 /** Stable identity so useLiveValue's commit ref doesn't churn. */
 const noop = () => {};
 
+/**
+ * Mute / Solo.
+ *
+ * Soft tones rather than a saturated fill: a console is a wall of these, and
+ * twelve solid red blocks read as an error state rather than as twelve
+ * controls. The soft tones still carry full-strength foreground colour (see
+ * styles/tones.css), so an engaged mute is unmistakable from across a stage
+ * without shouting when it is off.
+ */
 function StripButton({
   active,
-  color,
-  flashingMute,
+  tone,
+  blink,
   children,
-  onClick,
+  onPress,
 }: {
   active: boolean;
-  color: "danger" | "warning";
-  flashingMute?: boolean;
+  tone: "danger-soft" | "warning-soft";
+  /** Silenced by another strip's solo -- see TOGGLE_BLINK_ACCENT. */
+  blink?: boolean;
   children: React.ReactNode;
-  onClick: () => void;
+  onPress: () => void;
 }) {
-  const activeCls =
-    color === "danger"
-      ? "bg-danger text-white"
-      : "bg-warning text-black";
   return (
-    <button
-      onClick={onClick}
-      className={`flex h-5 w-full items-center justify-center rounded-md text-[10px] font-bold tracking-wide transition-colors ${
-        active
-          ? activeCls
-          : "bg-default/25 text-foreground/45 hover:bg-default/45 hover:text-foreground/70"
-      }`}
+    <ToggleButton
+      size="xs"
+      tone={tone}
+      isSelected={active}
+      onChange={onPress}
+      className={blink ? `w-full ${TOGGLE_BLINK_ACCENT}` : "w-full"}
     >
-      <span
-        className={
-          flashingMute ? "animate-pulse text-amber-400 font-extrabold" : ""
-        }
-      >
-        {children}
-      </span>
-    </button>
+      {children}
+    </ToggleButton>
   );
 }
 
@@ -267,16 +270,16 @@ export function ChannelStrip({
       )}
 
       {/* Always last so M/S line up at the bottom of every strip. */}
-      <div className="flex w-full gap-1 shrink-0 mt-auto">
+      <div className="mt-auto flex w-full shrink-0 gap-1">
         <StripButton
           active={mute}
-          color="danger"
-          flashingMute={isDimmed}
-          onClick={onMute}
+          tone="danger-soft"
+          blink={isDimmed && !mute}
+          onPress={onMute}
         >
           M
         </StripButton>
-        <StripButton active={solo} color="warning" onClick={onSolo}>
+        <StripButton active={solo} tone="warning-soft" onPress={onSolo}>
           S
         </StripButton>
       </div>

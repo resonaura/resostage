@@ -821,6 +821,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderSongImportFolder: builderSongImportFolder(cmd.json); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
             case WebCommandKind::BuilderSongMove: builderSongMove(cmd.json); break;
+            case WebCommandKind::BuilderSongEnd: builderSongEnd(cmd.json); break;
             case WebCommandKind::BuilderSongUpdate: builderSongUpdate(cmd.json); break;
             case WebCommandKind::BuilderTrackAdd: builderTrackAdd(cmd.json); break;
             case WebCommandKind::BuilderTrackRemove: builderTrackRemove(cmd.json); break;
@@ -1015,6 +1016,7 @@ void MainComponent::publishWebState() {
         row.autoplay = (song.onEnded == SongEnd::Next);
         row.tsNum = song.timeSignature.numerator;
         row.tsDen = song.timeSignature.denominator;
+        row.endSeconds = song.endSeconds;
         // Metronome is project-global — mirror onto every song row so older
         // SPA code that still reads song.click / song.clickSends stays correct.
         row.click = proj.click.enabled;

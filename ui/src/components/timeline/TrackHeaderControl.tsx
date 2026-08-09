@@ -4,6 +4,7 @@ import { getLiveLevels } from "../../lib/liveLevels";
 import { useLiveValue } from "../../lib/optimistic";
 import type { TrackRow } from "../../lib/types";
 import { Knob, LevelMeterBar, MeterFader } from "../daw";
+import { TOGGLE_BLINK_ACCENT, ToggleButton } from "../ui";
 import { laneHeightPx } from "./laneDimensions";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with
@@ -137,35 +138,33 @@ export const TrackHeaderControl = memo(
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => mixer.setTrackMute(index, !track.mute)}
-              className={`rounded font-bold transition-all shadow-sm ${
-                track.mute
-                  ? "bg-danger text-white scale-105"
-                  : isDimmed
-                    ? "bg-danger/80 text-white animate-pulse"
-                    : "bg-default/20 text-foreground/50 hover:bg-default/35 hover:text-foreground"
-              }`}
+            {/* Same soft tones as the console's M/S -- see ChannelStrip. The
+                lane sizes these itself, and an inline height/width outranks
+                the `xs` density class. */}
+            <ToggleButton
+              size="xs"
+              tone="danger-soft"
+              isSelected={track.mute}
+              onChange={() => mixer.setTrackMute(index, !track.mute)}
+              className={
+                isDimmed && !track.mute ? TOGGLE_BLINK_ACCENT : undefined
+              }
               style={{ height: btn, width: btn, fontSize: btnFont }}
-              title="Mute"
+              aria-label="Mute"
             >
               M
-            </button>
+            </ToggleButton>
 
-            <button
-              type="button"
-              onClick={() => mixer.setTrackSolo(index, !track.solo)}
-              className={`rounded font-bold transition-all shadow-sm ${
-                track.solo
-                  ? "bg-warning text-black scale-105"
-                  : "bg-default/20 text-foreground/50 hover:bg-default/35 hover:text-foreground"
-              }`}
+            <ToggleButton
+              size="xs"
+              tone="warning-soft"
+              isSelected={track.solo}
+              onChange={() => mixer.setTrackSolo(index, !track.solo)}
               style={{ height: btn, width: btn, fontSize: btnFont }}
-              title="Solo"
+              aria-label="Solo"
             >
               S
-            </button>
+            </ToggleButton>
           </div>
         </div>
 

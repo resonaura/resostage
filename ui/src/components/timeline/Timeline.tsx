@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { builder, transport } from "../../lib/api";
 import {
   beginCancellableDrag,
@@ -8,6 +15,7 @@ import {
   useContinuousPlayhead,
   type CycleWrapRange,
 } from "../../lib/optimistic";
+import { useCoalescedCommit } from "../../lib/optimistic";
 import { addRafTask } from "../../lib/rafLoop";
 import { isPositionVisible } from "../../lib/timelineVisibility";
 import type {
@@ -30,6 +38,10 @@ import {
   entryToFile,
   loadAudioPreview,
 } from "./audioDrop";
+import {
+  emptyProjectActions,
+  EmptyProjectState,
+} from "../EmptyProjectState";
 import { AudioDropGhost } from "./AudioDropGhost";
 import { AudioTrackLanes } from "./AudioTrackLanes";
 import { BeatGrid } from "./BeatGrid";
@@ -45,6 +57,7 @@ import {
 } from "./cueEdit";
 import { EventMarkerLane } from "./EventMarkerLane";
 import { snapToGridSec } from "./geometry";
+import type { SongEndDrag } from "./SongEndMarker";
 import { laneHeightPx } from "./laneDimensions";
 import { LightTrackLanes } from "./LightTrackLanes";
 import {
@@ -72,7 +85,7 @@ import {
   type RegionSelKey,
   type RegionUiState,
 } from "./regionUtils";
-import { buildRows } from "./rows";
+import { buildRows, songContentSeconds } from "./rows";
 import { SectionMarkerLane } from "./SectionMarkerLane";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { SongRulerHeader } from "./SongRulerHeader";
@@ -589,11 +602,59 @@ export function Timeline({
   const songs = state.songs;
   const hasSongs = songs.length > 0;
 
+  // ── Dragging a song's end ────────────────────────────────────────────────
+  //
+  // Held locally for the duration of the gesture and fed back into the layout
+  // (see useSongLayout's endOverride), so the resized song and everything
+  // after it move with the pointer instead of a round trip behind it. Writes
+  // are coalesced to one a frame under a shared gesture id, which is also what
+  // makes the whole drag a single undo entry.
+  const [songEndDrag, setSongEndDrag] = useState<SongEndDrag | null>(null);
+  const songEndGestureRef = useRef("");
+  const [sendSongEnd] = useCoalescedCommit(
+    ({ index, seconds }: SongEndDrag) =>
+      void builder.songEnd(index, seconds, songEndGestureRef.current),
+  );
+
   const { songLengths, songOffsets, totalLength } = useSongLayout(
     songs,
     allPeaks,
     peaks,
     state.songIndex,
+    songEndDrag,
+  );
+
+  // The floor the marker reports as "content past here is out of bounds".
+  const songContentLengths = useMemo(
+    () =>
+      songs.map((song, i) =>
+        songContentSeconds(
+          song,
+          allPeaks?.songs[i]?.tracks ??
+            (i === state.songIndex ? peaks?.tracks : undefined),
+        ),
+      ),
+    [songs, allPeaks, peaks, state.songIndex],
+  );
+
+  const handleSongEndDrag = useCallback(
+    (drag: SongEndDrag) => {
+      if (!songEndGestureRef.current)
+        songEndGestureRef.current = `song_end_${drag.index}_${Date.now()}`;
+      setSongEndDrag(drag);
+      sendSongEnd(drag);
+    },
+    [sendSongEnd],
+  );
+
+  const handleSongEndCommit = useCallback(
+    (drag: SongEndDrag | null) => {
+      if (drag) sendSongEnd(drag);
+      setSongEndDrag(null);
+      // A fresh id next time, so the next drag is its own undo step.
+      songEndGestureRef.current = "";
+    },
+    [sendSongEnd],
   );
 
   const activeSongIndex = state.songIndex >= 0 ? state.songIndex : 0;
@@ -2012,9 +2073,13 @@ export function Timeline({
       />
 
       {!hasSongs ? (
-        <div className="flex h-full min-h-0 items-center justify-center text-sm text-foreground/40">
-          No songs in this project
-        </div>
+        <EmptyProjectState
+          title="No songs yet"
+          description="A song is the container for its tracks, tempo and light cues. Add one and the arrangement opens up here."
+          actions={emptyProjectActions({
+            onCreateSong: () => void builder.songAdd(),
+          })}
+        />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {!readOnly && (
@@ -2069,6 +2134,10 @@ export function Timeline({
                 scrollState={scrollState}
                 playheadHandleRef={playheadHandleRef}
                 cycle={cycle}
+                songContentLengths={songContentLengths}
+                songEndDrag={songEndDrag}
+                onSongEndDrag={handleSongEndDrag}
+                onSongEndCommit={handleSongEndCommit}
                 snapToGrid={snapToGrid}
                 onCycleToggle={toggleCycle}
                 onCycleSetRange={setCycleRange}

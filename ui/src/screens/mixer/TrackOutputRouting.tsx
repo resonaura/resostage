@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isMainBusId } from "./mixerIds";
-import { Select, type SelectOption } from "../../components/ui";
+import { Button, Select, type SelectOption } from "../../components/ui";
 import type { BusRow, SettingsState } from "../../lib/types";
 import {
   EXT_OUTPUT_VALUE,
@@ -169,18 +169,20 @@ export function TrackOutputRouting({
     <div className="my-1 flex w-full flex-col items-center gap-1.5">
       {onMonoChange && (
         <div className="my-0.5 flex w-full items-center justify-center">
-          <button
-            type="button"
-            className="mx-auto flex items-center justify-center rounded-md p-1 text-foreground/60 transition-colors hover:bg-default/40 hover:text-foreground"
-            title={
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            className="mx-auto size-6 min-w-0 text-foreground/60"
+            aria-label={
               mono
                 ? "Mono — click for stereo"
                 : "Stereo — click for mono (sum L+R)"
             }
-            onClick={() => onMonoChange(!mono)}
+            onPress={() => onMonoChange(!mono)}
           >
             <MonoStereoIcon stereo={!mono} />
-          </button>
+          </Button>
         </div>
       )}
 

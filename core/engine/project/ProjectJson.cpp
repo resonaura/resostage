@@ -380,6 +380,11 @@ struct WSong {
     double bpm = 120.0;
     WTimeSig timeSignature;
     std::string onEnded = "stop";
+    // 0 = derive from content; see SongDef::endSeconds. Absent in projects
+    // written before the field existed, which read back as 0 -- i.e. exactly
+    // the behaviour they had. Unknown keys are ignored on read (see the
+    // glz::opts below), so this needs no format-version bump either way.
+    double endSeconds = 0.0;
     std::vector<WRegion> regions;
     std::vector<WEvent> events;
     std::vector<WSection> sections;
@@ -617,6 +622,7 @@ WProject toWire(const Project& p) {
         ws.timeSignature.numerator = s.timeSignature.numerator;
         ws.timeSignature.denominator = s.timeSignature.denominator;
         ws.onEnded = songEndToString(s.onEnded);
+        ws.endSeconds = finiteOrZero(s.endSeconds);
 
         for (const auto& r : s.regions) {
             if (r.source.file.empty())
@@ -893,6 +899,10 @@ Project fromWire(const WProject& w) {
         song.timeSignature.numerator = s.timeSignature.numerator;
         song.timeSignature.denominator = s.timeSignature.denominator;
         song.onEnded = songEndFromString(s.onEnded);
+        // Negative or non-finite is not a length; fall back to "derive".
+        song.endSeconds = s.endSeconds > 0.0 && std::isfinite(s.endSeconds)
+                              ? s.endSeconds
+                              : 0.0;
 
         for (const auto& r : s.regions) {
             if (r.source.file.empty())

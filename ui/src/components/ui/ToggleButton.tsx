@@ -49,10 +49,27 @@ const HERO_VARIANT_SET: ReadonlySet<string> = new Set(HERO_VARIANTS);
 
 export type ToggleButtonVariant = HeroVariant | Tone;
 
+/**
+ * HeroUI's smallest toggle is 32px tall. DAW chrome is smaller than any of its
+ * three sizes -- a mixer strip's M/S pair is 20px and the timeline's shrinks to
+ * 16px with the lane -- which is why those were hand-rolled `<button>`s with
+ * their own colours instead of going through here at all.
+ *
+ * `xs` is that missing step: HeroUI's `sm` underneath for structure, with the
+ * density overridden in styles/tones.css. Height and width stay overridable
+ * per call site (the timeline scales them with vertical zoom), since an inline
+ * style outranks the class.
+ */
+export type ToggleButtonSize = NonNullable<HeroToggleButtonProps["size"]> | "xs";
+
+const XS_CLASS = "rs-toggle--xs";
+
 export interface ToggleButtonProps extends Omit<
   HeroToggleButtonProps,
-  "variant"
+  "size" | "variant"
 > {
+  /** HeroUI's three sizes plus `xs` for DAW chrome; see ToggleButtonSize. */
+  size?: ToggleButtonSize;
   /** `default` / `ghost` for the unselected look, or a tone for the selected one. */
   variant?: ToggleButtonVariant;
   /** The selected colour, independent of `variant`. Wins over a tone in `variant`. */
@@ -60,6 +77,19 @@ export interface ToggleButtonProps extends Omit<
   /** Injected by HeroUI's ButtonGroup on every child; not for callers. */
   [BUTTON_GROUP_CHILD]?: boolean;
 }
+
+/**
+ * What a toggle looks like when it is ON and nobody said otherwise.
+ *
+ * Soft accent, matching HeroUI's own hard-wired selected state -- "on" reads
+ * as on across the whole app without every call site restating it. Name a tone
+ * whenever the state carries meaning of its own: the console's mute is
+ * `danger-soft` and its solo `warning-soft`, and both say so explicitly.
+ *
+ * Stated here as OUR default rather than left to HeroUI so it is one edit to
+ * change, and so a toned toggle and an untoned one take the same code path.
+ */
+const DEFAULT_TONE: Tone = "accent-soft";
 
 /**
  * Group-level tone. HeroUI's own ToggleButtonGroup already shares `size` with
@@ -80,6 +110,7 @@ function splitVariant(variant: ToggleButtonVariant | undefined): {
 }
 
 export function ToggleButton({
+  size,
   variant,
   tone,
   className,
@@ -91,18 +122,37 @@ export function ToggleButton({
 }: ToggleButtonProps) {
   const groupTone = use(ToggleGroupToneContext);
   const split = splitVariant(variant);
-  const activeTone = tone ?? split.tone ?? groupTone;
+  // Widest to narrowest, with the house default last so anything stated
+  // anywhere -- on the button, in its variant, or on its group -- wins.
+  const activeTone = tone ?? split.tone ?? groupTone ?? DEFAULT_TONE;
+  const isXs = size === "xs";
 
   return (
     <HeroToggleButton
+      // `xs` is ours; HeroUI's `sm` is the closest structural base, and the
+      // class below takes it the rest of the way down.
+      size={isXs ? "sm" : size}
       // Only forwarded when the caller actually named an unselected look; a
       // bare tone leaves HeroUI on its own `default` so the off state is
       // unchanged.
       variant={split.heroVariant}
-      className={withTone(className, activeTone)}
+      className={withTone(
+        isXs ? joinClass(XS_CLASS, className) : className,
+        activeTone,
+      )}
       {...rest}
     />
   );
+}
+
+/** `className` may be a render function (React Aria's convention); keep both. */
+function joinClass(
+  base: string,
+  className: ToggleButtonProps["className"],
+): ToggleButtonProps["className"] {
+  if (typeof className === "function")
+    return (renderProps) => `${base} ${className(renderProps)}`;
+  return className ? `${base} ${className}` : base;
 }
 
 type HeroToggleGroupProps = ComponentProps<typeof HeroToggleButtonGroup>;

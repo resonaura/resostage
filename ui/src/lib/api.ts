@@ -251,6 +251,15 @@ export const builder = {
   songAdd: (noSeed = false) => post("/api/v1/builder/song/add", { noSeed }),
   songImportFolder: () => post("/api/v1/builder/song/import-folder"),
   songRemove: (index: number) => post("/api/v1/builder/song/remove", { index }),
+  /**
+   * Move a song's end marker. `endSeconds <= 0` clears the override and lets
+   * the song go back to being as long as its content.
+   *
+   * `gestureId` coalesces a drag into ONE undo entry -- pass the same string
+   * for every frame of one drag, and omit it for a discrete edit.
+   */
+  songEnd: (index: number, endSeconds: number, gestureId?: string) =>
+    post("/api/v1/builder/song/end", { index, endSeconds, gestureId }),
   songMove: (index: number, delta: number) =>
     post("/api/v1/builder/song/move", { index, delta }),
   songUpdate: (patch: {

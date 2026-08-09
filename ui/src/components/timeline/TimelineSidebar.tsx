@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { Button } from "../ui";
 import type {
   LightFixtureRow,
   LightTrackRow,
@@ -99,14 +100,15 @@ export function TimelineSidebar({
         >
           <span>{effectiveViewMode === "light" ? "Audio ref" : "Light"}</span>
           {effectiveViewMode === "light" && lightEnabled && (
-            <button
-              type="button"
-              title="Add light track"
-              className="flex items-center gap-0.5 rounded border border-default/40 bg-default/15 px-1 py-0.5 normal-case tracking-normal text-foreground/60 transition-colors hover:border-accent/60 hover:text-foreground"
-              onClick={() => void lighting.trackAdd()}
+            <Button
+              size="sm"
+              variant="accent-soft"
+              aria-label="Add light track"
+              className="h-5 gap-0.5 px-1.5 text-[9px] normal-case tracking-normal"
+              onPress={() => void lighting.trackAdd()}
             >
               <Plus size={10} /> Track
-            </button>
+            </Button>
           )}
         </div>
       )}

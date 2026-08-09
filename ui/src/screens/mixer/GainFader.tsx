@@ -120,7 +120,7 @@ const FaderVisuals = memo(function FaderVisuals({
 
       {/* Travelled part of the throw */}
       <div
-        className="pointer-events-none absolute bottom-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-foreground/35"
+        className="pointer-events-none absolute bottom-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-foreground/20"
         style={{ height: `${normalized * 100}%` }}
       />
 

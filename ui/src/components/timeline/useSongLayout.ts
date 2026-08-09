@@ -13,6 +13,18 @@ export function useSongLayout(
   allPeaks: AllPeaksResponse | null,
   peaks: PeaksResponse | null,
   songIndex: number,
+  /**
+   * A song length the user is currently dragging, applied on top of what the
+   * engine has confirmed.
+   *
+   * The whole layout downstream of a resized song moves with it -- every later
+   * song's offset, the content width, the playhead's absolute mapping -- so
+   * waiting for the round trip would make the marker drag a scene that lags
+   * behind the pointer. This is the same optimism useLiveValue gives a fader,
+   * expressed where the value happens to be a layout input rather than a
+   * control's own state.
+   */
+  endOverride?: { index: number; seconds: number } | null,
 ): { songLengths: number[]; songOffsets: number[]; totalLength: number } {
   return useMemo(() => {
     const lengths: number[] = [];
@@ -27,10 +39,10 @@ export function useSongLayout(
       // Use real authored duration for seek math. A fake 60s floor used to
       // skew songOffsets when peaks/regions weren't ready yet, so scrubbing
       // into song N landed at the wrong localSeconds.
-      const len = Math.max(
-        1,
-        songDurationSeconds(songs[i], fromAll ?? fromCurrent),
-      );
+      const len =
+        endOverride && endOverride.index === i
+          ? Math.max(1, endOverride.seconds)
+          : Math.max(1, songDurationSeconds(songs[i], fromAll ?? fromCurrent));
       lengths.push(len);
       offsets.push(acc);
       acc += len;
@@ -42,5 +54,16 @@ export function useSongLayout(
       // tail the user could scroll into past the last song.
       totalLength: Math.max(acc, 1),
     };
-  }, [songs, allPeaks, peaks, songIndex]);
+    // Keyed on the override's FIELDS, not the object: it is rebuilt on every
+    // frame of a drag, so depending on the reference would recompute the whole
+    // layout for every pointer event that did not actually move the boundary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    songs,
+    allPeaks,
+    peaks,
+    songIndex,
+    endOverride?.index,
+    endOverride?.seconds,
+  ]);
 }

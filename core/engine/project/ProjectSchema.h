@@ -367,6 +367,22 @@ struct SongDef {
     double bpm = 120.0;
     TimeSignature timeSignature;
     SongEnd onEnded = SongEnd::Stop;
+    // Where the song ENDS, in song-local seconds -- the Logic-style project
+    // end marker, per song because a setlist has many.
+    //
+    // 0 means "derive it from the content" (the longest region / furthest
+    // event), which is what every project did before this field existed and
+    // what a freshly imported song still wants. Any positive value is an
+    // authored decision and wins over the content: that is the whole point --
+    // a song with one 8-bar loop can be four minutes long, and an empty song
+    // can have a length at all, which is what made an empty timeline
+    // impossible to work in.
+    //
+    // Seconds, not PPQN ticks: every other time in this schema is seconds
+    // (regions, events, cues, the cycle), and one field in a different unit
+    // would need converting at every boundary it crosses. Tempo-relative
+    // behaviour is a separate change to make deliberately, everywhere at once.
+    double endSeconds = 0.0;
     std::vector<Region> regions;
     std::vector<TimelineEvent> events;
     std::vector<SongSection> sections;

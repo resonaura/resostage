@@ -382,6 +382,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/song/remove", WebCommandKind::BuilderSongRemove},
     {"/api/v1/builder/song/move", WebCommandKind::BuilderSongMove},
     {"/api/v1/builder/song/update", WebCommandKind::BuilderSongUpdate},
+    {"/api/v1/builder/song/end", WebCommandKind::BuilderSongEnd},
     {"/api/v1/builder/track/add", WebCommandKind::BuilderTrackAdd},
     {"/api/v1/builder/track/remove", WebCommandKind::BuilderTrackRemove},
     {"/api/v1/builder/track/move", WebCommandKind::BuilderTrackMove},
@@ -1364,6 +1365,7 @@ std::string WebServer::buildStateJson(const char* view) const {
             wSong.mode = song.autoplay ? "auto" : "wait";
             wSong.tsNum = song.tsNum;
             wSong.tsDen = song.tsDen;
+            wSong.endSeconds = finiteOrZero(song.endSeconds);
             wSong.click = song.click;
             wSong.clickBusId = song.clickBusId;
             wSong.clickGainDb = finiteOrZero(song.clickGainDb);

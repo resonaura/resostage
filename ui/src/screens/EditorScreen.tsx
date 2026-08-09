@@ -16,6 +16,10 @@ import {
   Upload,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import {
+  emptyProjectActions,
+  EmptyProjectState,
+} from "../components/EmptyProjectState";
 import { ImportStemsModal } from "../components/ImportStemsModal";
 import {
   autoDetectBpm,
@@ -95,7 +99,7 @@ function ListPanel({
   onRemove,
   onMove,
   onImport,
-  emptyHint,
+  empty,
 }: {
   title: string;
   rows: { key: string; label: string; sub?: string; active?: boolean }[];
@@ -105,7 +109,8 @@ function ListPanel({
   onRemove: () => void;
   onMove: (delta: number) => void;
   onImport?: () => void;
-  emptyHint: string;
+  /** Shown in place of the list when there is nothing in it. */
+  empty: React.ReactNode;
 }) {
   return (
     <Card className="flex h-full min-h-0 w-full shrink-0 flex-col md:w-[40%]">
@@ -170,7 +175,7 @@ function ListPanel({
           className="flex min-h-0 flex-1 flex-col gap-0.5 p-2"
         >
           {rows.length === 0 ? (
-            <div className="p-3 text-sm text-foreground/40">{emptyHint}</div>
+            empty
           ) : (
             rows.map((r, i) => (
               <button
@@ -198,10 +203,12 @@ function ListPanel({
   );
 }
 
-function EmptyDetailPanel() {
+function EmptyDetailPanel({ hasRows }: { hasRows: boolean }) {
   return (
     <Card className="flex h-full min-h-0 flex-1 items-center justify-center border border-default/30 bg-surface/60 p-6 text-center text-sm text-foreground/40">
-      Select an item from the sidebar to view and edit details.
+      {hasRows
+        ? "Select an item from the sidebar to view and edit details."
+        : "Add a song on the left and its details show up here."}
     </Card>
   );
 }
@@ -495,7 +502,17 @@ export function EditorScreen({
             onRemove={() => selected >= 0 && builder.songRemove(selected)}
             onMove={(d) => selected >= 0 && builder.songMove(selected, d)}
             onImport={handleImportFolderClick}
-            emptyHint="No songs yet."
+            empty={
+              <EmptyProjectState
+                compact
+                title="No songs yet"
+                description="Start one from scratch, or point at a folder of stems and let the importer build it."
+                actions={emptyProjectActions({
+                  onCreateSong: () => void builder.songAdd(),
+                  onImportFolder: handleImportFolderClick,
+                })}
+              />
+            }
           />
           {selected >= 0 && state.songs[selected] ? (
             <SongEditor
@@ -504,7 +521,7 @@ export function EditorScreen({
               index={selected}
             />
           ) : (
-            <EmptyDetailPanel />
+            <EmptyDetailPanel hasRows={state.songs.length > 0} />
           )}
         </div>
       )}

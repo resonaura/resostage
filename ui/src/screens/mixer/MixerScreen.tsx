@@ -1,13 +1,14 @@
 import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "../../components/ui";
 import { useHorizontalWindow } from "../../hooks/useHorizontalWindow";
-import { useIsCompact } from "../../lib/useMediaQuery";
 import { builder, mixer } from "../../lib/api";
-import { extOutTarget, isMainBusId } from "./mixerIds";
 import { outputSendsToClickRows, type WebUiState } from "../../lib/types";
+import { useIsCompact } from "../../lib/useMediaQuery";
 import { BusStrip } from "./BusStrip";
 import { MetronomeStrip } from "./MetronomeStrip";
+import { extOutTarget, isMainBusId } from "./mixerIds";
 import { patchClickFields } from "./mixerUtils";
 import { StripContextMenu, type StripMenuTarget } from "./StripContextMenu";
 import { TrackStrip } from "./TrackStrip";
@@ -182,11 +183,14 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   // Solo grouping is the engine's rule, not the mixer's: every row arrives
   // tagged with its group and whether anything in that group is soloed, so a
   // strip is drawn dimmed for exactly the reason it is actually silenced.
-  const anyTrackSolo = state.tracks.some((tr) => tr.soloActiveInGroup)
-    || (state.click?.soloActiveInGroup ?? false);
+  const anyTrackSolo =
+    state.tracks.some((tr) => tr.soloActiveInGroup) ||
+    (state.click?.soloActiveInGroup ?? false);
   const anyAuxSolo = auxBusses.some((b) => b.soloActiveInGroup);
   const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
-  const clickSends = state.click ? outputSendsToClickRows(state.click.output) : [];
+  const clickSends = state.click
+    ? outputSendsToClickRows(state.click.output)
+    : [];
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
@@ -272,14 +276,18 @@ export function MixerScreen({ state }: { state: WebUiState }) {
               className={`flex shrink-0 ${compact ? "" : "max-w-[35%]"}`}
             >
               <div className="mr-2 flex h-full w-20 shrink-0 flex-col items-center justify-center">
-                <button
-                  onClick={() => requestAddSend()}
-                  title="Add a new return/send bus"
-                  className="flex h-full w-20 shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-default/40 bg-default/10 text-foreground/60 transition-colors hover:bg-default/25 hover:text-foreground"
+                {/* Dashed and full-height on purpose -- it stands where a
+                    strip would, so it reads as a slot to fill rather than as
+                    a control in the row. */}
+                <Button
+                  variant="default-soft"
+                  aria-label="Add a new return/send bus"
+                  onPress={() => requestAddSend()}
+                  className="h-full w-20 shrink-0 flex-col bg-background-secondary hover:bg-background-tertiary/50 transition-all gap-0 rounded-xl border border-dashed border-default/40 text-foreground/60"
                 >
                   <Plus size={22} />
                   <span className="text-[11px] font-semibold">Send</span>
-                </button>
+                </Button>
               </div>
 
               {/* See the track pane above for what the spacers are doing. */}

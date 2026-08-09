@@ -38,6 +38,16 @@ export function toneClass(tone: Tone | undefined): string | undefined {
 }
 
 /**
+ * Pulse an UNSELECTED toggle between neutral and accent.
+ *
+ * For state a control is IN but did not CHOOSE: a track silenced by another
+ * track's solo shows this on its Mute button. A selected toggle ignores it --
+ * see the rule in styles/tones.css for why, and for why this is accent rather
+ * than danger.
+ */
+export const TOGGLE_BLINK_ACCENT = "rs-toggle-blink-accent";
+
+/**
  * HeroUI's `className` follows React Aria's convention: either a string or a
  * function of the control's render state (`isHovered`, `isSelected`, …). A
  * wrapper that only handled the string form would silently drop conditional

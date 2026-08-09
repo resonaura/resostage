@@ -237,6 +237,13 @@ export interface SongRow {
   mode: "auto" | "wait";
   tsNum: number;
   tsDen: number;
+  /**
+   * Authored song length in song-local seconds; 0 (or absent) means "derive
+   * it from the content", which is what every song did before the end marker
+   * existed. Mirrors SongDef::endSeconds -- see the note there for why this
+   * is seconds rather than ticks.
+   */
+  endSeconds?: number;
   click: boolean;
   clickBusId: string;
   clickGainDb?: number;

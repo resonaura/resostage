@@ -107,6 +107,7 @@ enum class WebCommandKind : uint8_t {
     BuilderSongRemove,
     BuilderSongMove,
     BuilderSongUpdate,
+    BuilderSongEnd,
     BuilderTrackAdd,
     BuilderTrackRemove,
     BuilderTrackMove,
@@ -325,6 +326,9 @@ struct WebUiState {
         // AudioEngine accessors.
         int tsNum = 4;
         int tsDen = 4;
+        /** Authored song length, song-local seconds; 0 = derive from content.
+         *  See SongDef::endSeconds. */
+        double endSeconds = 0.0;
         bool click = false;
         std::string clickBusId;
         double clickGainDb = 0.0;

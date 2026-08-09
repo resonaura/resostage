@@ -138,6 +138,55 @@ void MainComponent::builderSongMove(const std::string& json) {
     notifyProjectStructureChanged();
 }
 
+/**
+ * Set (or clear) a song's authored end.
+ *
+ * Its own command rather than a field on builderSongUpdate because this is
+ * dragged: the SPA sends one of these per animation frame while the pointer
+ * moves, and song/update would rewrite the whole song -- tempo, time
+ * signature, the project-global metronome and its sends -- on every one of
+ * them. Sharing a gesture id coalesces the whole drag into a single undo
+ * entry (see projectHistoryBeginEdit).
+ *
+ * `endSeconds <= 0` clears the override and returns the song to deriving its
+ * length from its content, which is how "reset" is expressed without a second
+ * endpoint.
+ */
+void MainComponent::builderSongEnd(const std::string& json) {
+    glz::generic doc;
+    int index = -1;
+    double endSeconds = 0.0;
+    if (!parseJson(json, doc) || !getInt(doc, "index", index)
+        || !getDouble(doc, "endSeconds", endSeconds) || !engine.isProjectLoaded())
+        return;
+
+    Project& proj = engine.project();
+    if (index < 0 || index >= static_cast<int>(proj.songs.size()))
+        return;
+
+    if (!std::isfinite(endSeconds) || endSeconds <= 0.0)
+        endSeconds = 0.0;
+
+    SongDef& song = proj.songs[static_cast<size_t>(index)];
+    // A drag re-sends a value every frame, most of them identical or a
+    // fraction of a millisecond apart. Anything under a tenth of a
+    // millisecond is not a length change anyone authored, and turning it into
+    // a project edit means a save and a full state broadcast for nothing.
+    constexpr double kEndEpsilonSeconds = 1e-4;
+    if (std::abs(song.endSeconds - endSeconds) < kEndEpsilonSeconds)
+        return;
+
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    if (gestureId.empty())
+        gestureId = "song_end";
+
+    engine.projectHistoryBeginEdit(gestureId, "Resize song");
+    song.endSeconds = endSeconds;
+    engine.projectHistoryCommitEdit();
+    notifyProjectStructureChanged();
+}
+
 void MainComponent::builderSongUpdate(const std::string& json) {
     glz::generic doc;
     if (!parseJson(json, doc) || !engine.isProjectLoaded())

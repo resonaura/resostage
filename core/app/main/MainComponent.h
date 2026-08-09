@@ -154,6 +154,7 @@ private:
     void builderSongImportFolder(const std::string& json);
     void builderSongRemove(const std::string& json);
     void builderSongMove(const std::string& json);
+    void builderSongEnd(const std::string& json);
     void builderSongUpdate(const std::string& json);
     void builderTrackAdd(const std::string& json);
     void builderTrackRemove(const std::string& json);

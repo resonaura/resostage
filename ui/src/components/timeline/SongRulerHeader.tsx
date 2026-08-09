@@ -6,6 +6,7 @@ import {
 } from "./constants";
 import { CycleStrip } from "./CycleStrip";
 import { Ruler } from "./Ruler";
+import { SongEndMarker, type SongEndDrag } from "./SongEndMarker";
 import type { CycleLocators } from "./useCycleState";
 
 /**
@@ -23,6 +24,10 @@ export function SongRulerHeader({
   scrollState,
   playheadHandleRef,
   cycle,
+  songContentLengths,
+  songEndDrag,
+  onSongEndDrag,
+  onSongEndCommit,
   snapToGrid = false,
   onCycleToggle,
   onCycleSetRange,
@@ -42,6 +47,11 @@ export function SongRulerHeader({
   scrollState: { scrollLeft: number; viewportWidth: number };
   playheadHandleRef: React.RefObject<HTMLDivElement | null>;
   cycle: CycleLocators;
+  /** Per song, how far its content reaches (song-local seconds). */
+  songContentLengths: number[];
+  songEndDrag: SongEndDrag | null;
+  onSongEndDrag: (drag: SongEndDrag) => void;
+  onSongEndCommit: (drag: SongEndDrag | null) => void;
   snapToGrid?: boolean;
   onCycleToggle: () => void;
   onCycleSetRange: (
@@ -155,6 +165,30 @@ export function SongRulerHeader({
               viewportWidth={scrollState.viewportWidth}
             />
           </div>
+        );
+      })}
+
+      {/* Song ends. Their own layer rather than a child of each song's box:
+          that box clips its overflow and swallows pointer events, and the
+          marker has to sit ON the boundary -- half of it belongs to the next
+          song. */}
+      {songs.map((song, i) => {
+        const beatsPerBar = Math.max(1, song.tsNum || 4);
+        const barSec =
+          song.bpm > 0 ? (60 / song.bpm) * beatsPerBar : 0;
+        return (
+          <SongEndMarker
+            key={`end-${i}`}
+            songIndex={i}
+            startAbsSec={songOffsets[i] ?? 0}
+            endAbsSec={(songOffsets[i] ?? 0) + (songLengths[i] ?? 0)}
+            contentSec={songContentLengths[i] ?? 0}
+            pxPerSec={pxPerSec}
+            dragging={songEndDrag?.index === i}
+            snapSec={snapToGrid ? barSec : 0}
+            onDrag={onSongEndDrag}
+            onDragEnd={onSongEndCommit}
+          />
         );
       })}
 

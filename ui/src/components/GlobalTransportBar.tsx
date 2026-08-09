@@ -1,5 +1,5 @@
 import { Separator, Toolbar } from "@heroui/react";
-import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
 import { transport } from "../lib/api";
 import type { WebUiState } from "../lib/types";
 import { TimeDisplay } from "./daw";
@@ -22,7 +22,6 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
 
   return (
     <Toolbar
-      isAttached
       aria-label="Transport controls"
       className="h-9 flex items-center bg-transparent"
     >
@@ -57,9 +56,20 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
           onPress={() => (state.playing ? transport.stop() : transport.play())}
           aria-label={state.playing ? "Pause" : "Play"}
           className="font-semibold"
-          variant="ghost"
+          variant={state.playing ? "success-soft" : "accent-soft"}
         >
+          <ToggleButtonGroup.Separator />
           {state.playing ? <Pause size={13} /> : <Play size={13} />}
+        </ToggleButton>
+        <ToggleButton
+          isIconOnly
+          isSelected={true}
+          onPress={() => transport.stopToStart()}
+          aria-label="Stop"
+          variant="danger-soft"
+        >
+          <ToggleButtonGroup.Separator />
+          <Square size={14} />
         </ToggleButton>
         <ToggleButton
           isIconOnly
@@ -68,6 +78,7 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
           aria-label="Next"
           variant="ghost"
         >
+          <ToggleButtonGroup.Separator />
           <SkipForward size={14} />
         </ToggleButton>
       </ToggleButtonGroup>

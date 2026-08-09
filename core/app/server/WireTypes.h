@@ -261,6 +261,9 @@ struct WSongTelemetry {
     std::string mode = "auto";
     int tsNum = 4;
     int tsDen = 4;
+    /** Authored song length in song-local seconds; 0 = derive from content.
+     *  See SongDef::endSeconds. */
+    double endSeconds = 0.0;
     bool click = true;
     std::string clickBusId;
     double clickGainDb = 0.0;

@@ -14,6 +14,7 @@ export { ToggleButton, ToggleButtonGroup } from "./ToggleButton";
 export type {
   ToggleButtonGroupProps,
   ToggleButtonProps,
+  ToggleButtonSize,
   ToggleButtonVariant,
 } from "./ToggleButton";
 
@@ -29,5 +30,11 @@ export type { SwitchProps } from "./Switch";
 export { Tabs } from "./Tabs";
 export type { TabsProps, TabsVariant } from "./Tabs";
 
-export { isTone, toneClass, TONES, withTone } from "./tones";
+export {
+  isTone,
+  TOGGLE_BLINK_ACCENT,
+  toneClass,
+  TONES,
+  withTone,
+} from "./tones";
 export type { Tone } from "./tones";

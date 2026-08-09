@@ -29,8 +29,8 @@ import {
   ToggleButtonGroup,
 } from "../components/ui";
 import { builder, transport } from "../lib/api";
-import { getLiveLevels } from "../lib/liveLevels";
 import { rowsSameExceptLevels } from "../lib/levelFields";
+import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
 import {
   outputSendsToClickRows,
@@ -510,9 +510,9 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
   };
 
   return (
-    <Card className="flex h-56 min-h-0 shrink-0 flex-col overflow-hidden sm:h-auto sm:max-w-[40%] p-0 gap-0">
+    <Card className="flex md:w-100 h-56 min-h-0 shrink-0 flex-col overflow-hidden sm:w-unset sm:h-auto p-0 gap-0">
       <Card.Header className="h-10 flex flex-row items-center justify-between border-b border-default/20 px-3.5 space-y-0 shrink-0">
-        <span className="text-[11px] font-bold uppercase tracking-widest text-foreground/35">
+        <span className="text-[11px] mr-5 font-bold uppercase tracking-widest text-foreground/35">
           Bus meters
         </span>
         {/* Two independent single-selects: what the meters look like, and how
@@ -535,15 +535,15 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
               </ToggleButton>
               <Tooltip.Content>Bar meters</Tooltip.Content>
             </Tooltip>
-            <ToggleButtonGroup.Separator />
             <Tooltip>
               <ToggleButton id="vu" isIconOnly aria-label="VU meters">
+                <ToggleButtonGroup.Separator />
                 <Gauge size={14} />
               </ToggleButton>
               <Tooltip.Content>VU meters</Tooltip.Content>
             </Tooltip>
           </ToggleButtonGroup>
-          <Separator orientation="vertical" className="h-4" />
+          <Separator orientation="vertical" className="h-4 mt-auto mb-auto" />
           <ToggleButtonGroup
             aria-label="Meter density"
             size="sm"
@@ -570,6 +570,7 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
             <ToggleButtonGroup.Separator />
             <Tooltip>
               <ToggleButton id="compact" isIconOnly aria-label="Compact">
+                <ToggleButtonGroup.Separator />
                 <LayoutGrid size={14} />
               </ToggleButton>
               <Tooltip.Content>
@@ -1122,6 +1123,7 @@ export function PlayerScreen({
               }
               aria-label={state.playing ? "Pause" : "Play"}
             >
+              <ButtonGroup.Separator />
               {state.playing ? <Pause size={15} /> : <Play size={15} />}
             </Button>
             <Tooltip>
@@ -1132,6 +1134,7 @@ export function PlayerScreen({
                 onPress={() => void transport.stopToStart()}
                 aria-label="Stop"
               >
+                <ButtonGroup.Separator />
                 <Square size={16} />
               </Button>
               <Tooltip.Content>
@@ -1146,6 +1149,7 @@ export function PlayerScreen({
                 onPress={() => transport.next()}
                 aria-label="Next"
               >
+                <ButtonGroup.Separator />
                 <SkipForward size={16} />
               </Button>
               <Tooltip.Content>Next</Tooltip.Content>
@@ -1184,13 +1188,13 @@ export function PlayerScreen({
                   <FontIcon name="metronome" size={16} />
                   <span>Click</span>
                 </ToggleButton>
-                <ToggleButtonGroup.Separator />
                 <Tooltip>
                   <ToggleButton
                     id="routing"
                     isIconOnly
                     aria-label="Click send routing"
                   >
+                    <ToggleButtonGroup.Separator />
                     <ChevronDown
                       size={12}
                       className={`transition-transform ${clickSendsOpen ? "rotate-180" : ""}`}

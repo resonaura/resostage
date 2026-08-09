@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { isMainBusId } from "./mixerIds";
 import { builder } from "../../lib/api";
-import { Select, type SelectOption } from "../../components/ui";
+import { Button, Select, type SelectOption } from "../../components/ui";
 import type { BusRow, SettingsState } from "../../lib/types";
 import {
   EXT_OUTPUT_VALUE,
@@ -105,14 +105,16 @@ export function BusDestinationRouting({
   );
 
   const monoStereoToggle = (
-    <button
-      type="button"
-      className="mx-auto flex items-center justify-center rounded-md p-1 text-foreground/60 transition-colors hover:bg-default/40 hover:text-foreground"
-      title={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
-      onClick={() => updateBusChannels(stereo ? 1 : 2, bus.startChannel)}
+    <Button
+      size="sm"
+      variant="ghost"
+      isIconOnly
+      className="mx-auto size-6 min-w-0 text-foreground/60"
+      aria-label={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
+      onPress={() => updateBusChannels(stereo ? 1 : 2, bus.startChannel)}
     >
       <MonoStereoIcon stereo={stereo} />
-    </button>
+    </Button>
   );
 
   if (isMaster) {
