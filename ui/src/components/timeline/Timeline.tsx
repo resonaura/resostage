@@ -114,6 +114,18 @@ import { useTimelinePrefs } from "./useTimelinePrefs";
 
 // ------- Timeline (continuous multi-song arrangement) -------------------
 
+/**
+ * Whether the timeline paints soft fades at its horizontal edges.
+ *
+ * Off. It reads as the content being dimmed rather than as the view running
+ * out, and on a stage anything that makes a region look muted is a question
+ * the operator does not need to be asking. Left wired rather than deleted
+ * because it is heading for the Appearance settings -- see the
+ * useScrollShadow call, which additionally only ever runs it while the view
+ * is following the playhead.
+ */
+const SCROLL_SHADOW_ENABLED = false;
+
 export function Timeline({
   state,
   peaks,
@@ -133,24 +145,6 @@ export function Timeline({
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // HeroUI's own scroll-shadow detection, driving edge fades that are painted
-  // as overlays rather than as its usual mask.
-  //
-  // The mask is what ScrollShadow normally applies to the scroller itself, and
-  // this scroller cannot take one: the ruler and the playhead handle are
-  // `position: sticky` inside it, and the mask fades exactly the strip they
-  // live in (see the scroller's own "no transform/filter here" note). The hook
-  // only writes data-*-scroll attributes, so taking it without the mask keeps
-  // the part that is actually fiddly -- knowing when there is more timeline in
-  // a direction, through resizes and zooms -- and leaves the paint to
-  // styles/tones.css.
-  useScrollShadow({
-    containerRef: scrollRef as React.RefObject<HTMLElement>,
-    orientation: "horizontal",
-    offset: 0,
-    visibility: "auto",
-    isEnabled: true,
-  });
   const timelineBodyRef = useRef<HTMLDivElement>(null);
   // Read live (never as a render dependency) by both the follow rAF loop
   // below and useContinuousPlayhead's own reconciliation effects -- a
@@ -271,6 +265,35 @@ export function Timeline({
     effectiveTool,
     setTool,
   } = useTimelinePrefs(readOnly);
+
+  // HeroUI's own scroll-shadow detection, driving edge fades that are painted
+  // as overlays rather than as its usual mask.
+  //
+  // The mask is what ScrollShadow normally applies to the scroller itself, and
+  // this scroller cannot take one: the ruler and the playhead handle are
+  // `position: sticky` inside it, and the mask fades exactly the strip they
+  // live in (see the scroller's own "no transform/filter here" note). The hook
+  // only writes data-*-scroll attributes, so taking it without the mask keeps
+  // the part that is actually fiddly -- knowing when there is more timeline in
+  // a direction, through resizes and zooms -- and leaves the paint to
+  // styles/tones.css.
+  //
+  // Only while the view is following the playhead. With follow off the user is
+  // driving the scroller by hand and knows perfectly well where the content
+  // runs out; the fade is then just something dimming the region they dragged
+  // to the edge. While following, the timeline moves on its own, and the fade
+  // is what says "this is still going" rather than "this is the end".
+  // Off for now, deliberately kept wired: this becomes a preference rather
+  // than a decision, so the hook, the CSS and the follow gate all stay in
+  // place and turning it on is one boolean.
+  const scrollShadowActive = SCROLL_SHADOW_ENABLED && followMode !== "off";
+  useScrollShadow({
+    containerRef: scrollRef as React.RefObject<HTMLElement>,
+    orientation: "horizontal",
+    offset: 0,
+    visibility: "auto",
+    isEnabled: scrollShadowActive,
+  });
 
   // Selected light cue (Light-mode editor), drives the cue editor panel.
   const [cueSelection, setCueSelection] = useState<CueSelKey | null>(null);
@@ -647,7 +670,13 @@ export function Timeline({
     tracks: typeof state.tracks;
   } | null>(null);
 
-  const { regionGeomDraft, regionDragRef, regionDragCtxRef, startRegionDrag } =
+  const {
+    regionGeomDraft,
+    regionDragRef,
+    regionDragCtxRef,
+    startRegionDrag,
+    writeGeomDraft,
+  } =
     useRegionDrag({
       songs: state.songs,
       markGestureActive: () => markGestureActiveRef.current(),
@@ -2190,7 +2219,11 @@ export function Timeline({
               them this wrapper claims that width and shoves the inspector
               off the right edge of the window. The scroller itself never
               needed them because `overflow: auto` resolves min-width to 0. */}
-          <div className="rs-hshadow relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div
+            className={`relative flex min-h-0 min-w-0 flex-1 overflow-hidden ${
+              scrollShadowActive ? "rs-hshadow" : ""
+            }`}
+          >
           <div
             ref={scrollRef}
             className="h-full w-full min-h-0 overflow-auto relative select-none cursor-col-resize focus:outline-none"
@@ -2408,6 +2441,7 @@ export function Timeline({
                   />
                 ) : (
                   <AudioTrackLanes
+                    writeGeomDraft={writeGeomDraft}
                     state={state}
                     rows={rows}
                     songs={songs}

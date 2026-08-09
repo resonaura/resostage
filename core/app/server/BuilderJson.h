@@ -8,6 +8,7 @@
 // Project files use typed Glaze DTOs in ProjectJson.cpp instead.
 
 #include "project/ProjectSchema.h"
+#include "project/Uuid.h"
 
 #include "glaze/glaze.hpp"
 
@@ -121,16 +122,32 @@ inline EventType eventTypeFromWebString(const std::string& s) {
     return EventType::MidiProgramChange;
 }
 
-// Matches BuilderPanel::makeUniqueId() exactly (kept here instead of made
-// reusable from BuilderPanel.h, since that class doesn't otherwise need a
-// public dependency from the web command path).
+// A fresh id for a song / track / region / section / event.
+//
+// UUIDv7, not the counter this used to be. A counter looks tidier in a JSON
+// file and is wrong in two ways that both bite: "reg_3" is only unique
+// against the ids that happen to be in the list handed to it, so a region
+// deleted and re-added reuses the id of the one before it -- and undo history,
+// peak caches and the streaming engine's per-region buffers are all keyed by
+// region id, so the new region silently inherits the old one's state. The
+// second is ordering: v7 is time-prefixed, so ids sort by creation, which is
+// what makes a split's two halves stay in the order they were cut.
+//
+// `used` is still consulted, even though a v7 collision needs the same thread
+// to produce two ids in one millisecond AND match 74 random bits -- it costs
+// one linear scan on an operation that already touches the whole project.
+//
+// Deliberately NOT used for send busses: those are "audio::send:N" and the
+// number IS parsed (see MainComponentBuilder's kSendPrefix) because routing
+// targets are addressed by it.
 inline std::string makeUniqueId(const std::string& prefix, const std::vector<std::string>& used) {
-    for (int n = 1; n < 10000; ++n) {
-        const std::string id = prefix + "_" + std::to_string(n);
+    (void)prefix; // kept so call sites still read as "an id for a <thing>"
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        std::string id = generateUuidV7();
         if (std::find(used.begin(), used.end(), id) == used.end())
             return id;
     }
-    return prefix + "_x";
+    return generateUuidV7();
 }
 
 } // namespace resostage::builder_json

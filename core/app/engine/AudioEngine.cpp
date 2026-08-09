@@ -1083,12 +1083,28 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                             : (into >= 0 && into < sourceAvail);
                         if (hasSource) {
                             g = regGain;
+                            // Both curves reach EXACTLY zero on the region's
+                            // outermost sample.
+                            //
+                            // They used to be offset by one: the fade-in's
+                            // first sample was at 1/N of the way up rather
+                            // than at silence, and the fade-out's last sample
+                            // was at 1/N rather than at zero -- so a region
+                            // stepped from silence to a real value on its
+                            // first sample and from a real value to silence
+                            // after its last. On a long fade that step is
+                            // small, but it is a discontinuity, and a
+                            // discontinuity is a click no matter how short
+                            // the fade is. It is loudest at the fade-out,
+                            // where the step lands on the transition into
+                            // nothing -- the spike you could hear at the end
+                            // of an ordinary fade.
                             if (fadeInN > 0 && into < fadeInN) {
-                                const float fadeT = static_cast<float>(into + 1) / static_cast<float>(fadeInN);
+                                const float fadeT = static_cast<float>(into) / static_cast<float>(fadeInN);
                                 g *= shapedFadeGain(fadeT, fadeInCurve);
                             }
                             if (fadeOutN > 0 && into >= regLen - fadeOutN) {
-                                const float remain = static_cast<float>(regLen - into);
+                                const float remain = static_cast<float>(regLen - 1 - into);
                                 const float fadeT = remain / static_cast<float>(fadeOutN);
                                 g *= shapedFadeGain(fadeT, fadeOutCurve);
                             }

@@ -7,6 +7,12 @@ import type { TimelineRow } from "./rows";
 
 export type RegionDragMode =
   | "move"
+  // Grabbing the X between two overlapping regions. Moves the LATER region
+  // horizontally, which is what changes the overlap -- and the overlap is
+  // the crossfade, so both fades follow it. Deliberately not "move": a
+  // crossfade handle that let you throw the region onto another track would
+  // be a very easy way to destroy a join you were trying to lengthen.
+  | "crossfade"
   | "trimStart" // left center/bottom: extend left into earlier source
   | "trimEnd" // right bottom: set timeline duration
   | "loopTrim" // right upper-middle: Logic Pro loop stretch handle
@@ -198,6 +204,20 @@ export function computeRegionDragGeom(
     snapToGridSec(sec, pps, song?.bpm ?? 120, song?.tsNum ?? 4, snapOn);
   const dSec = (clientX - rd.startX) / pps;
   const dY = clientY - rd.startY;
+
+  if (rd.mode === "crossfade") {
+    // Horizontal only, and pinned to its own track.
+    const maxStart = Math.max(0, rd.maxEnd - rd.origDuration);
+    const nextStart = Math.max(
+      0,
+      Math.min(maxStart, snapSec(rd.origStart + dSec)),
+    );
+    return {
+      ...baseRegionGeom(rd),
+      start: nextStart,
+      trackId: rd.originTrackId,
+    };
+  }
 
   if (rd.mode === "move") {
     const maxStart = Math.max(0, rd.maxEnd - rd.origDuration);

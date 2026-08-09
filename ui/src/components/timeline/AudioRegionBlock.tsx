@@ -36,6 +36,8 @@ export function AudioRegionBlock({
   onSelectRegion,
   onBeginDrag,
   onContextMenu,
+  crossfadeIn = false,
+  crossfadeOut = false,
 }: {
   songRegion: RegionRow;
   songName: string;
@@ -66,6 +68,9 @@ export function AudioRegionBlock({
   ) => void;
   onBeginDrag: (e: React.PointerEvent, mode: RegionDragMode) => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  /** This fade is half of a crossfade -- CrossfadeOverlay draws it instead. */
+  crossfadeIn?: boolean;
+  crossfadeOut?: boolean;
 }) {
   // Suppress unused when callers pass for future culling hooks.
   void isActivelyDragging;
@@ -91,7 +96,16 @@ export function AudioRegionBlock({
     onBeginDrag(e, mode);
   };
 
-  const labelText = `${regionUi.muted ? "[M] " : ""}${rowName}${geom.loop ? " ↺" : ""}`;
+  // Clip gain rides in the label rather than getting its own badge: it is
+  // rarely set, and when it is, it is the thing that explains why a region
+  // sounds different from its neighbours -- so it belongs where the eye
+  // already goes, not in a corner that has to be hunted for.
+  const clipGainDb = songRegion.gainDb ?? 0;
+  const gainTag =
+    Math.abs(clipGainDb) > 0.05
+      ? ` ${clipGainDb > 0 ? "+" : ""}${clipGainDb.toFixed(1)}dB`
+      : "";
+  const labelText = `${regionUi.muted ? "[M] " : ""}${rowName}${geom.loop ? " ↺" : ""}${gainTag}`;
   // Compact: white on solid strip. Normal: track accent over the waveform.
   const labelColor = compactLane ? "#fff" : rowColor;
   const laneH = laneHeightPx(verticalZoom);
@@ -217,7 +231,7 @@ export function AudioRegionBlock({
           </div>
         )}
 
-        {geom.fadeIn > 0.001 && (
+        {geom.fadeIn > 0.001 && !crossfadeIn && (
           <FadeCurveOverlay
             side="in"
             widthPx={Math.max(4, geom.fadeIn * pxPerSec)}
@@ -228,7 +242,7 @@ export function AudioRegionBlock({
             onPointerDown={(e) => onBeginDrag(e, "fadeInCurve")}
           />
         )}
-        {geom.fadeOut > 0.001 && (
+        {geom.fadeOut > 0.001 && !crossfadeOut && (
           <FadeCurveOverlay
             side="out"
             widthPx={Math.max(4, geom.fadeOut * pxPerSec)}

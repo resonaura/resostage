@@ -9,11 +9,15 @@ import type {
   TrackRow,
   WebUiState,
 } from "../../lib/types";
-import { laneHeightPx } from "./laneDimensions";
+import { isCompactLane, laneHeightPx } from "./laneDimensions";
 import { AudioRegionBlock } from "./AudioRegionBlock";
+import { CrossfadeOverlay } from "./CrossfadeOverlay";
+import { MIN_CROSSFADE_SECONDS } from "./crossfade";
+import { resizeCrossfade } from "./crossfadeResize";
 import {
   buildRegionDragSession,
   effectiveRegionGeom,
+  type RegionGeom,
   type RegionDragMode,
   type RegionDragSession,
   type RegionGeomDraft,
@@ -49,6 +53,7 @@ export function AudioTrackLanes({
   tool = "pointer",
   selectRegion,
   startRegionDrag,
+  writeGeomDraft,
   onRegionContextMenu,
 }: {
   state: WebUiState;
@@ -69,6 +74,8 @@ export function AudioTrackLanes({
   gestureActive: boolean;
   readOnly: boolean;
   tool?: TimelineTool;
+  /** Live geometry for a region mid-gesture; see useRegionDrag. */
+  writeGeomDraft: (key: RegionSelKey, geom: RegionGeom) => void;
   selectRegion: (
     key: RegionSelKey,
     e: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean },
@@ -229,6 +236,47 @@ export function AudioTrackLanes({
               const peakEntryFor = (r: RegionRow) =>
                 peakLookupPerSong[i]?.forRegion(r, track?.id);
 
+              // Adjacent overlapping pairs on this lane. Computed once and
+              // used twice: the blocks need it to suppress the fade triangle
+              // that CrossfadeOverlay is about to draw for them, and the
+              // overlays need it to exist at all.
+              const placed = trackRegions
+                .map((r) => ({
+                  region: r,
+                  key: regionSelKey(i, r.id),
+                  geom: effectiveRegionGeom(
+                    r,
+                    regionGeomDraft[regionSelKey(i, r.id)],
+                    segDuration,
+                  ),
+                }))
+                .sort((a, b) => a.geom.start - b.geom.start);
+
+              const crossfadePairs: {
+                earlier: (typeof placed)[number];
+                later: (typeof placed)[number];
+                overlap: number;
+              }[] = [];
+              for (let k = 0; k < placed.length - 1; k++) {
+                const earlier = placed[k];
+                const later = placed[k + 1];
+                const earlierEnd = earlier.geom.start + earlier.geom.duration;
+                const overlap = earlierEnd - later.geom.start;
+                // Matches MIN_CROSSFADE_SECONDS: below this it is a rounding
+                // artefact of snapping, not a join.
+                if (overlap < MIN_CROSSFADE_SECONDS) continue;
+                // A region buried inside another is not a join.
+                if (later.geom.start + later.geom.duration <= earlierEnd)
+                  continue;
+                crossfadePairs.push({ earlier, later, overlap });
+              }
+              const crossfadedOut = new Set(
+                crossfadePairs.map((p) => p.earlier.region.id),
+              );
+              const crossfadedIn = new Set(
+                crossfadePairs.map((p) => p.later.region.id),
+              );
+
               return (
                 <div
                   key={i}
@@ -368,6 +416,8 @@ export function AudioTrackLanes({
                         isActivelyDragging={regionDragKey === thisRegionSelKey}
                         onSelectRegion={selectRegion}
                         onBeginDrag={beginDrag}
+                        crossfadeIn={crossfadedIn.has(songRegion.id)}
+                        crossfadeOut={crossfadedOut.has(songRegion.id)}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -384,6 +434,103 @@ export function AudioTrackLanes({
                             selKey: thisRegionSelKey,
                           });
                         }}
+                      />
+                    );
+                  })}
+
+                  {/* Crossfades: one X per adjacent overlapping pair.
+                      Recomputed here rather than threaded out of the map
+                      above because effectiveRegionGeom is pure and a handful
+                      of regions per lane costs nothing -- and because the
+                      overlay has to sit ABOVE every block, which it cannot do
+                      from inside one of them. */}
+                  {crossfadePairs.map(({ earlier, later, overlap }) => {
+                    const earlierFile =
+                      peakEntryFor(earlier.region)?.durationSeconds ??
+                      earlier.region.durationSeconds ??
+                      segDuration;
+                    const laterFile =
+                      peakEntryFor(later.region)?.durationSeconds ??
+                      later.region.durationSeconds ??
+                      segDuration;
+                    // The region block's own inset, so the X is bounded by
+                    // the blocks it belongs to instead of running past them
+                    // into the lane's padding.
+                    const inset = isCompactLane(verticalZoom) ? 2 : 4;
+
+                    const applyResize = (
+                      deltaSeconds: number,
+                      commit: boolean,
+                    ) => {
+                      const r = resizeCrossfade(
+                        {
+                          sourceOffset: earlier.geom.sourceOffset,
+                          duration: earlier.geom.duration,
+                          fileDuration: earlierFile,
+                        },
+                        {
+                          sourceOffset: later.geom.sourceOffset,
+                          duration: later.geom.duration,
+                          fileDuration: laterFile,
+                        },
+                        overlap,
+                        deltaSeconds,
+                      );
+                      const nextOverlap = overlap + r.appliedDelta;
+                      const earlierNext = {
+                        ...earlier.geom,
+                        duration: r.earlierDuration,
+                        fadeOut: nextOverlap,
+                      };
+                      const laterNext = {
+                        ...later.geom,
+                        start: later.geom.start + r.laterStartDelta,
+                        sourceOffset: r.laterSourceOffset,
+                        duration: r.laterDuration,
+                        fadeIn: nextOverlap,
+                      };
+                      // Draft first either way: the commit round-trips
+                      // through the engine, and without the draft the pair
+                      // would snap back for a frame on release.
+                      writeGeomDraft(earlier.key, earlierNext);
+                      writeGeomDraft(later.key, laterNext);
+                      if (!commit) return;
+                      // One gesture id -- the two halves of a crossfade are
+                      // one edit and have to undo as one.
+                      const gestureId = crypto.randomUUID();
+                      void builder.regionUpdate({
+                        songIndex: i,
+                        regionId: earlier.region.id,
+                        durationSeconds: earlierNext.duration,
+                        fadeOutSeconds: earlierNext.fadeOut,
+                        gestureId,
+                      });
+                      void builder.regionUpdate({
+                        songIndex: i,
+                        regionId: later.region.id,
+                        startSeconds: laterNext.start,
+                        sourceOffsetSeconds: laterNext.sourceOffset,
+                        durationSeconds: laterNext.duration,
+                        fadeInSeconds: laterNext.fadeIn,
+                        gestureId,
+                      });
+                    };
+
+                    return (
+                      <CrossfadeOverlay
+                        key={`xf-${earlier.region.id}-${later.region.id}`}
+                        leftPx={later.geom.start * pxPerSec}
+                        widthPx={overlap * pxPerSec}
+                        topInset={inset}
+                        bottomInset={inset}
+                        color={row.color}
+                        readOnly={readOnly || tool !== "pointer"}
+                        isActive={
+                          regionDragKey === later.key ||
+                          regionDragKey === earlier.key
+                        }
+                        pxPerSec={pxPerSec}
+                        onResize={applyResize}
                       />
                     );
                   })}
