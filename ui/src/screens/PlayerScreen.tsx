@@ -30,6 +30,7 @@ import {
 } from "../components/ui";
 import { builder, transport } from "../lib/api";
 import { getLiveLevels } from "../lib/liveLevels";
+import { rowsSameExceptLevels } from "../lib/levelFields";
 import { useContinuousPlayhead } from "../lib/optimistic";
 import {
   outputSendsToClickRows,
@@ -441,14 +442,17 @@ function readBusMeterDensity(): BusMeterDensity {
   return "comfortable";
 }
 
-// Memoized on exactly the four wire arrays the grouping depends on. All four
-// keep their identity across frames while the routing holds still (structural
-// sharing in the live-state merge), so a panel full of meters stops being
-// re-rendered -- and its group list stops being recomputed -- thirty times a
-// second just because the playhead moved. The meters themselves never needed
-// those renders anyway: they read levels through getLiveLevels() during their
-// own paint.
-const BusMetersPanel = memo(function BusMetersPanel({
+// Memoized on exactly the four wire arrays the grouping depends on, and
+// compared BY CONTENT rather than by identity -- see the comparator below.
+//
+// The comment that used to sit here claimed all four keep their identity
+// across frames "while the routing holds still". That is true of `busses` and
+// `tracks`, and false of `meters`: every MeterRow carries the peaks, so the
+// array is rebuilt on every telemetry frame and the memo never once hit. The
+// panel -- and the grouping recomputed inside it -- was being re-rendered at
+// telemetry rate to show levels its meters were already reading for
+// themselves through getLiveLevels() during their own canvas paint.
+const BusMetersPanelInner = memo(function BusMetersPanel({
   meters,
   busses,
   tracks,
@@ -701,6 +705,21 @@ const BusMetersPanel = memo(function BusMetersPanel({
     </Card>
   );
 });
+
+/**
+ * Re-render only when the ROUTING behind the meters changes, never because a
+ * level moved. `meters` is compared field-by-field with the peaks excluded;
+ * the other three keep their identity through structural sharing, so a plain
+ * reference check is exact for them. See lib/levelFields.
+ */
+const BusMetersPanel = memo(
+  BusMetersPanelInner,
+  (prev, next) =>
+    prev.busses === next.busses &&
+    prev.tracks === next.tracks &&
+    prev.click === next.click &&
+    rowsSameExceptLevels(prev.meters, next.meters),
+);
 
 // The setlist is pure project data plus two booleans, but it used to be
 // rebuilt -- one <button> subtree per song -- on every telemetry frame simply

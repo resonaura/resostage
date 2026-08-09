@@ -19,7 +19,7 @@ export function LightScreen({ state }: { state: WebUiState }) {
           </Alert.Description>
         </Alert.Content>
       </Alert>
-      <ProjectLightingPanel li={state.lighting} state={state} />
+      <ProjectLightingPanel li={state.lighting} />
     </div>
   );
 }

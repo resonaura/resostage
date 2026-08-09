@@ -1149,12 +1149,14 @@ void MainComponent::publishWebState() {
         tr.solo = def.solo;
         tr.soloGroup = engine.trackSoloGroup();
         tr.soloActiveInGroup = engine.anySoloInGroup(tr.soloGroup.c_str());
-        switch (def.output.type) {
-            case OutputType::Main: tr.output.type = "main"; break;
-            case OutputType::SendsOnly: tr.output.type = "sends-only"; break;
-            case OutputType::ExtOut: tr.output.type = "ext-out"; break;
-            default: tr.output.type = "main"; break;
-        }
+        // The project serializer's mapping, not a second copy of it. The copy
+        // that used to live here had drifted: it had no case for
+        // OutputType::Bus and folded it into a `default:` of "main", so a
+        // track whose main route is an aux/group bus was published to the web
+        // UI as routed to Main -- the mixer showed the wrong destination and
+        // sourceOutputBusId() resolved it to "audio::main" instead of the bus
+        // id. -Wswitch-enum is what surfaced it.
+        tr.output.type = outputTypeToString(def.output.type);
         tr.output.target = def.output.target.value_or("");
         for (const auto& send : def.output.sends) {
             WebUiState::TrackRow::SendRow sr;

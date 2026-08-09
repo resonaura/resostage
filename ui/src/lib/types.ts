@@ -27,9 +27,19 @@ export interface SendConfig {
  *  means Master; there are no stereo-pair bus objects -- aside from the
  *  send bus css all send buses are per-momo-lane). */
 export interface SourceOutput {
-  type: "main" | "sends-only" | "ext-out";
-  /** null unless type === "ext-out"; a stereo target is a pair of mono
-   *  channels joined with a comma. */
+  /**
+   * Mirror of OutputType in core/engine/project/ProjectSchema.h, spelled the
+   * way outputTypeToString() writes it.
+   *
+   * `bus` is the main route INTO an aux/group bus (`target` = that bus id) --
+   * distinct from a row in `sends`, which is an extra tap off the source
+   * rather than where its signal goes. It was missing here because the state
+   * publisher had its own copy of the enum mapping that folded `bus` into
+   * `main`; see the note at MainComponent.cpp's tr.output.type.
+   */
+  type: "main" | "sends-only" | "ext-out" | "bus";
+  /** null unless type is `ext-out` (a stereo target is a pair of mono
+   *  channels joined with a comma) or `bus` (the destination bus id). */
   target?: string | null;
   sends: SendConfig[];
 }

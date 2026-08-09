@@ -26,7 +26,7 @@ import {
   TriangleAlert,
   Wand2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useLiveFixtureColor } from "../../hooks/useLiveFixtureColor";
 import { lighting } from "../../lib/api";
 import {
@@ -42,11 +42,7 @@ import {
   type FixtureShape,
   type ResoLightColorType,
 } from "../../lib/dmxProfiles";
-import type {
-  LightFixtureRow,
-  LightingState,
-  WebUiState,
-} from "../../lib/types";
+import type { LightFixtureRow, LightingState } from "../../lib/types";
 import {
   Alert,
   Button,
@@ -346,14 +342,25 @@ function HardwareHostField({ fixture }: { fixture: LightFixtureRow }) {
 
 // ─── ProjectLightingPanel ─────────────────────────────────────────────────
 // No Card wrapper -- SettingsScreen.tsx renders this inside its own Card.
-export function ProjectLightingPanel({
+/**
+ * The whole Light screen, and nothing in it depends on the transport.
+ *
+ * Memoised because `App` re-renders on every state frame and this panel does
+ * not: `li` keeps its identity across frames whenever the rig config holds
+ * still (structural sharing -- the lighting payload is byte-identical frame
+ * after frame, verified by diffing successive ones off the socket). Without
+ * the memo the panel, and with it the entire r3f scene graph -- every fixture,
+ * every LED segment mesh -- was rebuilt at whatever rate telemetry happened to
+ * arrive, purely because something unrelated moved.
+ *
+ * It used to take the whole `state` as a second prop and immediately discard
+ * it (`void _state`), which would have defeated the memo on its own.
+ */
+export const ProjectLightingPanel = memo(function ProjectLightingPanel({
   li,
-  state: _state,
 }: {
   li: LightingState;
-  state: WebUiState;
 }) {
-  void _state;
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(
     li.fixtures[0]?.id ?? null,
   );
@@ -1415,4 +1422,4 @@ export function ProjectLightingPanel({
       )}
     </div>
   );
-}
+});
