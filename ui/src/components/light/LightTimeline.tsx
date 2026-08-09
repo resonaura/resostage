@@ -2,6 +2,9 @@ import { TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { lighting } from "../../lib/api";
 import { withHexAlpha } from "../../lib/cssColor";
+import { roleColor } from "../../lib/theme";
+import { duotoneColor, hasTintableHue } from "../../lib/tintFilter";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
 import {
   beginCancellableDrag,
   type CancellableDrag,
@@ -169,6 +172,17 @@ export function LightHintStrip({
   height: number;
   trackColor: (trackId: string) => string;
 }) {
+  // One filter for the whole strip, recomputed only when the theme moves --
+  // there can be hundreds of cues on screen and the chain is identical for
+  // every one of them.
+  // Subscribed, not memoised. The resolved colour used to be cached in a
+  // useMemo keyed on this version and went stale often enough to notice;
+  // roleColor is already a cached DOM probe, so re-resolving it once per
+  // render of one component costs nothing and cannot be out of date.
+  useThemeVersion();
+  const tint = roleColor("master");
+  const tinted = hasTintableHue(tint);
+
   const viewStart = scrollState.scrollLeft;
   const viewEnd = scrollState.scrollLeft + scrollState.viewportWidth;
   return (
@@ -201,18 +215,50 @@ export function LightHintStrip({
                   style={{
                     left: leftPx,
                     width: widthPx,
-                    // Quiet monochrome reference strip (player / audio mode).
-                    ...lightCueSelectionStyle(false, trackColor(cue.trackId)),
+                    // Keeps the cue's own blend from reaching the timeline.
+                    isolation: "isolate",
+                    // Quiet reference strip (player / audio mode): the cue
+                    // keeps its brightness but takes its hue from the theme,
+                    // so the strip reads as one calm layer instead of as a
+                    // second, louder palette. Computed rather than filtered
+                    // -- see lib/tintFilter for the two CSS approaches this
+                    // replaces and why each failed.
+                    ...lightCueSelectionStyle(
+                      false,
+                      duotoneColor(trackColor(cue.trackId), tint),
+                    ),
                     opacity: 0.22,
-                    filter: "grayscale(1)",
                   }}
                 >
-                  <LightCueBody
-                    cue={cue}
-                    pxPerSec={pxPerSec}
-                    widthPx={widthPx}
-                    showLabel={false}
-                  />
+                  {/* The body paints the cue's own colours (and gradients),
+                      which a computed duotone on the frame cannot reach. So
+                      it is desaturated here and re-tinted by the overlay
+                      below -- scoped to the cue, where there is opaque
+                      content to blend against. The same overlay across the
+                      whole strip did not work: over the gaps between cues
+                      there is no luminance to take, and it painted the empty
+                      strip a solid block of the tint. */}
+                  <div
+                    className="absolute inset-0"
+                    style={{ filter: "grayscale(1)" }}
+                  >
+                    <LightCueBody
+                      cue={cue}
+                      pxPerSec={pxPerSec}
+                      widthPx={widthPx}
+                      showLabel={false}
+                    />
+                  </div>
+                  {tinted && (
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0"
+                      style={{
+                        background: tint,
+                        mixBlendMode: "color",
+                      }}
+                    />
+                  )}
                 </div>
               );
             })}

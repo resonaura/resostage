@@ -56,7 +56,7 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
           onPress={() => (state.playing ? transport.stop() : transport.play())}
           aria-label={state.playing ? "Pause" : "Play"}
           className="font-semibold"
-          variant={state.playing ? "success-soft" : "accent-soft"}
+          variant={state.playing ? "accent-soft" : "default-soft"}
         >
           <ToggleButtonGroup.Separator />
           {state.playing ? <Pause size={13} /> : <Play size={13} />}

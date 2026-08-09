@@ -393,15 +393,15 @@ const SystemHealthWidget = memo(function SystemHealthWidget({
       {/* Status details */}
       <div className="flex flex-col gap-0.5 text-[10px] text-foreground/40">
         <div
-          className={`flex items-center gap-1 font-bold ${playing ? "text-success" : "text-danger"}`}
+          className={`flex items-center gap-1 font-bold ${playing ? "text-accent" : "text-segment"}`}
         >
           <span
-            className={`inline-block h-1.5 w-1.5 rounded-full ${playing ? "animate-pulse bg-success" : "bg-danger"}`}
+            className={`inline-block h-1.5 w-1.5 rounded-full ${playing ? "animate-pulse bg-accent" : "bg-segment"}`}
           />
           {playing ? "PLAYING" : "STOPPED"}
         </div>
         {(h?.underrunCount ?? 0) > 0 ? (
-          <span className="font-bold text-danger">
+          <span className="font-bold text-warning">
             ⚠ {h?.underrunCount} underrun
             {(h?.underrunCount ?? 0) !== 1 ? "s" : ""}
           </span>
@@ -1065,7 +1065,7 @@ export function PlayerScreen({
           <div
             style={{ fontWeight: "100" }}
             className={`font-mono text-2xl tabular-nums tracking-tight leading-none sm:text-3xl ${
-              state.playing ? "text-success" : "text-foreground"
+              state.playing ? "text-accent" : "text-foreground"
             }`}
           >
             {/* The clock runs at the full frame rate; the readouts below it
@@ -1163,7 +1163,7 @@ export function PlayerScreen({
             </Tooltip>
             <Button
               size="sm"
-              variant={state.playing ? "success-soft" : "accent-soft"}
+              variant={state.playing ? "accent-soft" : "default-soft"}
               onPress={() =>
                 state.playing ? transport.stop() : transport.play()
               }
