@@ -312,6 +312,7 @@ function EffectPanel({
 
           <LabeledSlider
             label="Depth"
+            defaultValue={0.8}
             value={effectIntensity}
             onChange={onIntensity}
             step={0.05}
@@ -391,6 +392,7 @@ function EffectPanel({
               ) : (
                 <LabeledSlider
                   label="Free rate"
+                  defaultValue={2}
                   value={effectRate}
                   onChange={onRate}
                   min={0.1}
@@ -708,6 +710,7 @@ function CueSettingsPanel({
 
       <LabeledSlider
         label="Intensity"
+        defaultValue={1}
         value={cue.intensity}
         onChange={(v) => update({ intensity: v })}
       />

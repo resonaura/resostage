@@ -498,6 +498,7 @@ export const ProjectLightingPanel = memo(function ProjectLightingPanel({
                 />
                 <LabeledSlider
                   label="Intensity"
+                  defaultValue={1}
                   value={li.idle.intensity}
                   onChange={(v) =>
                     void lighting.setConfig({ idleIntensity: v })
@@ -529,6 +530,7 @@ export const ProjectLightingPanel = memo(function ProjectLightingPanel({
                       <>
                         <LabeledSlider
                           label="Rate"
+                          defaultValue={2}
                           min={0.05}
                           max={10}
                           step={0.05}
@@ -583,6 +585,7 @@ export const ProjectLightingPanel = memo(function ProjectLightingPanel({
 
                     <LabeledSlider
                       label="Intensity"
+                      defaultValue={1}
                       value={li.idle.intensity}
                       onChange={(v) =>
                         void lighting.setConfig({ idleIntensity: v })

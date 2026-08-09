@@ -449,3 +449,20 @@
     transition: none;
   }
 }
+
+/* ── Bare keyboard hints ─────────────────────────────────────────────────
+   HeroUI's Kbd is a filled chip, which is right in prose and wrong inside a
+   button or a tooltip that already has a surface -- a chip on a chip reads as
+   two controls. See components/ui/KeyHint.tsx. */
+.rs-kbd-bare,
+.rs-kbd-bare .kbd__abbr,
+.rs-kbd-bare .kbd__content {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  padding-inline: 0;
+}
+
+.rs-kbd-bare {
+  gap: 0.125rem;
+}

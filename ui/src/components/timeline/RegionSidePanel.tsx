@@ -181,6 +181,7 @@ export function RegionSidePanel({
 
             <LabeledSlider
               label="Clip gain"
+              defaultValue={0}
               value={region.gainDb ?? 0}
               min={GAIN_MIN_DB}
               max={GAIN_MAX_DB}
@@ -193,6 +194,7 @@ export function RegionSidePanel({
 
             <LabeledSlider
               label="Fade in"
+              defaultValue={0}
               value={fade?.inSeconds ?? 0}
               min={0}
               max={FADE_MAX_SECONDS}
@@ -202,6 +204,7 @@ export function RegionSidePanel({
             />
             <LabeledSlider
               label="Fade in curve"
+              defaultValue={0}
               value={fade?.inCurve ?? 0}
               min={-1}
               max={1}
@@ -211,6 +214,7 @@ export function RegionSidePanel({
             />
             <LabeledSlider
               label="Fade out"
+              defaultValue={0}
               value={fade?.outSeconds ?? 0}
               min={0}
               max={FADE_MAX_SECONDS}
@@ -220,6 +224,7 @@ export function RegionSidePanel({
             />
             <LabeledSlider
               label="Fade out curve"
+              defaultValue={0}
               value={fade?.outCurve ?? 0}
               min={-1}
               max={1}
@@ -271,6 +276,7 @@ export function RegionSidePanel({
             {loop?.enabled && (
               <LabeledSlider
                 label="Loop length"
+              defaultValue={0}
                 value={loop.lengthSeconds ?? 0}
                 min={0}
                 max={Math.max(1, region.durationSeconds || 8)}

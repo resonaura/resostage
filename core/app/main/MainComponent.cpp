@@ -25,9 +25,23 @@ MainComponent::MainComponent() {
     // When Electron spawned us as its nested backend specifically, give the
     // user a menu-bar way to see/quit the backend instead.
     if (std::getenv("RESOSTAGE_SPAWNED_BY_SHELL") != nullptr) {
-        trayIcon = std::make_unique<TrayIcon>([] {
-            juce::JUCEApplication::getInstance()->systemRequestedQuit();
-        });
+        TrayCallbacks tray;
+        // Straight through performAction, the same path hotkeys and MIDI
+        // take -- the menu bar cannot end up doing something subtly
+        // different from the space bar.
+        tray.perform = [this](const std::string& action) { performAction(action); };
+        tray.isPlaying = [this] { return engine.isPlaying(); };
+        tray.currentSongName = [this]() -> std::string {
+            if (!engine.isProjectLoaded())
+                return {};
+            const auto& proj = engine.project();
+            const size_t idx = engine.currentSongIndex();
+            if (idx >= proj.songs.size())
+                return {};
+            return proj.songs[idx].name;
+        };
+        tray.quit = [] { juce::JUCEApplication::getInstance()->systemRequestedQuit(); };
+        trayIcon = std::make_unique<TrayIcon>(std::move(tray));
     }
 #endif
 

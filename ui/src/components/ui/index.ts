@@ -38,3 +38,4 @@ export {
   withTone,
 } from "./tones";
 export type { Tone } from "./tones";
+export { KeyHint } from "./KeyHint";

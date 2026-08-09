@@ -200,6 +200,7 @@ export function LabeledSlider({
   max = 1,
   step = 0.01,
   format,
+  defaultValue,
 }: {
   label: string;
   value: number;
@@ -209,6 +210,16 @@ export function LabeledSlider({
   step?: number;
   /** Readout next to the label. Defaults to a percentage of a 0..1 range. */
   format?: (v: number) => string;
+  /**
+   * Where a double-click puts it back to.
+   *
+   * Worth having on every one of these: a slider is the one control you
+   * cannot put back exactly by hand, and "roughly where it was" is not the
+   * same number. The track faders already did this; these did not, so the
+   * gesture worked in one half of the app and quietly did nothing in the
+   * other.
+   */
+  defaultValue?: number;
 }) {
   const [localValue, handleChange] = useLiveValue(value, onChange);
   // HeroUI's Slider only reports values, so the Esc revert is armed on a
@@ -217,7 +228,8 @@ export function LabeledSlider({
   const readout = format
     ? format(localValue)
     : `${Math.round(((localValue - min) / (max - min)) * 100)}%`;
-  return (
+  const resettable = defaultValue !== undefined;
+  const slider = (
     <Slider
       value={localValue}
       onChange={(v) => handleChange(Array.isArray(v) ? v[0] : v)}
@@ -239,6 +251,17 @@ export function LabeledSlider({
         <Slider.Thumb />
       </Slider.Track>
     </Slider>
+  );
+
+  if (!resettable) return slider;
+  // The reset lives on a wrapper rather than on the Slider: HeroUI's Slider
+  // does not forward `title`, and putting the handler out here also makes the
+  // label and the readout part of the double-click target, which is where
+  // people aim anyway.
+  return (
+    <div title="Double-click to reset" onDoubleClick={() => handleChange(defaultValue)}>
+      {slider}
+    </div>
   );
 }
 

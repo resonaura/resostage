@@ -18,6 +18,7 @@ import {
   Tabs,
   ToggleButton,
   type SelectOption,
+  KeyHint,
 } from "../components/ui";
 import {
   TIER_DESCRIPTION,
@@ -189,7 +190,13 @@ function BindingRow({
             onChange={(on) => setListening(on)}
             className="min-w-[7.5rem] tabular-nums"
           >
-            {listening ? "Press a key…" : currentKey || "(unbound)"}
+            {listening ? (
+              "Press a key…"
+            ) : currentKey ? (
+              <KeyHint binding={currentKey} />
+            ) : (
+              "(unbound)"
+            )}
           </ToggleButton>
           <Tooltip.Content>
             Click, then press a key (Esc cancels)
