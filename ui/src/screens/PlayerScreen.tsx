@@ -28,8 +28,8 @@ import {
   ToggleButton,
   ToggleButtonGroup,
 } from "../components/ui";
-import { builder, transport } from "../lib/api";
 import { useThemeVersion } from "../hooks/useThemeVersion";
+import { builder, transport } from "../lib/api";
 import { rowsSameExceptLevels } from "../lib/levelFields";
 import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
@@ -247,7 +247,13 @@ function Sparkline({
     <div className="flex flex-col items-center gap-0.5">
       <div className="flex items-center justify-between w-full text-[10px] tabular-nums font-semibold">
         <span className="text-foreground/40 uppercase">{label}</span>
-        <span style={{ color }}>{valueText}</span>
+        <span
+          style={{
+            color: color === "var(--default)" ? "var(--segment)" : color,
+          }}
+        >
+          {valueText}
+        </span>
       </div>
       <svg width="90" height="24" className="overflow-visible">
         <defs>
@@ -315,14 +321,14 @@ const SystemHealthWidget = memo(function SystemHealthWidget({
       ? "var(--danger)"
       : cpuRatio >= 0.65
         ? "var(--warning)"
-        : "var(--segment)";
+        : "var(--default)";
 
   const ramColor =
     ramRatio >= 0.75
       ? "var(--danger)"
       : ramRatio >= 0.5
         ? "var(--warning)"
-        : "var(--segment)";
+        : "var(--default)";
 
   return (
     <div className="hidden shrink-0 items-center gap-4 border-l border-default/30 px-4 py-2 tabular-nums lg:flex">
