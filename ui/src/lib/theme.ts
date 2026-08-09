@@ -37,7 +37,7 @@ export const PALETTES = {
   track: {
     prefix: "--track-color",
     fallbacks: [
-      "#0091ff",
+      "#0485f7",
       "#30d158",
       "#ff9230",
       "#db34f2",
@@ -90,13 +90,16 @@ export function paletteColor(name: PaletteName, index: number): string {
 //
 // One colour with a meaning, not a position in a cycle.
 
+// Fallbacks here are what the default theme's tokens actually resolve to --
+// they are only reached before the stylesheet applies, so a stale one shows up
+// as a single wrong-coloured frame and nothing else ever notices.
 export const ROLE_COLORS = {
-  master: { varName: "--mixer-master", fallback: "#0091ff" },
+  master: { varName: "--mixer-master", fallback: "#0485f7" },
   /** Aux / send bus strip and send-knob arc. */
   send: { varName: "--mixer-send", fallback: "#ff9230" },
   metronome: { varName: "--mixer-metronome", fallback: "#ff9230" },
   /** Stereo Ext. Out / Direct Output family. */
-  extOut: { varName: "--mixer-ext-out", fallback: "#7c3aed" },
+  extOut: { varName: "--mixer-ext-out", fallback: "#db34f2" },
   /** A mono physical lane (wedge / sub / mono IEM). */
   monoOut: { varName: "--mixer-mono-out", fallback: "#30d158" },
 
@@ -109,6 +112,14 @@ export const ROLE_COLORS = {
   eventCc: { varName: "--event-color-cc", fallback: "#0091ff" },
   eventHttp: { varName: "--event-color-http", fallback: "#ff9230" },
   eventDmx: { varName: "--event-color-dmx", fallback: "#db34f2" },
+
+  /** Latched-clip red, shared by every meter and readout that shows one. */
+  meterClip: { varName: "--meter-clip", fallback: "#ff3b30" },
+  /** The analogue VU dial: plate, printed scale, hot zone, needle. */
+  vuPlate: { varName: "--vu-plate", fallback: "#000000" },
+  vuScale: { varName: "--vu-scale", fallback: "#cccccc" },
+  vuHot: { varName: "--vu-hot", fallback: "#ff3b30" },
+  vuNeedle: { varName: "--vu-needle", fallback: "#ffffff" },
 } as const;
 
 export type ColorRole = keyof typeof ROLE_COLORS;
@@ -121,44 +132,118 @@ export function roleColor(role: ColorRole): string {
 // ── Themes ───────────────────────────────────────────────────────────────
 
 /**
- * A theme is the set of custom properties in styles/theme.css selected by a
- * class plus a `data-theme` attribute -- HeroUI keys off both, so both are set.
+ * A theme is a name, and nothing else.
  *
- * Only `dark` ships today. The app is a stage-side mirror of an always-dark
- * desktop app, so this is applied synchronously before the first render (see
- * main.tsx) rather than followed from the OS preference: a component that
- * reads a resolved colour in its own mount effect would otherwise capture the
- * light theme's near-white values and keep them.
+ * There is deliberately no light mode. This is a stage surface: it is looked
+ * at in a dark room, next to a lit stage, by someone who cannot afford for
+ * their eyes to readjust -- a light interface is not a preference here, it is
+ * a hazard. So the root is pinned to `dark` (which is what HeroUI's own
+ * stylesheet keys off) and the name alone picks the colour family, landing on
+ * `data-theme-name`. See styles/themes.css.
  */
-export const THEMES = ["dark", "light"] as const;
-export type ThemeId = (typeof THEMES)[number];
+export const THEME_NAMES = [
+  "default",
+  "sunset",
+  "forest",
+  "purple",
+  "pinky",
+  "sky",
+  "blue",
+  "mono",
+] as const;
+export type ThemeName = (typeof THEME_NAMES)[number];
 
-const themeListeners = new Set<(id: ThemeId) => void>();
-let currentTheme: ThemeId = "dark";
+export const THEME_LABELS: Record<ThemeName, string> = {
+  default: "Default",
+  sunset: "Sunset",
+  forest: "Forest",
+  purple: "Purple Haze",
+  pinky: "Pinky Pie",
+  sky: "Sky",
+  blue: "Blue Foundation",
+  mono: "Mono",
+};
 
-export function getTheme(): ThemeId {
-  return currentTheme;
+export interface ThemeChoice {
+  name: ThemeName;
+}
+
+export const DEFAULT_THEME: ThemeChoice = { name: "default" };
+
+const STORAGE_KEY = "resostage.theme";
+
+export function readThemeChoice(): ThemeChoice {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_THEME;
+    // Stored values may still carry a `mode` from when light was an option;
+    // it is read past rather than migrated, since ignoring it IS the migration.
+    const parsed = JSON.parse(raw) as Partial<ThemeChoice>;
+    return {
+      name: (THEME_NAMES as readonly string[]).includes(parsed.name ?? "")
+        ? (parsed.name as ThemeName)
+        : DEFAULT_THEME.name,
+    };
+  } catch {
+    return DEFAULT_THEME; // private mode / corrupt value
+  }
+}
+
+function writeThemeChoice(choice: ThemeChoice): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(choice));
+  } catch {
+    /* best-effort */
+  }
+}
+
+const themeListeners = new Set<(choice: ThemeChoice) => void>();
+let current: ThemeChoice = DEFAULT_THEME;
+let version = 0;
+
+/**
+ * Bumped on every swap.
+ *
+ * Resolved colours are concrete hex by the time they reach a canvas or a
+ * `useMemo`, so clearing the caches is not enough on its own -- a memo that
+ * already captured "track 3 is #0091ff" will happily keep it. Anything that
+ * MEMOISES a colour has to depend on this; see useThemeVersion.
+ */
+export function themeVersion(): number {
+  return version;
+}
+
+export function getTheme(): ThemeChoice {
+  return current;
 }
 
 /**
- * Swap the theme at runtime.
+ * Apply a theme and remember it.
  *
  * Every resolved colour in the app is cached -- `resolveCssVar` and the
  * control tones both memoise, because a DOM probe per colour per paint would
- * be absurd. Those caches are the reason this has to be a function rather than
- * a class swap at the call site: change the stylesheet without dropping them
- * and half the UI keeps painting the old theme until something remounts.
+ * be absurd. Dropping those caches is the reason this has to be a function
+ * rather than a class swap at the call site: change the stylesheet without
+ * clearing them and half the UI keeps painting the old theme until something
+ * happens to remount.
  */
-export function applyTheme(id: ThemeId): void {
-  currentTheme = id;
+export function applyTheme(choice: ThemeChoice): void {
+  current = choice;
   if (typeof document !== "undefined") {
     const root = document.documentElement;
-    for (const t of THEMES) root.classList.toggle(t, t === id);
-    root.setAttribute("data-theme", id);
+    root.classList.add("dark");
+    root.classList.remove("light");
+    root.setAttribute("data-theme", "dark");
+    // The default family is the base stylesheet, so it carries no name --
+    // that keeps its selectors the plain ones and one less thing to override.
+    if (choice.name === "default") root.removeAttribute("data-theme-name");
+    else root.setAttribute("data-theme-name", choice.name);
   }
+  writeThemeChoice(choice);
+  version += 1;
   clearCssColorCache();
   clearToneColorCache();
-  for (const fn of themeListeners) fn(id);
+  for (const fn of themeListeners) fn(choice);
 }
 
 /**
@@ -168,7 +253,12 @@ export function applyTheme(id: ThemeId): void {
  * preview's grid -- which hold resolved colours of their own and have no
  * React render to recompute them in.
  */
-export function onThemeChanged(fn: (id: ThemeId) => void): () => void {
+export function onThemeChanged(fn: (choice: ThemeChoice) => void): () => void {
   themeListeners.add(fn);
   return () => themeListeners.delete(fn);
+}
+
+/** Subscribe form of {@link themeVersion}, for React memo dependencies. */
+export function subscribeTheme(fn: () => void): () => void {
+  return onThemeChanged(fn);
 }

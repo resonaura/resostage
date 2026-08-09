@@ -2,9 +2,10 @@ import { memo, useCallback, useEffect, useRef } from "react";
 import { addRafTask } from "../../lib/rafLoop";
 import { useEscRevert } from "../../lib/useEscRevert";
 import {
-  CLIP_COLOR,
+  clipColor,
   CLIP_GLOW_BLUR_PX,
-  CLIP_GLOW_COLOR,
+  clipGlowColor,
+  peakNeedleColor,
   createBallistics,
   meterFill,
   normFor,
@@ -232,8 +233,8 @@ export const MeterFader = memo(function MeterFader({
         if (peakPct > 0.002) {
           ctx.fillStyle =
             peakPct >= overNorm
-              ? "rgba(255,59,48,0.95)"
-              : "rgba(255,255,255,0.85)";
+              ? peakNeedleColor(true)
+              : peakNeedleColor(false);
           const x = Math.min(cssW - 1, Math.max(0, cssW * peakPct - 0.5));
           ctx.fillRect(x, y, 1, rowH);
         }
@@ -242,9 +243,9 @@ export const MeterFader = memo(function MeterFader({
       // Clip latch: the right-hand band only, never the whole bar.
       if (latched) {
         ctx.save();
-        ctx.shadowColor = CLIP_GLOW_COLOR;
+        ctx.shadowColor = clipGlowColor();
         ctx.shadowBlur = CLIP_GLOW_BLUR_PX;
-        ctx.fillStyle = CLIP_COLOR;
+        ctx.fillStyle = clipColor();
         const bandW = Math.max(3, cssW * (CLIP_BAND_PCT / 100));
         ctx.fillRect(cssW - bandW, 0, bandW, cssH);
         ctx.restore();

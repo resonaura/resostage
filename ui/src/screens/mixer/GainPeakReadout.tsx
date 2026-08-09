@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { CLIP_COLOR, CLIP_GLOW, LiveReadout } from "../../components/daw";
+import { clipColor, clipGlow, LiveReadout } from "../../components/daw";
 
 function formatDbReadout(v: number): string {
   if (!Number.isFinite(v) || v <= -100) return "-inf";
@@ -60,7 +60,7 @@ export function GainPeakReadout({
             : "bg-black/40 text-foreground/80 hover:bg-black/55"
         }`}
         style={
-          clipped ? { background: CLIP_COLOR, boxShadow: CLIP_GLOW } : undefined
+          clipped ? { background: clipColor(), boxShadow: clipGlow() } : undefined
         }
       >
         <LiveReadout

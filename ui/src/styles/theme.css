@@ -17,12 +17,13 @@
   * @see https://heroui.com/docs/react/getting-started/theming
   */
 
+/* HeroUI's base token block. The root is always `.dark` (see lib/theme --
+   there is no light mode), so this is never the theme in force; it survives
+   as the `:root` floor that supplies --radius, --font-sans and a value for
+   every token the dark block does not restate. */
 :root,
-.light,
 .default,
-[data-theme="light"],
 [data-theme="default"] {
-  /* Theme Colors (Light Mode) */
   --accent: oklch(62.04% 0.195 253.83);
   --accent-foreground: oklch(99.11% 0 0);
   --background: oklch(97.02% 0 253.83);
@@ -72,7 +73,12 @@
   --accent-foreground: oklch(99.11% 0 0);
   --background: oklch(12% 0 253.83);
   --border: oklch(28% 0 253.83);
-  --danger: oklch(59.4% 0.1967 24.63);
+  /* danger / success / warning are the track palette's red, green and orange,
+     not HeroUI's defaults. The palette is the more saturated set -- it has to
+     be, it competes with waveforms -- and having the semantic colours sit a
+     step duller than the tracks they label read as washed out. Every named
+     theme already ships a saturated trio; this brings the default in line. */
+  --danger: oklch(65.42% 0.2321 28.66);
   --danger-foreground: oklch(99.11% 0 0);
   --default: oklch(27.4% 0 253.83);
   --default-foreground: oklch(99.11% 0 0);
@@ -89,23 +95,33 @@
   --segment: oklch(39.64% 0 253.83);
   --segment-foreground: oklch(99.11% 0 253.83);
   --separator: oklch(25% 0 253.83);
-  --success: oklch(73.29% 0.1935 150.81);
-  --success-foreground: oklch(21.03% 0.0059 150.81);
+  --success: oklch(75.56% 0.2082 146.98);
+  --success-foreground: oklch(21.03% 0.0059 146.98);
   --surface: oklch(21.03% 0 253.83);
   --surface-foreground: oklch(99.11% 0 253.83);
   --surface-secondary: oklch(25.7% 0 253.83);
   --surface-secondary-foreground: oklch(99.11% 0 253.83);
   --surface-tertiary: oklch(27.21% 0 253.83);
   --surface-tertiary-foreground: oklch(99.11% 0 253.83);
-  --warning: oklch(82.03% 0.1388 76.34);
-  --warning-foreground: oklch(21.03% 0.0059 76.34);
+  --warning: oklch(76.19% 0.167 57.05);
+  --warning-foreground: oklch(21.03% 0.0059 57.05);
+
+  /* A step lighter than --background, for chrome that has to read as
+     "behind" the surfaces without becoming a surface itself: the mixer floor,
+     the timeline gutter. Every named theme declares its own pair; the default
+     family needs them too or those surfaces resolve to nothing at all. */
+  --background-secondary: oklch(15.5% 0 253.83);
+  --background-tertiary: oklch(18.5% 0 253.83);
 }
 /* ── DAW surface tokens ───────────────────────────────────────────────────
    Semantic names for chrome that is specific to this app and has no HeroUI
-   equivalent. Meter *fill* colours deliberately stay in TypeScript
-   (components/daw/LevelMeterBar.tsx exports CLIP_COLOR / CLIP_GLOW): the
-   meters paint to canvas, and canvas cannot resolve var(), so restating them
-   here would create a second source of truth that drifts silently.
+   equivalent.
+
+   Everything a meter paints is here too, including the clip red and the VU
+   dial: meters are canvas, and canvas cannot resolve var(), so they used to
+   keep their own hexes in TypeScript -- which meant they were the one part of
+   the app a theme could not reach. components/daw/meterBallistics.ts now
+   resolves them from here once per theme instead.
 
    Track / light / event palettes below ARE themable here. TypeScript reads
    them via resolveCssVar() (lib/cssColor.ts) into concrete #rrggbb so canvas
@@ -133,7 +149,12 @@
 
   /* Track color palette — cycles through these for audio tracks. Cool/blue-heavy
      to contrast with warm light-track palette. */
-  --track-color-0: #0091ff;
+  /* Slot 0 is the accent, to the byte: it is the first colour every new track
+     gets, so a track that does not match the interface it sits in is the very
+     first thing anyone sees. Written as hex rather than var(--accent) because
+     the palette is contractually hex -- see theme.test.ts, and lib/theme's
+     fallbacks, which must stay in step with it. */
+  --track-color-0: #0485f7;
   --track-color-1: #30d158;
   --track-color-2: #ff9230;
   --track-color-3: #db34f2;
@@ -167,12 +188,22 @@
 
   /* Mixer / bus role colours — master, aux sends, metronome, Ext. Out.
      Distinct from the per-track palette so strips and meters always read as
-     roles, not as "track #N". TypeScript resolves via lib/mixerColors.ts. */
-  --mixer-master: #0091ff;
-  --mixer-send: #ff9230;
-  --mixer-metronome: #ff9230;
-  --mixer-ext-out: #7c3aed;
-  --mixer-mono-out: #30d158;
+     roles, not as "track #N". TypeScript resolves via lib/mixerColors.ts.
+
+     Each one points at a token the themes already redefine, rather than at a
+     hex of its own. That is the only reason a named theme reaches them at
+     all: these were five fixed values, so picking Sunset recoloured the
+     tracks and left the master strip, the sends and both output families on
+     the default blue/orange/purple/green -- most visibly on the player, whose
+     whole meter panel is painted from these. */
+  --mixer-master: var(--accent);
+  --mixer-send: var(--warning);
+  --mixer-metronome: var(--warning);
+  /* Not a HeroUI token: the physical outputs need two hues that are distinct
+     from each other AND from master/send, which the semantic palette does not
+     have spare. Palette slots follow the theme and are already spaced. */
+  --mixer-ext-out: var(--track-color-3);
+  --mixer-mono-out: var(--success);
   /* Extra non-aux bus accents on the player meters panel (cycles). */
   --mixer-bus-0: #30d158;
   --mixer-bus-1: #ff9230;
@@ -188,5 +219,24 @@
   --player-bus-2: var(--mixer-bus-2);
   --player-bus-3: var(--mixer-bus-3);
   --player-bus-4: var(--mixer-bus-4);
-  --player-active-glow: var(--mixer-mono-out);
+  /* The glow behind the setlist's active-song dot. The dot itself is painted
+     with --accent, so this has to follow the accent and not a fixed hue --
+     it was aliased to the mono-out green, which read as a green halo around
+     a blue dot the moment a theme moved the accent. */
+  --player-active-glow: var(--accent);
+
+  /* Meters.
+
+     These are derived from the theme rather than fixed, because meters are
+     mostly canvas: they get resolved to concrete hex once and painted, so
+     nothing about them follows a theme unless it comes from a token here.
+
+     The VU face keeps the shape of a backlit analogue plate -- dark plate,
+     pale ink -- which inverts by itself in light mode because both ends come
+     from the mode's own background/foreground. */
+  --meter-clip: var(--danger);
+  --vu-plate: var(--background);
+  --vu-scale: color-mix(in oklab, var(--foreground) 78%, var(--background));
+  --vu-hot: var(--danger);
+  --vu-needle: var(--foreground);
 }

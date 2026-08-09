@@ -15,6 +15,7 @@ import {
   useContinuousPlayhead,
   type CycleWrapRange,
 } from "../../lib/optimistic";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { useCoalescedCommit } from "../../lib/optimistic";
 import { addRafTask } from "../../lib/rafLoop";
 import { isPositionVisible } from "../../lib/timelineVisibility";
@@ -769,9 +770,13 @@ export function Timeline({
   );
   const contentWidth = projectWidth + trailingSlackPx;
 
+  // themeVersion: row colours are resolved hex, so a theme swap has to force
+  // this to recompute -- see useThemeVersion.
+  const themeVersion = useThemeVersion();
   const rows = useMemo(
     () => buildRows(state.tracks, songs),
-    [state.tracks, songs],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.tracks, songs, themeVersion],
   );
 
   // Drag & drop audio-file ghost preview (audio view only). While a file is

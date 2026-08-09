@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addRafTask } from "../../lib/rafLoop";
 import {
-  CLIP_COLOR,
+  clipColor,
   CLIP_GLOW_BLUR_PX,
-  CLIP_GLOW_COLOR,
+  clipGlowColor,
+  peakNeedleColor,
   createBallistics,
   FLOOR_DB,
   meterFill,
@@ -183,7 +184,7 @@ function ChannelBar({
       // Peak hold needle (1 CSS px line, not a fill trail).
       if (showPeak) {
         ctx.fillStyle =
-          s.peak > 0 ? "rgba(255,59,48,0.95)" : "rgba(255,255,255,0.85)";
+          peakNeedleColor(s.peak > 0);
         if (v) {
           const y = cssH * (1 - peakPct);
           ctx.fillRect(0, Math.min(cssH - 1, Math.max(0, y - 0.5)), cssW, 1);
@@ -196,9 +197,9 @@ function ChannelBar({
       // Clip / peak-high latch: ONLY the top/right band, never the whole bar.
       if (latched) {
         ctx.save();
-        ctx.shadowColor = CLIP_GLOW_COLOR;
+        ctx.shadowColor = clipGlowColor();
         ctx.shadowBlur = CLIP_GLOW_BLUR_PX;
-        ctx.fillStyle = CLIP_COLOR;
+        ctx.fillStyle = clipColor();
         if (v) {
           const bandH = Math.max(3, cssH * (CLIP_BAND_PCT / 100));
           ctx.fillRect(0, 0, cssW, bandH);

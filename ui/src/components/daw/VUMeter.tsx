@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { addRafTask } from "../../lib/rafLoop";
+import { onThemeChanged, roleColor } from "../../lib/theme";
 
 const VU_MIN_DB = -40;
 const VU_MAX_DB = 7;
@@ -38,7 +39,18 @@ function dbToRotation(db: number): number {
   return DB_MAP[DB_MAP.length - 1].rot;
 }
 
-const SVG_BACKGROUND = `data:image/svg+xml;utf8,${encodeURIComponent(`
+/**
+ * The dial face, in the current theme's colours.
+ *
+ * The plate is drawn from tokens rather than baked as `#000`/`#ccc` because a
+ * VU is almost entirely canvas: nothing about it follows a theme unless it is
+ * resolved here first. Keeping plate and ink at opposite ends of the mode's
+ * own background/foreground is also what makes the face invert by itself in
+ * light mode -- a backlit plate becomes a printed one, which is what a real
+ * VU looks like under either kind of light.
+ */
+function faceSvg(c: FaceColors): string {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 600">
   <defs>
     <filter id="redGlow" x="-30%" y="-30%" width="160%" height="160%">
@@ -52,10 +64,10 @@ const SVG_BACKGROUND = `data:image/svg+xml;utf8,${encodeURIComponent(`
       </feMerge>
     </filter>
   </defs>
-  <rect x="0.5" y="0.5" width="1077" height="598" rx="36" ry="36" fill="#000"/>
-  <path d="m 657,277.24518 c 85.60879,8.87328 173.21481,25.29511 295.97922,75.9692" fill="none" stroke="#ff3b30" stroke-width="15" filter="url(#redGlow)"/>
-  <path d="m 126.01626,357.7731 c 161.49448,-60.14366 315.01211,-98.096 531.2366,-81.4418" fill="none" stroke="#ccc" stroke-width="15"/>
-  <g fill="none" stroke="#ccc" stroke-width="8">
+  <rect x="0.5" y="0.5" width="1077" height="598" rx="36" ry="36" fill="${c.plate}"/>
+  <path d="m 657,277.24518 c 85.60879,8.87328 173.21481,25.29511 295.97922,75.9692" fill="none" stroke="${c.hot}" stroke-width="15" filter="url(#redGlow)"/>
+  <path d="m 126.01626,357.7731 c 161.49448,-60.14366 315.01211,-98.096 531.2366,-81.4418" fill="none" stroke="${c.scale}" stroke-width="15"/>
+  <g fill="none" stroke="${c.scale}" stroke-width="8">
     <path d="m 210.72277,271.30126 34.37058,47.77511" />
     <path d="m 285.65064,249.6478 27.49646,52.24328" />
     <path d="m 365.73409,233.49363 18.56011,52.93069" />
@@ -63,12 +75,12 @@ const SVG_BACKGROUND = `data:image/svg+xml;utf8,${encodeURIComponent(`
     <path d="m 544.1174,217.33945 -0.68741,53.96181" />
     <path d="m 620.76379,220.0891 -8.59264,53.2744" />
   </g>
-  <g fill="none" stroke="#ff3b30" stroke-width="8" filter="url(#redGlow)">
+  <g fill="none" stroke="${c.hot}" stroke-width="8" filter="url(#redGlow)">
     <path d="m 669.22631,226.96322 -14.43565,56.36775" />
     <path d="m 777.83734,243.8048 -24.40311,48.80622" />
     <path d="m 864.4512,318.73266 34.37058,-43.65063" />
   </g>
-  <g fill="#ccc" font-family="sans-serif" font-size="40">
+  <g fill="${c.scale}" font-family="sans-serif" font-size="40">
     <text x="612.89453" y="196.49496">1</text>
     <text x="530.54688" y="194.96762">3</text>
     <text x="439.58594" y="202.49496">5</text>
@@ -76,33 +88,69 @@ const SVG_BACKGROUND = `data:image/svg+xml;utf8,${encodeURIComponent(`
     <text x="251.89453" y="221.96762">10</text>
     <text x="160.42969" y="243.96762">20</text>
   </g>
-  <g fill="#ff3b30" font-family="sans-serif" font-size="40" font-weight="bold" filter="url(#redGlow)">
+  <g fill="${c.hot}" font-family="sans-serif" font-size="40" font-weight="bold" filter="url(#redGlow)">
     <text x="902.58594" y="255.49496">5</text>
     <text x="775.54688" y="218.96762">3</text>
     <text x="663.13672" y="202.96762">0</text>
   </g>
-  <text x="492.73926" y="393.86093" font-family="sans-serif" font-size="50" font-weight="900" fill="#cccccc">VU</text>
-  <g fill="none" stroke="#fff" stroke-width="5">
+  <text x="492.73926" y="393.86093" font-family="sans-serif" font-size="50" font-weight="900" fill="${c.scale}">VU</text>
+  <g fill="none" stroke="${c.needle}" stroke-width="5">
     <path d="m 82,292 45.3061,0" />
   </g>
-  <g fill="none" stroke="#ff3b30" stroke-width="5" filter="url(#redGlow)">
+  <g fill="none" stroke="${c.hot}" stroke-width="5" filter="url(#redGlow)">
     <path d="m 948.30743,285.82189 45.3061,0" />
     <path d="m 970.96048,263.16884 0,45.3061" />
   </g>
 </svg>
 `)}`;
+}
+
+interface FaceColors {
+  plate: string;
+  scale: string;
+  hot: string;
+  needle: string;
+}
 
 // The dial face is a static SVG data URL. Decoding it is per-document work,
 // not per-meter work, so every VU on screen shares one <img> instead of each
 // one kicking off its own decode of the same bytes.
+//
+// A theme swap invalidates it: the old <img> is dropped, every meter picks the
+// new one up on its next frame, and each keeps blitting its already-rasterized
+// face until the replacement has decoded -- so the dial recolours without ever
+// flashing empty.
 let sharedFaceImage: HTMLImageElement | null = null;
+let sharedFaceColors: FaceColors | null = null;
+
+function currentFaceColors(): FaceColors {
+  return {
+    plate: roleColor("vuPlate"),
+    scale: roleColor("vuScale"),
+    hot: roleColor("vuHot"),
+    needle: roleColor("vuNeedle"),
+  };
+}
+
 function faceImage(): HTMLImageElement {
   if (!sharedFaceImage) {
+    sharedFaceColors = currentFaceColors();
     sharedFaceImage = new Image();
-    sharedFaceImage.src = SVG_BACKGROUND;
+    sharedFaceImage.src = faceSvg(sharedFaceColors);
   }
   return sharedFaceImage;
 }
+
+/** The needle and pivot, which are painted live rather than baked into the face. */
+function needleColors(): { needle: string; plate: string } {
+  const c = sharedFaceColors ?? currentFaceColors();
+  return { needle: c.needle, plate: c.plate };
+}
+
+onThemeChanged(() => {
+  sharedFaceImage = null;
+  sharedFaceColors = null;
+});
 
 /** Needle movement below this (in degrees) is invisible -- treat as at rest. */
 const REST_EPSILON_DEG = 0.02;
@@ -129,7 +177,6 @@ export function VUMeter({
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const img = faceImage();
 
     // The dial face never changes, but it used to be re-rasterized from the
     // SVG on every single frame of every meter -- for a rig with eight bus
@@ -139,12 +186,20 @@ export function VUMeter({
     let face: HTMLCanvasElement | null = null;
     let faceW = 0;
     let faceH = 0;
+    let faceSource: HTMLImageElement | null = null;
 
-    const buildFace = (w: number, h: number, dpr: number) => {
+    const buildFace = (
+      img: HTMLImageElement,
+      w: number,
+      h: number,
+      dpr: number,
+    ) => {
       if (!img.complete || img.naturalWidth === 0) return;
       const bw = Math.max(1, Math.round(w * dpr));
       const bh = Math.max(1, Math.round(h * dpr));
-      if (face && faceW === bw && faceH === bh) return;
+      // faceSource in the check: a theme swap hands back a different <img> at
+      // the same size, and that has to re-rasterize even though nothing moved.
+      if (face && faceW === bw && faceH === bh && faceSource === img) return;
       const off = document.createElement("canvas");
       off.width = bw;
       off.height = bh;
@@ -158,6 +213,7 @@ export function VUMeter({
       face = off;
       faceW = bw;
       faceH = bh;
+      faceSource = img;
     };
 
     // Сохраняем состояние текущего угла и сглаженного входного уровня
@@ -209,7 +265,7 @@ export function VUMeter({
       const h = rect.height;
       if (w <= 0 || h <= 0) return;
 
-      buildFace(w, h, dpr);
+      buildFace(faceImage(), w, h, dpr);
 
       const geometryChanged =
         w !== paintedW || h !== paintedH || dpr !== paintedDpr;
@@ -266,22 +322,25 @@ export function VUMeter({
       ctx.shadowOffsetX = 2.5;
       ctx.shadowOffsetY = 2.5;
 
+      const ink = needleColors();
+
       ctx.beginPath();
       ctx.moveTo(NEEDLE_TIP_X - PIVOT_X, NEEDLE_TIP_Y - PIVOT_Y);
       ctx.lineTo(0, 0);
-      ctx.strokeStyle = "#ffffff";
+      ctx.strokeStyle = ink.needle;
       ctx.lineWidth = 6.7;
       ctx.lineCap = "butt";
       ctx.stroke();
       ctx.restore();
 
-      // Pivot dot
+      // Pivot dot, ringed in the plate colour so it reads as seated in the
+      // face rather than floating on it.
       ctx.beginPath();
       ctx.arc(PIVOT_X, PIVOT_Y, 3.78, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = ink.needle;
       ctx.fill();
       ctx.lineWidth = 0.6;
-      ctx.strokeStyle = "#0000ff";
+      ctx.strokeStyle = ink.plate;
       ctx.stroke();
 
       ctx.restore();

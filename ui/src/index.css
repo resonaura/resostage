@@ -7,6 +7,9 @@
    after @heroui/styles -- though every selector in it is written to outrank
    HeroUI's on specificity alone, so order is belt and braces. */
 @import "./styles/tones.css";
+/* Named themes (Sunset, Forest, …). After theme.css so a theme block, which
+   is at least as specific, wins on order too. */
+@import "./styles/themes.css";
 @import "./assets/fontaudio/fontaudio.css";
 
 html,

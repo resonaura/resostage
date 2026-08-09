@@ -29,6 +29,7 @@ import {
   ToggleButtonGroup,
 } from "../components/ui";
 import { builder, transport } from "../lib/api";
+import { useThemeVersion } from "../hooks/useThemeVersion";
 import { rowsSameExceptLevels } from "../lib/levelFields";
 import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
@@ -480,6 +481,10 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
     }
   }, [density]);
   const compact = density === "compact";
+  // Group accents are resolved hex, so a theme swap must recompute them --
+  // and this panel is memoised on props that a theme change does not touch,
+  // so the hook is also what makes it re-render at all. See useThemeVersion.
+  const themeVersion = useThemeVersion();
   const groups = useMemo(
     () =>
       busMeterGroups(
@@ -489,7 +494,8 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
         click ? sourceOutputBusId(click.output) : undefined,
         click ? outputSendsToClickRows(click.output) : undefined,
       ),
-    [meters, busses, tracks, click],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [meters, busses, tracks, click, themeVersion],
   );
 
   const vuGetterFor = (g: BusMeterGroup) => () => {

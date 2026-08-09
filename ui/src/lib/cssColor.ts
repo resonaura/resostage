@@ -20,14 +20,70 @@ function expandHex(hex: string): string {
   return `#${h.slice(0, 6).toLowerCase()}`;
 }
 
-function rgbStringToHex(rgb: string, fallback: string): string {
+function toByte(n: number): string {
+  return Math.max(0, Math.min(255, Math.round(n)))
+    .toString(16)
+    .padStart(2, "0");
+}
+
+function rgbStringToHex(rgb: string): string | null {
   const m = rgb.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
-  if (!m) return fallback;
-  const toByte = (n: number) =>
-    Math.max(0, Math.min(255, Math.round(n)))
-      .toString(16)
-      .padStart(2, "0");
+  if (!m) return null;
   return `#${toByte(Number(m[1]))}${toByte(Number(m[2]))}${toByte(Number(m[3]))}`;
+}
+
+/**
+ * 1×1 scratch canvas used to convert exotic colour syntaxes to bytes.
+ *
+ * `getComputedStyle().color` does NOT always come back as `rgb(...)`: a value
+ * authored in `oklch()` serializes as `oklch(...)`, which is what every colour
+ * in styles/themes.css is. Matching only `rgb(` meant each themed palette slot
+ * silently resolved to its default-theme fallback, so picking a theme
+ * recoloured the CSS-driven chrome and left everything canvas-painted -- track
+ * regions, meters, the light lanes -- on the old palette.
+ *
+ * Letting the browser rasterize one pixel handles oklch, lab, color() and
+ * whatever comes next without this file having to know any colour maths.
+ */
+let scratch: CanvasRenderingContext2D | null | undefined;
+function scratchContext(): CanvasRenderingContext2D | null {
+  if (scratch !== undefined) return scratch;
+  try {
+    const c = document.createElement("canvas");
+    c.width = 1;
+    c.height = 1;
+    scratch = c.getContext("2d", { willReadFrequently: true });
+  } catch {
+    scratch = null;
+  }
+  return scratch;
+}
+
+/** Any CSS colour string the *canvas* can parse, as `#rrggbb`. */
+function paintedHex(value: string): string | null {
+  const ctx = scratchContext();
+  if (!ctx) return null;
+  // A sentinel that `value` is very unlikely to be: if the assignment is
+  // rejected as unparseable, fillStyle keeps its old value and we can tell.
+  const sentinel = "#010203";
+  ctx.fillStyle = sentinel;
+  ctx.fillStyle = value;
+  if (ctx.fillStyle === sentinel && value.replace(/\s/g, "") !== sentinel) {
+    return null;
+  }
+  ctx.clearRect(0, 0, 1, 1);
+  ctx.fillRect(0, 0, 1, 1);
+  try {
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    return `#${toByte(r)}${toByte(g)}${toByte(b)}`;
+  } catch {
+    return null; // tainted canvas is impossible here, but never throw on paint
+  }
+}
+
+/** Normalise a computed colour of any syntax; `fallback` if nothing parses. */
+function computedToHex(computed: string, fallback: string): string {
+  return rgbStringToHex(computed) ?? paintedHex(computed) ?? fallback;
 }
 
 /**
@@ -39,10 +95,14 @@ export function toHexColor(raw: string, fallback: string): string {
   if (!trimmed) return fallback;
   if (HEX_RE.test(trimmed)) return expandHex(trimmed);
 
-  // Already computed rgb() from getComputedStyle.
-  if (trimmed.startsWith("rgb")) return rgbStringToHex(trimmed, fallback);
-
   if (typeof document === "undefined") return fallback;
+
+  // Already a computed colour (rgb / oklch / lab / color()) -- no var() or
+  // color-mix() to expand, so skip the DOM probe.
+  if (!trimmed.includes("var(") && !trimmed.includes("color-mix(")) {
+    const direct = rgbStringToHex(trimmed) ?? paintedHex(trimmed);
+    if (direct) return direct;
+  }
 
   // Probe via a detached element so nested var()/color-mix/oklch resolve.
   // Canvas fillStyle alone does NOT resolve CSS variables.
@@ -53,7 +113,7 @@ export function toHexColor(raw: string, fallback: string): string {
   const computed = getComputedStyle(el).color;
   document.documentElement.removeChild(el);
   if (!computed || computed === "rgba(0, 0, 0, 0)") return fallback;
-  return rgbStringToHex(computed, fallback);
+  return computedToHex(computed, fallback);
 }
 
 const cssVarCache = new Map<string, string>();
@@ -80,7 +140,7 @@ export function resolveCssVar(varName: string, fallback: string): string {
 
   const hex =
     computed && computed !== "rgba(0, 0, 0, 0)"
-      ? rgbStringToHex(computed, fallback)
+      ? computedToHex(computed, fallback)
       : fallback;
 
   cssVarCache.set(name, hex);

@@ -220,7 +220,7 @@ export function ChannelStrip({
             min={-1}
             max={1}
             defaultValue={0}
-            accent="rgba(255,255,255,0.9)"
+            accent="color-mix(in oklab, var(--foreground) 90%, transparent)"
             onCommit={commitPan}
             size={24}
             title="Pan"

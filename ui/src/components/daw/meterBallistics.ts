@@ -13,6 +13,9 @@
  * from a rAF task and painted to canvas.
  */
 
+import { resolveCssVar, withHexAlpha } from "../../lib/cssColor";
+import { onThemeChanged, roleColor } from "../../lib/theme";
+
 /** Anything quieter than this is silence as far as a meter is concerned. */
 export const FLOOR_DB = -100;
 /** Bottom of the drawn range -- a bar at this level is empty. */
@@ -23,14 +26,67 @@ const BAR_DECAY_DB_PER_SEC = 80;
 const PEAK_HOLD_SECONDS = 0.8;
 const PEAK_DECAY_DB_PER_SEC = 50;
 
-/** Single source of truth for "clipping" red -- anything else showing a clip
- * indicator (e.g. the mixer's GainPeakReadout box) should import this instead
- * of hardcoding its own shade, so the two always match exactly. */
-export const CLIP_COLOR = "#ff3b30";
-export const CLIP_GLOW = "0 0 4px rgba(255,59,48,0.7)";
+/**
+ * Single source of truth for the two colours a meter paints that are not the
+ * channel's own accent: the latched-clip red and the peak-hold needle.
+ *
+ * Functions rather than constants because these come from the theme, and a
+ * meter is canvas -- it resolves a colour once and paints bytes, so a constant
+ * evaluated at module load would pin every meter in the app to whichever theme
+ * happened to be active when the bundle first ran. Resolution is cached and
+ * dropped on a swap, so the cost is one DOM probe per theme, not per frame.
+ */
+const CLIP_GLOW_ALPHA = "b3"; // 0.7
+const PEAK_ALPHA = "d9"; // 0.85
+const PEAK_OVER_ALPHA = "f2"; // 0.95
+
+interface MeterInk {
+  clip: string;
+  clipGlow: string;
+  peak: string;
+  peakOver: string;
+}
+
+let ink: MeterInk | null = null;
+
+function meterInk(): MeterInk {
+  if (ink) return ink;
+  const clip = roleColor("meterClip");
+  const foreground = resolveCssVar("--foreground", "#ffffff");
+  ink = {
+    clip,
+    clipGlow: withHexAlpha(clip, CLIP_GLOW_ALPHA),
+    peak: withHexAlpha(foreground, PEAK_ALPHA),
+    peakOver: withHexAlpha(clip, PEAK_OVER_ALPHA),
+  };
+  return ink;
+}
+
+onThemeChanged(() => {
+  ink = null;
+});
+
+/** Fill for a latched clip indicator. */
+export function clipColor(): string {
+  return meterInk().clip;
+}
+
+/** CSS `box-shadow` for a clip indicator in the DOM. */
+export function clipGlow(): string {
+  return `0 0 ${CLIP_GLOW_BLUR_PX}px ${meterInk().clipGlow}`;
+}
+
 /** The same glow, split for ctx.shadow* (canvas has no box-shadow). */
 export const CLIP_GLOW_BLUR_PX = 4;
-export const CLIP_GLOW_COLOR = "rgba(255,59,48,0.7)";
+export function clipGlowColor(): string {
+  return meterInk().clipGlow;
+}
+
+/** The peak-hold needle: normally the foreground, clip red once over 0 dBFS. */
+export function peakNeedleColor(over: boolean): string {
+  const i = meterInk();
+  return over ? i.peakOver : i.peak;
+}
 
 const DEFAULT_ACCENT = "#34c759";
 

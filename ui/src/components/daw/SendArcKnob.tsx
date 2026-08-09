@@ -94,7 +94,7 @@ export function SendArcKnob({
           cy={12}
           r={radius}
           fill="none"
-          stroke="rgba(255,255,255,0.15)"
+          stroke="color-mix(in oklab, var(--foreground) 15%, transparent)"
           strokeWidth={strokeWidth}
           strokeDasharray={`${arcLength} ${circumference}`}
           strokeLinecap="round"
