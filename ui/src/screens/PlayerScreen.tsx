@@ -358,14 +358,11 @@ const PlayerLightStagePreview = memo(function PlayerLightStagePreview({
   if (fixtures.length === 0) return null;
 
   return (
-    <Card className="relative flex h-40 w-full shrink-0 flex-col overflow-hidden sm:h-full sm:w-52 p-0">
-      <Card.Header className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35 flex flex-row items-center justify-between z-10 space-y-0">
+    <Card className="relative flex h-40 w-full shrink-0 flex-col overflow-hidden sm:h-full sm:w-52 p-0 gap-0">
+      <Card.Header className="h-10 border-b border-default/20 px-3.5 text-[11px] font-bold uppercase tracking-widest text-foreground/35 flex flex-row items-center justify-between z-10 space-y-0 shrink-0">
         <span>Stage Lights</span>
-        <span className="text-[9px] font-mono text-foreground/40">
-          {fixtures.length} fix
-        </span>
       </Card.Header>
-      <Card.Content className="flex-1 min-h-0 relative p-0">
+      <Card.Content className="flex flex-col flex-1 min-h-0 relative p-0 overflow-hidden">
         <ResoLightStage3D
           mode="preview"
           fixtures={fixtures}
@@ -481,8 +478,8 @@ const BusMetersPanel = memo(function BusMetersPanel({
   };
 
   return (
-    <Card className="flex h-56 min-h-0 shrink-0 flex-col overflow-hidden sm:h-auto sm:max-w-[40%] p-0">
-      <Card.Header className="flex flex-row items-center justify-between border-b border-default/20 px-3 py-1.5 space-y-0">
+    <Card className="flex h-56 min-h-0 shrink-0 flex-col overflow-hidden sm:h-auto sm:max-w-[40%] p-0 gap-0">
+      <Card.Header className="h-10 flex flex-row items-center justify-between border-b border-default/20 px-3.5 space-y-0 shrink-0">
         <span className="text-[11px] font-bold uppercase tracking-widest text-foreground/35">
           Bus meters
         </span>
@@ -695,8 +692,8 @@ const SetlistPanel = memo(function SetlistPanel({
   onSelect: (index: number) => void;
 }) {
   return (
-    <Card className="flex h-56 min-h-0 flex-1 flex-col overflow-hidden sm:h-auto p-0">
-      <Card.Header className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35 space-y-0">
+    <Card className="flex h-56 min-h-0 flex-1 flex-col overflow-hidden sm:h-auto p-0 gap-0">
+      <Card.Header className="h-10 flex flex-row items-center border-b border-default/20 px-3.5 text-[11px] font-bold uppercase tracking-widest text-foreground/35 space-y-0 shrink-0">
         Setlist
       </Card.Header>
       <ScrollShadow orientation="vertical" className="min-h-0 flex-1">
