@@ -163,4 +163,5 @@
 .rs-card-surface {
   background-color: var(--color-background-secondary);
   border: 1px solid var(--color-background-tertiary);
+  border-radius: 1rem;
 }

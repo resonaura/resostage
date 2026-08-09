@@ -11,14 +11,7 @@ import {
   SkipForward,
   Square,
 } from "lucide-react";
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   formatClockPrecise as formatTime,
   LevelMeterBar,
@@ -30,6 +23,7 @@ import { Timeline } from "../components/Timeline";
 import {
   Button,
   ButtonGroup,
+  Card,
   ToggleButton,
   ToggleButtonGroup,
 } from "../components/ui";
@@ -364,22 +358,22 @@ const PlayerLightStagePreview = memo(function PlayerLightStagePreview({
   if (fixtures.length === 0) return null;
 
   return (
-    <div className="relative flex h-40 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary sm:h-full sm:w-52">
-      <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35 flex items-center justify-between z-10">
+    <Card className="relative flex h-40 w-full shrink-0 flex-col overflow-hidden sm:h-full sm:w-52 p-0">
+      <Card.Header className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35 flex flex-row items-center justify-between z-10 space-y-0">
         <span>Stage Lights</span>
         <span className="text-[9px] font-mono text-foreground/40">
           {fixtures.length} fix
         </span>
-      </div>
-      <div className="flex-1 min-h-0 relative">
+      </Card.Header>
+      <Card.Content className="flex-1 min-h-0 relative p-0">
         <ResoLightStage3D
           mode="preview"
           fixtures={fixtures}
           live={enabled}
           chrome="minimal"
         />
-      </div>
-    </div>
+      </Card.Content>
+    </Card>
   );
 });
 
@@ -487,8 +481,8 @@ const BusMetersPanel = memo(function BusMetersPanel({
   };
 
   return (
-    <div className="flex h-56 min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary sm:h-auto sm:max-w-[40%]">
-      <div className="flex items-center justify-between border-b border-default/20 px-3 py-1.5">
+    <Card className="flex h-56 min-h-0 shrink-0 flex-col overflow-hidden sm:h-auto sm:max-w-[40%] p-0">
+      <Card.Header className="flex flex-row items-center justify-between border-b border-default/20 px-3 py-1.5 space-y-0">
         <span className="text-[11px] font-bold uppercase tracking-widest text-foreground/35">
           Bus meters
         </span>
@@ -555,7 +549,7 @@ const BusMetersPanel = memo(function BusMetersPanel({
             </Tooltip>
           </ToggleButtonGroup>
         </div>
-      </div>
+      </Card.Header>
 
       {groups.length === 0 ? (
         <div className="flex h-full items-center justify-center py-4 text-sm text-foreground/40">
@@ -679,7 +673,7 @@ const BusMetersPanel = memo(function BusMetersPanel({
           })}
         </ScrollShadow>
       )}
-    </div>
+    </Card>
   );
 });
 
@@ -701,10 +695,10 @@ const SetlistPanel = memo(function SetlistPanel({
   onSelect: (index: number) => void;
 }) {
   return (
-    <div className="flex h-56 min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary sm:h-auto">
-      <div className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35">
+    <Card className="flex h-56 min-h-0 flex-1 flex-col overflow-hidden sm:h-auto p-0">
+      <Card.Header className="border-b border-default/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/35 space-y-0">
         Setlist
-      </div>
+      </Card.Header>
       <ScrollShadow orientation="vertical" className="min-h-0 flex-1">
         {songs.length === 0 ? (
           /* Centered vertically when setlist is empty */
@@ -764,7 +758,7 @@ const SetlistPanel = memo(function SetlistPanel({
           </div>
         )}
       </ScrollShadow>
-    </div>
+    </Card>
   );
 });
 
@@ -948,7 +942,7 @@ export function PlayerScreen({
       {/* ── 1. Top Transport bar ──────────────────────────────── */}
       {/* Stacks on phones: the desktop row is one ~900px-wide line of clock,
           title, transport and health graphs that cannot usefully shrink. */}
-      <div className="flex shrink-0 flex-col items-stretch gap-0 overflow-hidden rounded-xl border border-default/30 bg-background-secondary sm:flex-row">
+      <Card className="flex shrink-0 flex-col items-stretch gap-0 overflow-hidden sm:flex-row p-0">
         {/* Clock + bar/beat + abs (full info — header has compact clock) */}
         <div className="flex shrink-0 flex-col justify-center border-b border-default/30 px-4 py-2 sm:border-b-0 sm:border-r sm:px-5 sm:py-2.5">
           <div
@@ -1082,7 +1076,7 @@ export function PlayerScreen({
           {/* Global metronome + its send routing. Two unrelated booleans, hence
               a multiple-selection group rather than an exclusive one: the click
               can be on with the routing panel shut, and vice versa.
-              
+
               The routing panel is a real Popover: it renders in an overlay
               portal, so it is no longer clipped away by the transport card's
               own `overflow-hidden` (which is what kept it invisible), and it
@@ -1093,39 +1087,39 @@ export function PlayerScreen({
               itself as one. */}
           <Popover isOpen={clickSendsOpen} onOpenChange={setClickSendsOpen}>
             <div ref={clickRoutingAnchorRef}>
-            <ToggleButtonGroup
-              aria-label="Metronome"
-              size="sm"
-              selectionMode="multiple"
-              selectedKeys={[
-                ...(isMetronomeOn ? ["on"] : []),
-                ...(clickSendsOpen ? ["routing"] : []),
-              ]}
-              onSelectionChange={(keys) => {
-                const next = new Set(Array.from(keys, String));
-                if (next.has("on") !== isMetronomeOn) toggleMetronome();
-                setClickSendsOpen(next.has("routing"));
-              }}
-            >
-              <ToggleButton id="on">
-                <FontIcon name="metronome" size={16} />
-                <span>Click</span>
-              </ToggleButton>
-              <ToggleButtonGroup.Separator />
-              <Tooltip>
-                <ToggleButton
-                  id="routing"
-                  isIconOnly
-                  aria-label="Click send routing"
-                >
-                  <ChevronDown
-                    size={12}
-                    className={`transition-transform ${clickSendsOpen ? "rotate-180" : ""}`}
-                  />
+              <ToggleButtonGroup
+                aria-label="Metronome"
+                size="sm"
+                selectionMode="multiple"
+                selectedKeys={[
+                  ...(isMetronomeOn ? ["on"] : []),
+                  ...(clickSendsOpen ? ["routing"] : []),
+                ]}
+                onSelectionChange={(keys) => {
+                  const next = new Set(Array.from(keys, String));
+                  if (next.has("on") !== isMetronomeOn) toggleMetronome();
+                  setClickSendsOpen(next.has("routing"));
+                }}
+              >
+                <ToggleButton id="on">
+                  <FontIcon name="metronome" size={16} />
+                  <span>Click</span>
                 </ToggleButton>
-                <Tooltip.Content>Click send routing</Tooltip.Content>
-              </Tooltip>
-            </ToggleButtonGroup>
+                <ToggleButtonGroup.Separator />
+                <Tooltip>
+                  <ToggleButton
+                    id="routing"
+                    isIconOnly
+                    aria-label="Click send routing"
+                  >
+                    <ChevronDown
+                      size={12}
+                      className={`transition-transform ${clickSendsOpen ? "rotate-180" : ""}`}
+                    />
+                  </ToggleButton>
+                  <Tooltip.Content>Click send routing</Tooltip.Content>
+                </Tooltip>
+              </ToggleButtonGroup>
             </div>
             {/* 1-to-1 track parity with Output Bus select + Aux Sends list */}
             <Popover.Content
@@ -1224,7 +1218,7 @@ export function PlayerScreen({
           cpuHistory={cpuHistory}
           ramHistory={ramHistory}
         />
-      </div>
+      </Card>
 
       {/* ── 2. Middle: Setlist + Bus meters (flex layout, max 40% meters width) ─ */}
       <div className="flex shrink-0 flex-col gap-2 sm:h-[210px] sm:flex-row sm:gap-3">
@@ -1254,7 +1248,7 @@ export function PlayerScreen({
           affordable on that hardware, and `display: none` would still build
           and animate all of it. */}
       {!compact && (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
           <Timeline
             state={state}
             peaks={peaks}
@@ -1263,7 +1257,7 @@ export function PlayerScreen({
             setPxPerSec={setPxPerSec}
             readOnly
           />
-        </div>
+        </Card>
       )}
     </div>
   );
