@@ -110,6 +110,16 @@ uint64_t selfTaskCpuTimeNanos() {
     return sumLiveThreadCpuNanos();
 }
 
+/** Cumulative bytes this process has read from / written to disk. */
+bool selfDiskIoBytes(uint64_t& readBytes, uint64_t& writeBytes) {
+    struct rusage_info_v6 ru{};
+    if (proc_pid_rusage(getpid(), RUSAGE_INFO_V6, reinterpret_cast<rusage_info_t*>(&ru)) != 0)
+        return false;
+    readBytes = static_cast<uint64_t>(ru.ri_diskio_bytesread);
+    writeBytes = static_cast<uint64_t>(ru.ri_diskio_byteswritten);
+    return true;
+}
+
 bool getProcMetrics(int pid, ProcMetrics& out) {
     struct rusage_info_v6 ru{};
     if (proc_pid_rusage(pid, RUSAGE_INFO_V6, reinterpret_cast<rusage_info_t*>(&ru)) == 0) {
@@ -311,6 +321,32 @@ SystemHealthSnapshot SystemHealth::sample() const {
     snap.audioCallbackCount = audioCallbackCount.load(std::memory_order_relaxed);
     snap.silentBlockCount = silentBlockCount.load(std::memory_order_relaxed);
     snap.webClientCount = webClientCount.load(std::memory_order_relaxed);
+
+    // Disk throughput over the interval just closed. The very first sample has
+    // no previous reading to subtract, so it reports zero rather than the
+    // whole process lifetime's I/O divided by one second.
+    {
+        uint64_t readBytes = 0, writeBytes = 0;
+        if (selfDiskIoBytes(readBytes, writeBytes)) {
+            const double elapsedSec =
+                lastWallNanos != 0 && wallNow > lastWallNanos
+                    ? static_cast<double>(wallNow - lastWallNanos) / 1e9
+                    : 0.0;
+            if (elapsedSec > 0.0) {
+                // Counters are cumulative and monotonic; guard the subtraction
+                // anyway so a wrap or a re-exec cannot produce a vast negative
+                // rate that the auto-degrade logic would read as a stall.
+                const uint64_t dRead =
+                    readBytes > prevDiskReadBytes ? readBytes - prevDiskReadBytes : 0;
+                const uint64_t dWrite =
+                    writeBytes > prevDiskWriteBytes ? writeBytes - prevDiskWriteBytes : 0;
+                snap.diskReadBytesPerSec = static_cast<double>(dRead) / elapsedSec;
+                snap.diskWriteBytesPerSec = static_cast<double>(dWrite) / elapsedSec;
+            }
+            prevDiskReadBytes = readBytes;
+            prevDiskWriteBytes = writeBytes;
+        }
+    }
 
     lastWallNanos = wallNow;
     cachedSnapshot = snap;

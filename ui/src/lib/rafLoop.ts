@@ -46,8 +46,54 @@ interface Entry {
 const tasks = new Set<Entry>();
 let rafId = 0;
 
+// ── Frame budget ─────────────────────────────────────────────────────────
+//
+// The driver still asks the browser for every frame -- rAF is how you stay in
+// step with the compositor, and skipping the request would hand the schedule
+// to a timer that drifts. What the cap changes is how often the frame does any
+// WORK: below the interval, the callback returns immediately having touched
+// nothing.
+//
+// That is the single biggest lever this app has on a weak machine, because
+// nearly everything that animates goes through here -- every meter, the
+// waveform overlays, the playhead, the live readouts. Halving it halves all of
+// them at once, which is a far better trade than any one of them looking
+// worse. See the Performance section in Settings.
+//
+// 0 = uncapped (every frame the browser gives us).
+let minFrameIntervalMs = 0;
+let lastWorkMs = 0;
+
+/**
+ * Cap how often tasks run, in frames per second. 0 or below removes the cap.
+ *
+ * Existing tasks keep their dt correct across a change: dt is measured from
+ * each task's own previous run, so lowering the rate lengthens dt rather than
+ * slowing anything down in wall-clock terms -- a meter decays at the same
+ * dB/second, it just gets there in fewer steps.
+ */
+export function setRafFrameRateCap(fps: number): void {
+  minFrameIntervalMs = fps > 0 ? 1000 / fps : 0;
+}
+
+/** The cap currently in force, in fps; 0 when uncapped. */
+export function getRafFrameRateCap(): number {
+  return minFrameIntervalMs > 0 ? Math.round(1000 / minFrameIntervalMs) : 0;
+}
+
 function frame(nowMs: number): void {
   rafId = 0;
+
+  if (minFrameIntervalMs > 0) {
+    // A tolerance of one 120Hz frame, so a 60fps cap on a 60Hz display does
+    // not drop every other frame to 30 through rounding.
+    if (nowMs - lastWorkMs < minFrameIntervalMs - 4) {
+      schedule();
+      return;
+    }
+  }
+  lastWorkMs = nowMs;
+
   // Snapshot: a task may unsubscribe (or subscribe) from inside its own tick.
   for (const entry of Array.from(tasks)) {
     if (!tasks.has(entry)) continue;

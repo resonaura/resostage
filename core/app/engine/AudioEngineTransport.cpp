@@ -161,7 +161,8 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         newTrackIds.push_back(trackDef.id);
     }
 
-    // Song length from the (already published) active staged song.
+    // Song length from the (already published) active staged song, unless the
+    // song carries an authored end -- see songLengthFrames.
     int64_t newSongLengthFrames = 0;
     {
         StreamingEngine::ActiveSongHandle activeSong = streaming.acquireActiveSong();
@@ -172,6 +173,8 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             }
         }
     }
+    newSongLengthFrames =
+        songLengthFrames(song.endSeconds, newSongLengthFrames, currentSampleRate);
 
     // CRITICAL: every field the audio thread reads under routingMutex must
     // flip atomically relative to that lock. The previous code reassigned
@@ -415,6 +418,14 @@ void AudioEngine::resetMetersSilent() {
             busMeters[i]->write(silent);
     }
     clickMeterFrame.write(silent);
+}
+
+int64_t AudioEngine::songLengthFrames(double endSeconds,
+                                      int64_t contentFrames,
+                                      double sampleRate) {
+    if (endSeconds > 0.0 && std::isfinite(endSeconds) && sampleRate > 0.0)
+        return static_cast<int64_t>(std::llround(endSeconds * sampleRate));
+    return contentFrames;
 }
 
 bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {

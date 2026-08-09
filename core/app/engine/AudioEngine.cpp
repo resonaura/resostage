@@ -506,7 +506,11 @@ void AudioEngine::handleSampleRateChanged(double newSampleRate, double previousP
                     newSongLengthFrames = std::max(newSongLengthFrames, buf->totalFrames());
             }
         }
-        currentSongLengthFrames = newSongLengthFrames;
+        const auto& songs = loader.project().songs;
+        const double authoredEnd =
+            currentSong < songs.size() ? songs[currentSong].endSeconds : 0.0;
+        currentSongLengthFrames =
+            songLengthFrames(authoredEnd, newSongLengthFrames, currentSampleRate);
     }
 
     // Resume transport now that the restage is fully applied -- play()

@@ -172,25 +172,22 @@ export function SongRulerHeader({
           that box clips its overflow and swallows pointer events, and the
           marker has to sit ON the boundary -- half of it belongs to the next
           song. */}
-      {songs.map((song, i) => {
-        const beatsPerBar = Math.max(1, song.tsNum || 4);
-        const barSec =
-          song.bpm > 0 ? (60 / song.bpm) * beatsPerBar : 0;
-        return (
-          <SongEndMarker
-            key={`end-${i}`}
-            songIndex={i}
-            startAbsSec={songOffsets[i] ?? 0}
-            endAbsSec={(songOffsets[i] ?? 0) + (songLengths[i] ?? 0)}
-            contentSec={songContentLengths[i] ?? 0}
-            pxPerSec={pxPerSec}
-            dragging={songEndDrag?.index === i}
-            snapSec={snapToGrid ? barSec : 0}
-            onDrag={onSongEndDrag}
-            onDragEnd={onSongEndCommit}
-          />
-        );
-      })}
+      {songs.map((song, i) => (
+        <SongEndMarker
+          key={`end-${i}`}
+          songIndex={i}
+          startAbsSec={songOffsets[i] ?? 0}
+          endAbsSec={(songOffsets[i] ?? 0) + (songLengths[i] ?? 0)}
+          contentSec={songContentLengths[i] ?? 0}
+          pxPerSec={pxPerSec}
+          dragging={songEndDrag?.index === i}
+          bpm={song.bpm}
+          tsNum={song.tsNum}
+          snapToGrid={snapToGrid}
+          onDrag={onSongEndDrag}
+          onDragEnd={onSongEndCommit}
+        />
+      ))}
 
       {/* Lower tier only: playhead scrub (does not compete with cycle). */}
       <div

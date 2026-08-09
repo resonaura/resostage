@@ -588,6 +588,11 @@ export interface HealthState {
   // Times a stem's ring ran dry mid-block while the file still had audio: a
   // step to zero inside a block. See StreamingTrackBuffer::starveCount().
   streamStarveCount: number;
+  /** App-caused disk throughput, bytes/sec, averaged over the sample second.
+   *  A throttled or saturated SSD stalls stem streaming with the CPU flat --
+   *  see SystemHealthSnapshot. */
+  diskReadBytesPerSec?: number;
+  diskWriteBytesPerSec?: number;
   audioCallbackCount: number;
   webClientCount: number;
   processes: ProcessHealthEntry[];
@@ -834,6 +839,8 @@ export const emptyState: WebUiState = {
     underrunCount: 0,
     silentBlockCount: 0,
     streamStarveCount: 0,
+    diskReadBytesPerSec: 0,
+    diskWriteBytesPerSec: 0,
     audioCallbackCount: 0,
     webClientCount: 0,
     processes: [],

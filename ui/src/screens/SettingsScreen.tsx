@@ -1,15 +1,24 @@
 import { Tooltip } from "@heroui/react";
-import { Activity, Music3, SlidersHorizontal, Workflow } from "lucide-react";
+import { Activity, Music3, SlidersHorizontal, Workflow, Zap } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
 import {
+  Alert,
   Button,
   Card,
   Select,
+  Switch,
   Tabs,
   ToggleButton,
   type SelectOption,
 } from "../components/ui";
+import {
+  TIER_DESCRIPTION,
+  TIER_FPS,
+  TIER_LABEL,
+  type PerformanceSettings,
+  type PerformanceTier,
+} from "../lib/performance";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 // @xyflow/react is a heavy graph library behind exactly one modal. Loading it
@@ -244,7 +253,7 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
 ];
 
 // ─── Tab definitions ──────────────────────────────────────────────────────
-type SettingsTab = "audio" | "midi" | "health";
+type SettingsTab = "audio" | "midi" | "performance" | "health";
 
 const SETTINGS_TABS: {
   id: SettingsTab;
@@ -253,6 +262,7 @@ const SETTINGS_TABS: {
 }[] = [
   { id: "audio", label: "Audio", icon: SlidersHorizontal },
   { id: "midi", label: "MIDI", icon: Music3 },
+  { id: "performance", label: "Performance", icon: Zap },
   { id: "health", label: "Health", icon: Activity },
 ];
 
@@ -527,6 +537,103 @@ function MidiTab({ state }: { state: WebUiState }) {
   );
 }
 
+// ─── Performance Tab ──────────────────────────────────────────────────────
+
+function formatRate(bytesPerSec: number): string {
+  if (!Number.isFinite(bytesPerSec) || bytesPerSec <= 0) return "0 B/s";
+  return `${formatBytes(bytesPerSec)}/s`;
+}
+
+function PerformanceTab({
+  state,
+  performance,
+}: {
+  state: WebUiState;
+  performance: PerformanceControls;
+}) {
+  const { settings, setSettings, effectiveTier, degraded } = performance;
+  const h = state.health;
+  const disk =
+    (h.diskReadBytesPerSec ?? 0) + (h.diskWriteBytesPerSec ?? 0);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Section
+        title="Frame rate"
+        description="How often the interface redraws. Meters, waveforms and the playhead all share one frame budget, so lowering this lightens every one of them at once. It never affects the audio engine, which runs on its own real-time thread."
+      >
+        <div className="flex flex-col gap-2">
+          {(Object.keys(TIER_FPS) as PerformanceTier[]).map((tier) => (
+            <ToggleButton
+              key={tier}
+              size="sm"
+              tone="accent-soft"
+              isSelected={settings.tier === tier}
+              onChange={() => setSettings({ ...settings, tier })}
+              className="w-full justify-start gap-2 px-3"
+            >
+              <span className="font-semibold">{TIER_LABEL[tier]}</span>
+              <span className="text-xs opacity-70">
+                {TIER_DESCRIPTION[tier]}
+              </span>
+            </ToggleButton>
+          ))}
+        </div>
+      </Section>
+
+      <Section
+        title="Automatic"
+        description="Watches how long frames actually take, plus the engine's own health, and steps down a level when the machine stops keeping up. It only ever goes below the level above, never past it, and climbs back after a long clean stretch."
+      >
+        <div className="flex items-center justify-between gap-3">
+          <Switch
+            isSelected={settings.auto}
+            onChange={(auto) => setSettings({ ...settings, auto })}
+          >
+            <Switch.Content>
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+              <span className="text-sm">Lower the frame rate automatically</span>
+            </Switch.Content>
+          </Switch>
+        </div>
+        {degraded && (
+          <Alert status="warning">
+            <Alert.Content>
+              <Alert.Title className="text-xs font-semibold">
+                Running at {TIER_LABEL[effectiveTier]}
+              </Alert.Title>
+              <Alert.Description className="text-xs">
+                The machine was not keeping up at {TIER_LABEL[settings.tier]}.
+                It will go back up on its own once it can.
+              </Alert.Description>
+            </Alert.Content>
+          </Alert>
+        )}
+      </Section>
+
+      <Section
+        title="What it is watching"
+        description="Disk is here because it is the one that hides: a throttling SSD stalls stem streaming and the audio breaks up with the CPU graph flat."
+      >
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat
+            label="CPU (app)"
+            value={`${Math.max(0, h.cpuPercent ?? 0).toFixed(1)}%`}
+          />
+          <Stat label="Disk I/O" value={formatRate(disk)} />
+          <Stat
+            label="Stream starves"
+            value={String(h.streamStarveCount ?? 0)}
+          />
+          <Stat label="Silent blocks" value={String(h.silentBlockCount ?? 0)} />
+        </div>
+      </Section>
+    </div>
+  );
+}
+
 // ─── Health Tab ───────────────────────────────────────────────────────────
 function HealthTab({ state }: { state: WebUiState }) {
   const h = state.health;
@@ -593,7 +700,20 @@ function HealthTab({ state }: { state: WebUiState }) {
 }
 
 // ─── Main SettingsScreen ──────────────────────────────────────────────────
-export function SettingsScreen({ state }: { state: WebUiState }) {
+export interface PerformanceControls {
+  settings: PerformanceSettings;
+  setSettings: (s: PerformanceSettings) => void;
+  effectiveTier: PerformanceTier;
+  degraded: boolean;
+}
+
+export function SettingsScreen({
+  state,
+  performance,
+}: {
+  state: WebUiState;
+  performance: PerformanceControls;
+}) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
 
   return (
@@ -624,6 +744,9 @@ export function SettingsScreen({ state }: { state: WebUiState }) {
           >
             {tab.id === "audio" && <AudioTab state={state} />}
             {tab.id === "midi" && <MidiTab state={state} />}
+            {tab.id === "performance" && (
+              <PerformanceTab state={state} performance={performance} />
+            )}
             {tab.id === "health" && <HealthTab state={state} />}
           </Tabs.Panel>
         ))}

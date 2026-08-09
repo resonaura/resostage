@@ -488,6 +488,8 @@ struct WHealthTelemetry {
     // SystemHealth::noteSilentBlock(). Not a driver dropout, but audible.
     uint64_t silentBlockCount = 0;
     uint64_t streamStarveCount = 0;
+    double diskReadBytesPerSec = 0.0;
+    double diskWriteBytesPerSec = 0.0;
     uint32_t webClientCount = 0;
     std::vector<WProcessTelemetry> processes;
 };

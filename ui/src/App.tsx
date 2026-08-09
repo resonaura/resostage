@@ -29,6 +29,7 @@ import { EditorScreen } from "./screens/EditorScreen";
 import { LightScreen } from "./screens/LightScreen";
 import { MixerScreen } from "./screens/MixerScreen";
 import { PlayerScreen } from "./screens/PlayerScreen";
+import { usePerformanceMode } from "./hooks/usePerformanceMode";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
 interface ToastNotification {
@@ -228,6 +229,9 @@ export default function App() {
     hasLiveSnapshot,
   } = useLiveState(tab);
   useGlobalHotkeys(state, setTab);
+  // One frame budget for the whole UI -- see usePerformanceMode. Mounted here
+  // and only here, so there is exactly one auto ladder deciding it.
+  const performance = usePerformanceMode(state.health);
 
   // Electron shell: keep its native menu bar / Touch Bar live (undo/redo
   // state, Open Recent, active tab, window title) off the 30 Hz state feed.
@@ -519,7 +523,7 @@ export default function App() {
           <LightScreen state={state} />
         </Tabs.Panel>
         <Tabs.Panel id="settings" className="flex-1 overflow-auto p-1.5 sm:p-3">
-          <SettingsScreen state={state} />
+          <SettingsScreen state={state} performance={performance} />
         </Tabs.Panel>
       </Tabs>
 

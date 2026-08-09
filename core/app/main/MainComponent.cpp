@@ -1566,6 +1566,8 @@ void MainComponent::publishWebState() {
     // Sourced from the streaming layer rather than SystemHealth so telemetry/
     // keeps no dependency on audio/.
     state.streamStarveCount = engine.streamStarveCount();
+    state.diskReadBytesPerSec = health.diskReadBytesPerSec;
+    state.diskWriteBytesPerSec = health.diskWriteBytesPerSec;
     state.webClientCount = webServer.clientCount();
     state.processes.clear();
     for (const auto& p : health.processes) {

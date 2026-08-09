@@ -1664,6 +1664,8 @@ std::string WebServer::buildStateJson(const char* view) const {
         wH.audioCallbackCount = snap.audioCallbackCount;
         wH.silentBlockCount = snap.silentBlockCount;
         wH.streamStarveCount = snap.streamStarveCount;
+        wH.diskReadBytesPerSec = finiteOrZero(snap.diskReadBytesPerSec);
+        wH.diskWriteBytesPerSec = finiteOrZero(snap.diskWriteBytesPerSec);
         wH.webClientCount = static_cast<uint32_t>(std::max(0, snap.webClientCount));
         if (wantHealthProcs) {
             wH.processes.reserve(snap.processes.size());

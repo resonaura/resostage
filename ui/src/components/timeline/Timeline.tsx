@@ -45,7 +45,12 @@ import {
 import { AudioDropGhost } from "./AudioDropGhost";
 import { AudioTrackLanes } from "./AudioTrackLanes";
 import { BeatGrid } from "./BeatGrid";
-import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
+import {
+  MAX_PX_PER_SEC,
+  MIN_PX_PER_SEC,
+  TRAILING_SLACK_MIN_PX,
+  TRAILING_SLACK_SECONDS,
+} from "./constants";
 import {
   deleteCues,
   duplicateCue,
@@ -56,6 +61,7 @@ import {
   type CueClipboardEntry,
 } from "./cueEdit";
 import { EventMarkerLane } from "./EventMarkerLane";
+import { OutOfBoundsOverlay } from "./OutOfBoundsOverlay";
 import { snapToGridSec } from "./geometry";
 import type { SongEndDrag } from "./SongEndMarker";
 import { laneHeightPx } from "./laneDimensions";
@@ -751,7 +757,17 @@ export function Timeline({
     }
   };
 
-  const contentWidth = Math.max(1, Math.round(totalLength * pxPerSec));
+  // Where the project actually ends, and how far the canvas runs past it.
+  //
+  // The arrangement used to stop dead at the last song, which left nowhere to
+  // drag the last end marker TO -- you can only extend a song into space that
+  // exists. The slack is free canvas: out of bounds, dimmed (see
+  // OutOfBoundsOverlay), and not somewhere the transport will go.
+  const projectWidth = Math.max(1, Math.round(totalLength * pxPerSec));
+  const trailingSlackPx = Math.round(
+    Math.max(TRAILING_SLACK_MIN_PX, TRAILING_SLACK_SECONDS * pxPerSec),
+  );
+  const contentWidth = projectWidth + trailingSlackPx;
 
   const rows = useMemo(
     () => buildRows(state.tracks, songs),
@@ -2124,6 +2140,13 @@ export function Timeline({
                 // position:sticky for the ruler and playhead handle.
               }}
             >
+              {/* Behind the ruler (z-20) and the lanes, above their
+                  backgrounds -- it shades the arrangement without hiding the
+                  bar numbers that say where you are out here. */}
+              <OutOfBoundsOverlay
+                startPx={projectWidth}
+                widthPx={trailingSlackPx}
+              />
               <SongRulerHeader
                 songs={songs}
                 songOffsets={songOffsets}

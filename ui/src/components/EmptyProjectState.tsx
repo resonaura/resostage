@@ -75,7 +75,7 @@ export function EmptyProjectState({
             // The obvious next step is solid; the alternatives are outlines, so
             // the pair reads as "do this, or one of these" rather than as two
             // equal choices.
-            variant={a.primary ? "accent-soft" : "outline"}
+            variant={a.primary ? "accent-soft" : "default-soft"}
             onPress={a.onPress}
             aria-label={a.description ?? a.label}
           >

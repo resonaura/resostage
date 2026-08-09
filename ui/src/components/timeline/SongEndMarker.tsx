@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { beginCancellableDrag, type CancellableDrag } from "../../lib/dragCancel";
 import { RULER_HEIGHT } from "./constants";
+import { snapToGridSec } from "./geometry";
 
 /**
  * The draggable end of a song.
@@ -35,7 +36,9 @@ export function SongEndMarker({
   contentSec,
   pxPerSec,
   dragging,
-  snapSec,
+  bpm,
+  tsNum,
+  snapToGrid,
   onDrag,
   onDragEnd,
 }: {
@@ -45,8 +48,10 @@ export function SongEndMarker({
   contentSec: number;
   pxPerSec: number;
   dragging: boolean;
-  /** Grid step in seconds, or 0 for free movement. */
-  snapSec: number;
+  bpm: number;
+  tsNum: number;
+  /** Magnet on: the same grid a region snaps to, at the same zoom. */
+  snapToGrid: boolean;
   onDrag: (drag: SongEndDrag) => void;
   onDragEnd: (drag: SongEndDrag | null) => void;
 }) {
@@ -59,8 +64,13 @@ export function SongEndMarker({
     if (!rulerRect) return endAbsSec;
     const abs = (clientX - rulerRect.left) / pxPerSec;
     const local = abs - startAbsSec;
-    const snapped =
-      snapSec > 0 ? Math.round(local / snapSec) * snapSec : local;
+    // The same rule a region's edge follows -- one snap granularity for the
+    // whole timeline, and it varies with zoom rather than being fixed to bars,
+    // so the magnet is as fine as what you can actually see. Quantising the
+    // ABSOLUTE value (not the delta) is deliberate: a length set with the
+    // magnet off is off-grid, and turning the magnet on has to put it back on
+    // the grid rather than carry its old offset around forever.
+    const snapped = snapToGridSec(local, pxPerSec, bpm, tsNum, snapToGrid);
     // A song shorter than a second is not something to aim at with a pointer.
     return Math.max(0.25, snapped);
   };

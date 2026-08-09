@@ -705,6 +705,9 @@ struct WebUiState {
     uint64_t audioCallbackCount = 0;
     uint64_t silentBlockCount = 0;
     uint64_t streamStarveCount = 0;
+    /** App-caused disk throughput; see SystemHealthSnapshot. */
+    double diskReadBytesPerSec = 0.0;
+    double diskWriteBytesPerSec = 0.0;
     int webClientCount = 0;
     // Per-process resource breakdown.
     struct ProcessEntry {

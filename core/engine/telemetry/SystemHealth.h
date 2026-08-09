@@ -43,6 +43,16 @@ struct SystemHealthSnapshot {
     // crackle.
     uint64_t silentBlockCount = 0;
     int webClientCount = 0;
+    // Disk throughput this app is causing, averaged over the sample interval.
+    //
+    // Here because a saturated or thermally throttled SSD stalls everything --
+    // stem streaming first, and once the streams starve the render callback
+    // has nothing to hand the driver. CPU and RAM look fine the whole time,
+    // so a health panel that watches only those reports a healthy machine
+    // while the audio breaks up. Cumulative byte counters come free from the
+    // same proc_pid_rusage call the CPU numbers already use.
+    double diskReadBytesPerSec = 0.0;
+    double diskWriteBytesPerSec = 0.0;
 };
 
 // Collects macOS process RSS / free RAM and exposes the audio underrun
@@ -84,6 +94,9 @@ private:
     mutable uint64_t lastChildRefreshNanos = 0;
     // Per-PID previous CPU time for accurate delta calculation.
     mutable std::unordered_map<int, uint64_t> prevCpuByPid;
+    // Previous cumulative disk I/O, for the same per-interval delta.
+    mutable uint64_t prevDiskReadBytes = 0;
+    mutable uint64_t prevDiskWriteBytes = 0;
 };
 
 } // namespace resostage

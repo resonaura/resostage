@@ -114,6 +114,24 @@
     size_t currentSong = 0;
     int64_t currentSongLengthFrames = 0; // 0 = unknown/no tracks
 
+    /**
+     * How long the staged song runs, in device frames.
+     *
+     * `contentFrames` is the longest stream the song has staged. An authored
+     * end (SongDef::endSeconds, the timeline's draggable marker) overrides it
+     * outright, in both directions: a song can run past its audio -- silence
+     * the operator has deliberately left room for, and the only way an EMPTY
+     * song has a length at all -- or stop before it, cutting a tail without
+     * touching the file. 0 keeps the old behaviour of deriving from content.
+     *
+     * This is what arms the end-of-song fade and the stop/advance decision in
+     * the render callback, so the marker means the same thing to the transport
+     * as it does on screen.
+     */
+    static int64_t songLengthFrames(double endSeconds,
+                                    int64_t contentFrames,
+                                    double sampleRate);
+
     // Region::durationSeconds == 0 means "full file", not zero seconds -- for
     // that case the real length comes from peakDurationsByFile (the lock-free
     // mirror of the peak cache; see its comment above), not from raw region
