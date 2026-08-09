@@ -524,7 +524,7 @@ function TrackSettingsPanel({
 
       <Button
         size="sm"
-        variant="danger"
+        variant="danger-soft"
         className="self-start"
         onPress={() => {
           void lighting.trackRemove(index);
@@ -848,7 +848,7 @@ export function LightSidePanel({
 
   return (
     <div
-      className="flex flex-col shrink-0 border-l border-default bg-surface overflow-hidden"
+      className="flex flex-col shrink-0 border-l border-default bg-background-secondary overflow-hidden"
       style={{ width: 288 }}
     >
       {/* 3D Preview — shows modulated colors when an effect is active */}

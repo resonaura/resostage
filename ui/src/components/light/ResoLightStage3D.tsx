@@ -1,4 +1,3 @@
-import { Button } from "../ui";
 import { Grid, OrbitControls, Text } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import { Maximize2, MoveUp } from "lucide-react";
@@ -10,6 +9,7 @@ import { beginCancellableDrag } from "../../lib/dragCancel";
 import type { LightCueValue } from "../../lib/lightCueInterpolation";
 import type { LiveLedColor } from "../../lib/liveLevels";
 import type { LightFixtureRow } from "../../lib/types";
+import { Button } from "../ui";
 
 // One stage-grid cell is deliberately small enough for practical placement,
 // while still guaranteeing panels never slowly drift off the visual grid.
@@ -423,18 +423,20 @@ export function ResoLightStage3D({
         <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
           <Button
             size="sm"
-            variant="secondary"
+            variant="default-soft"
             onPress={() => frameAllRef.current?.()}
             aria-label="Frame all fixtures"
+            className={"backdrop-blur-3xl"}
           >
             <Maximize2 size={14} />
             Frame All
           </Button>
           <Button
             size="sm"
-            variant="secondary"
+            variant="default-soft"
             onPress={() => topViewRef.current?.()}
             aria-label="Top-down view"
+            className={"backdrop-blur-3xl"}
           >
             <MoveUp size={14} />
             Top View

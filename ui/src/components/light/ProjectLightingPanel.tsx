@@ -440,7 +440,6 @@ export const ProjectLightingPanel = memo(function ProjectLightingPanel({
               <ToggleButtonGroup
                 isDetached
                 aria-label="Idle behavior"
-                className={`grid grid-cols-2 gap-1.5 ${TOGGLE_GROUP_CLS}`}
                 disallowEmptySelection
                 selectionMode="single"
                 selectedKeys={[li.idle.behavior]}
@@ -889,13 +888,6 @@ export const ProjectLightingPanel = memo(function ProjectLightingPanel({
                     <ToggleButtonGroup
                       isDetached
                       aria-label="Fixture shape"
-                      // One row either way: four ResoLight layouts, five DMX
-                      // housings.
-                      className={`grid gap-1.5 ${TOGGLE_GROUP_CLS} ${
-                        selected.kind === "resolight::bar"
-                          ? "grid-cols-4"
-                          : "grid-cols-5"
-                      }`}
                       disallowEmptySelection
                       selectionMode="single"
                       selectedKeys={[selected.shape]}
@@ -985,7 +977,6 @@ export const ProjectLightingPanel = memo(function ProjectLightingPanel({
                           <ToggleButtonGroup
                             isDetached
                             aria-label="Color type"
-                            className={`grid grid-cols-3 gap-1.5 ${TOGGLE_GROUP_CLS}`}
                             disallowEmptySelection
                             selectionMode="single"
                             selectedKeys={[colorType]}
