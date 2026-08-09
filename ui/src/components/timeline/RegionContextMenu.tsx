@@ -21,6 +21,10 @@ export function RegionContextMenu({
   getRegionUi,
   setRegionUi,
   onCopy,
+  onCut,
+  onPaste,
+  canPaste = false,
+  onSplit,
   onClose,
 }: {
   menu: RegionContextMenuState;
@@ -28,6 +32,11 @@ export function RegionContextMenu({
   getRegionUi: (key: RegionSelKey) => RegionUiState;
   setRegionUi: (key: RegionSelKey, patch: Partial<RegionUiState>) => void;
   onCopy?: () => void;
+  onCut?: () => void;
+  onPaste?: () => void;
+  /** Greys out Paste when the clipboard holds nothing for this surface. */
+  canPaste?: boolean;
+  onSplit?: () => void;
   onClose: () => void;
 }) {
   const song = songs[menu.songIndex];
@@ -38,6 +47,16 @@ export function RegionContextMenu({
 
   return (
     <ContextMenu x={menu.x} y={menu.y} width={180} onClose={onClose}>
+      {onCut && (
+        <ContextMenuItem
+          onClick={() => {
+            onCut();
+            onClose();
+          }}
+        >
+          Cut
+        </ContextMenuItem>
+      )}
       {onCopy && (
         <ContextMenuItem
           onClick={() => {
@@ -47,6 +66,31 @@ export function RegionContextMenu({
         >
           Copy
         </ContextMenuItem>
+      )}
+      {onPaste && (
+        <ContextMenuItem
+          disabled={!canPaste}
+          onClick={() => {
+            if (!canPaste) return;
+            onPaste();
+            onClose();
+          }}
+        >
+          Paste at Playhead
+        </ContextMenuItem>
+      )}
+      {onSplit && (
+        <>
+          <ContextMenuDivider />
+          <ContextMenuItem
+            onClick={() => {
+              onSplit();
+              onClose();
+            }}
+          >
+            Split at Playhead
+          </ContextMenuItem>
+        </>
       )}
       <ContextMenuItem
         onClick={() => {

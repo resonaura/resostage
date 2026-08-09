@@ -20,6 +20,13 @@ import { useCoalescedCommit } from "../../lib/optimistic";
 import { addRafTask } from "../../lib/rafLoop";
 import { useScrollShadow } from "@heroui/react";
 import { isPositionVisible } from "../../lib/timelineVisibility";
+import {
+  getClipboardCues,
+  getClipboardRegions,
+  hasClipboard,
+  setClipboardCues,
+  setClipboardRegions,
+} from "./timelineClipboard";
 import { RegionSidePanel } from "./RegionSidePanel";
 import {
   quantizeScrollWindow,
@@ -95,7 +102,6 @@ import {
 } from "./regionEdit";
 import {
   allRegionSelKeys,
-  type RegionClipboardEntry,
   type RegionSelKey,
   type RegionUiState,
 } from "./regionUtils";
@@ -459,10 +465,9 @@ export function Timeline({
   const [selectedRegionKeys, setSelectedRegionKeys] = useState<RegionSelKey[]>(
     [],
   );
-  const clipboardRegions = useRef<RegionClipboardEntry[]>([]);
-
-  // Light-cue clipboard (parallel to clipboardRegions for audio regions).
-  const clipboardCues = useRef<CueClipboardEntry[]>([]);
+  // Clipboards live in a module, not in this component -- see
+  // timelineClipboard.ts: Timeline unmounts on a tab switch, and a clipboard
+  // that empties because you looked at the Player is not a clipboard.
 
   const copySelectedCue = () => {
     const keys =
@@ -477,7 +482,7 @@ export function Timeline({
       if (cue) entries.push({ ...cue, songIndex: k.songIndex });
     }
     if (entries.length === 0) return;
-    clipboardCues.current = entries;
+    setClipboardCues(entries);
     showToast(
       entries.length === 1
         ? "Copied light cue"
@@ -536,14 +541,14 @@ export function Timeline({
   };
 
   const pasteClipboardCues = async () => {
-    if (clipboardCues.current.length === 0) return;
+    if (getClipboardCues().length === 0) return;
     const { songIndex, localSeconds } = resolveSongLocal(
       songOffsets,
       songLengths,
       playheadAbsNow(),
     );
     const placed = offsetCuesToPlayhead(
-      clipboardCues.current,
+      getClipboardCues(),
       songIndex,
       localSeconds,
     );
@@ -589,12 +594,34 @@ export function Timeline({
   };
 
   const copySelectedRegions = () => {
-    clipboardRegions.current = resolveSelectedRegions(
-      selectedRegionKeys,
-      state.songs,
-    );
-    if (clipboardRegions.current.length)
-      showToast(`Copied ${clipboardRegions.current.length} region(s)`);
+    const entries = resolveSelectedRegions(selectedRegionKeys, state.songs);
+    setClipboardRegions(entries);
+    if (entries.length) showToast(`Copied ${entries.length} region(s)`);
+  };
+
+  /**
+   * Cut: copy, then remove.
+   *
+   * Missing until now, which is also why the toolbar's scissors read as
+   * "cut" to everyone who saw it -- it is Split. Cut is the operation people
+   * actually reach for when moving a region somewhere far away, where
+   * dragging means scrolling with the mouse down.
+   */
+  const cutSelectedRegions = () => {
+    if (selectedRegionKeys.length === 0) return;
+    const entries = resolveSelectedRegions(selectedRegionKeys, state.songs);
+    if (entries.length === 0) return;
+    setClipboardRegions(entries);
+    deleteRegionsOp(selectedRegionKeys, state.songs);
+    setSelectedRegionKeys([]);
+    showToast(`Cut ${entries.length} region(s)`);
+  };
+
+  const cutSelectedCues = () => {
+    copySelectedCue();
+    if (getClipboardCues().length === 0) return;
+    deleteSelectedCue();
+    showToast(`Cut ${getClipboardCues().length} cue(s)`);
   };
 
   const deleteSelectedRegions = () => {
@@ -611,20 +638,20 @@ export function Timeline({
   };
 
   const pasteClipboardRegions = async () => {
-    if (clipboardRegions.current.length === 0) return;
+    if (getClipboardRegions().length === 0) return;
     const { songIndex, localSeconds } = resolveSongLocal(
       songOffsets,
       songLengths,
       playheadAbsNow(),
     );
     const placed = offsetRegionsToPlayhead(
-      clipboardRegions.current,
+      getClipboardRegions(),
       songIndex,
       localSeconds,
     );
     await addRegionEntries(placed);
     showToast(
-      `Pasted ${clipboardRegions.current.length} region(s) at playhead`,
+      `Pasted ${getClipboardRegions().length} region(s) at playhead`,
     );
     setSelectedRegionKeys([]);
     setSelectedCueKeys([]);
@@ -1702,6 +1729,7 @@ export function Timeline({
   const keyboardActions = useMemo(
     () => ({
       copySelectedCue,
+      cutSelectedCues,
       pasteClipboardCues,
       duplicateSelectedCue,
       splitSelectedCueAtPlayhead,
@@ -1718,6 +1746,7 @@ export function Timeline({
         setCueSelection(all[all.length - 1] ?? null);
       },
       copySelectedRegions,
+      cutSelectedRegions,
       pasteClipboardRegions,
       duplicateSelectedRegions,
       splitSelectedAtPlayhead,
@@ -2166,6 +2195,9 @@ export function Timeline({
             ? deleteSelectedCue
             : deleteSelectedRegions
         }
+        onCut={
+          effectiveViewMode === "light" ? cutSelectedCues : cutSelectedRegions
+        }
         onSplit={
           effectiveViewMode === "light"
             ? () => void splitSelectedCueAtPlayhead()
@@ -2540,6 +2572,10 @@ export function Timeline({
             getRegionUi={getRegionUi}
             setRegionUi={setRegionUi}
             onCopy={copySelectedRegions}
+            onCut={cutSelectedRegions}
+            onPaste={() => void pasteClipboardRegions()}
+            canPaste={hasClipboard("region")}
+            onSplit={() => void splitSelectedAtPlayhead()}
             onClose={() => setRegionContextMenu(null)}
           />
         ))}

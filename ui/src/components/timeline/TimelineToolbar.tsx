@@ -14,6 +14,7 @@ import {
   Pencil,
   Redo2,
   Scissors,
+  SquareSplitHorizontal,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -71,6 +72,7 @@ export function TimelineToolbar({
   hasRegionSelection,
   onCopy,
   onDelete,
+  onCut,
   onSplit,
   pxPerSec,
   applyZoomAt,
@@ -102,6 +104,7 @@ export function TimelineToolbar({
   hasRegionSelection: boolean;
   onCopy: () => void;
   onDelete: () => void;
+  onCut: () => void;
   onSplit: () => void;
   pxPerSec: number;
   applyZoomAt: (next: number) => void;
@@ -185,19 +188,33 @@ export function TimelineToolbar({
                 <ButtonGroup.Separator />
                 <Trash2 size={13} />
               </Button>
+              {/* Cut, then Split. They were one button showing scissors,
+                  which everyone read as Cut -- scissors mean Cut everywhere
+                  else. Split gets the razor now, and Cut gets the scissors
+                  it was always being mistaken for. */}
+              <Button
+                isIconOnly
+                aria-label={light ? "Cut selected cues (⌘X)" : "Cut selected regions (⌘X)"}
+                isDisabled={selectionEmpty}
+                variant="default-soft"
+                onPress={onCut}
+              >
+                <ButtonGroup.Separator />
+                <Scissors size={13} />
+              </Button>
               <Button
                 isIconOnly
                 aria-label={
                   light
                     ? "Split selected cue at playhead (⌘T)"
-                    : "Trim/split selected regions at playhead (⌘T)"
+                    : "Split selected regions at playhead (⌘T)"
                 }
                 isDisabled={selectionEmpty}
                 variant="default-soft"
                 onPress={onSplit}
               >
                 <ButtonGroup.Separator />
-                <Scissors size={13} />
+                <SquareSplitHorizontal size={13} />
               </Button>
             </ButtonGroup>
             <Separator orientation="vertical" />

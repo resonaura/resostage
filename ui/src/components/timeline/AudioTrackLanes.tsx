@@ -32,6 +32,14 @@ import {
 import type { TimelineRow } from "./rows";
 import { toolCursor, type TimelineTool } from "./tools";
 
+/** Geometry captured when a crossfade drag begins; see applyResize. */
+interface CrossfadeDragBase {
+  pairId: string;
+  earlier: RegionGeom;
+  later: RegionGeom;
+  overlap: number;
+}
+
 export function AudioTrackLanes({
   state,
   rows,
@@ -97,6 +105,7 @@ export function AudioTrackLanes({
 
   // One resolver per song: region -> waveform data, including the by-file
   // fallback that lets a fresh split draw immediately. See regionPeaks.ts.
+  const crossfadeBaseRef = useRef<CrossfadeDragBase | null>(null);
   const peakLookupPerSong = useMemo(
     () =>
       songs.map((_song, i) =>
@@ -458,33 +467,50 @@ export function AudioTrackLanes({
                     // into the lane's padding.
                     const inset = isCompactLane(verticalZoom) ? 2 : 4;
 
+                    const pairId = `${earlier.region.id}|${later.region.id}`;
                     const applyResize = (
                       deltaSeconds: number,
-                      commit: boolean,
+                      phase: "start" | "move" | "end",
                     ) => {
+                      // Snapshot on "start" and measure everything against it.
+                      // The props below are the LIVE geometry, which this
+                      // gesture is itself changing -- applying each move on
+                      // top of the previous one compounds, and the crossfade
+                      // ran away in two frames.
+                      if (phase === "start") {
+                        crossfadeBaseRef.current = {
+                          pairId,
+                          earlier: { ...earlier.geom },
+                          later: { ...later.geom },
+                          overlap,
+                        };
+                        return;
+                      }
+                      const base = crossfadeBaseRef.current;
+                      if (!base || base.pairId !== pairId) return;
                       const r = resizeCrossfade(
                         {
-                          sourceOffset: earlier.geom.sourceOffset,
-                          duration: earlier.geom.duration,
+                          sourceOffset: base.earlier.sourceOffset,
+                          duration: base.earlier.duration,
                           fileDuration: earlierFile,
                         },
                         {
-                          sourceOffset: later.geom.sourceOffset,
-                          duration: later.geom.duration,
+                          sourceOffset: base.later.sourceOffset,
+                          duration: base.later.duration,
                           fileDuration: laterFile,
                         },
-                        overlap,
+                        base.overlap,
                         deltaSeconds,
                       );
-                      const nextOverlap = overlap + r.appliedDelta;
+                      const nextOverlap = base.overlap + r.appliedDelta;
                       const earlierNext = {
-                        ...earlier.geom,
+                        ...base.earlier,
                         duration: r.earlierDuration,
                         fadeOut: nextOverlap,
                       };
                       const laterNext = {
-                        ...later.geom,
-                        start: later.geom.start + r.laterStartDelta,
+                        ...base.later,
+                        start: base.later.start + r.laterStartDelta,
                         sourceOffset: r.laterSourceOffset,
                         duration: r.laterDuration,
                         fadeIn: nextOverlap,
@@ -494,7 +520,8 @@ export function AudioTrackLanes({
                       // would snap back for a frame on release.
                       writeGeomDraft(earlier.key, earlierNext);
                       writeGeomDraft(later.key, laterNext);
-                      if (!commit) return;
+                      if (phase !== "end") return;
+                      crossfadeBaseRef.current = null;
                       // One gesture id -- the two halves of a crossfade are
                       // one edit and have to undo as one.
                       const gestureId = crypto.randomUUID();

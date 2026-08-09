@@ -7,6 +7,7 @@ import type { TimelineViewMode } from "./TimelineToolbar";
 type Actions = {
   // light
   copySelectedCue: () => void;
+  cutSelectedCues: () => void;
   pasteClipboardCues: () => void;
   duplicateSelectedCue: () => void;
   splitSelectedCueAtPlayhead: () => void;
@@ -15,6 +16,7 @@ type Actions = {
   selectAllCues: () => void;
   // audio
   copySelectedRegions: () => void;
+  cutSelectedRegions: () => void;
   pasteClipboardRegions: () => void;
   duplicateSelectedRegions: () => void;
   splitSelectedAtPlayhead: () => void;
@@ -63,6 +65,9 @@ export function useTimelineKeyboard({
         } else if (mod && e.key === "c") {
           e.preventDefault();
           actions.copySelectedCue();
+        } else if (mod && e.key === "x") {
+          e.preventDefault();
+          actions.cutSelectedCues();
         } else if (mod && e.key === "v") {
           e.preventDefault();
           void actions.pasteClipboardCues();
@@ -86,6 +91,9 @@ export function useTimelineKeyboard({
         } else if (mod && e.key === "c") {
           e.preventDefault();
           actions.copySelectedRegions();
+        } else if (mod && e.key === "x") {
+          e.preventDefault();
+          actions.cutSelectedRegions();
         } else if (mod && e.key === "v") {
           e.preventDefault();
           void actions.pasteClipboardRegions();

@@ -43,8 +43,14 @@ export function CrossfadeOverlay({
   /** True while this crossfade is the thing being dragged. */
   isActive: boolean;
   pxPerSec: number;
-  /** Positive grows the crossfade. `commit` on pointer-up. */
-  onResize: (deltaSeconds: number, commit: boolean) => void;
+  /**
+   * Positive grows the crossfade. `phase` matters: the delta is always
+   * measured from where the gesture STARTED, so the parent has to snapshot
+   * the geometry on "start" and apply against that snapshot -- applying
+   * against the live values would compound each move on top of the last and
+   * run away after two frames.
+   */
+  onResize: (deltaSeconds: number, phase: "start" | "move" | "end") => void;
 }) {
   const dragRef = useRef<{ startX: number } | null>(null);
 
@@ -71,6 +77,7 @@ export function CrossfadeOverlay({
     e.preventDefault();
     dragRef.current = { startX: e.clientX };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    onResize(0, "start");
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -78,7 +85,7 @@ export function CrossfadeOverlay({
     if (!d) return;
     // Dragging LEFT grows it: the handle sits on the overlap's left edge, so
     // pulling it away from the seam is the gesture that makes it wider.
-    onResize((d.startX - e.clientX) / Math.max(1, pxPerSec), false);
+    onResize((d.startX - e.clientX) / Math.max(1, pxPerSec), "move");
   };
 
   const endDrag = (e: React.PointerEvent) => {
@@ -90,7 +97,7 @@ export function CrossfadeOverlay({
     } catch {
       /* pointer already gone */
     }
-    onResize((d.startX - e.clientX) / Math.max(1, pxPerSec), true);
+    onResize((d.startX - e.clientX) / Math.max(1, pxPerSec), "end");
   };
 
   return (
