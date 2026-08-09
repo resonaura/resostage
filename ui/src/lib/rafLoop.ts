@@ -62,7 +62,7 @@ let rafId = 0;
 //
 // 0 = uncapped (every frame the browser gives us).
 let minFrameIntervalMs = 0;
-let lastWorkMs = 0;
+let nextDueMs = 0;
 
 /**
  * Cap how often tasks run, in frames per second. 0 or below removes the cap.
@@ -74,6 +74,7 @@ let lastWorkMs = 0;
  */
 export function setRafFrameRateCap(fps: number): void {
   minFrameIntervalMs = fps > 0 ? 1000 / fps : 0;
+  nextDueMs = 0; // the new rate starts now, not after the old deadline
 }
 
 /** The cap currently in force, in fps; 0 when uncapped. */
@@ -85,14 +86,25 @@ function frame(nowMs: number): void {
   rafId = 0;
 
   if (minFrameIntervalMs > 0) {
-    // A tolerance of one 120Hz frame, so a 60fps cap on a 60Hz display does
-    // not drop every other frame to 30 through rounding.
-    if (nowMs - lastWorkMs < minFrameIntervalMs - 4) {
+    if (nowMs < nextDueMs) {
       schedule();
       return;
     }
+    // Advance the deadline by the INTERVAL, not to `nowMs` -- that is what
+    // makes the average rate come out right when the target does not divide
+    // the display's refresh evenly.
+    //
+    // A plain "has it been >= interval since the last one" test can only ever
+    // produce whole divisors of the refresh rate: on a 60Hz panel it yields
+    // 60, 30, 20, 15 and nothing between, so a 45fps target silently ran at
+    // 30. Accumulating instead spends the remainder on the next frame, giving
+    // a 1,1,1,2 pattern that averages exactly 45.
+    //
+    // Clamped when it falls behind: after a backgrounded window the deadline
+    // could be minutes in the past, and catching up would run every task flat
+    // out for as long as it took to get there.
+    nextDueMs = Math.max(nowMs, nextDueMs + minFrameIntervalMs);
   }
-  lastWorkMs = nowMs;
 
   // Snapshot: a task may unsubscribe (or subscribe) from inside its own tick.
   for (const entry of Array.from(tasks)) {

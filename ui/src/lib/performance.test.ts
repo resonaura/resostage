@@ -6,6 +6,7 @@ import {
   stepAuto,
   type AutoState,
   type HealthSample,
+  TIER_FPS,
   type PerformanceTier,
 } from "./performance";
 
@@ -36,14 +37,18 @@ const STRUGGLING = {
 describe("tier ladder", () => {
   it("steps down to the bottom and stops", () => {
     expect(nextLowerTier("full")).toBe("balanced");
-    expect(nextLowerTier("balanced")).toBe("economy");
+    expect(nextLowerTier("balanced")).toBe("reduced");
+    expect(nextLowerTier("reduced")).toBe("economy");
     expect(nextLowerTier("economy")).toBeNull();
   });
 
   it("never climbs above the user's ceiling", () => {
-    expect(nextHigherTier("economy", "full")).toBe("balanced");
+    expect(nextHigherTier("economy", "full")).toBe("reduced");
     expect(nextHigherTier("balanced", "balanced")).toBeNull();
     expect(nextHigherTier("economy", "economy")).toBeNull();
+    // Climbing TO the ceiling is allowed; past it is not.
+    expect(nextHigherTier("economy", "reduced")).toBe("reduced");
+    expect(nextHigherTier("reduced", "reduced")).toBeNull();
   });
 });
 
@@ -70,6 +75,8 @@ describe("stepAuto", () => {
     let s = run(start(), 4, STRUGGLING);
     expect(s.effective).toBe("balanced");
     s = run(s, 4, STRUGGLING);
+    expect(s.effective).toBe("reduced");
+    s = run(s, 4, STRUGGLING);
     expect(s.effective).toBe("economy");
     s = run(s, 40, STRUGGLING);
     expect(s.effective).toBe("economy");
@@ -82,6 +89,14 @@ describe("stepAuto", () => {
     expect(s.effective).toBe("balanced"); // not yet
     s = run(s, 10, HEALTHY);
     expect(s.effective).toBe("full");
+  });
+
+  it("has a real step between full and half rate", () => {
+    // 60fps -> 45 -> 30 -> 15: a single drop must not halve the frame rate,
+    // which was the complaint about a three-rung ladder.
+    expect(TIER_FPS.balanced).toBe(45);
+    expect(TIER_FPS.reduced).toBe(30);
+    expect(TIER_FPS.economy).toBe(15);
   });
 
   it("treats backend pressure as struggling even when frames look fine", () => {

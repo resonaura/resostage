@@ -30,6 +30,7 @@ import { LightScreen } from "./screens/LightScreen";
 import { MixerScreen } from "./screens/MixerScreen";
 import { PlayerScreen } from "./screens/PlayerScreen";
 import { usePerformanceMode } from "./hooks/usePerformanceMode";
+import { TIER_FPS } from "./lib/performance";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
 interface ToastNotification {
@@ -215,6 +216,9 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
   }, []);
 }
 
+/** What "uncapped" asks the server for -- its own maximum, which it clamps. */
+const FULL_RATE_HZ = 120;
+
 export default function App() {
   const [tab, setTab] = useState("player");
   // Tell the backend which SPA tab is active so WS frames only carry that
@@ -226,12 +230,20 @@ export default function App() {
     cpuHistory,
     ramHistory,
     sendView,
+    sendTelemetryHz,
     hasLiveSnapshot,
   } = useLiveState(tab);
   useGlobalHotkeys(state, setTab);
   // One frame budget for the whole UI -- see usePerformanceMode. Mounted here
   // and only here, so there is exactly one auto ladder deciding it.
   const performance = usePerformanceMode(state.health);
+  // Keep the socket in step with the frame budget: no point receiving frames
+  // faster than they can be painted. Re-sent on reconnect too -- a fresh
+  // socket starts at the server's default until it is told otherwise.
+  useEffect(() => {
+    sendTelemetryHz(TIER_FPS[performance.effectiveTier] || FULL_RATE_HZ);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [performance.effectiveTier, status]);
 
   // Electron shell: keep its native menu bar / Touch Bar live (undo/redo
   // state, Open Recent, active tab, window title) off the 30 Hz state feed.

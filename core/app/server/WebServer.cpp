@@ -62,6 +62,18 @@ struct WsSession {
     ClientView view = ClientView::Player;
     // Adaptive per-client send period -- see LWS_CALLBACK_TIMER below.
     int periodUs = kTelemetryPeriodUs;
+    // Last period reported to the server's shared "effective Hz" readout, so
+    // it is only written when it actually changes -- see the TIMER handler.
+    int reportedPeriodUs = 0;
+    // Slowest period the CLIENT has asked for, 0 when it hasn't asked.
+    //
+    // Backpressure backoff (periodUs) reacts to a socket that will not drain;
+    // this is the client saying up front that it cannot USE frames any faster,
+    // because it has capped its own frame rate (see lib/performance.ts). Both
+    // apply, and the slower of the two wins: there is no point pushing 60
+    // frames a second at a UI that repaints 15 times, and every one of those
+    // frames costs a serialize here and a parse plus a React commit there.
+    int requestedPeriodUs = 0;
     int badStreak = 0;
     int goodStreak = 0;
     // Frame generation this client has already been sent. The cache only bumps
@@ -821,6 +833,8 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             pss->view = ClientView::Player;
             server->noteViewOpened(WebServer::ViewSlot::Player);
             pss->periodUs = kTelemetryPeriodUs;
+            pss->requestedPeriodUs = 0;
+            pss->reportedPeriodUs = 0;
             pss->badStreak = 0;
             pss->goodStreak = 0;
             server->onClientOpened();
@@ -871,10 +885,26 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
                 // Always arm exactly one write per period. If the previous
                 // write is still pending (slow client), drop that slot —
                 // next tick sends the latest prebuilt frame (never backlog).
+                //
+                // The backoff keeps its own periodUs so recovery still works
+                // against the socket; the client's cap is applied here, on the
+                // way out, so whichever is slower governs.
+                const int effectivePeriodUs =
+                    std::max(pss->periodUs, pss->requestedPeriodUs);
+                // ONLY on a change. effectiveTelemetryHz_ is a single shared
+                // value that goes out in every frame as "wsHz", so writing it
+                // every tick made it flip between whatever two clients last
+                // ticked -- the readout flickered, and because the number is
+                // part of the frame it also defeated the generation dedup that
+                // keeps an idle app from re-sending an identical ~20 KB frame.
+                if (pss->reportedPeriodUs != effectivePeriodUs) {
+                    pss->reportedPeriodUs = effectivePeriodUs;
+                    server->reportClientPeriodUs(effectivePeriodUs);
+                }
                 pss->writePending = true;
                 pss->sendBinaryNext = true;
                 lws_callback_on_writable(wsi);
-                lws_set_timer_usecs(wsi, pss->periodUs);
+                lws_set_timer_usecs(wsi, effectivePeriodUs);
             }
             return 0;
     }
@@ -961,6 +991,20 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
                 server->noteClientView(viewName);
                 // View change takes effect on the next fixed timer tick —
                 // keeps cadence uniform (no burst frames).
+                return 0;
+            }
+            std::string hzRaw;
+            if (findJsonField(msg, "\"telemetryHz\"", hzRaw)) {
+                // The SPA sends this whenever its frame budget changes. Clamped
+                // to the server's own range: a client cannot ask to be served
+                // faster than the target, nor slow itself below the floor that
+                // keeps the transport readable.
+                const int hz = std::atoi(hzRaw.c_str());
+                if (pss != nullptr && hz > 0) {
+                    const int clamped =
+                        std::clamp(hz, WebServer::kTelemetryMinHz, WebServer::kTelemetryHz);
+                    pss->requestedPeriodUs = 1'000'000 / clamped;
+                }
                 return 0;
             }
             if (msg.find("\"play\"") != std::string::npos)

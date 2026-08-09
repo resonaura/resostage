@@ -200,6 +200,27 @@ export function useLiveState(view: string = "player") {
     }, 100);
   };
 
+  /**
+   * Tell the server how fast this client can actually use frames.
+   *
+   * Purely a cap: the server serves the slower of this and its own
+   * backpressure period (see WsSession::requestedPeriodUs). Sending 60 frames
+   * a second at a UI repainting 15 times costs a serialize on one side and a
+   * parse plus a React commit on the other, for fourteen frames nobody sees.
+   *
+   * WS only, no HTTP fallback -- it is an optimisation, and a socket that
+   * isn't open has nothing to slow down.
+   */
+  const sendTelemetryHz = (hz: number) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN || hz <= 0) return;
+    try {
+      ws.send(JSON.stringify({ telemetryHz: Math.round(hz) }));
+    } catch {
+      // Next tier change (or the reconnect handshake) will carry it.
+    }
+  };
+
   const sendView = (v: string) => {
     // POST is more reliable than WS for this — no dependency on WS state.
     fetch("/api/v1/view", {
@@ -292,7 +313,14 @@ export function useLiveState(view: string = "player") {
         }
       };
       ws.onclose = () => {
-        wsRef.current = null;
+        // Only if this is still the CURRENT socket. React mounts, tears down
+        // and re-mounts an effect (StrictMode does it deliberately in dev, and
+        // any remount does it in production), so a superseded socket's close
+        // can land after its replacement is already in the ref -- and clearing
+        // it there leaves the app receiving frames on a live socket it can no
+        // longer send on. `sendView` survived that because it also POSTs;
+        // `sendTelemetryHz` is WS-only and silently did nothing.
+        if (wsRef.current === ws) wsRef.current = null;
         if (cancelled) return;
         setStatus("reconnecting");
         reconnectTimer = setTimeout(connect, reconnectMsRef.current);
@@ -371,7 +399,7 @@ export function useLiveState(view: string = "player") {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("resoshell-resume", onShellResume);
       ws?.close();
-      wsRef.current = null;
+      if (wsRef.current === ws) wsRef.current = null;
     };
   }, []);
 
@@ -382,6 +410,7 @@ export function useLiveState(view: string = "player") {
     cpuHistory,
     ramHistory,
     sendView,
+    sendTelemetryHz,
     hasLiveSnapshot,
   };
 }

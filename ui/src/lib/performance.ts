@@ -13,24 +13,38 @@ import { addRafTask, setRafFrameRateCap } from "./rafLoop";
  * away for a nicer picture.
  */
 
-export type PerformanceTier = "full" | "balanced" | "economy";
+export type PerformanceTier = "full" | "balanced" | "reduced" | "economy";
 
-/** Frames per second each tier lets the shared rAF driver do work at. */
+/**
+ * Frames per second each tier lets the shared rAF driver do work at.
+ *
+ * 45 rather than a rounder 40 or 44: on a 60Hz panel it is exactly three
+ * quarters of the refresh, which the driver's accumulator spends as a steady
+ * 1,1,1,2 frame pattern. 44 would be a ragged pattern for a 2% saving over 45,
+ * and 40 on 60Hz drops to a 1,2,1,2 that reads as judder rather than as a
+ * slightly lower frame rate. See the note in rafLoop's frame().
+ *
+ * The steps below it halve each time, which is what a display can actually
+ * deliver evenly and what makes each step feel like a real change.
+ */
 export const TIER_FPS: Record<PerformanceTier, number> = {
   full: 0, // uncapped -- whatever the display offers
-  balanced: 30,
+  balanced: 45,
+  reduced: 30,
   economy: 15,
 };
 
 export const TIER_LABEL: Record<PerformanceTier, string> = {
   full: "Full",
   balanced: "Balanced",
+  reduced: "Reduced",
   economy: "Economy",
 };
 
 export const TIER_DESCRIPTION: Record<PerformanceTier, string> = {
   full: "Every frame the display offers.",
-  balanced: "30 fps. Halves the cost of every meter and animation at once.",
+  balanced: "45 fps. A quarter less work, still smooth to the eye.",
+  reduced: "30 fps. Halves the cost of every meter and animation at once.",
   economy: "15 fps. For old or heavily loaded machines.",
 };
 
@@ -88,7 +102,12 @@ const DEGRADE_AFTER_SLOW_SECONDS = 4;
  *  so a machine sitting near its limit settles instead of oscillating. */
 const RECOVER_AFTER_GOOD_SECONDS = 20;
 
-const TIER_ORDER: PerformanceTier[] = ["full", "balanced", "economy"];
+const TIER_ORDER: PerformanceTier[] = [
+  "full",
+  "balanced",
+  "reduced",
+  "economy",
+];
 
 /** One step down from `tier`, or null if already at the bottom. */
 export function nextLowerTier(tier: PerformanceTier): PerformanceTier | null {
