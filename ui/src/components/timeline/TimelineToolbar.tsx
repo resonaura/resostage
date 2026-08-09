@@ -7,6 +7,7 @@ import {
   Locate,
   LocateFixed,
   LocateOff,
+  Blend,
   Magnet,
   MousePointer2,
   MoveHorizontalIcon,
@@ -58,6 +59,8 @@ export function TimelineToolbar({
   effectiveViewMode,
   setViewMode,
   snapToGrid,
+  crossfadeOnOverlap,
+  setCrossfadeOnOverlap,
   setSnapToGrid,
   followMode,
   cycleFollowMode,
@@ -89,6 +92,8 @@ export function TimelineToolbar({
   effectiveViewMode: TimelineViewMode;
   setViewMode: (m: TimelineViewMode) => void;
   snapToGrid: boolean;
+  crossfadeOnOverlap: boolean;
+  setCrossfadeOnOverlap: (v: boolean) => void;
   setSnapToGrid: React.Dispatch<React.SetStateAction<boolean>>;
   followMode: TimelineFollowMode;
   cycleFollowMode: () => void;
@@ -209,6 +214,23 @@ export function TimelineToolbar({
               onChange={setSnapToGrid}
             >
               <Magnet size={13} />
+            </ToggleButton>
+            {/* X-Fade drag mode. Off by default -- with it on, every drag that
+                lands a region on top of a neighbour rewrites both of their
+                fades, which is right when assembling takes and wrong the rest
+                of the time. */}
+            <ToggleButton
+              size="sm"
+              isIconOnly
+              aria-label={
+                crossfadeOnOverlap
+                  ? "X-Fade drag mode: ON — overlaps become crossfades"
+                  : "X-Fade drag mode: OFF"
+              }
+              isSelected={crossfadeOnOverlap}
+              onChange={setCrossfadeOnOverlap}
+            >
+              <Blend size={13} />
             </ToggleButton>
           </>
         )}

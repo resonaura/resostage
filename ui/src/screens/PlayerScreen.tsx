@@ -195,6 +195,44 @@ function busMeterGroups(
   return groups;
 }
 
+/**
+ * The drift figure, which appears and disappears while the transport runs.
+ *
+ * Animated rather than mounted and unmounted because this sits in a `gap-x-2`
+ * flex row: everything to its left shifts sideways the instant it appears,
+ * which is exactly the kind of movement the eye catches while trying to read
+ * a bar count. Two details are what make the collapse actually smooth:
+ *
+ *  - the width comes from a `0fr -> 1fr` grid column, which is the one way to
+ *    animate to and from intrinsic width without measuring the text first;
+ *  - the negative margin cancels the parent's gap on the way out. Animating
+ *    the width alone leaves the gap behind, so the row still jumps by 8px at
+ *    the very end -- which reads as a bug rather than as a short animation.
+ *
+ * The last non-unity value is held while collapsing so the text does not
+ * blank out halfway through its own exit.
+ */
+function DriftReadout({ drift }: { drift: number }) {
+  const shown = drift !== 1;
+  const lastRef = useRef(drift);
+  if (shown) lastRef.current = drift;
+  return (
+    <span
+      aria-hidden={!shown}
+      className="grid overflow-hidden transition-[grid-template-columns,opacity,margin-inline-start] duration-300 ease-out motion-reduce:transition-none"
+      style={{
+        gridTemplateColumns: shown ? "1fr" : "0fr",
+        opacity: shown ? 1 : 0,
+        marginInlineStart: shown ? 0 : "-0.5rem", // cancels the row's gap-x-2
+      }}
+    >
+      <span className="min-w-0 overflow-hidden whitespace-nowrap text-warning">
+        drift ×{lastRef.current.toFixed(4)}
+      </span>
+    </span>
+  );
+}
+
 function barBeat(seconds: number, bpm: number, tsNum: number): string {
   if (bpm <= 0 || seconds < 0) return "—";
   const beatsPerBar = Math.max(1, tsNum);
@@ -1097,11 +1135,7 @@ export function PlayerScreen({
             ) : (
               <span>Select a song to begin</span>
             )}
-            {state.drift !== 1 && (
-              <span className="text-warning">
-                drift ×{state.drift.toFixed(4)}
-              </span>
-            )}
+            <DriftReadout drift={state.drift} />
           </div>
         </div>
 

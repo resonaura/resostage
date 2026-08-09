@@ -53,3 +53,9 @@ ipcRenderer.on("shell-idle", (_event, detail: { reason?: string }) => {
 ipcRenderer.on("shell-active", (_event, detail: { reason?: string }) => {
   emit("resoshell-active", detail ?? { reason: "shell" });
 });
+
+// Shell → SPA: battery / Low Power Mode / thermal pressure. The renderer has
+// no way to see any of this itself; it feeds the frame-budget ladder.
+ipcRenderer.on("shell-power", (_event, detail: unknown) => {
+  emit("resoshell-power", detail);
+});

@@ -38,6 +38,7 @@ import type {
   TrackRow,
   WebUiState,
 } from "../../lib/types";
+import { SidePanelShell } from "../timeline/SidePanelShell";
 import { ResoLightStage3D } from "./LazyResoLightStage3D";
 import {
   EffectTypeGrid,
@@ -847,18 +848,33 @@ export function LightSidePanel({
   void previewColors;
 
   return (
-    <div
-      className="flex flex-col shrink-0 border-l border-default bg-background-secondary overflow-hidden"
-      style={{ width: 288 }}
+    <SidePanelShell
+      title="Light"
+      icon={<Lightbulb size={13} />}
+      storageKey="resostage.timeline.lightPanelOpen"
+      hasSelection={!!selection}
+      selectionLabel={
+        selection?.type === "cue"
+          ? selection.cue.label || "Cue"
+          : selection?.type === "track"
+            ? selection.track.name || "Track"
+            : undefined
+      }
+      header={
+        /* 3D Preview — shows modulated colors when an effect is active.
+           In the shell's header slot rather than the scroll area: it is the
+           one thing here that must not scroll away, and collapsing the panel
+           unmounts it, which is the cheapest way to stop a WebGL context the
+           user cannot see. */
+        <div
+          className="shrink-0 border-b border-default bg-background"
+          style={{ height: 200 }}
+          onWheel={(e) => e.stopPropagation()}
+        >
+          <ResoLightStage3D mode="preview" fixtures={fixtures} />
+        </div>
+      }
     >
-      {/* 3D Preview — shows modulated colors when an effect is active */}
-      <div
-        className="shrink-0 border-b border-default bg-background"
-        style={{ height: 200 }}
-        onWheel={(e) => e.stopPropagation()}
-      >
-        <ResoLightStage3D mode="preview" fixtures={fixtures} />
-      </div>
 
       {/* One flat column, no cards: at 288px a card's own padding and radius
           eat most of the room the controls need, and stacking two of them
@@ -936,6 +952,6 @@ export function LightSidePanel({
           />
         )}
       </div>
-    </div>
+    </SidePanelShell>
   );
 }

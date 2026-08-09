@@ -11,6 +11,11 @@ import {
   type PerformanceSettings,
   type PerformanceTier,
 } from "../lib/performance";
+import {
+  onPowerStateChanged,
+  powerPressure,
+  startPowerWatch,
+} from "../lib/powerState";
 import type { WebUiState } from "../lib/types";
 
 /**
@@ -46,6 +51,21 @@ export function usePerformanceMode(health: WebUiState["health"]): {
   });
   const prevHealthRef = useRef<HealthSample | null>(null);
   const pressureRef = useRef(false);
+  // Battery / Low Power Mode / thermal throttling. A level, not an event:
+  // unlike a disk spike it stays true for as long as the machine is in that
+  // state, so the ladder reads it every second rather than latching it.
+  const powerRef = useRef(false);
+
+  useEffect(() => {
+    const stop = startPowerWatch();
+    const off = onPowerStateChanged((s) => {
+      powerRef.current = powerPressure(s);
+    });
+    return () => {
+      off();
+      stop();
+    };
+  }, []);
 
   // Health arrives on its own cadence (1 Hz from the backend); latch whether
   // it showed pressure so the ladder can read it on its next second.
@@ -95,7 +115,7 @@ export function usePerformanceMode(health: WebUiState["health"]): {
       const next = stepAuto(autoRef.current, {
         ceiling: tier,
         p95FrameMs,
-        pressure: pressureRef.current,
+        pressure: pressureRef.current || powerRef.current,
       });
       pressureRef.current = false;
       autoRef.current = next;

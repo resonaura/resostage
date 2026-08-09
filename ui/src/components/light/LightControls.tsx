@@ -353,10 +353,15 @@ export function LightColorPicker({
 
   return (
     <div className="flex w-full flex-col gap-2">
+      {/* rs-swatch-round: HeroUI's "circle" variant is a radius multiple, not
+          a circle -- at 24px it lands on a squircle. The class also sizes the
+          preset's inner swatch to the field preview below it, so the two read
+          as the same control rather than as two different ones. */}
       <ColorSwatchPicker
         aria-label="Preset colors"
         size="sm"
-        variant="square"
+        variant="circle"
+        className="rs-swatch-round"
         value={color}
         onChange={apply}
       >
@@ -374,7 +379,11 @@ export function LightColorPicker({
           className="w-full justify-between"
         >
           <span className="flex items-center gap-2">
-            <ColorSwatch size="sm" color={color} />
+            <ColorSwatch
+              size="sm"
+              color={color}
+              className="rs-swatch-round"
+            />
             <span className="font-mono text-sm uppercase">
               {color.toString("hex")}
             </span>

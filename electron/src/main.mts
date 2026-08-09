@@ -847,6 +847,69 @@ function sendToRenderer(channel: string, reason: string): void {
   }
 }
 
+/**
+ * Power / thermal state, pushed to the page so it can lower its frame budget.
+ *
+ * None of this is visible to the renderer on its own: `navigator.getBattery`
+ * cannot see macOS Low Power Mode or Windows battery saver, and there is no
+ * web API at all for thermal pressure. The page folds what arrives here into
+ * the same auto-degrade ladder it already runs for CPU, disk and audio
+ * underruns -- see ui/src/lib/powerState.ts.
+ */
+type ThermalState = "nominal" | "fair" | "serious" | "critical";
+
+let lastPowerPayload = "";
+
+function readThermalState(): ThermalState {
+  try {
+    // macOS only; other platforms have no equivalent and report nominal.
+    const state = (
+      powerMonitor as unknown as {
+        getCurrentThermalState?: () => string;
+      }
+    ).getCurrentThermalState?.();
+    if (
+      state === "nominal" ||
+      state === "fair" ||
+      state === "serious" ||
+      state === "critical"
+    ) {
+      return state;
+    }
+  } catch {
+    /* not supported on this platform / electron build */
+  }
+  return "nominal";
+}
+
+function publishPowerState(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const wc = mainWindow.webContents;
+  if (wc.isDestroyed()) return;
+
+  let onBattery = false;
+  try {
+    onBattery = powerMonitor.isOnBatteryPower();
+  } catch {
+    /* desktops report nothing */
+  }
+  const thermal = readThermalState();
+  // Windows raises speed-limit-change when battery saver clamps the CPU;
+  // macOS Low Power Mode shows up as thermal pressure plus battery. Treating
+  // "on battery and throttled" as the saver covers both without a per-OS API.
+  const powerSaver = onBattery && thermal !== "nominal";
+
+  const payload = { onBattery, powerSaver, thermal };
+  const key = JSON.stringify(payload);
+  if (key === lastPowerPayload) return; // the page dedups too; save the IPC
+  lastPowerPayload = key;
+  try {
+    wc.send("shell-power", payload);
+  } catch {
+    /* renderer may be mid-navigation */
+  }
+}
+
 function enterIdle(reason: string): void {
   if (isIdle || !mainWindow || mainWindow.isDestroyed()) return;
   isIdle = true;
@@ -1217,6 +1280,16 @@ void app.whenReady().then(async () => {
   };
   powerMonitor.on("resume", () => onSystemWake("power-resume"));
   powerMonitor.on("unlock-screen", () => onSystemWake("unlock-screen"));
+
+  // Power / thermal state. Event-driven where the platform offers events, with
+  // a slow poll behind it because macOS reports entering Low Power Mode only
+  // as a thermal-state change, and not always promptly.
+  powerMonitor.on("on-battery", publishPowerState);
+  powerMonitor.on("on-ac", publishPowerState);
+  powerMonitor.on("speed-limit-change", publishPowerState);
+  powerMonitor.on("thermal-state-change", publishPowerState);
+  publishPowerState();
+  setInterval(publishPowerState, 30_000).unref?.();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

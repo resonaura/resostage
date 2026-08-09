@@ -18,7 +18,9 @@ import {
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { useCoalescedCommit } from "../../lib/optimistic";
 import { addRafTask } from "../../lib/rafLoop";
+import { useScrollShadow } from "@heroui/react";
 import { isPositionVisible } from "../../lib/timelineVisibility";
+import { RegionSidePanel } from "./RegionSidePanel";
 import type {
   AllPeaksResponse,
   PeaksResponse,
@@ -125,6 +127,25 @@ export function Timeline({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // HeroUI's own scroll-shadow detection, driving edge fades that are painted
+  // as overlays rather than as its usual mask.
+  //
+  // The mask is what ScrollShadow normally applies to the scroller itself, and
+  // this scroller cannot take one: the ruler and the playhead handle are
+  // `position: sticky` inside it, and the mask fades exactly the strip they
+  // live in (see the scroller's own "no transform/filter here" note). The hook
+  // only writes data-*-scroll attributes, so taking it without the mask keeps
+  // the part that is actually fiddly -- knowing when there is more timeline in
+  // a direction, through resizes and zooms -- and leaves the paint to
+  // styles/tones.css.
+  useScrollShadow({
+    containerRef: scrollRef as React.RefObject<HTMLElement>,
+    orientation: "horizontal",
+    offset: 0,
+    visibility: "auto",
+    isEnabled: true,
+  });
   const timelineBodyRef = useRef<HTMLDivElement>(null);
   // Read live (never as a render dependency) by both the follow rAF loop
   // below and useContinuousPlayhead's own reconciliation effects -- a
@@ -216,6 +237,8 @@ export function Timeline({
     setVerticalZoom,
     effectiveTool,
     setTool,
+    crossfadeOnOverlap,
+    setCrossfadeOnOverlap,
   } = useTimelinePrefs(readOnly);
 
   // Selected light cue (Light-mode editor), drives the cue editor panel.
@@ -576,6 +599,7 @@ export function Timeline({
     useRegionDrag({
       songs: state.songs,
       markGestureActive: () => markGestureActiveRef.current(),
+      crossfadeOnOverlap,
     });
 
   // Light cue actively being dragged across LightTrackLane instances (each
@@ -2061,6 +2085,8 @@ export function Timeline({
         effectiveViewMode={effectiveViewMode}
         setViewMode={setViewMode}
         snapToGrid={snapToGrid}
+        crossfadeOnOverlap={crossfadeOnOverlap}
+        setCrossfadeOnOverlap={setCrossfadeOnOverlap}
         setSnapToGrid={setSnapToGrid}
         followMode={followMode}
         cycleFollowMode={cycleFollowMode}
@@ -2121,10 +2147,22 @@ export function Timeline({
             />
           )}
 
-          {/* Right Scrollable Timeline View (Horizontally & Vertically) */}
+          {/* Right Scrollable Timeline View (Horizontally & Vertically).
+
+              The wrapper exists only to hang the edge fades on: they have to
+              be positioned against the SCROLLPORT, and an absolutely
+              positioned child of a scroller is laid out against its content,
+              so it would slide away the moment you scrolled. */}
+          {/* min-w-0 + overflow-hidden are load-bearing: a flex item's
+              automatic minimum size is its CONTENT, and the content here is
+              the whole arrangement -- twenty thousand pixels of it. Without
+              them this wrapper claims that width and shoves the inspector
+              off the right edge of the window. The scroller itself never
+              needed them because `overflow: auto` resolves min-width to 0. */}
+          <div className="rs-hshadow relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <div
             ref={scrollRef}
-            className="flex-1 min-h-0 overflow-auto relative select-none cursor-col-resize focus:outline-none"
+            className="h-full w-full min-h-0 overflow-auto relative select-none cursor-col-resize focus:outline-none"
             style={{
               // No transform/filter here: sticky ruler + playhead handle need
               // a clean scrollport. will-change:scroll-position alone is fine.
@@ -2375,6 +2413,19 @@ export function Timeline({
               </div>
             </div>
           </div>
+          </div>
+
+          {/* Right Audio Region inspector — the Audio-mode counterpart to
+              LightSidePanel. Collapsible, and collapsed it is a rail; see
+              SidePanelShell for why a manual collapse outranks the auto-open. */}
+          {effectiveViewMode === "audio" && !readOnly && (
+            <RegionSidePanel
+              songs={state.songs}
+              tracks={state.tracks}
+              selectedRegionKeys={selectedRegionKeys}
+              onClearSelection={() => setSelectedRegionKeys([])}
+            />
+          )}
 
           {/* Right Light Side Panel — shown in Light mode (editor only) */}
           {effectiveViewMode === "light" && !readOnly && (

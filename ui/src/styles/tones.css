@@ -362,3 +362,90 @@
   min-height: 28px;
   padding-block: 0.125rem;
 }
+
+/* ── Round colour swatches ───────────────────────────────────────────────
+   HeroUI's swatch "circle" is `border-radius: calc(var(--radius) * N)` -- a
+   squircle at the sizes this app uses. The light rig's presets have to read
+   as lamps, and the preset row has to match the preview inside the picker
+   field directly below it, so both are pinned here: a true circle, and one
+   shared visible diameter.
+
+   --rs-swatch-size is the VISIBLE colour, not the hit target: the picker's
+   item carries a 2px transparent selection ring outside it, so the item is
+   sized up by that ring to leave the colour itself the same size as the
+   field's swatch. */
+.rs-swatch-round {
+  --rs-swatch-size: 1.5rem; /* matches ColorSwatch size="sm" */
+  border-radius: 9999px;
+}
+
+.rs-swatch-round .color-swatch-picker__item {
+  width: calc(var(--rs-swatch-size) + 4px);
+  height: calc(var(--rs-swatch-size) + 4px);
+  border-radius: 9999px;
+}
+
+.rs-swatch-round .color-swatch-picker__swatch,
+.rs-swatch-round .color-swatch-picker__item[data-selected="true"]
+  .color-swatch-picker__swatch {
+  border-radius: 9999px;
+}
+
+/* ── Timeline horizontal edge fades ──────────────────────────────────────
+   HeroUI's ScrollShadow masks the scroll container. This one cannot be
+   masked: its ruler and playhead handle are `position: sticky`, and a mask
+   fades the very strip they occupy -- so the detection comes from HeroUI's
+   useScrollShadow (the data-*-scroll attributes below) and the paint happens
+   here, on a wrapper that sits still while the content moves under it. */
+.rs-hshadow::before,
+.rs-hshadow::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 44px;
+  z-index: 45;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s var(--ease-out, ease-out);
+}
+
+.rs-hshadow::before {
+  left: 0;
+  background: linear-gradient(
+    to right,
+    var(--background) 0%,
+    color-mix(in oklab, var(--background) 55%, transparent) 45%,
+    transparent 100%
+  );
+}
+
+.rs-hshadow::after {
+  right: 0;
+  background: linear-gradient(
+    to left,
+    var(--background) 0%,
+    color-mix(in oklab, var(--background) 55%, transparent) 45%,
+    transparent 100%
+  );
+}
+
+/* :has() rather than a React-state class: the attributes are written straight
+   to the DOM from a rAF, so reading them in CSS keeps the fades off the React
+   render path entirely -- they must not cost a commit per scrolled pixel. */
+.rs-hshadow:has(> [data-left-scroll="true"])::before,
+.rs-hshadow:has(> [data-left-right-scroll="true"])::before {
+  opacity: 1;
+}
+
+.rs-hshadow:has(> [data-right-scroll="true"])::after,
+.rs-hshadow:has(> [data-left-right-scroll="true"])::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-hshadow::before,
+  .rs-hshadow::after {
+    transition: none;
+  }
+}

@@ -6,6 +6,12 @@ import {
 } from "../../lib/dragCancel";
 import { triggerHaptic } from "../../lib/haptics";
 import type { SongRow } from "../../lib/types";
+import {
+  DEFAULT_CROSSFADE_SHAPE,
+  planTrackCrossfades,
+  type CrossfadeRegion,
+  type CrossfadeShape,
+} from "./crossfade";
 import { lookupRegion, type RegionSelKey } from "./regionUtils";
 import {
   baseRegionGeom,
@@ -24,9 +30,14 @@ import {
 export function useRegionDrag({
   songs,
   markGestureActive,
+  crossfadeOnOverlap = false,
+  crossfadeShape = DEFAULT_CROSSFADE_SHAPE,
 }: {
   songs: SongRow[];
   markGestureActive: () => void;
+  /** X-Fade drag mode: an overlap left by a drag becomes a crossfade. */
+  crossfadeOnOverlap?: boolean;
+  crossfadeShape?: CrossfadeShape;
 }) {
   const [regionGeomDraft, setRegionGeomDraft] = useState<
     Record<RegionSelKey, RegionGeomDraft>
@@ -48,6 +59,12 @@ export function useRegionDrag({
   // Always-latest gesture marker so window listeners don't hold a stale ref.
   const markGestureActiveRef = useRef(markGestureActive);
   markGestureActiveRef.current = markGestureActive;
+  // Read at pointer-up from window listeners, which outlive the render that
+  // started the drag -- the toggle could have been flipped mid-gesture.
+  const crossfadeRef = useRef({ crossfadeOnOverlap, crossfadeShape });
+  crossfadeRef.current = { crossfadeOnOverlap, crossfadeShape };
+  const songsRef = useRef(songs);
+  songsRef.current = songs;
 
   // Drop draft once project state reflects it (or the region vanished).
   useEffect(() => {
@@ -111,6 +128,84 @@ export function useRegionDrag({
     writeGeomDraft(rd.key, geom);
   };
 
+  /**
+   * Turn any overlap this drag created into a crossfade.
+   *
+   * Runs on the geometry that was just committed rather than on `songs`,
+   * which still holds the pre-drag position -- the engine echo has not
+   * arrived yet, and waiting for it would make the fades appear a frame after
+   * the region lands.
+   */
+  const applyCrossfades = (
+    songIndex: number,
+    regionId: string,
+    finalGeom: RegionGeom,
+    gestureId: string,
+  ) => {
+    const { crossfadeOnOverlap: enabled, crossfadeShape: shape } =
+      crossfadeRef.current;
+    if (!enabled) return;
+    const song = songsRef.current[songIndex];
+    if (!song) return;
+    const siblings = song.regions ?? [];
+
+    const trackId =
+      finalGeom.trackId ?? siblings.find((r) => r.id === regionId)?.trackId;
+    if (!trackId) return;
+
+    // Stands in for "duration 0 = runs to the end of the song", the same
+    // resolution effectiveRegionGeom does when drawing. An authored end wins
+    // over the derived one, exactly as it does for the transport.
+    const songLength = song.endSeconds && song.endSeconds > 0
+      ? song.endSeconds
+      : Math.max(
+          0,
+          ...siblings.map((r) =>
+            r.durationSeconds > 0 ? r.startSeconds + r.durationSeconds : 0,
+          ),
+        );
+    const resolve = (start: number, duration: number) =>
+      duration > 0 ? duration : Math.max(0.05, songLength - start);
+
+    const onTrack: CrossfadeRegion[] = [];
+    for (const r of siblings) {
+      if (r.id === regionId) continue;
+      if (r.trackId !== trackId) continue;
+      onTrack.push({
+        id: r.id,
+        trackId: r.trackId,
+        startSeconds: r.startSeconds,
+        durationSeconds: resolve(r.startSeconds, r.durationSeconds),
+        fadeInSeconds: r.fade?.inSeconds ?? 0,
+        fadeOutSeconds: r.fade?.outSeconds ?? 0,
+        fadeInCurve: r.fade?.inCurve ?? 0,
+        fadeOutCurve: r.fade?.outCurve ?? 0,
+      });
+    }
+    onTrack.push({
+      id: regionId,
+      trackId,
+      startSeconds: finalGeom.start,
+      durationSeconds: resolve(finalGeom.start, finalGeom.duration),
+      fadeInSeconds: finalGeom.fadeIn,
+      fadeOutSeconds: finalGeom.fadeOut,
+      fadeInCurve: finalGeom.fadeInCurve,
+      fadeOutCurve: finalGeom.fadeOutCurve,
+    });
+
+    for (const u of planTrackCrossfades(onTrack, shape)) {
+      void builder.regionUpdate({
+        songIndex,
+        regionId: u.regionId,
+        fadeInSeconds: u.fadeInSeconds,
+        fadeOutSeconds: u.fadeOutSeconds,
+        fadeInCurve: u.fadeInCurve,
+        fadeOutCurve: u.fadeOutCurve,
+        gestureId,
+      });
+    }
+  };
+
   const finishRegionDrag = () => {
     const rd = regionDragRef.current;
     if (!rd) return;
@@ -119,6 +214,10 @@ export function useRegionDrag({
     writeGeomDraft(rd.key, finalGeom);
     triggerHaptic("generic");
 
+    // One id for the move AND for any crossfades it causes: undo has to put
+    // the neighbours' fades back in the same step that puts the region back,
+    // or a single Cmd-Z leaves the track sounding wrong.
+    const gestureId = crypto.randomUUID();
     void builder.regionUpdate({
       songIndex: rd.songIndex,
       regionId: rd.regionId,
@@ -134,7 +233,9 @@ export function useRegionDrag({
       fadeOutCurve: finalGeom.fadeOutCurve,
       loop: finalGeom.loop,
       loopLengthSeconds: finalGeom.loopLengthSeconds,
+      gestureId,
     });
+    applyCrossfades(rd.songIndex, rd.regionId, finalGeom, gestureId);
     regionDragRef.current = null;
     regionDragWindowCleanupRef.current?.();
     regionDragWindowCleanupRef.current = null;

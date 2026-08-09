@@ -1,4 +1,5 @@
 import { Grid, OrbitControls, Text } from "@react-three/drei";
+import { addRafTask } from "../../lib/rafLoop";
 import { Canvas, useThree } from "@react-three/fiber";
 import { Maximize2, MoveUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -124,17 +125,26 @@ function useHeroStageColors(): {
 
 // ─── Camera frame utility ─────────────────────────────────────────────────
 
-function frameCameraToFixtures(
-  camera: THREE.Camera,
-  controls: unknown,
-  fixtures: LightFixtureRow[],
-) {
+/**
+ * How much further back than "exactly enough" the auto-frame sits.
+ *
+ * Framing to the fixture bounds alone puts the outermost bars against the
+ * panel edge, and their name labels are billboards drawn AROUND them -- so
+ * the text is the first thing to run out of room and clip. Small on purpose:
+ * this preview is a few hundred pixels wide and any real margin wastes it.
+ */
+const FRAME_MARGIN = 1.12;
+
+/** Where the camera should sit to see `fixtures`, and what it should look at. */
+function frameForFixtures(fixtures: LightFixtureRow[]): {
+  position: THREE.Vector3;
+  target: THREE.Vector3;
+} {
   if (fixtures.length === 0) {
-    camera.position.set(4, 3.5, 5);
-    if (controls) (controls as { target: THREE.Vector3 }).target.set(0, 1, 0);
-    if ("updateProjectionMatrix" in camera)
-      (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
-    return;
+    return {
+      position: new THREE.Vector3(4, 3.5, 5),
+      target: new THREE.Vector3(0, 1, 0),
+    };
   }
 
   const xs = fixtures.map((f) => f.position.x);
@@ -152,13 +162,82 @@ function frameCameraToFixtures(
   const cx = (minX + maxX) / 2;
   const cy = maxY / 2;
   const cz = (minZ + maxZ) / 2;
-
   const spread = Math.max(maxX - minX, maxZ - minZ, maxY, 3);
 
-  if (controls) (controls as { target: THREE.Vector3 }).target.set(cx, cy, cz);
-  camera.position.set(cx + spread * 0.8, cy + spread * 0.7, cz + spread * 1.2);
-  if ("updateProjectionMatrix" in camera)
-    (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+  return {
+    position: new THREE.Vector3(
+      cx + spread * 0.8 * FRAME_MARGIN,
+      cy + spread * 0.7 * FRAME_MARGIN,
+      cz + spread * 1.2 * FRAME_MARGIN,
+    ),
+    target: new THREE.Vector3(cx, cy, cz),
+  };
+}
+
+/** How long an animated re-frame takes. Long enough to read as a move. */
+const FRAME_TWEEN_MS = 420;
+
+/**
+ * How long to wait for a fixture roster before revealing an empty stage.
+ *
+ * Only reached when the project genuinely has no lights -- otherwise the
+ * fixtures arrive first and the reveal happens with them.
+ */
+const EMPTY_RIG_REVEAL_MS = 700;
+
+/**
+ * Point the camera at `fixtures`, snapping or gliding there.
+ *
+ * Gliding matters because the fixture roster does not exist when this mounts.
+ * The player builds its preview from telemetry, so the first render is an
+ * empty rig framed at the default camera, and the bars arrive a beat later --
+ * at which point a snap threw them across the panel. That jump, plus the
+ * fixtures appearing at full output before the camera had found them, is what
+ * read as "flashes white and repositions roughly".
+ *
+ * Returns a cancel function; a second call supersedes the first.
+ */
+function frameCameraToFixtures(
+  camera: THREE.Camera,
+  controls: unknown,
+  fixtures: LightFixtureRow[],
+  animate = false,
+): () => void {
+  const { position, target } = frameForFixtures(fixtures);
+  const ctrl = controls as { target: THREE.Vector3 } | null | undefined;
+  const commit = () => {
+    if ("updateProjectionMatrix" in camera)
+      (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+  };
+
+  if (!animate) {
+    if (ctrl) ctrl.target.copy(target);
+    camera.position.copy(position);
+    commit();
+    return () => {};
+  }
+
+  const fromPos = camera.position.clone();
+  const fromTarget = ctrl ? ctrl.target.clone() : target.clone();
+  const startedAt = performance.now();
+  let stop: (() => void) | null = null;
+  // The app's single rAF driver, not one of this component's own: the tween
+  // has to live inside the frame budget the rest of the UI is held to.
+  stop = addRafTask((nowMs) => {
+    const t = Math.min(1, (nowMs - startedAt) / FRAME_TWEEN_MS);
+    const e = 1 - (1 - t) ** 3; // easeOutCubic
+    camera.position.lerpVectors(fromPos, position, e);
+    if (ctrl) ctrl.target.lerpVectors(fromTarget, target, e);
+    commit();
+    if (t >= 1) {
+      stop?.();
+      stop = null;
+    }
+  });
+  return () => {
+    stop?.();
+    stop = null;
+  };
 }
 
 function FrameAllHelper({
@@ -190,29 +269,62 @@ function FrameAllHelper({
   // actually added/removed, per the original intent below.
   const fixtureSetKey = fixtures.map((f) => f.id).join("\n");
 
+  // Whether an auto-frame has already happened. The FIRST one snaps (there is
+  // nothing on screen yet to jump); every one after it glides, because by then
+  // the user is looking at the panel.
+  const framedOnceRef = useRef(false);
+  const cancelTweenRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
-    const run = () =>
-      frameCameraToFixtures(camera, controls, fixturesRef.current);
-    triggerRef.current = run;
+    const run = (animate: boolean) => {
+      cancelTweenRef.current?.();
+      cancelTweenRef.current = frameCameraToFixtures(
+        camera,
+        controls,
+        fixturesRef.current,
+        animate,
+      );
+    };
+    // The toolbar button always snaps: it is a deliberate "put it back" and
+    // waiting out a glide for it feels sluggish.
+    triggerRef.current = () => run(false);
     if (!autoFrame)
       return () => {
         triggerRef.current = null;
       };
-    // Frame once after layout, then signal parent to fade in — avoids the
-    // visible camera jump during fade-in.
     let cancelled = false;
     let raf2 = 0;
+    let graceTimer = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
         if (cancelled) return;
-        run();
-        onFramed?.();
+        const hasFixtures = fixturesRef.current.length > 0;
+        run(framedOnceRef.current);
+        // Hold the fade until the camera has framed a rig that actually
+        // exists. The player builds this panel from telemetry, so the first
+        // pass runs against an empty roster: revealing there showed the bars
+        // arriving at the default camera and then being thrown into place.
+        //
+        // A genuinely empty rig still has to appear, hence the grace timer --
+        // it is the fallback, not the normal path.
+        if (hasFixtures || framedOnceRef.current) {
+          framedOnceRef.current = true;
+          onFramed?.();
+        } else {
+          graceTimer = window.setTimeout(() => {
+            framedOnceRef.current = true;
+            onFramed?.();
+          }, EMPTY_RIG_REVEAL_MS);
+        }
       });
     });
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
+      window.clearTimeout(graceTimer);
+      cancelTweenRef.current?.();
+      cancelTweenRef.current = null;
       triggerRef.current = null;
     };
     // Only re-auto-frame when fixture *count* or ids change significantly --
