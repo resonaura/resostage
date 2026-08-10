@@ -1,6 +1,5 @@
 #include "CoreMidiDispatcher.h"
 
-#include "../platform/AudioWorkgroup.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <mach/mach_time.h>
@@ -361,7 +360,9 @@ void CoreMidiDispatcher::pumpClock() {
 }
 
 void CoreMidiDispatcher::workerThreadLoop() {
-    joinCurrentThreadToDefaultOutputWorkgroup();
+    // Not joined to the audio workgroup -- see streamingIoThreadStart(). This
+    // thread's whole job is calling into CoreMIDI, which blocks; a workgroup
+    // member that blocks is charged against the audio thread's deadline.
 
     while (running.load(std::memory_order_acquire)) {
         MidiCommand cmd;
@@ -393,12 +394,6 @@ void CoreMidiDispatcher::workerThreadLoop() {
         }
     }
 
-    // MUST happen before this thread returns/exits -- macOS's pthread TSD
-    // cleanup crashes (SIGTRAP in _os_workgroup_tsd_cleanup) on a thread that
-    // exits while still joined to an os_workgroup. This thread is joined by
-    // stop() (called from ~AudioEngine() on app quit), so this genuinely
-    // runs, not just in theory.
-    leaveCurrentThreadWorkgroupIfJoined();
 }
 
 } // namespace resostage

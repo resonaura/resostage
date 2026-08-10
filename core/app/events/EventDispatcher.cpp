@@ -1,6 +1,5 @@
 #include "EventDispatcher.h"
 
-#include "../platform/AudioWorkgroup.h"
 #include "audio/ArtNetPacket.h"
 
 #include <algorithm>
@@ -165,7 +164,9 @@ void EventDispatcher::sendDmx(const DmxTriggerCommand& cmd) {
 }
 
 void EventDispatcher::workerThreadLoop() {
-    joinCurrentThreadToDefaultOutputWorkgroup();
+    // Not joined to the audio workgroup -- see streamingIoThreadStart(). HTTP
+    // and DMX sends are socket calls that block, and this thread sleeps
+    // between them; neither belongs inside an audio deadline.
 
     while (running.load(std::memory_order_acquire)) {
         bool didWork = false;
@@ -186,9 +187,6 @@ void EventDispatcher::workerThreadLoop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 
-    // MUST happen before this thread returns/exits -- see the matching
-    // comment in CoreMidiDispatcher::workerThreadLoop().
-    leaveCurrentThreadWorkgroupIfJoined();
 }
 
 } // namespace resostage

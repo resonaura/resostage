@@ -243,7 +243,6 @@ public:
      * know that. Safe to call from any thread; a no-op if the device does not
      * publish one.
      */
-    void joinCurrentThreadToDeviceWorkgroup();
 
 private:
 #define RESOSTAGE_INSIDE_AUDIOENGINE_CLASS

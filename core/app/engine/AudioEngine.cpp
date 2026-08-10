@@ -468,12 +468,6 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
 
     currentSampleRate = newSampleRate;
     currentBlockSize = device->getCurrentBufferSizeSamples();
-    {
-        // Follows the device, so switching interfaces re-points the helper
-        // threads at the workgroup that is actually running.
-        std::lock_guard<std::mutex> lock(deviceWorkgroupMutex);
-        deviceWorkgroup = device->getWorkgroup();
-    }
 
     // Re-anchor the hardware counter to where the timeline actually is, not
     // to zero.
@@ -636,20 +630,6 @@ void AudioEngine::handleSampleRateChanged(double newSampleRate, double previousP
     // preserved position rather than wherever it happened to be mid-restage.
     if (wasPlaying)
         play();
-}
-
-void AudioEngine::joinCurrentThreadToDeviceWorkgroup() {
-    // One token per thread, kept alive for the thread's whole life: leaving
-    // the workgroup is what the destructor does, and that must not happen
-    // while the thread is still feeding audio.
-    static thread_local juce::WorkgroupToken token;
-    juce::AudioWorkgroup wg;
-    {
-        std::lock_guard<std::mutex> lock(deviceWorkgroupMutex);
-        wg = deviceWorkgroup;
-    }
-    if (wg)
-        wg.join(token);
 }
 
 int AudioEngine::prepareForDeviceReconfigure() {

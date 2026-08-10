@@ -69,12 +69,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     }
 
     streaming.start(&loader,
-                    [this] {
-                        // Priority + disk policy, then the device's workgroup:
-                        // see AudioEngine::joinCurrentThreadToDeviceWorkgroup.
-                        streamingIoThreadStart();
-                        joinCurrentThreadToDeviceWorkgroup();
-                    },
+                    streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
     clearDirty();
@@ -151,12 +146,7 @@ void AudioEngine::newProject(const std::string& name) {
     }
 
     streaming.start(&loader,
-                    [this] {
-                        // Priority + disk policy, then the device's workgroup:
-                        // see AudioEngine::joinCurrentThreadToDeviceWorkgroup.
-                        streamingIoThreadStart();
-                        joinCurrentThreadToDeviceWorkgroup();
-                    },
+                    streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
     clearDirty();
@@ -274,12 +264,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             projectLoaded = loader.isOpen();
             if (projectLoaded)
                 streaming.start(&loader,
-                    [this] {
-                        // Priority + disk policy, then the device's workgroup:
-                        // see AudioEngine::joinCurrentThreadToDeviceWorkgroup.
-                        streamingIoThreadStart();
-                        joinCurrentThreadToDeviceWorkgroup();
-                    },
+                    streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
             return false;
@@ -323,12 +308,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     projectLoaded = true;
     publishRoutingSnapshot();
     streaming.start(&loader,
-                    [this] {
-                        // Priority + disk policy, then the device's workgroup:
-                        // see AudioEngine::joinCurrentThreadToDeviceWorkgroup.
-                        streamingIoThreadStart();
-                        joinCurrentThreadToDeviceWorkgroup();
-                    },
+                    streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
 
@@ -499,12 +479,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                 projectLoaded = loader.isOpen();
                 if (projectLoaded)
                     streaming.start(&loader,
-                    [this] {
-                        // Priority + disk policy, then the device's workgroup:
-                        // see AudioEngine::joinCurrentThreadToDeviceWorkgroup.
-                        streamingIoThreadStart();
-                        joinCurrentThreadToDeviceWorkgroup();
-                    },
+                    streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
                 finish(false, "Failed to replace archive: " + ec.message());
@@ -525,12 +500,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
             projectLoaded = true;
             publishRoutingSnapshot();
             streaming.start(&loader,
-                    [this] {
-                        // Priority + disk policy, then the device's workgroup:
-                        // see AudioEngine::joinCurrentThreadToDeviceWorkgroup.
-                        streamingIoThreadStart();
-                        joinCurrentThreadToDeviceWorkgroup();
-                    },
+                    streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
 

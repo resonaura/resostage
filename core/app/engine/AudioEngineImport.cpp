@@ -369,12 +369,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         // write -- just restart streaming (halted before the background
         // thread started) and report the error.
         streaming.start(&loader,
-                    [this] {
-                        // Priority + disk policy, then the device's workgroup:
-                        // see AudioEngine::joinCurrentThreadToDeviceWorkgroup.
-                        streamingIoThreadStart();
-                        joinCurrentThreadToDeviceWorkgroup();
-                    },
+                    streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
         done(false, writeError);
@@ -395,12 +390,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         projectLoaded = loader.isOpen();
         if (projectLoaded)
             streaming.start(&loader,
-                    [this] {
-                        // Priority + disk policy, then the device's workgroup:
-                        // see AudioEngine::joinCurrentThreadToDeviceWorkgroup.
-                        streamingIoThreadStart();
-                        joinCurrentThreadToDeviceWorkgroup();
-                    },
+                    streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
         done(false, "Failed to replace archive after import");
@@ -420,12 +410,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     (void)projectHistory.commitOpenEdit(kFolderImportGestureId, loader.project());
     publishRoutingSnapshot();
     streaming.start(&loader,
-                    [this] {
-                        // Priority + disk policy, then the device's workgroup:
-                        // see AudioEngine::joinCurrentThreadToDeviceWorkgroup.
-                        streamingIoThreadStart();
-                        joinCurrentThreadToDeviceWorkgroup();
-                    },
+                    streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
 

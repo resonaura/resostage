@@ -5,7 +5,6 @@
 // free functions / constants can live once while AudioEngine.cpp is split
 // for readability (same pattern as MainComponent*.cpp).
 
-#include "platform/AudioWorkgroup.h"
 #include "platform/ProcessPriority.h"
 
 #include <juce_core/juce_core.h>
@@ -49,14 +48,32 @@ inline constexpr double kRingBufferSeconds = 5.0;
 // Play prime is intentionally short (see play()) — long waits freezes UI on
 // song switch. Rings + async RAM residency fill in the background.
 
-// Shared I/O-thread hooks: elevate disk/CPU priority, then join CoreAudio
-// workgroup; leave workgroup on exit (required — see AudioWorkgroup.h).
+// Shared I/O-thread hooks: elevate CPU scheduling QoS and disk I/O priority.
+//
+// Deliberately NOT joined to the audio device's workgroup, though it used to
+// be. A workgroup is a promise that its members will finish their share of
+// work before the CURRENT callback's deadline, and the scheduler treats a
+// member that misses that as the whole group missing it. These threads read
+// from disk and take mutexes -- blocking is their normal operating mode, and
+// they are filling rings for callbacks several hundred milliseconds out, not
+// for the one running now. Joining them made the audio thread answerable for
+// every stall the filesystem handed us.
+//
+// The measured win that originally came with this hook was never the join: it
+// was that a second refill worker had been left at default priority and
+// default I/O policy entirely. That part stays.
+//
+// A dedicated time-constraint policy with the refill loop's own period would
+// be the principled way to tell the scheduler about these threads, and is
+// worth doing -- but a badly chosen constraint is worse than none, and QoS
+// plus IOPOL_IMPORTANT is understood and working.
 inline void streamingIoThreadStart() {
     boostStreamingIoThreadPriority();
-    joinCurrentThreadToDefaultOutputWorkgroup();
 }
 inline void streamingIoThreadStop() {
-    leaveCurrentThreadWorkgroupIfJoined();
+    // Nothing to unwind. Kept so the engine's stop hook stays symmetrical with
+    // its start hook, and so a future policy that DOES need unwinding has an
+    // obvious home.
 }
 
 // The resident promoter getting off the disk, and back on it. See

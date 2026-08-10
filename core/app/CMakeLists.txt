@@ -46,7 +46,6 @@ target_sources(ResoStage PRIVATE
   midi/CoreMidiDispatcher.cpp
   midi/CoreMidiInputListener.cpp
   events/EventDispatcher.cpp
-  platform/AudioWorkgroup.cpp
   platform/MenuModel.cpp
   platform/ProcessPriority.cpp
   platform/ThreadTime.cpp
