@@ -5,6 +5,7 @@
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
 #include "project/RouteId.h"
+#include "events/DueQueue.h"
 #include "timing/SongLength.h"
 
 #include <algorithm>
@@ -553,10 +554,10 @@ void AudioEngine::syncEventFiredFlags() {
     if (eventFiredFlags.size() == wanted)
         return;
 
-    // resize(), not assign(): events already passed keep their fired flag, so
-    // adding a trigger halfway through a song does not re-fire everything
-    // before it. New entries arrive zeroed, i.e. armed.
-    eventFiredFlags.resize(wanted, 0);
+    // See engine/events/DueQueue.h: grows with zeros so a new event is armed,
+    // preserves what is there so adding a trigger halfway through a song does
+    // not re-fire everything before it.
+    resizeFiredFlags(eventFiredFlags, wanted);
 }
 
 void AudioEngine::play() {

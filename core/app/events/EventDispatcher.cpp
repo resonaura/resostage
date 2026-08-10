@@ -1,6 +1,7 @@
 #include "EventDispatcher.h"
 
 #include "audio/ArtNetPacket.h"
+#include "events/DueQueue.h"
 #include "timing/MasterClock.h"
 
 #include <algorithm>
@@ -214,30 +215,13 @@ void EventDispatcher::workerThreadLoop() {
         // Anything now due. A trigger is never dropped for being late -- a
         // cue that missed its moment by a few milliseconds still has to fire,
         // because the alternative is a light that simply never comes on.
-        //
-        // The compaction below must not move an element onto ITSELF. When
-        // nothing has been sent yet, `kept` and `i` are the same index, and
-        // self-move-assignment leaves a std::string in a valid but
-        // unspecified state -- empty, in practice. That silently emptied the
-        // URL of every trigger that waited even one pass, so the send later
-        // "succeeded" against an unparseable address and the cue simply never
-        // arrived. Guarding the self-assignment is the whole fix.
-        const auto drainDue = [&](auto& pending, auto&& send) {
-            size_t kept = 0;
-            for (size_t i = 0; i < pending.size(); ++i) {
-                if (pending[i].targetHostTimeNanos <= now) {
-                    send(pending[i]);
-                    didWork = true;
-                } else {
-                    if (kept != i)
-                        pending[kept] = std::move(pending[i]);
-                    ++kept;
-                }
-            }
-            pending.resize(kept);
-        };
-        drainDue(pendingHttp, [this](const HttpTriggerCommand& c) { sendHttp(c); });
-        drainDue(pendingDmx, [this](const DmxTriggerCommand& c) { sendDmx(c); });
+        // Compaction lives in engine/events/DueQueue.h, tested against a
+        // clock you can control -- the in-place version this replaced moved an
+        // element onto itself and silently emptied the payload it was holding.
+        if (drainDue(pendingHttp, now, [this](const HttpTriggerCommand& c) { sendHttp(c); }) > 0)
+            didWork = true;
+        if (drainDue(pendingDmx, now, [this](const DmxTriggerCommand& c) { sendDmx(c); }) > 0)
+            didWork = true;
 
         // Sleep only when there is nothing at all to do. With something
         // waiting, keep the 2 ms cadence so a due cue is never more than that

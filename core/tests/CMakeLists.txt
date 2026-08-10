@@ -24,6 +24,7 @@ add_executable(resostage_engine_tests
   test_bar_seek.cpp
   test_song_length.cpp
   test_output_latency.cpp
+  test_due_queue.cpp
   test_region_source_map.cpp
   test_recent_projects.cpp
   test_resolight_channel_map.cpp
