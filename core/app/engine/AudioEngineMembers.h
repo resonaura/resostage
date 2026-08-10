@@ -69,6 +69,17 @@
      * engine/audio/SincInterpolator.h.
      */
     SincTableSet sincTables;
+    /**
+     * Per-block scratch for the shaped (varispeed/reverse) path: which kernel
+     * row each output sample uses, and the first source frame it touches.
+     *
+     * Resolved once per block instead of once per channel. Sized in
+     * ensureScratchSizes so the audio thread never allocates; a null weight
+     * pointer means "nothing to play here", which is how the region's edges
+     * and a finished one-shot stay silent.
+     */
+    std::vector<const float*> shapedKernelWeights;
+    std::vector<int64_t> shapedKernelBase;
 
     /**
      * Wall-vs-CPU time of every render callback, bucketed by how close it came

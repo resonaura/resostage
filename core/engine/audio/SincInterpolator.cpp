@@ -124,14 +124,21 @@ const float* SincTable::weightsForPhase(double phase) const {
     return table.data() + static_cast<size_t>(index) * static_cast<size_t>(taps());
 }
 
-float sincSample(const SincTable& table, const float* source, int64_t length, double position) {
-    if (source == nullptr || length <= 0 || !std::isfinite(position))
-        return 0.0f;
+bool sincLookup(const SincTable& table, double position, const float*& weightsOut,
+                int64_t& baseOut) {
+    if (!std::isfinite(position))
+        return false;
     const float* w = table.weightsForPhase(position - std::floor(position));
     if (w == nullptr)
-        return 0.0f;
+        return false;
+    weightsOut = w;
+    baseOut = static_cast<int64_t>(std::floor(position)) - kSincHalfTaps + 1;
+    return true;
+}
 
-    const int64_t base = static_cast<int64_t>(std::floor(position)) - kSincHalfTaps + 1;
+float sincSampleAt(const float* weights, const float* source, int64_t length, int64_t base) {
+    if (weights == nullptr || source == nullptr || length <= 0)
+        return 0.0f;
     const int n = SincTable::taps();
 
     // Fast path: the whole kernel is inside the source, which is every sample
@@ -140,7 +147,7 @@ float sincSample(const SincTable& table, const float* source, int64_t length, do
         const float* s = source + base;
         float acc = 0.0f;
         for (int t = 0; t < n; ++t)
-            acc += s[t] * w[t];
+            acc += s[t] * weights[t];
         return acc;
     }
 
@@ -148,27 +155,21 @@ float sincSample(const SincTable& table, const float* source, int64_t length, do
     for (int t = 0; t < n; ++t) {
         const int64_t i = base + t;
         if (i >= 0 && i < length)
-            acc += source[i] * w[t];
+            acc += source[i] * weights[t];
     }
     return acc;
 }
 
-float sincSampleLooped(const SincTable& table, const float* source, int64_t length,
-                       double position) {
-    if (source == nullptr || length <= 0 || !std::isfinite(position))
+float sincSampleAtLooped(const float* weights, const float* source, int64_t length, int64_t base) {
+    if (weights == nullptr || source == nullptr || length <= 0)
         return 0.0f;
-    const float* w = table.weightsForPhase(position - std::floor(position));
-    if (w == nullptr)
-        return 0.0f;
-
-    const int64_t base = static_cast<int64_t>(std::floor(position)) - kSincHalfTaps + 1;
     const int n = SincTable::taps();
 
     if (base >= 0 && base + n <= length) {
         const float* s = source + base;
         float acc = 0.0f;
         for (int t = 0; t < n; ++t)
-            acc += s[t] * w[t];
+            acc += s[t] * weights[t];
         return acc;
     }
 
@@ -177,9 +178,26 @@ float sincSampleLooped(const SincTable& table, const float* source, int64_t leng
         int64_t i = (base + t) % length;
         if (i < 0)
             i += length;
-        acc += source[i] * w[t];
+        acc += source[i] * weights[t];
     }
     return acc;
+}
+
+float sincSample(const SincTable& table, const float* source, int64_t length, double position) {
+    const float* w = nullptr;
+    int64_t base = 0;
+    if (!sincLookup(table, position, w, base))
+        return 0.0f;
+    return sincSampleAt(w, source, length, base);
+}
+
+float sincSampleLooped(const SincTable& table, const float* source, int64_t length,
+                       double position) {
+    const float* w = nullptr;
+    int64_t base = 0;
+    if (!sincLookup(table, position, w, base))
+        return 0.0f;
+    return sincSampleAtLooped(w, source, length, base);
 }
 
 } // namespace resostage

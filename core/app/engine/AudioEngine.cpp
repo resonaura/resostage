@@ -1207,7 +1207,32 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             const int64_t viewLen = view.length();
             const int viewChans = view.channels();
 
-            if (view && viewLen > 0 && kernel.isBuilt()) {
+            if (view && viewLen > 0 && kernel.isBuilt()
+                && static_cast<int>(shapedKernelBase.size()) >= numSamples) {
+                // Resolve every position ONCE for the block, not once per
+                // channel. Where in the source we are -- and therefore which
+                // kernel row to use -- does not depend on which channel is
+                // being read, so a stereo region was doing the fmod, the
+                // floor and the phase lookup twice for every sample to reach
+                // the same two answers. What is left below is pure
+                // multiply-accumulate, which is also the shape a compiler can
+                // vectorise.
+                for (int i = 0; i < numSamples; ++i) {
+                    shapedKernelWeights[i] = nullptr;
+                    const double sp = shapedSourceFrame(window, into0Shaped + i);
+                    if (sp < 0.0)
+                        continue; // scratch is already cleared to silence
+                    // Positions are absolute source frames; the window may
+                    // begin partway into the file.
+                    const double local = sp - static_cast<double>(viewStart);
+                    const float* weights = nullptr;
+                    int64_t base = 0;
+                    if (sincLookup(kernel, local, weights, base)) {
+                        shapedKernelWeights[i] = weights;
+                        shapedKernelBase[i] = base;
+                    }
+                }
+
                 for (int ch = 0; ch < trackChannels; ++ch) {
                     float* out = ptrs[ch];
                     if (out == nullptr)
@@ -1218,17 +1243,16 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     if (src == nullptr)
                         continue;
                     for (int i = 0; i < numSamples; ++i) {
-                        const double sp = shapedSourceFrame(window, into0Shaped + i);
-                        if (sp < 0.0)
-                            continue; // scratch is already cleared to silence
-                        // Positions are absolute source frames; the window may
-                        // begin partway into the file.
-                        const double local = sp - static_cast<double>(viewStart);
-                        // A loop reads across its own seam rather than into the
-                        // silence past the window, which would click once per
-                        // cycle.
-                        out[i] = loop ? sincSampleLooped(kernel, src, viewLen, local)
-                                      : sincSample(kernel, src, viewLen, local);
+                        const float* weights = shapedKernelWeights[i];
+                        if (weights == nullptr)
+                            continue;
+                        // A loop reads across its own seam rather than into
+                        // the silence past the window, which would click once
+                        // per cycle.
+                        out[i] = loop ? sincSampleAtLooped(weights, src, viewLen,
+                                                           shapedKernelBase[i])
+                                      : sincSampleAt(weights, src, viewLen,
+                                                     shapedKernelBase[i]);
                     }
                 }
             }

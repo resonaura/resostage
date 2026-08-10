@@ -113,6 +113,32 @@ private:
 float sincSample(const SincTable& table, const float* source, int64_t length, double position);
 
 /**
+ * One output sample from weights already chosen for its phase.
+ *
+ * Split out because the phase -- and therefore the kernel row -- depends only
+ * on WHERE in the source we are, not on which channel we are reading. A
+ * stereo region resolved that twice per sample; resolving it once per block
+ * and passing the answer in leaves this loop as pure multiply-accumulate,
+ * which is also the shape a compiler can vectorise.
+ *
+ * `base` is the first source frame the kernel touches, i.e.
+ * floor(position) - kSincHalfTaps + 1.
+ */
+float sincSampleAt(const float* weights, const float* source, int64_t length, int64_t base);
+
+/** The wrapping form of the above, for a looping region. */
+float sincSampleAtLooped(const float* weights, const float* source, int64_t length, int64_t base);
+
+/**
+ * The kernel row and starting frame for a source position.
+ *
+ * Returns false when there is nothing to read (a position outside the region);
+ * callers leave those samples as the silence the scratch already holds.
+ */
+bool sincLookup(const SincTable& table, double position, const float*& weightsOut,
+                int64_t& baseOut);
+
+/**
  * The same, for a source that wraps -- a looping region.
  *
  * Taps that fall past either end of [0, length) come from the other end, so

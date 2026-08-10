@@ -551,6 +551,10 @@ void AudioEngine::ensureScratchSizes() {
         mixRenderer.prepare(currentSampleRate, capacity, mixRenderer.capacity());
 
     clickScratch.assign(static_cast<size_t>(capacity), 0.0f);
+    // Shaped-playback scratch, sized the same way and for the same reason:
+    // the audio thread must never grow it.
+    shapedKernelWeights.assign(static_cast<size_t>(capacity), nullptr);
+    shapedKernelBase.assign(static_cast<size_t>(capacity), 0);
     // One slot per physical channel, so the stop-declick never has to grow it
     // from the callback either. 64 covers every interface this runs on; a
     // wider one simply declicks the first 64 lanes.
