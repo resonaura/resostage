@@ -1737,6 +1737,9 @@ std::string WebServer::buildStateJson(const char* view) const {
         wH.callbackComputeStalls = snap.callbackComputeStalls;
         wH.callbackPreemptedStalls = snap.callbackPreemptedStalls;
         wH.callbackOverruns = snap.callbackOverruns;
+        wH.outputLatencySamples = snap.outputLatencySamples;
+        wH.outputLatencyMs = finiteOrZero(snap.outputLatencyMs);
+        wH.hostTimeSkewMs = finiteOrZero(snap.hostTimeSkewMs);
         wH.diskReadBytesPerSec = finiteOrZero(snap.diskReadBytesPerSec);
         wH.diskWriteBytesPerSec = finiteOrZero(snap.diskWriteBytesPerSec);
         wH.webClientCount = static_cast<uint32_t>(std::max(0, snap.webClientCount));

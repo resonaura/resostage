@@ -32,6 +32,7 @@
 #include "events/EventDispatcher.h"
 #include "platform/ThreadTime.h"
 #include "telemetry/CallbackTiming.h"
+#include "timing/OutputLatency.h"
 #include "LightEngine.h"
 #include "midi/CoreMidiDispatcher.h"
 #include "project/ProjectHistory.h"
@@ -212,6 +213,15 @@ public:
      * thread. See engine/telemetry/CallbackTiming.h.
      */
     CallbackTimingSnapshot callbackTimingSnapshot() const { return callbackTiming.snapshot(); }
+
+    int64_t hostTimeSkew() const { return hostTimeSkewNanos.load(std::memory_order_relaxed); }
+    /** Device-reported output latency in frames, and in seconds. */
+    int64_t outputLatencySamples() const {
+        return currentOutputLatencySamples.load(std::memory_order_relaxed);
+    }
+    double outputLatencySeconds() const {
+        return resostage::outputLatencySeconds(outputLatencySamples(), currentSampleRate);
+    }
 
     // juce::AudioIODeviceCallback
     void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,

@@ -240,6 +240,11 @@ void AudioEngine::republishRouting() {
 
 void AudioEngine::rebuildBussesFromProject() {
     publishRoutingSnapshot();
+    // Every builder edit lands here, including adding or removing a timeline
+    // event -- and the fired-flag vector has to follow the event list or the
+    // new trigger is outside the loop bound that fires them. See
+    // syncEventFiredFlags().
+    syncEventFiredFlags();
 }
 
 void AudioEngine::setTrackGainDb(size_t songIndex, size_t trackIndex, double gainDb) {

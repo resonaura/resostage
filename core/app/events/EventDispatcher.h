@@ -10,15 +10,28 @@
 
 namespace resostage {
 
+/**
+ * When a trigger should actually leave the machine, on the host clock.
+ *
+ * Not when it was generated. The audio it belongs with is still sitting in the
+ * device's buffers for tens of milliseconds after the render callback hands it
+ * over, so a light cue sent immediately arrives before its own downbeat -- by
+ * an amount that changes with the buffer size. Zero means "as soon as
+ * possible", which is what a manual or on-load trigger wants. See
+ * engine/timing/OutputLatency.h.
+ */
 struct HttpTriggerCommand {
     std::string url;
     std::string method = "POST";
     std::string body;
+    uint64_t targetHostTimeNanos = 0;
 };
 
 struct DmxTriggerCommand {
     int universe = 0;
     std::vector<uint8_t> data; // up to 512 bytes, per DMX512
+    /** See HttpTriggerCommand::targetHostTimeNanos. */
+    uint64_t targetHostTimeNanos = 0;
 };
 
 // Fires HTTP and DMX (Art-Net UDP) trigger commands off the audio thread, on

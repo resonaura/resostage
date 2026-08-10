@@ -1,6 +1,7 @@
 #include "EventDispatcher.h"
 
 #include "audio/ArtNetPacket.h"
+#include "timing/MasterClock.h"
 
 #include <algorithm>
 #include <arpa/inet.h>
@@ -168,24 +169,88 @@ void EventDispatcher::workerThreadLoop() {
     // and DMX sends are socket calls that block, and this thread sleeps
     // between them; neither belongs inside an audio deadline.
 
+    // Triggers whose moment has not arrived yet.
+    //
+    // A timeline event is scheduled for when its audio will be HEARD, which is
+    // later than when it was rendered -- see engine/timing/OutputLatency.h. The
+    // queues above are lock-free and single-reader, so the wait happens here,
+    // on this side, rather than by holding the audio thread up.
+    //
+    // Kept as plain vectors and drained in order. Events arrive in
+    // chronological order because the audio thread emits them that way, so the
+    // front is always the next one due and a linear scan never has anything to
+    // scan past.
+    std::vector<HttpTriggerCommand> pendingHttp;
+    std::vector<DmxTriggerCommand> pendingDmx;
+
+    // The SAME clock the audio thread stamped these with. A target time is
+    // meaningless against a different epoch, and "close enough on this
+    // platform" is how a cue ends up firing at an arbitrary moment on the next
+    // one.
+    const SystemMonotonicClock clock;
+
     while (running.load(std::memory_order_acquire)) {
         bool didWork = false;
+        const uint64_t now = clock.nowNanos();
 
         HttpTriggerCommand httpCmd;
         while (httpQueue.try_dequeue(httpCmd)) {
-            sendHttp(httpCmd);
+            if (httpCmd.targetHostTimeNanos > now)
+                pendingHttp.push_back(std::move(httpCmd));
+            else
+                sendHttp(httpCmd);
             didWork = true;
         }
 
         DmxTriggerCommand dmxCmd;
         while (dmxQueue.try_dequeue(dmxCmd)) {
-            sendDmx(dmxCmd);
+            if (dmxCmd.targetHostTimeNanos > now)
+                pendingDmx.push_back(std::move(dmxCmd));
+            else
+                sendDmx(dmxCmd);
             didWork = true;
         }
 
-        if (!didWork)
+        // Anything now due. A trigger is never dropped for being late -- a
+        // cue that missed its moment by a few milliseconds still has to fire,
+        // because the alternative is a light that simply never comes on.
+        //
+        // The compaction below must not move an element onto ITSELF. When
+        // nothing has been sent yet, `kept` and `i` are the same index, and
+        // self-move-assignment leaves a std::string in a valid but
+        // unspecified state -- empty, in practice. That silently emptied the
+        // URL of every trigger that waited even one pass, so the send later
+        // "succeeded" against an unparseable address and the cue simply never
+        // arrived. Guarding the self-assignment is the whole fix.
+        const auto drainDue = [&](auto& pending, auto&& send) {
+            size_t kept = 0;
+            for (size_t i = 0; i < pending.size(); ++i) {
+                if (pending[i].targetHostTimeNanos <= now) {
+                    send(pending[i]);
+                    didWork = true;
+                } else {
+                    if (kept != i)
+                        pending[kept] = std::move(pending[i]);
+                    ++kept;
+                }
+            }
+            pending.resize(kept);
+        };
+        drainDue(pendingHttp, [this](const HttpTriggerCommand& c) { sendHttp(c); });
+        drainDue(pendingDmx, [this](const DmxTriggerCommand& c) { sendDmx(c); });
+
+        // Sleep only when there is nothing at all to do. With something
+        // waiting, keep the 2 ms cadence so a due cue is never more than that
+        // late -- well inside what anyone can see on a light.
+        if (!didWork && pendingHttp.empty() && pendingDmx.empty())
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        else if (!didWork)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+
+    // Whatever is still waiting when the engine stops is deliberately dropped:
+    // the show is over, and firing a backlog of cues into a dark room is worse
+    // than losing them.
 
 }
 

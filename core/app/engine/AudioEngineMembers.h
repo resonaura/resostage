@@ -88,6 +88,19 @@
      */
     CallbackTimingHistogram callbackTiming;
 
+    /**
+     * Frames between handing a block to the device and hearing it.
+     *
+     * Read on the audio thread when scheduling control events, written by the
+     * device thread on start; atomic because those are different threads and
+     * a torn read here would misplace a cue. See
+     * engine/timing/OutputLatency.h for what it is used for and why the audio
+     * itself is deliberately not delayed to match.
+     */
+    std::atomic<int64_t> currentOutputLatencySamples{0};
+    /** Callback host time minus the app clock; see the callback. */
+    std::atomic<int64_t> hostTimeSkewNanos{0};
+
     MeterEnvelopeTracker clickEnvelopeTracker;
     MeterEnvelopeRing<kMeterRingPoints> clickEnvelopeRing;
     /** Last needle value per meter, held when a poll finds no new points. */
@@ -474,6 +487,8 @@
                            const std::function<void(bool, std::string)>& onComplete);
     void dispatchEvent(const TimelineEvent& ev, uint64_t targetHostTimeNanos);
     void fireOnLoadEvents(const SongDef& song);
+    /** Re-arms the fired-flag vector against the current song's event list. */
+    void syncEventFiredFlags();
     void fireDueEvents(const SongDef& song, double blockStartSeconds, double blockEndSeconds, uint64_t hostTimeNanosAtBlockStart);
 
     // Hot-plug fail-safe: juce::AudioDeviceManager broadcasts a change

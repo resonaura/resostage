@@ -541,9 +541,36 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     return true;
 }
 
+void AudioEngine::syncEventFiredFlags() {
+    if (!projectLoaded || currentSong >= loader.project().songs.size())
+        return;
+    const size_t wanted = loader.project().songs[currentSong].events.size();
+
+    // The audio thread reads this vector inside fireDueEvents, under the same
+    // lock the render callback try_locks -- so resizing it anywhere else would
+    // be a use-after-free waiting for a busy song.
+    std::lock_guard<std::recursive_mutex> lock(routingMutex);
+    if (eventFiredFlags.size() == wanted)
+        return;
+
+    // resize(), not assign(): events already passed keep their fired flag, so
+    // adding a trigger halfway through a song does not re-fire everything
+    // before it. New entries arrive zeroed, i.e. armed.
+    eventFiredFlags.resize(wanted, 0);
+}
+
 void AudioEngine::play() {
     if (currentSong == static_cast<size_t>(-1))
         return;
+
+    // A trigger added to the song already open never fired.
+    //
+    // eventFiredFlags is sized when a song is STAGED, and fireDueEvents stops
+    // at its length -- so an event appended to the current song sat outside
+    // the loop bound forever. Pressing Play only zeroed the flags that already
+    // existed. The only way to arm the new event was to switch songs and come
+    // back, which is not a thing anyone would think to do.
+    syncEventFiredFlags();
 
     // Active loop cycle (project-wide): every Play jumps to the cycle's song
     // and left locator — even if the user is currently staged on another song.
@@ -816,6 +843,7 @@ void AudioEngine::dispatchEvent(const TimelineEvent& ev, uint64_t targetHostTime
             cmd.url = ev.httpUrl.value_or("");
             cmd.method = ev.httpMethod;
             cmd.body = ev.httpBody.value_or("");
+            cmd.targetHostTimeNanos = targetHostTimeNanos;
             eventDispatcher.enqueueHttp(cmd);
             break;
         }
@@ -823,6 +851,7 @@ void AudioEngine::dispatchEvent(const TimelineEvent& ev, uint64_t targetHostTime
             DmxTriggerCommand cmd;
             cmd.universe = ev.dmxUniverse;
             cmd.data = ev.dmxData;
+            cmd.targetHostTimeNanos = targetHostTimeNanos;
             eventDispatcher.enqueueDmx(cmd);
             break;
         }
@@ -838,6 +867,15 @@ void AudioEngine::fireOnLoadEvents(const SongDef& song) {
 
 void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds, double blockEndSeconds,
                                  uint64_t hostTimeNanosAtBlockStart) {
+    // How long the audio for this block will sit in the device before anyone
+    // hears it. Every event below is scheduled for that moment rather than for
+    // now, so a MIDI note or a light cue lands WITH its downbeat instead of
+    // ahead of it -- and, just as importantly, stops moving when the operator
+    // changes the buffer size. See engine/timing/OutputLatency.h.
+    const double outputLatencySec =
+        resostage::outputLatencySeconds(currentOutputLatencySamples.load(std::memory_order_relaxed),
+                                        currentSampleRate);
+
     for (size_t i = 0; i < song.events.size() && i < eventFiredFlags.size(); ++i) {
         const TimelineEvent& ev = song.events[i];
         if (ev.triggerOnLoad || eventFiredFlags[i] != 0)
@@ -851,7 +889,8 @@ void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds, d
         // skipped during a MasterClock catch-up jump) fire as soon as
         // possible rather than being silently dropped.
         const double offsetSeconds = std::max(0.0, fireAtSeconds - blockStartSeconds);
-        const uint64_t targetHostTimeNanos = hostTimeNanosAtBlockStart + static_cast<uint64_t>(offsetSeconds * 1.0e9);
+        const uint64_t targetHostTimeNanos =
+            heardHostNanos(hostTimeNanosAtBlockStart, offsetSeconds, outputLatencySec);
 
         dispatchEvent(ev, targetHostTimeNanos);
         eventFiredFlags[i] = 1;

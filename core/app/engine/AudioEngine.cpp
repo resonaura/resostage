@@ -468,6 +468,17 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
 
     currentSampleRate = newSampleRate;
     currentBlockSize = device->getCurrentBufferSizeSamples();
+    // What the device says it will take to actually play what we hand it.
+    //
+    // JUCE 9's CoreAudio backend already sums the four parts that matter --
+    // device latency, the driver's safety offset, the stream's own latency and
+    // the IO buffer -- so there is no need to go behind it to the HAL, and
+    // asking JUCE keeps this working on the Windows and Linux backends too.
+    // Read once here rather than per block: it only changes when the device
+    // does, and this is the callback that says so.
+    currentOutputLatencySamples.store(
+        static_cast<int64_t>(std::max(0, device->getOutputLatencyInSamples())),
+        std::memory_order_relaxed);
 
     // Re-anchor the hardware counter to where the timeline actually is, not
     // to zero.
@@ -782,6 +793,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
     // Telemetry prefers the sample-accurate render position while playing so
     // the UI playhead tracks the actual audio, not a wall-clock estimate.
+    // Does the callback's host timestamp share an epoch with the clock every
+    // scheduler in the app reads?
+    //
+    // Everything time-critical assumes it does: MIDI packets are handed to
+    // CoreMIDI stamped with it, and DMX and HTTP triggers are held against it
+    // until due. If the two ever drift apart -- a different backend, a
+    // platform where JUCE hands back a different quantity under the same name
+    // -- cues would fire at an arbitrary moment with nothing to point at. One
+    // relaxed store per callback buys a number that says so out loud. It reads
+    // about -0.1 ms here.
+    hostTimeSkewNanos.store(static_cast<int64_t>(hostTimeNanos)
+                                - static_cast<int64_t>(SystemMonotonicClock{}.nowNanos()),
+                            std::memory_order_relaxed);
+
     const int64_t telemetrySamples = clockRunning ? renderPlayheadSample : clock.currentSamplePosition();
     const double telemetrySeconds = (currentSampleRate > 0.0)
                                         ? static_cast<double>(telemetrySamples) / currentSampleRate

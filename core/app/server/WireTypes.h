@@ -517,6 +517,10 @@ struct WHealthTelemetry {
     uint64_t callbackComputeStalls = 0;
     uint64_t callbackPreemptedStalls = 0;
     uint64_t callbackOverruns = 0;
+    // See WebUiState's HealthRow.
+    int outputLatencySamples = 0;
+    double outputLatencyMs = 0.0;
+    double hostTimeSkewMs = 0.0;
     double diskReadBytesPerSec = 0.0;
     double diskWriteBytesPerSec = 0.0;
     uint32_t webClientCount = 0;

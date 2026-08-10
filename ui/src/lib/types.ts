@@ -610,6 +610,16 @@ export interface HealthState {
   callbackComputeStalls?: number;
   callbackPreemptedStalls?: number;
   callbackOverruns?: number;
+  /** How long after the render callback hands a block over before anyone
+   *  hears it. Timeline triggers (MIDI, DMX, HTTP) are scheduled against this
+   *  so a cue lands with its downbeat instead of ahead of it -- and stops
+   *  moving when the buffer size changes. */
+  outputLatencySamples?: number;
+  outputLatencyMs?: number;
+  /** Callback host time minus the clock everything schedules against. Near
+   *  zero on a healthy backend; a large value means cue timing cannot be
+   *  trusted. */
+  hostTimeSkewMs?: number;
   /** App-caused disk throughput, bytes/sec, averaged over the sample second.
    *  A throttled or saturated SSD stalls stem streaming with the CPU flat --
    *  see SystemHealthSnapshot. */
@@ -877,6 +887,9 @@ export const emptyState: WebUiState = {
     callbackComputeStalls: 0,
     callbackPreemptedStalls: 0,
     callbackOverruns: 0,
+    outputLatencySamples: 0,
+    outputLatencyMs: 0,
+    hostTimeSkewMs: 0,
     diskReadBytesPerSec: 0,
     diskWriteBytesPerSec: 0,
     audioCallbackCount: 0,

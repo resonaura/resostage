@@ -741,6 +741,15 @@ struct WebUiState {
     uint64_t callbackComputeStalls = 0;
     uint64_t callbackPreemptedStalls = 0;
     uint64_t callbackOverruns = 0;
+    /**
+     * Device-reported output latency: how long after the render callback
+     * hands a block over before anyone hears it. Timeline triggers are
+     * scheduled against this so a MIDI note or a light cue lands with its
+     * downbeat rather than ahead of it. See engine/timing/OutputLatency.h.
+     */
+    int outputLatencySamples = 0;
+    double outputLatencyMs = 0.0;
+    double hostTimeSkewMs = 0.0;
     /** App-caused disk throughput; see SystemHealthSnapshot. */
     double diskReadBytesPerSec = 0.0;
     double diskWriteBytesPerSec = 0.0;

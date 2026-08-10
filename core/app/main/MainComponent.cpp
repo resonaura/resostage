@@ -1602,6 +1602,9 @@ void MainComponent::publishWebState() {
         state.callbackPreemptedStalls = cb.preemptedStalls;
         state.callbackOverruns = cb.buckets[static_cast<size_t>(CallbackBucket::Over100)];
     }
+    state.outputLatencySamples = static_cast<int>(engine.outputLatencySamples());
+    state.outputLatencyMs = engine.outputLatencySeconds() * 1000.0;
+    state.hostTimeSkewMs = static_cast<double>(engine.hostTimeSkew()) / 1.0e6;
     state.diskReadBytesPerSec = health.diskReadBytesPerSec;
     state.diskWriteBytesPerSec = health.diskWriteBytesPerSec;
     state.webClientCount = webServer.clientCount();
