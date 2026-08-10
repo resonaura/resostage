@@ -88,10 +88,12 @@ StreamingEngine::StreamingEngine() {
 StreamingEngine::~StreamingEngine() { stop(); }
 
 void StreamingEngine::start(const ProjectLoader* loader, std::function<void()> onIoThreadStart,
-                            std::function<void()> onIoThreadStop) {
+                            std::function<void()> onIoThreadStop,
+                            std::function<void()> onResidentThreadStart) {
     stop();
     projectLoader = loader;
     ioThreadStartHook = std::move(onIoThreadStart);
+    residentThreadStartHook = std::move(onResidentThreadStart);
     ioThreadStopHook = std::move(onIoThreadStop);
     warmGeneration_.fetch_add(1, std::memory_order_acq_rel);
     {
@@ -386,6 +388,14 @@ bool StreamingEngine::residentizeOneBuffer(StagedSong& staged, size_t& budgetRem
 }
 
 void StreamingEngine::residentThreadLoop() {
+    // Bulk reads, deliberately NOT at refill priority: this thread pulls whole
+    // regions into RAM, which is an optimisation, while the refill workers are
+    // feeding audio that is playing right now. Left at default it competed
+    // with them for the same disk on a loaded machine; below them it fills the
+    // gaps instead.
+    if (residentThreadStartHook)
+        residentThreadStartHook();
+
     while (running.load(std::memory_order_acquire)) {
         const uint64_t epochBefore = stageEpoch_.load(std::memory_order_acquire);
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -515,7 +525,17 @@ void StreamingEngine::refillActiveSlice(StagedSong& s, int workerIndex, int work
 }
 
 void StreamingEngine::ioWorkerLoop(int workerIndex) {
-    if (workerIndex == 0 && ioThreadStartHook)
+    // Every worker, not just the first.
+    //
+    // The hook is what raises this thread's QoS and disk-I/O priority (see
+    // boostStreamingIoThreadPriority) and joins it to the output workgroup.
+    // Worker 1 refills half of the active song's buffers -- the slice split
+    // is `bi % workerCount` -- and it was running at plain default priority
+    // the whole time. On an idle machine that is invisible. On a busy one it
+    // is exactly the reported fault: the CPU graph stays low because the
+    // thread is not being SCHEDULED, and half the tracks quietly run their
+    // rings down until the render callback has nothing to read.
+    if (ioThreadStartHook)
         ioThreadStartHook();
 
     while (running.load(std::memory_order_acquire)) {
@@ -588,7 +608,7 @@ void StreamingEngine::ioWorkerLoop(int workerIndex) {
             std::this_thread::sleep_for(std::chrono::milliseconds(workerIndex == 0 ? 8 : 10));
     }
 
-    if (workerIndex == 0 && ioThreadStopHook)
+    if (ioThreadStopHook)
         ioThreadStopHook();
 }
 

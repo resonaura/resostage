@@ -487,13 +487,27 @@ void AudioEngine::ensureScratchSizes() {
     // the metronome's. Everything downstream of a source -- bus sums, the
     // master, the physical lanes -- is MixRenderer's, sized in
     // publishRoutingSnapshot() against the published graph.
+    // Capacity, not the current block size.
+    //
+    // Everything here is read from the render callback, and the callback may
+    // never allocate: a heap allocation takes a global lock whose wait is
+    // unbounded, which is exactly how a machine with a busy heap produces a
+    // dropout while the CPU graph stays flat. Sizing to the largest block the
+    // device can ever hand us means growing the buffer is something that
+    // happens HERE, on the device thread during a reconfigure, and never
+    // there.
+    //
+    // The old code sized to currentBlockSize exactly and left the callback a
+    // defensive resize() for anything bigger -- a line that reads like a
+    // safety net and is in fact the one allocation on the audio thread.
     const int samples = std::max(currentBlockSize, 1);
+    const int capacity = std::max(samples, kMaxSupportedBlockSize);
 
     for (auto& scratch : trackScratch)
-        scratch.setSize(2, samples, false, false, true);
-    regionMixScratch.setSize(2, samples, false, false, true);
-    pitchInScratch.setSize(2, samples, false, false, true);
-    pitchOutScratch.setSize(2, samples, false, false, true);
+        scratch.setSize(2, capacity, false, false, true);
+    regionMixScratch.setSize(2, capacity, false, false, true);
+    pitchInScratch.setSize(2, capacity, false, false, true);
+    pitchOutScratch.setSize(2, capacity, false, false, true);
 
     // Configure the vocoder pool here, off the audio thread: configure() and
     // the first reset() both allocate, and the callback must never do that.
@@ -514,7 +528,12 @@ void AudioEngine::ensureScratchSizes() {
         slot.everUsed = false;
     }
 
-    clickScratch.assign(static_cast<size_t>(samples), 0.0f);
+    clickScratch.assign(static_cast<size_t>(capacity), 0.0f);
+    // One slot per physical channel, so the stop-declick never has to grow it
+    // from the callback either. 64 covers every interface this runs on; a
+    // wider one simply declicks the first 64 lanes.
+    if (lastOutputSample.size() < kMaxSupportedOutputChannels)
+        lastOutputSample.assign(kMaxSupportedOutputChannels, 0.0f);
 }
 
 const char* AudioEngine::busSoloGroupAt(size_t index) const {

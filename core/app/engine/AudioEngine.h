@@ -171,6 +171,11 @@ public:
     // cannot erase an audible tick from the wire. Still the true rendered
     // peak — not a post-silence display hold beyond that one-frame delivery
     // redundancy.
+    /**
+     * Start a meter poll. Call once per publish, before the consumers below:
+     * it measures the interval every needle's release is scaled by.
+     */
+    void beginMeterPoll();
     MeterFrame consumeClickMeterInterval();
 
     // Same interval-max pattern as the click strip, but for every bus. The

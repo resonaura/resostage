@@ -67,7 +67,8 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
         clock.stop();
     }
 
-    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
+    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop,
+                    demoteBackgroundWorkerPriority);
     clearDirty();
     // Background-open every song into the warm LRU so the first hopscotch
     // after load isn't a cold stage. Does not require stageEpoch match —
@@ -141,7 +142,8 @@ void AudioEngine::newProject(const std::string& name) {
     trackBandMeters.clear();
     }
 
-    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
+    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop,
+                    demoteBackgroundWorkerPriority);
     clearDirty();
     // Notify LightEngine (and re-apply the Art-Net target) for the new
     // (empty) project.
@@ -256,7 +258,8 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             (void)loader.open(sourcePath, error);
             projectLoaded = loader.isOpen();
             if (projectLoaded)
-                streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
+                streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop,
+                    demoteBackgroundWorkerPriority);
             return false;
         }
         if (!loader.open(path, error)) {
@@ -297,7 +300,8 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
 
     projectLoaded = true;
     publishRoutingSnapshot();
-    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
+    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop,
+                    demoteBackgroundWorkerPriority);
 
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
@@ -465,7 +469,8 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                 (void)loader.open(sourcePath, recoverErr);
                 projectLoaded = loader.isOpen();
                 if (projectLoaded)
-                    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
+                    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop,
+                    demoteBackgroundWorkerPriority);
                 finish(false, "Failed to replace archive: " + ec.message());
                 return;
             }
@@ -483,7 +488,8 @@ void AudioEngine::saveProjectAsync(const std::string& path,
 
             projectLoaded = true;
             publishRoutingSnapshot();
-            streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
+            streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop,
+                    demoteBackgroundWorkerPriority);
 
             currentSong = static_cast<size_t>(-1);
             trackIdByIndex.clear();

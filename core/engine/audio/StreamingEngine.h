@@ -83,7 +83,8 @@ public:
     StreamingEngine& operator=(const StreamingEngine&) = delete;
 
     void start(const ProjectLoader* loader, std::function<void()> onIoThreadStart = nullptr,
-               std::function<void()> onIoThreadStop = nullptr);
+               std::function<void()> onIoThreadStop = nullptr,
+               std::function<void()> onResidentThreadStart = nullptr);
     void stop();
 
     void setResidentBudgetBytes(size_t bytes) {
@@ -212,6 +213,7 @@ private:
     std::thread ioThread2;
     std::thread residentThread;
     std::atomic<bool> running{false};
+    std::function<void()> residentThreadStartHook;
     std::function<void()> ioThreadStartHook;
     std::function<void()> ioThreadStopHook;
 

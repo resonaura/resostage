@@ -367,7 +367,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         // loader/streaming were never touched by the failed background
         // write -- just restart streaming (halted before the background
         // thread started) and report the error.
-        streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
+        streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop,
+                    demoteBackgroundWorkerPriority);
         done(false, writeError);
         return;
     }
@@ -385,7 +386,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         (void)loader.reparseProject(reopenError);
         projectLoaded = loader.isOpen();
         if (projectLoaded)
-            streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
+            streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop,
+                    demoteBackgroundWorkerPriority);
         done(false, "Failed to replace archive after import");
         return;
     }
@@ -402,7 +404,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     // entry synchronously, before the archive write ever started.
     (void)projectHistory.commitOpenEdit(kFolderImportGestureId, loader.project());
     publishRoutingSnapshot();
-    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
+    streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop,
+                    demoteBackgroundWorkerPriority);
 
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();

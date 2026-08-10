@@ -992,6 +992,7 @@ void MainComponent::publishWebState() {
     // Interval max of rendered click peaks since last poll — captures every
     // audible tick even when the impulse is shorter than the UI sample period.
     {
+        engine.beginMeterPoll();
         const MeterFrame clickFrame = engine.consumeClickMeterInterval();
         state.clickPeakDb = clickFrame.peakDb;
         state.clickPeakDbL = clickFrame.peakDbL;

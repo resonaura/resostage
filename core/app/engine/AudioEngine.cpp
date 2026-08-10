@@ -203,6 +203,57 @@ float linearPeakToDb(float p) {
 }
 } // namespace
 
+/**
+ * Hold a needle between the blocks that feed it.
+ *
+ * Meters are published as "peak since the last UI poll", which is the right
+ * shape while the audio callback runs more often than the poll. At a large
+ * buffer it does not: 4096 frames is 85ms between callbacks against a ~33ms
+ * poll, so one poll in every two or three sees nothing written at all and
+ * reports silence. The needle then alternates full level / nothing about
+ * twelve times a second -- read as the audio itself stuttering, which it was
+ * not.
+ *
+ * Holding the last value and letting it fall at a fixed dB-per-second is what
+ * a real meter does anyway, and it makes the display independent of how often
+ * the driver happens to call us. Genuine silence still reaches the floor, just
+ * over the release time instead of instantly.
+ */
+float AudioEngine::holdMeterPeak(float intervalPeak, float& held, double dtSeconds) {
+    // ~26 dB/s: a PPM-ish fall that looks alive without smearing transients
+    // into each other.
+    constexpr double kReleaseDbPerSecond = 26.0;
+    if (dtSeconds > 0.0 && held > 0.0f) {
+        const double factor = std::pow(10.0, -(kReleaseDbPerSecond * dtSeconds) / 20.0);
+        held = static_cast<float>(static_cast<double>(held) * factor);
+        if (held < 1.0e-6f)
+            held = 0.0f;
+    }
+    if (intervalPeak > held)
+        held = intervalPeak;
+    return held;
+}
+
+/**
+ * Open a meter poll: measure how long since the last one.
+ *
+ * Called ONCE per publish sweep, before any consume*MeterInterval(), so every
+ * meter in that frame releases by the same amount. Measuring per meter would
+ * give the first one the whole interval and the rest ~nothing.
+ */
+void AudioEngine::beginMeterPoll() {
+    const auto now = std::chrono::steady_clock::now();
+    if (lastMeterPollAt.time_since_epoch().count() == 0) {
+        lastMeterPollDelta = 0.0;
+    } else {
+        // A stalled UI (hidden window, debugger) must not dump every needle to
+        // the floor in one step when it comes back.
+        lastMeterPollDelta =
+            std::min(std::chrono::duration<double>(now - lastMeterPollAt).count(), 0.25);
+    }
+    lastMeterPollAt = now;
+}
+
 MeterFrame AudioEngine::consumeClickMeterInterval() {
     // Take the max peak rendered since the previous UI poll, then clear.
     const float peakL = clickPeakIntervalMaxL.exchange(0.0f, std::memory_order_relaxed);
@@ -211,10 +262,8 @@ MeterFrame AudioEngine::consumeClickMeterInterval() {
     // Echo last interval once: publish N carries real peak, publish N+1 still
     // carries it if this interval was silent. WS client that only samples the
     // later frame still sees the tick. Next silent interval clears delivery.
-    const float outL = std::max(peakL, clickPeakDeliveryL);
-    const float outR = std::max(peakR, clickPeakDeliveryR);
-    clickPeakDeliveryL = peakL;
-    clickPeakDeliveryR = peakR;
+    const float outL = holdMeterPeak(peakL, clickPeakDeliveryL, lastMeterPollDelta);
+    const float outR = holdMeterPeak(peakR, clickPeakDeliveryR, lastMeterPollDelta);
 
     MeterFrame frame;
     frame.peakDbL = linearPeakToDb(outL);
@@ -236,17 +285,12 @@ MeterFrame AudioEngine::consumeBusMeterInterval(size_t busIndex) {
         peakR = busPeakIntervalMaxR[busIndex].exchange(0.0f, std::memory_order_relaxed);
     }
 
-    float deliveryL = 0.0f;
-    float deliveryR = 0.0f;
+    float outL = peakL;
+    float outR = peakR;
     if (busIndex < busPeakDeliveryL.size()) {
-        deliveryL = busPeakDeliveryL[busIndex];
-        deliveryR = busPeakDeliveryR[busIndex];
-        busPeakDeliveryL[busIndex] = peakL;
-        busPeakDeliveryR[busIndex] = peakR;
+        outL = holdMeterPeak(peakL, busPeakDeliveryL[busIndex], lastMeterPollDelta);
+        outR = holdMeterPeak(peakR, busPeakDeliveryR[busIndex], lastMeterPollDelta);
     }
-
-    const float outL = std::max(peakL, deliveryL);
-    const float outR = std::max(peakR, deliveryR);
     // Interval peaks win for display needles; keep LUFS/truePeak from the
     // latest LoudnessMeter frame for sustained program material.
     frame.peakDbL = linearPeakToDb(outL);
@@ -699,8 +743,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // instead of a hard cut -- see kStopDeclickSamples' doc comment.
         if (wasPlayingLastCallback) {
             stopDeclickRemaining = kStopDeclickSamples;
-            if (static_cast<int>(lastOutputSample.size()) < numOutputChannels)
-                lastOutputSample.resize(static_cast<size_t>(numOutputChannels), 0.0f);
+            // Deliberately no resize here: ensureScratchSizes pre-allocates a
+            // slot per lane. A channel count past that declicks the first
+            // kMaxSupportedOutputChannels and hard-cuts the rest, which is a
+            // far better failure than allocating inside the callback.
         }
         wasPlayingLastCallback = false;
 
@@ -1365,14 +1411,19 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // its strip, so the meter still shows the beat you are about to unmute
     // while nothing reaches a bus.
     if (clickStripIndex != MixGraph::kNoStrip) {
-        if (clickScratch.size() < static_cast<size_t>(numSamples))
-            clickScratch.resize(static_cast<size_t>(numSamples), 0.0f);
-        clickGenerator.render(clickScratch.data(), numSamples, playheadSample);
+        // Render only what is already allocated -- see ensureScratchSizes.
+        // This used to resize() when a callback arrived bigger than the block
+        // size the engine had prepared for, which is precisely what happens
+        // on the first callback after the buffer size is raised: a malloc, on
+        // the audio thread, at the exact moment the device restarts.
+        const int clickSamples =
+            std::min(numSamples, static_cast<int>(clickScratch.size()));
+        clickGenerator.render(clickScratch.data(), clickSamples, playheadSample);
         float* dstL = mixRenderer.sourceChannel(clickStripIndex, 0);
         float* dstR = mixRenderer.sourceChannel(clickStripIndex, 1);
         if (dstL != nullptr && dstR != nullptr) {
-            std::copy_n(clickScratch.data(), numSamples, dstL);
-            std::copy_n(clickScratch.data(), numSamples, dstR);
+            std::copy_n(clickScratch.data(), clickSamples, dstL);
+            std::copy_n(clickScratch.data(), clickSamples, dstR);
         }
     }
 

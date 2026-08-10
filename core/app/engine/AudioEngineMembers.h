@@ -144,6 +144,18 @@
     // A song's authored length = the furthest region end across its tracks.
     double songAuthoredDurationSeconds(const SongDef& song) const;
 
+    /**
+     * Largest block the render callback is prepared for without allocating.
+     *
+     * CoreAudio tops out at 4096 in this app's own device list; double it so
+     * an aggregate device, a driver quirk or a future larger setting still
+     * lands inside pre-allocated memory. The cost is a few hundred KB of
+     * scratch, which is nothing next to one dropout.
+     */
+    static constexpr int kMaxSupportedBlockSize = 8192;
+    /** Physical output lanes the stop-declick keeps a tail sample for. */
+    static constexpr size_t kMaxSupportedOutputChannels = 64;
+
     // Underrun micro-fade (spec: 128-sample fade-out on dropout, fade-in on recovery).
     static constexpr int kUnderrunFadeSamples = 128;
     int underrunFadeOutRemaining = 0;
@@ -223,6 +235,11 @@
     std::vector<float> clickScratch;
     // Dedicated click strip meter (pre-bus mix); never shares the destination bus meter.
     SeqLock<MeterFrame> clickMeterFrame;
+    /** Meter needle release: see holdMeterPeak / beginMeterPoll. */
+    static float holdMeterPeak(float intervalPeak, float& held, double dtSeconds);
+    std::chrono::steady_clock::time_point lastMeterPollAt{};
+    double lastMeterPollDelta = 0.0;
+
     // Max sample peak (linear) since last consumeClickMeterInterval() — see
     // that method's doc. Updated on the audio thread, exchanged on the message
     // thread (atomic max via CAS).
