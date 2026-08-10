@@ -49,6 +49,7 @@ target_sources(ResoStage PRIVATE
   platform/AudioWorkgroup.cpp
   platform/MenuModel.cpp
   platform/ProcessPriority.cpp
+  platform/ThreadTime.cpp
   platform/TrayIcon.cpp
   server/WebServer.cpp
 )

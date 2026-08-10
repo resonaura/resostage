@@ -70,6 +70,13 @@
      */
     SincTableSet sincTables;
 
+    /**
+     * Wall-vs-CPU time of every render callback, bucketed by how close it came
+     * to its deadline. The only thing that survives a dropout at a gig long
+     * enough to be read afterwards -- see engine/telemetry/CallbackTiming.h.
+     */
+    CallbackTimingHistogram callbackTiming;
+
     MeterEnvelopeTracker clickEnvelopeTracker;
     MeterEnvelopeRing<kMeterRingPoints> clickEnvelopeRing;
     /** Last needle value per meter, held when a poll finds no new points. */

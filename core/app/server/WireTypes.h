@@ -509,6 +509,14 @@ struct WHealthTelemetry {
     uint64_t silentBlockCount = 0;
     uint64_t pitchBlockCount = 0;
     uint64_t streamStarveCount = 0;
+    // Render-callback timing -- see WebUiState's HealthRow for what these mean
+    // and why the compute/preempted split is the point of them.
+    double callbackWorstRatio = 0.0;
+    double callbackWorstMs = 0.0;
+    double callbackWorstCpuShare = 0.0;
+    uint64_t callbackComputeStalls = 0;
+    uint64_t callbackPreemptedStalls = 0;
+    uint64_t callbackOverruns = 0;
     double diskReadBytesPerSec = 0.0;
     double diskWriteBytesPerSec = 0.0;
     uint32_t webClientCount = 0;

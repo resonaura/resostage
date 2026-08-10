@@ -1593,6 +1593,15 @@ void MainComponent::publishWebState() {
     // Sourced from the streaming layer rather than SystemHealth so telemetry/
     // keeps no dependency on audio/.
     state.streamStarveCount = engine.streamStarveCount();
+    {
+        const auto cb = engine.callbackTimingSnapshot();
+        state.callbackWorstRatio = cb.worstRatio;
+        state.callbackWorstMs = cb.worstWallMs;
+        state.callbackWorstCpuShare = cb.worstCpuShare;
+        state.callbackComputeStalls = cb.computeStalls;
+        state.callbackPreemptedStalls = cb.preemptedStalls;
+        state.callbackOverruns = cb.buckets[static_cast<size_t>(CallbackBucket::Over100)];
+    }
     state.diskReadBytesPerSec = health.diskReadBytesPerSec;
     state.diskWriteBytesPerSec = health.diskWriteBytesPerSec;
     state.webClientCount = webServer.clientCount();

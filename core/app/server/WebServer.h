@@ -724,6 +724,23 @@ struct WebUiState {
     uint64_t silentBlockCount = 0;
     uint64_t pitchBlockCount = 0;
     uint64_t streamStarveCount = 0;
+    /**
+     * Render-callback timing, from CallbackTimingHistogram.
+     *
+     * `callbackWorstRatio` is the worst wall time seen as a fraction of the
+     * block's deadline -- comparable across buffer sizes, unlike a duration.
+     * The two stall counts say WHY a slow callback was slow: compute-bound
+     * (our DSP, or a throttled clock) versus preempted (waiting on a lock, on
+     * the disk, or for a core at all). Distinguishing those is the whole
+     * reason this exists; every other number the app has looks identical in
+     * both cases.
+     */
+    double callbackWorstRatio = 0.0;
+    double callbackWorstMs = 0.0;
+    double callbackWorstCpuShare = 0.0;
+    uint64_t callbackComputeStalls = 0;
+    uint64_t callbackPreemptedStalls = 0;
+    uint64_t callbackOverruns = 0;
     /** App-caused disk throughput; see SystemHealthSnapshot. */
     double diskReadBytesPerSec = 0.0;
     double diskWriteBytesPerSec = 0.0;

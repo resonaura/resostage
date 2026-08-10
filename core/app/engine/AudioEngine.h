@@ -30,6 +30,8 @@
 #include "audio/SincInterpolator.h"
 #include "audio/StreamingEngine.h"
 #include "events/EventDispatcher.h"
+#include "platform/ThreadTime.h"
+#include "telemetry/CallbackTiming.h"
 #include "LightEngine.h"
 #include "midi/CoreMidiDispatcher.h"
 #include "project/ProjectHistory.h"
@@ -202,6 +204,14 @@ public:
     // audio and part silence: a step to zero inside a block, i.e. a click.
     // The driver was serviced on time, so this never appears as an underrun.
     uint64_t streamStarveCount() const { return StreamingTrackBuffer::totalStarveCount(); }
+
+    /**
+     * How the render callback has been doing against its deadline.
+     *
+     * Message thread; the histogram is written lock-free from the audio
+     * thread. See engine/telemetry/CallbackTiming.h.
+     */
+    CallbackTimingSnapshot callbackTimingSnapshot() const { return callbackTiming.snapshot(); }
 
     // juce::AudioIODeviceCallback
     void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,

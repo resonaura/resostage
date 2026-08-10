@@ -530,6 +530,14 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
     for (auto& tracker : busEnvelopeTrackers)
         tracker.prepare(currentSampleRate);
 
+    // Start a fresh timing window for this device configuration.
+    //
+    // The histogram's worst case is its whole point, and a worst case measured
+    // against a 512-frame deadline says nothing about a rig now running at
+    // 4096 -- carrying it forward would report a problem that belongs to a
+    // configuration nobody is using any more.
+    callbackTiming.reset();
+
     ensureScratchSizes();
 
     // Read-and-clear: whatever set this (audioDeviceStopped(), for either a
@@ -694,6 +702,36 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // nobody expects a glitch. The values involved are below -700 dBFS, so
     // rounding them to zero is inaudible by many orders of magnitude.
     const juce::ScopedNoDenormals noDenormals;
+
+    // Time the WHOLE callback, including every early return.
+    //
+    // Two clocks, because their gap is the diagnosis: wall time says how long
+    // this took, thread CPU time says how much of that we spent actually
+    // running. A block that burns its deadline on a core and a block that
+    // spends it waiting for one look identical in every other number the app
+    // has -- and they need opposite fixes. See
+    // engine/telemetry/CallbackTiming.h.
+    //
+    // An RAII scope rather than a call at the end: this function returns from
+    // a dozen places (handoff, missing graph, unprepared renderer), and the
+    // interesting callbacks are exactly the ones that bail early.
+    struct CallbackTimer {
+        CallbackTimingHistogram& into;
+        double startWallMs;
+        double startCpuMs;
+        double deadlineMs;
+        ~CallbackTimer() {
+            const double endWallMs =
+                static_cast<double>(SystemMonotonicClock{}.nowNanos()) / 1.0e6;
+            into.record(endWallMs - startWallMs, currentThreadCpuMillis() - startCpuMs,
+                        deadlineMs);
+        }
+    } callbackTimer{callbackTiming,
+                    static_cast<double>(SystemMonotonicClock{}.nowNanos()) / 1.0e6,
+                    currentThreadCpuMillis(),
+                    currentSampleRate > 0.0
+                        ? 1000.0 * static_cast<double>(numSamples) / currentSampleRate
+                        : 0.0};
 
     for (int ch = 0; ch < numOutputChannels; ++ch)
         if (outputChannelData[ch] != nullptr)

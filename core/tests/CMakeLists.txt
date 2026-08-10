@@ -15,6 +15,7 @@ add_executable(resostage_engine_tests
   test_project_history.cpp
   test_click_generator.cpp
   test_system_health.cpp
+  test_callback_timing.cpp
   test_peak_overview.cpp
   test_peak_cache.cpp
   test_artnet_packet.cpp

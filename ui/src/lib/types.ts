@@ -597,6 +597,19 @@ export interface HealthState {
   // Times a stem's ring ran dry mid-block while the file still had audio: a
   // step to zero inside a block. See StreamingTrackBuffer::starveCount().
   streamStarveCount: number;
+  /** Worst render callback since launch, as a fraction of its deadline. A
+   *  ratio rather than a duration, so it means the same thing at 512 frames
+   *  and at 4096. Over 1.0 means a block missed its deadline. */
+  callbackWorstRatio?: number;
+  callbackWorstMs?: number;
+  /** Share of that worst callback spent actually running on a core. Low means
+   *  it was WAITING -- on a lock, on the disk, or for a core -- rather than
+   *  doing too much work. That distinction is invisible in every other number
+   *  here, and it decides whether the fix is ours or the machine's. */
+  callbackWorstCpuShare?: number;
+  callbackComputeStalls?: number;
+  callbackPreemptedStalls?: number;
+  callbackOverruns?: number;
   /** App-caused disk throughput, bytes/sec, averaged over the sample second.
    *  A throttled or saturated SSD stalls stem streaming with the CPU flat --
    *  see SystemHealthSnapshot. */
@@ -858,6 +871,12 @@ export const emptyState: WebUiState = {
     silentBlockCount: 0,
   pitchBlockCount: 0,
     streamStarveCount: 0,
+    callbackWorstRatio: 0,
+    callbackWorstMs: 0,
+    callbackWorstCpuShare: 0,
+    callbackComputeStalls: 0,
+    callbackPreemptedStalls: 0,
+    callbackOverruns: 0,
     diskReadBytesPerSec: 0,
     diskWriteBytesPerSec: 0,
     audioCallbackCount: 0,
