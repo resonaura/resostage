@@ -5,6 +5,7 @@ import type { TimelineTool } from "./tools";
 const FOLLOW_KEY = "resostage.timeline.followMode";
 const VIEW_KEY = "resostage.timeline.viewMode";
 const CATCH_PLAY_KEY = "resostage.timeline.catchOnPlay";
+const LIGHT_TRUE_COLORS_KEY = "resostage.timeline.lightTrueColors";
 const CATCH_SEEK_KEY = "resostage.timeline.catchOnSeek";
 const TOOL_KEY = "resostage.timeline.tool";
 
@@ -77,6 +78,13 @@ export function useTimelinePrefs(readOnly: boolean) {
   const [catchOnSeek, setCatchOnSeek] = useState(() =>
     readBool(CATCH_SEEK_KEY, true),
   );
+  // Off by default: cue blocks take the theme's hue and keep only their own
+  // brightness, so a lane full of saturated stage colours reads as one calm
+  // layer. Turn it on to see the colours the rig will actually output, which
+  // is what you want while choosing them and not while arranging.
+  const [lightTrueColors, setLightTrueColors] = useState(() =>
+    readBool(LIGHT_TRUE_COLORS_KEY, false),
+  );
 
   // Last non-off mode so we can restore after a manual-scroll suspend.
   const preferredFollowRef = useRef<Exclude<TimelineFollowMode, "off">>(
@@ -98,6 +106,9 @@ export function useTimelinePrefs(readOnly: boolean) {
   useEffect(() => {
     persist(CATCH_PLAY_KEY, catchOnPlay ? "1" : "0");
   }, [catchOnPlay]);
+  useEffect(() => {
+    persist(LIGHT_TRUE_COLORS_KEY, lightTrueColors ? "1" : "0");
+  }, [lightTrueColors]);
   useEffect(() => {
     persist(CATCH_SEEK_KEY, catchOnSeek ? "1" : "0");
   }, [catchOnSeek]);
@@ -152,5 +163,7 @@ export function useTimelinePrefs(readOnly: boolean) {
     tool,
     setTool,
     effectiveTool,
+    lightTrueColors,
+    setLightTrueColors,
   };
 }

@@ -411,6 +411,7 @@ export interface LightCueDragState {
 }
 
 export function LightTrackLane({
+  lightTrueColors,
   track,
   trackIndex,
   trackIds,
@@ -471,7 +472,16 @@ export function LightTrackLane({
    * waiting for the backend round-trip. */
   activeDrag: LightCueDragState | null;
   onActiveDragChange: (next: LightCueDragState | null) => void;
+  /** Show the rig's real output colours instead of the theme-tinted ones. */
+  lightTrueColors: boolean;
 }) {
+  // Resolved per render, not memoised: roleColor is already a cached DOM
+  // probe, and a memo keyed on the theme version is exactly what went stale
+  // on the hint strip.
+  useThemeVersion();
+  const laneTint = roleColor("master");
+  const laneTinted = hasTintableHue(laneTint);
+
   interface CueDraft {
     start: number;
     duration: number;
@@ -887,7 +897,14 @@ export function LightTrackLane({
                   style={{
                     left: leftPx,
                     width: widthPx,
-                    ...lightCueSelectionStyle(isSelected, color),
+                    ...lightCueSelectionStyle(
+                      isSelected,
+                      lightTrueColors ? color : duotoneColor(color, laneTint),
+                    ),
+                    // Keeps the cue's own blend from reaching the lane.
+                    ...(lightTrueColors
+                      ? {}
+                      : { isolation: "isolate" as const }),
                     // No clipPath on the hit shell -- clip lives on the
                     // decorative LightCueBody fill so edge handles stay
                     // clickable under fades.
@@ -963,14 +980,34 @@ export function LightTrackLane({
                     });
                   }}
                 >
-                  <LightCueBody
-                    cue={
-                      { ...cue, durationSeconds: geom.duration } as LightCueRow
+                  {/* Same treatment as the audio-mode hint strip: the body
+                      paints the cue's own colours and gradients, which a
+                      computed colour cannot reach, so it is desaturated and
+                      re-tinted per cue -- scoped here, where there is opaque
+                      content to blend against. Skipped entirely in true-colour
+                      mode, which is the point of that mode. */}
+                  <div
+                    className="absolute inset-0"
+                    style={
+                      lightTrueColors ? undefined : { filter: "grayscale(1)" }
                     }
-                    pxPerSec={pxPerSec}
-                    widthPx={widthPx}
-                    label={labelText}
-                  />
+                  >
+                    <LightCueBody
+                      cue={
+                        { ...cue, durationSeconds: geom.duration } as LightCueRow
+                      }
+                      pxPerSec={pxPerSec}
+                      widthPx={widthPx}
+                      label={labelText}
+                    />
+                  </div>
+                  {!lightTrueColors && laneTinted && (
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0"
+                      style={{ background: laneTint, mixBlendMode: "color" }}
+                    />
+                  )}
                   {/* Edge affordance -- faint highlight over the trim zone. */}
                   {!readOnly && (
                     <>

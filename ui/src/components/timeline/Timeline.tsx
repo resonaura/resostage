@@ -270,6 +270,8 @@ export function Timeline({
     setVerticalZoom,
     effectiveTool,
     setTool,
+    lightTrueColors,
+    setLightTrueColors,
   } = useTimelinePrefs(readOnly);
 
   // HeroUI's own scroll-shadow detection, driving edge fades that are painted
@@ -2176,6 +2178,8 @@ export function Timeline({
         effectiveViewMode={effectiveViewMode}
         setViewMode={setViewMode}
         snapToGrid={snapToGrid}
+        lightTrueColors={lightTrueColors}
+        setLightTrueColors={setLightTrueColors}
         setSnapToGrid={setSnapToGrid}
         followMode={followMode}
         cycleFollowMode={cycleFollowMode}
@@ -2453,6 +2457,7 @@ export function Timeline({
                     lightTracks={lightTracks}
                     lightTrackIds={lightTrackIds}
                     lightTrackColor={lightTrackColor}
+                    lightTrueColors={lightTrueColors}
                     songs={songs}
                     songOffsets={songOffsets}
                     songLengths={songLengths}

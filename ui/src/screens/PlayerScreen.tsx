@@ -25,12 +25,14 @@ import {
   Button,
   ButtonGroup,
   Card,
+  CollapsibleInline,
   ToggleButton,
   ToggleButtonGroup,
 } from "../components/ui";
 import { useThemeVersion } from "../hooks/useThemeVersion";
 import { builder, transport } from "../lib/api";
 import { rowsSameExceptLevels } from "../lib/levelFields";
+import { addRafTask } from "../lib/rafLoop";
 import { getLiveLevels } from "../lib/liveLevels";
 import { useContinuousPlayhead } from "../lib/optimistic";
 import {
@@ -198,38 +200,19 @@ function busMeterGroups(
 /**
  * The drift figure, which appears and disappears while the transport runs.
  *
- * Animated rather than mounted and unmounted because this sits in a `gap-x-2`
- * flex row: everything to its left shifts sideways the instant it appears,
- * which is exactly the kind of movement the eye catches while trying to read
- * a bar count. Two details are what make the collapse actually smooth:
- *
- *  - the width comes from a `0fr -> 1fr` grid column, which is the one way to
- *    animate to and from intrinsic width without measuring the text first;
- *  - the negative margin cancels the parent's gap on the way out. Animating
- *    the width alone leaves the gap behind, so the row still jumps by 8px at
- *    the very end -- which reads as a bug rather than as a short animation.
- *
- * The last non-unity value is held while collapsing so the text does not
- * blank out halfway through its own exit.
+ * Collapsed rather than unmounted so the bar count beside it does not jump --
+ * see CollapsibleInline for why that needs more than an opacity fade. The
+ * last non-unity value is held while collapsing so the text does not blank
+ * out halfway through its own exit.
  */
 function DriftReadout({ drift }: { drift: number }) {
   const shown = drift !== 1;
   const lastRef = useRef(drift);
   if (shown) lastRef.current = drift;
   return (
-    <span
-      aria-hidden={!shown}
-      className="grid overflow-hidden transition-[grid-template-columns,opacity,margin-inline-start] duration-300 ease-out motion-reduce:transition-none"
-      style={{
-        gridTemplateColumns: shown ? "1fr" : "0fr",
-        opacity: shown ? 1 : 0,
-        marginInlineStart: shown ? 0 : "-0.5rem", // cancels the row's gap-x-2
-      }}
-    >
-      <span className="min-w-0 overflow-hidden whitespace-nowrap text-warning">
-        drift ×{lastRef.current.toFixed(4)}
-      </span>
-    </span>
+    <CollapsibleInline open={shown} className="text-warning">
+      drift ×{lastRef.current.toFixed(4)}
+    </CollapsibleInline>
   );
 }
 
@@ -254,7 +237,22 @@ function globalBarBeat(beatsElapsed: number, tsNum: number): string {
   return `${bar} | ${beat}`;
 }
 
-// Single sparkline SVG renderer (no pinging animations, clean solid line)
+/**
+ * One health sparkline.
+ *
+ * Two things here are deliberately not React's job:
+ *
+ *  - the SLIDE. History arrives once a second, so the line used to jump a
+ *    whole step at a time. It now slides that step over the following second,
+ *    driven from the app's shared rAF and written straight to a transform --
+ *    no state, no re-render, and it stands down with everything else when the
+ *    frame budget drops or the window is idle.
+ *  - the COLOUR. Stroke and fill are set as styles rather than as SVG
+ *    attributes, because a CSS transition only applies to properties, not to
+ *    presentation attributes. Crossing the warning threshold now fades
+ *    instead of snapping, which is what stops a graph hovering on the
+ *    boundary from strobing between two colours.
+ */
 function Sparkline({
   history,
   color,
@@ -281,35 +279,83 @@ function Sparkline({
   const lastPoint =
     points.length > 0 ? points[points.length - 1].split(",") : ["90", "24"];
 
+  // One step's worth of x, which is exactly how far the line has to travel
+  // between samples.
+  const stepPx = 90 / Math.max(1, history.length - 1);
+
+  const slideRef = useRef<SVGGElement | null>(null);
+  const sampleAtRef = useRef(performance.now());
+  const stepRef = useRef(stepPx);
+  stepRef.current = stepPx;
+
+  // A new sample is a new array from the history hook; length alone would
+  // miss every update once the window is full.
+  useEffect(() => {
+    sampleAtRef.current = performance.now();
+  }, [history]);
+
+  useEffect(() => {
+    return addRafTask((nowMs) => {
+      const g = slideRef.current;
+      if (!g) return;
+      // Interval is the health feed's own 1 Hz. Overshooting simply parks at
+      // zero, which is the right resting state between samples.
+      const t = Math.min(1, (nowMs - sampleAtRef.current) / 1000);
+      const dx = (1 - t) * stepRef.current;
+      g.style.transform = dx > 0.01 ? `translateX(${dx.toFixed(2)}px)` : "";
+    });
+  }, []);
+
+  const swatch = color === "var(--default)" ? "var(--segment)" : color;
+
   return (
     <div className="flex flex-col items-center gap-0.5">
       <div className="flex items-center justify-between w-full text-[10px] tabular-nums font-semibold">
         <span className="text-foreground/40 uppercase">{label}</span>
         <span
-          style={{
-            color: color === "var(--default)" ? "var(--segment)" : color,
-          }}
+          style={{ color: swatch, transition: "color 400ms ease-out" }}
         >
           {valueText}
         </span>
       </div>
-      <svg width="90" height="24" className="overflow-visible">
+      <svg width="90" height="24" className="overflow-hidden">
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.35" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.0" />
+            <stop
+              offset="0%"
+              style={{
+                stopColor: color,
+                stopOpacity: 0.35,
+                transition: "stop-color 400ms ease-out",
+              }}
+            />
+            <stop
+              offset="100%"
+              style={{
+                stopColor: color,
+                stopOpacity: 0,
+                transition: "stop-color 400ms ease-out",
+              }}
+            />
           </linearGradient>
         </defs>
-        <path d={areaD} fill={`url(#${gradientId})`} />
-        <path
-          d={pathD}
-          fill="none"
-          stroke={color}
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-        {/* Solid static dot at latest point -- no constant pinging animation */}
-        <circle cx={lastPoint[0]} cy={lastPoint[1]} r="2" fill={color} />
+        <g ref={slideRef}>
+          <path d={areaD} fill={`url(#${gradientId})`} />
+          <path
+            d={pathD}
+            fill="none"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            style={{ stroke: color, transition: "stroke 400ms ease-out" }}
+          />
+          {/* Solid dot at the latest point -- no constant pinging animation. */}
+          <circle
+            cx={lastPoint[0]}
+            cy={lastPoint[1]}
+            r="2"
+            style={{ fill: color, transition: "fill 400ms ease-out" }}
+          />
+        </g>
       </svg>
     </div>
   );

@@ -122,6 +122,23 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
           return;
         }
 
+        // Space belongs to the transport, not to the browser.
+        //
+        // Left alone it does two things nobody wants here: it scrolls
+        // whatever is under the pointer, and it "clicks" whichever control
+        // happens to have focus -- so hitting play right after touching a
+        // mute button toggles that button instead. Suppressing the default
+        // outside text fields fixes both, and does not touch the binding: it
+        // is still a normal rebindable key, dispatched below (or by the shell
+        // under Electron), and the user can point it anywhere they like.
+        //
+        // The cost is that Space no longer toggles a focused checkbox or
+        // switch. Enter still does, and on a stage surface a stray Space
+        // toggling a control you cannot see is the worse failure.
+        if (e.code === "Space" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          e.preventDefault();
+        }
+
         // Configurable project keybindings (transport / mode / sections /
         // bar_prev/bar_next / undo/redo). Route through the backend action
         // endpoint so lastAction/nonce updates (native menu flash + settings

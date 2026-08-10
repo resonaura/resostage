@@ -12,6 +12,7 @@ export function LightTrackLanes({
   lightTracks,
   lightTrackIds,
   lightTrackColor,
+  lightTrueColors,
   songs,
   songOffsets,
   songLengths,
@@ -34,6 +35,8 @@ export function LightTrackLanes({
   lightTracks: LightTrackRow[];
   lightTrackIds: string[];
   lightTrackColor: (index: number) => string;
+  /** Show the rig's real output colours instead of the theme-tinted ones. */
+  lightTrueColors: boolean;
   songs: SongRow[];
   songOffsets: number[];
   songLengths: number[];
@@ -85,6 +88,7 @@ export function LightTrackLanes({
           songLengths={songLengths}
           pxPerSec={pxPerSec}
           scrollState={scrollState}
+          lightTrueColors={lightTrueColors}
           verticalZoom={verticalZoom}
           contentWidth={contentWidth}
           readOnly={readOnly}

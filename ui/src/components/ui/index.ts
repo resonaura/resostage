@@ -39,3 +39,4 @@ export {
 } from "./tones";
 export type { Tone } from "./tones";
 export { KeyHint } from "./KeyHint";
+export { CollapsibleInline } from "./CollapsibleInline";

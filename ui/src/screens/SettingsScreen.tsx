@@ -280,7 +280,8 @@ const SETTINGS_TABS: {
   icon: typeof SlidersHorizontal;
 }[] = [
   { id: "audio", label: "Audio", icon: SlidersHorizontal },
-  { id: "midi", label: "MIDI", icon: Music3 },
+  // id stays "midi" so a remembered tab choice keeps working.
+  { id: "midi", label: "Keys & MIDI", icon: Music3 },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "performance", label: "Performance", icon: Zap },
   { id: "health", label: "Health", icon: Activity },

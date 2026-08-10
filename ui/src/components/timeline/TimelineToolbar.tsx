@@ -8,6 +8,7 @@ import {
   LocateFixed,
   LocateOff,
   Magnet,
+  Palette,
   MousePointer2,
   MoveHorizontalIcon,
   MoveVerticalIcon,
@@ -25,6 +26,7 @@ import {
   Slider,
   ToggleButton,
   ToggleButtonGroup,
+  CollapsibleInline,
 } from "../ui";
 
 import { timelineHistory } from "../../lib/api";
@@ -59,6 +61,8 @@ export function TimelineToolbar({
   effectiveViewMode,
   setViewMode,
   snapToGrid,
+  lightTrueColors,
+  setLightTrueColors,
   setSnapToGrid,
   followMode,
   cycleFollowMode,
@@ -91,6 +95,8 @@ export function TimelineToolbar({
   effectiveViewMode: TimelineViewMode;
   setViewMode: (m: TimelineViewMode) => void;
   snapToGrid: boolean;
+  lightTrueColors: boolean;
+  setLightTrueColors: (v: boolean) => void;
   setSnapToGrid: React.Dispatch<React.SetStateAction<boolean>>;
   followMode: TimelineFollowMode;
   cycleFollowMode: () => void;
@@ -227,6 +233,25 @@ export function TimelineToolbar({
             >
               <Magnet size={13} />
             </ToggleButton>
+            {/* Only means anything with light on screen, so it collapses away
+                the rest of the time rather than sitting there greyed out --
+                and it collapses rather than unmounting so the rest of the
+                toolbar does not jump when the mode changes. */}
+            <CollapsibleInline open={effectiveViewMode === "light"} gapPx={6}>
+              <ToggleButton
+                size="sm"
+                isIconOnly
+                aria-label={
+                  lightTrueColors
+                    ? "Cue colours: true output"
+                    : "Cue colours: tinted to theme"
+                }
+                isSelected={lightTrueColors}
+                onChange={setLightTrueColors}
+              >
+                <Palette size={13} />
+              </ToggleButton>
+            </CollapsibleInline>
           </>
         )}
 
