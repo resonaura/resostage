@@ -38,6 +38,9 @@ export function Knob({
     max,
     onCommit,
     round: roundValue,
+    // Centre on a pan knob, zero on a send: the one place on the sweep worth
+    // feeling for.
+    detent: defaultValue,
   });
 
   const angleFor = (v: number) => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { beginCancellableDrag, type CancellableDrag } from "./dragCancel";
+import { triggerHaptic } from "./haptics";
 
 /**
  * Shared drag behaviour for the rotary controls (Knob, SendArcKnob).
@@ -97,6 +98,7 @@ export function useKnobDrag({
   onCommit,
   round,
   sensitivityPx = 120,
+  detent,
 }: {
   value: number;
   min: number;
@@ -105,6 +107,15 @@ export function useKnobDrag({
   /** Quantisation applied to every value that leaves this hook. */
   round: (v: number) => number;
   sensitivityPx?: number;
+  /**
+   * One value worth feeling on the way past -- centre for a pan knob.
+   *
+   * A knob is continuous, so there is nothing else to tick against: ticking
+   * per rounded step would buzz, and ticking at the ends says nothing the
+   * travel limit does not already say. Centre is different -- it is a value
+   * you aim for and cannot see yourself hit while looking at the meters.
+   */
+  detent?: number;
 }): KnobDrag {
   const [localValue, setLocalValue] = useState(() => round(value));
   const [dragging, setDragging] = useState(false);
@@ -262,6 +273,13 @@ export function useKnobDrag({
             sensitivityPx,
           }),
         );
+        if (
+          detent !== undefined &&
+          Math.min(localValue, next) < detent &&
+          detent <= Math.max(localValue, next)
+        ) {
+          triggerHaptic("alignment");
+        }
         setLocalValue(next);
         scheduleCommit(next);
       },

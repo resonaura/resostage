@@ -280,7 +280,11 @@ export function RegionSidePanel({
               value={playback?.speed ?? 1}
               min={0.25}
               max={4}
-              step={0.01}
+              // Twentieths, not hundredths: speed is a value you pick, not one
+              // you sweep, and a coarse enough step turns the slider into a
+              // row of positions the trackpad can tick through (see the
+              // Slider wrapper's DETENT_LIMIT).
+              step={0.05}
               format={(v) => `${v.toFixed(2)}×`}
               onChange={(speed) => patch({ speed })}
             />

@@ -133,6 +133,8 @@ export function SongRulerHeader({
             {/* Cycle upper tier on EVERY song: create/rebind here; the bar
                 only paints when this song owns the project cycle. */}
             <CycleStrip
+              song={song}
+              songIndex={i}
               songLength={songLengths[i]}
               pxPerSec={pxPerSec}
               cycle={cycle}

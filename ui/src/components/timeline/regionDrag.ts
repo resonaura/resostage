@@ -1,6 +1,7 @@
 import type { RegionRow, SongRow, TrackRow } from "../../lib/types";
 import { laneHeightPx } from "./laneDimensions";
 import { EDGE_PX } from "./constants";
+import type { CycleLocatorsForDetents } from "./detents";
 import { snapToGridSec } from "./geometry";
 import type { RegionSelKey } from "./regionUtils";
 import type { TimelineRow } from "./rows";
@@ -84,6 +85,8 @@ export type RegionDragCtx = {
   rows: TimelineRow[];
   tracks: TrackRow[];
   songs: SongRow[];
+  /** Locators the drag can tick against with the magnet off (see detents.ts). */
+  cycle?: CycleLocatorsForDetents | null;
 };
 
 export function baseRegionGeom(rd: RegionDragSession): RegionGeom {

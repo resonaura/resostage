@@ -1079,6 +1079,7 @@ export function Timeline({
     rows,
     tracks: state.tracks,
     songs,
+    cycle,
   };
 
   // Light-mode derived data (Feature 6). Guarded with optional chaining so an
@@ -1502,6 +1503,28 @@ export function Timeline({
     const rect = bodyEl.getBoundingClientRect();
     return Math.max(0, (clientX - rect.left) / pxPerSecRef.current);
   };
+  /**
+   * Landmarks per song for free (unsnapped) drags -- see detents.ts.
+   *
+   * Memoized on the song list because a cue drag asks for it once per
+   * gesture, and rebuilding a few hundred numbers on every pointermove would
+   * cost more than the drag itself.
+   */
+  const detentsBySong = useMemo(() => {
+    const cache = new Map<number, number[]>();
+    return (songIndex: number) => {
+      const hit = cache.get(songIndex);
+      if (hit) return hit;
+      const built = songDetents(songs[songIndex], songIndex, {
+        cycle,
+        songLength: songLengths[songIndex] ?? 0,
+      });
+      cache.set(songIndex, built);
+      return built;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [songs, songLengths, cycle]);
+
   const snapLocalSec = (songIndex: number, localSeconds: number) => {
     const song = songs[songIndex];
     if (!song) return localSeconds;
@@ -2329,6 +2352,7 @@ export function Timeline({
                 contentWidth={contentWidth}
                 readOnly={readOnly}
                 snapToGrid={snapToGrid}
+                cycle={cycle}
                 getPlayheadAbsoluteSec={getLivePlayheadAbsolute}
                 onCycleFromSection={(songIndex, leftSec, rightSec) => {
                   // Song section span (Intro/Verse/…), not an audio region.
@@ -2474,6 +2498,8 @@ export function Timeline({
                     tool={effectiveTool}
                     toAbsSec={toAbsSec}
                     snapLocalSec={snapLocalSec}
+                    snapToGrid={snapToGrid}
+                    detentsForSong={detentsBySong}
                     selectedCueKeys={selectedCueKeys}
                     onSelectCue={selectCue}
                     onCopySelectedCues={copySelectedCue}

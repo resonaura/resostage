@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { builder } from "../../lib/api";
 import {
   beginCancellableDrag,
   type CancellableDrag,
 } from "../../lib/dragCancel";
+import { triggerHaptic } from "../../lib/haptics";
 import type { SectionRow, SongRow } from "../../lib/types";
 import {
   ContextMenu,
@@ -12,6 +13,11 @@ import {
   ContextMenuItem,
 } from "../ContextMenu";
 import { SECTION_LANE_HEIGHT, SECTION_PRESETS } from "./constants";
+import {
+  crossedDetent,
+  songDetents,
+  type CycleLocatorsForDetents,
+} from "./detents";
 import { formatTimeShort, snapToGridSec } from "./geometry";
 
 /** Neutral marker chrome — no per-section accent colours. */
@@ -43,6 +49,7 @@ export function SectionMarkerLane({
   contentWidth,
   readOnly,
   snapToGrid = false,
+  cycle,
   getPlayheadAbsoluteSec,
   onCycleFromSection,
 }: {
@@ -53,6 +60,8 @@ export function SectionMarkerLane({
   contentWidth: number;
   readOnly: boolean;
   snapToGrid?: boolean;
+  /** Cycle locators, so a free drag can tick as it passes them. */
+  cycle?: CycleLocatorsForDetents | null;
   /**
    * Live absolute project seconds. New markers land here, not at the click.
    * A getter, not a value: while playing, the React mirror can be a commit
@@ -76,10 +85,19 @@ export function SectionMarkerLane({
     origStart: number;
     value: number;
     moved: boolean;
-    pointerId: number;
-    captureTarget: HTMLElement;
   } | null>(null);
   const dragCancelRef = useRef<CancellableDrag | null>(null);
+  const dragWindowCleanupRef = useRef<(() => void) | null>(null);
+  const detentsRef = useRef<number[]>([]);
+  /**
+   * Pending "open the type menu" from a plain click.
+   *
+   * Deferred by the double-click interval on purpose: a double-click on a
+   * marker sets the cycle to that section, and firing the menu on the first
+   * of the two clicks would make that gesture unreachable. 260ms is below
+   * where a menu feels slow and above every double-click that matters.
+   */
+  const clickMenuTimerRef = useRef<number | null>(null);
   const [liveDrag, setLiveDrag] = useState<{
     songIndex: number;
     sectionId: string;
@@ -145,7 +163,28 @@ export function SectionMarkerLane({
     });
   };
 
+  const cancelTypeMenu = () => {
+    if (clickMenuTimerRef.current === null) return;
+    window.clearTimeout(clickMenuTimerRef.current);
+    clickMenuTimerRef.current = null;
+  };
+
+  /** Open the preset menu on a marker, unless a double-click beats us to it. */
+  const scheduleTypeMenu = (
+    clientX: number,
+    clientY: number,
+    songIndex: number,
+    sectionId: string,
+  ) => {
+    cancelTypeMenu();
+    clickMenuTimerRef.current = window.setTimeout(() => {
+      clickMenuTimerRef.current = null;
+      openMenuAtClient(clientX, clientY, { songIndex, sectionId });
+    }, 260);
+  };
+
   const closeMenu = () => {
+    cancelTypeMenu();
     setMenu(null);
     setRenaming(false);
     setNameDraft("");
@@ -217,17 +256,26 @@ export function SectionMarkerLane({
       // commit a position one move behind the cursor.
       value: origStart,
       moved: false,
-      pointerId: e.pointerId,
-      captureTarget: e.currentTarget as HTMLElement,
     };
+    // With the magnet off there is no snap to feel, so the tick comes from the
+    // song's own landmarks -- the other markers, the region edges, the cycle.
+    detentsRef.current = snapToGrid
+      ? []
+      : songDetents(songs[songIndex], songIndex, {
+          cycle,
+          songLength: songLengths[songIndex] ?? 0,
+          excludeSectionId: sectionId,
+        });
     setLiveDrag({ songIndex, sectionId, value: origStart });
-    e.currentTarget.setPointerCapture(e.pointerId);
+    attachDragWindowListeners();
     dragCancelRef.current = beginCancellableDrag(() => finishDrag(null));
+    triggerHaptic("generic");
   };
-  const onDragMove = (e: React.PointerEvent) => {
+
+  const processDragMove = (clientX: number) => {
     const meta = dragMetaRef.current;
     if (!meta) return;
-    const dx = e.clientX - meta.startX;
+    const dx = clientX - meta.startX;
     // A marker is only "moved" once the pointer actually travels; without this
     // every click on a marker committed a sectionUpdate (and a project save)
     // for the value it already had.
@@ -241,7 +289,15 @@ export function SectionMarkerLane({
     const song = songs[meta.songIndex];
     const bpm = song?.bpm ?? 120;
     const tsNum = song?.tsNum ?? 4;
+    const prev = meta.value;
     meta.value = snapToGridSec(rawValue, pxPerSec, bpm, tsNum, snapToGrid);
+    if (
+      snapToGrid
+        ? meta.value !== prev
+        : crossedDetent(prev, meta.value, detentsRef.current)
+    ) {
+      triggerHaptic("alignment");
+    }
     setLiveDrag({
       songIndex: meta.songIndex,
       sectionId: meta.sectionId,
@@ -249,21 +305,55 @@ export function SectionMarkerLane({
     });
   };
 
+  /**
+   * Window listeners, not handlers on the marker.
+   *
+   * A marker whose pointerup never arrives keeps its drag session open, and
+   * the next pointermove over it moves it again -- the marker follows the
+   * cursor long after the mouse was released. Element handlers are exactly
+   * that fragile: pointer capture is dropped when the captured element is
+   * removed, and this lane rebuilds its markers whenever the song's sections
+   * change. The window always gets the release.
+   */
+  const attachDragWindowListeners = () => {
+    dragWindowCleanupRef.current?.();
+    const onMove = (e: PointerEvent) => {
+      if (!dragMetaRef.current) return;
+      e.preventDefault();
+      processDragMove(e.clientX);
+    };
+    const onUp = (e: PointerEvent) => {
+      const meta = dragMetaRef.current;
+      if (!meta) return;
+      processDragMove(e.clientX);
+      const clicked = !dragMetaRef.current?.moved;
+      const at = { x: e.clientX, y: e.clientY, ...meta };
+      finishDrag("commit");
+      // A click that never became a drag is a request to retype the marker.
+      if (clicked) scheduleTypeMenu(at.x, at.y, at.songIndex, at.sectionId);
+    };
+    const onCancel = () => finishDrag(null);
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    dragWindowCleanupRef.current = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+    };
+  };
+
   /** Single exit for every way a marker drag can end: up, cancel, or Esc. */
   const finishDrag = (commit: "commit" | null) => {
     const meta = dragMetaRef.current;
     dragMetaRef.current = null;
+    dragWindowCleanupRef.current?.();
+    dragWindowCleanupRef.current = null;
     dragCancelRef.current?.end();
     dragCancelRef.current = null;
     setLiveDrag(null);
     if (!meta) return;
-    // Releasing a capture the browser already dropped throws; the drag is over
-    // either way.
-    try {
-      meta.captureTarget.releasePointerCapture(meta.pointerId);
-    } catch {
-      /* capture already gone */
-    }
+    if (meta.moved) triggerHaptic("generic");
     if (commit !== "commit" || !meta.moved) return;
     void builder.sectionUpdate({
       songIndex: meta.songIndex,
@@ -271,7 +361,21 @@ export function SectionMarkerLane({
       startSeconds: meta.value,
     });
   };
-  const onDragEnd = () => finishDrag("commit");
+  // A drag (or a pending menu) must not outlive the lane.
+  useEffect(
+    () => () => {
+      dragWindowCleanupRef.current?.();
+      dragWindowCleanupRef.current = null;
+      dragMetaRef.current = null;
+      dragCancelRef.current?.end();
+      dragCancelRef.current = null;
+      if (clickMenuTimerRef.current !== null) {
+        window.clearTimeout(clickMenuTimerRef.current);
+        clickMenuTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   return (
     <div
@@ -377,12 +481,12 @@ export function SectionMarkerLane({
                   if (e.detail >= 2) return;
                   beginDrag(e, i, sec.id, sec.startSeconds);
                 }}
-                onPointerMove={onDragMove}
-                onPointerUp={onDragEnd}
-                onPointerCancel={() => finishDrag(null)}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
+                  // Beat the pending type menu from the first click, whether
+                  // or not the cycle callback is wired.
+                  cancelTypeMenu();
                   if (readOnly || !onCycleFromSection) return;
                   finishDrag(null); // the first click armed a drag; drop it
                   const range = sectionRange(i, sec.id);
@@ -393,6 +497,7 @@ export function SectionMarkerLane({
                   e.preventDefault();
                   e.stopPropagation();
                   emptyPtrRef.current = null;
+                  cancelTypeMenu();
                   openMenuAtClient(e.clientX, e.clientY, {
                     songIndex: i,
                     sectionId: sec.id,

@@ -10,6 +10,7 @@ import {
   type CancellableDrag,
 } from "../../lib/dragCancel";
 import { triggerHaptic } from "../../lib/haptics";
+import { edgesCrossedDetent } from "../timeline/detents";
 import type {
   AllPeaksResponse,
   LightCueRow,
@@ -441,6 +442,8 @@ export function LightTrackLane({
   tool = "pointer",
   toAbsSec,
   snapLocalSec,
+  snapToGrid,
+  detentsForSong,
   selectedKeys,
   onSelect,
   onCopySelected,
@@ -467,6 +470,9 @@ export function LightTrackLane({
   tool?: TimelineTool;
   toAbsSec: (clientX: number) => number;
   snapLocalSec: (songIndex: number, localSeconds: number) => number;
+  /** Magnet state -- a free cue drag ticks on landmarks, not on every pixel. */
+  snapToGrid: boolean;
+  detentsForSong: (songIndex: number) => number[];
   /** Multi-select set (outline on every matching cue). */
   selectedKeys: CueSelKey[];
   onSelect: (
@@ -744,16 +750,23 @@ export function LightTrackLane({
         Math.min(rd.maxEnd - rd.origStart, end - rd.origStart),
       );
     }
-    // A brief trackpad tick each time the gesture lands on a new
-    // grid-snapped start/duration/lane -- mirrors the audio-region drag
-    // feel (useRegionDrag.ts) instead of buzzing on every pointermove.
-    if (
-      rd.lastGeom.start !== next.start ||
-      rd.lastGeom.duration !== next.duration ||
-      rd.targetTrackIndex !== prevTargetTrackIndex
-    ) {
-      triggerHaptic("alignment");
-    }
+    // A brief trackpad tick each time the gesture lands somewhere worth
+    // feeling -- mirrors the audio-region drag (useRegionDrag.ts) instead of
+    // buzzing on every pointermove. With the magnet off there are no snapped
+    // positions to land on, so only a lane change or a crossed landmark
+    // counts; see detents.ts.
+    const laneChanged = rd.targetTrackIndex !== prevTargetTrackIndex;
+    const tick = laneChanged
+      ? true
+      : snapToGrid
+        ? rd.lastGeom.start !== next.start ||
+          rd.lastGeom.duration !== next.duration
+        : edgesCrossedDetent(
+            [rd.lastGeom.start, rd.lastGeom.start + rd.lastGeom.duration],
+            [next.start, next.start + next.duration],
+            detentsForSong(songIndex),
+          );
+    if (tick) triggerHaptic("alignment");
 
     const updated = { ...draftsRef.current, [rd.key]: next };
     draftsRef.current = updated;

@@ -24,6 +24,8 @@ export function LightTrackLanes({
   tool,
   toAbsSec,
   snapLocalSec,
+  snapToGrid,
+  detentsForSong,
   selectedCueKeys,
   onSelectCue,
   onCopySelectedCues,
@@ -48,6 +50,9 @@ export function LightTrackLanes({
   tool: TimelineTool;
   toAbsSec: (clientX: number) => number;
   snapLocalSec: (songIndex: number, localSec: number) => number;
+  /** Whether the magnet is on -- decides how a cue drag ticks. */
+  snapToGrid: boolean;
+  detentsForSong: (songIndex: number) => number[];
   selectedCueKeys: CueSelKey[];
   onSelectCue: (
     sel: CueSelKey | null,
@@ -95,6 +100,8 @@ export function LightTrackLanes({
           tool={tool}
           toAbsSec={toAbsSec}
           snapLocalSec={snapLocalSec}
+          snapToGrid={snapToGrid}
+          detentsForSong={detentsForSong}
           selectedKeys={selectedCueKeys}
           onSelect={onSelectCue}
           onCopySelected={onCopySelectedCues}

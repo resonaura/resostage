@@ -12,6 +12,7 @@ import {
   type CrossfadeRegion,
   type CrossfadeShape,
 } from "./crossfade";
+import { edgesCrossedDetent, songDetents } from "./detents";
 import { lookupRegion, type RegionSelKey } from "./regionUtils";
 import {
   baseRegionGeom,
@@ -101,6 +102,37 @@ export function useRegionDrag({
     }
   };
 
+  /**
+   * The landmarks this drag can tick against, frozen when it starts.
+   *
+   * Only consulted with the magnet off -- see detents.ts for why a free drag
+   * cannot tick on every change.
+   */
+  const dragDetentsRef = useRef<number[]>([]);
+
+  const hapticForDragMove = (
+    prev: RegionGeom | undefined,
+    next: RegionGeom,
+  ) => {
+    if (!prev) return;
+    // Landing in another lane is a landmark under any settings: it is the one
+    // part of a region drag that is discrete no matter how free the rest is.
+    if (prev.trackId !== next.trackId) {
+      triggerHaptic("alignment");
+      return;
+    }
+    if (regionDragCtxRef.current.snapToGrid) {
+      if (prev.start !== next.start || prev.duration !== next.duration) {
+        triggerHaptic("alignment");
+      }
+      return;
+    }
+    const edges = (g: RegionGeom) => [g.start, g.start + g.duration];
+    if (edgesCrossedDetent(edges(prev), edges(next), dragDetentsRef.current)) {
+      triggerHaptic("alignment");
+    }
+  };
+
   const processRegionDragMove = (clientX: number, clientY: number) => {
     const rd = regionDragRef.current;
     if (!rd) return;
@@ -110,18 +142,7 @@ export function useRegionDrag({
       clientX,
       clientY,
     );
-    // A brief trackpad tick each time the gesture actually lands on a new
-    // grid-snapped position/lane -- not on every pointermove, which would
-    // buzz continuously instead of reading as a detent.
-    const prev = rd.lastGeom;
-    if (
-      prev &&
-      (prev.start !== geom.start ||
-        prev.duration !== geom.duration ||
-        prev.trackId !== geom.trackId)
-    ) {
-      triggerHaptic("alignment");
-    }
+    hapticForDragMove(rd.lastGeom, geom);
     writeGeomDraft(rd.key, geom);
   };
 
@@ -304,6 +325,14 @@ export function useRegionDrag({
 
   const startRegionDrag = (session: RegionDragSession) => {
     regionDragRef.current = session;
+    const ctx = regionDragCtxRef.current;
+    dragDetentsRef.current = ctx.snapToGrid
+      ? []
+      : songDetents(ctx.songs[session.songIndex], session.songIndex, {
+          cycle: ctx.cycle,
+          songLength: session.maxEnd,
+          excludeRegionId: session.regionId,
+        });
     attachRegionDragWindowListeners();
     dragCancelRef.current?.end();
     dragCancelRef.current = beginCancellableDrag(cancelRegionDrag);

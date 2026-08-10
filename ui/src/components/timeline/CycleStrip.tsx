@@ -4,7 +4,10 @@ import {
   beginCancellableDrag,
   type CancellableDrag,
 } from "../../lib/dragCancel";
+import { triggerHaptic } from "../../lib/haptics";
+import type { SongRow } from "../../lib/types";
 import { RULER_CYCLE_HEIGHT } from "./constants";
+import { crossedDetent, songDetents } from "./detents";
 import { snapToGridSec } from "./geometry";
 import type { CycleLocators } from "./useCycleState";
 
@@ -60,6 +63,8 @@ function cursorForMode(mode: DragMode): string {
  * bar only paints when `ownsCycle` (this song is cycle.songIndex).
  */
 export function CycleStrip({
+  song,
+  songIndex,
   songLength,
   pxPerSec,
   cycle,
@@ -73,6 +78,9 @@ export function CycleStrip({
   onToggleSkip,
   onDragEnd,
 }: {
+  /** The song this strip sits over -- its content is what a free drag ticks against. */
+  song?: SongRow;
+  songIndex: number;
   songLength: number;
   pxPerSec: number;
   cycle: CycleLocators;
@@ -107,8 +115,13 @@ export function CycleStrip({
     originActive: boolean;
     originSkip: boolean;
     originHadRange: boolean;
+    /** Last locator pair this drag emitted -- what the next tick compares to. */
+    lastLeft: number;
+    lastRight: number;
   } | null>(null);
   const dragCancelRef = useRef<CancellableDrag | null>(null);
+  /** Landmarks for a free drag; see detents.ts. Frozen when the drag starts. */
+  const detentsRef = useRef<number[]>([]);
   // Idle hover cursor on the yellow bar (edges vs body).
   const [barHoverCursor, setBarHoverCursor] = useState("grab");
 
@@ -167,7 +180,15 @@ export function CycleStrip({
       originActive: cycle.active,
       originSkip: cycle.skip,
       originHadRange: hasRange,
+      lastLeft: lo,
+      lastRight: hi,
     };
+    // A locator dragged with the magnet off still passes things worth feeling
+    // -- region edges, section markers, the end of the song.
+    detentsRef.current = snapToGrid
+      ? []
+      : songDetents(song, songIndex, { songLength });
+    triggerHaptic("generic");
     dragCancelRef.current?.end();
     dragCancelRef.current = beginCancellableDrag(cancelDrag);
     // click / create wait for a few px of motion before locking the cursor;
@@ -222,6 +243,26 @@ export function CycleStrip({
     });
   };
 
+  /**
+   * Tick for a locator pair that just moved, and remember where it landed.
+   *
+   * With the magnet on every emitted change is a detent; with it off only a
+   * crossing counts, or a free drag buzzes for its whole length.
+   */
+  const tickLocators = (
+    d: NonNullable<typeof dragRef.current>,
+    left: number,
+    right: number,
+  ) => {
+    const moved = snapToGrid
+      ? left !== d.lastLeft || right !== d.lastRight
+      : crossedDetent(d.lastLeft, left, detentsRef.current) ||
+        crossedDetent(d.lastRight, right, detentsRef.current);
+    d.lastLeft = left;
+    d.lastRight = right;
+    if (moved) triggerHaptic("alignment");
+  };
+
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
@@ -238,6 +279,7 @@ export function CycleStrip({
     const local = snapSec(clientXToLocalSec(e.clientX));
 
     if (d.mode === "create") {
+      tickLocators(d, d.anchorSec, local);
       onSetRange(d.anchorSec, local, {
         activate: true,
         skip: d.option,
@@ -256,10 +298,13 @@ export function CycleStrip({
         right = songLength;
         left = Math.max(0, songLength - span);
       }
+      tickLocators(d, left, right);
       onSetRange(left, right, { activate: true, dragging: true });
     } else if (d.mode === "resizeL") {
+      tickLocators(d, local, d.originRight);
       onSetRange(local, d.originRight, { activate: true, dragging: true });
     } else if (d.mode === "resizeR") {
+      tickLocators(d, d.originLeft, local);
       onSetRange(d.originLeft, local, { activate: true, dragging: true });
     }
   };
@@ -307,6 +352,7 @@ export function CycleStrip({
     }
     onDragEnd?.();
     if (!d) return;
+    if (d.moved) triggerHaptic("generic");
 
     if (!d.moved) {
       if (d.mode === "create") return;
