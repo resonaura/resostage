@@ -157,9 +157,12 @@ export const mixer = {
     busId: string,
     level: number,
     enabled?: boolean,
+    /** Collapses a knob drag into one undo entry -- see lib/editGesture. */
+    gestureId?: string,
   ) =>
     post("/api/v1/mixer/track/send", {
       trackIndex,
+      gestureId,
       busId,
       level,
       ...(enabled === undefined ? {} : { enabled }),

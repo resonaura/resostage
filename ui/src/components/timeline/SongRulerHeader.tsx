@@ -23,6 +23,7 @@ export function SongRulerHeader({
   contentWidth,
   scrollState,
   playheadHandleRef,
+  zoomActive = false,
   cycle,
   songContentLengths,
   songEndDrag,
@@ -46,6 +47,8 @@ export function SongRulerHeader({
   contentWidth: number;
   scrollState: { scrollLeft: number; viewportWidth: number };
   playheadHandleRef: React.RefObject<HTMLDivElement | null>;
+  /** A zoom is in progress, so the needle is parked rather than tracking. */
+  zoomActive?: boolean;
   cycle: CycleLocators;
   /** Per song, how far its content reaches (song-local seconds). */
   songContentLengths: number[];
@@ -203,14 +206,16 @@ export function SongRulerHeader({
         title="Click / drag to seek"
       />
 
-      {/* Playhead handle — lower beat tier only (never paints into cycle row). */}
+      {/* Playhead handle — lower beat tier only (never paints into cycle row).
+          Fades with the lane needle while zooming; see the note there. */}
       <div
         ref={playheadHandleRef}
-        className="pointer-events-auto absolute z-30 w-0 -translate-x-1/2 cursor-col-resize select-none"
+        className="pointer-events-auto absolute z-30 w-0 -translate-x-1/2 cursor-col-resize select-none transition-opacity duration-200 ease-out motion-reduce:transition-none"
         style={{
           left: 0,
           top: RULER_CYCLE_HEIGHT,
           height: RULER_BEAT_HEIGHT,
+          opacity: zoomActive ? 0.3 : 1,
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

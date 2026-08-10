@@ -708,6 +708,7 @@ export function Timeline({
     regionDragCtxRef,
     startRegionDrag,
     writeGeomDraft,
+    clearGeomDrafts,
   } =
     useRegionDrag({
       songs: state.songs,
@@ -875,6 +876,10 @@ export function Timeline({
       showToast("Select a region to trim");
       return;
     }
+    // A split shortens the region under any optimistic geometry it still
+    // has, so that geometry has to go first -- otherwise the old full-length
+    // shape keeps being drawn with the new half on top of it.
+    clearGeomDrafts(selectedRegionKeys);
     const splitCount = await splitRegionsAtPlayhead(
       selectedRegionKeys,
       state.songs,
@@ -2344,6 +2349,7 @@ export function Timeline({
                 contentWidth={contentWidth}
                 scrollState={scrollState}
                 playheadHandleRef={playheadHandleRef}
+                zoomActive={zoomActive}
                 cycle={cycle}
                 songContentLengths={songContentLengths}
                 songEndDrag={songEndDrag}
@@ -2539,6 +2545,7 @@ export function Timeline({
                     peaks={peaks}
                     allPeaks={allPeaks}
                     regionGeomDraft={regionGeomDraft}
+                    clearGeomDrafts={clearGeomDrafts}
                     regionDragKey={regionDragRef.current?.key ?? null}
                     selectedRegionKeys={selectedRegionKeys}
                     getRegionUi={getRegionUi}
@@ -2555,9 +2562,15 @@ export function Timeline({
               {/* 4. Lane needle (full content height). z below sticky ruler so
                   it doesn't cover song labels; the ruler-band segment is drawn
                   inside the sticky header (playheadHandleRef). */}
+              {/* Dimmed while zooming, because it is deliberately not
+                  tracking then (the clock is frozen so the needle holds still
+                  against a scaling grid). At full strength it just looks
+                  wrong; faded, it reads as "parked", and the transition means
+                  the change itself is not another moving thing to follow. */}
               <div
                 ref={playheadRef}
-                className="pointer-events-none absolute top-0 bottom-0 z-[15] w-0"
+                className="pointer-events-none absolute top-0 bottom-0 z-[15] w-0 transition-opacity duration-200 ease-out motion-reduce:transition-none"
+                style={{ opacity: zoomActive ? 0.3 : 1 }}
               >
                 <div className="absolute top-0 bottom-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
               </div>

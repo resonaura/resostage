@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ContextMenu, ContextMenuItem } from "../../components/ContextMenu";
 import {
   SEND_CEILING_DB,
@@ -6,6 +6,7 @@ import {
   SendArcKnob,
 } from "../../components/daw";
 import { mixer } from "../../lib/api";
+import { createEditGesture } from "../../lib/editGesture";
 import {
   sendDbToLevel,
   sendLevelToDb,
@@ -50,6 +51,8 @@ export function SendKnobs({
 
   if (auxBusses.length === 0) return null;
 
+  const gesture = useRef(createEditGesture()).current;
+
   // Percent is the unit of record everywhere below: the knob is the only
   // thing that thinks in dB, and it converts on the way out.
   const writeLevel = (busId: string, level: number, enabled?: boolean) => {
@@ -57,7 +60,9 @@ export function SendKnobs({
       onSendChange(busId, level, enabled);
       return;
     }
-    void mixer.setTrackSend(trackIndex, busId, level, enabled);
+    // A knob streams a value per frame; without a gesture id each one is its
+    // own undo entry. See lib/editGesture.
+    void mixer.setTrackSend(trackIndex, busId, level, enabled, gesture.id());
   };
 
   return (

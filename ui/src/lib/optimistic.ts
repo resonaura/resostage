@@ -423,6 +423,8 @@ export function useContinuousPlayhead(
     if (publishRef.current) setAbsoluteState(v);
   }).current;
   const localRef = useRef(serverAbsoluteSeconds);
+  /** True while the previous run of the snapshot effect saw `frozen`. */
+  const wasFrozenRef = useRef(false);
   const serverRef = useRef(serverAbsoluteSeconds);
   const playingRef = useRef(playing);
   const prevKey = useRef(resetKey);
@@ -463,9 +465,27 @@ export function useContinuousPlayhead(
     // it, unconditionally, for the whole gesture. Both resume cleanly once
     // the flag drops: frozen re-corrects on its own next tick, dragging
     // hands off to the fixed post-commit lock below.
-    if (frozen || draggingRef?.current) return;
+    if (frozen || draggingRef?.current) {
+      wasFrozenRef.current = frozen;
+      return;
+    }
+    const thawing = wasFrozenRef.current;
+    wasFrozenRef.current = false;
     const seekLocked = Date.now() - lastSeekAt.current <= SEEK_LOCK_MS;
     if (seekLocked) return;
+    // Coming out of a freeze, take the engine's position whatever the gap.
+    //
+    // The threshold below exists to ignore ordinary jitter, and a zoom that
+    // lasted less than half a second left the clock inside it -- so the
+    // needle resumed from where it was parked and stayed exactly that far
+    // behind for the rest of the song, with nothing to pull it back. A thaw
+    // is not jitter: the clock was deliberately stopped and knows it.
+    if (thawing) {
+      localRef.current = serverAbsoluteSeconds;
+      setAbsolute(serverAbsoluteSeconds);
+      lastFrameTs.current = null;
+      return;
+    }
     if (!playingRef.current) {
       localRef.current = serverAbsoluteSeconds;
       setAbsolute(serverAbsoluteSeconds);

@@ -25,6 +25,13 @@ import {
 } from "./regionDrag";
 
 /**
+ * How long an optimistic draft may disagree with the engine before it is
+ * dropped. Comfortably past a round trip on a busy message thread, well
+ * short of the second it takes to read as a stuck region.
+ */
+const DRAFT_MAX_AGE_MS = 1200;
+
+/**
  * Live geometry drafts + window-level pointer tracking for free region
  * move/trim/fade (survives track re-parent remounts mid-gesture).
  */
@@ -42,6 +49,19 @@ export function useRegionDrag({
   >({});
   const regionGeomDraftRef = useRef(regionGeomDraft);
   regionGeomDraftRef.current = regionGeomDraft;
+
+  /**
+   * When each draft was last written.
+   *
+   * A draft is an optimistic overlay that lives until the engine echoes the
+   * same geometry back. That contract breaks the moment something else
+   * changes the region underneath it -- a split is the clear case: the engine
+   * shortens the region, the draft still says the old full length, the two
+   * can never match, and the old long region goes on being drawn with the new
+   * half sitting on top of it. Ageing them out turns "forever" into "for a
+   * moment", whatever caused the mismatch.
+   */
+  const draftWrittenAtRef = useRef<Record<string, number>>({});
 
   const regionDragRef = useRef<RegionDragSession | null>(null);
   const regionDragCtxRef = useRef<RegionDragCtx>({
@@ -83,6 +103,14 @@ export function useRegionDrag({
         if (regionDraftMatchesCommitted(hit.region, d)) {
           delete next[key];
           changed = true;
+          continue;
+        }
+        const writtenAt = draftWrittenAtRef.current[key] ?? 0;
+        if (writtenAt > 0 && Date.now() - writtenAt > DRAFT_MAX_AGE_MS) {
+          // The engine has had long enough. Whatever it says is now the
+          // truth, even where it disagrees with what the drag asked for.
+          delete next[key];
+          changed = true;
         }
       }
       if (!changed) return prev;
@@ -92,6 +120,7 @@ export function useRegionDrag({
   }, [songs]);
 
   const writeGeomDraft = (key: RegionSelKey, geom: RegionGeom) => {
+    draftWrittenAtRef.current[key] = Date.now();
     // Sync ref immediately so pointer-up in the same frame sees the value
     // (setState alone would lag one render and drop the resize).
     const next = { ...regionGeomDraftRef.current, [key]: geom };
@@ -340,9 +369,32 @@ export function useRegionDrag({
     triggerHaptic("generic");
   };
 
+  /**
+   * Forget the optimistic geometry for these regions.
+   *
+   * For edits that deliberately change a region out from under its draft --
+   * a split, a paste over it -- where waiting out DRAFT_MAX_AGE_MS would mean
+   * a second of the old shape still drawn on screen.
+   */
+  const clearGeomDrafts = (keys: RegionSelKey[]) => {
+    if (keys.length === 0) return;
+    const next = { ...regionGeomDraftRef.current };
+    let changed = false;
+    for (const key of keys) {
+      if (next[key] === undefined) continue;
+      delete next[key];
+      delete draftWrittenAtRef.current[key];
+      changed = true;
+    }
+    if (!changed) return;
+    regionGeomDraftRef.current = next;
+    setRegionGeomDraft(next);
+  };
+
   return {
     regionGeomDraft,
     regionGeomDraftRef,
+    clearGeomDrafts,
     regionDragRef,
     regionDragCtxRef,
     writeGeomDraft,

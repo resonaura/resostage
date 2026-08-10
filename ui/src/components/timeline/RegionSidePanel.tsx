@@ -1,7 +1,8 @@
 import { EmptyState, Separator, Switch } from "@heroui/react";
 import { AudioWaveform, Blend, Repeat, Rewind } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { builder } from "../../lib/api";
+import { createEditGesture } from "../../lib/editGesture";
 import type { RegionRow, SongRow, TrackRow } from "../../lib/types";
 import { Button, Select, ToggleButton } from "../ui";
 import { Field, LabeledSlider } from "../light/LightControls";
@@ -73,11 +74,25 @@ export function RegionSidePanel({
   const trackName =
     tracks.find((t) => t.id === region?.trackId)?.name ?? "Track";
 
+  /**
+   * Every write from this panel, tagged so a slider drag is one undo step.
+   *
+   * Without it each tick of Gain, Speed, Transpose or a fade was its own
+   * history entry -- a single pass over a slider buried whatever the user
+   * actually wanted to undo under a hundred of them. See editGesture.ts.
+   */
+  const gesture = useRef(createEditGesture()).current;
+
   const patch = (
     fields: Omit<Parameters<typeof builder.regionUpdate>[0], "songIndex" | "regionId">,
   ) => {
     if (!region) return;
-    void builder.regionUpdate({ songIndex, regionId: region.id, ...fields });
+    void builder.regionUpdate({
+      songIndex,
+      regionId: region.id,
+      gestureId: gesture.id(),
+      ...fields,
+    });
   };
 
   /**

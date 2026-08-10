@@ -53,6 +53,7 @@ export function AudioTrackLanes({
   peaks,
   allPeaks,
   regionGeomDraft,
+  clearGeomDrafts,
   regionDragKey,
   selectedRegionKeys,
   getRegionUi,
@@ -76,6 +77,8 @@ export function AudioTrackLanes({
   peaks: PeaksResponse | null;
   allPeaks: AllPeaksResponse | null;
   regionGeomDraft: Record<RegionSelKey, RegionGeomDraft>;
+  /** Forget optimistic geometry for regions an edit is about to reshape. */
+  clearGeomDrafts: (keys: RegionSelKey[]) => void;
   regionDragKey: RegionSelKey | null;
   selectedRegionKeys: RegionSelKey[];
   getRegionUi: (key: RegionSelKey) => RegionUiState;
@@ -375,6 +378,9 @@ export function AudioTrackLanes({
                                 pxPerSec,
                             ),
                           );
+                        // Drop the optimistic geometry first -- see the same
+                        // call in Timeline's splitSelectedAtPlayhead.
+                        clearGeomDrafts([thisRegionSelKey]);
                         void splitRegionsAtPlayhead(
                           [thisRegionSelKey],
                           songs,

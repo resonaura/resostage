@@ -709,12 +709,21 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
     if (t == nullptr)
         return;
 
+    // A send knob is dragged, so its stream of writes carries a gestureId and
+    // collapses into one undo entry -- without it, turning one knob buried
+    // every earlier edit under a hundred entries, which is the same as having
+    // no history at all.
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+
     for (size_t si = 0; si < t->output.sends.size(); ++si) {
         if (t->output.sends[si].bus == busId) {
             SendConfig updated = t->output.sends[si];
             updated.level = level;
             updated.enabled = enabledGiven ? enabled : updated.enabled;
+            engine.projectHistoryBeginEdit(gestureId, "Edit send");
             engine.setTrackSend(songIdx, idx, si, updated);
+            engine.projectHistoryCommitEdit();
             notifyRoutingChanged();
             return;
         }
@@ -723,7 +732,9 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
     newSend.bus = busId;
     newSend.level = level;
     newSend.enabled = enabledGiven ? enabled : true;
+    engine.projectHistoryBeginEdit(gestureId, "Add send");
     engine.addTrackSend(songIdx, idx, newSend);
+    engine.projectHistoryCommitEdit();
     notifyRoutingChanged();
 }
 
@@ -737,7 +748,9 @@ void MainComponent::setProjectNameFromJson(const std::string& json) {
     if (name.empty())
         return;
 
+    engine.projectHistoryBeginEdit("", "Rename project");
     engine.project().name = name;
+    engine.projectHistoryCommitEdit();
     engine.markDirty();
     setStatus("Project renamed to '" + juce::String(name) + "'");
 }
@@ -757,8 +770,10 @@ void MainComponent::removeTrackSendFromJson(const std::string& json) {
 
     for (size_t si = 0; si < t->output.sends.size(); ++si) {
         if (t->output.sends[si].bus == busId) {
+            engine.projectHistoryBeginEdit("", "Remove send");
             engine.removeTrackSend(songIdx, idx, si);
-    notifyRoutingChanged();
+            engine.projectHistoryCommitEdit();
+            notifyRoutingChanged();
             return;
         }
     }
@@ -1011,6 +1026,8 @@ void MainComponent::builderEventAdd(const std::string& json) {
         return;
     SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
+    engine.projectHistoryBeginEdit("", "Add event");
+
     std::vector<std::string> used;
     for (const auto& e : s.events)
         used.push_back(e.id);
@@ -1021,6 +1038,7 @@ void MainComponent::builderEventAdd(const std::string& json) {
     ev.midiChannel = 1;
     ev.midiProgram = 0;
     s.events.push_back(std::move(ev));
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Event added");
 }
@@ -1038,7 +1056,9 @@ void MainComponent::builderEventRemove(const std::string& json) {
     if (index < 0 || index >= static_cast<int>(s.events.size()))
         return;
 
+    engine.projectHistoryBeginEdit("", "Remove event");
     s.events.erase(s.events.begin() + index);
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Event removed");
 }
@@ -1058,7 +1078,9 @@ void MainComponent::builderEventMove(const std::string& json) {
         || to >= static_cast<int>(s.events.size()))
         return;
 
+    engine.projectHistoryBeginEdit("", "Move event");
     std::swap(s.events[static_cast<size_t>(index)], s.events[static_cast<size_t>(to)]);
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
 }
 
@@ -1076,6 +1098,12 @@ void MainComponent::builderEventUpdate(const std::string& json) {
         return;
     TimelineEvent& e = s.events[static_cast<size_t>(index)];
 
+    // A gestureId collapses a whole slider drag / typed field into one entry,
+    // exactly as region edits do.
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    engine.projectHistoryBeginEdit(gestureId, "Edit event");
+
     std::string strVal;
     double numVal;
     int intVal;
@@ -1091,6 +1119,7 @@ void MainComponent::builderEventUpdate(const std::string& json) {
     if (getInt(doc, "midiNote", intVal)) e.midiNote = intVal;
     if (getInt(doc, "midiVelocity", intVal)) e.midiVelocity = intVal;
     if (getString(doc, "httpUrl", strVal)) e.httpUrl = strVal;
+    engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus("Event updated");
 }
