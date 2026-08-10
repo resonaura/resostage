@@ -66,4 +66,14 @@ void demoteBackgroundWorkerPriority() {
 #endif
 }
 
+void setBackgroundWorkerIoYielding(bool yielding) {
+#if defined(__APPLE__) && defined(IOPOL_TYPE_DISK) && defined(IOPOL_SCOPE_THREAD) \
+    && defined(IOPOL_THROTTLE) && defined(IOPOL_UTILITY)
+    (void)setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD,
+                         yielding ? IOPOL_THROTTLE : IOPOL_UTILITY);
+#else
+    (void)yielding;
+#endif
+}
+
 } // namespace resostage

@@ -123,7 +123,8 @@ void StreamingTrackBuffer::releaseResident() {
 
 bool StreamingTrackBuffer::decodeWindowSideChannel(int64_t deviceStart, int64_t deviceFrames,
                                                    std::vector<std::vector<float>>& outPlanar,
-                                                   int64_t& outFrames, std::string& error) const {
+                                                   int64_t& outFrames, std::string& error,
+                                                   const std::function<bool()>& shouldAbort) const {
     outFrames = 0;
     outPlanar.clear();
     if (openLoader == nullptr || openArchivePath.empty() || deviceFrames <= 0) {
@@ -176,6 +177,11 @@ bool StreamingTrackBuffer::decodeWindowSideChannel(int64_t deviceStart, int64_t 
         int64_t got = 0;
         std::vector<float> scratch;
         while (got < deviceFrames) {
+            if (shouldAbort && shouldAbort()) {
+                error = "resident load abandoned to free the disk";
+                outPlanar.clear();
+                return false;
+            }
             const int64_t chunk = std::min(deviceFrames - got, kRefillChunkFrames);
             std::vector<float*> chunkPtrs(static_cast<size_t>(channels));
             for (int c = 0; c < channels; ++c)
@@ -218,6 +224,11 @@ bool StreamingTrackBuffer::decodeWindowSideChannel(int64_t deviceStart, int64_t 
 
     while (written < deviceFrames) {
         if (nativeReadIdx >= nativeChunkFrames) {
+            if (shouldAbort && shouldAbort()) {
+                error = "resident load abandoned to free the disk";
+                outPlanar.clear();
+                return false;
+            }
             nativeChunkFrames = sideDec.decodeFrames(readFn, nativePtrs.data(), kRefillChunkFrames);
             nativeReadIdx = 0;
             if (nativeChunkFrames <= 0) {
@@ -260,7 +271,8 @@ bool StreamingTrackBuffer::decodeWindowSideChannel(int64_t deviceStart, int64_t 
     return true;
 }
 
-bool StreamingTrackBuffer::tryLoadResident(size_t maxBytes, size_t& outBytes, std::string& error) {
+bool StreamingTrackBuffer::tryLoadResident(size_t maxBytes, size_t& outBytes, std::string& error,
+                                           const std::function<bool()>& shouldAbort) {
     outBytes = 0;
     if (const auto window = residentSnapshot()) {
         outBytes = window->byteCount;
@@ -297,7 +309,7 @@ bool StreamingTrackBuffer::tryLoadResident(size_t maxBytes, size_t& outBytes, st
     // Heavy work: side stream only — live ring/cursor keep serving audio.
     std::vector<std::vector<float>> temp;
     int64_t got = 0;
-    if (!decodeWindowSideChannel(start, len, temp, got, error))
+    if (!decodeWindowSideChannel(start, len, temp, got, error, shouldAbort))
         return false;
 
     // Publish without tearing the live ring under the audio thread.

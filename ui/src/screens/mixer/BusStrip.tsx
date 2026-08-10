@@ -41,10 +41,10 @@ function BusStripInner({
       peakDbL={peakDbL}
       peakDbR={peakDbR}
       getLiveDbL={() =>
-        getLiveLevels().meters.find((m) => m.id === b.id)?.peakDbL ?? -144
+        getLiveLevels().meters.find((m) => m.id === b.id)?.needleDbL ?? -144
       }
       getLiveDbR={() =>
-        getLiveLevels().meters.find((m) => m.id === b.id)?.peakDbR ?? -144
+        getLiveLevels().meters.find((m) => m.id === b.id)?.needleDbR ?? -144
       }
       mute={b.mute}
       solo={b.solo}

@@ -3,11 +3,14 @@ add_executable(resostage_engine_tests
   test_master_clock.cpp
   test_routing_engine.cpp
   test_metering.cpp
+  test_meter_envelope.cpp
+  test_sinc_interpolator.cpp
   test_wav_stream_decoder.cpp
   test_wav_metadata.cpp
   test_audio_ring_buffer.cpp
   test_streaming_track_buffer.cpp
   test_streaming_engine.cpp
+  test_io_pressure_policy.cpp
   test_project_loader.cpp
   test_project_history.cpp
   test_click_generator.cpp
@@ -18,6 +21,8 @@ add_executable(resostage_engine_tests
   test_seqlock.cpp
   test_audio_folder_import.cpp
   test_bar_seek.cpp
+  test_song_length.cpp
+  test_region_source_map.cpp
   test_recent_projects.cpp
   test_resolight_channel_map.cpp
   test_light_cue_interpolation.cpp

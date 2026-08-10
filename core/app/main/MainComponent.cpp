@@ -996,6 +996,8 @@ void MainComponent::publishWebState() {
         state.clickPeakDb = clickFrame.peakDb;
         state.clickPeakDbL = clickFrame.peakDbL;
         state.clickPeakDbR = clickFrame.peakDbR;
+        state.clickPpmDbL = clickFrame.ppmDbL;
+        state.clickPpmDbR = clickFrame.ppmDbR;
     }
     {
         const auto bh = engine.streamBufferHealth();
@@ -1006,6 +1008,10 @@ void MainComponent::publishWebState() {
         state.streamBufferUrgent = bh.urgent;
         state.streamResidentMiB =
             static_cast<double>(bh.residentBytes) / (1024.0 * 1024.0);
+        state.streamRingFraction = bh.minRingFraction;
+        state.streamIoPressure = bh.ioPressure == IoPressureLevel::Critical  ? "critical"
+                                 : bh.ioPressure == IoPressureLevel::Tight   ? "tight"
+                                                                             : "healthy";
     }
     state.songCount = static_cast<int>(proj.songs.size());
     state.songIndex = (engine.currentSongIndex() == static_cast<size_t>(-1))
@@ -1149,6 +1155,8 @@ void MainComponent::publishWebState() {
             m.peakDb = frame.peakDb;
             m.peakDbL = frame.peakDbL;
             m.peakDbR = frame.peakDbR;
+            m.ppmDbL = frame.ppmDbL;
+            m.ppmDbR = frame.ppmDbR;
             m.shortTermLufs = frame.shortTermLufs;
         }
         state.meters.push_back(std::move(m));

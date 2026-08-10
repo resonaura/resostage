@@ -2,6 +2,7 @@
 
 #include "../project/ProjectLoader.h"
 #include "../project/ProjectSchema.h"
+#include "IoPressurePolicy.h"
 #include "StreamingTrackBuffer.h"
 
 #include <atomic>
@@ -62,6 +63,13 @@ public:
         int streamingTracks = 0;
         bool urgent = false; // any non-resident below ~1s
         size_t residentBytes = 0;
+        // Emptiest non-resident ring as a fraction of capacity, and what the
+        // disk policy made of it. Surfaced because the fault these guard
+        // against (see IoPressurePolicy.h) is invisible in CPU, in RAM and in
+        // the driver's own underrun count -- so without this there is nothing
+        // to look at while it is happening.
+        double minRingFraction = 1.0;
+        IoPressureLevel ioPressure = IoPressureLevel::Healthy;
     };
 
     class ActiveSongHandle {
@@ -84,7 +92,8 @@ public:
 
     void start(const ProjectLoader* loader, std::function<void()> onIoThreadStart = nullptr,
                std::function<void()> onIoThreadStop = nullptr,
-               std::function<void()> onResidentThreadStart = nullptr);
+               std::function<void()> onResidentThreadStart = nullptr,
+               std::function<void(bool)> onResidentIoYield = nullptr);
     void stop();
 
     void setResidentBudgetBytes(size_t bytes) {
@@ -146,6 +155,15 @@ public:
     bool primeActiveSong(double minSeconds, double deviceSampleRate, double maxWaitSeconds);
     double minActiveBufferedSeconds(double deviceSampleRate) const;
     BufferHealth activeBufferHealth(double deviceSampleRate) const;
+
+    /**
+     * How hard the disk is being asked for, right now -- see IoPressurePolicy.
+     * Public so the health panel and tests can see the same number the
+     * promoter yields on.
+     */
+    IoPressureLevel ioPressure() const {
+        return ioPressureFor(minRingFraction.load(std::memory_order_relaxed));
+    }
 
     ActiveSongHandle acquireActiveSong();
     void updateRegionWindow(const Region& region, double deviceSampleRate = 0.0);
@@ -214,6 +232,13 @@ private:
     std::thread residentThread;
     std::atomic<bool> running{false};
     std::function<void()> residentThreadStartHook;
+    /**
+     * Called on the resident thread when it starts and stops yielding the
+     * disk. Platform-specific (on Darwin it moves the thread between
+     * IOPOL_UTILITY and IOPOL_THROTTLE), so it is injected rather than done
+     * here -- this file stays free of platform headers.
+     */
+    std::function<void(bool yielding)> residentIoYieldHook;
     std::function<void()> ioThreadStartHook;
     std::function<void()> ioThreadStopHook;
 
@@ -228,6 +253,16 @@ private:
     // Back-compat alias used by gapless path: newest warm entry that was
     // specifically the sequential "next" — still in warmByIndex.
     std::shared_ptr<StagedSong> precached;
+
+    /**
+     * Emptiest non-resident ring in the playing song, as a fraction of its
+     * capacity; 1.0 when there is nothing to run down.
+     *
+     * Written by the refill workers, which already walk every buffer, and read
+     * by the resident promoter -- so the promoter's decision to yield costs
+     * one relaxed load rather than a second pass over the song.
+     */
+    std::atomic<double> minRingFraction{1.0};
 
     std::atomic<size_t> residentBudgetBytes{kDefaultResidentBudgetBytes};
     std::atomic<size_t> residentBytesUsed{0};

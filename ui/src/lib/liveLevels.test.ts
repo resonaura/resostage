@@ -10,7 +10,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   getLiveLedOutputs,
+  getLiveLevels,
   pushLiveBinaryFrame,
+  setMeterIds,
   subscribeLiveLedOutputs,
 } from "./liveLevels";
 
@@ -114,5 +116,126 @@ describe("pushLiveBinaryFrame — light rows", () => {
     // whether a fixture needs re-rendering at all.
     expect(nextA).toBe(fixtureA);
     expect(nextB).not.toBe(fixtureB);
+  });
+});
+
+/**
+ * One v3 frame: click peaks plus click PPM, and `meters` meter rows each
+ * carrying peak L/R followed by PPM L/R.
+ */
+function buildMeterFrame(
+  click: { peakL: number; peakR: number; ppmL: number; ppmR: number },
+  meters: { peakL: number; peakR: number; ppmL: number; ppmR: number }[],
+): ArrayBuffer {
+  const buf = new ArrayBuffer(32 + meters.length * 16);
+  const view = new DataView(buf);
+  view.setUint16(0, 0x5253, true);
+  view.setUint8(2, 3);
+  view.setFloat32(4, 0, true); // playhead
+  view.setFloat32(8, click.peakL, true);
+  view.setFloat32(12, click.peakR, true);
+  view.setFloat32(16, click.ppmL, true);
+  view.setFloat32(20, click.ppmR, true);
+  view.setUint16(24, 0, true); // tracks
+  view.setUint16(26, meters.length, true);
+  view.setUint16(28, 0, true); // lights
+  let off = 32;
+  for (const m of meters) {
+    view.setFloat32(off, m.peakL, true);
+    view.setFloat32(off + 4, m.peakR, true);
+    view.setFloat32(off + 8, m.ppmL, true);
+    view.setFloat32(off + 12, m.ppmR, true);
+    off += 16;
+  }
+  return buf;
+}
+
+/** The same two meters, in the v2 layout that carries no PPM at all. */
+function buildV2MeterFrame(
+  meters: { peakL: number; peakR: number }[],
+): ArrayBuffer {
+  const buf = new ArrayBuffer(24 + meters.length * 8);
+  const view = new DataView(buf);
+  view.setUint16(0, 0x5253, true);
+  view.setUint8(2, 2);
+  view.setFloat32(4, 0, true);
+  view.setFloat32(8, -120, true);
+  view.setFloat32(12, -120, true);
+  view.setUint16(16, 0, true);
+  view.setUint16(18, meters.length, true);
+  view.setUint16(20, 0, true);
+  let off = 24;
+  for (const m of meters) {
+    view.setFloat32(off, m.peakL, true);
+    view.setFloat32(off + 4, m.peakR, true);
+    off += 8;
+  }
+  return buf;
+}
+
+describe("pushLiveBinaryFrame — the needle and the peak are separate", () => {
+  beforeEach(() => {
+    setMeterIds(["audio::main", "send::verb"]);
+  });
+
+  it("keeps the raw peak for the readout and the PPM for the bar", () => {
+    // These deliberately disagree: the peak is what the sample hit, the PPM is
+    // where the engine's needle has fallen to since. A decoder that conflated
+    // them would pass with equal values and fail on real audio.
+    pushLiveBinaryFrame(
+      buildMeterFrame(
+        { peakL: -3, peakR: -4, ppmL: -9, ppmR: -10 },
+        [
+          { peakL: -6, peakR: -7, ppmL: -20, ppmR: -21 },
+          { peakL: -30, peakR: -31, ppmL: -40, ppmR: -41 },
+        ],
+      ),
+    );
+
+    const live = getLiveLevels();
+    expect(live.meters.map((m) => m.id)).toEqual(["audio::main", "send::verb"]);
+    expect(live.meters[0].peakDbL).toBeCloseTo(-6);
+    expect(live.meters[0].peakDbR).toBeCloseTo(-7);
+    expect(live.meters[0].needleDbL).toBeCloseTo(-20);
+    expect(live.meters[0].needleDbR).toBeCloseTo(-21);
+    expect(live.meters[1].needleDbL).toBeCloseTo(-40);
+    expect(live.clickPeakDbL).toBeCloseTo(-3);
+    expect(live.clickNeedleDbL).toBeCloseTo(-9);
+    expect(live.clickNeedleDbR).toBeCloseTo(-10);
+  });
+
+  it("does not interval-max the needle the way it maxes the peak", () => {
+    // The click peak holds the loudest thing since the last paint, because a
+    // tick can be shorter than a frame. The needle must NOT: the engine's
+    // release already decided where it should be, and re-holding it here would
+    // undo exactly the ballistics this path exists to carry.
+    pushLiveBinaryFrame(
+      buildMeterFrame({ peakL: -3, peakR: -3, ppmL: -3, ppmR: -3 }, []),
+    );
+    pushLiveBinaryFrame(
+      buildMeterFrame({ peakL: -60, peakR: -60, ppmL: -8, ppmR: -8 }, []),
+    );
+
+    const live = getLiveLevels();
+    expect(live.clickNeedleDbL).toBeCloseTo(-8);
+    expect(live.clickPeakDbL).toBeCloseTo(-3);
+  });
+
+  it("falls back to the peak when the sender has no PPM to give", () => {
+    // A v2 backend against a v3 bundle only happens across a dev reload, but
+    // it must degrade to the old behaviour rather than to garbage read off the
+    // wrong offsets.
+    pushLiveBinaryFrame(
+      buildV2MeterFrame([
+        { peakL: -12, peakR: -13 },
+        { peakL: -14, peakR: -15 },
+      ]),
+    );
+
+    const live = getLiveLevels();
+    expect(live.meters).toHaveLength(2);
+    expect(live.meters[0].needleDbL).toBeCloseTo(-12);
+    expect(live.meters[0].needleDbR).toBeCloseTo(-13);
+    expect(live.meters[1].needleDbL).toBeCloseTo(-14);
   });
 });

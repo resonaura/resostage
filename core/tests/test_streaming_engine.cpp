@@ -352,3 +352,63 @@ TEST_CASE("StreamingEngine::stageSong defaults to synchronous fill and never def
 
     engine.stop();
 }
+
+// The resident promoter now yields the disk when the playing song's rings run
+// down (see audio/IoPressurePolicy.h). The policy itself is pinned in
+// test_io_pressure_policy.cpp; what matters HERE is the failure mode that
+// would be silent: a false alarm. If the pressure signal reads low on a
+// perfectly healthy song, the promoter stops loading regions into RAM -- and
+// residency is what speed and reverse are served from, so they would quietly
+// stop working on long regions with nothing at all in the log to say why.
+TEST_CASE("StreamingEngine: a well-fed song reports no disk pressure") {
+    const std::string path = makeTwoSongArchive();
+
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(path, error));
+
+    TrackDef track;
+    track.id = "track_a";
+    loader.project().tracks = {track};
+
+    SongDef song;
+    song.id = "song";
+    Region reg;
+    reg.id = "reg_a";
+    reg.trackId = "track_a";
+    reg.source.file = "Audio/a.wav";
+    song.regions = {reg};
+
+    StreamingEngine engine;
+    // No residency, so the buffers stay on the streaming path and the workers
+    // have a real ring to measure rather than skipping straight past it.
+    engine.setResidentBudgetBytes(0);
+
+    std::atomic<int> yieldCalls{0};
+    engine.start(&loader, nullptr, nullptr, nullptr,
+                 [&yieldCalls](bool) { yieldCalls.fetch_add(1, std::memory_order_relaxed); });
+
+    std::string stageError;
+    REQUIRE(engine.stageSong(0, song, 8192, 48000.0, stageError));
+
+    // Let the refill workers make several passes.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    const auto health = engine.activeBufferHealth(48000.0);
+    CHECK(health.minRingFraction > kIoTightFraction);
+    CHECK(engine.ioPressure() == IoPressureLevel::Healthy);
+    // Nothing is starving, so the promoter was never asked to stand aside.
+    CHECK(yieldCalls.load() == 0);
+
+    engine.stop();
+}
+
+TEST_CASE("StreamingEngine: a song with nothing staged is not treated as starving") {
+    // The default has to be Healthy, not Critical. An engine with no active
+    // song has no ring to run down, and reading that as an emergency would
+    // freeze residency for the whole time a project sits loaded but stopped --
+    // which is exactly when it should be filling RAM.
+    StreamingEngine engine;
+    CHECK(engine.ioPressure() == IoPressureLevel::Healthy);
+    CHECK(engine.activeBufferHealth(48000.0).minRingFraction == doctest::Approx(1.0));
+}

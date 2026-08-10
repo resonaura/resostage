@@ -89,11 +89,13 @@ StreamingEngine::~StreamingEngine() { stop(); }
 
 void StreamingEngine::start(const ProjectLoader* loader, std::function<void()> onIoThreadStart,
                             std::function<void()> onIoThreadStop,
-                            std::function<void()> onResidentThreadStart) {
+                            std::function<void()> onResidentThreadStart,
+                            std::function<void(bool)> onResidentIoYield) {
     stop();
     projectLoader = loader;
     ioThreadStartHook = std::move(onIoThreadStart);
     residentThreadStartHook = std::move(onResidentThreadStart);
+    residentIoYieldHook = std::move(onResidentIoYield);
     ioThreadStopHook = std::move(onIoThreadStop);
     warmGeneration_.fetch_add(1, std::memory_order_acq_rel);
     {
@@ -375,12 +377,19 @@ bool StreamingEngine::residentizeOneBuffer(StagedSong& staged, size_t& budgetRem
     size_t got = 0;
     std::string err;
     const bool dir = projectLoader != nullptr && projectLoader->isDirectoryContainer();
+    // Polled between decode chunks. A whole-stem read is long enough that
+    // deciding not to start it is not sufficient -- by the time the rings are
+    // in trouble this one is already queued, and on the zip path it is holding
+    // projectLoaderMutex, which the refill workers need too.
+    const auto abortIfCritical = [this] {
+        return residentLoadShouldAbort(ioPressure()) || !running.load(std::memory_order_relaxed);
+    };
     bool ok = false;
     if (dir) {
-        ok = best->tryLoadResident(budgetRemaining, got, err);
+        ok = best->tryLoadResident(budgetRemaining, got, err, abortIfCritical);
     } else {
         std::lock_guard<std::mutex> lock(projectLoaderMutex);
-        ok = best->tryLoadResident(budgetRemaining, got, err);
+        ok = best->tryLoadResident(budgetRemaining, got, err, abortIfCritical);
     }
     if (ok && got <= budgetRemaining)
         budgetRemaining -= got;
@@ -396,11 +405,38 @@ void StreamingEngine::residentThreadLoop() {
     if (residentThreadStartHook)
         residentThreadStartHook();
 
+    // Whether this thread is currently standing aside. Tracked so the hook
+    // fires on the transition rather than on every tick -- setiopolicy_np is
+    // cheap but not free, and a flapping policy tells the scheduler nothing.
+    bool yielding = false;
+    const auto setYielding = [&](bool next) {
+        if (next == yielding)
+            return;
+        yielding = next;
+        if (residentIoYieldHook)
+            residentIoYieldHook(next);
+    };
+
     while (running.load(std::memory_order_acquire)) {
         const uint64_t epochBefore = stageEpoch_.load(std::memory_order_acquire);
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
         if (stageEpoch_.load(std::memory_order_acquire) != epochBefore) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        }
+
+        // Get off the disk while the playing song's rings are draining.
+        //
+        // This thread reads a WHOLE region at a time so later playback is
+        // free; the refill workers read a few thousand frames of audio that is
+        // about to come out of the speakers. Running at a lower thread
+        // priority was not enough on a slow or loaded disk -- a bulk read
+        // already queued still sits in front of the refills. So it stops
+        // asking. See IoPressurePolicy.h.
+        const IoPressureLevel pressure = ioPressure();
+        setYielding(!residentPromoterMayStart(pressure));
+        if (yielding) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(40));
             continue;
         }
 
@@ -443,6 +479,10 @@ void StreamingEngine::residentThreadLoop() {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(didWork ? 15 : 40));
     }
+
+    // Leave the thread's disk policy as we found it, whatever it was doing
+    // when the engine was told to stop.
+    setYielding(false);
 }
 
 void StreamingEngine::dropPrecacheUnless(size_t expectedNext) {
@@ -456,6 +496,11 @@ void StreamingEngine::dropPrecacheUnless(size_t expectedNext) {
 void StreamingEngine::refillActiveSlice(StagedSong& s, int workerIndex, int workerCount, bool& urgent,
                                         bool& hungry) {
     int globalBudget = kMaxActiveBurstRefills / std::max(1, workerCount);
+    // Emptiest ring seen this pass, as a fraction of capacity. Published at
+    // the end so the resident promoter knows whether to get off the disk --
+    // see IoPressurePolicy.h. Starts at "nothing to run down".
+    double emptiest = 1.0;
+    const IoPressureLevel pressure = ioPressure();
     int sinceYield = 0;
     bool progress = true;
     const bool dirContainer =
@@ -477,6 +522,13 @@ void StreamingEngine::refillActiveSlice(StagedSong& s, int workerIndex, int work
                 const int64_t low = static_cast<int64_t>(cap * kLowWaterFrac);
                 const int64_t high = static_cast<int64_t>(cap * kHighWaterFrac);
                 const int64_t avail = buf->framesAvailable();
+                // An exhausted source has no more to give and is not a ring
+                // running down -- counting it would pin the engine at Critical
+                // for the rest of the song.
+                if (!buf->isExhausted()) {
+                    emptiest = std::min(emptiest,
+                                        static_cast<double>(avail) / static_cast<double>(cap));
+                }
                 const bool skipPending = buf->hasPendingSkip();
                 const bool lowWater = avail < low && buf->wantsRefill();
                 const bool belowHigh = avail < high && buf->wantsRefill();
@@ -490,9 +542,14 @@ void StreamingEngine::refillActiveSlice(StagedSong& s, int workerIndex, int work
                     continue;
                 }
 
-                const int allow = (skipPending || lowWater)
-                                      ? kMaxRefillsPerBufferPerTick
-                                      : (belowHigh ? 2 : 1);
+                // Under pressure, stay on this buffer and drain its backlog
+                // rather than round-robining a chunk at a time: the disk queue
+                // is the contended resource, and fewer larger visits to it
+                // beat many small ones.
+                const int allow = refillBurstFor(pressure,
+                                                 (skipPending || lowWater)
+                                                     ? kMaxRefillsPerBufferPerTick
+                                                     : (belowHigh ? 2 : 1));
                 for (int n = 0; n < allow && globalBudget > 0; ++n) {
                     if (!buf->wantsRefill())
                         break;
@@ -520,6 +577,23 @@ void StreamingEngine::refillActiveSlice(StagedSong& s, int workerIndex, int work
         if (!dirContainer && sinceYield >= kMutexYieldEveryRefills) {
             sinceYield = 0;
             progress = true;
+        }
+    }
+
+    // Worker 1 sees only half the buffers, so it may only ever LOWER the
+    // published figure within a tick -- taking the min keeps a worker that
+    // happened to look at the healthy half from clearing a real alarm. Both
+    // workers run several times a second, so the value recovers on its own
+    // once the rings do.
+    if (workerIndex == 0) {
+        minRingFraction.store(emptiest, std::memory_order_relaxed);
+    } else {
+        double current = minRingFraction.load(std::memory_order_relaxed);
+        while (emptiest < current
+               && !minRingFraction.compare_exchange_weak(current, emptiest,
+                                                         std::memory_order_relaxed,
+                                                         std::memory_order_relaxed)) {
+            // current refreshed by the failed exchange
         }
     }
 }
@@ -1000,6 +1074,8 @@ double StreamingEngine::minActiveBufferedSeconds(double deviceSampleRate) const 
 
 StreamingEngine::BufferHealth StreamingEngine::activeBufferHealth(double deviceSampleRate) const {
     BufferHealth h;
+    h.minRingFraction = minRingFraction.load(std::memory_order_relaxed);
+    h.ioPressure = ioPressureFor(h.minRingFraction);
     if (deviceSampleRate <= 0.0)
         deviceSampleRate = 48000.0;
     std::shared_ptr<StagedSong> s = std::atomic_load_explicit(&active, std::memory_order_acquire);

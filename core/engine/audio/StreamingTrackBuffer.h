@@ -5,6 +5,7 @@
 #include "WavStreamDecoder.h"
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -56,9 +57,70 @@ public:
     int64_t preferredResidentLength() const { return preferredLength; }
     size_t estimatedResidentBytes() const;
 
-    // Side-channel load → atomic publish. Safe while audio reads this buffer.
-    bool tryLoadResident(size_t maxBytes, size_t& outBytes, std::string& error);
+    /**
+     * Side-channel load → atomic publish. Safe while audio reads this buffer.
+     *
+     * `shouldAbort`, when given, is polled between decode chunks. Returning
+     * true abandons the load: nothing is published and the buffer stays
+     * streaming. This exists because one of these reads a whole stem, which on
+     * a loaded disk can sit in front of the refills that are feeding audio
+     * that is playing right now -- and by then it is far too late to decide
+     * not to have started. Discarding a partial window is the right cost: it
+     * was an optimisation, and half of one is unusable (a region resident only
+     * to its midpoint reads silence past that point).
+     */
+    bool tryLoadResident(size_t maxBytes, size_t& outBytes, std::string& error,
+                         const std::function<bool()>& shouldAbort = {});
+    /** The in-RAM copy of a region, published atomically once decoded. */
+    struct ResidentWindow {
+        int64_t start = 0;
+        int64_t length = 0;
+        size_t byteCount = 0;
+        std::vector<std::vector<float>> data;
+    };
+
     bool isResident() const { return residentSnapshot() != nullptr; }
+
+    /**
+     * Direct, owning access to the in-RAM window, for readers that need MANY
+     * samples at arbitrary positions.
+     *
+     * read() is the right call for a contiguous block; it is the wrong one for
+     * varispeed, which lands between frames and wants a whole interpolation
+     * kernel around each position. Doing that through read() meant one call --
+     * and one atomic shared_ptr load -- per TAP per output sample. Holding the
+     * snapshot for the block instead costs one refcount and turns the inner
+     * loop into plain array indexing.
+     *
+     * The handle owns its snapshot, so the data cannot be freed underneath the
+     * audio thread while it is held. Do not outlive the block.
+     */
+    class ResidentView {
+    public:
+        explicit operator bool() const { return window != nullptr; }
+        /** First source frame the window covers. */
+        int64_t start() const { return window != nullptr ? window->start : 0; }
+        int64_t length() const { return window != nullptr ? window->length : 0; }
+        int channels() const {
+            return window != nullptr ? static_cast<int>(window->data.size()) : 0;
+        }
+        /** Channel `c`'s frames, or nullptr. Indexed from `start()`. */
+        const float* channel(int c) const {
+            if (window == nullptr || c < 0 || c >= static_cast<int>(window->data.size()))
+                return nullptr;
+            return window->data[static_cast<size_t>(c)].data();
+        }
+
+    private:
+        friend class StreamingTrackBuffer;
+        std::shared_ptr<const ResidentWindow> window;
+    };
+
+    ResidentView residentView() const {
+        ResidentView v;
+        v.window = residentSnapshot();
+        return v;
+    }
     size_t residentBytes() const {
         const auto window = residentSnapshot();
         return window != nullptr ? window->byteCount : 0;
@@ -138,12 +200,6 @@ public:
     }
 
 private:
-    struct ResidentWindow {
-        int64_t start = 0;
-        int64_t length = 0;
-        size_t byteCount = 0;
-        std::vector<std::vector<float>> data;
-    };
     std::shared_ptr<const ResidentWindow> residentSnapshot() const {
         return std::atomic_load_explicit(&residentWindow, std::memory_order_acquire);
     }
@@ -157,7 +213,8 @@ private:
     // this->cursor / this->ring / this->decoder).
     bool decodeWindowSideChannel(int64_t deviceStart, int64_t deviceFrames,
                                  std::vector<std::vector<float>>& outPlanar, int64_t& outFrames,
-                                 std::string& error) const;
+                                 std::string& error,
+                                 const std::function<bool()>& shouldAbort) const;
 
     ProjectLoader::StreamCursor cursor;
     WavStreamDecoder decoder;

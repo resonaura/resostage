@@ -59,6 +59,12 @@ inline void streamingIoThreadStop() {
     leaveCurrentThreadWorkgroupIfJoined();
 }
 
+// The resident promoter getting off the disk, and back on it. See
+// engine/audio/IoPressurePolicy.h.
+inline void residentIoYield(bool yielding) {
+    setBackgroundWorkerIoYielding(yielding);
+}
+
 // ~/Library/Application Support/ResoStage/Drafts/draft_<timestamp>.rsnraset
 // (platform-appropriate equivalent elsewhere). Auto-created for every
 // newProject() so imports have somewhere real to write to immediately,

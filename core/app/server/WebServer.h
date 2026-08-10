@@ -258,6 +258,9 @@ struct WebUiState {
     float clickPeakDb = -144.0f;
     float clickPeakDbL = -144.0f;
     float clickPeakDbR = -144.0f;
+    // See MeterRow::ppmDbL.
+    float clickPpmDbL = -144.0f;
+    float clickPpmDbR = -144.0f;
     // Stream feeder health (min ring / RAM-resident stems).
     double streamBufferMinSec = 0.0;
     double streamBufferAvgSec = 0.0;
@@ -265,6 +268,10 @@ struct WebUiState {
     int streamStreamingTracks = 0;
     bool streamBufferUrgent = false;
     double streamResidentMiB = 0.0;
+    // Emptiest ring as a fraction of capacity, and whether the resident
+    // promoter has stood aside because of it. See IoPressurePolicy.h.
+    double streamRingFraction = 1.0;
+    std::string streamIoPressure = "healthy";
     std::string songName;
     double playheadSeconds = 0.0;
     // Cumulative whole-project position (AudioEngine::globalPlayheadSeconds/
@@ -471,6 +478,10 @@ struct WebUiState {
         float peakDb = -144.0f;
         float peakDbL = -144.0f;
         float peakDbR = -144.0f;
+        // Engine-side PPM ballistics (see engine/audio/MeterEnvelope.h). The
+        // needle reads this; the peaks above stay raw for clip and readout.
+        float ppmDbL = -144.0f;
+        float ppmDbR = -144.0f;
         float shortTermLufs = -144.0f;
     };
     std::vector<MeterRow> meters;

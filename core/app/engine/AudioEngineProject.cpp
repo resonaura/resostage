@@ -18,6 +18,7 @@ namespace resostage {
 using audio_engine_detail::kRingBufferSeconds;
 using audio_engine_detail::streamingIoThreadStart;
 using audio_engine_detail::streamingIoThreadStop;
+using audio_engine_detail::residentIoYield;
 using audio_engine_detail::makeDraftArchivePath;
 using audio_engine_detail::purgeStaleDrafts;
 
@@ -74,7 +75,8 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
                         streamingIoThreadStart();
                         joinCurrentThreadToDeviceWorkgroup();
                     },
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority);
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
     clearDirty();
     // Background-open every song into the warm LRU so the first hopscotch
     // after load isn't a cold stage. Does not require stageEpoch match —
@@ -155,7 +157,8 @@ void AudioEngine::newProject(const std::string& name) {
                         streamingIoThreadStart();
                         joinCurrentThreadToDeviceWorkgroup();
                     },
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority);
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
     clearDirty();
     // Notify LightEngine (and re-apply the Art-Net target) for the new
     // (empty) project.
@@ -277,7 +280,8 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
                         streamingIoThreadStart();
                         joinCurrentThreadToDeviceWorkgroup();
                     },
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority);
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
             return false;
         }
         if (!loader.open(path, error)) {
@@ -325,7 +329,8 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
                         streamingIoThreadStart();
                         joinCurrentThreadToDeviceWorkgroup();
                     },
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority);
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
 
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
@@ -500,7 +505,8 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                         streamingIoThreadStart();
                         joinCurrentThreadToDeviceWorkgroup();
                     },
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority);
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
                 finish(false, "Failed to replace archive: " + ec.message());
                 return;
             }
@@ -525,7 +531,8 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                         streamingIoThreadStart();
                         joinCurrentThreadToDeviceWorkgroup();
                     },
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority);
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
 
             currentSong = static_cast<size_t>(-1);
             trackIdByIndex.clear();

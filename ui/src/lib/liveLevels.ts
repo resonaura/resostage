@@ -16,12 +16,38 @@
 import { isRenderActive } from "./appActivity";
 import { addRafTask } from "./rafLoop";
 
+/**
+ * A meter as the UI reads it.
+ *
+ * `peak*` is the raw sample peak -- what the dB readout and the clip latch
+ * want. `needle*` is what a BAR should be driven by: the engine's own PPM
+ * ballistics, sampled every 64 samples on the audio thread and published as a
+ * trajectory (see core/engine/audio/MeterEnvelope.h).
+ *
+ * They are separate because the raw peak is a measurement of one callback, and
+ * at a 4096-frame buffer that is one number per 85ms against a display asking
+ * three times as often -- which is what made the needles judder. The PPM is a
+ * filter with a defined release, so it reads the same at every buffer size.
+ * When the backend does not send one (older frame version), needle falls back
+ * to peak and behaves exactly as before.
+ */
+export type LiveMeter = {
+  id: string;
+  peakDb: number;
+  peakDbL: number;
+  peakDbR: number;
+  needleDbL: number;
+  needleDbR: number;
+};
+
 export type LiveLevels = {
   clickPeakDb: number;
   clickPeakDbL: number;
   clickPeakDbR: number;
+  clickNeedleDbL: number;
+  clickNeedleDbR: number;
   tracks: { peakDb: number; peakDbL: number; peakDbR: number }[];
-  meters: { id: string; peakDb: number; peakDbL: number; peakDbR: number }[];
+  meters: LiveMeter[];
   seq: number;
 };
 
@@ -30,6 +56,13 @@ const FLOOR = -144;
 let latestClick = FLOOR;
 let latestClickL = FLOOR;
 let latestClickR = FLOOR;
+/**
+ * The click's needle values. NOT interval-maxed like the peaks above: the PPM
+ * already holds its own peak on the audio thread with an instant attack, so
+ * maxing it again here would re-hold a value its release has let go of.
+ */
+let clickNeedleL = FLOOR;
+let clickNeedleR = FLOOR;
 /** Max of click peaks since the last paint roll. */
 let pendingClickMax = FLOOR;
 let pendingClickMaxL = FLOOR;
@@ -40,7 +73,7 @@ let displayClickL = FLOOR;
 let displayClickR = FLOOR;
 
 let tracks: LiveLevels["tracks"] = [];
-let meters: LiveLevels["meters"] = [];
+let meters: LiveMeter[] = [];
 let meterIds: string[] = [];
 let seq = 0;
 
@@ -158,12 +191,16 @@ export function pushLiveLevels(frame: {
   clickPeakDb?: number;
   clickPeakDbL?: number;
   clickPeakDbR?: number;
+  clickPpmDbL?: number;
+  clickPpmDbR?: number;
   tracks?: { peakDb?: number; peakDbL?: number; peakDbR?: number }[];
   meters?: {
     id: string;
     peakDb?: number;
     peakDbL?: number;
     peakDbR?: number;
+    ppmDbL?: number;
+    ppmDbR?: number;
   }[];
 }): void {
   let changed = false;
@@ -186,6 +223,14 @@ export function pushLiveLevels(frame: {
       pendingClickMaxR = frame.clickPeakDbR;
     changed = true;
   }
+  if (frame.clickPpmDbL !== undefined && Number.isFinite(frame.clickPpmDbL)) {
+    clickNeedleL = frame.clickPpmDbL;
+    changed = true;
+  }
+  if (frame.clickPpmDbR !== undefined && Number.isFinite(frame.clickPpmDbR)) {
+    clickNeedleR = frame.clickPpmDbR;
+    changed = true;
+  }
   if (frame.tracks) {
     tracks = frame.tracks.map((t) => ({
       peakDb: t.peakDb ?? FLOOR,
@@ -195,12 +240,18 @@ export function pushLiveLevels(frame: {
     changed = true;
   }
   if (frame.meters) {
-    meters = frame.meters.map((m) => ({
-      id: m.id,
-      peakDb: m.peakDb ?? FLOOR,
-      peakDbL: m.peakDbL ?? m.peakDb ?? FLOOR,
-      peakDbR: m.peakDbR ?? m.peakDb ?? FLOOR,
-    }));
+    meters = frame.meters.map((m) => {
+      const peakDbL = m.peakDbL ?? m.peakDb ?? FLOOR;
+      const peakDbR = m.peakDbR ?? m.peakDb ?? FLOOR;
+      return {
+        id: m.id,
+        peakDb: m.peakDb ?? FLOOR,
+        peakDbL,
+        peakDbR,
+        needleDbL: m.ppmDbL ?? peakDbL,
+        needleDbR: m.ppmDbR ?? peakDbR,
+      };
+    });
     changed = true;
   }
 
@@ -219,12 +270,16 @@ export function getClickPeaks(): {
   peakDb: number;
   peakDbL: number;
   peakDbR: number;
+  needleDbL: number;
+  needleDbR: number;
 } {
   ensurePaintTicker();
   return {
     peakDb: Math.max(displayClick, pendingClickMax),
     peakDbL: Math.max(displayClickL, pendingClickMaxL),
     peakDbR: Math.max(displayClickR, pendingClickMaxR),
+    needleDbL: clickNeedleL,
+    needleDbR: clickNeedleR,
   };
 }
 
@@ -234,6 +289,8 @@ export function getLiveLevels(): LiveLevels {
     clickPeakDb: c.peakDb,
     clickPeakDbL: c.peakDbL,
     clickPeakDbR: c.peakDbR,
+    clickNeedleDbL: c.needleDbL,
+    clickNeedleDbR: c.needleDbR,
     tracks,
     meters,
     seq,
@@ -252,9 +309,15 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   // the JSON state path); still advance the view past it.
   const clickL = view.getFloat32(8, true);
   const clickR = view.getFloat32(12, true);
-  const numTracks = view.getUint16(16, true);
-  const numMeters = view.getUint16(18, true);
-  const numLights = view.getUint16(20, true);
+  // v3 inserts the click's two PPM floats here and widens each meter row from
+  // two floats to four. A v2 sender is still decoded, with the needle falling
+  // back to the raw peak -- the two builds only ever disagree during a dev
+  // reload, but a garbled meter is a bad way to find that out.
+  const hasPpm = version >= 3;
+  const countsAt = hasPpm ? 24 : 16;
+  const numTracks = view.getUint16(countsAt, true);
+  const numMeters = view.getUint16(countsAt + 2, true);
+  const numLights = view.getUint16(countsAt + 4, true);
 
   latestClickL = clickL;
   latestClickR = clickR;
@@ -262,8 +325,10 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   if (latestClick > pendingClickMax) pendingClickMax = latestClick;
   if (clickL > pendingClickMaxL) pendingClickMaxL = clickL;
   if (clickR > pendingClickMaxR) pendingClickMaxR = clickR;
+  clickNeedleL = hasPpm ? view.getFloat32(16, true) : clickL;
+  clickNeedleR = hasPpm ? view.getFloat32(20, true) : clickR;
 
-  let offset = 24;
+  let offset = hasPpm ? 32 : 24;
 
   const nextTracks: LiveLevels["tracks"] = [];
   for (let i = 0; i < numTracks; i++) {
@@ -275,14 +340,24 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   }
   tracks = nextTracks;
 
-  const nextMeters: LiveLevels["meters"] = [];
+  const meterRowBytes = hasPpm ? 16 : 8;
+  const nextMeters: LiveMeter[] = [];
   for (let i = 0; i < numMeters; i++) {
-    if (offset + 8 > buffer.byteLength) break;
+    if (offset + meterRowBytes > buffer.byteLength) break;
     const pL = view.getFloat32(offset, true);
     const pR = view.getFloat32(offset + 4, true);
-    offset += 8;
+    const nL = hasPpm ? view.getFloat32(offset + 8, true) : pL;
+    const nR = hasPpm ? view.getFloat32(offset + 12, true) : pR;
+    offset += meterRowBytes;
     const id = meterIds[i] ?? `meter-${i}`;
-    nextMeters.push({ id, peakDb: Math.max(pL, pR), peakDbL: pL, peakDbR: pR });
+    nextMeters.push({
+      id,
+      peakDb: Math.max(pL, pR),
+      peakDbL: pL,
+      peakDbR: pR,
+      needleDbL: nL,
+      needleDbR: nR,
+    });
   }
   meters = nextMeters;
 

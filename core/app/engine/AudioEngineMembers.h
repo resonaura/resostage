@@ -47,6 +47,36 @@
     // MixGraph, which lays project tracks out first and in project order.
     std::vector<std::string> trackIdByIndex;
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> busMeters;
+    /**
+     * Sub-block envelope per bus: the ballistics run on the audio thread at
+     * 1.33ms resolution and the points cross to the publisher in a lock-free
+     * ring (see engine/audio/MeterEnvelope.h).
+     *
+     * This is what makes the needle independent of the buffer size. The
+     * interval latch below can only answer "loudest thing since you last
+     * asked", which is empty on any poll that lands between callbacks -- at
+     * 4096 frames, most of them.
+     */
+    static constexpr size_t kMeterRingPoints = 256;
+    std::vector<MeterEnvelopeTracker> busEnvelopeTrackers;
+    std::vector<std::unique_ptr<MeterEnvelopeRing<kMeterRingPoints>>> busEnvelopeRings;
+    /**
+     * Interpolation kernels for varispeed, built once at construction.
+     *
+     * Built up front rather than per speed change: a kernel is hundreds of
+     * thousands of transcendental evaluations, speed is a value the operator
+     * DRAGS, and the audio thread cannot wait for either. See
+     * engine/audio/SincInterpolator.h.
+     */
+    SincTableSet sincTables;
+
+    MeterEnvelopeTracker clickEnvelopeTracker;
+    MeterEnvelopeRing<kMeterRingPoints> clickEnvelopeRing;
+    /** Last needle value per meter, held when a poll finds no new points. */
+    std::vector<MeterEnvelopePoint> busLastPpm;
+    MeterEnvelopePoint clickLastPpm;
+    /** Set by the message thread, consumed by the callback. See the callback. */
+    std::atomic<bool> envelopeResetRequested{false};
     std::vector<LoudnessMeter> busLoudnessMeters;
     // Per-bus interval peak (linear), parallel to busMeters. Audio thread
     // CAS-maxes; message thread exchanges in consumeBusMeterInterval().

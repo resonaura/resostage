@@ -24,6 +24,11 @@ using audio_engine_detail::kRingBufferSeconds;
 using audio_engine_detail::purgeStaleDrafts;
 
 AudioEngine::AudioEngine() {
+    // Before anything can play. A few hundred thousand transcendental
+    // evaluations, once, on the thread that constructs the engine -- never on
+    // the audio thread, and never in response to a speed change.
+    sincTables.build();
+
     // Reclaim disk from previous sessions even if the user never hits New
     // Project this launch (makeDraftArchivePath also rotates on create).
     {
@@ -201,6 +206,30 @@ float linearPeakToDb(float p) {
         return -144.0f;
     return 20.0f * std::log10(std::min(p, 32.0f));
 }
+
+/**
+ * Drain a meter's trajectory and return the needle value to publish.
+ *
+ * The LAST point wins rather than the loudest: the ballistics already did the
+ * peak-holding on the audio thread, so the newest point is the state of the
+ * needle right now. Taking a max here would re-hold peaks that the release
+ * has legitimately let go of.
+ *
+ * Nothing drained means no audio was rendered since the last publish -- at a
+ * big buffer that is most polls -- so the previous value stands. That is not
+ * an invented decay: it is the absence of a new measurement. Real silence
+ * still reads as silence: the release keeps running on the audio thread, so
+ * the points that do arrive are already on their way down.
+ */
+template <size_t Capacity>
+const MeterEnvelopePoint& drainEnvelope(MeterEnvelopeRing<Capacity>& ring,
+                                        MeterEnvelopePoint& lastPoint) {
+    MeterEnvelopePoint points[Capacity];
+    const size_t n = ring.drain(points, Capacity);
+    if (n > 0)
+        lastPoint = points[n - 1];
+    return lastPoint;
+}
 } // namespace
 
 MeterFrame AudioEngine::consumeClickMeterInterval() {
@@ -228,6 +257,12 @@ MeterFrame AudioEngine::consumeClickMeterInterval() {
     const float outR = std::max(peakR, lastR);
 
     MeterFrame frame;
+    // The needle value comes from the trajectory instead: real PPM ballistics,
+    // computed on the audio thread every 64 samples, so it reads the same at
+    // 512 frames and at 4096.
+    const MeterEnvelopePoint& click = drainEnvelope(clickEnvelopeRing, clickLastPpm);
+    frame.ppmDbL = linearPeakToDb(click.ppmL);
+    frame.ppmDbR = linearPeakToDb(click.ppmR);
     frame.peakDbL = linearPeakToDb(outL);
     frame.peakDbR = linearPeakToDb(outR);
     frame.peakDb = linearPeakToDb(std::max(outL, outR));
@@ -255,6 +290,17 @@ MeterFrame AudioEngine::consumeBusMeterInterval(size_t busIndex) {
     if (busIndex < busPeakIntervalCount && busLastBlockPeakL && busLastBlockPeakR) {
         outL = std::max(peakL, busLastBlockPeakL[busIndex].load(std::memory_order_relaxed));
         outR = std::max(peakR, busLastBlockPeakR[busIndex].load(std::memory_order_relaxed));
+    }
+
+    // The needle value comes from the trajectory, which carries real PPM
+    // ballistics computed inside the audio thread every 64 samples. Draining
+    // the ring here is also what keeps it from wrapping.
+    if (busIndex < busEnvelopeRings.size() && busEnvelopeRings[busIndex] != nullptr
+        && busIndex < busLastPpm.size()) {
+        const MeterEnvelopePoint& p =
+            drainEnvelope(*busEnvelopeRings[busIndex], busLastPpm[busIndex]);
+        frame.ppmDbL = linearPeakToDb(p.ppmL);
+        frame.ppmDbR = linearPeakToDb(p.ppmR);
     }
     // Interval peaks win for display needles; keep LUFS/truePeak from the
     // latest LoudnessMeter frame for sustained program material.
@@ -477,6 +523,12 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
         meter.prepare(currentSampleRate, 2);
     for (auto& band : trackBandMeters)
         band.prepare(currentSampleRate, 2);
+
+    // The PPM release is a per-sample coefficient, so a rate change would
+    // otherwise silently alter the fall time the standard fixes in seconds.
+    clickEnvelopeTracker.prepare(currentSampleRate);
+    for (auto& tracker : busEnvelopeTrackers)
+        tracker.prepare(currentSampleRate);
 
     ensureScratchSizes();
 
@@ -770,6 +822,33 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     busMeters[i]->write(silent);
             }
             clickMeterFrame.write(silent);
+
+            // The envelope trajectory needs the same treatment, and it has to
+            // happen HERE rather than in resetMetersSilent().
+            //
+            // A drain that finds nothing holds its last value -- that is what
+            // lets a needle survive the polls that land between callbacks at a
+            // big buffer. Once the transport stops, though, nothing is
+            // published ever again, so "hold" becomes "freeze": the needle
+            // parks at whatever was playing when Stop was pressed.
+            //
+            // resetMetersSilent() does clear the rings, but it runs on the
+            // message thread and cannot win the race against a block already
+            // in flight -- that block's points land after the clear, the next
+            // poll drains them, and the frozen value comes straight back.
+            // Which is why it froze only SOMETIMES.
+            //
+            // Pushing the silence from the audio thread closes it: there is
+            // one audio thread, so the last-block points and this zero are
+            // strictly ordered, and the drain takes the last point.
+            for (size_t i = 0; i < busEnvelopeTrackers.size(); ++i) {
+                busEnvelopeTrackers[i].reset();
+                if (i < busEnvelopeRings.size() && busEnvelopeRings[i] != nullptr)
+                    busEnvelopeRings[i]->push(MeterEnvelopePoint{});
+            }
+            clickEnvelopeTracker.reset();
+            clickEnvelopeRing.push(MeterEnvelopePoint{});
+
             metersSilencedSinceStop = true;
         }
         // Keep this live even while stopped. The underrun check above
@@ -1078,70 +1157,68 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         const bool fullyOutside = reg != nullptr
             && (playheadSample + numSamples <= regStart || playheadSample >= regEnd);
 
-        if (!fullyOutside && shaped) {
-            // Source frame for a position in the region, as a real number:
-            // speed scales it, reverse mirrors it inside the region's own
-            // source window. Fractional, so the sample below interpolates.
-            const int64_t windowLen = loop
-                ? loopCycle
-                : std::min(sourceAvail, std::max<int64_t>(1, static_cast<int64_t>(
-                      std::llround(static_cast<double>(regLen) * playSpeed))));
-            const auto srcFor = [&](int64_t intoRegion) -> double {
-                if (intoRegion < 0 || windowLen <= 0)
-                    return -1.0;
-                double p = static_cast<double>(intoRegion) * playSpeed;
-                if (loop) {
-                    p = std::fmod(p, static_cast<double>(windowLen));
-                    if (p < 0.0) p += static_cast<double>(windowLen);
-                } else if (p >= static_cast<double>(windowLen)) {
-                    return -1.0;
-                }
-                if (wantReverse)
-                    p = static_cast<double>(windowLen) - 1.0 - p;
-                return static_cast<double>(srcOff) + p;
-            };
+        // Where this region reads from, for either path. Pure arithmetic, so
+        // it lives in engine/audio/RegionSourceMap.h and is tested against
+        // known values rather than by ear -- see test_region_source_map.cpp.
+        RegionSourceWindow window;
+        window.sourceOffset = srcOff;
+        window.sourceAvail = sourceAvail;
+        window.regionLength = regLen;
+        window.loopCycle = loopCycle;
+        window.speed = playSpeed;
+        window.reverse = wantReverse;
+        window.loop = loop;
 
-            // Linear interpolation between the two neighbouring frames. Good
-            // enough here and, crucially, allocation-free: this runs on the
-            // audio thread, and the resident window is a plain array so each
-            // sample is two loads.
+        if (!fullyOutside && shaped) {
+            // Polyphase windowed sinc, over the resident window directly.
+            //
+            // Two things happen here that both used to be worse. The kernel is
+            // a band-limited interpolator instead of a two-point average, so
+            // speeding a region up no longer dulls its top end and folds
+            // images back as a metallic edge (see audio/SincInterpolator.h).
+            // And the window is read as a plain array: the old path called
+            // buf->read() twice per OUTPUT SAMPLE, and every one of those took
+            // an atomic shared_ptr load to find the same window again.
+            //
+            // The view owns its snapshot for the block, so the data cannot be
+            // freed under this thread while the loop runs.
+            const auto view = buf->residentView();
             const int64_t into0Shaped = playheadSample - regStart;
-            for (int i = 0; i < numSamples; ++i) {
-                const double sp = srcFor(into0Shaped + i);
-                if (sp < 0.0)
-                    continue; // scratch is already cleared to silence
-                const int64_t i0 = static_cast<int64_t>(std::floor(sp));
-                const double frac = sp - static_cast<double>(i0);
-                float a[2] = {0.0f, 0.0f};
-                float b2[2] = {0.0f, 0.0f};
-                float* aPtrs[2] = {&a[0], &a[1]};
-                float* bPtrs[2] = {&b2[0], &b2[1]};
-                buf->read(aPtrs, 1, i0);
-                buf->read(bPtrs, 1, i0 + 1);
+            const SincTable& kernel = sincTables.forSpeed(std::abs(playSpeed));
+            const int64_t viewStart = view.start();
+            const int64_t viewLen = view.length();
+            const int viewChans = view.channels();
+
+            if (view && viewLen > 0 && kernel.isBuilt()) {
                 for (int ch = 0; ch < trackChannels; ++ch) {
                     float* out = ptrs[ch];
                     if (out == nullptr)
                         continue;
-                    out[i] = static_cast<float>(a[ch] + (b2[ch] - a[ch]) * frac);
+                    // Mono source feeding a stereo track: both sides read the
+                    // one channel there is, same as the block-read path.
+                    const float* src = view.channel(ch < viewChans ? ch : 0);
+                    if (src == nullptr)
+                        continue;
+                    for (int i = 0; i < numSamples; ++i) {
+                        const double sp = shapedSourceFrame(window, into0Shaped + i);
+                        if (sp < 0.0)
+                            continue; // scratch is already cleared to silence
+                        // Positions are absolute source frames; the window may
+                        // begin partway into the file.
+                        const double local = sp - static_cast<double>(viewStart);
+                        // A loop reads across its own seam rather than into the
+                        // silence past the window, which would click once per
+                        // cycle.
+                        out[i] = loop ? sincSampleLooped(kernel, src, viewLen, local)
+                                      : sincSample(kernel, src, viewLen, local);
+                    }
                 }
             }
         } else if (!fullyOutside) {
             // Map song timeline → source file frames for this region.
             const int64_t into0 = playheadSample - regStart; // may be negative before start
-            auto mapFilePos = [&](int64_t intoRegion) -> int64_t {
-                if (intoRegion < 0)
-                    return -1;
-                if (sourceAvail <= 0)
-                    return -1;
-                if (loop) {
-                    if (loopCycle <= 0) return -1;
-                    int64_t m = intoRegion % loopCycle;
-                    if (m < 0) m += loopCycle;
-                    return srcOff + m;
-                }
-                if (intoRegion >= sourceAvail)
-                    return -1;
-                return srcOff + intoRegion;
+            const auto mapFilePos = [&window](int64_t intoRegion) -> int64_t {
+                return straightSourceFrame(window, intoRegion);
             };
 
             const int64_t filePosAtStart = mapFilePos(into0);
@@ -1322,6 +1399,22 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     slot->semitones = wantSemis;
                     slot->stretch.setTransposeSemitones(
                         static_cast<float>(wantSemis));
+                    // Hold the formants where they were while the pitch moves.
+                    //
+                    // Without this, transposing shifts the whole spectrum --
+                    // including the resonances that make a voice sound like a
+                    // particular person and a snare sound like a particular
+                    // drum. Two semitones up and a vocal is noticeably
+                    // "smaller"; a fifth up and it is a cartoon. Compensating
+                    // is what makes a transposed stem usable in a show rather
+                    // than an effect.
+                    //
+                    // A factor of 1 with compensation on means "do not move
+                    // the formants at all", which is the setting for
+                    // transposing an existing recording. It costs three extra
+                    // spectrum steps per block, and only on regions that are
+                    // actually transposed.
+                    slot->stretch.setFormantFactor(1.0f, /*compensatePitch=*/true);
                 }
                 const int64_t into = playheadSample - regStart;
                 // Copy the block out, then push it back through transposed.
@@ -1425,12 +1518,19 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // Every needle reads the same place: the strip's own post-fader/post-pan
     // signal. So gain, pan and any sends mixed in all show, and mute or
     // someone else's solo never do -- those happen after this tap.
+    // Stop/seek asks for the ballistics to be zeroed, but the ballistics are
+    // audio-thread state -- so the request crosses as a flag and is honoured
+    // here rather than written from under the callback.
+    const bool resetEnvelopes = envelopeResetRequested.exchange(false, std::memory_order_relaxed);
+
     const auto publishStripMeter = [&](uint32_t strip, SeqLock<MeterFrame>* slot,
                                        LoudnessMeter* loudness, BandEnergyMeter* bands,
                                        std::atomic<float>* intervalL,
                                        std::atomic<float>* intervalR,
                                        std::atomic<float>* lastBlockL = nullptr,
-                                       std::atomic<float>* lastBlockR = nullptr) {
+                                       std::atomic<float>* lastBlockR = nullptr,
+                                       MeterEnvelopeTracker* envelope = nullptr,
+                                       MeterEnvelopeRing<kMeterRingPoints>* ring = nullptr) {
         if (slot == nullptr)
             return;
         if (meteringMuted) {
@@ -1439,8 +1539,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             if (intervalR != nullptr) intervalR->store(0.0f, std::memory_order_relaxed);
             if (lastBlockL != nullptr) lastBlockL->store(0.0f, std::memory_order_relaxed);
             if (lastBlockR != nullptr) lastBlockR->store(0.0f, std::memory_order_relaxed);
+            // A drain with nothing in it HOLDS the last value, so muting has to
+            // say silence rather than stop talking -- one zero point is enough,
+            // and it goes through the ring like any other so the reader needs
+            // no special case.
+            if (envelope != nullptr && ring != nullptr) {
+                envelope->reset();
+                ring->push(MeterEnvelopePoint{});
+            }
             return;
         }
+        if (resetEnvelopes && envelope != nullptr)
+            envelope->reset();
         const StripLevels& level = mixRenderer.levels(strip);
         const float* postL = mixRenderer.postChannel(strip, 0);
         const float* postR = mixRenderer.postChannel(strip, 1);
@@ -1486,6 +1596,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // landing between callbacks still has a real measurement to report.
         if (lastBlockL != nullptr) lastBlockL->store(level.peakL, std::memory_order_relaxed);
         if (lastBlockR != nullptr) lastBlockR->store(level.peakR, std::memory_order_relaxed);
+
+        // The trajectory: ballistics at sub-block resolution, handed over in
+        // a ring the publisher drains whenever it likes. One number per block
+        // cannot say whether an 85ms callback held a transient or a tone.
+        if (envelope != nullptr && ring != nullptr && postL != nullptr) {
+            const float* chans[2] = {postL, postR != nullptr ? postR : postL};
+            envelope->process(chans, postR != nullptr ? 2 : 1, numSamples,
+                              [ring](const MeterEnvelopePoint& p) { ring->push(p); });
+        }
     };
 
     for (size_t t = 0; t < trackIdByIndex.size() && t < trackMeters.size(); ++t) {
@@ -1497,7 +1616,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     if (clickStripIndex != MixGraph::kNoStrip) {
         publishStripMeter(clickStripIndex, &clickMeterFrame, nullptr, nullptr,
                           &clickPeakIntervalMaxL, &clickPeakIntervalMaxR,
-                          &clickLastBlockPeakL, &clickLastBlockPeakR);
+                          &clickLastBlockPeakL, &clickLastBlockPeakR,
+                          &clickEnvelopeTracker, &clickEnvelopeRing);
     }
 
     // Bus rows keep their own flat index (0 = Main, 1.. = Sends, then the
@@ -1517,7 +1637,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                           busLastBlockPeakL && b < busPeakIntervalCount
                               ? &busLastBlockPeakL[b] : nullptr,
                           busLastBlockPeakR && b < busPeakIntervalCount
-                              ? &busLastBlockPeakR[b] : nullptr);
+                              ? &busLastBlockPeakR[b] : nullptr,
+                          b < busEnvelopeTrackers.size() ? &busEnvelopeTrackers[b] : nullptr,
+                          b < busEnvelopeRings.size() ? busEnvelopeRings[b].get() : nullptr);
     }
 
     // Only now, after the latches above have this block's peaks in them.

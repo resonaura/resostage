@@ -19,6 +19,17 @@ struct MeterFrame {
     float peakDb = -144.0f;   // max(L, R) — mono / legacy consumers
     float peakDbL = -144.0f;  // left-channel sample peak this block
     float peakDbR = -144.0f;  // right-channel sample peak (mono: same as L)
+    /**
+     * Needle value with PPM ballistics, computed on the audio thread every 64
+     * samples (see engine/audio/MeterEnvelope.h).
+     *
+     * Distinct from peakDb, which is "loudest sample in the block": at a large
+     * buffer that is one reading per 85ms and says nothing about the shape of
+     * what happened inside. This one is a filter with a defined release, so it
+     * behaves the same at every buffer size.
+     */
+    float ppmDbL = -144.0f;
+    float ppmDbR = -144.0f;
     float truePeakDb = -144.0f;
     float momentaryLufs = -144.0f;  // ~400ms window
     float shortTermLufs = -144.0f;  // 3s window

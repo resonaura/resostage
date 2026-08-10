@@ -627,6 +627,8 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
     [meters, busses, tracks, click, themeVersion],
   );
 
+  // The needle, not the raw peak: engine-side PPM ballistics, so the VU reads
+  // the same at 512 frames and at 4096. See lib/liveLevels LiveMeter.
   const vuGetterFor = (g: BusMeterGroup) => () => {
     let mx = -Infinity;
     const levels = getLiveLevels().meters;
@@ -634,8 +636,8 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
     for (const m of g.meters) {
       for (const lm of levels) {
         if (lm.id === m.id) {
-          const a = lm.peakDbL ?? -144;
-          const b = lm.peakDbR ?? -144;
+          const a = lm.needleDbL ?? -144;
+          const b = lm.needleDbR ?? -144;
           if (a > mx) mx = a;
           if (b > mx) mx = b;
         }
@@ -796,11 +798,11 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
                     db={db}
                     dbL={dbL}
                     dbR={dbR}
-                    getLiveDbL={() => live0()?.peakDbL ?? -144}
+                    getLiveDbL={() => live0()?.needleDbL ?? -144}
                     getLiveDbR={() =>
                       m1
-                        ? (live1()?.peakDbR ?? -144)
-                        : (live0()?.peakDbR ?? -144)
+                        ? (live1()?.needleDbR ?? -144)
+                        : (live0()?.needleDbR ?? -144)
                     }
                     accent={g.accent}
                     vertical={true}

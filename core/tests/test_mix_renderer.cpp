@@ -481,3 +481,76 @@ TEST_CASE("renderer: a block bigger than it was prepared for is refused, not wri
     CHECK(renderer.canRender(g, kBlock * 8));
     CHECK(renderer.maxBlockSize() == kBlock * 8);
 }
+
+TEST_CASE("renderer: a buffer-size change mid-playback does not bleed one strip into another") {
+    // The scenario, run by hand a dozen times: play, then walk the device
+    // buffer 512 -> 1024 -> 2048 -> 4096 and back without stopping. What that
+    // was catching is here as an assertion -- two strips carrying DIFFERENT
+    // constants, so a row that overlaps its neighbour shows up as the wrong
+    // number rather than as something that has to be listened for.
+    const Project p = twoTrackProject();
+    const MixGraph g = buildMixGraph(p, stereoOut());
+    MixRenderer renderer;
+
+    const uint32_t one = g.find("audio::track:1");
+    const uint32_t two = g.find("audio::track:2");
+    REQUIRE(one != MixGraph::kNoStrip);
+    REQUIRE(two != MixGraph::kNoStrip);
+
+    // Opening the project at the device's current size, before any hop.
+    renderer.prepare(48000.0, 512, g.strips.size());
+
+    for (const int block : {512, 1024, 2048, 4096, 2048, 1024, 512, 4096}) {
+        // What ensureScratchSizes() does on a device restart: grow to the new
+        // block before the first callback at that size arrives, and never
+        // shrink -- see the next test.
+        if (renderer.maxBlockSize() < block)
+            renderer.prepare(48000.0, block, g.strips.size());
+        REQUIRE(renderer.canRender(g, block));
+
+        std::vector<float> left(static_cast<size_t>(block), 0.0f);
+        std::vector<float> right(static_cast<size_t>(block), 0.0f);
+        float* outs[2] = {left.data(), right.data()};
+
+        // Let the coefficient glide settle at this size, exactly as a real
+        // device would after a restart.
+        for (int pass = 0; pass < kSettleBlocks; ++pass) {
+            std::fill(left.begin(), left.end(), 0.0f);
+            std::fill(right.begin(), right.end(), 0.0f);
+            renderer.beginBlock(g, block);
+            for (int i = 0; i < block; ++i) {
+                renderer.sourceChannel(one, 0)[i] = 0.25f;
+                renderer.sourceChannel(one, 1)[i] = 0.25f;
+                renderer.sourceChannel(two, 0)[i] = -0.75f;
+                renderer.sourceChannel(two, 1)[i] = -0.75f;
+            }
+            renderer.process(g, block);
+            renderer.writeToOutputs(g, outs, 2, block);
+        }
+
+        // Each strip metered its OWN constant, start to end. A strip-major
+        // overlap shows here as one strip reporting the other's peak.
+        CHECK(renderer.levels(one).peakL == doctest::Approx(0.25f));
+        CHECK(renderer.levels(two).peakL == doctest::Approx(0.75f));
+
+        // ...and the sum is the sum, at every sample of the block -- not just
+        // at the first one, which a short-row overlap would leave correct.
+        for (int i = 0; i < block; ++i) {
+            CHECK(left[static_cast<size_t>(i)] == doctest::Approx(-0.5f));
+            CHECK(right[static_cast<size_t>(i)] == doctest::Approx(-0.5f));
+        }
+    }
+}
+
+TEST_CASE("renderer: shrinking the device buffer keeps the bigger allocation") {
+    // Going 4096 -> 512 must not re-prepare downwards. It would work, and then
+    // the next hop back up would have to reallocate on the audio thread's
+    // critical path -- or, worse, be forgotten and overrun.
+    const MixGraph g = buildMixGraph(twoTrackProject(), stereoOut());
+    MixRenderer renderer;
+    renderer.prepare(48000.0, 4096, g.strips.size());
+
+    CHECK(renderer.canRender(g, 512));
+    CHECK(renderer.canRender(g, 4096));
+    CHECK(renderer.maxBlockSize() == 4096);
+}

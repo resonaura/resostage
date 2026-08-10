@@ -28,6 +28,7 @@ constexpr const char* kFolderImportGestureId = "import-song-folder";
 
 using audio_engine_detail::streamingIoThreadStart;
 using audio_engine_detail::streamingIoThreadStop;
+using audio_engine_detail::residentIoYield;
 
 void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
                                          std::function<void(bool, std::string)> onComplete) {
@@ -374,7 +375,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
                         streamingIoThreadStart();
                         joinCurrentThreadToDeviceWorkgroup();
                     },
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority);
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
         done(false, writeError);
         return;
     }
@@ -399,7 +401,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
                         streamingIoThreadStart();
                         joinCurrentThreadToDeviceWorkgroup();
                     },
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority);
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
         done(false, "Failed to replace archive after import");
         return;
     }
@@ -423,7 +426,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
                         streamingIoThreadStart();
                         joinCurrentThreadToDeviceWorkgroup();
                     },
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority);
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
 
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();

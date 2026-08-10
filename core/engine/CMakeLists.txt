@@ -4,6 +4,8 @@ add_library(resostage_engine STATIC
   audio/MixGraph.cpp
   audio/MixRenderer.cpp
   audio/Metering.cpp
+  audio/MeterEnvelope.cpp
+  audio/SincInterpolator.cpp
   audio/WavStreamDecoder.cpp
   audio/WavMetadata.cpp
   audio/AudioRingBuffer.cpp

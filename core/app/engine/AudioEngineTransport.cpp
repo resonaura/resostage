@@ -5,6 +5,7 @@
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
 #include "project/RouteId.h"
+#include "timing/SongLength.h"
 
 #include <algorithm>
 #include <cmath>
@@ -436,29 +437,31 @@ void AudioEngine::resetMetersSilent() {
         if (busLastBlockPeakL) busLastBlockPeakL[i].store(0.0f, std::memory_order_relaxed);
         if (busLastBlockPeakR) busLastBlockPeakR[i].store(0.0f, std::memory_order_relaxed);
     }
+
+    // Same for the trajectory: drop the points still in flight, zero the
+    // ballistics, and zero the held value the drain falls back to. Leaving any
+    // one of the three would let a needle finish a release that belongs to
+    // audio the engine has stopped producing.
+    // The rings and the held values are ours to touch -- this thread is the
+    // consumer of both. The ballistics are NOT: they belong to the callback,
+    // so ask, and it zeroes them on its next block.
+    envelopeResetRequested.store(true, std::memory_order_relaxed);
+    clickEnvelopeRing.clear();
+    clickLastPpm = MeterEnvelopePoint{};
+    for (size_t i = 0; i < busEnvelopeRings.size(); ++i) {
+        if (busEnvelopeRings[i] != nullptr)
+            busEnvelopeRings[i]->clear();
+        if (i < busLastPpm.size())
+            busLastPpm[i] = MeterEnvelopePoint{};
+    }
 }
 
 int64_t AudioEngine::songLengthFrames(double endSeconds,
                                       int64_t contentFrames,
                                       double sampleRate) {
-    if (endSeconds > 0.0 && std::isfinite(endSeconds) && sampleRate > 0.0)
-        return static_cast<int64_t>(std::llround(endSeconds * sampleRate));
-    if (contentFrames > 0)
-        return contentFrames;
-    // An empty song still has an end.
-    //
-    // Zero here meant "no length", and the render callback's arming check
-    // (`currentSongLengthFrames > 0`) read that as "never ends" -- so a song
-    // with no audio and no authored end never armed its song-end action. The
-    // transport rolled past it forever: no advance to the next song, no stop
-    // at the end of the set, whatever the song's onEnded said. On screen the
-    // same song is a second long, because that is the floor the timeline
-    // draws it at (MIN_SONG_SECONDS), so this is the transport agreeing with
-    // what the user is looking at rather than inventing a duration.
-    constexpr double kEmptySongSeconds = 1.0;
-    return sampleRate > 0.0
-               ? static_cast<int64_t>(std::llround(kEmptySongSeconds * sampleRate))
-               : 0;
+    // Pure arithmetic with a rule behind it, so it lives in
+    // engine/timing/SongLength.h where it can be tested without a device.
+    return songLengthFramesFor(endSeconds, contentFrames, sampleRate);
 }
 
 bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
