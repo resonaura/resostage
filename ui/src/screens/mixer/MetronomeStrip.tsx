@@ -40,9 +40,10 @@ function MetronomeStripInner({
   const clickPeak = state.clickPeakDb ?? -100;
   const clickPeakL = state.clickPeakDbL ?? state.clickPeakDb ?? -100;
   const clickPeakR = state.clickPeakDbR ?? state.clickPeakDb ?? -100;
-  // Bars follow the engine's PPM needle; the numeric readout above still shows
-  // the interval-max peak. A click is a sparse impulse, and the needle catches
-  // it on the audio thread rather than hoping a poll lands on the right block.
+  // Bars follow the engine's interval peak; the numeric readout above still
+  // shows the paint-interval max. A click is a sparse impulse, and the engine
+  // catches it every 64 samples rather than hoping a poll lands on the right
+  // block.
   const getLiveClick = () => {
     const c = getClickPeaks();
     return Math.max(c.needleDbL, c.needleDbR);

@@ -208,26 +208,32 @@ float linearPeakToDb(float p) {
 }
 
 /**
- * Drain a meter's trajectory and return the needle value to publish.
+ * Loudest thing this meter measured since the last poll.
  *
- * The LAST point wins rather than the loudest: the ballistics already did the
- * peak-holding on the audio thread, so the newest point is the state of the
- * needle right now. Taking a max here would re-hold peaks that the release
- * has legitimately let go of.
+ * A true interval peak: the audio thread measures every 64 samples, so the
+ * answer does not depend on where the callback boundaries happened to fall.
+ * That is what makes a 512-frame buffer and a 4096-frame buffer read the same.
  *
  * Nothing drained means no audio was rendered since the last publish -- at a
- * big buffer that is most polls -- so the previous value stands. That is not
- * an invented decay: it is the absence of a new measurement. Real silence
- * still reads as silence: the release keeps running on the audio thread, so
- * the points that do arrive are already on their way down.
+ * big buffer that is most polls -- so the previous value stands. That is not a
+ * decay: it is the absence of a new measurement, and how the needle FALLS is
+ * the display's decision, not ours. Real silence still reads as silence
+ * immediately, because a rendered block of silence measures zero and says so.
  */
 template <size_t Capacity>
 const MeterEnvelopePoint& drainEnvelope(MeterEnvelopeRing<Capacity>& ring,
                                         MeterEnvelopePoint& lastPoint) {
     MeterEnvelopePoint points[Capacity];
     const size_t n = ring.drain(points, Capacity);
-    if (n > 0)
-        lastPoint = points[n - 1];
+    if (n == 0)
+        return lastPoint;
+
+    MeterEnvelopePoint loudest;
+    for (size_t i = 0; i < n; ++i) {
+        loudest.peakL = std::max(loudest.peakL, points[i].peakL);
+        loudest.peakR = std::max(loudest.peakR, points[i].peakR);
+    }
+    lastPoint = loudest;
     return lastPoint;
 }
 } // namespace
@@ -257,12 +263,12 @@ MeterFrame AudioEngine::consumeClickMeterInterval() {
     const float outR = std::max(peakR, lastR);
 
     MeterFrame frame;
-    // The needle value comes from the trajectory instead: real PPM ballistics,
-    // computed on the audio thread every 64 samples, so it reads the same at
-    // 512 frames and at 4096.
-    const MeterEnvelopePoint& click = drainEnvelope(clickEnvelopeRing, clickLastPpm);
-    frame.ppmDbL = linearPeakToDb(click.ppmL);
-    frame.ppmDbR = linearPeakToDb(click.ppmR);
+    // What a bar is driven by: the loudest sample since the last poll,
+    // measured every 64 samples, so it reads the same at 512 frames and at
+    // 4096.
+    const MeterEnvelopePoint& click = drainEnvelope(clickEnvelopeRing, clickLastPeak);
+    frame.intervalPeakDbL = linearPeakToDb(click.peakL);
+    frame.intervalPeakDbR = linearPeakToDb(click.peakR);
     frame.peakDbL = linearPeakToDb(outL);
     frame.peakDbR = linearPeakToDb(outR);
     frame.peakDb = linearPeakToDb(std::max(outL, outR));
@@ -292,15 +298,14 @@ MeterFrame AudioEngine::consumeBusMeterInterval(size_t busIndex) {
         outR = std::max(peakR, busLastBlockPeakR[busIndex].load(std::memory_order_relaxed));
     }
 
-    // The needle value comes from the trajectory, which carries real PPM
-    // ballistics computed inside the audio thread every 64 samples. Draining
-    // the ring here is also what keeps it from wrapping.
+    // What a bar is driven by, measured inside the audio thread every 64
+    // samples. Draining the ring here is also what keeps it from wrapping.
     if (busIndex < busEnvelopeRings.size() && busEnvelopeRings[busIndex] != nullptr
-        && busIndex < busLastPpm.size()) {
+        && busIndex < busLastPeak.size()) {
         const MeterEnvelopePoint& p =
-            drainEnvelope(*busEnvelopeRings[busIndex], busLastPpm[busIndex]);
-        frame.ppmDbL = linearPeakToDb(p.ppmL);
-        frame.ppmDbR = linearPeakToDb(p.ppmR);
+            drainEnvelope(*busEnvelopeRings[busIndex], busLastPeak[busIndex]);
+        frame.intervalPeakDbL = linearPeakToDb(p.peakL);
+        frame.intervalPeakDbR = linearPeakToDb(p.peakR);
     }
     // Interval peaks win for display needles; keep LUFS/truePeak from the
     // latest LoudnessMeter frame for sustained program material.
@@ -528,12 +533,6 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
         meter.prepare(currentSampleRate, 2);
     for (auto& band : trackBandMeters)
         band.prepare(currentSampleRate, 2);
-
-    // The PPM release is a per-sample coefficient, so a rate change would
-    // otherwise silently alter the fall time the standard fixes in seconds.
-    clickEnvelopeTracker.prepare(currentSampleRate);
-    for (auto& tracker : busEnvelopeTrackers)
-        tracker.prepare(currentSampleRate);
 
     // Start a fresh timing window for this device configuration.
     //
@@ -884,12 +883,16 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             // Pushing the silence from the audio thread closes it: there is
             // one audio thread, so the last-block points and this zero are
             // strictly ordered, and the drain takes the last point.
-            for (size_t i = 0; i < busEnvelopeTrackers.size(); ++i) {
-                busEnvelopeTrackers[i].reset();
-                if (i < busEnvelopeRings.size() && busEnvelopeRings[i] != nullptr)
-                    busEnvelopeRings[i]->push(MeterEnvelopePoint{});
+            // Disown anything still queued before saying silence, or the
+            // drain that follows takes the loudest of a late block and this
+            // zero -- and picks the late block.
+            for (auto& ring : busEnvelopeRings) {
+                if (ring != nullptr) {
+                    ring->discardQueued();
+                    ring->push(MeterEnvelopePoint{});
+                }
             }
-            clickEnvelopeTracker.reset();
+            clickEnvelopeRing.discardQueued();
             clickEnvelopeRing.push(MeterEnvelopePoint{});
 
             metersSilencedSinceStop = true;
@@ -1585,18 +1588,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // Every needle reads the same place: the strip's own post-fader/post-pan
     // signal. So gain, pan and any sends mixed in all show, and mute or
     // someone else's solo never do -- those happen after this tap.
-    // Stop/seek asks for the ballistics to be zeroed, but the ballistics are
-    // audio-thread state -- so the request crosses as a flag and is honoured
-    // here rather than written from under the callback.
-    const bool resetEnvelopes = envelopeResetRequested.exchange(false, std::memory_order_relaxed);
-
     const auto publishStripMeter = [&](uint32_t strip, SeqLock<MeterFrame>* slot,
                                        LoudnessMeter* loudness, BandEnergyMeter* bands,
                                        std::atomic<float>* intervalL,
                                        std::atomic<float>* intervalR,
                                        std::atomic<float>* lastBlockL = nullptr,
                                        std::atomic<float>* lastBlockR = nullptr,
-                                       MeterEnvelopeTracker* envelope = nullptr,
                                        MeterEnvelopeRing<kMeterRingPoints>* ring = nullptr) {
         if (slot == nullptr)
             return;
@@ -1610,14 +1607,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             // say silence rather than stop talking -- one zero point is enough,
             // and it goes through the ring like any other so the reader needs
             // no special case.
-            if (envelope != nullptr && ring != nullptr) {
-                envelope->reset();
+            if (ring != nullptr) {
+                ring->discardQueued();
                 ring->push(MeterEnvelopePoint{});
             }
             return;
         }
-        if (resetEnvelopes && envelope != nullptr)
-            envelope->reset();
         const StripLevels& level = mixRenderer.levels(strip);
         const float* postL = mixRenderer.postChannel(strip, 0);
         const float* postR = mixRenderer.postChannel(strip, 1);
@@ -1664,13 +1659,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (lastBlockL != nullptr) lastBlockL->store(level.peakL, std::memory_order_relaxed);
         if (lastBlockR != nullptr) lastBlockR->store(level.peakR, std::memory_order_relaxed);
 
-        // The trajectory: ballistics at sub-block resolution, handed over in
-        // a ring the publisher drains whenever it likes. One number per block
-        // cannot say whether an 85ms callback held a transient or a tone.
-        if (envelope != nullptr && ring != nullptr && postL != nullptr) {
+        // Sub-block peaks, handed over in a ring the publisher drains whenever
+        // it likes. One number per block cannot describe 85ms of audio, and a
+        // poll landing between callbacks would have nothing at all to report.
+        if (ring != nullptr && postL != nullptr) {
             const float* chans[2] = {postL, postR != nullptr ? postR : postL};
-            envelope->process(chans, postR != nullptr ? 2 : 1, numSamples,
-                              [ring](const MeterEnvelopePoint& p) { ring->push(p); });
+            measureSubBlockPeaks(chans, postR != nullptr ? 2 : 1, numSamples,
+                                 [ring](const MeterEnvelopePoint& p) { ring->push(p); });
         }
     };
 
@@ -1684,7 +1679,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         publishStripMeter(clickStripIndex, &clickMeterFrame, nullptr, nullptr,
                           &clickPeakIntervalMaxL, &clickPeakIntervalMaxR,
                           &clickLastBlockPeakL, &clickLastBlockPeakR,
-                          &clickEnvelopeTracker, &clickEnvelopeRing);
+                          &clickEnvelopeRing);
     }
 
     // Bus rows keep their own flat index (0 = Main, 1.. = Sends, then the
@@ -1705,7 +1700,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                               ? &busLastBlockPeakL[b] : nullptr,
                           busLastBlockPeakR && b < busPeakIntervalCount
                               ? &busLastBlockPeakR[b] : nullptr,
-                          b < busEnvelopeTrackers.size() ? &busEnvelopeTrackers[b] : nullptr,
                           b < busEnvelopeRings.size() ? busEnvelopeRings[b].get() : nullptr);
     }
 

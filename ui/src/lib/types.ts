@@ -262,11 +262,12 @@ export interface MeterRow {
   peakDb: number;
   peakDbL?: number;
   peakDbR?: number;
-  /** Engine-side PPM ballistics -- what a bar should be drawn at, as opposed
-   *  to the raw peaks above, which the readout and the clip latch want. See
-   *  lib/liveLevels' LiveMeter for why the two are separate. */
-  ppmDbL?: number;
-  ppmDbR?: number;
+  /** Loudest sample since the last poll, measured every 64 samples in the
+   *  engine. What a bar should be driven by: unlike the raw peaks above, it
+   *  does not depend on where the audio callback boundaries fell. See
+   *  lib/liveLevels' LiveMeter. */
+  intervalPeakDbL?: number;
+  intervalPeakDbR?: number;
   shortTermLufs: number;
 }
 
@@ -751,9 +752,9 @@ export interface WebUiState {
   clickPeakDb?: number;
   clickPeakDbL?: number;
   clickPeakDbR?: number;
-  /** See MeterRow.ppmDbL. */
-  clickPpmDbL?: number;
-  clickPpmDbR?: number;
+  /** See MeterRow.intervalPeakDbL. */
+  clickIntervalPeakDbL?: number;
+  clickIntervalPeakDbR?: number;
   /** Stream feeder: min ring buffer seconds (non-resident stems). */
   streamBufferMinSec?: number;
   streamBufferAvgSec?: number;
@@ -815,8 +816,8 @@ export const emptyState: WebUiState = {
   clickPeakDb: -100,
   clickPeakDbL: -100,
   clickPeakDbR: -100,
-  clickPpmDbL: -100,
-  clickPpmDbR: -100,
+  clickIntervalPeakDbL: -100,
+  clickIntervalPeakDbR: -100,
   streamBufferMinSec: 0,
   streamBufferAvgSec: 0,
   streamResidentTracks: 0,

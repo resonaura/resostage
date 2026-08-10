@@ -444,16 +444,16 @@ void AudioEngine::resetMetersSilent() {
     // one of the three would let a needle finish a release that belongs to
     // audio the engine has stopped producing.
     // The rings and the held values are ours to touch -- this thread is the
-    // consumer of both. The ballistics are NOT: they belong to the callback,
-    // so ask, and it zeroes them on its next block.
-    envelopeResetRequested.store(true, std::memory_order_relaxed);
+    // consumer of both. The audio thread pushes its own zero point on the
+    // first stopped callback, which is what wins the race against a block
+    // still in flight; see the callback.
     clickEnvelopeRing.clear();
-    clickLastPpm = MeterEnvelopePoint{};
+    clickLastPeak = MeterEnvelopePoint{};
     for (size_t i = 0; i < busEnvelopeRings.size(); ++i) {
         if (busEnvelopeRings[i] != nullptr)
             busEnvelopeRings[i]->clear();
-        if (i < busLastPpm.size())
-            busLastPpm[i] = MeterEnvelopePoint{};
+        if (i < busLastPeak.size())
+            busLastPeak[i] = MeterEnvelopePoint{};
     }
 }
 

@@ -303,10 +303,10 @@ struct WMeterTelemetry {
     double peakDb = -100.0;
     double peakDbL = -100.0;
     double peakDbR = -100.0;
-    // Engine-side PPM ballistics; the needle reads these, the peaks above stay
-    // raw for clip detection and the dB readout.
-    double ppmDbL = -100.0;
-    double ppmDbR = -100.0;
+    // Loudest sample since the last poll; the needle reads these, the peaks
+    // above are the last callback's, for clip detection and the dB readout.
+    double intervalPeakDbL = -100.0;
+    double intervalPeakDbR = -100.0;
     double shortTermLufs = 0.0;
 };
 
@@ -602,8 +602,8 @@ struct WEngineTelemetryPayload {
     std::optional<double> clickPeakDb;
     std::optional<double> clickPeakDbL;
     std::optional<double> clickPeakDbR;
-    std::optional<double> clickPpmDbL;
-    std::optional<double> clickPpmDbR;
+    std::optional<double> clickIntervalPeakDbL;
+    std::optional<double> clickIntervalPeakDbR;
     std::optional<double> streamBufferMinSec;
     std::optional<double> streamBufferAvgSec;
     std::optional<int> streamResidentTracks;

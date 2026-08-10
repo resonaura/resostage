@@ -112,8 +112,9 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     for (const auto& lo : s.lightOutput)
         ledByteCount += std::min<size_t>(lo.ledColors.size(), 512) * 3;
 
-    // v3 header is 32 bytes (v2's 24 plus the click's two PPM floats), and a
-    // meter row is 16 (peak L/R plus PPM L/R).
+    // v3 header is 32 bytes (v2's 24 plus the click's two interval-peak
+    // floats), and a meter row is 16 (last-callback peak L/R plus interval
+    // peak L/R).
     const size_t totalSize = 32
         + static_cast<size_t>(numTracks) * 8
         + static_cast<size_t>(numMeters) * 16
@@ -136,15 +137,15 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     };
 
     writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
-    // Version 3: engine-side PPM alongside the raw peaks (v2 = per-LED light
-    // rows, v1 = effect params).
+    // Version 3: interval peaks alongside the last-callback peaks (v2 =
+    // per-LED light rows, v1 = effect params).
     writeU8(3);
     writeU8(0);       // Flags
     writeFloat(static_cast<float>(s.playheadSeconds));
     writeFloat(s.clickPeakDbL);
     writeFloat(s.clickPeakDbR);
-    writeFloat(s.clickPpmDbL);
-    writeFloat(s.clickPpmDbR);
+    writeFloat(s.clickIntervalPeakDbL);
+    writeFloat(s.clickIntervalPeakDbR);
     writeU16(numTracks);
     writeU16(numMeters);
     writeU16(numLights);
@@ -158,10 +159,10 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     for (const auto& m : s.meters) {
         writeFloat(m.peakDbL);
         writeFloat(m.peakDbR);
-        // The needle value. Peaks above stay raw: clip latching and the dB
-        // readout want the actual sample peak, not a filtered one.
-        writeFloat(m.ppmDbL);
-        writeFloat(m.ppmDbR);
+        // What a bar is driven by. The peaks above stay as the last
+        // callback's: the clip latch and the dB readout want that one.
+        writeFloat(m.intervalPeakDbL);
+        writeFloat(m.intervalPeakDbR);
     }
 
     // Per-LED wire colors, backend-rendered (see resolveLedWireColors) --
@@ -1402,8 +1403,8 @@ std::string WebServer::buildStateJson(const char* view) const {
         wire.clickPeakDb = finiteOrDbFloor(snap.clickPeakDb);
         wire.clickPeakDbL = finiteOrDbFloor(snap.clickPeakDbL);
         wire.clickPeakDbR = finiteOrDbFloor(snap.clickPeakDbR);
-        wire.clickPpmDbL = finiteOrDbFloor(snap.clickPpmDbL);
-        wire.clickPpmDbR = finiteOrDbFloor(snap.clickPpmDbR);
+        wire.clickIntervalPeakDbL = finiteOrDbFloor(snap.clickIntervalPeakDbL);
+        wire.clickIntervalPeakDbR = finiteOrDbFloor(snap.clickIntervalPeakDbR);
         wire.streamBufferMinSec = finiteOrZero(snap.streamBufferMinSec);
         wire.streamBufferAvgSec = finiteOrZero(snap.streamBufferAvgSec);
         wire.streamResidentTracks = snap.streamResidentTracks;
@@ -1548,8 +1549,8 @@ std::string WebServer::buildStateJson(const char* view) const {
             WMeterTelemetry wM;
             wM.id = m.id;
             wM.peakDb = finiteOrDbFloor(m.peakDb);
-            wM.ppmDbL = finiteOrDbFloor(m.ppmDbL);
-            wM.ppmDbR = finiteOrDbFloor(m.ppmDbR);
+            wM.intervalPeakDbL = finiteOrDbFloor(m.intervalPeakDbL);
+            wM.intervalPeakDbR = finiteOrDbFloor(m.intervalPeakDbR);
             wM.peakDbL = finiteOrDbFloor(m.peakDbL);
             wM.peakDbR = finiteOrDbFloor(m.peakDbR);
             wM.shortTermLufs = finiteOrZero(m.shortTermLufs);

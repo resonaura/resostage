@@ -997,8 +997,8 @@ void MainComponent::publishWebState() {
         state.clickPeakDb = clickFrame.peakDb;
         state.clickPeakDbL = clickFrame.peakDbL;
         state.clickPeakDbR = clickFrame.peakDbR;
-        state.clickPpmDbL = clickFrame.ppmDbL;
-        state.clickPpmDbR = clickFrame.ppmDbR;
+        state.clickIntervalPeakDbL = clickFrame.intervalPeakDbL;
+        state.clickIntervalPeakDbR = clickFrame.intervalPeakDbR;
     }
     {
         const auto bh = engine.streamBufferHealth();
@@ -1156,8 +1156,8 @@ void MainComponent::publishWebState() {
             m.peakDb = frame.peakDb;
             m.peakDbL = frame.peakDbL;
             m.peakDbR = frame.peakDbR;
-            m.ppmDbL = frame.ppmDbL;
-            m.ppmDbR = frame.ppmDbR;
+            m.intervalPeakDbL = frame.intervalPeakDbL;
+            m.intervalPeakDbR = frame.intervalPeakDbR;
             m.shortTermLufs = frame.shortTermLufs;
         }
         state.meters.push_back(std::move(m));

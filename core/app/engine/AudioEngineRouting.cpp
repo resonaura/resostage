@@ -150,18 +150,15 @@ void AudioEngine::installBusRows(std::vector<LoadedBus> rows) {
         busPeakIntervalMaxR[i].store(0.0f, std::memory_order_relaxed);
     }
 
-    // Envelope trajectory per bus: the ballistics live on the audio thread and
-    // the ring carries their output out. Rings are heap-held one apiece because
-    // an atomic is neither copyable nor movable, so the vector cannot grow with
-    // them inline.
-    busEnvelopeTrackers.assign(busses.size(), MeterEnvelopeTracker{});
+    // Sub-block peaks per bus. Rings are heap-held one apiece because an
+    // atomic is neither copyable nor movable, so the vector cannot grow with
+    // them inline. No per-bus state beyond the ring: the measurement carries
+    // nothing between blocks.
     busEnvelopeRings.clear();
     busEnvelopeRings.reserve(busses.size());
-    busLastPpm.assign(busses.size(), MeterEnvelopePoint{});
-    for (size_t i = 0; i < busses.size(); ++i) {
-        busEnvelopeTrackers[i].prepare(currentSampleRate);
+    busLastPeak.assign(busses.size(), MeterEnvelopePoint{});
+    for (size_t i = 0; i < busses.size(); ++i)
         busEnvelopeRings.push_back(std::make_unique<MeterEnvelopeRing<kMeterRingPoints>>());
-    }
 }
 
 void AudioEngine::publishRoutingSnapshot() {

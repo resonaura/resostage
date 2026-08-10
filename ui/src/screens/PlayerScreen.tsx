@@ -627,8 +627,8 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
     [meters, busses, tracks, click, themeVersion],
   );
 
-  // The needle, not the raw peak: engine-side PPM ballistics, so the VU reads
-  // the same at 512 frames and at 4096. See lib/liveLevels LiveMeter.
+  // The needle, not the last callback's peak: the engine's interval peak, so
+  // the VU reads the same at 512 frames and at 4096. See lib/liveLevels.
   const vuGetterFor = (g: BusMeterGroup) => () => {
     let mx = -Infinity;
     const levels = getLiveLevels().meters;

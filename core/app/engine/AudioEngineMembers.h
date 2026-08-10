@@ -58,7 +58,6 @@
      * 4096 frames, most of them.
      */
     static constexpr size_t kMeterRingPoints = 256;
-    std::vector<MeterEnvelopeTracker> busEnvelopeTrackers;
     std::vector<std::unique_ptr<MeterEnvelopeRing<kMeterRingPoints>>> busEnvelopeRings;
     /**
      * Interpolation kernels for varispeed, built once at construction.
@@ -101,13 +100,10 @@
     /** Callback host time minus the app clock; see the callback. */
     std::atomic<int64_t> hostTimeSkewNanos{0};
 
-    MeterEnvelopeTracker clickEnvelopeTracker;
     MeterEnvelopeRing<kMeterRingPoints> clickEnvelopeRing;
     /** Last needle value per meter, held when a poll finds no new points. */
-    std::vector<MeterEnvelopePoint> busLastPpm;
-    MeterEnvelopePoint clickLastPpm;
-    /** Set by the message thread, consumed by the callback. See the callback. */
-    std::atomic<bool> envelopeResetRequested{false};
+    std::vector<MeterEnvelopePoint> busLastPeak;
+    MeterEnvelopePoint clickLastPeak;
     std::vector<LoudnessMeter> busLoudnessMeters;
     // Per-bus interval peak (linear), parallel to busMeters. Audio thread
     // CAS-maxes; message thread exchanges in consumeBusMeterInterval().

@@ -258,9 +258,9 @@ struct WebUiState {
     float clickPeakDb = -144.0f;
     float clickPeakDbL = -144.0f;
     float clickPeakDbR = -144.0f;
-    // See MeterRow::ppmDbL.
-    float clickPpmDbL = -144.0f;
-    float clickPpmDbR = -144.0f;
+    // See MeterRow::intervalPeakDbL.
+    float clickIntervalPeakDbL = -144.0f;
+    float clickIntervalPeakDbR = -144.0f;
     // Stream feeder health (min ring / RAM-resident stems).
     double streamBufferMinSec = 0.0;
     double streamBufferAvgSec = 0.0;
@@ -478,10 +478,11 @@ struct WebUiState {
         float peakDb = -144.0f;
         float peakDbL = -144.0f;
         float peakDbR = -144.0f;
-        // Engine-side PPM ballistics (see engine/audio/MeterEnvelope.h). The
-        // needle reads this; the peaks above stay raw for clip and readout.
-        float ppmDbL = -144.0f;
-        float ppmDbR = -144.0f;
+        // Loudest sample since the last poll, measured every 64 samples (see
+        // engine/audio/MeterEnvelope.h). The needle reads this; the peaks
+        // above are the last callback's, for the clip latch and the readout.
+        float intervalPeakDbL = -144.0f;
+        float intervalPeakDbR = -144.0f;
         float shortTermLufs = -144.0f;
     };
     std::vector<MeterRow> meters;
