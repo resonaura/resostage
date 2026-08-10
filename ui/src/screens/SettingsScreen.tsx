@@ -819,6 +819,57 @@ function HealthTab({ state }: { state: WebUiState }) {
           <Stat label="Audio callbacks" value={String(h.audioCallbackCount)} />
           <Stat label="Web clients" value={String(h.webClientCount)} />
         </div>
+      </Section>
+
+      <Section
+        title="Render callback"
+        description="How close each block came to its deadline, and -- when one ran long -- whether it was doing too much work or waiting for a core. Those need opposite fixes and look identical in every other number here. Reset whenever the device changes, so it always describes the current setup."
+      >
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat
+            label="Worst block (of deadline)"
+            value={`${((h.callbackWorstRatio ?? 0) * 100).toFixed(0)}%`}
+          />
+          <Stat
+            label="Worst block"
+            value={`${(h.callbackWorstMs ?? 0).toFixed(2)} ms`}
+          />
+          <Stat
+            label="…spent running"
+            value={`${((h.callbackWorstCpuShare ?? 0) * 100).toFixed(0)}%`}
+          />
+          <Stat
+            label="Missed deadline"
+            value={String(h.callbackOverruns ?? 0)}
+          />
+          <Stat
+            label="Slow: too much work"
+            value={String(h.callbackComputeStalls ?? 0)}
+          />
+          <Stat
+            label="Slow: waiting for a core"
+            value={String(h.callbackPreemptedStalls ?? 0)}
+          />
+          <Stat
+            label="Output latency"
+            value={`${(h.outputLatencyMs ?? 0).toFixed(1)} ms`}
+          />
+          <Stat
+            label="Clock skew"
+            value={`${(h.hostTimeSkewMs ?? 0).toFixed(2)} ms`}
+          />
+        </div>
+        {(h.callbackPreemptedStalls ?? 0) > 0 && (
+          <Alert>
+            <Alert.Content>
+              <Alert.Description>
+                Some blocks ran long without using the CPU — they were waiting,
+                not working. That points at the machine (another app, disk,
+                power settings), not at the size of this show.
+              </Alert.Description>
+            </Alert.Content>
+          </Alert>
+        )}
         {(h.processes?.length ?? 0) > 0 && (
           <div className="rounded-lg bg-default/30 p-3">
             <div className="mb-2 text-xs font-medium uppercase text-default-500">
