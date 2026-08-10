@@ -1,6 +1,6 @@
 import { Grid, OrbitControls, Text } from "@react-three/drei";
 import { addRafTask } from "../../lib/rafLoop";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, events as createPointerEvents, useThree } from "@react-three/fiber";
 import { Maximize2, MoveUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -469,6 +469,46 @@ export function ResoLightStage3D({
   // mounted -- both are what tells a real GPU fault apart from the teardown of
   // a canvas we have already walked away from. See the context-lost handler.
   const liveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  /**
+ * The stock pointer-event manager, minus the crash when it has nothing to
+ * bind to.
+ *
+ * react-three-fiber builds its renderer asynchronously and then calls
+ * `events.connect(eventSource)`. If the stage was unmounted in between -- and
+ * a tab switch during startup is enough -- that arrives as null and the stock
+ * manager goes straight to `null.addEventListener`. There is nothing to
+ * connect to and nothing that wants connecting: the canvas it belonged to is
+ * already gone. Skipping is the whole correct behaviour, and this is the only
+ * seam r3f offers to say so.
+ */
+const safePointerEvents: typeof createPointerEvents = (store) => {
+  const manager = createPointerEvents(store);
+  const connect = manager.connect;
+  return {
+    ...manager,
+    connect: (target: HTMLElement) => {
+      if (!target) return;
+      connect?.(target);
+    },
+  };
+};
+
+/** The wrapper r3f binds its pointer events to; see the Canvas below. */
+  const stageRootRef = useRef<HTMLDivElement>(null);
+  /**
+   * The Canvas waits one commit for the wrapper above to exist.
+   *
+   * react-three-fiber builds its renderer asynchronously and then calls
+   * onCreated -> events.connect(eventSource). If the stage was unmounted in
+   * the meantime -- a tab switch during startup is enough -- that fires with
+   * a ref whose current is already null, which is the
+   * "Cannot read properties of null (reading 'addEventListener')" this
+   * component logged twice on every launch. Mounting the Canvas only once
+   * the wrapper is really in the document means a stage that goes away
+   * before then never starts building a context at all, which also saves the
+   * GL context that was being created for a component nobody would see.
+   */
+  const [stageRootReady, setStageRootReady] = useState(false);
   const aliveRef = useRef(true);
   useEffect(() => {
     // Re-armed on mount, not just cleared on unmount: React re-mounts a
@@ -527,6 +567,12 @@ export function ResoLightStage3D({
 
   return (
     <div
+      ref={(el) => {
+        stageRootRef.current = el;
+        // Ref callbacks run before effects, so the first paint after this is
+        // the earliest point where a Canvas can safely be created.
+        if (el && !stageRootReady) setStageRootReady(true);
+      }}
       className="relative h-full w-full transition-opacity duration-500 ease-out"
       style={{ opacity: fadedIn ? 1 : 0 }}
     >
@@ -556,8 +602,21 @@ export function ResoLightStage3D({
         </div>
       )}
 
+      {stageRootReady && (
       <Canvas
         key={canvasEpoch}
+        // Listen on the wrapper, not on whatever the canvas's parent happens
+        // to be at the time.
+        //
+        // Left to itself react-three-fiber connects its pointer events to
+        // `canvas.parentElement`, which is null if the canvas has already been
+        // detached by the time that effect runs -- a tab switch or a
+        // canvasEpoch remount is enough. That is the
+        // "Cannot read properties of null (reading 'addEventListener')" this
+        // component logged on mount. The wrapper outlives every canvas it
+        // holds, so there is nothing to race.
+        eventSource={stageRootRef as React.RefObject<HTMLElement>}
+        events={safePointerEvents}
         camera={{ position: [4, 3.5, 5], fov: 50 }}
         style={{
           width: "100%",
@@ -695,6 +754,7 @@ export function ResoLightStage3D({
           <TopViewHelper fixtures={fixtures} triggerRef={topViewRef} />
         )}
       </Canvas>
+      )}
     </div>
   );
 }

@@ -99,8 +99,13 @@ export async function fetchWaveformRaw(
   if (rawWaveformCache.has(cacheKey)) {
     return rawWaveformCache.get(cacheKey)!;
   }
+  // startSec / endSec, not start / end: the server reads those exact names
+  // (WebServer::serveWaveformRaw) and answers 400 to anything else. It had
+  // been answering 400 to every single one of these, so the deepest zoom
+  // level quietly fell back to binned peaks instead of real samples.
   const url = apiUrl(
-    `/api/v1/player/waveform-raw?file=${encodeURIComponent(file)}&start=${startSec}&end=${endSec}`,
+    `/api/v1/player/waveform-raw?file=${encodeURIComponent(file)}` +
+      `&startSec=${startSec}&endSec=${endSec}`,
   );
   const res = await fetch(url);
   const data = (await res.json()) as WaveformRawResponse;
