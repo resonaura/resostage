@@ -192,6 +192,17 @@ export function NumberFieldControl({
  * after the last local edit so server echoes don't jump the thumb mid-drag
  * when a remote client is also editing.
  */
+/**
+ * Step for the intensity sliders, in 0..1.
+ *
+ * Coarse enough that the slider is a row of positions rather than a
+ * continuum, which is what makes the trackpad tick through it -- see
+ * DETENT_LIMIT in components/ui/Slider. Hundredths were just over that line,
+ * so intensity was the one light control that felt dead under the finger.
+ * 2% is still finer than anyone dials a rig by eye.
+ */
+export const INTENSITY_STEP = 0.02;
+
 export function LabeledSlider({
   label,
   value,

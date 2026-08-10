@@ -139,6 +139,7 @@ export function CycleStrip({
     lastRight: number;
   } | null>(null);
   const dragCancelRef = useRef<CancellableDrag | null>(null);
+  const dragWindowCleanupRef = useRef<(() => void) | null>(null);
   /** Landmarks for a free drag; see detents.ts. Frozen when the drag starts. */
   const detentsRef = useRef<number[]>([]);
   // Idle hover cursor on the yellow bar (edges vs body).
@@ -147,6 +148,8 @@ export function CycleStrip({
   useEffect(() => {
     return () => {
       setDragCursor(null);
+      dragWindowCleanupRef.current?.();
+      dragWindowCleanupRef.current = null;
       dragCancelRef.current?.end();
       dragCancelRef.current = null;
     };
@@ -179,6 +182,22 @@ export function CycleStrip({
     return cycle.active ? "grab" : "pointer";
   };
 
+  const detachDragWindowListeners = () => {
+    dragWindowCleanupRef.current?.();
+    dragWindowCleanupRef.current = null;
+  };
+
+  const attachDragWindowListeners = () => {
+    detachDragWindowListeners();
+    const onUp = () => finishDrag();
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    dragWindowCleanupRef.current = () => {
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  };
+
   const beginDrag = (
     e: React.PointerEvent,
     mode: DragMode,
@@ -208,6 +227,7 @@ export function CycleStrip({
       ? []
       : songDetents(song, songIndex, { songLength });
     triggerHaptic("generic");
+    attachDragWindowListeners();
     dragCancelRef.current?.end();
     dragCancelRef.current = beginCancellableDrag(cancelDrag);
     // click / create wait for a few px of motion before locking the cursor;
@@ -345,6 +365,7 @@ export function CycleStrip({
     const d = dragRef.current;
     dragRef.current = null;
     setDragCursor(null);
+    detachDragWindowListeners();
     dragCancelRef.current?.end();
     dragCancelRef.current = null;
     if (!d) return;
@@ -358,17 +379,25 @@ export function CycleStrip({
     onDragEnd?.();
   };
 
-  const endDrag = (e: React.PointerEvent) => {
+  /**
+   * Every way a cycle drag can end, including the ones with no React event.
+   *
+   * The forced drag cursor is set on <html> with `!important` so it beats
+   * every element underneath (see ensureDragCursorStyle). That makes clearing
+   * it non-negotiable: a drag that ends without anyone noticing leaves the
+   * whole application stuck on `ew-resize` until the page is reloaded, which
+   * is exactly what happened when a locator was released outside the strip --
+   * pointer capture is dropped when the captured element is removed, and this
+   * strip re-renders its bar whenever the range changes. Element handlers
+   * alone could not see that release; the window always can.
+   */
+  const finishDrag = () => {
     const d = dragRef.current;
     dragRef.current = null;
     setDragCursor(null);
+    detachDragWindowListeners();
     dragCancelRef.current?.end();
     dragCancelRef.current = null;
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      /* already released */
-    }
     onDragEnd?.();
     if (!d) return;
     if (d.moved) triggerHaptic("generic");
@@ -414,8 +443,8 @@ export function CycleStrip({
         className="pointer-events-auto absolute inset-0 touch-none cursor-ew-resize"
         onPointerDown={onEmptyPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+        onPointerUp={finishDrag}
+        onPointerCancel={finishDrag}
         title="Drag to set cycle on this song"
       />
 
@@ -444,8 +473,8 @@ export function CycleStrip({
             if (!dragRef.current)
               setBarHoverCursor(active ? "grab" : "pointer");
           }}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
+          onPointerUp={finishDrag}
+          onPointerCancel={finishDrag}
           title={
             active
               ? "Cycle: drag · click toggle · ⌥-drag = skip · ⌘-click = invert skip · ⇧-click = snap"
@@ -501,8 +530,8 @@ export function CycleStrip({
               beginDrag(e, mode);
             }}
             onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
+            onPointerUp={finishDrag}
+            onPointerCancel={finishDrag}
             title="Drag to resize the cycle"
           />
         ))}

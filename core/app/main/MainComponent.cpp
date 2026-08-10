@@ -1581,6 +1581,7 @@ void MainComponent::publishWebState() {
     state.underrunCount = health.underrunCount;
     state.audioCallbackCount = health.audioCallbackCount;
     state.silentBlockCount = health.silentBlockCount;
+    state.pitchBlockCount = health.pitchBlockCount;
     // Sourced from the streaming layer rather than SystemHealth so telemetry/
     // keeps no dependency on audio/.
     state.streamStarveCount = engine.streamStarveCount();

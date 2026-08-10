@@ -54,6 +54,7 @@ export function TrackWaveformLane({
   /** Offset into the source file (region trim / split). */
   sourceOffsetSec = 0,
   speed = 1,
+  reverse = false,
   /** When true, no lane chrome — meant to sit inside a clipped region. */
   embedded = false,
   loop = false,
@@ -78,6 +79,12 @@ export function TrackWaveformLane({
    * where the region's source window is regLen * speed).
    */
   speed?: number;
+  /**
+   * Region played backwards. The peaks have to be mirrored inside the same
+   * source window the engine mirrors in (AudioEngine's `srcFor`), or the
+   * drawing describes the file while the ear hears its reverse.
+   */
+  reverse?: boolean;
   embedded?: boolean;
   loop?: boolean;
   loopLengthSec?: number;
@@ -182,6 +189,13 @@ export function TrackWaveformLane({
       const availSec = Math.max(0.01, durationSeconds - sourceOffsetSec);
       const cycleSec =
         loopLengthSec && loopLengthSec > 0 ? loopLengthSec : availSec;
+      // The stretch of source this region covers, in source seconds. Reverse
+      // mirrors within exactly this, the same window the engine uses.
+      const windowSec = Math.min(
+        availSec,
+        Math.max(0.01, (contentWidth / pxPerSec) * srcPerSec),
+      );
+      const mirrorSec = loop && cycleSec > 0 ? cycleSec : windowSec;
 
       for (let x = 0; x <= renderWidth; x += step) {
         // Map lane-local time → source-file time (honours region trim/split & loop).
@@ -202,6 +216,16 @@ export function TrackWaveformLane({
           let mEnd = intoSecEnd % cycleSec;
           if (mEnd < 0) mEnd += cycleSec;
           tEndSec = sourceOffsetSec + mEnd;
+        }
+
+        if (reverse) {
+          // Mirror both edges of this column's slice, then put them back in
+          // order -- a mirrored range runs backwards, and the bin lookup
+          // below wants start <= end.
+          const a = mirrorSec - (tEndSec - sourceOffsetSec);
+          const bEdge = mirrorSec - (tStartSec - sourceOffsetSec);
+          tStartSec = sourceOffsetSec + Math.max(0, a);
+          tEndSec = sourceOffsetSec + Math.max(0, bEdge);
         }
 
         const startBin = Math.max(
@@ -338,6 +362,7 @@ export function TrackWaveformLane({
     muted,
     sourceOffsetSec,
     srcPerSec,
+    reverse,
     visibleStartSec,
     visibleEndSec,
     loop,

@@ -1713,6 +1713,7 @@ std::string WebServer::buildStateJson(const char* view) const {
         wH.underrunCount = snap.underrunCount;
         wH.audioCallbackCount = snap.audioCallbackCount;
         wH.silentBlockCount = snap.silentBlockCount;
+        wH.pitchBlockCount = snap.pitchBlockCount;
         wH.streamStarveCount = snap.streamStarveCount;
         wH.diskReadBytesPerSec = finiteOrZero(snap.diskReadBytesPerSec);
         wH.diskWriteBytesPerSec = finiteOrZero(snap.diskWriteBytesPerSec);

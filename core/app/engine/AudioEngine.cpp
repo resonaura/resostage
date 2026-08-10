@@ -1004,8 +1004,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // finished loading plays straight rather than wrong, and picks the
         // treatment up on a later block once it has.
         const double playSpeed = reg != nullptr ? reg->playback.speed : 1.0;
+        const double wantSemis = reg != nullptr ? reg->playback.semitones : 0.0;
         const bool wantReverse = reg != nullptr && reg->playback.reverse;
         const bool wantVarispeed = std::abs(playSpeed - 1.0) > 1.0e-9;
+        const bool wantTranspose = std::abs(wantSemis) > 1.0e-6;
         const bool randomAccess = buf->isResident();
         const bool shaped = randomAccess && (wantReverse || wantVarispeed);
 
@@ -1145,7 +1147,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     (fadeInN <= 0 || into0Abs >= fadeInN)
                     && (fadeOutN <= 0 || (intoEnd - 1) < regLen - fadeOutN);
 
-                if (blockInsideClip && sourceUnderWholeBlock && clearOfFades) {
+                // ...and nothing else left to do to this block. Transposition
+                // runs after this branch, so taking the shortcut with a
+                // transposed region skipped the vocoder for every interior
+                // block -- which is nearly all of them, so transpose did
+                // nothing at all unless the region ALSO had speed or reverse
+                // on it (those take the other branch, which has no shortcut).
+                if (blockInsideClip && sourceUnderWholeBlock && clearOfFades
+                    && !wantTranspose) {
                     if (regGain != 1.0f) {
                         for (int ch = 0; ch < trackChannels; ++ch) {
                             float* p = ptrs[ch];
@@ -1221,8 +1230,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // through -- the vocoder smears for a few milliseconds and recovers.
         // Resetting instead would be cleaner and is not allowed here: reset()
         // can allocate, and this is the audio thread.
-        const double wantSemis = reg != nullptr ? reg->playback.semitones : 0.0;
-        if (reg != nullptr && std::abs(wantSemis) > 1.0e-6 && !fullyOutside
+        if (reg != nullptr && wantTranspose && !fullyOutside
             && pitchInScratch.getNumSamples() >= numSamples
             && pitchOutScratch.getNumSamples() >= numSamples) {
             PitchSlot* slot = nullptr;
@@ -1266,6 +1274,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 slot->stretch.process(inPtrs, numSamples, outPtrs, numSamples);
                 slot->nextInputSample = into + numSamples;
                 slot->everUsed = true;
+                systemHealth.notePitchBlock();
                 for (int ch = 0; ch < trackChannels; ++ch) {
                     float* back = ptrs[ch];
                     const float* shifted = outPtrs[ch];

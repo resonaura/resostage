@@ -44,6 +44,7 @@ import {
   EffectTypeGrid,
   Field,
   GradientPresetGroup,
+  INTENSITY_STEP,
   LabeledSlider,
   LightColorPicker,
   NumberFieldControl,
@@ -711,6 +712,7 @@ function CueSettingsPanel({
       <LabeledSlider
         label="Intensity"
         defaultValue={1}
+        step={INTENSITY_STEP}
         value={cue.intensity}
         onChange={(v) => update({ intensity: v })}
       />

@@ -42,6 +42,14 @@ struct SystemHealthSnapshot {
     // in any driver statistic but is exactly what a listener hears as a
     // crackle.
     uint64_t silentBlockCount = 0;
+    // Blocks the region transposer actually ran on.
+    //
+    // Transposition is invisible to every other number here: it preserves
+    // level, it is not a dropout, and one region's worth of phase vocoder
+    // disappears into process CPU. Without this, the only way to answer "is
+    // transpose doing anything at all" is to listen -- which cannot be
+    // checked in a log, a bug report or a test.
+    uint64_t pitchBlockCount = 0;
     int webClientCount = 0;
     // Disk throughput this app is causing, averaged over the sample interval.
     //
@@ -72,6 +80,8 @@ public:
     // underrunCount, yet a handful of these per second is the "хрип" a
     // listener reports while a fader is being dragged.
     void noteSilentBlock() { silentBlockCount.fetch_add(1, std::memory_order_relaxed); }
+    /** One block pushed through a region's transposer. See pitchBlockCount. */
+    void notePitchBlock() { pitchBlockCount.fetch_add(1, std::memory_order_relaxed); }
 
     void setWebClientCount(int count) { webClientCount.store(count, std::memory_order_relaxed); }
 
@@ -83,6 +93,7 @@ private:
     std::atomic<uint64_t> underrunCount{0};
     std::atomic<uint64_t> audioCallbackCount{0};
     std::atomic<uint64_t> silentBlockCount{0};
+    std::atomic<uint64_t> pitchBlockCount{0};
     std::atomic<int> webClientCount{0};
 
     // CPU estimation state (message-thread sample() only).

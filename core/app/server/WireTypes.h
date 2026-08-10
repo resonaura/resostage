@@ -503,6 +503,7 @@ struct WHealthTelemetry {
     // Blocks that left as silence while the transport was playing -- see
     // SystemHealth::noteSilentBlock(). Not a driver dropout, but audible.
     uint64_t silentBlockCount = 0;
+    uint64_t pitchBlockCount = 0;
     uint64_t streamStarveCount = 0;
     double diskReadBytesPerSec = 0.0;
     double diskWriteBytesPerSec = 0.0;

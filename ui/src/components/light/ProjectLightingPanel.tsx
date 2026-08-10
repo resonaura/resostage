@@ -57,6 +57,7 @@ import {
   EffectTypeGrid,
   Field,
   GradientPresetGroup,
+  INTENSITY_STEP,
   LabeledSlider,
   LightColorPicker,
   NumberFieldControl,
@@ -499,6 +500,7 @@ export const ProjectLightingPanel = memo(function ProjectLightingPanel({
                 <LabeledSlider
                   label="Intensity"
                   defaultValue={1}
+                  step={INTENSITY_STEP}
                   value={li.idle.intensity}
                   onChange={(v) =>
                     void lighting.setConfig({ idleIntensity: v })
@@ -586,6 +588,7 @@ export const ProjectLightingPanel = memo(function ProjectLightingPanel({
                     <LabeledSlider
                       label="Intensity"
                       defaultValue={1}
+                      step={INTENSITY_STEP}
                       value={li.idle.intensity}
                       onChange={(v) =>
                         void lighting.setConfig({ idleIntensity: v })

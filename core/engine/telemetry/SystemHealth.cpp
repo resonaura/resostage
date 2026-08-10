@@ -219,6 +219,7 @@ SystemHealthSnapshot SystemHealth::sample() const {
         // to see them the instant they move.
         cachedSnapshot.underrunCount = underrunCount.load(std::memory_order_relaxed);
         cachedSnapshot.silentBlockCount = silentBlockCount.load(std::memory_order_relaxed);
+        cachedSnapshot.pitchBlockCount = pitchBlockCount.load(std::memory_order_relaxed);
         cachedSnapshot.webClientCount = webClientCount.load(std::memory_order_relaxed);
         return cachedSnapshot;
     }
@@ -320,6 +321,7 @@ SystemHealthSnapshot SystemHealth::sample() const {
     snap.underrunCount = underrunCount.load(std::memory_order_relaxed);
     snap.audioCallbackCount = audioCallbackCount.load(std::memory_order_relaxed);
     snap.silentBlockCount = silentBlockCount.load(std::memory_order_relaxed);
+    snap.pitchBlockCount = pitchBlockCount.load(std::memory_order_relaxed);
     snap.webClientCount = webClientCount.load(std::memory_order_relaxed);
 
     // Disk throughput over the interval just closed. The very first sample has

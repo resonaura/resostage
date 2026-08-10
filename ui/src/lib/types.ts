@@ -587,6 +587,8 @@ export interface HealthState {
   // serviced on time so these never show up as underruns -- they are only
   // audible, as a crackle. See SystemHealth::noteSilentBlock().
   silentBlockCount: number;
+  /** Blocks the region transposer ran on -- 0 means transpose did nothing. */
+  pitchBlockCount: number;
   // Times a stem's ring ran dry mid-block while the file still had audio: a
   // step to zero inside a block. See StreamingTrackBuffer::starveCount().
   streamStarveCount: number;
@@ -844,6 +846,7 @@ export const emptyState: WebUiState = {
     cpuCoreCount: 1,
     underrunCount: 0,
     silentBlockCount: 0,
+  pitchBlockCount: 0,
     streamStarveCount: 0,
     diskReadBytesPerSec: 0,
     diskWriteBytesPerSec: 0,
