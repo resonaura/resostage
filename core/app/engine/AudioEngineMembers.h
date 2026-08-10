@@ -322,6 +322,33 @@
     // track's own scratch as each finishes, so they never need to coexist.
     juce::AudioBuffer<float> regionMixScratch;
 
+    // ── Transposition ───────────────────────────────────────────────────
+    //
+    // A phase vocoder per pitched region. Pooled rather than one-per-region:
+    // each carries FFT state measured in tens of kilobytes, and a project can
+    // hold hundreds of regions of which a handful are ever transposed at once.
+    //
+    // Everything that allocates -- configure(), and reset() the first time --
+    // happens in ensureScratchSizes on the message thread. The audio callback
+    // only claims a slot, sets the transpose and pushes samples through.
+    struct PitchSlot {
+        // Region this slot is currently following, empty when free.
+        std::string regionId;
+        // Where its input cursor is, so a jump can be told from continuous
+        // playback: a phase vocoder is sequential and has no concept of seek.
+        int64_t nextInputSample = 0;
+        double semitones = 0.0;
+        bool everUsed = false;
+        signalsmith::stretch::SignalsmithStretch<float> stretch;
+    };
+    // Eight: more transposed regions than that sounding at once is not a mix,
+    // and the cap is what keeps this allocation-free on the audio thread.
+    static constexpr size_t kPitchSlots = 8;
+    std::vector<PitchSlot> pitchSlots;
+    // Pre-pitch input and post-pitch output for one block.
+    juce::AudioBuffer<float> pitchInScratch;
+    juce::AudioBuffer<float> pitchOutScratch;
+
     mutable std::recursive_mutex routingMutex;
 
 

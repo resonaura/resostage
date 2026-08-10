@@ -16,6 +16,9 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_events/juce_events.h>
 
+// Phase vocoder for per-region transposition; see AudioEngineMembers' PitchSlot.
+#include "signalsmith-stretch/signalsmith-stretch.h"
+
 #include "audio/ClickGenerator.h"
 #include "audio/Metering.h"
 #include "audio/PeakBuildThreadPool.h"

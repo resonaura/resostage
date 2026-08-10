@@ -30,6 +30,39 @@ if(RESOSTAGE_BUILD_APP)
   FetchContent_MakeAvailable(JUCE)
 
   # ---------------------------------------------------------------------------
+  # Signalsmith Stretch: phase vocoder for per-region transposition.
+  #
+  # Header-only and MIT, so it costs a single include path and no build target.
+  # Chosen over Rubber Band (GPL unless licensed, and heavier) and over rolling
+  # our own -- a vocoder that does not smear transients is months of work, and
+  # this one is what Tracktion Engine uses.
+  # ---------------------------------------------------------------------------
+  FetchContent_Declare(
+    signalsmith_stretch
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+    GIT_TAG        main
+    GIT_SHALLOW    TRUE
+  )
+  # Its own CMakeLists declares an INTERFACE target and pulls in the linear
+  # algebra header pack it needs, so let it -- populating by hand missed that
+  # dependency and the build failed on a missing signalsmith-linear/stft.h.
+  FetchContent_MakeAvailable(signalsmith_stretch)
+
+  # Third-party headers, compiled with our warning flags, produce a wall of
+  # shadow/conversion warnings that are not ours to fix and would drown the
+  # ones that are. Re-declaring their include dirs as SYSTEM silences them
+  # without loosening anything on our own code.
+  foreach(sstarget signalsmith-stretch signalsmith-linear)
+    if(TARGET ${sstarget})
+      get_target_property(_ssdirs ${sstarget} INTERFACE_INCLUDE_DIRECTORIES)
+      if(_ssdirs)
+        set_target_properties(${sstarget} PROPERTIES
+          INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_ssdirs}")
+      endif()
+    endif()
+  endforeach()
+
+  # ---------------------------------------------------------------------------
   # libwebsockets: embedded HTTP/WebSocket server for the dual native+remote
   # web UI. TLS/extensions/test-apps disabled -- this serves a local-network-
   # only UI, so a TLS backend (OpenSSL/mbedTLS) would be an unnecessary

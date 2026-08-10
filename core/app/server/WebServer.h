@@ -372,6 +372,12 @@ struct WebUiState {
                 bool enabled = false;
                 double lengthSeconds = 0.0;
             } loop;
+            struct Playback {
+                // See RegionPlayback in ProjectSchema.h.
+                double speed = 1.0;
+                double semitones = 0.0;
+                bool reverse = false;
+            } playback;
         };
         std::vector<RegionRow> regions;
 

@@ -492,6 +492,27 @@ void AudioEngine::ensureScratchSizes() {
     for (auto& scratch : trackScratch)
         scratch.setSize(2, samples, false, false, true);
     regionMixScratch.setSize(2, samples, false, false, true);
+    pitchInScratch.setSize(2, samples, false, false, true);
+    pitchOutScratch.setSize(2, samples, false, false, true);
+
+    // Configure the vocoder pool here, off the audio thread: configure() and
+    // the first reset() both allocate, and the callback must never do that.
+    // Re-run on every device change, since the FFT sizing is derived from the
+    // sample rate.
+    const double rate = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
+    if (pitchSlots.size() != kPitchSlots)
+        pitchSlots.resize(kPitchSlots);
+    for (auto& slot : pitchSlots) {
+        slot.stretch.presetDefault(2, static_cast<float>(rate));
+        slot.stretch.reset();
+        // Reserve past a UUID's 36 characters so claiming a slot on the
+        // audio thread reuses this buffer instead of allocating.
+        slot.regionId.reserve(64);
+        slot.regionId.clear();
+        slot.nextInputSample = 0;
+        slot.semitones = 0.0;
+        slot.everUsed = false;
+    }
 
     clickScratch.assign(static_cast<size_t>(samples), 0.0f);
 }

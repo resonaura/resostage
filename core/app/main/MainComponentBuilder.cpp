@@ -508,6 +508,13 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
         regPtr->loop.enabled = loopEnabled;
     if (getDouble(doc, "loopLengthSeconds", numVal))
         regPtr->loop.lengthSeconds = std::max(0.0, numVal);
+    if (getDouble(doc, "speed", numVal))
+        regPtr->playback.speed = std::clamp(numVal, 0.25, 4.0);
+    if (getDouble(doc, "semitones", numVal))
+        regPtr->playback.semitones = std::clamp(numVal, -24.0, 24.0);
+    bool reverseFlag = false;
+    if (getBool(doc, "reverse", reverseFlag))
+        regPtr->playback.reverse = reverseFlag;
 
     // Keep fades from exceeding the clip length (each side ≤ half duration).
     if (regPtr->durationSeconds > 0.0) {

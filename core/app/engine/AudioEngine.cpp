@@ -969,10 +969,71 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             : sourceAvail;
         const int64_t loopCycle = std::max<int64_t>(1, std::min(sourceAvail, loopLenN));
 
+        // ── Speed / reverse ─────────────────────────────────────────────
+        //
+        // Both need to read the source out of order, which the streaming ring
+        // cannot do: it decodes strictly forwards and only holds a window
+        // around the playhead. The resident (fully in-RAM) copy can, so these
+        // are served from there and skipped otherwise -- a region that has not
+        // finished loading plays straight rather than wrong, and picks the
+        // treatment up on a later block once it has.
+        const double playSpeed = reg != nullptr ? reg->playback.speed : 1.0;
+        const bool wantReverse = reg != nullptr && reg->playback.reverse;
+        const bool wantVarispeed = std::abs(playSpeed - 1.0) > 1.0e-9;
+        const bool randomAccess = buf->isResident();
+        const bool shaped = randomAccess && (wantReverse || wantVarispeed);
+
         const bool fullyOutside = reg != nullptr
             && (playheadSample + numSamples <= regStart || playheadSample >= regEnd);
 
-        if (!fullyOutside) {
+        if (!fullyOutside && shaped) {
+            // Source frame for a position in the region, as a real number:
+            // speed scales it, reverse mirrors it inside the region's own
+            // source window. Fractional, so the sample below interpolates.
+            const int64_t windowLen = loop
+                ? loopCycle
+                : std::min(sourceAvail, std::max<int64_t>(1, static_cast<int64_t>(
+                      std::llround(static_cast<double>(regLen) * playSpeed))));
+            const auto srcFor = [&](int64_t intoRegion) -> double {
+                if (intoRegion < 0 || windowLen <= 0)
+                    return -1.0;
+                double p = static_cast<double>(intoRegion) * playSpeed;
+                if (loop) {
+                    p = std::fmod(p, static_cast<double>(windowLen));
+                    if (p < 0.0) p += static_cast<double>(windowLen);
+                } else if (p >= static_cast<double>(windowLen)) {
+                    return -1.0;
+                }
+                if (wantReverse)
+                    p = static_cast<double>(windowLen) - 1.0 - p;
+                return static_cast<double>(srcOff) + p;
+            };
+
+            // Linear interpolation between the two neighbouring frames. Good
+            // enough here and, crucially, allocation-free: this runs on the
+            // audio thread, and the resident window is a plain array so each
+            // sample is two loads.
+            const int64_t into0Shaped = playheadSample - regStart;
+            for (int i = 0; i < numSamples; ++i) {
+                const double sp = srcFor(into0Shaped + i);
+                if (sp < 0.0)
+                    continue; // scratch is already cleared to silence
+                const int64_t i0 = static_cast<int64_t>(std::floor(sp));
+                const double frac = sp - static_cast<double>(i0);
+                float a[2] = {0.0f, 0.0f};
+                float b2[2] = {0.0f, 0.0f};
+                float* aPtrs[2] = {&a[0], &a[1]};
+                float* bPtrs[2] = {&b2[0], &b2[1]};
+                buf->read(aPtrs, 1, i0);
+                buf->read(bPtrs, 1, i0 + 1);
+                for (int ch = 0; ch < trackChannels; ++ch) {
+                    float* out = ptrs[ch];
+                    if (out == nullptr)
+                        continue;
+                    out[i] = static_cast<float>(a[ch] + (b2[ch] - a[ch]) * frac);
+                }
+            }
+        } else if (!fullyOutside) {
             // Map song timeline → source file frames for this region.
             const int64_t into0 = playheadSample - regStart; // may be negative before start
             auto mapFilePos = [&](int64_t intoRegion) -> int64_t {
@@ -1120,6 +1181,73 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
         // else: leave scratch cleared (silence) -- do not pull from the stream
         // past the clip end (that was the meter-flash path).
+
+        // ── Transposition ───────────────────────────────────────────────
+        //
+        // Applied last, on top of whatever the paths above produced: the
+        // vocoder neither knows nor needs to know about loops, reverse, speed
+        // or fades. Input and output counts are equal, so this transposes
+        // without changing duration and needs no ring buffer.
+        //
+        // A phase vocoder is sequential and has no notion of seeking. The
+        // slot therefore tracks where its input cursor should be, and a jump
+        // (a seek, a loop wrap, the first block of a region) is simply fed
+        // through -- the vocoder smears for a few milliseconds and recovers.
+        // Resetting instead would be cleaner and is not allowed here: reset()
+        // can allocate, and this is the audio thread.
+        const double wantSemis = reg != nullptr ? reg->playback.semitones : 0.0;
+        if (reg != nullptr && std::abs(wantSemis) > 1.0e-6 && !fullyOutside
+            && pitchInScratch.getNumSamples() >= numSamples
+            && pitchOutScratch.getNumSamples() >= numSamples) {
+            PitchSlot* slot = nullptr;
+            for (auto& candidate : pitchSlots) {
+                if (candidate.regionId == reg->id) {
+                    slot = &candidate;
+                    break;
+                }
+            }
+            if (slot == nullptr) {
+                for (auto& candidate : pitchSlots) {
+                    if (candidate.regionId.empty()) {
+                        slot = &candidate;
+                        // Assigning a std::string CAN allocate. Capacity is
+                        // reserved once in ensureScratchSizes so the common
+                        // case (a UUID, 36 chars) reuses the buffer.
+                        slot->regionId = reg->id;
+                        slot->nextInputSample = INT64_MIN;
+                        break;
+                    }
+                }
+            }
+            if (slot != nullptr) {
+                if (std::abs(slot->semitones - wantSemis) > 1.0e-9) {
+                    slot->semitones = wantSemis;
+                    slot->stretch.setTransposeSemitones(
+                        static_cast<float>(wantSemis));
+                }
+                const int64_t into = playheadSample - regStart;
+                // Copy the block out, then push it back through transposed.
+                for (int ch = 0; ch < 2; ++ch) {
+                    const float* from = ch < trackChannels ? ptrs[ch] : ptrs[0];
+                    float* into2 = pitchInScratch.getWritePointer(ch);
+                    if (from != nullptr && into2 != nullptr)
+                        std::copy_n(from, numSamples, into2);
+                }
+                float* inPtrs[2] = {pitchInScratch.getWritePointer(0),
+                                    pitchInScratch.getWritePointer(1)};
+                float* outPtrs[2] = {pitchOutScratch.getWritePointer(0),
+                                     pitchOutScratch.getWritePointer(1)};
+                slot->stretch.process(inPtrs, numSamples, outPtrs, numSamples);
+                slot->nextInputSample = into + numSamples;
+                slot->everUsed = true;
+                for (int ch = 0; ch < trackChannels; ++ch) {
+                    float* back = ptrs[ch];
+                    const float* shifted = outPtrs[ch];
+                    if (back != nullptr && shifted != nullptr)
+                        std::copy_n(shifted, numSamples, back);
+                }
+            }
+        }
 
         if (additive)
             sumIntoScratch();

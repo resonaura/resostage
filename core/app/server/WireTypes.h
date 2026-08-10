@@ -179,6 +179,12 @@ struct WRegionFade {
     double outCurve = 0.0;
 };
 
+struct WRegionPlaybackWire {
+    double speed = 1.0;
+    double semitones = 0.0;
+    bool reverse = false;
+};
+
 struct WRegionLoop {
     bool enabled = false;
     double lengthSeconds = 0.0;
@@ -195,6 +201,7 @@ struct WRegionTelemetry {
     // emitted by full-detail views (editor) and the player timeline.
     std::optional<WRegionFade> fade;
     std::optional<WRegionLoop> loop;
+    std::optional<WRegionPlaybackWire> playback;
 };
 
 struct WEventTelemetry {

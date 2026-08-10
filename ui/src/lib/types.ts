@@ -139,6 +139,8 @@ export interface RegionRow {
   /** View-scoped: absent unless the frame conveys region detail. */
   fade?: RegionFade;
   loop?: RegionLoop;
+  /** Speed / transpose / reverse. See RegionPlayback in ProjectSchema.h. */
+  playback?: { speed: number; semitones: number; reverse: boolean };
 }
 
 // Structural marker (Intro/Verse/Chorus/Bridge/Outro/Solo/custom). A point,

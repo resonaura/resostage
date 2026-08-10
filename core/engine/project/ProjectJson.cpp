@@ -308,6 +308,12 @@ struct WRegionLoop {
     double lengthSeconds = 0.0;
 };
 
+struct WRegionPlayback {
+    double speed = 1.0;
+    double semitones = 0.0;
+    bool reverse = false;
+};
+
 struct WRegion {
     std::string id;
     std::string trackId;
@@ -317,6 +323,7 @@ struct WRegion {
     WRegionSource source;
     WRegionFade fade;
     WRegionLoop loop;
+    WRegionPlayback playback;
 };
 
 struct WEvent {
@@ -641,6 +648,9 @@ WProject toWire(const Project& p) {
             wr.fade.outCurve = finiteOrZero(r.fade.outCurve);
             wr.loop.enabled = r.loop.enabled;
             wr.loop.lengthSeconds = finiteOrZero(r.loop.lengthSeconds);
+            wr.playback.speed = r.playback.speed;
+            wr.playback.semitones = finiteOrZero(r.playback.semitones);
+            wr.playback.reverse = r.playback.reverse;
             ws.regions.push_back(std::move(wr));
         }
 
@@ -921,6 +931,16 @@ Project fromWire(const WProject& w) {
             reg.fade.outCurve = r.fade.outCurve;
             reg.loop.enabled = r.loop.enabled;
             reg.loop.lengthSeconds = r.loop.lengthSeconds;
+            // Guarded: a corrupt or hand-edited speed of 0 (or negative)
+            // would divide by zero in the resampler and silence the region.
+            reg.playback.speed =
+                (std::isfinite(r.playback.speed) && r.playback.speed > 0.01
+                 && r.playback.speed < 100.0)
+                    ? r.playback.speed
+                    : 1.0;
+            reg.playback.semitones =
+                std::isfinite(r.playback.semitones) ? r.playback.semitones : 0.0;
+            reg.playback.reverse = r.playback.reverse;
             song.regions.push_back(std::move(reg));
         }
 

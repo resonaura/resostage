@@ -1448,6 +1448,11 @@ std::string WebServer::buildStateJson(const char* view) const {
                     wLoop.enabled = r.loop.enabled;
                     wLoop.lengthSeconds = finiteOrZero(r.loop.lengthSeconds);
                     wReg.loop = wLoop;
+                    WRegionPlaybackWire wPlay;
+                    wPlay.speed = r.playback.speed;
+                    wPlay.semitones = finiteOrZero(r.playback.semitones);
+                    wPlay.reverse = r.playback.reverse;
+                    wReg.playback = wPlay;
                 }
                 wSong.regions.push_back(std::move(wReg));
             }

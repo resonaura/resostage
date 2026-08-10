@@ -21,6 +21,11 @@ constexpr int kMutexYieldEveryRefills = 8;
 void applyWindowFromRegion(StreamingTrackBuffer& buf, const Region& region, double deviceSampleRate) {
     if (deviceSampleRate <= 0.0)
         deviceSampleRate = 48000.0;
+    // Speed and reverse both read the source out of order, which only the
+    // resident copy can serve -- so flag it here, where every path that binds
+    // a region to a buffer already passes through.
+    buf.setNeedsRandomAccess(region.playback.reverse
+                             || std::abs(region.playback.speed - 1.0) > 1.0e-9);
     const int64_t total = buf.totalFrames();
     const int64_t srcOff = static_cast<int64_t>(std::llround(std::max(0.0, region.source.offsetSeconds) * deviceSampleRate));
     if (region.loop.enabled) {
@@ -256,17 +261,26 @@ void StreamingEngine::recountResidentBytes() {
 }
 
 bool StreamingEngine::residentizeOneBuffer(StagedSong& staged, size_t& budgetRemaining) {
+    // Two passes, not one. Smallest-first is the right default -- it gets the
+    // most regions resident for a given budget -- but a region that is played
+    // backwards or off-speed CANNOT play correctly from the ring at all, so it
+    // takes priority over any number of ordinary ones that merely benefit.
     StreamingTrackBuffer* best = nullptr;
     size_t bestBytes = std::numeric_limits<size_t>::max();
-    for (auto& b : staged.buffers) {
-        if (b == nullptr || b->isResident())
-            continue;
-        const size_t need = b->estimatedResidentBytes();
-        if (need > budgetRemaining && need > 0)
-            continue;
-        if (need < bestBytes) {
-            bestBytes = need;
-            best = b.get();
+    for (int pass = 0; pass < 2 && best == nullptr; ++pass) {
+        const bool wantRandomAccess = pass == 0;
+        for (auto& b : staged.buffers) {
+            if (b == nullptr || b->isResident())
+                continue;
+            if (b->wantsRandomAccess() != wantRandomAccess)
+                continue;
+            const size_t need = b->estimatedResidentBytes();
+            if (need > budgetRemaining && need > 0)
+                continue;
+            if (need < bestBytes) {
+                bestBytes = need;
+                best = b.get();
+            }
         }
     }
     if (best == nullptr)

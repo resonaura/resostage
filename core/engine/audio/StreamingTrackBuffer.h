@@ -36,6 +36,21 @@ public:
                    : decoder.totalFrames();
     }
 
+    // True when the region this buffer serves is played at a speed other than
+    // 1, or backwards.
+    //
+    // Both read the source out of order, which the ring cannot do -- so such
+    // a buffer is worth making resident ahead of any other, regardless of
+    // size. Without this, residency picks the smallest candidate that fits
+    // the budget and a long reversed region could simply never get in,
+    // leaving it silently playing forwards.
+    void setNeedsRandomAccess(bool v) {
+        needsRandomAccess.store(v, std::memory_order_relaxed);
+    }
+    bool wantsRandomAccess() const {
+        return needsRandomAccess.load(std::memory_order_relaxed);
+    }
+
     void setPreferredResidentWindow(int64_t deviceStart, int64_t deviceLength);
     int64_t preferredResidentStart() const { return preferredStart; }
     int64_t preferredResidentLength() const { return preferredLength; }
@@ -149,6 +164,8 @@ private:
     AudioRingBuffer ring;
 
     // Serializes open/refill/hardSeek/commit-resident against each other.
+    std::atomic<bool> needsRandomAccess{false};
+
     // Never held on the audio-thread read() hot path when resident.
     mutable std::mutex diskIoMutex;
 

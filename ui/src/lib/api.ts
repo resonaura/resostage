@@ -333,6 +333,10 @@ export const builder = {
     fadeOutCurve?: number;
     loop?: boolean;
     loopLengthSeconds?: number;
+    /** Playback rate; pitch follows it, as on tape. */
+    speed?: number;
+    semitones?: number;
+    reverse?: boolean;
     gestureId?: string;
   }) => post("/api/v1/builder/region/update", patch),
 

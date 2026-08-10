@@ -1,5 +1,5 @@
 import { EmptyState, Separator, Switch } from "@heroui/react";
-import { AudioWaveform, Blend, Repeat } from "lucide-react";
+import { AudioWaveform, Blend, Repeat, Rewind } from "lucide-react";
 import { useMemo } from "react";
 import { builder } from "../../lib/api";
 import type { RegionRow, SongRow, TrackRow } from "../../lib/types";
@@ -146,6 +146,7 @@ export function RegionSidePanel({
 
   const fade = region?.fade;
   const loop = region?.loop;
+  const playback = region?.playback;
 
   return (
     <SidePanelShell
@@ -259,6 +260,48 @@ export function RegionSidePanel({
                 </Field>
               </>
             )}
+
+            <Separator />
+
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold">
+                <Rewind size={12} className="shrink-0 text-muted" />
+                Reverse
+              </span>
+              <Switch
+                aria-label="Play region backwards"
+                isSelected={playback?.reverse ?? false}
+                onChange={(reverse) => patch({ reverse })}
+              />
+            </div>
+            <LabeledSlider
+              label="Speed"
+              defaultValue={1}
+              value={playback?.speed ?? 1}
+              min={0.25}
+              max={4}
+              step={0.01}
+              format={(v) => `${v.toFixed(2)}×`}
+              onChange={(speed) => patch({ speed })}
+            />
+            <LabeledSlider
+              label="Transpose"
+              defaultValue={0}
+              value={playback?.semitones ?? 0}
+              min={-12}
+              max={12}
+              step={1}
+              format={(v) =>
+                v === 0 ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(0)} st`
+              }
+              onChange={(semitones) => patch({ semitones })}
+            />
+            <p className="text-[10px] leading-snug text-muted">
+              Speed carries pitch with it, like tape; Transpose moves the pitch
+              on its own and leaves the timing alone. Reverse and any speed
+              other than 1× need the clip held in memory, so a long one takes a
+              moment to take effect after loading.
+            </p>
 
             <Separator />
 

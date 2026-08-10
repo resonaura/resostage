@@ -1061,6 +1061,9 @@ void MainComponent::publishWebState() {
             rr.fade.outCurve = r.fade.outCurve;
             rr.loop.enabled = r.loop.enabled;
             rr.loop.lengthSeconds = r.loop.lengthSeconds;
+            rr.playback.speed = r.playback.speed;
+            rr.playback.semitones = r.playback.semitones;
+            rr.playback.reverse = r.playback.reverse;
             row.regions.push_back(std::move(rr));
         }
 

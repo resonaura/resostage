@@ -21,7 +21,10 @@ import {
   Volume2,
 } from "lucide-react";
 import { useMemo } from "react";
+import { resolveCssVar, withHexAlpha } from "../../lib/cssColor";
 import { extOutColor, masterColor, sendColor } from "../../lib/mixerColors";
+import { roleColor } from "../../lib/theme";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
 import {
   NODE_HEIGHT,
   NODE_WIDTH,
@@ -197,6 +200,27 @@ function edgeLabel(
 }
 
 export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
+  // React Flow writes these into SVG styles, which cannot resolve var(), so
+  // every one has to be a concrete colour. Resolved per render rather than
+  // memoised on the theme version -- resolveCssVar is already a cached DOM
+  // probe, and a memo keyed on the version is what went stale elsewhere.
+  const themeVersion = useThemeVersion();
+
+  const flowColors = useMemo(() => {
+    const ink = resolveCssVar("--foreground", "#ffffff");
+    return {
+      edgeActive: withHexAlpha(ink, "59"), // ~35%
+      edgePreFader: withHexAlpha(roleColor("send"), "bf"), // ~75%
+      edgeSilenced: withHexAlpha(roleColor("meterClip"), "59"),
+      label: withHexAlpha(ink, "a6"), // ~65%
+      labelBg: withHexAlpha(resolveCssVar("--overlay", "#111111"), "8c"),
+      dots: withHexAlpha(ink, "12"),
+      mask: withHexAlpha(resolveCssVar("--background", "#000000"), "99"),
+      unknownNode: resolveCssVar("--muted", "#6b7280"),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themeVersion]);
+
   const { nodes, edges } = useMemo(() => {
     const placed = layoutSignalFlow(graph);
     const nodes: Node<StripNodeData>[] = placed.map((item) => ({
@@ -222,16 +246,16 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
         label: label || undefined,
         labelBgPadding: [4, 2] as [number, number],
         labelBgBorderRadius: 3,
-        labelBgStyle: { fill: "rgba(0,0,0,0.55)" },
-        labelStyle: { fill: "rgba(255,255,255,0.65)", fontSize: 9 },
+        labelBgStyle: { fill: flowColors.labelBg },
+        labelStyle: { fill: flowColors.label, fontSize: 9 },
         style: {
           // A silenced edge stays visible but clearly dead: hiding it would
           // make a muted track look like it was never routed at all.
           stroke: e.active
             ? e.preFader
-              ? "rgba(255,146,48,0.75)"
-              : "rgba(255,255,255,0.35)"
-            : "rgba(255,69,58,0.35)",
+              ? flowColors.edgePreFader
+              : flowColors.edgeActive
+            : flowColors.edgeSilenced,
           strokeWidth: e.active ? 1.5 : 1,
           strokeDasharray: e.active ? undefined : "4 3",
         },
@@ -239,7 +263,7 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
     });
 
     return { nodes, edges: edgeList };
-  }, [graph]);
+  }, [graph, flowColors]);
 
   if (graph.strips.length === 0) {
     return (
@@ -266,19 +290,19 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
         variant={BackgroundVariant.Dots}
         gap={18}
         size={1}
-        color="rgba(255,255,255,0.07)"
+        color={flowColors.dots}
       />
       <MiniMap
         pannable
         zoomable
-        maskColor="rgba(0,0,0,0.6)"
+        maskColor={flowColors.mask}
         className="!bg-background-secondary"
         nodeColor={(n) => {
           const kind = (n.data as StripNodeData | undefined)?.strip.kind;
           if (kind === "main") return masterColor();
           if (kind === "send") return sendColor();
           if (kind === "output") return extOutColor();
-          return "#6b7280";
+          return flowColors.unknownNode;
         }}
       />
       <Controls showInteractive={false} />

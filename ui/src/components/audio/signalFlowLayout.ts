@@ -95,20 +95,152 @@ export function layerStrips(payload: MixGraphPayload): Map<string, number> {
 }
 
 /**
+ * How many pairs of edges cross, given a row assignment.
+ *
+ * Exported for the tests: "the diagram is less tangled" is otherwise a matter
+ * of opinion, and this makes it a number.
+ */
+export function countCrossings(
+  edges: MixGraphEdge[],
+  columnOf: Map<string, number>,
+  rowOf: Map<string, number>,
+): number {
+  let crossings = 0;
+  // Only edges between the same pair of adjacent columns can cross.
+  const byColumn = new Map<number, MixGraphEdge[]>();
+  for (const e of edges) {
+    const c = columnOf.get(e.from);
+    if (c === undefined) continue;
+    const list = byColumn.get(c);
+    if (list) list.push(e);
+    else byColumn.set(c, [e]);
+  }
+  for (const list of byColumn.values()) {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i];
+        const b = list[j];
+        const a0 = rowOf.get(a.from) ?? 0;
+        const a1 = rowOf.get(a.to) ?? 0;
+        const b0 = rowOf.get(b.from) ?? 0;
+        const b1 = rowOf.get(b.to) ?? 0;
+        // Two edges cross when their endpoints are in opposite orders.
+        if ((a0 - b0) * (a1 - b1) < 0) crossings++;
+      }
+    }
+  }
+  return crossings;
+}
+
+/** Sweeps of barycentre ordering. Past this the ordering stops improving. */
+const ORDERING_SWEEPS = 4;
+
+/**
+ * Reorders each column so connected strips line up across the gap.
+ *
+ * Rows used to be the engine's own strip order, which is meaningful inside a
+ * column (tracks in project order, sends in order, lanes by channel) and says
+ * nothing at all about what connects to what. On a real desk -- a dozen
+ * tracks, four sends, a handful of output lanes, every track feeding every
+ * send -- that produced a diagram where the wires were the only thing you
+ * could see, and following any one of them was impossible.
+ *
+ * This is the barycentre heuristic: put each strip at the average row of the
+ * things it connects to, sweep forwards and backwards a few times, keep the
+ * best result. It is the standard first move for layered graph drawing, it is
+ * cheap, and it does not need to be optimal -- crossing minimisation is
+ * NP-hard, and "far fewer" is the whole requirement.
+ *
+ * Ties keep the engine's order, so a column nothing constrains still reads in
+ * project order rather than being shuffled arbitrarily.
+ */
+function orderRows(
+  payload: MixGraphPayload,
+  columns: Map<string, number>,
+): Map<string, number> {
+  const byColumn = new Map<number, string[]>();
+  for (const strip of payload.strips) {
+    const c = columns.get(strip.id) ?? 0;
+    const list = byColumn.get(c);
+    if (list) list.push(strip.id);
+    else byColumn.set(c, [strip.id]);
+  }
+
+  const rowOf = new Map<string, number>();
+  const original = new Map<string, number>();
+  for (const list of byColumn.values()) {
+    list.forEach((id, i) => {
+      rowOf.set(id, i);
+      original.set(id, i);
+    });
+  }
+
+  const targets = new Map<string, string[]>();
+  const sources = new Map<string, string[]>();
+  for (const e of payload.edges) {
+    (targets.get(e.from) ?? targets.set(e.from, []).get(e.from)!).push(e.to);
+    (sources.get(e.to) ?? sources.set(e.to, []).get(e.to)!).push(e.from);
+  }
+
+  const columnIndices = [...byColumn.keys()].sort((a, b) => a - b);
+  let best = new Map(rowOf);
+  let bestCrossings = countCrossings(payload.edges, columns, rowOf);
+
+  const sweep = (forwards: boolean) => {
+    const order = forwards ? columnIndices : [...columnIndices].reverse();
+    for (const c of order) {
+      const list = byColumn.get(c);
+      if (!list || list.length < 2) continue;
+      const neighbours = forwards ? sources : targets;
+      const score = new Map<string, number>();
+      for (const id of list) {
+        const linked = neighbours.get(id) ?? [];
+        if (linked.length === 0) {
+          // Nothing pulling on it: leave it where it is rather than letting
+          // it drift to the top and push connected strips out of line.
+          score.set(id, rowOf.get(id) ?? 0);
+          continue;
+        }
+        let sum = 0;
+        for (const other of linked) sum += rowOf.get(other) ?? 0;
+        score.set(id, sum / linked.length);
+      }
+      list.sort((a, b) => {
+        const d = (score.get(a) ?? 0) - (score.get(b) ?? 0);
+        if (Math.abs(d) > 1e-9) return d;
+        return (original.get(a) ?? 0) - (original.get(b) ?? 0);
+      });
+      list.forEach((id, i) => rowOf.set(id, i));
+    }
+    const crossings = countCrossings(payload.edges, columns, rowOf);
+    if (crossings < bestCrossings) {
+      bestCrossings = crossings;
+      best = new Map(rowOf);
+    }
+  };
+
+  for (let i = 0; i < ORDERING_SWEEPS; i++) {
+    sweep(true);
+    sweep(false);
+  }
+  return best;
+}
+
+/**
  * Assigns every strip a column and a row, then absolute pixel coordinates.
- * Rows keep the engine's own strip order inside a column, which is already
- * meaningful (tracks in project order, then the click; sends in order, then
- * Main; lanes by channel number).
+ * Columns come from the signal flow; rows are chosen to keep the wires
+ * between them as untangled as the heuristic can manage -- see orderRows.
  */
 export function layoutSignalFlow(payload: MixGraphPayload): PlacedStrip[] {
   const columns = layerStrips(payload);
+  const rows = orderRows(payload, columns);
   const usedRows = new Map<number, number>();
   const placed: PlacedStrip[] = [];
 
   for (const strip of payload.strips) {
     const column = columns.get(strip.id) ?? 0;
-    const row = usedRows.get(column) ?? 0;
-    usedRows.set(column, row + 1);
+    const row = rows.get(strip.id) ?? 0;
+    usedRows.set(column, Math.max(usedRows.get(column) ?? 0, row + 1));
     placed.push({
       strip,
       column,

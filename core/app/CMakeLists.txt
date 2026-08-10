@@ -105,6 +105,7 @@ target_compile_definitions(ResoStage
 target_link_libraries(ResoStage
   PRIVATE
     resostage_engine
+    signalsmith-stretch
     websockets
     ResoStageTrayIconData
     juce::juce_audio_basics

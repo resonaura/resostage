@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  countCrossings,
   formatDb,
   formatPan,
   layerStrips,
@@ -182,5 +183,111 @@ describe("labels", () => {
     expect(formatPan(0)).toBe("C");
     expect(formatPan(-1)).toBe("L100");
     expect(formatPan(0.5)).toBe("R50");
+  });
+});
+
+
+describe("row ordering", () => {
+  /** A desk shaped like the ones that made this unreadable: every track into
+   *  every send, plus a direct path to main. */
+  const busyDesk = (): MixGraphPayload => {
+    const strips: MixGraphStrip[] = [];
+    const edges: MixGraphEdge[] = [];
+    const strip = (
+      id: string,
+      kind: MixStripKind,
+    ): MixGraphStrip => ({
+      id,
+      name: id,
+      kind,
+      soloGroup: "none",
+      channels: 2,
+      gainDb: 0,
+      pan: 0,
+      mute: false,
+      solo: false,
+      audible: true,
+      physicalChannel: -1,
+      peakDb: -100,
+    });
+    for (let t = 0; t < 8; t++) strips.push(strip(`t${t}`, "track"));
+    for (let b = 0; b < 4; b++) strips.push(strip(`s${b}`, "send"));
+    strips.push(strip("main", "main"));
+    // Deliberately wired back-to-front: track 0 into the last send, track 7
+    // into the first, which is the pattern that maximises crossings under a
+    // naive ordering.
+    for (let t = 0; t < 8; t++) {
+      const b = 3 - (t % 4);
+      edges.push({
+        from: `t${t}`,
+        to: `s${b}`,
+        level: 100,
+        preFader: false,
+        active: true,
+        sourceChannel: -1,
+      });
+    }
+    for (let b = 0; b < 4; b++) {
+      edges.push({
+        from: `s${b}`,
+        to: "main",
+        level: 100,
+        preFader: false,
+        active: true,
+        sourceChannel: -1,
+      });
+    }
+    return { strips, edges };
+  };
+
+  it("beats leaving rows in strip order", () => {
+    const payload = busyDesk();
+    const columns = layerStrips(payload);
+
+    // What the old layout did: row = position within the column, in the
+    // order the engine published them.
+    const naive = new Map<string, number>();
+    const used = new Map<number, number>();
+    for (const s of payload.strips) {
+      const c = columns.get(s.id) ?? 0;
+      const r = used.get(c) ?? 0;
+      used.set(c, r + 1);
+      naive.set(s.id, r);
+    }
+    const before = countCrossings(payload.edges, columns, naive);
+
+    const rows = new Map(
+      layoutSignalFlow(payload).map((p) => [p.strip.id, p.row] as const),
+    );
+    const after = countCrossings(payload.edges, columns, rows);
+
+    expect(before).toBeGreaterThan(0);
+    expect(after).toBeLessThan(before);
+  });
+
+  it("leaves an already-tidy desk alone", () => {
+    const payload = busyDesk();
+    // Rewire it in order: track n into send n%4, which has no crossings to
+    // remove. The result must not be worse than where it started.
+    payload.edges = payload.edges.map((e) =>
+      e.from.startsWith("t")
+        ? { ...e, to: `s${Number(e.from.slice(1)) % 4}` }
+        : e,
+    );
+    const columns = layerStrips(payload);
+    const rows = new Map(
+      layoutSignalFlow(payload).map((p) => [p.strip.id, p.row] as const),
+    );
+    expect(countCrossings(payload.edges, columns, rows)).toBe(0);
+  });
+
+  it("gives every strip in a column its own row", () => {
+    const placed = layoutSignalFlow(busyDesk());
+    const seen = new Set<string>();
+    for (const p of placed) {
+      const key = `${p.column}:${p.row}`;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
   });
 });

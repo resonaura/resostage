@@ -144,6 +144,26 @@ struct RegionFade {
     double outCurve = 0.0;
 };
 
+// Per-region playback treatment: how fast, how high, which way round.
+//
+// All three need RANDOM ACCESS to the source, which the streaming ring cannot
+// give -- it decodes strictly forwards and holds only a window around the
+// playhead. They are therefore served from the resident (fully in-RAM) copy of
+// a region, and a region carrying any of them is pinned resident for as long
+// as it does. See StreamingTrackBuffer::tryLoadResident and the resident
+// branch of its read().
+struct RegionPlayback {
+    // Playback rate. 1.0 is untouched. Pitch follows speed, as on tape --
+    // independent pitch needs a phase vocoder, which is a separate path.
+    double speed = 1.0;
+    // Transpose in semitones, independent of speed. Requires the stretcher;
+    // 0 means "leave it alone", which is the only value the tape path honours.
+    double semitones = 0.0;
+    // Play the region's source window backwards. Exact: no resampling, just
+    // a mirrored read, so it is lossless and costs nothing extra.
+    bool reverse = false;
+};
+
 struct RegionLoop {
     // When true, source audio from source.offsetSeconds..(source end) repeats
     // to fill durationSeconds (clip may be longer than remaining source
@@ -164,6 +184,7 @@ struct Region {
     RegionSource source;
     RegionFade fade;
     RegionLoop loop;
+    RegionPlayback playback;
 };
 
 struct TimeSignature {
