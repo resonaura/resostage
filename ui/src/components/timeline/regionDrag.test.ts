@@ -4,6 +4,7 @@ import {
   MAX_REGION_SPEED,
   MIN_REGION_SPEED,
   regionDraftMatchesCommitted,
+  regionFadeHandleAt,
   regionEdgeCursor,
   regionEdgeMode,
   type RegionDragCtx,
@@ -238,5 +239,32 @@ describe("stretch", () => {
     const g = computeRegionDragGeom(stretchSession(), ctx, 140, 50);
     expect(g.start).toBe(10);
     expect(g.sourceOffset).toBe(2);
+  });
+});
+
+describe("regionFadeHandleAt", () => {
+  // A 400px region with a 60px fade-in and an 80px fade-out.
+  const at = (x: number) => regionFadeHandleAt(x, 400, 60, 80);
+
+  it("grabs the point where the fade-in finishes", () => {
+    expect(at(60)).toBe("fadeIn");
+    expect(at(55)).toBe("fadeIn");
+    expect(at(66)).toBe("fadeIn");
+  });
+
+  it("grabs the point where the fade-out begins", () => {
+    expect(at(320)).toBe("fadeOut");
+    expect(at(326)).toBe("fadeOut");
+  });
+
+  it("leaves the middle alone", () => {
+    expect(at(200)).toBeNull();
+  });
+
+  it("offers nothing when there is no fade yet", () => {
+    // Zero-length fades sit on the region's corners, which are already
+    // handles -- two on one pixel is one too many.
+    expect(regionFadeHandleAt(2, 400, 0, 0)).toBeNull();
+    expect(regionFadeHandleAt(398, 400, 0, 0)).toBeNull();
   });
 });

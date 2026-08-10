@@ -16,6 +16,7 @@ import { MIN_CROSSFADE_SECONDS } from "./crossfade";
 import { resizeCrossfade } from "./crossfadeResize";
 import {
   buildRegionDragSession,
+  regionStretchEdge,
   effectiveRegionGeom,
   type RegionGeom,
   type RegionDragMode,
@@ -396,10 +397,21 @@ export function AudioTrackLanes({
                       // handle: there is only one thing it can do, so aiming
                       // at a 6px edge to do it would be busywork.
                       if (tool === "stretch") {
+                        // Edges only. The middle of a region is not a
+                        // handle: with one gesture available, a click
+                        // anywhere would rescale whatever it landed on.
+                        const rect = (
+                          e.currentTarget as HTMLElement
+                        ).getBoundingClientRect();
+                        const edge = regionStretchEdge(
+                          e.clientX - rect.left,
+                          rect.width,
+                        );
+                        if (!edge) return;
                         startRegionDrag(
                           buildRegionDragSession({
                             key: thisRegionSelKey,
-                            mode: "stretch",
+                            mode: edge === "start" ? "stretchStart" : "stretch",
                             clientX: e.clientX,
                             clientY: e.clientY,
                             songIndex: i,
@@ -459,6 +471,7 @@ export function AudioTrackLanes({
                         verticalZoom={verticalZoom}
                         gestureActive={gestureActive}
                         readOnly={readOnly}
+                        tool={tool}
                         isActivelyDragging={regionDragKey === thisRegionSelKey}
                         onSelectRegion={selectRegion}
                         onBeginDrag={beginDrag}

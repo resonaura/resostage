@@ -7,6 +7,17 @@ import { snapToGridSec } from "./geometry";
 import type { RegionSelKey } from "./regionUtils";
 import type { TimelineRow } from "./rows";
 
+/**
+ * How much of each end of a region grabs a stretch.
+ *
+ * Wider than EDGE_PX: the trim handles have to share the edge with fades and
+ * the loop handle, and this shares it with nothing.
+ */
+export const STRETCH_EDGE_PX = 24;
+
+/** Grab slop each side of a fade's inner endpoint. */
+export const FADE_HANDLE_PX = 8;
+
 /** Engine limits (see builderRegionUpdate's clamp on Region::playback.speed). */
 export const MIN_REGION_SPEED = 0.25;
 export const MAX_REGION_SPEED = 4;
@@ -25,8 +36,10 @@ export type RegionDragMode =
   // Stretch tool: the region's edge moves and the SOURCE SPAN stays put, so
   // the same audio is squeezed or spread over a different length of timeline.
   // Trim is the opposite trade -- it keeps the speed and takes a different
-  // amount of source.
-  | "stretch"
+  // amount of source. Two of them, because which edge you grab decides which
+  // end stays where -- exactly as it does for a trim.
+  | "stretch" // right edge: the end moves
+  | "stretchStart"
   | "fadeIn" // left top
   | "fadeOut" // right top
   | "fadeInCurve"
@@ -140,6 +153,57 @@ export function regionEdgeMode(
     return "trimEnd";
   }
   return "move";
+}
+
+/**
+ * Which end of the region a stretch grabs, or null for the middle.
+ *
+ * The whole edge ZONE, not a hairline: with the stretch tool selected there
+ * is nothing else the region can do, so the target should be as big as it can
+ * be without swallowing the middle -- and the middle has to stay dead, or
+ * every click anywhere on a region would rescale it.
+ *
+ * Narrow regions get proportional zones instead of two overlapping fixed
+ * ones, so a 20px clip still has a distinguishable left and right half.
+ */
+export function regionStretchEdge(
+  localX: number,
+  w: number,
+): "start" | "end" | null {
+  const zone = Math.max(4, Math.min(STRETCH_EDGE_PX, w * 0.35));
+  if (localX <= zone) return "start";
+  if (localX >= w - zone) return "end";
+  return null;
+}
+
+/**
+ * The handle at the INNER end of a fade -- where the ramp meets full level.
+ *
+ * That is the end you actually aim at when changing a fade's length: for a
+ * fade-in it is where the fade finishes, for a fade-out where it begins. The
+ * region's outer corners keep working (they are what you grab to create a
+ * fade from nothing), but once a fade exists its own endpoint is the handle
+ * that matches what the eye is following.
+ *
+ * Both are given in pixels because that is the only place the caller knows
+ * the zoom; a fade of half a second is a different target at every zoom
+ * level, and the grab zone must not be.
+ */
+export function regionFadeHandleAt(
+  localX: number,
+  w: number,
+  fadeInPx: number,
+  fadeOutPx: number,
+): "fadeIn" | "fadeOut" | null {
+  // Only once the fade exists: at zero length its endpoint sits exactly on
+  // the region corner, which is the existing handle, and two handles on one
+  // pixel is one handle too many.
+  if (fadeInPx > EDGE_PX && Math.abs(localX - fadeInPx) <= FADE_HANDLE_PX)
+    return "fadeIn";
+  const outStart = w - fadeOutPx;
+  if (fadeOutPx > EDGE_PX && Math.abs(localX - outStart) <= FADE_HANDLE_PX)
+    return "fadeOut";
+  return null;
 }
 
 export function regionEdgeCursor(
@@ -280,14 +344,20 @@ export function computeRegionDragGeom(
     };
   }
 
-  if (rd.mode === "stretch") {
+  if (rd.mode === "stretch" || rd.mode === "stretchStart") {
     // The source span is the invariant: duration * speed before the drag has
     // to equal duration * speed after it, or the region would be playing
     // different audio rather than the same audio at a different rate.
     const sourceSpan = rd.origDuration * rd.origSpeed;
-    const rawEnd = rd.origStart + rd.origDuration + dSec;
-    const maxDur = rd.maxEnd - rd.origStart;
-    const wantDur = Math.max(0.05, Math.min(maxDur, snapSec(rawEnd) - rd.origStart));
+    const fromStart = rd.mode === "stretchStart";
+    // Whichever end was NOT grabbed stays exactly where it is.
+    const anchorEnd = rd.origStart + rd.origDuration;
+    const wantDur = fromStart
+      ? Math.max(0.05, anchorEnd - Math.max(0, snapSec(rd.origStart + dSec)))
+      : Math.max(
+          0.05,
+          Math.min(rd.maxEnd - rd.origStart, snapSec(anchorEnd + dSec) - rd.origStart),
+        );
     // Speed is what actually gets stored, so clamp THERE and derive the
     // length back from it -- clamping the length instead would let the edge
     // keep moving while the speed had already stopped changing.
@@ -295,9 +365,11 @@ export function computeRegionDragGeom(
       MAX_REGION_SPEED,
       Math.max(MIN_REGION_SPEED, sourceSpan / wantDur),
     );
+    const duration = sourceSpan / speed;
     return {
       ...baseRegionGeom(rd),
-      duration: sourceSpan / speed,
+      start: fromStart ? Math.max(0, anchorEnd - duration) : rd.origStart,
+      duration,
       speed,
     };
   }

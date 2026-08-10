@@ -5,7 +5,13 @@ import { dimHexColor } from "./colors";
 import { FadeCurveOverlay } from "./FadeCurveOverlay";
 import { isCompactLane, laneHeightPx } from "./laneDimensions";
 import type { RegionDragMode, RegionGeom } from "./regionDrag";
-import { regionEdgeCursor, regionEdgeMode } from "./regionDrag";
+import {
+  regionEdgeCursor,
+  regionEdgeMode,
+  regionFadeHandleAt,
+  regionStretchEdge,
+} from "./regionDrag";
+import type { TimelineTool } from "./tools";
 import type { RegionSelKey, RegionUiState } from "./regionUtils";
 
 export function AudioRegionBlock({
@@ -32,6 +38,7 @@ export function AudioRegionBlock({
   verticalZoom,
   gestureActive,
   readOnly,
+  tool,
   isActivelyDragging,
   onSelectRegion,
   onBeginDrag,
@@ -61,6 +68,8 @@ export function AudioRegionBlock({
   verticalZoom: number;
   gestureActive: boolean;
   readOnly: boolean;
+  /** Active timeline tool -- decides what a pointer over the region means. */
+  tool: TimelineTool;
   isActivelyDragging: boolean;
   onSelectRegion: (
     key: RegionSelKey,
@@ -87,6 +96,18 @@ export function AudioRegionBlock({
     const rect = e.currentTarget.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
+    // The fade's own endpoint first: it is inside the region, so the corner
+    // hit test below would never see it.
+    const fadeHandle = regionFadeHandleAt(
+      localX,
+      regionWidth,
+      geom.fadeIn * pxPerSec,
+      geom.fadeOut * pxPerSec,
+    );
+    if (fadeHandle) {
+      onBeginDrag(e, fadeHandle);
+      return;
+    }
     const mode = regionEdgeMode(localX, localY, regionWidth, rect.height);
     // Trim-start only useful when there's earlier source to pull.
     if (mode === "trimStart" && geom.sourceOffset <= 0.0001) {
@@ -150,7 +171,7 @@ export function AudioRegionBlock({
               : isRegionSelected && compactLane
                 ? "0 0 0 1px rgba(255,255,255,0.5)"
                 : undefined,
-          cursor: readOnly ? "default" : "grab",
+          cursor: readOnly ? "default" : tool === "stretch" ? "default" : "grab",
           // Dim the WHOLE region chrome (border/fill/label/waveform), not just
           // the peaks canvas — mute + solo-isolate both go through here.
           opacity: dimmed ? 0.35 : 1,
@@ -166,12 +187,28 @@ export function AudioRegionBlock({
           // Here we only update the edge-zone cursor.
           if (isActivelyDragging || readOnly) return;
           const rect = e.currentTarget.getBoundingClientRect();
-          const c = regionEdgeCursor(
-            e.clientX - rect.left,
-            e.clientY - rect.top,
-            regionWidth,
-            rect.height,
-          );
+          const localX = e.clientX - rect.left;
+          // With the stretch tool the region has one job and two places to
+          // do it, so the height-banded trim/fade/loop cursors would be
+          // describing gestures that are not available.
+          const c =
+            tool === "stretch"
+              ? regionStretchEdge(localX, regionWidth)
+                ? "ew-resize"
+                : "default"
+              : regionFadeHandleAt(
+                    localX,
+                    regionWidth,
+                    geom.fadeIn * pxPerSec,
+                    geom.fadeOut * pxPerSec,
+                  )
+                ? "col-resize"
+                : regionEdgeCursor(
+                  localX,
+                  e.clientY - rect.top,
+                    regionWidth,
+                    rect.height,
+                  );
           (e.currentTarget as HTMLElement).style.cursor = c;
         }}
         onContextMenu={onContextMenu}

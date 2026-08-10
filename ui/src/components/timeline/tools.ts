@@ -56,9 +56,11 @@ export function toolCursor(tool: TimelineTool, readOnly: boolean): string {
     case "eraser":
       return "cell";
     case "stretch":
-      // Same as a trim, because the gesture is the same -- drag the edge.
-      // What differs is what gives: the source span instead of the material.
-      return "ew-resize";
+      // Empty lane and the middle of a region: nothing to stretch, so no
+      // promise of one. The edge zones set ew-resize themselves (see
+      // regionStretchEdge) -- one cursor for the whole tool, shown exactly
+      // where the tool works.
+      return "default";
     case "scissors":
       // crosshair, not col-resize: splitting aims at a point, and col-resize
       // promises a horizontal drag that resizes something. It is the same
