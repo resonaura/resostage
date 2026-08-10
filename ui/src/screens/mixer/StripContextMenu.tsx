@@ -4,6 +4,7 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "../../components/ContextMenu";
+import { InlineNamePrompt } from "../../components/InlineNamePrompt";
 import { builder, mixer } from "../../lib/api";
 import {
   sourceOutputBusId,
@@ -118,31 +119,27 @@ export function StripContextMenu({
         ? target.hasSends
         : false;
 
+  // The name field is a sibling of the menu, not an item in it -- see
+  // InlineNamePrompt for why nesting it never worked under Electron.
+  if (renaming) {
+    return (
+      <InlineNamePrompt
+        x={target.x}
+        y={target.y}
+        value={nameDraft}
+        placeholder="Strip name"
+        onChange={setNameDraft}
+        onCommit={commitRename}
+        onCancel={onClose}
+      />
+    );
+  }
+
   return (
     <ContextMenu x={target.x} y={target.y} onClose={onClose}>
-      {renaming ? (
-        <form
-          className="px-2 py-1.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            commitRename();
-          }}
-        >
-          <input
-            autoFocus
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") onClose();
-            }}
-            className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
-          />
-        </form>
-      ) : (
-        <ContextMenuItem onClick={() => setRenaming(true)}>
-          Rename...
-        </ContextMenuItem>
-      )}
+      <ContextMenuItem onClick={() => setRenaming(true)}>
+        Rename...
+      </ContextMenuItem>
 
       {canMove && target.kind === "track" && (
         <>

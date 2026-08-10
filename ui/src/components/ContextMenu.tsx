@@ -151,8 +151,15 @@ export function ContextMenu({
   const { items: nativeItems, handlers: nativeHandlers } =
     collectNativeItems(children);
   handlersRef.current = nativeHandlers;
-  // Stable key for menu content — reopen only when labels/flags/coords change.
-  const nativeItemsKey = JSON.stringify(nativeItems);
+  // Read at popup time, never as an effect dependency: an OS menu's contents
+  // are fixed the moment it opens, so re-running the effect because a label
+  // changed cannot update anything -- it can only open a SECOND popup and
+  // mark the first one cancelled, which swallows the click the user was in
+  // the middle of making.
+  const nativeItemsRef = useRef<NativeMenuItem[]>(nativeItems);
+  nativeItemsRef.current = nativeItems;
+  /** Bumped to put the native menu back up after a checkbox was flipped. */
+  const [reopenNonce, setReopenNonce] = useState(0);
 
   // Any checkbox item in the tree → reserve check column in the DOM menu.
   const hasCheckable = nativeItems.some(
@@ -162,7 +169,7 @@ export function ContextMenu({
   // Native path (Electron shell with preload bridge).
   useEffect(() => {
     if (!useNative) return;
-    const items = JSON.parse(nativeItemsKey) as NativeMenuItem[];
+    const items = nativeItemsRef.current;
     if (items.length === 0) {
       // Defensive: empty native menu is a no-op that would look like a dead click.
       onCloseRef.current();
@@ -172,7 +179,27 @@ export function ContextMenu({
     void bridge!.showContextMenu!(items, x, y)
       .then((id) => {
         if (cancelled) return;
-        if (id) handlersRef.current.get(id)?.();
+        if (id) {
+          // A toggle leaves the menu up in the DOM path so a second one can
+          // be flipped without re-opening; the OS menu always closes, so it
+          // is put back with its checkmarks refreshed.
+          const chosen = items.find(
+            (it) => it.type === "item" && it.id === id && "checked" in it,
+          );
+          if (chosen) {
+            handlersRef.current.get(id)?.();
+            setReopenNonce((n) => n + 1);
+            return;
+          }
+          // Run the handler and stop there. Closing on its behalf is what
+          // broke every item that opens something instead of finishing:
+          // "Custom..." set renaming=true and the close immediately set it
+          // back, so the field never appeared and the click read as dead.
+          // The DOM path has always left this to the handler -- each one
+          // calls its own onClose -- and the two paths have to agree.
+          handlersRef.current.get(id)?.();
+          return;
+        }
         onCloseRef.current();
       })
       .catch(() => {
@@ -181,7 +208,7 @@ export function ContextMenu({
     return () => {
       cancelled = true;
     };
-  }, [useNative, x, y, nativeItemsKey, bridge]);
+  }, [useNative, x, y, bridge, reopenNonce]);
 
   useLayoutEffect(() => {
     if (useNative) return;

@@ -77,6 +77,7 @@ import {
 } from "./cueEdit";
 import { EventMarkerLane } from "./EventMarkerLane";
 import { OutOfBoundsOverlay } from "./OutOfBoundsOverlay";
+import { songDetents } from "./detents";
 import { snapToGridSec } from "./geometry";
 import type { SongEndDrag } from "./SongEndMarker";
 import { laneHeightPx } from "./laneDimensions";

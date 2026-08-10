@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { builder } from "../../lib/api";
 import {
   beginCancellableDrag,
@@ -12,6 +11,7 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "../ContextMenu";
+import { InlineNamePrompt } from "../InlineNamePrompt";
 import { SECTION_LANE_HEIGHT, SECTION_PRESETS } from "./constants";
 import {
   crossedDetent,
@@ -479,6 +479,12 @@ export function SectionMarkerLane({
                   e.stopPropagation();
                   emptyPtrRef.current = null; // not an empty-lane click
                   if (e.detail >= 2) return;
+                  // Left button only. A right-click armed a drag too, so
+                  // opening the context menu counted as picking the marker
+                  // up: dismissing the menu committed a move nobody asked
+                  // for, and the release also queued the retype menu on top
+                  // of the one already open.
+                  if (e.button !== 0) return;
                   beginDrag(e, i, sec.id, sec.startSeconds);
                 }}
                 onDoubleClick={(e) => {
@@ -558,41 +564,18 @@ export function SectionMarkerLane({
         </ContextMenu>
       )}
 
-      {/* Custom name: DOM portal (native menus can't host a text field). */}
-      {menu &&
-        renaming &&
-        createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-[9998]"
-              onClick={closeMenu}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                closeMenu();
-              }}
-            />
-            <form
-              className="fixed z-[9999] w-44 rounded-xl border border-default/40 bg-surface/95 p-2 shadow-2xl backdrop-blur-md"
-              style={{ left: menu.x, top: menu.y }}
-              onSubmit={(e) => {
-                e.preventDefault();
-                commitCustomName();
-              }}
-            >
-              <input
-                autoFocus
-                value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") closeMenu();
-                }}
-                placeholder="Section name"
-                className="w-full rounded border border-default/40 bg-default/20 px-1.5 py-1 text-xs text-foreground focus:outline-none"
-              />
-            </form>
-          </>,
-          document.body,
-        )}
+      {menu && renaming && (
+        <InlineNamePrompt
+          x={menu.x}
+          y={menu.y}
+          width={176}
+          value={nameDraft}
+          placeholder="Section name"
+          onChange={setNameDraft}
+          onCommit={commitCustomName}
+          onCancel={closeMenu}
+        />
+      )}
     </div>
   );
 }

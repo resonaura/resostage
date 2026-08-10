@@ -14,6 +14,25 @@ import type { CycleLocators } from "./useCycleState";
 type DragMode = "create" | "move" | "resizeL" | "resizeR" | "click";
 
 const EDGE_PX = 6;
+/**
+ * Half-width of a locator's grab zone, in px.
+ *
+ * Wider than EDGE_PX because this one is not a hit test inside the bar -- it
+ * is a real element centred on the locator, and half of it hangs outside the
+ * cycle where a miss used to mean "create a new one".
+ */
+const HANDLE_HALF_PX = 7;
+
+/**
+ * The cycle's own colour, at a given opacity.
+ *
+ * `color-mix` rather than a resolved hex: the zone then follows a live theme
+ * switch with no JS involved, which the hardcoded orange it replaces could
+ * not do. The percentages are the alphas the strip has always used.
+ */
+function warningAlpha(alpha: number): string {
+  return `color-mix(in oklab, var(--warning) ${alpha * 100}%, transparent)`;
+}
 const DRAG_ATTR = "data-cycle-drag";
 const DRAG_VAR = "--cycle-drag-cursor";
 const STYLE_ID = "resostage-cycle-drag-cursor";
@@ -372,16 +391,16 @@ export function CycleStrip({
     handleBg = "rgba(255, 255, 255, 0)";
     border = "0px dashed rgba(255,255,255,0.18)";
   } else if (skip) {
-    barBg = "rgba(255, 166, 48, 0.22)";
+    barBg = warningAlpha(0.22);
     handleBg = "rgba(255, 255, 255, 0)";
-    border = "1px solid rgba(255, 146, 48, 0.5)";
+    border = `1px solid ${warningAlpha(0.5)}`;
     bgImage =
       "repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(0,0,0,0.28) 3px, rgba(0,0,0,0.28) 5px)";
   } else {
     // Translucent fill; bar numbers paint above this layer (Ruler layer="labels").
-    barBg = "rgba(255, 166, 48, 0.45)";
+    barBg = warningAlpha(0.45);
     handleBg = "rgba(255, 255, 255, 0)";
-    border = "0px solid rgba(255, 180, 72, 0.35)";
+    border = `0px solid ${warningAlpha(0.35)}`;
   }
 
   return (
@@ -449,6 +468,44 @@ export function CycleStrip({
           />
         </div>
       )}
+
+      {/*
+        Grab zones straddling each locator.
+        They reach OUTSIDE the zone as well as into it, which the in-bar edge
+        test could not: a locator sits on the boundary between "resize" and
+        "empty strip", and every pixel on the outside used to start a brand
+        new cycle instead. Landing on the wrong side of a 1px line and
+        destroying the loop you meant to stretch is the whole complaint.
+        Rendered after the bar so they take the pointer first; everything
+        past them is still empty strip, so creating a cycle by dragging is
+        untouched.
+      */}
+      {showBar &&
+        (
+          [
+            ["resizeL", leftPx],
+            ["resizeR", leftPx + widthPx],
+          ] as const
+        ).map(([mode, atPx]) => (
+          <div
+            key={mode}
+            className="pointer-events-auto absolute inset-y-0 touch-none cursor-ew-resize"
+            style={{
+              // Never let the two meet in the middle of a short zone -- the
+              // one drawn second would own the other's half of it.
+              left: atPx - HANDLE_HALF_PX,
+              width: HANDLE_HALF_PX + Math.min(HANDLE_HALF_PX, widthPx / 2),
+            }}
+            onPointerDown={(e) => {
+              if (e.button !== 0 || !ownsCycle) return;
+              beginDrag(e, mode);
+            }}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            title="Drag to resize the cycle"
+          />
+        ))}
     </div>
   );
 }
