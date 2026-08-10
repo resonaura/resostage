@@ -141,10 +141,10 @@ void AudioEngine::installBusRows(std::vector<LoadedBus> rows) {
     busMuted.assign(busses.size(), false);
 
     busPeakIntervalCount = busses.size();
+    busLastBlockPeakL = std::make_unique<std::atomic<float>[]>(busPeakIntervalCount);
+    busLastBlockPeakR = std::make_unique<std::atomic<float>[]>(busPeakIntervalCount);
     busPeakIntervalMaxL = std::make_unique<std::atomic<float>[]>(busPeakIntervalCount);
     busPeakIntervalMaxR = std::make_unique<std::atomic<float>[]>(busPeakIntervalCount);
-    busPeakDeliveryL.assign(busPeakIntervalCount, 0.0f);
-    busPeakDeliveryR.assign(busPeakIntervalCount, 0.0f);
     for (size_t i = 0; i < busPeakIntervalCount; ++i) {
         busPeakIntervalMaxL[i].store(0.0f, std::memory_order_relaxed);
         busPeakIntervalMaxR[i].store(0.0f, std::memory_order_relaxed);

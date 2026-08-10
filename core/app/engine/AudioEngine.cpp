@@ -203,57 +203,6 @@ float linearPeakToDb(float p) {
 }
 } // namespace
 
-/**
- * Hold a needle between the blocks that feed it.
- *
- * Meters are published as "peak since the last UI poll", which is the right
- * shape while the audio callback runs more often than the poll. At a large
- * buffer it does not: 4096 frames is 85ms between callbacks against a ~33ms
- * poll, so one poll in every two or three sees nothing written at all and
- * reports silence. The needle then alternates full level / nothing about
- * twelve times a second -- read as the audio itself stuttering, which it was
- * not.
- *
- * Holding the last value and letting it fall at a fixed dB-per-second is what
- * a real meter does anyway, and it makes the display independent of how often
- * the driver happens to call us. Genuine silence still reaches the floor, just
- * over the release time instead of instantly.
- */
-float AudioEngine::holdMeterPeak(float intervalPeak, float& held, double dtSeconds) {
-    // ~26 dB/s: a PPM-ish fall that looks alive without smearing transients
-    // into each other.
-    constexpr double kReleaseDbPerSecond = 26.0;
-    if (dtSeconds > 0.0 && held > 0.0f) {
-        const double factor = std::pow(10.0, -(kReleaseDbPerSecond * dtSeconds) / 20.0);
-        held = static_cast<float>(static_cast<double>(held) * factor);
-        if (held < 1.0e-6f)
-            held = 0.0f;
-    }
-    if (intervalPeak > held)
-        held = intervalPeak;
-    return held;
-}
-
-/**
- * Open a meter poll: measure how long since the last one.
- *
- * Called ONCE per publish sweep, before any consume*MeterInterval(), so every
- * meter in that frame releases by the same amount. Measuring per meter would
- * give the first one the whole interval and the rest ~nothing.
- */
-void AudioEngine::beginMeterPoll() {
-    const auto now = std::chrono::steady_clock::now();
-    if (lastMeterPollAt.time_since_epoch().count() == 0) {
-        lastMeterPollDelta = 0.0;
-    } else {
-        // A stalled UI (hidden window, debugger) must not dump every needle to
-        // the floor in one step when it comes back.
-        lastMeterPollDelta =
-            std::min(std::chrono::duration<double>(now - lastMeterPollAt).count(), 0.25);
-    }
-    lastMeterPollAt = now;
-}
-
 MeterFrame AudioEngine::consumeClickMeterInterval() {
     // Take the max peak rendered since the previous UI poll, then clear.
     const float peakL = clickPeakIntervalMaxL.exchange(0.0f, std::memory_order_relaxed);
@@ -262,8 +211,21 @@ MeterFrame AudioEngine::consumeClickMeterInterval() {
     // Echo last interval once: publish N carries real peak, publish N+1 still
     // carries it if this interval was silent. WS client that only samples the
     // later frame still sees the tick. Next silent interval clears delivery.
-    const float outL = holdMeterPeak(peakL, clickPeakDeliveryL, lastMeterPollDelta);
-    const float outR = holdMeterPeak(peakR, clickPeakDeliveryR, lastMeterPollDelta);
+    // Whichever is louder: the impulse latch (catches a click that came and
+    // went between polls) or the last block the audio thread actually
+    // rendered.
+    //
+    // The latch ALONE is empty on any poll that lands between callbacks, and
+    // at a big buffer that is most of them -- reporting zero there is not a
+    // quiet moment, it is a measurement that never happened, and the needle
+    // answered by slamming to the floor twelve times a second. Falling back
+    // to the last rendered block is not a simulated decay: it is the most
+    // recent measurement there is. Real silence still reads as silence the
+    // moment a block of silence is rendered.
+    const float lastL = clickLastBlockPeakL.load(std::memory_order_relaxed);
+    const float lastR = clickLastBlockPeakR.load(std::memory_order_relaxed);
+    const float outL = std::max(peakL, lastL);
+    const float outR = std::max(peakR, lastR);
 
     MeterFrame frame;
     frame.peakDbL = linearPeakToDb(outL);
@@ -285,11 +247,14 @@ MeterFrame AudioEngine::consumeBusMeterInterval(size_t busIndex) {
         peakR = busPeakIntervalMaxR[busIndex].exchange(0.0f, std::memory_order_relaxed);
     }
 
+    // See consumeClickMeterInterval: impulse latch OR the last rendered
+    // block, whichever is louder. Stateless on this side, so it does not
+    // matter which publish path calls it or how often.
     float outL = peakL;
     float outR = peakR;
-    if (busIndex < busPeakDeliveryL.size()) {
-        outL = holdMeterPeak(peakL, busPeakDeliveryL[busIndex], lastMeterPollDelta);
-        outR = holdMeterPeak(peakR, busPeakDeliveryR[busIndex], lastMeterPollDelta);
+    if (busIndex < busPeakIntervalCount && busLastBlockPeakL && busLastBlockPeakR) {
+        outL = std::max(peakL, busLastBlockPeakL[busIndex].load(std::memory_order_relaxed));
+        outR = std::max(peakR, busLastBlockPeakR[busIndex].load(std::memory_order_relaxed));
     }
     // Interval peaks win for display needles; keep LUFS/truePeak from the
     // latest LoudnessMeter frame for sustained program material.
@@ -1443,13 +1408,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     const auto publishStripMeter = [&](uint32_t strip, SeqLock<MeterFrame>* slot,
                                        LoudnessMeter* loudness, BandEnergyMeter* bands,
                                        std::atomic<float>* intervalL,
-                                       std::atomic<float>* intervalR) {
+                                       std::atomic<float>* intervalR,
+                                       std::atomic<float>* lastBlockL = nullptr,
+                                       std::atomic<float>* lastBlockR = nullptr) {
         if (slot == nullptr)
             return;
         if (meteringMuted) {
             slot->write(MeterFrame{});
             if (intervalL != nullptr) intervalL->store(0.0f, std::memory_order_relaxed);
             if (intervalR != nullptr) intervalR->store(0.0f, std::memory_order_relaxed);
+            if (lastBlockL != nullptr) lastBlockL->store(0.0f, std::memory_order_relaxed);
+            if (lastBlockR != nullptr) lastBlockR->store(0.0f, std::memory_order_relaxed);
             return;
         }
         const StripLevels& level = mixRenderer.levels(strip);
@@ -1493,6 +1462,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // poll reads the SeqLock, so peaks are also latched atomically.
         if (intervalL != nullptr) atomicMaxFloat(*intervalL, level.peakL);
         if (intervalR != nullptr) atomicMaxFloat(*intervalR, level.peakR);
+        // ...and the block's own peak, kept (not cleared by readers) so a poll
+        // landing between callbacks still has a real measurement to report.
+        if (lastBlockL != nullptr) lastBlockL->store(level.peakL, std::memory_order_relaxed);
+        if (lastBlockR != nullptr) lastBlockR->store(level.peakR, std::memory_order_relaxed);
     };
 
     for (size_t t = 0; t < trackIdByIndex.size() && t < trackMeters.size(); ++t) {
@@ -1503,7 +1476,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
     if (clickStripIndex != MixGraph::kNoStrip) {
         publishStripMeter(clickStripIndex, &clickMeterFrame, nullptr, nullptr,
-                          &clickPeakIntervalMaxL, &clickPeakIntervalMaxR);
+                          &clickPeakIntervalMaxL, &clickPeakIntervalMaxR,
+                          &clickLastBlockPeakL, &clickLastBlockPeakR);
     }
 
     // Bus rows keep their own flat index (0 = Main, 1.. = Sends, then the
@@ -1519,9 +1493,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                           busPeakIntervalMaxL && b < busPeakIntervalCount
                               ? &busPeakIntervalMaxL[b] : nullptr,
                           busPeakIntervalMaxR && b < busPeakIntervalCount
-                              ? &busPeakIntervalMaxR[b] : nullptr);
+                              ? &busPeakIntervalMaxR[b] : nullptr,
+                          busLastBlockPeakL && b < busPeakIntervalCount
+                              ? &busLastBlockPeakL[b] : nullptr,
+                          busLastBlockPeakR && b < busPeakIntervalCount
+                              ? &busLastBlockPeakR[b] : nullptr);
     }
 
+    // Only now, after the latches above have this block's peaks in them.
+    //
+    // Bumped at the TOP of the callback this raced the meters it is meant to
+    // vouch for: a poll landing between the bump and the writes saw "fresh
+    // data" over an interval latch that had just been cleared and not yet
+    // refilled, and reported silence. At 4096 frames the callback is long
+    // enough that the window was wide open.
     // ── Physical output ─────────────────────────────────────────────────────
     // Output lanes are the single terminal writer per device channel, summing
     // with += so Main and an aux sharing outs 1/2 stack instead of one

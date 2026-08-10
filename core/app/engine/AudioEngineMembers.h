@@ -55,9 +55,6 @@
     std::unique_ptr<std::atomic<float>[]> busPeakIntervalMaxR;
     size_t busPeakIntervalCount = 0;
     // Message-thread only: one-frame echo of the previous interval (same
-    // rationale as clickPeakDeliveryL/R).
-    std::vector<float> busPeakDeliveryL;
-    std::vector<float> busPeakDeliveryR;
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> trackMeters;
     // Per-track band-energy (GEQ/Blurz) analysis, kept in lockstep with
     // trackMeters so frame.bandLevel carries real per-band levels for the
@@ -235,10 +232,25 @@
     std::vector<float> clickScratch;
     // Dedicated click strip meter (pre-bus mix); never shares the destination bus meter.
     SeqLock<MeterFrame> clickMeterFrame;
-    /** Meter needle release: see holdMeterPeak / beginMeterPoll. */
-    static float holdMeterPeak(float intervalPeak, float& held, double dtSeconds);
-    std::chrono::steady_clock::time_point lastMeterPollAt{};
-    double lastMeterPollDelta = 0.0;
+    /** See meterValueOrHold / beginMeterPoll. */
+    static float meterValueOrHold(float intervalPeak, float& held, bool hadAudio);
+    /**
+     * Blocks rendered since the last meter poll. Written from the audio
+     * thread, read-and-cleared by beginMeterPoll on the message thread; the
+     * exact count does not matter, only whether it is zero.
+     */
+    /**
+     * Peak of the LAST block the audio thread rendered, per meter.
+     *
+     * Unlike the interval latches next to these, readers never clear it -- it
+     * is the most recent real measurement and stays valid until the next
+     * block replaces it. That is what a poll landing between callbacks
+     * reports instead of a zero it has no evidence for.
+     */
+    std::atomic<float> clickLastBlockPeakL{0.0f};
+    std::atomic<float> clickLastBlockPeakR{0.0f};
+    std::unique_ptr<std::atomic<float>[]> busLastBlockPeakL;
+    std::unique_ptr<std::atomic<float>[]> busLastBlockPeakR;
 
     // Max sample peak (linear) since last consumeClickMeterInterval() — see
     // that method's doc. Updated on the audio thread, exchanged on the message
@@ -246,9 +258,6 @@
     std::atomic<float> clickPeakIntervalMaxL{0.0f};
     std::atomic<float> clickPeakIntervalMaxR{0.0f};
     // Message-thread only: previous interval's peak, re-published once so the
-    // next telemetry frame still carries a tick the WS client may have missed.
-    float clickPeakDeliveryL = 0.0f;
-    float clickPeakDeliveryR = 0.0f;
     std::vector<uint8_t> eventFiredFlags; // parallel to current song's events; reset per selectSong()/play()
     std::atomic<bool> autoAdvancePending{false};
     std::atomic<int> pendingGaplessSong{-1}; // >=0 => message thread should gapless-switch

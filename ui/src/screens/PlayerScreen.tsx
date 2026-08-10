@@ -419,19 +419,23 @@ const SystemHealthWidget = memo(function SystemHealthWidget({
     0,
     cpuHistory[cpuHistory.length - 1] ?? h?.cpuPercent ?? 0,
   );
-  const cpuMax = Math.max(cpuVal, ...cpuHistory);
-
   const ramVal =
     ramHistory[ramHistory.length - 1] ?? (h?.rssBytes ?? 0) / (1024 * 1024);
-  const ramMax = Math.max(ramVal, ...ramHistory);
-
   // Hardware limits derived dynamically from C++ JUCE SystemHealth:
   const cores = Math.max(1, h?.cpuCoreCount ?? 8);
   const totalCpuMax = cores * 100;
-  const cpuRatio = cpuMax / totalCpuMax;
 
   const totalRamMb = (h?.systemTotalBytes ?? 0) / (1024 * 1024);
-  const ramRatio = totalRamMb > 0 ? ramMax / totalRamMb : ramMax / 16384;
+
+  // Colour follows the CURRENT value, not the window's peak.
+  //
+  // Keyed on the max, one spike thirty seconds ago left the graph red for the
+  // next thirty -- so the colour stopped meaning "this machine is in trouble"
+  // and started meaning "was, at some point". The line's HEIGHT already keeps
+  // the history; the colour is the only thing that can say what is happening
+  // now, and on stage that is the question being asked.
+  const cpuRatio = cpuVal / totalCpuMax;
+  const ramRatio = totalRamMb > 0 ? ramVal / totalRamMb : ramVal / 16384;
 
   // Warning (>= 65% total system CPU / >= 50% total system RAM)
   // Danger (>= 85% total system CPU / >= 75% total system RAM)

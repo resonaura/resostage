@@ -418,6 +418,24 @@ void AudioEngine::resetMetersSilent() {
             busMeters[i]->write(silent);
     }
     clickMeterFrame.write(silent);
+
+    // The peak sources the UI actually reads, not just the SeqLock frames.
+    //
+    // consumeBusMeterInterval reports max(impulse latch, last rendered block),
+    // and while the transport is stopped no block is rendered at all -- so
+    // without clearing these the needles stay parked at whatever was playing
+    // when Stop was pressed, forever. Silence is a real measurement here: the
+    // engine is knowingly producing none.
+    clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
+    clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
+    clickLastBlockPeakL.store(0.0f, std::memory_order_relaxed);
+    clickLastBlockPeakR.store(0.0f, std::memory_order_relaxed);
+    for (size_t i = 0; i < busPeakIntervalCount; ++i) {
+        if (busPeakIntervalMaxL) busPeakIntervalMaxL[i].store(0.0f, std::memory_order_relaxed);
+        if (busPeakIntervalMaxR) busPeakIntervalMaxR[i].store(0.0f, std::memory_order_relaxed);
+        if (busLastBlockPeakL) busLastBlockPeakL[i].store(0.0f, std::memory_order_relaxed);
+        if (busLastBlockPeakR) busLastBlockPeakR[i].store(0.0f, std::memory_order_relaxed);
+    }
 }
 
 int64_t AudioEngine::songLengthFrames(double endSeconds,
@@ -615,6 +633,11 @@ void AudioEngine::stop() {
     transportTelemetry.playheadSamples.store(clock.currentSamplePosition(), std::memory_order_relaxed);
     transportTelemetry.playheadSeconds.store(clock.currentSeconds(), std::memory_order_relaxed);
     transportTelemetry.running.store(false, std::memory_order_relaxed);
+    // Stopped means the render callback stops producing blocks, so the peak
+    // sources the meters read would otherwise keep reporting the last block
+    // that played -- needles parked at whatever was going on when Stop was
+    // pressed. This is the one place that knows silence is now the truth.
+    resetMetersSilent();
     // Flush autosave that was deferred during play (SSD stays free mid-show).
     flushDeferredAutosave();
 }
