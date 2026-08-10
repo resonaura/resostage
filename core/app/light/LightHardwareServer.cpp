@@ -5,12 +5,7 @@
 #include <libwebsockets.h>
 
 #include <algorithm>
-#include <arpa/inet.h>
 #include <cstring>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 // Design notes (why this shape, not something simpler):
 //
@@ -202,16 +197,9 @@ void LightHardwareServer::start() {
     // threads so the very first frame can already go out on it. A failure
     // here is survivable: udpPort stays unusable and every board falls back
     // to the WebSocket path.
-    udpSocket_ = ::socket(AF_INET, SOCK_DGRAM, 0);
-    if (udpSocket_ >= 0) {
-        const int flags = ::fcntl(udpSocket_, F_GETFL, 0);
-        if (flags >= 0)
-            ::fcntl(udpSocket_, F_SETFL, flags | O_NONBLOCK);
-        // A light frame is one datagram; make sure the kernel will take a
-        // burst of them (one per board) without blocking the engine thread.
-        const int sndbuf = 256 * 1024;
-        ::setsockopt(udpSocket_, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
-    }
+    udpSocket_ = std::make_unique<juce::DatagramSocket>(/*enableBroadcasting=*/true);
+    if (!udpSocket_->bindToPort(0))
+        udpSocket_.reset();
 
     clientContext_ = lws_create_context(&info);
     // clientContext_ == nullptr is survivable: networkThreadLoop below
@@ -227,18 +215,12 @@ void LightHardwareServer::stop() {
     if (!running_.exchange(false, std::memory_order_acq_rel))
         return;
 
-    if (discoverySocket_ >= 0) {
-        // Wake the blocking recvfrom() in discoveryThreadLoop by closing
-        // out from under it -- simpler and more portable than a self-pipe
-        // for a listener this low-traffic; the loop's recvfrom error path
-        // just re-checks `running_` and exits.
-        ::close(discoverySocket_);
-        discoverySocket_ = -1;
-    }
-    if (udpSocket_ >= 0) {
-        ::close(udpSocket_);
-        udpSocket_ = -1;
-    }
+    // Wake the discovery listener out of its wait. shutdown() makes the
+    // pending read return rather than closing the handle underneath it, which
+    // is the portable way to do what closing the descriptor used to do here.
+    if (discoverySocket_ != nullptr)
+        discoverySocket_->shutdown();
+    udpSocket_.reset();
     if (discoveryThread_.joinable())
         discoveryThread_.join();
 
@@ -302,18 +284,7 @@ void LightHardwareServer::sendFrameOverUdp(Connection& conn, uint8_t channelsPer
     if (last != 0 && nowNanos - last < intervalNanos)
         return;
 
-    // Resolve the host once and cache it -- inet_pton on a dotted quad is
-    // cheap, but this runs 60 times a second per board and the address only
-    // changes when the operator retypes it.
-    if (conn.udpAddrHost != host) {
-        in_addr addr{};
-        if (::inet_pton(AF_INET, host.c_str(), &addr) != 1)
-            return; // not a literal IP; the WS path resolves names for us
-        conn.udpAddr.store(addr.s_addr, std::memory_order_relaxed);
-        conn.udpAddrHost = host;
-    }
-    const uint32_t rawAddr = conn.udpAddr.load(std::memory_order_relaxed);
-    if (rawAddr == 0)
+    if (udpSocket_ == nullptr || host.empty())
         return;
 
     const uint8_t cpp = channelsPerPixel > 0 ? channelsPerPixel : 1;
@@ -329,13 +300,8 @@ void LightHardwareServer::sendFrameOverUdp(Connection& conn, uint8_t channelsPer
     std::memcpy(conn.udpScratch.data() + resolight::kLightFrameHeaderSize, pixelBytes,
                 pixelByteCount);
 
-    sockaddr_in dest{};
-    dest.sin_family = AF_INET;
-    dest.sin_port = htons(port);
-    dest.sin_addr.s_addr = rawAddr;
-
-    const ssize_t sent = ::sendto(udpSocket_, conn.udpScratch.data(), conn.udpScratch.size(),
-                                  0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
+    const int sent = udpSocket_->write(juce::String(host), port, conn.udpScratch.data(),
+                                       static_cast<int>(conn.udpScratch.size()));
     if (sent >= 0)
         conn.lastSentNanos.store(nowNanos, std::memory_order_relaxed);
 }
@@ -433,40 +399,41 @@ LightHardwareServer::FixtureLinkStatus LightHardwareServer::fixtureLinkStatus(co
 }
 
 void LightHardwareServer::discoveryThreadLoop() {
-    discoverySocket_ = socket(AF_INET, SOCK_DGRAM, 0);
-    if (discoverySocket_ < 0) return;
-
-    const int reuse = 1;
-    setsockopt(discoverySocket_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(resolight::kDiscoveryPort);
-    if (bind(discoverySocket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-        ::close(discoverySocket_);
-        discoverySocket_ = -1;
-        return; // port in use or no permission -- discovery is optional, not fatal
+    discoverySocket_ = std::make_unique<juce::DatagramSocket>();
+    // Discovery is optional, not fatal: the port may already be taken by
+    // another controller on the same machine, and the operator can still type
+    // an address by hand.
+    if (!discoverySocket_->bindToPort(resolight::kDiscoveryPort)) {
+        discoverySocket_.reset();
+        return;
     }
 
     uint8_t buf[128];
     while (running_.load(std::memory_order_acquire)) {
-        sockaddr_in from{};
-        socklen_t fromLen = sizeof(from);
-        const ssize_t n = recvfrom(discoverySocket_, buf, sizeof(buf), 0,
-                                    reinterpret_cast<sockaddr*>(&from), &fromLen);
-        if (n < 0) break; // socket closed by stop(), or a real error -- either way, exit
-        if (!running_.load(std::memory_order_acquire)) break;
+        // Wait with a timeout rather than blocking forever, so stop() only has
+        // to flip the flag and shut the socket down -- no self-pipe, and no
+        // reading from a descriptor somebody else has closed.
+        const int ready = discoverySocket_->waitUntilReady(/*readyForReading=*/true, 200);
+        if (ready < 0)
+            break; // socket shut down by stop(), or a real error
+        if (ready == 0)
+            continue;
+
+        juce::String senderIp;
+        int senderPort = 0;
+        const int n = discoverySocket_->read(buf, sizeof(buf), /*blockUntilSpecifiedAmountHasArrived=*/false,
+                                             senderIp, senderPort);
+        if (n <= 0)
+            continue;
+        if (!running_.load(std::memory_order_acquire))
+            break;
 
         resolight::DiscoveryBeacon beacon{};
         if (!resolight::decodeDiscoveryBeacon(buf, static_cast<size_t>(n), beacon))
             continue;
 
-        char ipStr[INET_ADDRSTRLEN] = {0};
-        inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr));
-
         DiscoveredEntry entry;
-        entry.ip = ipStr;
+        entry.ip = senderIp.toStdString();
         entry.name = beacon.name;
         entry.chipType = chipTypeName(beacon.chipType);
         entry.lastSeenAt = std::chrono::steady_clock::now();

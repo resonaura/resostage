@@ -5,19 +5,19 @@
 #include "timing/MasterClock.h"
 
 #include <algorithm>
-#include <arpa/inet.h>
-#include <cerrno>
 #include <chrono>
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/in.h>
+#include <cstdlib>
 #include <sstream>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <thread>
+#include <utility>
+#include <vector>
 
 namespace resostage {
 
 namespace {
+
+/** See sendHttp: bounds the damage from an unreachable target. */
+constexpr int kHttpConnectTimeoutMs = 2000;
 
 bool parseHttpUrl(const std::string& url, std::string& host, std::string& port, std::string& path) {
     std::string rest = url;
@@ -49,23 +49,68 @@ EventDispatcher::EventDispatcher() = default;
 
 EventDispatcher::~EventDispatcher() {
     stop();
-    if (dmxSocket >= 0)
-        close(dmxSocket);
 }
 
 void EventDispatcher::setArtNetTargetAddress(const std::string& ipOrBroadcast) {
+    if (artNetTargetAddress == ipOrBroadcast)
+        return;
     artNetTargetAddress = ipOrBroadcast;
+    // Force a re-resolve: the operator may have switched from broadcast to a
+    // specific node, or back.
+    std::lock_guard<std::mutex> lock(artNetTargetMutex);
+    resolvedTarget.clear();
+}
+
+juce::String EventDispatcher::resolvedArtNetTarget() {
+    // A specific node was configured: send there and do not second-guess it.
+    if (!artNetTargetAddress.empty() && artNetTargetAddress != kLimitedBroadcast)
+        return juce::String(artNetTargetAddress);
+
+    std::lock_guard<std::mutex> lock(artNetTargetMutex);
+    const auto now = std::chrono::steady_clock::now();
+    if (!resolvedTarget.isEmpty() && now < resolvedTargetExpiry)
+        return resolvedTarget;
+
+    // Broadcast means the SUBNET's broadcast address, not 255.255.255.255.
+    //
+    // The limited broadcast is what "broadcast" reads like, and it does not
+    // work: a socket bound to every interface has no route for it, and macOS
+    // rejects the send outright with EHOSTUNREACH. On this machine that meant
+    // Art-Net output never left the process -- 604 sends in ten seconds, every
+    // one of them refused, and nothing anywhere said so.
+    //
+    // The subnet-directed address (192.168.7.255 for a /22 on 192.168.5.184)
+    // is routable, reaches every node on the same LAN, and is what Art-Net
+    // nodes listen for.
+    //
+    // Re-resolved periodically rather than once: a laptop at a venue gets
+    // plugged into the lighting network after the app is already running, and
+    // an address cached from the hotel Wi-Fi would be wrong for the whole
+    // show.
+    resolvedTarget = juce::String(kLimitedBroadcast);
+    for (const juce::IPAddress& local : juce::IPAddress::getAllAddresses(/*includeIPv6=*/false)) {
+        if (local.isNull() || local == juce::IPAddress::local())
+            continue;
+        const juce::IPAddress bcast = juce::IPAddress::getInterfaceBroadcastAddress(local);
+        if (!bcast.isNull()) {
+            resolvedTarget = bcast.toString();
+            break;
+        }
+    }
+    resolvedTargetExpiry = now + std::chrono::seconds(5);
+    return resolvedTarget;
 }
 
 void EventDispatcher::start() {
     if (running.exchange(true, std::memory_order_acq_rel))
         return;
 
-    dmxSocket = socket(AF_INET, SOCK_DGRAM, 0);
-    if (dmxSocket >= 0) {
-        const int broadcastEnable = 1;
-        setsockopt(dmxSocket, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
-    }
+    // Bind to any free local port: this socket only ever sends. Broadcast is
+    // enabled because an Art-Net target may legitimately be a subnet
+    // broadcast address, and a socket without it silently fails on one.
+    dmxSocket = std::make_unique<juce::DatagramSocket>(/*enableBroadcasting=*/true);
+    if (!dmxSocket->bindToPort(0))
+        dmxSocket.reset();
 
     worker = std::thread([this] { workerThreadLoop(); });
 }
@@ -90,51 +135,13 @@ void EventDispatcher::sendHttp(const HttpTriggerCommand& cmd) {
     if (!parseHttpUrl(cmd.url, host, port, path))
         return;
 
-    addrinfo hints{};
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    addrinfo* result = nullptr;
-    if (getaddrinfo(host.c_str(), port.c_str(), &hints, &result) != 0 || result == nullptr)
+    // Bounded connect, so an unreachable target cannot stall this worker --
+    // and therefore every trigger queued behind it -- for a TCP timeout. Two
+    // seconds is already far longer than a cue can wait and still be useful;
+    // it is here to bound the damage, not to succeed.
+    juce::StreamingSocket socket;
+    if (!socket.connect(juce::String(host), std::atoi(port.c_str()), kHttpConnectTimeoutMs))
         return;
-
-    const int sock = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-    if (sock < 0) {
-        freeaddrinfo(result);
-        return;
-    }
-
-    // Non-blocking connect with a bounded timeout so an unreachable host
-    // can't stall this worker thread (and therefore subsequent queued
-    // events) indefinitely. This never runs on the audio thread.
-    const int flags = fcntl(sock, F_GETFL, 0);
-    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-
-    const int connectResult = connect(sock, result->ai_addr, result->ai_addrlen);
-    freeaddrinfo(result);
-
-    if (connectResult < 0 && errno == EINPROGRESS) {
-        fd_set writeSet;
-        FD_ZERO(&writeSet);
-        FD_SET(sock, &writeSet);
-        timeval timeout{2, 0};
-        const int selectResult = select(sock + 1, nullptr, &writeSet, nullptr, &timeout);
-        if (selectResult <= 0) {
-            close(sock);
-            return;
-        }
-        int soError = 0;
-        socklen_t len = sizeof(soError);
-        getsockopt(sock, SOL_SOCKET, SO_ERROR, &soError, &len);
-        if (soError != 0) {
-            close(sock);
-            return;
-        }
-    } else if (connectResult < 0) {
-        close(sock);
-        return;
-    }
-
-    fcntl(sock, F_SETFL, flags); // restore blocking mode for send()
 
     std::ostringstream request;
     request << cmd.method << " " << path << " HTTP/1.1\r\n";
@@ -145,24 +152,21 @@ void EventDispatcher::sendHttp(const HttpTriggerCommand& cmd) {
     request << cmd.body;
 
     const std::string requestStr = request.str();
-    send(sock, requestStr.data(), requestStr.size(), 0);
-    // Fire-and-forget: the response is intentionally not read or parsed.
-    close(sock);
+    // Fire-and-forget: the response is intentionally not read or parsed. A
+    // trigger is a nudge to another box, not a request whose answer we act on.
+    socket.write(requestStr.data(), static_cast<int>(requestStr.size()));
 }
 
 void EventDispatcher::sendDmx(const DmxTriggerCommand& cmd) {
-    if (dmxSocket < 0)
+    if (dmxSocket == nullptr)
         return;
 
     const std::vector<uint8_t> packet = buildArtDmxPacket(cmd.universe, cmd.data);
-
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(kArtNetUdpPort);
-    if (inet_pton(AF_INET, artNetTargetAddress.c_str(), &addr.sin_addr) != 1)
-        return;
-
-    sendto(dmxSocket, packet.data(), packet.size(), 0, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
+    // Fire and forget. A light frame that misses is replaced by the next one a
+    // few milliseconds later, and blocking this thread to guarantee one frame
+    // would delay every frame behind it.
+    dmxSocket->write(resolvedArtNetTarget(), kArtNetUdpPort, packet.data(),
+                     static_cast<int>(packet.size()));
 }
 
 void EventDispatcher::workerThreadLoop() {

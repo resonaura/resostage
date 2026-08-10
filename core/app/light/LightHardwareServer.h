@@ -1,5 +1,7 @@
 #pragma once
 
+#include <juce_core/juce_core.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -122,10 +124,18 @@ private:
     std::atomic<bool> running_{false};
     std::thread discoveryThread_;
     std::thread networkThread_;
-    int discoverySocket_ = -1;
-    // Non-blocking, send-only. One socket for every board: the destination is
-    // per-sendto, so there is nothing per-connection to keep.
-    int udpSocket_ = -1;
+    /**
+     * Discovery listener and the send-only frame socket.
+     *
+     * JUCE's sockets rather than BSD ones: <arpa/inet.h> and a bare sendto()
+     * do not exist on Windows, and carrying a second copy of that difference
+     * here is worse than using the one JUCE already maintains.
+     *
+     * One send socket serves every board -- the destination goes with each
+     * write, so there is nothing per-connection to keep.
+     */
+    std::unique_ptr<juce::DatagramSocket> discoverySocket_;
+    std::unique_ptr<juce::DatagramSocket> udpSocket_;
 
     mutable std::mutex connectionsMutex_;
     // Keyed by fixtureId. Never erased once created (see syncActiveFixtures

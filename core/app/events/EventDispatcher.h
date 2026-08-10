@@ -1,9 +1,14 @@
 #pragma once
 
+#include <juce_core/juce_core.h>
+
 #include <readerwriterqueue.h>
 
 #include <atomic>
 #include <cstdint>
+#include <chrono>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -40,7 +45,13 @@ struct DmxTriggerCommand {
 //
 // DMX/Art-Net: packets built by engine/audio/ArtNetPacket (unit-tested + UDP
 // loopback). Hardware fixtures not required for CI. HTTP triggers use a
-// minimal raw-socket HTTP/1.1 client (fire-and-forget).
+// minimal HTTP/1.1 client (fire-and-forget).
+//
+// Both sit on JUCE's socket classes rather than on BSD sockets directly. That
+// is not a style preference: <arpa/inet.h>, <netdb.h> and a bare sendto() do
+// not exist on Windows, where the same job needs Winsock2 and a WSAStartup
+// somebody has to remember to call. JUCE already carries that per-platform
+// difference, so the alternative was a second copy of it here.
 class EventDispatcher {
 public:
     EventDispatcher();
@@ -72,8 +83,25 @@ private:
     std::thread worker;
     std::atomic<bool> running{false};
 
-    int dmxSocket = -1;
-    std::string artNetTargetAddress = "255.255.255.255";
+    /**
+     * One send-only UDP socket for the life of the dispatcher.
+     *
+     * Bound to an ephemeral port with broadcast enabled, because an Art-Net
+     * target may be a broadcast address. Held rather than opened per packet:
+     * at 44 frames a second per universe, opening a socket per send would be
+     * most of the work.
+     */
+    std::unique_ptr<juce::DatagramSocket> dmxSocket;
+
+    /** Where an ArtDMX packet actually goes. See the definition. */
+    juce::String resolvedArtNetTarget();
+
+    /** What "broadcast" is configured as, and what it resolves to. */
+    static constexpr const char* kLimitedBroadcast = "255.255.255.255";
+    std::mutex artNetTargetMutex;
+    juce::String resolvedTarget;
+    std::chrono::steady_clock::time_point resolvedTargetExpiry{};
+    std::string artNetTargetAddress = kLimitedBroadcast;
 };
 
 } // namespace resostage
