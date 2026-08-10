@@ -269,29 +269,45 @@ function Sparkline({
   maxMinVal?: number;
 }) {
   const maxVal = Math.max(maxMinVal, ...history);
+  // One step's worth of x, which is exactly how far the line travels between
+  // samples.
+  const stepPx = 90 / Math.max(1, history.length - 1);
   const points = history.map((val, i) => {
     const x = (i / Math.max(1, history.length - 1)) * 90;
     const y = 24 - (val / maxVal) * 20;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
-  const pathD = `M ${points.join(" L ")}`;
-  const areaD = `M 0,24 L ${points.join(" L ")} L 90,24 Z`;
+  // One extra point a step to the LEFT of the first, repeating its value.
+  //
+  // The slide below shifts the whole line right by up to one step, and with
+  // nothing out there to shift in, that opened a gap at the left edge which
+  // closed again over the next second -- which read as the graph twitching
+  // every time a sample landed. At rest it sits off-screen.
+  const firstY = points.length > 0 ? points[0].split(",")[1] : "24";
+  const drawn = [`${(-stepPx).toFixed(1)},${firstY}`, ...points];
+  const pathD = `M ${drawn.join(" L ")}`;
+  const areaD = `M ${(-stepPx).toFixed(1)},24 L ${drawn.join(" L ")} L 90,24 Z`;
   const lastPoint =
     points.length > 0 ? points[points.length - 1].split(",") : ["90", "24"];
 
-  // One step's worth of x, which is exactly how far the line has to travel
-  // between samples.
-  const stepPx = 90 / Math.max(1, history.length - 1);
-
   const slideRef = useRef<SVGGElement | null>(null);
-  const sampleAtRef = useRef(performance.now());
+  const sampleAtRef = useRef(0);
   const stepRef = useRef(stepPx);
   stepRef.current = stepPx;
+  const lengthRef = useRef(history.length);
 
   // A new sample is a new array from the history hook; length alone would
   // miss every update once the window is full.
+  //
+  // The slide only makes sense once the window IS full. While the history is
+  // still filling, every sample also changes the x spacing of every point --
+  // so sliding on top of that opened and closed a gap at the left edge on
+  // each tick. Until then the line just grows in place, which is what it
+  // looks like it should do anyway.
   useEffect(() => {
-    sampleAtRef.current = performance.now();
+    const grew = history.length !== lengthRef.current;
+    lengthRef.current = history.length;
+    sampleAtRef.current = grew ? 0 : performance.now();
   }, [history]);
 
   useEffect(() => {
@@ -300,7 +316,9 @@ function Sparkline({
       if (!g) return;
       // Interval is the health feed's own 1 Hz. Overshooting simply parks at
       // zero, which is the right resting state between samples.
-      const t = Math.min(1, (nowMs - sampleAtRef.current) / 1000);
+      // 0 means "do not slide" -- the window is still filling.
+      const since = sampleAtRef.current;
+      const t = since === 0 ? 1 : Math.min(1, (nowMs - since) / 1000);
       const dx = (1 - t) * stepRef.current;
       g.style.transform = dx > 0.01 ? `translateX(${dx.toFixed(2)}px)` : "";
     });

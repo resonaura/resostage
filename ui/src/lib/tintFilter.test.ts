@@ -1,71 +1,76 @@
 import { describe, expect, it } from "vitest";
-import { duotoneColor, hasTintableHue } from "./tintFilter";
+import { hasTintableHue, themeAdaptedColor } from "./tintFilter";
 
 const rgb = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
 };
-const luma = (hex: string) => {
-  const [r, g, b] = rgb(hex);
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+const hsl = (hex: string) => {
+  const [r, g, b] = rgb(hex).map((v) => v / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return { h: 0, s: 0, l };
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+  else if (max === g) h = ((b - r) / d + 2) * 60;
+  else h = ((r - g) / d + 4) * 60;
+  return { h, s, l };
 };
+/** Shortest angular distance, for comparing hues across the 0/360 seam. */
+const hueGap = (a: number, b: number) => Math.abs(((b - a + 540) % 360) - 180);
 
-const TINT = "#ff4d06"; // Sunset's accent
+const THEME = "#ff4d06"; // Sunset's accent, ~17 degrees
 
-describe("duotoneColor", () => {
-  it("keeps light content light and dark content dark", () => {
-    // The complaint that killed the sepia version: white cues came out grey
-    // and dark ones came out drenched. Ordering by brightness has to survive.
-    const light = duotoneColor("#ffffff", TINT);
-    const mid = duotoneColor("#808080", TINT);
-    const dark = duotoneColor("#202020", TINT);
-    expect(luma(light)).toBeGreaterThan(luma(mid));
-    expect(luma(mid)).toBeGreaterThan(luma(dark));
+describe("themeAdaptedColor", () => {
+  it("keeps different cues different", () => {
+    // The whole reason this is not a duotone: a lane of distinct cues has to
+    // stay readable as distinct cues.
+    const red = themeAdaptedColor("#ff0000", THEME);
+    const cyan = themeAdaptedColor("#00ffff", THEME);
+    expect(hueGap(hsl(red).h, hsl(cyan).h)).toBeGreaterThan(40);
   });
 
-  it("gives every shade the same hue", () => {
-    // A duotone is one hue across the whole ramp; that is what makes it read
-    // as a single quiet layer rather than as a second palette.
-    const hueOf = (hex: string) => {
-      const [r, g, b] = rgb(hex);
-      return Math.atan2(Math.sqrt(3) * (g - b), 2 * r - g - b);
-    };
-    // Compared in the mid range: at the very top the ramp desaturates
-    // toward white, where hue stops being a meaningful measurement.
-    const a = hueOf(duotoneColor("#909090", TINT));
-    const b = hueOf(duotoneColor("#404040", TINT));
-    expect(Math.abs(a - b)).toBeLessThan(0.15);
+  it("moves each of them toward the theme", () => {
+    for (const src of ["#00ffff", "#7c3aed", "#30d158"]) {
+      const before = hueGap(hsl(src).h, hsl(THEME).h);
+      const after = hueGap(hsl(themeAdaptedColor(src, THEME)).h, hsl(THEME).h);
+      expect(after).toBeLessThan(before);
+    }
   });
 
-  it("does not clip a bright source into a different colour", () => {
-    // The linear-scaling version blew out one channel at a time here, so a
-    // light cue ended up a different hue from a dark one.
-    const [r, g, b] = rgb(duotoneColor("#e8e8e8", TINT));
-    expect(Math.max(r, g, b)).toBeLessThanOrEqual(255);
-    expect(r).toBeGreaterThan(g); // still leaning warm, like the tint
+  it("takes the glare off white", () => {
+    // The complaint: a white cue was the brightest thing on a dark timeline.
+    expect(hsl(themeAdaptedColor("#ffffff", THEME)).l).toBeLessThan(0.75);
   });
 
-  it("actually tints, rather than leaving grey", () => {
-    const [r, g, b] = rgb(duotoneColor("#808080", TINT));
-    expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeGreaterThan(20);
+  it("keeps bright brighter than dark", () => {
+    const light = hsl(themeAdaptedColor("#ffffff", THEME)).l;
+    const mid = hsl(themeAdaptedColor("#808080", THEME)).l;
+    const dark = hsl(themeAdaptedColor("#101010", THEME)).l;
+    expect(light).toBeGreaterThan(mid);
+    expect(mid).toBeGreaterThan(dark);
   });
 
-  it("falls back to greyscale for a themeless tint", () => {
-    // Mono has no hue to lend; the result must be a clean grey, not a
-    // slightly-off one.
-    const [r, g, b] = rgb(duotoneColor("#3399ff", "#808080"));
-    expect(r).toBe(g);
-    expect(g).toBe(b);
+  it("gives a colourless source the theme's hue rather than leaving a hole", () => {
+    expect(hsl(themeAdaptedColor("#ffffff", THEME)).s).toBeGreaterThan(0);
   });
 
-  it("strength 0 is plain greyscale", () => {
-    const [r, g, b] = rgb(duotoneColor("#3399ff", TINT, 0));
-    expect(r).toBe(g);
-    expect(g).toBe(b);
+  it("still fixes contrast when the theme has no hue to lend", () => {
+    // Mono: nothing to lean toward, but white still glares.
+    expect(hsl(themeAdaptedColor("#ffffff", "#808080")).l).toBeLessThan(0.75);
+  });
+
+  it("respects an explicit hueBlend of 0", () => {
+    const src = "#00ffff";
+    const out = themeAdaptedColor(src, THEME, { hueBlend: 0, satBlend: 0 });
+    expect(hueGap(hsl(out).h, hsl(src).h)).toBeLessThan(2);
   });
 
   it("returns the input unchanged when it cannot parse it", () => {
-    expect(duotoneColor("var(--x)", TINT)).toBe("var(--x)");
+    expect(themeAdaptedColor("var(--x)", THEME)).toBe("var(--x)");
   });
 });
 

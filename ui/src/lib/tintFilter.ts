@@ -1,60 +1,117 @@
 /**
- * Duotone: keep a colour's brightness, take its hue from somewhere else.
+ * Pulling a colour toward the theme without throwing it away.
  *
- * Used for reference strips that must read as "this is context, not the thing
- * you are editing" -- the timeline's light preview in audio mode, where the
- * cues' own saturated stage colours would otherwise shout louder than the
- * audio regions they sit under.
+ * Used by the timeline's light lanes and by the audio-mode hint strip, where
+ * cue colours are the rig's real stage output -- fully saturated red, cyan,
+ * white -- and would otherwise shout louder than the audio regions beside
+ * them, in a palette that has nothing to do with the theme.
  *
- * ## Two approaches that did not survive contact
+ * ## What this is not
  *
- * `filter: grayscale(1)` alone leaves a neutral grey that only looks
- * deliberate on a neutral theme; against Sunset or Forest it reads as a
- * rendering fault.
+ * It is not a duotone. Replacing every hue with the theme's makes a lane of
+ * distinct cues read as one flat block, and the whole point of a cue's colour
+ * is telling it apart from the next one. So the source hue is rotated PART of
+ * the way toward the theme -- far enough that the lane reads as one family,
+ * not so far that red and blue become the same swatch.
  *
- * `grayscale(1) sepia(1) hue-rotate()` is wrong at both ends of the range:
- * sepia maps every luminance onto one fixed brown ramp, so a white cue comes
- * out a beige that still reads as grey, while a dark one -- pushed by the
- * saturate() needed to make the mid-tones show -- drowns in colour.
+ * It is also not a filter chain. `grayscale() sepia() hue-rotate()` was tried:
+ * sepia flattens every luminance onto one brown ramp, so light cues come out
+ * grey and dark ones drown in colour. A `mix-blend-mode` overlay was tried
+ * too: it works on pixels but covers whole elements, so it paints the gaps
+ * between cues and squares off their rounded corners.
  *
- * A `mix-blend-mode: color` overlay does the right thing to pixels but the
- * wrong thing to layout: it covers the whole strip, and over the transparent
- * gaps between cues there is no luminance to blend with, so the empty strip
- * turns into a solid band of the tint.
+ * Doing it in colour space avoids both, costs no filter pass and no extra
+ * DOM, and hands back a plain colour the existing style helpers accept.
  *
- * So it is computed here instead. There are only a handful of distinct cue
- * colours on screen, the result is a plain hex the existing style helpers
- * already accept, and it costs no filter pass, no blend layer and no extra
- * DOM -- which matters when the strip can hold hundreds of cues.
+ * ## Contrast
+ *
+ * Lightness is compressed into a band rather than passed through. A pure
+ * white cue at full lightness glares on a dark timeline -- it is the
+ * brightest thing on screen by a wide margin, for a strip that is meant to be
+ * reference material. The band keeps the ordering (bright cues still read as
+ * brighter) while taking the top off.
  */
 
-interface Rgb {
-  r: number;
-  g: number;
-  b: number;
+interface Hsl {
+  h: number; // degrees
+  s: number; // 0..1
+  l: number; // 0..1
 }
 
-function parseHex(hex: string): Rgb | null {
+function parseHex(hex: string): { r: number; g: number; b: number } | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
   if (!m) return null;
   const n = parseInt(m[1], 16);
   return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
 }
 
-function toHex({ r, g, b }: Rgb): string {
-  const c = (v: number) =>
-    Math.max(0, Math.min(255, Math.round(v)))
+function rgbToHsl(r: number, g: number, b: number): Hsl {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return { h: 0, s: 0, l };
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) * 60;
+  else if (max === gn) h = ((bn - rn) / d + 2) * 60;
+  else h = ((rn - gn) / d + 4) * 60;
+  return { h, s, l };
+}
+
+function hslToHex({ h, s, l }: Hsl): string {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = (((h % 360) + 360) % 360) / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let rgb: [number, number, number];
+  if (hp < 1) rgb = [c, x, 0];
+  else if (hp < 2) rgb = [x, c, 0];
+  else if (hp < 3) rgb = [0, c, x];
+  else if (hp < 4) rgb = [0, x, c];
+  else if (hp < 5) rgb = [x, 0, c];
+  else rgb = [c, 0, x];
+  const m = l - c / 2;
+  const to = (v: number) =>
+    Math.max(0, Math.min(255, Math.round((v + m) * 255)))
       .toString(16)
       .padStart(2, "0");
-  return `#${c(r)}${c(g)}${c(b)}`;
+  return `#${to(rgb[0])}${to(rgb[1])}${to(rgb[2])}`;
 }
 
-/** Rec. 709 luma -- perceptual, so a yellow cue does not read as darker than a blue one. */
-function luma({ r, g, b }: Rgb): number {
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+/** Shortest way round the wheel from `a` to `b`, by `t`. */
+function mixHue(a: number, b: number, t: number): number {
+  let d = ((b - a + 540) % 360) - 180;
+  return a + d * t;
 }
 
-/** Whether a tint would do anything -- a grey theme has no hue to lend. */
+export interface ThemeAdaptOptions {
+  /** How far to rotate the source hue toward the theme's. 0 keeps it, 1 replaces it. */
+  hueBlend?: number;
+  /** How far to pull saturation toward the theme's. */
+  satBlend?: number;
+  /** Lightness band. The top is what stops a white cue from glaring. */
+  lightMin?: number;
+  lightMax?: number;
+}
+
+const DEFAULTS: Required<ThemeAdaptOptions> = {
+  // Deliberately small. Half way sounded reasonable and was not: against a
+  // warm theme it dragged red, orange and amber into the same few degrees,
+  // and telling a red cue from its neighbours is most of what a cue colour is
+  // for. A quarter takes the edge off a raw stage colour while leaving the
+  // wheel recognisably spread out.
+  hueBlend: 0.25,
+  // Most of the "belongs to this theme" feeling comes from here and from the
+  // lightness band, not from moving hues around.
+  satBlend: 0.4,
+  lightMin: 0.12,
+  lightMax: 0.68,
+};
+
+/** Whether a colour has a hue worth blending toward -- a grey theme has none. */
 export function hasTintableHue(hex: string): boolean {
   const c = parseHex(hex);
   if (!c) return false;
@@ -62,50 +119,34 @@ export function hasTintableHue(hex: string): boolean {
 }
 
 /**
- * `source` re-rendered in shades of `tint`.
+ * `source`, still recognisably itself, but leaning toward `theme` and with
+ * its brightness pulled into a band that will not glare.
  *
- * The tint is scaled by the source's own brightness, so the luminance ramp
- * survives: a white cue comes out a light version of the tint, a dark one a
- * dark version, and the two stay as far apart as they started. `strength`
- * mixes between plain greyscale (0) and the full duotone (1).
+ * A themeless theme colour (Mono) skips the hue and saturation work and only
+ * gets the contrast treatment -- there is nothing to lean toward, and the
+ * glare problem is the theme's own or not.
  */
-export function duotoneColor(
+export function themeAdaptedColor(
   source: string,
-  tint: string,
-  strength = 1,
+  theme: string,
+  opts: ThemeAdaptOptions = {},
 ): string {
   const src = parseHex(source);
   if (!src) return source;
-  const grey = luma(src) * 255;
-  const t = parseHex(tint);
-  if (!t || !hasTintableHue(tint)) return toHex({ r: grey, g: grey, b: grey });
+  const o = { ...DEFAULTS, ...opts };
 
-  // A ramp black -> tint -> white, positioned by the source's brightness.
-  //
-  // Scaling the tint linearly by luma looks right until the source is
-  // brighter than the tint: the channels clip at 255 one at a time, which
-  // slews the hue toward white unevenly and makes light cues a different
-  // colour from dark ones. Splitting the ramp at the tint's own luma keeps
-  // one hue the whole way and desaturates toward white at the top, which is
-  // what a duotone does and what the eye expects.
-  const tintLuma = Math.max(0.05, Math.min(0.95, luma(t)));
-  const l = luma(src);
-  const tinted: Rgb =
-    l <= tintLuma
-      ? { r: (t.r * l) / tintLuma, g: (t.g * l) / tintLuma, b: (t.b * l) / tintLuma }
-      : (() => {
-          const u = (l - tintLuma) / (1 - tintLuma);
-          return {
-            r: t.r + (255 - t.r) * u,
-            g: t.g + (255 - t.g) * u,
-            b: t.b + (255 - t.b) * u,
-          };
-        })();
+  const a = rgbToHsl(src.r, src.g, src.b);
+  const light = o.lightMin + (o.lightMax - o.lightMin) * a.l;
 
-  const s = Math.max(0, Math.min(1, strength));
-  return toHex({
-    r: grey + (tinted.r - grey) * s,
-    g: grey + (tinted.g - grey) * s,
-    b: grey + (tinted.b - grey) * s,
-  });
+  const t = parseHex(theme);
+  if (!t || !hasTintableHue(theme)) return hslToHex({ ...a, l: light });
+
+  const b = rgbToHsl(t.r, t.g, t.b);
+  // A colourless source has no hue to keep, so it simply takes the theme's --
+  // which is what makes a white cue read as a light tint of the theme rather
+  // than as a hole punched in the strip.
+  const hue = a.s < 0.05 ? b.h : mixHue(a.h, b.h, o.hueBlend);
+  const sat = a.s + (b.s - a.s) * o.satBlend;
+
+  return hslToHex({ h: hue, s: Math.max(0, Math.min(1, sat)), l: light });
 }

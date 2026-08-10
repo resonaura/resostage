@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { lighting } from "../../lib/api";
 import { withHexAlpha } from "../../lib/cssColor";
 import { roleColor } from "../../lib/theme";
-import { duotoneColor, hasTintableHue } from "../../lib/tintFilter";
+import { themeAdaptedColor } from "../../lib/tintFilter";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import {
   beginCancellableDrag,
@@ -86,15 +86,51 @@ function lightCueFill(
   };
 }
 
+/**
+ * A cue with its colour leaned toward the theme.
+ *
+ * Applied to the cue rather than over it. Filters and blend overlays both
+ * covered the whole block, which squared off its rounded corners and, on the
+ * hint strip, painted the gaps between cues -- and both replaced the cue's
+ * hue outright instead of adapting it. Rewriting the colour before anything
+ * draws leaves the geometry alone entirely.
+ */
+function adaptCueToTheme(cue: LightCueRow, themeColor: string): LightCueRow {
+  const hex = rgbToHexTriple(cue.color.r, cue.color.g, cue.color.b);
+  const out = themeAdaptedColor(hex, themeColor);
+  const n = parseInt(out.slice(1), 16);
+  return {
+    ...cue,
+    color: {
+      ...cue.color,
+      r: (n >> 16) & 0xff,
+      g: (n >> 8) & 0xff,
+      b: n & 0xff,
+    },
+  };
+}
+
+function rgbToHexTriple(r: number, g: number, b: number): string {
+  const c = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v)))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+
 /** Selection chrome — outline only when selected (no default border). */
 function lightCueSelectionStyle(
   selected: boolean,
   accentColor: string,
 ): React.CSSProperties {
-  if (!selected) return { border: "none" };
+  // Same crossfade as the body: switching colour modes should read as one
+  // deliberate change, not as the lane blinking.
+  const transition = "border-color 260ms ease-out, box-shadow 260ms ease-out";
+  if (!selected) return { border: "none", transition };
   return {
     border: `1.5px solid ${accentColor}`,
     boxShadow: `0 0 0 1px ${withHexAlpha(accentColor, "aa")}, 0 0 8px ${withHexAlpha(accentColor, "44")}`,
+    transition,
   };
 }
 
@@ -133,6 +169,10 @@ function LightCueBody({
           background: fill.background,
           opacity: fill.opacity,
           clipPath: clip,
+          // Flipping between theme-adapted and true colours is a deliberate
+          // switch, not a state change to be noticed -- so the colours cross
+          // over rather than cutting.
+          transition: "background-color 260ms ease-out, background 260ms ease-out",
         }}
       />
       {labelShown && (
@@ -181,7 +221,6 @@ export function LightHintStrip({
   // render of one component costs nothing and cannot be out of date.
   useThemeVersion();
   const tint = roleColor("master");
-  const tinted = hasTintableHue(tint);
 
   const viewStart = scrollState.scrollLeft;
   const viewEnd = scrollState.scrollLeft + scrollState.viewportWidth;
@@ -215,8 +254,6 @@ export function LightHintStrip({
                   style={{
                     left: leftPx,
                     width: widthPx,
-                    // Keeps the cue's own blend from reaching the timeline.
-                    isolation: "isolate",
                     // Quiet reference strip (player / audio mode): the cue
                     // keeps its brightness but takes its hue from the theme,
                     // so the strip reads as one calm layer instead of as a
@@ -225,40 +262,17 @@ export function LightHintStrip({
                     // replaces and why each failed.
                     ...lightCueSelectionStyle(
                       false,
-                      duotoneColor(trackColor(cue.trackId), tint),
+                      themeAdaptedColor(trackColor(cue.trackId), tint),
                     ),
                     opacity: 0.22,
                   }}
                 >
-                  {/* The body paints the cue's own colours (and gradients),
-                      which a computed duotone on the frame cannot reach. So
-                      it is desaturated here and re-tinted by the overlay
-                      below -- scoped to the cue, where there is opaque
-                      content to blend against. The same overlay across the
-                      whole strip did not work: over the gaps between cues
-                      there is no luminance to take, and it painted the empty
-                      strip a solid block of the tint. */}
-                  <div
-                    className="absolute inset-0"
-                    style={{ filter: "grayscale(1)" }}
-                  >
-                    <LightCueBody
-                      cue={cue}
-                      pxPerSec={pxPerSec}
-                      widthPx={widthPx}
-                      showLabel={false}
-                    />
-                  </div>
-                  {tinted && (
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0"
-                      style={{
-                        background: tint,
-                        mixBlendMode: "color",
-                      }}
-                    />
-                  )}
+                  <LightCueBody
+                    cue={adaptCueToTheme(cue, tint)}
+                    pxPerSec={pxPerSec}
+                    widthPx={widthPx}
+                    showLabel={false}
+                  />
                 </div>
               );
             })}
@@ -480,7 +494,6 @@ export function LightTrackLane({
   // on the hint strip.
   useThemeVersion();
   const laneTint = roleColor("master");
-  const laneTinted = hasTintableHue(laneTint);
 
   interface CueDraft {
     start: number;
@@ -899,12 +912,10 @@ export function LightTrackLane({
                     width: widthPx,
                     ...lightCueSelectionStyle(
                       isSelected,
-                      lightTrueColors ? color : duotoneColor(color, laneTint),
+                      lightTrueColors
+                        ? color
+                        : themeAdaptedColor(color, laneTint),
                     ),
-                    // Keeps the cue's own blend from reaching the lane.
-                    ...(lightTrueColors
-                      ? {}
-                      : { isolation: "isolate" as const }),
                     // No clipPath on the hit shell -- clip lives on the
                     // decorative LightCueBody fill so edge handles stay
                     // clickable under fades.
@@ -980,34 +991,23 @@ export function LightTrackLane({
                     });
                   }}
                 >
-                  {/* Same treatment as the audio-mode hint strip: the body
-                      paints the cue's own colours and gradients, which a
-                      computed colour cannot reach, so it is desaturated and
-                      re-tinted per cue -- scoped here, where there is opaque
-                      content to blend against. Skipped entirely in true-colour
-                      mode, which is the point of that mode. */}
-                  <div
-                    className="absolute inset-0"
-                    style={
-                      lightTrueColors ? undefined : { filter: "grayscale(1)" }
-                    }
-                  >
-                    <LightCueBody
-                      cue={
-                        { ...cue, durationSeconds: geom.duration } as LightCueRow
-                      }
-                      pxPerSec={pxPerSec}
-                      widthPx={widthPx}
-                      label={labelText}
-                    />
-                  </div>
-                  {!lightTrueColors && laneTinted && (
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0"
-                      style={{ background: laneTint, mixBlendMode: "color" }}
-                    />
-                  )}
+                  {/* Adapted on the cue, not over it -- see adaptCueToTheme.
+                      True-colour mode hands the cue through untouched, which
+                      is the point of that mode. */}
+                  <LightCueBody
+                    cue={(() => {
+                      const sized = {
+                        ...cue,
+                        durationSeconds: geom.duration,
+                      } as LightCueRow;
+                      return lightTrueColors
+                        ? sized
+                        : adaptCueToTheme(sized, laneTint);
+                    })()}
+                    pxPerSec={pxPerSec}
+                    widthPx={widthPx}
+                    label={labelText}
+                  />
                   {/* Edge affordance -- faint highlight over the trim zone. */}
                   {!readOnly && (
                     <>
