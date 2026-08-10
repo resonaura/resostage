@@ -1,3 +1,4 @@
+import { resolveCssVar } from "./cssColor";
 import { IS_ELECTRON } from "./electron";
 import type { WebUiState } from "./types";
 
@@ -17,6 +18,14 @@ interface ElectronMenuState {
   undoLabel: string;
   redoLabel: string;
   uiTab: string;
+  /**
+   * The theme's accent, resolved to a hex.
+   *
+   * The main process paints the active Touch Bar button and has no way to
+   * read a CSS custom property, so the page has to hand it over -- otherwise
+   * that button stays a fixed blue no matter which theme is on.
+   */
+  accentColor: string;
   recentProjects: { path: string; displayName: string }[];
   projectName: string;
   // Bumped on every performAction() call regardless of trigger (hotkey,
@@ -51,6 +60,7 @@ function fingerprint(s: WebUiState): string {
     s.undoLabel,
     s.redoLabel,
     s.uiTab,
+    resolveCssVar("--accent", "#3b6cff"),
     (s.settings?.recentProjects ?? []).map((r) => [r.path, r.displayName]),
     s.projectName,
     s.lastAction,
@@ -72,6 +82,7 @@ export function forwardMenuState(s: WebUiState): void {
     undoLabel: s.undoLabel ?? "",
     redoLabel: s.redoLabel ?? "",
     uiTab: s.uiTab ?? "",
+    accentColor: resolveCssVar("--accent", "#3b6cff"),
     recentProjects: s.settings?.recentProjects ?? [],
     projectName: s.projectName ?? "",
     lastAction: s.lastAction ?? "",

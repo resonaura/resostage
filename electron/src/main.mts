@@ -202,6 +202,8 @@ interface MenuState {
   redoLabel: string;
   recentProjects: RecentProjectEntry[];
   uiTab: string;
+  /** The theme's accent as a hex, forwarded by the page. */
+  accentColor: string;
   projectName: string;
   lastAction: string;
   lastActionNonce: number;
@@ -318,6 +320,7 @@ let menuState: MenuState = {
   redoLabel: "",
   recentProjects: [],
   uiTab: "",
+  accentColor: "",
   projectName: "",
   lastAction: "",
   lastActionNonce: 0,
@@ -525,7 +528,10 @@ function inputMatchesBinding(
   binding: string | undefined,
 ): boolean {
   if (!binding) return false;
-  const tokens = binding.split("+").map((t) => t.trim().toLowerCase()).filter(Boolean);
+  const tokens = binding
+    .split("+")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
   if (tokens.length === 0) return false;
 
   let wantCmd = false;
@@ -1101,7 +1107,18 @@ function buildTouchBar(): TouchBar | undefined {
     (t) =>
       new TouchBarButton({
         label: t.label,
-        backgroundColor: t.id === menuState.uiTab ? "#3b6cff" : undefined,
+        // The theme's accent, forwarded by the page -- the main process
+        // cannot read a CSS variable, and a fixed blue looked like a stray
+        // control from another app under every theme but the default.
+        //
+        // Full accent rather than the soft tone the page uses for an active
+        // control: TouchBarButton exposes backgroundColor and nothing else,
+        // so the label stays the system's white, and white on a 15% wash is
+        // not the same button at all.
+        backgroundColor:
+          t.id === menuState.uiTab
+            ? menuState.accentColor || "#3b6cff"
+            : undefined,
         click: () => postAction(`mode_${t.id}`),
       }),
   );
@@ -1110,8 +1127,11 @@ function buildTouchBar(): TouchBar | undefined {
 
 function refreshTouchBar(): void {
   if (!mainWindow || !menuModel) return;
-  if (menuState.uiTab === lastTouchBarTab) return;
-  lastTouchBarTab = menuState.uiTab;
+  // Keyed on the accent too: switching theme has to repaint the active
+  // button, and the tab has not changed when it does.
+  const key = `${menuState.uiTab}|${menuState.accentColor}`;
+  if (key === lastTouchBarTab) return;
+  lastTouchBarTab = key;
   const bar = buildTouchBar();
   if (bar) mainWindow.setTouchBar(bar);
 }

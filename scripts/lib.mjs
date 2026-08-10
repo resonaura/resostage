@@ -2,7 +2,7 @@
  * Shared helpers for root pnpm / Node scripts (ESM).
  */
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { cpus } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -278,6 +278,48 @@ function buildElectronShell() {
   ok("Electron shell built (electron/dist)");
 }
 
+// Copies the shell's runtime `dependencies` next to its dist/, so the packaged
+// app can require() them.
+//
+// Only koffi today, and it is not decoration: the native menu-item flash and
+// the trackpad haptics both load their dylib through it. Shipping package.json
+// + dist alone produced a bundle whose very first require("koffi") threw
+// "Cannot find module" -- and both features catch that and downgrade to a
+// warning, so the packaged app quietly had no haptics and no menu highlight
+// while the dev run (which resolves up into the repo's node_modules) had both.
+//
+// pnpm links the package in from its store, so the copy has to dereference.
+// koffi ships prebuilt binaries for eighteen platforms; only the macOS ones
+// can ever load here, and dropping the rest keeps ~25 MB of Linux and Windows
+// .node files out of the bundle.
+function copyShellRuntimeDeps(appDst) {
+  const manifest = JSON.parse(
+    readFileSync(join(ROOT, "electron", "package.json"), "utf8"),
+  );
+  const deps = Object.keys(manifest.dependencies ?? {});
+  if (!deps.length) return;
+
+  for (const dep of deps) {
+    const src = join(ROOT, "electron", "node_modules", dep);
+    if (!existsSync(src)) {
+      log(`WARNING: runtime dependency ${dep} not installed -- skipping`);
+      continue;
+    }
+    cpSync(src, join(appDst, "node_modules", dep), {
+      recursive: true,
+      dereference: true,
+    });
+
+    const prebuilds = join(appDst, "node_modules", dep, "build", dep);
+    if (!existsSync(prebuilds)) continue;
+    for (const p of readdirSync(prebuilds)) {
+      if (p.startsWith("darwin_")) continue;
+      rmSync(join(prebuilds, p), { recursive: true, force: true });
+    }
+  }
+  log(`Bundled shell runtime deps: ${deps.join(", ")}`);
+}
+
 // Assembles the final distributable bundle at build/<platform>/<arch>/
 // ResoStage.app: a branded Electron shell (Dock name + icon, see
 // electron/scripts/brand-mac-app.mjs) as the OUTER bundle -- what the user
@@ -308,6 +350,7 @@ function assembleShellBundle() {
   run("mkdir", ["-p", appDst]);
   cpSync(join(ROOT, "electron", "package.json"), join(appDst, "package.json"));
   cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), { recursive: true });
+  copyShellRuntimeDeps(appDst);
 
   const coreDst = getNestedCoreAppBundle(shellBundle);
   run("rm", ["-rf", coreDst]);
