@@ -2262,7 +2262,12 @@ export function Timeline({
           >
           <div
             ref={scrollRef}
-            className="h-full w-full min-h-0 overflow-auto relative select-none cursor-col-resize focus:outline-none"
+            // Base cursor is the ordinary one. col-resize used to sit on the
+            // whole scrollport, so every empty gap in the arrangement claimed
+            // to be draggable; the surfaces that ARE scrubbable -- the ruler,
+            // the playhead handle -- set it themselves, and each lane sets
+            // whatever its current tool means.
+            className="h-full w-full min-h-0 overflow-auto relative select-none focus:outline-none"
             style={{
               // No transform/filter here: sticky ruler + playhead handle need
               // a clean scrollport. will-change:scroll-position alone is fine.

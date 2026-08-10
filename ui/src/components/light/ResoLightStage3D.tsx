@@ -559,7 +559,16 @@ export function ResoLightStage3D({
       <Canvas
         key={canvasEpoch}
         camera={{ position: [4, 3.5, 5], fov: 50 }}
-        style={{ width: "100%", height: "100%" }}
+        style={{
+          width: "100%",
+          height: "100%",
+          // The stage does two different things with a drag, and until you
+          // press nothing says which: orbit the camera, or move the fixture
+          // under the pointer. `grab` covers both -- the gesture is the same
+          // and the target decides -- and `grabbing` confirms one has started.
+          // Editing is off in the compact preview, where orbit is all there is.
+          cursor: dragId !== null ? "grabbing" : minimal ? "default" : "grab",
+        }}
         // On screen this is an ordinary continuous render loop -- unchanged,
         // so nothing about how the stage looks or how the shaders run is
         // being traded away. "never" only ever applies while the window is

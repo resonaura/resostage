@@ -42,7 +42,11 @@ export function toolCursor(tool: TimelineTool, readOnly: boolean): string {
     case "eraser":
       return "cell";
     case "scissors":
-      return "col-resize";
+      // crosshair, not col-resize: splitting aims at a point, and col-resize
+      // promises a horizontal drag that resizes something. It is the same
+      // cursor the ruler uses for scrubbing, so with the tool active the
+      // whole timeline claimed to be scrubbable.
+      return "crosshair";
     default:
       return "default";
   }

@@ -209,7 +209,8 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
 
       <div
         ref={trackRef}
-        className="relative flex-1 cursor-pointer"
+        // A vertical fader drags up and down; `pointer` said "click me".
+        className="relative flex-1 cursor-ns-resize"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

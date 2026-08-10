@@ -271,7 +271,10 @@ export const MeterFader = memo(function MeterFader({
       title={title ?? "Drag to set level · double-click to reset"}
       // No overflow clipping here: the row is as tall as the handle, and the
       // handle is what overhangs. Clipping lives on the bar inside.
-      className={`relative flex-1 cursor-pointer touch-none select-none ${className}`}
+      // ew-resize, not pointer: this is a horizontal drag, and `pointer`
+      // promises a click that navigates or activates. The cursor is the only
+      // thing telling you a meter is also a fader before you touch it.
+      className={`relative flex-1 cursor-ew-resize touch-none select-none ${className}`}
       style={{ height: handleSize }}
       {...escRevert}
       onPointerDown={(e) => {
