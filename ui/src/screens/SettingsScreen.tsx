@@ -32,6 +32,11 @@ import {
   THEME_NAMES,
   type ThemeName,
 } from "../lib/theme";
+import {
+  readLongImportPreference,
+  writeLongImportPreference,
+  type LongImportPreference,
+} from "../lib/importPrefs";
 import { settings as settingsApi } from "../lib/api";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 // @xyflow/react is a heavy graph library behind exactly one modal. Loading it
@@ -459,7 +464,62 @@ function AudioTab({ state }: { state: WebUiState }) {
           </Field>
         )}
       </Section>
+
+      <LongImportSection />
     </div>
+  );
+}
+
+/**
+ * What to do when an imported file is longer than the song it lands in.
+ *
+ * Lives here rather than only in the dialog because the dialog's "always do
+ * this" is otherwise a one-way door: once ticked there is nowhere to untick
+ * it, and the question stops being asked forever.
+ */
+function LongImportSection() {
+  const [pref, setPref] = useState<LongImportPreference>(() =>
+    readLongImportPreference(),
+  );
+  const choose = (v: LongImportPreference) => {
+    setPref(v);
+    writeLongImportPreference(v);
+  };
+  const OPTIONS: { id: LongImportPreference; label: string; hint: string }[] = [
+    { id: "ask", label: "Ask each time", hint: "The default." },
+    {
+      id: "extend",
+      label: "Stretch the song",
+      hint: "Move the end marker out to the end of the audio.",
+    },
+    {
+      id: "trim",
+      label: "Trim the region",
+      hint: "Cut it at the end marker. The file itself is untouched.",
+    },
+  ];
+
+  return (
+    <Section
+      title="Audio longer than the song"
+      description="Only applies to a song whose end you have set by hand -- a song that takes its length from its content just grows to fit."
+    >
+      <div className="flex flex-col gap-2">
+        {OPTIONS.map((o) => (
+          <ToggleButton
+            key={o.id}
+            size="sm"
+            tone="accent-soft"
+            isSelected={pref === o.id}
+            onChange={() => choose(o.id)}
+            className="w-full justify-start gap-2 px-3"
+          >
+            <span className="font-semibold">{o.label}</span>
+            <span className="text-xs opacity-70">{o.hint}</span>
+          </ToggleButton>
+        ))}
+      </div>
+    </Section>
   );
 }
 

@@ -76,6 +76,7 @@ import {
   type CueClipboardEntry,
 } from "./cueEdit";
 import { EventMarkerLane } from "./EventMarkerLane";
+import { LongImportPrompt } from "./LongImportPrompt";
 import { OutOfBoundsOverlay } from "./OutOfBoundsOverlay";
 import { songDetents } from "./detents";
 import { snapToGridSec } from "./geometry";
@@ -115,6 +116,7 @@ import { TimelineToolbar } from "./TimelineToolbar";
 import { ToastContainer, type Toast } from "./ToastContainer";
 import { useCycleState } from "./useCycleState";
 import { useRegionDrag } from "./useRegionDrag";
+import { useLongImportGuard } from "./useLongImportGuard";
 import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./useTimelineKeyboard";
 import { useTimelinePrefs } from "./useTimelinePrefs";
@@ -1080,6 +1082,11 @@ export function Timeline({
     if (!pos) return;
     void builder.trackImportWav(pos.songIndex, pos.trackIndex, file);
   };
+
+  // Imported audio that lands past an authored song end has to be dealt with
+  // one way or the other -- see useLongImportGuard for why this watches the
+  // project rather than the import calls.
+  const longImport = useLongImportGuard(songs);
 
   // Keep window-level region-drag handlers on the latest layout/snap inputs.
   regionDragCtxRef.current = {
@@ -2561,6 +2568,13 @@ export function Timeline({
           {/* Right Audio Region inspector — the Audio-mode counterpart to
               LightSidePanel. Collapsible, and collapsed it is a rail; see
               SidePanelShell for why a manual collapse outranks the auto-open. */}
+          {longImport.prompt && (
+            <LongImportPrompt
+              data={longImport.prompt}
+              onResolve={longImport.resolve}
+              onDismiss={longImport.dismiss}
+            />
+          )}
           {effectiveViewMode === "audio" && !readOnly && (
             <RegionSidePanel
               songs={state.songs}

@@ -162,6 +162,16 @@ private:
                             double maxWaitSeconds);
     void applyRegionWindow(StreamingTrackBuffer& buf, const Region& region, double deviceSampleRate) const;
     bool residentizeOneBuffer(StagedSong& staged, size_t& budgetRemaining);
+    /**
+     * Free ordinary resident regions to make room for one that needs random
+     * access. Returns how many bytes were actually released.
+     *
+     * An evicted region loses nothing but speed: it goes back to its ring,
+     * which is how every region plays by default. A region that needs random
+     * access has no such fallback -- off the ring it plays forwards at 1x, so
+     * it is simply wrong.
+     */
+    size_t evictOrdinaryResident(StagedSong& staged, size_t bytesWanted);
     void recountResidentBytes();
     void refillActiveSlice(StagedSong& s, int workerIndex, int workerCount, bool& urgent, bool& hungry);
 

@@ -1,6 +1,7 @@
 #include "StreamingEngine.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -54,7 +55,36 @@ StreamingTrackBuffer* StreamingEngine::ActiveSongHandle::track(const std::string
     return it != staged->byId.end() ? it->second : nullptr;
 }
 
-StreamingEngine::StreamingEngine() = default;
+namespace {
+/**
+ * Optional override for the RAM-residency cap, in MiB.
+ *
+ * The cap is otherwise a compile-time constant sized for a real machine, and
+ * the behaviour that only appears once it is full -- ordinary regions holding
+ * the budget while a reversed or off-speed one waits for room -- is then
+ * unreachable on any project small enough to develop against. This makes that
+ * state reproducible on demand, and doubles as a way to see how a set behaves
+ * on a machine with less memory than the one it was built on.
+ *
+ * Floored rather than trusted: a budget below one region's window would leave
+ * residency unable to do anything at all.
+ */
+size_t residentBudgetFromEnv() {
+    const char* raw = std::getenv("RESOSTAGE_RESIDENT_BUDGET_MIB");
+    if (raw == nullptr || *raw == '\0')
+        return StreamingEngine::kDefaultResidentBudgetBytes;
+    char* end = nullptr;
+    const long long mib = std::strtoll(raw, &end, 10);
+    if (end == raw || mib <= 0)
+        return StreamingEngine::kDefaultResidentBudgetBytes;
+    constexpr long long kFloorMib = 16;
+    return static_cast<size_t>(std::max(mib, kFloorMib)) * 1024ull * 1024ull;
+}
+} // namespace
+
+StreamingEngine::StreamingEngine() {
+    residentBudgetBytes.store(residentBudgetFromEnv(), std::memory_order_relaxed);
+}
 StreamingEngine::~StreamingEngine() { stop(); }
 
 void StreamingEngine::start(const ProjectLoader* loader, std::function<void()> onIoThreadStart,
@@ -260,19 +290,73 @@ void StreamingEngine::recountResidentBytes() {
     residentBytesUsed.store(used, std::memory_order_relaxed);
 }
 
+size_t StreamingEngine::evictOrdinaryResident(StagedSong& staged, size_t bytesWanted) {
+    // Largest first: one long ordinary region frees more than several short
+    // ones, and every eviction costs a re-open of that region's ring.
+    std::vector<StreamingTrackBuffer*> victims;
+    for (auto& b : staged.buffers) {
+        if (b == nullptr || !b->isResident() || b->wantsRandomAccess())
+            continue;
+        victims.push_back(b.get());
+    }
+    std::sort(victims.begin(), victims.end(),
+              [](const StreamingTrackBuffer* a, const StreamingTrackBuffer* b) {
+                  return a->residentBytes() > b->residentBytes();
+              });
+
+    size_t freed = 0;
+    for (StreamingTrackBuffer* v : victims) {
+        if (freed >= bytesWanted)
+            break;
+        freed += v->residentBytes();
+        // Safe under an active read: releaseResident() swaps the shared_ptr
+        // out and lets the callback that already took it finish on the old
+        // allocation. The buffer simply goes back to reading from its ring,
+        // which is what an ordinary region does anyway.
+        v->releaseResident();
+    }
+    return freed;
+}
+
 bool StreamingEngine::residentizeOneBuffer(StagedSong& staged, size_t& budgetRemaining) {
     // Two passes, not one. Smallest-first is the right default -- it gets the
     // most regions resident for a given budget -- but a region that is played
     // backwards or off-speed CANNOT play correctly from the ring at all, so it
     // takes priority over any number of ordinary ones that merely benefit.
+    //
+    // Priority alone was not enough. Ordinary regions are usually smaller, so
+    // they win the budget first, and a long reversed one then never fits --
+    // pass 0 finds no candidate that fits, pass 1 hands the rest of the budget
+    // to regions that were playing correctly without it, and the region the
+    // user actually asked to reverse plays forwards forever. That is why the
+    // random-access candidate is now chosen with no regard for the budget, and
+    // the budget is made to fit IT.
+    StreamingTrackBuffer* wanted = nullptr;
+    size_t wantedBytes = std::numeric_limits<size_t>::max();
+    for (auto& b : staged.buffers) {
+        if (b == nullptr || b->isResident() || !b->wantsRandomAccess())
+            continue;
+        const size_t need = b->estimatedResidentBytes();
+        if (need < wantedBytes) {
+            wantedBytes = need;
+            wanted = b.get();
+        }
+    }
+
     StreamingTrackBuffer* best = nullptr;
-    size_t bestBytes = std::numeric_limits<size_t>::max();
-    for (int pass = 0; pass < 2 && best == nullptr; ++pass) {
-        const bool wantRandomAccess = pass == 0;
+    if (wanted != nullptr) {
+        if (wantedBytes > budgetRemaining)
+            budgetRemaining += evictOrdinaryResident(staged, wantedBytes - budgetRemaining);
+        // Still too big even with every ordinary region evicted: nothing here
+        // can help it, and filling the budget with ordinary regions would only
+        // guarantee it never fits later either. Wait instead.
+        if (wantedBytes > budgetRemaining)
+            return false;
+        best = wanted;
+    } else {
+        size_t bestBytes = std::numeric_limits<size_t>::max();
         for (auto& b : staged.buffers) {
-            if (b == nullptr || b->isResident())
-                continue;
-            if (b->wantsRandomAccess() != wantRandomAccess)
+            if (b == nullptr || b->isResident() || b->wantsRandomAccess())
                 continue;
             const size_t need = b->estimatedResidentBytes();
             if (need > budgetRemaining && need > 0)

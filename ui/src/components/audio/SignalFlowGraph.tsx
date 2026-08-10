@@ -20,7 +20,7 @@ import {
   TriangleAlert,
   Volume2,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { resolveCssVar, withHexAlpha } from "../../lib/cssColor";
 import { extOutColor, masterColor, sendColor } from "../../lib/mixerColors";
 import { roleColor } from "../../lib/theme";
@@ -31,6 +31,7 @@ import {
   formatDb,
   formatPan,
   layoutSignalFlow,
+  pathThrough,
   sourceChannelLabel,
   type MixGraphPayload,
   type MixGraphStrip,
@@ -87,10 +88,11 @@ const KIND_STYLE: Record<
   },
 };
 
-type StripNodeData = { strip: MixGraphStrip };
+type StripNodeData = { strip: MixGraphStrip; dimmed: boolean };
 
 function StripNode({ data }: NodeProps<Node<StripNodeData>>) {
   const s = data.strip;
+  const dimmed = data.dimmed;
   const style = KIND_STYLE[s.kind];
   const isLane = s.kind === "output";
   const shadow = isLane && s.physicalChannel < 0;
@@ -102,7 +104,7 @@ function StripNode({ data }: NodeProps<Node<StripNodeData>>) {
     <div
       className={`flex h-[74px] w-[190px] flex-col justify-between rounded-lg border bg-background-secondary px-2.5 py-1.5 transition-opacity ${
         style.ring
-      } ${s.audible ? "opacity-100" : "opacity-55"}`}
+      } ${dimmed ? "opacity-15" : s.audible ? "opacity-100" : "opacity-55"}`}
     >
       <Handle
         type="target"
@@ -200,6 +202,17 @@ function edgeLabel(
 }
 
 export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
+  /**
+   * The strip whose path is being followed.
+   *
+   * Hover picks it up, clicking pins it. Pinning matters because the reason to
+   * trace a path is usually to read the numbers along it -- levels, pre/post,
+   * channel splits -- and the pointer has to leave the node to do that, which
+   * would drop a hover-only focus exactly when it became useful.
+   */
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
+  const focusId = pinnedId ?? hoverId;
   // React Flow writes these into SVG styles, which cannot resolve var(), so
   // every one has to be a concrete colour. Resolved per render rather than
   // memoised on the theme version -- resolveCssVar is already a cached DOM
@@ -221,13 +234,24 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [themeVersion]);
 
+  // Recomputed only when the focus moves, not per edge: a rig with thirty
+  // strips has hundreds of edges and this runs on every pointer move over a
+  // node otherwise.
+  const focused = useMemo(
+    () => (focusId ? pathThrough(graph.edges, focusId) : null),
+    [graph.edges, focusId],
+  );
+
   const { nodes, edges } = useMemo(() => {
     const placed = layoutSignalFlow(graph);
     const nodes: Node<StripNodeData>[] = placed.map((item) => ({
       id: item.strip.id,
       type: "strip",
       position: { x: item.x, y: item.y },
-      data: { strip: item.strip },
+      data: {
+        strip: item.strip,
+        dimmed: focused != null && !focused.strips.has(item.strip.id),
+      },
       draggable: true,
       width: NODE_WIDTH,
       height: NODE_HEIGHT,
@@ -235,6 +259,9 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
 
     const edgeList: Edge[] = graph.edges.map((e, i) => {
       const label = edgeLabel(e.level, e.preFader, e.sourceChannel);
+      // Off-path wires fade rather than disappear: the shape of the rest of
+      // the rig is the context that makes one path mean something.
+      const offPath = focused != null && !focused.edges.has(i);
       return {
         id: `${e.from}->${e.to}#${i}`,
         source: e.from,
@@ -247,7 +274,6 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
         labelBgPadding: [4, 2] as [number, number],
         labelBgBorderRadius: 3,
         labelBgStyle: { fill: flowColors.labelBg },
-        labelStyle: { fill: flowColors.label, fontSize: 9 },
         style: {
           // A silenced edge stays visible but clearly dead: hiding it would
           // make a muted track look like it was never routed at all.
@@ -256,14 +282,33 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
               ? flowColors.edgePreFader
               : flowColors.edgeActive
             : flowColors.edgeSilenced,
-          strokeWidth: e.active ? 1.5 : 1,
+          strokeWidth: offPath ? 1 : e.active ? 1.5 : 1,
           strokeDasharray: e.active ? undefined : "4 3",
+          opacity: offPath ? 0.12 : 1,
+          transition: "opacity 140ms ease-out",
+        },
+        labelStyle: {
+          fill: flowColors.label,
+          fontSize: 9,
+          opacity: offPath ? 0 : 1,
         },
       };
     });
 
     return { nodes, edges: edgeList };
-  }, [graph, flowColors]);
+  }, [graph, flowColors, focused]);
+
+  const onNodeEnter = useCallback(
+    (_e: React.MouseEvent, node: Node) => setHoverId(node.id),
+    [],
+  );
+  const onNodeLeave = useCallback(() => setHoverId(null), []);
+  const onNodeClick = useCallback(
+    (_e: React.MouseEvent, node: Node) =>
+      setPinnedId((p) => (p === node.id ? null : node.id)),
+    [],
+  );
+  const onPaneClick = useCallback(() => setPinnedId(null), []);
 
   if (graph.strips.length === 0) {
     return (
@@ -278,6 +323,10 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
       nodes={nodes}
       edges={edges}
       nodeTypes={NODE_TYPES}
+      onNodeMouseEnter={onNodeEnter}
+      onNodeMouseLeave={onNodeLeave}
+      onNodeClick={onNodeClick}
+      onPaneClick={onPaneClick}
       fitView
       minZoom={0.1}
       maxZoom={2}

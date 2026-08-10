@@ -284,3 +284,56 @@ export function formatPan(pan: number): string {
   const side = pan < 0 ? "L" : "R";
   return `${side}${Math.round(Math.abs(pan) * 100)}`;
 }
+
+/** Everything on the signal path that runs through one strip. */
+export interface FocusedPath {
+  strips: Set<string>;
+  /** Indices into `edges`, so the caller can key its own edge list by them. */
+  edges: Set<number>;
+}
+
+/**
+ * The whole path through `stripId`: everything feeding it, and everything it
+ * feeds, all the way to the ends.
+ *
+ * Not just the immediate neighbours. The question this answers is "where does
+ * this actually go" -- a track through a group send through the master to a
+ * pair of output lanes -- and stopping one hop out would answer a different,
+ * less useful question. Once a rig has thirty strips the diagram is mostly
+ * wires; being able to pick one and have the rest fall back is what makes it
+ * readable at all.
+ *
+ * Both directions are walked breadth-first with a visited set, so a routing
+ * loop (which the engine forbids, but nothing here should depend on that)
+ * terminates instead of hanging the render.
+ */
+export function pathThrough(
+  edges: MixGraphEdge[],
+  stripId: string,
+): FocusedPath {
+  const strips = new Set<string>([stripId]);
+  const kept = new Set<number>();
+
+  const walk = (direction: "up" | "down") => {
+    const frontier = [stripId];
+    const seen = new Set<string>([stripId]);
+    while (frontier.length > 0) {
+      const node = frontier.pop() as string;
+      for (let i = 0; i < edges.length; i++) {
+        const e = edges[i];
+        const matches = direction === "down" ? e.from === node : e.to === node;
+        if (!matches) continue;
+        kept.add(i);
+        const next = direction === "down" ? e.to : e.from;
+        strips.add(next);
+        if (seen.has(next)) continue;
+        seen.add(next);
+        frontier.push(next);
+      }
+    }
+  };
+
+  walk("down");
+  walk("up");
+  return { strips, edges: kept };
+}

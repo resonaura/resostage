@@ -5,6 +5,7 @@ import {
   formatPan,
   layerStrips,
   layoutSignalFlow,
+  pathThrough,
   sourceChannelLabel,
   type MixGraphEdge,
   type MixGraphPayload,
@@ -289,5 +290,58 @@ describe("row ordering", () => {
       expect(seen.has(key)).toBe(false);
       seen.add(key);
     }
+  });
+});
+
+describe("pathThrough", () => {
+  //  track1 ┐          ┌─ out1
+  //         ├─ send ─ main
+  //  track2 ┘          └─ out2
+  //  click ───────────────┘   (straight to out2, never through main)
+  const edges: MixGraphEdge[] = [
+    { from: "track1", to: "send", level: 100, preFader: false, active: true, sourceChannel: -1 },
+    { from: "track2", to: "send", level: 100, preFader: false, active: true, sourceChannel: -1 },
+    { from: "send", to: "main", level: 100, preFader: false, active: true, sourceChannel: -1 },
+    { from: "main", to: "out1", level: 100, preFader: false, active: true, sourceChannel: -1 },
+    { from: "main", to: "out2", level: 100, preFader: false, active: true, sourceChannel: -1 },
+    { from: "click", to: "out2", level: 100, preFader: false, active: true, sourceChannel: -1 },
+  ];
+
+  it("keeps everything upstream and downstream of the focus", () => {
+    const p = pathThrough(edges, "send");
+    expect([...p.strips].sort()).toEqual(
+      ["main", "out1", "out2", "send", "track1", "track2"].sort(),
+    );
+    // The click's own hop into out2 is not on this path.
+    expect(p.strips.has("click")).toBe(false);
+    expect(p.edges.has(5)).toBe(false);
+    expect([...p.edges].sort()).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("follows a single track all the way to the outputs", () => {
+    const p = pathThrough(edges, "track1");
+    expect(p.strips.has("out2")).toBe(true);
+    expect(p.strips.has("track2")).toBe(false);
+  });
+
+  it("walks back from an output to only what feeds it", () => {
+    const p = pathThrough(edges, "out2");
+    expect(p.strips.has("click")).toBe(true);
+    expect(p.strips.has("out1")).toBe(false);
+  });
+
+  it("returns just the strip when nothing is wired to it", () => {
+    const p = pathThrough(edges, "orphan");
+    expect([...p.strips]).toEqual(["orphan"]);
+    expect(p.edges.size).toBe(0);
+  });
+
+  it("terminates on a routing loop", () => {
+    const loop: MixGraphEdge[] = [
+      { from: "a", to: "b", level: 100, preFader: false, active: true, sourceChannel: -1 },
+      { from: "b", to: "a", level: 100, preFader: false, active: true, sourceChannel: -1 },
+    ];
+    const p = pathThrough(loop, "a");
+    expect([...p.strips].sort()).toEqual(["a", "b"]);
   });
 });
