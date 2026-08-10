@@ -2,9 +2,14 @@ import type { RegionRow, SongRow, TrackRow } from "../../lib/types";
 import { laneHeightPx } from "./laneDimensions";
 import { EDGE_PX } from "./constants";
 import type { CycleLocatorsForDetents } from "./detents";
+
 import { snapToGridSec } from "./geometry";
 import type { RegionSelKey } from "./regionUtils";
 import type { TimelineRow } from "./rows";
+
+/** Engine limits (see builderRegionUpdate's clamp on Region::playback.speed). */
+export const MIN_REGION_SPEED = 0.25;
+export const MAX_REGION_SPEED = 4;
 
 export type RegionDragMode =
   | "move"
@@ -17,6 +22,11 @@ export type RegionDragMode =
   | "trimStart" // left center/bottom: extend left into earlier source
   | "trimEnd" // right bottom: set timeline duration
   | "loopTrim" // right upper-middle: Logic Pro loop stretch handle
+  // Stretch tool: the region's edge moves and the SOURCE SPAN stays put, so
+  // the same audio is squeezed or spread over a different length of timeline.
+  // Trim is the opposite trade -- it keeps the speed and takes a different
+  // amount of source.
+  | "stretch"
   | "fadeIn" // left top
   | "fadeOut" // right top
   | "fadeInCurve"
@@ -26,6 +36,8 @@ export type RegionGeom = {
   start: number;
   sourceOffset: number;
   duration: number;
+  /** Playback rate; 1 = as recorded. Carried so a stretch can be drawn live. */
+  speed: number;
   fadeIn: number;
   fadeOut: number;
   fadeInCurve: number;
@@ -40,6 +52,7 @@ export type RegionGeomDraft = {
   start: number;
   sourceOffset: number;
   duration: number;
+  speed?: number;
   fadeIn?: number;
   fadeOut?: number;
   fadeInCurve?: number;
@@ -65,6 +78,7 @@ export type RegionDragSession = {
   origFadeOutCurve: number;
   origLoop: boolean;
   origLoopLength: number;
+  origSpeed: number;
   maxEnd: number; // song length
   /** Remaining source length from sourceOffset (fileDuration - offset). */
   maxSourceDur: number;
@@ -94,6 +108,7 @@ export function baseRegionGeom(rd: RegionDragSession): RegionGeom {
     start: rd.origStart,
     sourceOffset: rd.origSourceOffset,
     duration: rd.origDuration,
+    speed: rd.origSpeed,
     fadeIn: rd.origFadeIn,
     fadeOut: rd.origFadeOut,
     fadeInCurve: rd.origFadeInCurve,
@@ -155,6 +170,7 @@ export function effectiveRegionGeom(
     start,
     sourceOffset: draft?.sourceOffset ?? r.source.offsetSeconds,
     duration,
+    speed: draft?.speed ?? r.playback?.speed ?? 1,
     fadeIn: draft?.fadeIn ?? r.fade?.inSeconds ?? 0,
     fadeOut: draft?.fadeOut ?? r.fade?.outSeconds ?? 0,
     fadeInCurve: draft?.fadeInCurve ?? r.fade?.inCurve ?? 0,
@@ -187,6 +203,8 @@ export function regionDraftMatchesCommitted(
       Math.abs((r.fade?.outCurve ?? 0) - d.fadeOutCurve) < 0.05) &&
     (d.loop === undefined ||
       Boolean(r.loop?.enabled) === Boolean(d.loop)) &&
+    (d.speed === undefined ||
+      Math.abs((r.playback?.speed ?? 1) - d.speed) < 0.005) &&
     (d.trackId === undefined || r.trackId === d.trackId)
   );
 }
@@ -259,6 +277,28 @@ export function computeRegionDragGeom(
       ...baseRegionGeom(rd),
       start: nextStart,
       trackId: draftTrackId,
+    };
+  }
+
+  if (rd.mode === "stretch") {
+    // The source span is the invariant: duration * speed before the drag has
+    // to equal duration * speed after it, or the region would be playing
+    // different audio rather than the same audio at a different rate.
+    const sourceSpan = rd.origDuration * rd.origSpeed;
+    const rawEnd = rd.origStart + rd.origDuration + dSec;
+    const maxDur = rd.maxEnd - rd.origStart;
+    const wantDur = Math.max(0.05, Math.min(maxDur, snapSec(rawEnd) - rd.origStart));
+    // Speed is what actually gets stored, so clamp THERE and derive the
+    // length back from it -- clamping the length instead would let the edge
+    // keep moving while the speed had already stopped changing.
+    const speed = Math.min(
+      MAX_REGION_SPEED,
+      Math.max(MIN_REGION_SPEED, sourceSpan / wantDur),
+    );
+    return {
+      ...baseRegionGeom(rd),
+      duration: sourceSpan / speed,
+      speed,
     };
   }
 
@@ -367,6 +407,7 @@ export function buildRegionDragSession(args: {
     start: geom.start,
     sourceOffset: geom.sourceOffset,
     duration: geom.duration,
+    speed: geom.speed,
     fadeIn: geom.fadeIn,
     fadeOut: geom.fadeOut,
     fadeInCurve: geom.fadeInCurve,
@@ -391,6 +432,7 @@ export function buildRegionDragSession(args: {
     origFadeOutCurve: orig.fadeOutCurve,
     origLoop: orig.loop,
     origLoopLength: origLoopLen,
+    origSpeed: orig.speed > 0 ? orig.speed : 1,
     maxEnd: segDuration,
     maxSourceDur: Math.max(0.05, fileDuration - orig.sourceOffset),
     lastGeom: orig,

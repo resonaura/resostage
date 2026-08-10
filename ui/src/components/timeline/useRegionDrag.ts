@@ -279,6 +279,9 @@ export function useRegionDrag({
       startSeconds: finalGeom.start,
       sourceOffsetSeconds: finalGeom.sourceOffset,
       durationSeconds: finalGeom.duration,
+      // Only the stretch drag changes this, but sending it always keeps the
+      // commit a straight copy of the geometry that was on screen.
+      speed: finalGeom.speed,
       fadeInSeconds: finalGeom.fadeIn,
       fadeOutSeconds: finalGeom.fadeOut,
       fadeInCurve: finalGeom.fadeInCurve,

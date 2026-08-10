@@ -1,5 +1,10 @@
 /** Shared editor tools for audio + light timeline modes. */
-export type TimelineTool = "pointer" | "pencil" | "eraser" | "scissors";
+export type TimelineTool =
+  | "pointer"
+  | "pencil"
+  | "eraser"
+  | "scissors"
+  | "stretch";
 
 export const TIMELINE_TOOLS: {
   id: TimelineTool;
@@ -19,6 +24,15 @@ export const TIMELINE_TOOLS: {
     label: "Pencil",
     shortcut: "B",
     tip: "Audio: import WAV as region · Light: add cue",
+  },
+  {
+    id: "stretch",
+    label: "Stretch",
+    shortcut: "T",
+    // Deliberately not "speed": what the hand does is drag an edge, and what
+    // it changes is how long the same audio takes. Speed is the number that
+    // falls out of it, and it is right there in the region inspector.
+    tip: "Drag a region's edge to speed it up or slow it down",
   },
   {
     id: "eraser",
@@ -41,6 +55,10 @@ export function toolCursor(tool: TimelineTool, readOnly: boolean): string {
       return "copy";
     case "eraser":
       return "cell";
+    case "stretch":
+      // Same as a trim, because the gesture is the same -- drag the edge.
+      // What differs is what gives: the source span instead of the material.
+      return "ew-resize";
     case "scissors":
       // crosshair, not col-resize: splitting aims at a point, and col-resize
       // promises a horizontal drag that resizes something. It is the same

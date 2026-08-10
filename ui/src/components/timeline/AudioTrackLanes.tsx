@@ -392,6 +392,28 @@ export function AudioTrackLanes({
                       }
 
                       selectRegion(thisRegionSelKey, e);
+                      // The stretch tool turns the whole region into one
+                      // handle: there is only one thing it can do, so aiming
+                      // at a 6px edge to do it would be busywork.
+                      if (tool === "stretch") {
+                        startRegionDrag(
+                          buildRegionDragSession({
+                            key: thisRegionSelKey,
+                            mode: "stretch",
+                            clientX: e.clientX,
+                            clientY: e.clientY,
+                            songIndex: i,
+                            regionId: songRegion.id,
+                            geom,
+                            originTrackId:
+                              songRegion.trackId || track?.id || row.name,
+                            originRowIndex: rowIndex,
+                            segDuration: songLengths[i] ?? 0,
+                            fileDuration,
+                          }),
+                        );
+                        return;
+                      }
                       if (tool !== "pointer") return;
                       const originTrackId =
                         songRegion.trackId || track?.id || row.name;

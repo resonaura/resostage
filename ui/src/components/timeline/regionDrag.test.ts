@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   computeRegionDragGeom,
+  MAX_REGION_SPEED,
+  MIN_REGION_SPEED,
   regionDraftMatchesCommitted,
   regionEdgeCursor,
   regionEdgeMode,
@@ -27,12 +29,14 @@ const session = (
   origFadeOutCurve: 0,
   origLoop: false,
   origLoopLength: 0,
+  origSpeed: 1,
   maxEnd: 60,
   maxSourceDur: 30,
   lastGeom: {
     start: 10,
     sourceOffset: 2,
     duration: 8,
+    speed: 1,
     fadeIn: 0,
     fadeOut: 0,
     fadeInCurve: 0,
@@ -174,6 +178,7 @@ describe("regionDraftMatchesCommitted", () => {
       start: 1,
       sourceOffset: 0,
       duration: 4,
+      speed: 1,
       fadeIn: 0.1,
       fadeOut: 0,
       fadeInCurve: 0,
@@ -183,5 +188,55 @@ describe("regionDraftMatchesCommitted", () => {
     };
     expect(regionDraftMatchesCommitted(r, d)).toBe(true);
     expect(regionDraftMatchesCommitted(r, { ...d, start: 2 })).toBe(false);
+  });
+});
+
+describe("stretch", () => {
+  // The trade the stretch tool makes: the region's length on the timeline
+  // changes, the stretch of source it covers does not.
+  const stretchSession = (over: Partial<RegionDragSession> = {}) =>
+    session({ mode: "stretch", ...over });
+
+  it("keeps the source span while the length changes", () => {
+    const rd = stretchSession();
+    // 8s region at 1x, dragged 40px right => 4s longer at pxPerSec 10.
+    const g = computeRegionDragGeom(rd, ctx, 140, 50);
+    expect(g.duration).toBeCloseTo(12, 3);
+    expect(g.speed).toBeCloseTo(8 / 12, 3);
+    expect(g.duration * g.speed).toBeCloseTo(8, 3); // the invariant
+  });
+
+  it("speeds the region up when squeezed", () => {
+    const g = computeRegionDragGeom(stretchSession(), ctx, 60, 50); // 4s shorter
+    expect(g.duration).toBeCloseTo(4, 3);
+    expect(g.speed).toBeCloseTo(2, 3);
+  });
+
+  it("carries an existing speed through", () => {
+    // Already at 2x: 8s of timeline is 16s of source, and that stays true.
+    const g = computeRegionDragGeom(
+      stretchSession({ origSpeed: 2 }),
+      ctx,
+      140,
+      50,
+    );
+    expect(g.duration * g.speed).toBeCloseTo(16, 3);
+  });
+
+  it("clamps to the engine's speed range, and the length follows", () => {
+    // Dragged far enough right to ask for a speed below the floor.
+    const slow = computeRegionDragGeom(stretchSession(), ctx, 1000, 50);
+    expect(slow.speed).toBeCloseTo(MIN_REGION_SPEED, 5);
+    expect(slow.duration * slow.speed).toBeCloseTo(8, 3);
+    // ...and far enough left to ask for more than the ceiling.
+    const fast = computeRegionDragGeom(stretchSession(), ctx, 20, 50);
+    expect(fast.speed).toBeLessThanOrEqual(MAX_REGION_SPEED);
+    expect(fast.duration * fast.speed).toBeCloseTo(8, 3);
+  });
+
+  it("leaves the start and the source offset alone", () => {
+    const g = computeRegionDragGeom(stretchSession(), ctx, 140, 50);
+    expect(g.start).toBe(10);
+    expect(g.sourceOffset).toBe(2);
   });
 });

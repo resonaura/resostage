@@ -191,7 +191,7 @@ export function AudioRegionBlock({
             // Parent region already fades opacity; don't double-dim peaks.
             muted={false}
             sourceOffsetSec={geom.sourceOffset}
-            speed={songRegion.playback?.speed ?? 1}
+            speed={geom.speed}
             reverse={songRegion.playback?.reverse ?? false}
             embedded
             loop={geom.loop}

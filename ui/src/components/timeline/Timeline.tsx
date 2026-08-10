@@ -865,6 +865,8 @@ export function Timeline({
       else if (k === "e") setTool("eraser");
       // Scissors: bare "x" (Logic uses scissors tool; avoid bare "c" vs copy).
       else if (k === "x") setTool("scissors");
+      // Stretch: "t" for time, since "s" is taken by solo everywhere else.
+      else if (k === "t") setTool("stretch");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

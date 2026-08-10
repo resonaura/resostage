@@ -10,6 +10,7 @@ import {
   Magnet,
   Palette,
   MousePointer2,
+  MoveHorizontal,
   MoveHorizontalIcon,
   MoveVerticalIcon,
   Pencil,
@@ -48,6 +49,7 @@ const TOOL_ICONS: Record<TimelineTool, React.ReactNode> = {
   pencil: <Pencil size={13} />,
   eraser: <Eraser size={13} />,
   scissors: <Scissors size={13} />,
+  stretch: <MoveHorizontal size={13} />,
 };
 
 export function TimelineToolbar({
