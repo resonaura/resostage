@@ -212,6 +212,16 @@ public:
 
     void audioDeviceStopped() override;
 
+    /**
+     * Fade the outputs down ahead of a deliberate device reconfigure, and
+     * report how many milliseconds to wait before doing it.
+     *
+     * The caller is expected to wait that long and then change the device.
+     * See the note in audioDeviceAboutToStart for why the edges of the
+     * inevitable gap are what make a buffer-size change audible.
+     */
+    int prepareForDeviceReconfigure();
+
 private:
 #define RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
 #include "AudioEngineMembers.h"

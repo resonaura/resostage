@@ -436,6 +436,22 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
         : 0;
     hwSamplePosition.store(resumeSample, std::memory_order_relaxed);
     lastCallbackHostNanos = 0;
+
+    // Ramp back in rather than resuming at full level.
+    //
+    // Restarting a device is a hole in the output -- CoreAudio cannot change
+    // the IO buffer size on a running IOProc, so it stops calling us for as
+    // long as the reconfigure takes (~100ms, measured). The hole itself is
+    // unavoidable; the CLICK at its edges is not. Coming back at full level
+    // on an arbitrary sample is a step discontinuity, which is what makes a
+    // buffer-size change audible as a crack rather than as a brief gap, and
+    // what shows up on the meters as a spike. prepareForDeviceReconfigure()
+    // handles the other edge.
+    underrunFadeOutRemaining = 0;
+    underrunFadeOutLength = 0;
+    outputHeldSilent = false;
+    recoveryFadeInLength = kUnderrunFadeSamples;
+    recoveryFadeInRemaining = kUnderrunFadeSamples;
     // start() also clears gamma and the integrator, which is exactly right
     // for a device that has just come back: the drift it measured against the
     // old device's clock says nothing about this one.
@@ -545,6 +561,23 @@ void AudioEngine::handleSampleRateChanged(double newSampleRate, double previousP
     // preserved position rather than wherever it happened to be mid-restage.
     if (wasPlaying)
         play();
+}
+
+int AudioEngine::prepareForDeviceReconfigure() {
+    // Arm the same fade the underrun path uses, and tell the caller how long
+    // to let the audio thread run before it pulls the device out from under
+    // it. Called from the message thread for a DELIBERATE reconfigure (buffer
+    // size, sample rate, output device) -- a hot-unplug gets no warning and
+    // no fade, which is exactly why one sounds worse than the other.
+    underrunFadeOutLength = kUnderrunFadeSamples;
+    underrunFadeOutRemaining = kUnderrunFadeSamples;
+    if (currentSampleRate <= 0.0)
+        return 0;
+    // The ramp plus one block, so the faded-to-zero samples have actually
+    // been handed to the driver before it stops.
+    const double rampMs = 1000.0 * kUnderrunFadeSamples / currentSampleRate;
+    const double blockMs = 1000.0 * std::max(1, currentBlockSize) / currentSampleRate;
+    return static_cast<int>(std::ceil(rampMs + blockMs));
 }
 
 void AudioEngine::audioDeviceStopped() {

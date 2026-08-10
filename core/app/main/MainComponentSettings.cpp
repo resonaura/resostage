@@ -237,6 +237,24 @@ void MainComponent::rememberCurrentDeviceProfile() {
     appSettings.deviceProfiles[name] = std::move(profile);
 }
 
+/**
+ * Change the audio device with the outputs faded down first.
+ *
+ * Every one of these tears the device down and brings it back, which is a
+ * ~100ms hole in the output whatever we do -- the driver simply stops calling
+ * us. What is avoidable is the crack at each edge: cutting a running signal
+ * mid-sample and resuming at full level are both step discontinuities, and
+ * that is what a buffer-size change actually sounded (and metered) like.
+ * The engine ramps back up on its own in audioDeviceAboutToStart.
+ */
+static juce::String applyDeviceSetupWithFade(AudioEngine& engine,
+                                             const juce::AudioDeviceManager::AudioDeviceSetup& setup) {
+    const int waitMs = engine.prepareForDeviceReconfigure();
+    if (waitMs > 0)
+        juce::Thread::sleep(waitMs);
+    return engine.setAudioDeviceSetup(setup, true);
+}
+
 void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
     invalidateHardwareSettingsCache();
     glz::generic doc;
@@ -277,7 +295,7 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
         setup.bufferSize = 0;
     }
 
-    const juce::String error = engine.setAudioDeviceSetup(setup, true);
+    const juce::String error = applyDeviceSetupWithFade(engine, setup);
     if (error.isEmpty()) {
         appSettings.outputDeviceName = name;
         appSettings.activeOutputChannels.clear();
@@ -379,7 +397,7 @@ void MainComponent::settingsSetSampleRate(const std::string& json) {
 
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.sampleRate = value;
-    const juce::String error = engine.setAudioDeviceSetup(setup, true);
+    const juce::String error = applyDeviceSetupWithFade(engine, setup);
     if (!error.isEmpty()) {
         // Rejected -- audioDeviceAboutToStart never fires with a new rate,
         // so currentSampleRate/clock/clickGenerator/StreamingEngine stay
@@ -418,7 +436,7 @@ void MainComponent::settingsSetBufferSize(const std::string& json) {
 
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.bufferSize = value;
-    const juce::String error = engine.setAudioDeviceSetup(setup, true);
+    const juce::String error = applyDeviceSetupWithFade(engine, setup);
     if (error.isEmpty()) {
         appSettings.bufferSize = value;
         saveAppSettingsToDisk();
@@ -526,7 +544,7 @@ void MainComponent::settingsSetOutputChannels(const std::string& json) {
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.outputChannels = bits;
     setup.useDefaultOutputChannels = false;
-    const juce::String error = engine.setAudioDeviceSetup(setup, true);
+    const juce::String error = applyDeviceSetupWithFade(engine, setup);
     if (error.isEmpty()) {
         appSettings.activeOutputChannels.clear();
         for (const auto& v : *channels) {
