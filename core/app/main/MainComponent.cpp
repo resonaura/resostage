@@ -2,6 +2,7 @@
 #include "engine/AudioEngineInternal.h"
 #include "lighting/LightOutputResolver.h"
 #include "platform/MacShellMode.h"
+#include "platform/ThermalState.h"
 #include "platform/TrayIcon.h"
 #include "project/ProjectJson.h"
 #include "project/RouteId.h"
@@ -1605,6 +1606,9 @@ void MainComponent::publishWebState() {
     state.outputLatencySamples = static_cast<int>(engine.outputLatencySamples());
     state.outputLatencyMs = engine.outputLatencySeconds() * 1000.0;
     state.hostTimeSkewMs = static_cast<double>(engine.hostTimeSkew()) / 1.0e6;
+    // A throttled laptop is the one cause of a dropout that every other number
+    // here reports as healthy. See platform/ThermalState.h.
+    state.thermalState = thermalStateName(currentThermalState());
     state.diskReadBytesPerSec = health.diskReadBytesPerSec;
     state.diskWriteBytesPerSec = health.diskWriteBytesPerSec;
     state.webClientCount = webServer.clientCount();

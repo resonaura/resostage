@@ -49,12 +49,14 @@ target_sources(ResoStage PRIVATE
   platform/MenuModel.cpp
   platform/ProcessPriority.cpp
   platform/ThreadTime.cpp
+  platform/ThermalStateGeneric.cpp
   platform/TrayIcon.cpp
   server/WebServer.cpp
 )
 
 if(APPLE)
   target_sources(ResoStage PRIVATE platform/MacShellMode.mm)
+  target_sources(ResoStage PRIVATE platform/ThermalState.mm)
   set(FILE_ICON "${CMAKE_SOURCE_DIR}/../icons/file.icns")
   set_source_files_properties(${FILE_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   target_sources(ResoStage PRIVATE ${FILE_ICON})

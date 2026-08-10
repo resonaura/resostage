@@ -750,6 +750,8 @@ struct WebUiState {
     int outputLatencySamples = 0;
     double outputLatencyMs = 0.0;
     double hostTimeSkewMs = 0.0;
+    /** "nominal" | "fair" | "serious" | "critical" -- see platform/ThermalState.h. */
+    std::string thermalState = "nominal";
     /** App-caused disk throughput; see SystemHealthSnapshot. */
     double diskReadBytesPerSec = 0.0;
     double diskWriteBytesPerSec = 0.0;

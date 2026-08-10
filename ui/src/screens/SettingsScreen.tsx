@@ -859,6 +859,19 @@ function HealthTab({ state }: { state: WebUiState }) {
             value={`${(h.hostTimeSkewMs ?? 0).toFixed(2)} ms`}
           />
         </div>
+        {(h.thermalState ?? "nominal") !== "nominal" && (
+          <Alert>
+            <Alert.Content>
+              <Alert.Description>
+                The system reports thermal pressure ({h.thermalState}). A
+                throttled machine reduces its clocks and moves work to
+                efficiency cores, so audio can break up while CPU, RAM and disk
+                all read healthy. Cooling the machine is the fix; a larger
+                buffer buys time.
+              </Alert.Description>
+            </Alert.Content>
+          </Alert>
+        )}
         {(h.callbackPreemptedStalls ?? 0) > 0 && (
           <Alert>
             <Alert.Content>

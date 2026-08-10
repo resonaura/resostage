@@ -521,6 +521,7 @@ struct WHealthTelemetry {
     int outputLatencySamples = 0;
     double outputLatencyMs = 0.0;
     double hostTimeSkewMs = 0.0;
+    std::string thermalState = "nominal";
     double diskReadBytesPerSec = 0.0;
     double diskWriteBytesPerSec = 0.0;
     uint32_t webClientCount = 0;

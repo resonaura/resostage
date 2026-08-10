@@ -1740,6 +1740,7 @@ std::string WebServer::buildStateJson(const char* view) const {
         wH.outputLatencySamples = snap.outputLatencySamples;
         wH.outputLatencyMs = finiteOrZero(snap.outputLatencyMs);
         wH.hostTimeSkewMs = finiteOrZero(snap.hostTimeSkewMs);
+        wH.thermalState = snap.thermalState;
         wH.diskReadBytesPerSec = finiteOrZero(snap.diskReadBytesPerSec);
         wH.diskWriteBytesPerSec = finiteOrZero(snap.diskWriteBytesPerSec);
         wH.webClientCount = static_cast<uint32_t>(std::max(0, snap.webClientCount));

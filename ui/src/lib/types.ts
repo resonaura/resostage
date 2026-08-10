@@ -620,6 +620,9 @@ export interface HealthState {
    *  zero on a healthy backend; a large value means cue timing cannot be
    *  trusted. */
   hostTimeSkewMs?: number;
+  /** OS thermal pressure. A throttled laptop drops audio while CPU, RAM and
+   *  disk all read healthy -- this is the only number that says why. */
+  thermalState?: "nominal" | "fair" | "serious" | "critical";
   /** App-caused disk throughput, bytes/sec, averaged over the sample second.
    *  A throttled or saturated SSD stalls stem streaming with the CPU flat --
    *  see SystemHealthSnapshot. */
@@ -890,6 +893,7 @@ export const emptyState: WebUiState = {
     outputLatencySamples: 0,
     outputLatencyMs: 0,
     hostTimeSkewMs: 0,
+    thermalState: "nominal",
     diskReadBytesPerSec: 0,
     diskWriteBytesPerSec: 0,
     audioCallbackCount: 0,
