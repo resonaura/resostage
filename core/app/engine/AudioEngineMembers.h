@@ -232,6 +232,21 @@
     std::vector<float> clickScratch;
     // Dedicated click strip meter (pre-bus mix); never shares the destination bus meter.
     SeqLock<MeterFrame> clickMeterFrame;
+    /**
+     * The workgroup of the device currently rendering, NOT the system default.
+     *
+     * On Apple Silicon a helper thread outside the audio device's workgroup is
+     * an ordinary thread to the scheduler, which parks it on an E-core. At a
+     * large buffer the gaps between callbacks are long enough that the P-cores
+     * clock down as well, so the refill misses its window while total CPU
+     * stays low -- the exact "not much load, still dropping out" picture.
+     *
+     * Guarded because the audio device thread writes it (audioDeviceAboutToStart)
+     * while streaming threads read it as they start.
+     */
+    juce::AudioWorkgroup deviceWorkgroup;
+    std::mutex deviceWorkgroupMutex;
+
     /** See meterValueOrHold / beginMeterPoll. */
     static float meterValueOrHold(float intervalPeak, float& held, bool hadAudio);
     /**

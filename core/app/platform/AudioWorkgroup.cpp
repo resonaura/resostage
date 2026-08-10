@@ -12,6 +12,15 @@ thread_local bool tlJoined = false;
 } // namespace
 
 bool joinCurrentThreadToDefaultOutputWorkgroup() {
+    // Fallback only. Prefer AudioEngine::joinCurrentThreadToDeviceWorkgroup,
+    // which uses the workgroup of the device actually rendering.
+    //
+    // This one asks for kAudioHardwarePropertyDefaultOutputDevice, and on any
+    // rig where playback does not go to the system default -- an interface
+    // while the Mac's own output stays default, which is the normal stage
+    // setup -- that is the workgroup of a device that is not even running.
+    // Joining it tells the scheduler nothing, so the thread stays an ordinary
+    // one and lands on an E-core.
     if (tlJoined)
         return true; // already joined on this thread; avoid double-join
 

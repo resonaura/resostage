@@ -222,6 +222,16 @@ public:
      */
     int prepareForDeviceReconfigure();
 
+    /**
+     * Join the calling thread to the audio device's workgroup for its lifetime.
+     *
+     * For streaming refill threads: they are on the audio deadline even though
+     * they are not the audio thread, and the scheduler has no other way to
+     * know that. Safe to call from any thread; a no-op if the device does not
+     * publish one.
+     */
+    void joinCurrentThreadToDeviceWorkgroup();
+
 private:
 #define RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
 #include "AudioEngineMembers.h"

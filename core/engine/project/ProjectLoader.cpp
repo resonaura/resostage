@@ -6,6 +6,10 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#if defined(__APPLE__)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include <fstream>
 #include <iomanip>
 #include <map>
@@ -218,6 +222,22 @@ ProjectLoader::StreamCursor ProjectLoader::openStream(const std::string& archive
         error = "File not found in container: " + filePath.string();
         return cursor;
     }
+#if defined(__APPLE__)
+    // Keep stems out of the unified buffer cache, and ask for read-ahead.
+    //
+    // A set is gigabytes of audio that is read once, forward, and never
+    // wanted again -- caching it evicts everything else and pushes the VM
+    // system into compressing and paging, which is felt as a stall in the
+    // render callback rather than as a slow read. F_RDAHEAD is the other half:
+    // this access pattern is purely sequential, which is exactly what the
+    // hint is for.
+    //
+    // Best-effort: both are advisory, and a failure here only costs speed.
+    if (const int fd = fileno(f); fd >= 0) {
+        (void)fcntl(fd, F_NOCACHE, 1);
+        (void)fcntl(fd, F_RDAHEAD, 1);
+    }
+#endif
     auto cursorImpl = std::make_unique<StreamCursor::Impl>();
     cursorImpl->containerFile = f;
     cursor.impl = std::move(cursorImpl);
