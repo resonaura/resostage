@@ -36,6 +36,17 @@ public:
 
     void beginEdit(const Project& before, const std::string& gestureId, const std::string& label);
     void commitEdit(const Project& after);
+    /**
+     * Close an edit that was opened with `gestureId`, and only that one.
+     *
+     * For work that finishes on a later turn of the message loop -- a folder
+     * import reparses the archive well after it was started -- where plain
+     * commitEdit() would write its result into whatever entry happens to be
+     * on top by then. Returns false if the entry is no longer there, which
+     * means something else has since been recorded and this result belongs to
+     * nothing.
+     */
+    bool commitOpenEdit(const std::string& gestureId, const Project& after);
 
     bool canUndo() const { return !undoStack_.empty(); }
     bool canRedo() const { return !redoStack_.empty(); }

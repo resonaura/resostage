@@ -32,6 +32,15 @@ void ProjectHistory::commitEdit(const Project& after) {
     undoStack_.back().after = after;
 }
 
+bool ProjectHistory::commitOpenEdit(const std::string& gestureId, const Project& after) {
+    if (gestureId.empty() || undoStack_.empty())
+        return false;
+    if (undoStack_.back().openGestureId != gestureId)
+        return false;
+    undoStack_.back().after = after;
+    return true;
+}
+
 std::optional<Project> ProjectHistory::undo() {
     if (undoStack_.empty())
         return std::nullopt;

@@ -21,6 +21,11 @@
 
 namespace resostage {
 
+namespace {
+/** Identifies the history entry a folder import opens; see finishAsyncImport. */
+constexpr const char* kFolderImportGestureId = "import-song-folder";
+} // namespace
+
 using audio_engine_detail::streamingIoThreadStart;
 using audio_engine_detail::streamingIoThreadStop;
 
@@ -70,6 +75,21 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
         newTrackName = (dot == std::string::npos) ? base : base.substr(0, dot);
     }
 
+    // History, opened here rather than at the web handler.
+    //
+    // The project is mutated a few lines below, synchronously, before the
+    // background thread even starts -- so a caller trying to bracket
+    // importWavForTrackAsync() from outside would snapshot a project that
+    // already contains the new region and record an undo step that undoes
+    // nothing. Only this function knows where the "before" actually is.
+    //
+    // Nothing about the AUDIO goes into the entry: the wav lives in the
+    // project archive either way. What is recorded is that an import
+    // happened here, so undo removes what it added, exactly like any other
+    // add. Committed at the end of the synchronous section below, since the
+    // background thread only writes the archive and never touches Project.
+    projectHistory.beginEdit(loader.project(), "", "Import audio");
+
     // Update in-memory live track immediately so main thread UI/state has it
     if (TrackDef* liveTrack = trackDefAt(trackIndex)) {
         if (liveTrack->name.empty() || liveTrack->name == "New Track")
@@ -93,6 +113,8 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             regPtr->source.file = entry;
         }
     }
+
+    projectHistory.commitEdit(loader.project());
 
     const size_t songToRestore = currentSong;
     const bool wasPlaying = playing.load(std::memory_order_acquire);
@@ -376,6 +398,9 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         return;
     }
     projectLoaded = true;
+    // No-op unless this was a folder import: a WAV import closed its own
+    // entry synchronously, before the archive write ever started.
+    (void)projectHistory.commitOpenEdit(kFolderImportGestureId, loader.project());
     publishRoutingSnapshot();
     streaming.start(&loader, streamingIoThreadStart, streamingIoThreadStop);
 
@@ -512,6 +537,13 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
     const size_t songToRestore = currentSong;
     const bool wasPlaying = playing.load(std::memory_order_acquire);
     stop();
+    // The new song only exists once finishAsyncImport reparses the archive,
+    // which happens on a later turn of the message loop -- so this entry is
+    // closed by id there rather than here. Same bargain as a WAV import: the
+    // audio stays in the archive, the history just records that a song was
+    // brought in, and undo takes it back out.
+    projectHistory.beginEdit(loader.project(), kFolderImportGestureId, "Import song folder");
+
     joinPendingPeakBuilds(); // also reads `loader`; must finish before we hand it to the import thread
     streaming.stop(); // halts the I/O thread -- loader is exclusively ours until streaming.start() below
 

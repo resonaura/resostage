@@ -85,6 +85,10 @@
     }
 
     void projectHistoryCommitEdit() { projectHistory.commitEdit(loader.project()); }
+    /** Close an edit opened with this id; see ProjectHistory::commitOpenEdit. */
+    bool projectHistoryCommitOpenEdit(const std::string& gestureId) {
+        return projectHistory.commitOpenEdit(gestureId, loader.project());
+    }
 
     bool canUndoTimeline() const { return projectHistory.canUndo(); }
 
