@@ -1374,7 +1374,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // master are all just strips, and MixRenderer runs the identical four
     // steps on each of them (see engine/audio/MixRenderer.h). This file no
     // longer knows what a fader, a pan law or a solo group is.
-    if (!mixRenderer.canRender(graph)) {
+    if (!mixRenderer.canRender(graph, numSamples)) {
         bailSilently();
         return;
     }

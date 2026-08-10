@@ -528,6 +528,15 @@ void AudioEngine::ensureScratchSizes() {
         slot.everUsed = false;
     }
 
+    // The renderer is sized by strip COUNT in publishRoutingSnapshot, which a
+    // buffer-size change does not touch -- so without this its rows stayed at
+    // whatever block size the strips were last published for while the driver
+    // started handing us four or eight times as many samples. Growing it here,
+    // on the device thread before the first callback at the new size, is the
+    // one place that can allocate safely.
+    if (mixRenderer.capacity() > 0 && mixRenderer.maxBlockSize() < capacity)
+        mixRenderer.prepare(currentSampleRate, capacity, mixRenderer.capacity());
+
     clickScratch.assign(static_cast<size_t>(capacity), 0.0f);
     // One slot per physical channel, so the stop-declick never has to grow it
     // from the callback either. 64 covers every interface this runs on; a

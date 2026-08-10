@@ -45,7 +45,19 @@ public:
     void prepare(double sampleRate, int maxBlockSize, size_t maxStrips);
 
     size_t capacity() const { return stripCapacity; }
-    bool canRender(const MixGraph& graph) const;
+    /**
+     * Whether this renderer can take `numSamples` for `graph` as it stands.
+     *
+     * The block size is half the question and used to be missing: the buffers
+     * are laid out as stripIndex * 2 * maxBlock, so a block bigger than the
+     * one prepare() sized for does not fail, it walks straight into the next
+     * strip's rows. That is not a dropout and no counter sees it -- it is
+     * every strip reading a slice of its neighbour, which comes out as
+     * distortion for as long as the oversized block lasts.
+     */
+    bool canRender(const MixGraph& graph, int numSamples) const;
+    /** Largest block prepare() sized for. */
+    int maxBlockSize() const { return maxBlock; }
 
     // Audio thread. Clears the scratch for this block; call before writing
     // any source audio.

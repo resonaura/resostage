@@ -345,7 +345,7 @@ TEST_CASE("renderer: a non-finite sample is scrubbed and never poisons the mix")
 TEST_CASE("renderer: an unprepared renderer refuses to render rather than crashing") {
     const MixGraph g = buildMixGraph(twoTrackProject(), stereoOut());
     MixRenderer renderer;
-    CHECK_FALSE(renderer.canRender(g));
+    CHECK_FALSE(renderer.canRender(g, kBlock));
     renderer.beginBlock(g, kBlock);
     renderer.process(g, kBlock);
     CHECK(renderer.sourceChannel(0, 0) == nullptr);
@@ -356,7 +356,7 @@ TEST_CASE("renderer: a graph larger than the prepared capacity is refused, not w
     const MixGraph g = buildMixGraph(twoTrackProject(), stereoOut());
     MixRenderer renderer;
     renderer.prepare(48000.0, kBlock, g.strips.size() - 1);
-    CHECK_FALSE(renderer.canRender(g));
+    CHECK_FALSE(renderer.canRender(g, kBlock));
 
     std::vector<float> left(kBlock, 0.0f);
     std::vector<float> right(kBlock, 0.0f);
@@ -457,4 +457,27 @@ TEST_CASE("renderer: a send level move lands exactly on its target") {
     rig.run(g, "audio::track:1", 0.5f, 400);
 
     CHECK(rig.left[kBlock - 1] == 0.5f * 0.4f);
+}
+
+TEST_CASE("renderer: a block bigger than it was prepared for is refused, not written past") {
+    // The rows are laid out strip-major (stripIndex * 2 * maxBlock), so a
+    // block larger than maxBlock does not fail -- the caller's copy_n walks
+    // into the next strip's rows and every strip ends up carrying a slice of
+    // its neighbour. That is distortion, not a dropout, and no underrun
+    // counter can see it. Raising the device buffer without re-preparing the
+    // renderer is exactly how it happens.
+    const MixGraph g = buildMixGraph(twoTrackProject(), stereoOut());
+    MixRenderer renderer;
+    renderer.prepare(48000.0, kBlock, g.strips.size());
+
+    CHECK(renderer.canRender(g, kBlock));
+    CHECK(renderer.canRender(g, kBlock / 2));
+    CHECK_FALSE(renderer.canRender(g, kBlock * 8));
+    CHECK_FALSE(renderer.canRender(g, 0));
+    CHECK(renderer.maxBlockSize() == kBlock);
+
+    // ...and after being re-prepared for the bigger block, it accepts it.
+    renderer.prepare(48000.0, kBlock * 8, g.strips.size());
+    CHECK(renderer.canRender(g, kBlock * 8));
+    CHECK(renderer.maxBlockSize() == kBlock * 8);
 }

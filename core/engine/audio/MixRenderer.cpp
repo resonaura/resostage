@@ -22,8 +22,9 @@ void MixRenderer::prepare(double sampleRate, int maxBlockSize, size_t maxStrips)
     edgeSmoothers.clear();
 }
 
-bool MixRenderer::canRender(const MixGraph& graph) const {
-    return graph.strips.size() <= stripCapacity && maxBlock > 0;
+bool MixRenderer::canRender(const MixGraph& graph, int numSamples) const {
+    return graph.strips.size() <= stripCapacity && maxBlock > 0
+           && numSamples > 0 && numSamples <= maxBlock;
 }
 
 void MixRenderer::resetSmoothing() {
@@ -61,7 +62,7 @@ const float* MixRenderer::postRow(uint32_t stripIndex, int channel) const {
 }
 
 void MixRenderer::beginBlock(const MixGraph& graph, int numSamples) {
-    if (!canRender(graph))
+    if (!canRender(graph, numSamples))
         return;
     const size_t span = static_cast<size_t>(std::min(numSamples, maxBlock));
     for (uint32_t s = 0; s < graph.strips.size(); ++s) {
@@ -89,7 +90,7 @@ const StripLevels& MixRenderer::levels(uint32_t stripIndex) const {
 }
 
 void MixRenderer::process(const MixGraph& graph, int numSamples) {
-    if (!canRender(graph))
+    if (!canRender(graph, numSamples))
         return;
     const int span = std::min(numSamples, maxBlock);
     if (span <= 0)
@@ -309,7 +310,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples) {
 
 void MixRenderer::writeToOutputs(const MixGraph& graph, float* const* outputChannelData,
                                  int numOutputChannels, int numSamples) const {
-    if (!canRender(graph) || outputChannelData == nullptr)
+    if (!canRender(graph, numSamples) || outputChannelData == nullptr)
         return;
     const int span = std::min(numSamples, maxBlock);
 

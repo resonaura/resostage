@@ -213,17 +213,25 @@ export function Timeline({
   const commitScrollStateRef = useRef(commitScrollState);
   commitScrollStateRef.current = commitScrollState;
 
-  // ZOOM-only flag feeding the playhead clock FREEZE below. Declared here so
-  // the clock hook can read it; the setter lives with the other gesture
-  // plumbing (see markZoomActiveRef).
-  const [zoomActive, setZoomActive] = useState(false);
+  // Zoom gesture in progress.
+  //
+  // Nothing renders from it any more -- it used to freeze the clock and dim
+  // the needle, and does neither now -- but the deduped setter below is what
+  // the gesture plumbing drives, and zoomActiveStateRef is what the frame
+  // loop reads. Kept as state so that plumbing stays in one shape.
+  const [, setZoomActive] = useState(false);
 
   // ONE continuous absolute clock for the whole project. Song-local time is
   // derived below -- never a second independent rAF loop keyed on songIndex
   // (that reset/fought across gapless boundaries and felt like two timelines).
-  // `zoomActive` FREEZES the clock while a zoom gesture is in progress so the
-  // playhead marker holds still ("автостоп времени при зуме"); it resumes
-  // (and softly re-corrects toward the engine) the moment the zoom settles.
+  // The clock is NOT frozen during a zoom.
+  //
+  // It used to be, so the marker held still against a scaling grid -- but a
+  // stopped needle during a zoom is a needle showing the wrong time, and the
+  // transport does not pause just because someone pinched. What genuinely
+  // has to wait is the FOLLOW SCROLL, which would fight the zoom's own scroll
+  // writes; that is deferred to the end of the gesture instead (see
+  // pendingFollowAfterZoomRef).
   // cycleWrapRef is filled after song layout (below) each render — rAF reads
   // it live so short loops wrap on the SPA without waiting for WS.
   const cycleWrapRef = useRef<CycleWrapRange | null>(null);
@@ -232,7 +240,7 @@ export function Timeline({
       state.globalPlayheadSeconds,
       state.playing,
       state.projectName,
-      zoomActive,
+      false, // never frozen -- see the note above
       dragging,
       cycleWrapRef,
       // Nothing this component RENDERS reads the clock -- the marker is a
@@ -382,9 +390,22 @@ export function Timeline({
   // whose gestureend was lost would leave gestureActiveNowRef stuck true --
   // which permanently disabled auto-scroll in EVERY follow mode
   // ("автоскролл не пашет никакой теперь").
+  /**
+   * A follow scroll owed to the playhead once the zoom finishes.
+   *
+   * During the gesture the zoom owns scrollLeft outright (see the zoom-focus
+   * commit) -- a follow write landing in the middle of that fights it and
+   * wobbles the whole timeline. So the needle keeps running, the view stays
+   * where the pinch put it, and catching up happens once, at the end.
+   */
+  const pendingFollowAfterZoomRef = useRef(false);
+
   const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markZoomActiveRef = useRef(() => {
     setZoomActiveDeduped(true);
+    // Whatever the follow mode would have done during the gesture is owed
+    // until after it.
+    pendingFollowAfterZoomRef.current = true;
     if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
     zoomTimerRef.current = setTimeout(() => {
       setZoomActiveDeduped(false);
@@ -1946,6 +1967,24 @@ export function Timeline({
       const songJumped = currentSongIdxRef.current !== lastSongIdx;
       lastSongIdx = currentSongIdxRef.current;
 
+      // The zoom has finished and the view still owes the playhead a catch-up
+      // (see pendingFollowAfterZoomRef). Treat it exactly like a song jump so
+      // it uses the same glide rather than a teleport, and only when the
+      // needle actually ended up off-screen -- a zoom that left it in view
+      // needs no scroll at all.
+      let zoomCatchUp = false;
+      if (pendingFollowAfterZoomRef.current && !gestureActiveNowRef.current) {
+        pendingFollowAfterZoomRef.current = false;
+        zoomCatchUp =
+          followModeRef.current !== "off" &&
+          !!scrollRef.current &&
+          !isPositionVisible(
+            px,
+            scrollRef.current.scrollLeft,
+            scrollRef.current.clientWidth || 1000,
+          );
+      }
+
       // gestureActiveNowRef, NOT a React-state mirror: it's set synchronously
       // in the same tick as the wheel/pinch handler, so this rAF loop can
       // never observe a stale "not zooming" for a frame while React's own
@@ -2116,7 +2155,8 @@ export function Timeline({
         const bigJump = Math.abs(px - lastRevealPx) > pxPerSecRef.current * 2.0;
         const outsideView =
           !!scroller && !isPositionVisible(px, scroller.scrollLeft, viewWidth);
-        const jumped = songJumped || notYetVisible || (bigJump && outsideView);
+        const jumped =
+          songJumped || notYetVisible || zoomCatchUp || (bigJump && outsideView);
         const snapEdge =
           playingRef.current &&
           followModeRef.current === "snap" &&
@@ -2351,7 +2391,6 @@ export function Timeline({
                 contentWidth={contentWidth}
                 scrollState={scrollState}
                 playheadHandleRef={playheadHandleRef}
-                zoomActive={zoomActive}
                 cycle={cycle}
                 songContentLengths={songContentLengths}
                 songEndDrag={songEndDrag}
@@ -2564,15 +2603,9 @@ export function Timeline({
               {/* 4. Lane needle (full content height). z below sticky ruler so
                   it doesn't cover song labels; the ruler-band segment is drawn
                   inside the sticky header (playheadHandleRef). */}
-              {/* Dimmed while zooming, because it is deliberately not
-                  tracking then (the clock is frozen so the needle holds still
-                  against a scaling grid). At full strength it just looks
-                  wrong; faded, it reads as "parked", and the transition means
-                  the change itself is not another moving thing to follow. */}
               <div
                 ref={playheadRef}
-                className="pointer-events-none absolute top-0 bottom-0 z-[15] w-0 transition-opacity duration-200 ease-out motion-reduce:transition-none"
-                style={{ opacity: zoomActive ? 0.3 : 1 }}
+                className="pointer-events-none absolute top-0 bottom-0 z-[15] w-0"
               >
                 <div className="absolute top-0 bottom-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
               </div>

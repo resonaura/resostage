@@ -278,26 +278,28 @@ function Sparkline({
   maxMinVal?: number;
 }) {
   const maxVal = Math.max(maxMinVal, ...history);
-  // One step's worth of x, which is exactly how far the line travels between
-  // samples.
-  const stepPx = 90 / Math.max(1, history.length - 1);
+  const WIDTH = 90;
+  // The line is drawn ONE STEP WIDER than the box it lives in, starting off
+  // the left edge.
+  //
+  // A sample that is about to be dropped has to already be outside the
+  // viewport, or its removal re-spaces every remaining point and the whole
+  // graph jerks -- which is what "точка удаляется и график скачет" was. With
+  // the domain running from -step to WIDTH, the oldest point spends its last
+  // second travelling out through the left edge (the svg clips it) and is
+  // gone from view well before it is gone from the array. The newest enters
+  // the same way on the right.
+  const stepPx = WIDTH / Math.max(1, history.length - 2);
   const points = history.map((val, i) => {
-    const x = (i / Math.max(1, history.length - 1)) * 90;
+    const x = -stepPx + i * stepPx;
     const y = 24 - (val / maxVal) * 20;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
-  // One extra point a step to the LEFT of the first, repeating its value.
-  //
-  // The slide below shifts the whole line right by up to one step, and with
-  // nothing out there to shift in, that opened a gap at the left edge which
-  // closed again over the next second -- which read as the graph twitching
-  // every time a sample landed. At rest it sits off-screen.
-  const firstY = points.length > 0 ? points[0].split(",")[1] : "24";
-  const drawn = [`${(-stepPx).toFixed(1)},${firstY}`, ...points];
-  const pathD = `M ${drawn.join(" L ")}`;
-  const areaD = `M ${(-stepPx).toFixed(1)},24 L ${drawn.join(" L ")} L 90,24 Z`;
-  const lastPoint =
-    points.length > 0 ? points[points.length - 1].split(",") : ["90", "24"];
+  const pathD = points.length > 0 ? `M ${points.join(" L ")}` : "";
+  const areaD =
+    points.length > 0
+      ? `M ${(-stepPx).toFixed(1)},24 L ${points.join(" L ")} L ${WIDTH},24 Z`
+      : "";
 
   const slideRef = useRef<SVGGElement | null>(null);
   const sampleAtRef = useRef(0);
@@ -387,13 +389,6 @@ function Sparkline({
             strokeWidth="1.5"
             strokeLinecap="round"
             style={{ stroke: color, transition: "stroke 400ms ease-out" }}
-          />
-          {/* Solid dot at the latest point -- no constant pinging animation. */}
-          <circle
-            cx={lastPoint[0]}
-            cy={lastPoint[1]}
-            r="2"
-            style={{ fill: color, transition: "fill 400ms ease-out" }}
           />
         </g>
       </svg>
