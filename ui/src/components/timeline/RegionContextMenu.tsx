@@ -101,6 +101,24 @@ export function RegionContextMenu({
         {regUi.muted ? "Unmute Region" : "Mute Region"}
       </ContextMenuItem>
 
+      {/* Reverse is a property of the region, not of its speed: a region can
+          be reversed at 1x, and a region at 0.5x need not be. Both live on
+          Region::playback and neither touches looping -- a reversed loop
+          still loops, backwards. */}
+      <ContextMenuItem
+        checked={songRegion.playback?.reverse ?? false}
+        onClick={() => {
+          void builder.regionUpdate({
+            songIndex: menu.songIndex,
+            regionId: menu.regionId,
+            reverse: !(songRegion.playback?.reverse ?? false),
+          });
+          onClose();
+        }}
+      >
+        Reverse
+      </ContextMenuItem>
+
       <ContextMenuDivider />
 
       <ContextMenuItem

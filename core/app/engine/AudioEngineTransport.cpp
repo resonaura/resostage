@@ -425,7 +425,22 @@ int64_t AudioEngine::songLengthFrames(double endSeconds,
                                       double sampleRate) {
     if (endSeconds > 0.0 && std::isfinite(endSeconds) && sampleRate > 0.0)
         return static_cast<int64_t>(std::llround(endSeconds * sampleRate));
-    return contentFrames;
+    if (contentFrames > 0)
+        return contentFrames;
+    // An empty song still has an end.
+    //
+    // Zero here meant "no length", and the render callback's arming check
+    // (`currentSongLengthFrames > 0`) read that as "never ends" -- so a song
+    // with no audio and no authored end never armed its song-end action. The
+    // transport rolled past it forever: no advance to the next song, no stop
+    // at the end of the set, whatever the song's onEnded said. On screen the
+    // same song is a second long, because that is the floor the timeline
+    // draws it at (MIN_SONG_SECONDS), so this is the transport agreeing with
+    // what the user is looking at rather than inventing a duration.
+    constexpr double kEmptySongSeconds = 1.0;
+    return sampleRate > 0.0
+               ? static_cast<int64_t>(std::llround(kEmptySongSeconds * sampleRate))
+               : 0;
 }
 
 bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {

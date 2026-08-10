@@ -63,14 +63,10 @@ export function LightTrackLanes({
   lightCueDrag: LightCueDragState | null;
   setLightCueDrag: (v: LightCueDragState | null) => void;
 }) {
-  if (!lightEnabled) {
-    return (
-      <EmptyState className="flex h-24 items-center justify-center px-6 text-center text-xs">
-        Lighting is disabled. Enable it in Settings &gt; Project to author light
-        cues.
-      </EmptyState>
-    );
-  }
+  // Nothing at all when lighting is off. The sidebar beside these lanes
+  // already says so, and saying it twice -- once in a strip the width of the
+  // whole timeline -- was the louder half of a message nobody needs twice.
+  if (!lightEnabled) return null;
   if (lightTracks.length === 0) {
     return (
       <EmptyState className="flex h-24 items-center justify-center px-6 text-center text-xs">

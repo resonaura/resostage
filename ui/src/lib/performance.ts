@@ -93,8 +93,31 @@ export function writePerformanceSettings(s: PerformanceSettings): void {
 // the same too. The health telemetry is a second, slower input for the cases
 // where the UI thread is *not* the thing suffering (see noteHealthPressure).
 
-/** Frame times above this are a machine that cannot keep up. */
+/** Frame times above this are a machine that cannot keep up, uncapped. */
 const SLOW_FRAME_MS = 34; // ~2 missed frames at 60Hz
+
+/**
+ * How much worse than the CURRENT cap's own frame interval counts as slow.
+ *
+ * Measuring against a fixed 34ms only works while the driver is uncapped. Once
+ * auto has dropped a tier the driver deliberately runs slower -- 33ms at
+ * `reduced`, 67ms at `economy` -- so a perfectly healthy machine kept
+ * reporting frames "above 34ms" and the ladder could only ever go down. That
+ * is the bug where one spike during a project load left the whole session at
+ * 15fps forever: there was no measurement that could have earned it back.
+ *
+ * Judged against the cap instead, a tier that is comfortably keeping its own
+ * pace reads as healthy, and the streak that climbs back can actually run.
+ */
+const SLOW_FRAME_FACTOR = 1.5;
+
+/** What counts as a slow frame while `tier` is in force. */
+export function slowFrameThresholdMs(tier: PerformanceTier): number {
+  const fps = TIER_FPS[tier];
+  // Uncapped: judge against a 60Hz display, the floor of what we ask for.
+  const expectedMs = fps > 0 ? 1000 / fps : 1000 / 60;
+  return Math.max(SLOW_FRAME_MS, expectedMs * SLOW_FRAME_FACTOR);
+}
 /** Consecutive slow seconds before dropping a tier. Long enough to ignore a
  *  project load, a song change, or one GC pause. */
 const DEGRADE_AFTER_SLOW_SECONDS = 4;
@@ -154,7 +177,8 @@ export function stepAuto(
   if (TIER_ORDER.indexOf(effective) < TIER_ORDER.indexOf(ceiling))
     effective = ceiling;
 
-  const struggling = p95FrameMs > SLOW_FRAME_MS || pressure;
+  const struggling =
+    p95FrameMs > slowFrameThresholdMs(effective) || pressure;
   const slowSeconds = struggling ? state.slowSeconds + 1 : 0;
   const goodSeconds = struggling ? 0 : state.goodSeconds + 1;
 

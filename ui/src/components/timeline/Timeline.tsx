@@ -900,7 +900,16 @@ export function Timeline({
   // OutOfBoundsOverlay), and not somewhere the transport will go.
   const projectWidth = Math.max(1, Math.round(totalLength * pxPerSec));
   const trailingSlackPx = Math.round(
-    Math.max(TRAILING_SLACK_MIN_PX, TRAILING_SLACK_SECONDS * pxPerSec),
+    Math.max(
+      TRAILING_SLACK_MIN_PX,
+      TRAILING_SLACK_SECONDS * pxPerSec,
+      // Always out to the right edge. A short set at a low zoom ran out of
+      // slack mid-viewport and left bare scrollport after it -- which looks
+      // like the timeline ending, when it is the same free canvas the slack
+      // is. Filling the viewport also means the hatch is what you drop onto
+      // anywhere right of the project, not just for the first 240px.
+      scrollState.viewportWidth - projectWidth,
+    ),
   );
   const contentWidth = projectWidth + trailingSlackPx;
 

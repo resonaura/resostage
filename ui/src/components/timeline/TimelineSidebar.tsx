@@ -118,7 +118,7 @@ export function TimelineSidebar({
           {effectiveViewMode === "light" ? (
             !lightEnabled ? (
               <div className="flex h-24 items-center justify-center px-3 text-center text-[10px] leading-relaxed text-foreground/40">
-                Enable lighting in Settings &gt; Project to author light cues
+                Turn on Light System in the Light tab to author cues
               </div>
             ) : lightTracks.length === 0 ? (
               <div className="flex flex-col items-center gap-1 px-3 py-5 text-center text-[10px] text-foreground/40">

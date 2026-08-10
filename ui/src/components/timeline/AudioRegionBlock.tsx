@@ -157,6 +157,9 @@ export function AudioRegionBlock({
           zIndex: isRegionSelected ? 2 : 1,
         }}
         title={`${rowName} – Song ${songIndex + 1}: ${songName}${geom.loop ? " [loop]" : ""}`}
+        // Marks the region for the lane's empty-space handlers: a click that
+        // landed on a region is not a click on the lane behind it.
+        data-region-block=""
         onPointerDown={onRegionPointerDown}
         onPointerMove={(e) => {
           // Drag geometry is driven by window listeners.
@@ -188,6 +191,7 @@ export function AudioRegionBlock({
             // Parent region already fades opacity; don't double-dim peaks.
             muted={false}
             sourceOffsetSec={geom.sourceOffset}
+            speed={songRegion.playback?.speed ?? 1}
             embedded
             loop={geom.loop}
             loopLengthSec={geom.loopLengthSeconds}

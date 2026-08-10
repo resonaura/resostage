@@ -93,8 +93,18 @@ void MainComponent::lightingSetConfig(const std::string& json) {
     bool boolVal;
     std::string strVal;
     int intVal;
-    if (getBool(doc, "enabled", boolVal))
+    if (getBool(doc, "enabled", boolVal)) {
         cfg.enabled = boolVal;
+        // Switching the light system on with no rig chosen used to leave it
+        // on and useless: kind None means no fixtures, so the stage preview
+        // stayed empty, light tracks had nothing to drive, and the timeline
+        // still behaved as though lighting were off. That reads as the
+        // toggle having refused. A project that has never picked a rig gets
+        // this app's own hardware, which the fixture-type Select can still
+        // change; a project that already chose one is left alone.
+        if (cfg.enabled && cfg.kind == LightingKind::None)
+            cfg.kind = LightingKind::ResoLight;
+    }
     if (getString(doc, "kind", strVal)) {
         if (strVal == "resolight") cfg.kind = LightingKind::ResoLight;
         else if (strVal == "dmx::generic") cfg.kind = LightingKind::DmxGeneric;

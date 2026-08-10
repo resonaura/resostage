@@ -3,6 +3,7 @@ import {
   healthPressure,
   nextHigherTier,
   nextLowerTier,
+  slowFrameThresholdMs,
   stepAuto,
   type AutoState,
   type HealthSample,
@@ -177,5 +178,47 @@ describe("healthPressure", () => {
         }),
       ),
     ).toBe(true);
+  });
+});
+
+describe("climbing back out", () => {
+  // The ladder used to be one-way: at economy the driver itself produces
+  // ~67ms frames, every second read as "slow" against the fixed 34ms bar, and
+  // the recovery streak could never start. One spike during a project load
+  // therefore cost 15fps for the rest of the session.
+  it("treats a tier keeping its own pace as healthy", () => {
+    expect(slowFrameThresholdMs("economy")).toBeGreaterThan(1000 / 15);
+    expect(slowFrameThresholdMs("reduced")).toBeGreaterThan(1000 / 30);
+    expect(slowFrameThresholdMs("balanced")).toBeGreaterThan(1000 / 45);
+    expect(slowFrameThresholdMs("full")).toBe(34);
+  });
+
+  it("walks all the way back up to the user's ceiling", () => {
+    let s: AutoState = { effective: "economy", slowSeconds: 0, goodSeconds: 0 };
+    // A machine comfortably hitting whatever cap is in force.
+    for (let i = 0; i < 20 * 4; i++) {
+      s = stepAuto(s, {
+        ceiling: "full",
+        p95FrameMs: 1000 / Math.max(15, TIER_FPS[s.effective] || 60),
+        pressure: false,
+      });
+    }
+    expect(s.effective).toBe("full");
+  });
+
+  it("still refuses to climb past what the user picked", () => {
+    let s: AutoState = { effective: "economy", slowSeconds: 0, goodSeconds: 0 };
+    for (let i = 0; i < 20 * 4; i++) {
+      s = stepAuto(s, { ceiling: "reduced", p95FrameMs: 20, pressure: false });
+    }
+    expect(s.effective).toBe("reduced");
+  });
+
+  it("does not climb while the backend reports pressure", () => {
+    let s: AutoState = { effective: "economy", slowSeconds: 0, goodSeconds: 0 };
+    for (let i = 0; i < 40; i++) {
+      s = stepAuto(s, { ceiling: "full", p95FrameMs: 10, pressure: true });
+    }
+    expect(s.effective).toBe("economy");
   });
 });

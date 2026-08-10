@@ -185,8 +185,12 @@ export function AudioTrackLanes({
             }}
             onClick={(e) => {
               if (readOnly || tool !== "pencil") return;
-              // Empty-lane pencil only — region blocks stopPropagation on
-              // their own handlers so this won't fire when clicking a region.
+              // Empty lane only. Stopping the region's POINTERDOWN does not
+              // stop its click, so a pencil click on an existing region used
+              // to bubble here and open the file picker -- the pencil's one
+              // job, offered in the one place it makes no sense.
+              if ((e.target as HTMLElement).closest?.("[data-region-block]"))
+                return;
               // No scrollLeft term: this lane IS the full-width content
               // element, so its bounding rect has already moved left by the
               // scroll and `clientX - rect.left` is content space. Adding the
@@ -347,6 +351,11 @@ export function AudioTrackLanes({
                       e.stopPropagation();
                       e.preventDefault();
 
+                      // The pencil places new material on empty lanes;
+                      // there is nothing for it to do on top of a region, and
+                      // dragging one around with it selected would contradict
+                      // the cursor.
+                      if (!readOnly && tool === "pencil") return;
                       if (!readOnly && tool === "eraser") {
                         void builder.regionRemove(i, songRegion.id);
                         return;

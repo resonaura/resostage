@@ -413,8 +413,34 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
 
     currentSampleRate = newSampleRate;
     currentBlockSize = device->getCurrentBufferSizeSamples();
-    hwSamplePosition.store(0, std::memory_order_relaxed);
+
+    // Re-anchor the hardware counter to where the timeline actually is, not
+    // to zero.
+    //
+    // A device restart resets the driver's sample counter, and this used to
+    // publish that zero as the engine's hardware position. MasterClock does
+    // not treat that as a restart: onAudioCallback() re-anchors straight onto
+    // whatever hwSamplePosition says, and audioDeviceStopped() deliberately
+    // leaves the clock running -- so a callback arriving before anything else
+    // re-anchors would drag the playhead toward the top of the song and kick
+    // the PI loop with seconds of error.
+    //
+    // In practice the two paths that follow usually get there first (the
+    // rate-change restage re-anchors explicitly, and a resumed transport
+    // re-anchors inside play()), which is why this was a race rather than a
+    // reliable fault. Closing it costs one multiply and removes the window
+    // entirely -- including for a buffer-size-only restart, where nothing
+    // else re-anchors anything at all.
+    const int64_t resumeSample = currentSampleRate > 0.0
+        ? static_cast<int64_t>(std::llround(previousPlayheadSeconds * currentSampleRate))
+        : 0;
+    hwSamplePosition.store(resumeSample, std::memory_order_relaxed);
     lastCallbackHostNanos = 0;
+    // start() also clears gamma and the integrator, which is exactly right
+    // for a device that has just come back: the drift it measured against the
+    // old device's clock says nothing about this one.
+    if (clock.isRunning())
+        clock.start(currentSampleRate, resumeSample);
 
     for (auto& meter : busLoudnessMeters)
         meter.prepare(currentSampleRate, 2);

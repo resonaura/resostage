@@ -1,6 +1,7 @@
 import { Separator, Toolbar } from "@heroui/react";
 import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
 import { transport } from "../lib/api";
+import { useContinuousPlayhead } from "../lib/optimistic";
 import type { WebUiState } from "../lib/types";
 import { TimeDisplay } from "./daw";
 import { ToggleButton, ToggleButtonGroup } from "./ui";
@@ -20,6 +21,19 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
   const bpm = song && song.bpm > 0 ? song.bpm : 0;
   const tsNum = song && song.tsNum > 0 ? song.tsNum : 4;
 
+  // A local clock that keeps moving between telemetry frames, re-synced to
+  // the engine whenever one arrives. `publishToReact: false` -- this bar has
+  // no business re-rendering on the clock; the readout samples it directly.
+  const [, , getLiveSeconds] = useContinuousPlayhead(
+    state.playheadSeconds,
+    state.playing,
+    state.songIndex,
+    false,
+    undefined,
+    undefined,
+    false,
+  );
+
   return (
     <Toolbar
       aria-label="Transport controls"
@@ -27,6 +41,7 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
     >
       <TimeDisplay
         seconds={state.playheadSeconds}
+        getSeconds={getLiveSeconds}
         bpm={bpm}
         tsNum={tsNum}
         playing={state.playing}

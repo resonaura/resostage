@@ -53,6 +53,7 @@ export function TrackWaveformLane({
   muted,
   /** Offset into the source file (region trim / split). */
   sourceOffsetSec = 0,
+  speed = 1,
   /** When true, no lane chrome — meant to sit inside a clipped region. */
   embedded = false,
   loop = false,
@@ -70,6 +71,13 @@ export function TrackWaveformLane({
   color: string;
   muted: boolean;
   sourceOffsetSec?: number;
+  /**
+   * Region playback speed. One timeline second covers `speed` source seconds,
+   * so the waveform squeezes at 2x and stretches at 0.5x -- the peaks have to
+   * describe the same audio the engine reads (see AudioEngine's shaped read,
+   * where the region's source window is regLen * speed).
+   */
+  speed?: number;
   embedded?: boolean;
   loop?: boolean;
   loopLengthSec?: number;
@@ -94,9 +102,10 @@ export function TrackWaveformLane({
   // a network request every frame -- half-second buckets with a half-second
   // margin on each side comfortably cover a viewport's worth of scrolling
   // between refetches. Times are in *source file* seconds.
-  const visibleStartSec = sourceOffsetSec + scrollLeft / pxPerSec;
+  const srcPerSec = speed > 0 ? speed : 1;
+  const visibleStartSec = sourceOffsetSec + (scrollLeft / pxPerSec) * srcPerSec;
   const visibleEndSec =
-    sourceOffsetSec + (scrollLeft + viewportWidth) / pxPerSec;
+    sourceOffsetSec + ((scrollLeft + viewportWidth) / pxPerSec) * srcPerSec;
   const quantStart = Math.max(0, Math.floor(visibleStartSec / 0.5) * 0.5 - 0.5);
   const quantEnd = Math.min(
     durationSeconds,
@@ -176,8 +185,11 @@ export function TrackWaveformLane({
 
       for (let x = 0; x <= renderWidth; x += step) {
         // Map lane-local time → source-file time (honours region trim/split & loop).
-        const intoSecStart = (scrollLeft + x) / pxPerSec;
-        const intoSecEnd = (scrollLeft + x + step) / pxPerSec;
+        // Lane seconds -> source seconds. At any speed but 1x these differ,
+        // which is what makes the drawn waveform narrower or wider than the
+        // audio it came from.
+        const intoSecStart = ((scrollLeft + x) / pxPerSec) * srcPerSec;
+        const intoSecEnd = ((scrollLeft + x + step) / pxPerSec) * srcPerSec;
 
         let tStartSec = sourceOffsetSec + intoSecStart;
         let tEndSec = sourceOffsetSec + intoSecEnd;
@@ -325,6 +337,7 @@ export function TrackWaveformLane({
     color,
     muted,
     sourceOffsetSec,
+    srcPerSec,
     visibleStartSec,
     visibleEndSec,
     loop,

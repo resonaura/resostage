@@ -11,7 +11,15 @@ import {
   SkipForward,
   Square,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   formatClockPrecise as formatTime,
   LevelMeterBar,
@@ -21,6 +29,7 @@ import {
 import { FontIcon } from "../components/FontIcon";
 import { ResoLightStage3D } from "../components/light/LazyResoLightStage3D";
 import { Timeline } from "../components/Timeline";
+import { useSongLayout } from "../components/timeline/useSongLayout";
 import {
   Button,
   ButtonGroup,
@@ -304,10 +313,23 @@ function Sparkline({
   // so sliding on top of that opened and closed a gap at the left edge on
   // each tick. Until then the line just grows in place, which is what it
   // looks like it should do anyway.
-  useEffect(() => {
+  // Layout effect, and it writes the transform itself rather than leaving it
+  // to the next frame.
+  //
+  // A new sample re-renders the polyline already shifted one step left; the
+  // transform that holds it in place until it can slide is applied by the rAF
+  // task below. At 60fps the gap between those two is a frame nobody sees. At
+  // the 15fps cap it is up to 66ms of the graph sitting a whole step to the
+  // left of where it was -- the jump, followed by the slide it was supposed
+  // to have instead of.
+  useLayoutEffect(() => {
     const grew = history.length !== lengthRef.current;
     lengthRef.current = history.length;
     sampleAtRef.current = grew ? 0 : performance.now();
+    const g = slideRef.current;
+    if (g) {
+      g.style.transform = grew ? "" : `translateX(${stepRef.current.toFixed(2)}px)`;
+    }
   }, [history]);
 
   useEffect(() => {
@@ -1070,34 +1092,23 @@ export function PlayerScreen({
       ? state.songs[state.songIndex]
       : null;
 
-  // Match Timeline's duration math so local clock and needle agree.
-  let songOffset = 0;
-  let songLength = 0;
-  if (state.songs.length > 0 && state.songIndex >= 0) {
-    for (let i = 0; i < state.songs.length; i++) {
-      const fromAll = allPeaks?.songs[i]?.tracks;
-      const fromCurrent = i === state.songIndex ? peaks?.tracks : undefined;
-      let len = 0;
-      for (const r of state.songs[i].regions ?? []) {
-        if (r.durationSeconds) len = Math.max(len, r.durationSeconds);
-      }
-      for (const p of fromAll ?? fromCurrent ?? []) {
-        if (p.durationSeconds) len = Math.max(len, p.durationSeconds);
-      }
-      len = Math.max(len, 1);
-      if (i === state.songIndex) {
-        songLength = len;
-        break;
-      }
-      songOffset += len;
-    }
-  }
-  if (songLength <= 0 && peaks?.tracks) {
-    for (const tr of peaks.tracks) {
-      if (tr && tr.durationSeconds > songLength)
-        songLength = tr.durationSeconds;
-    }
-  }
+  // The same layout the timeline lays out from, not a second opinion.
+  //
+  // This screen used to derive song length itself, from the longest region
+  // DURATION -- which is not a length: it ignored where the region starts, so
+  // anything not butted up against zero came out short, and it ignored
+  // SongDef::endSeconds entirely, so a song stretched by hand still counted
+  // to wherever its audio happened to stop. Two screens showing two different
+  // ends of the same song, with the timeline's the correct one.
+  const { songLengths, songOffsets } = useSongLayout(
+    state.songs,
+    allPeaks,
+    peaks,
+    state.songIndex,
+  );
+  const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
+  const songOffset = songOffsets[songIdx] ?? 0;
+  const songLength = state.songs.length > 0 ? (songLengths[songIdx] ?? 0) : 0;
   // Song-local = absolute − offset of current song (one timeline, not two).
   // A live read, not a rendered value -- see the clock above.
   const liveSongSeconds = () => Math.max(0, getLiveAbsolute() - songOffset);
@@ -1148,6 +1159,11 @@ export function PlayerScreen({
           <div className="mt-1 flex items-baseline gap-2">
             <LiveReadout
               className="font-mono text-base font-semibold tabular-nums text-accent"
+              // Per frame. The default 12/s throttle is right for a clock,
+              // whose last digit is a blur either way, and wrong for this:
+              // bar|beat changes once a beat and the whole value of it is
+              // landing on that beat, not up to 83ms after it.
+              intervalMs={0}
               sample={() =>
                 song ? barBeat(liveSongSeconds(), song.bpm, song.tsNum) : "—"
               }
@@ -1161,6 +1177,7 @@ export function PlayerScreen({
             />
             <LiveReadout
               className="font-mono text-[10px] tabular-nums text-foreground/35"
+              intervalMs={0}
               sample={() =>
                 song
                   ? globalBarBeat(

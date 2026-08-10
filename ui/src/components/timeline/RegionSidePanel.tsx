@@ -3,7 +3,7 @@ import { AudioWaveform, Blend, Repeat, Rewind } from "lucide-react";
 import { useMemo } from "react";
 import { builder } from "../../lib/api";
 import type { RegionRow, SongRow, TrackRow } from "../../lib/types";
-import { Button, Select } from "../ui";
+import { Button, Select, ToggleButton } from "../ui";
 import { Field, LabeledSlider } from "../light/LightControls";
 import {
   CROSSFADE_SHAPES,
@@ -78,6 +78,38 @@ export function RegionSidePanel({
   ) => {
     if (!region) return;
     void builder.regionUpdate({ songIndex, regionId: region.id, ...fields });
+  };
+
+  /**
+   * Speed, with the region resized to match.
+   *
+   * Speed does not change WHAT the region plays, it changes how long that
+   * takes -- so the block on the timeline has to get shorter or longer with
+   * it, the way it does in any other DAW. The engine already reads it this
+   * way (AudioEngine's shaped path takes the region's source window as
+   * regLen * speed), so leaving the duration alone meant the same source
+   * material at 2x played through in half the region and left the rest
+   * silent, with nothing on screen to explain why.
+   *
+   * The source span is what stays fixed: duration * speed before the change
+   * equals duration * speed after it. Trim, loop and reverse are untouched --
+   * a looped region simply loops in its new length.
+   */
+  const applySpeed = (nextSpeed: number) => {
+    if (!region) return;
+    const prevSpeed = region.playback?.speed ?? 1;
+    const safeNext = nextSpeed > 0 ? nextSpeed : 1;
+    // Duration 0 means "runs to the end of the song" -- there is no authored
+    // length to scale, so only the speed changes.
+    const nextDuration =
+      region.durationSeconds > 0
+        ? Math.max(0.05, (region.durationSeconds * prevSpeed) / safeNext)
+        : undefined;
+    patch(
+      nextDuration === undefined
+        ? { speed: safeNext }
+        : { speed: safeNext, durationSeconds: nextDuration },
+    );
   };
 
   // The neighbour this region overlaps, if any -- that overlap IS the
@@ -263,17 +295,23 @@ export function RegionSidePanel({
 
             <Separator />
 
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold">
-                <Rewind size={12} className="shrink-0 text-muted" />
-                Reverse
-              </span>
-              <Switch
-                aria-label="Play region backwards"
-                isSelected={playback?.reverse ?? false}
-                onChange={(reverse) => patch({ reverse })}
-              />
-            </div>
+            {/* A button, not a switch: reversing a region is an edit you
+                apply to it, the same shape of action as Split or Mute, and it
+                is one of the few here worth being able to hit without aiming
+                at a 20px control. Speed is a separate parameter below --
+                reversing does not change it, and neither of them turns off
+                looping. */}
+            <ToggleButton
+              size="sm"
+              tone="accent-soft"
+              className="w-full justify-center gap-1.5"
+              aria-label="Play region backwards"
+              isSelected={playback?.reverse ?? false}
+              onChange={(reverse) => patch({ reverse })}
+            >
+              <Rewind size={12} className="shrink-0" />
+              Reverse
+            </ToggleButton>
             <LabeledSlider
               label="Speed"
               defaultValue={1}
@@ -286,7 +324,7 @@ export function RegionSidePanel({
               // Slider wrapper's DETENT_LIMIT).
               step={0.05}
               format={(v) => `${v.toFixed(2)}×`}
-              onChange={(speed) => patch({ speed })}
+              onChange={applySpeed}
             />
             <LabeledSlider
               label="Transpose"
