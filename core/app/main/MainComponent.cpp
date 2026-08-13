@@ -18,7 +18,25 @@
 
 namespace resostage {
 
-MainComponent::MainComponent() {
+MainComponent::MainComponent(std::string ipcSocketPath_) {
+    ipcSocketPath = std::move(ipcSocketPath_);
+
+    // IPC server создаётся ДО аудио-setup: Electron ждёт {"type":"ready"},
+    // а notifyCoreReady() сработает только после открытия устройства. Сервер
+    // слушает в фоновом потоке и сам доставит readiness клиенту, как только
+    // тот подключится (возможно, раньше, чем устройство откроется).
+    if (!ipcSocketPath.empty()) {
+        ipcServer = std::make_unique<IpcServer>();
+        if (!ipcServer->start(ipcSocketPath)) {
+            std::fprintf(stderr, "[resostage-core] IPC server failed to start on %s\n",
+                         ipcSocketPath.c_str());
+            ipcServer.reset(); // нефатально: fallback на HTTP polling
+        } else {
+            std::fprintf(stderr, "[resostage-core] IPC server listening on %s\n",
+                         ipcSocketPath.c_str());
+        }
+    }
+
 #if JUCE_MAC
     // No Dock icon ever, for any launch mode (see LSUIElement in
     // Info.plist.in) -- a runtime setActivationPolicy call here would be too
@@ -185,10 +203,6 @@ MainComponent::MainComponent() {
 
     // Match WebServer::kTelemetryHz (60).
     startTimerHz(WebServer::kTelemetryHz);
-}
-
-void MainComponent::setIpcSocketPath(const std::string& path) {
-    ipcSocketPath = path;
 }
 
 void MainComponent::notifyCoreReady() {

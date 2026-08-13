@@ -20,13 +20,16 @@
 namespace resostage {
 
 // Headless core: audio / lighting / transport + embedded WebServer.
-// All operator-facing UI lives in the Electron shell (or a browser tab).
 // Owned by ResoStageApplication with no DocumentWindow / desktop peer
 // (see Main.cpp) so native dialogs never resurrect a blank host window.
 // Occasional OS FileChooser / AlertWindow peers are created on demand.
 class MainComponent final : public juce::Component, private juce::Timer {
 public:
-    MainComponent();
+    // `ipcSocketPath`: если непусто, создаёт IPC‑сервер и посылает
+    // {"type":"ready"} после открытия аудиоустройства (для Electron UI на
+    // Linux/Windows/standalone-macOS). Пусто → IPC выключен (dev‑режим,
+    // когда JUCE стартует Electron через --backend-port).
+    explicit MainComponent(std::string ipcSocketPath = {});
     ~MainComponent() override;
 
     void paint(juce::Graphics&) override;
@@ -68,10 +71,6 @@ private:
     std::unique_ptr<IpcServer> ipcServer;
     std::string ipcSocketPath;
     void notifyCoreReady();
-
-public:
-    // Путь IPC-сокета (Windows/Linux). До setProject.
-    void setIpcSocketPath(const std::string& path);
 
     // Rig-wide preferences (hotkeys, MIDI bindings, audio/MIDI device setup)
     // -- global across every project/set, loaded once at startup from

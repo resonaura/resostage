@@ -42,9 +42,11 @@ public:
         // or Alert activated this process (orderFront of the hidden peer).
         // JUCE's message loop does not require a visible window; FileChooser
         // / NativeMessageBox / AlertWindow create their own peers when needed.
-        mainComponent = std::make_unique<MainComponent>();
-        if (mainComponent && !ipcSocketPath.empty())
-            mainComponent->setIpcSocketPath(ipcSocketPath);
+        //
+        // The IPC socket path is set on MainComponent before audio setup so the
+        // readiness server exists (and is connectable by Electron) before the
+        // device-open work that triggers notifyCoreReady().
+        mainComponent = std::make_unique<MainComponent>(std::move(ipcSocketPath));
 
         const auto path = commandLine.unquoted().trim();
         if (!path.isEmpty() && juce::File::isAbsolutePath(path)) {
