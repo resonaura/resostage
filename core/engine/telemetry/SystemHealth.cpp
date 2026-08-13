@@ -1,5 +1,6 @@
 #include "SystemHealth.h"
 
+#if defined(__APPLE__)
 #include <libproc.h>
 #include <mach/mach.h>
 #include <mach/mach_host.h>
@@ -357,3 +358,5 @@ SystemHealthSnapshot SystemHealth::sample() const {
 }
 
 } // namespace resostage
+
+#endif // defined(__APPLE__)

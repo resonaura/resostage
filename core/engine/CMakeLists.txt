@@ -21,6 +21,10 @@ add_library(resostage_engine STATIC
   telemetry/SystemHealth.cpp
 )
 
+if(WIN32)
+  target_sources(resostage_engine PRIVATE telemetry/SystemHealthWindows.cpp)
+endif()
+
 target_include_directories(resostage_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   # ResoLightProtocol.h: the ESP32/ESP8266 hardware transport's wire format,

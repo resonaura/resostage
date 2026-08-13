@@ -1,12 +1,21 @@
 #include "ProcessPriority.h"
 
+#if defined(__APPLE__) || defined(__unix__)
 #include <pthread.h>
 #include <sys/resource.h>
+#endif
 
 #if defined(__APPLE__)
 #include <pthread/qos.h>
 // setiopolicy_np lives in this header on Darwin.
 #include <sys/resource.h>
+#endif
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #endif
 
 namespace resostage {
@@ -20,10 +29,16 @@ void boostAppProcessPriority() {
     (void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
 #endif
 
+#if defined(__APPLE__) || defined(__unix__)
     // Mild process-wide nice boost (helps streaming + callback relatives).
     // May fail without privileges -- ignore errno. Avoid -10: that also
     // elevates peak-build workers before they demote themselves.
     (void)setpriority(PRIO_PROCESS, 0, -5);
+#elif defined(_WIN32)
+    // Mild process-wide priority boost, above normal but well below the
+    // realtime the audio driver raises itself to.
+    SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
+#endif
 
 #if defined(__APPLE__)
     // Do NOT set PRIO_DARWIN_ROLE_UI_FOCAL — that marks the process as
@@ -45,6 +60,11 @@ void boostStreamingIoThreadPriority() {
 #if defined(IOPOL_TYPE_DISK) && defined(IOPOL_SCOPE_THREAD) && defined(IOPOL_IMPORTANT)
     (void)setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_IMPORTANT);
 #endif
+#elif defined(_WIN32)
+    // Thread-level priority for the streaming refill thread. Pro Audio MMCSS
+    // is reserved for the audio callback itself; an above-normal thread keeps
+    // refill ahead of the UI without risking starvation of the audio thread.
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
 #else
     // Do NOT call setpriority(PRIO_PROCESS) here — that would renice the
     // whole process. Thread-level priority APIs differ by platform; leave
@@ -61,6 +81,10 @@ void demoteBackgroundWorkerPriority() {
 #if defined(IOPOL_TYPE_DISK) && defined(IOPOL_SCOPE_THREAD) && defined(IOPOL_UTILITY)
     (void)setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_UTILITY);
 #endif
+#elif defined(_WIN32)
+    // Peak/waveform decode is heavy and parallel — keep it at normal so it
+    // cannot starve the audio callback or streaming refill threads.
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
 #else
     (void)0;
 #endif

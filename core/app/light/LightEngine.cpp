@@ -5,9 +5,17 @@
 #include <algorithm>
 #include <chrono>
 #include <map>
-#include <pthread.h>
 #include <set>
 #include <thread>
+
+#if !defined(_WIN32)
+#include <pthread.h>
+#else
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace resostage {
 
@@ -150,11 +158,15 @@ void LightEngine::threadLoop() {
     // Elevate to near-realtime priority so DMX output stays stable even under
     // UI / disk load. Priority 45 sits above normal threads but well below the
     // audio callback (~96) to avoid starving audio.
+#if defined(_WIN32)
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+#else
     {
         sched_param sp{};
         sp.sched_priority = 45;
         pthread_setschedparam(pthread_self(), SCHED_RR, &sp);
     }
+#endif
 
     constexpr auto kFrameInterval =
         std::chrono::microseconds(1'000'000 / kFrameRateHz);
