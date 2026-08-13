@@ -1,5 +1,9 @@
 #include "CoreMidiInputListener.h"
 
+// This file is the macOS (CoreMIDI) implementation. Windows/Linux use
+// CoreMidiInputListenerWindows.cpp / CoreMidiInputListenerLinux.cpp.
+#if defined(__APPLE__)
+
 #include <CoreFoundation/CoreFoundation.h>
 
 namespace resostage {
@@ -153,3 +157,5 @@ void CoreMidiInputListener::handlePacketList(const MIDIPacketList* packetList) {
 }
 
 } // namespace resostage
+
+#endif // defined(__APPLE__)

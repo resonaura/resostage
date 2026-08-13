@@ -43,8 +43,6 @@ target_sources(ResoStage PRIVATE
   engine/AudioEngineTransport.cpp
   light/LightEngine.cpp
   light/LightHardwareServer.cpp
-  midi/CoreMidiDispatcher.cpp
-  midi/CoreMidiInputListener.cpp
   events/EventDispatcher.cpp
   platform/MenuModel.cpp
   platform/ProcessPriority.cpp
@@ -57,10 +55,20 @@ target_sources(ResoStage PRIVATE
 if(APPLE)
   target_sources(ResoStage PRIVATE platform/MacShellMode.mm)
   target_sources(ResoStage PRIVATE platform/ThermalState.mm)
+  target_sources(ResoStage PRIVATE
+    midi/CoreMidiDispatcher.cpp
+    midi/CoreMidiInputListener.cpp
+  )
   set(FILE_ICON "${CMAKE_SOURCE_DIR}/../icons/file.icns")
   set_source_files_properties(${FILE_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   target_sources(ResoStage PRIVATE ${FILE_ICON})
 elseif(WIN32)
+  # Windows MIDI: WinMM implementation of the same dispatcher/listener API.
+  target_sources(ResoStage PRIVATE
+    midi/CoreMidiDispatcherWindows.cpp
+    midi/CoreMidiInputListenerWindows.cpp
+  )
+  target_link_libraries(ResoStage PRIVATE winmm)
   # Windows-specific source files (if needed in future)
   # target_sources(ResoStage PRIVATE platform/WinShellMode.cpp)
 elseif(UNIX)

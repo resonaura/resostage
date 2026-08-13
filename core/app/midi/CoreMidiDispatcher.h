@@ -1,6 +1,5 @@
 #pragma once
 
-#include <CoreMIDI/CoreMIDI.h>
 #include <readerwriterqueue.h>
 
 #include <atomic>
@@ -9,6 +8,21 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#if defined(__APPLE__)
+#include <CoreMIDI/CoreMIDI.h>
+// The macOS implementation (CoreMidiDispatcher.cpp) uses these native opaque
+// handles directly. On other platforms they are plain integer slots that the
+// per-platform implementation casts to its own handle type (WinMM HMIDIOUT /
+// HMIDIIN, ALSA sequencer port, ...).
+using MidiClientRef = MIDIClientRef;
+using MidiPortRef = MIDIPortRef;
+using MidiEndpointRef = MIDIEndpointRef;
+#else
+using MidiClientRef = std::uintptr_t;
+using MidiPortRef = std::uintptr_t;
+using MidiEndpointRef = std::uintptr_t;
+#endif
 
 namespace resostage {
 
@@ -111,13 +125,13 @@ private:
     void drainPendingVirtualCommands();
     uint64_t nextPendingVirtualDeadlineNanos() const;
 
-    MIDIClientRef client = 0;
-    MIDIPortRef outputPort = 0;
-    MIDIEndpointRef destination = 0;
+    MidiClientRef client = 0;
+    MidiPortRef outputPort = 0;
+    MidiEndpointRef destination = 0;
     // Read on the worker thread (sendCommand), written from the message
     // thread (enable/disableVirtualSource) -- MIDIEndpointRef is just a
     // UInt32, so a plain atomic is enough, no mutex needed.
-    std::atomic<MIDIEndpointRef> virtualSource{0};
+    std::atomic<MidiEndpointRef> virtualSource{0};
     // Future-dated commands (clock ticks) waiting for their nominal time to
     // arrive before being handed to MIDIReceived -- see sendCommand()'s doc
     // comment for why the virtual-source path can't just submit ahead of

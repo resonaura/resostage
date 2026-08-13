@@ -1,9 +1,22 @@
 #pragma once
 
+#if defined(__APPLE__)
 #include <CoreMIDI/CoreMIDI.h>
+// The macOS implementation (CoreMidiInputListener.cpp) uses these native
+// opaque handles directly; other platforms use plain integer slots cast to
+// their own handle type by the per-platform implementation.
+using MidiClientRef = MIDIClientRef;
+using MidiPortRef = MIDIPortRef;
+using MidiEndpointRef = MIDIEndpointRef;
+#else
+using MidiClientRef = std::uintptr_t;
+using MidiPortRef = std::uintptr_t;
+using MidiEndpointRef = std::uintptr_t;
+#endif
 
 #include "project/ProjectSchema.h"
 
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -46,12 +59,16 @@ public:
     std::function<void(MidiTriggerType type, int channel1to16, int number)> onRawMessage;
 
 private:
+#if defined(__APPLE__)
     static void readProc(const MIDIPacketList* packetList, void* readProcRefCon, void* srcConnRefCon);
     void handlePacketList(const MIDIPacketList* packetList);
+#elif defined(_WIN32)
+    void handleIncomingMessage(uint8_t status, uint8_t data1, uint8_t data2);
+#endif
 
-    MIDIClientRef client = 0;
-    MIDIPortRef inputPort = 0;
-    MIDIEndpointRef source = 0;
+    MidiClientRef client = 0;
+    MidiPortRef inputPort = 0;
+    MidiEndpointRef source = 0;
 
     std::mutex mappingsMutex;
     std::vector<MidiMapping> mappings;

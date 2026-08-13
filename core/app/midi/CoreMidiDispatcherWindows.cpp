@@ -1,51 +1,46 @@
 #include "CoreMidiDispatcher.h"
 
-// This file is the macOS (CoreMIDI) implementation. Windows/Linux use
-// CoreMidiDispatcherWindows.cpp / CoreMidiDispatcherLinux.cpp.
-#if defined(__APPLE__)
+// Windows (WinMM) implementation of CoreMidiDispatcher.
+//
+// The macOS file (CoreMidiDispatcher.cpp) hands timestamped packets to
+// CoreMIDI, which delivers them precisely from the MIDITimeStamp. WinMM has
+// no hardware timestamping -- midiOutShortMsg sends the instant it is called
+// -- so this implementation reproduces the same behaviour with a software
+// scheduler: the worker thread keeps a deadline-ordered queue of
+// future-dated commands and hands each to midiOutShortMsg only when its
+// target time actually arrives. This is exactly the "own high-precision
+// timer + lock-free queue" fallback the research called for on platforms
+// without hardware MIDI scheduling.
+//
+// The virtual "ResoStage Sync" MIDI source exists on macOS only (CoreMIDI
+// virtual endpoints). WinMM has no virtual-device equivalent, so
+// enableVirtualSource() reports it unsupported and hasVirtualSource() stays
+// false -- the rest of the dispatcher (real destinations + clock) is
+// unaffected.
 
-#include <CoreFoundation/CoreFoundation.h>
-#include <mach/mach_time.h>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 
 namespace resostage {
 
 namespace {
 
-std::string cfStringToStd(CFStringRef ref) {
-    if (ref == nullptr)
-        return {};
-    const CFIndex length = CFStringGetLength(ref);
-    const CFIndex maxSize = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
-    std::vector<char> buffer(static_cast<size_t>(maxSize));
-    if (CFStringGetCString(ref, buffer.data(), maxSize, kCFStringEncodingUTF8))
-        return std::string(buffer.data());
-    return {};
-}
-
-uint64_t nanosToMachTicks(uint64_t nanos) {
-    static const mach_timebase_info_data_t timebase = [] {
-        mach_timebase_info_data_t info{};
-        mach_timebase_info(&info);
-        return info;
-    }();
-    if (timebase.numer == 0)
-        return nanos;
-    return static_cast<uint64_t>((static_cast<__uint128_t>(nanos) * timebase.denom) / timebase.numer);
-}
-
 uint64_t nowNanos() {
-    static const mach_timebase_info_data_t timebase = [] {
-        mach_timebase_info_data_t info{};
-        mach_timebase_info(&info);
-        return info;
-    }();
-    const uint64_t ticks = mach_absolute_time();
-    return static_cast<uint64_t>((static_cast<__uint128_t>(ticks) * timebase.numer) / timebase.denom);
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
-void buildMidiBytes(const MidiCommand& cmd, Byte (&buffer)[3], ByteCount& totalBytes) {
+void buildMidiBytes(const MidiCommand& cmd, BYTE (&buffer)[3], int& totalBytes) {
     uint8_t statusByte = 0;
     int numDataBytes = 2;
     switch (cmd.kind) {
@@ -72,35 +67,43 @@ void buildMidiBytes(const MidiCommand& cmd, Byte (&buffer)[3], ByteCount& totalB
     }
 }
 
+// Packages a 1-3 byte MIDI message into the 32-bit DWORD WinMM expects:
+// byte0 | byte1<<8 | byte2<<16. Real-time system messages (0xF8..0xFF) are
+// sent on their own.
+DWORD winmmMsg(const uint8_t* bytes, int len) {
+    DWORD msg = 0;
+    if (len >= 1) msg |= static_cast<DWORD>(bytes[0]);
+    if (len >= 2) msg |= static_cast<DWORD>(bytes[1]) << 8;
+    if (len >= 3) msg |= static_cast<DWORD>(bytes[2]) << 16;
+    return msg;
+}
+
 } // namespace
 
-CoreMidiDispatcher::CoreMidiDispatcher() {
-    MIDIClientCreate(CFSTR("ResoStage MIDI"), nullptr, nullptr, &client);
-    if (client != 0)
-        MIDIOutputPortCreate(client, CFSTR("ResoStage Output"), &outputPort);
-}
+CoreMidiDispatcher::CoreMidiDispatcher() = default;
 
 CoreMidiDispatcher::~CoreMidiDispatcher() {
     stop();
     closeDestination();
     disableVirtualSource();
-    if (outputPort != 0)
-        MIDIPortDispose(outputPort);
-    if (client != 0)
-        MIDIClientDispose(client);
 }
 
 std::vector<std::string> CoreMidiDispatcher::availableDestinationNames() const {
     std::vector<std::string> names;
-    const ItemCount count = MIDIGetNumberOfDestinations();
+    const UINT count = midiOutGetNumDevs();
     names.reserve(count);
-    for (ItemCount i = 0; i < count; ++i) {
-        MIDIEndpointRef dest = MIDIGetDestination(i);
-        CFStringRef nameRef = nullptr;
-        MIDIObjectGetStringProperty(dest, kMIDIPropertyName, &nameRef);
-        names.push_back(cfStringToStd(nameRef));
-        if (nameRef != nullptr)
-            CFRelease(nameRef);
+    for (UINT i = 0; i < count; ++i) {
+        MIDIOUTCAPS caps{};
+        if (midiOutGetDevCaps(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
+            // Wide-char device name -> UTF-8.
+            const int len = WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, nullptr, 0, nullptr, nullptr);
+            std::string name;
+            if (len > 0) {
+                name.resize(static_cast<size_t>(len) - 1);
+                WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name.data(), len, nullptr, nullptr);
+            }
+            names.push_back(name);
+        }
     }
     return names;
 }
@@ -108,61 +111,69 @@ std::vector<std::string> CoreMidiDispatcher::availableDestinationNames() const {
 bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std::string& error) {
     closeDestination();
 
-    const ItemCount count = MIDIGetNumberOfDestinations();
+    const UINT count = midiOutGetNumDevs();
     if (count == 0) {
-        error = "No CoreMIDI destinations available";
+        error = "No Windows MIDI output devices available";
         return false;
     }
 
+    UINT deviceId = 0;
+    bool found = false;
     if (destinationName.empty()) {
-        destination = MIDIGetDestination(0);
-        return true;
-    }
-
-    for (ItemCount i = 0; i < count; ++i) {
-        MIDIEndpointRef dest = MIDIGetDestination(i);
-        CFStringRef nameRef = nullptr;
-        MIDIObjectGetStringProperty(dest, kMIDIPropertyName, &nameRef);
-        const std::string name = cfStringToStd(nameRef);
-        if (nameRef != nullptr)
-            CFRelease(nameRef);
-        if (name == destinationName) {
-            destination = dest;
-            return true;
+        deviceId = 0;
+        found = true;
+    } else {
+        for (UINT i = 0; i < count; ++i) {
+            MIDIOUTCAPS caps{};
+            if (midiOutGetDevCaps(i, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
+                continue;
+            const int len = WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, nullptr, 0, nullptr, nullptr);
+            std::string name;
+            if (len > 0) {
+                name.resize(static_cast<size_t>(len) - 1);
+                WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name.data(), len, nullptr, nullptr);
+            }
+            if (name == destinationName) {
+                deviceId = i;
+                found = true;
+                break;
+            }
         }
     }
 
-    error = "CoreMIDI destination not found: " + destinationName;
-    return false;
-}
-
-void CoreMidiDispatcher::closeDestination() {
-    destination = 0;
-}
-
-bool CoreMidiDispatcher::enableVirtualSource(std::string& error) {
-    if (virtualSource.load(std::memory_order_relaxed) != 0)
-        return true; // already enabled
-
-    if (client == 0) {
-        error = "CoreMIDI client not initialized";
+    if (!found) {
+        error = "Windows MIDI output device not found: " + destinationName;
         return false;
     }
 
-    MIDIEndpointRef source = 0;
-    const OSStatus status = MIDISourceCreate(client, CFSTR("ResoStage Sync"), &source);
-    if (status != noErr) {
-        error = "Failed to create virtual MIDI source (OSStatus " + std::to_string(status) + ")";
+    HMIDIOUT handle = nullptr;
+    const MMRESULT res = midiOutOpen(&handle, deviceId, 0, 0, CALLBACK_NULL);
+    if (res != MMSYSERR_NOERROR) {
+        error = "Failed to open Windows MIDI output device (MMRESULT " + std::to_string(res) + ")";
         return false;
     }
-    virtualSource.store(source, std::memory_order_release);
+    client = 0;       // unused on Windows
+    outputPort = 0;   // unused on Windows
+    destination = reinterpret_cast<MidiEndpointRef>(handle);
     return true;
 }
 
+void CoreMidiDispatcher::closeDestination() {
+    if (destination != 0) {
+        midiOutClose(reinterpret_cast<HMIDIOUT>(destination));
+        destination = 0;
+    }
+}
+
+bool CoreMidiDispatcher::enableVirtualSource(std::string& error) {
+    // WinMM has no virtual MIDI endpoint. Report unsupported rather than
+    // pretending: the rest of the app (real destination + clock) still works.
+    error = "Virtual MIDI source is not supported on Windows";
+    return false;
+}
+
 void CoreMidiDispatcher::disableVirtualSource() {
-    const MIDIEndpointRef source = virtualSource.exchange(0, std::memory_order_acq_rel);
-    if (source != 0)
-        MIDIEndpointDispose(source);
+    virtualSource.store(0, std::memory_order_release);
 }
 
 void CoreMidiDispatcher::start() {
@@ -234,58 +245,31 @@ void CoreMidiDispatcher::sendSongPositionPointer(uint16_t midiBeats) {
 }
 
 void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
-    const MIDIEndpointRef virtualSrc = virtualSource.load(std::memory_order_acquire);
-    const bool hasRealDestination = destination != 0 && outputPort != 0;
-    if (!hasRealDestination && virtualSrc == 0)
+    const MidiEndpointRef dest = destination;
+    if (dest == 0)
         return;
 
-    // MIDIReceived (the virtual-source path below) delivers synchronously
-    // the instant it's called -- unlike MIDISend, it has no future-timestamp
-    // delivery; CoreMIDI itself schedules a MIDISend's future MIDITimeStamp
-    // for real destinations. pumpClock() submits clock ticks up to 200ms
-    // ahead of their nominal time (fine for MIDISend), so pushing a
-    // future-dated tick straight through MIDIReceived here would land the
-    // whole lookahead window as one instantaneous burst instead of evenly
-    // spaced ticks -- which breaks a DAW's clock-derived tempo detection
-    // even though one-shot messages (Start/Continue/SPP, already "now") land
-    // fine. Defer future-dated ones instead; drainPendingVirtualCommands()
-    // (called every worker loop iteration, ~2ms) delivers each once its
-    // target time actually arrives.
+    // Software scheduling: midiOutShortMsg cannot future-date. Anything whose
+    // time has not arrived yet waits in the deadline queue; only due commands
+    // are handed to the hardware now.
     const uint64_t now = nowNanos();
-    const bool deferToVirtual = virtualSrc != 0 && cmd.targetHostTimeNanos > now;
-    if (deferToVirtual) {
-        // Clock ticks are generated in chronological order. Keep this as a
-        // deadline queue so the worker can sleep precisely until the first
-        // tick instead of polling every few milliseconds.
+    if (cmd.targetHostTimeNanos > now) {
         pendingVirtualCommands.push_back(cmd);
-        if (!hasRealDestination)
-            return;
+        return;
     }
 
-    Byte buffer[3];
-    ByteCount totalBytes = 0;
+    BYTE buffer[3];
+    int totalBytes = 0;
     buildMidiBytes(cmd, buffer, totalBytes);
-
-    MIDIPacketList packetList;
-    MIDIPacket* packet = MIDIPacketListInit(&packetList);
-    packet = MIDIPacketListAdd(&packetList, sizeof(packetList), packet, nanosToMachTicks(cmd.targetHostTimeNanos), totalBytes, buffer);
-    if (packet == nullptr)
-        return;
-
-    if (hasRealDestination)
-        MIDISend(outputPort, destination, &packetList);
-    if (virtualSrc != 0 && !deferToVirtual)
-        MIDIReceived(virtualSrc, &packetList);
+    midiOutShortMsg(reinterpret_cast<HMIDIOUT>(dest), winmmMsg(buffer, totalBytes));
 }
 
 void CoreMidiDispatcher::drainPendingVirtualCommands() {
     if (pendingVirtualCommands.empty())
         return;
 
-    const MIDIEndpointRef virtualSrc = virtualSource.load(std::memory_order_acquire);
-    if (virtualSrc == 0) {
-        // Disabled since these were queued -- drop rather than deliver to a
-        // disposed endpoint.
+    const MidiEndpointRef dest = destination;
+    if (dest == 0) {
         pendingVirtualCommands.clear();
         return;
     }
@@ -295,15 +279,10 @@ void CoreMidiDispatcher::drainPendingVirtualCommands() {
         const MidiCommand cmd = pendingVirtualCommands.front();
         pendingVirtualCommands.pop_front();
 
-        Byte buffer[3];
-        ByteCount totalBytes = 0;
+        BYTE buffer[3];
+        int totalBytes = 0;
         buildMidiBytes(cmd, buffer, totalBytes);
-
-        MIDIPacketList packetList;
-        MIDIPacket* packet = MIDIPacketListInit(&packetList);
-        packet = MIDIPacketListAdd(&packetList, sizeof(packetList), packet, nanosToMachTicks(cmd.targetHostTimeNanos), totalBytes, buffer);
-        if (packet != nullptr)
-            MIDIReceived(virtualSrc, &packetList);
+        midiOutShortMsg(reinterpret_cast<HMIDIOUT>(dest), winmmMsg(buffer, totalBytes));
     }
 }
 
@@ -343,9 +322,9 @@ void CoreMidiDispatcher::pumpClock() {
 
     const uint64_t origin = clockOriginHostTimeNanos.load(std::memory_order_relaxed);
 
-    // Schedule ticks that fall within a 200ms lookahead window, matching the
-    // "pre-schedule ahead of time" pattern -- CoreMIDI's own timestamp
-    // delivers them precisely; we just need to submit with lead time.
+    // Schedule ticks that fall within a 200ms lookahead window. On Windows
+    // this just enqueues them into the deadline queue ahead of time; the
+    // worker delivers each when due.
     const uint64_t lookaheadNanos = 200'000'000ull;
     const uint64_t horizon = nowNanos() + lookaheadNanos;
 
@@ -363,16 +342,10 @@ void CoreMidiDispatcher::pumpClock() {
 }
 
 void CoreMidiDispatcher::workerThreadLoop() {
-    // Not joined to the audio workgroup -- see streamingIoThreadStart(). This
-    // thread's whole job is calling into CoreMIDI, which blocks; a workgroup
-    // member that blocks is charged against the audio thread's deadline.
-
     while (running.load(std::memory_order_acquire)) {
         MidiCommand cmd;
         while (queue.try_dequeue(cmd)) {
-            // The 200 ms virtual-source queue must not leak clock ticks after
-            // Stop. A physical destination has already received its
-            // timestamped packets, but MIDIReceived has not.
+            // The deadline queue must not leak clock ticks after Stop.
             if (cmd.kind == MidiCommandKind::Stop)
                 pendingVirtualCommands.clear();
             sendCommand(cmd);
@@ -383,22 +356,22 @@ void CoreMidiDispatcher::workerThreadLoop() {
 
         const uint64_t nextVirtualDeadline = nextPendingVirtualDeadlineNanos();
         if (nextVirtualDeadline != 0) {
-            // MIDIReceived does not schedule future timestamps itself. The
-            // prior 2 ms polling loop meant each 24-PPQN tick could arrive
-            // up to a couple of milliseconds late; a DAW estimating tempo
-            // from adjacent clock intervals then visibly swung around the
-            // actual BPM. mach_wait_until uses the same host-time clock as
-            // the MIDI timestamps and wakes at this exact tick deadline.
-            mach_wait_until(nanosToMachTicks(nextVirtualDeadline));
+            // Sleep precisely until the next due MIDI command. Steady_clock
+            // and targetHostTimeNanos share the same epoch (both derived from
+            // steady_clock in this file), so the delta is exact.
+            const uint64_t now = nowNanos();
+            const uint64_t wait = nextVirtualDeadline > now ? nextVirtualDeadline - now : 0;
+            const auto waitMicros = static_cast<std::chrono::microseconds>(
+                std::min<uint64_t>(wait / 1000, 10'000'000ull));
+            std::this_thread::sleep_for(waitMicros);
         } else {
-            // No virtual clock is pending: retain responsive queue servicing
-            // for regular MIDI output and transport commands.
+            // No due command pending: retain responsive queue servicing for
+            // regular MIDI output and transport commands.
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
     }
-
 }
 
 } // namespace resostage
 
-#endif // defined(__APPLE__)
+#endif // _WIN32
