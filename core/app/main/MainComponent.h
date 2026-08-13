@@ -7,9 +7,12 @@
 #include "lighting/LightOutputResolver.h"
 #include "midi/CoreMidiInputListener.h"
 #include "server/WebServer.h"
+#include "ipc/IpcServer.h"
 
 #include <chrono>
 #include <memory>
+#include <optional>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -57,6 +60,18 @@ private:
     WebServer webServer;
     CoreMidiInputListener midiInput;
     static constexpr uint16_t kWebPort = 2899;
+
+    // IPC канал к Electron UI (Windows/Linux: Unix domain socket, создаваемый
+    // Core на старте; macOS пока запускается Electron как дочерний процесс).
+    // Принимает сообщение {"type":"ready",...} после того, как аудиоустройство
+    // открыто, чтобы Electron не пытался подключиться к серверу раньше времени.
+    std::unique_ptr<IpcServer> ipcServer;
+    std::string ipcSocketPath;
+    void notifyCoreReady();
+
+public:
+    // Путь IPC-сокета (Windows/Linux). До setProject.
+    void setIpcSocketPath(const std::string& path);
 
     // Rig-wide preferences (hotkeys, MIDI bindings, audio/MIDI device setup)
     // -- global across every project/set, loaded once at startup from

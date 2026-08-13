@@ -34,7 +34,8 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
+import { connect, type Socket } from "node:net";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -166,6 +167,46 @@ function releaseAppSuspensionBlocker(): void {
 
 const DEFAULT_PORT = 2899;
 
+// IPC readiness gate (standalone only, where Electron spawns the Core backend).
+// The Core backend, started with --ipc-socket <path>, creates a Unix domain
+// socket (or Windows named pipe) and pushes {"type":"ready"} once the audio
+// device is open. Connecting here is faster and more precise than polling the
+// HTTP server, and avoids a visible window frame during backend startup.
+function ipcSocketPath(): string {
+  return path.join(app.getPath("temp"), "resostage-core.sock");
+}
+
+// Connects to the IPC socket and resolves when the backend sends {"type":"ready"}.
+// Falls back to resolve on connection (message may already be queued server-side).
+function waitForIpcReady(timeoutMs = 15_000): Promise<void> {
+  return new Promise((resolve) => {
+    const p = ipcSocketPath();
+    try {
+      unlinkSync(p);
+    } catch {
+      /* нет старого сокета — ок */
+    }
+    const sock: Socket = connect(p);
+    const onData = (data: Buffer) => {
+      // Core шлёт JSON‑строки с переводом строки. Дожидаемся ready или любого сообщения.
+      const text = data.toString();
+      if (text.includes('"type":"ready"')) {
+        sock.off("data", onData);
+        sock.end();
+        resolve();
+      }
+    };
+    sock.on("connect", () => {
+      sock.on("data", onData);
+    });
+    sock.on("error", () => resolve());
+    setTimeout(() => {
+      if (!sock.destroyed) sock.end();
+      resolve(); // fallback — UI падает на HTTP polling, как раньше
+    }, timeoutMs).unref?.();
+  });
+}
+
 // Menu / state shapes mirrored from app/platform/MenuModel.h and
 // ui/src/lib/electronBridge.ts (GET /api/v1/ui/menu).
 interface MenuItemModel {
@@ -294,10 +335,22 @@ function spawnBackend(): void {
     );
     return;
   }
-  backendProcess = spawn(corePath, [], {
-    env: { ...process.env, RESOSTAGE_SPAWNED_BY_SHELL: "1" },
-    stdio: "ignore",
-  });
+  // Передаём путь IPC‑сокета: Core сообщит о готовности по нему раньше,
+  // чем станет доступен HTTP, чтобы Electron не показывал окно в пустоту.
+  const ipcPath = ipcSocketPath();
+  try {
+    unlinkSync(ipcPath);
+  } catch {
+    /* нет старого сокета — ок */
+  }
+  backendProcess = spawn(
+    corePath,
+    ["--ipc-socket", ipcPath],
+    {
+      env: { ...process.env, RESOSTAGE_SPAWNED_BY_SHELL: "1" },
+      stdio: "ignore",
+    },
+  );
   backendProcess.on("exit", () => {
     backendProcess = null;
     // The backend owns the unsaved-changes prompt on quit; once it's gone
@@ -1381,6 +1434,10 @@ void app.whenReady().then(async () => {
   ensureAppNotSuspended();
   // Load MenuFlash/Haptics dylibs once up front so first-use isn't silent.
   preloadNatives();
+
+  // Ждём готовности IPC Core (standalone) — мгновенно, если сокет недоступен,
+  // fallback на HTTP polling через fetchMenuWithRetry ниже.
+  if (STANDALONE) await waitForIpcReady();
 
   // The GET response already carries the current Open Recent list, so the
   // submenu is correct on first open -- before any live menu-state IPC has

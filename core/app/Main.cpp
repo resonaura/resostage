@@ -16,6 +16,25 @@ public:
         // rest of the system is thrashing (see ProcessPriority.cpp).
         boostAppProcessPriority();
 
+        const juce::String cli = commandLine.trim();
+        const juce::String ipcToken = "--ipc-socket ";
+        const int idx = cli.indexOf(ipcToken);
+        std::string ipcSocketPath;
+        if (idx >= 0) {
+            const int start = idx + ipcToken.length();
+            const juce::String rest = cli.substring(start).trim();
+            // путь может начинаться с / (Linux/macOS) — читаем до пробела
+            juce::String path;
+            for (int i = 0; i < rest.length(); ++i) {
+                const juce::juce_wchar c = rest[i];
+                if (c == ' ' || c == '\t')
+                    break;
+                path << c;
+            }
+            if (!path.isEmpty())
+                ipcSocketPath = path.toStdString();
+        }
+
         // Headless host only: audio / lighting / WebServer / timers. The
         // on-screen UI is always Electron (or a browser tab). Deliberately
         // NO DocumentWindow / desktop peer -- a 1x1 black host window was
@@ -24,6 +43,8 @@ public:
         // JUCE's message loop does not require a visible window; FileChooser
         // / NativeMessageBox / AlertWindow create their own peers when needed.
         mainComponent = std::make_unique<MainComponent>();
+        if (mainComponent && !ipcSocketPath.empty())
+            mainComponent->setIpcSocketPath(ipcSocketPath);
 
         const auto path = commandLine.unquoted().trim();
         if (!path.isEmpty() && juce::File::isAbsolutePath(path)) {

@@ -44,6 +44,7 @@ target_sources(ResoStage PRIVATE
   light/LightEngine.cpp
   light/LightHardwareServer.cpp
   events/EventDispatcher.cpp
+  ipc/IpcServer.cpp
   platform/MenuModel.cpp
   platform/ProcessPriority.cpp
   platform/ThreadTime.cpp

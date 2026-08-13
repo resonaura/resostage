@@ -51,6 +51,17 @@ MainComponent::MainComponent() {
     // these live outside the project file.
     appSettings = loadAppSettings();
 
+    // IPC server for the Electron shell (Windows/Linux). The Electron process
+    // spawns Core with --ipc-socket and waits for the {"type":"ready"} message
+    // before opening its window, so we create the pipe as early as possible --
+    // before audio setup, which can take a moment.
+    if (!ipcSocketPath.empty()) {
+        ipcServer = std::make_unique<IpcServer>();
+        if (!ipcServer->start(ipcSocketPath)) {
+            ipcServer.reset(); // non-fatal: UI falls back to polling the HTTP server
+        }
+    }
+
     engine.initialiseDefaultDevices(0, 2);
     {
         auto setup = engine.deviceManager().getAudioDeviceSetup();
@@ -73,6 +84,11 @@ MainComponent::MainComponent() {
         }
         (void)engine.setAudioDeviceSetup(setup, true);
     }
+
+    // The audio device is now open (setAudioDeviceSetup opens synchronously,
+    // and audioDeviceAboutToStart has already fired). Signal the Electron shell
+    // that the backend is ready for the UI to render.
+    notifyCoreReady();
 
     // Derive the global Direct Output busses from the now-active device
     // output channels (settings-driven, not persisted in any project).
@@ -169,6 +185,30 @@ MainComponent::MainComponent() {
 
     // Match WebServer::kTelemetryHz (60).
     startTimerHz(WebServer::kTelemetryHz);
+}
+
+void MainComponent::setIpcSocketPath(const std::string& path) {
+    ipcSocketPath = path;
+}
+
+void MainComponent::notifyCoreReady() {
+    if (!ipcServer)
+        return;
+    int sampleRate = 48000;
+    int blockSize = 512;
+    int64_t latency = 0;
+    // getActiveOutputDevice() may be null if audio failed to open -- fall back
+    // to sane defaults and rely on the HTTP server for error surfacing.
+    if (juce::AudioIODevice* active = engine.deviceManager().getCurrentAudioDevice()) {
+        const double sr = active->getCurrentSampleRate();
+        if (sr > 0.0)
+            sampleRate = static_cast<int>(sr);
+        const int bs = active->getCurrentBufferSizeSamples();
+        if (bs > 0)
+            blockSize = bs;
+        latency = engine.outputLatencySamples();
+    }
+    ipcServer->notifyReady(sampleRate, blockSize, static_cast<int>(latency));
 }
 
 MainComponent::~MainComponent() {
