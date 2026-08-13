@@ -69,17 +69,6 @@ MainComponent::MainComponent(std::string ipcSocketPath_) {
     // these live outside the project file.
     appSettings = loadAppSettings();
 
-    // IPC server for the Electron shell (Windows/Linux). The Electron process
-    // spawns Core with --ipc-socket and waits for the {"type":"ready"} message
-    // before opening its window, so we create the pipe as early as possible --
-    // before audio setup, which can take a moment.
-    if (!ipcSocketPath.empty()) {
-        ipcServer = std::make_unique<IpcServer>();
-        if (!ipcServer->start(ipcSocketPath)) {
-            ipcServer.reset(); // non-fatal: UI falls back to polling the HTTP server
-        }
-    }
-
     engine.initialiseDefaultDevices(0, 2);
     {
         auto setup = engine.deviceManager().getAudioDeviceSetup();
