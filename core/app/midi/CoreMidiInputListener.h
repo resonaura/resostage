@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #if defined(__APPLE__)
 #include <CoreMIDI/CoreMIDI.h>
 // The macOS implementation (CoreMidiInputListener.cpp) uses these native
@@ -16,7 +18,6 @@ using MidiEndpointRef = std::uintptr_t;
 
 #include "project/ProjectSchema.h"
 
-#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -63,6 +64,7 @@ private:
     static void readProc(const MIDIPacketList* packetList, void* readProcRefCon, void* srcConnRefCon);
     void handlePacketList(const MIDIPacketList* packetList);
 #elif defined(_WIN32)
+    friend void CALLBACK midiInProc(void* hMidiIn, unsigned int wMsg, void* dwInstance, void* dwParam1, void* dwParam2);
     void handleIncomingMessage(uint8_t status, uint8_t data1, uint8_t data2);
 #endif
 

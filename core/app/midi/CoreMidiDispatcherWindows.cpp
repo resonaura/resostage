@@ -81,6 +81,21 @@ DWORD winmmMsg(const uint8_t* bytes, int len) {
     return msg;
 }
 
+std::string devNameToUtf8(const TCHAR* name) {
+#ifdef UNICODE
+    const int len = WideCharToMultiByte(CP_UTF8, 0, name, -1, nullptr, 0, nullptr, nullptr);
+    if (len <= 0)
+        return {};
+    std::string out;
+    out.resize(static_cast<size_t>(len) - 1);
+    WideCharToMultiByte(CP_UTF8, 0, name, -1, out.data(), len, nullptr, nullptr);
+    return out;
+#else
+    // ANSI build: szPname is already a narrow string; reinterpret as UTF-8.
+    return name ? std::string(name) : std::string();
+#endif
+}
+
 } // namespace
 
 CoreMidiDispatcher::CoreMidiDispatcher() = default;
@@ -98,14 +113,8 @@ std::vector<std::string> CoreMidiDispatcher::availableDestinationNames() const {
     for (UINT i = 0; i < count; ++i) {
         MIDIOUTCAPS caps{};
         if (midiOutGetDevCaps(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
-            // Wide-char device name -> UTF-8.
-            const int len = WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, nullptr, 0, nullptr, nullptr);
-            std::string name;
-            if (len > 0) {
-                name.resize(static_cast<size_t>(len) - 1);
-                WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name.data(), len, nullptr, nullptr);
-            }
-            names.push_back(name);
+            // Device name may be ANSI or UTF-16 depending on the build.
+            names.push_back(devNameToUtf8(caps.szPname));
         }
     }
     return names;
@@ -130,13 +139,7 @@ bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std
             MIDIOUTCAPS caps{};
             if (midiOutGetDevCaps(i, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
                 continue;
-            const int len = WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, nullptr, 0, nullptr, nullptr);
-            std::string name;
-            if (len > 0) {
-                name.resize(static_cast<size_t>(len) - 1);
-                WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name.data(), len, nullptr, nullptr);
-            }
-            if (name == destinationName) {
+            if (devNameToUtf8(caps.szPname) == destinationName) {
                 deviceId = i;
                 found = true;
                 break;

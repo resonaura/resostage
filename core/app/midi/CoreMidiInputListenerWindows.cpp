@@ -26,7 +26,22 @@ namespace resostage {
 
 namespace {
 
-void CALLBACK midiInProc(HMIDIIN hMidiIn, UINT wMsg, DWORD_PTR dwInstance, DWORD_PTR dwParam1, DWORD_PTR dwParam2) {
+std::string devNameToUtf8(const TCHAR* name) {
+#ifdef UNICODE
+    const int len = WideCharToMultiByte(CP_UTF8, 0, name, -1, nullptr, 0, nullptr, nullptr);
+    if (len <= 0)
+        return {};
+    std::string out;
+    out.resize(static_cast<size_t>(len) - 1);
+    WideCharToMultiByte(CP_UTF8, 0, name, -1, out.data(), len, nullptr, nullptr);
+    return out;
+#else
+    // ANSI build: szPname is already a narrow string; reinterpret as UTF-8.
+    return name ? std::string(name) : std::string();
+#endif
+}
+
+void CALLBACK midiInProc(void* hMidiIn, unsigned int wMsg, void* dwInstance, void* dwParam1, void* dwParam2) {
     (void)hMidiIn;
     (void)dwParam2;
     auto* self = reinterpret_cast<CoreMidiInputListener*>(dwInstance);
@@ -36,7 +51,7 @@ void CALLBACK midiInProc(HMIDIIN hMidiIn, UINT wMsg, DWORD_PTR dwInstance, DWORD
     // MIM_DATA carries a single complete short message in dwParam1:
     // byte0 | byte1<<8 | byte2<<16.
     if (wMsg == MIM_DATA) {
-        const DWORD msg = static_cast<DWORD>(dwParam1);
+        const auto msg = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(dwParam1));
         const uint8_t status = static_cast<uint8_t>(msg & 0xFF);
         const uint8_t data1 = static_cast<uint8_t>((msg >> 8) & 0xFF);
         const uint8_t data2 = static_cast<uint8_t>((msg >> 16) & 0xFF);
@@ -59,13 +74,7 @@ std::vector<std::string> CoreMidiInputListener::availableSourceNames() const {
     for (UINT i = 0; i < count; ++i) {
         MIDIINCAPS caps{};
         if (midiInGetDevCaps(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
-            const int len = WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, nullptr, 0, nullptr, nullptr);
-            std::string name;
-            if (len > 0) {
-                name.resize(static_cast<size_t>(len) - 1);
-                WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name.data(), len, nullptr, nullptr);
-            }
-            names.push_back(name);
+            names.push_back(devNameToUtf8(caps.szPname));
         }
     }
     return names;
@@ -90,13 +99,7 @@ bool CoreMidiInputListener::openSource(const std::string& sourceName, std::strin
             MIDIINCAPS caps{};
             if (midiInGetDevCaps(i, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
                 continue;
-            const int len = WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, nullptr, 0, nullptr, nullptr);
-            std::string name;
-            if (len > 0) {
-                name.resize(static_cast<size_t>(len) - 1);
-                WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name.data(), len, nullptr, nullptr);
-            }
-            if (name == sourceName) {
+            if (devNameToUtf8(caps.szPname) == sourceName) {
                 deviceId = i;
                 found = true;
                 break;
