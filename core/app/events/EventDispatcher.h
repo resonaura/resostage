@@ -94,6 +94,9 @@ private:
      */
     std::unique_ptr<juce::DatagramSocket> dmxSocket;
 
+    /** Where an ArtDMX packet actually goes. See the definition. */
+    juce::String resolvedArtNetTarget();
+
     /** What "broadcast" is configured as, and what it resolves to. */
     static constexpr const char* kLimitedBroadcast = "255.255.255.255";
     std::mutex artNetTargetMutex;
