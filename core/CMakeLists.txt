@@ -10,9 +10,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # windows.h (via WIN32_LEAN_AND_MEAN) still pulls in `min`/`max` macros by
 # default, which break std::min/std::max/std::clamp everywhere a translation
 # unit both includes windows.h and uses those. Disable them repo-wide rather
-# than chasing each file.
+# than chasing each file. Only NOMINMAX is safe to apply globally -- WIN32_LEAN_
+# AND_MEAN is applied per-file because it breaks vendored libwebsockets, which
+# relies on winsock2.h's `timeval`.
 if(WIN32)
-  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+  add_compile_definitions(NOMINMAX)
 endif()
 
 
