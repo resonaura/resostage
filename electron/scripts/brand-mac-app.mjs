@@ -136,6 +136,52 @@ function main() {
     log(`${icnsSrc} not found -- keeping stock Electron icon`);
   }
 
+  // Copy file.icns for .rsnraset document type icon.
+  const fileIcnsSrc = join(REPO_ROOT, "icons", "file.icns");
+  if (existsSync(fileIcnsSrc)) {
+    execFileSync("cp", [fileIcnsSrc, join(destApp, "Contents", "Resources", "file.icns")]);
+  }
+  // Copy folder.icns for potential custom folder/package icon (macOS uses
+  // UTTypeIconFile for packages, but some Finder views may prefer a
+  // dedicated folder icon).
+  const folderIcnsSrc = join(REPO_ROOT, "icons", "folder.icns");
+  if (existsSync(folderIcnsSrc)) {
+    execFileSync("cp", [folderIcnsSrc, join(destApp, "Contents", "Resources", "folder.icns")]);
+  }
+
+  // Add document type declarations so macOS shows custom file/folder icons
+  // for .rsnraset project packages. The shell (not the nested LSUIElement
+  // Core) must own the UTI to handle double-click open.
+  const docTypes = {
+    CFBundleDocumentTypes: [
+      {
+        CFBundleTypeExtensions: ["rsnraset"],
+        CFBundleTypeIconFile: "file.icns",
+        CFBundleTypeName: "ResoStage Project Package",
+        CFBundleTypeRole: "Editor",
+        LSHandlerRank: "Owner",
+        LSTypeIsPackage: true,
+        LSItemContentTypes: ["com.resonaura.resostage.project"],
+      },
+    ],
+    UTExportedTypeDeclarations: [
+      {
+        UTTypeIdentifier: "com.resonaura.resostage.project",
+        UTTypeDescription: "ResoStage Project Package",
+        UTTypeIconFile: "file.icns",
+        UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
+        UTTypeTagSpecification: {
+          "public.filename-extension": ["rsnraset"],
+        },
+      },
+    ],
+  };
+  for (const [key, value] of Object.entries(docTypes)) {
+    // plutil -replace with JSON requires -json flag and stdin input.
+    const json = JSON.stringify(value);
+    execFileSync("plutil", ["-replace", key, "-json", json, plistPath]);
+  }
+
   writeFileSync(stampFile, electronVersion);
   log(`Shell branded at ${destApp}`);
 }
