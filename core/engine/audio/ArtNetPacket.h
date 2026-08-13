@@ -20,6 +20,12 @@ namespace resostage {
 //   15    Net
 //   16-17 Length big-endian
 //   18..  DMX data
+// Builds an ArtDMX packet (OpCode 0x5000, ProtVer 14). `sequence` is written
+// verbatim into the Art-Net Sequence byte: nodes ignore out-of-order/duplicate
+// UDP frames only when this is non-zero and increments per-universe, so callers
+// should pass a counter cycling 0x01..0xFF (per universe). 0 disables ordering
+// checks on the receiver.
+std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data, uint8_t sequence);
 std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data);
 
 // True if packet has a valid Art-Net ID, ArtDMX opcode, and length field that

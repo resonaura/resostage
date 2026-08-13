@@ -48,6 +48,13 @@ TEST_CASE("buildArtDmxPacket layout and round-trip parse") {
     CHECK(out == data);
 }
 
+TEST_CASE("buildArtDmxPacket writes a non-zero per-universe Sequence byte") {
+    std::vector<uint8_t> data = {1, 2, 3};
+    const auto packet = buildArtDmxPacket(1, data, 0xAB);
+    REQUIRE(packet.size() == 18 + data.size());
+    CHECK(packet[12] == 0xAB); // Sequence byte, offset 12.
+}
+
 TEST_CASE("buildArtDmxPacket truncates to 512 channels") {
     std::vector<uint8_t> big(600, 7);
     const auto packet = buildArtDmxPacket(0, big);

@@ -5,7 +5,7 @@
 
 namespace resostage {
 
-std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data) {
+std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data, uint8_t sequence) {
     std::vector<uint8_t> packet;
     packet.reserve(18 + 512);
 
@@ -20,7 +20,11 @@ std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>&
     packet.push_back(0);
     packet.push_back(14);
 
-    packet.push_back(0); // Sequence disabled
+    // Sequence byte (byte 12). 0 disables receiver ordering; a per-universe
+    // counter cycling 0x01..0xFF lets nodes discard out-of-order/duplicate
+    // UDP frames. The caller (EventDispatcher) owns that counter.
+    packet.push_back(sequence);
+
     packet.push_back(0); // Physical
 
     const int uni = std::clamp(universe, 0, 0x7FFF);
@@ -35,6 +39,12 @@ std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>&
         packet.insert(packet.end(), data.begin(), data.begin() + length);
 
     return packet;
+}
+
+std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data) {
+    // Backwards-compatible entry point: sequence 0 disables receiver ordering,
+    // preserving the prior behaviour for callers (or tests) that don't opt in.
+    return buildArtDmxPacket(universe, data, 0);
 }
 
 bool parseArtDmxPacket(const uint8_t* packet, size_t size,

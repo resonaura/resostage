@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <map>
 
 namespace resostage {
 
@@ -93,15 +94,21 @@ private:
      */
     std::unique_ptr<juce::DatagramSocket> dmxSocket;
 
-    /** Where an ArtDMX packet actually goes. See the definition. */
-    juce::String resolvedArtNetTarget();
-
     /** What "broadcast" is configured as, and what it resolves to. */
     static constexpr const char* kLimitedBroadcast = "255.255.255.255";
     std::mutex artNetTargetMutex;
     juce::String resolvedTarget;
     std::chrono::steady_clock::time_point resolvedTargetExpiry{};
     std::string artNetTargetAddress = kLimitedBroadcast;
+
+    /**
+     * Per-universe ArtDMX Sequence counter, cycling 1..255 in place of the
+     * 0 "disabled" value. Nodes use it to discard out-of-order/duplicate UDP
+     * frames on a busy subnet; a dedicated counter keeps universes from
+     * interleaving and lets each advance independently. Written only by the
+     * worker thread, so no atomics/lock needed -- sendDmx() runs here too.
+     */
+    std::map<int, uint8_t> artNetSequencePerUniverse;
 };
 
 } // namespace resostage

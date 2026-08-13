@@ -16,7 +16,50 @@
 #include <sstream>
 #include <string_view>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <io.h>
+#endif
+
 namespace resostage {
+
+namespace {
+
+// Opens a FILE* with platform sequential-read hints.
+//  - macOS: fileno(f) + fcntl(F_NOCACHE, F_RDAHEAD) -- bypass the unified
+//    buffer cache so multi-GB stems don't evict other pages, and request
+//    kernel read-ahead.
+//  - Windows: CreateFileW with FILE_FLAG_SEQUENTIAL_SCAN, then _open_osfhandle
+//    + _fdopen so the rest of the cursor can keep using fread/ftell/fseek. The
+//    OS gets the sequential hint and pre-fetches ahead; we do NOT set
+//    FILE_FLAG_OVERLAPPED -- buffered CRT I/O (fread/fseek) is incompatible
+//    with overlapped handles.
+//  - else: plain fopen.
+FILE* openSequentialStream(const std::string& path8) {
+#if defined(_WIN32)
+    const std::wstring wide(path8.begin(), path8.end());
+    HANDLE h = CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                           OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (h == INVALID_HANDLE_VALUE)
+        return nullptr;
+    const intptr_t fd = _open_osfhandle(reinterpret_cast<intptr_t>(h), _O_RDONLY | _O_BINARY | _O_SEQUENTIAL);
+    if (fd == -1) {
+        CloseHandle(h);
+        return nullptr;
+    }
+    return _fdopen(static_cast<int>(fd), "rb");
+#else
+    return std::fopen(path8.c_str(), "rb");
+#endif
+}
+
+} // namespace
 
 struct ProjectLoader::Impl {
     bool isContainerDir = false;
@@ -217,12 +260,12 @@ ProjectLoader::StreamCursor ProjectLoader::openStream(const std::string& archive
 
     namespace fs = std::filesystem;
     fs::path filePath = fs::path(openArchivePath) / archivePath;
-    FILE* f = std::fopen(filePath.string().c_str(), "rb");
+    FILE* f = openSequentialStream(filePath.string());
     if (f == nullptr) {
         error = "File not found in container: " + filePath.string();
         return cursor;
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(_WIN32)
     // Keep stems out of the unified buffer cache, and ask for read-ahead.
     //
     // A set is gigabytes of audio that is read once, forward, and never

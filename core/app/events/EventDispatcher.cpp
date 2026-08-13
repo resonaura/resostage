@@ -161,7 +161,15 @@ void EventDispatcher::sendDmx(const DmxTriggerCommand& cmd) {
     if (dmxSocket == nullptr)
         return;
 
-    const std::vector<uint8_t> packet = buildArtDmxPacket(cmd.universe, cmd.data);
+    // Per-universe Sequence counter: cycles 1..255 (0 disables node-side
+    // ordering checks). A fresh universe key starts at 1; the pre-increment
+    // wraps 255 -> 1 so 0 is never emitted, keeping the "enabled" signal live.
+    auto& seq = artNetSequencePerUniverse[cmd.universe];
+    if (seq == 0)
+        seq = 1;
+    seq = (seq < 255) ? static_cast<uint8_t>(seq + 1) : 1;
+
+    const std::vector<uint8_t> packet = buildArtDmxPacket(cmd.universe, cmd.data, seq);
     // Fire and forget. A light frame that misses is replaced by the next one a
     // few milliseconds later, and blocking this thread to guarantee one frame
     // would delay every frame behind it.
