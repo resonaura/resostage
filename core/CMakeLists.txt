@@ -7,6 +7,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# windows.h (via WIN32_LEAN_AND_MEAN) still pulls in `min`/`max` macros by
+# default, which break std::min/std::max/std::clamp everywhere a translation
+# unit both includes windows.h and uses those. Disable them repo-wide rather
+# than chasing each file.
+if(WIN32)
+  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 
 if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0")
