@@ -41,6 +41,8 @@ std::string devNameToUtf8(const TCHAR* name) {
 #endif
 }
 
+} // namespace
+
 void CALLBACK midiInProc(void* hMidiIn, unsigned int wMsg, void* dwInstance, void* dwParam1, void* dwParam2) {
     (void)hMidiIn;
     (void)dwParam2;
@@ -58,8 +60,6 @@ void CALLBACK midiInProc(void* hMidiIn, unsigned int wMsg, void* dwInstance, voi
         self->handleIncomingMessage(status, data1, data2);
     }
 }
-
-} // namespace
 
 CoreMidiInputListener::CoreMidiInputListener() = default;
 

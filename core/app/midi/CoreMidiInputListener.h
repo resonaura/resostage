@@ -25,6 +25,11 @@ using MidiEndpointRef = std::uintptr_t;
 
 namespace resostage {
 
+#ifdef _WIN32
+// WinMM midiInProc callback -- declared here so the class below can friend it.
+void midiInProc(void* hMidiIn, unsigned int wMsg, void* dwInstance, void* dwParam1, void* dwParam2);
+#endif
+
 // Opens a CoreMIDI input port and maps incoming Note On / Control Change
 // messages to named actions via the project's MidiMapping list (footswitch/
 // pad -> Play/Stop/Next/Prev/etc.). CoreMIDI delivers input on its own
