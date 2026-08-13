@@ -66,6 +66,16 @@ juce::JUCEApplicationBase* juce_CreateApplication() { return new ResoStageApplic
 
 } // namespace resostage
 
+#if JUCE_WINDOWS
+// Windows: JUCE drives a WinMain entry point (the app is built with
+// /subsystem:windows, no console main). The hand-rolled main() below is for
+// the Unix/macOS hosts where a normal C entry point exists. juce_CreateApplication
+// is already defined above, matching JUCE's JUCE_CREATE_APPLICATION_DEFINE.
+int __stdcall WinMain(void*, void*, char*, int) {
+    juce::JUCEApplicationBase::createInstance = &resostage::juce_CreateApplication;
+    return juce::JUCEApplicationBase::main();
+}
+#else
 // START_JUCE_APPLICATION is expanded by hand (matching JUCE's
 // JUCE_CREATE_APPLICATION_DEFINE/JUCE_MAIN_FUNCTION_DEFINITION macros) so
 // main() stays a normal C++ entry point we control.
@@ -73,3 +83,4 @@ int main(int argc, char* argv[]) {
     juce::JUCEApplicationBase::createInstance = &resostage::juce_CreateApplication;
     return juce::JUCEApplicationBase::main(argc, const_cast<const char**>(argv));
 }
+#endif

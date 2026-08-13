@@ -67,6 +67,7 @@ elseif(WIN32)
   target_sources(ResoStage PRIVATE
     midi/CoreMidiDispatcherWindows.cpp
     midi/CoreMidiInputListenerWindows.cpp
+    platform/WinShellMode.cpp
   )
   target_link_libraries(ResoStage PRIVATE winmm)
   # Windows-specific source files (if needed in future)
