@@ -20,11 +20,11 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const __dirname = fileURLToPath(import.meta.url);
-const ROOT = join(dirname(__dirname), "..");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, "..");
 const BLAPTOP = join(ROOT, "scripts", "blaptop.mjs");
 
 function log(msg) {
