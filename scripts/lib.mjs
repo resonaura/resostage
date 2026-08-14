@@ -4,7 +4,8 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { cpus } from "node:os";
-import { basename, dirname, join } from "node:path";
+import path from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
