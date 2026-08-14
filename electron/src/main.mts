@@ -173,6 +173,9 @@ const DEFAULT_PORT = 2899;
 // device is open. Connecting here is faster and more precise than polling the
 // HTTP server, and avoids a visible window frame during backend startup.
 function ipcSocketPath(): string {
+  // Windows uses a named pipe (the Core prepends \\.\pipe\ itself), so we pass
+  // a bare pipe name; POSIX uses a Unix-domain socket file in the temp dir.
+  if (process.platform === "win32") return "resostage-core.sock";
   return path.join(app.getPath("temp"), "resostage-core.sock");
 }
 
@@ -343,18 +346,28 @@ const STANDALONE = !IS_REMOTE && !process.argv.some((a) => a.startsWith("--backe
 let backendProcess: ChildProcess | null = null;
 
 function findNestedCoreBinary(): string | null {
-  // Packaged layout: this file runs from Contents/Resources/app/dist/
-  // main.mjs, and the nested Core sits alongside at Contents/Resources/
-  // ResoStage Core.app.
-  const resourcesDir = path.resolve(import.meta.dirname, "..", "..");
-  const corePath = path.join(
-    resourcesDir,
+  // This file (main.mjs) lives in the shell bundle's app/dist/ folder.
+  // macOS: dist/main.mjs -> Contents/Resources/app/dist, and the nested Core
+  // sits alongside at Contents/Resources/ResoStage Core.app.
+  // Windows: dist/ sits next to ResoStage Core.exe in the bundle folder.
+  const macResourcesDir = path.resolve(import.meta.dirname, "..", "..");
+  const macCorePath = path.join(
+    macResourcesDir,
     "ResoStage Core.app",
     "Contents",
     "MacOS",
     "ResoStage Core",
   );
-  return existsSync(corePath) ? corePath : null;
+  if (existsSync(macCorePath)) return macCorePath;
+
+  const winCorePath = path.join(
+    import.meta.dirname,
+    "..",
+    "ResoStage Core.exe",
+  );
+  if (existsSync(winCorePath)) return winCorePath;
+
+  return null;
 }
 
 function spawnBackend(): void {
