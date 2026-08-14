@@ -467,8 +467,24 @@ function spawnBackend(): void {
 }
 
 function killBackend(): void {
-  if (backendProcess && !backendProcess.killed) backendProcess.kill();
+  if (backendProcess && !backendProcess.killed) {
+    try {
+      backendProcess.kill();
+    } catch {
+      /* ignore */
+    }
+  }
   backendProcess = null;
+  if (process.platform === "win32") {
+    try {
+      execFileSync("taskkill", ["/IM", "ResoStage Core.exe", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -1379,15 +1395,19 @@ function createWindow(): void {
     },
   );
 
-  // Window close button behaves like macOS: it hides the window and keeps the
-  // backend (audio + tray) running instead of quitting the whole app -- so
-  // clicking X no longer kills the Core while leaving a blank shell behind.
-  // A real quit (menu Quit -> backend exits -> app.quit()) sets isQuitting so
-  // this handler lets the window actually close.
+  // Window close button: send "quit" action to backend so it prompts for unsaved
+  // changes if dirty, saves/cancels appropriately, and quits Core + Electron.
   mainWindow.on("close", (e) => {
     if (isQuitting) return;
     e.preventDefault();
-    mainWindow?.hide();
+    void postAction("quit").then((ok) => {
+      if (!ok) {
+        isQuitting = true;
+        releaseAppSuspensionBlocker();
+        if (STANDALONE) killBackend();
+        app.quit();
+      }
+    });
   });
 
   // The Touch Bar's highlighted tab follows the SPA's live uiTab via
