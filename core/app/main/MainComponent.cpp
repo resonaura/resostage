@@ -496,25 +496,9 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
 
     juce::File projectDir;
     if (f.hasFileExtension("rsnrasetmeta")) {
-        // .rsnrasetmeta file: read the project folder path from it (JSON)
-        // or assume it's sibling folder with same name minus extension.
-        juce::String content = f.loadFileAsString();
-        // Try to parse JSON for "projectPath" using std::string
-        std::string c = content.toStdString();
-        size_t pp = c.find("\"projectPath\"");
-        if (pp != std::string::npos) {
-            size_t colon = c.find(':', pp);
-            size_t quote1 = c.find('"', colon);
-            size_t quote2 = c.find('"', quote1 + 1);
-            if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                std::string projPath = c.substr(quote1 + 1, quote2 - quote1 - 1);
-                projectDir = juce::File(projPath);
-            }
-        }
-        // Fallback: sibling directory with same stem
-        if (!projectDir.exists()) {
-            projectDir = f.getSiblingFile(f.getFileNameWithoutExtension());
-        }
+        // .rsnrasetmeta file: project folder is its parent.
+        // (No absolute path stored -- portable across machines/platforms.)
+        projectDir = f.getParentDirectory();
     } else if (f.isDirectory() || f.hasFileExtension("rsnraset")) {
         // .rsnraset package or folder
         projectDir = f;
@@ -538,11 +522,11 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
 }
 
 void MainComponent::writeProjectMetaFile(const juce::File& projectFile) {
-    // Create .rsnrasetmeta file next to the .rsnraset project folder/package
-    juce::File metaFile = projectFile.getSiblingFile(
-        projectFile.getFileNameWithoutExtension() + ".rsnrasetmeta");
+    // Create .rsnrasetmeta file INSIDE the .rsnraset project folder/package.
+    // Does NOT include absolute path (portable across machines/platforms).
+    // User can open the folder and double-click the meta file to launch.
+    juce::File metaFile = projectFile.getChildFile("project.rsnrasetmeta");
     juce::String json = "{"
-        "\"projectPath\":\"" + projectFile.getFullPathName().toStdString() + "\","
         "\"projectName\":\"" + engine.project().name + "\","
         "\"version\":1"
     "}";
