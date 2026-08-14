@@ -71,6 +71,24 @@ export function getNestedCoreAppBundle(shellBundle = getShellAppBundle()) {
 // Raw JUCE build output straight out of CMake (core/build/), before it gets
 // copied into the assembled shell bundle above.
 export function getRawCoreAppBundle() {
+  if (process.platform === "win32") {
+    const buildTypePath = join(
+      BUILD_DIR,
+      "app",
+      `${APP_TARGET}_artefacts`,
+      BUILD_TYPE,
+      `${CORE_APP_NAME}.exe`,
+    );
+    if (existsSync(buildTypePath)) return buildTypePath;
+    const directPath = join(
+      BUILD_DIR,
+      "app",
+      `${APP_TARGET}_artefacts`,
+      `${CORE_APP_NAME}.exe`,
+    );
+    return directPath;
+  }
+  // macOS: .app bundle
   const directPath = join(
     BUILD_DIR,
     "app",
