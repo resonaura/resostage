@@ -17,6 +17,7 @@ public:
         boostAppProcessPriority();
 
         const juce::String cli = commandLine.trim();
+        std::fprintf(stderr, "[resostage-core] CLI: %s\n", cli.toRawUTF8());
         const juce::String ipcToken = "--ipc-socket ";
         const int idx = cli.indexOf(ipcToken);
         std::string ipcSocketPath;
