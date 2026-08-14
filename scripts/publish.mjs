@@ -143,8 +143,9 @@ function publishMac() {
   const version = appVersion();
   // All staging + outputs go under PLATFORM_DIST_DIR/publish/<version>/
   const publishDir = join(PLATFORM_DIST_DIR, "publish", version);
+  // Clean target publish directory for clean rebuild
+  rmSync(publishDir, { recursive: true, force: true });
   const stage = join(publishDir, "stage");
-  rmSync(stage, { recursive: true, force: true });
   mkdirSync(join(stage, "root", "Applications"), { recursive: true });
   mkdirSync(join(stage, "scripts"), { recursive: true });
   mkdirSync(publishDir, { recursive: true });
@@ -234,6 +235,8 @@ function publishWindows() {
   const version = appVersion();
   // All outputs go under PLATFORM_DIST_DIR/publish/<version>/
   const publishDir = join(PLATFORM_DIST_DIR, "publish", version);
+  // Clean target publish directory for clean rebuild
+  rmSync(publishDir, { recursive: true, force: true });
   mkdirSync(publishDir, { recursive: true });
   const payload = PLATFORM_DIST_DIR;
   if (!existsSync(payload)) die(`No build at ${payload}. Run: pnpm run rebuild`);
@@ -313,6 +316,8 @@ function publishLinux() {
   const version = appVersion();
   // All outputs go under PLATFORM_DIST_DIR/publish/<version>/
   const publishDir = join(PLATFORM_DIST_DIR, "publish", version);
+  // Clean target publish directory for clean rebuild
+  rmSync(publishDir, { recursive: true, force: true });
   mkdirSync(publishDir, { recursive: true });
   const payload = PLATFORM_DIST_DIR;
   if (!existsSync(payload)) die(`No build at ${payload}. Run: pnpm run rebuild`);
