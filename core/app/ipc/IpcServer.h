@@ -36,6 +36,7 @@ public:
     using ReadyCallback  = std::function<void(int sampleRate, int blockSize, int outputLatencySamples)>;
     using EmptyCallback  = std::function<void()>;
     using ErrorCallback  = std::function<void(const std::string& message)>;
+    using OpenProjectCallback = std::function<void(const std::string& projectPath)>;
 
     IpcServer();
     ~IpcServer();
@@ -55,9 +56,13 @@ public:
     void notifyStopped();
     void notifyError(const std::string& message);
 
+    // Register callback for open-project requests from Electron.
+    void onOpenProject(OpenProjectCallback cb) { onOpenProject_ = std::move(cb); }
+
 private:
     std::string jsonReady(int sampleRate, int blockSize, int outputLatencySamples) const;
     void listenerThread();
+    void handleIncomingMessage(const std::string& line);
     bool writeMessage(const std::string& msg);
 
 #if JUCE_WINDOWS
@@ -76,11 +81,7 @@ private:
     std::string pending_;
     std::atomic<bool> hasPending_{false};
 
-    // Уведомление о готовности клиенту (опционально, резерв на будущее).
-    ReadyCallback  onReady_;
-    EmptyCallback  onStarted_;
-    EmptyCallback  onStopped_;
-    ErrorCallback  onError_;
+    OpenProjectCallback onOpenProject_;
 };
 
 } // namespace resostage

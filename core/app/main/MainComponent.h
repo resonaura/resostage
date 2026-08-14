@@ -51,6 +51,10 @@ public:
 
     /** Called from the Electron menu bar, MIDI, and web action POSTs. */
     void performAction(const std::string& action);
+    /** Called from Electron IPC when user opens .rsnrasetmeta or .rsnraset file. */
+    void openProjectFromIpc(const std::string& path);
+    /** Write .rsnrasetmeta file next to project for file associations. */
+    void writeProjectMetaFile(const juce::File& projectFile);
 
     /** Expose active key bindings for the Electron menu. */
     const std::unordered_map<std::string, std::string>& getKeyBindings() const { return keyBindings; }

@@ -207,6 +207,27 @@ function waitForIpcReady(timeoutMs = 15_000): Promise<void> {
   });
 }
 
+// Send a JSON message to the Core backend via IPC socket.
+// Returns a promise that resolves when the message is written (or fails).
+function sendIpcMessage(msg: object): Promise<void> {
+  return new Promise((resolve) => {
+    const p = ipcSocketPath();
+    const sock: Socket = connect(p);
+    const data = JSON.stringify(msg) + "\n";
+    sock.on("connect", () => {
+      sock.write(data, () => {
+        sock.end();
+        resolve();
+      });
+    });
+    sock.on("error", () => resolve());
+    setTimeout(() => {
+      if (!sock.destroyed) sock.end();
+      resolve();
+    }, 2000).unref?.();
+  });
+}
+
 // Menu / state shapes mirrored from app/platform/MenuModel.h and
 // ui/src/lib/electronBridge.ts (GET /api/v1/ui/menu).
 interface MenuItemModel {
@@ -1438,6 +1459,28 @@ void app.whenReady().then(async () => {
   // Ждём готовности IPC Core (standalone) — мгновенно, если сокет недоступен,
   // fallback на HTTP polling через fetchMenuWithRetry ниже.
   if (STANDALONE) await waitForIpcReady();
+
+  // Handle file associations: .rsnrasetmeta / .rsnraset files opened via Finder/Explorer.
+  // On macOS this fires when app is already running; on Windows/Linux the path comes in argv.
+  function handleOpenProjectFile(filePath: string) {
+    if (!filePath) return;
+    // Send to Core via IPC (Electron owns the file association, not Core).
+    void sendIpcMessage({ type: "open-project", path: filePath });
+  }
+
+  // macOS: app.on('open-file') fires when user double-clicks associated file.
+  if (process.platform === "darwin") {
+    app.on("open-file", (event, path) => {
+      event.preventDefault(); // stop default behaviour
+      handleOpenProjectFile(path);
+    });
+  } else {
+    // Windows/Linux: check argv for .rsnrasetmeta or .rsnraset argument.
+    const fileArg = process.argv.find(
+      (a) => a.endsWith(".rsnrasetmeta") || a.endsWith(".rsnraset"),
+    );
+    if (fileArg) handleOpenProjectFile(fileArg);
+  }
 
   // The GET response already carries the current Open Recent list, so the
   // submenu is correct on first open -- before any live menu-state IPC has

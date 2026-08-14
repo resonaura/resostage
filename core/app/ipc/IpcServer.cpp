@@ -9,6 +9,7 @@
 #else
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/select.h>
 #include <unistd.h>
 #endif
 
@@ -124,10 +125,12 @@ void IpcServer::listenerThread() {
         return;
 #endif
 
-    // Ждём readiness, пока клиент подключается, либо дожидаемся немедленно.
-    // Цикл: периодически пытаемся отправить накопленное сообщение,
-    // пока клиент не отключится (write с ошибкой) или stop не вызван.
+    // Read buffer for incoming messages from Electron.
+    std::string readBuf;
+
+    // Цикл: отправляем исходящие сообщения И читаем входящие от Electron.
     while (!stopRequested_.load(std::memory_order_relaxed)) {
+        // 1. Send any pending outbound message.
         if (hasPending_.load(std::memory_order_acquire)) {
             std::string msg;
             {
@@ -137,8 +140,45 @@ void IpcServer::listenerThread() {
             }
             if (!writeMessage(msg))
                 break; // клиент отключился
-            // readiness-сообщение может один раз; продолжаем ждать старта/стопа.
         }
+
+        // 2. Try to read inbound data (non-blocking poll + read).
+        char buf[1024];
+        int n = 0;
+#if JUCE_WINDOWS
+        DWORD available = 0;
+        if (clientHandle_ && clientHandle_ != INVALID_HANDLE_VALUE) {
+            if (PeekNamedPipe(clientHandle_, nullptr, 0, nullptr, &available, nullptr) && available > 0) {
+                DWORD read = 0;
+                if (ReadFile(clientHandle_, buf, sizeof(buf) - 1, &read, nullptr) && read > 0) {
+                    n = static_cast<int>(read);
+                }
+            }
+        }
+#else
+        if (clientFd_ >= 0) {
+            fd_set fds;
+            FD_ZERO(&fds);
+            FD_SET(clientFd_, &fds);
+            struct timeval tv = {0, 0};
+            int sel = select(clientFd_ + 1, &fds, nullptr, nullptr, &tv);
+            if (sel > 0 && FD_ISSET(clientFd_, &fds)) {
+                n = static_cast<int>(::read(clientFd_, buf, sizeof(buf) - 1));
+            }
+        }
+#endif
+        if (n > 0) {
+            buf[n] = '\0';
+            readBuf += buf;
+            // Process complete lines (JSON messages terminated by '\n').
+            size_t pos;
+            while ((pos = readBuf.find('\n')) != std::string::npos) {
+                std::string line = readBuf.substr(0, pos);
+                readBuf.erase(0, pos + 1);
+                handleIncomingMessage(line);
+            }
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     // Гарантируем доставку readiness, если клиент всё ещё подключён.
@@ -150,6 +190,48 @@ void IpcServer::listenerThread() {
             hasPending_.store(false, std::memory_order_release);
         }
         writeMessage(msg);
+    }
+}
+
+void IpcServer::handleIncomingMessage(const std::string& line) {
+    // Простой парсинг JSON для {"type":"open-project","path":"..."}
+    // Не используем полноценный парсер ради лёгкости.
+    if (line.find("\"type\":\"open-project\"") != std::string::npos) {
+        size_t pathStart = line.find("\"path\":\"");
+        if (pathStart != std::string::npos) {
+            pathStart += 8; // length of "path":"
+            size_t pathEnd = line.find('"', pathStart);
+            if (pathEnd != std::string::npos) {
+                std::string path = line.substr(pathStart, pathEnd - pathStart);
+                // Unescape basic JSON escapes.
+                std::string unescaped;
+                unescaped.reserve(path.size());
+                for (size_t i = 0; i < path.size(); ++i) {
+                    if (path[i] == '\\' && i + 1 < path.size()) {
+                        char next = path[i + 1];
+                        if (next == '"' || next == '\\' || next == '/') {
+                            unescaped += next;
+                            ++i;
+                        } else if (next == 'n') {
+                            unescaped += '\n';
+                            ++i;
+                        } else if (next == 'r') {
+                            unescaped += '\r';
+                            ++i;
+                        } else if (next == 't') {
+                            unescaped += '\t';
+                            ++i;
+                        } else {
+                            unescaped += path[i];
+                        }
+                    } else {
+                        unescaped += path[i];
+                    }
+                }
+                if (onOpenProject_)
+                    onOpenProject_(unescaped);
+            }
+        }
     }
 }
 

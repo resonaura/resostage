@@ -2,61 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- No Dock icon, ever, from the moment this process launches -- it's
-	     always a headless backend (see MainComponent.cpp's comment "ResoStage
-	     Core is headless"), for a shell (Electron/browser) it starts itself
-	     or that spawned it as a nested backend. A runtime
-	     [NSApp setActivationPolicy:] call is too late to prevent the initial
-	     Dock icon flash -- macOS registers it before our own code runs.
-	     platform/MacShellMode.mm's restoreForegroundShell() flips this back
-	     on if the shell fails to launch, so the error state stays visible. -->
+	<!-- No Dock icon, ever -- headless backend (LSUIElement). File associations
+	     are owned by the Electron shell (see electron/scripts/brand-mac-app.mjs),
+	     not this nested Core bundle. Core receives open-project commands via IPC. -->
 	<key>LSUIElement</key>
 	<true/>
-	<key>CFBundleDocumentTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeExtensions</key>
-			<array>
-				<string>rsnraset</string>
-			</array>
-			<key>CFBundleTypeIconFile</key>
-			<string>file.icns</string>
-			<key>CFBundleTypeName</key>
-			<string>ResoStage Project Package</string>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>LSHandlerRank</key>
-			<string>Owner</string>
-			<key>LSTypeIsPackage</key>
-			<true/>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>com.resonaura.resostage.project</string>
-			</array>
-		</dict>
-	</array>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.resonaura.resostage.project</string>
-			<key>UTTypeDescription</key>
-			<string>ResoStage Project Package</string>
-			<key>UTTypeIconFile</key>
-			<string>file.icns</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>com.apple.package</string>
-				<string>public.composite-content</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>rsnraset</string>
-				</array>
-			</dict>
-		</dict>
-	</array>
 </dict>
 </plist>

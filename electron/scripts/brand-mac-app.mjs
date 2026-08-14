@@ -136,27 +136,33 @@ function main() {
     log(`${icnsSrc} not found -- keeping stock Electron icon`);
   }
 
-  // Copy file.icns for .rsnraset document type icon.
+  // Copy file.icns for .rsnrasetmeta document type icon (the small metadata file).
   const fileIcnsSrc = join(REPO_ROOT, "icons", "file.icns");
   if (existsSync(fileIcnsSrc)) {
     execFileSync("cp", [fileIcnsSrc, join(destApp, "Contents", "Resources", "file.icns")]);
   }
-  // Copy folder.icns for potential custom folder/package icon (macOS uses
-  // UTTypeIconFile for packages, but some Finder views may prefer a
-  // dedicated folder icon).
+  // Copy folder.icns for .rsnraset package/folder icon.
   const folderIcnsSrc = join(REPO_ROOT, "icons", "folder.icns");
   if (existsSync(folderIcnsSrc)) {
     execFileSync("cp", [folderIcnsSrc, join(destApp, "Contents", "Resources", "folder.icns")]);
   }
 
-  // Add document type declarations so macOS shows custom file/folder icons
-  // for .rsnraset project packages. The shell (not the nested LSUIElement
-  // Core) must own the UTI to handle double-click open.
+  // Document types owned by Electron shell (not LSUIElement Core):
+  // 1. .rsnrasetmeta -- small metadata file next to project folder, opens project
+  // 2. .rsnraset -- the project package/folder itself (LSTypeIsPackage)
   const docTypes = {
     CFBundleDocumentTypes: [
       {
-        CFBundleTypeExtensions: ["rsnraset"],
+        CFBundleTypeExtensions: ["rsnrasetmeta"],
         CFBundleTypeIconFile: "file.icns",
+        CFBundleTypeName: "ResoStage Project Link",
+        CFBundleTypeRole: "Editor",
+        LSHandlerRank: "Owner",
+        LSItemContentTypes: ["com.resonaura.resostage.project-link"],
+      },
+      {
+        CFBundleTypeExtensions: ["rsnraset"],
+        CFBundleTypeIconFile: "folder.icns",
         CFBundleTypeName: "ResoStage Project Package",
         CFBundleTypeRole: "Editor",
         LSHandlerRank: "Owner",
@@ -166,9 +172,19 @@ function main() {
     ],
     UTExportedTypeDeclarations: [
       {
+        UTTypeIdentifier: "com.resonaura.resostage.project-link",
+        UTTypeDescription: "ResoStage Project Link",
+        UTTypeIconFile: "file.icns",
+        UTTypeConformsTo: ["public.data", "public.content"],
+        UTTypeTagSpecification: {
+          "public.filename-extension": ["rsnrasetmeta"],
+          "public.mime-type": "application/x-resostage-project-link",
+        },
+      },
+      {
         UTTypeIdentifier: "com.resonaura.resostage.project",
         UTTypeDescription: "ResoStage Project Package",
-        UTTypeIconFile: "file.icns",
+        UTTypeIconFile: "folder.icns",
         UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
         UTTypeTagSpecification: {
           "public.filename-extension": ["rsnraset"],
@@ -177,7 +193,6 @@ function main() {
     ],
   };
   for (const [key, value] of Object.entries(docTypes)) {
-    // plutil -replace with JSON requires -json flag and stdin input.
     const json = JSON.stringify(value);
     execFileSync("plutil", ["-replace", key, "-json", json, plistPath]);
   }

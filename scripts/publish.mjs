@@ -283,6 +283,13 @@ Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifs
 Name: "{group}\\ResoStage"; Filename: "{app}\\ResoStage.exe"; IconFilename: "{app}\\ResoStage.ico"
 Name: "{autodesktop}\\ResoStage"; Filename: "{app}\\ResoStage.exe"; IconFilename: "{app}\\ResoStage.ico"
 
+[Registry]
+; .rsnrasetmeta file association (metadata file next to project folder)
+Root: HKCR; Subkey: ".rsnrasetmeta"; ValueType: string; ValueData: "ResoStage.ProjectLink"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "ResoStage.ProjectLink"; ValueType: string; ValueData: "ResoStage Project Link"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "ResoStage.ProjectLink\\DefaultIcon"; ValueType: string; ValueData: "{app}\\ResoStage.ico,0"
+Root: HKCR; Subkey: "ResoStage.ProjectLink\\shell\\open\\command"; ValueType: string; ValueData: ""{app}\\ResoStage.exe" "%1""
+
 [Run]
 Filename: "{tmp}\\vc_redist.x64.exe"; Parameters: "/quiet /norestart"; \\
   StatusMsg: "Installing Microsoft Visual C++ runtime..."; \\
@@ -325,6 +332,26 @@ function publishLinux() {
   if (existsSync(pngSrc)) {
     cpSync(pngSrc, join(payload, "resostage.png"));
   }
+
+  // Mime-type desktop entry for .rsnrasetmeta file association
+  const mimeDesktop = `[Desktop Entry]
+Type=MimeType
+MimeType=application/x-resostage-project-link
+Comment=ResoStage Project Link
+Icon=resostage
+`;
+  writeFileSync(join(payload, "application-x-resostage-project-link.desktop"), mimeDesktop);
+
+  // Application desktop entry with MimeType for .rsnrasetmeta
+  const appDesktop = `[Desktop Entry]
+Type=Application
+Name=ResoStage
+Exec=ResoStage %U
+Icon=resostage
+Categories=AudioVideo;Audio;
+MimeType=application/x-resostage-project-link;
+`;
+  writeFileSync(join(payload, "resostage.desktop"), appDesktop);
 
   if (have("appimagetool")) {
     const appdir = join(OUT_DIR, "ResoStage.AppDir");

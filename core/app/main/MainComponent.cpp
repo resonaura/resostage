@@ -34,6 +34,10 @@ MainComponent::MainComponent(std::string ipcSocketPath_) {
         } else {
             std::fprintf(stderr, "[resostage-core] IPC server listening on %s\n",
                          ipcSocketPath.c_str());
+            // Handle open-project requests from Electron (file associations).
+            ipcServer->onOpenProject([this](const std::string& path) {
+                juce::MessageManager::callAsync([this, path] { openProjectFromIpc(path); });
+            });
         }
     }
 
@@ -480,6 +484,69 @@ void MainComponent::performAction(const std::string& action) {
             saveAppSettingsToDisk();
         }
     }
+}
+
+void MainComponent::openProjectFromIpc(const std::string& path) {
+    // path may be .rsnrasetmeta file or .rsnraset folder/package
+    juce::File f(path);
+    if (!f.exists()) {
+        setStatus("Project not found: " + juce::String(path));
+        return;
+    }
+
+    juce::File projectDir;
+    if (f.hasFileExtension("rsnrasetmeta")) {
+        // .rsnrasetmeta file: read the project folder path from it (JSON)
+        // or assume it's sibling folder with same name minus extension.
+        juce::String content = f.loadFileAsString();
+        // Try to parse JSON for "projectPath" using std::string
+        std::string c = content.toStdString();
+        size_t pp = c.find("\"projectPath\"");
+        if (pp != std::string::npos) {
+            size_t colon = c.find(':', pp);
+            size_t quote1 = c.find('"', colon);
+            size_t quote2 = c.find('"', quote1 + 1);
+            if (quote1 != std::string::npos && quote2 != std::string::npos) {
+                std::string projPath = c.substr(quote1 + 1, quote2 - quote1 - 1);
+                projectDir = juce::File(projPath);
+            }
+        }
+        // Fallback: sibling directory with same stem
+        if (!projectDir.exists()) {
+            projectDir = f.getSiblingFile(f.getFileNameWithoutExtension());
+        }
+    } else if (f.isDirectory() || f.hasFileExtension("rsnraset")) {
+        // .rsnraset package or folder
+        projectDir = f;
+    } else {
+        setStatus("Unsupported project file: " + juce::String(path));
+        return;
+    }
+
+    if (!projectDir.exists()) {
+        setStatus("Project folder not found: " + projectDir.getFullPathName());
+        return;
+    }
+
+    // Load the project (reuse existing logic)
+    loadProjectFromPath(projectDir);
+    // Bring Electron window to front if needed
+    if (juce::JUCEApplication::getInstance()) {
+        // Trigger UI to show
+        publishWebState();
+    }
+}
+
+void MainComponent::writeProjectMetaFile(const juce::File& projectFile) {
+    // Create .rsnrasetmeta file next to the .rsnraset project folder/package
+    juce::File metaFile = projectFile.getSiblingFile(
+        projectFile.getFileNameWithoutExtension() + ".rsnrasetmeta");
+    juce::String json = "{"
+        "\"projectPath\":\"" + projectFile.getFullPathName().toStdString() + "\","
+        "\"projectName\":\"" + engine.project().name + "\","
+        "\"version\":1"
+    "}";
+    metaFile.replaceWithText(json);
 }
 
 void MainComponent::jumpToSectionRelative(int delta) {
@@ -1812,6 +1879,8 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
                 }
                 setStatus("Saved " + name);
                 rememberRecentProject(target);
+                // Create/update .rsnrasetmeta file next to the project for file associations.
+                writeProjectMetaFile(target);
                 publishWebState();
                 if (onDone)
                     onDone(true);
