@@ -542,6 +542,12 @@ start "" "%~dp0ResoStage.exe" %*
 }
 
 export function buildApp() {
+  // On Windows, a running instance locks the runtime files (icudtl.dat, etc.)
+  // so they can't be overwritten during assembly. Kill it first.
+  if (process.platform === "win32" && appIsRunning()) {
+    log("Stopping running ResoStage (locks runtime files)...");
+    killApp();
+  }
   log(`Building ${CORE_APP_NAME} (${BUILD_TYPE})...`);
   cmakeBuild(APP_TARGET);
   ok(`Core: ${getRawCoreAppBundle()}`);
