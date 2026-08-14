@@ -385,7 +385,8 @@ function assembleShellBundle() {
 
   const coreDst = getNestedCoreAppBundle(shellBundle);
   run("rm", ["-rf", coreDst]);
-  run("cp", ["-R", rawCore, coreDst]);
+  // Quote paths for shell (they may contain spaces, e.g. "ResoStage Core.app")
+  run("cp", ["-R", `"${rawCore}"`, `"${coreDst}"`]);
 
   run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);
   ok(`Assembled ${shellBundle}`);
