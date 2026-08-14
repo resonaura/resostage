@@ -239,7 +239,9 @@ export function appIsRunning() {
     return runQuiet("pgrep", ["-f", shellExecutablePath()]).status === 0;
   } else if (process.platform === "win32") {
     const exe = path.basename(shellExecutablePath());
-    return runQuiet("tasklist", ["/FI", `IMAGENAME eq ${exe}`]).status === 0;
+    const result = runQuiet("tasklist", ["/FI", `IMAGENAME eq ${exe}`, "/FO", "CSV", "/NH"]);
+    // tasklist returns 0 even when no matches; check output for actual process
+    return result.status === 0 && result.stdout.includes(exe);
   } else {
     // Linux: check for process by name
     const exe = path.basename(shellExecutablePath());
