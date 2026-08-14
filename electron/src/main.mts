@@ -34,10 +34,22 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, unlinkSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { createRequire } from "node:module";
 import path from "node:path";
+
+const DBG = (msg: string) => {
+  try {
+    appendFileSync(
+      path.join(process.env.TEMP ?? ".", "resostage-shell.log"),
+      `[${new Date().toISOString()}] ${msg}\n`,
+    );
+  } catch {
+    /* ignore */
+  }
+};
+DBG("=== main.mjs loaded ===");
 
 // koffi loads dist/*.dylib (native/mac/*.m). Optional — missing dylib or
 // non-mac simply skips the feature. Eager-loaded on app ready so load
@@ -1476,10 +1488,12 @@ app.setAboutPanelOptions({
 });
 
 void app.whenReady().then(async () => {
+  DBG("whenReady fired");
   if (STANDALONE) spawnBackend();
   ensureAppNotSuspended();
   // Load MenuFlash/Haptics dylibs once up front so first-use isn't silent.
   preloadNatives();
+  DBG("spawnBackend + preloadNatives done");
 
   // Ждём готовности IPC Core (standalone) — мгновенно, если сокет недоступен,
   // fallback на HTTP polling через fetchMenuWithRetry ниже.
@@ -1512,6 +1526,7 @@ void app.whenReady().then(async () => {
   // arrived from the SPA. fetchMenuWithRetry()'s retry loop also doubles as
   // the "wait for the backend to finish starting up" gate in standalone mode.
   menuModel = await fetchMenuWithRetry();
+  DBG("fetchMenuWithRetry resolved: " + (menuModel ? "ok" : "null"));
   if (menuModel) {
     menuState = {
       ...menuState,
@@ -1525,7 +1540,8 @@ void app.whenReady().then(async () => {
   // Info.plist + electron.icns already carry the correct icon. When running
   // unbranded (`electron .` in dev), this intentionally shows the stock
   // Electron icon rather than a single-resolution PNG override.
-  createWindow();
+createWindow();
+  DBG("createWindow done");
 
   // System sleep / display off → wake: GPU + compositor often leave a black
   // frame. Recover automatically (double-pass: GPU may not be ready at +50ms).
