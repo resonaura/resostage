@@ -507,14 +507,15 @@ function assembleShellBundle() {
       die(`Electron executable not found at ${electronExeSrc}`);
     }
     
-    // Copy Electron shell dist (JS files) to same folder as .exe
+    // Electron looks for the app at <exe-dir>/resources/app/ (where the
+    // runtime's default_app.asar also lives). Place our shell there.
+    const appDir = join(shellDir, "resources", "app");
+    mkdirSync(appDir, { recursive: true });
     const distSrc = join(ROOT, "electron", "dist");
-    const distDst = join(shellDir, "dist");
+    const distDst = join(appDir, "dist");
     if (existsSync(distDst)) rmSync(distDst, { recursive: true, force: true });
     cpSync(distSrc, distDst, { recursive: true });
-    
-    // Copy package.json
-    cpSync(join(ROOT, "electron", "package.json"), join(shellDir, "package.json"));
+    cpSync(join(ROOT, "electron", "package.json"), join(appDir, "package.json"));
     
     // Copy Core executable (rename to ResoStage Core.exe)
     const coreDst = join(shellDir, `${CORE_APP_NAME}.exe`);
