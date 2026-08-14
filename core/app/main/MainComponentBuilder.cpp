@@ -13,6 +13,10 @@
 #include "project/RouteId.h"
 #include "server/BuilderJson.h"
 
+#if JUCE_WINDOWS
+#include <windows.h>
+#endif
+
 #include <algorithm>
 #include <cstdio>
 
@@ -827,6 +831,9 @@ void MainComponent::builderTrackImportWavDialog(const std::string& json) {
     // AudioTrackLanes.tsx). The picked file imports straight from disk, no
     // upload round-trip. importWavForTrackAsync auto-creates a default
     // archive if the project was never saved, so no extra guard needed here.
+#if JUCE_WINDOWS
+    ::AllowSetForegroundWindow(ASFW_ANY);
+#endif
     fileChooser = std::make_unique<juce::FileChooser>(
         "Open Audio File", juce::File(),
         "*.wav;*.wave;*.aiff;*.aif;*.mp3;*.flac;*.ogg;*.m4a;*.aac;*.opus;*.wma;*.caf");

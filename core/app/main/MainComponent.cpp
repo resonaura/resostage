@@ -1904,11 +1904,35 @@ bool MainComponent::loadProjectFromPath(const juce::File& file) {
     return true;
 }
 
-void MainComponent::loadProjectClicked() {
-    fileChooser = std::make_unique<juce::FileChooser>(
-        "Select a .rsnraset project", juce::File(), "*.rsnraset");
+static void prepareNativeDialogForeground() {
+#if JUCE_WINDOWS
+    ::AllowSetForegroundWindow(ASFW_ANY);
+    HWND fg = ::GetForegroundWindow();
+    if (fg != NULL) {
+        DWORD fgThread = ::GetWindowThreadProcessId(fg, NULL);
+        DWORD myThread = ::GetCurrentThreadId();
+        ::AttachThreadInput(fgThread, myThread, TRUE);
+        ::SetForegroundWindow(fg);
+        ::AttachThreadInput(fgThread, myThread, FALSE);
+    }
+#endif
+}
 
-    const auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+void MainComponent::loadProjectClicked() {
+    prepareNativeDialogForeground();
+
+#if JUCE_WINDOWS
+    const auto flags = juce::FileBrowserComponent::openMode
+                       | juce::FileBrowserComponent::canSelectDirectories;
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Select a .rsnraset project folder", juce::File(), "*");
+#else
+    const auto flags = juce::FileBrowserComponent::openMode
+                       | juce::FileBrowserComponent::canSelectFiles
+                       | juce::FileBrowserComponent::canSelectDirectories;
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Select a .rsnraset project", juce::File(), "*.rsnraset;*.rsnrasetmeta;project.rsnrasetmeta");
+#endif
     fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
         const auto file = fc.getResult();
         if (file == juce::File())
@@ -1989,15 +2013,26 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
         return;
     }
 
+    prepareNativeDialogForeground();
+
+#if JUCE_WINDOWS
+    const auto flags = juce::FileBrowserComponent::saveMode
+                       | juce::FileBrowserComponent::canSelectDirectories
+                       | juce::FileBrowserComponent::warnAboutOverwriting;
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Save .rsnraset project folder",
+        hasRealSaveLocation ? juce::File(engine.projectPath()) : juce::File(),
+        "*");
+#else
+    const auto flags = juce::FileBrowserComponent::saveMode
+                       | juce::FileBrowserComponent::canSelectDirectories
+                       | juce::FileBrowserComponent::canSelectFiles
+                       | juce::FileBrowserComponent::warnAboutOverwriting;
     fileChooser = std::make_unique<juce::FileChooser>(
         "Save .rsnraset project",
         hasRealSaveLocation ? juce::File(engine.projectPath()) : juce::File(),
         "*.rsnraset");
-    // warnAboutOverwriting: OS dialog asks before replacing an existing
-    // path; engine then does a safe directory-container replace.
-    const auto flags = juce::FileBrowserComponent::saveMode
-                       | juce::FileBrowserComponent::canSelectFiles
-                       | juce::FileBrowserComponent::warnAboutOverwriting;
+#endif
     fileChooser->launchAsync(flags, [doSave](const juce::FileChooser& fc) {
         doSave(fc.getResult());
     });
