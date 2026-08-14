@@ -45,7 +45,11 @@ function platformDirName() {
 // the ONE thing both `pnpm run rebuild:run` and a real release launch, so
 // dev iteration never diverges from what actually ships.
 export const DIST_DIR = process.env.DIST_DIR || join(ROOT, "build");
-export const PLATFORM_DIST_DIR = join(DIST_DIR, platformDirName(), process.arch);
+export const PLATFORM_DIST_DIR = join(
+  DIST_DIR,
+  platformDirName(),
+  process.arch,
+);
 
 // NOTE: call these fresh at each use site rather than caching the result --
 // rebuild:run builds and launches in the same process, so a module-level
@@ -61,9 +65,20 @@ export function getNestedCoreAppBundle(shellBundle = getShellAppBundle()) {
 // Raw JUCE build output straight out of CMake (core/build/), before it gets
 // copied into the assembled shell bundle above.
 export function getRawCoreAppBundle() {
-  const directPath = join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, `${CORE_APP_NAME}.app`);
+  const directPath = join(
+    BUILD_DIR,
+    "app",
+    `${APP_TARGET}_artefacts`,
+    `${CORE_APP_NAME}.app`,
+  );
   if (existsSync(directPath)) return directPath;
-  const buildTypePath = join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, BUILD_TYPE, `${CORE_APP_NAME}.app`);
+  const buildTypePath = join(
+    BUILD_DIR,
+    "app",
+    `${APP_TARGET}_artefacts`,
+    BUILD_TYPE,
+    `${CORE_APP_NAME}.app`,
+  );
   if (existsSync(buildTypePath)) return buildTypePath;
   return directPath;
 }
@@ -98,6 +113,7 @@ export function run(cmd, args = [], opts = {}) {
     env,
     stdio: "inherit",
     shell: false,
+    PATH: `${process.env.PATH}`,
   });
   if (r.error) {
     if (allowFail) return r.status ?? 1;
@@ -152,9 +168,13 @@ export function ensureCmakeConfigured() {
   const cached = cachedBuildType();
   if (cached === BUILD_TYPE) return;
   if (cached === null)
-    log(`CMake not configured at ${BUILD_DIR} -- configuring (${BUILD_TYPE})...`);
+    log(
+      `CMake not configured at ${BUILD_DIR} -- configuring (${BUILD_TYPE})...`,
+    );
   else
-    log(`Build type changed (${cached} -> ${BUILD_TYPE}) -- reconfiguring ${BUILD_DIR}...`);
+    log(
+      `Build type changed (${cached} -> ${BUILD_TYPE}) -- reconfiguring ${BUILD_DIR}...`,
+    );
   run("cmake", [
     "-S",
     CORE_DIR,
@@ -214,7 +234,10 @@ export function killApp() {
   }
   // The nested backend won't have gotten a graceful quit if we had to force
   // this -- make sure it's not left running headless with no shell.
-  runQuiet("pkill", ["-f", `${CORE_APP_NAME}.app/Contents/MacOS/${CORE_APP_NAME}`]);
+  runQuiet("pkill", [
+    "-f",
+    `${CORE_APP_NAME}.app/Contents/MacOS/${CORE_APP_NAME}`,
+  ]);
   if (appIsRunning()) die(`Could not stop ${SHELL_APP_NAME}`);
   ok(`${SHELL_APP_NAME} stopped`);
 }
@@ -230,7 +253,9 @@ export function startApp() {
     );
   }
   if (appIsRunning()) {
-    log(`${SHELL_APP_NAME} already running -- leaving it up (use pnpm kill first)`);
+    log(
+      `${SHELL_APP_NAME} already running -- leaving it up (use pnpm kill first)`,
+    );
     return;
   }
   log(`Launching ${appBundle}`);
@@ -337,19 +362,26 @@ function assembleShellBundle() {
   }
   const rawCore = getRawCoreAppBundle();
   if (!existsSync(rawCore)) {
-    log(`${rawCore} missing -- skipping shell bundle assembly (build the app first)`);
+    log(
+      `${rawCore} missing -- skipping shell bundle assembly (build the app first)`,
+    );
     return;
   }
   const shellBundle = getShellAppBundle();
   log(`Assembling ${shellBundle}...`);
-  run("node", [join(ROOT, "electron", "scripts", "brand-mac-app.mjs"), shellBundle]);
+  run("node", [
+    join(ROOT, "electron", "scripts", "brand-mac-app.mjs"),
+    shellBundle,
+  ]);
 
   const resources = join(shellBundle, "Contents", "Resources");
   const appDst = join(resources, "app");
   run("rm", ["-rf", appDst]);
   run("mkdir", ["-p", appDst]);
   cpSync(join(ROOT, "electron", "package.json"), join(appDst, "package.json"));
-  cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), { recursive: true });
+  cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), {
+    recursive: true,
+  });
   copyShellRuntimeDeps(appDst);
 
   const coreDst = getNestedCoreAppBundle(shellBundle);
