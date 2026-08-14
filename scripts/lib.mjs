@@ -283,7 +283,7 @@ export function appIsRunning() {
   }
 }
 
-export function killApp() {
+export function killApp({ bestEffort = false } = {}) {
   if (!appIsRunning()) {
     log(`${SHELL_APP_NAME} is not running`);
     return;
@@ -326,7 +326,13 @@ export function killApp() {
     sleepMs(300);
   }
   
-  if (appIsRunning()) die(`Could not stop ${SHELL_APP_NAME}`);
+  if (appIsRunning()) {
+    if (bestEffort) {
+      log(`Warning: could not stop ${SHELL_APP_NAME} -- continuing anyway`);
+      return;
+    }
+    die(`Could not stop ${SHELL_APP_NAME}`);
+  }
   ok(`${SHELL_APP_NAME} stopped`);
 }
 
@@ -378,10 +384,24 @@ export function startApp() {
       run(lsregister, ["-f", appBundle], { allowFail: true });
     }
     run("open", [appBundle]);
+  } else if (process.platform === "win32") {
+    const child = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `Start-Process -FilePath "${appBundle}"`,
+      ],
+      {
+        detached: true,
+        stdio: "ignore",
+      },
+    );
+    child.unref();
   } else {
-    // Windows / Linux: launch detached so this script returns and the app
-    // keeps running on its own. (`run()` ignores detached/stdio opts, so use
-    // spawn directly.)
+    // Linux: launch detached so this script returns and the app
+    // keeps running on its own.
     const child = spawn(appBundle, [], {
       detached: true,
       stdio: "ignore",
@@ -521,7 +541,7 @@ function assembleShellBundle() {
     return;
   }
 
-if (process.platform === "win32") {
+  if (process.platform === "win32") {
     // Windows layout (build/win/<arch>/):
     //   ResoStage.exe        renamed Electron runtime
     //   resources/           Electron's own dir, incl. resources/app/ (the app)
@@ -710,7 +730,7 @@ export function configure() {
 }
 
 export function clean({ ui = false } = {}) {
-  killApp();
+  killApp({ bestEffort: true });
   for (const dir of [BUILD_DIR, DIST_DIR]) {
     if (existsSync(dir)) {
       log(`Removing ${dir}...`);

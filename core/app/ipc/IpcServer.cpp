@@ -65,7 +65,7 @@ bool IpcServer::start(const std::string& socketPath) {
     for (int attempt = 0; attempt < 20; ++attempt) {
         serverHandle_ = CreateNamedPipeA(
             pipeName.c_str(),
-            PIPE_ACCESS_OUTBOUND,          // Core только пишет клиенту
+            PIPE_ACCESS_DUPLEX,            // Двунаправленный канал (Core читает и пишет)
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             1,                             // max instances
             0, 0,                          // out/in buffer sizes

@@ -33,7 +33,7 @@ import {
   TouchBar,
   type MenuItemConstructorOptions,
 } from "electron";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { createRequire } from "node:module";
@@ -119,7 +119,8 @@ function preloadNatives(): void {
   EnsureNativeHaptics();
 }
 
-const { TouchBarButton } = TouchBar;
+// TouchBar is macOS-only; on Windows/Linux it is undefined.
+const TouchBarButton = TouchBar?.TouchBarButton;
 
 // ── Live-by-default (no user toggle) ──────────────────────────────────────
 // Stage app: the UI must keep running when minimized, alt-tabbed, or under
@@ -184,11 +185,6 @@ function ipcSocketPath(): string {
 function waitForIpcReady(timeoutMs = 15_000): Promise<void> {
   return new Promise((resolve) => {
     const p = ipcSocketPath();
-    try {
-      unlinkSync(p);
-    } catch {
-      /* нет старого сокета — ок */
-    }
     const sock: Socket = connect(p);
     const onData = (data: Buffer) => {
       // Core шлёт JSON‑строки с переводом строки. Дожидаемся ready или любого сообщения.
@@ -360,15 +356,49 @@ function findNestedCoreBinary(): string | null {
   );
   if (existsSync(macCorePath)) return macCorePath;
 
-  // Windows: main.mjs lives at resources/app/dist and the Core sits at the
-  // bundle root, one level above resources/ -- resolve from resourcesPath so
-  // it doesn't depend on how deep the app is nested.
-  const winCorePath = path.join(
-    process.resourcesPath,
-    "..",
-    "ResoStage Core.exe",
-  );
-  if (existsSync(winCorePath)) return winCorePath;
+  if (process.platform === "win32") {
+    const winCorePath = path.join(
+      process.resourcesPath,
+      "..",
+      "ResoStage Core.exe",
+    );
+    if (existsSync(winCorePath)) return winCorePath;
+
+    const devCandidates = [
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "build",
+        "win",
+        "x64",
+        "ResoStage Core.exe",
+      ),
+      path.join(process.cwd(), "build", "win", "x64", "ResoStage Core.exe"),
+      path.join(
+        process.cwd(),
+        "core",
+        "build",
+        "app",
+        "ResoStage_artefacts",
+        "RelWithDebInfo",
+        "ResoStage Core.exe",
+      ),
+      path.join(
+        process.cwd(),
+        "core",
+        "build",
+        "app",
+        "ResoStage_artefacts",
+        "Debug",
+        "ResoStage Core.exe",
+      ),
+    ];
+    for (const cand of devCandidates) {
+      if (existsSync(cand)) return cand;
+    }
+  }
 
   return null;
 }
@@ -381,7 +411,14 @@ function spawnBackend(): void {
   // spawning ours. (macOS shells the Core inside the app bundle; the OS reaps
   // strays with the parent.)
   if (process.platform === "win32") {
-    execFile("taskkill", ["/IM", "ResoStage Core.exe", "/F"], { windowsHide: true }, () => {});
+    try {
+      execFileSync("taskkill", ["/IM", "ResoStage Core.exe", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } catch {
+      /* no old process running -- ignore */
+    }
   }
   const corePath = findNestedCoreBinary();
   if (!corePath) {
@@ -398,15 +435,28 @@ function spawnBackend(): void {
   } catch {
     /* нет старого сокета — ок */
   }
+  console.log(`[resostage] Spawning nested backend: ${corePath}`);
   backendProcess = spawn(
     corePath,
     ["--ipc-socket", ipcPath],
     {
       env: { ...process.env, RESOSTAGE_SPAWNED_BY_SHELL: "1" },
-      stdio: "ignore",
+      stdio: "pipe",
     },
   );
-  backendProcess.on("exit", () => {
+  backendProcess.stdout?.on("data", (d) =>
+    console.log(`[core stdout] ${d.toString().trim()}`),
+  );
+  backendProcess.stderr?.on("data", (d) =>
+    console.error(`[core stderr] ${d.toString().trim()}`),
+  );
+  backendProcess.on("error", (err) => {
+    console.error("[resostage] backendProcess error:", err);
+  });
+  backendProcess.on("exit", (code, signal) => {
+    console.warn(
+      `[resostage] Core process exited (code=${code}, signal=${signal})`,
+    );
     backendProcess = null;
     // The backend owns the unsaved-changes prompt on quit; once it's gone
     // there's nothing left for this shell to show. Mark the quit in progress
@@ -784,7 +834,7 @@ function buildDevMenu(): MenuItemConstructorOptions {
     submenu: [
       {
         label: "Reload",
-        accelerator: "CmdOrControl+R",
+        accelerator: "CommandOrControl+R",
         click: () => {
           if (!mainWindow || mainWindow.isDestroyed()) return;
           mainWindow.webContents.reload();
@@ -792,7 +842,7 @@ function buildDevMenu(): MenuItemConstructorOptions {
       },
       {
         label: "Force Reload",
-        accelerator: "CmdOrControl+Shift+R",
+        accelerator: "CommandOrControl+Shift+R",
         click: () => {
           if (!mainWindow || mainWindow.isDestroyed()) return;
           mainWindow.webContents.reloadIgnoringCache();
@@ -1240,6 +1290,8 @@ function refreshMenu(): void {
 }
 
 function buildTouchBar(): TouchBar | undefined {
+  // TouchBar is macOS-only; skip on Windows/Linux.
+  if (process.platform !== "darwin" || !TouchBar || !TouchBarButton) return undefined;
   const tabs = menuModel?.touchbar ?? [];
   if (!tabs.length) return undefined;
   const buttons = tabs.map(
