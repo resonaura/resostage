@@ -333,6 +333,13 @@ export function buildUi() {
 // disk -- no more giant EmbeddedAssets.h header with every asset baked in
 // as C++ string literals.
 function embedWebUi() {
+  // Web UI embedding only applies to macOS .app bundles.
+  // On Windows/Linux the Core is a bare executable and the web UI
+  // is served by the Electron shell's dist/ folder.
+  if (process.platform !== "darwin") {
+    log("Skipping web UI embed (not macOS)");
+    return;
+  }
   const src = join(ROOT, "ui", "dist");
   if (!existsSync(src)) {
     log("ui/dist missing -- skipping web UI embed (run pnpm build:ui first)");
