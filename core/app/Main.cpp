@@ -35,6 +35,27 @@ public:
                 ipcSocketPath = path.toStdString();
         }
 
+        // Parse --backend-port for remote mode (Electron connects to this port)
+        uint16_t webPort = MainComponent::kWebPort;
+        const juce::String portToken = "--backend-port=";
+        const int portIdx = cli.indexOf(portToken);
+        if (portIdx >= 0) {
+            const int start = portIdx + portToken.length();
+            const juce::String rest = cli.substring(start).trim();
+            juce::String portStr;
+            for (int i = 0; i < rest.length(); ++i) {
+                const juce::juce_wchar c = rest[i];
+                if (c == ' ' || c == '\t')
+                    break;
+                portStr << c;
+            }
+            if (!portStr.isEmpty()) {
+                int parsed = portStr.getIntValue();
+                if (parsed > 0 && parsed < 65536)
+                    webPort = static_cast<uint16_t>(parsed);
+            }
+        }
+
         // Headless host only: audio / lighting / WebServer / timers. The
         // on-screen UI is always Electron (or a browser tab). Deliberately
         // NO DocumentWindow / desktop peer -- a 1x1 black host window was
@@ -46,7 +67,7 @@ public:
         // The IPC socket path is set on MainComponent before audio setup so the
         // readiness server exists (and is connectable by Electron) before the
         // device-open work that triggers notifyCoreReady().
-        mainComponent = std::make_unique<MainComponent>(std::move(ipcSocketPath));
+        mainComponent = std::make_unique<MainComponent>(std::move(ipcSocketPath), webPort);
 
         const auto path = commandLine.unquoted().trim();
         if (!path.isEmpty() && juce::File::isAbsolutePath(path)) {

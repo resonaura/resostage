@@ -18,8 +18,9 @@
 
 namespace resostage {
 
-MainComponent::MainComponent(std::string ipcSocketPath_) {
+MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort) {
     ipcSocketPath = std::move(ipcSocketPath_);
+    webPort_ = webPort;
 
     // IPC server создаётся ДО аудио-setup: Electron ждёт {"type":"ready"},
     // а notifyCoreReady() сработает только после открытия устройства. Сервер
@@ -158,8 +159,8 @@ MainComponent::MainComponent(std::string ipcSocketPath_) {
                              .toStdString());
 
     std::string webError;
-    if (webServer.start(kWebPort, webError)) {
-        setStatus("Ready | Remote UI http://<this-mac>:" + juce::String(kWebPort) + "/");
+    if (webServer.start(webPort_, webError)) {
+        setStatus("Ready | Remote UI http://<this-mac>:" + juce::String(webPort_) + "/");
     } else {
         setStatus("Web server failed: " + juce::String(webError));
     }
@@ -335,7 +336,7 @@ void MainComponent::launchElectronShell() {
     juce::StringArray args;
     args.add(binary.getFullPathName());
     args.add(packageDir.getFullPathName());
-    args.add("--backend-port=" + juce::String(kWebPort));
+    args.add("--backend-port=" + juce::String(webPort_));
 
     electronProcess = std::make_unique<juce::ChildProcess>();
     if (!electronProcess->start(args)) {

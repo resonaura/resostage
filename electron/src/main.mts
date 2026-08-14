@@ -279,8 +279,17 @@ function backendPort(): number {
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_PORT;
 }
 
+function remoteTarget(): string | null {
+  const arg = process.argv.find((a) => a.startsWith("--remote="));
+  return arg ? arg.split("=")[1] : null;
+}
+
 const PORT = backendPort();
-const BACKEND = `http://localhost:${PORT}`;
+const REMOTE = remoteTarget();
+// If --remote is provided, we're in remote mode: connect to remote Core
+// instead of spawning local one. STANDALONE is effectively false.
+const IS_REMOTE = REMOTE !== null;
+const BACKEND = IS_REMOTE ? `http://${REMOTE}:${PORT}` : `http://localhost:${PORT}`;
 // Must match ui/vite.config.ts's DEV_PORT.
 const DEV_PORT = 2900;
 const DEV_URL = `http://localhost:${DEV_PORT}/?embedded=1`;
@@ -330,7 +339,7 @@ async function findDevServer(budgetMs: number): Promise<boolean> {
 // --backend-port arg, which only the JUCE-spawned dev flow passes): we own
 // spawning + supervising the nested JUCE backend at Contents/Resources/
 // ResoStage Core.app instead of connecting to one JUCE already started.
-const STANDALONE = !process.argv.some((a) => a.startsWith("--backend-port="));
+const STANDALONE = !IS_REMOTE && !process.argv.some((a) => a.startsWith("--backend-port="));
 let backendProcess: ChildProcess | null = null;
 
 function findNestedCoreBinary(): string | null {

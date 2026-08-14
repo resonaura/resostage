@@ -29,7 +29,9 @@ public:
     // {"type":"ready"} после открытия аудиоустройства (для Electron UI на
     // Linux/Windows/standalone-macOS). Пусто → IPC выключен (dev‑режим,
     // когда JUCE стартует Electron через --backend-port).
-    explicit MainComponent(std::string ipcSocketPath = {});
+    // `webPort`: порт для WebServer (default 2899). Может переопределяться
+    // через --backend-port при запуске в remote-режиме.
+    explicit MainComponent(std::string ipcSocketPath = {}, uint16_t webPort = kWebPort);
     ~MainComponent() override;
 
     void paint(juce::Graphics&) override;
@@ -66,7 +68,10 @@ private:
     AudioEngine engine;
     WebServer webServer;
     CoreMidiInputListener midiInput;
+public:
     static constexpr uint16_t kWebPort = 2899;
+private:
+    uint16_t webPort_ = kWebPort;
 
     // IPC канал к Electron UI (Windows/Linux: Unix domain socket, создаваемый
     // Core на старте; macOS пока запускается Electron как дочерний процесс).
