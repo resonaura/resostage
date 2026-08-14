@@ -59,7 +59,9 @@ function appVersion() {
 }
 
 function have(tool) {
-  return runQuiet("which", [tool]).status === 0;
+  // Windows has no `which`; cmd.exe uses `where`.
+  const cmd = process.platform === "win32" ? "where" : "which";
+  return runQuiet(cmd, [tool]).status === 0;
 }
 
 // ── macOS ──────────────────────────────────────────────────────────────────

@@ -360,8 +360,11 @@ function findNestedCoreBinary(): string | null {
   );
   if (existsSync(macCorePath)) return macCorePath;
 
+  // Windows: main.mjs lives at resources/app/dist and the Core sits at the
+  // bundle root, one level above resources/ -- resolve from resourcesPath so
+  // it doesn't depend on how deep the app is nested.
   const winCorePath = path.join(
-    import.meta.dirname,
+    process.resourcesPath,
     "..",
     "ResoStage Core.exe",
   );
