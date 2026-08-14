@@ -1366,6 +1366,7 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.statusMessage = snap.statusMessage;
     wire.busy = snap.busy;
     wire.quitConfirmPending = snap.quitConfirmPending;
+    wire.openConfirmPending = snap.openConfirmPending;
     wire.uiTab = snap.uiTab;
     wire.uiTabSeq = static_cast<uint32_t>(snap.uiTabSeq);
     wire.canUndo = snap.canUndo;
@@ -1894,6 +1895,14 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             return true;
         }
         cmd = {WebCommandKind::QuitDecision, choice};
+    } else if (std::strcmp(path, "/api/v1/project/open-decision") == 0) {
+        const int choice = parseSelectIndex(body, bodyLen);
+        if (choice < 0) {
+            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
+                              "{\"error\":\"missing index\"}", 28);
+            return true;
+        }
+        cmd = {WebCommandKind::OpenDecision, choice};
     } else if (std::strcmp(path, "/api/v1/settings/ui-render-engine") == 0) {
         const std::string s(body, bodyLen);
         cmd = {WebCommandKind::SetUiRenderEngine, 0, 0.0, s};

@@ -2,6 +2,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include "glaze/glaze.hpp"
+
 #include <cstring>
 
 #if JUCE_WINDOWS
@@ -17,15 +19,38 @@
 
 namespace resostage {
 
+// Glaze-reflected IPC wire messages (mirror electron/src/main.mts sendIpcMessage).
+// Must have external linkage for glaze reflection, so not in an anonymous ns.
+struct IpcReadyMsg {
+    std::string type = "ready";
+    int sampleRate = 0;
+    int blockSize = 0;
+    int latency = 0;
+};
+struct IpcStatusMsg {
+    std::string type; // "started" | "stopped"
+};
+struct IpcErrorMsg {
+    std::string type = "error";
+    std::string message;
+};
+struct IpcOpenProjectMsg {
+    std::string type;
+    std::string path;
+};
+
+std::string writeJson(const auto& value) {
+    std::string out;
+    (void)glz::write_json(value, out);
+    return out;
+}
+
 IpcServer::IpcServer() = default;
 
 IpcServer::~IpcServer() { stop(); }
 
 std::string IpcServer::jsonReady(int sampleRate, int blockSize, int outputLatencySamples) const {
-    return std::string("{\"type\":\"ready\",\"sampleRate\":") +
-           std::to_string(sampleRate) + ",\"blockSize\":" +
-           std::to_string(blockSize) + ",\"latency\":" +
-           std::to_string(outputLatencySamples) + "}";
+    return writeJson(IpcReadyMsg{"ready", sampleRate, blockSize, outputLatencySamples});
 }
 
 bool IpcServer::start(const std::string& socketPath) {
@@ -194,45 +219,17 @@ void IpcServer::listenerThread() {
 }
 
 void IpcServer::handleIncomingMessage(const std::string& line) {
-    // Простой парсинг JSON для {"type":"open-project","path":"..."}
-    // Не используем полноценный парсер ради лёгкости.
-    if (line.find("\"type\":\"open-project\"") != std::string::npos) {
-        size_t pathStart = line.find("\"path\":\"");
-        if (pathStart != std::string::npos) {
-            pathStart += 8; // length of "path":"
-            size_t pathEnd = line.find('"', pathStart);
-            if (pathEnd != std::string::npos) {
-                std::string path = line.substr(pathStart, pathEnd - pathStart);
-                // Unescape basic JSON escapes.
-                std::string unescaped;
-                unescaped.reserve(path.size());
-                for (size_t i = 0; i < path.size(); ++i) {
-                    if (path[i] == '\\' && i + 1 < path.size()) {
-                        char next = path[i + 1];
-                        if (next == '"' || next == '\\' || next == '/') {
-                            unescaped += next;
-                            ++i;
-                        } else if (next == 'n') {
-                            unescaped += '\n';
-                            ++i;
-                        } else if (next == 'r') {
-                            unescaped += '\r';
-                            ++i;
-                        } else if (next == 't') {
-                            unescaped += '\t';
-                            ++i;
-                        } else {
-                            unescaped += path[i];
-                        }
-                    } else {
-                        unescaped += path[i];
-                    }
-                }
-                if (onOpenProject_)
-                    onOpenProject_(unescaped);
-            }
-        }
-    }
+    // Parse the Electron IPC message with Glaze. Currently the only inbound
+    // message is {"type":"open-project","path":"..."}.
+    constexpr glz::opts opts{
+        .error_on_unknown_keys = false,
+        .error_on_missing_keys = false,
+    };
+    IpcOpenProjectMsg msg;
+    if (glz::read<opts>(msg, line))
+        return;
+    if (msg.type == "open-project" && onOpenProject_)
+        onOpenProject_(msg.path);
 }
 
 bool IpcServer::writeMessage(const std::string& msg) {
@@ -266,35 +263,19 @@ void IpcServer::notifyReady(int sampleRate, int blockSize, int outputLatencySamp
 
 void IpcServer::notifyStarted() {
     std::lock_guard lock(messageLock_);
-    pending_ = "{\"type\":\"started\"}";
+    pending_ = writeJson(IpcStatusMsg{"started"});
     hasPending_.store(true, std::memory_order_release);
 }
 
 void IpcServer::notifyStopped() {
     std::lock_guard lock(messageLock_);
-    pending_ = "{\"type\":\"stopped\"}";
+    pending_ = writeJson(IpcStatusMsg{"stopped"});
     hasPending_.store(true, std::memory_order_release);
 }
 
 void IpcServer::notifyError(const std::string& message) {
     std::lock_guard lock(messageLock_);
-    std::string safe;
-    safe.reserve(message.size() + 8);
-    for (char c : message) {
-        if (c == '"' || c == '\\') {
-            safe += '\\';
-            safe += c;
-        } else if (c == '\n') {
-            safe += "\\n";
-        } else if (c == '\r') {
-            safe += "\\r";
-        } else if (c == '\t') {
-            safe += "\\t";
-        } else {
-            safe += c;
-        }
-    }
-    pending_ = "{\"type\":\"error\",\"message\":\"" + safe + "\"}";
+    pending_ = writeJson(IpcErrorMsg{"error", message});
     hasPending_.store(true, std::memory_order_release);
 }
 

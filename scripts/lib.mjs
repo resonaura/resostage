@@ -1,12 +1,13 @@
 /**
  * Shared helpers for root pnpm / Node scripts (ESM).
  */
-import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import path from "node:path";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { NtExecutable, NtExecutableResource, Data, Resource } from "resedit";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,23 +71,44 @@ export function getNestedCoreAppBundle(shellBundle = getShellAppBundle()) {
 }
 // Raw JUCE build output straight out of CMake (core/build/), before it gets
 // copied into the assembled shell bundle above.
+// Deep-first search for a named file under a dir (used to find the Core exe
+// regardless of which CMake generator / config produced it).
+function findFileRecursively(dir, name) {
+  if (!existsSync(dir)) return null;
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const e of entries) {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) {
+      const hit = findFileRecursively(full, name);
+      if (hit) return hit;
+    } else if (e.name === name) {
+      return full;
+    }
+  }
+  return null;
+}
+
 export function getRawCoreAppBundle() {
   if (process.platform === "win32") {
-    const buildTypePath = join(
+    const artefactsDir = join(
       BUILD_DIR,
       "app",
       `${APP_TARGET}_artefacts`,
-      BUILD_TYPE,
-      `${CORE_APP_NAME}.exe`,
     );
-    if (existsSync(buildTypePath)) return buildTypePath;
-    const directPath = join(
-      BUILD_DIR,
-      "app",
-      `${APP_TARGET}_artefacts`,
-      `${CORE_APP_NAME}.exe`,
+    // Prefer the configured build type. MSBuild multi-config generators put
+    // the exe under <Config>/, Ninja single-config under the build type, so
+    // fall back to scanning whatever the generator actually produced.
+    const preferred = join(artefactsDir, BUILD_TYPE, `${CORE_APP_NAME}.exe`);
+    if (existsSync(preferred)) return preferred;
+    return (
+      findFileRecursively(artefactsDir, `${CORE_APP_NAME}.exe`) ??
+      join(artefactsDir, `${CORE_APP_NAME}.exe`)
     );
-    return directPath;
   }
   // macOS: .app bundle
   const directPath = join(
@@ -210,6 +232,13 @@ export function ensureCmakeConfigured() {
 export function cmakeBuild(target) {
   ensureCmakeConfigured();
   const args = ["--build", BUILD_DIR, `-j${JOBS}`];
+  // Multi-config generators (Visual Studio) pick the configuration from
+  // --config, NOT from CMAKE_BUILD_TYPE -- without this they build Debug by
+  // default and the output lands in a <Config>/ subdir the rest of the build
+  // doesn't look in. Harmless for single-config Ninja/Makefiles.
+  if (process.platform === "win32") {
+    args.push("--config", BUILD_TYPE);
+  }
   if (target) {
     args.push("--target", target);
     log(`cmake --build ${BUILD_DIR} --target ${target} -j${JOBS}`);
@@ -241,7 +270,12 @@ export function appIsRunning() {
     const exe = path.basename(shellExecutablePath());
     const result = runQuiet("tasklist", ["/FI", `IMAGENAME eq ${exe}`, "/FO", "CSV", "/NH"]);
     // tasklist returns 0 even when no matches; check output for actual process
-    return result.status === 0 && result.stdout.includes(exe);
+    const shellUp = result.status === 0 && result.stdout.includes(exe);
+    if (shellUp) return true;
+    // The nested Core can outlive the shell; treat it as "running" too so
+    // killApp() still takes it down (avoids a stale Core on :2899).
+    const coreResult = runQuiet("tasklist", ["/FI", `IMAGENAME eq ${CORE_APP_NAME}.exe`, "/FO", "CSV", "/NH"]);
+    return coreResult.status === 0 && coreResult.stdout.includes(`${CORE_APP_NAME}.exe`);
   } else {
     // Linux: check for process by name
     const exe = path.basename(shellExecutablePath());
@@ -280,6 +314,10 @@ export function killApp() {
   } else if (process.platform === "win32") {
     const exe = path.basename(shellExecutablePath());
     runQuiet("taskkill", ["/IM", exe, "/F", "/T"]);
+    // The nested JUCE Core stays bound to :2899 even after the shell exits;
+    // a lingering ResoStage Core.exe would serve stale assets / steal the
+    // port and cause a black window, so kill it too (mirrors the mac pkill).
+    runQuiet("taskkill", ["/IM", `${CORE_APP_NAME}.exe`, "/F"]);
     sleepMs(500);
   } else {
     // Linux
@@ -290,6 +328,32 @@ export function killApp() {
   
   if (appIsRunning()) die(`Could not stop ${SHELL_APP_NAME}`);
   ok(`${SHELL_APP_NAME} stopped`);
+}
+
+// Embed icons/app.ico into a Windows PE executable's resource section. The
+// shipped ResoStage.exe is a renamed copy of Electron's electron.exe, which
+// carries Electron's own icon; patching the PE resources swaps it for ours.
+// Equivalent to what electron-builder does via rcedit, done here in-process
+// with the pure-JS resedit package (keeps the hand-rolled assembly dependency-
+// free at runtime).
+function setWindowsExeIcon(exePath, icoPath) {
+  const exe = NtExecutable.from(readFileSync(exePath));
+  const res = NtExecutableResource.from(exe);
+  const iconFile = Data.IconFile.from(readFileSync(icoPath));
+  const RT_ICON = 3;
+  const RT_GROUP_ICON = 14;
+  // Drop every existing icon/group so our group id 1 is the only (and thus
+  // lowest) one Windows will pick. replaceIconsForResource only swaps entries
+  // that share the target group id, so leftover Electron icons would win.
+  res.entries = res.entries.filter((e) => e.type !== RT_ICON && e.type !== RT_GROUP_ICON);
+  Resource.IconGroupEntry.replaceIconsForResource(
+    res.entries,
+    1, // iconGroupID -- lowest id wins for display
+    1033, // lang: en-US
+    iconFile.icons.map((item) => item.data),
+  );
+  res.outputResource(exe);
+  writeFileSync(exePath, Buffer.from(exe.generate()));
 }
 
 export function startApp() {
@@ -314,12 +378,16 @@ export function startApp() {
       run(lsregister, ["-f", appBundle], { allowFail: true });
     }
     run("open", [appBundle]);
-  } else if (process.platform === "win32") {
-    // On Windows, just execute the .exe directly
-    run(appBundle, [], { detached: true, stdio: "ignore" });
   } else {
-    // Linux
-    run(appBundle, [], { detached: true, stdio: "ignore" });
+    // Windows / Linux: launch detached so this script returns and the app
+    // keeps running on its own. (`run()` ignores detached/stdio opts, so use
+    // spawn directly.)
+    const child = spawn(appBundle, [], {
+      detached: true,
+      stdio: "ignore",
+      shell: false,
+    });
+    child.unref();
   }
   ok(`Launched ${SHELL_APP_NAME}`);
 }
@@ -453,71 +521,109 @@ function assembleShellBundle() {
     return;
   }
 
-  if (process.platform === "win32") {
-    // Windows: create a simple folder structure with .exe + dist + Core
+if (process.platform === "win32") {
+    // Windows layout (build/win/<arch>/):
+    //   ResoStage.exe        renamed Electron runtime
+    //   resources/           Electron's own dir, incl. resources/app/ (the app)
+    //   resources/app/       electron/package.json + compiled dist/ + deps
+    //   ResoStage Core.exe   nested JUCE backend (at bundle root, next to exe)
     const shellBundle = getShellAppBundle(); // e.g., build/win/x64/ResoStage.exe
     const shellDir = path.dirname(shellBundle);
     log(`Assembling ${shellBundle}...`);
-    
-    // Ensure directory exists
     mkdirSync(shellDir, { recursive: true });
-    
-    // Copy Electron runtime files (copied from node_modules/electron/dist)
-    const electronDistSrc = join(ROOT, "electron", "node_modules", "electron", "dist");
-    const electronFiles = [
+
+    // Copy the ENTIRE Electron runtime. A hand-picked list here keeps silently
+    // dropping files the renderer needs (d3dcompiler_47.dll, chrome_100/200
+    // _percent.pak, vk_swiftshader_icd.json) -- a bundle that "builds" but
+    // shows a black screen. Copying dist/ wholesale is both correct and
+    // future-proof.
+    const electronDistSrc = join(
+      ROOT,
+      "electron",
+      "node_modules",
+      "electron",
+      "dist",
+    );
+    if (!existsSync(electronDistSrc)) {
+      die(`Electron runtime not found at ${electronDistSrc} (run pnpm install)`);
+    }
+    cpSync(electronDistSrc, shellDir, { recursive: true });
+
+    // The renderer cannot start without these; if any is missing (e.g. held
+    // open by a lingering process during the copy) fail loudly instead of
+    // shipping a black screen.
+    const requiredRuntime = [
       "electron.exe",
-      "icudtl.dat",
+      "chrome_100_percent.pak",
+      "chrome_200_percent.pak",
+      "d3dcompiler_47.dll",
       "resources.pak",
       "snapshot_blob.bin",
-      "v8_context_snapshot.bin",
-      "libEGL.dll",
-      "libGLESv2.dll",
-      "ffmpeg.dll",
-      "dxcompiler.dll",
-      "dxil.dll",
-      "vk_swiftshader.dll",
-      "vulkan-1.dll",
-      "LICENSE",
-      "LICENSES.chromium.html",
-      "version",
     ];
-    const electronDirs = ["locales", "resources"];
-    
-    for (const file of electronFiles) {
-      const src = join(electronDistSrc, file);
-      if (existsSync(src)) {
-        cpSync(src, join(shellDir, file));
-      }
+    const missingRuntime = requiredRuntime.filter(
+      (f) => !existsSync(join(shellDir, f)),
+    );
+    if (missingRuntime.length) {
+      die(
+        `Electron runtime incomplete: missing ${missingRuntime.join(", ")} in ${shellDir}`,
+      );
     }
-    for (const dir of electronDirs) {
-      const src = join(electronDistSrc, dir);
-      const dst = join(shellDir, dir);
-      if (existsSync(dst)) rmSync(dst, { recursive: true, force: true });
-      if (existsSync(src)) {
-        cpSync(src, dst, { recursive: true });
-      }
-    }
-    
-    // Rename electron.exe to ResoStage.exe (the main executable)
+
+    // electron.exe is the runtime. Rename it to the product name so the
+    // shipped executable is ResoStage.exe. Electron resolves its helper
+    // processes and resources relative to its own executable path, so the
+    // name swap is safe (mirrors brand-mac-app.mjs on macOS).
     const electronExeSrc = join(shellDir, "electron.exe");
-    if (existsSync(electronExeSrc)) {
-      if (existsSync(shellBundle)) rmSync(shellBundle, { force: true });
-      cpSync(electronExeSrc, shellBundle);
-    } else {
+    if (!existsSync(electronExeSrc)) {
       die(`Electron executable not found at ${electronExeSrc}`);
     }
-    
-    // Electron looks for the app at <exe-dir>/resources/app/ (where the
-    // runtime's default_app.asar also lives). Place our shell there.
-    const appDir = join(shellDir, "resources", "app");
-    mkdirSync(appDir, { recursive: true });
-    const distSrc = join(ROOT, "electron", "dist");
-    const distDst = join(appDir, "dist");
-    if (existsSync(distDst)) rmSync(distDst, { recursive: true, force: true });
-    cpSync(distSrc, distDst, { recursive: true });
-    cpSync(join(ROOT, "electron", "package.json"), join(appDir, "package.json"));
-    
-    // Copy Core executable (rename to ResoStage Core.exe)
+    if (existsSync(shellBundle)) rmSync(shellBundle, { force: true });
+    cpSync(electronExeSrc, shellBundle);
+
+    // electron.exe ships with Electron's own icon embedded. Patch the copied
+    // exe's PE resources so ResoStage.exe shows our icon in Explorer / the
+    // taskbar (the Inno shortcuts already point at ResoStage.ico, but the exe
+    // itself would otherwise keep the Electron logo). Mirrors what electron-
+    // builder does via rcedit, done here with the pure-JS resedit package.
+    const appIco = join(ROOT, "icons", "app.ico");
+    if (existsSync(appIco)) {
+      setWindowsExeIcon(shellBundle, appIco);
+    } else {
+      log(`Warning: icons/app.ico missing -- exe keeps Electron's default icon`);
+    }
+
+    // The app proper (package.json + compiled dist/ + runtime deps) must live
+    // at resources/app/ -- that is the one place Electron looks for the
+    // packaged app when launched with no arguments. Next to the exe (the old
+    // layout) meant ResoStage.exe booted Electron's stock default_app.asar
+    // instead of this app.
+    const appDst = join(shellDir, "resources", "app");
+    rmSync(appDst, { recursive: true, force: true });
+    mkdirSync(appDst, { recursive: true });
+    cpSync(join(ROOT, "electron", "package.json"), join(appDst, "package.json"));
+    cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), {
+      recursive: true,
+    });
+    copyShellRuntimeDeps(appDst);
+
+    // The SPA the Electron shell loads (EMBED_URL = http://localhost:<port>/)
+    // is served by the nested Core's WebServer, not by the shell itself. The
+    // Core looks for it at <exe dir>/resources/web (Windows) / Contents/
+    // Resources/web (macOS), so copy the built UI there. Without this the
+    // Core has no web root in the packaged bundle and serves "not found" --
+    // a black window, even though a Core launched from the repo (where
+    // ./ui/dist exists) serves it fine.
+    const webSrc = join(ROOT, "ui", "dist");
+    if (existsSync(webSrc)) {
+      const webDst = join(shellDir, "resources", "web");
+      rmSync(webDst, { recursive: true, force: true });
+      cpSync(webSrc, webDst, { recursive: true });
+    } else {
+      log("WARNING: ui/dist missing -- the app will show a blank window (run pnpm rebuild)");
+    }
+
+    // Nested JUCE Core executable, at the bundle root next to ResoStage.exe
+    // (findNestedCoreBinary() resolves it via process.resourcesPath).
     const coreDst = join(shellDir, `${CORE_APP_NAME}.exe`);
     if (existsSync(coreDst)) rmSync(coreDst, { force: true });
     const coreBuildDir = path.dirname(rawCore);
@@ -527,14 +633,7 @@ function assembleShellBundle() {
     } else {
       log(`Warning: Core exe not found at ${coreExe}`);
     }
-    
-    // Create a simple launcher batch file that sets up paths
-    const launcher = join(shellDir, "ResoStage.cmd");
-    writeFileSync(launcher, `@echo off
-cd /d "%~dp0"
-start "" "%~dp0ResoStage.exe" %*
-`);
-    
+
     ok(`Assembled ${shellBundle}`);
     return;
   }
@@ -547,7 +646,12 @@ export function buildApp() {
   // so they can't be overwritten during assembly. Kill it first.
   if (process.platform === "win32" && appIsRunning()) {
     log("Stopping running ResoStage (locks runtime files)...");
-    killApp();
+    killApp({ bestEffort: true });
+    // Wait for any lingering ResoStage.exe / helper processes so the
+    // assembly below never races against their open file handles (that race
+    // used to silently drop chrome_*_percent.pak / d3dcompiler_47.dll and
+    // yield a black screen).
+    for (let i = 0; i < 20 && appIsRunning(); i++) sleepMs(250);
   }
   log(`Building ${CORE_APP_NAME} (${BUILD_TYPE})...`);
   cmakeBuild(APP_TARGET);
@@ -610,7 +714,7 @@ export function clean({ ui = false } = {}) {
   for (const dir of [BUILD_DIR, DIST_DIR]) {
     if (existsSync(dir)) {
       log(`Removing ${dir}...`);
-      run("rm", ["-rf", dir]);
+      rmSync(dir, { recursive: true, force: true });
       ok(`Removed ${dir}`);
     } else {
       log(`No dir at ${dir}`);
@@ -620,7 +724,7 @@ export function clean({ ui = false } = {}) {
     const dist = join(ROOT, "ui", "dist");
     if (existsSync(dist)) {
       log("Removing ui/dist...");
-      run("rm", ["-rf", dist]);
+      rmSync(dist, { recursive: true, force: true });
       ok("Removed ui/dist");
     }
   }

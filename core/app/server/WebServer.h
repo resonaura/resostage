@@ -205,6 +205,11 @@ enum class WebCommandKind : uint8_t {
     // WebUiState::quitConfirmPending / MainComponent::confirmQuitIfUnsaved).
     // `arg`: 0 = Cancel, 1 = Save, 2 = Don't Save.
     QuitDecision,
+    // Answers the in-webview "Unsaved Changes" prompt shown before opening a
+    // project from Finder/Explorer (see WebUiState::openConfirmPending /
+    // MainComponent::openProjectFromIpc). `arg`: 0 = Cancel, 1 = Save,
+    // 2 = Don't Save.
+    OpenDecision,
     UiFocusState,
     // Generic native menu / hotkey dispatch (Electron shell menu bar, etc.).
     // `json` = {"action":"..."}; handled via MainComponent::performAction().
@@ -307,6 +312,10 @@ struct WebUiState {
     // user's Save/Don't Save/Cancel answer -- the web UI shows a ConfirmDialog
     // and replies with WebCommandKind::QuitDecision.
     bool quitConfirmPending = false;
+    // True while MainComponent is waiting on the Save/Don't Save/Cancel answer
+    // before opening a project requested from Finder/Explorer -- the web UI
+    // shows a ConfirmDialog and replies with WebCommandKind::OpenDecision.
+    bool openConfirmPending = false;
     // Mode-switch request for the web UI tabs (player/mixer/editor/settings).
     // Set by performAction("mode_*") from keyboard or MIDI; uiTabSeq bumps on
     // every request so re-selecting the active tab still fires a React effect.

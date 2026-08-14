@@ -39,6 +39,9 @@
     "firmware:monitor": "pnpm --dir resolight/firmware monitor",
     "firmware:list-strips": "pnpm --dir resolight/firmware list-strips"
   },
+  "devDependencies": {
+    "resedit": "^1.7.2"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",

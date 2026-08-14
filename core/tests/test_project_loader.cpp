@@ -23,7 +23,7 @@ std::string makeProjectArchive(const std::string& projectJson) {
     fs::remove_all(path, ec);
     fs::create_directories(fs::path(path) / "Audio", ec);
 
-    std::ofstream jsonOfs(fs::path(path) / "project.json", std::ios::binary);
+    std::ofstream jsonOfs(fs::path(path) / resostage::kProjectDataFileName, std::ios::binary);
     jsonOfs.write(projectJson.data(), projectJson.size());
     jsonOfs.close();
 

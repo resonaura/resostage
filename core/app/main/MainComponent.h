@@ -55,8 +55,11 @@ public:
     void performAction(const std::string& action);
     /** Called from Electron IPC when user opens .rsnrasetmeta or .rsnraset file. */
     void openProjectFromIpc(const std::string& path);
-    /** Write .rsnrasetmeta file next to project for file associations. */
-    void writeProjectMetaFile(const juce::File& projectFile);
+    /**
+     * Always drop the project-folder icon into the container's Resources/
+     * subfolder (and apply it on Windows via desktop.ini). Runs on save.
+     */
+    void ensureProjectFolderIcon(const juce::File& projectFile);
 
     /** Expose active key bindings for the Electron menu. */
     const std::unordered_map<std::string, std::string>& getKeyBindings() const { return keyBindings; }
@@ -101,6 +104,11 @@ private:
     bool awaitingQuitDecision = false;
     std::function<void(bool)> pendingQuitDecision;
 
+    // Pending "open project requested from Finder/Explorer while current
+    // project is dirty" -- see openProjectFromIpc / handleOpenDecision.
+    bool awaitingOpenDecision = false;
+    std::string pendingOpenPath;
+
     std::string lastSeenSpaView;
 
     std::unordered_map<std::string, std::string> keyBindings = {
@@ -144,6 +152,7 @@ private:
     void loadProjectClicked();
     void saveProjectClicked(bool saveAs, std::function<void(bool)> onDone = nullptr);
     void handleQuitDecision(int choice);
+    void handleOpenDecision(int choice);
     void applyGlobalBindings();
     void jumpToSectionRelative(int delta);
     void jumpToLastSection();

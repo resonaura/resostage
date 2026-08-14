@@ -210,6 +210,13 @@ export const project = {
     post("/api/v1/project/quit-decision", {
       index: QUIT_DECISION_INDEX[choice],
     }),
+  // Answers the in-webview "Unsaved Changes" prompt shown before opening an
+  // externally-requested project (WebUiState.openConfirmPending) -- see
+  // WebCommandKind::OpenDecision.
+  resolveOpen: (choice: "save" | "discard" | "cancel") =>
+    post("/api/v1/project/open-decision", {
+      index: QUIT_DECISION_INDEX[choice],
+    }),
 
   async upload(file: File): Promise<void> {
     try {

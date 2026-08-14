@@ -37,6 +37,10 @@ import crypto from "node:crypto";
 
 export const TARGET_FORMAT_VERSION = 3;
 
+// Single on-disk project data file (new format) and the legacy file it replaced.
+const PROJECT_DATA_NAME = "project.rsnrasetmeta";
+const LEGACY_JSON_NAME = "project.json";
+
 // ── primitives ───────────────────────────────────────────────────────────────
 
 /**
@@ -588,14 +592,15 @@ function resolveProjectJsonPath(target) {
     throw new Error(`File or directory not found: ${abs}`);
   }
   if (fs.statSync(abs).isDirectory()) {
-    const jsonPath = path.join(abs, "project.json");
-    if (!fs.existsSync(jsonPath)) {
-      throw new Error(`project.json not found in ${abs}`);
-    }
-    return jsonPath;
+    // Prefer the single new data file; fall back to the legacy project.json.
+    const meta = path.join(abs, PROJECT_DATA_NAME);
+    if (fs.existsSync(meta)) return meta;
+    const legacy = path.join(abs, LEGACY_JSON_NAME);
+    if (fs.existsSync(legacy)) return legacy;
+    throw new Error(`${PROJECT_DATA_NAME} (or legacy ${LEGACY_JSON_NAME}) not found in ${abs}`);
   }
-  if (!abs.endsWith(".json")) {
-    throw new Error(`Not a project container or project.json: ${abs}`);
+  if (!abs.endsWith(".rsnrasetmeta") && !abs.endsWith(".json")) {
+    throw new Error(`Not a project container or ${PROJECT_DATA_NAME}/${LEGACY_JSON_NAME}: ${abs}`);
   }
   return abs;
 }
@@ -603,27 +608,34 @@ function resolveProjectJsonPath(target) {
 if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
   const target = process.argv[2];
   if (!target) {
-    console.error("Usage: pnpm migrate <path-to-project.json-or-.rsnraset>");
+    console.error(`Usage: pnpm migrate <path-to-project.json-or-.rsnraset>`);
     process.exit(1);
   }
   try {
     const jsonPath = resolveProjectJsonPath(target);
+    const isLegacy = path.basename(jsonPath) === LEGACY_JSON_NAME;
     const oldObj = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
     const fromVersion = oldObj.format?.version ?? oldObj.formatVersion ?? 1;
-    if (fromVersion === TARGET_FORMAT_VERSION) {
+    if (fromVersion === TARGET_FORMAT_VERSION && !isLegacy) {
       console.log(`Already at format v${TARGET_FORMAT_VERSION}: ${jsonPath}`);
       process.exit(0);
     }
-    // The engine only ever reads project.json, so a .bak next to it is inert
+    // Writing into the new single data file (project.rsnrasetmeta); when the
+    // source was the legacy project.json we remove it so only one file remains.
+    const outPath = isLegacy
+      ? path.join(path.dirname(jsonPath), PROJECT_DATA_NAME)
+      : jsonPath;
+    // The engine only ever reads the data file, so a .bak next to it is inert
     // and gives an undo for a conversion that renumbers every id in the file.
     fs.copyFileSync(jsonPath, `${jsonPath}.bak`);
     fs.writeFileSync(
-      jsonPath,
+      outPath,
       `${JSON.stringify(migrateProjectObject(oldObj), null, 2)}\n`,
       "utf-8",
     );
+    if (isLegacy) fs.rmSync(jsonPath, { force: true });
     console.log(
-      `Migrated ${jsonPath}: format v${fromVersion} -> v${TARGET_FORMAT_VERSION}`
+      `Migrated ${outPath}: format v${fromVersion} -> v${TARGET_FORMAT_VERSION}`
         + ` (backup: ${path.basename(jsonPath)}.bak)`,
     );
   } catch (err) {

@@ -652,6 +652,7 @@ export default function App() {
       </footer>
 
       <QuitConfirmDialog state={state} />
+      <OpenConfirmDialog state={state} />
 
       {toastNotifications.length > 0 && (
         <div className="fixed bottom-5 right-5 z-[300] flex flex-col gap-2.5 max-w-sm pointer-events-none">
@@ -717,6 +718,27 @@ function QuitConfirmDialog({ state }: { state: WebUiState }) {
       onConfirm={() => void project.resolveQuit("save")}
       onThird={() => void project.resolveQuit("discard")}
       onCancel={() => void project.resolveQuit("cancel")}
+    />
+  );
+}
+
+// A project was opened from Finder/Explorer while the current project has
+// unsaved changes -- MainComponent::openProjectFromIpc() is blocked waiting on
+// our answer (see WebUiState.openConfirmPending / WebCommandKind::OpenDecision).
+// Mirror of QuitConfirmDialog with open-specific wording.
+function OpenConfirmDialog({ state }: { state: WebUiState }) {
+  return (
+    <ConfirmDialog
+      open={state.openConfirmPending}
+      title="Unsaved Changes"
+      message={`Do you want to save changes to '${state.projectName || "Untitled Project"}' before opening another project?`}
+      confirmLabel="Save"
+      cancelLabel="Cancel"
+      thirdLabel="Don't Save"
+      danger
+      onConfirm={() => void project.resolveOpen("save")}
+      onThird={() => void project.resolveOpen("discard")}
+      onCancel={() => void project.resolveOpen("cancel")}
     />
   );
 }

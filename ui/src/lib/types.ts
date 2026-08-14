@@ -788,6 +788,8 @@ export interface WebUiState {
   busy: boolean;
   /** True while the native app is waiting on a Save/Don't Save/Cancel answer before quitting. */
   quitConfirmPending: boolean;
+  /** True while the native app is waiting on a Save/Don't Save/Cancel answer before opening an externally-requested project. */
+  openConfirmPending: boolean;
   /**
    * Mode-switch request from keyboard/MIDI (`player`/`mixer`/`editor`/`settings`).
    * `uiTabSeq` increments on every request so re-selecting the active tab still may fire.
@@ -841,6 +843,7 @@ export const emptyState: WebUiState = {
   statusMessage: "",
   busy: false,
   quitConfirmPending: false,
+  openConfirmPending: false,
   uiTab: "",
   uiTabSeq: 0,
   canUndo: false,

@@ -8,6 +8,11 @@
 #include "project/RouteId.h"
 #include "timing/BarSeek.h"
 #include "server/BuilderJson.h"
+#include "BinaryData.h"
+
+#if JUCE_WINDOWS
+#include <windows.h>
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -153,6 +158,17 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort) {
                              .getChildFile("Contents/Resources/web")
                              .getFullPathName()
                              .toStdString());
+#if JUCE_WINDOWS
+    // Windows packaged bundle: scripts/lib.mjs copies the built SPA to
+    // <exe dir>/resources/web (macOS nests it at Contents/Resources/web
+    // instead). Without this root the packaged Core has nowhere to serve the
+    // UI from and returns "not found" -- a black Electron window -- while a
+    // Core launched from the repo works because the ui/dist root below exists.
+    webServer.addWebRoot(juce::File::getSpecialLocation(juce::File::currentApplicationFile)
+                             .getSiblingFile("resources/web")
+                             .getFullPathName()
+                             .toStdString());
+#endif
     webServer.addWebRoot(juce::File::getCurrentWorkingDirectory()
                              .getChildFile("ui/dist")
                              .getFullPathName()
@@ -513,6 +529,17 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
         return;
     }
 
+    // If the current project has unsaved changes, ask first (same Save/Don't
+    // Save/Cancel prompt as quitting). Await the answer before loading so we
+    // don't silently discard work by opening the external project.
+    if (engine.hasUnsavedChanges()) {
+        if (awaitingOpenDecision) return; // already prompting
+        awaitingOpenDecision = true;
+        pendingOpenPath = path;
+        publishWebState();
+        return;
+    }
+
     // Load the project (reuse existing logic)
     loadProjectFromPath(projectDir);
     // Bring Electron window to front if needed
@@ -522,16 +549,59 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
     }
 }
 
-void MainComponent::writeProjectMetaFile(const juce::File& projectFile) {
-    // Create .rsnrasetmeta file INSIDE the .rsnraset project folder/package.
-    // Does NOT include absolute path (portable across machines/platforms).
-    // User can open the folder and double-click the meta file to launch.
-    juce::File metaFile = projectFile.getChildFile("project.rsnrasetmeta");
-    juce::String json = "{"
-        "\"projectName\":\"" + engine.project().name + "\","
-        "\"version\":1"
-    "}";
-    metaFile.replaceWithText(json);
+void MainComponent::ensureProjectFolderIcon(const juce::File& projectFile) {
+    if (!projectFile.isDirectory())
+        return;
+
+    // Service-resources subfolder, named in the same capitalized style as the
+    // container's own Audio/ / Peaks/ / Autosave/ / Backups/ folders. Holds the
+    // project-folder icon so the folder always carries it regardless of how the
+    // app is installed (it is embedded in the Core binary, not read from disk).
+    juce::File resDir = projectFile.getChildFile("Resources");
+    if (!resDir.exists() && !resDir.createDirectory().wasOk())
+        return;
+
+#if JUCE_WINDOWS
+    const char* ico = reinterpret_cast<const char*>(BinaryData::folder_ico);
+    const int icoSize = BinaryData::folder_icoSize;
+    const juce::File icoFile = resDir.getChildFile("folder.ico");
+    if (ico != nullptr && icoSize > 0) {
+        juce::FileOutputStream os(icoFile);
+        if (os.openedOk()) {
+            os.write(ico, static_cast<size_t>(icoSize));
+            os.flush();
+        }
+    }
+
+    // desktop.ini makes Explorer paint the folder with our icon. Reference the
+    // ico relative to the container (desktop.ini lives at its root).
+    juce::File iniFile = projectFile.getChildFile("desktop.ini");
+    iniFile.replaceWithText(
+        "[.ShellClassInfo]\r\n"
+        "IconResource=Resources\\folder.ico,0\r\n"
+        "IconFile=Resources\\folder.ico\r\n"
+        "IconIndex=0\r\n");
+
+    // Explorer only reads desktop.ini when the folder carries the Hidden or
+    // System attribute. System alone (NOT Hidden) keeps the project folder
+    // visible in normal browsing while still enabling the custom icon.
+    const std::wstring wpath = projectFile.getFullPathName().toWideCharPointer();
+    DWORD attrs = ::GetFileAttributesW(wpath.c_str());
+    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_SYSTEM) == 0) {
+        ::SetFileAttributesW(wpath.c_str(), attrs | FILE_ATTRIBUTE_SYSTEM);
+    }
+#elif JUCE_MAC
+    const char* icns = reinterpret_cast<const char*>(BinaryData::folder_icns);
+    const int icnsSize = BinaryData::folder_icnsSize;
+    if (icns != nullptr && icnsSize > 0) {
+        const juce::File icnsFile = resDir.getChildFile("folder.icns");
+        juce::FileOutputStream os(icnsFile);
+        if (os.openedOk()) {
+            os.write(icns, static_cast<size_t>(icnsSize));
+            os.flush();
+        }
+    }
+#endif
 }
 
 void MainComponent::jumpToSectionRelative(int delta) {
@@ -987,6 +1057,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::MidiClear: settingsMidiClear(cmd.json); break;
             case WebCommandKind::Seek: transportSeek(cmd.json); break;
             case WebCommandKind::QuitDecision: handleQuitDecision(cmd.arg); break;
+            case WebCommandKind::OpenDecision: handleOpenDecision(cmd.arg); break;
             case WebCommandKind::UiFocusState:
                 // Legacy no-op: native MacKeyMonitor is gone; SPA handles focus.
                 break;
@@ -1048,6 +1119,37 @@ void MainComponent::handleQuitDecision(int choice) {
         if (onDecision) onDecision(true);
     } else { // Cancel
         if (onDecision) onDecision(false);
+    }
+}
+
+void MainComponent::handleOpenDecision(int choice) {
+    if (!awaitingOpenDecision)
+        return;
+    const std::string path = pendingOpenPath;
+    awaitingOpenDecision = false;
+    pendingOpenPath.clear();
+
+    auto doOpen = [this, path]() {
+        juce::File f(path);
+        juce::File projectDir;
+        if (f.hasFileExtension("rsnrasetmeta"))
+            projectDir = f.getParentDirectory();
+        else
+            projectDir = f;
+        loadProjectFromPath(projectDir);
+    };
+
+    if (choice == 1) { // Save, then open
+        saveProjectClicked(engine.isDraftProject(), [this, doOpen](bool ok) {
+            if (ok) {
+                engine.clearDirty();
+                doOpen();
+            }
+        });
+    } else if (choice == 2) { // Don't Save, open anyway
+        doOpen();
+    } else { // Cancel
+        setStatus("Open cancelled.");
     }
 }
 
@@ -1118,6 +1220,7 @@ void MainComponent::publishWebState() {
     state.statusMessage = lastStatusMessage;
     state.busy = engine.isBusy();
     state.quitConfirmPending = awaitingQuitDecision;
+    state.openConfirmPending = awaitingOpenDecision;
     state.uiTab = uiTabRequest;
     state.uiTabSeq = uiTabSeq;
     state.canUndo = engine.canUndoTimeline();
@@ -1864,8 +1967,10 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
                 }
                 setStatus("Saved " + name);
                 rememberRecentProject(target);
-                // Create/update .rsnrasetmeta file next to the project for file associations.
-                writeProjectMetaFile(target);
+                // The single data file (project.rsnrasetmeta) is written by
+                // saveAsWithExtras itself; here we only drop the folder icon
+                // into the project's Resources/ and stamp desktop.ini.
+                ensureProjectFolderIcon(target);
                 publishWebState();
                 if (onDone)
                     onDone(true);

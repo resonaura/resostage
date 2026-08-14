@@ -126,7 +126,8 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
             for (const auto& entry : fs::recursive_directory_iterator(srcPath, ec)) {
                 if (entry.is_regular_file(ec)) {
                     fs::path rel = fs::relative(entry.path(), srcPath, ec);
-                    if (rel == "project.json" || rel.string().rfind("Autosave/", 0) == 0)
+                    if (rel == kProjectDataFileName || rel == kLegacyProjectFileName
+                        || rel.string().rfind("Autosave/", 0) == 0)
                         continue;
                     fs::path targetFile = dest / rel;
                     fs::create_directories(targetFile.parent_path(), ec);
@@ -137,7 +138,8 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
     }
 
     for (const auto& ex : extraFiles) {
-        if (ex.archivePath.empty() || ex.archivePath == "project.json")
+        if (ex.archivePath.empty() || ex.archivePath == kProjectDataFileName
+            || ex.archivePath == kLegacyProjectFileName)
             continue;
         fs::path extraDest = dest / ex.archivePath;
         fs::create_directories(extraDest.parent_path(), ec);
@@ -170,14 +172,20 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
     }
 
     const std::string json = serializeProjectJson(projectOverride != nullptr ? *projectOverride : parsedProject);
-    fs::path jsonPath = dest / "project.json";
+    fs::path jsonPath = dest / kProjectDataFileName;
     std::ofstream jsonFile(jsonPath, std::ios::binary);
     if (!jsonFile.is_open()) {
-        error = "Failed to write project.json into " + jsonPath.string();
+        error = "Failed to write " + std::string(kProjectDataFileName) + " into " + jsonPath.string();
         return false;
     }
     jsonFile.write(json.data(), json.size());
     jsonFile.close();
+    // Drop any legacy project.json left in the destination so the new single
+    // file is the only one. (Failure to remove it is non-fatal.)
+    {
+        std::error_code mec;
+        fs::remove(dest / kLegacyProjectFileName, mec);
+    }
 
     return true;
 }
@@ -322,14 +330,18 @@ bool ProjectLoader::saveAutosave(std::string& error) const {
     fs::create_directories(autoDir, ec);
 
     std::string json = serializeProjectJson(parsedProject);
-    fs::path autoJson = autoDir / "project.json";
+    fs::path autoJson = autoDir / kProjectDataFileName;
     std::ofstream ofs(autoJson, std::ios::binary);
     if (!ofs.is_open()) {
-        error = "Failed to write autosave project.json";
+        error = "Failed to write autosave " + std::string(kProjectDataFileName);
         return false;
     }
     ofs.write(json.data(), json.size());
     ofs.close();
+    {
+        std::error_code mec;
+        fs::remove(autoDir / kLegacyProjectFileName, mec);
+    }
 
     const auto now = std::chrono::system_clock::now();
     const auto in_time_t = std::chrono::system_clock::to_time_t(now);
@@ -347,15 +359,30 @@ bool ProjectLoader::hasAutosave(std::string& outTimestamp) const {
     if (openArchivePath.empty())
         return false;
     namespace fs = std::filesystem;
-    fs::path autoJson = fs::path(openArchivePath) / "Autosave" / "project.json";
+    // Prefer the new file name; fall back to a legacy Autosave/project.json.
+    auto autosavePath = [&](const char* name) {
+        return fs::path(openArchivePath) / "Autosave" / name;
+    };
     std::error_code ec;
-    if (!fs::exists(autoJson, ec))
+    fs::path autoJson;
+    if (fs::exists(autosavePath(kProjectDataFileName), ec))
+        autoJson = autosavePath(kProjectDataFileName);
+    else if (fs::exists(autosavePath(kLegacyProjectFileName), ec))
+        autoJson = autosavePath(kLegacyProjectFileName);
+    else
         return false;
 
-    fs::path mainJson = fs::path(openArchivePath) / "project.json";
-    if (fs::exists(mainJson, ec)) {
+    auto mainDataPath = [&](const char* name) {
+        return fs::path(openArchivePath) / name;
+    };
+    fs::path mainData;
+    if (fs::exists(mainDataPath(kProjectDataFileName), ec))
+        mainData = mainDataPath(kProjectDataFileName);
+    else if (fs::exists(mainDataPath(kLegacyProjectFileName), ec))
+        mainData = mainDataPath(kLegacyProjectFileName);
+    if (!mainData.empty()) {
         auto autoTime = fs::last_write_time(autoJson, ec);
-        auto mainTime = fs::last_write_time(mainJson, ec);
+        auto mainTime = fs::last_write_time(mainData, ec);
         if (autoTime <= mainTime)
             return false;
     }
@@ -378,10 +405,13 @@ bool ProjectLoader::loadAutosave(std::string& error) {
         return false;
     }
     namespace fs = std::filesystem;
-    fs::path autoJson = fs::path(openArchivePath) / "Autosave" / "project.json";
+    fs::path autoJson = fs::path(openArchivePath) / "Autosave" / kProjectDataFileName;
+    std::error_code lec;
+    if (!fs::exists(autoJson, lec))
+        autoJson = fs::path(openArchivePath) / "Autosave" / kLegacyProjectFileName;
     std::ifstream ifs(autoJson, std::ios::binary | std::ios::ate);
     if (!ifs.is_open()) {
-        error = "Autosave project.json not found";
+        error = "Autosave " + std::string(kProjectDataFileName) + " not found";
         return false;
     }
     const std::streamsize size = ifs.tellg();
@@ -424,11 +454,13 @@ bool ProjectLoader::saveBackup(std::string& error) const {
     std::stringstream ss;
     ss << "project_" << std::put_time(std::localtime(&in_time_t), "%Y%m%d_%H%M%S") << ".json";
 
-    fs::path mainJson = fs::path(openArchivePath) / "project.json";
-    if (fs::exists(mainJson, ec)) {
-        fs::copy_file(mainJson, backupDir / ss.str(), fs::copy_options::overwrite_existing, ec);
+    fs::path mainData = fs::path(openArchivePath) / kProjectDataFileName;
+    if (!fs::exists(mainData, ec))
+        mainData = fs::path(openArchivePath) / kLegacyProjectFileName;
+    if (fs::exists(mainData, ec)) {
+        fs::copy_file(mainData, backupDir / ss.str(), fs::copy_options::overwrite_existing, ec);
         if (ec) {
-            error = "Failed to copy project.json to backup: " + ec.message();
+            error = "Failed to copy project data to backup: " + ec.message();
             return false;
         }
     } else {
@@ -437,7 +469,7 @@ bool ProjectLoader::saveBackup(std::string& error) const {
         if (ofs.is_open()) {
             ofs.write(json.data(), json.size());
         } else {
-            error = "Failed to write backup project.json";
+            error = "Failed to write backup project data";
             return false;
         }
     }
@@ -445,20 +477,50 @@ bool ProjectLoader::saveBackup(std::string& error) const {
 }
 
 bool ProjectLoader::reparseProject(std::string& error) {
-    std::vector<uint8_t> jsonBytes;
-    if (!extractFile("project.json", jsonBytes, error))
-        return false;
+    namespace fs = std::filesystem;
 
-    const std::string_view json(
-        reinterpret_cast<const char*>(jsonBytes.data()), jsonBytes.size());
+    // Try the current single data file first (project.rsnrasetmeta). If it's
+    // missing or unreadable, fall back to the legacy project.json and migrate
+    // it to the new single file (parse -> write meta -> delete old json).
+    auto readAndParse = [this](const char* name, Project& out, std::string& err) {
+        std::vector<uint8_t> bytes;
+        if (!extractFile(name, bytes, err))
+            return false;
+        const std::string_view json(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        if (peekProjectFormatVersion(json) < kCurrentFormatVersion) {
+            err = "Outdated project format version. Please run 'pnpm migrate <path>' to convert it to the current schema.";
+            return false;
+        }
+        return parseProjectJson(json, out, err);
+    };
 
     Project proj;
-    if (peekProjectFormatVersion(json) < kCurrentFormatVersion) {
-        error = "Outdated project format version. Please run 'pnpm migrate <path>' to convert it to the current schema.";
-        return false;
+    std::string err;
+    if (readAndParse(kProjectDataFileName, proj, err)) {
+        // Already the new single-file format.
+    } else {
+        // Try to migrate from the legacy project.json.
+        Project legacyProj;
+        std::string legacyErr;
+        if (!readAndParse(kLegacyProjectFileName, legacyProj, legacyErr)) {
+            error = "No valid project data (" + std::string(kProjectDataFileName)
+                    + " or " + std::string(kLegacyProjectFileName) + "): "
+                    + err + " / " + legacyErr;
+            return false;
+        }
+        const std::string json = serializeProjectJson(legacyProj);
+        const fs::path metaPath = fs::path(openArchivePath) / kProjectDataFileName;
+        std::ofstream mf(metaPath, std::ios::binary);
+        if (!mf.is_open()) {
+            error = "Failed to write " + std::string(kProjectDataFileName) + " during migration: " + metaPath.string();
+            return false;
+        }
+        mf.write(json.data(), json.size());
+        mf.close();
+        std::error_code mec;
+        fs::remove(fs::path(openArchivePath) / kLegacyProjectFileName, mec);
+        proj = std::move(legacyProj);
     }
-    if (!parseProjectJson(json, proj, error))
-        return false;
 
     if (proj.tracks.empty()) {
         const std::vector<std::string> defaultTrackNames = {

@@ -33,7 +33,7 @@ import {
   TouchBar,
   type MenuItemConstructorOptions,
 } from "electron";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { createRequire } from "node:module";
@@ -374,6 +374,15 @@ function findNestedCoreBinary(): string | null {
 }
 
 function spawnBackend(): void {
+  // A Core that outlived a killed/crashed shell (or an old build) still binds
+  // :2899 and serves the SPA's .js as text/html -> black window. With the
+  // single-instance lock held we know no other app instance is legitimately
+  // running, so on Windows we clear any leftover "ResoStage Core.exe" before
+  // spawning ours. (macOS shells the Core inside the app bundle; the OS reaps
+  // strays with the parent.)
+  if (process.platform === "win32") {
+    execFile("taskkill", ["/IM", "ResoStage Core.exe", "/F"], { windowsHide: true }, () => {});
+  }
   const corePath = findNestedCoreBinary();
   if (!corePath) {
     console.error(
@@ -400,7 +409,9 @@ function spawnBackend(): void {
   backendProcess.on("exit", () => {
     backendProcess = null;
     // The backend owns the unsaved-changes prompt on quit; once it's gone
-    // there's nothing left for this shell to show.
+    // there's nothing left for this shell to show. Mark the quit in progress
+    // so the window close handler stops hiding and lets the app exit.
+    isQuitting = true;
     app.quit();
   });
 }
@@ -1176,6 +1187,35 @@ function reevaluateIdle(reason: string): void {
  *          we attempt setApplicationMenu first (works in KDE/Unity/etc),
  *          fallback to window menu if environment suggests no global menu support
  */
+/**
+ * Register the .rsnrasetmeta file association under HKEY_CURRENT_USER so
+ * double-clicking a project link opens it, even for the portable build that
+ * never ran the Inno installer (which writes the same keys under HKCR). HKCU
+ * needs no elevation and does not require a reinstall when the app moves.
+ * Best-effort: a failure to write is non-fatal.
+ */
+function registerFileAssociations(): void {
+  if (process.platform !== "win32") return;
+  const base = "HKCU\\Software\\Classes";
+  const exe = process.execPath;
+  const entries: Array<[key: string, value: string]> = [
+    [`${base}\\.rsnrasetmeta`, "ResoStage.ProjectLink"],
+    [`${base}\\ResoStage.ProjectLink`, "ResoStage Project Link"],
+    [`${base}\\ResoStage.ProjectLink\\DefaultIcon`, `${exe},0`],
+    [`${base}\\ResoStage.ProjectLink\\shell\\open\\command`, `"${exe}" "%1"`],
+  ];
+  for (const [key, value] of entries) {
+    execFile(
+      "reg",
+      ["add", key, "/ve", "/d", value, "/f"],
+      { windowsHide: true },
+      () => {
+        /* best-effort */
+      },
+    );
+  }
+}
+
 function refreshMenu(): void {
   const menu = buildMenu();
   if (!menu) return;
@@ -1287,19 +1327,15 @@ function createWindow(): void {
     },
   );
 
-  // Window close button goes through the same unsaved-changes prompt as the
-  // Quit menu item (POST /api/v1/action "quit"). Only hard-close when the
-  // backend is unreachable -- i.e. the JUCE process is already gone.
-  let forceQuit = false;
+  // Window close button behaves like macOS: it hides the window and keeps the
+  // backend (audio + tray) running instead of quitting the whole app -- so
+  // clicking X no longer kills the Core while leaving a blank shell behind.
+  // A real quit (menu Quit -> backend exits -> app.quit()) sets isQuitting so
+  // this handler lets the window actually close.
   mainWindow.on("close", (e) => {
-    if (forceQuit) return;
+    if (isQuitting) return;
     e.preventDefault();
-    void postAction("quit").then((ok) => {
-      if (!ok) {
-        forceQuit = true;
-        app.quit();
-      }
-    });
+    mainWindow?.hide();
   });
 
   // The Touch Bar's highlighted tab follows the SPA's live uiTab via
@@ -1475,7 +1511,43 @@ app.setAboutPanelOptions({
   applicationVersion: "0.2.0",
 });
 
-void app.whenReady().then(async () => {
+// Set once a real quit is under way (menu Quit -> backend exits -> we call
+// app.quit()). The window "close" handler uses it to distinguish "user closed
+// the window" (hide + keep backend alive, macOS-style) from "we are actually
+// quitting" (let the window go). Without this, backend-exit's app.quit() gets
+// swallowed by a close handler that keeps preventDefault()-ing -- the "first
+// close kills Core, only a second close quits the shell" bug on Windows.
+let isQuitting = false;
+
+// Forward an opened project file to the backend. Defined at module scope so
+// both the macOS open-file handler and the single-instance second-instance
+// event can reach it. The backend itself decides whether to prompt to save
+// the current dirty project first.
+function handleOpenProjectFile(filePath: string): void {
+  if (!filePath) return;
+  void sendIpcMessage({ type: "open-project", path: filePath });
+}
+
+// Only one ResoStage instance may run at a time (macOS + Windows). A second
+// launch forwards its open-project argv to the running instance and quits,
+// instead of spawning a second Core that would fight over :2899 (and, with a
+// stale backend, serve the SPA's .js as text/html -- the black screen).
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    const fileArg = argv.find(
+      (a) => a.endsWith(".rsnrasetmeta") || a.endsWith(".rsnraset"),
+    );
+    if (fileArg) handleOpenProjectFile(fileArg);
+  });
+
+  void app.whenReady().then(async () => {
   if (STANDALONE) spawnBackend();
   ensureAppNotSuspended();
   // Load MenuFlash/Haptics dylibs once up front so first-use isn't silent.
@@ -1487,11 +1559,6 @@ void app.whenReady().then(async () => {
 
   // Handle file associations: .rsnrasetmeta / .rsnraset files opened via Finder/Explorer.
   // On macOS this fires when app is already running; on Windows/Linux the path comes in argv.
-  function handleOpenProjectFile(filePath: string) {
-    if (!filePath) return;
-    // Send to Core via IPC (Electron owns the file association, not Core).
-    void sendIpcMessage({ type: "open-project", path: filePath });
-  }
 
   // macOS: app.on('open-file') fires when user double-clicks associated file.
   if (process.platform === "darwin") {
@@ -1518,7 +1585,6 @@ void app.whenReady().then(async () => {
       recentProjects: menuModel.recentProjects ?? [],
     };
   }
-  refreshMenu();
 
   // No runtime dock.setIcon() workaround needed anymore: when launched as
   // the branded copy (electron/scripts/brand-mac-app.mjs), the bundle's own
@@ -1526,6 +1592,15 @@ void app.whenReady().then(async () => {
   // unbranded (`electron .` in dev), this intentionally shows the stock
   // Electron icon rather than a single-resolution PNG override.
   createWindow();
+
+  // On Windows the menu is attached to the BrowserWindow (mainWindow.setMenu),
+  // which only exists once createWindow() has run -- refreshing before it
+  // silently drops the menu bar until some undo/redo/recent change happens to
+  // trigger a rebuild. macOS/Linux use the window-independent application menu.
+  refreshMenu();
+
+  // Register the .rsnrasetmeta association for the portable Windows build.
+  registerFileAssociations();
 
   // System sleep / display off → wake: GPU + compositor often leave a black
   // frame. Recover automatically (double-pass: GPU may not be ready at +50ms).
@@ -1565,7 +1640,8 @@ void app.whenReady().then(async () => {
   // user is back regardless of which path took the window away.
   app.on("browser-window-focus", () => exitIdle("app-focus"));
   app.on("did-become-active", () => exitIdle("app-active"));
-});
+  });
+}
 
 app.on("window-all-closed", () => {
   app.quit();
@@ -1577,6 +1653,7 @@ app.on("window-all-closed", () => {
 // etc.) so a standalone launch never leaves the backend running headless
 // with no shell left to talk to it.
 app.on("before-quit", () => {
+  isQuitting = true;
   releaseAppSuspensionBlocker();
   if (STANDALONE) killBackend();
 });

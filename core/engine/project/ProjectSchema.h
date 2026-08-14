@@ -27,6 +27,14 @@ namespace resostage {
 // Optional strings are std::optional and serialize as JSON null, never "".
 inline constexpr int kCurrentFormatVersion = 3;
 
+// The single on-disk project data file (holds the full WProject schema, i.e.
+// everything that used to live in project.json). Chosen so double-clicking it
+// is the file-association hook -- the parent directory is the .rsnraset package.
+inline constexpr const char* kProjectDataFileName = "project.rsnrasetmeta";
+// Legacy file that held the same data before the merge; still read + migrated
+// (parsed, re-written as kProjectDataFileName, then deleted) on open.
+inline constexpr const char* kLegacyProjectFileName = "project.json";
+
 struct ProjectFormat {
     int version = kCurrentFormatVersion;
 };

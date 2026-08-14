@@ -58,7 +58,7 @@ std::string makeArchiveWithWav() {
 
     const auto wav = makeSineWav(440.0, 48000.0, 0.25);
     const char* json = R"JSON({"format":{"version":3},"name":"P","sampleRate":48000,"click":{"enabled":false,"name":"Click","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"sends-only","target":null,"sends":[]}},"main":{"enabled":true,"name":"Main","channels":2,"gainDb":0,"pan":0,"mute":false,"solo":false,"output":{"type":"ext-out","target":"audio::out:1,audio::out:2"}},"sends":[],"tracks":[],"songs":[]})JSON";
-    std::ofstream jsonOfs(fs::path(path) / "project.json", std::ios::binary);
+    std::ofstream jsonOfs(fs::path(path) / resostage::kProjectDataFileName, std::ios::binary);
     jsonOfs.write(json, std::strlen(json));
     jsonOfs.close();
 
