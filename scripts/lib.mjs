@@ -1,7 +1,7 @@
 /**
  * Shared helpers for root pnpm / Node scripts (ESM).
  */
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, execFileSync, execSync, spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import path from "node:path";
@@ -385,20 +385,9 @@ export function startApp() {
     }
     run("open", [appBundle]);
   } else if (process.platform === "win32") {
-    const child = spawn(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `Start-Process -FilePath "${appBundle}"`,
-      ],
-      {
-        detached: true,
-        stdio: "ignore",
-      },
-    );
-    child.unref();
+    execFileSync("cmd.exe", ["/c", "start", "", appBundle], {
+      windowsHide: true,
+    });
   } else {
     // Linux: launch detached so this script returns and the app
     // keeps running on its own.

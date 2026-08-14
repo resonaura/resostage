@@ -1955,10 +1955,18 @@ int WebServer::serveStatic(struct lws* wsi, const char* path) {
     // resolves to index.html; unknown paths fall back to index.html too so a
     // refresh on a deep link still lands in the SPA.
     std::string_view p(path != nullptr && path[0] != '\0' ? path : "/");
-    if (p == "/")
+
+    // Strip query parameters (?...) or URL fragments (#...) so filesystem
+    // reads for "assets/index.css?v=1" target "assets/index.css".
+    const auto qpos = p.find_first_of("?#");
+    if (qpos != std::string_view::npos)
+        p = p.substr(0, qpos);
+
+    if (p.empty() || p == "/")
         p = "index.html";
     if (p.front() == '/')
         p.remove_prefix(1);
+
     // Refuse anything that tries to escape the web root.
     if (p.find("..") != std::string_view::npos)
         return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "text/plain", "not found", 9);
@@ -1984,9 +1992,15 @@ int WebServer::serveStatic(struct lws* wsi, const char* path) {
             return r;
     }
 
-    // SPA deep-link / unknown path: serve index.html from the first root that
-    // has one, rather than a bare 404.
-    if (p != "index.html") {
+    // SPA deep-link fallback: serve index.html for page navigation requests, but
+    // NEVER serve index.html (text/html) for missing static assets (.css, .js, .png, etc.),
+    // which causes the browser to reject stylesheets ("Refused to apply style...").
+    const auto dotPos = p.rfind('.');
+    const bool isAssetRequest = (dotPos != std::string_view::npos) && (p.find('/', dotPos) == std::string_view::npos);
+    const std::string ext = isAssetRequest ? std::string(p.substr(dotPos + 1)) : "";
+    const bool isPageNavigation = !isAssetRequest || ext == "html" || ext == "htm";
+
+    if (isPageNavigation && p != "index.html") {
         const auto tryIndex = [&](const std::string& root) -> int {
             std::string filePath = root;
             if (!filePath.empty() && filePath.back() != '/')

@@ -13,7 +13,118 @@
 #include <vector>
 
 
+#if JUCE_WINDOWS
+#include <windows.h>
+#endif
+
 namespace resostage {
+
+static void forceClearAttributes(const std::filesystem::path& p) {
+#if JUCE_WINDOWS
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (p.empty() || !fs::exists(p, ec))
+        return;
+    if (fs::is_directory(p, ec)) {
+        for (const auto& entry : fs::recursive_directory_iterator(p, fs::directory_options::skip_permission_denied, ec)) {
+            const std::wstring w = entry.path().wstring();
+            DWORD attrs = ::GetFileAttributesW(w.c_str());
+            if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & (FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN))) {
+                ::SetFileAttributesW(w.c_str(), attrs & ~(FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN));
+            }
+        }
+    }
+    const std::wstring w = p.wstring();
+    DWORD attrs = ::GetFileAttributesW(w.c_str());
+    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & (FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN))) {
+        ::SetFileAttributesW(w.c_str(), attrs & ~(FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN));
+    }
+#else
+    (void)p;
+#endif
+}
+
+static void forceRemoveAll(const std::filesystem::path& p, std::error_code& ec) {
+    namespace fs = std::filesystem;
+    ec.clear();
+    if (p.empty() || !fs::exists(p, ec))
+        return;
+    forceClearAttributes(p);
+    fs::remove_all(p, ec);
+}
+
+static bool replacePathHelper(const std::string& from, const std::string& to, std::string& err, std::vector<std::string>* stalePackages = nullptr) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    // Case 1: Target directory does not exist yet (e.g. initial Save As to brand new path)
+    if (!fs::exists(to, ec)) {
+        forceClearAttributes(from);
+        fs::rename(from, to, ec);
+        if (!ec)
+            return true;
+        // If rename failed, copy files into target
+        ec.clear();
+        for (const auto& entry : fs::recursive_directory_iterator(from, fs::directory_options::skip_permission_denied, ec)) {
+            if (entry.is_regular_file(ec)) {
+                fs::path rel = fs::relative(entry.path(), from, ec);
+                fs::path targetFile = fs::path(to) / rel;
+                fs::create_directories(targetFile.parent_path(), ec);
+                forceClearAttributes(targetFile);
+                fs::copy_file(entry.path(), targetFile, fs::copy_options::overwrite_existing, ec);
+            }
+        }
+        forceRemoveAll(from, ec);
+        return true;
+    }
+
+    // Case 2: Target directory exists (overwriting existing project)
+    // Try fast atomic directory swap via .old
+    const std::string aside = to + ".old";
+    forceRemoveAll(aside, ec);
+    forceClearAttributes(to);
+
+    std::error_code renameEc;
+    fs::rename(to, aside, renameEc);
+    if (!renameEc) {
+        forceClearAttributes(from);
+        fs::rename(from, to, renameEc);
+        if (!renameEc) {
+            forceRemoveAll(aside, ec);
+            if (ec && stalePackages)
+                stalePackages->push_back(aside);
+            return true;
+        }
+        // Rollback rename if from -> to failed
+        std::error_code rollEc;
+        forceClearAttributes(aside);
+        fs::rename(aside, to, rollEc);
+    }
+
+    // Fallback: directory rename was blocked by OS / Explorer / Defender locks.
+    // Sync files in-place from `from` into `to` (overwriting files in `to`).
+    std::error_code copyEc;
+    for (const auto& entry : fs::recursive_directory_iterator(from, fs::directory_options::skip_permission_denied, copyEc)) {
+        if (entry.is_regular_file(copyEc)) {
+            fs::path rel = fs::relative(entry.path(), from, copyEc);
+            fs::path targetFile = fs::path(to) / rel;
+            fs::create_directories(targetFile.parent_path(), copyEc);
+            forceClearAttributes(targetFile);
+            fs::copy_file(entry.path(), targetFile, fs::copy_options::overwrite_existing, copyEc);
+        }
+    }
+
+    // Clean up temporary `from` (.saving) package
+    forceRemoveAll(from, ec);
+    // Clean up `aside` (.old) package if left over
+    if (fs::exists(aside, ec)) {
+        forceRemoveAll(aside, ec);
+        if (ec && stalePackages)
+            stalePackages->push_back(aside);
+    }
+
+    return true;
+}
 
 using audio_engine_detail::kRingBufferSeconds;
 using audio_engine_detail::streamingIoThreadStart;
@@ -205,15 +316,8 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
         isContainer && !promotingDraft && overwriteOpen && wasPlaying;
 
     namespace fs = std::filesystem;
-    auto replacePath = [](const std::string& from, const std::string& to, std::string& err) -> bool {
-        std::error_code ec;
-        fs::remove_all(to, ec);
-        fs::rename(from, to, ec);
-        if (ec) {
-            err = "Failed to replace archive: " + ec.message();
-            return false;
-        }
-        return true;
+    auto replacePath = [this](const std::string& from, const std::string& to, std::string& err) -> bool {
+        return replacePathHelper(from, to, err, &staleSavePackages);
     };
 
     // ── Play-through overwrite (directory package, same path, while playing) ──
@@ -223,22 +327,25 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             return false;
         const std::string aside = path + ".play-old";
         std::error_code ec;
-        fs::remove_all(aside, ec);
+        forceRemoveAll(aside, ec);
+        forceClearAttributes(path);
         fs::rename(path, aside, ec);
         if (ec) {
-            fs::remove_all(tempOut, ec);
+            forceRemoveAll(tempOut, ec);
             error = "Failed to park live package: " + ec.message();
             return false;
         }
+        forceClearAttributes(tempOut);
         fs::rename(tempOut, path, ec);
         if (ec) {
             std::error_code ec2;
+            forceClearAttributes(aside);
             fs::rename(aside, path, ec2);
-            fs::remove_all(tempOut, ec2);
+            forceRemoveAll(tempOut, ec2);
             error = "Failed to install saved package: " + ec.message();
             return false;
         }
-        fs::remove_all(aside, ec);
+        forceRemoveAll(aside, ec);
         if (ec)
             staleSavePackages.push_back(aside);
         usingDraftArchive = false;
@@ -277,7 +384,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             usingDraftArchive = false;
             if (!oldDraftPath.empty() && oldDraftPath != path) {
                 std::error_code ec;
-                fs::remove_all(oldDraftPath, ec);
+                forceRemoveAll(oldDraftPath, ec);
             }
         }
     } else if (switchingToNewPath) {
@@ -291,7 +398,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
         usingDraftArchive = false;
         if (!oldDraftPath.empty() && oldDraftPath != path) {
             std::error_code ec;
-            fs::remove_all(oldDraftPath, ec);
+            forceRemoveAll(oldDraftPath, ec);
         }
     } else {
         if (!loader.saveAsWithExtras(path, pendingPeakCacheExtras, error, &snapshot))
@@ -350,7 +457,7 @@ void AudioEngine::purgeStaleSavePackages() {
     namespace fs = std::filesystem;
     for (const auto& p : staleSavePackages) {
         std::error_code ec;
-        fs::remove_all(p, ec);
+        forceRemoveAll(p, ec);
     }
     staleSavePackages.clear();
 }
@@ -421,7 +528,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
 
             if (!wrote) {
                 std::error_code ec;
-                fs::remove_all(tempOut, ec);
+                forceRemoveAll(tempOut, ec);
                 finish(false, error.empty() ? "Save failed" : error);
                 return;
             }
@@ -434,25 +541,28 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                 // 2) rename temp into place
                 // 3) leave streaming alone; defer delete of the aside dir
                 const std::string aside = path + ".play-old";
-                fs::remove_all(aside, ec); // previous interrupted save
+                forceRemoveAll(aside, ec); // previous interrupted save
+                forceClearAttributes(path);
                 fs::rename(path, aside, ec);
                 if (ec) {
-                    fs::remove_all(tempOut, ec);
+                    forceRemoveAll(tempOut, ec);
                     finish(false, "Failed to park live package: " + ec.message());
                     return;
                 }
+                forceClearAttributes(tempOut);
                 fs::rename(tempOut, path, ec);
                 if (ec) {
                     // Roll back so openArchivePath still matches on-disk.
                     std::error_code ec2;
+                    forceClearAttributes(aside);
                     fs::rename(aside, path, ec2);
-                    fs::remove_all(tempOut, ec2);
+                    forceRemoveAll(tempOut, ec2);
                     finish(false, "Failed to install saved package: " + ec.message());
                     return;
                 }
                 // Open stem FILE* still hold the old inodes after rename —
                 // unlinking the aside tree is safe (POSIX); free disk ASAP.
-                fs::remove_all(aside, ec);
+                forceRemoveAll(aside, ec);
                 if (ec)
                     staleSavePackages.push_back(aside);
                 // openArchivePath already equals `path`.
@@ -471,9 +581,8 @@ void AudioEngine::saveProjectAsync(const std::string& path,
             purgeStaleSavePackages(); // safe: no open stem FDs into old packages
 
             loader.close();
-            fs::remove_all(path, ec);
-            fs::rename(tempOut, path, ec);
-            if (ec) {
+            std::string replaceErr;
+            if (!replacePathHelper(tempOut, path, replaceErr, &staleSavePackages)) {
                 std::string recoverErr;
                 (void)loader.open(sourcePath, recoverErr);
                 projectLoaded = loader.isOpen();
@@ -482,7 +591,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                     streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
-                finish(false, "Failed to replace archive: " + ec.message());
+                finish(false, replaceErr.empty() ? "Failed to replace archive" : replaceErr);
                 return;
             }
 
@@ -494,7 +603,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
             }
             usingDraftArchive = false;
             if (promotingDraft && !oldDraftPath.empty() && oldDraftPath != path) {
-                fs::remove_all(oldDraftPath, ec);
+                forceRemoveAll(oldDraftPath, ec);
             }
 
             projectLoaded = true;
