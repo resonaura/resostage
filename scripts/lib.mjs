@@ -588,6 +588,8 @@ function assembleShellBundle() {
     }
     if (existsSync(shellBundle)) rmSync(shellBundle, { force: true });
     cpSync(electronExeSrc, shellBundle);
+    // Clean up original electron.exe so no 150MB duplicate binary is left in build/win/x64
+    rmSync(electronExeSrc, { force: true });
 
     // electron.exe ships with Electron's own icon embedded. Patch the copied
     // exe's PE resources so ResoStage.exe shows our icon in Explorer / the

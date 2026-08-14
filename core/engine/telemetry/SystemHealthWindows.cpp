@@ -88,6 +88,7 @@ std::string processName(DWORD pid) {
 std::vector<int> discoverRelatedPids(int mainPid) {
     std::vector<int> related;
     std::unordered_map<int, int> parentOf;
+    std::unordered_map<int, std::string> nameOf;
 
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE)
@@ -97,28 +98,53 @@ std::vector<int> discoverRelatedPids(int mainPid) {
     pe.dwSize = sizeof(pe);
     if (Process32FirstW(snap, &pe)) {
         do {
-            parentOf[static_cast<int>(pe.th32ProcessID)] = static_cast<int>(pe.th32ParentProcessID);
+            const int pid = static_cast<int>(pe.th32ProcessID);
+            const int ppid = static_cast<int>(pe.th32ParentProcessID);
+            parentOf[pid] = ppid;
+            std::wstring wName(pe.szExeFile);
+            nameOf[pid] = std::string(wName.begin(), wName.end());
         } while (Process32NextW(snap, &pe));
     }
     CloseHandle(snap);
 
-    auto isDescendant = [&](int pid) {
-        for (int depth = 0; depth < 6 && pid > 0; ++depth) {
-            auto it = parentOf.find(pid);
-            if (it == parentOf.end())
-                return false;
-            if (it->second == mainPid)
+    // 1. Find root parent pid by walking up parentOf as long as parent name matches ResoStage / electron
+    int rootPid = mainPid;
+    for (int depth = 0; depth < 8; ++depth) {
+        auto it = parentOf.find(rootPid);
+        if (it == parentOf.end() || it->second <= 0 || it->second == rootPid)
+            break;
+        const int ppid = it->second;
+        auto nameIt = nameOf.find(ppid);
+        if (nameIt != nameOf.end()) {
+            std::string n = nameIt->second;
+            std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (n.find("resostage") != std::string::npos || n.find("electron") != std::string::npos) {
+                rootPid = ppid;
+                continue;
+            }
+        }
+        break;
+    }
+
+    // 2. Check if a pid is descendant of rootPid or mainPid
+    auto isRelated = [&](int pid) {
+        if (pid == mainPid)
+            return false;
+        int curr = pid;
+        for (int depth = 0; depth < 8 && curr > 0; ++depth) {
+            if (curr == rootPid || curr == mainPid)
                 return true;
-            pid = it->second;
+            auto it = parentOf.find(curr);
+            if (it == parentOf.end())
+                break;
+            curr = it->second;
         }
         return false;
     };
 
     for (const auto& [pid, ppid] : parentOf) {
         (void)ppid;
-        if (pid == mainPid)
-            continue;
-        if (isDescendant(pid))
+        if (isRelated(pid))
             related.push_back(pid);
     }
     return related;
@@ -163,8 +189,7 @@ SystemHealthSnapshot SystemHealth::sample() const {
     }
 
     for (int childPid : childPids) {
-        HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_QUERY_INFORMATION, FALSE,
-                               static_cast<DWORD>(childPid));
+        HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(childPid));
         ProcessHealthEntry e;
         e.pid = childPid;
         e.name = processName(static_cast<DWORD>(childPid));
@@ -184,8 +209,7 @@ SystemHealthSnapshot SystemHealth::sample() const {
         uint64_t totalCpuNow = mainCpu;
 
         for (size_t i = 1; i < entries.size(); ++i) {
-            HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_QUERY_INFORMATION,
-                                   FALSE, static_cast<DWORD>(entries[i].pid));
+            HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(entries[i].pid));
             const uint64_t cpu = processCpuTimeNanos(h);
             if (h != nullptr && h != INVALID_HANDLE_VALUE)
                 CloseHandle(h);
