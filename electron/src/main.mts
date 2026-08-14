@@ -125,7 +125,7 @@ const { TouchBarButton } = TouchBar;
 // Stage app: the UI must keep running when minimized, alt-tabbed, or under
 // another window. Chromium's default is to background-throttle the renderer
 // (timers, rAF, sometimes the GPU surface) — that's the black screen after
-// wake. These are permanent defaults, not optional flags.
+// wake. These are permanent defaults, not optional flags!
 //
 // Must be set before app.ready.
 function applyLiveRendererDefaults(): void {
