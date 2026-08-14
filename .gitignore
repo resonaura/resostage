@@ -1,4 +1,5 @@
 build/
+!scripts/build
 build-*/
 .DS_Store
 *.xcodeproj/

@@ -4,7 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { cpus } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -56,8 +56,13 @@ export const PLATFORM_DIST_DIR = join(
 // constant computed at import time (before the build exists) would stay
 // stale for the rest of the run.
 export function getShellAppBundle() {
-  if (process.env.APP_BUNDLE) return process.env.APP_BUNDLE;
-  return join(PLATFORM_DIST_DIR, `${SHELL_APP_NAME}.app`);
+  if (process.platform === "darwin") {
+    return join(PLATFORM_DIST_DIR, `${SHELL_APP_NAME}.app`);
+  } else if (process.platform === "win32") {
+    return join(PLATFORM_DIST_DIR, `${SHELL_APP_NAME}.exe`);
+  } else {
+    return join(PLATFORM_DIST_DIR, SHELL_APP_NAME);
+  }
 }
 export function getNestedCoreAppBundle(shellBundle = getShellAppBundle()) {
   return join(shellBundle, "Contents", "Resources", `${CORE_APP_NAME}.app`);
@@ -201,11 +206,26 @@ export function cmakeBuild(target) {
 // not just short process name, so this doesn't catch unrelated Electron
 // apps running on the same machine.
 function shellExecutablePath() {
-  return join(getShellAppBundle(), "Contents", "MacOS", SHELL_APP_NAME);
+  if (process.platform === "darwin") {
+    return join(getShellAppBundle(), "Contents", "MacOS", SHELL_APP_NAME);
+  } else if (process.platform === "win32") {
+    return getShellAppBundle();
+  } else {
+    return getShellAppBundle();
+  }
 }
 
 export function appIsRunning() {
-  return runQuiet("pgrep", ["-f", shellExecutablePath()]).status === 0;
+  if (process.platform === "darwin") {
+    return runQuiet("pgrep", ["-f", shellExecutablePath()]).status === 0;
+  } else if (process.platform === "win32") {
+    const exe = path.basename(shellExecutablePath());
+    return runQuiet("tasklist", ["/FI", `IMAGENAME eq ${exe}`]).status === 0;
+  } else {
+    // Linux: check for process by name
+    const exe = path.basename(shellExecutablePath());
+    return runQuiet("pgrep", ["-f", exe]).status === 0;
+  }
 }
 
 export function killApp() {
@@ -214,37 +234,44 @@ export function killApp() {
     return;
   }
   log(`Stopping ${SHELL_APP_NAME}...`);
-  // Prefer AppleEvent quit so save dialogs can finish, then escalate. The
-  // shell's own before-quit handler kills the nested JUCE backend it spawned.
-  runQuiet("osascript", ["-e", `tell application "${SHELL_APP_NAME}" to quit`]);
-  for (let i = 0; i < 8; i++) {
-    if (!appIsRunning()) {
-      ok(`${SHELL_APP_NAME} stopped`);
-      return;
+  
+  if (process.platform === "darwin") {
+    // Prefer AppleEvent quit so save dialogs can finish, then escalate.
+    runQuiet("osascript", ["-e", `tell application "${SHELL_APP_NAME}" to quit`]);
+    for (let i = 0; i < 8; i++) {
+      if (!appIsRunning()) {
+        ok(`${SHELL_APP_NAME} stopped`);
+        return;
+      }
+      sleepMs(250);
     }
-    sleepMs(250);
+    const exe = shellExecutablePath();
+    runQuiet("pkill", ["-f", exe]);
+    sleepMs(300);
+    if (appIsRunning()) {
+      log(`Force-killing ${SHELL_APP_NAME}...`);
+      runQuiet("pkill", ["-9", "-f", exe]);
+    }
+    runQuiet("pkill", [
+      "-f",
+      `${CORE_APP_NAME}.app/Contents/MacOS/${CORE_APP_NAME}`,
+    ]);
+  } else if (process.platform === "win32") {
+    const exe = path.basename(shellExecutablePath());
+    runQuiet("taskkill", ["/IM", exe, "/F", "/T"]);
+    sleepMs(500);
+  } else {
+    // Linux
+    const exe = path.basename(shellExecutablePath());
+    runQuiet("pkill", ["-f", exe]);
+    sleepMs(300);
   }
-  const exe = shellExecutablePath();
-  runQuiet("pkill", ["-f", exe]);
-  sleepMs(300);
-  if (appIsRunning()) {
-    log(`Force-killing ${SHELL_APP_NAME}...`);
-    runQuiet("pkill", ["-9", "-f", exe]);
-  }
-  // The nested backend won't have gotten a graceful quit if we had to force
-  // this -- make sure it's not left running headless with no shell.
-  runQuiet("pkill", [
-    "-f",
-    `${CORE_APP_NAME}.app/Contents/MacOS/${CORE_APP_NAME}`,
-  ]);
+  
   if (appIsRunning()) die(`Could not stop ${SHELL_APP_NAME}`);
   ok(`${SHELL_APP_NAME} stopped`);
 }
 
 export function startApp() {
-  if (process.platform !== "darwin") {
-    die(`Packaged launch isn't supported on ${process.platform} yet`);
-  }
   const appBundle = getShellAppBundle();
   if (!existsSync(appBundle)) {
     die(
@@ -258,14 +285,21 @@ export function startApp() {
     return;
   }
   log(`Launching ${appBundle}`);
-  // `open` detaches cleanly and re-registers the bundle with LaunchServices
-  // so a freshly (re)branded/reassembled copy is picked up.
-  const lsregister =
-    "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister";
-  if (existsSync(lsregister)) {
-    run(lsregister, ["-f", appBundle], { allowFail: true });
+  
+  if (process.platform === "darwin") {
+    const lsregister =
+      "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister";
+    if (existsSync(lsregister)) {
+      run(lsregister, ["-f", appBundle], { allowFail: true });
+    }
+    run("open", [appBundle]);
+  } else if (process.platform === "win32") {
+    // On Windows, just execute the .exe directly
+    run(appBundle, [], { detached: true, stdio: "ignore" });
+  } else {
+    // Linux
+    run(appBundle, [], { detached: true, stdio: "ignore" });
   }
-  run("open", [appBundle]);
   ok(`Launched ${SHELL_APP_NAME}`);
 }
 
