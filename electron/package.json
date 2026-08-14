@@ -6,7 +6,7 @@
   "type": "module",
   "main": "dist/main.mjs",
   "scripts": {
-    "build": "tsc && node scripts/build/native/mac.mjs",
+    "build": "tsc && node scripts/build/native/omni.mjs",
     "typecheck": "tsc --noEmit",
     "brand": "node scripts/brand-mac-app.mjs",
     "start": "pnpm build && electron ."
