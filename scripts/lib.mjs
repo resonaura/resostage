@@ -468,6 +468,14 @@ function assembleShellBundle() {
     if (existsSync(distDst)) rmSync(distDst, { recursive: true, force: true });
     cpSync(distSrc, distDst, { recursive: true });
     
+    // Copy Electron executable and rename to ResoStage.exe
+    const electronExeSrc = join(ROOT, "electron", "node_modules", "electron", "dist", "electron.exe");
+    if (existsSync(electronExeSrc)) {
+      cpSync(electronExeSrc, shellBundle);
+    } else {
+      die(`Electron executable not found at ${electronExeSrc}`);
+    }
+    
     // Copy package.json
     cpSync(join(ROOT, "electron", "package.json"), join(shellDir, "package.json"));
     
