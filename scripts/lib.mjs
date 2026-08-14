@@ -462,19 +462,56 @@ function assembleShellBundle() {
     // Ensure directory exists
     mkdirSync(shellDir, { recursive: true });
     
-    // Copy Electron shell dist to same folder as .exe
-    const distSrc = join(ROOT, "electron", "dist");
-    const distDst = join(shellDir, "dist");
-    if (existsSync(distDst)) rmSync(distDst, { recursive: true, force: true });
-    cpSync(distSrc, distDst, { recursive: true });
+    // Copy Electron runtime files (copied from node_modules/electron/dist)
+    const electronDistSrc = join(ROOT, "electron", "node_modules", "electron", "dist");
+    const electronFiles = [
+      "electron.exe",
+      "icudtl.dat",
+      "resources.pak",
+      "snapshot_blob.bin",
+      "v8_context_snapshot.bin",
+      "libEGL.dll",
+      "libGLESv2.dll",
+      "ffmpeg.dll",
+      "dxcompiler.dll",
+      "dxil.dll",
+      "vk_swiftshader.dll",
+      "vulkan-1.dll",
+      "LICENSE",
+      "LICENSES.chromium.html",
+      "version",
+    ];
+    const electronDirs = ["locales", "resources"];
     
-    // Copy Electron executable and rename to ResoStage.exe
-    const electronExeSrc = join(ROOT, "electron", "node_modules", "electron", "dist", "electron.exe");
+    for (const file of electronFiles) {
+      const src = join(electronDistSrc, file);
+      if (existsSync(src)) {
+        cpSync(src, join(shellDir, file));
+      }
+    }
+    for (const dir of electronDirs) {
+      const src = join(electronDistSrc, dir);
+      const dst = join(shellDir, dir);
+      if (existsSync(dst)) rmSync(dst, { recursive: true, force: true });
+      if (existsSync(src)) {
+        cpSync(src, dst, { recursive: true });
+      }
+    }
+    
+    // Rename electron.exe to ResoStage.exe (the main executable)
+    const electronExeSrc = join(shellDir, "electron.exe");
     if (existsSync(electronExeSrc)) {
+      if (existsSync(shellBundle)) rmSync(shellBundle, { force: true });
       cpSync(electronExeSrc, shellBundle);
     } else {
       die(`Electron executable not found at ${electronExeSrc}`);
     }
+    
+    // Copy Electron shell dist (JS files) to same folder as .exe
+    const distSrc = join(ROOT, "electron", "dist");
+    const distDst = join(shellDir, "dist");
+    if (existsSync(distDst)) rmSync(distDst, { recursive: true, force: true });
+    cpSync(distSrc, distDst, { recursive: true });
     
     // Copy package.json
     cpSync(join(ROOT, "electron", "package.json"), join(shellDir, "package.json"));
@@ -482,7 +519,6 @@ function assembleShellBundle() {
     // Copy Core executable (rename to ResoStage Core.exe)
     const coreDst = join(shellDir, `${CORE_APP_NAME}.exe`);
     if (existsSync(coreDst)) rmSync(coreDst, { force: true });
-    // Core build outputs "ResoStage Core.exe" - find it
     const coreBuildDir = path.dirname(rawCore);
     const coreExe = join(coreBuildDir, `${CORE_APP_NAME}.exe`);
     if (existsSync(coreExe)) {
