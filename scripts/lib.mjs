@@ -112,8 +112,7 @@ export function run(cmd, args = [], opts = {}) {
     cwd,
     env,
     stdio: "inherit",
-    shell: false,
-    PATH: `${process.env.PATH}`,
+    shell: true,
   });
   if (r.error) {
     if (allowFail) return r.status ?? 1;
