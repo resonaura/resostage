@@ -390,10 +390,6 @@ function copyShellRuntimeDeps(appDst) {
 // / MainComponent's RESOSTAGE_SPAWNED_BY_SHELL check). One code-signing pass
 // at the very end, since any change after signing invalidates it anyway.
 function assembleShellBundle() {
-  if (process.platform !== "darwin") {
-    log("Not on macOS -- skipping shell bundle assembly");
-    return;
-  }
   const rawCore = getRawCoreAppBundle();
   if (!existsSync(rawCore)) {
     log(
@@ -401,30 +397,77 @@ function assembleShellBundle() {
     );
     return;
   }
-  const shellBundle = getShellAppBundle();
-  log(`Assembling ${shellBundle}...`);
-  run("node", [
-    join(ROOT, "electron", "scripts", "brand-mac-app.mjs"),
-    shellBundle,
-  ]);
 
-  const resources = join(shellBundle, "Contents", "Resources");
-  const appDst = join(resources, "app");
-  run("rm", ["-rf", appDst]);
-  run("mkdir", ["-p", appDst]);
-  cpSync(join(ROOT, "electron", "package.json"), join(appDst, "package.json"));
-  cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), {
-    recursive: true,
-  });
-  copyShellRuntimeDeps(appDst);
+  if (process.platform === "darwin") {
+    const shellBundle = getShellAppBundle();
+    log(`Assembling ${shellBundle}...`);
+    run("node", [
+      join(ROOT, "electron", "scripts", "brand-mac-app.mjs"),
+      shellBundle,
+    ]);
 
-  const coreDst = getNestedCoreAppBundle(shellBundle);
-  run("rm", ["-rf", coreDst]);
-  // Quote paths for shell (they may contain spaces, e.g. "ResoStage Core.app")
-  run("cp", ["-R", `"${rawCore}"`, `"${coreDst}"`]);
+    const resources = join(shellBundle, "Contents", "Resources");
+    const appDst = join(resources, "app");
+    run("rm", ["-rf", appDst]);
+    run("mkdir", ["-p", appDst]);
+    cpSync(join(ROOT, "electron", "package.json"), join(appDst, "package.json"));
+    cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), {
+      recursive: true,
+    });
+    copyShellRuntimeDeps(appDst);
 
-  run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);
-  ok(`Assembled ${shellBundle}`);
+    const coreDst = getNestedCoreAppBundle(shellBundle);
+    run("rm", ["-rf", coreDst]);
+    // Quote paths for shell (they may contain spaces, e.g. "ResoStage Core.app")
+    run("cp", ["-R", `"${rawCore}"`, `"${coreDst}"`]);
+
+    run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);
+    ok(`Assembled ${shellBundle}`);
+    return;
+  }
+
+  if (process.platform === "win32") {
+    // Windows: create a simple folder structure with .exe + dist + Core
+    const shellBundle = getShellAppBundle(); // e.g., build/win/x64/ResoStage.exe
+    const shellDir = path.dirname(shellBundle);
+    log(`Assembling ${shellBundle}...`);
+    
+    // Ensure directory exists
+    mkdirSync(shellDir, { recursive: true });
+    
+    // Copy Electron shell dist to same folder as .exe
+    const distSrc = join(ROOT, "electron", "dist");
+    const distDst = join(shellDir, "dist");
+    if (existsSync(distDst)) rmSync(distDst, { recursive: true, force: true });
+    cpSync(distSrc, distDst, { recursive: true });
+    
+    // Copy package.json
+    cpSync(join(ROOT, "electron", "package.json"), join(shellDir, "package.json"));
+    
+    // Copy Core executable (rename to ResoStage Core.exe)
+    const coreDst = join(shellDir, `${CORE_APP_NAME}.exe`);
+    if (existsSync(coreDst)) rmSync(coreDst, { force: true });
+    // Core build outputs "ResoStage Core.exe" - find it
+    const coreBuildDir = path.dirname(rawCore);
+    const coreExe = join(coreBuildDir, `${CORE_APP_NAME}.exe`);
+    if (existsSync(coreExe)) {
+      cpSync(coreExe, coreDst);
+    } else {
+      log(`Warning: Core exe not found at ${coreExe}`);
+    }
+    
+    // Create a simple launcher batch file that sets up paths
+    const launcher = join(shellDir, "ResoStage.cmd");
+    writeFileSync(launcher, `@echo off
+cd /d "%~dp0"
+start "" "%~dp0ResoStage.exe" %*
+`);
+    
+    ok(`Assembled ${shellBundle}`);
+    return;
+  }
+
+  log(`Unsupported platform: ${process.platform}`);
 }
 
 export function buildApp() {
