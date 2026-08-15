@@ -154,23 +154,18 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort) {
     // Serve the SPA from disk instead of a generated header: the packaged
     // bundle's Contents/Resources/web folder (copied in by scripts/lib.mjs
     // embedWebUi at build time), plus ui/dist for dev runs.
-    webServer.addWebRoot(juce::File::getSpecialLocation(juce::File::currentApplicationFile)
-                             .getChildFile("Contents/Resources/web")
+    webServer.addWebRoot(juce::File::getCurrentWorkingDirectory()
+                             .getChildFile("ui/dist")
                              .getFullPathName()
                              .toStdString());
 #if JUCE_WINDOWS
-    // Windows packaged bundle: scripts/lib.mjs copies the built SPA to
-    // <exe dir>/resources/web (macOS nests it at Contents/Resources/web
-    // instead). Without this root the packaged Core has nowhere to serve the
-    // UI from and returns "not found" -- a black Electron window -- while a
-    // Core launched from the repo works because the ui/dist root below exists.
     webServer.addWebRoot(juce::File::getSpecialLocation(juce::File::currentApplicationFile)
                              .getSiblingFile("resources/web")
                              .getFullPathName()
                              .toStdString());
 #endif
-    webServer.addWebRoot(juce::File::getCurrentWorkingDirectory()
-                             .getChildFile("ui/dist")
+    webServer.addWebRoot(juce::File::getSpecialLocation(juce::File::currentApplicationFile)
+                             .getChildFile("Contents/Resources/web")
                              .getFullPathName()
                              .toStdString());
 
@@ -1923,18 +1918,18 @@ void MainComponent::loadProjectClicked() {
     prepareNativeDialogForeground();
 
 #if JUCE_WINDOWS
-    const auto flags = juce::FileBrowserComponent::openMode
-                       | juce::FileBrowserComponent::canSelectDirectories;
+    const auto browserFlags = juce::FileBrowserComponent::openMode
+                               | juce::FileBrowserComponent::canSelectDirectories;
     fileChooser = std::make_unique<juce::FileChooser>(
         "Select a .rsnraset project folder", juce::File(), "*");
 #else
-    const auto flags = juce::FileBrowserComponent::openMode
-                       | juce::FileBrowserComponent::canSelectFiles
-                       | juce::FileBrowserComponent::canSelectDirectories;
+    const auto browserFlags = juce::FileBrowserComponent::openMode
+                               | juce::FileBrowserComponent::canSelectFiles
+                               | juce::FileBrowserComponent::canSelectDirectories;
     fileChooser = std::make_unique<juce::FileChooser>(
         "Select a .rsnraset project", juce::File(), "*.rsnraset;*.rsnrasetmeta;project.rsnrasetmeta");
 #endif
-    fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
+    fileChooser->launchAsync(browserFlags, [this](const juce::FileChooser& fc) {
         const auto file = fc.getResult();
         if (file == juce::File())
             return;
@@ -2017,24 +2012,24 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
     prepareNativeDialogForeground();
 
 #if JUCE_WINDOWS
-    const auto flags = juce::FileBrowserComponent::saveMode
-                       | juce::FileBrowserComponent::canSelectDirectories
-                       | juce::FileBrowserComponent::warnAboutOverwriting;
+    const auto browserFlags = juce::FileBrowserComponent::saveMode
+                               | juce::FileBrowserComponent::canSelectDirectories
+                               | juce::FileBrowserComponent::warnAboutOverwriting;
     fileChooser = std::make_unique<juce::FileChooser>(
         "Save .rsnraset project folder",
         hasRealSaveLocation ? juce::File(engine.projectPath()) : juce::File(),
         "*");
 #else
-    const auto flags = juce::FileBrowserComponent::saveMode
-                       | juce::FileBrowserComponent::canSelectDirectories
-                       | juce::FileBrowserComponent::canSelectFiles
-                       | juce::FileBrowserComponent::warnAboutOverwriting;
+    const auto browserFlags = juce::FileBrowserComponent::saveMode
+                               | juce::FileBrowserComponent::canSelectDirectories
+                               | juce::FileBrowserComponent::canSelectFiles
+                               | juce::FileBrowserComponent::warnAboutOverwriting;
     fileChooser = std::make_unique<juce::FileChooser>(
         "Save .rsnraset project",
         hasRealSaveLocation ? juce::File(engine.projectPath()) : juce::File(),
         "*.rsnraset");
 #endif
-    fileChooser->launchAsync(flags, [doSave](const juce::FileChooser& fc) {
+    fileChooser->launchAsync(browserFlags, [doSave](const juce::FileChooser& fc) {
         doSave(fc.getResult());
     });
 }

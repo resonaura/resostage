@@ -837,11 +837,11 @@ void MainComponent::builderTrackImportWavDialog(const std::string& json) {
     fileChooser = std::make_unique<juce::FileChooser>(
         "Open Audio File", juce::File(),
         "*.wav;*.wave;*.aiff;*.aif;*.mp3;*.flac;*.ogg;*.m4a;*.aac;*.opus;*.wma;*.caf");
-    const auto flags = juce::FileBrowserComponent::openMode
-                       | juce::FileBrowserComponent::canSelectFiles;
+    const auto browserFlags = juce::FileBrowserComponent::openMode
+                               | juce::FileBrowserComponent::canSelectFiles;
     const auto sIdx = static_cast<size_t>(songIndex);
     const auto tIdx = static_cast<size_t>(trackIndex);
-    fileChooser->launchAsync(flags, [this, sIdx, tIdx](const juce::FileChooser& fc) {
+    fileChooser->launchAsync(browserFlags, [this, sIdx, tIdx](const juce::FileChooser& fc) {
         const auto file = fc.getResult();
         if (file == juce::File() || !file.existsAsFile())
             return;

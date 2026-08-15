@@ -659,8 +659,22 @@ void AudioEngine::handleSampleRateChanged(double newSampleRate, double previousP
             }
         }
         const auto& songs = loader.project().songs;
-        const double authoredEnd =
-            currentSong < songs.size() ? songs[currentSong].endSeconds : 0.0;
+        double authoredEnd = 0.0;
+        if (currentSong < songs.size()) {
+            const auto& sDef = songs[currentSong];
+            authoredEnd = sDef.endSeconds;
+            double maxContentSec = 0.0;
+            for (const auto& r : sDef.regions)
+                maxContentSec = std::max(maxContentSec, r.startSeconds + r.durationSeconds);
+            for (const auto& sec : sDef.sections)
+                maxContentSec = std::max(maxContentSec, sec.startSeconds);
+            for (const auto& ev : sDef.events)
+                maxContentSec = std::max(maxContentSec, ev.timeSeconds);
+            for (const auto& lc : sDef.lightCues)
+                maxContentSec = std::max(maxContentSec, lc.startSeconds + lc.durationSeconds);
+            if (maxContentSec > 0.0 && currentSampleRate > 0.0)
+                newSongLengthFrames = std::max(newSongLengthFrames, static_cast<int64_t>(std::llround(maxContentSec * currentSampleRate)));
+        }
         currentSongLengthFrames =
             songLengthFrames(authoredEnd, newSongLengthFrames, currentSampleRate);
     }

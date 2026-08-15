@@ -175,6 +175,18 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             }
         }
     }
+    double maxContentSec = 0.0;
+    for (const auto& r : song.regions)
+        maxContentSec = std::max(maxContentSec, r.startSeconds + r.durationSeconds);
+    for (const auto& sec : song.sections)
+        maxContentSec = std::max(maxContentSec, sec.startSeconds);
+    for (const auto& ev : song.events)
+        maxContentSec = std::max(maxContentSec, ev.timeSeconds);
+    for (const auto& lc : song.lightCues)
+        maxContentSec = std::max(maxContentSec, lc.startSeconds + lc.durationSeconds);
+    if (maxContentSec > 0.0 && currentSampleRate > 0.0)
+        newSongLengthFrames = std::max(newSongLengthFrames, static_cast<int64_t>(std::llround(maxContentSec * currentSampleRate)));
+
     newSongLengthFrames =
         songLengthFrames(song.endSeconds, newSongLengthFrames, currentSampleRate);
 

@@ -14,7 +14,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # AND_MEAN is applied per-file because it breaks vendored libwebsockets, which
 # relies on winsock2.h's `timeval`.
 if(WIN32)
-  add_compile_definitions(NOMINMAX)
+  add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)
+endif()
+if(MSVC)
+  add_compile_options(/wd4996 /wd4324 /wd4458)
 endif()
 
 

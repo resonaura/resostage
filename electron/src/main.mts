@@ -1371,7 +1371,7 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 640,
     title: "ResoStage",
-    backgroundColor: "#000000",
+    backgroundColor: "#09090b",
     // Don't paint a frozen black buffer while occluded — redraw on reveal.
     paintWhenInitiallyHidden: true,
     webPreferences: {

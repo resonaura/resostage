@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isRenderActive, setTransportPlaying } from "./appActivity";
 import { apiUrl, wsUrl } from "./backend";
-import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds } from "./liveLevels";
+import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport } from "./liveLevels";
 import { shareStructure } from "./structuralShare";
 import { IS_ELECTRON } from "./electron";
 import { IS_EMBEDDED } from "./embedded";
@@ -281,6 +281,19 @@ export function useLiveState(view: string = "player") {
 
       window.addEventListener("resostage-udp-telemetry", onUdpFrame);
 
+      const unsubTransport = subscribeLiveTransport((ts) => {
+        if (cancelled) return;
+        pendingStateRef.current = {
+          ...(pendingStateRef.current || {}),
+          playing: ts.playing,
+          playheadSeconds: ts.playheadSeconds,
+          songIndex: ts.songIndex,
+          bpm: ts.bpm,
+          globalPlayheadSeconds: ts.globalPlayheadSeconds,
+        };
+        scheduleFlush();
+      });
+
       const fetchState = async () => {
         if (cancelled) return;
         try {
@@ -313,6 +326,7 @@ export function useLiveState(view: string = "player") {
 
       return () => {
         cancelled = true;
+        unsubTransport();
         window.removeEventListener("resostage-udp-telemetry", onUdpFrame);
         clearInterval(statePollInterval);
         clearInterval(sampleInterval);

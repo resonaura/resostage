@@ -113,10 +113,9 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     for (const auto& lo : s.lightOutput)
         ledByteCount += std::min<size_t>(lo.ledColors.size(), 512) * 3;
 
-    // v3 header is 32 bytes (v2's 24 plus the click's two interval-peak
-    // floats), and a meter row is 16 (last-callback peak L/R plus interval
-    // peak L/R).
-    const size_t totalSize = 32
+    // v4 header is 42 bytes (includes playing, bar, beat, songIndex, tempoBpm),
+    // and a meter row is 16.
+    const size_t totalSize = 42
         + static_cast<size_t>(numTracks) * 8
         + static_cast<size_t>(numMeters) * 16
         + static_cast<size_t>(numLights) * 4  // fixtureIdx + ledCount per row
@@ -129,6 +128,10 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
         std::memcpy(p, &val, 2);
         p += 2;
     };
+    const auto writeI16 = [&p](int16_t val) {
+        std::memcpy(p, &val, 2);
+        p += 2;
+    };
     const auto writeU8 = [&p](uint8_t val) {
         *p++ = val;
     };
@@ -138,15 +141,17 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     };
 
     writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
-    // Version 3: interval peaks alongside the last-callback peaks (v2 =
-    // per-LED light rows, v1 = effect params).
-    writeU8(3);
-    writeU8(0);       // Flags
+    // Version 4: full transport state (playing, playheadSeconds, bpm, songIndex, globalPlayheadSeconds)
+    writeU8(4);
+    writeU8(s.playing ? 1 : 0);
     writeFloat(static_cast<float>(s.playheadSeconds));
     writeFloat(s.clickPeakDbL);
     writeFloat(s.clickPeakDbR);
     writeFloat(s.clickIntervalPeakDbL);
     writeFloat(s.clickIntervalPeakDbR);
+    writeFloat(static_cast<float>(s.bpm));
+    writeI16(static_cast<int16_t>(s.songIndex));
+    writeFloat(static_cast<float>(s.globalPlayheadSeconds));
     writeU16(numTracks);
     writeU16(numMeters);
     writeU16(numLights);
@@ -525,12 +530,7 @@ int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
                                     reinterpret_cast<const unsigned char*>("access-control-allow-origin"),
                                     reinterpret_cast<const unsigned char*>("*"), 1, &p, end))
         return 1;
-    // Nothing served here should ever be cached -- the SPA bundle is
-    // rebaked into the binary on every dev iteration with no versioned URL
-    // (index.html is always "/"), and WKWebView's persistent disk cache in
-    // particular is happy to keep serving a stale bundle across app
-    // relaunches without this. Every response is either tiny/dynamic
-    // (state/JSON) or the whole point is "must reflect the latest build".
+
     if (lws_add_http_header_by_name(wsi,
                                     reinterpret_cast<const unsigned char*>("cache-control"),
                                     reinterpret_cast<const unsigned char*>("no-store, must-revalidate"), 24, &p, end))
@@ -1357,7 +1357,7 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.redoLabel = snap.redoLabel;
     wire.lastAction = snap.lastAction;
     wire.lastActionNonce = static_cast<uint64_t>(std::max(0, snap.lastActionNonce));
-    wire.wsHz = effectiveTelemetryHz();
+    wire.telemetryHz = effectiveTelemetryHz();
 
     if (wantClick) {
         WClickTelemetry wc;
@@ -2017,8 +2017,14 @@ int WebServer::serveStatic(struct lws* wsi, const char* path) {
 }
 
 void WebServer::addWebRoot(const std::string& root) {
-    if (!root.empty())
-        webRoots_.push_back(root);
+    if (root.empty())
+        return;
+    std::error_code ec;
+    if (std::filesystem::exists(root, ec) && std::filesystem::is_directory(root, ec)) {
+        if (std::find(webRoots_.begin(), webRoots_.end(), root) == webRoots_.end()) {
+            webRoots_.push_back(root);
+        }
+    }
 }
 
 void WebServer::beginExport() {

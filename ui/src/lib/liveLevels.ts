@@ -13,7 +13,7 @@
  * hold after silence.
  */
 
-import { isRenderActive } from "./appActivity";
+import { isRenderActive, setTransportPlaying } from "./appActivity";
 import { addRafTask } from "./rafLoop";
 
 /**
@@ -305,25 +305,60 @@ export function getLiveLevels(): LiveLevels {
   };
 }
 
+export type LiveTransportState = {
+  playing: boolean;
+  playheadSeconds: number;
+  bpm: number;
+  songIndex: number;
+  globalPlayheadSeconds: number;
+};
+
+let transportListeners: ((s: LiveTransportState) => void)[] = [];
+
+export function subscribeLiveTransport(listener: (s: LiveTransportState) => void): () => void {
+  transportListeners.push(listener);
+  return () => {
+    transportListeners = transportListeners.filter((l) => l !== listener);
+  };
+}
+
 export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   if (buffer.byteLength < 24) return;
   const view = new DataView(buffer);
   const magic = view.getUint16(0, true);
   if (magic !== 0x5253) return;
-  // Version 2+ carries backend-rendered per-LED light rows.
+  // Version 4: full transport state (playing, playhead, bpm, songIndex, globalPlayheadSeconds).
   const version = view.getUint8(2);
 
-  // offset 4: playheadSec — unused on the SPA (transport playhead comes from
-  // the JSON state path); still advance the view past it.
   const clickL = view.getFloat32(8, true);
   const clickR = view.getFloat32(12, true);
-  // v3 inserts the click's two interval-peak floats here and widens each meter
-  // row from two floats to four. A v2 sender is still decoded, with the needle
-  // falling back to the last-callback peak -- the two builds only ever
-  // disagree during a dev reload, but a garbled meter is a bad way to find
-  // that out.
+
+  const isV4 = version >= 4;
   const hasIntervalPeak = version >= 3;
-  const countsAt = hasIntervalPeak ? 24 : 16;
+
+  if (isV4) {
+    const flags = view.getUint8(3);
+    const playing = (flags & 1) !== 0;
+    const playheadSeconds = view.getFloat32(4, true);
+    const bpm = view.getFloat32(24, true);
+    const songIndex = view.getInt16(28, true);
+    const globalPlayheadSeconds = view.getFloat32(30, true);
+
+    setTransportPlaying(playing);
+
+    const ts: LiveTransportState = {
+      playing,
+      playheadSeconds,
+      bpm,
+      songIndex,
+      globalPlayheadSeconds,
+    };
+    for (let i = 0; i < transportListeners.length; i++) {
+      transportListeners[i](ts);
+    }
+  }
+
+  const countsAt = isV4 ? 34 : (hasIntervalPeak ? 24 : 16);
   const numTracks = view.getUint16(countsAt, true);
   const numMeters = view.getUint16(countsAt + 2, true);
   const numLights = view.getUint16(countsAt + 4, true);
@@ -337,7 +372,7 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   clickNeedleL = hasIntervalPeak ? view.getFloat32(16, true) : clickL;
   clickNeedleR = hasIntervalPeak ? view.getFloat32(20, true) : clickR;
 
-  let offset = hasIntervalPeak ? 32 : 24;
+  let offset = isV4 ? 42 : (hasIntervalPeak ? 32 : 24);
 
   const nextTracks: LiveLevels["tracks"] = [];
   for (let i = 0; i < numTracks; i++) {

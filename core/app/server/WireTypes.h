@@ -595,7 +595,7 @@ struct WEngineTelemetryPayload {
     std::string redoLabel;
     std::string lastAction;
     uint64_t lastActionNonce = 0;
-    int wsHz = 0;
+    int telemetryHz = 0;
 
     // Project-global metronome channel, mirrored from ClickChannel
     // (enabled/name/channels/gainDb/pan/mute/solo/output). Null when the

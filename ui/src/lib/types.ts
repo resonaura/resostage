@@ -782,8 +782,8 @@ export interface WebUiState {
    */
   lastAction: string;
   lastActionNonce: number;
-  /** Backend's actual current WS send rate for this connection (adaptive, see WebServer.h). */
-  wsHz: number;
+  /** Backend's actual current telemetry send rate (adaptive, see WebServer.h). */
+  telemetryHz: number;
   songIndex: number;
   songCount: number;
   statusMessage: string;
@@ -839,7 +839,7 @@ export const emptyState: WebUiState = {
   hardwareAlarm: false,
   lastAction: "",
   lastActionNonce: 0,
-  wsHz: 0,
+  telemetryHz: 0,
   songIndex: -1,
   songCount: 0,
   statusMessage: "",
