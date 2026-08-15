@@ -1050,6 +1050,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetMidiInput: settingsSetMidiInput(cmd.json); break;
             case WebCommandKind::SetMidiVirtualPort: settingsSetMidiVirtualPort(cmd.json); break;
             case WebCommandKind::SetUiRenderEngine: settingsSetUiRenderEngine(cmd.json); break;
+            case WebCommandKind::SetTheme: settingsSetTheme(cmd.json); break;
             case WebCommandKind::SetKeybinding: settingsSetKeybinding(cmd.json); break;
             case WebCommandKind::SetOutputChannels: settingsSetOutputChannels(cmd.json); break;
             case WebCommandKind::MidiLearn: settingsMidiLearn(cmd.json); break;

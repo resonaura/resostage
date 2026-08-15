@@ -46,6 +46,9 @@ AppSettings loadAppSettings() {
     if (wire.uiRenderEngine == "browser" || wire.uiRenderEngine == "electron") {
         settings.uiRenderEngine = std::move(wire.uiRenderEngine);
     }
+    if (!wire.theme.empty()) {
+        settings.theme = std::move(wire.theme);
+    }
 
     settings.activeOutputChannels = std::move(wire.activeOutputChannels);
     for (auto& [name, wp] : wire.deviceProfiles) {
@@ -108,6 +111,7 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
     wire.midiInputName = settings.midiInputName;
     wire.virtualMidiPortEnabled = settings.virtualMidiPortEnabled;
     wire.uiRenderEngine = settings.uiRenderEngine;
+    wire.theme = settings.theme;
     wire.activeOutputChannels = settings.activeOutputChannels;
     for (const auto& [name, profile] : settings.deviceProfiles) {
         WDeviceProfile wp;

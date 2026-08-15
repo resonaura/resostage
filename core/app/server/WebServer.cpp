@@ -449,6 +449,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/settings/midi-input", WebCommandKind::SetMidiInput},
     {"/api/v1/settings/midi-virtual-port", WebCommandKind::SetMidiVirtualPort},
     {"/api/v1/settings/ui-render-engine", WebCommandKind::SetUiRenderEngine},
+    {"/api/v1/settings/theme", WebCommandKind::SetTheme},
     {"/api/v1/settings/keybinding", WebCommandKind::SetKeybinding},
     {"/api/v1/settings/output-channels", WebCommandKind::SetOutputChannels},
     {"/api/v1/settings/midi-learn", WebCommandKind::MidiLearn},
@@ -871,44 +872,9 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
 
     if (why == LWS_CALLBACK_TIMER) {
             if (pss != nullptr) {
-                // Adaptive backoff: pss->writePending still being true here
-                // means the write armed last period never actually completed
-                // -- SERVER_WRITEABLE hasn't fired since (OS send buffer
-                // still full), whether because the browser/JS main thread is
-                // too busy to drain the socket or the network/backend can't
-                // keep up. Either way, back this client off. Recover only
-                // after a long clean streak so a client hovering right at
-                // its capacity settles on one rate instead of oscillating.
-                if (pss->writePending) {
-                    pss->goodStreak = 0;
-                    if (++pss->badStreak >= kBackoffAfterConsecutiveDrops) {
-                        pss->badStreak = 0;
-                        pss->periodUs = std::min(pss->periodUs * 2, kTelemetryMinPeriodUs);
-                        server->reportClientPeriodUs(pss->periodUs);
-                    }
-                } else {
-                    pss->badStreak = 0;
-                    if (pss->periodUs > kTelemetryPeriodUs && ++pss->goodStreak >= kRecoverAfterConsecutiveOk) {
-                        pss->goodStreak = 0;
-                        pss->periodUs = std::max(pss->periodUs / 2, kTelemetryPeriodUs);
-                        server->reportClientPeriodUs(pss->periodUs);
-                    }
-                }
-                // Always arm exactly one write per period. If the previous
-                // write is still pending (slow client), drop that slot —
-                // next tick sends the latest prebuilt frame (never backlog).
-                //
-                // The backoff keeps its own periodUs so recovery still works
-                // against the socket; the client's cap is applied here, on the
-                // way out, so whichever is slower governs.
-                const int effectivePeriodUs =
-                    std::max(pss->periodUs, pss->requestedPeriodUs);
-                // ONLY on a change. effectiveTelemetryHz_ is a single shared
-                // value that goes out in every frame as "wsHz", so writing it
-                // every tick made it flip between whatever two clients last
-                // ticked -- the readout flickered, and because the number is
-                // part of the frame it also defeated the generation dedup that
-                // keeps an idle app from re-sending an identical ~20 KB frame.
+                // The frontend manages frame rate via requestedPeriodUs (set by
+                // telemetryHz messages). No server-side backoff/reduction.
+                const int effectivePeriodUs = pss->requestedPeriodUs;
                 if (pss->reportedPeriodUs != effectivePeriodUs) {
                     pss->reportedPeriodUs = effectivePeriodUs;
                     server->reportClientPeriodUs(effectivePeriodUs);
@@ -1788,6 +1754,7 @@ std::string WebServer::buildStateJson(const char* view) const {
         wire.settings.midiInputs = s.midiInputs;
         wire.settings.virtualMidiPortEnabled = s.virtualMidiPortEnabled;
         wire.settings.uiRenderEngine = s.uiRenderEngine;
+        wire.settings.theme = s.theme;
     }
 
     wire.settings.keybindings.reserve(s.keybindings.size());

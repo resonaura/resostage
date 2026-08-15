@@ -42,6 +42,7 @@ struct WAppSettings {
     std::string midiInputName;
     bool virtualMidiPortEnabled = false;
     std::string uiRenderEngine = "browser";
+    std::string theme = "default";
     std::vector<int> activeOutputChannels;
     std::unordered_map<std::string, std::string> keybindings;
     std::vector<WMidiMapping> midiMappings;
@@ -561,6 +562,7 @@ struct WSettingsTelemetry {
     std::optional<std::vector<std::string>> midiInputs;
     std::optional<bool> virtualMidiPortEnabled;
     std::optional<std::string> uiRenderEngine;
+    std::optional<std::string> theme;
 
     std::vector<WKeybindingTelemetry> keybindings;
     std::vector<WRecentProjectTelemetry> recentProjects;

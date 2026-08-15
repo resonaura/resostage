@@ -32,6 +32,7 @@ import { MixerScreen } from "./screens/MixerScreen";
 import { PlayerScreen } from "./screens/PlayerScreen";
 import { usePerformanceMode } from "./hooks/usePerformanceMode";
 import { useTheme } from "./hooks/useTheme";
+import { applyTheme, getTheme, THEME_NAMES, type ThemeName } from "./lib/theme";
 import { TIER_FPS } from "./lib/performance";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
@@ -308,6 +309,17 @@ export default function App() {
   // and only here, so there is exactly one auto ladder deciding it.
   const performance = usePerformanceMode(state.health);
   const theme = useTheme();
+  // Sync theme changes from backend/other clients to local UI
+  useEffect(() => {
+    const serverTheme = state.settings?.theme;
+    if (
+      serverTheme &&
+      (THEME_NAMES as readonly string[]).includes(serverTheme) &&
+      getTheme().name !== serverTheme
+    ) {
+      applyTheme({ name: serverTheme as ThemeName });
+    }
+  }, [state.settings?.theme]);
   // Keep the socket in step with the frame budget: no point receiving frames
   // faster than they can be painted. Re-sent on reconnect too -- a fresh
   // socket starts at the server's default until it is told otherwise.

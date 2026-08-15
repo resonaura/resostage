@@ -187,6 +187,7 @@ enum class WebCommandKind : uint8_t {
     // off (see its doc comment) -- `json` carries { "enabled": bool }.
     SetMidiVirtualPort,
     SetUiRenderEngine,
+    SetTheme,
     SetKeybinding,
     SetOutputChannels,
     // MIDI learn / clear for a named action (see Project::midiMappings).
@@ -802,6 +803,7 @@ struct WebUiState {
         // without any hardware or IAC bus setup.
         bool virtualMidiPortEnabled = false;
         std::string uiRenderEngine = "wkwebview";
+        std::string theme = "default";
         struct Keybinding {
             std::string action;
             std::string key;

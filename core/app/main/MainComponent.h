@@ -238,6 +238,7 @@ private:
     void settingsSetMidiInput(const std::string& json);
     void settingsSetMidiVirtualPort(const std::string& json);
     void settingsSetUiRenderEngine(const std::string& json);
+    void settingsSetTheme(const std::string& json);
     void settingsSetKeybinding(const std::string& json);
     void settingsSetOutputChannels(const std::string& json);
     void settingsMidiLearn(const std::string& json);

@@ -672,6 +672,8 @@ export interface SettingsState {
   virtualMidiPortEnabled: boolean;
   /** "browser" = open the SPA in the system browser (default), "electron" = Electron shell. */
   uiRenderEngine?: "browser" | "electron";
+  /** Active UI theme name ("default", "sunset", "forest", "purple", "pinky", "sky", "blue", "mono"). */
+  theme?: string;
   keybindings: KeybindingRow[];
   midiBindings?: MidiBindingRow[];
   /** Non-empty while MIDI-learn is armed for this action. */

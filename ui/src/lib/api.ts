@@ -630,6 +630,7 @@ export const settings = {
     post("/api/v1/settings/midi-virtual-port", { enabled }),
   setUiRenderEngine: (engine: "browser" | "electron") =>
     post("/api/v1/settings/ui-render-engine", { engine }),
+  setTheme: (theme: string) => post("/api/v1/settings/theme", { theme }),
   /** Relaunch ResoStage so a changed UI engine takes effect (performAction "restart_app"). */
   restart: () => post("/api/v1/action", { action: "restart_app" }),
   setKeybinding: (action: string, key: string) =>

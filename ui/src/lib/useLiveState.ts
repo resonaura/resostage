@@ -119,6 +119,7 @@ function buildMergedState(
             next.settings.midiLearnAction ?? prev.settings.midiLearnAction,
           uiRenderEngine:
             next.settings.uiRenderEngine ?? prev.settings.uiRenderEngine,
+          theme: next.settings.theme ?? prev.settings.theme,
         }
       : prev.settings,
   };

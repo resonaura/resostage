@@ -60,6 +60,7 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
     out.virtualMidiPortEnabled = hardwareSettingsCache.virtualMidiPortEnabled;
 
     out.uiRenderEngine = appSettings.uiRenderEngine;
+    out.theme = appSettings.theme;
 
     const auto& bindings = appSettings.keybindings;
     for (const char* action : kActionIds) {
@@ -523,6 +524,21 @@ void MainComponent::settingsSetUiRenderEngine(const std::string& json) {
     publishWebState();
     setStatus("UI engine set to " + juce::String(engineChoice)
               + " (takes effect on app restart)");
+}
+
+void MainComponent::settingsSetTheme(const std::string& json) {
+    glz::generic doc;
+    std::string themeChoice;
+    if (!parseJson(json, doc) || !getString(doc, "theme", themeChoice) || themeChoice.empty())
+        return;
+
+    if (appSettings.theme == themeChoice)
+        return;
+
+    appSettings.theme = themeChoice;
+    saveAppSettingsToDisk();
+    publishWebState();
+    setStatus("Theme set to " + juce::String(themeChoice));
 }
 
 void MainComponent::settingsSetOutputChannels(const std::string& json) {

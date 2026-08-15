@@ -70,6 +70,9 @@ struct AppSettings {
     // headless either way.
     std::string uiRenderEngine = "browser";
 
+    // Active UI theme name ("default", "sunset", "forest", "purple", "pinky", "sky", "blue", "mono").
+    std::string theme = "default";
+
     // Most-recent-first, capped at kMaxRecentProjects (see RecentProjects.h).
     std::vector<RecentProjectEntry> recentProjects;
 };
