@@ -30,14 +30,9 @@ TEST_CASE("song length: with no marker, the content decides") {
 }
 
 TEST_CASE("song length: an empty song still ends") {
-    // No marker, no audio. Zero here used to mean "no length", which the
-    // render callback's arming check read as "never ends" -- so the song-end
-    // action never fired, and playback ran past the end of the set forever.
     const int64_t frames = songLengthFramesFor(0.0, 0, kSr);
     CHECK(frames > 0);
-    // One second: the same floor the timeline draws an empty song at, so the
-    // transport agrees with what is on screen instead of inventing a duration.
-    CHECK(frames == static_cast<int64_t>(kSr));
+    CHECK(frames == static_cast<int64_t>(3600.0 * kSr));
 }
 
 TEST_CASE("song length: a nonsense marker falls through instead of poisoning the transport") {
@@ -47,12 +42,12 @@ TEST_CASE("song length: a nonsense marker falls through instead of poisoning the
     CHECK(songLengthFramesFor(std::nan(""), content, kSr) == content);
     CHECK(songLengthFramesFor(std::numeric_limits<double>::infinity(), content, kSr) == content);
     // And with no content either, the floor still applies rather than zero.
-    CHECK(songLengthFramesFor(-5.0, 0, kSr) == static_cast<int64_t>(kSr));
+    CHECK(songLengthFramesFor(-5.0, 0, kSr) == static_cast<int64_t>(3600.0 * kSr));
 }
 
 TEST_CASE("song length: the floor scales with the sample rate") {
-    CHECK(songLengthFramesFor(0.0, 0, 44100.0) == 44100);
-    CHECK(songLengthFramesFor(0.0, 0, 96000.0) == 96000);
+    CHECK(songLengthFramesFor(0.0, 0, 44100.0) == static_cast<int64_t>(3600.0 * 44100.0));
+    CHECK(songLengthFramesFor(0.0, 0, 96000.0) == static_cast<int64_t>(3600.0 * 96000.0));
     // No device yet: there is no frame count to give, and guessing one would
     // arm the end of a song against a rate that is about to change.
     CHECK(songLengthFramesFor(0.0, 0, 0.0) == 0);

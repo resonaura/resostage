@@ -1,7 +1,7 @@
 #include "MainComponent.h"
 #include "engine/AudioEngineInternal.h"
 #include "lighting/LightOutputResolver.h"
-#include "platform/MacShellMode.h"
+#include "platform/PlatformShellMode.h"
 #include "platform/ThermalState.h"
 #include "platform/TrayIcon.h"
 #include "project/ProjectJson.h"
@@ -47,17 +47,11 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort) {
         }
     }
 
-#if JUCE_MAC
-    // No Dock icon ever, for any launch mode (see LSUIElement in
-    // Info.plist.in) -- a runtime setActivationPolicy call here would be too
-    // late, macOS already registered the Dock icon before our own code runs.
-    // When Electron spawned us as its nested backend specifically, give the
-    // user a menu-bar way to see/quit the backend instead.
-    if (std::getenv("RESOSTAGE_SPAWNED_BY_SHELL") != nullptr) {
+#if JUCE_MAC || JUCE_WINDOWS
+    // Show system tray / menu bar icon so the operator can control playback
+    // and show/hide the shell from the system tray on desktop OSes.
+    {
         TrayCallbacks tray;
-        // Straight through performAction, the same path hotkeys and MIDI
-        // take -- the menu bar cannot end up doing something subtly
-        // different from the space bar.
         tray.perform = [this](const std::string& action) { performAction(action); };
         tray.isPlaying = [this] { return engine.isPlaying(); };
         tray.currentSongName = [this]() -> std::string {
@@ -496,6 +490,18 @@ void MainComponent::performAction(const std::string& action) {
             saveAppSettingsToDisk();
         }
     }
+    else if (action.rfind("open_path:", 0) == 0) {
+        const std::string path = action.substr(std::string("open_path:").size());
+        openProjectFromIpc(path);
+    }
+    else if (action.rfind("save_as_path:", 0) == 0) {
+        const std::string path = action.substr(std::string("save_as_path:").size());
+        saveProjectToPath(path);
+    }
+    else if (action.rfind("import_song_folder_path:", 0) == 0) {
+        const std::string path = action.substr(std::string("import_song_folder_path:").size());
+        importSongFolderFromPath(path);
+    }
 }
 
 void MainComponent::openProjectFromIpc(const std::string& path) {
@@ -542,6 +548,55 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
         // Trigger UI to show
         publishWebState();
     }
+}
+
+void MainComponent::saveProjectToPath(const std::string& path, std::function<void(bool)> onDone) {
+    if (!engine.isProjectLoaded()) {
+        setStatus("Nothing to save -- load a project first");
+        if (onDone) onDone(false);
+        return;
+    }
+    juce::File target(path);
+    if (!target.hasFileExtension(".rsnraset"))
+        target = target.withFileExtension(".rsnraset");
+
+    setStatus("Saving " + target.getFileName() + "…");
+    publishWebState();
+
+    engine.saveProjectAsync(target.getFullPathName().toStdString(),
+        [this, onDone, target, name = target.getFileName()](bool ok, std::string error) {
+            if (!ok) {
+                setStatus("Save failed: " + juce::String(error));
+                publishWebState();
+                if (onDone) onDone(false);
+                return;
+            }
+            ensureProjectFolderIcon(target);
+            setStatus("Saved " + name);
+            rememberRecentProject(target);
+            publishWebState();
+            if (onDone) onDone(true);
+        });
+}
+
+void MainComponent::importSongFolderFromPath(const std::string& path) {
+    juce::File file(path);
+    if (!file.exists() || !file.isDirectory()) {
+        setStatus("Invalid song folder: " + juce::String(path));
+        return;
+    }
+    const std::string songName = file.getFileName().toStdString();
+    setStatus("Importing " + file.getFileName() + "…");
+    engine.importSongFromFolderAsync(
+        file.getFullPathName().toStdString(), songName, 120.0, 4, 4,
+        [this, name = file.getFileName()](bool ok, std::string error) {
+            if (!ok) {
+                setStatus("Song import failed: " + juce::String(error));
+                return;
+            }
+            notifyProjectStructureChanged();
+            setStatus("Imported song '" + name + "'");
+        });
 }
 
 void MainComponent::ensureProjectFolderIcon(const juce::File& projectFile) {

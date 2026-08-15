@@ -47,11 +47,25 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // Already on this song (re-click / coalesced hop that landed where we
     // are): rewind in place — never re-open every stem. That used to make
     // "click current song" and rapid same-target coalescing feel laggy.
-    if (songIndex == currentSong) {
+    if (songIndex == currentSong && static_cast<bool>(streaming.acquireActiveSong())) {
         if (!wasPlaying)
             stop();
         else
             streamHandoff.store(true, std::memory_order_release);
+
+        int64_t sameSongLengthFrames = 0;
+        double maxContentSec = 0.0;
+        for (const auto& r : song.regions)
+            maxContentSec = std::max(maxContentSec, r.startSeconds + r.durationSeconds);
+        for (const auto& sec : song.sections)
+            maxContentSec = std::max(maxContentSec, sec.startSeconds);
+        for (const auto& ev : song.events)
+            maxContentSec = std::max(maxContentSec, ev.timeSeconds);
+        for (const auto& lc : song.lightCues)
+            maxContentSec = std::max(maxContentSec, lc.startSeconds + lc.durationSeconds);
+        if (maxContentSec > 0.0 && currentSampleRate > 0.0)
+            sameSongLengthFrames = std::max(sameSongLengthFrames, static_cast<int64_t>(std::llround(maxContentSec * currentSampleRate)));
+        sameSongLengthFrames = songLengthFrames(song.endSeconds, sameSongLengthFrames, currentSampleRate);
 
         {
             std::lock_guard<std::recursive_mutex> lock(routingMutex);
@@ -62,6 +76,12 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             lastCallbackWasUnderrun = false;
             lastCallbackHostNanos = 0;
             pendingSongEndAction = SongEndAction::None;
+            currentSongLengthFrames = sameSongLengthFrames;
+            if (currentSampleRate > 0.0) {
+                clickGenerator.prepare(currentSampleRate, song.bpm,
+                                       song.timeSignature.numerator,
+                                       song.timeSignature.denominator);
+            }
             const int fadeIn = wasPlaying ? 256 : kSongEndFadeSamples;
             recoveryFadeInLength = fadeIn;
             recoveryFadeInRemaining = fadeIn;
@@ -640,6 +660,17 @@ void AudioEngine::play() {
     // MasterClock::running) so the audio thread's acquire-load of running
     // is guaranteed to also observe this reset (release/acquire
     // synchronizes-with, not a torn race).
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        underrunFadeOutRemaining = 0;
+        underrunFadeOutLength = 0;
+        pendingSongEndAction = SongEndAction::None;
+        const int fadeIn = 256;
+        recoveryFadeInLength = fadeIn;
+        recoveryFadeInRemaining = fadeIn;
+        outputHeldSilent = false;
+    }
+
     hwSamplePosition.store(startSample, std::memory_order_relaxed);
     clock.start(currentSampleRate, startSample);
 

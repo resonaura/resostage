@@ -17,7 +17,8 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
     menus.reserve(6);
     const std::string mod = platformModifier();
 
-    // ── ResoStage ──────────────────────────────────────────────────────────
+#if JUCE_MAC
+    // ── ResoStage (macOS App Menu) ──────────────────────────────────────────
     {
         MenuSectionModel section;
         section.title = "ResoStage";
@@ -35,6 +36,7 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
         section.items.push_back(std::move(quit));
         menus.push_back(std::move(section));
     }
+#endif
 
     // ── File ───────────────────────────────────────────────────────────────
     {
@@ -90,6 +92,20 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
             item.actionId = "import_song_folder";
             section.items.push_back(std::move(item));
         }
+#if !JUCE_MAC
+        {
+            MenuItemModel sep;
+            sep.kind = MenuItemModel::Kind::Separator;
+            section.items.push_back(sep);
+        }
+        {
+            MenuItemModel item;
+            item.title = "Exit";
+            item.actionId = "quit";
+            item.key = "alt + f4";
+            section.items.push_back(std::move(item));
+        }
+#endif
         menus.push_back(std::move(section));
     }
 
@@ -175,14 +191,31 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
             item.key = mod + " + m";
             section.items.push_back(std::move(item));
         }
+#if JUCE_MAC
         {
             MenuItemModel item;
             item.title = "Zoom";
             item.role = "zoom";
             section.items.push_back(std::move(item));
         }
+#endif
         menus.push_back(std::move(section));
     }
+
+#if !JUCE_MAC
+    // ── Help (Windows / Linux) ─────────────────────────────────────────────
+    {
+        MenuSectionModel section;
+        section.title = "Help";
+        {
+            MenuItemModel about;
+            about.title = "About ResoStage";
+            about.role = "about";
+            section.items.push_back(std::move(about));
+        }
+        menus.push_back(std::move(section));
+    }
+#endif
 
     return menus;
 }();

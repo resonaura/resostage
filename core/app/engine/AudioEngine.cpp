@@ -988,15 +988,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     }
 
     StreamingEngine::ActiveSongHandle activeSong = streaming.acquireActiveSong();
+    const Project& proj = loader.project();
 
-    if (!activeSong) {
+    if (!activeSong && currentSong < proj.songs.size()) {
         bailSilently();
         return;
     }
 
     const int64_t playheadSample = renderPlayheadSample;
 
-    const Project& proj = loader.project();
     if (currentSong < proj.songs.size()) {
         const SongDef& song = proj.songs[currentSong];
 
@@ -1072,16 +1072,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // end, prefer looping over song-end stop/advance. Mid-song cycles never
         // reach the end while looping (seek fires first); if the playhead is
         // already past the right locator, song-end must still work.
-        const double songLenSec = currentSampleRate > 0.0
-            ? static_cast<double>(currentSongLengthFrames) / currentSampleRate
-            : 0.0;
         const double cycleHi = cycleRightSec.load(std::memory_order_relaxed);
         const double cycleLo = cycleLeftSec.load(std::memory_order_relaxed);
         const bool cycleLoopBlocksSongEnd =
             cycleActive.load(std::memory_order_relaxed)
             && !cycleSkip.load(std::memory_order_relaxed)
-            && (cycleHi - cycleLo) >= 0.05
-            && cycleHi >= songLenSec - 0.02;
+            && (cycleHi - cycleLo) >= 0.05;
         const int64_t fadeArmSample = currentSongLengthFrames - kSongEndFadeSamples;
         if (!cycleLoopBlocksSongEnd
             && currentSongLengthFrames > 0 && playheadSample + numSamples >= fadeArmSample) {

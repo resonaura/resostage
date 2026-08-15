@@ -55,6 +55,8 @@ public:
     void performAction(const std::string& action);
     /** Called from Electron IPC when user opens .rsnrasetmeta or .rsnraset file. */
     void openProjectFromIpc(const std::string& path);
+    void saveProjectToPath(const std::string& path, std::function<void(bool)> onDone = nullptr);
+    void importSongFolderFromPath(const std::string& path);
     /**
      * Always drop the project-folder icon into the container's Resources/
      * subfolder (and apply it on Windows via desktop.ini). Runs on save.

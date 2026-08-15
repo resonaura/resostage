@@ -203,7 +203,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
                     return;
                 if (streaming.hasPrecacheFor(i))
                     return;
-                if (currentSong == i)
+                if (currentSong == i && static_cast<bool>(streaming.acquireActiveSong()))
                     return; // already active
                 streaming.precacheSong(i, p.songs[i], ringCap, sr,
                                        /*epoch=*/0, /*requireEpochMatch=*/false);

@@ -26,11 +26,13 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   powerMonitor,
   powerSaveBlocker,
   TouchBar,
+  Tray,
   type MenuItemConstructorOptions,
 } from "electron";
 import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
@@ -607,11 +609,110 @@ function flashMenuAction(action: string): void {
   scheduleMenuFlash(loc.section, loc.item);
 }
 
+let windowsTray: Tray | null = null;
+
+function setupWindowsTray(): void {
+  if (process.platform !== "win32" || windowsTray) return;
+  const iconPath = path.join(import.meta.dirname, "..", "icons", "app.ico");
+  const fallbackIconPath = path.join(app.getAppPath(), "icons", "app.ico");
+  const finalIcon = existsSync(iconPath)
+    ? iconPath
+    : existsSync(fallbackIconPath)
+    ? fallbackIconPath
+    : null;
+  if (!finalIcon) return;
+
+  try {
+    windowsTray = new Tray(iconPath);
+    windowsTray.setToolTip("ResoStage");
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: "Show ResoStage",
+        click: () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        },
+      },
+      { type: "separator" },
+      {
+        label: "Exit",
+        click: () => void postAction("quit"),
+      },
+    ]);
+    windowsTray.setContextMenu(contextMenu);
+    windowsTray.on("double-click", () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  } catch (err) {
+    console.warn("[resostage] Failed to setup Windows tray icon:", err);
+  }
+}
+
+async function handleFileDialogAction(action: string): Promise<boolean> {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+
+  if (action === "open_project") {
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: "Open ResoStage Project",
+      filters: [
+        { name: "ResoStage Project", extensions: ["rsnraset", "rsnrasetmeta"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+      properties: ["openFile", "openDirectory"],
+    });
+    if (!res.canceled && res.filePaths[0]) {
+      return postAction(`open_path:${res.filePaths[0]}`);
+    }
+    return true;
+  }
+
+  if (action === "save_project_as") {
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: "Save ResoStage Project As",
+      filters: [{ name: "ResoStage Project", extensions: ["rsnraset"] }],
+    });
+    if (!res.canceled && res.filePath) {
+      return postAction(`save_as_path:${res.filePath}`);
+    }
+    return true;
+  }
+
+  if (action === "import_song_folder") {
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: "Import Song Folder",
+      properties: ["openDirectory"],
+    });
+    if (!res.canceled && res.filePaths[0]) {
+      return postAction(`import_song_folder_path:${res.filePaths[0]}`);
+    }
+    return true;
+  }
+
+  return false;
+}
+
 async function postAction(action: string): Promise<boolean> {
   // Flash for menu-click / shell-originated actions (don't wait for the
   // SPA's WebSocket round-trip of lastActionNonce). Deferred so it lands
   // after any concurrent refreshMenu from menu-state.
   flashMenuAction(action);
+
+  if (
+    action === "open_project" ||
+    action === "save_project_as" ||
+    action === "import_song_folder"
+  ) {
+    const handled = await handleFileDialogAction(action);
+    if (handled) return true;
+  }
+
   try {
     const res = await fetch(`${BACKEND}/api/v1/action`, {
       method: "POST",
@@ -1011,6 +1112,16 @@ function buildMenu(): Menu | null {
       // Remove the ResoStage menu
       sections.shift();
     }
+
+    const winIdx = sections.findIndex((s) => s.label === "Window");
+    if (winIdx >= 0) {
+      const winSubmenu = Array.isArray(sections[winIdx].submenu)
+        ? sections[winIdx].submenu
+        : [];
+      sections[winIdx].submenu = winSubmenu.filter(
+        (item) => (item as any).role !== "zoom",
+      );
+    }
   }
 
   const editIdx = sections.findIndex((s) => s.label === "Edit");
@@ -1365,6 +1476,8 @@ function refreshTouchBar(): void {
 }
 
 function createWindow(): void {
+  setupWindowsTray();
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -1427,6 +1540,27 @@ function createWindow(): void {
         releaseAppSuspensionBlocker();
         if (STANDALONE) killBackend();
         app.quit();
+      } else {
+        // Poll briefly in case backend exits or quit decision resolves cleanly
+        setTimeout(() => {
+          if (!mainWindow || mainWindow.isDestroyed() || isQuitting) return;
+          fetch(`${BACKEND}/api/v1/state`)
+            .then((r) => r.json())
+            .then((st: any) => {
+              if (st && st.quitConfirmPending === false && !st.dirty) {
+                isQuitting = true;
+                releaseAppSuspensionBlocker();
+                if (STANDALONE) killBackend();
+                app.quit();
+              }
+            })
+            .catch(() => {
+              isQuitting = true;
+              releaseAppSuspensionBlocker();
+              if (STANDALONE) killBackend();
+              app.quit();
+            });
+        }, 800);
       }
     });
   });
@@ -1526,6 +1660,13 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
 });
 
 ipcMain.on("action", (_event, action: unknown) => {
+  if (action === "quit-approved") {
+    isQuitting = true;
+    releaseAppSuspensionBlocker();
+    if (STANDALONE) killBackend();
+    app.quit();
+    return;
+  }
   if (typeof action === "string" && action) postAction(action);
 });
 

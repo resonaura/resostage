@@ -206,10 +206,20 @@ export const project = {
   setName: (name: string) => post("/api/v1/project/name", { name }),
   // Answers the in-webview "Unsaved Changes" quit prompt (WebUiState.
   // quitConfirmPending) -- see WebCommandKind::QuitDecision.
-  resolveQuit: (choice: "save" | "discard" | "cancel") =>
-    post("/api/v1/project/quit-decision", {
+  resolveQuit: (choice: "save" | "discard" | "cancel") => {
+    if ((choice === "discard" || choice === "save") && typeof window !== "undefined" && (window as any).resostageElectron?.sendAction) {
+      setTimeout(() => {
+        try {
+          (window as any).resostageElectron.sendAction("quit-approved");
+        } catch {
+          /* ignore */
+        }
+      }, 250);
+    }
+    return post("/api/v1/project/quit-decision", {
       index: QUIT_DECISION_INDEX[choice],
-    }),
+    });
+  },
   // Answers the in-webview "Unsaved Changes" prompt shown before opening an
   // externally-requested project (WebUiState.openConfirmPending) -- see
   // WebCommandKind::OpenDecision.

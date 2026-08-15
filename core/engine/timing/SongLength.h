@@ -30,7 +30,7 @@ inline int64_t songLengthFramesFor(double endSeconds, int64_t contentFrames, dou
     if (contentFrames > 0)
         return contentFrames;
 
-    constexpr double kEmptySongSeconds = 60.0;
+    constexpr double kEmptySongSeconds = 3600.0;
     return sampleRate > 0.0
                ? static_cast<int64_t>(std::llround(kEmptySongSeconds * sampleRate))
                : 0;

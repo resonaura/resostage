@@ -342,22 +342,46 @@ export function killApp({ bestEffort = false } = {}) {
 // Equivalent to what electron-builder does via rcedit, done here in-process
 // with the pure-JS resedit package (keeps the hand-rolled assembly dependency-
 // free at runtime).
-function setWindowsExeIcon(exePath, icoPath) {
+function patchWindowsExeMetadata(exePath, icoPath) {
   const exe = NtExecutable.from(readFileSync(exePath));
   const res = NtExecutableResource.from(exe);
-  const iconFile = Data.IconFile.from(readFileSync(icoPath));
-  const RT_ICON = 3;
-  const RT_GROUP_ICON = 14;
-  // Drop every existing icon/group so our group id 1 is the only (and thus
-  // lowest) one Windows will pick. replaceIconsForResource only swaps entries
-  // that share the target group id, so leftover Electron icons would win.
-  res.entries = res.entries.filter((e) => e.type !== RT_ICON && e.type !== RT_GROUP_ICON);
-  Resource.IconGroupEntry.replaceIconsForResource(
-    res.entries,
-    1, // iconGroupID -- lowest id wins for display
-    1033, // lang: en-US
-    iconFile.icons.map((item) => item.data),
-  );
+
+  if (icoPath && existsSync(icoPath)) {
+    const iconFile = Data.IconFile.from(readFileSync(icoPath));
+    const RT_ICON = 3;
+    const RT_GROUP_ICON = 14;
+    // Drop every existing icon/group so our group id 1 is the only (and thus
+    // lowest) one Windows will pick. replaceIconsForResource only swaps entries
+    // that share the target group id, so leftover Electron icons would win.
+    res.entries = res.entries.filter((e) => e.type !== RT_ICON && e.type !== RT_GROUP_ICON);
+    Resource.IconGroupEntry.replaceIconsForResource(
+      res.entries,
+      1, // iconGroupID -- lowest id wins for display
+      1033, // lang: en-US
+      iconFile.icons.map((item) => item.data),
+    );
+  }
+
+  // Patch PE VersionInfo metadata so Windows Task Manager displays "ResoStage"
+  // instead of Electron's default "Electron" process metadata.
+  const versionInfos = Resource.VersionInfo.fromEntries(res.entries);
+  if (versionInfos && versionInfos.length > 0) {
+    for (const info of versionInfos) {
+      info.setStringValues(
+        { lang: 1033, codepage: 1200 },
+        {
+          FileDescription: "ResoStage",
+          ProductName: "ResoStage",
+          CompanyName: "ResoStage",
+          InternalName: "ResoStage.exe",
+          OriginalFilename: "ResoStage.exe",
+          LegalCopyright: "Copyright © ResoStage",
+        },
+      );
+      info.outputToResourceEntries(res.entries);
+    }
+  }
+
   res.outputResource(exe);
   writeFileSync(exePath, Buffer.from(exe.generate()));
 }
@@ -597,11 +621,7 @@ function assembleShellBundle() {
     // itself would otherwise keep the Electron logo). Mirrors what electron-
     // builder does via rcedit, done here with the pure-JS resedit package.
     const appIco = join(ROOT, "icons", "app.ico");
-    if (existsSync(appIco)) {
-      setWindowsExeIcon(shellBundle, appIco);
-    } else {
-      log(`Warning: icons/app.ico missing -- exe keeps Electron's default icon`);
-    }
+    patchWindowsExeMetadata(shellBundle, existsSync(appIco) ? appIco : null);
 
     // The app proper (package.json + compiled dist/ + runtime deps) must live
     // at resources/app/ -- that is the one place Electron looks for the

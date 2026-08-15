@@ -96,6 +96,10 @@ export default defineConfig({
       'react',
       'react-dom',
       'react-dom/client',
+      'use-sync-external-store',
+      'use-sync-external-store/shim/with-selector',
+      'use-sync-external-store/with-selector',
+      'framer-motion',
       '@heroui/react',
       'react-aria-components',
       'three',
@@ -107,5 +111,20 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 2500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (
+            id.includes('node_modules/use-sync-external-store') ||
+            id.includes('node_modules/react') ||
+            id.includes('node_modules/react-dom') ||
+            id.includes('node_modules/framer-motion') ||
+            id.includes('node_modules/@heroui')
+          ) {
+            return 'vendor-core'
+          }
+        },
+      },
+    },
   },
 })

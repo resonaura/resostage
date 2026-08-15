@@ -1,5 +1,5 @@
 #include "TrayIcon.h"
-#include "MacShellMode.h"
+#include "PlatformShellMode.h"
 #include "BinaryData.h"
 
 namespace resostage {
