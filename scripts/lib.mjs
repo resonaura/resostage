@@ -637,6 +637,11 @@ function assembleShellBundle() {
     });
     copyShellRuntimeDeps(appDst);
 
+    const iconsSrc = join(ROOT, "icons");
+    if (existsSync(iconsSrc)) {
+      cpSync(iconsSrc, join(appDst, "icons"), { recursive: true });
+    }
+
     // The SPA the Electron shell loads (EMBED_URL = http://localhost:<port>/)
     // is served by the nested Core's WebServer, not by the shell itself. The
     // Core looks for it at <exe dir>/resources/web (Windows) / Contents/

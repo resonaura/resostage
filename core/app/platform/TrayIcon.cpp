@@ -15,7 +15,7 @@ TrayIcon::TrayIcon(TrayCallbacks callbacks) : cb(std::move(callbacks)) {
     const auto image = juce::ImageFileFormat::loadFrom(
         BinaryData::tray_png, static_cast<size_t>(BinaryData::tray_pngSize));
     setIconImage(image, image);
-    setIconTooltip("ResoStage -- running in the background");
+    setIconTooltip("ResoStage");
 }
 
 void TrayIcon::mouseDown(const juce::MouseEvent& e) {

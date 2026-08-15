@@ -48,9 +48,9 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort) {
     }
 
 #if JUCE_MAC || JUCE_WINDOWS
-    // Show system tray / menu bar icon so the operator can control playback
-    // and show/hide the shell from the system tray on desktop OSes.
-    {
+    // When spawned by Electron shell, Electron creates and manages the single OS
+    // native tray icon. Standalone JUCE process creates its own tray icon here.
+    if (std::getenv("RESOSTAGE_SPAWNED_BY_SHELL") == nullptr) {
         TrayCallbacks tray;
         tray.perform = [this](const std::string& action) { performAction(action); };
         tray.isPlaying = [this] { return engine.isPlaying(); };

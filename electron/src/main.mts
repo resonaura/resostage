@@ -612,44 +612,46 @@ function flashMenuAction(action: string): void {
 
 let windowsTray: Tray | null = null;
 
+function getWindowsTrayIconPath(): string {
+  const isDarkTaskbar = nativeTheme.shouldUseDarkColors;
+  // Dark taskbar → white icon; Light taskbar → dark icon
+  const name = isDarkTaskbar ? "tray-white" : "tray-dark";
+
+  const candidates = [
+    path.join(import.meta.dirname, "..", "icons", `${name}.png`),
+    path.join(app.getAppPath(), "icons", `${name}.png`),
+    path.join(import.meta.dirname, "..", "..", "icons", `${name}.png`),
+    path.join(import.meta.dirname, "..", "icons", `${name}.svg`),
+    path.join(app.getAppPath(), "icons", `${name}.svg`),
+    path.join(import.meta.dirname, "..", "icons", "app.ico"),
+    path.join(app.getAppPath(), "icons", "app.ico"),
+  ];
+
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return path.join(app.getAppPath(), "icons", "app.ico");
+}
+
 function updateWindowsTrayIconTheme(): void {
   if (!windowsTray || process.platform !== "win32") return;
-  const isDark = nativeTheme.shouldUseDarkColors;
-  const themeName = isDark ? "dark" : "light";
-  const iconThemePath = path.join(import.meta.dirname, "..", "icons", `app_${themeName}.ico`);
-  const iconDefaultPath = path.join(import.meta.dirname, "..", "icons", "app.ico");
-  const fallbackIconPath = path.join(app.getAppPath(), "icons", "app.ico");
-
-  const chosenPath = existsSync(iconThemePath)
-    ? iconThemePath
-    : existsSync(iconDefaultPath)
-    ? iconDefaultPath
-    : existsSync(fallbackIconPath)
-    ? fallbackIconPath
-    : null;
-
-  if (chosenPath) {
+  const iconPath = getWindowsTrayIconPath();
+  if (existsSync(iconPath)) {
     try {
-      windowsTray.setImage(chosenPath);
-    } catch {
-      /* best effort */
+      windowsTray.setImage(iconPath);
+    } catch (err) {
+      console.warn("[resostage] Failed to set tray icon image:", err);
     }
   }
 }
 
 function setupWindowsTray(): void {
   if (process.platform !== "win32" || windowsTray) return;
-  const iconPath = path.join(import.meta.dirname, "..", "icons", "app.ico");
-  const fallbackIconPath = path.join(app.getAppPath(), "icons", "app.ico");
-  const finalIcon = existsSync(iconPath)
-    ? iconPath
-    : existsSync(fallbackIconPath)
-    ? fallbackIconPath
-    : null;
-  if (!finalIcon) return;
+  const initialIcon = getWindowsTrayIconPath();
+  if (!existsSync(initialIcon)) return;
 
   try {
-    windowsTray = new Tray(finalIcon);
+    windowsTray = new Tray(initialIcon);
     windowsTray.setToolTip("ResoStage");
     const contextMenu = Menu.buildFromTemplate([
       {
@@ -669,6 +671,14 @@ function setupWindowsTray(): void {
       },
     ]);
     windowsTray.setContextMenu(contextMenu);
+
+    const popupMenu = () => {
+      if (windowsTray && !windowsTray.isDestroyed()) {
+        windowsTray.popUpContextMenu(contextMenu);
+      }
+    };
+    windowsTray.on("right-click", popupMenu);
+    windowsTray.on("click", popupMenu);
     windowsTray.on("double-click", () => {
       if (mainWindow) {
         if (mainWindow.isMinimized()) mainWindow.restore();
@@ -677,7 +687,6 @@ function setupWindowsTray(): void {
       }
     });
 
-    // Dynamically adapt tray icon to Windows system taskbar theme (Dark vs Light)
     updateWindowsTrayIconTheme();
     nativeTheme.on("updated", () => updateWindowsTrayIconTheme());
   } catch (err) {
