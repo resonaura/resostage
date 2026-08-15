@@ -21,6 +21,8 @@ static BOOL DebugEnabled(void) {
   return getenv("RESOSTAGE_DEBUG_MENU_FLASH") != NULL;
 }
 
+static BOOL IsMenuTrackingSessionActive(void); // forward decl (defined below)
+
 static id MenuBarImpl(NSMenu *MainMenu) {
   if (MainMenu == nil)
     return nil;
@@ -108,6 +110,12 @@ static void HighlightBarIndex(id Impl, NSInteger Index) {
 static void UnhighlightBar(id Impl) {
   if (Impl == nil)
     return;
+  // Don't touch the bar if the user has since opened a menu (the scheduled
+  // unhighlight may fire 0.18s after the flash while a new tracking session
+  // is starting) -- unhighlighting mid-transition is a milder but similar
+  // re-entrancy hazard.
+  if (IsMenuTrackingSessionActive())
+    return;
   SEL Sel = sel_registerName("unhighlightItemIfNeeded");
   if ([Impl respondsToSelector:Sel])
     ((void (*)(id, SEL))objc_msgSend)(Impl, Sel);
@@ -115,6 +123,29 @@ static void UnhighlightBar(id Impl) {
   SEL Remove = sel_registerName("_removeAuxiliaryHighlightIfNeeded");
   if ([Impl respondsToSelector:Remove])
     ((void (*)(id, SEL))objc_msgSend)(Impl, Remove);
+}
+
+// True while a menu (top bar, submenu, or context menu) is being tracked --
+// i.e. the user has one open or is navigating it. Calling the private
+// _highlightVisibleItemAtIndex:allowingDisabledItems: during a tracking
+// session re-enters AppKit's highlight machinery (_agent_performHighlight
+// Transaction -> dismissCoalescingSubmenus -> _sendMenuClosedNotification),
+// which fires Electron's NSMenu observers, which call back into Node while
+// the menu system is mid-transition -> EXC_BREAKPOINT crash. Guarding against
+// it is the whole fix for the "crash while clicking around the menus" bug.
+static BOOL IsMenuTrackingSessionActive(void) {
+  Class Cls = NSClassFromString(@"NSMenuTrackingSession");
+  if (Cls == nil)
+    return NO;
+  SEL Sel = NSSelectorFromString(@"activeSession");
+  if (![Cls respondsToSelector:Sel])
+    return NO;
+  @try {
+    id Session = ((id (*)(id, SEL))objc_msgSend)(Cls, Sel);
+    return Session != nil;
+  } @catch (__unused NSException *Ex) {
+    return NO;
+  }
 }
 
 /// Flash a leaf item via performActionForItemAtIndex: without re-firing the
@@ -146,6 +177,15 @@ static void DoFlash(NSString *TopTitle, NSString *ItemTitle) {
   if (MainMenu == nil) {
     if (DebugEnabled())
       fprintf(stderr, "MenuFlash: NSApp.mainMenu is nil\n");
+    return;
+  }
+
+  // Never flash while the user is interacting with a menu -- re-entering
+  // AppKit's menu highlight path mid-tracking crashes the process (see
+  // IsMenuTrackingSessionActive). Drop the flash instead of risking it.
+  if (IsMenuTrackingSessionActive()) {
+    if (DebugEnabled())
+      fprintf(stderr, "MenuFlash: skipping flash (menu tracking session active)\n");
     return;
   }
 

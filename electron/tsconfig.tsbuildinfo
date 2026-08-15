@@ -1,0 +1,1 @@
+{"root":["./src/main.mts","./src/preload.cts","./src/platform/linuxplatformadapter.ts","./src/platform/macplatformadapter.ts","./src/platform/platformadapter.ts","./src/platform/windowsplatformadapter.ts","./src/platform/index.ts","./src/platform/tray.ts"],"version":"5.9.3"}

@@ -544,10 +544,22 @@ function assembleShellBundle() {
     });
     copyShellRuntimeDeps(appDst);
 
+    // Bundle the tray/status icons (used by the menu-bar tray on macOS) so
+    // the shared tray (electron/src/platform/tray.ts) can resolve them.
+    const macIconsSrc = join(ROOT, "icons");
+    if (existsSync(macIconsSrc)) {
+      cpSync(macIconsSrc, join(appDst, "icons"), { recursive: true });
+    }
+
     const coreDst = getNestedCoreAppBundle(shellBundle);
-    run("rm", ["-rf", coreDst]);
-    // Quote paths for shell (they may contain spaces, e.g. "ResoStage Core.app")
-    run("cp", ["-R", `"${rawCore}"`, `"${coreDst}"`]);
+    // Use rmSync/cpSync, NOT the shell `run()` helper: `run` concatenates args
+    // with spaces (shell:true) without quoting, so a bundle path containing
+    // spaces ("ResoStage Core.app") gets split into separate args. rm would
+    // silently fail to delete the stale core, and cp would nest the fresh one
+    // inside it (…/Core.app/Core.app), leaving Electron to spawn the old core
+    // and serve a stale embedded web UI.
+    rmSync(coreDst, { recursive: true, force: true });
+    cpSync(rawCore, coreDst, { recursive: true });
 
     run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);
     ok(`Assembled ${shellBundle}`);

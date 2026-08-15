@@ -29,102 +29,31 @@ import {
   dialog,
   ipcMain,
   Menu,
-  nativeTheme,
   powerMonitor,
   powerSaveBlocker,
   TouchBar,
-  Tray,
   type MenuItemConstructorOptions,
 } from "electron";
-import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, unlinkSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { unlinkSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import dgram from "node:dgram";
-import { createRequire } from "node:module";
 import path from "node:path";
+import {
+  createPlatformAdapter,
+  type PlatformAdapter,
+} from "./platform/index.js";
 
-// koffi loads dist/*.dylib (native/mac/*.m). Optional — missing dylib or
-// non-mac simply skips the feature. Eager-loaded on app ready so load
-// failures show up once at startup instead of silently on first use.
-const require = createRequire(import.meta.url);
-
-type KoffiModule = {
-  load: (p: string) => {
-    func: (
-      name: string,
-      ret: string,
-      args: string[],
-    ) => (...args: unknown[]) => void;
-  };
+// All platform differences live behind the platform adapter (see platform/).
+// main.mts talks to `platform` and never reads process.platform directly.
+// The context is wired to module state as it comes into existence below;
+// the object reference is stable, so the adapter always sees the latest state.
+const platformContext = {
+  appName: "ResoStage",
+  getMainWindow: () => mainWindow,
+  postAction: (action: string) => postAction(action),
 };
-
-let FlashMenuItemNative:
-  | ((topTitle: string, itemTitle: string) => void)
-  | null = null;
-let FlashMenuLoadAttempted = false;
-function EnsureNativeMenuFlash():
-  | ((topTitle: string, itemTitle: string) => void)
-  | null {
-  if (FlashMenuItemNative) return FlashMenuItemNative;
-  if (FlashMenuLoadAttempted) return null;
-  FlashMenuLoadAttempted = true;
-  if (process.platform !== "darwin") return null;
-  const LibPath = path.join(import.meta.dirname, "MenuFlash.dylib");
-  if (!existsSync(LibPath)) {
-    console.warn("MenuFlash: dylib missing at", LibPath);
-    return null;
-  }
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Koffi = require("koffi") as KoffiModule;
-    const Lib = Koffi.load(LibPath);
-    // FlashMenuItem(topTitle, itemTitle) — itemTitle may be "".
-    FlashMenuItemNative = Lib.func("FlashMenuItem", "void", ["str", "str"]) as (
-      topTitle: string,
-      itemTitle: string,
-    ) => void;
-    console.log("MenuFlash: loaded", LibPath);
-    return FlashMenuItemNative;
-  } catch (err) {
-    console.warn("MenuFlash unavailable:", err);
-    return null;
-  }
-}
-
-let HapticFeedbackNative: ((pattern: number) => void) | null = null;
-let HapticLoadAttempted = false;
-function EnsureNativeHaptics(): ((pattern: number) => void) | null {
-  if (HapticFeedbackNative) return HapticFeedbackNative;
-  if (HapticLoadAttempted) return null;
-  HapticLoadAttempted = true;
-  if (process.platform !== "darwin") return null;
-  const LibPath = path.join(import.meta.dirname, "Haptics.dylib");
-  if (!existsSync(LibPath)) {
-    console.warn("Haptics: dylib missing at", LibPath);
-    return null;
-  }
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Koffi = require("koffi") as KoffiModule;
-    const Lib = Koffi.load(LibPath);
-    HapticFeedbackNative = Lib.func("PerformHapticFeedback", "void", [
-      "int",
-    ]) as (pattern: number) => void;
-    console.log("Haptics: loaded", LibPath);
-    return HapticFeedbackNative;
-  } catch (err) {
-    console.warn("Haptics unavailable:", err);
-    return null;
-  }
-}
-
-function preloadNatives(): void {
-  EnsureNativeMenuFlash();
-  EnsureNativeHaptics();
-}
-
-// TouchBar is macOS-only; on Windows/Linux it is undefined.
-const TouchBarButton = TouchBar?.TouchBarButton;
+const platform: PlatformAdapter = createPlatformAdapter(platformContext);
 
 // ── Live-by-default (no user toggle) ──────────────────────────────────────
 // Stage app: the UI must keep running when minimized, alt-tabbed, or under
@@ -178,10 +107,9 @@ const DEFAULT_PORT = 2899;
 // device is open. Connecting here is faster and more precise than polling the
 // HTTP server, and avoids a visible window frame during backend startup.
 function ipcSocketPath(): string {
-  // Windows uses a named pipe (the Core prepends \\.\pipe\ itself), so we pass
-  // a bare pipe name; POSIX uses a Unix-domain socket file in the temp dir.
-  if (process.platform === "win32") return "resostage-core.sock";
-  return path.join(app.getPath("temp"), "resostage-core.sock");
+  // Windows uses a named pipe (the Core prepends \\.\pipe\ itself); POSIX
+  // uses a Unix-domain socket file. Both live behind the platform adapter.
+  return platform.ipcSocketPath();
 }
 
 // Connects to the IPC socket and resolves when the backend sends {"type":"ready"}.
@@ -366,65 +294,9 @@ const STANDALONE = !IS_REMOTE && !process.argv.some((a) => a.startsWith("--backe
 let backendProcess: ChildProcess | null = null;
 
 function findNestedCoreBinary(): string | null {
-  // This file (main.mjs) lives in the shell bundle's app/dist/ folder.
-  // macOS: dist/main.mjs -> Contents/Resources/app/dist, and the nested Core
-  // sits alongside at Contents/Resources/ResoStage Core.app.
-  // Windows: dist/ sits next to ResoStage Core.exe in the bundle folder.
-  const macResourcesDir = path.resolve(import.meta.dirname, "..", "..");
-  const macCorePath = path.join(
-    macResourcesDir,
-    "ResoStage Core.app",
-    "Contents",
-    "MacOS",
-    "ResoStage Core",
-  );
-  if (existsSync(macCorePath)) return macCorePath;
-
-  if (process.platform === "win32") {
-    const winCorePath = path.join(
-      process.resourcesPath,
-      "..",
-      "ResoStage Core.exe",
-    );
-    if (existsSync(winCorePath)) return winCorePath;
-
-    const devCandidates = [
-      path.join(
-        import.meta.dirname,
-        "..",
-        "..",
-        "..",
-        "build",
-        "win",
-        "x64",
-        "ResoStage Core.exe",
-      ),
-      path.join(process.cwd(), "build", "win", "x64", "ResoStage Core.exe"),
-      path.join(
-        process.cwd(),
-        "core",
-        "build",
-        "app",
-        "ResoStage_artefacts",
-        "RelWithDebInfo",
-        "ResoStage Core.exe",
-      ),
-      path.join(
-        process.cwd(),
-        "core",
-        "build",
-        "app",
-        "ResoStage_artefacts",
-        "Debug",
-        "ResoStage Core.exe",
-      ),
-    ];
-    for (const cand of devCandidates) {
-      if (existsSync(cand)) return cand;
-    }
-  }
-
-  return null;
+  // Bundle layout is platform-specific (macOS .app bundle vs Windows/Linux
+  // bare executable) — handled by the platform adapter.
+  return platform.findNestedCoreBinary();
 }
 
 function spawnBackend(): void {
@@ -434,16 +306,7 @@ function spawnBackend(): void {
   // running, so on Windows we clear any leftover "ResoStage Core.exe" before
   // spawning ours. (macOS shells the Core inside the app bundle; the OS reaps
   // strays with the parent.)
-  if (process.platform === "win32") {
-    try {
-      execFileSync("taskkill", ["/IM", "ResoStage Core.exe", "/F"], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
-    } catch {
-      /* no old process running -- ignore */
-    }
-  }
+  platform.cleanupBeforeBackendSpawn();
   const corePath = findNestedCoreBinary();
   if (!corePath) {
     console.error(
@@ -499,16 +362,7 @@ function killBackend(): void {
     }
   }
   backendProcess = null;
-  if (process.platform === "win32") {
-    try {
-      execFileSync("taskkill", ["/IM", "ResoStage Core.exe", "/F"], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
-    } catch {
-      /* ignore */
-    }
-  }
+  platform.cleanupAfterBackendKill();
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -586,12 +440,7 @@ function scheduleMenuFlash(sectionTitle: string, itemTitle: string): void {
     pendingFlashItem = null;
     if (!section) return;
     const live = resolveLiveMenuTitle(section);
-    const flash = EnsureNativeMenuFlash();
-    if (!flash) {
-      console.warn("MenuFlash: native dylib not loaded");
-      return;
-    }
-    flash(live, item ?? "");
+    platform.flashMenuItem(live, item ?? "");
   }, 16);
 }
 
@@ -608,90 +457,6 @@ function flashMenuAction(action: string): void {
   const loc = menuLocationForAction(action);
   if (!loc) return;
   scheduleMenuFlash(loc.section, loc.item);
-}
-
-let windowsTray: Tray | null = null;
-
-function getWindowsTrayIconPath(): string {
-  const isDarkTaskbar = nativeTheme.shouldUseDarkColors;
-  // Dark taskbar → white icon; Light taskbar → dark icon
-  const name = isDarkTaskbar ? "tray-white" : "tray-dark";
-
-  const candidates = [
-    path.join(import.meta.dirname, "..", "icons", `${name}.png`),
-    path.join(app.getAppPath(), "icons", `${name}.png`),
-    path.join(import.meta.dirname, "..", "..", "icons", `${name}.png`),
-    path.join(import.meta.dirname, "..", "icons", `${name}.svg`),
-    path.join(app.getAppPath(), "icons", `${name}.svg`),
-    path.join(import.meta.dirname, "..", "icons", "app.ico"),
-    path.join(app.getAppPath(), "icons", "app.ico"),
-  ];
-
-  for (const p of candidates) {
-    if (existsSync(p)) return p;
-  }
-  return path.join(app.getAppPath(), "icons", "app.ico");
-}
-
-function updateWindowsTrayIconTheme(): void {
-  if (!windowsTray || process.platform !== "win32") return;
-  const iconPath = getWindowsTrayIconPath();
-  if (existsSync(iconPath)) {
-    try {
-      windowsTray.setImage(iconPath);
-    } catch (err) {
-      console.warn("[resostage] Failed to set tray icon image:", err);
-    }
-  }
-}
-
-function setupWindowsTray(): void {
-  if (process.platform !== "win32" || windowsTray) return;
-  const initialIcon = getWindowsTrayIconPath();
-  if (!existsSync(initialIcon)) return;
-
-  try {
-    windowsTray = new Tray(initialIcon);
-    windowsTray.setToolTip("ResoStage");
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: "Show ResoStage",
-        click: () => {
-          if (mainWindow) {
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.show();
-            mainWindow.focus();
-          }
-        },
-      },
-      { type: "separator" },
-      {
-        label: "Exit",
-        click: () => void postAction("quit"),
-      },
-    ]);
-    windowsTray.setContextMenu(contextMenu);
-
-    const popupMenu = () => {
-      if (windowsTray && !windowsTray.isDestroyed()) {
-        windowsTray.popUpContextMenu(contextMenu);
-      }
-    };
-    windowsTray.on("right-click", popupMenu);
-    windowsTray.on("click", popupMenu);
-    windowsTray.on("double-click", () => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-      }
-    });
-
-    updateWindowsTrayIconTheme();
-    nativeTheme.on("updated", () => updateWindowsTrayIconTheme());
-  } catch (err) {
-    console.warn("[resostage] Failed to setup Windows tray icon:", err);
-  }
 }
 
 async function handleFileDialogAction(action: string): Promise<boolean> {
@@ -888,7 +653,7 @@ function inputMatchesBinding(
   // "cmd" is CommandOrControl, matching how the menu displays it: Command on
   // macOS, Control everywhere else. A binding that says "ctrl" outright means
   // Control on every platform.
-  const cmdHeld = process.platform === "darwin" ? input.meta : input.control;
+  const cmdHeld = platform.commandIsMeta ? input.meta : input.control;
   if (wantCmd !== cmdHeld) return false;
   if (wantCtrl && !input.control) return false;
   if (wantAlt !== input.alt) return false;
@@ -1071,14 +836,9 @@ function buildDevMenu(): MenuItemConstructorOptions {
       {
         label: "Test Trackpad Haptic",
         click: () => {
-          const fn = EnsureNativeHaptics();
-          if (!fn) {
-            console.warn("Haptics: not available");
-            return;
-          }
-          fn(1); // alignment
-          setTimeout(() => fn(0), 120);
-          setTimeout(() => fn(2), 240);
+          platform.hapticFeedback(1); // alignment
+          setTimeout(() => platform.hapticFeedback(0), 120);
+          setTimeout(() => platform.hapticFeedback(2), 240);
         },
       },
       {
@@ -1121,47 +881,9 @@ function buildMenu(): Menu | null {
     }),
   );
 
-  // On Windows/Linux, adapt the first menu section for platform conventions
-  if (process.platform !== "darwin" && sections.length > 0) {
-    // On non-macOS, the first section is typically "ResoStage" (app menu)
-    // Rename it to "File" or merge into File menu for Windows/Linux conventions
-    const firstSection = sections[0];
-    if (firstSection?.label === "ResoStage") {
-      // Move app menu items to File menu, rename "Quit" appropriately
-      const appItems = Array.isArray(firstSection.submenu)
-        ? firstSection.submenu
-        : [];
-      const fileIdx = sections.findIndex((s) => s.label === "File");
-
-      if (fileIdx >= 0) {
-        const fileSubmenu = Array.isArray(sections[fileIdx].submenu)
-          ? sections[fileIdx].submenu
-          : [];
-        // Add separator and quit to end of File menu
-        const quitItem = appItems.find(
-          (item: MenuItemConstructorOptions) =>
-            item.label?.includes("Quit") || (item as any).actionId === "quit",
-        );
-        if (quitItem) {
-          fileSubmenu.push({ type: "separator" });
-          fileSubmenu.push(quitItem);
-        }
-        sections[fileIdx].submenu = fileSubmenu;
-      }
-      // Remove the ResoStage menu
-      sections.shift();
-    }
-
-    const winIdx = sections.findIndex((s) => s.label === "Window");
-    if (winIdx >= 0) {
-      const winSubmenu = Array.isArray(sections[winIdx].submenu)
-        ? sections[winIdx].submenu
-        : [];
-      sections[winIdx].submenu = winSubmenu.filter(
-        (item) => (item as any).role !== "zoom",
-      );
-    }
-  }
+  // Platform-specific section adaptation (macOS keeps the app menu, Windows
+  // and Linux fold it into File) — delegated to the platform adapter.
+  platform.adaptMenuSections(sections as Parameters<PlatformAdapter["adaptMenuSections"]>[0]);
 
   const editIdx = sections.findIndex((s) => s.label === "Edit");
   if (editIdx >= 0) {
@@ -1432,75 +1154,22 @@ function reevaluateIdle(reason: string): void {
  * Best-effort: a failure to write is non-fatal.
  */
 function registerFileAssociations(): void {
-  if (process.platform !== "win32") return;
-  const base = "HKCU\\Software\\Classes";
-  const exe = process.execPath;
-  const entries: Array<[key: string, value: string]> = [
-    [`${base}\\.rsnrasetmeta`, "ResoStage.ProjectFile"],
-    [`${base}\\ResoStage.ProjectFile`, "ResoStage Project File"],
-    [`${base}\\ResoStage.ProjectFile\\DefaultIcon`, `${exe},0`],
-    [`${base}\\ResoStage.ProjectFile\\shell\\open\\command`, `"${exe}" "%1"`],
-  ];
-  for (const [key, value] of entries) {
-    execFile(
-      "reg",
-      ["add", key, "/ve", "/d", value, "/f"],
-      { windowsHide: true },
-      () => {
-        /* best-effort */
-      },
-    );
-  }
+  platform.registerFileAssociations();
 }
 
 function refreshMenu(): void {
   const menu = buildMenu();
   if (!menu) return;
-
-  if (process.platform === "darwin") {
-    // macOS: always use global application menu
-    Menu.setApplicationMenu(menu);
-  } else if (process.platform === "win32") {
-    // Windows: menu in window title bar
-    Menu.setApplicationMenu(null);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.setMenu(menu);
-    }
-  } else {
-    // Linux: Let Electron handle D-Bus detection internally.
-    // We use setApplicationMenu which will:
-    // - Export to D-Bus if com.canonical.AppMenu.Registrar is available (KDE/Unity/etc)
-    // - Render in window if D-Bus registrar is not found (GNOME/minimal WMs)
-    // This is the recommended approach per Electron documentation.
-    Menu.setApplicationMenu(menu);
-  }
+  // Platform-appropriate menu surface (global bar on mac/Linux, window title
+  // bar on Windows) — delegated to the platform adapter.
+  platform.applyMenu(menu);
 }
 
 function buildTouchBar(): TouchBar | undefined {
-  // TouchBar is macOS-only; skip on Windows/Linux.
-  if (process.platform !== "darwin" || !TouchBar || !TouchBarButton) return undefined;
   const tabs = menuModel?.touchbar ?? [];
-  if (!tabs.length) return undefined;
-  const buttons = tabs.map(
-    (t) =>
-      new TouchBarButton({
-        label: t.label,
-        // The theme's accent, forwarded by the page -- the main process
-        // cannot read a CSS variable, and a fixed blue looked like a stray
-        // control from another app under every theme but the default.
-        //
-        // Full accent rather than the soft tone the page uses for an active
-        // control: TouchBarButton exposes backgroundColor and nothing else,
-        // so the label stays the system's white, and white on a 15% wash is
-        // not the same button at all.
-        backgroundColor:
-          t.id === menuState.uiTab
-            ? menuState.accentColor || "#3b6cff"
-            : undefined,
-        click: () => postAction(`mode_${t.id}`),
-      }),
-  );
-  return new TouchBar({ items: buttons });
+  const uiTab = menuState.uiTab || "";
+  const accent = menuState.accentColor || "";
+  return platform.buildTouchBar(tabs, uiTab, accent);
 }
 
 function refreshTouchBar(): void {
@@ -1515,7 +1184,7 @@ function refreshTouchBar(): void {
 }
 
 function createWindow(): void {
-  setupWindowsTray();
+  platform.installTray();
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -1713,10 +1382,8 @@ ipcMain.on("action", (_event, action: unknown) => {
 // deliberately .on/.send, not .invoke/.handle, so a rapid-fire drag gesture
 // never waits on an IPC round trip.
 ipcMain.on("haptic-feedback", (_event, pattern: unknown) => {
-  const fn = EnsureNativeHaptics();
-  if (!fn) return;
   const p = pattern === "levelChange" ? 2 : pattern === "generic" ? 0 : 1;
-  fn(p);
+  platform.hapticFeedback(p);
 });
 
 // SPA → native context menu (mixer track menus, etc.). Returns chosen id
@@ -1824,29 +1491,21 @@ if (!app.requestSingleInstanceLock()) {
     if (STANDALONE) spawnBackend();
     ensureAppNotSuspended();
     setupUdpTelemetry();
-    // Load MenuFlash/Haptics dylibs once up front so first-use isn't silent.
-    preloadNatives();
+    // Load platform native libraries (MenuFlash/Haptics) once up front so
+    // first-use isn't silent.
+    platform.preloadNatives();
 
   // Ждём готовности IPC Core (standalone) — мгновенно, если сокет недоступен,
   // fallback на HTTP polling через fetchMenuWithRetry ниже.
   if (STANDALONE) await waitForIpcReady();
 
-  // Handle file associations: .rsnrasetmeta / .rsnraset files opened via Finder/Explorer.
-  // On macOS this fires when app is already running; on Windows/Linux the path comes in argv.
-
-  // macOS: app.on('open-file') fires when user double-clicks associated file.
-  if (process.platform === "darwin") {
-    app.on("open-file", (event, path) => {
-      event.preventDefault(); // stop default behaviour
-      handleOpenProjectFile(path);
-    });
-  } else {
-    // Windows/Linux: check argv for .rsnrasetmeta or .rsnraset argument.
-    const fileArg = process.argv.find(
-      (a) => a.endsWith(".rsnrasetmeta") || a.endsWith(".rsnraset"),
-    );
-    if (fileArg) handleOpenProjectFile(fileArg);
-  }
+  // Handle file associations: .rsnrasetmeta / .rsnraset files opened via
+  // Finder/Explorer. macOS delivers via app.on('open-file') (fires when the
+  // app is already running); Windows/Linux deliver the path via argv. Both
+  // behaviors live behind the platform adapter.
+  platform.registerOpenFileHandler(handleOpenProjectFile);
+  const fileArg = platform.handleProjectFileArgv(process.argv);
+  if (fileArg) handleOpenProjectFile(fileArg);
 
   // The GET response already carries the current Open Recent list, so the
   // submenu is correct on first open -- before any live menu-state IPC has
