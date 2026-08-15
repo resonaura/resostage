@@ -312,8 +312,12 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     Project snapshot = loader.project();
     std::string sourcePath = loader.archivePath();
     const bool isContainer = loader.isDirectoryContainer();
+#if JUCE_WINDOWS
+    const bool playThroughOk = false;
+#else
     const bool playThroughOk =
         isContainer && !promotingDraft && overwriteOpen && wasPlaying;
+#endif
 
     namespace fs = std::filesystem;
     auto replacePath = [this](const std::string& from, const std::string& to, std::string& err) -> bool {
@@ -494,7 +498,11 @@ void AudioEngine::saveProjectAsync(const std::string& path,
     // Same-path overwrite of a directory package can swap under live FILE*
     // cursors (they keep reading the old inodes). Save-As / draft promote /
     // legacy ZIP still need a restage.
+#if JUCE_WINDOWS
+    const bool playThroughOk = false;
+#else
     const bool playThroughOk = isContainer && !promotingDraft && path == sourcePath && wasPlaying;
+#endif
     Project snapshot = loader.project();
     auto extras = pendingPeakCacheExtras;
     const std::string tempOut = path + ".saving";
