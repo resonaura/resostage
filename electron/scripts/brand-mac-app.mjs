@@ -197,6 +197,17 @@ function main() {
     execFileSync("plutil", ["-replace", key, "-json", json, plistPath]);
   }
 
+  // Register the newly branded bundle with macOS LaunchServices so Finder
+  // immediately knows that .rsnraset is a package bundle (com.apple.package).
+  try {
+    const lsregister =
+      "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+    if (existsSync(lsregister)) {
+      execFileSync(lsregister, ["-f", destApp]);
+      log(`Registered ${APP_NAME} bundle with LaunchServices`);
+    }
+  } catch {}
+
   writeFileSync(stampFile, electronVersion);
   log(`Shell branded at ${destApp}`);
 }

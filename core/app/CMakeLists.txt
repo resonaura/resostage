@@ -10,17 +10,15 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in" INFO_PLIST_CONTENT)
 # JUCE's own SVG parser is a much more limited implementation than a real
 # browser/WebKit renderer and silently produced a blank Drawable for this
 # file's <g transform="matrix(...)"> + style="fill-rule:evenodd" syntax.
-# Also embed the project-folder icon (icons/folder.ico on Windows, folder.icns
-# on macOS) so the Core can always stamp a copy into every project container's
-# Resources/ folder -- see MainComponent::ensureProjectFolderIcon(). Embedded
-# (like tray.png) rather than read from a Resources/ layout so it survives any
-# bundle nesting and works from the portable/rebranded exe too.
-set(FOLDER_ICON_SOURCES "${CMAKE_SOURCE_DIR}/../icons/tray.png")
-if(WIN32)
-  list(APPEND FOLDER_ICON_SOURCES "${CMAKE_SOURCE_DIR}/../icons/folder.ico")
-elseif(APPLE)
-  list(APPEND FOLDER_ICON_SOURCES "${CMAKE_SOURCE_DIR}/../icons/folder.icns")
-endif()
+# Also embed both project-folder icons unconditionally so a project saved on
+# any platform contains the full set (folder.ico for Windows Explorer's
+# desktop.ini, folder.icns for macOS Finder) -- see
+# MainComponent::ensureProjectFolderIcon().
+set(FOLDER_ICON_SOURCES
+  "${CMAKE_SOURCE_DIR}/../icons/tray.png"
+  "${CMAKE_SOURCE_DIR}/../icons/folder.ico"
+  "${CMAKE_SOURCE_DIR}/../icons/folder.icns"
+)
 juce_add_binary_data(ResoStageTrayIconData
   SOURCES ${FOLDER_ICON_SOURCES}
 )

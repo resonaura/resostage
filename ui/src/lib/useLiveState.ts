@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { isRenderActive, setTransportPlaying } from "./appActivity";
 import { apiUrl, wsUrl } from "./backend";
-import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport, subscribeLiveMixerFlags } from "./liveLevels";
+import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport, subscribeLiveMixerFlags, getLastMixerFlagsMs } from "./liveLevels";
 import type { LiveMixerFlags } from "./liveLevels";
+import { registerRefetchHandler, unregisterRefetchHandler } from "./api";
 import { shareStructure } from "./structuralShare";
 import { IS_ELECTRON } from "./electron";
 import { IS_EMBEDDED } from "./embedded";
@@ -342,6 +343,10 @@ export function useLiveState(view: string = "player") {
           songIndex: ts.songIndex,
           bpm: ts.bpm,
           globalPlayheadSeconds: ts.globalPlayheadSeconds,
+          // Forward drift at 60 Hz only when the frame actually carries it
+          // (v6+). v5 frames use a 1.0 fallback that must NOT overwrite the
+          // real value from the HTTP poll -- that was making drift disappear.
+          ...(ts.hasDrift ? { drift: ts.drift } : {}),
         };
         scheduleFlush();
       });
@@ -378,15 +383,51 @@ export function useLiveState(view: string = "player") {
                 ram: (data.health.rssBytes ?? 0) / (1024 * 1024),
               };
             }
-            pendingStateRef.current = data;
+            // If v5 UDP mixer flags have been received within the last 5 s,
+            // the UDP path is the authoritative source for mute/solo state.
+            // Strip those fields from the HTTP poll snapshot so that a poll
+            // that arrived mid-toggle (Core hadn't fully committed the change
+            // yet) cannot briefly revert the mixer to the old look while we
+            // wait for the next UDP frame to correct it again (~1 s flash).
+            // The fields are already applied at 60 Hz via mixerFlagsRef; we
+            // only need the poll for the non-flags structural state.
+            const udpFlagsActive = Date.now() - getLastMixerFlagsMs() < 5_000;
+            let pollData: Partial<WebUiState> = data;
+            if (udpFlagsActive && data.tracks) {
+              pollData = {
+                ...data,
+                tracks: data.tracks.map((t) => {
+                  const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
+                    t as unknown as Record<string, unknown>;
+                  void _m; void _s; void _si;
+                  return rest as unknown as typeof t;
+                }),
+                ...(data.busses
+                  ? {
+                      busses: data.busses.map((b) => {
+                        const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
+                          b as unknown as Record<string, unknown>;
+                        void _m; void _s; void _si;
+                        return rest as unknown as typeof b;
+                      }),
+                    }
+                  : {}),
+              };
+            }
+            pendingStateRef.current = pollData;
             if (typeof window !== "undefined" && (window as any).__DEBUG_SOLO) {
               const t = (window as any).__soloLogs = (window as any).__soloLogs || [];
-              t.push(["poll", Date.now() - (window as any).__t0, data.tracks?.slice(0,3)?.map((x:any)=>({solo:x.solo,si:x.soloActiveInGroup}))]);
+              t.push(["poll", Date.now() - (window as any).__t0, data.tracks?.slice(0,3)?.map((x:any)=>({solo:x.solo,si:x.soloActiveInGroup})), "udpActive:", udpFlagsActive]);
             }
             scheduleFlush();
           }
         } catch {}
       };
+
+      // Register as the immediate-refetch target so any post() call
+      // (solo, mute, gain commit, etc.) triggers a fresh poll without
+      // waiting for the next 1 s interval.
+      registerRefetchHandler(() => void fetchState());
 
       void fetchState();
       const statePollInterval = setInterval(fetchState, 1000);
@@ -400,6 +441,7 @@ export function useLiveState(view: string = "player") {
 
       return () => {
         cancelled = true;
+        unregisterRefetchHandler();
         unsubTransport();
         unsubMixerFlags();
         window.removeEventListener("resostage-udp-telemetry", onUdpFrame);

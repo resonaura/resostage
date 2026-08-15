@@ -587,6 +587,7 @@ struct WEngineTelemetryPayload {
     bool busy = false;
     bool quitConfirmPending = false;
     bool openConfirmPending = false;
+    bool saveAsPending = false;
     std::string uiTab;
     uint32_t uiTabSeq = 0;
     bool canUndo = false;

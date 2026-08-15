@@ -114,12 +114,27 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     for (const auto& lo : s.lightOutput)
         ledByteCount += std::min<size_t>(lo.ledColors.size(), 512) * 3;
 
-    // v5 header is 42 bytes (includes playing, playhead, bpm, songIndex,
-    // globalPlayhead, numBusses in the slot v4 left reserved). A meter row is
-    // 16; v5 also carries 1 flag byte per track and per bus (mute/solo/
-    // soloActiveInGroup) so solo/mute changes reach embedded clients on the
-    // same 60 Hz UDP path instead of the 1 s state poll.
-    const size_t totalSize = 42
+    // v6 header is 46 bytes: v5 header (42) + driftFactor (f32 at offset 34),
+    // with numTracks/numMeters/numLights/numBusses shifted to 38-45.
+    // Layout:
+    //   0  u16 magic (0x5253)
+    //   2  u8  version (6)
+    //   3  u8  flags (bit 0 = playing)
+    //   4  f32 playheadSeconds
+    //   8  f32 clickPeakDbL
+    //  12  f32 clickPeakDbR
+    //  16  f32 clickIntervalPeakDbL
+    //  20  f32 clickIntervalPeakDbR
+    //  24  f32 bpm
+    //  28  i16 songIndex
+    //  30  f32 globalPlayheadSeconds
+    //  34  f32 driftFactor  <-- NEW in v6
+    //  38  u16 numTracks
+    //  40  u16 numMeters
+    //  42  u16 numLights
+    //  44  u16 numBusses
+    // = 46 bytes
+    const size_t totalSize = 46
         + static_cast<size_t>(numTracks) * 8
         + static_cast<size_t>(numMeters) * 16
         + static_cast<size_t>(numTracks)          // per-track flags
@@ -147,8 +162,8 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     };
 
     writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
-    // Version 5: full transport state + per-track/bus mixer flags.
-    writeU8(5);
+    // Version 6: v5 + driftFactor in header.
+    writeU8(6);
     writeU8(s.playing ? 1 : 0);
     writeFloat(static_cast<float>(s.playheadSeconds));
     writeFloat(s.clickPeakDbL);
@@ -158,10 +173,11 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     writeFloat(static_cast<float>(s.bpm));
     writeI16(static_cast<int16_t>(s.songIndex));
     writeFloat(static_cast<float>(s.globalPlayheadSeconds));
+    writeFloat(static_cast<float>(s.driftFactor)); // v6: drift-correction factor
     writeU16(numTracks);
     writeU16(numMeters);
     writeU16(numLights);
-    writeU16(numBusses); // v5: was reserved in v4; carries bus count
+    writeU16(numBusses);
 
     for (const auto& tr : s.tracks) {
         writeFloat(tr.peakDbL);
@@ -1373,6 +1389,7 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.busy = snap.busy;
     wire.quitConfirmPending = snap.quitConfirmPending;
     wire.openConfirmPending = snap.openConfirmPending;
+    wire.saveAsPending = snap.saveAsPending;
     wire.uiTab = snap.uiTab;
     wire.uiTabSeq = static_cast<uint32_t>(snap.uiTabSeq);
     wire.canUndo = snap.canUndo;

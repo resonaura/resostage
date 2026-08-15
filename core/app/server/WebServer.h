@@ -319,6 +319,9 @@ struct WebUiState {
     // before opening a project requested from Finder/Explorer -- the web UI
     // shows a ConfirmDialog and replies with WebCommandKind::OpenDecision.
     bool openConfirmPending = false;
+    // True while MainComponent is waiting on the user to pick a save path
+    // in Electron mode (Save As or draft project on Quit).
+    bool saveAsPending = false;
     // Mode-switch request for the web UI tabs (player/mixer/editor/settings).
     // Set by performAction("mode_*") from keyboard or MIDI; uiTabSeq bumps on
     // every request so re-selecting the active tab still fires a React effect.

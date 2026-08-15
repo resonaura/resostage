@@ -165,7 +165,24 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort) {
 
     std::string webError;
     if (webServer.start(webPort_, webError)) {
-        setStatus("Ready | Remote UI http://<this-mac>:" + juce::String(webPort_) + "/");
+        // Resolve the primary network IP: first non-loopback, non-link-local
+        // IPv4 address reported by JUCE. That is normally the address on the
+        // interface the default route uses (Wi-Fi / Ethernet). Falls back to
+        // getLocalAddress() if no suitable address is found.
+        juce::String localIp;
+        const auto addrs = juce::IPAddress::getAllAddresses(false /*IPv4 only*/);
+        for (const auto& addr : addrs) {
+            // Skip loopback (127.x.x.x) and link-local (169.254.x.x).
+            const juce::String s = addr.toString();
+            if (s.startsWith("127.")) continue;
+            if (s.startsWith("169.254.")) continue;
+            localIp = s;
+            break;
+        }
+        if (localIp.isEmpty())
+            localIp = juce::IPAddress::getLocalAddress().toString();
+
+        setStatus("Ready | Remote UI http://" + localIp + ":" + juce::String(webPort_) + "/");
     } else {
         setStatus("Web server failed: " + juce::String(webError));
     }
@@ -450,6 +467,14 @@ void MainComponent::performAction(const std::string& action) {
         saveProjectClicked(false);
     else if (action == "save_project_as")
         saveProjectClicked(true);
+    else if (action == "cancel_save_as") {
+        if (pendingSaveAsCallback) {
+            auto cb = std::move(pendingSaveAsCallback);
+            pendingSaveAsCallback = nullptr;
+            if (cb) cb(false);
+        }
+        publishWebState();
+    }
     else if (action == "import_song_folder")
         importSongFolderNative();
     else if (action == "clear_recent_projects") {
@@ -512,17 +537,9 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
         return;
     }
 
-    juce::File projectDir;
-    if (f.hasFileExtension("rsnrasetmeta")) {
-        // .rsnrasetmeta file: project folder is its parent.
-        // (No absolute path stored -- portable across machines/platforms.)
+    juce::File projectDir = f;
+    if (f.existsAsFile() || f.hasFileExtension("rsnrasetmeta")) {
         projectDir = f.getParentDirectory();
-    } else if (f.isDirectory() || f.hasFileExtension("rsnraset")) {
-        // .rsnraset package or folder
-        projectDir = f;
-    } else {
-        setStatus("Unsupported project file: " + juce::String(path));
-        return;
     }
 
     if (!projectDir.exists()) {
@@ -554,6 +571,11 @@ void MainComponent::saveProjectToPath(const std::string& path, std::function<voi
     if (!engine.isProjectLoaded()) {
         setStatus("Nothing to save -- load a project first");
         if (onDone) onDone(false);
+        if (pendingSaveAsCallback) {
+            auto cb = std::move(pendingSaveAsCallback);
+            pendingSaveAsCallback = nullptr;
+            cb(false);
+        }
         return;
     }
     juce::File target(path);
@@ -563,19 +585,25 @@ void MainComponent::saveProjectToPath(const std::string& path, std::function<voi
     setStatus("Saving " + target.getFileName() + "…");
     publishWebState();
 
+    auto cb = onDone;
+    if (!cb && pendingSaveAsCallback) {
+        cb = std::move(pendingSaveAsCallback);
+        pendingSaveAsCallback = nullptr;
+    }
+
     engine.saveProjectAsync(target.getFullPathName().toStdString(),
-        [this, onDone, target, name = target.getFileName()](bool ok, std::string error) {
+        [this, cb, target, name = target.getFileName()](bool ok, std::string error) {
             if (!ok) {
                 setStatus("Save failed: " + juce::String(error));
                 publishWebState();
-                if (onDone) onDone(false);
+                if (cb) cb(false);
                 return;
             }
             ensureProjectFolderIcon(target);
             setStatus("Saved " + name);
             rememberRecentProject(target);
             publishWebState();
-            if (onDone) onDone(true);
+            if (cb) cb(true);
         });
 }
 
@@ -611,47 +639,61 @@ void MainComponent::ensureProjectFolderIcon(const juce::File& projectFile) {
     if (!resDir.exists() && !resDir.createDirectory().wasOk())
         return;
 
-#if JUCE_WINDOWS
+    // Write all platform-specific icon / shell-integration files unconditionally
+    // so a project saved on any OS contains the full set and is identical to one
+    // saved on another. The WinAPI attribute call is the only part that stays
+    // platform-guarded (it needs windows.h types).
+
+    // ── Windows: folder.ico + desktop.ini ───────────────────────────────────
+    // Explorer uses desktop.ini to paint the folder with a custom icon.
+    // Written on every platform so a Mac-saved project opens correctly on Windows.
     const char* ico = reinterpret_cast<const char*>(BinaryData::folder_ico);
     const int icoSize = BinaryData::folder_icoSize;
-    const juce::File icoFile = resDir.getChildFile("folder.ico");
     if (ico != nullptr && icoSize > 0) {
-        juce::FileOutputStream os(icoFile);
-        if (os.openedOk()) {
-            os.write(ico, static_cast<size_t>(icoSize));
-            os.flush();
+        const juce::File icoFile = resDir.getChildFile("folder.ico");
+        if (!icoFile.existsAsFile()) { // don't stomp a manually-customised icon
+            juce::FileOutputStream os(icoFile);
+            if (os.openedOk()) {
+                os.write(ico, static_cast<size_t>(icoSize));
+                os.flush();
+            }
         }
     }
 
-    // desktop.ini makes Explorer paint the folder with our icon. Reference the
-    // ico relative to the container (desktop.ini lives at its root).
-    juce::File iniFile = projectFile.getChildFile("desktop.ini");
-    iniFile.replaceWithText(
-        "[.ShellClassInfo]\r\n"
-        "IconResource=Resources\\folder.ico,0\r\n"
-        "IconFile=Resources\\folder.ico\r\n"
-        "IconIndex=0\r\n");
+    // desktop.ini: written with CRLF line endings as required by Explorer.
+    const juce::File iniFile = projectFile.getChildFile("desktop.ini");
+    if (!iniFile.existsAsFile()) {
+        iniFile.replaceWithText(
+            "[.ShellClassInfo]\r\n"
+            "IconResource=Resources\\folder.ico,0\r\n"
+            "IconFile=Resources\\folder.ico\r\n"
+            "IconIndex=0\r\n");
+    }
 
-    // Explorer only reads desktop.ini when the folder carries the Hidden or
-    // System attribute. System alone (NOT Hidden) keeps the project folder
-    // visible in normal browsing while still enabling the custom icon.
+#if JUCE_WINDOWS
+    // System attribute makes Explorer read desktop.ini for the custom icon.
+    // Only possible on Windows (WinAPI call).
     const std::wstring wpath = projectFile.getFullPathName().toWideCharPointer();
     DWORD attrs = ::GetFileAttributesW(wpath.c_str());
-    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_SYSTEM) == 0) {
+    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_SYSTEM) == 0)
         ::SetFileAttributesW(wpath.c_str(), attrs | FILE_ATTRIBUTE_SYSTEM);
-    }
-#elif JUCE_MAC
+#endif
+
+    // ── macOS: folder.icns ───────────────────────────────────────────────────
+    // Finder uses the .icns to paint the folder. Written on every platform so
+    // a Windows-saved project carries the icon file when opened on a Mac.
     const char* icns = reinterpret_cast<const char*>(BinaryData::folder_icns);
     const int icnsSize = BinaryData::folder_icnsSize;
     if (icns != nullptr && icnsSize > 0) {
         const juce::File icnsFile = resDir.getChildFile("folder.icns");
-        juce::FileOutputStream os(icnsFile);
-        if (os.openedOk()) {
-            os.write(icns, static_cast<size_t>(icnsSize));
-            os.flush();
+        if (!icnsFile.existsAsFile()) {
+            juce::FileOutputStream os(icnsFile);
+            if (os.openedOk()) {
+                os.write(icns, static_cast<size_t>(icnsSize));
+                os.flush();
+            }
         }
     }
-#endif
 }
 
 void MainComponent::jumpToSectionRelative(int delta) {
@@ -1272,6 +1314,7 @@ void MainComponent::publishWebState() {
     state.busy = engine.isBusy();
     state.quitConfirmPending = awaitingQuitDecision;
     state.openConfirmPending = awaitingOpenDecision;
+    state.saveAsPending = (pendingSaveAsCallback != nullptr);
     state.uiTab = uiTabRequest;
     state.uiTabSeq = uiTabSeq;
     state.canUndo = engine.canUndoTimeline();
@@ -1936,8 +1979,13 @@ bool MainComponent::loadProjectFromPath(const juce::File& file) {
     if (!file.exists())
         return false;
 
+    juce::File target = file;
+    if (target.existsAsFile()) {
+        target = target.getParentDirectory();
+    }
+
     std::string error;
-    if (!engine.loadProject(file.getFullPathName().toStdString(), error)) {
+    if (!engine.loadProject(target.getFullPathName().toStdString(), error)) {
         setStatus("Load failed: " + juce::String(error));
         return false;
     }
@@ -1947,7 +1995,7 @@ bool MainComponent::loadProjectFromPath(const juce::File& file) {
     setStatus("Loaded '" + juce::String(engine.project().name) + "' | "
               + juce::String(static_cast<int>(engine.project().songs.size())) + " songs | "
               + juce::String(static_cast<int>(engine.busCount())) + " busses");
-    rememberRecentProject(file);
+    rememberRecentProject(target);
 
     if (!engine.project().songs.empty())
         goToSong(0);
@@ -2061,6 +2109,13 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
         // Overwrite the open project in place (engine.saveProject already
         // uses a temp+".new" swap so the open zip handle is safe).
         doSave(juce::File(engine.projectPath()));
+        return;
+    }
+
+    const bool isElectron = (std::getenv("RESOSTAGE_SPAWNED_BY_SHELL") != nullptr);
+    if (isElectron) {
+        pendingSaveAsCallback = onDone;
+        publishWebState();
         return;
     }
 

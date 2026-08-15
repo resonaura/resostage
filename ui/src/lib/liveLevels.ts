@@ -311,6 +311,10 @@ export type LiveTransportState = {
   bpm: number;
   songIndex: number;
   globalPlayheadSeconds: number;
+  /** Drift-correction factor from MasterClock (1.0 = no drift). v6+ only; 1.0 when frame is older. */
+  drift: number;
+  /** True only when drift came from a real v6 frame (not a v5 fallback of 1.0). */
+  hasDrift: boolean;
 };
 
 let transportListeners: ((s: LiveTransportState) => void)[] = [];
@@ -339,6 +343,17 @@ export type LiveMixerFlags = {
 
 let mixerFlagsListeners: ((f: LiveMixerFlags) => void)[] = [];
 
+/**
+ * Wall-clock timestamp (Date.now()) of the last v5 UDP mixer-flags publish.
+ * 0 means no v5 frame has been seen yet (e.g. older core without v5 support).
+ * Exported so callers can decide whether UDP flags are the authoritative source
+ * for mute/solo and should win over a slower HTTP state poll.
+ */
+let lastMixerFlagsMs = 0;
+export function getLastMixerFlagsMs(): number {
+  return lastMixerFlagsMs;
+}
+
 export function subscribeLiveMixerFlags(listener: (f: LiveMixerFlags) => void): () => void {
   mixerFlagsListeners.push(listener);
   return () => {
@@ -347,6 +362,7 @@ export function subscribeLiveMixerFlags(listener: (f: LiveMixerFlags) => void): 
 }
 
 function publishMixerFlags(flags: LiveMixerFlags): void {
+  lastMixerFlagsMs = Date.now();
   for (let i = 0; i < mixerFlagsListeners.length; i++) {
     mixerFlagsListeners[i](flags);
   }
@@ -373,6 +389,8 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     const bpm = view.getFloat32(24, true);
     const songIndex = view.getInt16(28, true);
     const globalPlayheadSeconds = view.getFloat32(30, true);
+    // v6: driftFactor at offset 34. v5 and earlier: field absent → 1.0.
+    const drift = version >= 6 ? view.getFloat32(34, true) : 1.0;
 
     setTransportPlaying(playing);
 
@@ -382,13 +400,17 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
       bpm,
       songIndex,
       globalPlayheadSeconds,
+      drift,
+      hasDrift: version >= 6,
     };
     for (let i = 0; i < transportListeners.length; i++) {
       transportListeners[i](ts);
     }
   }
 
-  const countsAt = isV4 ? 34 : (hasIntervalPeak ? 24 : 16);
+  // v6: header is 46 bytes (counts at 38). v5: 42 bytes (counts at 34).
+  // Older formats use different layouts (v3: 24, v2: 16).
+  const countsAt = version >= 6 ? 38 : (isV4 ? 34 : (hasIntervalPeak ? 24 : 16));
   const numTracks = view.getUint16(countsAt, true);
   const numMeters = view.getUint16(countsAt + 2, true);
   const numLights = view.getUint16(countsAt + 4, true);
@@ -402,7 +424,7 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   clickNeedleL = hasIntervalPeak ? view.getFloat32(16, true) : clickL;
   clickNeedleR = hasIntervalPeak ? view.getFloat32(20, true) : clickR;
 
-  let offset = isV4 ? 42 : (hasIntervalPeak ? 32 : 24);
+  let offset = version >= 6 ? 46 : (isV4 ? 42 : (hasIntervalPeak ? 32 : 24));
 
   const nextTracks: LiveLevels["tracks"] = [];
   for (let i = 0; i < numTracks; i++) {
@@ -435,10 +457,12 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   }
   meters = nextMeters;
 
-  // v5: per-track and per-bus mixer flags (mute/solo/soloActiveInGroup),
+  // v5+: per-track and per-bus mixer flags (mute/solo/soloActiveInGroup),
   // placed between the meter rows and the LED block.
+  // v6 shifts numBusses from offset 40 → 44 (due to driftFactor in header).
   if (version >= 5) {
-    const numBusses = view.getUint16(40, true);
+    const numBussesOffset = version >= 6 ? 44 : 40;
+    const numBusses = view.getUint16(numBussesOffset, true);
     const decode = (raw: number) => ({
       mute: (raw & 1) !== 0,
       solo: (raw & 2) !== 0,

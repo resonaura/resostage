@@ -135,17 +135,26 @@ static void UnhighlightBar(id Impl) {
 // it is the whole fix for the "crash while clicking around the menus" bug.
 static BOOL IsMenuTrackingSessionActive(void) {
   Class Cls = NSClassFromString(@"NSMenuTrackingSession");
-  if (Cls == nil)
-    return NO;
-  SEL Sel = NSSelectorFromString(@"activeSession");
-  if (![Cls respondsToSelector:Sel])
-    return NO;
-  @try {
-    id Session = ((id (*)(id, SEL))objc_msgSend)(Cls, Sel);
-    return Session != nil;
-  } @catch (__unused NSException *Ex) {
-    return NO;
+  if (Cls != nil) {
+    SEL Sel = NSSelectorFromString(@"activeSession");
+    if ([Cls respondsToSelector:Sel]) {
+      @try {
+        id Session = ((id (*)(id, SEL))objc_msgSend)(Cls, Sel);
+        if (Session != nil)
+          return YES;
+      } @catch (__unused NSException *Ex) {
+      }
+    }
   }
+  // Check if any popup or context menu window is currently visible.
+  for (NSWindow *Win in NSApp.windows) {
+    if (Win.isVisible) {
+      NSString *Name = Win.className;
+      if ([Name containsString:@"PopupMenu"] || [Name containsString:@"CarbonMenu"])
+        return YES;
+    }
+  }
+  return NO;
 }
 
 /// Flash a leaf item via performActionForItemAtIndex: without re-firing the
@@ -282,10 +291,10 @@ FlashMenuItem(const char *TopTitleUtf8, const char *ItemTitleUtf8) {
     }
   };
 
-  if ([NSThread isMainThread])
-    Block();
-  else
-    dispatch_async(dispatch_get_main_queue(), Block);
+  // Always dispatch asynchronously to the main run loop.
+  // Executing synchronously inside a Koffi FFI call stack causes V8
+  // re-entrancy assertion crash if AppKit triggers menu-closed notifications.
+  dispatch_async(dispatch_get_main_queue(), Block);
 }
 
 /// Back-compat: top-level title only.

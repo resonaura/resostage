@@ -111,6 +111,8 @@ private:
     bool awaitingOpenDecision = false;
     std::string pendingOpenPath;
 
+    std::function<void(bool)> pendingSaveAsCallback;
+
     std::string lastSeenSpaView;
 
     std::unordered_map<std::string, std::string> keyBindings = {

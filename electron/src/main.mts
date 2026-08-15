@@ -160,7 +160,7 @@ function setupUdpTelemetry(): void {
 
 // Send a JSON message to the Core backend via IPC socket.
 // Returns a promise that resolves when the message is written (or fails).
-function sendIpcMessage(msg: object): Promise<void> {
+function sendIpcMessage(msg: object): Promise<boolean> {
   return new Promise((resolve) => {
     const p = ipcSocketPath();
     const sock: Socket = connect(p);
@@ -168,13 +168,13 @@ function sendIpcMessage(msg: object): Promise<void> {
     sock.on("connect", () => {
       sock.write(data, () => {
         sock.end();
-        resolve();
+        resolve(true);
       });
     });
-    sock.on("error", () => resolve());
+    sock.on("error", () => resolve(false));
     setTimeout(() => {
       if (!sock.destroyed) sock.end();
-      resolve();
+      resolve(false);
     }, 2000).unref?.();
   });
 }
@@ -222,6 +222,7 @@ interface MenuState {
   lastActionNonce: number;
   /** Live transport state -- the idle policy's absolute override. */
   playing: boolean;
+  saveAsPending?: boolean;
 }
 
 function backendPort(): number {
@@ -381,6 +382,7 @@ let menuState: MenuState = {
   playing: false,
 };
 let lastTouchBarTab: string | null = null;
+let isSaveDialogActive = false;
 
 // Native macOS menu-bar flash (AppKit key-equivalent paint of the top-level
 // title + leaf item). Sources: hotkey, MIDI, native menu click, SPA
@@ -462,13 +464,27 @@ function flashMenuAction(action: string): void {
 async function handleFileDialogAction(action: string): Promise<boolean> {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
 
+  const isMac = process.platform === "darwin";
+
   if (action === "open_project") {
+    // On macOS, passing strict extensions in filters causes NSOpenPanel to
+    // grey out project directories that Finder sees as public.folder.
+    // Omitting filters on macOS and passing ['openFile', 'openDirectory']
+    // allows selecting .rsnraset package folders, .rsnrasetmeta files, or any
+    // project directory natively without anything being greyed out.
     const res = await dialog.showOpenDialog(mainWindow, {
       title: "Open ResoStage Project",
-      filters: [
-        { name: "ResoStage Project", extensions: ["rsnraset", "rsnrasetmeta"] },
-        { name: "All Files", extensions: ["*"] },
-      ],
+      ...(isMac
+        ? {}
+        : {
+            filters: [
+              {
+                name: "ResoStage Project",
+                extensions: ["rsnraset", "rsnrasetmeta"],
+              },
+              { name: "All Files", extensions: ["*"] },
+            ],
+          }),
       properties: ["openFile", "openDirectory"],
     });
     if (!res.canceled && res.filePaths[0]) {
@@ -480,11 +496,14 @@ async function handleFileDialogAction(action: string): Promise<boolean> {
   if (action === "save_project_as") {
     const res = await dialog.showSaveDialog(mainWindow, {
       title: "Save ResoStage Project As",
+      defaultPath: "UntitledProject.rsnraset",
       filters: [{ name: "ResoStage Project", extensions: ["rsnraset"] }],
+      showsTagField: false,
     });
     if (!res.canceled && res.filePath) {
       return postAction(`save_as_path:${res.filePath}`);
     }
+    void postAction("cancel_save_as");
     return true;
   }
 
@@ -1242,35 +1261,7 @@ function createWindow(): void {
   mainWindow.on("close", (e) => {
     if (isQuitting) return;
     e.preventDefault();
-    void postAction("quit").then((ok) => {
-      if (!ok) {
-        isQuitting = true;
-        releaseAppSuspensionBlocker();
-        if (STANDALONE) killBackend();
-        app.quit();
-      } else {
-        // Poll briefly in case backend exits or quit decision resolves cleanly
-        setTimeout(() => {
-          if (!mainWindow || mainWindow.isDestroyed() || isQuitting) return;
-          fetch(`${BACKEND}/api/v1/state`)
-            .then((r) => r.json())
-            .then((st: any) => {
-              if (st && st.quitConfirmPending === false && !st.dirty) {
-                isQuitting = true;
-                releaseAppSuspensionBlocker();
-                if (STANDALONE) killBackend();
-                app.quit();
-              }
-            })
-            .catch(() => {
-              isQuitting = true;
-              releaseAppSuspensionBlocker();
-              if (STANDALONE) killBackend();
-              app.quit();
-            });
-        }, 800);
-      }
-    });
+    void postAction("quit");
   });
 
   // The Touch Bar's highlighted tab follows the SPA's live uiTab via
@@ -1363,16 +1354,19 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
       // optimistically in postAction — debounced inside flashMenuAction.
       flashMenuAction(menuState.lastAction);
     }
+    if (menuState.saveAsPending && !isSaveDialogActive) {
+      isSaveDialogActive = true;
+      void handleFileDialogAction("save_project_as").then(() => {
+        isSaveDialogActive = false;
+      });
+    }
     refreshTouchBar();
   }
 });
 
 ipcMain.on("action", (_event, action: unknown) => {
   if (action === "quit-approved") {
-    isQuitting = true;
-    releaseAppSuspensionBlocker();
-    if (STANDALONE) killBackend();
-    app.quit();
+    void postAction("quit");
     return;
   }
   if (typeof action === "string" && action) postAction(action);
@@ -1458,14 +1452,38 @@ app.setAboutPanelOptions({
 // swallowed by a close handler that keeps preventDefault()-ing -- the "first
 // close kills Core, only a second close quits the shell" bug on Windows.
 let isQuitting = false;
+let pendingOpenProjectPath: string | null = null;
+let backendReady = false;
+
+// Register open-file event listener IMMEDIATELY at module load time on macOS.
+// Finder emits open-file before app.whenReady() during cold launch when a user
+// double-clicks a .rsnraset / .rsnrasetmeta file.
+if (process.platform === "darwin") {
+  app.on("open-file", (event, filePath) => {
+    event.preventDefault();
+    if (filePath) {
+      pendingOpenProjectPath = filePath;
+      if (backendReady) {
+        void handleOpenProjectFile(filePath);
+      }
+    }
+  });
+}
 
 // Forward an opened project file to the backend. Defined at module scope so
 // both the macOS open-file handler and the single-instance second-instance
 // event can reach it. The backend itself decides whether to prompt to save
 // the current dirty project first.
-function handleOpenProjectFile(filePath: string): void {
+async function handleOpenProjectFile(filePath: string): Promise<void> {
   if (!filePath) return;
-  void sendIpcMessage({ type: "open-project", path: filePath });
+  pendingOpenProjectPath = filePath;
+
+  // Try IPC socket first (fastest, direct C++ message).
+  const sent = await sendIpcMessage({ type: "open-project", path: filePath });
+  if (!sent) {
+    // Fallback if IPC socket connection fails/isn't ready: send via REST action.
+    await postAction(`open_path:${filePath}`);
+  }
 }
 
 // Only one ResoStage instance may run at a time (macOS + Windows). A second
@@ -1484,7 +1502,7 @@ if (!app.requestSingleInstanceLock()) {
     const fileArg = argv.find(
       (a) => a.endsWith(".rsnrasetmeta") || a.endsWith(".rsnraset"),
     );
-    if (fileArg) handleOpenProjectFile(fileArg);
+    if (fileArg) void handleOpenProjectFile(fileArg);
   });
 
   void app.whenReady().then(async () => {
@@ -1495,29 +1513,40 @@ if (!app.requestSingleInstanceLock()) {
     // first-use isn't silent.
     platform.preloadNatives();
 
-  // Ждём готовности IPC Core (standalone) — мгновенно, если сокет недоступен,
-  // fallback на HTTP polling через fetchMenuWithRetry ниже.
-  if (STANDALONE) await waitForIpcReady();
+    // Handle file associations: .rsnrasetmeta / .rsnraset files opened via
+    // Finder/Explorer. macOS delivers via app.on('open-file'); Windows/Linux
+    // deliver the path via argv. Both behaviors live behind the platform adapter.
+    platform.registerOpenFileHandler((filePath) => {
+      void handleOpenProjectFile(filePath);
+    });
+    const fileArg = platform.handleProjectFileArgv(process.argv);
+    if (fileArg) pendingOpenProjectPath = fileArg;
 
-  // Handle file associations: .rsnrasetmeta / .rsnraset files opened via
-  // Finder/Explorer. macOS delivers via app.on('open-file') (fires when the
-  // app is already running); Windows/Linux deliver the path via argv. Both
-  // behaviors live behind the platform adapter.
-  platform.registerOpenFileHandler(handleOpenProjectFile);
-  const fileArg = platform.handleProjectFileArgv(process.argv);
-  if (fileArg) handleOpenProjectFile(fileArg);
+    // Ждём готовности IPC Core (standalone) — мгновенно, если сокет недоступен,
+    // fallback на HTTP polling через fetchMenuWithRetry ниже.
+    if (STANDALONE) await waitForIpcReady();
 
-  // The GET response already carries the current Open Recent list, so the
-  // submenu is correct on first open -- before any live menu-state IPC has
-  // arrived from the SPA. fetchMenuWithRetry()'s retry loop also doubles as
-  // the "wait for the backend to finish starting up" gate in standalone mode.
-  menuModel = await fetchMenuWithRetry();
-  if (menuModel) {
-    menuState = {
-      ...menuState,
-      recentProjects: menuModel.recentProjects ?? [],
-    };
-  }
+    // The GET response already carries the current Open Recent list, so the
+    // submenu is correct on first open -- before any live menu-state IPC has
+    // arrived from the SPA. fetchMenuWithRetry()'s retry loop also doubles as
+    // the "wait for the backend to finish starting up" gate in standalone mode.
+    menuModel = await fetchMenuWithRetry();
+    if (menuModel) {
+      menuState = {
+        ...menuState,
+        recentProjects: menuModel.recentProjects ?? [],
+      };
+    }
+
+    backendReady = true;
+
+    // Backend is 100% ready! If a project file was opened during cold launch,
+    // forward it now to the backend.
+    if (pendingOpenProjectPath) {
+      const pathToOpen = pendingOpenProjectPath;
+      console.log(`[resostage] Cold launch opening project: ${pathToOpen}`);
+      void handleOpenProjectFile(pathToOpen);
+    }
 
   // No runtime dock.setIcon() workaround needed anymore: when launched as
   // the branded copy (electron/scripts/brand-mac-app.mjs), the bundle's own
@@ -1583,9 +1612,25 @@ app.on("window-all-closed", () => {
 // Safety net: normally the backend exits itself (unsaved-changes prompt via
 // postAction("quit")) and its "exit" handler above calls app.quit(); this
 // covers any other path out of the app (Cmd+Q racing the prompt, a signal,
-// etc.) so a standalone launch never leaves the backend running headless
-// with no shell left to talk to it.
-app.on("before-quit", () => {
+// etc.) so a standalone launch never leaves the backend running headless.
+app.on("before-quit", (e) => {
+  if (!isQuitting && STANDALONE && backendProcess && !backendProcess.killed) {
+    e.preventDefault();
+    void postAction("quit");
+
+    // Generous fallback timeout (20s): if backend is performing a heavy save of WAV
+    // stems on exit, give it full time to finish. Only force-kill if it hangs completely.
+    setTimeout(() => {
+      if (backendProcess && !backendProcess.killed && !isQuitting) {
+        console.warn("[resostage] Backend shutdown timeout (20s) -- force killing process");
+        isQuitting = true;
+        releaseAppSuspensionBlocker();
+        killBackend();
+        app.quit();
+      }
+    }, 20_000);
+    return;
+  }
   isQuitting = true;
   releaseAppSuspensionBlocker();
   if (STANDALONE) killBackend();

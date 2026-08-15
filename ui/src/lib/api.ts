@@ -7,6 +7,33 @@ import type {
   PeaksResponse,
 } from "./types";
 
+// ── Immediate-refetch hook ────────────────────────────────────────────────────
+// In UDP/embedded mode the structural state arrives via a 1 s HTTP poll. Any
+// user action (solo, mute, gain commit …) should be reflected without waiting
+// for the next poll tick, so we ask the state layer to fetch immediately after
+// the command lands. WS mode never registers a handler (server pushes state).
+//
+// The handler is debounced: rapid-fire actions (e.g. multiple mixer toggles in
+// quick succession) coalesce into one fetch instead of stampeding the server.
+let _refetchHandler: (() => void) | null = null;
+let _refetchTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function registerRefetchHandler(fn: () => void): void {
+  _refetchHandler = fn;
+}
+export function unregisterRefetchHandler(): void {
+  _refetchHandler = null;
+}
+
+function _triggerRefetch(): void {
+  if (!_refetchHandler) return;
+  if (_refetchTimer !== null) return; // already pending
+  _refetchTimer = setTimeout(() => {
+    _refetchTimer = null;
+    _refetchHandler?.();
+  }, 50);
+}
+
 // Mirrors WebServer::handleHttpApi().
 async function post(path: string, body?: unknown): Promise<void> {
   try {
@@ -15,6 +42,7 @@ async function post(path: string, body?: unknown): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : "{}",
     });
+    _triggerRefetch();
   } catch {
     // Best-effort, matches the embedded reference client -- a dropped
     // command just means the next state frame won't reflect it and the
@@ -206,20 +234,10 @@ export const project = {
   setName: (name: string) => post("/api/v1/project/name", { name }),
   // Answers the in-webview "Unsaved Changes" quit prompt (WebUiState.
   // quitConfirmPending) -- see WebCommandKind::QuitDecision.
-  resolveQuit: (choice: "save" | "discard" | "cancel") => {
-    if ((choice === "discard" || choice === "save") && typeof window !== "undefined" && (window as any).resostageElectron?.sendAction) {
-      setTimeout(() => {
-        try {
-          (window as any).resostageElectron.sendAction("quit-approved");
-        } catch {
-          /* ignore */
-        }
-      }, 250);
-    }
-    return post("/api/v1/project/quit-decision", {
+  resolveQuit: (choice: "save" | "discard" | "cancel") =>
+    post("/api/v1/project/quit-decision", {
       index: QUIT_DECISION_INDEX[choice],
-    });
-  },
+    }),
   // Answers the in-webview "Unsaved Changes" prompt shown before opening an
   // externally-requested project (WebUiState.openConfirmPending) -- see
   // WebCommandKind::OpenDecision.

@@ -215,11 +215,15 @@ function busMeterGroups(
  * out halfway through its own exit.
  */
 function DriftReadout({ drift }: { drift: number }) {
-  const shown = drift !== 1;
-  const lastRef = useRef(drift);
-  if (shown) lastRef.current = drift;
+  const valid = drift !== undefined && drift !== 0;
+  const isDrifting = Math.abs(drift - 1) > 0.00005;
+  const lastRef = useRef(drift || 1);
+  if (valid) lastRef.current = drift;
   return (
-    <CollapsibleInline open={shown} className="text-warning">
+    <CollapsibleInline
+      open={valid}
+      className={isDrifting ? "text-warning font-medium" : "text-foreground/40"}
+    >
       drift ×{lastRef.current.toFixed(4)}
     </CollapsibleInline>
   );

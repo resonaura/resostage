@@ -311,13 +311,23 @@ bool ProjectLoader::open(const std::string& path, std::string& error) {
     close();
 
     namespace fs = std::filesystem;
-    if (!fs::is_directory(path)) {
+    fs::path targetPath(path);
+    if (!fs::exists(targetPath)) {
+        error = "Project path does not exist: " + path;
+        return false;
+    }
+
+    if (fs::is_regular_file(targetPath)) {
+        targetPath = targetPath.parent_path();
+    }
+
+    if (!fs::is_directory(targetPath)) {
         error = "Failed to open project container: " + path;
         return false;
     }
 
     impl->isContainerDir = true;
-    openArchivePath = path;
+    openArchivePath = targetPath.string();
     return reparseProject(error);
 }
 

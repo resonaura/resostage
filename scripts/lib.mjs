@@ -562,6 +562,13 @@ function assembleShellBundle() {
     cpSync(rawCore, coreDst, { recursive: true });
 
     run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);
+    try {
+      const lsregister =
+        "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+      if (existsSync(lsregister)) {
+        execFileSync(lsregister, ["-f", shellBundle]);
+      }
+    } catch {}
     ok(`Assembled ${shellBundle}`);
     return;
   }
