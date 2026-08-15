@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { isRenderActive, setTransportPlaying } from "./appActivity";
-import { wsUrl } from "./backend";
+import { apiUrl, wsUrl } from "./backend";
 import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds } from "./liveLevels";
 import { shareStructure } from "./structuralShare";
+import { IS_ELECTRON } from "./electron";
+import { IS_EMBEDDED } from "./embedded";
 import { emptyState, type WebUiState } from "./types";
 
 export type ConnectionStatus = "connecting" | "live" | "reconnecting";
-/** Live-state transport. Currently always WS (see note in connect effect). */
-export type TransportKind = "ws" | "none";
+/** Live-state transport: UDP in embedded (Electron) mode, WS in remote browser mode. */
+export type TransportKind = "ws" | "udp" | "none";
 
 /**
  * Merge a partial WS snapshot into the previous state. The server only
@@ -135,6 +137,7 @@ export function useLiveState(view: string = "player") {
   const [ramHistory, setRamHistory] = useState<number[]>(() =>
     Array(30).fill(0),
   );
+  const [effectiveHz, setEffectiveHz] = useState<number>(60);
   // Flips true once the first real WS snapshot has been merged into `state`
   // -- callers that forward `state` elsewhere (e.g. the Electron menu-state
   // bridge) should wait for this rather than sending `emptyState`'s
@@ -213,18 +216,25 @@ export function useLiveState(view: string = "player") {
    * isn't open has nothing to slow down.
    */
   const sendTelemetryHz = (hz: number) => {
+    if (hz <= 0) return;
+    const clamped = Math.round(hz);
+    setEffectiveHz(clamped);
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN || hz <= 0) return;
-    try {
-      ws.send(JSON.stringify({ telemetryHz: Math.round(hz) }));
-    } catch {
-      // Next tier change (or the reconnect handshake) will carry it.
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ telemetryHz: clamped }));
+      } catch {}
     }
+    fetch(apiUrl("/api/v1/settings/telemetry-hz"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telemetryHz: clamped }),
+    }).catch(() => {});
   };
 
   const sendView = (v: string) => {
     // POST is more reliable than WS for this — no dependency on WS state.
-    fetch("/api/v1/view", {
+    fetch(apiUrl("/api/v1/view"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ view: v }),
@@ -246,10 +256,71 @@ export function useLiveState(view: string = "player") {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
-    // Live state always goes over WebSocket — even inside the embedded
-    // webview. JUCE emitEvent/evaluateJavascript for full multi-KB frames at
-    // 30 Hz was unusably expensive (UI freeze). Native bridge is only a good
-    // fit for small discrete RPCs, not telemetry dumps.
+    const isEmbeddedMode = IS_EMBEDDED || IS_ELECTRON || ("resostageElectron" in window);
+
+    if (isEmbeddedMode) {
+      setTransport("udp");
+      setStatus("live");
+
+      const onUdpFrame = (e: Event) => {
+        if (cancelled) return;
+        const customEvent = e as CustomEvent<Buffer | Uint8Array | ArrayBuffer>;
+        const raw = customEvent.detail;
+        if (!raw) return;
+        let buf: ArrayBuffer;
+        if (raw instanceof ArrayBuffer) {
+          buf = raw;
+        } else if (ArrayBuffer.isView(raw)) {
+          const slice = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+          buf = slice as ArrayBuffer;
+        } else {
+          return;
+        }
+        pushLiveBinaryFrame(buf);
+      };
+
+      window.addEventListener("resostage-udp-telemetry", onUdpFrame);
+
+      const fetchState = async () => {
+        if (cancelled) return;
+        try {
+          const res = await fetch(apiUrl("/api/v1/state"));
+          if (res.ok) {
+            const data = (await res.json()) as Partial<WebUiState>;
+            if (data.meters) setMeterIds(data.meters.map((m) => m.id));
+            if (data.playing !== undefined) setTransportPlaying(data.playing);
+            if (data.health) {
+              latestHealthRef.current = {
+                cpu: Math.max(0, data.health.cpuPercent ?? 0),
+                ram: (data.health.rssBytes ?? 0) / (1024 * 1024),
+              };
+            }
+            pendingStateRef.current = data;
+            scheduleFlush();
+          }
+        } catch {}
+      };
+
+      void fetchState();
+      const statePollInterval = setInterval(fetchState, 1000);
+
+      const sampleInterval = setInterval(() => {
+        if (cancelled) return;
+        const sample = latestHealthRef.current;
+        setCpuHistory((prev) => [...prev.slice(1), sample.cpu]);
+        setRamHistory((prev) => [...prev.slice(1), sample.ram]);
+      }, 1000);
+
+      return () => {
+        cancelled = true;
+        window.removeEventListener("resostage-udp-telemetry", onUdpFrame);
+        clearInterval(statePollInterval);
+        clearInterval(sampleInterval);
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
+      };
+    }
+
     const connect = () => {
       if (cancelled) return;
       ws = new WebSocket(wsUrl(), "resoset");
@@ -262,32 +333,24 @@ export function useLiveState(view: string = "player") {
         setStatus("live");
         try {
           ws?.send(JSON.stringify({ view: viewRef.current }));
-        } catch {
-          // safe to ignore — WS will retry on reconnect
-        }
+        } catch {}
       };
       ws.onmessage = (ev) => {
         if (ev.data instanceof ArrayBuffer) {
-          // 1) High-frequency zero-copy binary telemetry (peaks, playhead, lights)
           pushLiveBinaryFrame(ev.data);
           return;
         }
 
         const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
-        // 2) Structural JSON: levels fallback + React state update.
-        // Parsed EXACTLY once and handed to both -- see pendingStateRef.
         let parsed: Partial<WebUiState>;
         try {
           parsed = JSON.parse(raw) as Partial<WebUiState>;
         } catch {
-          return; // malformed frame; the next one supersedes it anyway
+          return;
         }
         if (parsed.meters) {
           setMeterIds(parsed.meters.map((m) => m.id));
         }
-        // Straight off the wire, not via React state: a hidden window must go
-        // fully live the instant the transport starts, without waiting for a
-        // render to propagate the flag (see appActivity).
         if (parsed.playing !== undefined) setTransportPlaying(parsed.playing);
         pushLiveLevels({
           clickPeakDb: parsed.clickPeakDb,
@@ -302,25 +365,15 @@ export function useLiveState(view: string = "player") {
             ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
           };
         }
-        // Full React state: coalesce to paint rate (with a stall safety net).
         pendingStateRef.current = parsed;
         scheduleFlush();
       };
       ws.onerror = () => {
         try {
           ws?.close();
-        } catch {
-          // no-op
-        }
+        } catch {}
       };
       ws.onclose = () => {
-        // Only if this is still the CURRENT socket. React mounts, tears down
-        // and re-mounts an effect (StrictMode does it deliberately in dev, and
-        // any remount does it in production), so a superseded socket's close
-        // can land after its replacement is already in the ref -- and clearing
-        // it there leaves the app receiving frames on a live socket it can no
-        // longer send on. `sendView` survived that because it also POSTs;
-        // `sendTelemetryHz` is WS-only and silently did nothing.
         if (wsRef.current === ws) wsRef.current = null;
         if (cancelled) return;
         setStatus("reconnecting");
@@ -331,8 +384,6 @@ export function useLiveState(view: string = "player") {
 
     connect();
 
-    // After laptop sleep / minimize the socket often stays OPEN but is dead
-    // (no onclose). On resume: ping if open, else force a reconnect.
     const wakeSocket = () => {
       if (cancelled) return;
       const cur = wsRef.current;
@@ -342,9 +393,7 @@ export function useLiveState(view: string = "player") {
         } catch {
           try {
             cur.close();
-          } catch {
-            /* reconnect via onclose */
-          }
+          } catch {}
         }
         return;
       }
@@ -367,11 +416,6 @@ export function useLiveState(view: string = "player") {
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("resoshell-resume", onShellResume);
 
-    // 1 Hz: sparkline history + freeze CPU/RAM numbers into React state.
-    // Skipped entirely while nothing is on screen: this is the one timer that
-    // would otherwise re-render the whole app once a second forever, purely to
-    // scroll a sparkline nobody is looking at. It picks straight back up on
-    // the next tick after the window returns.
     const sampleInterval = setInterval(() => {
       if (!isRenderActive()) return;
       const sample = latestHealthRef.current;
@@ -408,6 +452,7 @@ export function useLiveState(view: string = "player") {
     state,
     status,
     transport,
+    effectiveHz,
     cpuHistory,
     ramHistory,
     sendView,

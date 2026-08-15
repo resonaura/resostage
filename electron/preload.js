@@ -11,3 +11,9 @@ contextBridge.exposeInMainWorld("resostageElectron", {
   showContextMenu: (items, x, y) =>
     ipcRenderer.invoke("show-context-menu", { items, x, y }),
 });
+
+ipcRenderer.on("udp-telemetry", (_event, buffer) => {
+  try {
+    window.dispatchEvent(new CustomEvent("resostage-udp-telemetry", { detail: buffer }));
+  } catch {}
+});

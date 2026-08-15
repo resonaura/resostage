@@ -36,6 +36,7 @@ import {
 import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
 import { connect, type Socket } from "node:net";
+import dgram from "node:dgram";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -204,6 +205,26 @@ function waitForIpcReady(timeoutMs = 15_000): Promise<void> {
       resolve(); // fallback — UI падает на HTTP polling, как раньше
     }, timeoutMs).unref?.();
   });
+}
+
+const UDP_TELEMETRY_PORT = 2898;
+let udpTelemetrySocket: dgram.Socket | null = null;
+
+function setupUdpTelemetry(): void {
+  try {
+    if (udpTelemetrySocket) return;
+    udpTelemetrySocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+    udpTelemetrySocket.on("message", (msg: Buffer) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("udp-telemetry", msg);
+      }
+    });
+    udpTelemetrySocket.bind(UDP_TELEMETRY_PORT, "127.0.0.1", () => {
+      console.log(`[resostage] UDP Telemetry listener bound to 127.0.0.1:${UDP_TELEMETRY_PORT}`);
+    });
+  } catch (err) {
+    console.warn("[resostage] UDP telemetry listener failed:", err);
+  }
 }
 
 // Send a JSON message to the Core backend via IPC socket.
@@ -1255,7 +1276,7 @@ function reevaluateIdle(reason: string): void {
  */
 /**
  * Register the .rsnrasetmeta file association under HKEY_CURRENT_USER so
- * double-clicking a project link opens it, even for the portable build that
+ * double-clicking a project file opens it, even for the portable build that
  * never ran the Inno installer (which writes the same keys under HKCR). HKCU
  * needs no elevation and does not require a reinstall when the app moves.
  * Best-effort: a failure to write is non-fatal.
@@ -1265,10 +1286,10 @@ function registerFileAssociations(): void {
   const base = "HKCU\\Software\\Classes";
   const exe = process.execPath;
   const entries: Array<[key: string, value: string]> = [
-    [`${base}\\.rsnrasetmeta`, "ResoStage.ProjectLink"],
-    [`${base}\\ResoStage.ProjectLink`, "ResoStage Project Link"],
-    [`${base}\\ResoStage.ProjectLink\\DefaultIcon`, `${exe},0`],
-    [`${base}\\ResoStage.ProjectLink\\shell\\open\\command`, `"${exe}" "%1"`],
+    [`${base}\\.rsnrasetmeta`, "ResoStage.ProjectFile"],
+    [`${base}\\ResoStage.ProjectFile`, "ResoStage Project File"],
+    [`${base}\\ResoStage.ProjectFile\\DefaultIcon`, `${exe},0`],
+    [`${base}\\ResoStage.ProjectFile\\shell\\open\\command`, `"${exe}" "%1"`],
   ];
   for (const [key, value] of entries) {
     execFile(
@@ -1620,10 +1641,11 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
-  if (STANDALONE) spawnBackend();
-  ensureAppNotSuspended();
-  // Load MenuFlash/Haptics dylibs once up front so first-use isn't silent.
-  preloadNatives();
+    if (STANDALONE) spawnBackend();
+    ensureAppNotSuspended();
+    setupUdpTelemetry();
+    // Load MenuFlash/Haptics dylibs once up front so first-use isn't silent.
+    preloadNatives();
 
   // Ждём готовности IPC Core (standalone) — мгновенно, если сокет недоступен,
   // fallback на HTTP polling через fetchMenuWithRetry ниже.

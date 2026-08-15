@@ -62,3 +62,8 @@ ipcRenderer.on("shell-active", (_event, detail: { reason?: string }) => {
 ipcRenderer.on("shell-power", (_event, detail: unknown) => {
   emit("resoshell-power", detail);
 });
+
+// Shell → SPA: High-speed UDP telemetry binary packets (meters, peaks, lights)
+ipcRenderer.on("udp-telemetry", (_event, buffer: unknown) => {
+  emit("resostage-udp-telemetry", buffer);
+});

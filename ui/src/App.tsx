@@ -298,6 +298,7 @@ export default function App() {
     state,
     status,
     transport,
+    effectiveHz,
     cpuHistory,
     ramHistory,
     sendView,
@@ -537,7 +538,7 @@ export default function App() {
           <ConnectionBadge
             status={status}
             transport={transport}
-            wsHz={state.wsHz}
+            wsHz={effectiveHz || state.wsHz}
           />
         </div>
       </header>
@@ -976,7 +977,9 @@ function ConnectionBadge({
   // and recovers slowly, so this reflects reality, not just the 30 Hz target.
   const label =
     SHOW_TRANSPORT_LABEL && transport !== "none"
-      ? `WS: ${wsHz > 0 ? wsHz : "--"} Hz`
+      ? transport === "udp"
+        ? "UDP: 60 Hz"
+        : `WS: ${wsHz > 0 ? wsHz : "--"} Hz`
       : null;
   return (
     <div className="flex items-center gap-1.5 text-xs text-foreground/60">

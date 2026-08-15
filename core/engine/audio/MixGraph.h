@@ -1,6 +1,6 @@
 // The mixer, as data.
 //
-// Everything that can carry audio in a ResoStage project -- a track, the
+// Everything that can carry audio in a  -- a track, the
 // metronome, an aux send, the FOH master, a physical output lane -- is the
 // SAME thing here: a MixStrip with a channel count, a fader, a pan, a mute, a
 // solo and a resolved audibility. There is no "the master is special" branch,

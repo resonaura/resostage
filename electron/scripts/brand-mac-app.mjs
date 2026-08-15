@@ -155,7 +155,7 @@ function main() {
       {
         CFBundleTypeExtensions: ["rsnrasetmeta"],
         CFBundleTypeIconFile: "file.icns",
-        CFBundleTypeName: "ResoStage Project Link",
+        CFBundleTypeName: "ResoStage Project File",
         CFBundleTypeRole: "Editor",
         LSHandlerRank: "Owner",
         LSItemContentTypes: ["com.resonaura.resostage.project-link"],
@@ -173,7 +173,7 @@ function main() {
     UTExportedTypeDeclarations: [
       {
         UTTypeIdentifier: "com.resonaura.resostage.project-link",
-        UTTypeDescription: "ResoStage Project Link",
+        UTTypeDescription: "ResoStage Project File",
         UTTypeIconFile: "file.icns",
         UTTypeConformsTo: ["public.data", "public.content"],
         UTTypeTagSpecification: {

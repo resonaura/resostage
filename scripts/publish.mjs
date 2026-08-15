@@ -278,10 +278,10 @@ Name: "{autodesktop}\\ResoStage"; Filename: "{app}\\ResoStage.exe"; IconFilename
 
 [Registry]
 ; .rsnrasetmeta file association (metadata file next to project folder)
-Root: HKCR; Subkey: ".rsnrasetmeta"; ValueType: string; ValueData: "ResoStage.ProjectLink"; Flags: uninsdeletekey
-Root: HKCR; Subkey: "ResoStage.ProjectLink"; ValueType: string; ValueData: "ResoStage Project Link"; Flags: uninsdeletekey
-Root: HKCR; Subkey: "ResoStage.ProjectLink\\DefaultIcon"; ValueType: string; ValueData: "{app}\\ResoStage.ico,0"
-Root: HKCR; Subkey: "ResoStage.ProjectLink\\shell\\open\\command"; ValueType: string; ValueData: ""{app}\\ResoStage.exe" "%1""
+Root: HKCR; Subkey: ".rsnrasetmeta"; ValueType: string; ValueData: "ResoStage.ProjectFile"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "ResoStage.ProjectFile"; ValueType: string; ValueData: "ResoStage Project File"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "ResoStage.ProjectFile\\DefaultIcon"; ValueType: string; ValueData: "{app}\\ResoStage.ico,0"
+Root: HKCR; Subkey: "ResoStage.ProjectFile\\shell\\open\\command"; ValueType: string; ValueData: ""{app}\\ResoStage.exe" "%1""
 
 [Run]
 Filename: "{tmp}\\vc_redist.x64.exe"; Parameters: "/quiet /norestart"; \\
@@ -333,8 +333,8 @@ function publishLinux() {
   // Mime-type desktop entry for .rsnrasetmeta file association
   const mimeDesktop = `[Desktop Entry]
 Type=MimeType
-MimeType=application/x-resostage-project-link
-Comment=ResoStage Project Link
+MimeType=application/x-resostage-project-file
+Comment=ResoStage Project File
 Icon=resostage
 `;
   writeFileSync(join(payload, "application-x-resostage-project-link.desktop"), mimeDesktop);

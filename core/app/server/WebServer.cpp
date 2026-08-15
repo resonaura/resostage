@@ -5,6 +5,7 @@
 #include "project/ProjectJson.h"
 #include "project/ProjectLoader.h"
 #include "server/WireTypes.h"
+#include <juce_core/juce_core.h>
 
 #include <libwebsockets.h>
 
@@ -982,6 +983,8 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
                     const int clamped =
                         std::clamp(hz, WebServer::kTelemetryMinHz, WebServer::kTelemetryHz);
                     pss->requestedPeriodUs = 1'000'000 / clamped;
+                    if (server != nullptr)
+                        server->setTargetTelemetryHz(clamped);
                 }
                 return 0;
             }
@@ -1021,6 +1024,11 @@ bool WebServer::start(uint16_t port, std::string& error) {
     }
 
     stopRequested.store(false, std::memory_order_release);
+
+    udpSocket_ = std::make_unique<juce::DatagramSocket>(/*enableBroadcasting=*/false);
+    if (!udpSocket_->bindToPort(0)) {
+        udpSocket_.reset();
+    }
 
     // Protocols must outlive the context; keep them as static storage.
     static struct lws_protocols protocols[] = {
@@ -1085,6 +1093,7 @@ void WebServer::stop() {
         lws_context_destroy(context);
         context = nullptr;
     }
+    udpSocket_.reset();
     running.store(false, std::memory_order_release);
     clients.store(0, std::memory_order_relaxed);
 }
@@ -1099,27 +1108,18 @@ void WebServer::serviceLoop() {
     }
 }
 
+void WebServer::setTargetTelemetryHz(int hz) {
+    const int clamped = std::clamp(hz, kTelemetryMinHz, kTelemetryHz);
+    targetTelemetryHz_.store(clamped, std::memory_order_relaxed);
+    effectiveTelemetryHz_.store(clamped, std::memory_order_relaxed);
+}
+
 void WebServer::publishState(const WebUiState& next) {
     {
         std::lock_guard<std::mutex> lock(stateMutex);
         state = next;
     }
 
-    // No connected SPA — skip the serialize work. REST /api/v1/state falls
-    // back to a live buildStateJson("all") if the cache is empty.
-    if (clients.load(std::memory_order_relaxed) <= 0)
-        return;
-
-    // Serialize once per publish on the message thread. The WS service thread
-    // only does shared_ptr copies of these strings — rebuild cost no longer
-    // scales with client count and no longer blocks lws_service.
-    //
-    // Serialise only what somebody is looking at. Every view used to be built
-    // on every tick -- five JSON payloads plus the full REST snapshot -- so a
-    // single client on a single tab paid six times over, on the message
-    // thread, at the telemetry rate. `all` is not built here at all any more:
-    // its only consumer is GET /api/v1/state, which already falls back to a
-    // live build when the cache is empty.
     const auto watched = [this](ViewSlot slot) {
         return viewClients_[static_cast<size_t>(slot)].load(std::memory_order_relaxed) > 0;
     };
@@ -1134,6 +1134,22 @@ void WebServer::publishState(const WebUiState& next) {
     auto settings = buildIf(watched(ViewSlot::Settings), "settings");
     auto light = buildIf(watched(ViewSlot::Light), "light");
     auto binary = std::make_shared<const std::vector<uint8_t>>(buildBinaryTelemetryFrame(next));
+
+    // High-speed UDP telemetry for embedded (Electron) mode: send binary telemetry frame
+    // over loopback to 127.0.0.1:kUdpTelemetryPort. Decimated to match targetTelemetryHz_.
+    const int targetHz = targetTelemetryHz_.load(std::memory_order_relaxed);
+    const double targetPeriodSec = 1.0 / (targetHz > 0 ? targetHz : 60);
+    const double nowSec = juce::Time::getMillisecondCounterHiRes() * 0.001;
+
+    if (nowSec - lastUdpSendTimeSec_ >= targetPeriodSec - 0.002) {
+        lastUdpSendTimeSec_ = nowSec;
+        if (udpSocket_ != nullptr && binary != nullptr && !binary->empty()) {
+            udpSocket_->write("127.0.0.1", kUdpTelemetryPort, binary->data(), static_cast<int>(binary->size()));
+        }
+    }
+
+    if (clients.load(std::memory_order_relaxed) <= 0)
+        return;
 
     {
         std::lock_guard<std::mutex> lock(frameMutex);
@@ -1873,6 +1889,16 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     } else if (std::strcmp(path, "/api/v1/settings/ui-render-engine") == 0) {
         const std::string s(body, bodyLen);
         cmd = {WebCommandKind::SetUiRenderEngine, 0, 0.0, s};
+        writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+        return true;
+    } else if (std::strcmp(path, "/api/v1/settings/telemetry-hz") == 0) {
+        const std::string s(body, bodyLen);
+        std::string hzRaw;
+        if (findJsonField(s, "\"telemetryHz\"", hzRaw)) {
+            const int hz = std::atoi(hzRaw.c_str());
+            if (hz > 0)
+                setTargetTelemetryHz(hz);
+        }
         writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
         return true;
     } else if (std::strcmp(path, "/api/v1/view") == 0) {

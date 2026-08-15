@@ -16,6 +16,8 @@ struct lws_context;
 struct lws;
 struct lws_protocols;
 
+namespace juce { class DatagramSocket; }
+
 namespace resostage {
 
 // Remote-control actions enqueued by the web/HTTP thread and drained on the
@@ -893,6 +895,7 @@ public:
     // real current update rate instead of just assuming the fixed target.
     int effectiveTelemetryHz() const { return effectiveTelemetryHz_.load(std::memory_order_relaxed); }
     void reportClientPeriodUs(int periodUs);
+    void setTargetTelemetryHz(int hz);
 
     // Message-thread: drain one remote command (if any). Returns false if empty.
     bool pollCommand(WebCommand& out);
@@ -1052,6 +1055,12 @@ private:
 
     mutable std::mutex archivePathMutex;
     std::string archivePathForRaw;
+
+    // High-speed UDP telemetry for embedded (Electron) mode.
+    static constexpr int kUdpTelemetryPort = 2898;
+    std::unique_ptr<juce::DatagramSocket> udpSocket_;
+    std::atomic<int> targetTelemetryHz_{60};
+    double lastUdpSendTimeSec_ = 0.0;
 
     // SPA web roots (bundle Contents/Resources/web, dev ui/dist, ...) tried
     // in order by serveStatic on the lws thread. Immutable after start().
