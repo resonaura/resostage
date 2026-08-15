@@ -187,6 +187,14 @@ public:
     // frame with peak fields replaced by the interval max (+ one-frame echo).
     MeterFrame consumeBusMeterInterval(size_t busIndex);
 
+    // Interval-max peak for a single track, same pattern as buses and the
+    // click strip. Short impulses on individual tracks (e.g. a snare one-shot
+    // whose duration is shorter than the UI poll interval) are accumulated by
+    // the audio thread and returned here, then the latch is cleared. Falls
+    // back to the last rendered block's peak so a poll landing between
+    // callbacks still reports a real measurement rather than silence.
+    MeterFrame consumeTrackMeterInterval(size_t trackIndex);
+
     bool isBusMuted(size_t busIndex) const;
 
     bool isBusSoloed(size_t busIndex) const;

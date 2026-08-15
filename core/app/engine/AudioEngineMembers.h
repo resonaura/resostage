@@ -111,6 +111,14 @@
     std::unique_ptr<std::atomic<float>[]> busPeakIntervalMaxL;
     std::unique_ptr<std::atomic<float>[]> busPeakIntervalMaxR;
     size_t busPeakIntervalCount = 0;
+    // Per-track interval peak (linear), parallel to trackMeters. Same atomic
+    // CAS-max / exchange pattern as the bus arrays above so short impulses
+    // on tracks are never overwritten by silence before the next UI poll.
+    std::unique_ptr<std::atomic<float>[]> trackPeakIntervalMaxL;
+    std::unique_ptr<std::atomic<float>[]> trackPeakIntervalMaxR;
+    std::unique_ptr<std::atomic<float>[]> trackLastBlockPeakL;
+    std::unique_ptr<std::atomic<float>[]> trackLastBlockPeakR;
+    size_t trackPeakIntervalCount = 0;
     // Message-thread only: one-frame echo of the previous interval (same
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> trackMeters;
     // Per-track band-energy (GEQ/Blurz) analysis, kept in lockstep with

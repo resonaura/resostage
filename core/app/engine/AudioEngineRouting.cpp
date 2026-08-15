@@ -33,6 +33,22 @@ void AudioEngine::ensureTrackMeters(size_t count) {
     trackBandMeters.resize(count);
     for (auto& band : trackBandMeters)
         band.prepare(currentSampleRate, 2);
+
+    // Reallocate interval-peak arrays only when the count changes (same
+    // policy as installBusRows so a fader drag doesn't churn them).
+    if (count != trackPeakIntervalCount) {
+        trackPeakIntervalCount = count;
+        trackPeakIntervalMaxL = std::make_unique<std::atomic<float>[]>(count);
+        trackPeakIntervalMaxR = std::make_unique<std::atomic<float>[]>(count);
+        trackLastBlockPeakL   = std::make_unique<std::atomic<float>[]>(count);
+        trackLastBlockPeakR   = std::make_unique<std::atomic<float>[]>(count);
+        for (size_t i = 0; i < count; ++i) {
+            trackPeakIntervalMaxL[i].store(0.0f, std::memory_order_relaxed);
+            trackPeakIntervalMaxR[i].store(0.0f, std::memory_order_relaxed);
+            trackLastBlockPeakL[i].store(0.0f, std::memory_order_relaxed);
+            trackLastBlockPeakR[i].store(0.0f, std::memory_order_relaxed);
+        }
+    }
 }
 
 // Derives the mixer's flat bus rail from a freshly-built graph. Pure: touches

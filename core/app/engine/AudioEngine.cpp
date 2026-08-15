@@ -276,6 +276,37 @@ MeterFrame AudioEngine::consumeClickMeterInterval() {
     return frame;
 }
 
+MeterFrame AudioEngine::consumeTrackMeterInterval(size_t trackIndex) {
+    MeterFrame frame;
+    if (trackIndex < trackMeters.size() && trackMeters[trackIndex] != nullptr)
+        (void)trackMeters[trackIndex]->read(frame);
+
+    float peakL = 0.0f;
+    float peakR = 0.0f;
+    if (trackIndex < trackPeakIntervalCount && trackPeakIntervalMaxL && trackPeakIntervalMaxR) {
+        peakL = trackPeakIntervalMaxL[trackIndex].exchange(0.0f, std::memory_order_relaxed);
+        peakR = trackPeakIntervalMaxR[trackIndex].exchange(0.0f, std::memory_order_relaxed);
+    }
+
+    // Same logic as consumeBusMeterInterval: use the interval latch (catches
+    // a short impulse that came and went between polls) OR the last rendered
+    // block (so a poll landing between audio callbacks still has a real
+    // measurement, not a zero it has no evidence for).
+    float outL = peakL;
+    float outR = peakR;
+    if (trackIndex < trackPeakIntervalCount && trackLastBlockPeakL && trackLastBlockPeakR) {
+        outL = std::max(peakL, trackLastBlockPeakL[trackIndex].load(std::memory_order_relaxed));
+        outR = std::max(peakR, trackLastBlockPeakR[trackIndex].load(std::memory_order_relaxed));
+    }
+
+    frame.peakDbL = linearPeakToDb(outL);
+    frame.peakDbR = linearPeakToDb(outR);
+    frame.peakDb  = linearPeakToDb(std::max(outL, outR));
+    if (frame.truePeakDb < frame.peakDb)
+        frame.truePeakDb = frame.peakDb;
+    return frame;
+}
+
 MeterFrame AudioEngine::consumeBusMeterInterval(size_t busIndex) {
     MeterFrame frame;
     if (busIndex < busMeters.size() && busMeters[busIndex] != nullptr)
@@ -1672,7 +1703,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     for (size_t t = 0; t < trackIdByIndex.size() && t < trackMeters.size(); ++t) {
         publishStripMeter(static_cast<uint32_t>(t), trackMeters[t].get(), nullptr,
                           t < trackBandMeters.size() ? &trackBandMeters[t] : nullptr,
-                          nullptr, nullptr);
+                          trackPeakIntervalMaxL && t < trackPeakIntervalCount
+                              ? &trackPeakIntervalMaxL[t] : nullptr,
+                          trackPeakIntervalMaxR && t < trackPeakIntervalCount
+                              ? &trackPeakIntervalMaxR[t] : nullptr,
+                          trackLastBlockPeakL && t < trackPeakIntervalCount
+                              ? &trackLastBlockPeakL[t] : nullptr,
+                          trackLastBlockPeakR && t < trackPeakIntervalCount
+                              ? &trackLastBlockPeakR[t] : nullptr);
     }
 
     if (clickStripIndex != MixGraph::kNoStrip) {

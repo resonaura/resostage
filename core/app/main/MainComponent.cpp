@@ -1394,13 +1394,13 @@ void MainComponent::publishWebState() {
             tr.output.sends.push_back(std::move(sr));
         }
 
-        if (const auto* meter = engine.trackMeterAt(i)) {
-            MeterFrame frame;
-            if (meter->read(frame)) {
-                tr.peakDb = frame.peakDb;
-                tr.peakDbL = frame.peakDbL;
-                tr.peakDbR = frame.peakDbR;
-            }
+        // Interval-max peaks so short impulses on tracks are not lost between
+        // UI polls -- same pattern as buses/click (consumeBusMeterInterval).
+        {
+            const MeterFrame frame = engine.consumeTrackMeterInterval(i);
+            tr.peakDb = frame.peakDb;
+            tr.peakDbL = frame.peakDbL;
+            tr.peakDbR = frame.peakDbR;
         }
         state.tracks.push_back(std::move(tr));
     }

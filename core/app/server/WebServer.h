@@ -878,10 +878,12 @@ public:
     //
     // 60 Hz halves the maximum telemetry lag vs. 30 Hz (17 ms vs. 33 ms),
     // which matters for peaks (click/track) and the live light preview.
-    // The min floor stays at 6 Hz so backpressure recovery is unchanged.
+    // 25 Hz floor so meters stay responsive on slow machines; the interval-max
+    // accumulators on the audio thread ensure no short impulse is lost even at
+    // the minimum rate.
     static constexpr int kTelemetryHz = 60;
     static constexpr int kTelemetryPeriodUs = 1'000'000 / kTelemetryHz;
-    static constexpr int kTelemetryMinHz = 6;
+    static constexpr int kTelemetryMinHz = 25;
     static constexpr int kTelemetryMinPeriodUs = 1'000'000 / kTelemetryMinHz;
 
     // Effective rate of the most recently (re)throttled client, in Hz --
