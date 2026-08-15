@@ -59,7 +59,8 @@ target_sources(ResoStage PRIVATE
   platform/MenuModel.cpp
   platform/PlatformProcessPriority.cpp
   platform/PlatformShellMode.cpp
-  platform/ThreadTime.cpp
+  platform/PlatformThermalMonitor.cpp
+  platform/PlatformThreadTime.cpp
   platform/ThermalStateGeneric.cpp
   platform/TrayIcon.cpp
   server/WebServer.cpp
@@ -68,7 +69,8 @@ target_sources(ResoStage PRIVATE
 if(APPLE)
   target_sources(ResoStage PRIVATE platform/MacShellMode.mm)
   target_sources(ResoStage PRIVATE platform/MacProcessPriority.cpp)
-  target_sources(ResoStage PRIVATE platform/ThermalState.mm)
+  target_sources(ResoStage PRIVATE platform/MacThermalMonitor.mm)
+  target_sources(ResoStage PRIVATE platform/MacThreadTime.cpp)
   target_sources(ResoStage PRIVATE
     midi/CoreMidiDispatcher.cpp
     midi/CoreMidiInputListener.cpp
@@ -83,10 +85,17 @@ elseif(WIN32)
     midi/CoreMidiInputListenerWindows.cpp
     platform/WinProcessPriority.cpp
     platform/WinShellMode.cpp
+    platform/WinThermalMonitor.cpp
+    platform/WinThreadTime.cpp
   )
   target_link_libraries(ResoStage PRIVATE winmm)
 elseif(UNIX)
-  target_sources(ResoStage PRIVATE platform/LinuxProcessPriority.cpp platform/LinuxShellMode.cpp)
+  target_sources(ResoStage PRIVATE
+    platform/LinuxProcessPriority.cpp
+    platform/LinuxShellMode.cpp
+    platform/LinuxThermalMonitor.cpp
+    platform/LinuxThreadTime.cpp
+  )
 endif()
 
 # ── ASIO (Windows) ───────────────────────────────────────────────────────

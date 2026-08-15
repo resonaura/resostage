@@ -29,6 +29,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeTheme,
   powerMonitor,
   powerSaveBlocker,
   TouchBar,
@@ -611,6 +612,31 @@ function flashMenuAction(action: string): void {
 
 let windowsTray: Tray | null = null;
 
+function updateWindowsTrayIconTheme(): void {
+  if (!windowsTray || process.platform !== "win32") return;
+  const isDark = nativeTheme.shouldUseDarkColors;
+  const themeName = isDark ? "dark" : "light";
+  const iconThemePath = path.join(import.meta.dirname, "..", "icons", `app_${themeName}.ico`);
+  const iconDefaultPath = path.join(import.meta.dirname, "..", "icons", "app.ico");
+  const fallbackIconPath = path.join(app.getAppPath(), "icons", "app.ico");
+
+  const chosenPath = existsSync(iconThemePath)
+    ? iconThemePath
+    : existsSync(iconDefaultPath)
+    ? iconDefaultPath
+    : existsSync(fallbackIconPath)
+    ? fallbackIconPath
+    : null;
+
+  if (chosenPath) {
+    try {
+      windowsTray.setImage(chosenPath);
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
 function setupWindowsTray(): void {
   if (process.platform !== "win32" || windowsTray) return;
   const iconPath = path.join(import.meta.dirname, "..", "icons", "app.ico");
@@ -623,7 +649,7 @@ function setupWindowsTray(): void {
   if (!finalIcon) return;
 
   try {
-    windowsTray = new Tray(iconPath);
+    windowsTray = new Tray(finalIcon);
     windowsTray.setToolTip("ResoStage");
     const contextMenu = Menu.buildFromTemplate([
       {
@@ -650,6 +676,10 @@ function setupWindowsTray(): void {
         mainWindow.focus();
       }
     });
+
+    // Dynamically adapt tray icon to Windows system taskbar theme (Dark vs Light)
+    updateWindowsTrayIconTheme();
+    nativeTheme.on("updated", () => updateWindowsTrayIconTheme());
   } catch (err) {
     console.warn("[resostage] Failed to setup Windows tray icon:", err);
   }
