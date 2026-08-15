@@ -464,6 +464,17 @@ void AudioEngine::resetMetersSilent() {
     clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
     clickLastBlockPeakL.store(0.0f, std::memory_order_relaxed);
     clickLastBlockPeakR.store(0.0f, std::memory_order_relaxed);
+    // Tracks too: consumeTrackMeterInterval reports max(interval latch, last
+    // rendered block), and with the transport stopped no block is rendered at
+    // all -- so without clearing these, a track's peak stays parked at
+    // whatever was playing when Stop was pressed (busses/click were already
+    // cleared below; tracks were the missing half).
+    for (size_t i = 0; i < trackPeakIntervalCount; ++i) {
+        if (trackPeakIntervalMaxL) trackPeakIntervalMaxL[i].store(0.0f, std::memory_order_relaxed);
+        if (trackPeakIntervalMaxR) trackPeakIntervalMaxR[i].store(0.0f, std::memory_order_relaxed);
+        if (trackLastBlockPeakL) trackLastBlockPeakL[i].store(0.0f, std::memory_order_relaxed);
+        if (trackLastBlockPeakR) trackLastBlockPeakR[i].store(0.0f, std::memory_order_relaxed);
+    }
     for (size_t i = 0; i < busPeakIntervalCount; ++i) {
         if (busPeakIntervalMaxL) busPeakIntervalMaxL[i].store(0.0f, std::memory_order_relaxed);
         if (busPeakIntervalMaxR) busPeakIntervalMaxR[i].store(0.0f, std::memory_order_relaxed);

@@ -3,7 +3,7 @@
 // with Show/Exit, theme-aware icon), so the logic lives here once instead of
 // being duplicated across adapters.
 
-import { app, Menu, nativeTheme, Tray } from "electron";
+import { app, Menu, nativeImage, nativeTheme, Tray } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { PlatformContext } from "./PlatformAdapter.js";
@@ -51,6 +51,25 @@ function resolveTrayIcon(): string | null {
 export function createSystemTray(context: PlatformContext): SystemTray {
   let tray: Tray | null = null;
 
+  // macOS menu-bar status items must be small template images (black + alpha
+  // mask) that macOS auto-tints for the current light/dark menu bar. A regular
+  // huge RGB PNG passed to `new Tray()` simply never shows up as a status item,
+  // which is why the icon was missing on macOS even though the tray object was
+  // created. We downscale the source and flag it as a template there.
+  const isMac = process.platform === "darwin";
+
+  function resolveTrayImage(): Electron.NativeImage | null {
+    const icon = resolveTrayIcon();
+    if (!icon) return null;
+    if (isMac) {
+      const img = nativeImage.createFromPath(icon);
+      if (img.isEmpty()) return null;
+      img.setTemplateImage(true);
+      return img.resize({ width: 18, height: 18 });
+    }
+    return nativeImage.createFromPath(icon);
+  }
+
   function showMainWindow(): void {
     const win = context.getMainWindow();
     if (win) {
@@ -62,8 +81,9 @@ export function createSystemTray(context: PlatformContext): SystemTray {
 
   function updateIconTheme(): void {
     if (!tray) return;
-    const icon = resolveTrayIcon();
-    if (!icon) return;
+    if (isMac) return; // template image auto-tints; nothing to swap
+    const icon = resolveTrayImage();
+    if (!icon || icon.isEmpty()) return;
     try {
       tray.setImage(icon);
     } catch (err) {
@@ -73,11 +93,11 @@ export function createSystemTray(context: PlatformContext): SystemTray {
 
   function install(): void {
     if (tray) return;
-    const icon = resolveTrayIcon();
-    if (!icon) return;
+    const image = resolveTrayImage();
+    if (!image || image.isEmpty()) return;
 
     try {
-      tray = new Tray(icon);
+      tray = new Tray(image);
       tray.setToolTip("ResoStage");
       const contextMenu = Menu.buildFromTemplate([
         {

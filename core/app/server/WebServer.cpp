@@ -108,16 +108,22 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     const uint16_t numTracks = static_cast<uint16_t>(s.tracks.size());
     const uint16_t numMeters = static_cast<uint16_t>(s.meters.size());
     const uint16_t numLights = static_cast<uint16_t>(s.lightOutput.size());
+    const uint16_t numBusses = static_cast<uint16_t>(s.busses.size());
 
     size_t ledByteCount = 0;
     for (const auto& lo : s.lightOutput)
         ledByteCount += std::min<size_t>(lo.ledColors.size(), 512) * 3;
 
-    // v4 header is 42 bytes (includes playing, bar, beat, songIndex, tempoBpm),
-    // and a meter row is 16.
+    // v5 header is 42 bytes (includes playing, playhead, bpm, songIndex,
+    // globalPlayhead, numBusses in the slot v4 left reserved). A meter row is
+    // 16; v5 also carries 1 flag byte per track and per bus (mute/solo/
+    // soloActiveInGroup) so solo/mute changes reach embedded clients on the
+    // same 60 Hz UDP path instead of the 1 s state poll.
     const size_t totalSize = 42
         + static_cast<size_t>(numTracks) * 8
         + static_cast<size_t>(numMeters) * 16
+        + static_cast<size_t>(numTracks)          // per-track flags
+        + static_cast<size_t>(numBusses)          // per-bus flags
         + static_cast<size_t>(numLights) * 4  // fixtureIdx + ledCount per row
         + ledByteCount;
 
@@ -141,8 +147,8 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     };
 
     writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
-    // Version 4: full transport state (playing, playheadSeconds, bpm, songIndex, globalPlayheadSeconds)
-    writeU8(4);
+    // Version 5: full transport state + per-track/bus mixer flags.
+    writeU8(5);
     writeU8(s.playing ? 1 : 0);
     writeFloat(static_cast<float>(s.playheadSeconds));
     writeFloat(s.clickPeakDbL);
@@ -155,7 +161,7 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     writeU16(numTracks);
     writeU16(numMeters);
     writeU16(numLights);
-    writeU16(0); // Reserved
+    writeU16(numBusses); // v5: was reserved in v4; carries bus count
 
     for (const auto& tr : s.tracks) {
         writeFloat(tr.peakDbL);
@@ -169,6 +175,24 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
         // callback's: the clip latch and the dB readout want that one.
         writeFloat(m.intervalPeakDbL);
         writeFloat(m.intervalPeakDbR);
+    }
+
+    // Per-track mixer flags (v5). Bit 0 = mute, bit 1 = solo, bit 2 =
+    // soloActiveInGroup (this track is silenced by someone else's solo).
+    for (const auto& tr : s.tracks) {
+        uint8_t flags = 0;
+        if (tr.mute) flags |= 1;
+        if (tr.solo) flags |= 2;
+        if (tr.soloActiveInGroup) flags |= 4;
+        writeU8(flags);
+    }
+    // Per-bus mixer flags (v5).
+    for (const auto& b : s.busses) {
+        uint8_t flags = 0;
+        if (b.mute) flags |= 1;
+        if (b.solo) flags |= 2;
+        if (b.soloActiveInGroup) flags |= 4;
+        writeU8(flags);
     }
 
     // Per-LED wire colors, backend-rendered (see resolveLedWireColors) --

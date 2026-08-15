@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { isRenderActive, setTransportPlaying } from "./appActivity";
 import { apiUrl, wsUrl } from "./backend";
-import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport } from "./liveLevels";
+import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport, subscribeLiveMixerFlags } from "./liveLevels";
+import type { LiveMixerFlags } from "./liveLevels";
 import { shareStructure } from "./structuralShare";
 import { IS_ELECTRON } from "./electron";
 import { IS_EMBEDDED } from "./embedded";
@@ -164,9 +165,50 @@ export function useLiveState(view: string = "player") {
   // the VU meters were periodically stuttering on: they share this thread, so
   // they hitch together on the same GC pause.
   const pendingStateRef = useRef<Partial<WebUiState> | null>(null);
+  // Latest v5 mixer flags (mute/solo/soloActiveInGroup) from the UDP frame.
+  // Kept separate from pendingStateRef and applied ON TOP of any poll snapshot
+  // during the single coalesced flush, so the 60 Hz flags always win over a
+  // stale 1 s poll that captured a mid-toggle state. Using one writer (instead
+  // of a second direct setState) is what stops rapid solo toggling from
+  // reverting the whole console to the greyed "solo active" look for a second.
+  const mixerFlagsRef = useRef<LiveMixerFlags | null>(null);
   const rafRef = useRef<number>(0);
   const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasSnapshotRef = useRef(false);
+
+  const applyMixerFlags = (
+    prev: WebUiState,
+    flags: LiveMixerFlags,
+  ): WebUiState => {
+    let tracks = prev.tracks;
+    let busses = prev.busses;
+    if (flags.tracks.length === prev.tracks.length) {
+      tracks = prev.tracks.map((t, i) => {
+        const f = flags.tracks[i];
+        if (
+          t.mute === f.mute &&
+          t.solo === f.solo &&
+          t.soloActiveInGroup === f.soloActiveInGroup
+        )
+          return t;
+        return { ...t, ...f };
+      });
+    }
+    if (flags.busses.length === prev.busses.length) {
+      busses = prev.busses.map((b, i) => {
+        const f = flags.busses[i];
+        if (
+          b.mute === f.mute &&
+          b.solo === f.solo &&
+          b.soloActiveInGroup === f.soloActiveInGroup
+        )
+          return b;
+        return { ...b, ...f };
+      });
+    }
+    if (tracks === prev.tracks && busses === prev.busses) return prev;
+    return { ...prev, tracks, busses };
+  };
 
   const flushPending = () => {
     rafRef.current = 0;
@@ -176,9 +218,19 @@ export function useLiveState(view: string = "player") {
     }
     const parsed = pendingStateRef.current;
     pendingStateRef.current = null;
-    if (parsed == null) return;
-    setState((prev) => mergeState(prev, parsed));
-    if (!hasSnapshotRef.current) {
+    const flags = mixerFlagsRef.current;
+    mixerFlagsRef.current = null;
+    if (typeof window !== "undefined" && (window as any).__DEBUG_SOLO && flags) {
+      const t = (window as any).__soloLogs = (window as any).__soloLogs || [];
+      t.push(["flush", Date.now() - (window as any).__t0, flags.tracks.slice(0,3)]);
+    }
+    if (parsed == null && flags == null) return;
+    setState((prev) => {
+      let next = parsed != null ? mergeState(prev, parsed) : prev;
+      if (flags != null) next = applyMixerFlags(next, flags);
+      return next;
+    });
+    if (!hasSnapshotRef.current && parsed != null) {
       hasSnapshotRef.current = true;
       setHasLiveSnapshot(true);
     }
@@ -294,6 +346,24 @@ export function useLiveState(view: string = "player") {
         scheduleFlush();
       });
 
+      // v5 mixer flags (mute/solo/soloActiveInGroup) arrive on the same 60 Hz
+      // UDP frame. Apply them to the current structural state so a solo/mute
+      // toggle responds at paint rate instead of the next 1 s state poll.
+      // Index-aligned with state.tracks / state.busses. These go through the
+      // SAME coalesced flush as the poll/transport so there is a single writer
+      // to state.tracks/busses -- applying them on top of (after) any poll
+      // snapshot guarantees the fresh flags win and a mid-toggle poll can't
+      // regress the whole console to greyed for ~1 s.
+      const unsubMixerFlags = subscribeLiveMixerFlags((flags) => {
+        if (cancelled) return;
+        if (typeof window !== "undefined" && (window as any).__DEBUG_SOLO) {
+          const t = (window as any).__soloLogs = (window as any).__soloLogs || [];
+          t.push(["flags", Date.now() - (window as any).__t0, flags.tracks.slice(0,3)]);
+        }
+        mixerFlagsRef.current = flags;
+        scheduleFlush();
+      });
+
       const fetchState = async () => {
         if (cancelled) return;
         try {
@@ -309,6 +379,10 @@ export function useLiveState(view: string = "player") {
               };
             }
             pendingStateRef.current = data;
+            if (typeof window !== "undefined" && (window as any).__DEBUG_SOLO) {
+              const t = (window as any).__soloLogs = (window as any).__soloLogs || [];
+              t.push(["poll", Date.now() - (window as any).__t0, data.tracks?.slice(0,3)?.map((x:any)=>({solo:x.solo,si:x.soloActiveInGroup}))]);
+            }
             scheduleFlush();
           }
         } catch {}
@@ -327,6 +401,7 @@ export function useLiveState(view: string = "player") {
       return () => {
         cancelled = true;
         unsubTransport();
+        unsubMixerFlags();
         window.removeEventListener("resostage-udp-telemetry", onUdpFrame);
         clearInterval(statePollInterval);
         clearInterval(sampleInterval);

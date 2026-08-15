@@ -14,6 +14,7 @@ import {
   pushLiveBinaryFrame,
   setMeterIds,
   subscribeLiveLedOutputs,
+  subscribeLiveMixerFlags,
 } from "./liveLevels";
 
 /** One v2 telemetry frame carrying only per-fixture LED rows. */
@@ -239,3 +240,75 @@ describe("pushLiveBinaryFrame — the needle and the last-callback peak are sepa
     expect(live.meters[1].needleDbL).toBeCloseTo(-14);
   });
 });
+
+/**
+ * One v5 frame: tracks + busses peaks, plus per-track/per-bus mixer flags.
+ * Layout mirrors WebServer::buildBinaryTelemetryFrame:
+ *   header(42) | tracks(8 each) | meters(16 each) | trackFlags(1 each)
+ *   | busFlags(1 each) | lights
+ */
+function buildV5Frame(opts: {
+  tracks: number; // count of (silent) track peak rows
+  busses: number;
+  trackFlags: number[];
+  busFlags: number[];
+}): ArrayBuffer {
+  const ledBytes = 0;
+  const buf = new ArrayBuffer(
+    42 + opts.tracks * 8 + 0 + opts.trackFlags.length + opts.busFlags.length + ledBytes,
+  );
+  const view = new DataView(buf);
+  view.setUint16(0, 0x5253, true);
+  view.setUint8(2, 5); // version 5
+  view.setFloat32(4, 0, true); // playhead
+  view.setFloat32(8, -120, true); // click L
+  view.setFloat32(12, -120, true); // click R
+  view.setFloat32(16, -120, true); // click interval L
+  view.setFloat32(20, -120, true); // click interval R
+  view.setFloat32(24, 120, true); // bpm
+  view.setInt16(28, 0, true); // songIndex
+  view.setFloat32(30, 0, true); // globalPlayhead
+  view.setUint16(34, opts.tracks, true); // numTracks
+  view.setUint16(36, 0, true); // numMeters
+  view.setUint16(38, 0, true); // numLights
+  view.setUint16(40, opts.busses, true); // numBusses
+  let off = 42;
+  for (let i = 0; i < opts.tracks; i++) {
+    view.setFloat32(off, -120, true);
+    view.setFloat32(off + 4, -120, true);
+    off += 8;
+  }
+  for (const f of opts.trackFlags) view.setUint8(off++, f);
+  for (const f of opts.busFlags) view.setUint8(off++, f);
+  return buf;
+}
+
+describe("pushLiveBinaryFrame — v5 mixer flags", () => {
+  it("reports mute/solo/soloActiveInGroup per track and bus", () => {
+    const seen: Array<{ tracks: boolean[]; busses: boolean[] }> = [];
+    const unsubscribe = subscribeLiveMixerFlags((f) => {
+      seen.push({
+        tracks: f.tracks.map((t) => t.solo),
+        busses: f.busses.map((b) => b.mute),
+      });
+    });
+    try {
+      pushLiveBinaryFrame(
+        buildV5Frame({
+          tracks: 2,
+          busses: 2,
+          // track0: solo, track1: mute|soloActiveInGroup
+          trackFlags: [0b010, 0b101],
+          // bus0: mute, bus1: none
+          busFlags: [0b001, 0b000],
+        }),
+      );
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen[0].tracks).toEqual([true, false]);
+      expect(seen[0].busses).toEqual([true, false]);
+    } finally {
+      unsubscribe();
+    }
+  });
+});
+

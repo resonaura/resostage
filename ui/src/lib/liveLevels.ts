@@ -322,6 +322,36 @@ export function subscribeLiveTransport(listener: (s: LiveTransportState) => void
   };
 }
 
+/**
+ * Per-strip mute/solo flags decoded from the v5 UDP/WS binary frame.
+ *
+ * These are structural mixer state (solo/mute/soloActiveInGroup), and in
+ * embedded (UDP) mode they were previously only refreshed by the 1 s
+ * /api/v1/state poll -- which is why toggling solo felt laggy. Shipping them
+ * in the same 60 Hz binary frame as the peaks makes them respond at paint
+ * rate. Each array is index-aligned with the corresponding `state.tracks` /
+ * `state.busses` row.
+ */
+export type LiveMixerFlags = {
+  tracks: { mute: boolean; solo: boolean; soloActiveInGroup: boolean }[];
+  busses: { mute: boolean; solo: boolean; soloActiveInGroup: boolean }[];
+};
+
+let mixerFlagsListeners: ((f: LiveMixerFlags) => void)[] = [];
+
+export function subscribeLiveMixerFlags(listener: (f: LiveMixerFlags) => void): () => void {
+  mixerFlagsListeners.push(listener);
+  return () => {
+    mixerFlagsListeners = mixerFlagsListeners.filter((l) => l !== listener);
+  };
+}
+
+function publishMixerFlags(flags: LiveMixerFlags): void {
+  for (let i = 0; i < mixerFlagsListeners.length; i++) {
+    mixerFlagsListeners[i](flags);
+  }
+}
+
 export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   if (buffer.byteLength < 24) return;
   const view = new DataView(buffer);
@@ -404,6 +434,30 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     });
   }
   meters = nextMeters;
+
+  // v5: per-track and per-bus mixer flags (mute/solo/soloActiveInGroup),
+  // placed between the meter rows and the LED block.
+  if (version >= 5) {
+    const numBusses = view.getUint16(40, true);
+    const decode = (raw: number) => ({
+      mute: (raw & 1) !== 0,
+      solo: (raw & 2) !== 0,
+      soloActiveInGroup: (raw & 4) !== 0,
+    });
+    const flagTracks: LiveMixerFlags["tracks"] = [];
+    for (let i = 0; i < numTracks; i++) {
+      if (offset + 1 > buffer.byteLength) break;
+      flagTracks.push(decode(view.getUint8(offset)));
+      offset += 1;
+    }
+    const flagBusses: LiveMixerFlags["busses"] = [];
+    for (let i = 0; i < numBusses; i++) {
+      if (offset + 1 > buffer.byteLength) break;
+      flagBusses.push(decode(view.getUint8(offset)));
+      offset += 1;
+    }
+    publishMixerFlags({ tracks: flagTracks, busses: flagBusses });
+  }
 
   if (version >= 2) {
     // Compare the encoded LED block before decoding it: an unchanged look is
