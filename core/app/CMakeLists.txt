@@ -124,10 +124,16 @@ else()
   set(RESOSTAGE_HAVE_ASIO 0)
 endif()
 
+if(TARGET juce::juce_audio_devices)
+  target_compile_definitions(juce::juce_audio_devices INTERFACE JUCE_ASIO=${RESOSTAGE_HAVE_ASIO})
+endif()
+
 target_compile_definitions(ResoStage
-  PRIVATE
+  PUBLIC
     JUCE_USE_CURL=0
     JUCE_ASIO=${RESOSTAGE_HAVE_ASIO}
+    JUCE_WASAPI=1
+    JUCE_DIRECTSOUND=1
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ResoStage,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:ResoStage,JUCE_VERSION>"
 )
