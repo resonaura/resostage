@@ -1,12 +1,12 @@
 #include <cstdlib>
-#if JUCE_WINDOWS
+#if defined(_WIN32)
 #include <windows.h>
-inline int getCurrentProcessId() {
+[[maybe_unused]] inline int getCurrentProcessId() {
     return static_cast<int>(::GetCurrentProcessId());
 }
 #else
 #include <unistd.h>
-inline int getCurrentProcessId() {
+[[maybe_unused]] inline int getCurrentProcessId() {
     return static_cast<int>(::getpid());
 }
 #endif

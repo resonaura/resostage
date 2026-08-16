@@ -10,7 +10,7 @@
 #include "server/BuilderJson.h"
 #include "BinaryData.h"
 
-#if JUCE_WINDOWS
+#if defined(_WIN32)
 #include <windows.h>
 [[maybe_unused]] static int getCurrentProcessId() {
     return static_cast<int>(::GetCurrentProcessId());
