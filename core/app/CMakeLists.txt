@@ -23,7 +23,22 @@ juce_add_binary_data(ResoStageTrayIconData
   SOURCES ${FOLDER_ICON_SOURCES}
 )
 
-set(CORE_PRODUCT_NAME "ResoStage Core")
+if(WIN32)
+  set(ASIO_SDK_INC "")
+  if(DEFINED RESOSTAGE_ASIO_SDK_DIR AND EXISTS "${RESOSTAGE_ASIO_SDK_DIR}/common/iasiodrv.h")
+    set(RESOSTAGE_HAVE_ASIO 1)
+    set(ASIO_SDK_INC "${RESOSTAGE_ASIO_SDK_DIR}/common")
+  elseif(EXISTS "${CMAKE_SOURCE_DIR}/vendor/asiosdk/common/iasiodrv.h")
+    set(RESOSTAGE_HAVE_ASIO 1)
+    set(ASIO_SDK_INC "${CMAKE_SOURCE_DIR}/vendor/asiosdk/common")
+  endif()
+
+  if(RESOSTAGE_HAVE_ASIO)
+    juce_set_module_options(juce_audio_devices JUCE_ASIO 1 JUCE_ASIO_USE_EXTERNAL_SDK 1)
+    include_directories("${ASIO_SDK_INC}")
+    message(STATUS "ASIO enabled from ${ASIO_SDK_INC}")
+  endif()
+endif()
 
 juce_add_gui_app(ResoStage
   PRODUCT_NAME "${CORE_PRODUCT_NAME}"
