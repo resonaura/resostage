@@ -5,6 +5,7 @@ import { BuildAdapter } from "./BuildAdapter.mjs";
 import {
   ROOT,
   BUILD_DIR,
+  PLATFORM_DIST_DIR,
   CORE_APP_NAME,
   SHELL_APP_NAME,
   log,
@@ -35,7 +36,7 @@ export class WinBuildAdapter extends BuildAdapter {
   }
 
   getShellAppBundle() {
-    return join(BUILD_DIR, "win", process.arch, `${SHELL_APP_NAME}.exe`);
+    return join(PLATFORM_DIST_DIR, `${SHELL_APP_NAME}.exe`);
   }
 
   shellExecutablePath() {
@@ -100,22 +101,33 @@ export class WinBuildAdapter extends BuildAdapter {
           ? "ResoStage Kaishaku"
           : "ResoStage";
 
-    const versionInfos = Resource.VersionInfo.fromEntries(res.entries);
-    if (versionInfos && versionInfos.length > 0) {
-      for (const info of versionInfos) {
-        info.setStringValues(
-          { lang: 1033, codepage: 1200 },
-          {
-            FileDescription: desc,
-            ProductName: "ResoStage",
-            CompanyName: "ResoStage",
-            InternalName: exeName,
-            OriginalFilename: exeName,
-            LegalCopyright: "Copyright © ResoStage",
-          },
-        );
-        info.outputToResourceEntries(res.entries);
-      }
+    let versionInfos = Resource.VersionInfo.fromEntries(res.entries);
+    if (!versionInfos || versionInfos.length === 0) {
+      const newVi = Resource.VersionInfo.createEmpty();
+      newVi.setFixedInfo({
+        fileVersionMS: 0x00010000,
+        fileVersionLS: 0x00000000,
+        productVersionMS: 0x00010000,
+        productVersionLS: 0x00000000,
+      });
+      versionInfos = [newVi];
+    }
+
+    for (const info of versionInfos) {
+      info.setStringValues(
+        { lang: 1033, codepage: 1200 },
+        {
+          FileDescription: desc,
+          ProductName: desc,
+          CompanyName: "Resonaura",
+          InternalName: exeName,
+          OriginalFilename: exeName,
+          LegalCopyright: "Copyright © Resonaura",
+          FileVersion: "0.1.0.0",
+          ProductVersion: "0.1.0.0",
+        },
+      );
+      info.outputToResourceEntries(res.entries);
     }
 
     res.outputResource(exe);

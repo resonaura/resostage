@@ -5,6 +5,7 @@ import { BuildAdapter } from "./BuildAdapter.mjs";
 import {
   ROOT,
   BUILD_DIR,
+  PLATFORM_DIST_DIR,
   CORE_APP_NAME,
   SHELL_APP_NAME,
   log,
@@ -33,7 +34,7 @@ export class LinuxBuildAdapter extends BuildAdapter {
   }
 
   getShellAppBundle() {
-    return join(BUILD_DIR, "linux", process.arch, SHELL_APP_NAME);
+    return join(PLATFORM_DIST_DIR, SHELL_APP_NAME);
   }
 
   shellExecutablePath() {

@@ -6,6 +6,7 @@ import {
   ROOT,
   BUILD_DIR,
   BUILD_TYPE,
+  PLATFORM_DIST_DIR,
   APP_TARGET,
   CORE_APP_NAME,
   SHELL_APP_NAME,
@@ -46,7 +47,7 @@ export class MacBuildAdapter extends BuildAdapter {
   }
 
   getShellAppBundle() {
-    return join(BUILD_DIR, "mac", process.arch, `${SHELL_APP_NAME}.app`);
+    return join(PLATFORM_DIST_DIR, `${SHELL_APP_NAME}.app`);
   }
 
   shellExecutablePath() {
