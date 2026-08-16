@@ -408,11 +408,22 @@ export function buildTests() {
   cmakeBuild("resostage_engine_tests");
 }
 
+export function getTestBinaryExecutable() {
+  if (process.env.TEST_BINARY && existsSync(process.env.TEST_BINARY)) {
+    return process.env.TEST_BINARY;
+  }
+  const testName = process.platform === "win32" ? "resostage_engine_tests.exe" : "resostage_engine_tests";
+  const found = findFileRecursively(join(BUILD_DIR, "tests"), testName);
+  if (found) return found;
+  return join(BUILD_DIR, "tests", testName);
+}
+
 export function runTests() {
   buildTests();
-  if (!existsSync(TEST_BINARY)) die(`Test binary missing: ${TEST_BINARY}`);
-  log(`Running ${TEST_BINARY}`);
-  run(TEST_BINARY, []);
+  const testBin = getTestBinaryExecutable();
+  if (!existsSync(testBin)) die(`Test binary missing: ${testBin}`);
+  log(`Running ${testBin}`);
+  run(testBin, []);
 
   log("Running ui tests (vitest)...");
   if (run("pnpm", ["test"], { cwd: join(ROOT, "ui") }) !== 0) {
