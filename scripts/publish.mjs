@@ -299,7 +299,7 @@ Name: "{autodesktop}\\ResoStage"; Filename: "{app}\\ResoStage.exe"; IconFilename
 Root: HKCR; Subkey: ".rsnrasetmeta"; ValueType: string; ValueData: "ResoStage.ProjectFile"; Flags: uninsdeletekey
 Root: HKCR; Subkey: "ResoStage.ProjectFile"; ValueType: string; ValueData: "ResoStage Project File"; Flags: uninsdeletekey
 Root: HKCR; Subkey: "ResoStage.ProjectFile\\DefaultIcon"; ValueType: string; ValueData: "{app}\\ResoStage.ico,0"
-Root: HKCR; Subkey: "ResoStage.ProjectFile\\shell\\open\\command"; ValueType: string; ValueData: ""{app}\\ResoStage.exe" "%1""
+Root: HKCR; Subkey: "ResoStage.ProjectFile\\shell\\open\\command"; ValueType: string; ValueData: """"{app}\\ResoStage.exe"" ""%1""""
 
 [Run]
 Filename: "{tmp}\\vc_redist.x64.exe"; Parameters: "/quiet /norestart"; \\
