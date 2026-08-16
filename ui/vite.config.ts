@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -126,5 +127,10 @@ export default defineConfig({
         },
       },
     },
+  },
+  test: {
+    pool: 'threads',
+    testTimeout: 30000,
+    hookTimeout: 30000,
   },
 })
