@@ -264,6 +264,7 @@ function publishWindows() {
   const icoSrc = join(ROOT, "icons", "app.ico");
   if (existsSync(icoSrc)) {
     cpSync(icoSrc, join(payload, "ResoStage.ico"));
+    cpSync(icoSrc, join(publishDir, "ResoStage.ico"));
   }
 
   const iss = join(publishDir, "resostage.iss");
@@ -284,7 +285,7 @@ PrivilegesRequired=admin
 SetupIconFile=ResoStage.ico
 
 [Files]
-Source: "${payload}\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "${payload}\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "publish,publish\\*"
 Source: "${payload}\\ResoStage.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; The JUCE core is built with MSVC and will not start without this.
 Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
