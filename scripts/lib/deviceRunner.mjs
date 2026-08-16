@@ -95,20 +95,6 @@ export function probeDevice(device) {
   ];
 
   if (pass) {
-    if (process.platform === "darwin" && process.getuid && process.getuid() !== 0) {
-      // Re-exec via sudo to bypass macOS Local Network Privacy restrictions for SSH
-      const r = spawnSync(
-        "sudo",
-        ["-S", "-p", "", "sshpass", "-p", pass, "ssh", ...sshArgs],
-        {
-          stdio: ["pipe", "pipe", "pipe"],
-          input: `${sudoPass}\n`,
-          encoding: "utf8",
-        }
-      );
-      return r.status === 0 && r.stdout.includes("online");
-    }
-
     const r = spawnSync("sshpass", ["-p", pass, "ssh", ...sshArgs], {
       stdio: ["pipe", "pipe", "pipe"],
       encoding: "utf8",
@@ -142,7 +128,6 @@ export function execOnDevice(device, remoteCmd, opts = {}) {
   const host = device.host;
   const user = device.user || "root";
   const pass = device.pass || "";
-  const sudoPass = device.sudoPass || pass || "1212";
   const remotePath = device.path || (device.platform === "win32" ? "C:\\Users\\tkach\\resostage" : "~/resostage");
 
   let fullRemoteCmd = "";
@@ -161,22 +146,10 @@ export function execOnDevice(device, remoteCmd, opts = {}) {
 
   let r;
   if (pass) {
-    if (process.platform === "darwin") {
-      r = spawnSync(
-        "sudo",
-        ["-S", "-p", "", "sshpass", "-p", pass, "ssh", ...sshArgs],
-        {
-          stdio: stdio === "inherit" ? ["pipe", "inherit", "inherit"] : stdio,
-          input: `${sudoPass}\n`,
-          encoding: "utf8",
-        }
-      );
-    } else {
-      r = spawnSync("sshpass", ["-p", pass, "ssh", ...sshArgs], {
-        stdio,
-        encoding: "utf8",
-      });
-    }
+    r = spawnSync("sshpass", ["-p", pass, "ssh", ...sshArgs], {
+      stdio,
+      encoding: "utf8",
+    });
   } else {
     r = spawnSync("ssh", sshArgs, { stdio, encoding: "utf8" });
   }

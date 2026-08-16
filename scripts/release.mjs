@@ -114,14 +114,7 @@ async function release() {
       ];
 
       if (pass) {
-        if (process.platform === "darwin" && process.getuid && process.getuid() !== 0) {
-          spawnSync("sudo", ["-S", "-p", "", "sshpass", "-p", pass, "scp", ...scpArgs], {
-            input: `${sudoPass}\n`,
-            stdio: "inherit",
-          });
-        } else {
-          spawnSync("sshpass", ["-p", pass, "scp", ...scpArgs], { stdio: "inherit" });
-        }
+        spawnSync("sshpass", ["-p", pass, "scp", ...scpArgs], { stdio: "inherit" });
       } else {
         spawnSync("scp", scpArgs, { stdio: "inherit" });
       }
