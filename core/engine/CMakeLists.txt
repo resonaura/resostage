@@ -23,6 +23,8 @@ add_library(resostage_engine STATIC
 
 if(WIN32)
   target_sources(resostage_engine PRIVATE telemetry/SystemHealthWindows.cpp)
+elseif(NOT APPLE)
+  target_sources(resostage_engine PRIVATE telemetry/SystemHealthLinux.cpp)
 endif()
 
 target_include_directories(resostage_engine PUBLIC
