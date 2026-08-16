@@ -221,8 +221,10 @@ export class WinBuildAdapter extends BuildAdapter {
     }
 
     const kaishakuDst = join(shellDir, "kaishaku.exe");
-    const kaishakuRaw = join(coreBuildDir, "kaishaku.exe");
-    if (existsSync(kaishakuRaw)) {
+    const kaishakuRaw =
+      findFileRecursively(BUILD_DIR, "kaishaku.exe") ??
+      join(coreBuildDir, "kaishaku.exe");
+    if (kaishakuRaw && existsSync(kaishakuRaw)) {
       if (existsSync(kaishakuDst)) rmSync(kaishakuDst, { force: true });
       cpSync(kaishakuRaw, kaishakuDst);
       const kaishakuIco = join(ROOT, "icons", "kaishaku.ico");

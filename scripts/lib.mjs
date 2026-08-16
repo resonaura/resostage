@@ -395,6 +395,7 @@ export function buildApp() {
   }
   log(`Building ${CORE_APP_NAME} (${BUILD_TYPE})...`);
   cmakeBuild(APP_TARGET);
+  cmakeBuild("kaishaku");
   ok(`Core: ${getRawCoreAppBundle()}`);
   embedWebUi();
   buildElectronShell();
