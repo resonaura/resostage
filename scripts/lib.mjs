@@ -584,11 +584,17 @@ function assembleShellBundle() {
     const coreBuildDir = path.dirname(rawCore);
     const kaishakuRaw = join(coreBuildDir, "kaishaku");
     if (existsSync(kaishakuRaw)) {
-      const kaishakuDst = join(resources, "kaishaku");
-      rmSync(kaishakuDst, { force: true });
-      cpSync(kaishakuRaw, kaishakuDst);
+      const kaishakuDst1 = join(resources, "kaishaku");
+      rmSync(kaishakuDst1, { force: true });
+      cpSync(kaishakuRaw, kaishakuDst1);
+
+      const kaishakuDst2 = join(coreDst, "Contents", "MacOS", "kaishaku");
+      rmSync(kaishakuDst2, { force: true });
+      cpSync(kaishakuRaw, kaishakuDst2);
+
       try {
-        execFileSync("chmod", ["+x", kaishakuDst]);
+        execFileSync("chmod", ["+x", kaishakuDst1]);
+        execFileSync("chmod", ["+x", kaishakuDst2]);
       } catch {}
     }
 

@@ -64,9 +64,11 @@ static int showNoPidAlert() {
         );
 #elif defined(__APPLE__)
         std::system("osascript -e 'display alert \"kaishaku Executioner Error\" message \"No target Process IDs (PIDs) specified for executioner.\\nUsage: kaishaku <pid1> [pid2 ...]\" as critical' >/dev/null 2>&1");
-#else // Linux GUI
-        if (std::system("zenity --error --text=\"No target Process IDs (PIDs) specified for kaishaku executioner.\\nUsage: kaishaku <pid1> [pid2 ...]\" >/dev/null 2>&1") != 0) {
-            std::system("kdialog --error \"No target Process IDs (PIDs) specified for kaishaku executioner.\\nUsage: kaishaku <pid1> [pid2 ...]\" >/dev/null 2>&1");
+#else // Linux GUI (GNOME zenity, KDE kdialog, notify-send fallback)
+        if (std::system("zenity --error --title=\"kaishaku Executioner Error\" --text=\"No target Process IDs (PIDs) specified for kaishaku executioner.\\nUsage: kaishaku <pid1> [pid2 ...]\" >/dev/null 2>&1") != 0) {
+            if (std::system("kdialog --error \"No target Process IDs (PIDs) specified for kaishaku executioner.\\nUsage: kaishaku <pid1> [pid2 ...]\" >/dev/null 2>&1") != 0) {
+                std::system("notify-send -u critical \"kaishaku Executioner Error\" \"No target Process IDs (PIDs) specified for executioner.\\nUsage: kaishaku <pid1> [pid2 ...]\" >/dev/null 2>&1");
+            }
         }
 #endif
     }
