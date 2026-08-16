@@ -124,8 +124,8 @@ else()
   set(RESOSTAGE_HAVE_ASIO 0)
 endif()
 
-if(TARGET juce::juce_audio_devices)
-  target_compile_definitions(juce::juce_audio_devices INTERFACE JUCE_ASIO=${RESOSTAGE_HAVE_ASIO})
+if(TARGET juce_audio_devices)
+  target_compile_definitions(juce_audio_devices INTERFACE JUCE_ASIO=${RESOSTAGE_HAVE_ASIO})
 endif()
 
 target_compile_definitions(ResoStage
