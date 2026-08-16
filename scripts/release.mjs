@@ -90,6 +90,7 @@ async function release() {
     const arch = dev.arch || (plat === "win32" ? "x64" : plat === "linux" ? "x64" : process.arch);
     const platDir = plat === "darwin" ? "mac" : plat === "win32" ? "win" : plat;
     const targetFolder = join(releaseDist, platDir, arch);
+    rmSync(targetFolder, { recursive: true, force: true });
     mkdirSync(targetFolder, { recursive: true });
 
     console.log(`Collecting artifacts from [${dev.name}] into build/release/${platDir}/${arch}...`);

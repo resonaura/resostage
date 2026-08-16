@@ -221,13 +221,34 @@ exit 0
   ]);
   rmSync(component, { force: true });
 
-  // A .dmg alongside it: some people will not run an installer, and
-  // drag-to-Applications is the gesture they expect.
+  // A .dmg containing the installer .pkg and clear installation instructions
   const dmg = join(publishDir, `ResoStage-${version}.dmg`);
   rmSync(dmg, { force: true });
   const dmgStage = join(stage, "dmg");
   mkdirSync(dmgStage, { recursive: true });
-  run("cp", ["-R", bundle, join(dmgStage, `${SHELL_APP_NAME}.app`)]);
+  cpSync(pkg, join(dmgStage, `ResoStage-${version}.pkg`));
+
+  const dmgReadme = join(dmgStage, "README.txt");
+  writeFileSync(
+    dmgReadme,
+    `===================================================================
+  ResoStage ${version} - macOS Installation Instructions
+===================================================================
+
+Before running the installer, remove Apple quarantine and ad-hoc sign
+the installer package. Open Terminal and run:
+
+  xattr -cr "ResoStage-${version}.pkg"
+  codesign --force --deep --sign - "ResoStage-${version}.pkg"
+
+Then double-click "ResoStage-${version}.pkg" to install.
+
+-------------------------------------------------------------------
+(После завершения установки приложение ResoStage появится в папке
+Программы / Applications)
+===================================================================
+`
+  );
 
   log("hdiutil...");
   run("hdiutil", [
@@ -241,11 +262,17 @@ exit 0
     "-format",
     "UDZO",
   ]);
+
+  // Copy standalone application bundle into publishDir as an artifact
+  log("Copying standalone ResoStage.app to publish directory...");
+  run("cp", ["-R", bundle, join(publishDir, `${SHELL_APP_NAME}.app`)]);
+
   rmSync(stage, { recursive: true, force: true });
+  rmSync(join(publishDir, "FIRST-RUN.txt"), { force: true });
 
   ok(`pkg: ${pkg}`);
   ok(`dmg: ${dmg}`);
-  ok(`notes: ${join(publishDir, "FIRST-RUN.txt")}`);
+  ok(`app: ${join(publishDir, `${SHELL_APP_NAME}.app`)}`);
 }
 
 // ── Windows ────────────────────────────────────────────────────────────────
@@ -342,6 +369,10 @@ end;
     run("zip", ["-r", "-q", archivePath, ".", "-x", "publish/*"], { cwd: payload });
     ok(`Portable ZIP archive: ${archivePath}`);
   }
+
+  // Clean up intermediate build scripts and icons from publish directory
+  rmSync(iss, { force: true });
+  rmSync(join(publishDir, "ResoStage.ico"), { force: true });
 }
 
 // ── Linux ──────────────────────────────────────────────────────────────────
