@@ -104,12 +104,8 @@ export class WinBuildAdapter extends BuildAdapter {
     let versionInfos = Resource.VersionInfo.fromEntries(res.entries);
     if (!versionInfos || versionInfos.length === 0) {
       const newVi = Resource.VersionInfo.createEmpty();
-      newVi.setFixedInfo({
-        fileVersionMS: 0x00010000,
-        fileVersionLS: 0x00000000,
-        productVersionMS: 0x00010000,
-        productVersionLS: 0x00000000,
-      });
+      newVi.setFileVersion(1, 0, 0, 0);
+      newVi.setProductVersion(1, 0, 0, 0);
       versionInfos = [newVi];
     }
 
