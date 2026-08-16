@@ -88,8 +88,9 @@ async function release() {
     console.log(`Collecting artifacts from [${dev.name}] into dist/release/${plat}-${arch}...`);
 
     if (dev.isLocal || dev.host === "localhost" || dev.host === "127.0.0.1") {
-      const pubVersionDir = join(ROOT, "build", plat, arch, "publish", "0.1.0");
-      const localBuildDir = existsSync(pubVersionDir) ? pubVersionDir : join(ROOT, "build", plat, arch, "publish");
+      const platDir = plat === "darwin" ? "mac" : plat === "win32" ? "win" : plat;
+      const pubVersionDir = join(ROOT, "build", platDir, arch, "publish", "0.1.0");
+      const localBuildDir = existsSync(pubVersionDir) ? pubVersionDir : join(ROOT, "build", platDir, arch, "publish");
       if (existsSync(localBuildDir)) {
         cpSync(localBuildDir, targetFolder, { recursive: true });
         console.log(`  -> Copied local artifacts from ${localBuildDir}`);
