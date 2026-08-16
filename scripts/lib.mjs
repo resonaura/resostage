@@ -82,11 +82,12 @@ export function findFileRecursively(dir, name) {
   }
   for (const e of entries) {
     const full = join(dir, e.name);
+    if (e.name === name) {
+      return full;
+    }
     if (e.isDirectory()) {
       const hit = findFileRecursively(full, name);
       if (hit) return hit;
-    } else if (e.name === name) {
-      return full;
     }
   }
   return null;

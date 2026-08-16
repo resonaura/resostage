@@ -142,6 +142,7 @@ export class MacBuildAdapter extends BuildAdapter {
     const macIconsSrc = join(ROOT, "icons");
     if (existsSync(macIconsSrc)) {
       cpSync(macIconsSrc, join(appDst, "icons"), { recursive: true });
+      cpSync(macIconsSrc, join(resources, "icons"), { recursive: true });
     }
 
     const coreDst = join(resources, `${CORE_APP_NAME}.app`);
@@ -188,6 +189,11 @@ export class MacBuildAdapter extends BuildAdapter {
           cpSync(kaishakuIcns, join(res1, "AppIcon.icns"), { force: true });
           cpSync(kaishakuIcns, join(res2, "AppIcon.icns"), { force: true });
         }
+
+        try {
+          execFileSync("codesign", ["--force", "--deep", "--sign", "-", kaishakuDst1]);
+          execFileSync("codesign", ["--force", "--deep", "--sign", "-", kaishakuDst2]);
+        } catch {}
       } else {
         const kaishakuDst1 = join(resources, "kaishaku");
         rmSync(kaishakuDst1, { force: true });

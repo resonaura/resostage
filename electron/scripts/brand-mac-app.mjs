@@ -126,25 +126,10 @@ function main() {
 
   const icnsSrc = join(REPO_ROOT, "icons", "app.icns");
   if (existsSync(icnsSrc)) {
-    // Drop the stock "electron.icns" entirely (not just its bytes) and
-    // point CFBundleIconFile at a properly named one -- Contents/Resources
-    // shouldn't have "electron" anywhere in it once this is "ResoStage".
     rmSync(join(destApp, "Contents", "Resources", "electron.icns"), { force: true });
-    execFileSync("cp", [icnsSrc, join(destApp, "Contents", "Resources", `${APP_NAME}.icns`)]);
-    execFileSync("plutil", ["-replace", "CFBundleIconFile", "-string", `${APP_NAME}.icns`, plistPath]);
+    execFileSync("plutil", ["-replace", "CFBundleIconFile", "-string", "icons/app.icns", plistPath]);
   } else {
     log(`${icnsSrc} not found -- keeping stock Electron icon`);
-  }
-
-  // Copy file.icns for .rsnrasetmeta document type icon (the small metadata file).
-  const fileIcnsSrc = join(REPO_ROOT, "icons", "file.icns");
-  if (existsSync(fileIcnsSrc)) {
-    execFileSync("cp", [fileIcnsSrc, join(destApp, "Contents", "Resources", "file.icns")]);
-  }
-  // Copy folder.icns for .rsnraset package/folder icon.
-  const folderIcnsSrc = join(REPO_ROOT, "icons", "folder.icns");
-  if (existsSync(folderIcnsSrc)) {
-    execFileSync("cp", [folderIcnsSrc, join(destApp, "Contents", "Resources", "folder.icns")]);
   }
 
   // Document types owned by Electron shell (not LSUIElement Core):
@@ -154,7 +139,7 @@ function main() {
     CFBundleDocumentTypes: [
       {
         CFBundleTypeExtensions: ["rsnrasetmeta"],
-        CFBundleTypeIconFile: "file.icns",
+        CFBundleTypeIconFile: "icons/file.icns",
         CFBundleTypeName: "ResoStage Project File",
         CFBundleTypeRole: "Editor",
         LSHandlerRank: "Owner",
@@ -162,7 +147,7 @@ function main() {
       },
       {
         CFBundleTypeExtensions: ["rsnraset"],
-        CFBundleTypeIconFile: "folder.icns",
+        CFBundleTypeIconFile: "icons/folder.icns",
         CFBundleTypeName: "ResoStage Project Package",
         CFBundleTypeRole: "Editor",
         LSHandlerRank: "Owner",
@@ -174,7 +159,7 @@ function main() {
       {
         UTTypeIdentifier: "com.resonaura.resostage.project-link",
         UTTypeDescription: "ResoStage Project File",
-        UTTypeIconFile: "file.icns",
+        UTTypeIconFile: "icons/file.icns",
         UTTypeConformsTo: ["public.data", "public.content"],
         UTTypeTagSpecification: {
           "public.filename-extension": ["rsnrasetmeta"],
@@ -184,7 +169,7 @@ function main() {
       {
         UTTypeIdentifier: "com.resonaura.resostage.project",
         UTTypeDescription: "ResoStage Project Package",
-        UTTypeIconFile: "folder.icns",
+        UTTypeIconFile: "icons/folder.icns",
         UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
         UTTypeTagSpecification: {
           "public.filename-extension": ["rsnraset"],
