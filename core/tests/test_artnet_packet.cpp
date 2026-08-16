@@ -13,6 +13,7 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
 using SockT = SOCKET;
 using SockLenT = int;
 using ssize_t = ptrdiff_t;
