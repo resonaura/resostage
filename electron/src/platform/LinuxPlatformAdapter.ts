@@ -7,7 +7,7 @@
 // is shared with Windows (see tray.ts).
 
 import { app, Menu } from "electron";
-import { execFileSync } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import {
@@ -17,7 +17,8 @@ import {
 } from "./PlatformAdapter.js";
 import { createSystemTray, type SystemTray } from "./tray.js";
 
-const CORE_NAME = "ResoStage";
+const CORE_NAME = "core";
+const OLD_CORE_NAME = "ResoStage";
 
 export class LinuxPlatformAdapter extends PlatformAdapter {
   readonly key = "linux" as const;
@@ -32,10 +33,41 @@ export class LinuxPlatformAdapter extends PlatformAdapter {
 
   override cleanupBeforeBackendSpawn(): void {
     try {
-      execFileSync("pkill", ["-9", "-f", "ResoStage"], { stdio: "ignore" });
-    } catch {
-      /* ignore */
+      execFileSync("pkill", ["-9", "-x", CORE_NAME], { stdio: "ignore" });
+    } catch {}
+    try {
+      execFileSync("pkill", ["-9", "-x", OLD_CORE_NAME], { stdio: "ignore" });
+    } catch {}
+  }
+
+  override forceKillSelfTree(backendPid?: number): void {
+    const candidates = [
+      path.join(path.dirname(process.execPath), "kaishaku"),
+      path.join(process.resourcesPath, "kaishaku"),
+      path.join(import.meta.dirname, "..", "..", "..", "build", "linux", process.arch, "kaishaku"),
+      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "kaishaku"),
+    ];
+
+    const pidsToKill: string[] = [String(process.pid)];
+    if (backendPid && backendPid > 0) {
+      pidsToKill.push(String(backendPid));
     }
+
+    for (const cand of candidates) {
+      if (existsSync(cand)) {
+        try {
+          spawn(cand, pidsToKill, { detached: true, stdio: "ignore" }).unref();
+          process.exit(0);
+          return;
+        } catch {
+          /* fallback below */
+        }
+      }
+    }
+    try {
+      execFileSync("pkill", ["-9", "-x", "resostage"], { stdio: "ignore" });
+    } catch {}
+    process.exit(0);
   }
 
   override ipcSocketPath(): string {
@@ -45,6 +77,8 @@ export class LinuxPlatformAdapter extends PlatformAdapter {
   override findNestedCoreBinary(): string | null {
     // Linux bundle: a bare executable alongside the shell bundle in dist/.
     const candidates = [
+      path.join(import.meta.dirname, "..", "..", "..", "build", "linux", process.arch, CORE_NAME),
+      path.join(process.cwd(), "build", "linux", process.arch, CORE_NAME),
       path.join(import.meta.dirname, "..", "..", "..", "build", "linux", CORE_NAME),
       path.join(process.cwd(), "build", "linux", CORE_NAME),
     ];

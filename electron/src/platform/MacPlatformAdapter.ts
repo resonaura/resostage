@@ -5,7 +5,7 @@
 // and the Touch Bar. Everything mac-specific about the shell lives here.
 
 import { app, Menu, TouchBar } from "electron";
-import { execFileSync } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -47,10 +47,41 @@ export class MacPlatformAdapter extends PlatformAdapter {
 
   override cleanupBeforeBackendSpawn(): void {
     try {
-      execFileSync("pkill", ["-9", "-f", "ResoStage Core"], { stdio: "ignore" });
+      execFileSync("pkill", ["-9", "-x", "ResoStage Core"], { stdio: "ignore" });
     } catch {
       /* ignore */
     }
+  }
+
+  override forceKillSelfTree(backendPid?: number): void {
+    const candidates = [
+      path.join(process.resourcesPath, "kaishaku"),
+      path.join(process.resourcesPath, "..", "kaishaku"),
+      path.join(path.dirname(process.execPath), "kaishaku"),
+      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "kaishaku"),
+      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "RelWithDebInfo", "kaishaku"),
+    ];
+
+    const pidsToKill: string[] = [String(process.pid)];
+    if (backendPid && backendPid > 0) {
+      pidsToKill.push(String(backendPid));
+    }
+
+    for (const cand of candidates) {
+      if (existsSync(cand)) {
+        try {
+          spawn(cand, pidsToKill, { detached: true, stdio: "ignore" }).unref();
+          process.exit(0);
+          return;
+        } catch {
+          /* fallback below */
+        }
+      }
+    }
+    try {
+      execFileSync("pkill", ["-9", "-x", "ResoStage"], { stdio: "ignore" });
+    } catch {}
+    process.exit(0);
   }
 
   override preloadNatives(): void {

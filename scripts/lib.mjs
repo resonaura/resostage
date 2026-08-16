@@ -33,8 +33,10 @@ export const APP_TARGET = "ResoStage";
 // outer Electron shell bundle the user actually launches -- see
 // getShellAppBundle()/getNestedCoreAppBundle() below. Both stay quoted
 // anywhere used (they contain spaces).
-export const CORE_APP_NAME = "ResoStage Core";
-export const SHELL_APP_NAME = "ResoStage";
+export const CORE_APP_NAME =
+  process.platform === "darwin" ? "ResoStage Core" : "core";
+export const SHELL_APP_NAME =
+  process.platform === "darwin" ? "ResoStage" : "resostage";
 
 function platformDirName() {
   if (process.platform === "darwin") return "mac";
@@ -100,14 +102,25 @@ export function getRawCoreAppBundle() {
       "app",
       `${APP_TARGET}_artefacts`,
     );
-    // Prefer the configured build type. MSBuild multi-config generators put
-    // the exe under <Config>/, Ninja single-config under the build type, so
-    // fall back to scanning whatever the generator actually produced.
     const preferred = join(artefactsDir, BUILD_TYPE, `${CORE_APP_NAME}.exe`);
     if (existsSync(preferred)) return preferred;
     return (
       findFileRecursively(artefactsDir, `${CORE_APP_NAME}.exe`) ??
+      findFileRecursively(artefactsDir, "ResoStage Core.exe") ??
       join(artefactsDir, `${CORE_APP_NAME}.exe`)
+    );
+  } else if (process.platform === "linux") {
+    const artefactsDir = join(
+      BUILD_DIR,
+      "app",
+      `${APP_TARGET}_artefacts`,
+    );
+    const preferred = join(artefactsDir, BUILD_TYPE, CORE_APP_NAME);
+    if (existsSync(preferred)) return preferred;
+    return (
+      findFileRecursively(artefactsDir, CORE_APP_NAME) ??
+      findFileRecursively(artefactsDir, "ResoStage") ??
+      join(artefactsDir, CORE_APP_NAME)
     );
   }
   // macOS: .app bundle
@@ -342,7 +355,7 @@ export function killApp({ bestEffort = false } = {}) {
 // Equivalent to what electron-builder does via rcedit, done here in-process
 // with the pure-JS resedit package (keeps the hand-rolled assembly dependency-
 // free at runtime).
-function patchWindowsExeMetadata(exePath, icoPath) {
+function patchWindowsExeMetadata(exePath, icoPath, exeName = "resostage.exe") {
   const exe = NtExecutable.from(readFileSync(exePath));
   const res = NtExecutableResource.from(exe);
 
@@ -362,6 +375,13 @@ function patchWindowsExeMetadata(exePath, icoPath) {
     );
   }
 
+  const desc =
+    exeName === "core.exe"
+      ? "ResoStage Core"
+      : exeName === "kaishaku.exe"
+        ? "ResoStage Kaishaku"
+        : "ResoStage";
+
   // Patch PE VersionInfo metadata so Windows Task Manager displays "ResoStage"
   // instead of Electron's default "Electron" process metadata.
   const versionInfos = Resource.VersionInfo.fromEntries(res.entries);
@@ -370,11 +390,11 @@ function patchWindowsExeMetadata(exePath, icoPath) {
       info.setStringValues(
         { lang: 1033, codepage: 1200 },
         {
-          FileDescription: "ResoStage",
+          FileDescription: desc,
           ProductName: "ResoStage",
           CompanyName: "ResoStage",
-          InternalName: "ResoStage.exe",
-          OriginalFilename: "ResoStage.exe",
+          InternalName: exeName,
+          OriginalFilename: exeName,
           LegalCopyright: "Copyright © ResoStage",
         },
       );
@@ -561,6 +581,17 @@ function assembleShellBundle() {
     rmSync(coreDst, { recursive: true, force: true });
     cpSync(rawCore, coreDst, { recursive: true });
 
+    const coreBuildDir = path.dirname(rawCore);
+    const kaishakuRaw = join(coreBuildDir, "kaishaku");
+    if (existsSync(kaishakuRaw)) {
+      const kaishakuDst = join(resources, "kaishaku");
+      rmSync(kaishakuDst, { force: true });
+      cpSync(kaishakuRaw, kaishakuDst);
+      try {
+        execFileSync("chmod", ["+x", kaishakuDst]);
+      } catch {}
+    }
+
     run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);
     try {
       const lsregister =
@@ -629,18 +660,18 @@ function assembleShellBundle() {
     if (!existsSync(electronExeSrc)) {
       die(`Electron executable not found at ${electronExeSrc}`);
     }
+    const oldShellExe = join(shellDir, "ResoStage.exe");
+    if (existsSync(oldShellExe)) rmSync(oldShellExe, { force: true });
     if (existsSync(shellBundle)) rmSync(shellBundle, { force: true });
     cpSync(electronExeSrc, shellBundle);
     // Clean up original electron.exe so no 150MB duplicate binary is left in build/win/x64
     rmSync(electronExeSrc, { force: true });
 
     // electron.exe ships with Electron's own icon embedded. Patch the copied
-    // exe's PE resources so ResoStage.exe shows our icon in Explorer / the
-    // taskbar (the Inno shortcuts already point at ResoStage.ico, but the exe
-    // itself would otherwise keep the Electron logo). Mirrors what electron-
-    // builder does via rcedit, done here with the pure-JS resedit package.
+    // exe's PE resources so resostage.exe shows our icon in Explorer / the
+    // taskbar.
     const appIco = join(ROOT, "icons", "app.ico");
-    patchWindowsExeMetadata(shellBundle, existsSync(appIco) ? appIco : null);
+    patchWindowsExeMetadata(shellBundle, existsSync(appIco) ? appIco : null, "resostage.exe");
 
     // The app proper (package.json + compiled dist/ + runtime deps) must live
     // at resources/app/ -- that is the one place Electron looks for the
@@ -677,16 +708,29 @@ function assembleShellBundle() {
       log("WARNING: ui/dist missing -- the app will show a blank window (run pnpm rebuild)");
     }
 
-    // Nested JUCE Core executable, at the bundle root next to ResoStage.exe
-    // (findNestedCoreBinary() resolves it via process.resourcesPath).
+    // Nested JUCE Core executable: core.exe
     const coreDst = join(shellDir, `${CORE_APP_NAME}.exe`);
+    const oldCoreExe = join(shellDir, "ResoStage Core.exe");
+    if (existsSync(oldCoreExe)) rmSync(oldCoreExe, { force: true });
     if (existsSync(coreDst)) rmSync(coreDst, { force: true });
     const coreBuildDir = path.dirname(rawCore);
     const coreExe = join(coreBuildDir, `${CORE_APP_NAME}.exe`);
     if (existsSync(coreExe)) {
       cpSync(coreExe, coreDst);
+      const coreIco = join(ROOT, "icons", "core.ico");
+      patchWindowsExeMetadata(coreDst, existsSync(coreIco) ? coreIco : null, "core.exe");
     } else {
       log(`Warning: Core exe not found at ${coreExe}`);
+    }
+
+    // Kaishaku executioner tool: kaishaku.exe
+    const kaishakuDst = join(shellDir, "kaishaku.exe");
+    const kaishakuRaw = join(coreBuildDir, "kaishaku.exe");
+    if (existsSync(kaishakuRaw)) {
+      if (existsSync(kaishakuDst)) rmSync(kaishakuDst, { force: true });
+      cpSync(kaishakuRaw, kaishakuDst);
+      const kaishakuIco = join(ROOT, "icons", "kaishaku.ico");
+      patchWindowsExeMetadata(kaishakuDst, existsSync(kaishakuIco) ? kaishakuIco : null, "kaishaku.exe");
     }
 
     ok(`Assembled ${shellBundle}`);

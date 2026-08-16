@@ -6,7 +6,7 @@
 // application menu. The tray is shared with Linux (see tray.ts).
 
 import { Menu } from "electron";
-import { execFile, execFileSync } from "node:child_process";
+import { spawn, execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import {
@@ -16,7 +16,8 @@ import {
 } from "./PlatformAdapter.js";
 import { createSystemTray, type SystemTray } from "./tray.js";
 
-const CORE_EXE = "ResoStage Core.exe";
+const CORE_EXE = "core.exe";
+const OLD_CORE_EXE = "ResoStage Core.exe";
 
 export class WindowsPlatformAdapter extends PlatformAdapter {
   readonly key = "win32" as const;
@@ -38,9 +39,13 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
         windowsHide: true,
         stdio: "ignore",
       });
-    } catch {
-      /* no old process running -- ignore */
-    }
+    } catch {}
+    try {
+      execFileSync("taskkill", ["/IM", OLD_CORE_EXE, "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } catch {}
   }
 
   override cleanupAfterBackendKill(): void {
@@ -49,20 +54,58 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
         windowsHide: true,
         stdio: "ignore",
       });
-    } catch {
-      /* ignore */
-    }
+    } catch {}
+    try {
+      execFileSync("taskkill", ["/IM", OLD_CORE_EXE, "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } catch {}
   }
 
-  override forceKillSelfTree(): void {
+  override forceKillSelfTree(backendPid?: number): void {
+    const exe = process.execPath;
+    const candidates = [
+      path.join(path.dirname(exe), "kaishaku.exe"),
+      path.join(process.resourcesPath, "..", "kaishaku.exe"),
+      path.join(process.resourcesPath, "kaishaku.exe"),
+      path.join(import.meta.dirname, "..", "..", "..", "build", "win", "x64", "kaishaku.exe"),
+      path.join(process.cwd(), "build", "win", "x64", "kaishaku.exe"),
+    ];
+    let kaishakuPath: string | null = null;
+    for (const cand of candidates) {
+      if (existsSync(cand)) {
+        kaishakuPath = cand;
+        break;
+      }
+    }
+
+    const pidsToKill: string[] = [String(process.pid)];
+    if (backendPid && backendPid > 0) {
+      pidsToKill.push(String(backendPid));
+    }
+
+    if (kaishakuPath) {
+      try {
+        spawn(kaishakuPath, pidsToKill, {
+          detached: true,
+          windowsHide: true,
+          stdio: "ignore",
+        }).unref();
+        process.exit(0);
+        return;
+      } catch {
+        /* fallback */
+      }
+    }
+
     try {
       execFileSync("taskkill", ["/PID", String(process.pid), "/F", "/T"], {
         windowsHide: true,
         stdio: "ignore",
       });
-    } catch {
-      process.exit(0);
-    }
+    } catch {}
+    process.exit(0);
   }
 
   override ipcSocketPath(): string {
@@ -157,6 +200,8 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
     const staleKeys = [
       `${base}\\.rsnraset`, // remove folder association from registry so Windows treats .rsnraset as a normal folder
       `${base}\\.rsnrasetmeta`,
+      `${base}\\ResoStage.ProjectFile`,
+      `${base}\\resostage.ProjectFile`,
     ];
     for (const key of staleKeys) {
       try {
@@ -186,10 +231,10 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
 
     // 3. Register fresh extension and ProgID entries
     const entries: Array<[key: string, value: string]> = [
-      [`${base}\\.rsnrasetmeta`, "ResoStage.ProjectFile"],
-      [`${base}\\ResoStage.ProjectFile`, "ResoStage Project File"],
-      [`${base}\\ResoStage.ProjectFile\\DefaultIcon`, iconPath],
-      [`${base}\\ResoStage.ProjectFile\\shell\\open\\command`, `"${exe}" "%1"`],
+      [`${base}\\.rsnrasetmeta`, "resostage.ProjectFile"],
+      [`${base}\\resostage.ProjectFile`, "ResoStage Project File"],
+      [`${base}\\resostage.ProjectFile\\DefaultIcon`, iconPath],
+      [`${base}\\resostage.ProjectFile\\shell\\open\\command`, `"${exe}" "%1"`],
     ];
 
     for (const [key, value] of entries) {

@@ -379,11 +379,16 @@ void MainComponent::launchElectronShell() {
 }
 
 void MainComponent::terminateElectronShell() {
-    if (electronProcess == nullptr)
-        return;
-    if (electronProcess->isRunning())
-        electronProcess->kill();
-    electronProcess.reset();
+    if (electronProcess != nullptr) {
+        if (electronProcess->isRunning())
+            electronProcess->kill();
+        electronProcess.reset();
+    }
+#if JUCE_WINDOWS
+    const juce::String killCmd = "cmd.exe /c \"taskkill /IM resostage.exe /F /T >NUL 2>&1 & taskkill /IM ResoStage.exe /F /T >NUL 2>&1\"";
+    juce::ChildProcess killer;
+    killer.start(killCmd);
+#endif
 }
 
 void MainComponent::launchBrowserTab() {

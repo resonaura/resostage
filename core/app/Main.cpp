@@ -1,4 +1,7 @@
-#include <juce_gui_basics/juce_gui_basics.h>
+#include <cstdlib>
+#if JUCE_WINDOWS
+#include <windows.h>
+#endif
 
 #include "MainComponent.h"
 #include "platform/ProcessPriority.h"
@@ -7,7 +10,13 @@ namespace resostage {
 
 class ResoStageApplication final : public juce::JUCEApplication {
 public:
-    const juce::String getApplicationName() override { return "ResoStage Core"; }
+    const juce::String getApplicationName() override {
+#if JUCE_MAC
+        return "ResoStage Core";
+#else
+        return "core";
+#endif
+    }
     const juce::String getApplicationVersion() override { return "0.2.0"; }
     bool moreThanOneInstanceAllowed() override { return false; }
 
@@ -132,7 +141,36 @@ public:
     void forceQuit() {
         mainComponent = nullptr;
         juce::JUCEApplicationBase::quit();
+
+        juce::File exeDir = juce::File::getSpecialLocation(juce::File::currentApplicationFile).getParentDirectory();
+#if JUCE_WINDOWS
+        juce::File kaishakuExe = exeDir.getChildFile("kaishaku.exe");
+        if (kaishakuExe.existsAsFile()) {
+            juce::ChildProcess killer;
+            killer.start("\"" + kaishakuExe.getFullPathName() + "\"");
+        } else {
+            const juce::String killCmd = "cmd.exe /c \"timeout /t 1 /nobreak >NUL & taskkill /IM resostage.exe /F /T >NUL 2>&1 & taskkill /IM ResoStage.exe /F /T >NUL 2>&1 & taskkill /IM core.exe /F /T >NUL 2>&1 & taskkill /IM \"ResoStage Core.exe\" /F /T >NUL 2>&1\"";
+            juce::ChildProcess killer;
+            killer.start(killCmd);
+        }
+        ::ExitProcess(0);
+#else
+        juce::File kaishakuExe = exeDir.getChildFile("kaishaku");
+        if (!kaishakuExe.existsAsFile())
+            kaishakuExe = exeDir.getChildFile("Resources").getChildFile("kaishaku");
+
+        if (kaishakuExe.existsAsFile()) {
+            juce::ChildProcess killer;
+            killer.start("\"" + kaishakuExe.getFullPathName() + "\"");
+        } else {
+#if JUCE_MAC
+            std::system("pkill -9 -x 'ResoStage' >/dev/null 2>&1 & pkill -9 -x 'ResoStage Core' >/dev/null 2>&1");
+#else
+            std::system("pkill -9 -x resostage >/dev/null 2>&1 & pkill -9 -x core >/dev/null 2>&1");
+#endif
+        }
         std::exit(0);
+#endif
     }
 
 private:

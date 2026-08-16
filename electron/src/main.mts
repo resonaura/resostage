@@ -345,6 +345,7 @@ function spawnBackend(): void {
     console.warn(
       `[resostage] Core process exited (code=${code}, signal=${signal})`,
     );
+    const bPid = backendProcess?.pid;
     backendProcess = null;
     isQuitting = true;
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -356,7 +357,7 @@ function spawnBackend(): void {
       mainWindow = null;
     }
     app.quit();
-    setTimeout(() => platform.forceKillSelfTree(), 150);
+    setTimeout(() => platform.forceKillSelfTree(bPid), 150);
   });
 }
 
@@ -1648,14 +1649,16 @@ app.on("before-quit", (e) => {
           }
           mainWindow = null;
         }
+        const bPid = backendProcess?.pid;
         app.quit();
-        setTimeout(() => platform.forceKillSelfTree(), 150);
+        setTimeout(() => platform.forceKillSelfTree(bPid), 150);
       }
     }, 20_000);
     return;
   }
   isQuitting = true;
   releaseAppSuspensionBlocker();
+  const bPid = backendProcess?.pid;
   if (STANDALONE) killBackend();
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
@@ -1665,5 +1668,5 @@ app.on("before-quit", (e) => {
     }
     mainWindow = null;
   }
-  setTimeout(() => platform.forceKillSelfTree(), 150);
+  setTimeout(() => platform.forceKillSelfTree(bPid), 150);
 });

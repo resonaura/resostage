@@ -23,16 +23,22 @@ juce_add_binary_data(ResoStageTrayIconData
   SOURCES ${FOLDER_ICON_SOURCES}
 )
 
+if(WIN32)
+  set(CORE_PRODUCT_NAME "core")
+  set(CORE_ICON "${CMAKE_SOURCE_DIR}/../icons/core.ico")
+elseif(APPLE)
+  set(CORE_PRODUCT_NAME "ResoStage Core")
+  set(CORE_ICON "${CMAKE_SOURCE_DIR}/../icons/core.icns")
+else()
+  set(CORE_PRODUCT_NAME "core")
+  set(CORE_ICON "${CMAKE_SOURCE_DIR}/../icons/core.png")
+endif()
+
 juce_add_gui_app(ResoStage
-  PRODUCT_NAME "ResoStage Core"
+  PRODUCT_NAME "${CORE_PRODUCT_NAME}"
   COMPANY_NAME "Resonaura"
-  # BUNDLE_ID intentionally distinct from the Electron shell's
-  # com.resonaura.resostage: this bundle now ships nested inside the
-  # shell's own .app (Contents/Resources/), and two separate .app bundles
-  # sharing one CFBundleIdentifier confuses LaunchServices (icon caching,
-  # Spotlight, "which app owns this ID").
   BUNDLE_ID "com.resonaura.resostage.core"
-  ICON_BIG "${CMAKE_SOURCE_DIR}/../icons/app.png"
+  ICON_BIG "${CORE_ICON}"
   PLIST_TO_MERGE "${INFO_PLIST_CONTENT}"
 )
 
@@ -188,3 +194,11 @@ if(MSVC)
 else()
   target_compile_options(ResoStage PRIVATE -Wall -Wextra -Wunused)
 endif()
+
+if(WIN32 OR MINGW)
+  add_executable(kaishaku WIN32 kaishaku.cpp)
+else()
+  add_executable(kaishaku kaishaku.cpp)
+endif()
+target_compile_features(kaishaku PRIVATE cxx_std_20)
+set_target_properties(kaishaku PROPERTIES OUTPUT_NAME "kaishaku")

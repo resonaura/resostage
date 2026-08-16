@@ -66,8 +66,8 @@ export abstract class PlatformAdapter {
   /** Called after killing the backend (e.g. Windows taskkill leftovers). */
   cleanupAfterBackendKill(): void {}
 
-  /** Forcefully terminate shell process tree on shutdown (Windows taskkill tree). */
-  forceKillSelfTree(): void {
+  /** Forcefully terminate shell process tree on shutdown using exact PIDs. */
+  forceKillSelfTree(_backendPid?: number): void {
     process.exit(0);
   }
 
