@@ -2,6 +2,8 @@
 
 #include "audio/WavMetadata.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
