@@ -152,6 +152,11 @@ export function execOnDevice(device, remoteCmd, opts = {}) {
       stdio,
       encoding: "utf8",
     });
+    if (r.status !== 0) {
+      // Retry once after 500ms in case of rapid connection rate-limiting
+      spawnSync("sleep", ["0.5"]);
+      r = spawnSync("sshpass", ["-p", pass, "ssh", ...sshArgs], { stdio, encoding: "utf8" });
+    }
   } else {
     r = spawnSync("ssh", sshArgs, { stdio, encoding: "utf8" });
   }
