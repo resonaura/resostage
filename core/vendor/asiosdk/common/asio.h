@@ -72,7 +72,7 @@ typedef struct ASIOClockSource
     long index;
     long assocChannel;
     long assocGroup;
-    ASIOBool isCurrentMC;
+    ASIOBool isCurrentSource;
     char name[32];
 } ASIOClockSource;
 
