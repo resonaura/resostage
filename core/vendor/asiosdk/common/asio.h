@@ -85,10 +85,24 @@ enum {
     ASIOSTInt32LSB16 = 24,
     ASIOSTInt32LSB18 = 25,
     ASIOSTInt32LSB20 = 26,
-    ASIOSTInt32LSB24 = 27,
     ASIOSTDSDInt8LSB1 = 32,
     ASIOSTDSDInt8MSB1 = 33,
     ASIOSTDSDInt8NER8 = 34
 };
+
+typedef long ASIOMessageSelector;
+enum {
+    kAsioSelectorSupported = 1,
+    kAsioEngineVersion,
+    kAsioResetRequest,
+    kAsioBufferSizeChange,
+    kAsioResyncRequest,
+    kAsioLatenciesChanged,
+    kAsioSupportsTimeInfo,
+    kAsioSupportsTimeCode,
+    kAsioOverload
+};
+
+typedef double ASIOSampleRate;
 
 #endif // __asio_h__
