@@ -134,7 +134,7 @@ if(WIN32)
   if(RESOSTAGE_HAVE_ASIO)
     target_include_directories(ResoStage PUBLIC "${ASIO_SDK_INC}")
     if(TARGET juce_audio_devices)
-      target_include_directories(juce_audio_devices INTERFACE "${ASIO_SDK_INC}")
+      target_include_directories(juce_audio_devices PUBLIC "${ASIO_SDK_INC}")
     endif()
     message(STATUS "ASIO enabled from ${ASIO_SDK_INC}")
   else()
@@ -145,7 +145,7 @@ else()
 endif()
 
 if(TARGET juce_audio_devices)
-  target_compile_definitions(juce_audio_devices INTERFACE JUCE_ASIO=${RESOSTAGE_HAVE_ASIO})
+  target_compile_definitions(juce_audio_devices PUBLIC JUCE_ASIO=${RESOSTAGE_HAVE_ASIO} JUCE_ASIO_USE_EXTERNAL_SDK=${RESOSTAGE_HAVE_ASIO})
 endif()
 
 target_compile_definitions(ResoStage
