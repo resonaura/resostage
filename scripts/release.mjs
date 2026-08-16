@@ -70,6 +70,12 @@ async function release() {
       console.log(`\n>>> Executing Stage ${stage.num} (${stage.name}) on [${dev.name}]...`);
       execOnDevice(dev, stage.cmd, { stdio: "inherit" });
       console.log(`<<< Stage ${stage.num} on [${dev.name}] PASSED ✅`);
+
+      // Clean up running app/test processes after test stage
+      if (stage.num === 3) {
+        console.log(`Cleaning up test processes on [${dev.name}]...`);
+        execOnDevice(dev, "node scripts/dev.mjs kill", { allowFail: true });
+      }
     }
   }
 

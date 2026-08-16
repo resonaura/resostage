@@ -30,6 +30,12 @@ public:
     bool moreThanOneInstanceAllowed() override { return false; }
 
     void initialise(const juce::String& commandLine) override {
+#if defined(_WIN32)
+        if (::AttachConsole(ATTACH_PARENT_PROCESS)) {
+            (void)::freopen("CONOUT$", "w", stdout);
+            (void)::freopen("CONOUT$", "w", stderr);
+        }
+#endif
         boostAppProcessPriority();
 
         CliParser parser("ResoStage Core CLI v0.2.0", "ResoStage Core engine daemon & CLI");

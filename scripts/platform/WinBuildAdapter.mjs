@@ -61,6 +61,7 @@ export class WinBuildAdapter extends BuildAdapter {
     const exe = basename(this.shellExecutablePath());
     runQuiet("taskkill", ["/IM", exe, "/F", "/T"]);
     runQuiet("taskkill", ["/IM", `${CORE_APP_NAME}.exe`, "/F"]);
+    runQuiet("taskkill", ["/IM", "core.exe", "/F"]);
     sleepMs(500);
 
     if (this.appIsRunning()) {
