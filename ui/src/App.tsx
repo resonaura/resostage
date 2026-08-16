@@ -719,17 +719,33 @@ export default function App() {
 // meaningful when embedded in the app's own webview; a plain LAN browser tab
 // can still see this state but has no window to actually quit.
 function QuitConfirmDialog({ state }: { state: WebUiState }) {
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!state.quitConfirmPending) setBusy(false);
+  }, [state.quitConfirmPending]);
+
   return (
     <ConfirmDialog
       open={state.quitConfirmPending}
-      title="Unsaved Changes"
-      message={`Do you want to save changes to '${state.projectName || "Untitled Project"}' before quitting?`}
-      confirmLabel="Save"
+      title={busy ? "Saving & Quitting..." : "Unsaved Changes"}
+      message={
+        busy
+          ? "Saving project changes and closing ResoStage..."
+          : `Do you want to save changes to '${state.projectName || "Untitled Project"}' before quitting?`
+      }
+      confirmLabel={busy ? "Saving..." : "Save"}
       cancelLabel="Cancel"
-      thirdLabel="Don't Save"
+      thirdLabel={busy ? "Closing..." : "Don't Save"}
       danger
-      onConfirm={() => void project.resolveQuit("save")}
-      onThird={() => void project.resolveQuit("discard")}
+      onConfirm={() => {
+        setBusy(true);
+        void project.resolveQuit("save");
+      }}
+      onThird={() => {
+        setBusy(true);
+        void project.resolveQuit("discard");
+      }}
       onCancel={() => void project.resolveQuit("cancel")}
     />
   );

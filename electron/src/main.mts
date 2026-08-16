@@ -346,10 +346,15 @@ function spawnBackend(): void {
       `[resostage] Core process exited (code=${code}, signal=${signal})`,
     );
     backendProcess = null;
-    // The backend owns the unsaved-changes prompt on quit; once it's gone
-    // there's nothing left for this shell to show. Mark the quit in progress
-    // so the window close handler stops hiding and lets the app exit.
     isQuitting = true;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.destroy();
+      } catch {
+        /* ignore */
+      }
+      mainWindow = null;
+    }
     app.quit();
   });
 }
@@ -1634,6 +1639,14 @@ app.on("before-quit", (e) => {
         isQuitting = true;
         releaseAppSuspensionBlocker();
         killBackend();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          try {
+            mainWindow.destroy();
+          } catch {
+            /* ignore */
+          }
+          mainWindow = null;
+        }
         app.quit();
       }
     }, 20_000);
@@ -1642,4 +1655,12 @@ app.on("before-quit", (e) => {
   isQuitting = true;
   releaseAppSuspensionBlocker();
   if (STANDALONE) killBackend();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.destroy();
+    } catch {
+      /* ignore */
+    }
+    mainWindow = null;
+  }
 });
