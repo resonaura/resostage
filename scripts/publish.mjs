@@ -64,6 +64,18 @@ function have(tool) {
   return runQuiet(cmd, [tool]).status === 0;
 }
 
+function findIscc() {
+  if (have("iscc")) return "iscc";
+  const candidates = [
+    join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Inno Setup 6", "ISCC.exe"),
+    join(process.env["ProgramFiles"] || "C:\\Program Files", "Inno Setup 6", "ISCC.exe"),
+    "C:\\ProgramData\\chocolatey\\bin\\ISCC.exe",
+    "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe",
+    "C:\\Program Files\\Inno Setup 6\\ISCC.exe",
+  ];
+  return candidates.find((c) => existsSync(c)) || null;
+}
+
 // ── macOS ──────────────────────────────────────────────────────────────────
 
 const ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
@@ -308,12 +320,13 @@ end;
 `);
   ok(`Inno Setup script: ${iss}`);
 
-  if (have("iscc")) {
-    log("iscc...");
-    run("iscc", [iss], { cwd: publishDir });
+  const isccBin = findIscc();
+  if (isccBin) {
+    log(`iscc (${isccBin})...`);
+    run(isccBin, [iss], { cwd: publishDir });
     ok(`installer: ${join(publishDir, `ResoStage-${version}-Setup.exe`)}`);
   } else {
-    log("iscc not on PATH -- script written, compile it on a Windows box with Inno Setup 6");
+    log("iscc not on PATH or standard install locations -- compile it on a Windows box with Inno Setup 6");
   }
 
   // Always create portable application archive for Windows (excluding the publish subfolder itself)
