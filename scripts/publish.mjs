@@ -26,7 +26,7 @@
  * (compiled here if `iscc` is on PATH, emitted for a Windows box if not) and
  * Linux an AppImage or a tarball, depending on what is installed.
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   BUILD_TYPE,
