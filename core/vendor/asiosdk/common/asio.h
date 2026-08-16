@@ -3,10 +3,24 @@
 
 #include "asiosys.h"
 
+typedef long ASIOBool;
+enum {
+    ASIOFalse = 0,
+    ASIOTrue = 1
+};
+
+typedef struct ASIO64Bit {
+    unsigned long high;
+    unsigned long low;
+} ASIO64Bit;
+
+typedef ASIO64Bit ASIOSamples;
+typedef ASIO64Bit ASIOTimeStamp;
+
 typedef struct ASIOTimeCode
 {
     double speed;
-    unsigned long timeCodeSamples;
+    ASIOSamples timeCodeSamples;
     unsigned long flags;
     char future[64];
 } ASIOTimeCode;
@@ -14,8 +28,8 @@ typedef struct ASIOTimeCode
 typedef struct ASIOTimeInfo
 {
     double speed;
-    unsigned long systemTime;
-    unsigned long samplePosition;
+    ASIOTimeStamp systemTime;
+    ASIOSamples samplePosition;
     double sampleRate;
     unsigned long flags;
     char future[12];
@@ -30,28 +44,37 @@ typedef struct ASIOTime
 
 typedef struct ASIOBufferInfo
 {
-    long isInput;
+    ASIOBool isInput;
     long channelNum;
     void *buffers[2];
 } ASIOBufferInfo;
 
 typedef struct ASIOCallbacks
 {
-    void (*bufferSwitch) (long doubleBufferIndex, long directProcess);
+    void (*bufferSwitch) (long doubleBufferIndex, ASIOBool directProcess);
     void (*sampleRateDidChange) (double sRate);
     long (*asioMessage) (long selector, long value, void* message, double* opt);
-    ASIOTime* (*bufferSwitchTimeInfo) (ASIOTime* params, long doubleBufferIndex, long directProcess);
+    ASIOTime* (*bufferSwitchTimeInfo) (ASIOTime* params, long doubleBufferIndex, ASIOBool directProcess);
 } ASIOCallbacks;
 
 typedef struct ASIOChannelInfo
 {
     long channel;
-    long isInput;
-    long isActive;
+    ASIOBool isInput;
+    ASIOBool isActive;
     long channelGroup;
     long type;
     char name[32];
 } ASIOChannelInfo;
+
+typedef struct ASIOClockSource
+{
+    long index;
+    long assocChannel;
+    long assocGroup;
+    ASIOBool isCurrentMC;
+    char name[32];
+} ASIOClockSource;
 
 typedef long ASIOError;
 enum {
@@ -85,6 +108,7 @@ enum {
     ASIOSTInt32LSB16 = 24,
     ASIOSTInt32LSB18 = 25,
     ASIOSTInt32LSB20 = 26,
+    ASIOSTInt32LSB24 = 27,
     ASIOSTDSDInt8LSB1 = 32,
     ASIOSTDSDInt8MSB1 = 33,
     ASIOSTDSDInt8NER8 = 34
@@ -100,7 +124,9 @@ enum {
     kAsioLatenciesChanged,
     kAsioSupportsTimeInfo,
     kAsioSupportsTimeCode,
-    kAsioOverload
+    kAsioOverload,
+    kAsioSupportsInputMonitor,
+    kAsioCanReportOverload
 };
 
 typedef double ASIOSampleRate;
