@@ -79,22 +79,22 @@ async function release() {
     }
   }
 
-  // 6. Collect Artifacts into dist/release/<platform>-<arch>/
+  // 6. Collect Artifacts into build/release/<platform>/<arch>/
   logStage(6, "Artifact Collection");
-  const releaseDist = join(ROOT, "dist", "release");
+  const releaseDist = join(ROOT, "build", "release");
   rmSync(releaseDist, { recursive: true, force: true });
   mkdirSync(releaseDist, { recursive: true });
 
   for (const dev of onlineDevices) {
     const plat = dev.platform;
-    const arch = dev.arch || process.arch;
-    const targetFolder = join(releaseDist, `${plat}-${arch}`);
+    const arch = dev.arch || (plat === "win32" ? "x64" : plat === "linux" ? "x64" : process.arch);
+    const platDir = plat === "darwin" ? "mac" : plat === "win32" ? "win" : plat;
+    const targetFolder = join(releaseDist, platDir, arch);
     mkdirSync(targetFolder, { recursive: true });
 
-    console.log(`Collecting artifacts from [${dev.name}] into dist/release/${plat}-${arch}...`);
+    console.log(`Collecting artifacts from [${dev.name}] into build/release/${platDir}/${arch}...`);
 
     if (dev.isLocal || dev.host === "localhost" || dev.host === "127.0.0.1") {
-      const platDir = plat === "darwin" ? "mac" : plat === "win32" ? "win" : plat;
       const pubVersionDir = join(ROOT, "build", platDir, arch, "publish", "0.1.0");
       const localBuildDir = existsSync(pubVersionDir) ? pubVersionDir : join(ROOT, "build", platDir, arch, "publish");
       if (existsSync(localBuildDir)) {
@@ -106,7 +106,6 @@ async function release() {
       const host = dev.host;
       const user = dev.user || "root";
       const pass = dev.pass || "";
-      const sudoPass = dev.sudoPass || pass || "1212";
       const remotePath = dev.path || (plat === "win32" ? "C:\\Users\\tkach\\resostage" : "~/resostage");
 
       const remoteBuildPath = plat === "win32"

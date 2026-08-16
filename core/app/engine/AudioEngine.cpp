@@ -1286,9 +1286,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 // the same two answers. What is left below is pure
                 // multiply-accumulate, which is also the shape a compiler can
                 // vectorise.
-                for (int i = 0; i < numSamples; ++i) {
+                for (size_t i = 0; i < static_cast<size_t>(numSamples); ++i) {
                     shapedKernelWeights[i] = nullptr;
-                    const double sp = shapedSourceFrame(window, into0Shaped + i);
+                    const double sp = shapedSourceFrame(window, into0Shaped + static_cast<int>(i));
                     if (sp < 0.0)
                         continue; // scratch is already cleared to silence
                     // Positions are absolute source frames; the window may
@@ -1311,7 +1311,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     const float* src = view.channel(ch < viewChans ? ch : 0);
                     if (src == nullptr)
                         continue;
-                    for (int i = 0; i < numSamples; ++i) {
+                    for (size_t i = 0; i < static_cast<size_t>(numSamples); ++i) {
                         const float* weights = shapedKernelWeights[i];
                         if (weights == nullptr)
                             continue;

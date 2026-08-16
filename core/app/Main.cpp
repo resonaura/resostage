@@ -97,7 +97,7 @@ public:
         std::string ipcSocketPath;
         uint16_t webPort = MainComponent::kWebPort;
         std::string bindAddress = "0.0.0.0";
-        bool enableDiscovery = true;
+        [[maybe_unused]] bool enableDiscovery = true;
         std::string projectPathToLoad;
 
         for (int i = 0; i < tokens.size(); ++i) {

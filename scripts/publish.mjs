@@ -315,6 +315,23 @@ end;
   } else {
     log("iscc not on PATH -- script written, compile it on a Windows box with Inno Setup 6");
   }
+
+  // Always create portable application archive for Windows
+  const zipPath = join(publishDir, `ResoStage-${version}-win-${process.arch}.zip`);
+  if (process.platform === "win32") {
+    log("Compressing Windows portable ZIP...");
+    run("powershell", ["-Command", `Compress-Archive -Path '${payload}\\*' -DestinationPath '${zipPath}' -Force`]);
+    ok(`Portable ZIP: ${zipPath}`);
+  } else if (have("zip")) {
+    log("Compressing Windows portable ZIP...");
+    run("zip", ["-r", "-q", zipPath, "."], { cwd: payload });
+    ok(`Portable ZIP: ${zipPath}`);
+  } else {
+    log("Compressing Windows portable TAR.GZ...");
+    const tarPath = join(publishDir, `ResoStage-${version}-win-${process.arch}.tar.gz`);
+    run("tar", ["-czf", tarPath, "-C", payload, "."]);
+    ok(`Portable archive: ${tarPath}`);
+  }
 }
 
 // ── Linux ──────────────────────────────────────────────────────────────────

@@ -39,7 +39,7 @@ constexpr size_t kWsTxMax = 512 * 1024;
 // toward it; see kTelemetryMinPeriodUs / LWS_CALLBACK_TIMER for the adaptive
 // backoff that can slow an individual client down under backpressure.
 constexpr int kTelemetryPeriodUs = WebServer::kTelemetryPeriodUs;
-constexpr int kTelemetryMinPeriodUs = WebServer::kTelemetryMinPeriodUs;
+[[maybe_unused]] constexpr int kTelemetryMinPeriodUs = WebServer::kTelemetryMinPeriodUs;
 
 // Which SPA tab the client is showing -- drives buildStateJson() so we only
 // push fields that page needs (transport/time always).
@@ -48,12 +48,12 @@ enum class ClientView : uint8_t { Player, Mixer, Editor, Settings, Light };
 // Consecutive backpressure ticks (previous period's write never completed)
 // before backing this client off to half its rate. Kept short (~100ms at the
 // full 30Hz rate) so a real stall is caught fast.
-constexpr int kBackoffAfterConsecutiveDrops = 3;
+[[maybe_unused]] constexpr int kBackoffAfterConsecutiveDrops = 3;
 // Consecutive clean ticks before stepping the rate back up toward
 // kTelemetryHz. Kept long (~2s at 30Hz) relative to the backoff trigger so
 // a client hovering right at its capacity doesn't oscillate ("float")
 // between two rates every couple hundred ms.
-constexpr int kRecoverAfterConsecutiveOk = 60;
+[[maybe_unused]] constexpr int kRecoverAfterConsecutiveOk = 60;
 
 struct WsSession {
     WebServer* server = nullptr;

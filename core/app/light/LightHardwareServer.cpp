@@ -271,7 +271,7 @@ void LightHardwareServer::sendFrameOverUdp(Connection& conn, uint8_t channelsPer
                                             const uint8_t* pixelBytes, size_t pixelByteCount,
                                             double refreshHz, const std::string& host) {
     const uint16_t port = conn.udpPort.load(std::memory_order_relaxed);
-    if (port == 0 || udpSocket_ < 0 || pixelBytes == nullptr || pixelByteCount == 0)
+    if (port == 0 || udpSocket_ == nullptr || pixelBytes == nullptr || pixelByteCount == 0)
         return;
 
     const uint64_t nowNanos = static_cast<uint64_t>(
