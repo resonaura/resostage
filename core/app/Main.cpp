@@ -113,17 +113,30 @@ public:
     }
 
     void systemRequestedQuit() override {
+        if (isQuitting)
+            return;
         if (mainComponent != nullptr) {
-            mainComponent->confirmQuitIfUnsaved([](bool canQuit) {
-                if (canQuit)
-                    quit();
+            isQuitting = true;
+            mainComponent->confirmQuitIfUnsaved([this](bool canQuit) {
+                if (canQuit) {
+                    forceQuit();
+                } else {
+                    isQuitting = false;
+                }
             });
             return;
         }
-        quit();
+        forceQuit();
+    }
+
+    void forceQuit() {
+        mainComponent = nullptr;
+        juce::JUCEApplicationBase::quit();
+        std::exit(0);
     }
 
 private:
+    bool isQuitting = false;
     std::unique_ptr<MainComponent> mainComponent;
 };
 

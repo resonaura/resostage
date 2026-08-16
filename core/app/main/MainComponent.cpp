@@ -483,13 +483,8 @@ void MainComponent::performAction(const std::string& action) {
         publishWebState();
     }
     else if (action == "quit") {
-        // Native menu bar intercepts "quit" in Main.cpp before reaching us;
-        // this branch covers the Electron shell (POST /api/v1/action) and any
-        // MIDI/hotkey mapping -- same unsaved-changes prompt either way.
-        confirmQuitIfUnsaved([](bool canQuit) {
-            if (canQuit)
-                juce::JUCEApplication::quit();
-        });
+        if (auto* app = juce::JUCEApplication::getInstance())
+            app->systemRequestedQuit();
     }
     else if (action == "restart_app") {
         // Settings > UI engine change: relaunch the app so the new display
@@ -502,10 +497,8 @@ void MainComponent::performAction(const std::string& action) {
             juce::ChildProcess spawner;
             spawner.start(cmd); // shell child is orphaned after quit and keeps running
         }
-        confirmQuitIfUnsaved([](bool canQuit) {
-            if (canQuit)
-                juce::JUCEApplication::quit();
-        });
+        if (auto* app = juce::JUCEApplication::getInstance())
+            app->systemRequestedQuit();
     }
     else if (action.rfind("open_recent:", 0) == 0) {
         const std::string path = action.substr(std::string("open_recent:").size());
