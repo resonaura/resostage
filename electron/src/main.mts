@@ -356,6 +356,7 @@ function spawnBackend(): void {
       mainWindow = null;
     }
     app.quit();
+    setTimeout(() => platform.forceKillSelfTree(), 150);
   });
 }
 
@@ -1648,6 +1649,7 @@ app.on("before-quit", (e) => {
           mainWindow = null;
         }
         app.quit();
+        setTimeout(() => platform.forceKillSelfTree(), 150);
       }
     }, 20_000);
     return;
@@ -1663,4 +1665,5 @@ app.on("before-quit", (e) => {
     }
     mainWindow = null;
   }
+  setTimeout(() => platform.forceKillSelfTree(), 150);
 });

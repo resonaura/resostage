@@ -54,6 +54,17 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
     }
   }
 
+  override forceKillSelfTree(): void {
+    try {
+      execFileSync("taskkill", ["/PID", String(process.pid), "/F", "/T"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } catch {
+      process.exit(0);
+    }
+  }
+
   override ipcSocketPath(): string {
     // Windows uses a named pipe (the Core prepends \\.\pipe\ itself), so we
     // pass a bare pipe name.

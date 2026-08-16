@@ -1,3 +1,4 @@
+import { Spinner } from "@heroui/react";
 import {
   AlertTriangle,
   Gauge,
@@ -472,6 +473,7 @@ export default function App() {
     };
   }, [state.projectName, state.songs.length, totalRegionCount]);
 
+  const [isQuittingOverlay, setIsQuittingOverlay] = useState(false);
   // Hardware alarm toast notifications (post-startup only)
   const [toastNotifications, setToastNotifications] = useState<
     ToastNotification[]
@@ -664,8 +666,9 @@ export default function App() {
         </span>
       </footer>
 
-      <QuitConfirmDialog state={state} />
+      <QuitConfirmDialog state={state} onStartQuitting={() => setIsQuittingOverlay(true)} />
       <OpenConfirmDialog state={state} />
+      <QuitOverlay open={isQuittingOverlay} />
 
       {toastNotifications.length > 0 && (
         <div className="fixed bottom-5 right-5 z-[300] flex flex-col gap-2.5 max-w-sm pointer-events-none">
@@ -713,37 +716,48 @@ export default function App() {
   );
 }
 
+function QuitOverlay({ open }: { open: boolean }) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-background/50 backdrop-blur-xl transition-all duration-300 animate-in fade-in ease-out pointer-events-auto"
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+    >
+      <div className="flex flex-col items-center gap-4 text-foreground select-none">
+        <Spinner size="lg" color="current" className="text-foreground" />
+      </div>
+    </div>
+  );
+}
+
 // Native quit was requested while the project has unsaved changes --
 // MainComponent::confirmQuitIfUnsaved() is blocked waiting on our answer
 // (see WebUiState.quitConfirmPending / WebCommandKind::QuitDecision). Only
 // meaningful when embedded in the app's own webview; a plain LAN browser tab
 // can still see this state but has no window to actually quit.
-function QuitConfirmDialog({ state }: { state: WebUiState }) {
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!state.quitConfirmPending) setBusy(false);
-  }, [state.quitConfirmPending]);
-
+function QuitConfirmDialog({
+  state,
+  onStartQuitting,
+}: {
+  state: WebUiState;
+  onStartQuitting: () => void;
+}) {
   return (
     <ConfirmDialog
       open={state.quitConfirmPending}
-      title={busy ? "Saving & Quitting..." : "Unsaved Changes"}
-      message={
-        busy
-          ? "Saving project changes and closing ResoStage..."
-          : `Do you want to save changes to '${state.projectName || "Untitled Project"}' before quitting?`
-      }
-      confirmLabel={busy ? "Saving..." : "Save"}
+      title="Unsaved Changes"
+      message={`Do you want to save changes to '${state.projectName || "Untitled Project"}' before quitting?`}
+      confirmLabel="Save"
       cancelLabel="Cancel"
-      thirdLabel={busy ? "Closing..." : "Don't Save"}
+      thirdLabel="Don't Save"
       danger
       onConfirm={() => {
-        setBusy(true);
+        onStartQuitting();
         void project.resolveQuit("save");
       }}
       onThird={() => {
-        setBusy(true);
+        onStartQuitting();
         void project.resolveQuit("discard");
       }}
       onCancel={() => void project.resolveQuit("cancel")}

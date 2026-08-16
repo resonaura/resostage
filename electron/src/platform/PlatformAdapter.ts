@@ -66,6 +66,11 @@ export abstract class PlatformAdapter {
   /** Called after killing the backend (e.g. Windows taskkill leftovers). */
   cleanupAfterBackendKill(): void {}
 
+  /** Forcefully terminate shell process tree on shutdown (Windows taskkill tree). */
+  forceKillSelfTree(): void {
+    process.exit(0);
+  }
+
   // ── Native helpers (mac-only dylibs etc.) ───────────────────────────────
 
   /** Eager-load platform native libraries (MenuFlash/Haptics). Best-effort. */
