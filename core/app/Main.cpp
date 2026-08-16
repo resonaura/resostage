@@ -91,6 +91,8 @@ public:
                     std::printf("\n");
                 }
             }
+            std::fflush(stdout);
+            std::fflush(stderr);
             std::exit(0);
         }
 
