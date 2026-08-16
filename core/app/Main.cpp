@@ -63,12 +63,12 @@ public:
 
         if (tokens.contains("--list-audio-devices") || tokens.contains("--devices") || tokens.contains("-l")) {
             juce::AudioDeviceManager mgr;
-            mgr.createAudioDeviceTypes();
+            juce::OwnedArray<juce::AudioIODeviceType> types;
+            mgr.createAudioDeviceTypes(types);
             std::printf("========================================\n");
             std::printf("  ResoStage Audio Drivers & Devices\n");
             std::printf("========================================\n\n");
 
-            const auto types = mgr.getAvailableDeviceTypes();
             if (types.isEmpty()) {
                 std::printf("  (No audio device drivers found)\n");
             } else {

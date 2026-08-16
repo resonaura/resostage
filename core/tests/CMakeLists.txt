@@ -35,9 +35,13 @@ add_executable(resostage_engine_tests
   test_mix_math.cpp
   test_mix_graph.cpp
   test_mix_renderer.cpp
+  test_asio_diag.cpp
 )
 
 target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)
+if(TARGET juce_audio_devices)
+  target_link_libraries(resostage_engine_tests PRIVATE juce_audio_devices)
+endif()
 if(WIN32)
   target_link_libraries(resostage_engine_tests PRIVATE ws2_32)
 endif()

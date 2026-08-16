@@ -107,22 +107,13 @@ void MainComponent::rescanHardwareSettings() {
 
     auto& dm = engine.deviceManager();
 
-    // Touch the device-type list (JUCE lazy-creates types on first access)
-    // then rescan so hot-plug names appear.
-    (void)dm.getAvailableDeviceTypes();
-    for (auto* type : dm.getAvailableDeviceTypes()) {
-        if (type != nullptr)
+    juce::OwnedArray<juce::AudioIODeviceType> types;
+    dm.createAudioDeviceTypes(types);
+    for (auto* type : types) {
+        if (type != nullptr) {
             type->scanForDevices();
-    }
-
-    // The host APIs available in this build: CoreAudio alone on macOS,
-    // Windows Audio plus ASIO when the SDK was present at build time (see
-    // RESOSTAGE_ASIO_SDK_DIR), ALSA plus JACK on Linux. Offered as a choice
-    // because the same interface reached through two APIs can differ by an
-    // order of magnitude in latency.
-    for (auto* type : dm.getAvailableDeviceTypes()) {
-        if (type != nullptr)
             out.audioDrivers.push_back(type->getTypeName().toStdString());
+        }
     }
     if (auto* curType = dm.getCurrentDeviceTypeObject())
         out.currentAudioDriver = curType->getTypeName().toStdString();
@@ -140,7 +131,7 @@ void MainComponent::rescanHardwareSettings() {
         juce::StringArray seen;
         for (const auto& s : out.outputDevices)
             seen.add(juce::String(s));
-        for (auto* type : dm.getAvailableDeviceTypes()) {
+        for (auto* type : types) {
             if (type == nullptr || type == dm.getCurrentDeviceTypeObject())
                 continue;
             const auto names = type->getDeviceNames(false);
@@ -335,8 +326,11 @@ void MainComponent::settingsSetAudioDeviceType(const std::string& json) {
     rememberCurrentDeviceProfile();
     auto& dm = engine.deviceManager();
 
+    juce::OwnedArray<juce::AudioIODeviceType> types;
+    dm.createAudioDeviceTypes(types);
+
     bool known = false;
-    for (auto* t : dm.getAvailableDeviceTypes()) {
+    for (auto* t : types) {
         if (t != nullptr && t->getTypeName() == juce::String(type)) {
             known = true;
             break;
