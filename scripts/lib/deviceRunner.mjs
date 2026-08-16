@@ -149,7 +149,7 @@ export function execOnDevice(device, remoteCmd, opts = {}) {
   if (device.platform === "win32") {
     fullRemoteCmd = `cmd /c "call ${remotePath}\\env.bat >NUL 2>&1 & cd /d ${remotePath} && ${remoteCmd}"`;
   } else {
-    fullRemoteCmd = `bash -c "export PATH=$HOME/.nvm/versions/node/v24.18.0/lib/node_modules/corepack/shims:$HOME/.nvm/versions/node/v24.18.0/bin:$HOME/.nvm/versions/node/v24.15.0/bin:$HOME/.local/share/pnpm:$PATH; [ -f ~/.bashrc ] && source ~/.bashrc >/dev/null 2>&1; cd ${remotePath} && ${remoteCmd}"`;
+    fullRemoteCmd = `bash -c "export PATH=/usr/bin:/bin:/usr/local/bin:/snap/bin:$HOME/.nvm/versions/node/v24.18.0/lib/node_modules/corepack/shims:$HOME/.nvm/versions/node/v24.18.0/bin:$HOME/.nvm/versions/node/v24.15.0/bin:$HOME/.local/share/pnpm:$PATH; [ -f ~/.bashrc ] && source ~/.bashrc >/dev/null 2>&1; cd ${remotePath} && ${remoteCmd}"`;
   }
 
   const sshArgs = [
