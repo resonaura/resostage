@@ -9,9 +9,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NtExecutable, NtExecutableResource, Data, Resource } from "resedit";
 
+import { createBuildAdapter } from "./platform/index.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const ROOT = join(__dirname, "..");
+export const buildAdapter = createBuildAdapter();
 // All native C++ (JUCE app + engine + vendor + tools + tests) lives under
 // core/ -- CMake is invoked with this as the source root. The raw/dirty
 // CMake build tree also lives under core/ (core/build) -- it's disposable
@@ -60,13 +63,7 @@ export const PLATFORM_DIST_DIR = join(
 // constant computed at import time (before the build exists) would stay
 // stale for the rest of the run.
 export function getShellAppBundle() {
-  if (process.platform === "darwin") {
-    return join(PLATFORM_DIST_DIR, `${SHELL_APP_NAME}.app`);
-  } else if (process.platform === "win32") {
-    return join(PLATFORM_DIST_DIR, `${SHELL_APP_NAME}.exe`);
-  } else {
-    return join(PLATFORM_DIST_DIR, SHELL_APP_NAME);
-  }
+  return buildAdapter.getShellAppBundle();
 }
 export function getNestedCoreAppBundle(shellBundle = getShellAppBundle()) {
   return join(shellBundle, "Contents", "Resources", `${CORE_APP_NAME}.app`);
@@ -75,7 +72,7 @@ export function getNestedCoreAppBundle(shellBundle = getShellAppBundle()) {
 // copied into the assembled shell bundle above.
 // Deep-first search for a named file under a dir (used to find the Core exe
 // regardless of which CMake generator / config produced it).
-function findFileRecursively(dir, name) {
+export function findFileRecursively(dir, name) {
   if (!existsSync(dir)) return null;
   let entries;
   try {
@@ -96,50 +93,7 @@ function findFileRecursively(dir, name) {
 }
 
 export function getRawCoreAppBundle() {
-  if (process.platform === "win32") {
-    const artefactsDir = join(
-      BUILD_DIR,
-      "app",
-      `${APP_TARGET}_artefacts`,
-    );
-    const preferred = join(artefactsDir, BUILD_TYPE, `${CORE_APP_NAME}.exe`);
-    if (existsSync(preferred)) return preferred;
-    return (
-      findFileRecursively(artefactsDir, `${CORE_APP_NAME}.exe`) ??
-      findFileRecursively(artefactsDir, "ResoStage Core.exe") ??
-      join(artefactsDir, `${CORE_APP_NAME}.exe`)
-    );
-  } else if (process.platform === "linux") {
-    const artefactsDir = join(
-      BUILD_DIR,
-      "app",
-      `${APP_TARGET}_artefacts`,
-    );
-    const preferred = join(artefactsDir, BUILD_TYPE, CORE_APP_NAME);
-    if (existsSync(preferred)) return preferred;
-    return (
-      findFileRecursively(artefactsDir, CORE_APP_NAME) ??
-      findFileRecursively(artefactsDir, "ResoStage") ??
-      join(artefactsDir, CORE_APP_NAME)
-    );
-  }
-  // macOS: .app bundle
-  const directPath = join(
-    BUILD_DIR,
-    "app",
-    `${APP_TARGET}_artefacts`,
-    `${CORE_APP_NAME}.app`,
-  );
-  if (existsSync(directPath)) return directPath;
-  const buildTypePath = join(
-    BUILD_DIR,
-    "app",
-    `${APP_TARGET}_artefacts`,
-    BUILD_TYPE,
-    `${CORE_APP_NAME}.app`,
-  );
-  if (existsSync(buildTypePath)) return buildTypePath;
-  return directPath;
+  return buildAdapter.getRawCoreAppBundle();
 }
 
 export const TEST_BINARY =
@@ -171,7 +125,7 @@ export function run(cmd, args = [], opts = {}) {
     cwd,
     env,
     stdio: "inherit",
-    shell: true,
+    shell: false,
   });
   if (r.error) {
     if (allowFail) return r.status ?? 1;
@@ -261,92 +215,16 @@ export function cmakeBuild(target) {
   run("cmake", args);
 }
 
-// The shipped/launched process is the Electron shell, fully rebranded by
-// electron/scripts/brand-mac-app.mjs (executable renamed "Electron" ->
-// SHELL_APP_NAME, same as CFBundleExecutable) -- matching by full path (-f),
-// not just short process name, so this doesn't catch unrelated Electron
-// apps running on the same machine.
-function shellExecutablePath() {
-  if (process.platform === "darwin") {
-    return join(getShellAppBundle(), "Contents", "MacOS", SHELL_APP_NAME);
-  } else if (process.platform === "win32") {
-    return getShellAppBundle();
-  } else {
-    return getShellAppBundle();
-  }
+export function shellExecutablePath() {
+  return buildAdapter.shellExecutablePath();
 }
 
 export function appIsRunning() {
-  if (process.platform === "darwin") {
-    return runQuiet("pgrep", ["-f", shellExecutablePath()]).status === 0;
-  } else if (process.platform === "win32") {
-    const exe = path.basename(shellExecutablePath());
-    const result = runQuiet("tasklist", ["/FI", `IMAGENAME eq ${exe}`, "/FO", "CSV", "/NH"]);
-    // tasklist returns 0 even when no matches; check output for actual process
-    const shellUp = result.status === 0 && result.stdout.includes(exe);
-    if (shellUp) return true;
-    // The nested Core can outlive the shell; treat it as "running" too so
-    // killApp() still takes it down (avoids a stale Core on :2899).
-    const coreResult = runQuiet("tasklist", ["/FI", `IMAGENAME eq ${CORE_APP_NAME}.exe`, "/FO", "CSV", "/NH"]);
-    return coreResult.status === 0 && coreResult.stdout.includes(`${CORE_APP_NAME}.exe`);
-  } else {
-    // Linux: check for process by name
-    const exe = path.basename(shellExecutablePath());
-    return runQuiet("pgrep", ["-f", exe]).status === 0;
-  }
+  return buildAdapter.appIsRunning();
 }
 
-export function killApp({ bestEffort = false } = {}) {
-  if (!appIsRunning()) {
-    log(`${SHELL_APP_NAME} is not running`);
-    return;
-  }
-  log(`Stopping ${SHELL_APP_NAME}...`);
-  
-  if (process.platform === "darwin") {
-    // Prefer AppleEvent quit so save dialogs can finish, then escalate.
-    runQuiet("osascript", ["-e", `tell application "${SHELL_APP_NAME}" to quit`]);
-    for (let i = 0; i < 8; i++) {
-      if (!appIsRunning()) {
-        ok(`${SHELL_APP_NAME} stopped`);
-        return;
-      }
-      sleepMs(250);
-    }
-    const exe = shellExecutablePath();
-    runQuiet("pkill", ["-f", exe]);
-    sleepMs(300);
-    if (appIsRunning()) {
-      log(`Force-killing ${SHELL_APP_NAME}...`);
-      runQuiet("pkill", ["-9", "-f", exe]);
-    }
-    runQuiet("pkill", [
-      "-f",
-      `${CORE_APP_NAME}.app/Contents/MacOS/${CORE_APP_NAME}`,
-    ]);
-  } else if (process.platform === "win32") {
-    const exe = path.basename(shellExecutablePath());
-    runQuiet("taskkill", ["/IM", exe, "/F", "/T"]);
-    // The nested JUCE Core stays bound to :2899 even after the shell exits;
-    // a lingering ResoStage Core.exe would serve stale assets / steal the
-    // port and cause a black window, so kill it too (mirrors the mac pkill).
-    runQuiet("taskkill", ["/IM", `${CORE_APP_NAME}.exe`, "/F"]);
-    sleepMs(500);
-  } else {
-    // Linux
-    const exe = path.basename(shellExecutablePath());
-    runQuiet("pkill", ["-f", exe]);
-    sleepMs(300);
-  }
-  
-  if (appIsRunning()) {
-    if (bestEffort) {
-      log(`Warning: could not stop ${SHELL_APP_NAME} -- continuing anyway`);
-      return;
-    }
-    die(`Could not stop ${SHELL_APP_NAME}`);
-  }
-  ok(`${SHELL_APP_NAME} stopped`);
+export function killApp(opts) {
+  return buildAdapter.killApp(opts);
 }
 
 // Embed icons/app.ico into a Windows PE executable's resource section. The
@@ -455,27 +333,15 @@ export function buildUi() {
 // Resources/web so the embedded WebServer can serve the SPA straight from
 // disk -- no more giant EmbeddedAssets.h header with every asset baked in
 // as C++ string literals.
-function embedWebUi() {
-  // Web UI embedding only applies to macOS .app bundles.
-  // On Windows/Linux the Core is a bare executable and the web UI
-  // is served by the Electron shell's dist/ folder.
-  if (process.platform !== "darwin") {
-    log("Skipping web UI embed (not macOS)");
-    return;
-  }
-  const src = join(ROOT, "ui", "dist");
-  if (!existsSync(src)) {
-    log("ui/dist missing -- skipping web UI embed (run pnpm build:ui first)");
-    return;
-  }
-  const dst = join(getRawCoreAppBundle(), "Contents", "Resources", "web");
-  log(`Embedding web UI -> ${dst}`);
-  cpSync(src, dst, { recursive: true });
-  ok("Web UI embedded as folder (Resources/web)");
+export function embedWebUi() {
+  return buildAdapter.embedWebUi();
 }
 
-// Compiles electron/src/*.ts to electron/dist (ESM main.mjs + CJS preload.cjs).
-function buildElectronShell() {
+export function assembleShellBundle() {
+  return buildAdapter.assembleShellBundle();
+}
+
+export function buildElectronShell() {
   if (!existsSync(join(ROOT, "electron", "package.json"))) {
     log("electron/ missing -- skipping Electron shell build");
     return;
@@ -485,21 +351,7 @@ function buildElectronShell() {
   ok("Electron shell built (electron/dist)");
 }
 
-// Copies the shell's runtime `dependencies` next to its dist/, so the packaged
-// app can require() them.
-//
-// Only koffi today, and it is not decoration: the native menu-item flash and
-// the trackpad haptics both load their dylib through it. Shipping package.json
-// + dist alone produced a bundle whose very first require("koffi") threw
-// "Cannot find module" -- and both features catch that and downgrade to a
-// warning, so the packaged app quietly had no haptics and no menu highlight
-// while the dev run (which resolves up into the repo's node_modules) had both.
-//
-// pnpm links the package in from its store, so the copy has to dereference.
-// koffi ships prebuilt binaries for eighteen platforms; only the macOS ones
-// can ever load here, and dropping the rest keeps ~25 MB of Linux and Windows
-// .node files out of the bundle.
-function copyShellRuntimeDeps(appDst) {
+export function copyShellRuntimeDeps(appDst) {
   const manifest = JSON.parse(
     readFileSync(join(ROOT, "electron", "package.json"), "utf8"),
   );
@@ -525,225 +377,6 @@ function copyShellRuntimeDeps(appDst) {
     }
   }
   log(`Bundled shell runtime deps: ${deps.join(", ")}`);
-}
-
-// Assembles the final distributable bundle at build/<platform>/<arch>/
-// ResoStage.app: a branded Electron shell (Dock name + icon, see
-// electron/scripts/brand-mac-app.mjs) as the OUTER bundle -- what the user
-// actually double-clicks -- containing this project's electron/package.json
-// + dist/ at Contents/Resources/app (Electron auto-loads this with zero CLI
-// args, unlike the JUCE-spawned dev/browser flow which passes an explicit
-// app dir) and the built JUCE Core.app nested at Contents/Resources/ as the
-// backend Electron spawns on a standalone launch (see main.mts spawnBackend
-// / MainComponent's RESOSTAGE_SPAWNED_BY_SHELL check). One code-signing pass
-// at the very end, since any change after signing invalidates it anyway.
-function assembleShellBundle() {
-  const rawCore = getRawCoreAppBundle();
-  if (!existsSync(rawCore)) {
-    log(
-      `${rawCore} missing -- skipping shell bundle assembly (build the app first)`,
-    );
-    return;
-  }
-
-  if (process.platform === "darwin") {
-    const shellBundle = getShellAppBundle();
-    log(`Assembling ${shellBundle}...`);
-    run("node", [
-      join(ROOT, "electron", "scripts", "brand-mac-app.mjs"),
-      shellBundle,
-    ]);
-
-    const resources = join(shellBundle, "Contents", "Resources");
-    const appDst = join(resources, "app");
-    run("rm", ["-rf", appDst]);
-    run("mkdir", ["-p", appDst]);
-    cpSync(join(ROOT, "electron", "package.json"), join(appDst, "package.json"));
-    cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), {
-      recursive: true,
-    });
-    copyShellRuntimeDeps(appDst);
-
-    // Bundle the tray/status icons (used by the menu-bar tray on macOS) so
-    // the shared tray (electron/src/platform/tray.ts) can resolve them.
-    const macIconsSrc = join(ROOT, "icons");
-    if (existsSync(macIconsSrc)) {
-      cpSync(macIconsSrc, join(appDst, "icons"), { recursive: true });
-    }
-
-    const coreDst = getNestedCoreAppBundle(shellBundle);
-    // Use rmSync/cpSync, NOT the shell `run()` helper: `run` concatenates args
-    // with spaces (shell:true) without quoting, so a bundle path containing
-    // spaces ("ResoStage Core.app") gets split into separate args. rm would
-    // silently fail to delete the stale core, and cp would nest the fresh one
-    // inside it (…/Core.app/Core.app), leaving Electron to spawn the old core
-    // and serve a stale embedded web UI.
-    rmSync(coreDst, { recursive: true, force: true });
-    cpSync(rawCore, coreDst, { recursive: true });
-
-    const coreBuildDir = path.dirname(rawCore);
-    const kaishakuRaw = join(coreBuildDir, "kaishaku");
-    if (existsSync(kaishakuRaw)) {
-      const kaishakuDst1 = join(resources, "kaishaku");
-      rmSync(kaishakuDst1, { force: true });
-      cpSync(kaishakuRaw, kaishakuDst1);
-
-      const kaishakuDst2 = join(coreDst, "Contents", "MacOS", "kaishaku");
-      rmSync(kaishakuDst2, { force: true });
-      cpSync(kaishakuRaw, kaishakuDst2);
-
-      try {
-        execFileSync("chmod", ["+x", kaishakuDst1]);
-        execFileSync("chmod", ["+x", kaishakuDst2]);
-      } catch {}
-    }
-
-    run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);
-    try {
-      const lsregister =
-        "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
-      if (existsSync(lsregister)) {
-        execFileSync(lsregister, ["-f", shellBundle]);
-      }
-    } catch {}
-    ok(`Assembled ${shellBundle}`);
-    return;
-  }
-
-  if (process.platform === "win32") {
-    // Windows layout (build/win/<arch>/):
-    //   ResoStage.exe        renamed Electron runtime
-    //   resources/           Electron's own dir, incl. resources/app/ (the app)
-    //   resources/app/       electron/package.json + compiled dist/ + deps
-    //   ResoStage Core.exe   nested JUCE backend (at bundle root, next to exe)
-    const shellBundle = getShellAppBundle(); // e.g., build/win/x64/ResoStage.exe
-    const shellDir = path.dirname(shellBundle);
-    log(`Assembling ${shellBundle}...`);
-    mkdirSync(shellDir, { recursive: true });
-
-    // Copy the ENTIRE Electron runtime. A hand-picked list here keeps silently
-    // dropping files the renderer needs (d3dcompiler_47.dll, chrome_100/200
-    // _percent.pak, vk_swiftshader_icd.json) -- a bundle that "builds" but
-    // shows a black screen. Copying dist/ wholesale is both correct and
-    // future-proof.
-    const electronDistSrc = join(
-      ROOT,
-      "electron",
-      "node_modules",
-      "electron",
-      "dist",
-    );
-    if (!existsSync(electronDistSrc)) {
-      die(`Electron runtime not found at ${electronDistSrc} (run pnpm install)`);
-    }
-    cpSync(electronDistSrc, shellDir, { recursive: true });
-
-    // The renderer cannot start without these; if any is missing (e.g. held
-    // open by a lingering process during the copy) fail loudly instead of
-    // shipping a black screen.
-    const requiredRuntime = [
-      "electron.exe",
-      "chrome_100_percent.pak",
-      "chrome_200_percent.pak",
-      "d3dcompiler_47.dll",
-      "resources.pak",
-      "snapshot_blob.bin",
-    ];
-    const missingRuntime = requiredRuntime.filter(
-      (f) => !existsSync(join(shellDir, f)),
-    );
-    if (missingRuntime.length) {
-      die(
-        `Electron runtime incomplete: missing ${missingRuntime.join(", ")} in ${shellDir}`,
-      );
-    }
-
-    // electron.exe is the runtime. Rename it to the product name so the
-    // shipped executable is ResoStage.exe. Electron resolves its helper
-    // processes and resources relative to its own executable path, so the
-    // name swap is safe (mirrors brand-mac-app.mjs on macOS).
-    const electronExeSrc = join(shellDir, "electron.exe");
-    if (!existsSync(electronExeSrc)) {
-      die(`Electron executable not found at ${electronExeSrc}`);
-    }
-    const oldShellExe = join(shellDir, "ResoStage.exe");
-    if (existsSync(oldShellExe)) rmSync(oldShellExe, { force: true });
-    if (existsSync(shellBundle)) rmSync(shellBundle, { force: true });
-    cpSync(electronExeSrc, shellBundle);
-    // Clean up original electron.exe so no 150MB duplicate binary is left in build/win/x64
-    rmSync(electronExeSrc, { force: true });
-
-    // electron.exe ships with Electron's own icon embedded. Patch the copied
-    // exe's PE resources so resostage.exe shows our icon in Explorer / the
-    // taskbar.
-    const appIco = join(ROOT, "icons", "app.ico");
-    patchWindowsExeMetadata(shellBundle, existsSync(appIco) ? appIco : null, "resostage.exe");
-
-    // The app proper (package.json + compiled dist/ + runtime deps) must live
-    // at resources/app/ -- that is the one place Electron looks for the
-    // packaged app when launched with no arguments. Next to the exe (the old
-    // layout) meant ResoStage.exe booted Electron's stock default_app.asar
-    // instead of this app.
-    const appDst = join(shellDir, "resources", "app");
-    rmSync(appDst, { recursive: true, force: true });
-    mkdirSync(appDst, { recursive: true });
-    cpSync(join(ROOT, "electron", "package.json"), join(appDst, "package.json"));
-    cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), {
-      recursive: true,
-    });
-    copyShellRuntimeDeps(appDst);
-
-    const iconsSrc = join(ROOT, "icons");
-    if (existsSync(iconsSrc)) {
-      cpSync(iconsSrc, join(appDst, "icons"), { recursive: true });
-    }
-
-    // The SPA the Electron shell loads (EMBED_URL = http://localhost:<port>/)
-    // is served by the nested Core's WebServer, not by the shell itself. The
-    // Core looks for it at <exe dir>/resources/web (Windows) / Contents/
-    // Resources/web (macOS), so copy the built UI there. Without this the
-    // Core has no web root in the packaged bundle and serves "not found" --
-    // a black window, even though a Core launched from the repo (where
-    // ./ui/dist exists) serves it fine.
-    const webSrc = join(ROOT, "ui", "dist");
-    if (existsSync(webSrc)) {
-      const webDst = join(shellDir, "resources", "web");
-      rmSync(webDst, { recursive: true, force: true });
-      cpSync(webSrc, webDst, { recursive: true });
-    } else {
-      log("WARNING: ui/dist missing -- the app will show a blank window (run pnpm rebuild)");
-    }
-
-    // Nested JUCE Core executable: core.exe
-    const coreDst = join(shellDir, `${CORE_APP_NAME}.exe`);
-    const oldCoreExe = join(shellDir, "ResoStage Core.exe");
-    if (existsSync(oldCoreExe)) rmSync(oldCoreExe, { force: true });
-    if (existsSync(coreDst)) rmSync(coreDst, { force: true });
-    const coreBuildDir = path.dirname(rawCore);
-    const coreExe = join(coreBuildDir, `${CORE_APP_NAME}.exe`);
-    if (existsSync(coreExe)) {
-      cpSync(coreExe, coreDst);
-      const coreIco = join(ROOT, "icons", "core.ico");
-      patchWindowsExeMetadata(coreDst, existsSync(coreIco) ? coreIco : null, "core.exe");
-    } else {
-      log(`Warning: Core exe not found at ${coreExe}`);
-    }
-
-    // Kaishaku executioner tool: kaishaku.exe
-    const kaishakuDst = join(shellDir, "kaishaku.exe");
-    const kaishakuRaw = join(coreBuildDir, "kaishaku.exe");
-    if (existsSync(kaishakuRaw)) {
-      if (existsSync(kaishakuDst)) rmSync(kaishakuDst, { force: true });
-      cpSync(kaishakuRaw, kaishakuDst);
-      const kaishakuIco = join(ROOT, "icons", "kaishaku.ico");
-      patchWindowsExeMetadata(kaishakuDst, existsSync(kaishakuIco) ? kaishakuIco : null, "kaishaku.exe");
-    }
-
-    ok(`Assembled ${shellBundle}`);
-    return;
-  }
-
-  log(`Unsupported platform: ${process.platform}`);
 }
 
 export function buildApp() {

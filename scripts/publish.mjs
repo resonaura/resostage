@@ -145,12 +145,13 @@ function publishMac() {
   const version = appVersion();
   // All staging + outputs go under PLATFORM_DIST_DIR/publish/<version>/
   const publishDir = join(PLATFORM_DIST_DIR, "publish", version);
-  // Clean target publish directory for clean rebuild
-  rmSync(publishDir, { recursive: true, force: true });
+  if (existsSync(publishDir)) {
+    run("rm", ["-rf", publishDir]);
+  }
+  mkdirSync(publishDir, { recursive: true });
   const stage = join(publishDir, "stage");
   mkdirSync(join(stage, "root", "Applications"), { recursive: true });
   mkdirSync(join(stage, "scripts"), { recursive: true });
-  mkdirSync(publishDir, { recursive: true });
 
   // Write entitlements into bundle's Resources (so it travels with the app)
   const entitlements = join(bundle, "Contents", "Resources", "entitlements.plist");
@@ -219,10 +220,14 @@ exit 0
   log("hdiutil...");
   run("hdiutil", [
     "create",
-    "-volname", `ResoStage ${version}`,
-    "-srcfolder", dmgStage,
-    "-ov", "-format", "UDZO",
     dmg,
+    "-volname",
+    `ResoStage ${version}`,
+    "-srcfolder",
+    dmgStage,
+    "-ov",
+    "-format",
+    "UDZO",
   ]);
   rmSync(stage, { recursive: true, force: true });
 
@@ -397,6 +402,8 @@ AppImage instead of this tarball.
 }
 
 // ── Entry ──────────────────────────────────────────────────────────────────
+
+export { publishMac, publishWindows, publishLinux };
 
 export function publish() {
   log(`Publishing ResoStage ${appVersion()} (${BUILD_TYPE})`);

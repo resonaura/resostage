@@ -385,9 +385,17 @@ void MainComponent::terminateElectronShell() {
         electronProcess.reset();
     }
 #if JUCE_WINDOWS
-    const juce::String killCmd = "cmd.exe /c \"taskkill /IM resostage.exe /F /T >NUL 2>&1 & taskkill /IM ResoStage.exe /F /T >NUL 2>&1\"";
-    juce::ChildProcess killer;
-    killer.start(killCmd);
+    juce::File exeDir = juce::File::getSpecialLocation(juce::File::currentApplicationFile).getParentDirectory();
+    juce::File kaishakuExe = exeDir.getChildFile("kaishaku.exe");
+    if (kaishakuExe.existsAsFile()) {
+        auto selfPid = juce::Process::getCurrentProcessId();
+        juce::ChildProcess killer;
+        killer.start("\"" + kaishakuExe.getFullPathName() + "\" " + juce::String(selfPid));
+    } else {
+        const juce::String killCmd = "cmd.exe /c \"taskkill /IM resostage.exe /F /T >NUL 2>&1 & taskkill /IM ResoStage.exe /F /T >NUL 2>&1\"";
+        juce::ChildProcess killer;
+        killer.start(killCmd);
+    }
 #endif
 }
 

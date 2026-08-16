@@ -22,5 +22,5 @@ export function createPlatformAdapter(context: PlatformContext): PlatformAdapter
 export { PlatformAdapter } from "./PlatformAdapter.js";
 export type { PlatformContext, PlatformInput, PlatformMenuSections } from "./PlatformAdapter.js";
 export { MacPlatformAdapter } from "./MacPlatformAdapter.js";
-export { WindowsPlatformAdapter } from "./WindowsPlatformAdapter.js";
+export { WindowsPlatformAdapter, WindowsPlatformAdapter as WinPlatformAdapter } from "./WindowsPlatformAdapter.js";
 export { LinuxPlatformAdapter } from "./LinuxPlatformAdapter.js";

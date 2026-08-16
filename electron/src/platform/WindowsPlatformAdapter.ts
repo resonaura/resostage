@@ -69,7 +69,11 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
       path.join(path.dirname(exe), "kaishaku.exe"),
       path.join(process.resourcesPath, "..", "kaishaku.exe"),
       path.join(process.resourcesPath, "kaishaku.exe"),
+      path.join(import.meta.dirname, "..", "..", "..", "build", "win", process.arch, "kaishaku.exe"),
+      path.join(process.cwd(), "build", "win", process.arch, "kaishaku.exe"),
+      path.join(import.meta.dirname, "..", "..", "..", "build", "win", "arm64", "kaishaku.exe"),
       path.join(import.meta.dirname, "..", "..", "..", "build", "win", "x64", "kaishaku.exe"),
+      path.join(process.cwd(), "build", "win", "arm64", "kaishaku.exe"),
       path.join(process.cwd(), "build", "win", "x64", "kaishaku.exe"),
     ];
     let kaishakuPath: string | null = null;
@@ -281,3 +285,5 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
     this.tray?.destroy();
   }
 }
+
+export { WindowsPlatformAdapter as WinPlatformAdapter };

@@ -49,9 +49,9 @@ export function SendKnobs({
 }) {
   const [menu, setMenu] = useState<SendMenu | null>(null);
 
-  if (auxBusses.length === 0) return null;
-
   const gesture = useRef(createEditGesture()).current;
+
+  if (auxBusses.length === 0) return null;
 
   // Percent is the unit of record everywhere below: the knob is the only
   // thing that thinks in dB, and it converts on the way out.

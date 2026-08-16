@@ -25,20 +25,16 @@ juce_add_binary_data(ResoStageTrayIconData
 
 if(WIN32)
   set(CORE_PRODUCT_NAME "core")
-  set(CORE_ICON "${CMAKE_SOURCE_DIR}/../icons/core.ico")
 elseif(APPLE)
   set(CORE_PRODUCT_NAME "ResoStage Core")
-  set(CORE_ICON "${CMAKE_SOURCE_DIR}/../icons/core.icns")
 else()
   set(CORE_PRODUCT_NAME "core")
-  set(CORE_ICON "${CMAKE_SOURCE_DIR}/../icons/core.png")
 endif()
 
 juce_add_gui_app(ResoStage
   PRODUCT_NAME "${CORE_PRODUCT_NAME}"
   COMPANY_NAME "Resonaura"
   BUNDLE_ID "com.resonaura.resostage.core"
-  ICON_BIG "${CORE_ICON}"
   PLIST_TO_MERGE "${INFO_PLIST_CONTENT}"
 )
 
@@ -195,10 +191,17 @@ else()
   target_compile_options(ResoStage PRIVATE -Wall -Wextra -Wunused)
 endif()
 
+set(KAISHAKU_SOURCES
+  kaishaku/main.cpp
+  kaishaku/MacKaishakuAdapter.cpp
+  kaishaku/WinKaishakuAdapter.cpp
+  kaishaku/LinuxKaishakuAdapter.cpp
+)
+
 if(WIN32 OR MINGW)
-  add_executable(kaishaku WIN32 kaishaku.cpp)
+  add_executable(kaishaku WIN32 ${KAISHAKU_SOURCES})
 else()
-  add_executable(kaishaku kaishaku.cpp)
+  add_executable(kaishaku ${KAISHAKU_SOURCES})
 endif()
 target_compile_features(kaishaku PRIVATE cxx_std_20)
 set_target_properties(kaishaku PROPERTIES OUTPUT_NAME "kaishaku")
