@@ -15,6 +15,7 @@
 #include <ws2tcpip.h>
 using SockT = SOCKET;
 using SockLenT = int;
+using ssize_t = ptrdiff_t;
 constexpr SockT INVALID_SOCK_CAST = INVALID_SOCKET;
 #else
 #include <arpa/inet.h>

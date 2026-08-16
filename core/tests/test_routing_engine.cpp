@@ -69,7 +69,7 @@ TEST_CASE("RoutingEngine: a reader's graph stays alive across later publishes") 
     // reading back as itself -- this is the use-after-free the hand-rolled
     // hazard-pointer versions kept getting wrong.
     auto held = engine.acquireForRender();
-    REQUIRE(held != nullptr);
+    REQUIRE(held.get() != nullptr);
     for (uint32_t i = 0; i < 100; ++i)
         engine.publish(makeGraph(i));
 
@@ -94,7 +94,7 @@ TEST_CASE("RoutingEngine: concurrent publish and render never tear or free early
     std::thread reader([&] {
         while (!stop.load()) {
             auto held = engine.acquireForRender();
-            if (held == nullptr)
+            if (held.get() == nullptr)
                 continue;
             // Every strip in a given graph carries the same marker, so a torn
             // read shows up as two strips disagreeing.
