@@ -317,24 +317,16 @@ end;
   }
 
   // Always create portable application archive for Windows (excluding the publish subfolder itself)
-  const zipPath = join(publishDir, `ResoStage-${version}-win-${process.arch}.zip`);
-  rmSync(zipPath, { force: true });
-  if (process.platform === "win32") {
+  const archivePath = join(publishDir, `ResoStage-${version}-win-${process.arch}.zip`);
+  rmSync(archivePath, { force: true });
+  if (have("tar")) {
     log("Compressing Windows portable ZIP...");
-    run("powershell", [
-      "-Command",
-      `Get-ChildItem -Path '${payload}' -Exclude 'publish' | Compress-Archive -DestinationPath '${zipPath}' -Force`
-    ]);
-    ok(`Portable ZIP: ${zipPath}`);
+    run("tar", ["-a", "-cf", archivePath, "--exclude=publish", "-C", payload, "."]);
+    ok(`Portable ZIP archive: ${archivePath}`);
   } else if (have("zip")) {
     log("Compressing Windows portable ZIP...");
-    run("zip", ["-r", "-q", zipPath, ".", "-x", "publish/*"], { cwd: payload });
-    ok(`Portable ZIP: ${zipPath}`);
-  } else {
-    log("Compressing Windows portable TAR.GZ...");
-    const tarPath = join(publishDir, `ResoStage-${version}-win-${process.arch}.tar.gz`);
-    run("tar", ["-czf", tarPath, "--exclude=./publish", "-C", payload, "."]);
-    ok(`Portable archive: ${tarPath}`);
+    run("zip", ["-r", "-q", archivePath, ".", "-x", "publish/*"], { cwd: payload });
+    ok(`Portable ZIP archive: ${archivePath}`);
   }
 }
 
