@@ -61,7 +61,7 @@ async function release() {
     { num: 2, name: "Install Dependencies", cmd: "pnpm install" },
     { num: 3, name: "Run Tests", cmd: "pnpm test && node scripts/test-remote.mjs" },
     { num: 4, name: "Rebuild App", cmd: "pnpm rebuild" },
-    { num: 5, name: "Publish Installers", cmd: "pnpm publish" },
+    { num: 5, name: "Publish Installers", cmd: "pnpm run publish" },
   ];
 
   for (const stage of STAGES) {
@@ -88,7 +88,8 @@ async function release() {
     console.log(`Collecting artifacts from [${dev.name}] into dist/release/${plat}-${arch}...`);
 
     if (dev.isLocal || dev.host === "localhost" || dev.host === "127.0.0.1") {
-      const localBuildDir = join(ROOT, "build", plat, arch);
+      const pubDir = join(ROOT, "build", plat, arch, "publish");
+      const localBuildDir = existsSync(pubDir) ? pubDir : join(ROOT, "build", plat, arch);
       if (existsSync(localBuildDir)) {
         cpSync(localBuildDir, targetFolder, { recursive: true });
         console.log(`  -> Copied local artifacts from ${localBuildDir}`);
@@ -102,8 +103,8 @@ async function release() {
       const remotePath = dev.path || (plat === "win32" ? "C:\\Users\\tkach\\resostage" : "~/resostage");
 
       const remoteBuildPath = plat === "win32"
-        ? `${remotePath}\\build\\win\\x64\\*`
-        : `${remotePath}/build/linux/x64/*`;
+        ? `${remotePath}\\build\\win\\x64\\publish\\*`
+        : `${remotePath}/build/linux/x64/publish/*`;
 
       const scpArgs = [
         "-r",
