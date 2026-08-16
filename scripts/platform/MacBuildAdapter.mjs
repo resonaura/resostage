@@ -1,4 +1,4 @@
-import { existsSync, rmSync, cpSync } from "node:fs";
+import { existsSync, rmSync, cpSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { BuildAdapter } from "./BuildAdapter.mjs";
@@ -107,6 +107,9 @@ export class MacBuildAdapter extends BuildAdapter {
   }
 
   assembleShellBundle() {
+    this.killApp({ bestEffort: true });
+    for (let i = 0; i < 20 && this.appIsRunning(); i++) sleepMs(250);
+
     buildElectronShell();
     const rawCore = this.getRawCoreAppBundle();
     if (!existsSync(rawCore)) {
@@ -115,6 +118,11 @@ export class MacBuildAdapter extends BuildAdapter {
     }
 
     const shellBundle = this.getShellAppBundle();
+    if (existsSync(shellBundle)) {
+      log(`Cleaning old app bundle at ${shellBundle}...`);
+      rmSync(shellBundle, { recursive: true, force: true });
+    }
+
     log(`Assembling ${shellBundle}...`);
     run("node", [
       join(ROOT, "electron", "scripts", "brand-mac-app.mjs"),
@@ -147,21 +155,61 @@ export class MacBuildAdapter extends BuildAdapter {
       cpSync(coreIcns, coreIconDst, { force: true });
     }
 
-    const coreBuildDir = dirname(rawCore);
-    const kaishakuRaw = join(coreBuildDir, "kaishaku");
-    if (existsSync(kaishakuRaw)) {
-      const kaishakuDst1 = join(resources, "kaishaku");
-      rmSync(kaishakuDst1, { force: true });
-      cpSync(kaishakuRaw, kaishakuDst1);
+    const kaishakuRawApp =
+      findFileRecursively(BUILD_DIR, "ResoStage Kaishaku.app") ??
+      findFileRecursively(BUILD_DIR, "kaishaku.app");
+    const kaishakuRawBin = findFileRecursively(BUILD_DIR, "kaishaku");
+    const kaishakuRaw = kaishakuRawApp ?? kaishakuRawBin;
 
-      const kaishakuDst2 = join(coreDst, "Contents", "MacOS", "kaishaku");
-      rmSync(kaishakuDst2, { force: true });
-      cpSync(kaishakuRaw, kaishakuDst2);
+    if (kaishakuRaw && existsSync(kaishakuRaw)) {
+      if (kaishakuRaw.endsWith(".app")) {
+        const targetAppName = "ResoStage Kaishaku.app";
+        const kaishakuDst1 = join(resources, targetAppName);
+        rmSync(kaishakuDst1, { recursive: true, force: true });
+        cpSync(kaishakuRaw, kaishakuDst1, { recursive: true });
 
-      try {
-        execFileSync("chmod", ["+x", kaishakuDst1]);
-        execFileSync("chmod", ["+x", kaishakuDst2]);
-      } catch {}
+        const kaishakuDst2 = join(coreDst, "Contents", "Resources", targetAppName);
+        rmSync(kaishakuDst2, { recursive: true, force: true });
+        cpSync(kaishakuRaw, kaishakuDst2, { recursive: true });
+
+        // Clean up legacy kaishaku.app if present
+        const legacy1 = join(resources, "kaishaku.app");
+        const legacy2 = join(coreDst, "Contents", "Resources", "kaishaku.app");
+        if (existsSync(legacy1)) rmSync(legacy1, { recursive: true, force: true });
+        if (existsSync(legacy2)) rmSync(legacy2, { recursive: true, force: true });
+
+        // Copy icon into ResoStage Kaishaku.app if present
+        const kaishakuIcns = join(ROOT, "icons", "kaishaku.icns");
+        if (existsSync(kaishakuIcns)) {
+          const res1 = join(kaishakuDst1, "Contents", "Resources");
+          const res2 = join(kaishakuDst2, "Contents", "Resources");
+          mkdirSync(res1, { recursive: true });
+          mkdirSync(res2, { recursive: true });
+          cpSync(kaishakuIcns, join(res1, "AppIcon.icns"), { force: true });
+          cpSync(kaishakuIcns, join(res2, "AppIcon.icns"), { force: true });
+        }
+      } else {
+        const kaishakuDst1 = join(resources, "kaishaku");
+        rmSync(kaishakuDst1, { force: true });
+        cpSync(kaishakuRaw, kaishakuDst1);
+
+        const kaishakuDst2 = join(coreDst, "Contents", "MacOS", "kaishaku");
+        rmSync(kaishakuDst2, { force: true });
+        cpSync(kaishakuRaw, kaishakuDst2);
+
+        const kaishakuDst3 = join(shellBundle, "Contents", "MacOS", "kaishaku");
+        rmSync(kaishakuDst3, { force: true });
+        cpSync(kaishakuRaw, kaishakuDst3);
+
+        try {
+          execFileSync("chmod", ["+x", kaishakuDst1]);
+          execFileSync("chmod", ["+x", kaishakuDst2]);
+          execFileSync("chmod", ["+x", kaishakuDst3]);
+        } catch {}
+      }
+      log(`Bundled kaishaku executioner into shell resources and Core.app`);
+    } else {
+      log(`Warning: kaishaku raw binary not found in ${BUILD_DIR}`);
     }
 
     run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);

@@ -55,10 +55,16 @@ export class MacPlatformAdapter extends PlatformAdapter {
 
   override forceKillSelfTree(backendPid?: number): void {
     const candidates = [
+      path.join(process.resourcesPath, "ResoStage Kaishaku.app", "Contents", "MacOS", "ResoStage Kaishaku"),
+      path.join(process.resourcesPath, "ResoStage Kaishaku.app", "Contents", "MacOS", "kaishaku"),
+      path.join(process.resourcesPath, "kaishaku.app", "Contents", "MacOS", "kaishaku"),
       path.join(process.resourcesPath, "kaishaku"),
       path.join(process.resourcesPath, "..", "kaishaku"),
       path.join(path.dirname(process.execPath), "kaishaku"),
+      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "kaishaku_artefacts", "RelWithDebInfo", "ResoStage Kaishaku.app", "Contents", "MacOS", "ResoStage Kaishaku"),
+      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "kaishaku.app", "Contents", "MacOS", "kaishaku"),
       path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "kaishaku"),
+      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "RelWithDebInfo", "kaishaku.app", "Contents", "MacOS", "kaishaku"),
       path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "RelWithDebInfo", "kaishaku"),
     ];
 

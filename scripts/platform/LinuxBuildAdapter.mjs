@@ -71,6 +71,9 @@ export class LinuxBuildAdapter extends BuildAdapter {
   }
 
   assembleShellBundle() {
+    this.killApp({ bestEffort: true });
+    for (let i = 0; i < 20 && this.appIsRunning(); i++) sleepMs(250);
+
     buildElectronShell();
     const rawCore = this.getRawCoreAppBundle();
     if (!existsSync(rawCore)) {
@@ -80,6 +83,11 @@ export class LinuxBuildAdapter extends BuildAdapter {
 
     const shellBundle = this.getShellAppBundle();
     const shellDir = dirname(shellBundle);
+    if (existsSync(shellDir)) {
+      log(`Cleaning old build directory at ${shellDir}...`);
+      rmSync(shellDir, { recursive: true, force: true });
+    }
+
     log(`Assembling ${shellBundle}...`);
     mkdirSync(shellDir, { recursive: true });
 

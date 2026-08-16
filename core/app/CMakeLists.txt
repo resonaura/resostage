@@ -192,7 +192,14 @@ set(KAISHAKU_SOURCES
   kaishaku/LinuxKaishakuAdapter.cpp
 )
 
-if(WIN32 OR MINGW)
+if(APPLE)
+  juce_add_gui_app(kaishaku
+    PRODUCT_NAME "ResoStage Kaishaku"
+    COMPANY_NAME "Resonaura"
+    BUNDLE_ID "com.resonaura.resostage.kaishaku"
+  )
+  target_sources(kaishaku PRIVATE ${KAISHAKU_SOURCES})
+elseif(WIN32 OR MINGW)
   add_executable(kaishaku WIN32 ${KAISHAKU_SOURCES})
 else()
   add_executable(kaishaku ${KAISHAKU_SOURCES})
