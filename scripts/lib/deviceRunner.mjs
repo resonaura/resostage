@@ -90,6 +90,7 @@ export function probeDevice(device) {
   const sshArgs = [
     "-o", "StrictHostKeyChecking=no",
     "-o", "ConnectTimeout=4",
+    ...(pass ? ["-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"] : []),
     `${user}@${host}`,
     "echo online",
   ];
@@ -140,6 +141,7 @@ export function execOnDevice(device, remoteCmd, opts = {}) {
   const sshArgs = [
     "-o", "StrictHostKeyChecking=no",
     "-o", "ConnectTimeout=10",
+    ...(pass ? ["-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"] : []),
     `${user}@${host}`,
     fullRemoteCmd,
   ];
