@@ -107,18 +107,21 @@ set(RESOSTAGE_ASIO_SDK_DIR "$ENV{RESOSTAGE_ASIO_SDK_DIR}" CACHE PATH
     "Path to the Steinberg ASIO SDK (enables ASIO on Windows)")
 
 set(RESOSTAGE_HAVE_ASIO 0)
-if(WIN32 AND RESOSTAGE_ASIO_SDK_DIR)
-  if(EXISTS "${RESOSTAGE_ASIO_SDK_DIR}/common/iasiodrv.h")
+if(WIN32)
+  if(DEFINED RESOSTAGE_ASIO_SDK_DIR AND EXISTS "${RESOSTAGE_ASIO_SDK_DIR}/common/iasiodrv.h")
     set(RESOSTAGE_HAVE_ASIO 1)
     target_include_directories(ResoStage PRIVATE "${RESOSTAGE_ASIO_SDK_DIR}/common")
     message(STATUS "ASIO enabled from ${RESOSTAGE_ASIO_SDK_DIR}")
+  elseif(EXISTS "${CMAKE_SOURCE_DIR}/vendor/asiosdk/common/iasiodrv.h")
+    set(RESOSTAGE_HAVE_ASIO 1)
+    target_include_directories(ResoStage PRIVATE "${CMAKE_SOURCE_DIR}/vendor/asiosdk/common")
+    message(STATUS "ASIO enabled from vendored Steinberg ASIO SDK")
   else()
-    message(WARNING
-      "RESOSTAGE_ASIO_SDK_DIR set but ${RESOSTAGE_ASIO_SDK_DIR}/common/iasiodrv.h "
-      "is missing -- building without ASIO")
+    set(RESOSTAGE_HAVE_ASIO 0)
+    message(STATUS "ASIO disabled (set RESOSTAGE_ASIO_SDK_DIR to enable)")
   endif()
-elseif(WIN32)
-  message(STATUS "ASIO disabled (set RESOSTAGE_ASIO_SDK_DIR to enable)")
+else()
+  set(RESOSTAGE_HAVE_ASIO 0)
 endif()
 
 target_compile_definitions(ResoStage
