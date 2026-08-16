@@ -126,6 +126,8 @@ void MainComponent::rescanHardwareSettings() {
     }
     if (auto* curType = dm.getCurrentDeviceTypeObject())
         out.currentAudioDriver = curType->getTypeName().toStdString();
+    if (auto* dev = dm.getCurrentAudioDevice())
+        out.hasControlPanel = dev->hasControlPanel();
 
     // Prefer the currently selected type's names first.
     if (auto* curType = dm.getCurrentDeviceTypeObject()) {
@@ -360,6 +362,17 @@ void MainComponent::settingsSetAudioDeviceType(const std::string& json) {
     engine.rebuildDirectOutBusses();
     publishWebState();
     setStatus("Audio driver: " + juce::String(type));
+}
+
+void MainComponent::settingsShowAudioControlPanel() {
+    if (auto* dev = engine.deviceManager().getCurrentAudioDevice()) {
+        if (dev->hasControlPanel()) {
+            dev->showControlPanel();
+            setStatus("Opened audio control panel");
+        } else {
+            setStatus("Current audio driver has no control panel");
+        }
+    }
 }
 
 void MainComponent::settingsSetSampleRate(const std::string& json) {

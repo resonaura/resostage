@@ -89,8 +89,8 @@ MixResult runMix(const MixGraph& graph, const std::vector<std::pair<std::string,
 float lastL(const MixResult& r) { return r.outLeft[kBlock - 1]; }
 float lastR(const MixResult& r) { return r.outRight[kBlock - 1]; }
 
-const StripLevels& levelOf(const MixGraph& g, const MixResult& r, const std::string& id) {
-    return r.levels[g.find(id)];
+const StripLevels& levelOf(const MixGraph& g, const MixResult& r, std::string_view id) {
+    return r.levels[g.find(std::string(id))];
 }
 
 } // namespace

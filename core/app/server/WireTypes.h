@@ -552,6 +552,7 @@ struct WSettingsTelemetry {
     std::optional<std::vector<std::string>> outputDevices;
     std::optional<std::vector<std::string>> audioDrivers;
     std::optional<std::string> currentAudioDriver;
+    std::optional<bool> hasControlPanel;
     std::optional<double> sampleRate;
     std::optional<std::vector<double>> availableSampleRates;
     std::optional<int> bufferSize;

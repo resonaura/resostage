@@ -85,7 +85,7 @@ TEST_CASE("sampleGradient: an empty palette is black, a one-stop palette is a so
 TEST_CASE("builtinPalette: every named palette peaks at full brightness on both leading channels") {
     // Not asserting the blue channel too -- Vulcan's peak is a warm white
     // (255,255,220), not a pure one, by design.
-    for (const std::string& name : {"vulcanFire", "toxicFire", "cryoFire", "cyberpunkFire"}) {
+    for (const char* name : {"vulcanFire", "toxicFire", "cryoFire", "cyberpunkFire"}) {
         const auto& p = builtinPalette(name);
         REQUIRE(p.size() >= 2);
         CHECK(p.back().r == 255);

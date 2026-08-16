@@ -162,7 +162,7 @@ TEST_CASE("StreamingEngine survives concurrent stageSong() and acquireActiveSong
     std::thread reader([&] {
         std::vector<float> buf(256);
         float* channels[1] = {buf.data()};
-        while (!stop.load(std::memory_order_acquire)) {
+        while (!stop.load(std::memory_order_acquire) || readsDone.load() == 0) {
             StreamingEngine::ActiveSongHandle handle = engine.acquireActiveSong();
             if (handle) {
                 StreamingTrackBuffer* track = handle.region("reg_a");
@@ -173,6 +173,9 @@ TEST_CASE("StreamingEngine survives concurrent stageSong() and acquireActiveSong
                     readsDone.fetch_add(1, std::memory_order_relaxed);
                 }
             }
+            if (stop.load(std::memory_order_acquire) && stagesDone.load() > 0 && readsDone.load() > 0)
+                break;
+            std::this_thread::yield();
         }
     });
 

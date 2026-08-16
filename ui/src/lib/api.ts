@@ -646,6 +646,8 @@ export const settings = {
   /** Switch host audio API (ASIO / CoreAudio / ALSA / JACK / Windows Audio). */
   setAudioDriver: (type: string) =>
     post("/api/v1/settings/audio-driver", { type }),
+  showAudioControlPanel: () =>
+    post("/api/v1/settings/audio-control-panel", {}),
   setSampleRate: (value: number) =>
     post("/api/v1/settings/sample-rate", { value }),
   setBufferSize: (value: number) =>

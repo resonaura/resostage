@@ -181,6 +181,7 @@ enum class WebCommandKind : uint8_t {
     // the Builder commands above; handled in MainComponentSettings.cpp.
     SetAudioOutputDevice,
     SetAudioDeviceType,
+    ShowAudioControlPanel,
     SetSampleRate,
     SetBufferSize,
     SetMidiOutput,
@@ -791,6 +792,7 @@ struct WebUiState {
         std::vector<std::string> outputDevices;
         std::vector<std::string> audioDrivers;
         std::string currentAudioDriver;
+        bool hasControlPanel = false;
         double sampleRate = 0.0;
         std::vector<double> availableSampleRates;
         int bufferSize = 0;

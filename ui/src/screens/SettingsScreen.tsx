@@ -383,16 +383,12 @@ function AudioTab({ state }: { state: WebUiState }) {
         </Suspense>
       )}
 
-      <Section title="Output Device">
-        {/* Only worth showing when there is a choice: macOS has CoreAudio and
-            nothing else, and a select with one option is furniture. On Windows
-            this is where ASIO appears -- and where a rig that came back on
-            WASAPI after a restart gets put back. */}
-        {s.audioDrivers.length > 1 && (
-          <Field label="Driver">
+      <Section title="Audio Driver & Output Device">
+        {s.audioDrivers.length > 0 && (
+          <Field label="Audio Driver Type">
             <Select
-              aria-label="Audio driver"
-              title="The host audio API. ASIO and JACK reach the same interface with far lower latency than the shared-mode default."
+              aria-label="Audio driver type"
+              title="Host audio API (CoreAudio on macOS, WASAPI/ASIO/DirectSound on Windows, ALSA/PulseAudio/JACK on Linux)."
               options={s.audioDrivers.map((d) => ({ id: d, label: d }))}
               value={s.currentAudioDriver || s.audioDrivers[0] || ""}
               onChange={(d) => void settingsApi.setAudioDriver(d)}
@@ -403,14 +399,23 @@ function AudioTab({ state }: { state: WebUiState }) {
           <Select
             aria-label="Output device"
             placeholder="No devices reported"
-            // A device that has gone away is still what the engine is
-            // configured for, so it stays in the list rather than the control
-            // silently reading as some other device.
             options={deviceOptions}
             value={s.currentOutputDevice || outputDevices[0] || ""}
             onChange={(d) => void settingsApi.setAudioOutputDevice(d)}
           />
         </Field>
+        {(s.hasControlPanel || (s.currentAudioDriver && s.currentAudioDriver.toUpperCase().includes("ASIO"))) && (
+          <div className="pt-1">
+            <Button
+              size="sm"
+              variant="outline"
+              onPress={() => void settingsApi.showAudioControlPanel()}
+            >
+              <SlidersHorizontal size={14} />
+              Control Panel (Панель управления)
+            </Button>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Sample rate">
             <Select

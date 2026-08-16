@@ -40,6 +40,7 @@ public:
         parser.addOption("", "discovery", "Enable mDNS / UDP datagram discovery", "true", true);
         parser.addOption("", "no-discovery", "Disable mDNS / UDP datagram discovery", "", true);
         parser.addOption("", "ipc-socket", "IPC socket path for Electron bridge", "");
+        parser.addOption("l", "list-audio-devices", "List available audio driver types and devices, then exit", "", true);
 
         const juce::String cli = commandLine.trim();
         juce::StringArray tokens = juce::StringArray::fromTokens(commandLine, true);
@@ -51,6 +52,39 @@ public:
 
         if (tokens.contains("--version") || tokens.contains("-v")) {
             std::fprintf(stderr, "ResoStage Core v0.2.0\n");
+            std::exit(0);
+        }
+
+        if (tokens.contains("--list-audio-devices") || tokens.contains("--devices") || tokens.contains("-l")) {
+            juce::AudioDeviceManager mgr;
+            mgr.createAudioDeviceTypes();
+            std::printf("========================================\n");
+            std::printf("  ResoStage Audio Drivers & Devices\n");
+            std::printf("========================================\n\n");
+
+            const auto types = mgr.getAvailableDeviceTypes();
+            if (types.isEmpty()) {
+                std::printf("  (No audio device drivers found)\n");
+            } else {
+                for (auto* t : types) {
+                    if (t == nullptr) continue;
+                    std::printf("Driver API: %s\n", t->getTypeName().toRawUTF8());
+                    t->scanForDevices();
+
+                    const auto inputs = t->getDeviceNames(true);
+                    std::printf("  Input Devices (%d):\n", inputs.size());
+                    for (const auto& dev : inputs) {
+                        std::printf("   - %s\n", dev.toRawUTF8());
+                    }
+
+                    const auto outputs = t->getDeviceNames(false);
+                    std::printf("  Output Devices (%d):\n", outputs.size());
+                    for (const auto& dev : outputs) {
+                        std::printf("   - %s\n", dev.toRawUTF8());
+                    }
+                    std::printf("\n");
+                }
+            }
             std::exit(0);
         }
 

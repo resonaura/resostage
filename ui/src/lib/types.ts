@@ -660,6 +660,7 @@ export interface SettingsState {
    *  here on Windows only when the build found the Steinberg SDK. */
   audioDrivers: string[];
   currentAudioDriver: string;
+  hasControlPanel?: boolean;
   sampleRate: number;
   availableSampleRates: number[];
   bufferSize: number;

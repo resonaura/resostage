@@ -58,8 +58,8 @@ OutputLaneConfig outputs16() {
     return cfg;
 }
 
-const MixStrip& stripFor(const MixGraph& g, const std::string& id) {
-    const uint32_t index = g.find(id);
+const MixStrip& stripFor(const MixGraph& g, std::string_view id) {
+    const uint32_t index = g.find(std::string(id));
     REQUIRE(index != MixGraph::kNoStrip);
     return g.strips[index];
 }
