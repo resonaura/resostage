@@ -122,12 +122,11 @@ export function die(msg) {
 export function run(cmd, args = [], opts = {}) {
   const { cwd = ROOT, env = process.env, allowFail = false } = opts;
   const executable = process.platform === "win32" && cmd === "pnpm" ? "pnpm.cmd" : cmd;
-  const useShell = process.platform === "win32";
   const r = spawnSync(executable, args, {
     cwd,
     env,
     stdio: "inherit",
-    shell: useShell,
+    shell: false,
   });
   if (r.error) {
     if (allowFail) return r.status ?? 1;
@@ -142,12 +141,11 @@ export function run(cmd, args = [], opts = {}) {
 /** Quiet command; returns { status, stdout, stderr }. */
 export function runQuiet(cmd, args = [], opts = {}) {
   const executable = process.platform === "win32" && cmd === "pnpm" ? "pnpm.cmd" : cmd;
-  const useShell = process.platform === "win32";
   const r = spawnSync(executable, args, {
     cwd: opts.cwd ?? ROOT,
     env: opts.env ?? process.env,
     encoding: "utf8",
-    shell: useShell,
+    shell: false,
   });
   return {
     status: r.status ?? 1,

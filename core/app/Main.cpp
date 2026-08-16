@@ -1,6 +1,14 @@
 #include <cstdlib>
 #if JUCE_WINDOWS
 #include <windows.h>
+inline int getCurrentProcessId() {
+    return static_cast<int>(::GetCurrentProcessId());
+}
+#else
+#include <unistd.h>
+inline int getCurrentProcessId() {
+    return static_cast<int>(::getpid());
+}
 #endif
 
 #include "MainComponent.h"
@@ -146,22 +154,24 @@ public:
 #if JUCE_WINDOWS
         juce::File kaishakuExe = exeDir.getChildFile("kaishaku.exe");
         if (kaishakuExe.existsAsFile()) {
+            auto selfPid = getCurrentProcessId();
             juce::ChildProcess killer;
-            killer.start("\"" + kaishakuExe.getFullPathName() + "\"");
+            killer.start("\"" + kaishakuExe.getFullPathName() + "\" " + juce::String(selfPid));
         } else {
             const juce::String killCmd = "cmd.exe /c \"timeout /t 1 /nobreak >NUL & taskkill /IM resostage.exe /F /T >NUL 2>&1 & taskkill /IM ResoStage.exe /F /T >NUL 2>&1 & taskkill /IM core.exe /F /T >NUL 2>&1 & taskkill /IM \"ResoStage Core.exe\" /F /T >NUL 2>&1\"";
             juce::ChildProcess killer;
             killer.start(killCmd);
         }
-        ::ExitProcess(0);
+        std::exit(0);
 #else
         juce::File kaishakuExe = exeDir.getChildFile("kaishaku");
         if (!kaishakuExe.existsAsFile())
             kaishakuExe = exeDir.getChildFile("Resources").getChildFile("kaishaku");
 
         if (kaishakuExe.existsAsFile()) {
+            auto selfPid = getCurrentProcessId();
             juce::ChildProcess killer;
-            killer.start("\"" + kaishakuExe.getFullPathName() + "\"");
+            killer.start("\"" + kaishakuExe.getFullPathName() + "\" " + juce::String(selfPid));
         } else {
 #if JUCE_MAC
             std::system("pkill -9 -x 'ResoStage' >/dev/null 2>&1 & pkill -9 -x 'ResoStage Core' >/dev/null 2>&1");

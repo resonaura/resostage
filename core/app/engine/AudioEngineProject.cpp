@@ -53,7 +53,7 @@ static void forceRemoveAll(const std::filesystem::path& p, std::error_code& ec) 
     fs::remove_all(p, ec);
 }
 
-static bool replacePathHelper(const std::string& from, const std::string& to, std::string& err, std::vector<std::string>* stalePackages = nullptr) {
+static bool replacePathHelper(const std::string& from, const std::string& to, [[maybe_unused]] std::string& err, std::vector<std::string>* stalePackages = nullptr) {
     namespace fs = std::filesystem;
     std::error_code ec;
 
@@ -311,7 +311,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     const std::string oldDraftPath = usingDraftArchive ? loader.archivePath() : std::string();
     Project snapshot = loader.project();
     std::string sourcePath = loader.archivePath();
-    const bool isContainer = loader.isDirectoryContainer();
+    [[maybe_unused]] const bool isContainer = loader.isDirectoryContainer();
 #if JUCE_WINDOWS
     const bool playThroughOk = false;
 #else

@@ -12,6 +12,14 @@
 
 #if JUCE_WINDOWS
 #include <windows.h>
+[[maybe_unused]] static int getCurrentProcessId() {
+    return static_cast<int>(::GetCurrentProcessId());
+}
+#else
+#include <unistd.h>
+[[maybe_unused]] static int getCurrentProcessId() {
+    return static_cast<int>(::getpid());
+}
 #endif
 
 #include <algorithm>
@@ -388,7 +396,7 @@ void MainComponent::terminateElectronShell() {
     juce::File exeDir = juce::File::getSpecialLocation(juce::File::currentApplicationFile).getParentDirectory();
     juce::File kaishakuExe = exeDir.getChildFile("kaishaku.exe");
     if (kaishakuExe.existsAsFile()) {
-        auto selfPid = juce::Process::getCurrentProcessId();
+        auto selfPid = getCurrentProcessId();
         juce::ChildProcess killer;
         killer.start("\"" + kaishakuExe.getFullPathName() + "\" " + juce::String(selfPid));
     } else {
