@@ -96,14 +96,25 @@ export function probeDevice(device) {
   ];
 
   if (pass) {
-    const r = spawnSync("sshpass", ["-p", pass, "ssh", ...sshArgs], {
+    let r = spawnSync("sshpass", ["-p", pass, "ssh", ...sshArgs], {
       stdio: ["pipe", "pipe", "pipe"],
       encoding: "utf8",
     });
+    if (r.status !== 0 || !r.stdout.includes("online")) {
+      spawnSync("sleep", ["0.5"]);
+      r = spawnSync("sshpass", ["-p", pass, "ssh", ...sshArgs], {
+        stdio: ["pipe", "pipe", "pipe"],
+        encoding: "utf8",
+      });
+    }
     return r.status === 0 && r.stdout.includes("online");
   }
 
-  const r = spawnSync("ssh", sshArgs, { stdio: ["pipe", "pipe", "pipe"], encoding: "utf8" });
+  let r = spawnSync("ssh", sshArgs, { stdio: ["pipe", "pipe", "pipe"], encoding: "utf8" });
+  if (r.status !== 0 || !r.stdout.includes("online")) {
+    spawnSync("sleep", ["0.5"]);
+    r = spawnSync("ssh", sshArgs, { stdio: ["pipe", "pipe", "pipe"], encoding: "utf8" });
+  }
   return r.status === 0 && r.stdout.includes("online");
 }
 
