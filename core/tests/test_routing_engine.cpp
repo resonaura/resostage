@@ -43,7 +43,7 @@ std::shared_ptr<const MixGraph> makeGraph(uint32_t marker) {
 
 TEST_CASE("RoutingEngine: no publish yet reads as null rather than a stale graph") {
     RoutingEngine engine;
-    CHECK(engine.acquireForRender() == nullptr);
+    CHECK(engine.acquireForRender().get() == nullptr);
 }
 
 TEST_CASE("RoutingEngine: acquireForRender sees the most recent publish") {
@@ -51,12 +51,12 @@ TEST_CASE("RoutingEngine: acquireForRender sees the most recent publish") {
     engine.publish(makeGraph(1));
     {
         auto held = engine.acquireForRender();
-        REQUIRE(held != nullptr);
+        REQUIRE(held.get() != nullptr);
         CHECK(held->strips[0].projectIndex == 1);
     }
     engine.publish(makeGraph(2));
     auto held = engine.acquireForRender();
-    REQUIRE(held != nullptr);
+    REQUIRE(held.get() != nullptr);
     CHECK(held->strips[0].projectIndex == 2);
 }
 
