@@ -1,4 +1,4 @@
-import { Spinner } from "@heroui/react";
+import { Chip, Spinner } from "@heroui/react";
 import {
   AlertTriangle,
   Gauge,
@@ -512,7 +512,7 @@ export default function App() {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
       <header className="relative flex h-14 shrink-0 items-center bg-background px-2 sm:px-4">
-        <div className="z-10 flex shrink-0 items-center">
+        <div className="z-10 flex shrink-0 items-center gap-2">
           <img
             src="/logo.svg"
             alt="ResoStage"
@@ -520,6 +520,11 @@ export default function App() {
             className="h-7 w-7 shrink-0 object-contain"
             draggable={false}
           />
+          {window.location.search.includes("remote=1") || (window.resostageElectron && (window as any).__isRemoteMode) ? (
+            <Chip color="warning" variant="soft" size="sm" className="font-semibold text-[11px]">
+              REMOTE
+            </Chip>
+          ) : null}
         </div>
 
         {/* Center transport: always mounted, fades out on Player tab. Hidden

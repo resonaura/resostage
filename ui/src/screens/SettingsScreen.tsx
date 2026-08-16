@@ -3,11 +3,13 @@ import {
   Activity,
   Music3,
   Palette,
+  Radio,
   SlidersHorizontal,
   Workflow,
   Zap,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { RemoteSettingsSection } from "../components/RemoteSettingsSection";
 import { FontIcon } from "../components/FontIcon";
 import {
   Alert,
@@ -277,7 +279,7 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
 ];
 
 // ─── Tab definitions ──────────────────────────────────────────────────────
-type SettingsTab = "audio" | "midi" | "appearance" | "performance" | "health";
+type SettingsTab = "audio" | "midi" | "appearance" | "performance" | "health" | "remote";
 
 const SETTINGS_TABS: {
   id: SettingsTab;
@@ -290,6 +292,7 @@ const SETTINGS_TABS: {
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "performance", label: "Performance", icon: Zap },
   { id: "health", label: "Health", icon: Activity },
+  { id: "remote", label: "Remote", icon: Radio },
 ];
 
 // ─── Section wrapper ──────────────────────────────────────────────────────
@@ -980,6 +983,7 @@ export function SettingsScreen({
               <PerformanceTab state={state} performance={performance} />
             )}
             {tab.id === "health" && <HealthTab state={state} />}
+            {tab.id === "remote" && <RemoteSettingsSection />}
           </Tabs.Panel>
         ))}
       </Tabs>

@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld("resostageElectron", {
    * no-op on non-mac / non-Force-Touch hardware. */
   hapticFeedback: (pattern?: "generic" | "alignment" | "levelChange") =>
     ipcRenderer.send("haptic-feedback", pattern ?? "alignment"),
+  /** Remote mode LAN discovery & connection */
+  getDiscoveredDevices: () => ipcRenderer.invoke("remote:get-discovered-devices"),
+  connectRemote: (host: string, port: number) =>
+    ipcRenderer.invoke("remote:connect", { host, port }),
+  disconnectRemote: () => ipcRenderer.invoke("remote:disconnect"),
+  getRemoteStatus: () => ipcRenderer.invoke("remote:get-status"),
 });
 
 type BridgeGlobal = typeof globalThis & {

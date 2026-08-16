@@ -11,6 +11,7 @@
 }
 #endif
 
+#include "config/CliParser.h"
 #include "MainComponent.h"
 #include "platform/ProcessPriority.h"
 
@@ -29,79 +30,76 @@ public:
     bool moreThanOneInstanceAllowed() override { return false; }
 
     void initialise(const juce::String& commandLine) override {
-        // Prefer high scheduling priority so audio stays solid when the
-        // rest of the system is thrashing (see ProcessPriority.cpp).
         boostAppProcessPriority();
 
+        CliParser parser("ResoStage Core CLI v0.2.0", "ResoStage Core engine daemon & CLI");
+        parser.addOption("h", "help", "Show this help message and exit", "", true);
+        parser.addOption("v", "version", "Output version information and exit", "", true);
+        parser.addOption("", "backend-port", "HTTP/WebSocket server port", "2899");
+        parser.addOption("", "bind-address", "Server bind IP address (0.0.0.0 or 127.0.0.1)", "0.0.0.0");
+        parser.addOption("", "discovery", "Enable mDNS / UDP datagram discovery", "true", true);
+        parser.addOption("", "no-discovery", "Disable mDNS / UDP datagram discovery", "", true);
+        parser.addOption("", "ipc-socket", "IPC socket path for Electron bridge", "");
+
         const juce::String cli = commandLine.trim();
-        std::fprintf(stderr, "[resostage-core] CLI: %s\n", cli.toRawUTF8());
-        const juce::String ipcToken = "--ipc-socket ";
-        const int idx = cli.indexOf(ipcToken);
-        std::string ipcSocketPath;
-        if (idx >= 0) {
-            const int start = idx + ipcToken.length();
-            const juce::String rest = cli.substring(start).trim();
-            // путь может начинаться с / (Linux/macOS) — читаем до пробела
-            juce::String path;
-            for (int i = 0; i < rest.length(); ++i) {
-                const juce::juce_wchar c = rest[i];
-                if (c == ' ' || c == '\t')
-                    break;
-                path << c;
-            }
-            if (!path.isEmpty())
-                ipcSocketPath = path.toStdString();
-        }
-
-        // Parse --backend-port for remote mode (Electron connects to this port)
-        uint16_t webPort = MainComponent::kWebPort;
-        const juce::String portToken = "--backend-port=";
-        const int portIdx = cli.indexOf(portToken);
-        if (portIdx >= 0) {
-            const int start = portIdx + portToken.length();
-            const juce::String rest = cli.substring(start).trim();
-            juce::String portStr;
-            for (int i = 0; i < rest.length(); ++i) {
-                const juce::juce_wchar c = rest[i];
-                if (c == ' ' || c == '\t')
-                    break;
-                portStr << c;
-            }
-            if (!portStr.isEmpty()) {
-                int parsed = portStr.getIntValue();
-                if (parsed > 0 && parsed < 65536)
-                    webPort = static_cast<uint16_t>(parsed);
-            }
-        }
-
-        // Headless host only: audio / lighting / WebServer / timers. The
-        // on-screen UI is always Electron (or a browser tab). Deliberately
-        // NO DocumentWindow / desktop peer -- a 1x1 black host window was
-        // flashing on launch and reappearing whenever a native FileChooser
-        // or Alert activated this process (orderFront of the hidden peer).
-        // JUCE's message loop does not require a visible window; FileChooser
-        // / NativeMessageBox / AlertWindow create their own peers when needed.
-        //
-        // The IPC socket path is set on MainComponent before audio setup so the
-        // readiness server exists (and is connectable by Electron) before the
-        // device-open work that triggers notifyCoreReady().
-        mainComponent = std::make_unique<MainComponent>(std::move(ipcSocketPath), webPort);
-
-        // Parse any standalone project file argument from commandLine
         juce::StringArray tokens = juce::StringArray::fromTokens(commandLine, true);
+
+        if (cli.isEmpty() || tokens.contains("--help") || tokens.contains("-h")) {
+            std::fprintf(stderr, "%s\n", parser.generateHelp().c_str());
+            std::exit(0);
+        }
+
+        if (tokens.contains("--version") || tokens.contains("-v")) {
+            std::fprintf(stderr, "ResoStage Core v0.2.0\n");
+            std::exit(0);
+        }
+
+        std::string ipcSocketPath;
+        uint16_t webPort = MainComponent::kWebPort;
+        std::string bindAddress = "0.0.0.0";
+        bool enableDiscovery = true;
+        std::string projectPathToLoad;
+
         for (int i = 0; i < tokens.size(); ++i) {
             juce::String tok = tokens[i].unquoted().trim();
             if (tok.startsWith("--ipc-socket")) {
-                if (tok == "--ipc-socket" && i + 1 < tokens.size()) ++i;
+                if (tok == "--ipc-socket" && i + 1 < tokens.size()) {
+                    ipcSocketPath = tokens[i + 1].unquoted().trim().toStdString();
+                    ++i;
+                } else if (tok.contains("=")) {
+                    ipcSocketPath = tok.fromFirstOccurrenceOf("=", false, false).trim().toStdString();
+                }
                 continue;
             }
-            if (tok.startsWith("--backend-port")) continue;
+            if (tok.startsWith("--backend-port=")) {
+                int p = tok.fromFirstOccurrenceOf("=", false, false).trim().getIntValue();
+                if (p > 0 && p < 65536) webPort = static_cast<uint16_t>(p);
+                continue;
+            }
+            if (tok.startsWith("--bind-address=")) {
+                bindAddress = tok.fromFirstOccurrenceOf("=", false, false).trim().toStdString();
+                continue;
+            }
+            if (tok == "--no-discovery") {
+                enableDiscovery = false;
+                bindAddress = "127.0.0.1";
+                continue;
+            }
+            if (tok == "--discovery") {
+                enableDiscovery = true;
+                continue;
+            }
             if (juce::File::isAbsolutePath(tok)) {
-                const juce::File file(tok);
-                if (file.exists() && mainComponent != nullptr) {
-                    mainComponent->loadProjectFromPath(file);
-                    break;
-                }
+                projectPathToLoad = tok.toStdString();
+            }
+        }
+
+        mainComponent = std::make_unique<MainComponent>(std::move(ipcSocketPath), webPort);
+
+        if (!projectPathToLoad.empty()) {
+            const juce::File file(projectPathToLoad);
+            if (file.exists() && mainComponent != nullptr) {
+                mainComponent->loadProjectFromPath(file);
             }
         }
     }

@@ -1,0 +1,30 @@
+# ResoStage Multi-OS Release and Testing Configuration
+# Copy this file to devices.yaml (gitignored) and populate with your network credentials.
+
+devices:
+  - id: local
+    name: "Local Machine (macOS)"
+    platform: darwin # darwin, win32, or linux
+    host: localhost
+    isLocal: true
+    enabled: true
+
+  - id: win-laptop
+    name: "Windows Test Laptop"
+    platform: win32
+    host: "192.168.5.125"
+    user: "mike"
+    pass: "0309"
+    sudoPass: "0309"
+    path: "C:\\Users\\tkach\\resostage"
+    enabled: true
+
+  - id: linux-box
+    name: "Ubuntu Linux Machine"
+    platform: linux
+    host: "192.168.5.117"
+    user: "resonaura"
+    pass: "1212"
+    sudoPass: "1212"
+    path: "/home/resonaura/resostage"
+    enabled: true

@@ -407,6 +407,10 @@ export { publishMac, publishWindows, publishLinux };
 
 export function publish() {
   log(`Publishing ResoStage ${appVersion()} (${BUILD_TYPE})`);
+  const pubDir = join(PLATFORM_DIST_DIR, "publish");
+  rmSync(pubDir, { recursive: true, force: true });
+  mkdirSync(pubDir, { recursive: true });
+
   if (process.platform === "darwin") publishMac();
   else if (process.platform === "win32") publishWindows();
   else if (process.platform === "linux") publishLinux();

@@ -58,6 +58,7 @@ target_sources(ResoStage PRIVATE
   platform/ThermalStateGeneric.cpp
   platform/TrayIcon.cpp
   server/WebServer.cpp
+  network/UdpDiscovery.cpp
 )
 
 if(APPLE)
@@ -178,6 +179,7 @@ elseif(UNIX)
   target_include_directories(ResoStage PRIVATE ${ALSA_INCLUDE_DIRS})
 endif()
 
+target_include_directories(ResoStage PRIVATE "${CMAKE_SOURCE_DIR}/vendor")
 target_compile_features(ResoStage PRIVATE cxx_std_20)
 if(MSVC)
   target_compile_options(ResoStage PRIVATE /W4)

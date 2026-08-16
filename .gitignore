@@ -12,9 +12,9 @@ electron/node_modules
 electron/dist
 electron/dist-app
 
-# Local helper to SSH into the Windows test laptop (bypasses macOS Local Network privacy block)
-scripts/blaptop.mjs
-blaptop.mjs
+# Local multi-device release configuration & dist artifacts
+devices.yaml
+dist/release/
 
 # ResoLight firmware — local secrets + generated header + PlatformIO build dir
 resolight/firmware/config.yaml
