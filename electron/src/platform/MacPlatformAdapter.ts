@@ -5,6 +5,7 @@
 // and the Touch Bar. Everything mac-specific about the shell lives here.
 
 import { app, Menu, TouchBar } from "electron";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -42,6 +43,14 @@ export class MacPlatformAdapter extends PlatformAdapter {
   constructor(context: PlatformContext) {
     super(context);
     this.tray = createSystemTray(context);
+  }
+
+  override cleanupBeforeBackendSpawn(): void {
+    try {
+      execFileSync("pkill", ["-9", "-f", "ResoStage Core"], { stdio: "ignore" });
+    } catch {
+      /* ignore */
+    }
   }
 
   override preloadNatives(): void {

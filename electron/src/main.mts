@@ -1499,10 +1499,18 @@ if (!app.requestSingleInstanceLock()) {
       mainWindow.show();
       mainWindow.focus();
     }
-    const fileArg = argv.find(
-      (a) => a.endsWith(".rsnrasetmeta") || a.endsWith(".rsnraset"),
-    );
-    if (fileArg) void handleOpenProjectFile(fileArg);
+    const fileArg = argv.find((a) => {
+      const clean = a.replace(/^"+|"+$/g, "");
+      return (
+        clean.endsWith(".rsnrasetmeta") ||
+        clean.endsWith(".rsnraset") ||
+        clean.endsWith("project.rsnrasetmeta")
+      );
+    });
+    if (fileArg) {
+      const cleanPath = fileArg.replace(/^"+|"+$/g, "");
+      void handleOpenProjectFile(cleanPath);
+    }
   });
 
   void app.whenReady().then(async () => {

@@ -141,29 +141,76 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
   }
 
   override registerFileAssociations(): void {
-    // Register .rsnrasetmeta under HKCU so double-clicking opens the portable
-    // build even without the Inno installer. Best-effort, non-fatal.
+    // 1. Delete old/stale folder associations or old extension entries under HKCU\Software\Classes
     const base = "HKCU\\Software\\Classes";
+    const staleKeys = [
+      `${base}\\.rsnraset`, // remove folder association from registry so Windows treats .rsnraset as a normal folder
+      `${base}\\.rsnrasetmeta`,
+    ];
+    for (const key of staleKeys) {
+      try {
+        execFileSync("reg", ["delete", key, "/f"], { windowsHide: true, stdio: "ignore" });
+      } catch {
+        /* ignore if key didn't exist */
+      }
+    }
+
+    // 2. Resolve file.ico path for .rsnrasetmeta icon association
     const exe = process.execPath;
+    const candidates = [
+      path.join(process.resourcesPath, "file.ico"),
+      path.join(process.resourcesPath, "icons", "file.ico"),
+      path.join(path.dirname(exe), "file.ico"),
+      path.join(path.dirname(exe), "resources", "file.ico"),
+      path.join(import.meta.dirname, "..", "..", "..", "icons", "file.ico"),
+      path.join(process.cwd(), "icons", "file.ico"),
+    ];
+    let iconPath = `${exe},0`;
+    for (const cand of candidates) {
+      if (existsSync(cand)) {
+        iconPath = `"${cand}",0`;
+        break;
+      }
+    }
+
+    // 3. Register fresh extension and ProgID entries
     const entries: Array<[key: string, value: string]> = [
       [`${base}\\.rsnrasetmeta`, "ResoStage.ProjectFile"],
       [`${base}\\ResoStage.ProjectFile`, "ResoStage Project File"],
-      [`${base}\\ResoStage.ProjectFile\\DefaultIcon`, `${exe},0`],
+      [`${base}\\ResoStage.ProjectFile\\DefaultIcon`, iconPath],
       [`${base}\\ResoStage.ProjectFile\\shell\\open\\command`, `"${exe}" "%1"`],
     ];
+
     for (const [key, value] of entries) {
-      execFile("reg", ["add", key, "/ve", "/d", value, "/f"], { windowsHide: true }, () => {
+      try {
+        execFileSync("reg", ["add", key, "/ve", "/d", value, "/f"], { windowsHide: true, stdio: "ignore" });
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    // 4. Notify Windows Shell of file association changes so Explorer immediately updates icons
+    try {
+      const psCmd = `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Shell { [DllImport("shell32.dll")] public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2); }'; [Shell]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)`;
+      execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command", psCmd], { windowsHide: true }, () => {
         /* best-effort */
       });
+    } catch {
+      /* ignore */
     }
   }
 
   override handleProjectFileArgv(argv: string[]): string | null {
     // Windows/Linux deliver the double-clicked path via argv.
-    const fileArg = argv.find(
-      (a) => a.endsWith(".rsnrasetmeta") || a.endsWith(".rsnraset"),
-    );
-    return fileArg ?? null;
+    const fileArg = argv.find((a) => {
+      const clean = a.replace(/^"+|"+$/g, "");
+      return (
+        clean.endsWith(".rsnrasetmeta") ||
+        clean.endsWith(".rsnraset") ||
+        clean.endsWith("project.rsnrasetmeta")
+      );
+    });
+    return fileArg ? fileArg.replace(/^"+|"+$/g, "") : null;
   }
 
   // ── Tray ────────────────────────────────────────────────────────────────

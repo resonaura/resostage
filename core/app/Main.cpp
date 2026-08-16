@@ -9,7 +9,7 @@ class ResoStageApplication final : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return "ResoStage Core"; }
     const juce::String getApplicationVersion() override { return "0.2.0"; }
-    bool moreThanOneInstanceAllowed() override { return true; }
+    bool moreThanOneInstanceAllowed() override { return false; }
 
     void initialise(const juce::String& commandLine) override {
         // Prefer high scheduling priority so audio stays solid when the
@@ -70,20 +70,41 @@ public:
         // device-open work that triggers notifyCoreReady().
         mainComponent = std::make_unique<MainComponent>(std::move(ipcSocketPath), webPort);
 
-        const auto path = commandLine.unquoted().trim();
-        if (!path.isEmpty() && juce::File::isAbsolutePath(path)) {
-            const juce::File file(path);
-            if (file.exists())
-                mainComponent->loadProjectFromPath(file);
+        // Parse any standalone project file argument from commandLine
+        juce::StringArray tokens = juce::StringArray::fromTokens(commandLine, true);
+        for (int i = 0; i < tokens.size(); ++i) {
+            juce::String tok = tokens[i].unquoted().trim();
+            if (tok.startsWith("--ipc-socket")) {
+                if (tok == "--ipc-socket" && i + 1 < tokens.size()) ++i;
+                continue;
+            }
+            if (tok.startsWith("--backend-port")) continue;
+            if (juce::File::isAbsolutePath(tok)) {
+                const juce::File file(tok);
+                if (file.exists() && mainComponent != nullptr) {
+                    mainComponent->loadProjectFromPath(file);
+                    break;
+                }
+            }
         }
     }
 
     void anotherInstanceStarted(const juce::String& commandLine) override {
-        const auto path = commandLine.unquoted().trim();
-        if (!path.isEmpty() && juce::File::isAbsolutePath(path) && mainComponent != nullptr) {
-            const juce::File file(path);
-            if (file.exists())
-                mainComponent->loadProjectFromPath(file);
+        juce::StringArray tokens = juce::StringArray::fromTokens(commandLine, true);
+        for (int i = 0; i < tokens.size(); ++i) {
+            juce::String tok = tokens[i].unquoted().trim();
+            if (tok.startsWith("--ipc-socket")) {
+                if (tok == "--ipc-socket" && i + 1 < tokens.size()) ++i;
+                continue;
+            }
+            if (tok.startsWith("--backend-port")) continue;
+            if (juce::File::isAbsolutePath(tok)) {
+                const juce::File file(tok);
+                if (file.exists() && mainComponent != nullptr) {
+                    mainComponent->loadProjectFromPath(file);
+                    break;
+                }
+            }
         }
     }
 

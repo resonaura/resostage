@@ -7,6 +7,7 @@
 // is shared with Windows (see tray.ts).
 
 import { app, Menu } from "electron";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import {
@@ -27,6 +28,14 @@ export class LinuxPlatformAdapter extends PlatformAdapter {
   constructor(context: PlatformContext) {
     super(context);
     this.tray = createSystemTray(context);
+  }
+
+  override cleanupBeforeBackendSpawn(): void {
+    try {
+      execFileSync("pkill", ["-9", "-f", "ResoStage"], { stdio: "ignore" });
+    } catch {
+      /* ignore */
+    }
   }
 
   override ipcSocketPath(): string {
