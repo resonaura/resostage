@@ -318,6 +318,7 @@ end;
 
   // Always create portable application archive for Windows
   const zipPath = join(publishDir, `ResoStage-${version}-win-${process.arch}.zip`);
+  rmSync(zipPath, { force: true });
   if (process.platform === "win32") {
     log("Compressing Windows portable ZIP...");
     run("powershell", ["-Command", `Compress-Archive -Path '${payload}\\*' -DestinationPath '${zipPath}' -Force`]);
