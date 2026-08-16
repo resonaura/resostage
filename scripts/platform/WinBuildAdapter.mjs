@@ -110,19 +110,23 @@ export class WinBuildAdapter extends BuildAdapter {
     }
 
     for (const info of versionInfos) {
-      info.setStringValues(
-        { lang: 1033, codepage: 1200 },
-        {
-          FileDescription: desc,
-          ProductName: desc,
-          CompanyName: "Resonaura",
-          InternalName: exeName,
-          OriginalFilename: exeName,
-          LegalCopyright: "Copyright © Resonaura",
-          FileVersion: "0.1.0.0",
-          ProductVersion: "0.1.0.0",
-        },
-      );
+      const stringValues = {
+        FileDescription: desc,
+        ProductName: desc,
+        CompanyName: "Resonaura",
+        InternalName: exeName,
+        OriginalFilename: exeName,
+        LegalCopyright: "Copyright © Resonaura",
+        FileVersion: "0.1.0.0",
+        ProductVersion: "0.1.0.0",
+      };
+      const langs = info.getAvailableLanguages();
+      if (langs && langs.length > 0) {
+        for (const l of langs) {
+          info.setStringValues(l, stringValues);
+        }
+      }
+      info.setStringValues({ lang: 1033, codepage: 1200 }, stringValues);
       info.outputToResourceEntries(res.entries);
     }
 

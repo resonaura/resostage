@@ -23,13 +23,7 @@ juce_add_binary_data(ResoStageTrayIconData
   SOURCES ${FOLDER_ICON_SOURCES}
 )
 
-if(WIN32)
-  set(CORE_PRODUCT_NAME "core")
-elseif(APPLE)
-  set(CORE_PRODUCT_NAME "ResoStage Core")
-else()
-  set(CORE_PRODUCT_NAME "core")
-endif()
+set(CORE_PRODUCT_NAME "ResoStage Core")
 
 juce_add_gui_app(ResoStage
   PRODUCT_NAME "${CORE_PRODUCT_NAME}"
