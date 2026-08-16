@@ -13,6 +13,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # than chasing each file. Only NOMINMAX is safe to apply globally -- WIN32_LEAN_
 # AND_MEAN is applied per-file because it breaks vendored libwebsockets, which
 # relies on winsock2.h's `timeval`.
+add_compile_definitions(JUCE_USE_CURL=0)
+
 if(WIN32)
   add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS JUCE_ASIO=1 JUCE_ASIO_USE_EXTERNAL_SDK=1 JUCE_WASAPI=1 JUCE_DIRECTSOUND=1)
   include_directories("${CMAKE_SOURCE_DIR}/vendor/asiosdk/common")
