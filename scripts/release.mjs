@@ -88,8 +88,8 @@ async function release() {
     console.log(`Collecting artifacts from [${dev.name}] into dist/release/${plat}-${arch}...`);
 
     if (dev.isLocal || dev.host === "localhost" || dev.host === "127.0.0.1") {
-      const pubDir = join(ROOT, "build", plat, arch, "publish");
-      const localBuildDir = existsSync(pubDir) ? pubDir : join(ROOT, "build", plat, arch);
+      const pubVersionDir = join(ROOT, "build", plat, arch, "publish", "0.1.0");
+      const localBuildDir = existsSync(pubVersionDir) ? pubVersionDir : join(ROOT, "build", plat, arch, "publish");
       if (existsSync(localBuildDir)) {
         cpSync(localBuildDir, targetFolder, { recursive: true });
         console.log(`  -> Copied local artifacts from ${localBuildDir}`);
@@ -103,8 +103,8 @@ async function release() {
       const remotePath = dev.path || (plat === "win32" ? "C:\\Users\\tkach\\resostage" : "~/resostage");
 
       const remoteBuildPath = plat === "win32"
-        ? `${remotePath}\\build\\win\\x64\\publish\\*`
-        : `${remotePath}/build/linux/x64/publish/*`;
+        ? `${remotePath}/build/win/x64/publish/0.1.0/*`
+        : `${remotePath}/build/linux/x64/publish/0.1.0/*`;
 
       const scpArgs = [
         "-r",
