@@ -2,14 +2,25 @@ import { spawn, execSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { existsSync } from "node:fs";
+
 const root = join(fileURLToPath(import.meta.url), "..", "..");
-const exe = join(root, "build", "win", "x64", "core.exe");
+const candidates = [
+  join(root, "build", "win", "x64", "core.exe"),
+  join(root, "core", "build", "app", "RelWithDebInfo", "ResoStage.exe"),
+  join(root, "core", "build", "win", "x64", "core.exe"),
+];
+const exe = candidates.find(c => existsSync(c));
+if (!exe) {
+  console.error("Could not find Core engine executable. Candidates checked:", candidates);
+  process.exit(1);
+}
 
 try {
-  execSync('taskkill /F /IM core.exe >NUL 2>&1');
+  execSync('taskkill /F /IM core.exe /IM ResoStage.exe >NUL 2>&1');
 } catch {}
 
-console.log("Starting Core engine on Windows...");
+console.log(`Starting Core engine on Windows (${exe})...`);
 const proc = spawn(exe, ["--backend-port=2988", "--no-discovery"], {
   detached: true,
   stdio: "ignore",
@@ -44,7 +55,7 @@ setTimeout(async () => {
     console.error("Test failed:", err.message);
   } finally {
     try {
-      execSync('taskkill /F /IM core.exe >NUL 2>&1');
+      execSync('taskkill /F /IM core.exe /IM ResoStage.exe >NUL 2>&1');
     } catch {}
     process.exit(0);
   }
