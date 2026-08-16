@@ -34,7 +34,7 @@ if(WIN32)
   endif()
 
   if(RESOSTAGE_HAVE_ASIO)
-    juce_set_module_options(juce_audio_devices JUCE_ASIO 1 JUCE_ASIO_USE_EXTERNAL_SDK 1)
+    add_compile_definitions(JUCE_ASIO=1 JUCE_ASIO_USE_EXTERNAL_SDK=1)
     include_directories("${ASIO_SDK_INC}")
     message(STATUS "ASIO enabled from ${ASIO_SDK_INC}")
   endif()
