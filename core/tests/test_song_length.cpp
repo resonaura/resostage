@@ -8,6 +8,7 @@
 
 #include "doctest.h"
 
+#include <limits>
 #include "timing/SongLength.h"
 
 using namespace resostage;
