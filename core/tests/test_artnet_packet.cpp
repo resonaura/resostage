@@ -99,7 +99,9 @@ TEST_CASE("Art-Net UDP loopback delivers a valid ArtDMX frame") {
 
     const Sock tx = socket(AF_INET, SOCK_DGRAM, 0);
     REQUIRE(tx != INVALID_SOCK_CAST);
-    sockaddr_in dest = addr;
+    sockaddr_in dest{};
+    dest.sin_family = AF_INET;
+    dest.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     dest.sin_port = htons(port);
     REQUIRE(sendto(asSock(tx), reinterpret_cast<const char*>(packet.data()),
                    static_cast<int>(packet.size()), 0,

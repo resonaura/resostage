@@ -317,11 +317,62 @@ export function useLiveState(view: string = "player") {
     const isEmbeddedMode =
       !isRemote && (IS_EMBEDDED || IS_ELECTRON || ("resostageElectron" in window));
 
+    let unsubTransport: (() => void) | undefined;
+    let unsubMixerFlags: (() => void) | undefined;
+    let onUdpFrame: ((e: Event) => void) | undefined;
+
+    const fetchState = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(apiUrl("/api/v1/state"));
+        if (res.ok) {
+          const data = (await res.json()) as Partial<WebUiState>;
+          if (data.meters) setMeterIds(data.meters.map((m) => m.id));
+          if (data.playing !== undefined) setTransportPlaying(data.playing);
+          if (data.health) {
+            latestHealthRef.current = {
+              cpu: Math.max(0, data.health.cpuPercent ?? 0),
+              ram: (data.health.rssBytes ?? 0) / (1024 * 1024),
+            };
+          }
+          const udpFlagsActive = Date.now() - getLastMixerFlagsMs() < 5_000;
+          let pollData: Partial<WebUiState> = data;
+          if (udpFlagsActive && isEmbeddedMode && data.tracks) {
+            pollData = {
+              ...data,
+              tracks: data.tracks.map((t) => {
+                const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
+                  t as unknown as Record<string, unknown>;
+                void _m; void _s; void _si;
+                return rest as unknown as typeof t;
+              }),
+              ...(data.busses
+                ? {
+                    busses: data.busses.map((b) => {
+                      const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
+                        b as unknown as Record<string, unknown>;
+                      void _m; void _s; void _si;
+                      return rest as unknown as typeof b;
+                    }),
+                  }
+                : {}),
+            };
+          }
+          pendingStateRef.current = pollData;
+          scheduleFlush();
+        }
+      } catch {}
+    };
+
+    registerRefetchHandler(() => void fetchState());
+    void fetchState();
+    const statePollInterval = setInterval(fetchState, 1000);
+
     if (isEmbeddedMode) {
       setTransport("udp");
       setStatus("live");
 
-      const onUdpFrame = (e: Event) => {
+      onUdpFrame = (e: Event) => {
         if (cancelled) return;
         const customEvent = e as CustomEvent<Buffer | Uint8Array | ArrayBuffer>;
         const raw = customEvent.detail;
@@ -340,7 +391,7 @@ export function useLiveState(view: string = "player") {
 
       window.addEventListener("resostage-udp-telemetry", onUdpFrame);
 
-      const unsubTransport = subscribeLiveTransport((ts) => {
+      unsubTransport = subscribeLiveTransport((ts) => {
         if (cancelled) return;
         pendingStateRef.current = {
           ...(pendingStateRef.current || {}),
@@ -349,180 +400,85 @@ export function useLiveState(view: string = "player") {
           songIndex: ts.songIndex,
           bpm: ts.bpm,
           globalPlayheadSeconds: ts.globalPlayheadSeconds,
-          // Forward drift at 60 Hz only when the frame actually carries it
-          // (v6+). v5 frames use a 1.0 fallback that must NOT overwrite the
-          // real value from the HTTP poll -- that was making drift disappear.
           ...(ts.hasDrift ? { drift: ts.drift } : {}),
         };
         scheduleFlush();
       });
 
-      // v5 mixer flags (mute/solo/soloActiveInGroup) arrive on the same 60 Hz
-      // UDP frame. Apply them to the current structural state so a solo/mute
-      // toggle responds at paint rate instead of the next 1 s state poll.
-      // Index-aligned with state.tracks / state.busses. These go through the
-      // SAME coalesced flush as the poll/transport so there is a single writer
-      // to state.tracks/busses -- applying them on top of (after) any poll
-      // snapshot guarantees the fresh flags win and a mid-toggle poll can't
-      // regress the whole console to greyed for ~1 s.
-      const unsubMixerFlags = subscribeLiveMixerFlags((flags) => {
+      unsubMixerFlags = subscribeLiveMixerFlags((flags) => {
         if (cancelled) return;
-        if (typeof window !== "undefined" && (window as any).__DEBUG_SOLO) {
-          const t = (window as any).__soloLogs = (window as any).__soloLogs || [];
-          t.push(["flags", Date.now() - (window as any).__t0, flags.tracks.slice(0,3)]);
-        }
         mixerFlagsRef.current = flags;
         scheduleFlush();
       });
-
-      const fetchState = async () => {
+    } else {
+      const connect = () => {
         if (cancelled) return;
-        try {
-          const res = await fetch(apiUrl("/api/v1/state"));
-          if (res.ok) {
-            const data = (await res.json()) as Partial<WebUiState>;
-            if (data.meters) setMeterIds(data.meters.map((m) => m.id));
-            if (data.playing !== undefined) setTransportPlaying(data.playing);
-            if (data.health) {
-              latestHealthRef.current = {
-                cpu: Math.max(0, data.health.cpuPercent ?? 0),
-                ram: (data.health.rssBytes ?? 0) / (1024 * 1024),
-              };
-            }
-            // If v5 UDP mixer flags have been received within the last 5 s,
-            // the UDP path is the authoritative source for mute/solo state.
-            // Strip those fields from the HTTP poll snapshot so that a poll
-            // that arrived mid-toggle (Core hadn't fully committed the change
-            // yet) cannot briefly revert the mixer to the old look while we
-            // wait for the next UDP frame to correct it again (~1 s flash).
-            // The fields are already applied at 60 Hz via mixerFlagsRef; we
-            // only need the poll for the non-flags structural state.
-            const udpFlagsActive = Date.now() - getLastMixerFlagsMs() < 5_000;
-            let pollData: Partial<WebUiState> = data;
-            if (udpFlagsActive && data.tracks) {
-              pollData = {
-                ...data,
-                tracks: data.tracks.map((t) => {
-                  const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
-                    t as unknown as Record<string, unknown>;
-                  void _m; void _s; void _si;
-                  return rest as unknown as typeof t;
-                }),
-                ...(data.busses
-                  ? {
-                      busses: data.busses.map((b) => {
-                        const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
-                          b as unknown as Record<string, unknown>;
-                        void _m; void _s; void _si;
-                        return rest as unknown as typeof b;
-                      }),
-                    }
-                  : {}),
-              };
-            }
-            pendingStateRef.current = pollData;
-            if (typeof window !== "undefined" && (window as any).__DEBUG_SOLO) {
-              const t = (window as any).__soloLogs = (window as any).__soloLogs || [];
-              t.push(["poll", Date.now() - (window as any).__t0, data.tracks?.slice(0,3)?.map((x:any)=>({solo:x.solo,si:x.soloActiveInGroup})), "udpActive:", udpFlagsActive]);
-            }
-            scheduleFlush();
+        ws = new WebSocket(wsUrl(), "resoset");
+        ws.binaryType = "arraybuffer";
+        wsRef.current = ws;
+        setTransport("ws");
+
+        ws.onopen = () => {
+          reconnectMsRef.current = 500;
+          setStatus("live");
+          try {
+            ws?.send(JSON.stringify({ view: viewRef.current }));
+          } catch {}
+          void fetchState();
+        };
+        ws.onmessage = (ev) => {
+          if (ev.data instanceof ArrayBuffer) {
+            pushLiveBinaryFrame(ev.data);
+            return;
           }
-        } catch {}
+
+          const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
+          let parsed: Partial<WebUiState>;
+          try {
+            parsed = JSON.parse(raw) as Partial<WebUiState>;
+          } catch {
+            return;
+          }
+          if (parsed.meters) {
+            setMeterIds(parsed.meters.map((m) => m.id));
+          }
+          if (parsed.playing !== undefined) setTransportPlaying(parsed.playing);
+          pushLiveLevels({
+            clickPeakDb: parsed.clickPeakDb,
+            clickPeakDbL: parsed.clickPeakDbL,
+            clickPeakDbR: parsed.clickPeakDbR,
+            tracks: parsed.tracks,
+            meters: parsed.meters,
+          });
+          if (parsed.health) {
+            latestHealthRef.current = {
+              cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
+              ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
+            };
+          }
+          pendingStateRef.current = parsed;
+          scheduleFlush();
+        };
+        ws.onerror = () => {
+          try {
+            ws?.close();
+          } catch {}
+        };
+        ws.onclose = () => {
+          if (wsRef.current === ws) wsRef.current = null;
+          if (cancelled) return;
+          setStatus("reconnecting");
+          reconnectTimer = setTimeout(connect, reconnectMsRef.current);
+          reconnectMsRef.current = Math.min(reconnectMsRef.current * 1.5, 4000);
+        };
       };
 
-      // Register as the immediate-refetch target so any post() call
-      // (solo, mute, gain commit, etc.) triggers a fresh poll without
-      // waiting for the next 1 s interval.
-      registerRefetchHandler(() => void fetchState());
-
-      void fetchState();
-      const statePollInterval = setInterval(fetchState, 1000);
-
-      const sampleInterval = setInterval(() => {
-        if (cancelled) return;
-        const sample = latestHealthRef.current;
-        setCpuHistory((prev) => [...prev.slice(1), sample.cpu]);
-        setRamHistory((prev) => [...prev.slice(1), sample.ram]);
-      }, 1000);
-
-      return () => {
-        cancelled = true;
-        unregisterRefetchHandler();
-        unsubTransport();
-        unsubMixerFlags();
-        window.removeEventListener("resostage-udp-telemetry", onUdpFrame);
-        clearInterval(statePollInterval);
-        clearInterval(sampleInterval);
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
-        if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
-      };
+      connect();
     }
-
-    const connect = () => {
-      if (cancelled) return;
-      ws = new WebSocket(wsUrl(), "resoset");
-      ws.binaryType = "arraybuffer";
-      wsRef.current = ws;
-      setTransport("ws");
-
-      ws.onopen = () => {
-        reconnectMsRef.current = 500;
-        setStatus("live");
-        try {
-          ws?.send(JSON.stringify({ view: viewRef.current }));
-        } catch {}
-      };
-      ws.onmessage = (ev) => {
-        if (ev.data instanceof ArrayBuffer) {
-          pushLiveBinaryFrame(ev.data);
-          return;
-        }
-
-        const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
-        let parsed: Partial<WebUiState>;
-        try {
-          parsed = JSON.parse(raw) as Partial<WebUiState>;
-        } catch {
-          return;
-        }
-        if (parsed.meters) {
-          setMeterIds(parsed.meters.map((m) => m.id));
-        }
-        if (parsed.playing !== undefined) setTransportPlaying(parsed.playing);
-        pushLiveLevels({
-          clickPeakDb: parsed.clickPeakDb,
-          clickPeakDbL: parsed.clickPeakDbL,
-          clickPeakDbR: parsed.clickPeakDbR,
-          tracks: parsed.tracks,
-          meters: parsed.meters,
-        });
-        if (parsed.health) {
-          latestHealthRef.current = {
-            cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
-            ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
-          };
-        }
-        pendingStateRef.current = parsed;
-        scheduleFlush();
-      };
-      ws.onerror = () => {
-        try {
-          ws?.close();
-        } catch {}
-      };
-      ws.onclose = () => {
-        if (wsRef.current === ws) wsRef.current = null;
-        if (cancelled) return;
-        setStatus("reconnecting");
-        reconnectTimer = setTimeout(connect, reconnectMsRef.current);
-        reconnectMsRef.current = Math.min(reconnectMsRef.current * 1.5, 4000);
-      };
-    };
-
-    connect();
 
     const wakeSocket = () => {
       if (cancelled) return;
+      void fetchState();
       const cur = wsRef.current;
       if (cur && cur.readyState === WebSocket.OPEN) {
         try {
@@ -543,7 +499,11 @@ export function useLiveState(view: string = "player") {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
         }
-        connect();
+        if (!isEmbeddedMode && wsRef.current) {
+          ws = new WebSocket(wsUrl(), "resoset");
+          ws.binaryType = "arraybuffer";
+          wsRef.current = ws;
+        }
       }
     };
     const onVisibility = () => {
@@ -574,12 +534,17 @@ export function useLiveState(view: string = "player") {
 
     return () => {
       cancelled = true;
+      unregisterRefetchHandler();
+      clearInterval(statePollInterval);
       clearInterval(sampleInterval);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("resoshell-resume", onShellResume);
+      if (onUdpFrame) window.removeEventListener("resostage-udp-telemetry", onUdpFrame);
+      unsubTransport?.();
+      unsubMixerFlags?.();
       ws?.close();
       if (wsRef.current === ws) wsRef.current = null;
     };

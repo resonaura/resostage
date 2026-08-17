@@ -1,5 +1,16 @@
 #include "UdpDiscovery.h"
 
+#if JUCE_WINDOWS
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+#else
+  #include <sys/types.h>
+  #include <sys/socket.h>
+  #include <netinet/in.h>
+  #include <arpa/inet.h>
+  #include <unistd.h>
+#endif
+
 namespace resostage {
 
 namespace {
@@ -35,6 +46,16 @@ void UdpDiscovery::start(uint16_t port, bool enableDiscovery, const std::string&
 
     socket = std::make_unique<juce::DatagramSocket>(true); // enablePortReuse = true
     socket->bindToPort(kDiscoveryPort);
+
+    int sockHandle = socket->getRawSocketHandle();
+    if (sockHandle >= 0) {
+        int optval = 1;
+#if JUCE_WINDOWS
+        setsockopt(static_cast<SOCKET>(sockHandle), SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&optval), sizeof(optval));
+#else
+        setsockopt(sockHandle, SOL_SOCKET, SO_BROADCAST, &optval, sizeof(optval));
+#endif
+    }
 
     isRunning.store(true);
     startThread(juce::Thread::Priority::normal);
@@ -83,12 +104,14 @@ void UdpDiscovery::sendAnnounce() {
     auto raw = payload.toRawUTF8();
     int len = static_cast<int>(std::strlen(raw));
 
+    // Global broadcast
     socket->write("255.255.255.255", kDiscoveryPort, raw, len);
 
+    // Subnet directed broadcasts for every local interface
     const auto addrs = juce::IPAddress::getAllAddresses(false);
     for (const auto& addr : addrs) {
         const juce::String s = addr.toString();
-        if (s.startsWith("127.") || s.startsWith("169.254.")) continue;
+        if (s.startsWith("127.") || s.startsWith("169.254.") || s.contains(":")) continue;
         auto parts = juce::StringArray::fromTokens(s, ".", "");
         if (parts.size() == 4) {
             juce::String bcast = parts[0] + "." + parts[1] + "." + parts[2] + ".255";
@@ -118,6 +141,11 @@ void UdpDiscovery::parseIncomingDatagram(const char* data, int size, const juce:
     dev.discoveryEnabled = static_cast<bool>(obj->getProperty("discoveryEnabled"));
     dev.lastSeenSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
 
+    // Filter out our own self-announcements
+    if (dev.name == getHostDeviceName() && dev.port == webPort) {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(devicesMutex);
     bool found = false;
     for (auto& existing : devices) {
@@ -136,7 +164,10 @@ void UdpDiscovery::run() {
     char buffer[2048];
     juce::String senderIp;
     int senderPort = 0;
-    uint32_t lastAnnounceMs = 0;
+
+    // Send immediate initial announcement on thread start
+    sendAnnounce();
+    uint32_t lastAnnounceMs = juce::Time::getMillisecondCounter();
 
     while (isRunning.load() && !threadShouldExit()) {
         uint32_t nowMs = juce::Time::getMillisecondCounter();

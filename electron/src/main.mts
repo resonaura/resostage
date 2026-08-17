@@ -1538,7 +1538,7 @@ ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: n
   activeRemoteHost = payload.host;
   activeRemotePort = payload.port || 2899;
   isRemoteSession = true;
-  const targetUrl = `http://${activeRemoteHost}:${activeRemotePort}/?embedded=1&remote=1`;
+  const targetUrl = `http://${activeRemoteHost}:${activeRemotePort}/?embedded=1&remote=${encodeURIComponent(`${activeRemoteHost}:${activeRemotePort}`)}`;
   if (mainWindow && !mainWindow.isDestroyed()) {
     await mainWindow.loadURL(targetUrl);
   }

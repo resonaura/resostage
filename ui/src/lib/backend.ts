@@ -9,14 +9,15 @@ function backendOrigin(): string {
   if (typeof window !== "undefined" && window.location) {
     const params = new URLSearchParams(window.location.search);
     const remote = params.get("remote");
-    if (remote && remote !== "1") {
-      return remote;
+    if (remote && remote !== "1" && remote !== "true") {
+      return remote.includes(":") ? remote : `${remote}:${NATIVE_BACKEND_PORT}`;
     }
   }
   if (import.meta.env.DEV) {
-    return `${location.hostname}:${NATIVE_BACKEND_PORT}`;
+    const host = (typeof location !== "undefined" && location.hostname) || "localhost";
+    return `${host}:${NATIVE_BACKEND_PORT}`;
   }
-  return location.host;
+  return (typeof location !== "undefined" && location.host) || `localhost:${NATIVE_BACKEND_PORT}`;
 }
 
 export function wsUrl(): string {
