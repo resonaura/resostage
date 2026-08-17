@@ -9,19 +9,25 @@ import {
   Zap,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { RemoteSettingsSection } from "../components/RemoteSettingsSection";
 import { FontIcon } from "../components/FontIcon";
+import { RemoteSettingsSection } from "../components/RemoteSettingsSection";
 import {
   Alert,
   Button,
   Card,
+  KeyHint,
   Select,
   Switch,
   Tabs,
   ToggleButton,
   type SelectOption,
-  KeyHint,
 } from "../components/ui";
+import { settings as settingsApi } from "../lib/api";
+import {
+  readLongImportPreference,
+  writeLongImportPreference,
+  type LongImportPreference,
+} from "../lib/importPrefs";
 import {
   TIER_DESCRIPTION,
   TIER_FPS,
@@ -29,17 +35,7 @@ import {
   type PerformanceSettings,
   type PerformanceTier,
 } from "../lib/performance";
-import {
-  THEME_LABELS,
-  THEME_NAMES,
-  type ThemeName,
-} from "../lib/theme";
-import {
-  readLongImportPreference,
-  writeLongImportPreference,
-  type LongImportPreference,
-} from "../lib/importPrefs";
-import { settings as settingsApi } from "../lib/api";
+import { THEME_LABELS, THEME_NAMES, type ThemeName } from "../lib/theme";
 import type { MidiBindingRow, WebUiState } from "../lib/types";
 // @xyflow/react is a heavy graph library behind exactly one modal. Loading it
 // on demand keeps it out of the startup bundle entirely.
@@ -279,7 +275,13 @@ const ACTION_GROUPS: { title: string; actions: string[] }[] = [
 ];
 
 // ─── Tab definitions ──────────────────────────────────────────────────────
-type SettingsTab = "audio" | "midi" | "appearance" | "performance" | "health" | "remote";
+type SettingsTab =
+  | "audio"
+  | "midi"
+  | "appearance"
+  | "performance"
+  | "health"
+  | "remote";
 
 const SETTINGS_TABS: {
   id: SettingsTab;
@@ -404,7 +406,9 @@ function AudioTab({ state }: { state: WebUiState }) {
             onChange={(d) => void settingsApi.setAudioOutputDevice(d)}
           />
         </Field>
-        {(s.hasControlPanel || (s.currentAudioDriver && s.currentAudioDriver.toUpperCase().includes("ASIO"))) && (
+        {(s.hasControlPanel ||
+          (s.currentAudioDriver &&
+            s.currentAudioDriver.toUpperCase().includes("ASIO"))) && (
           <div className="pt-1">
             <Button
               size="sm"
@@ -721,8 +725,7 @@ function PerformanceTab({
 }) {
   const { settings, setSettings, effectiveTier, degraded } = performance;
   const h = state.health;
-  const disk =
-    (h.diskReadBytesPerSec ?? 0) + (h.diskWriteBytesPerSec ?? 0);
+  const disk = (h.diskReadBytesPerSec ?? 0) + (h.diskWriteBytesPerSec ?? 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -762,7 +765,9 @@ function PerformanceTab({
               <Switch.Control>
                 <Switch.Thumb />
               </Switch.Control>
-              <span className="text-sm">Lower the frame rate automatically</span>
+              <span className="text-sm">
+                Lower the frame rate automatically
+              </span>
             </Switch.Content>
           </Switch>
         </div>
@@ -968,7 +973,7 @@ export function SettingsScreen({
             {SETTINGS_TABS.map((tab) => (
               <Tabs.Tab key={tab.id} id={tab.id}>
                 <tab.icon size={15} className="mr-1.5 inline-block" />
-                {tab.label}
+                <span className="whitespace-nowrap">{tab.label}</span>
                 <Tabs.Indicator />
               </Tabs.Tab>
             ))}
