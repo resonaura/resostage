@@ -1,5 +1,5 @@
-/// <reference types="vitest" />
-import { defineConfig, type PluginOption } from 'vite'
+import { defineConfig } from 'vitest/config'
+import type { PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
