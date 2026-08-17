@@ -6,9 +6,9 @@ declare global {
       sendAction?: (action: string) => void;
       setTypingFocus?: (focused: boolean) => void;
       getDiscoveredDevices?: () => Promise<any[]>;
-      connectRemote?: (host: string, port: number) => Promise<{ ok: boolean; url: string }>;
-      disconnectRemote?: () => Promise<{ ok: boolean; url: string }>;
-      getRemoteStatus?: () => Promise<{ isRemoteMode: boolean }>;
+      connectRemote?: (host: string, port: number) => Promise<boolean | { ok: boolean; url?: string }>;
+      disconnectRemote?: () => Promise<boolean | { ok: boolean; url?: string }>;
+      getRemoteStatus?: () => Promise<{ isRemoteMode: boolean; activeRemoteHost?: string | null }>;
     };
   }
 }
