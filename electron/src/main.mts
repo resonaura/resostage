@@ -1478,7 +1478,7 @@ ipcMain.handle("remote:get-discovery-enabled", async () => {
       signal: AbortSignal.timeout(2500),
     });
     if (res.ok) {
-      const data = await res.json();
+      const data = (await res.json()) as { enabled?: boolean };
       return Boolean(data?.enabled);
     }
   } catch {
@@ -1496,7 +1496,7 @@ ipcMain.handle("remote:set-discovery-enabled", async (_event, enabled: boolean) 
       signal: AbortSignal.timeout(2500),
     });
     if (res.ok) {
-      const data = await res.json();
+      const data = (await res.json()) as { enabled?: boolean };
       return Boolean(data?.enabled);
     }
   } catch {
