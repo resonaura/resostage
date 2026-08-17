@@ -241,6 +241,17 @@ const REMOTE = remoteTarget();
 // If --remote is provided, we're in remote mode: connect to remote Core
 // instead of spawning local one. STANDALONE is effectively false.
 const IS_REMOTE = REMOTE !== null;
+let activeRemoteHost: string | null = REMOTE;
+let activeRemotePort: number = PORT;
+let isRemoteSession = IS_REMOTE;
+
+function currentBackendUrl(): string {
+  if (isRemoteSession && activeRemoteHost) {
+    return `http://${activeRemoteHost}:${activeRemotePort}`;
+  }
+  return `http://localhost:${PORT}`;
+}
+
 const BACKEND = IS_REMOTE ? `http://${REMOTE}:${PORT}` : `http://localhost:${PORT}`;
 // Must match ui/vite.config.ts's DEV_PORT.
 const DEV_PORT = 2900;
@@ -544,7 +555,7 @@ async function postAction(action: string): Promise<boolean> {
   }
 
   try {
-    const res = await fetch(`${BACKEND}/api/v1/action`, {
+    const res = await fetch(`${currentBackendUrl()}/api/v1/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
@@ -561,7 +572,7 @@ async function fetchMenuWithRetry(
 ): Promise<MenuModel | null> {
   for (let i = 0; i < tries; ++i) {
     try {
-      const res = await fetch(`${BACKEND}/api/v1/ui/menu`);
+      const res = await fetch(`${currentBackendUrl()}/api/v1/ui/menu`);
       if (res.ok) return (await res.json()) as MenuModel;
     } catch {
       // backend not up yet
@@ -1446,6 +1457,50 @@ ipcMain.handle(
     });
   },
 );
+
+ipcMain.handle("remote:get-discovered-devices", async () => {
+  try {
+    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovered-devices`, {
+      signal: AbortSignal.timeout(2500),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    /* fallback */
+  }
+  return [];
+});
+
+ipcMain.handle("remote:get-status", async () => {
+  return {
+    isRemoteMode: isRemoteSession,
+    activeRemoteHost: activeRemoteHost ? `${activeRemoteHost}:${activeRemotePort}` : null,
+  };
+});
+
+ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: number }) => {
+  if (!payload?.host) return false;
+  activeRemoteHost = payload.host;
+  activeRemotePort = payload.port || 2899;
+  isRemoteSession = true;
+  const targetUrl = `http://${activeRemoteHost}:${activeRemotePort}/?embedded=1`;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    await mainWindow.loadURL(targetUrl);
+  }
+  return true;
+});
+
+ipcMain.handle("remote:disconnect", async () => {
+  activeRemoteHost = null;
+  activeRemotePort = PORT;
+  isRemoteSession = false;
+  const targetUrl = `http://localhost:${PORT}/?embedded=1`;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    await mainWindow.loadURL(targetUrl);
+  }
+  return true;
+});
 
 app.setAboutPanelOptions({
   applicationName: "ResoStage",

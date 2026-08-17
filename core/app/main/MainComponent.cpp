@@ -31,7 +31,7 @@
 
 namespace resostage {
 
-MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort) {
+MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool enableDiscovery, std::string bindAddress) {
     ipcSocketPath = std::move(ipcSocketPath_);
     webPort_ = webPort;
 
@@ -195,6 +195,11 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort) {
         setStatus("Web server failed: " + juce::String(webError));
     }
 
+    udpDiscovery.start(webPort_, enableDiscovery, bindAddress);
+    webServer.setDiscoveredDevicesProvider([this] {
+        return udpDiscovery.getDiscoveredDevices();
+    });
+
     // SelectSong / Play / etc. used to wait for the 30 Hz timer (up to ~33 ms).
     // Wake the message thread immediately so hops feel instant.
     // Do NOT publishWebState here — full multi-view JSON rebuild is heavy and
@@ -254,6 +259,7 @@ MainComponent::~MainComponent() {
     // In electron mode the shell is our on-screen window -- kill it first so
     // quitting ResoStage never strands a visible shell with no backend.
     terminateElectronShell();
+    udpDiscovery.stop();
     webServer.stop();
 }
 

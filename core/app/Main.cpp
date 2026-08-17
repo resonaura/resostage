@@ -136,7 +136,7 @@ public:
             }
         }
 
-        mainComponent = std::make_unique<MainComponent>(std::move(ipcSocketPath), webPort);
+        mainComponent = std::make_unique<MainComponent>(std::move(ipcSocketPath), webPort, enableDiscovery, bindAddress);
 
         if (!projectPathToLoad.empty()) {
             const juce::File file(projectPathToLoad);

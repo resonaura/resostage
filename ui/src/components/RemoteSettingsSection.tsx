@@ -27,25 +27,28 @@ export function RemoteSettingsSection() {
   const fetchStatusAndDevices = async () => {
     setLoading(true);
     try {
+      let list: DiscoveredDevice[] = [];
       if (IS_ELECTRON && window.resostageElectron?.getDiscoveredDevices) {
-        const list = await window.resostageElectron.getDiscoveredDevices();
-        setDevices(list || []);
-      } else {
-        // Fallback demo/web scanning
-        const localDevice: DiscoveredDevice = {
-          name: "ResoStage Core (Local)",
-          platform: "darwin",
-          ip: "127.0.0.1",
-          port: 2899,
-          protocolVersion: "1.0.0",
-          discoveryEnabled: true,
-        };
-        setDevices([localDevice]);
+        list = (await window.resostageElectron.getDiscoveredDevices()) || [];
       }
+      if (!list || list.length === 0) {
+        try {
+          const res = await fetch("/api/v1/remote/discovered-devices");
+          if (res.ok) {
+            list = (await res.json()) || [];
+          }
+        } catch {
+          /* fallback */
+        }
+      }
+      setDevices(list || []);
 
       if (IS_ELECTRON && window.resostageElectron?.getRemoteStatus) {
         const status = await window.resostageElectron.getRemoteStatus();
-        setIsRemoteMode(status.isRemoteMode);
+        setIsRemoteMode(Boolean(status?.isRemoteMode));
+        if (status?.activeRemoteHost) {
+          setActiveRemoteHost(status.activeRemoteHost);
+        }
       }
     } catch {
       /* ignore */

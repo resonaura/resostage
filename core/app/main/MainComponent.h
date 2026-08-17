@@ -8,6 +8,7 @@
 #include "midi/CoreMidiInputListener.h"
 #include "server/WebServer.h"
 #include "ipc/IpcServer.h"
+#include "network/UdpDiscovery.h"
 
 #include <chrono>
 #include <memory>
@@ -31,7 +32,7 @@ public:
     // когда JUCE стартует Electron через --backend-port).
     // `webPort`: порт для WebServer (default 2899). Может переопределяться
     // через --backend-port при запуске в remote-режиме.
-    explicit MainComponent(std::string ipcSocketPath = {}, uint16_t webPort = kWebPort);
+    explicit MainComponent(std::string ipcSocketPath = {}, uint16_t webPort = kWebPort, bool enableDiscovery = true, std::string bindAddress = "0.0.0.0");
     ~MainComponent() override;
 
     void paint(juce::Graphics&) override;
@@ -321,6 +322,8 @@ private:
     std::chrono::steady_clock::time_point lightingPreviewResumeFadeStart;
     std::vector<ResolvedFixtureOutput> lightingPreviewResumeFrom;
     std::vector<ResolvedFixtureOutput> lightingPreviewLastFrame;
+
+    UdpDiscovery udpDiscovery;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

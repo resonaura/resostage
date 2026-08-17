@@ -1,6 +1,7 @@
 #include "WebServer.h"
 
 #include "audio/WavStreamDecoder.h"
+#include "network/UdpDiscovery.h"
 #include "platform/MenuModel.h"
 #include "project/ProjectJson.h"
 #include "project/ProjectLoader.h"
@@ -762,6 +763,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                     }
                     if (std::strcmp(uri, "/api/v1/ui/menu") == 0)
                         return server->serveUiMenu(wsi);
+                    if (std::strcmp(uri, "/api/v1/remote/discovered-devices") == 0)
+                        return server->serveDiscoveredDevices(wsi);
                     if (std::strcmp(uri, "/api/v1/audio/mixgraph") == 0) {
                         const std::string json = server->buildStateJson("mixgraph");
                         return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
@@ -2213,6 +2216,26 @@ std::string WebServer::buildMenuModelJson() const {
 int WebServer::serveUiMenu(struct lws* wsi) {
     const std::string json = buildMenuModelJson();
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+}
+
+int WebServer::serveDiscoveredDevices(struct lws* wsi) {
+    juce::var arr;
+    if (discoveredDevicesProvider) {
+        const auto list = discoveredDevicesProvider();
+        for (const auto& dev : list) {
+            juce::var item(new juce::DynamicObject());
+            item.getDynamicObject()->setProperty("name", juce::String(dev.name));
+            item.getDynamicObject()->setProperty("platform", juce::String(dev.platform));
+            item.getDynamicObject()->setProperty("ip", juce::String(dev.ip));
+            item.getDynamicObject()->setProperty("port", static_cast<int>(dev.port));
+            item.getDynamicObject()->setProperty("protocolVersion", juce::String(dev.protocolVersion));
+            item.getDynamicObject()->setProperty("discoveryEnabled", dev.discoveryEnabled);
+            arr.append(item);
+        }
+    }
+    const juce::String json = juce::JSON::toString(arr, true);
+    auto raw = json.toRawUTF8();
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", raw, std::strlen(raw));
 }
 
 void WebServer::publishArchivePath(std::string path) {

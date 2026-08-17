@@ -20,6 +20,8 @@ namespace juce { class DatagramSocket; }
 
 namespace resostage {
 
+struct DiscoveredDevice;
+
 // Remote-control actions enqueued by the web/HTTP thread and drained on the
 // JUCE message thread (MainComponent timer). Never executed on the lws service
 // thread itself -- that would race with AudioEngine/JUCE state.
@@ -932,6 +934,12 @@ public:
     void beginTrackImport(int songIndex, int trackIndex, std::string fileName);
     void takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName);
 
+    // GET /api/v1/remote/discovered-devices -- LAN discovered ResoStage instances
+    using DiscoveredDevicesProvider = std::function<std::vector<DiscoveredDevice>()>;
+    void setDiscoveredDevicesProvider(DiscoveredDevicesProvider provider) {
+        discoveredDevicesProvider = std::move(provider);
+    }
+
     // Message-thread: publish the current song's per-track peak-overview
     // JSON (see MainComponent::buildPeaksJson()). Kept separate from the
     // ~30Hz WebUiState broadcast -- peak arrays are large (up to 4096 floats
@@ -990,6 +998,7 @@ private:
     int servePeaks(struct lws* wsi);
     int serveAllPeaks(struct lws* wsi);
     int serveWaveformRaw(struct lws* wsi, const char* queryArgs);
+    int serveDiscoveredDevices(struct lws* wsi);
     // GET /api/v1/ui/menu -- serializes platform/MenuModel.h/.cpp (the same
     // single source the AppKit menu bar is built from) + current keybindings
     // + recent projects, for the Electron shell's native menu/Touch Bar.
@@ -1060,6 +1069,8 @@ private:
 
     mutable std::mutex archivePathMutex;
     std::string archivePathForRaw;
+
+    DiscoveredDevicesProvider discoveredDevicesProvider;
 
     // High-speed UDP telemetry for embedded (Electron) mode.
     static constexpr int kUdpTelemetryPort = 2898;

@@ -84,6 +84,17 @@ void UdpDiscovery::sendAnnounce() {
     int len = static_cast<int>(std::strlen(raw));
 
     socket->write("255.255.255.255", kDiscoveryPort, raw, len);
+
+    const auto addrs = juce::IPAddress::getAllAddresses(false);
+    for (const auto& addr : addrs) {
+        const juce::String s = addr.toString();
+        if (s.startsWith("127.") || s.startsWith("169.254.")) continue;
+        auto parts = juce::StringArray::fromTokens(s, ".", "");
+        if (parts.size() == 4) {
+            juce::String bcast = parts[0] + "." + parts[1] + "." + parts[2] + ".255";
+            socket->write(bcast, kDiscoveryPort, raw, len);
+        }
+    }
 }
 
 void UdpDiscovery::parseIncomingDatagram(const char* data, int size, const juce::String& senderIp) {
