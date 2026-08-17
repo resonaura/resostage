@@ -28,8 +28,16 @@ export interface SwitchProps extends HeroSwitchProps {
 // Exported below as a compound component, the same shape HeroUI itself
 // exports. The lint rule can't see a component through Object.assign.
 // eslint-disable-next-line react/only-export-components
-function SwitchRoot({ tone, className, ...rest }: SwitchProps) {
-  return <HeroSwitch className={withTone(className, tone)} {...rest} />;
+function SwitchRoot({ tone, className, children, ...rest }: SwitchProps) {
+  return (
+    <HeroSwitch className={withTone(className, tone)} {...rest}>
+      {children ?? (
+        <HeroSwitch.Control>
+          <HeroSwitch.Thumb />
+        </HeroSwitch.Control>
+      )}
+    </HeroSwitch>
+  );
 }
 
 export const Switch = Object.assign(SwitchRoot, {
