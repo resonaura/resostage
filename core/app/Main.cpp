@@ -12,6 +12,7 @@
 #endif
 
 #include "config/CliParser.h"
+#include "network/UdpDiscovery.h"
 #include "MainComponent.h"
 #include "platform/ProcessPriority.h"
 
@@ -47,6 +48,8 @@ public:
         parser.addOption("", "no-discovery", "Disable mDNS / UDP datagram discovery", "", true);
         parser.addOption("", "ipc-socket", "IPC socket path for Electron bridge", "");
         parser.addOption("l", "list-audio-devices", "List available audio driver types and devices, then exit", "", true);
+        parser.addOption("s", "scan-network", "Scan local network for ResoStage instances via UDP discovery, then exit", "", true);
+        parser.addOption("", "test-discovery", "Test UDP discovery transmission and reception, then exit", "", true);
 
         const juce::String cli = commandLine.trim();
         juce::StringArray tokens = juce::StringArray::fromTokens(commandLine, true);
@@ -93,6 +96,38 @@ public:
             }
             std::fflush(stdout);
             std::fflush(stderr);
+            std::exit(0);
+        }
+
+        if (tokens.contains("--scan-network") || tokens.contains("-s") || tokens.contains("--test-discovery") || tokens.contains("--scan")) {
+            std::printf("========================================\n");
+            std::printf("  ResoStage LAN Discovery Scanner\n");
+            std::printf("========================================\n\n");
+            std::printf("Listening for UDP announcements on port %d for 3 seconds...\n", UdpDiscovery::kDiscoveryPort);
+            std::fflush(stdout);
+
+            UdpDiscovery discovery;
+            discovery.start(2899, true);
+
+            // Wait 3 seconds for beacons
+            juce::Thread::sleep(3000);
+
+            const auto devices = discovery.getDiscoveredDevices();
+            discovery.stop();
+
+            std::printf("\nScan complete. Discovered %zu device(s):\n", devices.size());
+            if (devices.empty()) {
+                std::printf("  (No remote ResoStage instances responded on the local network)\n");
+            } else {
+                for (size_t idx = 0; idx < devices.size(); ++idx) {
+                    const auto& d = devices[idx];
+                    std::printf("  [%zu] \"%s\" (%s) -> %s:%u [protocol v%s]\n",
+                                idx + 1, d.name.c_str(), d.platform.c_str(),
+                                d.ip.c_str(), d.port, d.protocolVersion.c_str());
+                }
+            }
+            std::printf("========================================\n\n");
+            std::fflush(stdout);
             std::exit(0);
         }
 

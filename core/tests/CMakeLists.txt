@@ -36,7 +36,11 @@ add_executable(resostage_engine_tests
   test_mix_graph.cpp
   test_mix_renderer.cpp
   test_asio_diag.cpp
+  test_udp_discovery.cpp
+  ../app/network/UdpDiscovery.cpp
 )
+
+target_include_directories(resostage_engine_tests PRIVATE ../app)
 
 target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)
 if(TARGET juce_audio_devices)
