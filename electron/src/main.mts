@@ -146,6 +146,8 @@ function setupUdpTelemetry(): void {
     if (udpTelemetrySocket) return;
     udpTelemetrySocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
     udpTelemetrySocket.on("message", (msg: Buffer) => {
+      // In remote session, do NOT forward local telemetry so remote show state is active.
+      if (isRemoteSession) return;
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("udp-telemetry", msg);
       }
@@ -155,6 +157,25 @@ function setupUdpTelemetry(): void {
     });
   } catch (err) {
     console.warn("[resostage] UDP telemetry listener failed:", err);
+  }
+}
+
+function triggerLocalNetworkPermission(): void {
+  try {
+    const probe = dgram.createSocket("udp4");
+    probe.bind(0, () => {
+      try {
+        probe.setBroadcast(true);
+        const dummy = Buffer.from("RESOSTAGE_LOCAL_PROBE");
+        probe.send(dummy, 0, dummy.length, 28991, "255.255.255.255", () => {
+          probe.close();
+        });
+      } catch {
+        probe.close();
+      }
+    });
+  } catch {
+    /* ignore */
   }
 }
 
@@ -1460,7 +1481,7 @@ ipcMain.handle(
 
 ipcMain.handle("remote:get-discovered-devices", async () => {
   try {
-    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovered-devices`, {
+    const res = await fetch(`${currentBackendUrl()}/api/v1/remote/discovered-devices`, {
       signal: AbortSignal.timeout(2500),
     });
     if (res.ok) {
@@ -1474,7 +1495,7 @@ ipcMain.handle("remote:get-discovered-devices", async () => {
 
 ipcMain.handle("remote:get-discovery-enabled", async () => {
   try {
-    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovery`, {
+    const res = await fetch(`${currentBackendUrl()}/api/v1/remote/discovery`, {
       signal: AbortSignal.timeout(2500),
     });
     if (res.ok) {
@@ -1489,7 +1510,7 @@ ipcMain.handle("remote:get-discovery-enabled", async () => {
 
 ipcMain.handle("remote:set-discovery-enabled", async (_event, enabled: boolean) => {
   try {
-    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovery`, {
+    const res = await fetch(`${currentBackendUrl()}/api/v1/remote/discovery`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: Boolean(enabled) }),
@@ -1517,7 +1538,7 @@ ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: n
   activeRemoteHost = payload.host;
   activeRemotePort = payload.port || 2899;
   isRemoteSession = true;
-  const targetUrl = `http://${activeRemoteHost}:${activeRemotePort}/?embedded=1`;
+  const targetUrl = `http://${activeRemoteHost}:${activeRemotePort}/?embedded=1&remote=1`;
   if (mainWindow && !mainWindow.isDestroyed()) {
     await mainWindow.loadURL(targetUrl);
   }
@@ -1612,6 +1633,7 @@ if (!app.requestSingleInstanceLock()) {
     if (STANDALONE) spawnBackend();
     ensureAppNotSuspended();
     setupUdpTelemetry();
+    triggerLocalNetworkPermission();
     // Load platform native libraries (MenuFlash/Haptics) once up front so
     // first-use isn't silent.
     platform.preloadNatives();

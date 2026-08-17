@@ -1,8 +1,9 @@
 import { Chip, Spinner } from "@heroui/react";
 import { Globe, Laptop, Radio, RefreshCw, Server, ShieldCheck, ShieldAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Card, Switch } from "./ui";
 import { IS_ELECTRON } from "../lib/electron";
+import { apiUrl } from "../lib/backend";
 
 interface DiscoveredDevice {
   name: string;
@@ -23,25 +24,28 @@ export function RemoteSettingsSection() {
   const [manualPort, setManualPort] = useState("2899");
   const [isRemoteMode, setIsRemoteMode] = useState(false);
   const [activeRemoteHost, setActiveRemoteHost] = useState<string | null>(null);
+  const isTogglingRef = useRef(false);
 
   const fetchStatusAndDevices = async () => {
     setLoading(true);
     try {
-      // 1. Fetch discovery toggle state
-      if (IS_ELECTRON && window.resostageElectron?.getDiscoveryEnabled) {
-        const enabled = await window.resostageElectron.getDiscoveryEnabled();
-        setDiscoveryEnabled(enabled);
-      } else {
-        try {
-          const discRes = await fetch("/api/v1/remote/discovery");
-          if (discRes.ok) {
-            const data = await discRes.json();
-            if (typeof data?.enabled === "boolean") {
-              setDiscoveryEnabled(data.enabled);
+      // 1. Fetch discovery toggle state (only if not actively toggling)
+      if (!isTogglingRef.current) {
+        if (IS_ELECTRON && window.resostageElectron?.getDiscoveryEnabled) {
+          const enabled = await window.resostageElectron.getDiscoveryEnabled();
+          if (!isTogglingRef.current) setDiscoveryEnabled(enabled);
+        } else {
+          try {
+            const discRes = await fetch(apiUrl("/api/v1/remote/discovery"));
+            if (discRes.ok) {
+              const data = await discRes.json();
+              if (typeof data?.enabled === "boolean" && !isTogglingRef.current) {
+                setDiscoveryEnabled(data.enabled);
+              }
             }
+          } catch {
+            /* fallback */
           }
-        } catch {
-          /* fallback */
         }
       }
 
@@ -52,7 +56,7 @@ export function RemoteSettingsSection() {
       }
       if (!list || list.length === 0) {
         try {
-          const res = await fetch("/api/v1/remote/discovered-devices");
+          const res = await fetch(apiUrl("/api/v1/remote/discovered-devices"));
           if (res.ok) {
             list = (await res.json()) || [];
           }
@@ -77,12 +81,13 @@ export function RemoteSettingsSection() {
   };
 
   const handleToggleDiscovery = async (enabled: boolean) => {
+    isTogglingRef.current = true;
     setDiscoveryEnabled(enabled);
     try {
       if (IS_ELECTRON && window.resostageElectron?.setDiscoveryEnabled) {
         await window.resostageElectron.setDiscoveryEnabled(enabled);
       } else {
-        await fetch("/api/v1/remote/discovery", {
+        await fetch(apiUrl("/api/v1/remote/discovery"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ enabled }),
@@ -90,6 +95,11 @@ export function RemoteSettingsSection() {
       }
     } catch {
       /* fallback */
+    } finally {
+      // Keep guard active for 1s to let network state settle
+      setTimeout(() => {
+        isTogglingRef.current = false;
+      }, 1000);
     }
   };
 
@@ -107,7 +117,7 @@ export function RemoteSettingsSection() {
       setIsRemoteMode(true);
       setActiveRemoteHost(`${host}:${port}`);
     } else {
-      window.location.href = `http://${host}:${port}/`;
+      window.location.href = `http://${host}:${port}/?remote=1`;
     }
   };
 

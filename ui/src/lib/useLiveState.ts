@@ -308,8 +308,14 @@ export function useLiveState(view: string = "player") {
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    const isRemote =
+      typeof window !== "undefined" &&
+      (window.location.search.includes("remote=1") ||
+        (window.location.hostname !== "localhost" &&
+          window.location.hostname !== "127.0.0.1"));
 
-    const isEmbeddedMode = IS_EMBEDDED || IS_ELECTRON || ("resostageElectron" in window);
+    const isEmbeddedMode =
+      !isRemote && (IS_EMBEDDED || IS_ELECTRON || ("resostageElectron" in window));
 
     if (isEmbeddedMode) {
       setTransport("udp");

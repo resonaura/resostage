@@ -6,6 +6,13 @@
 const NATIVE_BACKEND_PORT = 2899;
 
 function backendOrigin(): string {
+  if (typeof window !== "undefined" && window.location) {
+    const params = new URLSearchParams(window.location.search);
+    const remote = params.get("remote");
+    if (remote && remote !== "1") {
+      return remote;
+    }
+  }
   if (import.meta.env.DEV) {
     return `${location.hostname}:${NATIVE_BACKEND_PORT}`;
   }

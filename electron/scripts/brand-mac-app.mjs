@@ -121,6 +121,13 @@ function main() {
   execFileSync("plutil", ["-replace", "CFBundleName", "-string", APP_NAME, plistPath]);
   execFileSync("plutil", ["-replace", "CFBundleDisplayName", "-string", APP_NAME, plistPath]);
   execFileSync("plutil", ["-replace", "CFBundleIdentifier", "-string", BUNDLE_ID, plistPath]);
+  execFileSync("plutil", [
+    "-replace",
+    "NSLocalNetworkUsageDescription",
+    "-string",
+    "ResoStage requires local network access for LAN discovery, stage lighting (Art-Net/DMX), and wireless remote control.",
+    plistPath,
+  ]);
 
   renameAllHelpers(destApp);
 
