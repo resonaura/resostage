@@ -159,11 +159,7 @@ export function RemoteSettingsSection() {
             isSelected={discoveryEnabled}
             onChange={(checked) => void handleToggleDiscovery(checked)}
             aria-label="Toggle LAN Discovery"
-          >
-            <Switch.Control>
-              <Switch.Thumb />
-            </Switch.Control>
-          </Switch>
+          />
         </div>
       </Card>
 
