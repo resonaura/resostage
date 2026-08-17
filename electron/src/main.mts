@@ -1472,6 +1472,39 @@ ipcMain.handle("remote:get-discovered-devices", async () => {
   return [];
 });
 
+ipcMain.handle("remote:get-discovery-enabled", async () => {
+  try {
+    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovery`, {
+      signal: AbortSignal.timeout(2500),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Boolean(data?.enabled);
+    }
+  } catch {
+    /* fallback */
+  }
+  return true;
+});
+
+ipcMain.handle("remote:set-discovery-enabled", async (_event, enabled: boolean) => {
+  try {
+    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: Boolean(enabled) }),
+      signal: AbortSignal.timeout(2500),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Boolean(data?.enabled);
+    }
+  } catch {
+    /* fallback */
+  }
+  return enabled;
+});
+
 ipcMain.handle("remote:get-status", async () => {
   return {
     isRemoteMode: isRemoteSession,

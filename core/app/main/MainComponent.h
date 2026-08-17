@@ -324,6 +324,7 @@ private:
     std::vector<ResolvedFixtureOutput> lightingPreviewLastFrame;
 
     UdpDiscovery udpDiscovery;
+    std::string bindAddress_ = "0.0.0.0";
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

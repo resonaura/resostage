@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("resostageElectron", {
     ipcRenderer.send("haptic-feedback", pattern ?? "alignment"),
   /** Remote mode LAN discovery & connection */
   getDiscoveredDevices: () => ipcRenderer.invoke("remote:get-discovered-devices"),
+  getDiscoveryEnabled: () => ipcRenderer.invoke("remote:get-discovery-enabled"),
+  setDiscoveryEnabled: (enabled: boolean) => ipcRenderer.invoke("remote:set-discovery-enabled", enabled),
   connectRemote: (host: string, port: number) =>
     ipcRenderer.invoke("remote:connect", { host, port }),
   disconnectRemote: () => ipcRenderer.invoke("remote:disconnect"),

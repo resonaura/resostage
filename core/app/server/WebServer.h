@@ -940,6 +940,17 @@ public:
         discoveredDevicesProvider = std::move(provider);
     }
 
+    // GET/POST /api/v1/remote/discovery -- LAN discovery toggle state
+    using DiscoveryStatusProvider = std::function<bool()>;
+    using DiscoveryToggleHandler = std::function<void(bool)>;
+    void setDiscoveryStatusProvider(DiscoveryStatusProvider provider) {
+        discoveryStatusProvider = std::move(provider);
+    }
+    void setDiscoveryToggleHandler(DiscoveryToggleHandler handler) {
+        discoveryToggleHandler = std::move(handler);
+    }
+    int serveDiscoveryStatus(struct lws* wsi);
+
     // Message-thread: publish the current song's per-track peak-overview
     // JSON (see MainComponent::buildPeaksJson()). Kept separate from the
     // ~30Hz WebUiState broadcast -- peak arrays are large (up to 4096 floats
@@ -1071,6 +1082,8 @@ private:
     std::string archivePathForRaw;
 
     DiscoveredDevicesProvider discoveredDevicesProvider;
+    DiscoveryStatusProvider discoveryStatusProvider;
+    DiscoveryToggleHandler discoveryToggleHandler;
 
     // High-speed UDP telemetry for embedded (Electron) mode.
     static constexpr int kUdpTelemetryPort = 2898;

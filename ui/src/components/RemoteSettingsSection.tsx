@@ -27,6 +27,25 @@ export function RemoteSettingsSection() {
   const fetchStatusAndDevices = async () => {
     setLoading(true);
     try {
+      // 1. Fetch discovery toggle state
+      if (IS_ELECTRON && window.resostageElectron?.getDiscoveryEnabled) {
+        const enabled = await window.resostageElectron.getDiscoveryEnabled();
+        setDiscoveryEnabled(enabled);
+      } else {
+        try {
+          const discRes = await fetch("/api/v1/remote/discovery");
+          if (discRes.ok) {
+            const data = await discRes.json();
+            if (typeof data?.enabled === "boolean") {
+              setDiscoveryEnabled(data.enabled);
+            }
+          }
+        } catch {
+          /* fallback */
+        }
+      }
+
+      // 2. Fetch discovered devices
       let list: DiscoveredDevice[] = [];
       if (IS_ELECTRON && window.resostageElectron?.getDiscoveredDevices) {
         list = (await window.resostageElectron.getDiscoveredDevices()) || [];
@@ -54,6 +73,23 @@ export function RemoteSettingsSection() {
       /* ignore */
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleDiscovery = async (enabled: boolean) => {
+    setDiscoveryEnabled(enabled);
+    try {
+      if (IS_ELECTRON && window.resostageElectron?.setDiscoveryEnabled) {
+        await window.resostageElectron.setDiscoveryEnabled(enabled);
+      } else {
+        await fetch("/api/v1/remote/discovery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        });
+      }
+    } catch {
+      /* fallback */
     }
   };
 
@@ -121,7 +157,7 @@ export function RemoteSettingsSection() {
           </div>
           <Switch
             isSelected={discoveryEnabled}
-            onChange={(checked) => setDiscoveryEnabled(checked)}
+            onChange={(checked) => void handleToggleDiscovery(checked)}
             aria-label="Toggle LAN Discovery"
           />
         </div>

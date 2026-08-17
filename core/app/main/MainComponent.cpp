@@ -34,6 +34,7 @@ namespace resostage {
 MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool enableDiscovery, std::string bindAddress) {
     ipcSocketPath = std::move(ipcSocketPath_);
     webPort_ = webPort;
+    bindAddress_ = std::move(bindAddress);
 
     // IPC server создаётся ДО аудио-setup: Electron ждёт {"type":"ready"},
     // а notifyCoreReady() сработает только после открытия устройства. Сервер
@@ -198,6 +199,12 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     udpDiscovery.start(webPort_, enableDiscovery, bindAddress);
     webServer.setDiscoveredDevicesProvider([this] {
         return udpDiscovery.getDiscoveredDevices();
+    });
+    webServer.setDiscoveryStatusProvider([this] {
+        return udpDiscovery.isDiscoveryEnabled();
+    });
+    webServer.setDiscoveryToggleHandler([this](bool enabled) {
+        udpDiscovery.setDiscoveryEnabled(enabled, bindAddress_);
     });
 
     // SelectSong / Play / etc. used to wait for the 30 Hz timer (up to ~33 ms).

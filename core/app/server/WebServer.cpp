@@ -765,6 +765,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return server->serveUiMenu(wsi);
                     if (std::strcmp(uri, "/api/v1/remote/discovered-devices") == 0)
                         return server->serveDiscoveredDevices(wsi);
+                    if (std::strcmp(uri, "/api/v1/remote/discovery") == 0)
+                        return server->serveDiscoveryStatus(wsi);
                     if (std::strcmp(uri, "/api/v1/audio/mixgraph") == 0) {
                         const std::string json = server->buildStateJson("mixgraph");
                         return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
@@ -1976,6 +1978,18 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             beginTrackImport(songIndex, trackIndex, fileName);
         }
         cmd = {builderKind, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/remote/discovery") == 0) {
+        bool enabled = true;
+        const std::string bodyStr(body, bodyLen);
+        if (bodyStr.find("false") != std::string::npos) {
+            enabled = false;
+        }
+        if (discoveryToggleHandler) {
+            discoveryToggleHandler(enabled);
+        }
+        const std::string json = "{\"enabled\":" + std::string(enabled ? "true" : "false") + "}";
+        writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+        return true;
     } else {
         ok = false;
     }
@@ -2236,6 +2250,15 @@ int WebServer::serveDiscoveredDevices(struct lws* wsi) {
     const juce::String json = juce::JSON::toString(arr, true);
     auto raw = json.toRawUTF8();
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", raw, std::strlen(raw));
+}
+
+int WebServer::serveDiscoveryStatus(struct lws* wsi) {
+    bool enabled = true;
+    if (discoveryStatusProvider) {
+        enabled = discoveryStatusProvider();
+    }
+    const std::string json = "{\"enabled\":" + std::string(enabled ? "true" : "false") + "}";
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
 void WebServer::publishArchivePath(std::string path) {
