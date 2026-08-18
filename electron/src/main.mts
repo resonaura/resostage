@@ -1481,7 +1481,7 @@ ipcMain.handle(
 
 ipcMain.handle("remote:get-discovered-devices", async () => {
   try {
-    const res = await fetch(`${currentBackendUrl()}/api/v1/remote/discovered-devices`, {
+    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovered-devices`, {
       signal: AbortSignal.timeout(2000),
     });
     if (res.ok) {
@@ -1494,7 +1494,7 @@ ipcMain.handle("remote:get-discovered-devices", async () => {
 
 ipcMain.handle("remote:get-discovery-enabled", async () => {
   try {
-    const res = await fetch(`${currentBackendUrl()}/api/v1/remote/discovery`, {
+    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovery`, {
       signal: AbortSignal.timeout(2500),
     });
     if (res.ok) {
@@ -1509,7 +1509,7 @@ ipcMain.handle("remote:get-discovery-enabled", async () => {
 
 ipcMain.handle("remote:set-discovery-enabled", async (_event, enabled: boolean) => {
   try {
-    const res = await fetch(`${currentBackendUrl()}/api/v1/remote/discovery`, {
+    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovery`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: Boolean(enabled) }),
