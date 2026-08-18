@@ -75,15 +75,25 @@ export class LinuxPlatformAdapter extends PlatformAdapter {
   }
 
   override findNestedCoreBinary(): string | null {
-    // Linux bundle: a bare executable alongside the shell bundle in dist/.
-    const candidates = [
-      path.join(import.meta.dirname, "..", "..", "..", "build", "linux", process.arch, CORE_NAME),
-      path.join(process.cwd(), "build", "linux", process.arch, CORE_NAME),
-      path.join(import.meta.dirname, "..", "..", "..", "build", "linux", CORE_NAME),
-      path.join(process.cwd(), "build", "linux", CORE_NAME),
+    const candidateNames = [CORE_NAME, OLD_CORE_NAME, "ResoStage"];
+    for (const name of candidateNames) {
+      const p = path.join(process.resourcesPath, "..", name);
+      if (existsSync(p)) return p;
+    }
+
+    const devCandidateDirs = [
+      path.join(import.meta.dirname, "..", "..", "..", "build", "linux", process.arch),
+      path.join(process.cwd(), "build", "linux", process.arch),
+      path.join(import.meta.dirname, "..", "..", "..", "build", "linux"),
+      path.join(process.cwd(), "build", "linux"),
+      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "RelWithDebInfo"),
+      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "Debug"),
     ];
-    for (const cand of candidates) {
-      if (existsSync(cand)) return cand;
+    for (const dir of devCandidateDirs) {
+      for (const name of candidateNames) {
+        const cand = path.join(dir, name);
+        if (existsSync(cand)) return cand;
+      }
     }
     return null;
   }

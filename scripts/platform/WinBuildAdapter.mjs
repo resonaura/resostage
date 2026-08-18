@@ -29,6 +29,7 @@ export class WinBuildAdapter extends BuildAdapter {
     const artefactsDir = join(BUILD_DIR, "app", "ResoStage_artefacts");
     return (
       findFileRecursively(artefactsDir, `${CORE_APP_NAME}.exe`) ??
+      findFileRecursively(artefactsDir, "ResoStage.exe") ??
       findFileRecursively(artefactsDir, CORE_APP_NAME) ??
       findFileRecursively(artefactsDir, "ResoStage") ??
       join(artefactsDir, `${CORE_APP_NAME}.exe`)
@@ -218,15 +219,15 @@ export class WinBuildAdapter extends BuildAdapter {
     }
 
     const coreDst = join(shellDir, `${CORE_APP_NAME}.exe`);
-    const oldCoreExe = join(shellDir, "ResoStage Core.exe");
-    if (existsSync(oldCoreExe)) rmSync(oldCoreExe, { force: true });
+    const coreDstShort = join(shellDir, "core.exe");
     if (existsSync(coreDst)) rmSync(coreDst, { force: true });
-    const coreBuildDir = dirname(rawCore);
-    const coreExe = join(coreBuildDir, `${CORE_APP_NAME}.exe`);
-    if (existsSync(coreExe)) {
-      cpSync(coreExe, coreDst);
+    if (existsSync(coreDstShort)) rmSync(coreDstShort, { force: true });
+    if (rawCore && existsSync(rawCore)) {
+      cpSync(rawCore, coreDst);
+      cpSync(rawCore, coreDstShort);
       const coreIco = join(ROOT, "icons", "core.ico");
       this.patchWindowsExeMetadata(coreDst, existsSync(coreIco) ? coreIco : null, "core.exe");
+      this.patchWindowsExeMetadata(coreDstShort, existsSync(coreIco) ? coreIco : null, "core.exe");
     }
 
     const kaishakuDst = join(shellDir, "kaishaku.exe");

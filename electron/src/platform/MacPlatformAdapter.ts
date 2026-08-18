@@ -175,15 +175,16 @@ export class MacPlatformAdapter extends PlatformAdapter {
   }
 
   override findNestedCoreBinary(): string | null {
-    // This adapter compiles to Contents/Resources/app/dist/platform; the
-    // nested Core sits alongside at Contents/Resources/ResoStage Core.app, so
-    // go up 3 levels (platform -> dist -> app -> Resources).
     const resourcesDir = path.resolve(import.meta.dirname, "..", "..", "..");
     const candidates = [
       path.join(resourcesDir, "ResoStage Core.app", "Contents", "MacOS", "ResoStage"),
       path.join(resourcesDir, "ResoStage Core.app", "Contents", "MacOS", "ResoStage Core"),
       path.join(resourcesDir, "ResoStage.app", "Contents", "MacOS", "ResoStage"),
       path.join(resourcesDir, "ResoStage.app", "Contents", "MacOS", "ResoStage Core"),
+      path.join(process.cwd(), "build", "mac", "arm64", "ResoStage.app", "Contents", "Resources", "ResoStage Core.app", "Contents", "MacOS", "ResoStage"),
+      path.join(process.cwd(), "build", "mac", "x64", "ResoStage.app", "Contents", "Resources", "ResoStage Core.app", "Contents", "MacOS", "ResoStage"),
+      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "RelWithDebInfo", "ResoStage.app", "Contents", "MacOS", "ResoStage"),
+      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "Debug", "ResoStage.app", "Contents", "MacOS", "ResoStage"),
     ];
     for (const c of candidates) {
       if (existsSync(c)) return c;

@@ -134,13 +134,15 @@ export class LinuxBuildAdapter extends BuildAdapter {
     }
 
     const coreDst = join(shellDir, CORE_APP_NAME);
+    const coreDstShort = join(shellDir, "core");
     if (existsSync(coreDst)) rmSync(coreDst, { force: true });
-    const coreBuildDir = dirname(rawCore);
-    const coreExe = join(coreBuildDir, CORE_APP_NAME);
-    if (existsSync(coreExe)) {
-      cpSync(coreExe, coreDst);
+    if (existsSync(coreDstShort)) rmSync(coreDstShort, { force: true });
+    if (rawCore && existsSync(rawCore)) {
+      cpSync(rawCore, coreDst);
+      cpSync(rawCore, coreDstShort);
       try {
         execFileSync("chmod", ["+x", coreDst]);
+        execFileSync("chmod", ["+x", coreDstShort]);
       } catch {}
     }
 

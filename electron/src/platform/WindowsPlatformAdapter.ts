@@ -119,33 +119,23 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
   }
 
   override findNestedCoreBinary(): string | null {
-    const winCorePath = path.join(process.resourcesPath, "..", CORE_EXE);
-    if (existsSync(winCorePath)) return winCorePath;
+    const candidateNames = [CORE_EXE, OLD_CORE_EXE, "ResoStage.exe"];
+    for (const name of candidateNames) {
+      const p = path.join(process.resourcesPath, "..", name);
+      if (existsSync(p)) return p;
+    }
 
-    const devCandidates = [
-      path.join(import.meta.dirname, "..", "..", "..", "build", "win", "x64", CORE_EXE),
-      path.join(process.cwd(), "build", "win", "x64", CORE_EXE),
-      path.join(
-        process.cwd(),
-        "core",
-        "build",
-        "app",
-        "ResoStage_artefacts",
-        "RelWithDebInfo",
-        CORE_EXE,
-      ),
-      path.join(
-        process.cwd(),
-        "core",
-        "build",
-        "app",
-        "ResoStage_artefacts",
-        "Debug",
-        CORE_EXE,
-      ),
+    const devCandidateDirs = [
+      path.join(import.meta.dirname, "..", "..", "..", "build", "win", "x64"),
+      path.join(process.cwd(), "build", "win", "x64"),
+      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "RelWithDebInfo"),
+      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "Debug"),
     ];
-    for (const cand of devCandidates) {
-      if (existsSync(cand)) return cand;
+    for (const dir of devCandidateDirs) {
+      for (const name of candidateNames) {
+        const cand = path.join(dir, name);
+        if (existsSync(cand)) return cand;
+      }
     }
     return null;
   }
