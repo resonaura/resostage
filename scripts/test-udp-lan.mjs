@@ -35,7 +35,8 @@ s.bind(${PORT}, () => {
 setTimeout(() => { s.close(); console.log('WIN_DONE'); }, 3000);
 `;
 
-  execOnDevice(win, `echo ${Buffer.from(scriptContent).toString('base64')} > C:\\Users\\tkach\\win_test_b64.txt && certutil -decode -f C:\\Users\\tkach\\win_test_b64.txt C:\\Users\\tkach\\win_udp.js`, { stdio: 'pipe' });
+  const b64 = Buffer.from(scriptContent).toString('base64');
+  execOnDevice(win, `powershell -Command "[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64}')) | Out-File -Encoding utf8 C:\\Users\\tkach\\win_udp.js"`, { stdio: 'inherit' });
 
   // Send packet from Mac to 255.255.255.255 and directed to win.host
   const payload = JSON.stringify({ type: "RESOSTAGE_DISCOVERY", name: "Mac-Test", platform: "darwin", port: 2899, protocolVersion: "1.0.0", discoveryEnabled: true });

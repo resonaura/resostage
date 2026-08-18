@@ -92,6 +92,9 @@ std::vector<DiscoveredDevice> UdpDiscovery::getDiscoveredDevices() {
 void UdpDiscovery::sendAnnounce() {
     if (!socket || !discoveryEnabled.load()) return;
 
+    int sockHandle = socket->getRawSocketHandle();
+    if (sockHandle < 0) return;
+
     juce::var json(new juce::DynamicObject());
     json.getDynamicObject()->setProperty("type", "RESOSTAGE_DISCOVERY");
     json.getDynamicObject()->setProperty("name", juce::String(getHostDeviceName()));
@@ -104,8 +107,22 @@ void UdpDiscovery::sendAnnounce() {
     auto raw = payload.toRawUTF8();
     int len = static_cast<int>(std::strlen(raw));
 
+    auto sendToAddr = [&](const char* ipStr) {
+        struct sockaddr_in targetAddress;
+        std::memset(&targetAddress, 0, sizeof(targetAddress));
+        targetAddress.sin_family = AF_INET;
+        targetAddress.sin_port = htons(kDiscoveryPort);
+#if JUCE_WINDOWS
+        targetAddress.sin_addr.s_addr = inet_addr(ipStr);
+        ::sendto(static_cast<SOCKET>(sockHandle), raw, len, 0, reinterpret_cast<const struct sockaddr*>(&targetAddress), sizeof(targetAddress));
+#else
+        inet_pton(AF_INET, ipStr, &targetAddress.sin_addr);
+        ::sendto(sockHandle, raw, len, 0, reinterpret_cast<const struct sockaddr*>(&targetAddress), sizeof(targetAddress));
+#endif
+    };
+
     // Global broadcast
-    socket->write("255.255.255.255", kDiscoveryPort, raw, len);
+    sendToAddr("255.255.255.255");
 
     // Subnet directed broadcasts for every local interface
     const auto addrs = juce::IPAddress::getAllAddresses(false);
@@ -115,7 +132,7 @@ void UdpDiscovery::sendAnnounce() {
         auto parts = juce::StringArray::fromTokens(s, ".", "");
         if (parts.size() == 4) {
             juce::String bcast = parts[0] + "." + parts[1] + "." + parts[2] + ".255";
-            socket->write(bcast, kDiscoveryPort, raw, len);
+            sendToAddr(bcast.toRawUTF8());
         }
     }
 }

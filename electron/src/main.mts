@@ -38,7 +38,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { unlinkSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import dgram from "node:dgram";
-import os from "node:os";
 import path from "node:path";
 import {
   createPlatformAdapter,
@@ -161,87 +160,7 @@ function setupUdpTelemetry(): void {
   }
 }
 
-interface DiscoveredDevice {
-  name: string;
-  platform: string;
-  ip: string;
-  port: number;
-  protocolVersion: string;
-  discoveryEnabled: boolean;
-  lastSeenSeconds: number;
-}
-
-const nodeDiscoveredDevices = new Map<string, DiscoveredDevice>();
-let lanDiscoverySocket: dgram.Socket | null = null;
-
-function setupLanDiscovery(): void {
-  try {
-    if (lanDiscoverySocket) return;
-    lanDiscoverySocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
-    lanDiscoverySocket.on("message", (msg: Buffer, rinfo) => {
-      try {
-        const str = msg.toString("utf8");
-        const json = JSON.parse(str);
-        if (json && json.type === "RESOSTAGE_DISCOVERY") {
-          const ip = rinfo.address;
-          const port = Number(json.port) || 2899;
-          const key = `${ip}:${port}`;
-          nodeDiscoveredDevices.set(key, {
-            name: String(json.name || "Remote Device"),
-            platform: String(json.platform || "unknown"),
-            ip,
-            port,
-            protocolVersion: String(json.protocolVersion || "1.0.0"),
-            discoveryEnabled: Boolean(json.discoveryEnabled),
-            lastSeenSeconds: Date.now() / 1000,
-          });
-        }
-      } catch {}
-    });
-
-    lanDiscoverySocket.bind(28991, () => {
-      try {
-        lanDiscoverySocket?.setBroadcast(true);
-      } catch {}
-    });
-
-    // Periodic announcement broadcast from shell
-    setInterval(() => {
-      if (!lanDiscoverySocket) return;
-      try {
-        const msg = JSON.stringify({
-          type: "RESOSTAGE_DISCOVERY",
-          name: os.hostname(),
-          platform: process.platform,
-          port: PORT,
-          protocolVersion: "1.0.0",
-          discoveryEnabled: true,
-        });
-        lanDiscoverySocket.send(msg, 28991, "255.255.255.255");
-
-        const ifaces = os.networkInterfaces();
-        for (const key of Object.keys(ifaces)) {
-          const list = ifaces[key];
-          if (!list) continue;
-          for (const iface of list) {
-            if (iface.family === "IPv4" && !iface.internal) {
-              const parts = iface.address.split(".");
-              if (parts.length === 4) {
-                const bcast = `${parts[0]}.${parts[1]}.${parts[2]}.255`;
-                lanDiscoverySocket.send(msg, 28991, bcast);
-              }
-            }
-          }
-        }
-      } catch {}
-    }, 2000);
-  } catch (err) {
-    console.warn("[resostage] LAN discovery listener failed:", err);
-  }
-}
-
 function triggerLocalNetworkPermission(): void {
-  setupLanDiscovery();
   try {
     const probe = dgram.createSocket("udp4");
     probe.bind(0, () => {
@@ -249,10 +168,10 @@ function triggerLocalNetworkPermission(): void {
         probe.setBroadcast(true);
         const dummy = Buffer.from("RESOSTAGE_LOCAL_PROBE");
         probe.send(dummy, 0, dummy.length, 28991, "255.255.255.255", () => {
-          probe.close();
+          try { probe.close(); } catch {}
         });
       } catch {
-        probe.close();
+        try { probe.close(); } catch {}
       }
     });
   } catch {
@@ -1561,50 +1480,16 @@ ipcMain.handle(
 );
 
 ipcMain.handle("remote:get-discovered-devices", async () => {
-  // Prune expired devices (> 15s) from Node discovery map
-  const now = Date.now() / 1000;
-  for (const [key, dev] of nodeDiscoveredDevices.entries()) {
-    if (now - dev.lastSeenSeconds > 15) {
-      nodeDiscoveredDevices.delete(key);
-    }
-  }
-
-  // Also query C++ Core backend
-  let coreList: DiscoveredDevice[] = [];
   try {
     const res = await fetch(`${currentBackendUrl()}/api/v1/remote/discovered-devices`, {
-      signal: AbortSignal.timeout(1500),
+      signal: AbortSignal.timeout(2000),
     });
     if (res.ok) {
-      coreList = ((await res.json()) || []) as DiscoveredDevice[];
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
     }
   } catch {}
-
-  const merged = new Map<string, DiscoveredDevice>();
-  for (const d of coreList) {
-    merged.set(`${d.ip}:${d.port}`, d);
-  }
-  for (const d of nodeDiscoveredDevices.values()) {
-    merged.set(`${d.ip}:${d.port}`, d);
-  }
-
-  // Filter out loopback / local IP
-  const localIps = new Set(["127.0.0.1", "localhost", "0.0.0.0"]);
-  const ifaces = os.networkInterfaces();
-  for (const key of Object.keys(ifaces)) {
-    const addrs = ifaces[key];
-    if (addrs) {
-      for (const a of addrs) {
-        if (a.address) localIps.add(a.address);
-      }
-    }
-  }
-
-  const result = Array.from(merged.values()).filter(
-    (dev) => !localIps.has(dev.ip)
-  );
-
-  return result;
+  return [];
 });
 
 ipcMain.handle("remote:get-discovery-enabled", async () => {
