@@ -189,8 +189,6 @@ void UdpDiscovery::parseIncomingDatagram(const char* data, int size, const juce:
 
 void UdpDiscovery::run() {
     char buffer[2048];
-    juce::String senderIp;
-    int senderPort = 0;
 
     // Send immediate initial announcement on thread start
     sendAnnounce();
@@ -203,14 +201,34 @@ void UdpDiscovery::run() {
             lastAnnounceMs = nowMs;
         }
 
+        if (!socket) {
+            juce::Thread::sleep(50);
+            continue;
+        }
+
+        int sockHandle = socket->getRawSocketHandle();
+        if (sockHandle < 0) {
+            juce::Thread::sleep(50);
+            continue;
+        }
+
         // Wait up to 100ms for incoming packets
-        if (socket && socket->waitUntilReady(true, 100) > 0) {
+        if (socket->waitUntilReady(true, 100) > 0) {
             // Drain all available datagrams in buffer
             while (socket && !threadShouldExit()) {
-                int read = socket->read(buffer, sizeof(buffer) - 1, false, senderIp, senderPort);
+                struct sockaddr_in from;
+                socklen_t fromLen = sizeof(from);
+                std::memset(&from, 0, sizeof(from));
+#if JUCE_WINDOWS
+                int read = ::recvfrom(static_cast<SOCKET>(sockHandle), buffer, static_cast<int>(sizeof(buffer) - 1), 0, reinterpret_cast<struct sockaddr*>(&from), &fromLen);
+#else
+                int read = static_cast<int>(::recvfrom(sockHandle, buffer, sizeof(buffer) - 1, 0, reinterpret_cast<struct sockaddr*>(&from), &fromLen));
+#endif
                 if (read > 0) {
                     buffer[read] = '\0';
-                    parseIncomingDatagram(buffer, read, senderIp);
+                    char senderIpStr[INET_ADDRSTRLEN] = {0};
+                    inet_ntop(AF_INET, &from.sin_addr, senderIpStr, sizeof(senderIpStr));
+                    parseIncomingDatagram(buffer, read, senderIpStr);
                 } else {
                     break;
                 }
