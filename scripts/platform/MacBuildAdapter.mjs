@@ -28,22 +28,16 @@ export class MacBuildAdapter extends BuildAdapter {
   }
 
   getRawCoreAppBundle() {
-    const directPath = join(
-      BUILD_DIR,
-      "app",
-      `${APP_TARGET}_artefacts`,
-      `${CORE_APP_NAME}.app`,
-    );
-    if (existsSync(directPath)) return directPath;
-    const buildTypePath = join(
-      BUILD_DIR,
-      "app",
-      `${APP_TARGET}_artefacts`,
-      BUILD_TYPE,
-      `${CORE_APP_NAME}.app`,
-    );
-    if (existsSync(buildTypePath)) return buildTypePath;
-    return directPath;
+    const candidates = [
+      join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, BUILD_TYPE, `${APP_TARGET}.app`),
+      join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, `${APP_TARGET}.app`),
+      join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, BUILD_TYPE, `${CORE_APP_NAME}.app`),
+      join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, `${CORE_APP_NAME}.app`),
+    ];
+    for (const c of candidates) {
+      if (existsSync(c)) return c;
+    }
+    return candidates[0];
   }
 
   getShellAppBundle() {

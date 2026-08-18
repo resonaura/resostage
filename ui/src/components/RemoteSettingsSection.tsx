@@ -52,19 +52,23 @@ export function RemoteSettingsSection() {
       // 2. Fetch discovered devices
       let list: DiscoveredDevice[] = [];
       if (IS_ELECTRON && window.resostageElectron?.getDiscoveredDevices) {
-        list = (await window.resostageElectron.getDiscoveredDevices()) || [];
+        try {
+          const electronList = await window.resostageElectron.getDiscoveredDevices();
+          if (Array.isArray(electronList)) list = electronList;
+        } catch {}
       }
       if (!list || list.length === 0) {
         try {
           const res = await fetch(apiUrl("/api/v1/remote/discovered-devices"));
           if (res.ok) {
-            list = (await res.json()) || [];
+            const data = await res.json();
+            if (Array.isArray(data)) list = data;
           }
         } catch {
           /* fallback */
         }
       }
-      setDevices(list || []);
+      setDevices(Array.isArray(list) ? list : []);
 
       if (IS_ELECTRON && window.resostageElectron?.getRemoteStatus) {
         const status = await window.resostageElectron.getRemoteStatus();

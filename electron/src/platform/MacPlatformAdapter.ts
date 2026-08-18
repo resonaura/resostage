@@ -179,14 +179,16 @@ export class MacPlatformAdapter extends PlatformAdapter {
     // nested Core sits alongside at Contents/Resources/ResoStage Core.app, so
     // go up 3 levels (platform -> dist -> app -> Resources).
     const resourcesDir = path.resolve(import.meta.dirname, "..", "..", "..");
-    const corePath = path.join(
-      resourcesDir,
-      "ResoStage Core.app",
-      "Contents",
-      "MacOS",
-      "ResoStage Core",
-    );
-    return existsSync(corePath) ? corePath : null;
+    const candidates = [
+      path.join(resourcesDir, "ResoStage Core.app", "Contents", "MacOS", "ResoStage"),
+      path.join(resourcesDir, "ResoStage Core.app", "Contents", "MacOS", "ResoStage Core"),
+      path.join(resourcesDir, "ResoStage.app", "Contents", "MacOS", "ResoStage"),
+      path.join(resourcesDir, "ResoStage.app", "Contents", "MacOS", "ResoStage Core"),
+    ];
+    for (const c of candidates) {
+      if (existsSync(c)) return c;
+    }
+    return null;
   }
 
   override applyMenu(menu: Menu): void {

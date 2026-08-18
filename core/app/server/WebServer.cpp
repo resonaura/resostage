@@ -2233,7 +2233,7 @@ int WebServer::serveUiMenu(struct lws* wsi) {
 }
 
 int WebServer::serveDiscoveredDevices(struct lws* wsi) {
-    juce::var arr;
+    juce::Array<juce::var> items;
     if (discoveredDevicesProvider) {
         const auto list = discoveredDevicesProvider();
         for (const auto& dev : list) {
@@ -2244,9 +2244,10 @@ int WebServer::serveDiscoveredDevices(struct lws* wsi) {
             item.getDynamicObject()->setProperty("port", static_cast<int>(dev.port));
             item.getDynamicObject()->setProperty("protocolVersion", juce::String(dev.protocolVersion));
             item.getDynamicObject()->setProperty("discoveryEnabled", dev.discoveryEnabled);
-            arr.append(item);
+            items.add(item);
         }
     }
+    juce::var arr(items);
     const juce::String json = juce::JSON::toString(arr, true);
     auto raw = json.toRawUTF8();
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", raw, std::strlen(raw));

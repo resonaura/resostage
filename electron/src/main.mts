@@ -218,6 +218,21 @@ function setupLanDiscovery(): void {
           discoveryEnabled: true,
         });
         lanDiscoverySocket.send(msg, 28991, "255.255.255.255");
+
+        const ifaces = os.networkInterfaces();
+        for (const key of Object.keys(ifaces)) {
+          const list = ifaces[key];
+          if (!list) continue;
+          for (const iface of list) {
+            if (iface.family === "IPv4" && !iface.internal) {
+              const parts = iface.address.split(".");
+              if (parts.length === 4) {
+                const bcast = `${parts[0]}.${parts[1]}.${parts[2]}.255`;
+                lanDiscoverySocket.send(msg, 28991, bcast);
+              }
+            }
+          }
+        }
       } catch {}
     }, 2000);
   } catch (err) {
@@ -424,7 +439,7 @@ function spawnBackend(): void {
   console.log(`[resostage] Spawning nested backend: ${corePath}`);
   backendProcess = spawn(
     corePath,
-    ["--ipc-socket", ipcPath],
+    ["--ipc-socket", ipcPath, "--discovery"],
     {
       env: { ...process.env, RESOSTAGE_SPAWNED_BY_SHELL: "1" },
       stdio: "pipe",
