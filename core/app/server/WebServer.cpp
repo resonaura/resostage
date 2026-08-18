@@ -773,7 +773,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                                                  json.c_str(), json.size());
                     }
                     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
-                                             "{\"error\":\"not found\"}", 27);
+                                             "{\"error\":\"not found\"}", 21);
                 }
 
                 // POST with no body (Content-Length 0 / absent): handle now.
@@ -787,7 +787,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                     if (server->handleHttpApi(wsi, pss->path, pss->method, "", 0))
                         return 0;
                     return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
-                                             "{\"error\":\"not found\"}", 27);
+                                             "{\"error\":\"not found\"}", 21);
                 }
                 return 0;
             }
@@ -867,7 +867,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
             if (server->handleHttpApi(wsi, pss->path, pss->method, body, bodyLen))
                 return 0;
             return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
-                                     "{\"error\":\"not found\"}", 27);
+                                     "{\"error\":\"not found\"}", 21);
     }
 
     return lws_callback_http_dummy(wsi, why, user, in, len);

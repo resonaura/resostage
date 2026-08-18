@@ -14,7 +14,21 @@ import { createBuildAdapter } from "./platform/index.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const ROOT = join(__dirname, "..");
-export const buildAdapter = createBuildAdapter();
+
+let _buildAdapter = null;
+export function getBuildAdapter() {
+  if (!_buildAdapter) {
+    _buildAdapter = createBuildAdapter();
+  }
+  return _buildAdapter;
+}
+export const buildAdapter = new Proxy({}, {
+  get(_, prop) {
+    const adapter = getBuildAdapter();
+    const val = adapter[prop];
+    return typeof val === "function" ? val.bind(adapter) : val;
+  },
+});
 // All native C++ (JUCE app + engine + vendor + tools + tests) lives under
 // core/ -- CMake is invoked with this as the source root. The raw/dirty
 // CMake build tree also lives under core/ (core/build) -- it's disposable
