@@ -502,6 +502,8 @@ function flashMenuAction(action: string): void {
 
 async function handleFileDialogAction(action: string): Promise<boolean> {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
+  // In remote sessions, native local file picking is bypassed so remote host state is unmodified
+  if (isRemoteSession) return false;
 
   const isMac = process.platform === "darwin";
 
@@ -1291,6 +1293,15 @@ function createWindow(): void {
       // -3 is ERR_ABORTED: a load we superseded ourselves, not a failure.
       if (!isMainFrame || errorCode === -3 || triedEmbed) return;
       triedEmbed = true;
+      if (isRemoteSession) {
+        activeRemoteHost = null;
+        activeRemotePort = PORT;
+        isRemoteSession = false;
+        void fetchMenuWithRetry(5, 200).then(() => {
+          refreshMenu();
+          refreshTouchBar();
+        });
+      }
       void mainWindow?.loadURL(EMBED_URL);
     },
   );
@@ -1534,8 +1545,22 @@ ipcMain.handle("remote:get-status", async () => {
 
 ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: number }) => {
   if (!payload?.host) return false;
-  activeRemoteHost = payload.host;
-  activeRemotePort = payload.port || 2899;
+  const host = payload.host.trim().replace(/^https?:\/\//i, "").replace(/^wss?:\/\//i, "").replace(/\/+.*$/, "");
+  const port = payload.port || 2899;
+  if (!host) return false;
+
+  try {
+    const probe = await fetch(`http://${host}:${port}/api/v1/remote/discovery`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!probe.ok && probe.status !== 404) return false;
+  } catch {
+    console.warn(`[resostage] Remote host ${host}:${port} unreachable`);
+    return false;
+  }
+
+  activeRemoteHost = host;
+  activeRemotePort = port;
   isRemoteSession = true;
   menuModel = await fetchMenuWithRetry(5, 200);
   refreshMenu();

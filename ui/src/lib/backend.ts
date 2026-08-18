@@ -5,12 +5,23 @@
 // explicitly at the native app's backend instead of Vite's own origin.
 const NATIVE_BACKEND_PORT = 2899;
 
+function cleanHostString(raw: string): string {
+  let s = raw.trim();
+  s = s.replace(/^https?:\/\//i, "");
+  s = s.replace(/^wss?:\/\//i, "");
+  s = s.replace(/\/+.*$/, "");
+  return s;
+}
+
 function backendOrigin(): string {
   if (typeof window !== "undefined" && window.location) {
     const params = new URLSearchParams(window.location.search);
     const remote = params.get("remote");
     if (remote && remote !== "1" && remote !== "true") {
-      return remote.includes(":") ? remote : `${remote}:${NATIVE_BACKEND_PORT}`;
+      const clean = cleanHostString(remote);
+      if (clean) {
+        return clean.includes(":") ? clean : `${clean}:${NATIVE_BACKEND_PORT}`;
+      }
     }
   }
   if (import.meta.env.DEV) {

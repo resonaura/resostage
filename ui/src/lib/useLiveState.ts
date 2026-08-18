@@ -324,6 +324,7 @@ export function useLiveState(view: string = "player") {
     let unsubTransport: (() => void) | undefined;
     let unsubMixerFlags: (() => void) | undefined;
     let onUdpFrame: ((e: Event) => void) | undefined;
+    let connect: (() => void) | undefined;
 
     const fetchState = async () => {
       if (cancelled) return;
@@ -415,7 +416,7 @@ export function useLiveState(view: string = "player") {
         scheduleFlush();
       });
     } else {
-      const connect = () => {
+      connect = () => {
         if (cancelled) return;
         ws = new WebSocket(wsUrl(), "resoset");
         ws.binaryType = "arraybuffer";
@@ -472,12 +473,12 @@ export function useLiveState(view: string = "player") {
           if (wsRef.current === ws) wsRef.current = null;
           if (cancelled) return;
           setStatus("reconnecting");
-          reconnectTimer = setTimeout(connect, reconnectMsRef.current);
+          reconnectTimer = setTimeout(() => connect?.(), reconnectMsRef.current);
           reconnectMsRef.current = Math.min(reconnectMsRef.current * 1.5, 4000);
         };
       };
 
-      connect();
+      connect?.();
     }
 
     const wakeSocket = () => {
@@ -503,10 +504,8 @@ export function useLiveState(view: string = "player") {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
         }
-        if (!isEmbeddedMode && wsRef.current) {
-          ws = new WebSocket(wsUrl(), "resoset");
-          ws.binaryType = "arraybuffer";
-          wsRef.current = ws;
+        if (!isEmbeddedMode) {
+          connect?.();
         }
       }
     };

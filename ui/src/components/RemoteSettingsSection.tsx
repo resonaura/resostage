@@ -151,7 +151,19 @@ export function RemoteSettingsSection() {
     }
   }, []);
 
-  const handleConnect = async (host: string, port: number) => {
+  const handleConnect = async (rawHost: string, defaultPort: number) => {
+    let host = rawHost.trim().replace(/^https?:\/\//i, "").replace(/^wss?:\/\//i, "").replace(/\/+.*$/, "");
+    let port = defaultPort || 2899;
+    if (host.includes(":")) {
+      const parts = host.split(":");
+      host = parts[0];
+      const parsedPort = parseInt(parts[1], 10);
+      if (!isNaN(parsedPort) && parsedPort > 0) {
+        port = parsedPort;
+      }
+    }
+    if (!host) return;
+
     if (IS_ELECTRON && window.resostageElectron?.connectRemote) {
       await window.resostageElectron.connectRemote(host, port);
       setIsRemoteMode(true);
