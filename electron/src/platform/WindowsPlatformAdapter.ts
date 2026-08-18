@@ -46,6 +46,12 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
         stdio: "ignore",
       });
     } catch {}
+    try {
+      execFileSync("taskkill", ["/IM", "ResoStage.exe", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } catch {}
   }
 
   override cleanupAfterBackendKill(): void {
@@ -57,6 +63,12 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
     } catch {}
     try {
       execFileSync("taskkill", ["/IM", OLD_CORE_EXE, "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } catch {}
+    try {
+      execFileSync("taskkill", ["/IM", "ResoStage.exe", "/F"], {
         windowsHide: true,
         stdio: "ignore",
       });
