@@ -111,13 +111,25 @@ export function RemoteSettingsSection() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const r = params.get("remote");
+    if (r) {
+      setIsRemoteMode(true);
+      setActiveRemoteHost(r);
+    } else if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      setIsRemoteMode(true);
+      setActiveRemoteHost(window.location.host);
+    }
+  }, []);
+
   const handleConnect = async (host: string, port: number) => {
     if (IS_ELECTRON && window.resostageElectron?.connectRemote) {
       await window.resostageElectron.connectRemote(host, port);
       setIsRemoteMode(true);
       setActiveRemoteHost(`${host}:${port}`);
     } else {
-      window.location.href = `http://${host}:${port}/?remote=1`;
+      window.location.href = `http://${host}:${port}/?remote=${encodeURIComponent(`${host}:${port}`)}`;
     }
   };
 
@@ -126,6 +138,8 @@ export function RemoteSettingsSection() {
       await window.resostageElectron.disconnectRemote();
       setIsRemoteMode(false);
       setActiveRemoteHost(null);
+    } else {
+      window.location.href = "/";
     }
   };
 

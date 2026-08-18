@@ -1,4 +1,4 @@
-import { Chip, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
 import {
   AlertTriangle,
   Gauge,
@@ -509,6 +509,17 @@ export default function App() {
     prevAlarmRef.current = state.hardwareAlarm;
   }, [state.hardwareAlarm]);
 
+  const remoteHost = (() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    const r = params.get("remote");
+    if (r) return r;
+    if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      return window.location.host;
+    }
+    return null;
+  })();
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
       <header className="relative flex h-14 shrink-0 items-center bg-background px-2 sm:px-4">
@@ -520,10 +531,23 @@ export default function App() {
             className="h-7 w-7 shrink-0 object-contain"
             draggable={false}
           />
-          {window.location.search.includes("remote=1") || (window.resostageElectron && (window as any).__isRemoteMode) ? (
-            <Chip color="warning" variant="soft" size="sm" className="font-semibold text-[11px]">
-              REMOTE
-            </Chip>
+          {remoteHost ? (
+            <div className="flex items-center gap-1.5 rounded-full bg-warning/15 px-2.5 py-0.5 text-warning font-medium text-[11px] border border-warning/30">
+              <span className="font-semibold">REMOTE: {remoteHost}</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (IS_ELECTRON && window.resostageElectron?.disconnectRemote) {
+                    await window.resostageElectron.disconnectRemote();
+                  } else {
+                    window.location.href = "/";
+                  }
+                }}
+                className="ml-1 text-[10px] text-foreground/70 underline hover:text-foreground cursor-pointer"
+              >
+                Disconnect
+              </button>
+            </div>
           ) : null}
         </div>
 
@@ -541,7 +565,7 @@ export default function App() {
         </div>
 
         <div className="z-10 ml-auto flex shrink-0 items-center gap-3">
-          {!IS_EMBEDDED && !IS_ELECTRON ? <ProjectMenu state={state} /> : null}
+          {(!IS_EMBEDDED && !IS_ELECTRON) || remoteHost ? <ProjectMenu state={state} /> : null}
           <ConnectionBadge
             status={status}
             transport={transport}

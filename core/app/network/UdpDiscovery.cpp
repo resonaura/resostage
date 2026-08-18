@@ -141,8 +141,18 @@ void UdpDiscovery::parseIncomingDatagram(const char* data, int size, const juce:
     dev.discoveryEnabled = static_cast<bool>(obj->getProperty("discoveryEnabled"));
     dev.lastSeenSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
 
-    // Filter out our own self-announcements
-    if (dev.name == getHostDeviceName() && dev.port == webPort) {
+    // Filter out our own self-announcements using IP matching
+    bool isSelf = (senderIp == "127.0.0.1");
+    if (!isSelf) {
+        const auto localAddrs = juce::IPAddress::getAllAddresses(false);
+        for (const auto& addr : localAddrs) {
+            if (addr.toString() == senderIp) {
+                isSelf = true;
+                break;
+            }
+        }
+    }
+    if (isSelf && dev.port == webPort) {
         return;
     }
 
@@ -176,11 +186,20 @@ void UdpDiscovery::run() {
             lastAnnounceMs = nowMs;
         }
 
-        if (socket && socket->waitUntilReady(true, 250) > 0) {
-            int read = socket->read(buffer, sizeof(buffer) - 1, false, senderIp, senderPort);
-            if (read > 0) {
-                buffer[read] = '\0';
-                parseIncomingDatagram(buffer, read, senderIp);
+        // Wait up to 100ms for incoming packets
+        if (socket && socket->waitUntilReady(true, 100) > 0) {
+            // Drain all available datagrams in buffer
+            while (socket && !threadShouldExit()) {
+                int read = socket->read(buffer, sizeof(buffer) - 1, false, senderIp, senderPort);
+                if (read > 0) {
+                    buffer[read] = '\0';
+                    parseIncomingDatagram(buffer, read, senderIp);
+                } else {
+                    break;
+                }
+                if (socket->waitUntilReady(true, 0) <= 0) {
+                    break;
+                }
             }
         }
     }

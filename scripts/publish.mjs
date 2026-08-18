@@ -332,8 +332,19 @@ Root: HKCR; Subkey: "ResoStage.ProjectFile\\shell\\open\\command"; ValueType: st
 Filename: "{tmp}\\vc_redist.x64.exe"; Parameters: "/quiet /norestart"; \\
   StatusMsg: "Installing Microsoft Visual C++ runtime..."; \\
   Check: VCRedistNeedsInstall; Flags: skipifsilent
+; Configure Windows Defender Firewall rules for Core, Discovery, Web, Telemetry, and Art-Net
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""ResoStage LAN Discovery"" dir=in action=allow protocol=UDP localport=28991 enable=yes"; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""ResoStage Web Server"" dir=in action=allow protocol=TCP localport=2899 enable=yes"; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""ResoStage Telemetry"" dir=in action=allow protocol=UDP localport=2898 enable=yes"; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""ResoStage Art-Net"" dir=in action=allow protocol=UDP localport=6454 enable=yes"; Flags: runhidden
 Filename: "{app}\\ResoStage.exe"; Description: "Launch ResoStage"; \\
   Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""ResoStage LAN Discovery"""; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""ResoStage Web Server"""; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""ResoStage Telemetry"""; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""ResoStage Art-Net"""; Flags: runhidden
 
 [Code]
 function VCRedistNeedsInstall: Boolean;
