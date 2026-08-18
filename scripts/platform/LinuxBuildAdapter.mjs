@@ -27,9 +27,9 @@ export class LinuxBuildAdapter extends BuildAdapter {
   getRawCoreAppBundle() {
     const artefactsDir = join(BUILD_DIR, "app", "ResoStage_artefacts");
     return (
-      findFileRecursively(artefactsDir, CORE_APP_NAME) ??
       findFileRecursively(artefactsDir, "ResoStage") ??
-      join(artefactsDir, CORE_APP_NAME)
+      findFileRecursively(artefactsDir, CORE_APP_NAME) ??
+      join(artefactsDir, "ResoStage")
     );
   }
 

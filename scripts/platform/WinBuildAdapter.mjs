@@ -28,11 +28,11 @@ export class WinBuildAdapter extends BuildAdapter {
   getRawCoreAppBundle() {
     const artefactsDir = join(BUILD_DIR, "app", "ResoStage_artefacts");
     return (
-      findFileRecursively(artefactsDir, `${CORE_APP_NAME}.exe`) ??
       findFileRecursively(artefactsDir, "ResoStage.exe") ??
-      findFileRecursively(artefactsDir, CORE_APP_NAME) ??
       findFileRecursively(artefactsDir, "ResoStage") ??
-      join(artefactsDir, `${CORE_APP_NAME}.exe`)
+      findFileRecursively(artefactsDir, `${CORE_APP_NAME}.exe`) ??
+      findFileRecursively(artefactsDir, CORE_APP_NAME) ??
+      join(artefactsDir, "ResoStage.exe")
     );
   }
 
