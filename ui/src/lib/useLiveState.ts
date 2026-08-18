@@ -308,11 +308,15 @@ export function useLiveState(view: string = "player") {
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
-    const isRemote =
-      typeof window !== "undefined" &&
-      (window.location.search.includes("remote=1") ||
-        (window.location.hostname !== "localhost" &&
-          window.location.hostname !== "127.0.0.1"));
+    const isRemote = (() => {
+      if (typeof window === "undefined") return false;
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("remote") || window.location.search.includes("remote=")) return true;
+      if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+        return true;
+      }
+      return false;
+    })();
 
     const isEmbeddedMode =
       !isRemote && (IS_EMBEDDED || IS_ELECTRON || ("resostageElectron" in window));

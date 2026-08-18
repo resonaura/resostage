@@ -38,6 +38,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { unlinkSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import dgram from "node:dgram";
+import os from "node:os";
 import path from "node:path";
 import {
   createPlatformAdapter,
@@ -160,7 +161,72 @@ function setupUdpTelemetry(): void {
   }
 }
 
+interface DiscoveredDevice {
+  name: string;
+  platform: string;
+  ip: string;
+  port: number;
+  protocolVersion: string;
+  discoveryEnabled: boolean;
+  lastSeenSeconds: number;
+}
+
+const nodeDiscoveredDevices = new Map<string, DiscoveredDevice>();
+let lanDiscoverySocket: dgram.Socket | null = null;
+
+function setupLanDiscovery(): void {
+  try {
+    if (lanDiscoverySocket) return;
+    lanDiscoverySocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+    lanDiscoverySocket.on("message", (msg: Buffer, rinfo) => {
+      try {
+        const str = msg.toString("utf8");
+        const json = JSON.parse(str);
+        if (json && json.type === "RESOSTAGE_DISCOVERY") {
+          const ip = rinfo.address;
+          const port = Number(json.port) || 2899;
+          const key = `${ip}:${port}`;
+          nodeDiscoveredDevices.set(key, {
+            name: String(json.name || "Remote Device"),
+            platform: String(json.platform || "unknown"),
+            ip,
+            port,
+            protocolVersion: String(json.protocolVersion || "1.0.0"),
+            discoveryEnabled: Boolean(json.discoveryEnabled),
+            lastSeenSeconds: Date.now() / 1000,
+          });
+        }
+      } catch {}
+    });
+
+    lanDiscoverySocket.bind(28991, () => {
+      try {
+        lanDiscoverySocket?.setBroadcast(true);
+      } catch {}
+    });
+
+    // Periodic announcement broadcast from shell
+    setInterval(() => {
+      if (!lanDiscoverySocket) return;
+      try {
+        const msg = JSON.stringify({
+          type: "RESOSTAGE_DISCOVERY",
+          name: os.hostname(),
+          platform: process.platform,
+          port: PORT,
+          protocolVersion: "1.0.0",
+          discoveryEnabled: true,
+        });
+        lanDiscoverySocket.send(msg, 28991, "255.255.255.255");
+      } catch {}
+    }, 2000);
+  } catch (err) {
+    console.warn("[resostage] LAN discovery listener failed:", err);
+  }
+}
+
 function triggerLocalNetworkPermission(): void {
+  setupLanDiscovery();
   try {
     const probe = dgram.createSocket("udp4");
     probe.bind(0, () => {
@@ -1480,17 +1546,50 @@ ipcMain.handle(
 );
 
 ipcMain.handle("remote:get-discovered-devices", async () => {
+  // Prune expired devices (> 15s) from Node discovery map
+  const now = Date.now() / 1000;
+  for (const [key, dev] of nodeDiscoveredDevices.entries()) {
+    if (now - dev.lastSeenSeconds > 15) {
+      nodeDiscoveredDevices.delete(key);
+    }
+  }
+
+  // Also query C++ Core backend
+  let coreList: DiscoveredDevice[] = [];
   try {
     const res = await fetch(`${currentBackendUrl()}/api/v1/remote/discovered-devices`, {
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(1500),
     });
     if (res.ok) {
-      return await res.json();
+      coreList = ((await res.json()) || []) as DiscoveredDevice[];
     }
-  } catch {
-    /* fallback */
+  } catch {}
+
+  const merged = new Map<string, DiscoveredDevice>();
+  for (const d of coreList) {
+    merged.set(`${d.ip}:${d.port}`, d);
   }
-  return [];
+  for (const d of nodeDiscoveredDevices.values()) {
+    merged.set(`${d.ip}:${d.port}`, d);
+  }
+
+  // Filter out loopback / local IP
+  const localIps = new Set(["127.0.0.1", "localhost", "0.0.0.0"]);
+  const ifaces = os.networkInterfaces();
+  for (const key of Object.keys(ifaces)) {
+    const addrs = ifaces[key];
+    if (addrs) {
+      for (const a of addrs) {
+        if (a.address) localIps.add(a.address);
+      }
+    }
+  }
+
+  const result = Array.from(merged.values()).filter(
+    (dev) => !localIps.has(dev.ip)
+  );
+
+  return result;
 });
 
 ipcMain.handle("remote:get-discovery-enabled", async () => {
@@ -1538,6 +1637,9 @@ ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: n
   activeRemoteHost = payload.host;
   activeRemotePort = payload.port || 2899;
   isRemoteSession = true;
+  menuModel = await fetchMenuWithRetry(5, 200);
+  refreshMenu();
+  refreshTouchBar();
   const targetUrl = `http://${activeRemoteHost}:${activeRemotePort}/?embedded=1&remote=${encodeURIComponent(`${activeRemoteHost}:${activeRemotePort}`)}`;
   if (mainWindow && !mainWindow.isDestroyed()) {
     await mainWindow.loadURL(targetUrl);
@@ -1549,6 +1651,9 @@ ipcMain.handle("remote:disconnect", async () => {
   activeRemoteHost = null;
   activeRemotePort = PORT;
   isRemoteSession = false;
+  menuModel = await fetchMenuWithRetry(5, 200);
+  refreshMenu();
+  refreshTouchBar();
   const targetUrl = `http://localhost:${PORT}/?embedded=1`;
   if (mainWindow && !mainWindow.isDestroyed()) {
     await mainWindow.loadURL(targetUrl);

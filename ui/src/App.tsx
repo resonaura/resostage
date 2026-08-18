@@ -249,7 +249,7 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
   useEffect(() => {
     if (!IS_EMBEDDED) return;
     const sendFocus = (focused: boolean) => {
-      void fetch("/api/v1/ui/focus-state", {
+      void fetch(apiUrl("/api/v1/ui/focus-state"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ focused }),
