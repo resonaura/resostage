@@ -322,11 +322,18 @@ export function startApp() {
     if (existsSync(lsregister)) {
       run(lsregister, ["-f", appBundle], { allowFail: true });
     }
-    run("open", [appBundle]);
+    const child = spawn("open", [appBundle], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
   } else if (process.platform === "win32") {
-    execFileSync("cmd.exe", ["/c", "start", "", appBundle], {
+    const child = spawn("cmd.exe", ["/c", "start", "", appBundle], {
+      detached: true,
+      stdio: "ignore",
       windowsHide: true,
     });
+    child.unref();
   } else {
     // Linux: launch detached so this script returns and the app
     // keeps running on its own.
