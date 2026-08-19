@@ -382,6 +382,13 @@ export function copyShellRuntimeDeps(appDst) {
   const deps = Object.keys(manifest.dependencies ?? {});
   if (!deps.length) return;
 
+  const platformPrefix =
+    process.platform === "win32"
+      ? "win32_"
+      : process.platform === "darwin"
+        ? "darwin_"
+        : "linux_";
+
   for (const dep of deps) {
     const src = join(ROOT, "electron", "node_modules", dep);
     if (!existsSync(src)) {
@@ -396,7 +403,7 @@ export function copyShellRuntimeDeps(appDst) {
     const prebuilds = join(appDst, "node_modules", dep, "build", dep);
     if (!existsSync(prebuilds)) continue;
     for (const p of readdirSync(prebuilds)) {
-      if (p.startsWith("darwin_")) continue;
+      if (p.startsWith(platformPrefix)) continue;
       rmSync(join(prebuilds, p), { recursive: true, force: true });
     }
   }

@@ -189,6 +189,9 @@ export class WinBuildAdapter extends BuildAdapter {
     const appIco = join(ROOT, "icons", "app.ico");
     this.patchWindowsExeMetadata(shellBundle, existsSync(appIco) ? appIco : null, "resostage.exe");
 
+    const defaultAppAsar = join(shellDir, "resources", "default_app.asar");
+    if (existsSync(defaultAppAsar)) rmSync(defaultAppAsar, { force: true });
+
     const appDst = join(shellDir, "resources", "app");
     rmSync(appDst, { recursive: true, force: true });
     mkdirSync(appDst, { recursive: true });
