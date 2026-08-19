@@ -23,11 +23,30 @@
 //   * Windows — menu in window title bar (setMenu)
 //   * Linux   — detects global menu support (KDE/Unity); falls back to window menu
 
+import { writeFileSync, appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import nodePath from "node:path";
+
+// ── Early crash diagnostics ────────────────────────────────────────────────
+// Writes uncaught exceptions / unhandled rejections to a log file before
+// any other module has a chance to run. Helps debug startup failures on
+// platforms where there is no console attached.
+const _crashLog = nodePath.join(tmpdir(), "resostage-crash.log");
+try { writeFileSync(_crashLog, `[${new Date().toISOString()}] main.mjs starting\n`); } catch {}
+process.on("uncaughtException", (err) => {
+  try { appendFileSync(_crashLog, `[uncaughtException] ${err?.stack ?? err}\n`); } catch {}
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  try { appendFileSync(_crashLog, `[unhandledRejection] ${reason instanceof Error ? reason.stack : String(reason)}\n`); } catch {}
+});
+
 import {
   app,
   BrowserWindow,
   dialog,
   ipcMain,
+
   Menu,
   powerMonitor,
   powerSaveBlocker,
