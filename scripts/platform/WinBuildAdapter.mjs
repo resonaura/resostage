@@ -54,15 +54,13 @@ export class WinBuildAdapter extends BuildAdapter {
   }
 
   killApp({ bestEffort = false } = {}) {
-    if (!this.appIsRunning()) {
-      log(`${SHELL_APP_NAME} is not running`);
-      return;
-    }
     log(`Stopping ${SHELL_APP_NAME}...`);
     const exe = basename(this.shellExecutablePath());
     runQuiet("taskkill", ["/IM", exe, "/F", "/T"]);
+    runQuiet("taskkill", ["/IM", "electron.exe", "/F", "/T"]);
     runQuiet("taskkill", ["/IM", `${CORE_APP_NAME}.exe`, "/F"]);
     runQuiet("taskkill", ["/IM", "core.exe", "/F"]);
+    runQuiet("taskkill", ["/IM", "ResoStage.exe", "/F"]);
     sleepMs(500);
 
     if (this.appIsRunning()) {
@@ -81,62 +79,41 @@ export class WinBuildAdapter extends BuildAdapter {
     const webDst = join(shellDir, "resources", "web");
     if (existsSync(webSrc)) {
       mkdirSync(dirname(webDst), { recursive: true });
-      rmSync(webDst, { recursive: true, force: true });
+      try {
+        rmSync(webDst, { recursive: true, force: true });
+      } catch {}
       cpSync(webSrc, webDst, { recursive: true });
       ok(`Web UI copied -> ${webDst}`);
     }
   }
 
   patchWindowsExeMetadata(exePath, icoPath, exeName = "resostage.exe") {
-    const exe = NtExecutable.from(readFileSync(exePath));
+    if (!existsSync(exePath)) return;
+    const exeBuf = readFileSync(exePath);
+    const exe = NtExecutable.from(exeBuf);
     const res = NtExecutableResource.from(exe);
 
     if (icoPath && existsSync(icoPath)) {
-      const iconFile = Data.IconFile.from(readFileSync(icoPath));
-      const RT_ICON = 3;
-      const RT_GROUP_ICON = 14;
-      res.entries = res.entries.filter((e) => e.type !== RT_ICON && e.type !== RT_GROUP_ICON);
+      const icoBuf = readFileSync(icoPath);
+      const ico = IconFile.from(icoBuf);
       Resource.IconGroupEntry.replaceIconsForResource(
         res.entries,
         1,
         1033,
-        iconFile.icons.map((item) => item.data),
+        ico.icons.map((item) => item.data),
       );
     }
 
-    const desc =
-      exeName === "core.exe"
-        ? "ResoStage Core"
-        : exeName === "kaishaku.exe"
-          ? "ResoStage Kaishaku"
-          : "ResoStage";
-
-    let versionInfos = Resource.VersionInfo.fromEntries(res.entries);
-    if (!versionInfos || versionInfos.length === 0) {
-      const newVi = Resource.VersionInfo.createEmpty();
-      newVi.setFileVersion(1, 0, 0, 0);
-      newVi.setProductVersion(1, 0, 0, 0);
-      versionInfos = [newVi];
-    }
-
-    for (const info of versionInfos) {
-      const stringValues = {
-        FileDescription: desc,
-        ProductName: desc,
-        CompanyName: "Resonaura",
-        InternalName: exeName,
-        OriginalFilename: exeName,
-        LegalCopyright: "Copyright © Resonaura",
-        FileVersion: "0.1.0.0",
-        ProductVersion: "0.1.0.0",
-      };
-      const langs = info.getAvailableLanguages();
-      if (langs && langs.length > 0) {
-        for (const l of langs) {
-          info.setStringValues(l, stringValues);
-        }
+    const versionList = res.entries.filter((entry) => entry.type === Resource.ResourceType.Version);
+    if (versionList.length > 0) {
+      const info = VersionInfo.fromEntries(res.entries);
+      const stringTable = info.getStringTable(1033);
+      if (stringTable) {
+        stringTable.set("OriginalFilename", exeName);
+        stringTable.set("InternalName", exeName);
+        stringTable.set("FileDescription", "ResoStage Live Performance Engine");
+        stringTable.set("ProductName", "ResoStage");
       }
-      info.setStringValues({ lang: 1033, codepage: 1200 }, stringValues);
       info.outputToResourceEntries(res.entries);
     }
 
@@ -159,7 +136,11 @@ export class WinBuildAdapter extends BuildAdapter {
     const shellDir = dirname(shellBundle);
     if (existsSync(shellDir)) {
       log(`Cleaning old build directory at ${shellDir}...`);
-      rmSync(shellDir, { recursive: true, force: true });
+      try {
+        rmSync(shellDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+      } catch (err) {
+        log(`Warning: directory cleanup retry (${err.message})`);
+      }
     }
 
     log(`Assembling ${shellBundle}...`);
