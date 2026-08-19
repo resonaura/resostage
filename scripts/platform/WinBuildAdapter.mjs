@@ -89,39 +89,43 @@ export class WinBuildAdapter extends BuildAdapter {
 
   patchWindowsExeMetadata(exePath, icoPath, exeName = "resostage.exe") {
     if (!existsSync(exePath)) return;
-    const exeBuf = readFileSync(exePath);
-    const exe = NtExecutable.from(exeBuf);
-    const res = NtExecutableResource.from(exe);
+    try {
+      const exeBuf = readFileSync(exePath);
+      const exe = NtExecutable.from(exeBuf);
+      const res = NtExecutableResource.from(exe);
 
-    if (icoPath && existsSync(icoPath)) {
-      const icoBuf = readFileSync(icoPath);
-      const ico = Data.IconFile.from(icoBuf);
-      Resource.IconGroupEntry.replaceIconsForResource(
-        res.entries,
-        1,
-        1033,
-        ico.icons.map((item) => item.data),
-      );
-    }
-
-    let versionInfos = Resource.VersionInfo.fromEntries(res.entries);
-    if (versionInfos && versionInfos.length > 0) {
-      for (const info of versionInfos) {
-        info.setStringValues(
-          { lang: 1033, codepage: 1200 },
-          {
-            OriginalFilename: exeName,
-            InternalName: exeName,
-            FileDescription: "ResoStage Live Performance Engine",
-            ProductName: "ResoStage",
-          },
+      if (icoPath && existsSync(icoPath)) {
+        const icoBuf = readFileSync(icoPath);
+        const ico = Data.IconFile.from(icoBuf);
+        Resource.IconGroupEntry.replaceIconsForResource(
+          res.entries,
+          1,
+          1033,
+          ico.icons.map((item) => item.data),
         );
-        info.outputToResourceEntries(res.entries);
       }
-    }
 
-    res.outputResource(exe);
-    writeFileSync(exePath, Buffer.from(exe.generate()));
+      let versionInfos = Resource.VersionInfo.fromEntries(res.entries);
+      if (versionInfos && versionInfos.length > 0) {
+        for (const info of versionInfos) {
+          info.setStringValues(
+            { lang: 1033, codepage: 1200 },
+            {
+              OriginalFilename: exeName,
+              InternalName: exeName,
+              FileDescription: "ResoStage Live Performance Engine",
+              ProductName: "ResoStage",
+            },
+          );
+          info.outputToResourceEntries(res.entries);
+        }
+      }
+
+      res.outputResource(exe);
+      writeFileSync(exePath, Buffer.from(exe.generate()));
+    } catch (err) {
+      log(`Warning: PE metadata patch failed for ${exePath}: ${err.message} -- continuing without patching`);
+    }
   }
 
   assembleShellBundle() {
