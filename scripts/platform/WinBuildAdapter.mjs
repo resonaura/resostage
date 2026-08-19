@@ -104,17 +104,20 @@ export class WinBuildAdapter extends BuildAdapter {
       );
     }
 
-    const versionList = res.entries.filter((entry) => entry.type === Resource.ResourceType.Version);
-    if (versionList.length > 0) {
-      const info = Resource.VersionInfo.fromEntries(res.entries);
-      const stringTable = info.getStringTable(1033);
-      if (stringTable) {
-        stringTable.set("OriginalFilename", exeName);
-        stringTable.set("InternalName", exeName);
-        stringTable.set("FileDescription", "ResoStage Live Performance Engine");
-        stringTable.set("ProductName", "ResoStage");
+    let versionInfos = Resource.VersionInfo.fromEntries(res.entries);
+    if (versionInfos && versionInfos.length > 0) {
+      for (const info of versionInfos) {
+        info.setStringValues(
+          { lang: 1033, codepage: 1200 },
+          {
+            OriginalFilename: exeName,
+            InternalName: exeName,
+            FileDescription: "ResoStage Live Performance Engine",
+            ProductName: "ResoStage",
+          },
+        );
+        info.outputToResourceEntries(res.entries);
       }
-      info.outputToResourceEntries(res.entries);
     }
 
     res.outputResource(exe);
