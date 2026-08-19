@@ -583,18 +583,20 @@ export function useLiveState(view: string = "player") {
     const sampleInterval = setInterval(() => {
       if (!isRenderActive()) return;
       const sample = latestHealthRef.current;
-      setCpuHistory((prev) => [...prev.slice(1), sample.cpu]);
-      setRamHistory((prev) => [...prev.slice(1), sample.ram]);
+      const cpu = Number.isFinite(sample.cpu) ? Math.max(0, sample.cpu) : 0;
+      const ram = Number.isFinite(sample.ram) ? Math.max(0, sample.ram) : 0;
+      setCpuHistory((prev) => [...prev.slice(1), cpu]);
+      setRamHistory((prev) => [...prev.slice(1), ram]);
       setState((prev) => {
-        const rssBytes = sample.ram * 1024 * 1024;
+        const rssBytes = ram * 1024 * 1024;
         if (
-          prev.health.cpuPercent === sample.cpu &&
+          prev.health.cpuPercent === cpu &&
           prev.health.rssBytes === rssBytes
         )
           return prev;
         return {
           ...prev,
-          health: { ...prev.health, cpuPercent: sample.cpu, rssBytes },
+          health: { ...prev.health, cpuPercent: cpu, rssBytes },
         };
       });
     }, 1000);

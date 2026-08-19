@@ -481,11 +481,16 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     const totalRamMb = isV8 ? view.getFloat32(52, true) : view.getFloat32(46, true);
     const cpuCoreCount = isV8 ? view.getUint16(56, true) : view.getUint16(50, true);
 
+    const safeCpu = Number.isFinite(cpuPercent) ? Math.max(0, cpuPercent) : 0;
+    const safeRamMb = Number.isFinite(ramMb) ? Math.max(0, ramMb) : 0;
+    const safeTotalRamMb = Number.isFinite(totalRamMb) ? Math.max(0, totalRamMb) : 0;
+    const safeCores = cpuCoreCount > 0 ? cpuCoreCount : 8;
+
     const hs: LiveHealthState = {
-      cpuPercent,
-      rssBytes: ramMb * 1024 * 1024,
-      systemTotalBytes: totalRamMb * 1024 * 1024,
-      cpuCoreCount,
+      cpuPercent: safeCpu,
+      rssBytes: safeRamMb * 1024 * 1024,
+      systemTotalBytes: safeTotalRamMb * 1024 * 1024,
+      cpuCoreCount: safeCores,
     };
     publishLiveHealth(hs);
   }

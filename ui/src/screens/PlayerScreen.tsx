@@ -419,17 +419,17 @@ const SystemHealthWidget = memo(function SystemHealthWidget({
 }) {
   // Numbers track the 1 Hz history sample (not every telemetry frame) so
   // the readout doesn't jitter between SystemHealth samples.
-  const cpuVal = Math.max(
-    0,
-    cpuHistory[cpuHistory.length - 1] ?? h?.cpuPercent ?? 0,
-  );
-  const ramVal =
+  const lastCpu = cpuHistory[cpuHistory.length - 1] ?? h?.cpuPercent ?? 0;
+  const cpuVal = Number.isFinite(lastCpu) ? Math.max(0, lastCpu) : 0;
+  const rawRam =
     ramHistory[ramHistory.length - 1] ?? (h?.rssBytes ?? 0) / (1024 * 1024);
+  const ramVal = Number.isFinite(rawRam) ? Math.max(0, rawRam) : 0;
   // Hardware limits derived dynamically from C++ JUCE SystemHealth:
   const cores = Math.max(1, h?.cpuCoreCount ?? 8);
   const totalCpuMax = cores * 100;
 
-  const totalRamMb = (h?.systemTotalBytes ?? 0) / (1024 * 1024);
+  const rawTotalRam = (h?.systemTotalBytes ?? 0) / (1024 * 1024);
+  const totalRamMb = Number.isFinite(rawTotalRam) && rawTotalRam > 0 ? rawTotalRam : 16384;
 
   // Colour follows the CURRENT value, not the window's peak.
   //
