@@ -76,7 +76,15 @@ export class WinBuildAdapter extends BuildAdapter {
   }
 
   embedWebUi() {
-    log("Skipping web UI embed (Windows uses resources/web)");
+    const webSrc = join(ROOT, "ui", "dist");
+    const shellDir = dirname(this.getShellAppBundle());
+    const webDst = join(shellDir, "resources", "web");
+    if (existsSync(webSrc)) {
+      mkdirSync(dirname(webDst), { recursive: true });
+      rmSync(webDst, { recursive: true, force: true });
+      cpSync(webSrc, webDst, { recursive: true });
+      ok(`Web UI copied -> ${webDst}`);
+    }
   }
 
   patchWindowsExeMetadata(exePath, icoPath, exeName = "resostage.exe") {
