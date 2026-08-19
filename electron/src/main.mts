@@ -145,15 +145,19 @@ function setupUdpTelemetry(): void {
   try {
     if (udpTelemetrySocket) return;
     udpTelemetrySocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
-    udpTelemetrySocket.on("message", (msg: Buffer) => {
-      // In remote session, do NOT forward local telemetry so remote show state is active.
-      if (isRemoteSession) return;
+    udpTelemetrySocket.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+      // In remote session: accept remote LAN packets, ignore local loopback
+      if (isRemoteSession) {
+        if (rinfo.address === "127.0.0.1" || rinfo.address === "localhost") {
+          return;
+        }
+      }
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("udp-telemetry", msg);
       }
     });
-    udpTelemetrySocket.bind(UDP_TELEMETRY_PORT, "127.0.0.1", () => {
-      console.log(`[resostage] UDP Telemetry listener bound to 127.0.0.1:${UDP_TELEMETRY_PORT}`);
+    udpTelemetrySocket.bind(UDP_TELEMETRY_PORT, "0.0.0.0", () => {
+      console.log(`[resostage] UDP Telemetry listener bound to 0.0.0.0:${UDP_TELEMETRY_PORT}`);
     });
   } catch (err) {
     console.warn("[resostage] UDP telemetry listener failed:", err);
@@ -1563,6 +1567,29 @@ ipcMain.handle("remote:get-status", async () => {
   };
 });
 
+let remoteUdpHeartbeatTimer: NodeJS.Timeout | null = null;
+
+function startRemoteUdpHeartbeat(host: string, port: number): void {
+  stopRemoteUdpHeartbeat();
+  const sendHeartbeat = () => {
+    fetch(`http://${host}:${port}/api/v1/remote/subscribe-udp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ port: UDP_TELEMETRY_PORT }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(() => {});
+  };
+  sendHeartbeat();
+  remoteUdpHeartbeatTimer = setInterval(sendHeartbeat, 3000);
+}
+
+function stopRemoteUdpHeartbeat(): void {
+  if (remoteUdpHeartbeatTimer) {
+    clearInterval(remoteUdpHeartbeatTimer);
+    remoteUdpHeartbeatTimer = null;
+  }
+}
+
 ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: number }) => {
   if (!payload?.host) return false;
   const host = payload.host.trim().replace(/^https?:\/\//i, "").replace(/^wss?:\/\//i, "").replace(/\/+.*$/, "");
@@ -1582,6 +1609,7 @@ ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: n
   activeRemoteHost = host;
   activeRemotePort = port;
   isRemoteSession = true;
+  startRemoteUdpHeartbeat(activeRemoteHost, activeRemotePort);
   menuModel = await fetchMenuWithRetry(5, 200);
   refreshMenu();
   refreshTouchBar();
@@ -1593,6 +1621,7 @@ ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: n
 });
 
 ipcMain.handle("remote:disconnect", async () => {
+  stopRemoteUdpHeartbeat();
   activeRemoteHost = null;
   activeRemotePort = PORT;
   isRemoteSession = false;

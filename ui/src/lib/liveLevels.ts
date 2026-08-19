@@ -368,6 +368,29 @@ function publishMixerFlags(flags: LiveMixerFlags): void {
   }
 }
 
+export interface LiveHealthState {
+  cpuPercent: number;
+  rssBytes: number;
+  systemTotalBytes: number;
+  cpuCoreCount: number;
+}
+
+type HealthListener = (health: LiveHealthState) => void;
+let healthListeners: HealthListener[] = [];
+
+export function subscribeLiveHealth(listener: HealthListener): () => void {
+  healthListeners.push(listener);
+  return () => {
+    healthListeners = healthListeners.filter((l) => l !== listener);
+  };
+}
+
+function publishLiveHealth(health: LiveHealthState): void {
+  for (let i = 0; i < healthListeners.length; i++) {
+    healthListeners[i](health);
+  }
+}
+
 export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   if (buffer.byteLength < 24) return;
   const view = new DataView(buffer);
@@ -389,7 +412,7 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     const bpm = view.getFloat32(24, true);
     const songIndex = view.getInt16(28, true);
     const globalPlayheadSeconds = view.getFloat32(30, true);
-    // v6: driftFactor at offset 34. v5 and earlier: field absent → 1.0.
+    // v6+: driftFactor at offset 34. v5 and earlier: field absent → 1.0.
     const drift = version >= 6 ? view.getFloat32(34, true) : 1.0;
 
     setTransportPlaying(playing);
@@ -408,9 +431,25 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     }
   }
 
-  // v6: header is 46 bytes (counts at 38). v5: 42 bytes (counts at 34).
+  // Version 7: live health metrics (CPU%, RAM, total RAM, core count).
+  if (version >= 7) {
+    const cpuPercent = view.getFloat32(38, true);
+    const ramMb = view.getFloat32(42, true);
+    const totalRamMb = view.getFloat32(46, true);
+    const cpuCoreCount = view.getUint16(50, true);
+
+    const hs: LiveHealthState = {
+      cpuPercent,
+      rssBytes: ramMb * 1024 * 1024,
+      systemTotalBytes: totalRamMb * 1024 * 1024,
+      cpuCoreCount,
+    };
+    publishLiveHealth(hs);
+  }
+
+  // v7: header is 60 bytes (counts at 52). v6: 46 bytes (counts at 38). v5: 42 bytes (counts at 34).
   // Older formats use different layouts (v3: 24, v2: 16).
-  const countsAt = version >= 6 ? 38 : (isV4 ? 34 : (hasIntervalPeak ? 24 : 16));
+  const countsAt = version >= 7 ? 52 : (version >= 6 ? 38 : (isV4 ? 34 : (hasIntervalPeak ? 24 : 16)));
   const numTracks = view.getUint16(countsAt, true);
   const numMeters = view.getUint16(countsAt + 2, true);
   const numLights = view.getUint16(countsAt + 4, true);
@@ -424,7 +463,7 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   clickNeedleL = hasIntervalPeak ? view.getFloat32(16, true) : clickL;
   clickNeedleR = hasIntervalPeak ? view.getFloat32(20, true) : clickR;
 
-  let offset = version >= 6 ? 46 : (isV4 ? 42 : (hasIntervalPeak ? 32 : 24));
+  let offset = version >= 7 ? 60 : (version >= 6 ? 46 : (isV4 ? 42 : (hasIntervalPeak ? 32 : 24)));
 
   const nextTracks: LiveLevels["tracks"] = [];
   for (let i = 0; i < numTracks; i++) {
@@ -459,9 +498,10 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
 
   // v5+: per-track and per-bus mixer flags (mute/solo/soloActiveInGroup),
   // placed between the meter rows and the LED block.
-  // v6 shifts numBusses from offset 40 → 44 (due to driftFactor in header).
+  // v7 shifts numBusses from 44 → 58 (due to health in header).
+  // v6 shifts numBusses from 40 → 44 (due to driftFactor in header).
   if (version >= 5) {
-    const numBussesOffset = version >= 6 ? 44 : 40;
+    const numBussesOffset = version >= 7 ? 58 : (version >= 6 ? 44 : 40);
     const numBusses = view.getUint16(numBussesOffset, true);
     const decode = (raw: number) => ({
       mute: (raw & 1) !== 0,

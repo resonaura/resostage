@@ -115,11 +115,11 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     for (const auto& lo : s.lightOutput)
         ledByteCount += std::min<size_t>(lo.ledColors.size(), 512) * 3;
 
-    // v6 header is 46 bytes: v5 header (42) + driftFactor (f32 at offset 34),
-    // with numTracks/numMeters/numLights/numBusses shifted to 38-45.
+    // v7 header is 60 bytes: v6 header (46) + cpuPercent (f32 at 38), ramMb (f32 at 42),
+    // totalRamMb (f32 at 46), cpuCoreCount (u16 at 50), with numTracks/numMeters/numLights/numBusses at 52-59.
     // Layout:
     //   0  u16 magic (0x5253)
-    //   2  u8  version (6)
+    //   2  u8  version (7)
     //   3  u8  flags (bit 0 = playing)
     //   4  f32 playheadSeconds
     //   8  f32 clickPeakDbL
@@ -129,13 +129,17 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     //  24  f32 bpm
     //  28  i16 songIndex
     //  30  f32 globalPlayheadSeconds
-    //  34  f32 driftFactor  <-- NEW in v6
-    //  38  u16 numTracks
-    //  40  u16 numMeters
-    //  42  u16 numLights
-    //  44  u16 numBusses
-    // = 46 bytes
-    const size_t totalSize = 46
+    //  34  f32 driftFactor
+    //  38  f32 cpuPercent    <-- NEW in v7
+    //  42  f32 ramMb         <-- NEW in v7 (rssBytes / (1024*1024))
+    //  46  f32 totalRamMb    <-- NEW in v7 (systemTotalBytes / (1024*1024))
+    //  50  u16 cpuCoreCount  <-- NEW in v7
+    //  52  u16 numTracks
+    //  54  u16 numMeters
+    //  56  u16 numLights
+    //  58  u16 numBusses
+    // = 60 bytes
+    const size_t totalSize = 60
         + static_cast<size_t>(numTracks) * 8
         + static_cast<size_t>(numMeters) * 16
         + static_cast<size_t>(numTracks)          // per-track flags
@@ -163,8 +167,8 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     };
 
     writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
-    // Version 6: v5 + driftFactor in header.
-    writeU8(6);
+    // Version 7: v6 + live health in header (cpu, ram, total ram, core count)
+    writeU8(7);
     writeU8(s.playing ? 1 : 0);
     writeFloat(static_cast<float>(s.playheadSeconds));
     writeFloat(s.clickPeakDbL);
@@ -175,6 +179,10 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     writeI16(static_cast<int16_t>(s.songIndex));
     writeFloat(static_cast<float>(s.globalPlayheadSeconds));
     writeFloat(static_cast<float>(s.driftFactor)); // v6: drift-correction factor
+    writeFloat(static_cast<float>(std::max(0.0, s.cpuPercent)));
+    writeFloat(static_cast<float>(s.rssBytes) / (1024.0f * 1024.0f));
+    writeFloat(static_cast<float>(s.systemTotalBytes) / (1024.0f * 1024.0f));
+    writeU16(static_cast<uint16_t>(std::max(1u, static_cast<uint32_t>(s.cpuCoreCount))));
     writeU16(numTracks);
     writeU16(numMeters);
     writeU16(numLights);
@@ -898,6 +906,10 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             pss->badStreak = 0;
             pss->goodStreak = 0;
             server->onClientOpened();
+            char clientIp[64] = "";
+            lws_get_peer_simple(wsi, clientIp, sizeof(clientIp));
+            if (clientIp[0] != '\0')
+                server->registerUdpSubscriber(clientIp);
             server->reportClientPeriodUs(pss->periodUs);
             // Every client starts at the full target cadence (see
             // WebServer::kTelemetryHz) and adapts from there -- see
@@ -1182,7 +1194,8 @@ void WebServer::publishState(const WebUiState& next) {
     auto binary = std::make_shared<const std::vector<uint8_t>>(buildBinaryTelemetryFrame(next));
 
     // High-speed UDP telemetry for embedded (Electron) mode: send binary telemetry frame
-    // over loopback to 127.0.0.1:kUdpTelemetryPort. Decimated to match targetTelemetryHz_.
+    // over loopback to 127.0.0.1:kUdpTelemetryPort and all remote UDP subscribers across LAN.
+    // Decimated to match targetTelemetryHz_.
     const int targetHz = targetTelemetryHz_.load(std::memory_order_relaxed);
     const double targetPeriodSec = 1.0 / (targetHz > 0 ? targetHz : 60);
     const double nowSec = juce::Time::getMillisecondCounterHiRes() * 0.001;
@@ -1191,6 +1204,15 @@ void WebServer::publishState(const WebUiState& next) {
         lastUdpSendTimeSec_ = nowSec;
         if (udpSocket_ != nullptr && binary != nullptr && !binary->empty()) {
             udpSocket_->write("127.0.0.1", kUdpTelemetryPort, binary->data(), static_cast<int>(binary->size()));
+
+            std::lock_guard<std::mutex> lock(udpSubscribersMutex_);
+            udpSubscribers_.erase(
+                std::remove_if(udpSubscribers_.begin(), udpSubscribers_.end(),
+                    [nowSec](const RemoteUdpSubscriber& s) { return (nowSec - s.lastSeenSec) > 15.0; }),
+                udpSubscribers_.end());
+            for (const auto& sub : udpSubscribers_) {
+                udpSocket_->write(sub.ip.c_str(), sub.port, binary->data(), static_cast<int>(binary->size()));
+            }
         }
     }
 
@@ -1990,6 +2012,21 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         const std::string json = "{\"enabled\":" + std::string(enabled ? "true" : "false") + "}";
         writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
         return true;
+    } else if (std::strcmp(path, "/api/v1/remote/subscribe-udp") == 0) {
+        char clientIp[64] = "";
+        lws_get_peer_simple(wsi, clientIp, sizeof(clientIp));
+        int port = kUdpTelemetryPort;
+        const std::string s(body, bodyLen);
+        std::string portRaw;
+        if (findJsonField(s, "\"port\"", portRaw)) {
+            const int p = std::atoi(portRaw.c_str());
+            if (p > 0) port = p;
+        }
+        if (clientIp[0] != '\0') {
+            registerUdpSubscriber(clientIp, port);
+        }
+        writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+        return true;
     } else {
         ok = false;
     }
@@ -2000,6 +2037,20 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     enqueueCommand(cmd);
     writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
     return true;
+}
+
+void WebServer::registerUdpSubscriber(const std::string& ip, int port) {
+    if (ip.empty() || ip == "127.0.0.1" || ip == "localhost" || ip == "::1")
+        return;
+    const double nowSec = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    std::lock_guard<std::mutex> lock(udpSubscribersMutex_);
+    for (auto& s : udpSubscribers_) {
+        if (s.ip == ip && s.port == port) {
+            s.lastSeenSec = nowSec;
+            return;
+        }
+    }
+    udpSubscribers_.push_back({ip, port, nowSec});
 }
 
 int WebServer::serveStatic(struct lws* wsi, const char* path) {

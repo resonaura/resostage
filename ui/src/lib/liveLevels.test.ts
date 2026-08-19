@@ -15,6 +15,7 @@ import {
   setMeterIds,
   subscribeLiveLedOutputs,
   subscribeLiveMixerFlags,
+  subscribeLiveHealth,
 } from "./liveLevels";
 
 /** One v2 telemetry frame carrying only per-fixture LED rows. */
@@ -311,4 +312,67 @@ describe("pushLiveBinaryFrame — v5 mixer flags", () => {
     }
   });
 });
+
+function buildV7Frame(opts: {
+  cpuPercent: number;
+  ramMb: number;
+  totalRamMb: number;
+  cpuCoreCount: number;
+}): ArrayBuffer {
+  const buf = new ArrayBuffer(60);
+  const view = new DataView(buf);
+  view.setUint16(0, 0x5253, true);
+  view.setUint8(2, 7); // version 7
+  view.setUint8(3, 1); // playing = true
+  view.setFloat32(4, 12.5, true); // playhead
+  view.setFloat32(8, -120, true);
+  view.setFloat32(12, -120, true);
+  view.setFloat32(16, -120, true);
+  view.setFloat32(20, -120, true);
+  view.setFloat32(24, 128, true); // bpm
+  view.setInt16(28, 1, true); // songIndex
+  view.setFloat32(30, 45.0, true); // globalPlayhead
+  view.setFloat32(34, 1.0, true); // driftFactor
+  view.setFloat32(38, opts.cpuPercent, true);
+  view.setFloat32(42, opts.ramMb, true);
+  view.setFloat32(46, opts.totalRamMb, true);
+  view.setUint16(50, opts.cpuCoreCount, true);
+  view.setUint16(52, 0, true); // numTracks
+  view.setUint16(54, 0, true); // numMeters
+  view.setUint16(56, 0, true); // numLights
+  view.setUint16(58, 0, true); // numBusses
+  return buf;
+}
+
+describe("pushLiveBinaryFrame — v7 health metrics", () => {
+  it("decodes live CPU%, RAM, total RAM and core count", () => {
+    const seen: Array<{
+      cpuPercent: number;
+      rssBytes: number;
+      systemTotalBytes: number;
+      cpuCoreCount: number;
+    }> = [];
+    const unsubscribe = subscribeLiveHealth((h) => {
+      seen.push(h);
+    });
+    try {
+      pushLiveBinaryFrame(
+        buildV7Frame({
+          cpuPercent: 14.5,
+          ramMb: 512,
+          totalRamMb: 16384,
+          cpuCoreCount: 8,
+        }),
+      );
+      expect(seen.length).toBe(1);
+      expect(seen[0].cpuPercent).toBeCloseTo(14.5, 1);
+      expect(seen[0].rssBytes).toBe(512 * 1024 * 1024);
+      expect(seen[0].systemTotalBytes).toBe(16384 * 1024 * 1024);
+      expect(seen[0].cpuCoreCount).toBe(8);
+    } finally {
+      unsubscribe();
+    }
+  });
+});
+
 

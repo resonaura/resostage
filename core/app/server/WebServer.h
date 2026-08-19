@@ -980,6 +980,10 @@ public:
     // at -- it used to build all five plus the REST snapshot on every tick
     // regardless, which for one client on one tab is six payloads of wasted
     // work per frame on the message thread.
+    // High-speed UDP telemetry for embedded (Electron) mode & remote streaming.
+    static constexpr int kUdpTelemetryPort = 2898;
+    void registerUdpSubscriber(const std::string& ip, int port = kUdpTelemetryPort);
+
     enum class ViewSlot { Player = 0, Mixer, Editor, Settings, Light, Count };
     void noteViewOpened(ViewSlot slot);
     void noteViewClosed(ViewSlot slot);
@@ -1085,11 +1089,17 @@ private:
     DiscoveryStatusProvider discoveryStatusProvider;
     DiscoveryToggleHandler discoveryToggleHandler;
 
-    // High-speed UDP telemetry for embedded (Electron) mode.
-    static constexpr int kUdpTelemetryPort = 2898;
     std::unique_ptr<juce::DatagramSocket> udpSocket_;
     std::atomic<int> targetTelemetryHz_{60};
     double lastUdpSendTimeSec_ = 0.0;
+
+    struct RemoteUdpSubscriber {
+        std::string ip;
+        int port = kUdpTelemetryPort;
+        double lastSeenSec = 0.0;
+    };
+    mutable std::mutex udpSubscribersMutex_;
+    std::vector<RemoteUdpSubscriber> udpSubscribers_;
 
     // SPA web roots (bundle Contents/Resources/web, dev ui/dist, ...) tried
     // in order by serveStatic on the lws thread. Immutable after start().

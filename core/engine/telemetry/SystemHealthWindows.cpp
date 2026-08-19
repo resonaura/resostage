@@ -58,16 +58,32 @@ uint64_t processCpuTimeNanos(HANDLE proc) {
 uint64_t processRssBytes(HANDLE proc) {
     if (proc == nullptr || proc == INVALID_HANDLE_VALUE)
         return 0;
-    PROCESS_MEMORY_COUNTERS pmc{};
+    PROCESS_MEMORY_COUNTERS_EX pmc{};
     pmc.cb = sizeof(pmc);
-    if (GetProcessMemoryInfo(proc, &pmc, sizeof(pmc)) == 0)
-        return 0;
-    return static_cast<uint64_t>(pmc.WorkingSetSize);
+    if (GetProcessMemoryInfo(proc, reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc), sizeof(pmc)) != 0) {
+        if (pmc.WorkingSetSize > 0)
+            return static_cast<uint64_t>(pmc.WorkingSetSize);
+        if (pmc.PrivateUsage > 0)
+            return static_cast<uint64_t>(pmc.PrivateUsage);
+    }
+    PROCESS_MEMORY_COUNTERS stdPmc{};
+    stdPmc.cb = sizeof(stdPmc);
+    if (GetProcessMemoryInfo(proc, &stdPmc, sizeof(stdPmc)) != 0) {
+        return static_cast<uint64_t>(stdPmc.WorkingSetSize);
+    }
+    return 0;
+}
+
+HANDLE openProcForTelemetry(DWORD pid) {
+    HANDLE h = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (h == nullptr)
+        h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    return h;
 }
 
 std::string processName(DWORD pid) {
     // GetProcessImageFileNameW needs the process handle with QUERY_LIMITED_INFORMATION.
-    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    HANDLE h = openProcForTelemetry(pid);
     if (h == nullptr)
         return {};
     wchar_t buf[MAX_PATH]{};
@@ -102,7 +118,8 @@ std::vector<int> discoverRelatedPids(int mainPid) {
             const int ppid = static_cast<int>(pe.th32ParentProcessID);
             parentOf[pid] = ppid;
             std::wstring wName(pe.szExeFile);
-            nameOf[pid] = std::string(wName.begin(), wName.end());
+            std::string n(wName.begin(), wName.end());
+            nameOf[pid] = n;
         } while (Process32NextW(snap, &pe));
     }
     CloseHandle(snap);
@@ -126,35 +143,21 @@ std::vector<int> discoverRelatedPids(int mainPid) {
         break;
     }
 
-    // 2. Check if a pid is descendant of rootPid or mainPid
-    auto isRelated = [&](int pid) {
-        if (pid == mainPid)
-            return false;
-        int curr = pid;
-        for (int depth = 0; depth < 8 && curr > 0; ++depth) {
-            if (curr == rootPid || curr == mainPid)
-                return true;
-            auto it = parentOf.find(curr);
-            if (it == parentOf.end())
-                break;
-            curr = it->second;
+    // 2. Discover all descendants of rootPid
+    std::vector<int> queue = {rootPid};
+    size_t head = 0;
+    while (head < queue.size()) {
+        const int cur = queue[head++];
+        if (cur != mainPid && std::find(related.begin(), related.end(), cur) == related.end())
+            related.push_back(cur);
+
+        for (const auto& [p, parent] : parentOf) {
+            if (parent == cur && std::find(queue.begin(), queue.end(), p) == queue.end())
+                queue.push_back(p);
         }
-        return false;
-    };
-
-    for (const auto& [pid, ppid] : parentOf) {
-        (void)ppid;
-        if (isRelated(pid))
-            related.push_back(pid);
     }
-    return related;
-}
 
-HANDLE openProcForTelemetry(DWORD pid) {
-    HANDLE h = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-    if (h == nullptr)
-        h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    return h;
+    return related;
 }
 
 } // namespace
@@ -181,7 +184,8 @@ SystemHealthSnapshot SystemHealth::sample() const {
     }
 
     const int mainPid = GetCurrentProcessId();
-    const HANDLE self = GetCurrentProcess();
+    HANDLE selfHandle = openProcForTelemetry(static_cast<DWORD>(mainPid));
+    const HANDLE self = selfHandle != nullptr ? selfHandle : GetCurrentProcess();
     std::vector<ProcessHealthEntry> entries;
     entries.reserve(1 + childPids.size());
 
@@ -297,6 +301,9 @@ SystemHealthSnapshot SystemHealth::sample() const {
             prevDiskWriteBytes = io.WriteTransferCount;
         }
     }
+
+    if (selfHandle != nullptr && selfHandle != INVALID_HANDLE_VALUE)
+        CloseHandle(selfHandle);
 
     lastWallNanos = wallNow;
     cachedSnapshot = snap;

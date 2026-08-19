@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isRenderActive, setTransportPlaying } from "./appActivity";
 import { apiUrl, wsUrl } from "./backend";
-import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport, subscribeLiveMixerFlags, getLastMixerFlagsMs } from "./liveLevels";
+import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport, subscribeLiveMixerFlags, subscribeLiveHealth, getLastMixerFlagsMs } from "./liveLevels";
 import type { LiveMixerFlags } from "./liveLevels";
 import { registerRefetchHandler, unregisterRefetchHandler } from "./api";
 import { shareStructure } from "./structuralShare";
@@ -308,21 +308,13 @@ export function useLiveState(view: string = "player") {
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
-    const isRemote = (() => {
-      if (typeof window === "undefined") return false;
-      const params = new URLSearchParams(window.location.search);
-      if (params.has("remote") || window.location.search.includes("remote=")) return true;
-      if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-        return true;
-      }
-      return false;
-    })();
 
     const isEmbeddedMode =
-      !isRemote && (IS_EMBEDDED || IS_ELECTRON || ("resostageElectron" in window));
+      IS_EMBEDDED || IS_ELECTRON || ("resostageElectron" in window);
 
     let unsubTransport: (() => void) | undefined;
     let unsubMixerFlags: (() => void) | undefined;
+    let unsubHealth: (() => void) | undefined;
     let onUdpFrame: ((e: Event) => void) | undefined;
     let connect: (() => void) | undefined;
 
@@ -413,6 +405,46 @@ export function useLiveState(view: string = "player") {
       unsubMixerFlags = subscribeLiveMixerFlags((flags) => {
         if (cancelled) return;
         mixerFlagsRef.current = flags;
+        scheduleFlush();
+      });
+
+      unsubHealth = subscribeLiveHealth((hs) => {
+        if (cancelled) return;
+        latestHealthRef.current = {
+          cpu: Math.max(0, hs.cpuPercent),
+          ram: hs.rssBytes / (1024 * 1024),
+        };
+        pendingStateRef.current = {
+          ...(pendingStateRef.current || {}),
+          health: {
+            ...(pendingStateRef.current?.health || {
+              freeBytes: 0,
+              underrunCount: 0,
+              audioCallbackCount: 0,
+              silentBlockCount: 0,
+              pitchBlockCount: 0,
+              streamStarveCount: 0,
+              callbackWorstRatio: 0,
+              callbackWorstMs: 0,
+              callbackWorstCpuShare: 0,
+              callbackComputeStalls: 0,
+              callbackPreemptedStalls: 0,
+              callbackOverruns: 0,
+              outputLatencySamples: 0,
+              outputLatencyMs: 0,
+              hostTimeSkewMs: 0,
+              thermalState: "nominal",
+              diskReadBytesPerSec: 0,
+              diskWriteBytesPerSec: 0,
+              webClientCount: 0,
+              processes: [],
+            }),
+            cpuPercent: hs.cpuPercent,
+            rssBytes: hs.rssBytes,
+            systemTotalBytes: hs.systemTotalBytes,
+            cpuCoreCount: hs.cpuCoreCount,
+          },
+        };
         scheduleFlush();
       });
     } else {
@@ -548,6 +580,7 @@ export function useLiveState(view: string = "player") {
       if (onUdpFrame) window.removeEventListener("resostage-udp-telemetry", onUdpFrame);
       unsubTransport?.();
       unsubMixerFlags?.();
+      unsubHealth?.();
       ws?.close();
       if (wsRef.current === ws) wsRef.current = null;
     };
