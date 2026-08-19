@@ -1304,27 +1304,18 @@ function createWindow(): void {
     /* ignore */
   }
 
-  // Only a MAIN-FRAME failure is worth falling back for, and only once. This
-  // used to fire for any failed load in the page -- a missing favicon, an
-  // aborted fetch, a navigation the user cancelled -- and yank the whole
-  // window over to the embedded build mid-session.
+  // Only a MAIN-FRAME failure of DEV_URL is worth falling back for, and only once.
   let triedEmbed = false;
   mainWindow.webContents.on(
     "did-fail-load",
-    (_e, errorCode, _desc, _url, isMainFrame) => {
+    (_e, errorCode, _desc, validatedURL, isMainFrame) => {
       // -3 is ERR_ABORTED: a load we superseded ourselves, not a failure.
       if (!isMainFrame || errorCode === -3 || triedEmbed) return;
-      triedEmbed = true;
-      if (isRemoteSession) {
-        activeRemoteHost = null;
-        activeRemotePort = PORT;
-        isRemoteSession = false;
-        void fetchMenuWithRetry(5, 200).then(() => {
-          refreshMenu();
-          refreshTouchBar();
-        });
+      // Only fall back to embedded build if the initial Vite dev server was unreachable
+      if (validatedURL && validatedURL.startsWith(`http://localhost:${DEV_PORT}`)) {
+        triedEmbed = true;
+        void mainWindow?.loadURL(EMBED_URL);
       }
-      void mainWindow?.loadURL(EMBED_URL);
     },
   );
 
