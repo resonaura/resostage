@@ -150,12 +150,17 @@ std::vector<int> discoverRelatedPids(int mainPid) {
     return related;
 }
 
+HANDLE openProcForTelemetry(DWORD pid) {
+    HANDLE h = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (h == nullptr)
+        h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    return h;
+}
+
 } // namespace
 
-SystemHealthSnapshot SystemHealth::sample() const {
-    const auto nowWall = std::chrono::steady_clock::now();
-    const uint64_t wallNow = static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(nowWall.time_since_epoch()).count());
+SystemHealthSnapshot SystemHealth::sample() {
+    const uint64_t wallNow = nowNanos();
 
     // Throttle full sample to 1 Hz -- same policy as macOS (CPU% is a wall-time delta).
     if (lastWallNanos != 0 && wallNow >= lastWallNanos
@@ -189,7 +194,7 @@ SystemHealthSnapshot SystemHealth::sample() const {
     }
 
     for (int childPid : childPids) {
-        HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(childPid));
+        HANDLE h = openProcForTelemetry(static_cast<DWORD>(childPid));
         ProcessHealthEntry e;
         e.pid = childPid;
         e.name = processName(static_cast<DWORD>(childPid));
@@ -209,7 +214,7 @@ SystemHealthSnapshot SystemHealth::sample() const {
         uint64_t totalCpuNow = mainCpu;
 
         for (size_t i = 1; i < entries.size(); ++i) {
-            HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(entries[i].pid));
+            HANDLE h = openProcForTelemetry(static_cast<DWORD>(entries[i].pid));
             const uint64_t cpu = processCpuTimeNanos(h);
             if (h != nullptr && h != INVALID_HANDLE_VALUE)
                 CloseHandle(h);

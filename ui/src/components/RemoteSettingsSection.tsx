@@ -281,6 +281,11 @@ export function RemoteSettingsSection() {
                   {devices.map((dev) => {
                     const isCompatible = dev.protocolVersion === REQUIRED_PROTOCOL_VERSION;
                     const itemKey = `${dev.ip}:${dev.port}`;
+                    const isCurrentActive =
+                      isRemoteMode &&
+                      (activeRemoteHost === itemKey ||
+                        activeRemoteHost === dev.ip ||
+                        (activeRemoteHost != null && activeRemoteHost.startsWith(`${dev.ip}:`)));
                     return (
                       <motion.div
                         key={itemKey}
@@ -290,10 +295,18 @@ export function RemoteSettingsSection() {
                         animate="visible"
                         exit="exit"
                         whileHover={{ scale: 1.008, transition: { duration: 0.15 } }}
-                        className="flex items-center justify-between rounded-lg border border-default/10 bg-default/20 p-3.5 backdrop-blur-sm transition-colors hover:border-default/30 hover:bg-default/30"
+                        className={`flex items-center justify-between rounded-lg border p-3.5 backdrop-blur-sm transition-colors ${
+                          isCurrentActive
+                            ? "border-warning/50 bg-warning/10"
+                            : "border-default/10 bg-default/20 hover:border-default/30 hover:bg-default/30"
+                        }`}
                       >
                         <div className="flex items-center gap-3.5">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                          <div
+                            className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+                              isCurrentActive ? "bg-warning/20 text-warning" : "bg-accent/10 text-accent"
+                            }`}
+                          >
                             <Laptop className="h-5 w-5" />
                           </div>
                           <div>
@@ -302,7 +315,12 @@ export function RemoteSettingsSection() {
                               <Chip size="sm" variant="soft">
                                 {dev.platform}
                               </Chip>
-                              {isCompatible ? (
+                              {isCurrentActive ? (
+                                <Chip size="sm" color="warning" variant="soft">
+                                  <Radio className="mr-1 inline h-3 w-3 animate-pulse" />
+                                  Connected
+                                </Chip>
+                              ) : isCompatible ? (
                                 <Chip size="sm" color="success" variant="soft">
                                   <ShieldCheck className="mr-1 inline h-3 w-3" />
                                   v{dev.protocolVersion}
@@ -319,14 +337,24 @@ export function RemoteSettingsSection() {
                             </div>
                           </div>
                         </div>
-                        <Button
-                          size="sm"
-                          tone="accent-soft"
-                          isDisabled={!isCompatible}
-                          onPress={() => void handleConnect(dev.ip, dev.port)}
-                        >
-                          Connect
-                        </Button>
+                        {isCurrentActive ? (
+                          <Button
+                            size="sm"
+                            tone="warning"
+                            onPress={handleDisconnect}
+                          >
+                            Disconnect
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            tone="accent-soft"
+                            isDisabled={!isCompatible}
+                            onPress={() => void handleConnect(dev.ip, dev.port)}
+                          >
+                            Connect
+                          </Button>
+                        )}
                       </motion.div>
                     );
                   })}
