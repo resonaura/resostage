@@ -166,6 +166,12 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
                              .getSiblingFile("resources/web")
                              .getFullPathName()
                              .toStdString());
+    auto exeDir = juce::File::getSpecialLocation(juce::File::currentApplicationFile).getParentDirectory();
+    for (int i = 0; i < 6; ++i) {
+        webServer.addWebRoot(exeDir.getChildFile("ui/dist").getFullPathName().toStdString());
+        webServer.addWebRoot(exeDir.getChildFile("build/win/x64/resources/web").getFullPathName().toStdString());
+        exeDir = exeDir.getParentDirectory();
+    }
 #endif
     webServer.addWebRoot(juce::File::getSpecialLocation(juce::File::currentApplicationFile)
                              .getChildFile("Contents/Resources/web")
