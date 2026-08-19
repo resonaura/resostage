@@ -81,6 +81,15 @@ HANDLE openProcForTelemetry(DWORD pid) {
     return h;
 }
 
+static std::string wideToUtf8(const std::wstring& w) {
+    if (w.empty()) return {};
+    const int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+    if (sizeNeeded <= 0) return {};
+    std::string str(static_cast<size_t>(sizeNeeded), 0);
+    WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), str.data(), sizeNeeded, nullptr, nullptr);
+    return str;
+}
+
 std::string processName(DWORD pid) {
     // GetProcessImageFileNameW needs the process handle with QUERY_LIMITED_INFORMATION.
     HANDLE h = openProcForTelemetry(pid);
@@ -95,7 +104,7 @@ std::string processName(DWORD pid) {
         const auto slash = w.find_last_of(L"\\/");
         if (slash != std::wstring::npos)
             w = w.substr(slash + 1);
-        name.assign(w.begin(), w.end());
+        name = wideToUtf8(w);
     }
     CloseHandle(h);
     return name;
@@ -118,8 +127,7 @@ std::vector<int> discoverRelatedPids(int mainPid) {
             const int ppid = static_cast<int>(pe.th32ParentProcessID);
             parentOf[pid] = ppid;
             std::wstring wName(pe.szExeFile);
-            std::string n(wName.begin(), wName.end());
-            nameOf[pid] = n;
+            nameOf[pid] = wideToUtf8(wName);
         } while (Process32NextW(snap, &pe));
     }
     CloseHandle(snap);
