@@ -95,7 +95,7 @@ export class WinBuildAdapter extends BuildAdapter {
 
     if (icoPath && existsSync(icoPath)) {
       const icoBuf = readFileSync(icoPath);
-      const ico = IconFile.from(icoBuf);
+      const ico = Data.IconFile.from(icoBuf);
       Resource.IconGroupEntry.replaceIconsForResource(
         res.entries,
         1,
@@ -106,7 +106,7 @@ export class WinBuildAdapter extends BuildAdapter {
 
     const versionList = res.entries.filter((entry) => entry.type === Resource.ResourceType.Version);
     if (versionList.length > 0) {
-      const info = VersionInfo.fromEntries(res.entries);
+      const info = Resource.VersionInfo.fromEntries(res.entries);
       const stringTable = info.getStringTable(1033);
       if (stringTable) {
         stringTable.set("OriginalFilename", exeName);
