@@ -772,6 +772,18 @@ function QuitConfirmDialog({
   state: WebUiState;
   onStartQuitting: () => void;
 }) {
+  const isRemote = (() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.has("remote") ||
+      (window.location.hostname !== "localhost" &&
+        window.location.hostname !== "127.0.0.1")
+    );
+  })();
+
+  if (isRemote) return null;
+
   return (
     <ConfirmDialog
       open={state.quitConfirmPending}

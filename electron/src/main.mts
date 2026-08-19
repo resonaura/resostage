@@ -797,7 +797,16 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
     return {
       label: item.title ?? "",
       accelerator: acceleratorFor(item.key),
-      click: () => postAction("quit"),
+      click: () => {
+        if (isRemoteSession) {
+          isQuitting = true;
+          releaseAppSuspensionBlocker();
+          if (STANDALONE) killBackend();
+          app.quit();
+          return;
+        }
+        void postAction("quit");
+      },
     };
   }
   if (item.dynamicKey) {
@@ -1306,10 +1315,14 @@ function createWindow(): void {
     },
   );
 
-  // Window close button: send "quit" action to backend so it prompts for unsaved
-  // changes if dirty, saves/cancels appropriately, and quits Core + Electron.
   mainWindow.on("close", (e) => {
     if (isQuitting) return;
+    if (isRemoteSession) {
+      isQuitting = true;
+      releaseAppSuspensionBlocker();
+      if (STANDALONE) killBackend();
+      return;
+    }
     e.preventDefault();
     void postAction("quit");
   });
@@ -1416,6 +1429,13 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
 
 ipcMain.on("action", (_event, action: unknown) => {
   if (action === "quit-approved") {
+    if (isRemoteSession) {
+      isQuitting = true;
+      releaseAppSuspensionBlocker();
+      if (STANDALONE) killBackend();
+      app.quit();
+      return;
+    }
     void postAction("quit");
     return;
   }
@@ -1769,6 +1789,22 @@ app.on("window-all-closed", () => {
 // covers any other path out of the app (Cmd+Q racing the prompt, a signal,
 // etc.) so a standalone launch never leaves the backend running headless.
 app.on("before-quit", (e) => {
+  if (isRemoteSession) {
+    isQuitting = true;
+    releaseAppSuspensionBlocker();
+    const bPid = backendProcess?.pid;
+    if (STANDALONE) killBackend();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.destroy();
+      } catch {
+        /* ignore */
+      }
+      mainWindow = null;
+    }
+    setTimeout(() => platform.forceKillSelfTree(bPid), 150);
+    return;
+  }
   if (!isQuitting && STANDALONE && backendProcess && !backendProcess.killed) {
     e.preventDefault();
     void postAction("quit");
