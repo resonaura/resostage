@@ -1091,6 +1091,7 @@ private:
 
     std::unique_ptr<juce::DatagramSocket> udpSocket_;
     std::atomic<int> targetTelemetryHz_{60};
+    std::atomic<uint32_t> telemetrySeq_{0};
     double lastUdpSendTimeSec_ = 0.0;
 
     struct RemoteUdpSubscriber {

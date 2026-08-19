@@ -105,7 +105,7 @@ ClientView parseClientView(const std::string& s) {
     return ClientView::Player;
 }
 
-static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
+static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint32_t seq) {
     const uint16_t numTracks = static_cast<uint16_t>(s.tracks.size());
     const uint16_t numMeters = static_cast<uint16_t>(s.meters.size());
     const uint16_t numLights = static_cast<uint16_t>(s.lightOutput.size());
@@ -115,31 +115,32 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     for (const auto& lo : s.lightOutput)
         ledByteCount += std::min<size_t>(lo.ledColors.size(), 512) * 3;
 
-    // v7 header is 60 bytes: v6 header (46) + cpuPercent (f32 at 38), ramMb (f32 at 42),
-    // totalRamMb (f32 at 46), cpuCoreCount (u16 at 50), with numTracks/numMeters/numLights/numBusses at 52-59.
+    // v8 header is 66 bytes:
     // Layout:
     //   0  u16 magic (0x5253)
-    //   2  u8  version (7)
+    //   2  u8  version (8)
     //   3  u8  flags (bit 0 = playing)
-    //   4  f32 playheadSeconds
-    //   8  f32 clickPeakDbL
-    //  12  f32 clickPeakDbR
-    //  16  f32 clickIntervalPeakDbL
-    //  20  f32 clickIntervalPeakDbR
-    //  24  f32 bpm
-    //  28  i16 songIndex
-    //  30  f32 globalPlayheadSeconds
-    //  34  f32 driftFactor
-    //  38  f32 cpuPercent    <-- NEW in v7
-    //  42  f32 ramMb         <-- NEW in v7 (rssBytes / (1024*1024))
-    //  46  f32 totalRamMb    <-- NEW in v7 (systemTotalBytes / (1024*1024))
-    //  50  u16 cpuCoreCount  <-- NEW in v7
-    //  52  u16 numTracks
-    //  54  u16 numMeters
-    //  56  u16 numLights
-    //  58  u16 numBusses
-    // = 60 bytes
-    const size_t totalSize = 60
+    //   4  u32 seq (monotonically increasing frame index)
+    //   8  f32 playheadSeconds
+    //  12  f32 clickPeakDbL
+    //  16  f32 clickPeakDbR
+    //  20  f32 clickIntervalPeakDbL
+    //  24  f32 clickIntervalPeakDbR
+    //  28  f32 bpm
+    //  32  i16 songIndex
+    //  34  u16 reserved (0)
+    //  36  f32 globalPlayheadSeconds
+    //  40  f32 driftFactor
+    //  44  f32 cpuPercent
+    //  48  f32 ramMb
+    //  52  f32 totalRamMb
+    //  56  u16 cpuCoreCount
+    //  58  u16 numTracks
+    //  60  u16 numMeters
+    //  62  u16 numLights
+    //  64  u16 numBusses
+    // = 66 bytes
+    const size_t totalSize = 66
         + static_cast<size_t>(numTracks) * 8
         + static_cast<size_t>(numMeters) * 16
         + static_cast<size_t>(numTracks)          // per-track flags
@@ -150,6 +151,10 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     std::vector<uint8_t> buf(totalSize);
     uint8_t* p = buf.data();
 
+    const auto writeU32 = [&p](uint32_t val) {
+        std::memcpy(p, &val, 4);
+        p += 4;
+    };
     const auto writeU16 = [&p](uint16_t val) {
         std::memcpy(p, &val, 2);
         p += 2;
@@ -167,9 +172,9 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     };
 
     writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
-    // Version 7: v6 + live health in header (cpu, ram, total ram, core count)
-    writeU8(7);
+    writeU8(8);       // Version 8: v7 + monotonic sequence index
     writeU8(s.playing ? 1 : 0);
+    writeU32(seq);
     writeFloat(static_cast<float>(s.playheadSeconds));
     writeFloat(s.clickPeakDbL);
     writeFloat(s.clickPeakDbR);
@@ -177,8 +182,9 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s) {
     writeFloat(s.clickIntervalPeakDbR);
     writeFloat(static_cast<float>(s.bpm));
     writeI16(static_cast<int16_t>(s.songIndex));
+    writeU16(0); // reserved
     writeFloat(static_cast<float>(s.globalPlayheadSeconds));
-    writeFloat(static_cast<float>(s.driftFactor)); // v6: drift-correction factor
+    writeFloat(static_cast<float>(s.driftFactor)); // drift-correction factor
     writeFloat(static_cast<float>(std::max(0.0, s.cpuPercent)));
     writeFloat(static_cast<float>(s.rssBytes) / (1024.0f * 1024.0f));
     writeFloat(static_cast<float>(s.systemTotalBytes) / (1024.0f * 1024.0f));
@@ -1191,7 +1197,8 @@ void WebServer::publishState(const WebUiState& next) {
     auto editor = buildIf(watched(ViewSlot::Editor), "editor");
     auto settings = buildIf(watched(ViewSlot::Settings), "settings");
     auto light = buildIf(watched(ViewSlot::Light), "light");
-    auto binary = std::make_shared<const std::vector<uint8_t>>(buildBinaryTelemetryFrame(next));
+    const uint32_t seq = ++telemetrySeq_;
+    auto binary = std::make_shared<const std::vector<uint8_t>>(buildBinaryTelemetryFrame(next, seq));
 
     // High-speed UDP telemetry for embedded (Electron) mode: send binary telemetry frame
     // over loopback to 127.0.0.1:kUdpTelemetryPort and all remote UDP subscribers across LAN.

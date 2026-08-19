@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isRenderActive, setTransportPlaying } from "./appActivity";
 import { apiUrl, wsUrl } from "./backend";
-import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport, subscribeLiveMixerFlags, subscribeLiveHealth, getLastMixerFlagsMs } from "./liveLevels";
+import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport, subscribeLiveMixerFlags, subscribeLiveHealth, getLastMixerFlagsMs, getLastUdpFrameMs } from "./liveLevels";
 import type { LiveMixerFlags } from "./liveLevels";
 import { registerRefetchHandler, unregisterRefetchHandler } from "./api";
 import { shareStructure } from "./structuralShare";
@@ -325,24 +325,53 @@ export function useLiveState(view: string = "player") {
         if (res.ok) {
           const data = (await res.json()) as Partial<WebUiState>;
           if (data.meters) setMeterIds(data.meters.map((m) => m.id));
-          if (data.playing !== undefined) setTransportPlaying(data.playing);
-          if (data.health) {
-            latestHealthRef.current = {
-              cpu: Math.max(0, data.health.cpuPercent ?? 0),
-              ram: (data.health.rssBytes ?? 0) / (1024 * 1024),
-            };
+
+          const isUdpLive =
+            isEmbeddedMode &&
+            (Date.now() - getLastMixerFlagsMs() < 5_000 ||
+              (typeof performance !== "undefined"
+                ? performance.now() - getLastUdpFrameMs() < 3_000
+                : Date.now() - getLastUdpFrameMs() < 3_000));
+
+          if (!isUdpLive) {
+            if (data.playing !== undefined) setTransportPlaying(data.playing);
+            if (data.health) {
+              latestHealthRef.current = {
+                cpu: Math.max(0, data.health.cpuPercent ?? 0),
+                ram: (data.health.rssBytes ?? 0) / (1024 * 1024),
+              };
+            }
           }
-          const udpFlagsActive = Date.now() - getLastMixerFlagsMs() < 5_000;
+
           let pollData: Partial<WebUiState> = data;
-          if (udpFlagsActive && isEmbeddedMode && data.tracks) {
+          if (isUdpLive) {
+            // In live UDP mode, DO NOT let slow 1-second HTTP poll snapshots overwrite
+            // the 60-120Hz real-time transport and health fields, as doing so introduces
+            // 50ms time jumps (flicker) every second.
+            const {
+              playing: _p,
+              playheadSeconds: _ps,
+              globalPlayheadSeconds: _gps,
+              songIndex: _si,
+              bpm: _bpm,
+              drift: _dr,
+              health: _h,
+              ...cleanData
+            } = data;
+            void _p; void _ps; void _gps; void _si; void _bpm; void _dr; void _h;
+
             pollData = {
-              ...data,
-              tracks: data.tracks.map((t) => {
-                const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
-                  t as unknown as Record<string, unknown>;
-                void _m; void _s; void _si;
-                return rest as unknown as typeof t;
-              }),
+              ...cleanData,
+              ...(data.tracks
+                ? {
+                    tracks: data.tracks.map((t) => {
+                      const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
+                        t as unknown as Record<string, unknown>;
+                      void _m; void _s; void _si;
+                      return rest as unknown as typeof t;
+                    }),
+                  }
+                : {}),
               ...(data.busses
                 ? {
                     busses: data.busses.map((b) => {
@@ -355,7 +384,10 @@ export function useLiveState(view: string = "player") {
                 : {}),
             };
           }
-          pendingStateRef.current = pollData;
+          pendingStateRef.current = {
+            ...(pendingStateRef.current || {}),
+            ...pollData,
+          };
           scheduleFlush();
         }
       } catch {}

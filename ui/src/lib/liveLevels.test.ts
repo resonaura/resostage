@@ -16,6 +16,8 @@ import {
   subscribeLiveLedOutputs,
   subscribeLiveMixerFlags,
   subscribeLiveHealth,
+  subscribeLiveTransport,
+  resetLiveTelemetrySequence,
 } from "./liveLevels";
 
 /** One v2 telemetry frame carrying only per-fixture LED rows. */
@@ -371,6 +373,125 @@ describe("pushLiveBinaryFrame — v7 health metrics", () => {
       expect(seen[0].cpuCoreCount).toBe(8);
     } finally {
       unsubscribe();
+    }
+  });
+});
+
+function buildV8Frame(opts: {
+  seq: number;
+  playheadSeconds: number;
+  cpuPercent: number;
+  ramMb: number;
+  totalRamMb: number;
+  cpuCoreCount: number;
+}): ArrayBuffer {
+  const buf = new ArrayBuffer(66);
+  const view = new DataView(buf);
+  view.setUint16(0, 0x5253, true);
+  view.setUint8(2, 8); // version 8
+  view.setUint8(3, 1); // playing = true
+  view.setUint32(4, opts.seq, true); // sequence number
+  view.setFloat32(8, opts.playheadSeconds, true); // playhead
+  view.setFloat32(12, -120, true);
+  view.setFloat32(16, -120, true);
+  view.setFloat32(20, -120, true);
+  view.setFloat32(24, -120, true);
+  view.setFloat32(28, 120, true); // bpm
+  view.setInt16(32, 0, true); // songIndex
+  view.setUint16(34, 0, true); // reserved
+  view.setFloat32(36, opts.playheadSeconds, true); // globalPlayhead
+  view.setFloat32(40, 1.0, true); // driftFactor
+  view.setFloat32(44, opts.cpuPercent, true);
+  view.setFloat32(48, opts.ramMb, true);
+  view.setFloat32(52, opts.totalRamMb, true);
+  view.setUint16(56, opts.cpuCoreCount, true);
+  view.setUint16(58, 0, true); // numTracks
+  view.setUint16(60, 0, true); // numMeters
+  view.setUint16(62, 0, true); // numLights
+  view.setUint16(64, 0, true); // numBusses
+  return buf;
+}
+
+describe("pushLiveBinaryFrame — v8 sequence & ordering", () => {
+  beforeEach(() => {
+    resetLiveTelemetrySequence();
+  });
+
+  it("decodes v8 frame and emits transport and health", () => {
+    const healthSeen: any[] = [];
+    const transportSeen: any[] = [];
+    const unHealth = subscribeLiveHealth((h) => healthSeen.push(h));
+    const unTransport = subscribeLiveTransport((t) => transportSeen.push(t));
+
+    try {
+      pushLiveBinaryFrame(
+        buildV8Frame({
+          seq: 1,
+          playheadSeconds: 10.5,
+          cpuPercent: 5.5,
+          ramMb: 256,
+          totalRamMb: 8192,
+          cpuCoreCount: 4,
+        }),
+      );
+
+      expect(healthSeen.length).toBe(1);
+      expect(healthSeen[0].cpuPercent).toBeCloseTo(5.5, 1);
+      expect(transportSeen.length).toBe(1);
+      expect(transportSeen[0].playheadSeconds).toBeCloseTo(10.5, 1);
+    } finally {
+      unHealth();
+      unTransport();
+    }
+  });
+
+  it("drops out-of-order / stale packets", () => {
+    const transportSeen: any[] = [];
+    const unTransport = subscribeLiveTransport((t) => transportSeen.push(t));
+
+    try {
+      // Packet 10 arrives
+      pushLiveBinaryFrame(
+        buildV8Frame({
+          seq: 10,
+          playheadSeconds: 2.0,
+          cpuPercent: 5,
+          ramMb: 100,
+          totalRamMb: 8192,
+          cpuCoreCount: 4,
+        }),
+      );
+      expect(transportSeen.length).toBe(1);
+      expect(transportSeen[0].playheadSeconds).toBe(2.0);
+
+      // Packet 9 arrives late (stale!) -> must be dropped to avoid UI flicker
+      pushLiveBinaryFrame(
+        buildV8Frame({
+          seq: 9,
+          playheadSeconds: 1.8,
+          cpuPercent: 4,
+          ramMb: 100,
+          totalRamMb: 8192,
+          cpuCoreCount: 4,
+        }),
+      );
+      expect(transportSeen.length).toBe(1); // Not incremented
+
+      // Packet 11 arrives (newer) -> accepted
+      pushLiveBinaryFrame(
+        buildV8Frame({
+          seq: 11,
+          playheadSeconds: 2.2,
+          cpuPercent: 6,
+          ramMb: 100,
+          totalRamMb: 8192,
+          cpuCoreCount: 4,
+        }),
+      );
+      expect(transportSeen.length).toBe(2);
+      expect(transportSeen[1].playheadSeconds).toBeCloseTo(2.2, 2);
+    } finally {
+      unTransport();
     }
   });
 });

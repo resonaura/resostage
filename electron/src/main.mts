@@ -146,9 +146,17 @@ function setupUdpTelemetry(): void {
     if (udpTelemetrySocket) return;
     udpTelemetrySocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
     udpTelemetrySocket.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-      // In remote session: accept remote LAN packets, ignore local loopback
+      // In remote session: accept remote LAN packets from activeRemoteHost only
       if (isRemoteSession) {
         if (rinfo.address === "127.0.0.1" || rinfo.address === "localhost") {
+          return;
+        }
+        if (activeRemoteHost && rinfo.address !== activeRemoteHost && !activeRemoteHost.includes(rinfo.address)) {
+          return;
+        }
+      } else {
+        // In local session: only accept local loopback packets
+        if (rinfo.address !== "127.0.0.1" && rinfo.address !== "localhost" && rinfo.address !== "::1") {
           return;
         }
       }

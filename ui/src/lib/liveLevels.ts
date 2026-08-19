@@ -391,29 +391,72 @@ function publishLiveHealth(health: LiveHealthState): void {
   }
 }
 
+let lastTelemetrySeq = 0;
+let lastTelemetryTimeMs = 0;
+
+export function getLastUdpFrameMs(): number {
+  return lastTelemetryTimeMs;
+}
+
+export function resetLiveTelemetrySequence(): void {
+  lastTelemetrySeq = 0;
+  lastTelemetryTimeMs = 0;
+}
+
 export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   if (buffer.byteLength < 24) return;
   const view = new DataView(buffer);
   const magic = view.getUint16(0, true);
   if (magic !== 0x5253) return;
-  // Version 4: full transport state (playing, playhead, bpm, songIndex, globalPlayheadSeconds).
   const version = view.getUint8(2);
 
-  const clickL = view.getFloat32(8, true);
-  const clickR = view.getFloat32(12, true);
+  if (version >= 8) {
+    const frameSeq = view.getUint32(4, true);
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const timeDelta = lastTelemetryTimeMs === 0 ? 0 : now - lastTelemetryTimeMs;
 
+    // Out-of-order packet drop logic:
+    // Accept if:
+    // 1) First frame or silence/gap > 1500ms (e.g. host reconnect / restarted daemon)
+    // 2) frameSeq is newer than lastTelemetrySeq (with standard 32-bit wrap protection)
+    // 3) Large backward jump (e.g. server restarted seq from 0 or switched servers)
+    const isNewer =
+      lastTelemetryTimeMs === 0 ||
+      timeDelta > 1500 ||
+      (frameSeq > lastTelemetrySeq && frameSeq - lastTelemetrySeq < 0x80000000) ||
+      (lastTelemetrySeq > frameSeq && lastTelemetrySeq - frameSeq > 0x80000000) ||
+      (lastTelemetrySeq > frameSeq && lastTelemetrySeq - frameSeq > 50000);
+
+    if (!isNewer) {
+      // Stale / out-of-order UDP packet arrived late -- drop it to prevent UI flickering!
+      return;
+    }
+    lastTelemetrySeq = frameSeq;
+    lastTelemetryTimeMs = now;
+  } else {
+    lastTelemetryTimeMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+  }
+
+  // Version 8: seq at 4, playhead at 8, click at 12/16/20/24, bpm at 28, songIndex at 32,
+  // globalPlayhead at 36, drift at 40, cpu at 44, ram at 48, totalRam at 52, coreCount at 56,
+  // numTracks at 58, numMeters at 60, numLights at 62, numBusses at 64 (header 66 bytes).
+  const isV8 = version >= 8;
+  const isV7 = version >= 7;
   const isV4 = version >= 4;
   const hasIntervalPeak = version >= 3;
+
+  const clickL = isV8 ? view.getFloat32(12, true) : view.getFloat32(8, true);
+  const clickR = isV8 ? view.getFloat32(16, true) : view.getFloat32(12, true);
 
   if (isV4) {
     const flags = view.getUint8(3);
     const playing = (flags & 1) !== 0;
-    const playheadSeconds = view.getFloat32(4, true);
-    const bpm = view.getFloat32(24, true);
-    const songIndex = view.getInt16(28, true);
-    const globalPlayheadSeconds = view.getFloat32(30, true);
-    // v6+: driftFactor at offset 34. v5 and earlier: field absent → 1.0.
-    const drift = version >= 6 ? view.getFloat32(34, true) : 1.0;
+    const playheadSeconds = isV8 ? view.getFloat32(8, true) : view.getFloat32(4, true);
+    const bpm = isV8 ? view.getFloat32(28, true) : view.getFloat32(24, true);
+    const songIndex = isV8 ? view.getInt16(32, true) : view.getInt16(28, true);
+    const globalPlayheadSeconds = isV8 ? view.getFloat32(36, true) : view.getFloat32(30, true);
+    // v6+: driftFactor. v5 and earlier: field absent → 1.0.
+    const drift = isV8 ? view.getFloat32(40, true) : (version >= 6 ? view.getFloat32(34, true) : 1.0);
 
     setTransportPlaying(playing);
 
@@ -431,12 +474,12 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     }
   }
 
-  // Version 7: live health metrics (CPU%, RAM, total RAM, core count).
-  if (version >= 7) {
-    const cpuPercent = view.getFloat32(38, true);
-    const ramMb = view.getFloat32(42, true);
-    const totalRamMb = view.getFloat32(46, true);
-    const cpuCoreCount = view.getUint16(50, true);
+  // Version 7/8: live health metrics (CPU%, RAM, total RAM, core count).
+  if (isV7) {
+    const cpuPercent = isV8 ? view.getFloat32(44, true) : view.getFloat32(38, true);
+    const ramMb = isV8 ? view.getFloat32(48, true) : view.getFloat32(42, true);
+    const totalRamMb = isV8 ? view.getFloat32(52, true) : view.getFloat32(46, true);
+    const cpuCoreCount = isV8 ? view.getUint16(56, true) : view.getUint16(50, true);
 
     const hs: LiveHealthState = {
       cpuPercent,
@@ -447,9 +490,8 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     publishLiveHealth(hs);
   }
 
-  // v7: header is 60 bytes (counts at 52). v6: 46 bytes (counts at 38). v5: 42 bytes (counts at 34).
-  // Older formats use different layouts (v3: 24, v2: 16).
-  const countsAt = version >= 7 ? 52 : (version >= 6 ? 38 : (isV4 ? 34 : (hasIntervalPeak ? 24 : 16)));
+  // v8: header 66 (counts at 58). v7: 60 (counts at 52). v6: 46 (counts at 38). v5: 42 (counts at 34).
+  const countsAt = isV8 ? 58 : (isV7 ? 52 : (version >= 6 ? 38 : (isV4 ? 34 : (hasIntervalPeak ? 24 : 16))));
   const numTracks = view.getUint16(countsAt, true);
   const numMeters = view.getUint16(countsAt + 2, true);
   const numLights = view.getUint16(countsAt + 4, true);
@@ -460,10 +502,10 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   if (latestClick > pendingClickMax) pendingClickMax = latestClick;
   if (clickL > pendingClickMaxL) pendingClickMaxL = clickL;
   if (clickR > pendingClickMaxR) pendingClickMaxR = clickR;
-  clickNeedleL = hasIntervalPeak ? view.getFloat32(16, true) : clickL;
-  clickNeedleR = hasIntervalPeak ? view.getFloat32(20, true) : clickR;
+  clickNeedleL = isV8 ? view.getFloat32(20, true) : (hasIntervalPeak ? view.getFloat32(16, true) : clickL);
+  clickNeedleR = isV8 ? view.getFloat32(24, true) : (hasIntervalPeak ? view.getFloat32(20, true) : clickR);
 
-  let offset = version >= 7 ? 60 : (version >= 6 ? 46 : (isV4 ? 42 : (hasIntervalPeak ? 32 : 24)));
+  let offset = isV8 ? 66 : (isV7 ? 60 : (version >= 6 ? 46 : (isV4 ? 42 : (hasIntervalPeak ? 32 : 24))));
 
   const nextTracks: LiveLevels["tracks"] = [];
   for (let i = 0; i < numTracks; i++) {
@@ -498,10 +540,9 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
 
   // v5+: per-track and per-bus mixer flags (mute/solo/soloActiveInGroup),
   // placed between the meter rows and the LED block.
-  // v7 shifts numBusses from 44 → 58 (due to health in header).
-  // v6 shifts numBusses from 40 → 44 (due to driftFactor in header).
+  // v8 shifts numBusses to 64. v7 shifts numBusses to 58. v6 shifts to 44. v5 to 40.
   if (version >= 5) {
-    const numBussesOffset = version >= 7 ? 58 : (version >= 6 ? 44 : 40);
+    const numBussesOffset = isV8 ? 64 : (isV7 ? 58 : (version >= 6 ? 44 : 40));
     const numBusses = view.getUint16(numBussesOffset, true);
     const decode = (raw: number) => ({
       mute: (raw & 1) !== 0,
