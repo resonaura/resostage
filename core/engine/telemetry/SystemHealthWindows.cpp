@@ -159,8 +159,10 @@ HANDLE openProcForTelemetry(DWORD pid) {
 
 } // namespace
 
-SystemHealthSnapshot SystemHealth::sample() {
-    const uint64_t wallNow = nowNanos();
+SystemHealthSnapshot SystemHealth::sample() const {
+    const auto nowWall = std::chrono::steady_clock::now();
+    const uint64_t wallNow = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(nowWall.time_since_epoch()).count());
 
     // Throttle full sample to 1 Hz -- same policy as macOS (CPU% is a wall-time delta).
     if (lastWallNanos != 0 && wallNow >= lastWallNanos
