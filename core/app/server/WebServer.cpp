@@ -1303,19 +1303,11 @@ bool WebServer::pollCommand(WebCommand& out) {
 }
 
 void WebServer::enqueueCommand(WebCommand cmd) {
-    const WebCommandKind kind = cmd.kind;
     commands.try_enqueue(std::move(cmd));
-    // Transport / setlist: wake the message thread immediately.
-    if (kind == WebCommandKind::Play ||
-        kind == WebCommandKind::Stop ||
-        kind == WebCommandKind::StopToStart ||
-        kind == WebCommandKind::Next ||
-        kind == WebCommandKind::Prev ||
-        kind == WebCommandKind::SelectSong ||
-        kind == WebCommandKind::Seek) {
-        if (urgentCommandHook)
-            urgentCommandHook();
-    }
+    // Wake the message thread immediately so all incoming web commands
+    // (transport, mixer faders, mutes, solos, actions, cues, settings) apply instantly.
+    if (urgentCommandHook)
+        urgentCommandHook();
 }
 
 void WebServer::noteClientView(const std::string& view) {

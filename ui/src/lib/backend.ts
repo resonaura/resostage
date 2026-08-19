@@ -5,6 +5,21 @@
 // explicitly at the native app's backend instead of Vite's own origin.
 const NATIVE_BACKEND_PORT = 2899;
 
+let _dynamicRemoteOrigin: string | null = null;
+
+export function setRemoteBackend(host: string | null): void {
+  if (!host) {
+    _dynamicRemoteOrigin = null;
+    return;
+  }
+  const clean = cleanHostString(host);
+  _dynamicRemoteOrigin = clean.includes(":") ? clean : `${clean}:${NATIVE_BACKEND_PORT}`;
+}
+
+export function getRemoteBackend(): string | null {
+  return _dynamicRemoteOrigin;
+}
+
 function cleanHostString(raw: string): string {
   let s = raw.trim();
   s = s.replace(/^https?:\/\//i, "");
@@ -14,6 +29,9 @@ function cleanHostString(raw: string): string {
 }
 
 function backendOrigin(): string {
+  if (_dynamicRemoteOrigin) {
+    return _dynamicRemoteOrigin;
+  }
   if (typeof window !== "undefined" && window.location) {
     const params = new URLSearchParams(window.location.search);
     const remote = params.get("remote");
@@ -40,3 +58,4 @@ export function apiUrl(path: string): string {
   const proto = location.protocol === "https:" ? "https:" : "http:";
   return `${proto}//${backendOrigin()}${path}`;
 }
+

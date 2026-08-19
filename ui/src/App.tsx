@@ -18,7 +18,7 @@ import { GlobalTransportBar } from "./components/GlobalTransportBar";
 import { Button, Tabs } from "./components/ui";
 import { performAction, type ActionId } from "./lib/actions";
 import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/api";
-import { apiUrl } from "./lib/backend";
+import { apiUrl, getRemoteBackend, setRemoteBackend } from "./lib/backend";
 import { SHOW_TRANSPORT_LABEL } from "./lib/devFlags";
 import { IS_ELECTRON } from "./lib/electron";
 import { sendTypingFocus } from "./lib/electronBridge";
@@ -509,16 +509,28 @@ export default function App() {
     prevAlarmRef.current = state.hardwareAlarm;
   }, [state.hardwareAlarm]);
 
-  const remoteHost = (() => {
-    if (typeof window === "undefined") return null;
-    const params = new URLSearchParams(window.location.search);
-    const r = params.get("remote");
-    if (r) return r;
-    if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-      return window.location.host;
-    }
-    return null;
-  })();
+  const [remoteHost, setRemoteHost] = useState<string | null>(() => {
+    return getRemoteBackend();
+  });
+
+  useEffect(() => {
+    const checkRemote = async () => {
+      if (IS_ELECTRON && window.resostageElectron?.getRemoteStatus) {
+        try {
+          const st = await window.resostageElectron.getRemoteStatus();
+          if (st?.isRemoteMode && st.activeRemoteHost) {
+            setRemoteBackend(st.activeRemoteHost);
+            setRemoteHost(st.activeRemoteHost);
+            return;
+          }
+        } catch {}
+      }
+      setRemoteHost(getRemoteBackend());
+    };
+    void checkRemote();
+    const interval = setInterval(checkRemote, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
@@ -537,6 +549,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={async () => {
+                  setRemoteBackend(null);
+                  setRemoteHost(null);
                   if (IS_ELECTRON && window.resostageElectron?.disconnectRemote) {
                     await window.resostageElectron.disconnectRemote();
                   } else {

@@ -50,6 +50,52 @@ async function post(path: string, body?: unknown): Promise<void> {
   }
 }
 
+// ── Continuous parameter coalescing ──────────────────────────────────────────
+// High-frequency dragging (faders, pan knobs, send knobs) can generate hundreds
+// of updates per second. Over LAN/Wi-Fi, spamming un-throttled HTTP POSTs floods
+// Chromium's 6-connection pool and causes multi-second queue lag.
+//
+// postContinuous ensures that if a request is already in-flight for a specific
+// target, subsequent intermediate values replace each other in a pending slot,
+// and only the latest value is sent as soon as the in-flight POST finishes.
+const _continuousInFlight = new Map<string, { pending: unknown; busy: boolean }>();
+
+async function postContinuous(path: string, body: unknown): Promise<void> {
+  const targetKey = `${path}:${(body as Record<string, unknown>)?.index ?? (body as Record<string, unknown>)?.trackIndex ?? ""}`;
+  let state = _continuousInFlight.get(targetKey);
+  if (!state) {
+    state = { pending: null, busy: false };
+    _continuousInFlight.set(targetKey, state);
+  }
+
+  if (state.busy) {
+    state.pending = body;
+    return;
+  }
+
+  state.busy = true;
+  let nextPayload: unknown = body;
+
+  try {
+    while (nextPayload !== null) {
+      state.pending = null;
+      await fetch(apiUrl(path), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextPayload),
+      });
+      nextPayload = state.pending;
+    }
+  } catch {
+    /* best effort */
+  } finally {
+    state.busy = false;
+    if (state.pending === null) {
+      _continuousInFlight.delete(targetKey);
+    }
+  }
+}
+
 export const transport = {
   play: () => post("/api/v1/transport/play"),
   // Pause -- freezes in place, resumed by play(). Used by the Play/Pause
@@ -150,9 +196,9 @@ export async function fetchWaveformRaw(
 // MainComponent::drainWebCommands() for the C++ side.
 export const mixer = {
   setTrackGain: (index: number, value: number) =>
-    post("/api/v1/track/gain", { index, value }),
+    postContinuous("/api/v1/track/gain", { index, value }),
   setTrackPan: (index: number, value: number) =>
-    post("/api/v1/track/pan", { index, value }),
+    postContinuous("/api/v1/track/pan", { index, value }),
   setTrackMute: (index: number, value: boolean) =>
     post("/api/v1/track/mute", { index, value }),
   setTrackSolo: (index: number, value: boolean) =>
@@ -164,9 +210,9 @@ export const mixer = {
   setTrackBus: (index: number, busId: string) =>
     builder.trackUpdate({ index, busId }),
   setBusGain: (index: number, value: number) =>
-    post("/api/v1/bus/gain", { index, value }),
+    postContinuous("/api/v1/bus/gain", { index, value }),
   setBusPan: (index: number, value: number) =>
-    post("/api/v1/bus/pan", { index, value }),
+    postContinuous("/api/v1/bus/pan", { index, value }),
   setBusMute: (index: number, value: boolean) =>
     post("/api/v1/bus/mute", { index, value }),
   setBusSolo: (index: number, value: boolean) =>
@@ -193,7 +239,7 @@ export const mixer = {
     /** Collapses a knob drag into one undo entry -- see lib/editGesture. */
     gestureId?: string,
   ) =>
-    post("/api/v1/mixer/track/send", {
+    postContinuous("/api/v1/mixer/track/send", {
       trackIndex,
       gestureId,
       busId,

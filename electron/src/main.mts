@@ -1308,7 +1308,11 @@ function createWindow(): void {
   let triedEmbed = false;
   mainWindow.webContents.on(
     "did-fail-load",
-    (_e, errorCode, _desc, validatedURL, isMainFrame) => {
+    (_e, errorCode, desc, validatedURL, isMainFrame) => {
+      // Always log so we can diagnose unexpected disconnects during remote sessions.
+      console.warn(
+        `[resostage] did-fail-load: code=${errorCode} desc=${desc} url=${validatedURL} mainFrame=${isMainFrame} isRemote=${isRemoteSession}`,
+      );
       // -3 is ERR_ABORTED: a load we superseded ourselves, not a failure.
       if (!isMainFrame || errorCode === -3 || triedEmbed) return;
       // Only fall back to embedded build if the initial Vite dev server was unreachable
@@ -1597,7 +1601,7 @@ ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: n
   if (!host) return false;
 
   try {
-    const probe = await fetch(`http://${host}:${port}/api/v1/remote/discovery`, {
+    const probe = await fetch(`http://${host}:${port}/api/v1/state`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!probe.ok && probe.status !== 404) return false;
@@ -1613,10 +1617,6 @@ ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: n
   menuModel = await fetchMenuWithRetry(5, 200);
   refreshMenu();
   refreshTouchBar();
-  const targetUrl = `http://${activeRemoteHost}:${activeRemotePort}/?embedded=1&remote=${encodeURIComponent(`${activeRemoteHost}:${activeRemotePort}`)}`;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    await mainWindow.loadURL(targetUrl);
-  }
   return true;
 });
 
@@ -1628,10 +1628,6 @@ ipcMain.handle("remote:disconnect", async () => {
   menuModel = await fetchMenuWithRetry(5, 200);
   refreshMenu();
   refreshTouchBar();
-  const targetUrl = `http://localhost:${PORT}/?embedded=1`;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    await mainWindow.loadURL(targetUrl);
-  }
   return true;
 });
 

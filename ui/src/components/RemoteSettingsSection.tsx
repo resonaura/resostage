@@ -4,7 +4,7 @@ import { Globe, Laptop, Radio, RefreshCw, Server, ShieldCheck, ShieldAlert } fro
 import { useEffect, useRef, useState } from "react";
 import { Button, Card, Switch } from "./ui";
 import { IS_ELECTRON } from "../lib/electron";
-import { apiUrl } from "../lib/backend";
+import { apiUrl, setRemoteBackend } from "../lib/backend";
 
 interface DiscoveredDevice {
   name: string;
@@ -98,7 +98,11 @@ export function RemoteSettingsSection() {
         const status = await window.resostageElectron.getRemoteStatus();
         setIsRemoteMode(Boolean(status?.isRemoteMode));
         if (status?.activeRemoteHost) {
+          setRemoteBackend(status.activeRemoteHost);
           setActiveRemoteHost(status.activeRemoteHost);
+        } else if (!status?.isRemoteMode) {
+          setRemoteBackend(null);
+          setActiveRemoteHost(null);
         }
       }
     } catch {
@@ -143,9 +147,11 @@ export function RemoteSettingsSection() {
     const params = new URLSearchParams(window.location.search);
     const r = params.get("remote");
     if (r) {
+      setRemoteBackend(r);
       setIsRemoteMode(true);
       setActiveRemoteHost(r);
     } else if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      setRemoteBackend(window.location.host);
       setIsRemoteMode(true);
       setActiveRemoteHost(window.location.host);
     }
@@ -164,22 +170,23 @@ export function RemoteSettingsSection() {
     }
     if (!host) return;
 
+    const target = `${host}:${port}`;
+    setRemoteBackend(target);
+    setIsRemoteMode(true);
+    setActiveRemoteHost(target);
+
     if (IS_ELECTRON && window.resostageElectron?.connectRemote) {
       await window.resostageElectron.connectRemote(host, port);
-      setIsRemoteMode(true);
-      setActiveRemoteHost(`${host}:${port}`);
-    } else {
-      window.location.href = `http://${host}:${port}/?remote=${encodeURIComponent(`${host}:${port}`)}`;
     }
   };
 
   const handleDisconnect = async () => {
+    setRemoteBackend(null);
+    setIsRemoteMode(false);
+    setActiveRemoteHost(null);
+
     if (IS_ELECTRON && window.resostageElectron?.disconnectRemote) {
       await window.resostageElectron.disconnectRemote();
-      setIsRemoteMode(false);
-      setActiveRemoteHost(null);
-    } else {
-      window.location.href = "/";
     }
   };
 

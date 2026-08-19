@@ -97,17 +97,14 @@ export const MeterFader = memo(function MeterFader({
 
   const percent = Math.max(0, Math.min(1, (value - min) / (max - min)));
   // The handle stands a little proud of the bar, so the row is as tall as the
-  // handle and the bar is centred inside it. Clipping the meter to a rounded
-  // pill and letting the handle overhang cannot be the same element.
   const handleSize = height + HANDLE_OVERSIZE_PX;
+  const rafId = useRef<number | null>(null);
+  const pendingClientX = useRef<number | null>(null);
 
-  const commitFromPointer = useCallback(
+  const calculateSteppedValue = useCallback(
     (clientX: number) => {
       const rect = trackRef.current?.getBoundingClientRect();
-      if (!rect || rect.width === 0) return;
-      // Map the pointer onto the HANDLE's travel, not the row's width: the
-      // handle is inset by its own radius at both ends, and without matching
-      // that here the ball lags the cursor near either end.
+      if (!rect || rect.width === 0) return null;
       const radius = handleSize / 2;
       const usable = Math.max(1, rect.width - radius * 2);
       const pct = Math.max(
@@ -116,10 +113,49 @@ export const MeterFader = memo(function MeterFader({
       );
       const raw = min + pct * (max - min);
       const stepped = Math.round(raw / step) * step;
-      onChange(Math.max(min, Math.min(max, stepped)));
+      return Math.max(min, Math.min(max, stepped));
     },
-    [min, max, step, onChange, handleSize],
+    [min, max, step, handleSize],
   );
+
+  const scheduleCommit = useCallback(
+    (clientX: number) => {
+      pendingClientX.current = clientX;
+      if (rafId.current !== null) return;
+      rafId.current = requestAnimationFrame(() => {
+        rafId.current = null;
+        if (pendingClientX.current === null) return;
+        const v = calculateSteppedValue(pendingClientX.current);
+        pendingClientX.current = null;
+        if (v !== null) onChange(v);
+      });
+    },
+    [calculateSteppedValue, onChange],
+  );
+
+  const flushCommit = useCallback(
+    (clientX?: number) => {
+      if (rafId.current !== null) {
+        cancelAnimationFrame(rafId.current);
+        rafId.current = null;
+      }
+      const targetX = clientX ?? pendingClientX.current;
+      pendingClientX.current = null;
+      if (targetX !== null && targetX !== undefined) {
+        const v = calculateSteppedValue(targetX);
+        if (v !== null) onChange(v);
+      }
+    },
+    [calculateSteppedValue, onChange],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (rafId.current !== null) {
+        cancelAnimationFrame(rafId.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -281,15 +317,20 @@ export const MeterFader = memo(function MeterFader({
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
         escRevert.onPointerDown(e);
-        commitFromPointer(e.clientX);
+        // Flush immediately on press so the first click is instant.
+        flushCommit(e.clientX);
       }}
       onPointerMove={(e) => {
+        // Coalesce drag moves to one commit per animation frame to avoid
+        // flooding the 6-socket HTTP pool with high-frequency requests.
         if (e.currentTarget.hasPointerCapture(e.pointerId))
-          commitFromPointer(e.clientX);
+          scheduleCommit(e.clientX);
       }}
       onPointerUp={(e) => {
         if (e.currentTarget.hasPointerCapture(e.pointerId))
           e.currentTarget.releasePointerCapture(e.pointerId);
+        // Flush any pending frame commit so the final position is always sent.
+        flushCommit();
         escRevert.onPointerUp();
       }}
       onDoubleClick={(e) => {
