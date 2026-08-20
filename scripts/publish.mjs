@@ -91,8 +91,10 @@ const ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
   <true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
   <true/>
-  <!-- The engine opens input devices as well as outputs. -->
-  <key>com.apple.security.device.audio-input</key>
+  <!-- Network access for LAN discovery, Art-Net/DMX, remote control, and WebSockets -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <key>com.apple.security.network.server</key>
   <true/>
 </dict>
 </plist>
@@ -472,7 +474,7 @@ AppImage instead of this tarball.
 
 // ── Entry ──────────────────────────────────────────────────────────────────
 
-export { publishMac, publishWindows, publishLinux };
+export { publishMac, publishWindows, publishLinux, adhocSignBundle, machOTargetsDeepestFirst };
 
 export function publish() {
   log(`Publishing ResoStage ${appVersion()} (${BUILD_TYPE})`);

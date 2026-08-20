@@ -19,6 +19,9 @@ public:
     // show. No-op if the shell isn't running.
     virtual void activateElectronShell() = 0;
 
+    // Explicitly triggers macOS Local Network Privacy prompt on startup
+    virtual void triggerLocalNetworkPermission() {}
+
     // Singleton access for current host platform
     static PlatformShellMode& getInstance();
 };
@@ -34,6 +37,10 @@ inline void restoreForegroundShell() {
 
 inline void activateElectronShell() {
     PlatformShellMode::getInstance().activateElectronShell();
+}
+
+inline void triggerLocalNetworkPermission() {
+    PlatformShellMode::getInstance().triggerLocalNetworkPermission();
 }
 
 } // namespace resostage

@@ -457,6 +457,11 @@ export function runTests() {
   if (run("pnpm", ["test"], { cwd: join(ROOT, "ui") }) !== 0) {
     die("ui tests failed");
   }
+
+  log("Running electron shell tests (vitest)...");
+  if (run("pnpm", ["test"], { cwd: join(ROOT, "electron") }) !== 0) {
+    die("electron tests failed");
+  }
 }
 
 export function lintAll() {

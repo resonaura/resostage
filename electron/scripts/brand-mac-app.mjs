@@ -125,7 +125,14 @@ function main() {
     "-replace",
     "NSLocalNetworkUsageDescription",
     "-string",
-    "ResoStage requires local network access for LAN discovery, stage lighting (Art-Net/DMX), and wireless remote control.",
+    "ResoStage requires local network access to discover remote control devices, synchronize with other stage instances, receive live telemetry, and control Art-Net/DMX lighting.",
+    plistPath,
+  ]);
+  execFileSync("plutil", [
+    "-replace",
+    "NSBonjourServices",
+    "-json",
+    '["_resostage._tcp", "_resostage._udp", "_http._tcp", "_osc._udp"]',
     plistPath,
   ]);
 

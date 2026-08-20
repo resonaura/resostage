@@ -31,6 +31,13 @@ contextBridge.exposeInMainWorld("resostageElectron", {
     ipcRenderer.invoke("remote:connect", { host, port }),
   disconnectRemote: () => ipcRenderer.invoke("remote:disconnect"),
   getRemoteStatus: () => ipcRenderer.invoke("remote:get-status"),
+  /** Proxy HTTP request through Electron main process (avoids renderer network sandbox/CORS) */
+  proxyRequest: (req: {
+    path: string;
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string | null;
+  }) => ipcRenderer.invoke("http:proxy", req),
 });
 
 type BridgeGlobal = typeof globalThis & {

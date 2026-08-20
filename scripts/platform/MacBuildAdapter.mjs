@@ -1,4 +1,4 @@
-import { existsSync, rmSync, cpSync, mkdirSync } from "node:fs";
+import { existsSync, rmSync, cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { BuildAdapter } from "./BuildAdapter.mjs";
@@ -20,7 +20,7 @@ import {
   findFileRecursively,
 } from "../lib.mjs";
 
-import { publishMac } from "../publish.mjs";
+import { publishMac, adhocSignBundle } from "../publish.mjs";
 
 export class MacBuildAdapter extends BuildAdapter {
   get key() {

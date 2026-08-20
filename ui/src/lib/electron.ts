@@ -11,6 +11,20 @@ declare global {
       connectRemote?: (host: string, port: number) => Promise<boolean | { ok: boolean; url?: string }>;
       disconnectRemote?: () => Promise<boolean | { ok: boolean; url?: string }>;
       getRemoteStatus?: () => Promise<{ isRemoteMode: boolean; activeRemoteHost?: string | null }>;
+      proxyRequest?: (req: {
+        path: string;
+        method?: string;
+        headers?: Record<string, string>;
+        body?: string | null;
+      }) => Promise<{
+        ok: boolean;
+        status: number;
+        statusText?: string;
+        headers: Record<string, string>;
+        data: unknown;
+        isJson: boolean;
+        error?: string;
+      }>;
     };
   }
 }

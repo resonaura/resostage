@@ -1,4 +1,4 @@
-import { apiUrl } from "./backend";
+import { apiUrl, apiFetch } from "./backend";
 import type { MixGraphPayload } from "../components/audio/signalFlowLayout";
 import type {
   AllPeaksResponse,
@@ -37,7 +37,7 @@ function _triggerRefetch(): void {
 // Mirrors WebServer::handleHttpApi().
 async function post(path: string, body?: unknown): Promise<void> {
   try {
-    await fetch(apiUrl(path), {
+    await apiFetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : "{}",
@@ -79,7 +79,7 @@ async function postContinuous(path: string, body: unknown): Promise<void> {
   try {
     while (nextPayload !== null) {
       state.pending = null;
-      await fetch(apiUrl(path), {
+      await apiFetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(nextPayload),
@@ -126,7 +126,7 @@ export const transport = {
 // MainComponent::buildPeaksJson()). Not part of the live WS state -- fetch
 // on demand (mount + whenever state.songIndex changes).
 export async function fetchPeaks(): Promise<PeaksResponse> {
-  const res = await fetch(apiUrl("/api/v1/player/peaks"));
+  const res = await apiFetch("/api/v1/player/peaks");
   return (await res.json()) as PeaksResponse;
 }
 
@@ -135,7 +135,7 @@ export async function fetchPeaks(): Promise<PeaksResponse> {
 // song) -- fetch once on Timeline mount and poll at a slow interval rather
 // than on every state tick.
 export async function fetchAllPeaks(): Promise<AllPeaksResponse> {
-  const res = await fetch(apiUrl("/api/v1/player/peaks-all"));
+  const res = await apiFetch("/api/v1/player/peaks-all");
   return (await res.json()) as AllPeaksResponse;
 }
 
@@ -147,7 +147,7 @@ export async function fetchAllPeaks(): Promise<AllPeaksResponse> {
  * it only changes when routing does, and only one screen ever wants it.
  */
 export async function fetchMixGraph(): Promise<MixGraphPayload> {
-  const res = await fetch(apiUrl("/api/v1/audio/mixgraph"));
+  const res = await apiFetch("/api/v1/audio/mixgraph");
   const body = (await res.json()) as { mixGraph?: MixGraphPayload };
   return body.mixGraph ?? { strips: [], edges: [] };
 }
@@ -164,6 +164,11 @@ export interface WaveformRawResponse {
 // seconds server-side -- only call this for a genuinely small visible range.
 const rawWaveformCache = new Map<string, WaveformRawResponse>();
 
+export function clearApiCaches(): void {
+  rawWaveformCache.clear();
+  _continuousInFlight.clear();
+}
+
 export async function fetchWaveformRaw(
   file: string,
   startSec: number,
@@ -177,11 +182,10 @@ export async function fetchWaveformRaw(
   // (WebServer::serveWaveformRaw) and answers 400 to anything else. It had
   // been answering 400 to every single one of these, so the deepest zoom
   // level quietly fell back to binned peaks instead of real samples.
-  const url = apiUrl(
+  const url =
     `/api/v1/player/waveform-raw?file=${encodeURIComponent(file)}` +
-      `&startSec=${startSec}&endSec=${endSec}`,
-  );
-  const res = await fetch(url);
+    `&startSec=${startSec}&endSec=${endSec}`;
+  const res = await apiFetch(url);
   const data = (await res.json()) as WaveformRawResponse;
   if (data && data.samples) {
     rawWaveformCache.set(cacheKey, data);
@@ -294,7 +298,7 @@ export const project = {
 
   async upload(file: File): Promise<void> {
     try {
-      await fetch(apiUrl("/api/v1/project/upload"), {
+      await apiFetch("/api/v1/project/upload", {
         method: "POST",
         body: file,
       });
@@ -308,7 +312,7 @@ export const project = {
     for (let attempt = 0; attempt < 50; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 150));
       try {
-        const res = await fetch(apiUrl("/api/v1/project/export-status"));
+        const res = await apiFetch("/api/v1/project/export-status");
         const body = (await res.json()) as { ready: boolean; fileName: string };
         if (body.ready) {
           const link = document.createElement("a");
@@ -440,7 +444,7 @@ export const builder = {
       fileName: file.name,
     });
     try {
-      await fetch(apiUrl("/api/v1/builder/track/import-wav/upload"), {
+      await apiFetch("/api/v1/builder/track/import-wav/upload", {
         method: "POST",
         body: file,
       });

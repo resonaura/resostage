@@ -18,7 +18,7 @@ import { GlobalTransportBar } from "./components/GlobalTransportBar";
 import { Button, Tabs } from "./components/ui";
 import { performAction, type ActionId } from "./lib/actions";
 import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/api";
-import { apiUrl, getRemoteBackend, setRemoteBackend } from "./lib/backend";
+import { apiFetch, getRemoteBackend, setRemoteBackend } from "./lib/backend";
 import { SHOW_TRANSPORT_LABEL } from "./lib/devFlags";
 import { IS_ELECTRON } from "./lib/electron";
 import { sendTypingFocus } from "./lib/electronBridge";
@@ -161,7 +161,7 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
           e.preventDefault();
           e.stopPropagation();
           const action = kb.action as ActionId;
-          void fetch(apiUrl("/api/v1/action"), {
+          void apiFetch("/api/v1/action", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action }),
@@ -203,7 +203,7 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
           // key you want under your hand when a cue goes wrong.
           e.preventDefault();
           e.stopPropagation();
-          void fetch(apiUrl("/api/v1/action"), {
+          void apiFetch("/api/v1/action", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "stop_to_start" }),
@@ -249,7 +249,7 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
   useEffect(() => {
     if (!IS_EMBEDDED) return;
     const sendFocus = (focused: boolean) => {
-      void fetch(apiUrl("/api/v1/ui/focus-state"), {
+      void apiFetch("/api/v1/ui/focus-state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ focused }),
@@ -381,10 +381,12 @@ export default function App() {
   // than ~15s after load left the new region's waveform stuck on stale data
   // forever, since project name / song count / song index don't change on a
   // split -- looking like the peaks needed a slow recompute when they didn't).
-  const totalRegionCount = state.songs.reduce(
-    (sum, s) => sum + (s.regions?.length ?? 0),
-    0,
-  );
+  const totalRegionCount = Array.isArray(state.songs)
+    ? state.songs.reduce(
+        (sum, s) => sum + (s?.regions?.length ?? 0),
+        0,
+      )
+    : 0;
 
   // Per-song peaks (current staged song). Backend publishes each track as it
   // finishes -- poll frequently while filled count climbs, then settle.
@@ -396,9 +398,9 @@ export default function App() {
       for (let attempt = 0; attempt < 120 && !cancelled; attempt++) {
         const data = await fetchPeaks().catch(() => null);
         if (cancelled) return;
-        if (data?.tracks) {
+        if (data?.tracks && Array.isArray(data.tracks)) {
           setPeaks(data);
-          const filled = data.tracks.filter((t) => t.levels.length > 0).length;
+          const filled = data.tracks.filter((t) => t?.levels && t.levels.length > 0).length;
           if (filled === lastFilled) {
             stable += 1;
             // Empty-lane tracks never get levels, so stop on plateau not on
@@ -435,15 +437,15 @@ export default function App() {
       for (let attempt = 0; attempt < 240 && !cancelled; attempt++) {
         const data = await fetchAllPeaks().catch(() => null);
         if (cancelled) return;
-        if (data) {
+        if (data && Array.isArray(data.songs)) {
           setAllPeaks(data);
           // levelsIndex >= 0 means this region's file made it into the shared
           // file table, i.e. its waveform is drawable.
           const filled = data.songs.reduce(
-            (n, s) => n + s.tracks.filter((t) => t.levelsIndex >= 0).length,
+            (n, s) => n + (Array.isArray(s?.tracks) ? s.tracks.filter((t) => t && t.levelsIndex >= 0).length : 0),
             0,
           );
-          const total = data.songs.reduce((n, s) => n + s.tracks.length, 0);
+          const total = data.songs.reduce((n, s) => n + (Array.isArray(s?.tracks) ? s.tracks.length : 0), 0);
           // `total` counts entries in the PAYLOAD, not regions we know about.
           // The backend rebuilds that payload on its own ~30 Hz tick, so the
           // fetch this effect fires the instant a region appears (a split)
@@ -471,7 +473,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [state.projectName, state.songs.length, totalRegionCount]);
+  }, [state.projectName, state.songs?.length ?? 0, totalRegionCount]);
 
   const [isQuittingOverlay, setIsQuittingOverlay] = useState(false);
   // Hardware alarm toast notifications (post-startup only)
@@ -521,6 +523,10 @@ export default function App() {
           if (st?.isRemoteMode && st.activeRemoteHost) {
             setRemoteBackend(st.activeRemoteHost);
             setRemoteHost(st.activeRemoteHost);
+            return;
+          } else if (!st?.isRemoteMode) {
+            setRemoteBackend(null);
+            setRemoteHost(null);
             return;
           }
         } catch {}

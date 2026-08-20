@@ -35,11 +35,23 @@ import {
   TouchBar,
   type MenuItemConstructorOptions,
 } from "electron";
-import { spawn, type ChildProcess } from "node:child_process";
-import { unlinkSync } from "node:fs";
+import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { readFileSync, statSync, unlinkSync, writeFileSync, appendFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import dgram from "node:dgram";
+import os from "node:os";
 import path from "node:path";
+import {
+  parseDiscoveryPacket,
+  isSelfAnnouncement,
+  upsertDevice,
+  pruneDevices,
+  mergeDiscovered,
+  normalizeRemoteHost,
+  subnetCandidates,
+  DISCOVERY_PORT,
+  type DiscoveredDevice,
+} from "./discovery.js";
 import {
   createPlatformAdapter,
   type PlatformAdapter,
@@ -70,7 +82,7 @@ function applyLiveRendererDefaults(): void {
   // Win/Linux occlusion heuristic; harmless on macOS if ignored.
   app.commandLine.appendSwitch(
     "disable-features",
-    "CalculateNativeWinOcclusion",
+    "CalculateNativeWinOcclusion,PrivateNetworkAccessPermissionPrompt,BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessRespectPreflightResults",
   );
 }
 applyLiveRendererDefaults();
@@ -173,24 +185,99 @@ function setupUdpTelemetry(): void {
   }
 }
 
+// macOS only pops the Local Network privacy prompt when the app actually
+// reaches a reachable LAN host, and -- critically -- only a mechanism that
+// genuinely performs LAN I/O trips it. On some installs Node's own sockets
+// fail to reach the LAN at all (EHOSTUNREACH), so a Node-based probe never
+// triggers the dialog. curl is a separate binary that DOES reach the LAN, so
+// we use it here. The gateway (x.x.x.1, always up) is probed on common admin
+// ports and the active remote backend on its own port; a refused connection
+// still counts as an attempt, so this pops the dialog without needing a
+// device in advance. Runs once at launch (and again on connect).
 function triggerLocalNetworkPermission(): void {
-  try {
-    const probe = dgram.createSocket("udp4");
-    probe.bind(0, () => {
+  const hosts = new Set<string>();
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const iface of list ?? []) {
+      if (!iface.address || iface.internal) continue;
+      const ip = iface.address;
+      if (!ip.includes(".") || !iface.cidr) continue; // IPv4 with a CIDR only
+      for (const c of subnetCandidates(ip, iface.cidr)) {
+        if (c !== ip) hosts.add(c); // skip own address, not a separate device
+      }
+    }
+  }
+  if (activeRemoteHost) hosts.add(activeRemoteHost);
+
+  const ports = activeRemoteHost ? [activeRemotePort] : [80, 443, 22, 445];
+  for (const host of hosts) {
+    for (const port of ports) {
       try {
-        probe.setBroadcast(true);
-        const dummy = Buffer.from("RESOSTAGE_LOCAL_PROBE");
-        probe.send(dummy, 0, dummy.length, 28991, "255.255.255.255", () => {
-          try { probe.close(); } catch {}
+        execFile(CURL_BIN, ["-sS", "--max-time", "2", "-o", "/dev/null", `http://${host}:${port}/`], (err) => {
+          // The result doesn't matter -- the attempt itself is what trips TCC.
+          void err;
         });
       } catch {
-        try { probe.close(); } catch {}
+        /* ignore */
       }
-    });
-  } catch {
-    /* ignore */
+    }
   }
 }
+
+// ── Shell-side LAN discovery ─────────────────────────────────────────────
+//
+// The SPA asks for "discovered devices" via IPC; the answer is a merge of the
+// active backend's own list and what THIS shell hears directly on 28991. The
+// shell listener matters for two reasons:
+//   1. A --remote launch (or a remote session) may have NO local Core to do
+//      the listening for us -- without this the list would be empty.
+//   2. It is a second, independent ear: if one socket misses a broadcast, the
+//      other usually catches it. Both use SO_REUSEADDR so they coexist.
+//
+// Local-Network privacy (macOS) applies to inbound LAN broadcasts; the app
+// must be granted access in System Settings before either socket hears them.
+// Unicast telemetry (the actual remote session) is unaffected.
+const shellDiscovery = (() => {
+  const heard = new Map<string, { dev: DiscoveredDevice; seen: number }>();
+  let socket: dgram.Socket | null = null;
+  let pruneTimer: NodeJS.Timeout | null = null;
+  let started = false;
+
+  const localAddrs = (): string[] => {
+    const addrs: string[] = [];
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const iface of list ?? []) {
+        if (iface.address) addrs.push(iface.address);
+      }
+    }
+    return addrs;
+  };
+
+  const start = (): void => {
+    if (started) return;
+    started = true;
+    try {
+      socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+      socket.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+        const dev = parseDiscoveryPacket(msg, rinfo.address);
+        if (!dev) return;
+        if (isSelfAnnouncement(dev.ip, localAddrs())) return;
+        upsertDevice(heard, dev, Date.now());
+      });
+      socket.on("error", () => {
+        /* keep the app alive; discovery degrades gracefully */
+      });
+      socket.bind(DISCOVERY_PORT, "0.0.0.0", () => {
+        try { socket?.setBroadcast(true); } catch {}
+      });
+      pruneTimer = setInterval(() => pruneDevices(heard, Date.now()), 5000);
+      pruneTimer.unref?.();
+    } catch {
+      /* best-effort */
+    }
+  };
+
+  return { start, heard };
+})();
 
 // Send a JSON message to the Core backend via IPC socket.
 // Returns a promise that resolves when the message is written (or fails).
@@ -284,6 +371,191 @@ function currentBackendUrl(): string {
     return `http://${activeRemoteHost}:${activeRemotePort}`;
   }
   return `http://localhost:${PORT}`;
+}
+
+// ── Resilient HTTP to a (possibly remote) backend ────────────────────────
+//
+// Node's fetch/undici reaches the internet but, on some macOS installs (e.g.
+// with a split-tunnel VPN or network-extension filter active), it gets
+// EHOSTUNREACH for LOCAL-LAN addresses even though curl reaches them fine.
+// Since the whole point of a remote session is talking to another machine on
+// the LAN, the shell shells out to curl as a fallback whenever Node's fetch
+// fails for a non-loopback host. curl is a separate binary that re-resolves
+// and re-connects every call, so this is also naturally resilient to the LAN
+// topology changing (a device moving IPs) -- the caller just retries and the
+// fresh process re-connects.
+interface RemoteHttpResult {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  data: unknown; // parsed JSON or text
+  isJson: boolean;
+  rawBody?: Buffer; // present for non-JSON responses
+  error?: string;
+}
+
+function isLoopbackHost(url: string): boolean {
+  try {
+    const h = new URL(url).hostname;
+    return h === "localhost" || h === "127.0.0.1" || h === "::1";
+  } catch {
+    return false;
+  }
+}
+
+const CURL_BIN = process.platform === "darwin" ? "/usr/bin/curl" : "curl";
+
+// Temporary diagnostics: log every LAN HTTP round-trip so a "no data" remote
+// session can be traced from the file without a debugger attached.
+const REMOTE_HTTP_LOG = path.join(os.tmpdir(), "resostage-remote-http.log");
+function logRemoteHttp(line: string): void {
+  try {
+    appendFileSync(REMOTE_HTTP_LOG, `${new Date().toISOString()} ${line}\n`);
+  } catch {}
+}
+
+async function remoteHttp(
+  fullUrl: string,
+  opts: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string | Buffer | null;
+    timeoutMs?: number;
+  } = {},
+): Promise<RemoteHttpResult> {
+  const method = (opts.method || "GET").toUpperCase();
+  const timeoutMs = opts.timeoutMs || 8000;
+
+  // For LAN targets use curl directly -- Node's fetch/undici on some installs
+  // can't reach local-network addresses at all (or hangs until timeout), while
+  // curl connects immediately. Loopback (the local Core) stays on Node fetch.
+  if (!isLoopbackHost(fullUrl)) {
+    logRemoteHttp(`curl -> ${method} ${fullUrl}`);
+    return curlHttp(fullUrl, { method, headers: opts.headers, body: opts.body, timeoutMs });
+  }
+
+  try {
+    const res = await fetch(fullUrl, {
+      method,
+      headers: opts.headers,
+      body: opts.body !== undefined && opts.body !== null ? (opts.body as unknown as string | Buffer) : undefined,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const ct = res.headers.get("content-type") || "";
+    const isJson = ct.includes("application/json");
+    const buf = Buffer.from(await res.arrayBuffer());
+    let data: unknown;
+    if (isJson) {
+      try {
+        data = JSON.parse(buf.toString("utf8"));
+      } catch {
+        data = buf.toString("utf8");
+      }
+    } else {
+      data = buf.toString("utf8");
+    }
+    return {
+      ok: res.ok,
+      status: res.status,
+      statusText: res.statusText,
+      headers: Object.fromEntries(res.headers.entries()),
+      data,
+      isJson,
+      rawBody: buf,
+    };
+  } catch (err) {
+    // Loopback only reaches here; non-loopback went to curl above. Surface
+    // the error rather than masking a genuinely local problem.
+    return {
+      ok: false,
+      status: 0,
+      statusText: "",
+      headers: {},
+      data: null,
+      isJson: false,
+      error: (err as Error)?.message || String(err),
+    };
+  }
+}
+
+function curlHttp(
+  fullUrl: string,
+  opts: {
+    method: string;
+    headers?: Record<string, string>;
+    body?: string | Buffer | null;
+    timeoutMs: number;
+  },
+): Promise<RemoteHttpResult> {
+  const bodyIsBuffer = Buffer.isBuffer(opts.body);
+  const bodyBuf = bodyIsBuffer
+    ? (opts.body as Buffer)
+    : opts.body == null
+      ? undefined
+      : Buffer.from(opts.body as string, "utf8");
+
+  return new Promise((resolve) => {
+    const tmpOut = path.join(os.tmpdir(), `rs-http-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
+    const tmpIn = bodyBuf ? path.join(os.tmpdir(), `rs-http-in-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`) : null;
+
+    try {
+      if (tmpIn && bodyBuf) writeFileSync(tmpIn, bodyBuf);
+    } catch {
+      resolve({ ok: false, status: 0, statusText: "", headers: {}, data: null, isJson: false, error: "failed to write curl body" });
+      return;
+    }
+
+    const args = [
+      "-sS",
+      "--max-time", String(Math.ceil(opts.timeoutMs / 1000) || 8),
+      "-X", opts.method,
+      "-o", tmpOut,
+      "-w", "%{http_code}",
+    ];
+    for (const [k, v] of Object.entries(opts.headers || {})) {
+      args.push("-H", `${k}: ${v}`);
+    }
+    if (tmpIn) args.push("--data-binary", `@${tmpIn}`);
+    args.push(fullUrl);
+
+    execFile(CURL_BIN, args, { maxBuffer: 32 * 1024 * 1024 }, (err, stdout) => {
+      let body: Buffer;
+      try {
+        body = readFileSync(tmpOut);
+      } catch {
+        body = Buffer.alloc(0);
+      }
+      if (tmpIn) {
+        try { unlinkSync(tmpIn); } catch {}
+      }
+      try { unlinkSync(tmpOut); } catch {}
+
+      const status = parseInt(String(stdout).trim(), 10) || 0;
+      logRemoteHttp(`curl ${opts.method} ${fullUrl} -> status=${status} bytes=${body.length} err=${err ? (err as Error).message : "none"}`);
+      const text = body.toString("utf8");
+      let isJson = false;
+      let data: unknown = text;
+      if (text.trimStart().startsWith("{") || text.trimStart().startsWith("[")) {
+        try {
+          data = JSON.parse(text);
+          isJson = true;
+        } catch {
+          /* keep text */
+        }
+      }
+      resolve({
+        ok: status >= 200 && status < 300,
+        status,
+        statusText: status ? `HTTP ${status}` : "",
+        headers: {},
+        data,
+        isJson,
+        rawBody: body,
+        error: status ? undefined : `curl ${err ? (err as Error).message : "failed"}`,
+      });
+    });
+  });
 }
 
 const BACKEND = IS_REMOTE ? `http://${REMOTE}:${PORT}` : `http://localhost:${PORT}`;
@@ -513,10 +785,148 @@ function flashMenuAction(action: string): void {
   scheduleMenuFlash(loc.section, loc.item);
 }
 
+async function waitForRemoteExport(
+  base: string,
+  tries = 60,
+  delayMs = 250,
+): Promise<{ fileName?: string } | null> {
+  for (let i = 0; i < tries; ++i) {
+    try {
+      const res = await remoteHttp(`${base}/api/v1/project/export-status`, {
+        timeoutMs: 3000,
+      });
+      if (res.ok) {
+        const body = res.data as { ready?: boolean; fileName?: string };
+        if (body?.ready) return { fileName: body.fileName };
+      }
+    } catch {
+      /* keep polling */
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
+}
+
 async function handleFileDialogAction(action: string): Promise<boolean> {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
-  // In remote sessions, native local file picking is bypassed so remote host state is unmodified
-  if (isRemoteSession) return false;
+
+  // Remote session: the project lives on the remote host. "Open" pushes a
+  // local .rsnraset archive UP to the remote backend; "Save As" pulls the
+  // remote project DOWN to a local file. We do this here (in the shell) so the
+  // renderer never has to move potentially large archives through its proxy.
+  if (isRemoteSession) {
+    const base = currentBackendUrl();
+    if (action === "open_project") {
+      const res = await dialog.showOpenDialog(mainWindow, {
+        title: "Open Project on Remote Host",
+        defaultPath: undefined,
+        filters: [
+          { name: "ResoStage Project", extensions: ["rsnraset"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+        properties: ["openFile"],
+      });
+      if (res.canceled || !res.filePaths[0]) return true;
+      const filePath = res.filePaths[0];
+      try {
+        const st = statSync(filePath);
+        if (st.isDirectory()) {
+          await dialog.showMessageBox(mainWindow, {
+            type: "warning",
+            title: "Cannot push a folder",
+            message: "Over a remote session, open an exported .rsnraset archive file (a project folder can only be opened on the machine it lives on).",
+          });
+          return true;
+        }
+        const buf = readFileSync(filePath);
+        const up = await remoteHttp(`${base}/api/v1/project/upload`, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: buf,
+          timeoutMs: 120_000,
+        });
+        if (!up.ok) {
+          await dialog.showMessageBox(mainWindow, {
+            type: "error",
+            title: "Remote open failed",
+            message: `The remote host could not import the project (HTTP ${up.status}).`,
+          });
+        }
+      } catch (err: any) {
+        await dialog.showMessageBox(mainWindow, {
+          type: "error",
+          title: "Remote open failed",
+          message: String(err?.message ?? err),
+        });
+      }
+      return true;
+    }
+
+    if (action === "save_project_as") {
+      // Kick off an export on the remote, then pull the archive once ready.
+      try {
+        const exp = await remoteHttp(`${base}/api/v1/project/export`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+          timeoutMs: 5000,
+        });
+        if (!exp.ok) {
+          await dialog.showMessageBox(mainWindow, {
+            type: "error",
+            title: "Remote export failed",
+            message: `The remote host could not start an export (HTTP ${exp.status}).`,
+          });
+          return true;
+        }
+      } catch (err: any) {
+        await dialog.showMessageBox(mainWindow, {
+          type: "error",
+          title: "Remote export failed",
+          message: String(err?.message ?? err),
+        });
+        return true;
+      }
+      const ready = await waitForRemoteExport(base);
+      const res = await dialog.showSaveDialog(mainWindow, {
+        title: "Save Remote Project As",
+        defaultPath: ready?.fileName || "Project.rsnraset",
+        filters: [{ name: "ResoStage Project", extensions: ["rsnraset"] }],
+        showsTagField: false,
+      });
+      if (res.canceled || !res.filePath) return true;
+      try {
+        const dl = await remoteHttp(`${base}/api/v1/project/download`, {
+          timeoutMs: 120_000,
+        });
+        if (!dl.ok) {
+          await dialog.showMessageBox(mainWindow, {
+            type: "error",
+            title: "Download failed",
+            message: `Could not download the exported project (HTTP ${dl.status}).`,
+          });
+          return true;
+        }
+        writeFileSync(res.filePath, dl.rawBody ?? Buffer.alloc(0));
+      } catch (err: any) {
+        await dialog.showMessageBox(mainWindow, {
+          type: "error",
+          title: "Download failed",
+          message: String(err?.message ?? err),
+        });
+      }
+      return true;
+    }
+
+    if (action === "import_song_folder") {
+      await dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "Not available over remote",
+        message: "Importing a local song folder over a remote session is not supported. Import the audio on the remote host directly, or export/import the whole project instead.",
+      });
+      return true;
+    }
+  }
 
   const isMac = process.platform === "darwin";
 
@@ -591,7 +1001,7 @@ async function postAction(action: string): Promise<boolean> {
   }
 
   try {
-    const res = await fetch(`${currentBackendUrl()}/api/v1/action`, {
+    const res = await remoteHttp(`${currentBackendUrl()}/api/v1/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
@@ -608,8 +1018,8 @@ async function fetchMenuWithRetry(
 ): Promise<MenuModel | null> {
   for (let i = 0; i < tries; ++i) {
     try {
-      const res = await fetch(`${currentBackendUrl()}/api/v1/ui/menu`);
-      if (res.ok) return (await res.json()) as MenuModel;
+      const res = await remoteHttp(`${currentBackendUrl()}/api/v1/ui/menu`);
+      if (res.ok) return res.data as MenuModel;
     } catch {
       // backend not up yet
     }
@@ -1282,6 +1692,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: false,
       // Default off: rAF/timers must keep firing when minimized/occluded
       // (live meters, playhead, stage preview). See applyLiveRendererDefaults.
       // The idle policy flips this on only while the window is genuinely away
@@ -1518,26 +1929,29 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle("remote:get-discovered-devices", async () => {
+async function discoveredFromBackend(): Promise<DiscoveredDevice[]> {
   try {
-    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovered-devices`, {
-      signal: AbortSignal.timeout(2000),
+    const res = await remoteHttp(`${currentBackendUrl()}/api/v1/remote/discovered-devices`, {
+      timeoutMs: 2000,
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data)) return data;
-    }
+    if (res.ok && Array.isArray(res.data)) return res.data as DiscoveredDevice[];
   } catch {}
   return [];
+}
+
+ipcMain.handle("remote:get-discovered-devices", async () => {
+  logRemoteHttp("ipc:get-discovered-devices CALLED");
+  const backend = await discoveredFromBackend();
+  return mergeDiscovered(backend, shellDiscovery.heard);
 });
 
 ipcMain.handle("remote:get-discovery-enabled", async () => {
   try {
-    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovery`, {
-      signal: AbortSignal.timeout(2500),
+    const res = await remoteHttp(`${currentBackendUrl()}/api/v1/remote/discovery`, {
+      timeoutMs: 2500,
     });
     if (res.ok) {
-      const data = (await res.json()) as { enabled?: boolean };
+      const data = res.data as { enabled?: boolean };
       return Boolean(data?.enabled);
     }
   } catch {
@@ -1548,14 +1962,14 @@ ipcMain.handle("remote:get-discovery-enabled", async () => {
 
 ipcMain.handle("remote:set-discovery-enabled", async (_event, enabled: boolean) => {
   try {
-    const res = await fetch(`http://localhost:${PORT}/api/v1/remote/discovery`, {
+    const res = await remoteHttp(`${currentBackendUrl()}/api/v1/remote/discovery`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: Boolean(enabled) }),
-      signal: AbortSignal.timeout(2500),
+      timeoutMs: 2500,
     });
     if (res.ok) {
-      const data = (await res.json()) as { enabled?: boolean };
+      const data = res.data as { enabled?: boolean };
       return Boolean(data?.enabled);
     }
   } catch {
@@ -1576,11 +1990,11 @@ let remoteUdpHeartbeatTimer: NodeJS.Timeout | null = null;
 function startRemoteUdpHeartbeat(host: string, port: number): void {
   stopRemoteUdpHeartbeat();
   const sendHeartbeat = () => {
-    fetch(`http://${host}:${port}/api/v1/remote/subscribe-udp`, {
+    void remoteHttp(`http://${host}:${port}/api/v1/remote/subscribe-udp`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ port: UDP_TELEMETRY_PORT }),
-      signal: AbortSignal.timeout(2000),
+      timeoutMs: 2000,
     }).catch(() => {});
   };
   sendHeartbeat();
@@ -1595,28 +2009,27 @@ function stopRemoteUdpHeartbeat(): void {
 }
 
 ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: number }) => {
+  logRemoteHttp(`ipc:connect CALLED payload=${JSON.stringify(payload)}`);
   if (!payload?.host) return false;
-  const host = payload.host.trim().replace(/^https?:\/\//i, "").replace(/^wss?:\/\//i, "").replace(/\/+.*$/, "");
-  const port = payload.port || 2899;
+  const { host, port: parsedPort } = normalizeRemoteHost(payload.host, payload.port || DEFAULT_PORT);
   if (!host) return false;
 
-  try {
-    const probe = await fetch(`http://${host}:${port}/api/v1/state`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!probe.ok && probe.status !== 404) return false;
-  } catch {
-    console.warn(`[resostage] Remote host ${host}:${port} unreachable`);
-    return false;
-  }
-
+  console.log(`[resostage] Remote session connecting to ${host}:${parsedPort}`);
   activeRemoteHost = host;
-  activeRemotePort = port;
+  activeRemotePort = parsedPort;
   isRemoteSession = true;
   startRemoteUdpHeartbeat(activeRemoteHost, activeRemotePort);
-  menuModel = await fetchMenuWithRetry(5, 200);
-  refreshMenu();
-  refreshTouchBar();
+  triggerLocalNetworkPermission();
+  logRemoteHttp(`connect: isRemoteSession=true host=${activeRemoteHost}:${activeRemotePort}`);
+
+  void fetchMenuWithRetry(5, 200).then((m) => {
+    if (m) {
+      menuModel = m;
+      refreshMenu();
+      refreshTouchBar();
+    }
+  });
+
   return true;
 });
 
@@ -1629,6 +2042,48 @@ ipcMain.handle("remote:disconnect", async () => {
   refreshMenu();
   refreshTouchBar();
   return true;
+});
+
+ipcMain.handle("http:proxy", async (_event, req: {
+  path: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string | null;
+}) => {
+  const base = currentBackendUrl();
+  let fullUrl: string;
+  if (req.path.startsWith("http://") || req.path.startsWith("https://")) {
+    fullUrl = req.path;
+  } else {
+    fullUrl = `${base}${req.path.startsWith("/") ? req.path : `/${req.path}`}`;
+  }
+  logRemoteHttp(`proxy[${req.method || "GET"}] path=${req.path} base=${base} full=${fullUrl}`);
+
+  try {
+    const res = await remoteHttp(fullUrl, {
+      method: req.method || "GET",
+      headers: req.headers,
+      body: req.body !== undefined && req.body !== null ? req.body : undefined,
+    });
+    return {
+      ok: res.ok,
+      status: res.status,
+      statusText: res.statusText || (res.status ? `HTTP ${res.status}` : ""),
+      headers: res.headers,
+      data: res.data,
+      isJson: res.isJson,
+      error: res.error,
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      status: 0,
+      statusText: err?.message || String(err),
+      headers: {},
+      data: null,
+      error: err?.message || String(err),
+    };
+  }
 });
 
 app.setAboutPanelOptions({
@@ -1709,6 +2164,7 @@ if (!app.requestSingleInstanceLock()) {
     ensureAppNotSuspended();
     setupUdpTelemetry();
     triggerLocalNetworkPermission();
+    shellDiscovery.start();
     // Load platform native libraries (MenuFlash/Haptics) once up front so
     // first-use isn't silent.
     platform.preloadNatives();

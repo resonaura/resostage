@@ -15,6 +15,7 @@
 #include "network/UdpDiscovery.h"
 #include "MainComponent.h"
 #include "platform/ProcessPriority.h"
+#include "platform/PlatformShellMode.h"
 
 namespace resostage {
 
@@ -38,6 +39,7 @@ public:
         }
 #endif
         boostAppProcessPriority();
+        triggerLocalNetworkPermission();
 
         CliParser parser("ResoStage Core CLI v0.2.0", "ResoStage Core engine daemon & CLI");
         parser.addOption("h", "help", "Show this help message and exit", "", true);

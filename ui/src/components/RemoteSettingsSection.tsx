@@ -4,7 +4,7 @@ import { Globe, Laptop, Radio, RefreshCw, Server, ShieldCheck, ShieldAlert } fro
 import { useEffect, useRef, useState } from "react";
 import { Button, Card, Switch } from "./ui";
 import { IS_ELECTRON } from "../lib/electron";
-import { apiUrl, setRemoteBackend } from "../lib/backend";
+import { apiFetch, setRemoteBackend } from "../lib/backend";
 
 interface DiscoveredDevice {
   name: string;
@@ -60,9 +60,9 @@ export function RemoteSettingsSection() {
           if (!isTogglingRef.current) setDiscoveryEnabled(enabled);
         } else {
           try {
-            const discRes = await fetch(apiUrl("/api/v1/remote/discovery"));
+            const discRes = await apiFetch("/api/v1/remote/discovery");
             if (discRes.ok) {
-              const data = await discRes.json();
+              const data = await discRes.json<{ enabled?: boolean }>();
               if (typeof data?.enabled === "boolean" && !isTogglingRef.current) {
                 setDiscoveryEnabled(data.enabled);
               }
@@ -83,9 +83,9 @@ export function RemoteSettingsSection() {
       }
       if (!list || list.length === 0) {
         try {
-          const res = await fetch(apiUrl("/api/v1/remote/discovered-devices"));
+          const res = await apiFetch("/api/v1/remote/discovered-devices");
           if (res.ok) {
-            const data = await res.json();
+            const data = await res.json<DiscoveredDevice[]>();
             if (Array.isArray(data)) list = data;
           }
         } catch {
@@ -119,7 +119,7 @@ export function RemoteSettingsSection() {
       if (IS_ELECTRON && window.resostageElectron?.setDiscoveryEnabled) {
         await window.resostageElectron.setDiscoveryEnabled(enabled);
       } else {
-        await fetch(apiUrl("/api/v1/remote/discovery"), {
+        await apiFetch("/api/v1/remote/discovery", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ enabled }),

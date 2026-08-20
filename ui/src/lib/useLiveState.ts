@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { isRenderActive, setTransportPlaying } from "./appActivity";
-import { apiUrl, wsUrl } from "./backend";
+import { wsUrl, onBackendChange, apiFetch } from "./backend";
 import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport, subscribeLiveMixerFlags, subscribeLiveHealth, getLastMixerFlagsMs, getLastUdpFrameMs } from "./liveLevels";
 import type { LiveMixerFlags } from "./liveLevels";
-import { registerRefetchHandler, unregisterRefetchHandler } from "./api";
+import { registerRefetchHandler, unregisterRefetchHandler, clearApiCaches } from "./api";
 import { shareStructure } from "./structuralShare";
 import { IS_ELECTRON } from "./electron";
 import { IS_EMBEDDED } from "./embedded";
@@ -278,7 +278,7 @@ export function useLiveState(view: string = "player") {
         ws.send(JSON.stringify({ telemetryHz: clamped }));
       } catch {}
     }
-    fetch(apiUrl("/api/v1/settings/telemetry-hz"), {
+    apiFetch("/api/v1/settings/telemetry-hz", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ telemetryHz: clamped }),
@@ -287,7 +287,7 @@ export function useLiveState(view: string = "player") {
 
   const sendView = (v: string) => {
     // POST is more reliable than WS for this — no dependency on WS state.
-    fetch(apiUrl("/api/v1/view"), {
+    apiFetch("/api/v1/view", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ view: v }),
@@ -309,8 +309,7 @@ export function useLiveState(view: string = "player") {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
-    const isEmbeddedMode =
-      IS_EMBEDDED || IS_ELECTRON || ("resostageElectron" in window);
+    const isEmbeddedMode = IS_EMBEDDED || IS_ELECTRON || ("resostageElectron" in window);
 
     let unsubTransport: (() => void) | undefined;
     let unsubMixerFlags: (() => void) | undefined;
@@ -321,7 +320,7 @@ export function useLiveState(view: string = "player") {
     const fetchState = async () => {
       if (cancelled) return;
       try {
-        const res = await fetch(apiUrl("/api/v1/state"));
+        const res = await apiFetch("/api/v1/state");
         if (res.ok) {
           const data = (await res.json()) as Partial<WebUiState>;
           if (data.meters) setMeterIds(data.meters.map((m) => m.id));
@@ -345,9 +344,6 @@ export function useLiveState(view: string = "player") {
 
           let pollData: Partial<WebUiState> = data;
           if (isUdpLive) {
-            // In live UDP mode, DO NOT let slow 1-second HTTP poll snapshots overwrite
-            // the 60-120Hz real-time transport and health fields, as doing so introduces
-            // 50ms time jumps (flicker) every second.
             const {
               playing: _p,
               playheadSeconds: _ps,
@@ -393,157 +389,182 @@ export function useLiveState(view: string = "player") {
       } catch {}
     };
 
+    const setupConnection = () => {
+      if (wsRef.current) {
+        try {
+          wsRef.current.close();
+        } catch {}
+        wsRef.current = null;
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+
+      if (isEmbeddedMode) {
+        setTransport("udp");
+        setStatus("live");
+      } else {
+        connect = () => {
+          if (cancelled) return;
+          try {
+            ws = new WebSocket(wsUrl(), "resoset");
+            ws.binaryType = "arraybuffer";
+            wsRef.current = ws;
+            setTransport("ws");
+
+            ws.onopen = () => {
+              reconnectMsRef.current = 500;
+              setStatus("live");
+              try {
+                ws?.send(JSON.stringify({ view: viewRef.current }));
+              } catch {}
+              void fetchState();
+            };
+            ws.onmessage = (ev) => {
+              if (ev.data instanceof ArrayBuffer) {
+                pushLiveBinaryFrame(ev.data);
+                return;
+              }
+
+              const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
+              let parsed: Partial<WebUiState>;
+              try {
+                parsed = JSON.parse(raw) as Partial<WebUiState>;
+              } catch {
+                return;
+              }
+              if (parsed.meters) {
+                setMeterIds(parsed.meters.map((m) => m.id));
+              }
+              if (parsed.playing !== undefined) setTransportPlaying(parsed.playing);
+              pushLiveLevels({
+                clickPeakDb: parsed.clickPeakDb,
+                clickPeakDbL: parsed.clickPeakDbL,
+                clickPeakDbR: parsed.clickPeakDbR,
+                tracks: parsed.tracks,
+                meters: parsed.meters,
+              });
+              if (parsed.health) {
+                latestHealthRef.current = {
+                  cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
+                  ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
+                };
+              }
+              pendingStateRef.current = parsed;
+              scheduleFlush();
+            };
+            ws.onerror = () => {
+              try {
+                ws?.close();
+              } catch {}
+            };
+            ws.onclose = () => {
+              if (wsRef.current === ws) wsRef.current = null;
+              if (cancelled) return;
+              setStatus("reconnecting");
+              reconnectTimer = setTimeout(() => connect?.(), reconnectMsRef.current);
+              reconnectMsRef.current = Math.min(reconnectMsRef.current * 1.5, 4000);
+            };
+          } catch {}
+        };
+
+        connect();
+      }
+    };
+
+    onUdpFrame = (e: Event) => {
+      if (cancelled) return;
+      const customEvent = e as CustomEvent<Buffer | Uint8Array | ArrayBuffer>;
+      const raw = customEvent.detail;
+      if (!raw) return;
+      let buf: ArrayBuffer;
+      if (raw instanceof ArrayBuffer) {
+        buf = raw;
+      } else if (ArrayBuffer.isView(raw)) {
+        const slice = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+        buf = slice as ArrayBuffer;
+      } else {
+        return;
+      }
+      pushLiveBinaryFrame(buf);
+    };
+
+    window.addEventListener("resostage-udp-telemetry", onUdpFrame);
+
+    unsubTransport = subscribeLiveTransport((ts) => {
+      if (cancelled) return;
+      pendingStateRef.current = {
+        ...(pendingStateRef.current || {}),
+        playing: ts.playing,
+        playheadSeconds: ts.playheadSeconds,
+        songIndex: ts.songIndex,
+        bpm: ts.bpm,
+        globalPlayheadSeconds: ts.globalPlayheadSeconds,
+        ...(ts.hasDrift ? { drift: ts.drift } : {}),
+      };
+      scheduleFlush();
+    });
+
+    unsubMixerFlags = subscribeLiveMixerFlags((flags) => {
+      if (cancelled) return;
+      mixerFlagsRef.current = flags;
+      scheduleFlush();
+    });
+
+    unsubHealth = subscribeLiveHealth((hs) => {
+      if (cancelled) return;
+      latestHealthRef.current = {
+        cpu: Math.max(0, hs.cpuPercent),
+        ram: hs.rssBytes / (1024 * 1024),
+      };
+      pendingStateRef.current = {
+        ...(pendingStateRef.current || {}),
+        health: {
+          ...(pendingStateRef.current?.health || {
+            freeBytes: 0,
+            underrunCount: 0,
+            audioCallbackCount: 0,
+            silentBlockCount: 0,
+            pitchBlockCount: 0,
+            streamStarveCount: 0,
+            callbackWorstRatio: 0,
+            callbackWorstMs: 0,
+            callbackWorstCpuShare: 0,
+            callbackComputeStalls: 0,
+            callbackPreemptedStalls: 0,
+            callbackOverruns: 0,
+            outputLatencySamples: 0,
+            outputLatencyMs: 0,
+            hostTimeSkewMs: 0,
+            thermalState: "nominal",
+            diskReadBytesPerSec: 0,
+            diskWriteBytesPerSec: 0,
+            webClientCount: 0,
+            processes: [],
+          }),
+          cpuPercent: hs.cpuPercent,
+          rssBytes: hs.rssBytes,
+          systemTotalBytes: hs.systemTotalBytes,
+          cpuCoreCount: hs.cpuCoreCount,
+        },
+      };
+      scheduleFlush();
+    });
+
+    setupConnection();
+
+    const unsubBackend = onBackendChange(() => {
+      pendingStateRef.current = {};
+      setState(emptyState);
+      clearApiCaches();
+      setupConnection();
+      void fetchState();
+    });
+
     registerRefetchHandler(() => void fetchState());
     void fetchState();
     const statePollInterval = setInterval(fetchState, 1000);
-
-    if (isEmbeddedMode) {
-      setTransport("udp");
-      setStatus("live");
-
-      onUdpFrame = (e: Event) => {
-        if (cancelled) return;
-        const customEvent = e as CustomEvent<Buffer | Uint8Array | ArrayBuffer>;
-        const raw = customEvent.detail;
-        if (!raw) return;
-        let buf: ArrayBuffer;
-        if (raw instanceof ArrayBuffer) {
-          buf = raw;
-        } else if (ArrayBuffer.isView(raw)) {
-          const slice = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
-          buf = slice as ArrayBuffer;
-        } else {
-          return;
-        }
-        pushLiveBinaryFrame(buf);
-      };
-
-      window.addEventListener("resostage-udp-telemetry", onUdpFrame);
-
-      unsubTransport = subscribeLiveTransport((ts) => {
-        if (cancelled) return;
-        pendingStateRef.current = {
-          ...(pendingStateRef.current || {}),
-          playing: ts.playing,
-          playheadSeconds: ts.playheadSeconds,
-          songIndex: ts.songIndex,
-          bpm: ts.bpm,
-          globalPlayheadSeconds: ts.globalPlayheadSeconds,
-          ...(ts.hasDrift ? { drift: ts.drift } : {}),
-        };
-        scheduleFlush();
-      });
-
-      unsubMixerFlags = subscribeLiveMixerFlags((flags) => {
-        if (cancelled) return;
-        mixerFlagsRef.current = flags;
-        scheduleFlush();
-      });
-
-      unsubHealth = subscribeLiveHealth((hs) => {
-        if (cancelled) return;
-        latestHealthRef.current = {
-          cpu: Math.max(0, hs.cpuPercent),
-          ram: hs.rssBytes / (1024 * 1024),
-        };
-        pendingStateRef.current = {
-          ...(pendingStateRef.current || {}),
-          health: {
-            ...(pendingStateRef.current?.health || {
-              freeBytes: 0,
-              underrunCount: 0,
-              audioCallbackCount: 0,
-              silentBlockCount: 0,
-              pitchBlockCount: 0,
-              streamStarveCount: 0,
-              callbackWorstRatio: 0,
-              callbackWorstMs: 0,
-              callbackWorstCpuShare: 0,
-              callbackComputeStalls: 0,
-              callbackPreemptedStalls: 0,
-              callbackOverruns: 0,
-              outputLatencySamples: 0,
-              outputLatencyMs: 0,
-              hostTimeSkewMs: 0,
-              thermalState: "nominal",
-              diskReadBytesPerSec: 0,
-              diskWriteBytesPerSec: 0,
-              webClientCount: 0,
-              processes: [],
-            }),
-            cpuPercent: hs.cpuPercent,
-            rssBytes: hs.rssBytes,
-            systemTotalBytes: hs.systemTotalBytes,
-            cpuCoreCount: hs.cpuCoreCount,
-          },
-        };
-        scheduleFlush();
-      });
-    } else {
-      connect = () => {
-        if (cancelled) return;
-        ws = new WebSocket(wsUrl(), "resoset");
-        ws.binaryType = "arraybuffer";
-        wsRef.current = ws;
-        setTransport("ws");
-
-        ws.onopen = () => {
-          reconnectMsRef.current = 500;
-          setStatus("live");
-          try {
-            ws?.send(JSON.stringify({ view: viewRef.current }));
-          } catch {}
-          void fetchState();
-        };
-        ws.onmessage = (ev) => {
-          if (ev.data instanceof ArrayBuffer) {
-            pushLiveBinaryFrame(ev.data);
-            return;
-          }
-
-          const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
-          let parsed: Partial<WebUiState>;
-          try {
-            parsed = JSON.parse(raw) as Partial<WebUiState>;
-          } catch {
-            return;
-          }
-          if (parsed.meters) {
-            setMeterIds(parsed.meters.map((m) => m.id));
-          }
-          if (parsed.playing !== undefined) setTransportPlaying(parsed.playing);
-          pushLiveLevels({
-            clickPeakDb: parsed.clickPeakDb,
-            clickPeakDbL: parsed.clickPeakDbL,
-            clickPeakDbR: parsed.clickPeakDbR,
-            tracks: parsed.tracks,
-            meters: parsed.meters,
-          });
-          if (parsed.health) {
-            latestHealthRef.current = {
-              cpu: Math.max(0, parsed.health.cpuPercent ?? 0),
-              ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
-            };
-          }
-          pendingStateRef.current = parsed;
-          scheduleFlush();
-        };
-        ws.onerror = () => {
-          try {
-            ws?.close();
-          } catch {}
-        };
-        ws.onclose = () => {
-          if (wsRef.current === ws) wsRef.current = null;
-          if (cancelled) return;
-          setStatus("reconnecting");
-          reconnectTimer = setTimeout(() => connect?.(), reconnectMsRef.current);
-          reconnectMsRef.current = Math.min(reconnectMsRef.current * 1.5, 4000);
-        };
-      };
-
-      connect?.();
-    }
 
     const wakeSocket = () => {
       if (cancelled) return;
@@ -603,6 +624,7 @@ export function useLiveState(view: string = "player") {
 
     return () => {
       cancelled = true;
+      unsubBackend();
       unregisterRefetchHandler();
       clearInterval(statePollInterval);
       clearInterval(sampleInterval);

@@ -9,6 +9,7 @@ public:
     void backOffToHeadlessShell() override;
     void restoreForegroundShell() override;
     void activateElectronShell() override;
+    void triggerLocalNetworkPermission() override;
 };
 
 } // namespace resostage

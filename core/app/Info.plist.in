@@ -8,6 +8,13 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>ResoStage requires local network access for LAN discovery, stage lighting (Art-Net/DMX), and wireless remote control.</string>
+	<string>ResoStage requires local network access to discover remote control devices, synchronize with other stage instances, receive live telemetry, and control Art-Net/DMX lighting.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_resostage._tcp</string>
+		<string>_resostage._udp</string>
+		<string>_http._tcp</string>
+		<string>_osc._udp</string>
+	</array>
 </dict>
 </plist>
