@@ -2,6 +2,11 @@
 
 Real-time live performance workstation combining a sample-accurate digital audio engine, multi-protocol stage lighting generator, and 3D stage visualizer.
 
+
+<p align="center">
+  <img src="media/resostage-workstation.png" width="800" alt="ResoStage Live Performance DAW Workstation" />
+</p>
+
 The system runs on macOS, Windows, and Linux. It targets touring bands, live electronic performers, and stage technicians who need zero-dropout multitrack playback synchronized with automated lighting fixtures.
 
 ---
