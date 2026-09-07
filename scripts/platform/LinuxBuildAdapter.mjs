@@ -147,8 +147,8 @@ export class LinuxBuildAdapter extends BuildAdapter {
     }
 
     const kaishakuDst = join(shellDir, "kaishaku");
-    const kaishakuRaw = join(coreBuildDir, "kaishaku");
-    if (existsSync(kaishakuRaw)) {
+    const kaishakuRaw = findFileRecursively(BUILD_DIR, "kaishaku");
+    if (kaishakuRaw && existsSync(kaishakuRaw)) {
       if (existsSync(kaishakuDst)) rmSync(kaishakuDst, { force: true });
       cpSync(kaishakuRaw, kaishakuDst);
       try {
