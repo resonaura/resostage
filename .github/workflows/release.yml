@@ -70,6 +70,7 @@ jobs:
             libxrandr-dev \
             libxcomposite-dev \
             libxrender-dev \
+            libxi-dev \
             libfreetype6-dev \
             libcurl4-openssl-dev \
             ninja-build \
