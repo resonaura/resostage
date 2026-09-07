@@ -28,7 +28,7 @@ jobs:
             platform_dir: mac
             arch: arm64
           - os_name: macOS
-            runner: macos-13
+            runner: macos-latest
             platform_dir: mac
             arch: x64
           - os_name: Windows
@@ -62,6 +62,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          architecture: ${{ matrix.arch }}
           cache: 'pnpm'
 
       - name: Install Linux Dependencies & appimagetool

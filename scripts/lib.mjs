@@ -216,6 +216,9 @@ export function ensureCmakeConfigured() {
   if (process.platform === "win32") {
     const arch = process.arch === "arm64" ? "ARM64" : "x64";
     cmakeArgs.push("-A", arch);
+  } else if (process.platform === "darwin") {
+    const arch = process.arch === "x64" ? "x86_64" : "arm64";
+    cmakeArgs.push(`-DCMAKE_OSX_ARCHITECTURES=${arch}`);
   }
   run("cmake", cmakeArgs);
 }
