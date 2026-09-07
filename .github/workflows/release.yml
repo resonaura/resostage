@@ -117,7 +117,9 @@ jobs:
           }
 
       - name: Install Node Dependencies
-        run: pnpm install
+        shell: bash
+        run: |
+          pnpm install --fetch-retries 5 || (sleep 5 && pnpm install)
 
       - name: Run Tests
         run: |
