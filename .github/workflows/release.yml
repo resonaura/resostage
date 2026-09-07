@@ -67,6 +67,9 @@ jobs:
             libxinerama-dev \
             libxext-dev \
             libxcursor-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
+            libxrender-dev \
             libfreetype6-dev \
             libcurl4-openssl-dev \
             ninja-build \

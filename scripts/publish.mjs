@@ -130,15 +130,15 @@ function machOTargetsDeepestFirst(bundle) {
 
 function adhocSignBundle(bundle, entitlementsPath) {
   log("Ad-hoc signing, deepest first...");
+  const entArgs = entitlementsPath ? ["--entitlements", entitlementsPath, "--options", "runtime"] : [];
   for (const target of machOTargetsDeepestFirst(bundle)) {
     // allowFail: a resource that merely looks like a Mach-O (a stray .so in a
     // node_modules fixture) is not worth aborting a release for.
-    run("codesign", ["--force", "--timestamp=none", "--sign", "-",
-      "--entitlements", entitlementsPath, "--options", "runtime", target],
+    run("codesign", ["--force", "--timestamp=none", "--sign", "-", ...entArgs, target],
       { allowFail: true });
   }
-  run("codesign", ["--force", "--timestamp=none", "--sign", "-",
-    "--entitlements", entitlementsPath, "--options", "runtime", bundle]);
+  run("codesign", ["--force", "--timestamp=none", "--sign", "-", ...entArgs, bundle],
+    { allowFail: true });
   const verify = runQuiet("codesign", ["--verify", "--deep", "--strict", bundle]);
   if (verify.status !== 0) {
     log(`codesign --verify reported: ${String(verify.stderr || "").trim()}`);

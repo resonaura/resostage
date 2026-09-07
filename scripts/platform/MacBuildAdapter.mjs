@@ -212,7 +212,11 @@ export class MacBuildAdapter extends BuildAdapter {
       log(`Warning: kaishaku raw binary not found in ${BUILD_DIR}`);
     }
 
-    run("codesign", ["--force", "--deep", "--sign", "-", shellBundle]);
+    try {
+      adhocSignBundle(shellBundle);
+    } catch (e) {
+      log(`Warning: adhocSignBundle: ${e?.message || e}`);
+    }
     try {
       const lsregister =
         "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
