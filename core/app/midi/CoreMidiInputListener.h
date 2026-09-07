@@ -71,6 +71,8 @@ private:
 #elif defined(_WIN32)
     friend void midiInProc(void* hMidiIn, unsigned int wMsg, void* dwInstance, void* dwParam1, void* dwParam2);
     void handleIncomingMessage(uint8_t status, uint8_t data1, uint8_t data2);
+#else
+    void handleIncomingMessage(uint8_t status, uint8_t data1, uint8_t data2);
 #endif
 
     MidiClientRef client = 0;

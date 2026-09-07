@@ -101,6 +101,8 @@ elseif(WIN32)
   target_link_libraries(ResoStage PRIVATE winmm)
 elseif(UNIX)
   target_sources(ResoStage PRIVATE
+    midi/CoreMidiDispatcherLinux.cpp
+    midi/CoreMidiInputListenerLinux.cpp
     platform/LinuxProcessPriority.cpp
     platform/LinuxShellMode.cpp
     platform/LinuxThermalMonitor.cpp
