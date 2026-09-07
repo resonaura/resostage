@@ -1,4 +1,4 @@
-<img src="icons/app.png" width="64" height="64" alt="ResoStage Icon" />
+<img src="https://raw.githubusercontent.com/resonaura/resostage/main/icons/app.png" width="64" height="64" alt="ResoStage Icon" />
 
 # ResoStage
 
@@ -19,7 +19,7 @@ Deterministic real-time live performance workstation combining a sample-accurate
 Built **by a musician for musicians** — engineered from the ground up for touring bands, live electronic performers, and stage technicians who need guaranteed zero-dropout multitrack playback synchronized with automated lighting fixtures.
 
 <p align="center">
-  <img src="media/resostage-player.png" width="850" alt="ResoStage Live Performance Workstation" />
+  <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-player.png" width="850" alt="ResoStage Live Performance Workstation" />
 </p>
 
 ---
@@ -66,42 +66,42 @@ ResoStage bridges this divide with a unified, high-reliability architecture:
 Dedicated performance screen featuring large, high-visibility timecode and bar/beat counters, song setlist management, transport controls, visual click track, system telemetry (CPU, RAM, buffer underrun counter), dual VU bus meters, and a real-time 3D stage preview.
 
 <p align="center">
-  <img src="media/resostage-player.png" width="850" alt="ResoStage Live Player" />
+  <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-player.png" width="850" alt="ResoStage Live Player" />
 </p>
 
 ### 2. Multitrack Live Mixing Console
 Console designed for rapid soundcheck balance adjustments. Features per-stem faders, physical output channel assignment matrix (e.g. outputs 1/2 for master PA, 3/4 for in-ear monitors, 5/6 for bass, 7/8 for click), send buses, and true peak metering.
 
 <p align="center">
-  <img src="media/resostage-mixer.png" width="850" alt="ResoStage Live Mixer" />
+  <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-mixer.png" width="850" alt="ResoStage Live Mixer" />
 </p>
 
 ### 3. Multitrack Waveform & Section Editor
 Timeline editor providing waveform views for all stems (Drums, Percussion, Loops, Bass, Guitars, Synths, Keys, Vocals), song sections (Intro, Verse, Chorus), markers, regions, and audio reference tracks.
 
 <p align="center">
-  <img src="media/resostage-editor.png" width="850" alt="ResoStage Timeline Editor" />
+  <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-editor.png" width="850" alt="ResoStage Timeline Editor" />
 </p>
 
 ### 4. Stage Lighting & Cue Automation Sequencer
 Timeline automation for lighting fixtures synchronized to audio transport ticks. Group fixtures into Left, Right, or Stage-wide arrays, draw decay slopes and color pulses, adjust fade in/out parameters, and preview lighting moves live in the 3D stage inspector.
 
 <p align="center">
-  <img src="media/resostage-lighting.png" width="850" alt="ResoStage Lighting Sequencer" />
+  <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-lighting.png" width="850" alt="ResoStage Lighting Sequencer" />
 </p>
 
 ### 5. Audio Engine, Driver & Routing Configuration
 Low-latency hardware driver configuration supporting CoreAudio (macOS), ASIO and WASAPI (Windows), and ALSA/JACK/RTKit (Linux). Configurable sample rates (44.1 kHz to 192 kHz), hardware buffer sizes (64 to 2048 samples), and interactive signal flow routing diagrams.
 
 <p align="center">
-  <img src="media/resostage-settings.png" width="850" alt="ResoStage Audio Settings" />
+  <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-settings.png" width="850" alt="ResoStage Audio Settings" />
 </p>
 
 ### 6. Calibrated Stage Appearance Themes
 High-contrast color palettes specifically measured and tuned for legibility in dark venues, outdoor daylight, and under bright stage lighting rigs (*Default, Sunset, Forest, Purple Haze, Pinky Pie, Sky, Blue Foundation, Mono*).
 
 <p align="center">
-  <img src="media/resostage-themes.png" width="850" alt="ResoStage Stage Themes" />
+  <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-themes.png" width="850" alt="ResoStage Stage Themes" />
 </p>
 
 ---
