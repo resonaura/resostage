@@ -214,7 +214,7 @@ target_include_directories(ResoStage PRIVATE "${CMAKE_SOURCE_DIR}/vendor" "${CMA
 if(WIN32)
   target_compile_definitions(ResoStage PRIVATE JUCE_ASIO=1)
 endif()
-target_compile_features(ResoStage PRIVATE cxx_std_20)
+target_compile_features(ResoStage PRIVATE cxx_std_23)
 if(MSVC)
   target_compile_options(ResoStage PRIVATE /W4)
 else()

@@ -47,7 +47,7 @@ if(APPLE)
   target_link_libraries(resostage_engine PUBLIC ${ACCELERATE_FRAMEWORK})
 endif()
 
-target_compile_features(resostage_engine PUBLIC cxx_std_20)
+target_compile_features(resostage_engine PUBLIC cxx_std_23)
 if(MSVC)
   target_compile_options(resostage_engine PRIVATE /W4)
 else()
