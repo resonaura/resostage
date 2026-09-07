@@ -1,4 +1,4 @@
-import { existsSync, rmSync, cpSync, mkdirSync } from "node:fs";
+import { existsSync, rmSync, cpSync, mkdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname, basename } from "node:path";
 import { BuildAdapter } from "./BuildAdapter.mjs";
@@ -148,7 +148,7 @@ export class LinuxBuildAdapter extends BuildAdapter {
 
     const kaishakuDst = join(shellDir, "kaishaku");
     const kaishakuRaw = findFileRecursively(BUILD_DIR, "kaishaku");
-    if (kaishakuRaw && existsSync(kaishakuRaw)) {
+    if (kaishakuRaw && existsSync(kaishakuRaw) && !statSync(kaishakuRaw).isDirectory()) {
       if (existsSync(kaishakuDst)) rmSync(kaishakuDst, { force: true });
       cpSync(kaishakuRaw, kaishakuDst);
       try {

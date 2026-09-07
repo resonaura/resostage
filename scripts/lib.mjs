@@ -97,7 +97,9 @@ export function findFileRecursively(dir, name) {
   for (const e of entries) {
     const full = join(dir, e.name);
     if (e.name === name) {
-      return full;
+      if (!e.isDirectory() || name.endsWith(".app") || name.endsWith(".framework")) {
+        return full;
+      }
     }
     if (e.isDirectory()) {
       const hit = findFileRecursively(full, name);
