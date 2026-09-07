@@ -437,7 +437,7 @@ MimeType=application/x-resostage-project-link;
     const appdir = join(publishDir, "ResoStage.AppDir");
     rmSync(appdir, { recursive: true, force: true });
     mkdirSync(join(appdir, "usr", "bin"), { recursive: true });
-    run("cp", ["-R", `${payload}/.`, join(appdir, "usr", "bin")]);
+    run("rsync", ["-a", "--exclude=publish", `${payload}/`, join(appdir, "usr", "bin")]);
     // Icon for AppImage / desktop integration
     if (existsSync(join(payload, "resostage.png"))) {
       cpSync(join(payload, "resostage.png"), join(appdir, "resostage.png"));
@@ -463,7 +463,7 @@ exec "$HERE/usr/bin/ResoStage" "$@"
   // Create Linux portable tarball archive
   const tar = join(publishDir, `ResoStage-${version}-linux-${process.arch}.tar.gz`);
   log("Compressing Linux tarball archive...");
-  run("tar", ["-czf", tar, "-C", payload, "."]);
+  run("tar", ["-czf", tar, "--exclude=publish", "-C", payload, "."]);
   writeFileSync(join(publishDir, "LINUX-DEPS.txt"), `ResoStage needs, at runtime:
 
   libasound2 (>= 1.0.25)   ALSA

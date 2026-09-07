@@ -90,13 +90,10 @@ jobs:
           pnpm --dir ui test
           pnpm --dir electron test
 
-      - name: Full Rebuild (Web UI + Native C++ Core + Electron Shell)
-        run: pnpm rebuild
-
-      - name: Publish Installers & Packages
+      - name: Full Rebuild + Publish Installers & Packages
         env:
           ARCH: x86_64
-        run: pnpm run publish
+        run: pnpm run publish:rebuild
 
       - name: Collect Release Artifacts (Unix)
         if: runner.os != 'Windows'
