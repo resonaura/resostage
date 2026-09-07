@@ -16,6 +16,7 @@
   <img src="https://img.shields.io/badge/Stage%20Lighting-DMX--512%20%7C%20sACN%20%7C%20Art--Net-FF8C00.svg" alt="Stage Lighting Protocols" />
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg" alt="Platforms" />
   <a href="#-public-beta-physical-dmx--sacn--art-net-hardware-testing"><img src="https://img.shields.io/badge/Lighting%20Engine-Public%20Beta-orange.svg" alt="Public Beta" /></a>
+  <a href="https://github.com/sponsors/resonaura"><img src="https://img.shields.io/badge/Sponsor%20on%20GitHub-EA4AAA?logo=github-sponsors&logoColor=white" alt="GitHub Sponsors" /></a>
   <a href="https://buymeacoffee.com/resonaura"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?logo=buy-me-a-coffee&logoColor=black" alt="Buy Me A Coffee" /></a>
 </p>
 
@@ -250,4 +251,5 @@ Created and maintained by **Andrii Vynohradov ([@resonaura](https://github.com/r
 
 If you find ResoStage useful for your concerts, rehearsals, or live rigs, consider supporting ongoing development:
 
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor%20on%20GitHub-EA4AAA?logo=github-sponsors&logoColor=white)](https://github.com/sponsors/resonaura)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/resonaura)
