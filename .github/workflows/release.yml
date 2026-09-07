@@ -1,0 +1,153 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Publish as a GitHub Release (if false, only uploads artifacts to the run)'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os_name }} - ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os_name: macOS
+            runner: macos-latest
+            platform_dir: mac
+            arch: arm64
+          - os_name: Windows
+            runner: windows-latest
+            platform_dir: win
+            arch: x64
+          - os_name: Linux
+            runner: ubuntu-22.04
+            platform_dir: linux
+            arch: x64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Linux Dependencies & appimagetool
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxinerama-dev \
+            libxext-dev \
+            libxcursor-dev \
+            libfreetype6-dev \
+            libcurl4-openssl-dev \
+            ninja-build \
+            file \
+            tar
+          curl -fsSL https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -o /tmp/appimagetool.AppImage
+          chmod +x /tmp/appimagetool.AppImage
+          cd /tmp && ./appimagetool.AppImage --appimage-extract
+          sudo mv /tmp/squashfs-root /opt/appimagetool
+          sudo ln -sf /opt/appimagetool/AppRun /usr/local/bin/appimagetool
+
+      - name: Install Windows Dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress
+          echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
+
+      - name: Install Node Dependencies
+        run: pnpm install
+
+      - name: Run Tests
+        run: |
+          pnpm --dir ui test
+          pnpm --dir electron test
+
+      - name: Full Rebuild (Web UI + Native C++ Core + Electron Shell)
+        run: pnpm rebuild
+
+      - name: Publish Installers & Packages
+        env:
+          ARCH: x86_64
+        run: pnpm run publish
+
+      - name: Collect Release Artifacts (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p release-artifacts
+          find build -type f \( -name "*.dmg" -o -name "*.pkg" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.tar.gz" \) -exec cp {} release-artifacts/ \;
+          ls -la release-artifacts/
+
+      - name: Collect Release Artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-artifacts
+          Get-ChildItem -Path build -Recurse -File | Where-Object { $_.Extension -match '^\.(exe|zip)$' -and $_.FullName -like '*publish*' } | Copy-Item -Destination release-artifacts
+          Get-ChildItem -Path release-artifacts
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: resostage-${{ matrix.platform_dir }}-${{ matrix.arch }}
+          path: release-artifacts/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate Checksums (SHA-256)
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true

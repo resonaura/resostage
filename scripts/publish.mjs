@@ -269,11 +269,18 @@ Then double-click "ResoStage-${version}.pkg" to install.
   log("Copying standalone ResoStage.app to publish directory...");
   run("cp", ["-R", bundle, join(publishDir, `${SHELL_APP_NAME}.app`)]);
 
+  // Create portable macOS ZIP archive preserving code signature & attributes
+  const macZip = join(publishDir, `ResoStage-${version}-mac-${process.arch}.zip`);
+  rmSync(macZip, { force: true });
+  log("Compressing macOS application ZIP...");
+  run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", bundle, macZip]);
+
   rmSync(stage, { recursive: true, force: true });
   rmSync(join(publishDir, "FIRST-RUN.txt"), { force: true });
 
   ok(`pkg: ${pkg}`);
   ok(`dmg: ${dmg}`);
+  ok(`zip: ${macZip}`);
   ok(`app: ${join(publishDir, `${SHELL_APP_NAME}.app`)}`);
 }
 
@@ -451,13 +458,11 @@ exec "$HERE/usr/bin/ResoStage" "$@"
     log("appimagetool...");
     run("appimagetool", [appdir, join(publishDir, `ResoStage-${version}-x86_64.AppImage`)]);
     ok(`AppImage: ${join(publishDir, `ResoStage-${version}-x86_64.AppImage`)}`);
-    return;
   }
 
-  // No appimagetool: a tarball is still an install, and it does not pretend
-  // to resolve the GTK/ALSA dependencies an AppImage would have bundled.
+  // Create Linux portable tarball archive
   const tar = join(publishDir, `ResoStage-${version}-linux-${process.arch}.tar.gz`);
-  log("tar (appimagetool not found)...");
+  log("Compressing Linux tarball archive...");
   run("tar", ["-czf", tar, "-C", payload, "."]);
   writeFileSync(join(publishDir, "LINUX-DEPS.txt"), `ResoStage needs, at runtime:
 
