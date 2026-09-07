@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/resonaura/resostage/main/icons/app.png" width="64" height="64" alt="ResoStage Icon" />
+<img src="https://raw.githubusercontent.com/resonaura/resostage/main/icons/app.png" width="64" alt="ResoStage Icon" />
 
 # ResoStage
 
