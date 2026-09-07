@@ -1,27 +1,25 @@
-<p align="center">
-  <img src="icons/app.png" width="96" height="96" alt="ResoStage Icon" />
-</p>
+<img src="icons/app.png" width="64" height="64" alt="ResoStage Icon" />
 
-<h1 align="center">ResoStage</h1>
+# ResoStage
 
-<p align="center">
-  <strong>Deterministic real-time live performance workstation combining a sample-accurate digital audio engine, multi-protocol stage lighting automation, and 3D stage visualizer.</strong>
-</p>
+[![Version](https://img.shields.io/badge/Version-0.1.0-blue.svg)](package.json)
+[![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Audio Engine](https://img.shields.io/badge/Native%20Engine-C%2B%2B20%20%7C%20JUCE%209-00599C.svg?logo=cplusplus&logoColor=white)](#technical-architecture)
+[![UI](https://img.shields.io/badge/UI-Electron%20%7C%20React%2019-61DAFB.svg?logo=react&logoColor=black)](#technical-architecture)
+[![Visualizer](https://img.shields.io/badge/Visualizer-Three.js%20(WebGL)-049EF4.svg?logo=three.js&logoColor=white)](#technical-architecture)
+[![Stage Lighting](https://img.shields.io/badge/Stage%20Lighting-DMX--512%20%7C%20sACN%20%7C%20Art--Net-FF8C00.svg)](#stage-lighting--hardware-protocols)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#installation--getting-started)
+[![Stage Testing](https://img.shields.io/badge/Stage%20Testing-Public%20Beta-orange.svg)](#-public-beta-physical-dmx--sacn--art-net-hardware-testing)
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="License: GPL-3.0" /></a>
-  <img src="https://img.shields.io/badge/Audio%20Engine-C%2B%2B20%20%7C%20JUCE%209-00599C.svg?logo=cplusplus&logoColor=white" alt="Audio Engine C++20 / JUCE 9" />
-  <img src="https://img.shields.io/badge/UI-Electron%20%7C%20React%2019-61DAFB.svg?logo=react&logoColor=black" alt="UI Electron / React 19" />
-  <img src="https://img.shields.io/badge/Visualizer-Three.js%20(WebGL)-049EF4.svg?logo=three.js&logoColor=white" alt="Three.js Visualizer" />
-  <img src="https://img.shields.io/badge/Stage%20Lighting-DMX--512%20%7C%20sACN%20%7C%20Art--Net-FF8C00.svg" alt="Stage Lighting Protocols" />
-  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg" alt="Platforms" />
-  <a href="#-public-beta-physical-dmx--sacn--art-net-hardware-testing"><img src="https://img.shields.io/badge/Lighting%20Engine-Public%20Beta-orange.svg" alt="Public Beta" /></a>
-  <a href="https://github.com/sponsors/resonaura"><img src="https://img.shields.io/badge/Sponsor%20on%20GitHub-EA4AAA?logo=github-sponsors&logoColor=white" alt="GitHub Sponsors" /></a>
-  <a href="https://buymeacoffee.com/resonaura"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?logo=buy-me-a-coffee&logoColor=black" alt="Buy Me A Coffee" /></a>
-</p>
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor%20on%20GitHub-EA4AAA?logo=github-sponsors&logoColor=white)](https://github.com/sponsors/resonaura)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/resonaura)
+
+Deterministic real-time live performance workstation combining a sample-accurate digital audio engine, multi-protocol stage lighting automation, and 3D stage visualizer.
+
+Built **by a musician for musicians** — engineered from the ground up for touring bands, live electronic performers, and stage technicians who need guaranteed zero-dropout multitrack playback synchronized with automated lighting fixtures.
 
 <p align="center">
-  <img src="media/resostage-player.png" width="880" alt="ResoStage Live Performance Workstation" />
+  <img src="media/resostage-player.png" width="850" alt="ResoStage Live Performance Workstation" />
 </p>
 
 ---
@@ -222,6 +220,40 @@ pnpm dev
 # Package production application
 pnpm build:app
 ```
+
+---
+
+## 🤝 Contributing & Community Collaboration
+
+ResoStage is built with a deep commitment to open-source software and the live music community. Whether you are a touring musician, an audio DSP engineer, a lighting designer, or a frontend developer — your contributions, real-world venue feedback, and battle-testing are warmly welcomed!
+
+### Areas Where You Can Help
+
+- **Physical Lighting Rigs & Fixture Profiles**:
+  Test your physical DMX-512 fixtures, USB-DMX interfaces (Enttec, FTDI), Art-Net, or sACN nodes during soundchecks and rehearsals. Submit PRs with verified fixture JSON profiles, timing reports, or Wireshark packet captures.
+- **Real-Time DSP & Audio Engine**:
+  Contributions to the C++20 / JUCE 9 core engine are welcome. Any code touching the audio rendering path must strictly adhere to the **zero-heap-allocation** policy and use lock-free SPSC primitives.
+- **Hardware Controller & MIDI Surface Profiles**:
+  Add mappings for motorized fader surfaces, MIDI pedalboards, and pad controllers.
+- **UI Ergonomics & 3D Stage Visualizer**:
+  Enhance the React 19 / Electron frontend, optimize Three.js WebGL rendering, or contribute new high-contrast stage color themes.
+- **Translations & Documentation**:
+  Help document stage setups, write guides for popular audio interfaces, or translate documentation for local live music communities.
+
+### Collaboration Workflow
+
+1. **Fork the repository** on GitHub.
+2. **Create a feature branch** (`git checkout -b feature/amazing-feature`).
+3. **Run local tests** to ensure no regressions:
+   ```bash
+   ctest --test-dir core/build --output-on-failure
+   pnpm test
+   ```
+4. **Commit your changes** with clear commit messages following Conventional Commits.
+5. **Open a Pull Request** explaining what was changed, why, and how it was tested (especially if tested on physical audio or lighting hardware).
+
+> [!NOTE]
+> All community contributions are licensed under the **GNU General Public License v3.0 (GPLv3)** to guarantee that ResoStage remains free, transparent, and community-owned forever.
 
 ---
 
