@@ -178,9 +178,9 @@ xattr -cr /Applications/ResoStage.app
 2. **Right-click (or Control-click)** the app icon and select **Open**.
 3. In the confirmation prompt, click **Open Anyway**. macOS will remember this exception permanently.
 
-#### Homebrew (Planned Tap)
+#### Homebrew (macOS)
 ```bash
-brew tap resonaura/tools
+brew tap resonaura/tap
 brew install --cask resostage
 ```
 

@@ -206,13 +206,18 @@ export function ensureCmakeConfigured() {
     log(
       `Build type changed (${cached} -> ${BUILD_TYPE}) -- reconfiguring ${BUILD_DIR}...`,
     );
-  run("cmake", [
+  const cmakeArgs = [
     "-S",
     CORE_DIR,
     "-B",
     BUILD_DIR,
     `-DCMAKE_BUILD_TYPE=${BUILD_TYPE}`,
-  ]);
+  ];
+  if (process.platform === "win32") {
+    const arch = process.arch === "arm64" ? "ARM64" : "x64";
+    cmakeArgs.push("-A", arch);
+  }
+  run("cmake", cmakeArgs);
 }
 
 export function cmakeBuild(target) {
