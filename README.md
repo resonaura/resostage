@@ -250,26 +250,35 @@ ResoStage is built with a deep commitment to open-source software and the live m
    pnpm test
    ```
 4. **Commit your changes** with clear commit messages following Conventional Commits.
-5. **Open a Pull Request** explaining what was changed, why, and how it was tested (especially if tested on physical audio or lighting hardware).
+5. **Sign the CLA**: When you open a Pull Request, our automated CLA Assistant bot will prompt you to review and electronically accept the [ResoStage Contributor License Agreement (CLA)](CLA.md).
+6. **Open a Pull Request** explaining what was changed, why, and how it was tested (especially if tested on physical audio or lighting hardware). See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
 > [!NOTE]
-> All community contributions are licensed under the **GNU General Public License v3.0 (GPLv3)** to guarantee that ResoStage remains free, transparent, and community-owned forever.
+> All community contributions are incorporated under the **[ResoStage Contributor License Agreement (CLA)](CLA.md)**. The source code is licensed under **[GNU General Public License v3.0 or later (GPLv3+)](LICENSE)**.
 
 ---
 
-## 📄 License & Open Source Philosophy
+## 📄 License, Governance & Open Source Philosophy
 
-ResoStage is licensed under the **[GNU General Public License v3.0 (GPLv3)](LICENSE)**.
+ResoStage's source code is licensed under the **[GNU General Public License v3.0 or later (GPLv3+)](LICENSE)** with trademark reservations under Section 7(e).
+
+When built with the JUCE 9 framework (distributed under AGPLv3), the resulting combined binary is distributed under the terms of the **GNU Affero General Public License v3.0 (AGPLv3)**.
 
 ### 🎵 The Live Stage Guarantee
 - **100% Free & Open Source for the Stage**: The core audio engine, multitrack playback, local mixing console, DMX/Art-Net/sACN lighting engine, 3D visualizer, and local Wi-Fi remote control are completely free and open source.
 - **No Subscriptions, No Telemetry, No Online Activation**: A concert tool must be rock-solid offline. ResoStage will never require an internet connection on stage.
-- **GPLv3 / JUCE Ecosystem**: ResoStage is built on JUCE and honors the open-source spirit of the audio DSP developer community.
+- **GPLv3 / JUCE Ecosystem**: ResoStage honors the open-source spirit of the audio DSP developer community while protecting against closed-source proprietary commercial forks.
+
+### 🛡️ Trademarks & Brand Protection
+"ResoStage", "kaishaku", "ResoCloud", and the ResoStage logo are trademarks of Andrii Vynohradov. While the source code is open source, trademarks are NOT licensed under GPL. Any forks or derivative works must be completely rebranded. See **[TRADEMARK.md](TRADEMARK.md)** for details.
 
 ### 🌐 Cloud & Multi-City Collaboration Roadmap
 Stage-floor and local venue operation will always remain 100% free and open source.
 
-In the future, extended remote collaboration features requiring dedicated managed server infrastructure (such as global NAT traversal / TURN relay clusters for streaming rehearsals between different cities, cloud session backups, and distributed access management) will be introduced as an optional hosted cloud service tier.
+In the future, extended remote collaboration features requiring dedicated managed server infrastructure (such as global NAT traversal / TURN relay clusters for streaming rehearsals between different cities, cloud session backups, and distributed access management) will be introduced as an optional hosted cloud service tier ("ResoCloud"). The desktop client will remain open source and modular, supporting self-hosted endpoints (WebDAV, FTP, custom servers).
+
+### 🏛️ Commercial Dual-Licensing & Enterprise Custom Builds
+Enterprise customers (touring companies, audio hardware manufacturers, and stage lighting integrators) requiring customized, white-label, or embedded proprietary builds without copyleft obligations can obtain a commercial license. Inquiries: [andrii.vynohradov@gmail.com](mailto:andrii.vynohradov@gmail.com).
 
 ---
 
