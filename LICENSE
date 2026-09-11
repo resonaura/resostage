@@ -669,16 +669,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Additional Permission / Terms under GNU GPLv3 Section 7:
 ----------------------------------------------------------------------
 
-1. Trademark Reservation (Section 7(e)):
+1. Trademark & Brand Reservation (Section 7(e)):
    Notwithstanding any other provision of this License, this License
    does not grant any rights under trademark law for the use of the
    trade names, trademarks, service marks, or product names of the
    Project Lead, including but not limited to "ResoStage", "ResoCloud",
-   "kaishaku", "ResonAura", or associated graphical logos.
+   or associated graphical logos.
    Any modified version, derivative work, or fork of this software must
-   completely remove all occurrences of these trademarks, logos, and
-   brand identifiers from the user interface, source files, build
-   configurations, documentation, and promotional materials prior to
+   be renamed and remove official logos and brand identifiers from the
+   user interface, documentation, and promotional materials prior to
    public distribution.
 
 2. Outbound Combined Binary Notice:

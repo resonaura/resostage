@@ -269,8 +269,8 @@ When built with the JUCE 9 framework (distributed under AGPLv3), the resulting c
 - **No Subscriptions, No Telemetry, No Online Activation**: A concert tool must be rock-solid offline. ResoStage will never require an internet connection on stage.
 - **GPLv3 / JUCE Ecosystem**: ResoStage honors the open-source spirit of the audio DSP developer community while protecting against closed-source proprietary commercial forks.
 
-### 🛡️ Trademarks & Brand Protection
-"ResoStage", "kaishaku", "ResoCloud", and the ResoStage logo are trademarks of Andrii Vynohradov. While the source code is open source, trademarks are NOT licensed under GPL. Any forks or derivative works must be completely rebranded. See **[TRADEMARK.md](TRADEMARK.md)** for details.
+### 🛡️ Brand & Identity Protection
+"ResoStage", "ResoCloud", and the ResoStage logo are brand identifiers and trademarks of Andrii Vynohradov. While the source code is open source, branding rights are NOT granted by the open-source license. Any forks or derivative distributions must be renamed and cannot use the official ResoStage name or logos. See **[TRADEMARK.md](TRADEMARK.md)** for details.
 
 ### 🌐 Cloud & Multi-City Collaboration Roadmap
 Stage-floor and local venue operation will always remain 100% free and open source.

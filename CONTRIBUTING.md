@@ -49,6 +49,5 @@ We especially value feedback from real live touring environments:
 
 ---
 
-## 5. Trademark Notice
-
-"ResoStage", "kaishaku", "ResoCloud", and the ResoStage logo are trademarks of Andrii Vynohradov. If you distribute a fork or derivative work, you are legally required to remove all official branding and logos. See [TRADEMARK.md](TRADEMARK.md) for details.
+## 5. Brand & Identity Policy
+"ResoStage", "ResoCloud", and the ResoStage logo are brand identifiers and trademarks of Andrii Vynohradov. If you distribute a fork or derivative work, you are required to rebrand and remove all official branding and logos. See [TRADEMARK.md](TRADEMARK.md) for details.

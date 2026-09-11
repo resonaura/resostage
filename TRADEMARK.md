@@ -2,9 +2,9 @@
 
 **Version 1.0 — September 2026**
 
-"ResoStage", the ResoStage icon and logo, "kaishaku", and "ResoCloud" (the "Marks") are trademarks and brand identifiers of **Andrii Vynohradov** ("Project Lead").
+"ResoStage", "ResoCloud", and the ResoStage icon and logo (the "Marks") are proprietary brand identifiers and common-law trademarks of **Andrii Vynohradov** ("Project Lead").
 
-The open-source license governing the source code (GNU General Public License v3.0 / AGPLv3) grants rights to the software source code only. It explicitly **does not grant any rights under trademark law** (see Section 7(e) of the GNU GPLv3).
+The open-source license governing the source code (GNU General Public License v3.0 / AGPLv3) grants rights to the software source code only. It explicitly **does not grant any rights under trademark or brand protection law** (see Section 7(e) of the GNU GPLv3).
 
 ---
 
@@ -21,7 +21,7 @@ You may use the word "ResoStage" solely in a truthful, descriptive manner to ref
 
 Open source gives everyone the freedom to inspect, modify, and fork the code under the terms of the GNU General Public License. However, to prevent consumer confusion, preserve project integrity, and protect the original author's reputation:
 
-1. **Mandatory Rebranding:** If you distribute a fork, derivative work, or modified version of this software, you are legally required to **completely remove all occurrences of the Marks** ("ResoStage", "kaishaku", "ResoCloud") and all official logos, artwork, and icon sets from:
+1. **Mandatory Rebranding:** If you distribute a fork, derivative work, or modified version of this software, you are required to **completely remove the Marks** ("ResoStage", "ResoCloud") and all official logos, artwork, and icon sets from:
    - Application title and window headers
    - Executable and binary file names
    - Package manager identifiers and metadata
