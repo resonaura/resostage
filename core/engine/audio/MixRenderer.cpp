@@ -89,7 +89,8 @@ const StripLevels& MixRenderer::levels(uint32_t stripIndex) const {
     return stripLevels[stripIndex];
 }
 
-void MixRenderer::process(const MixGraph& graph, int numSamples) {
+void MixRenderer::process(const MixGraph& graph, int numSamples,
+                          MixProcessorView processors) {
     if (!canRender(graph, numSamples))
         return;
     const int span = std::min(numSamples, maxBlock);
@@ -190,6 +191,15 @@ void MixRenderer::process(const MixGraph& graph, int numSamples) {
             // float could not represent anyway.
             if (smoothed == smoothedAtBlockStart)
                 smoothed = edge.gainLinear;
+        }
+
+        // Strip inserts are pre-fader and post-input-sum, matching normal DAW
+        // channel-strip semantics. Processing `pre` in place also means a
+        // pre-fader send hears the insert chain but still bypasses fader/mute.
+        if (processors.strips != nullptr && s < processors.count) {
+            const auto& processor = processors.strips[s];
+            if (processor.process != nullptr)
+                processor.process(processor.context, destL, destR, span);
         }
 
         // 2 + 3. Fader, pan, mono fold, meter.

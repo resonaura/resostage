@@ -36,6 +36,22 @@ struct StripLevels {
     float peakR = 0.0f;
 };
 
+// Optional pre-fader insert prepared by the application layer. A flat array
+// indexed exactly like MixGraph::strips avoids maps, virtual dispatch, JUCE
+// types, and allocation in the renderer. Empty entries cost one predictable
+// null check per strip. The callback must obey the audio-thread contract.
+struct MixStripProcessor {
+    using Process = void (*)(void* context, float* left, float* right,
+                             int numSamples) noexcept;
+    void* context = nullptr;
+    Process process = nullptr;
+};
+
+struct MixProcessorView {
+    const MixStripProcessor* strips = nullptr;
+    size_t count = 0;
+};
+
 class MixRenderer {
 public:
     // Message thread. Sizes every scratch buffer for the worst case this
@@ -69,7 +85,8 @@ public:
     float* sourceChannel(uint32_t stripIndex, int channel);
 
     // Audio thread. Runs the sweep described at the top of this file.
-    void process(const MixGraph& graph, int numSamples);
+    void process(const MixGraph& graph, int numSamples,
+                 MixProcessorView processors = {});
 
     // Audio thread, after process(). Post-fader/post-pan signal of a strip --
     // what its meter shows and what its outgoing edges carried.

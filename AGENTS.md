@@ -218,6 +218,10 @@ Preserve these rules:
   serialization, UI, and tests together.
 - Coefficient changes are smoothed (approximately 10 ms) to avoid zipper
   noise. Do not bypass smoothing for a “faster” fader.
+- Strip plug-in chains run post-input-sum and pre-fader through the flat
+  `MixProcessorView` hook. The renderer remains JUCE-free; application-owned
+  live/offline processor banks publish one pre-bound function/context entry
+  per graph strip. Pre-fader sends include inserts but bypass fader/mute.
 - Output lanes accumulate with `+=`; multiple valid sources may target the
   same lane.
 - If graph or block dimensions exceed prepared capacity, silence is safer

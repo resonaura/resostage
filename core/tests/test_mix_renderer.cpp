@@ -17,6 +17,14 @@ constexpr int kBlock = 256;
 // mix for long enough that the glide has settled, exactly like real playback.
 constexpr int kSettleBlocks = 40;
 
+void applyTestGain(void* context, float* left, float* right, int samples) noexcept {
+    const float gain = *static_cast<const float*>(context);
+    for (int i = 0; i < samples; ++i) {
+        left[i] *= gain;
+        right[i] *= gain;
+    }
+}
+
 Project twoTrackProject() {
     Project p;
     p.main.channels = 2;
@@ -553,4 +561,29 @@ TEST_CASE("renderer: shrinking the device buffer keeps the bigger allocation") {
     CHECK(renderer.canRender(g, 512));
     CHECK(renderer.canRender(g, 4096));
     CHECK(renderer.maxBlockSize() == 4096);
+}
+
+TEST_CASE("renderer: strip processors run post-input-sum and pre-fader") {
+    Project project = twoTrackProject();
+    project.tracks.resize(1);
+    const MixGraph graph = buildMixGraph(project, stereoOut());
+    const uint32_t track = graph.find("audio::track:1");
+    REQUIRE(track != MixGraph::kNoStrip);
+
+    MixRenderer renderer;
+    renderer.prepare(48000.0, kBlock, graph.strips.size());
+    float gain = 0.25f;
+    std::vector<MixStripProcessor> processors(graph.strips.size());
+    processors[track] = MixStripProcessor{&gain, applyTestGain};
+
+    renderer.beginBlock(graph, kBlock);
+    std::fill_n(renderer.sourceChannel(track, 0), kBlock, 1.0f);
+    std::fill_n(renderer.sourceChannel(track, 1), kBlock, -0.5f);
+    renderer.process(graph, kBlock, {processors.data(), processors.size()});
+
+    // The post-fader tap and every downstream edge see the processed signal.
+    CHECK(renderer.postChannel(track, 0)[0] == doctest::Approx(0.25f));
+    CHECK(renderer.postChannel(track, 1)[0] == doctest::Approx(-0.125f));
+    CHECK(renderer.levels(track).peakL == doctest::Approx(0.25f));
+    CHECK(renderer.levels(track).peakR == doctest::Approx(0.125f));
 }
