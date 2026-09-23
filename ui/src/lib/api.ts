@@ -183,6 +183,49 @@ export const audioRender = {
   },
 };
 
+export interface PluginCatalogEntry {
+  id: string;
+  name: string;
+  manufacturer: string;
+  format: string;
+  category: string;
+  version: string;
+  fileOrIdentifier: string;
+  instrument: boolean;
+  inputs: number;
+  outputs: number;
+}
+
+export interface PluginCatalogResponse {
+  scan: {
+    state: "idle" | "scanning" | "complete" | "failed" | "unavailable";
+    progress: number;
+    format: string;
+    currentPlugin: string;
+    error: string;
+  };
+  catalog: {
+    plugins: PluginCatalogEntry[];
+    blacklist: string[];
+  };
+}
+
+export const pluginCatalog = {
+  list: async (): Promise<PluginCatalogResponse> => {
+    const res = await apiFetch("/api/v1/plugins/list");
+    if (!res.ok) throw new Error(await res.text());
+    return res.json<PluginCatalogResponse>();
+  },
+  scan: async (rescanAll = false): Promise<void> => {
+    const res = await apiFetch("/api/v1/plugins/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rescanAll }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
+};
+
 // Per-track peak-overview waveform data for the currently-staged song (see
 // MainComponent::buildPeaksJson()). Not part of the live WS state -- fetch
 // on demand (mount + whenever state.songIndex changes).

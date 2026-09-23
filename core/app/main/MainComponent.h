@@ -10,6 +10,7 @@
 #include "server/WebServer.h"
 #include "ipc/IpcServer.h"
 #include "network/UdpDiscovery.h"
+#include "plugins/PluginCatalogService.h"
 
 #include <chrono>
 #include <atomic>
@@ -76,6 +77,7 @@ public:
 private:
     AudioEngine engine;
     WebServer webServer;
+    PluginCatalogService pluginCatalog;
     CoreMidiInputListener midiInput;
 public:
     static constexpr uint16_t kWebPort = 2899;

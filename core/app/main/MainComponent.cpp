@@ -213,6 +213,9 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     webServer.setDiscoveryToggleHandler([this](bool enabled) {
         udpDiscovery.setDiscoveryEnabled(enabled, bindAddress_);
     });
+    webServer.setPluginCatalogProvider([this] {
+        return pluginCatalog.snapshotJson();
+    });
 
     // SelectSong / Play / etc. used to wait for the 30 Hz timer (up to ~33 ms).
     // Wake the message thread immediately so hops feel instant.
@@ -1133,6 +1136,12 @@ void MainComponent::drainWebCommands() {
                 cancelAudioRender.store(true, std::memory_order_release);
                 setStatus("Cancelling audio render…");
                 break;
+            case WebCommandKind::PluginScan: {
+                const bool rescanAll = cmd.json.find("\"rescanAll\":true") != std::string::npos;
+                if (!pluginCatalog.startScan(rescanAll))
+                    setStatus("Plug-in scan is already running");
+                break;
+            }
             case WebCommandKind::BuilderSongAdd: builderSongAdd(cmd.json); break;
             case WebCommandKind::BuilderSongImportFolder: builderSongImportFolder(cmd.json); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;

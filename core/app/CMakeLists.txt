@@ -73,6 +73,7 @@ target_sources(ResoStage PRIVATE
   platform/PlatformThreadTime.cpp
   platform/ThermalStateGeneric.cpp
   platform/TrayIcon.cpp
+  plugins/PluginCatalogService.cpp
   server/WebServer.cpp
   network/UdpDiscovery.cpp
 )
@@ -223,6 +224,37 @@ if(MSVC)
 else()
   target_compile_options(ResoStage PRIVATE -Wall -Wextra -Wunused)
 endif()
+
+# Third-party plug-ins are enumerated in a separate process: a malformed or
+# crashing binary must never take the live Core/audio process down with it.
+juce_add_console_app(resostage_plugin_scanner PRODUCT_NAME "ResoStage Plugin Scanner")
+target_sources(resostage_plugin_scanner PRIVATE plugins/PluginScannerMain.cpp)
+target_compile_features(resostage_plugin_scanner PRIVATE cxx_std_23)
+target_compile_definitions(resostage_plugin_scanner PRIVATE
+  JUCE_USE_CURL=0
+  JUCE_PLUGINHOST_VST3=1
+  JUCE_PLUGINHOST_AU=$<BOOL:${APPLE}>
+)
+target_link_libraries(resostage_plugin_scanner PRIVATE
+  juce::juce_audio_processors
+  juce::juce_gui_basics
+  juce::juce_recommended_config_flags
+  juce::juce_recommended_warning_flags
+)
+if(APPLE)
+  target_link_libraries(resostage_plugin_scanner PRIVATE
+    "-framework AudioUnit"
+    "-framework CoreAudioKit"
+  )
+endif()
+set_target_properties(resostage_plugin_scanner PROPERTIES OUTPUT_NAME "resostage-plugin-scanner")
+add_dependencies(ResoStage resostage_plugin_scanner)
+add_custom_command(TARGET ResoStage POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          $<TARGET_FILE:resostage_plugin_scanner>
+          $<TARGET_FILE_DIR:ResoStage>/$<TARGET_FILE_NAME:resostage_plugin_scanner>
+  COMMENT "Embedding crash-isolated plug-in scanner beside ResoStage Core"
+)
 
 set(KAISHAKU_SOURCES
   kaishaku/main.cpp

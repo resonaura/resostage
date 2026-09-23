@@ -91,6 +91,9 @@ enum class WebCommandKind : uint8_t {
     // Cooperative cancellation: the worker checks its atomic once per
     // bounded render block and removes every partial output.
     CancelAudioRender,
+    // Starts the crash-isolated VST3/AU catalog helper. Third-party code is
+    // never loaded by the WebServer thread or the live Core process.
+    PluginScan,
     // Open Recent parity -- `path` carries the absolute .rsnraset path from
     // AppSettings::recentProjects. Unlike LoadProjectFromPath (which deletes
     // its temp file on failure -- it only ever points at a throwaway browser
@@ -956,6 +959,11 @@ public:
     void completeAudioRender(std::vector<std::string> outputPaths);
     void failAudioRender(std::string error);
 
+    using PluginCatalogProvider = std::function<std::string()>;
+    void setPluginCatalogProvider(PluginCatalogProvider provider) {
+        pluginCatalogProvider = std::move(provider);
+    }
+
     // HTTP-thread: stash which track a following .../import-wav/upload POST
     // is for, plus the original filename (so the archive entry ends up
     // "Audio/kick.wav" instead of a generic temp name) -- see
@@ -1040,6 +1048,7 @@ private:
     int serveExportStatus(struct lws* wsi);
     int serveExportDownload(struct lws* wsi);
     int serveAudioRenderStatus(struct lws* wsi);
+    int servePluginCatalog(struct lws* wsi);
     int servePeaks(struct lws* wsi);
     int serveAllPeaks(struct lws* wsi);
     int serveWaveformRaw(struct lws* wsi, const char* queryArgs);
@@ -1123,6 +1132,7 @@ private:
     DiscoveredDevicesProvider discoveredDevicesProvider;
     DiscoveryStatusProvider discoveryStatusProvider;
     DiscoveryToggleHandler discoveryToggleHandler;
+    PluginCatalogProvider pluginCatalogProvider;
 
     std::unique_ptr<juce::DatagramSocket> udpSocket_;
     std::atomic<int> targetTelemetryHz_{60};

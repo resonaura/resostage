@@ -70,6 +70,7 @@ See `docs/REMOTE_CONTROL.md` for operator setup and the two-machine test.
 | --- | --- |
 | `core/engine/` | Mostly JUCE-free domain and DSP code: audio graph, streaming primitives, timing, events, project schema, telemetry. |
 | `core/app/` | JUCE/application integration: audio device callback, Core lifecycle, HTTP/WebSocket server, discovery, MIDI and platform code. |
+| `core/app/plugins/` | Device-local plug-in discovery. Core owns the catalog service; an embedded helper process is the only code allowed to load untrusted plug-ins while scanning. |
 | `core/tests/` | Native unit, stress, protocol, routing, streaming, and renderer tests. |
 | `electron/src/` | Desktop main process, preload bridge, UDP receiver, discovery, platform integration. |
 | `ui/src/` | React screens, hooks, telemetry decoders, and presentation components. |
@@ -102,6 +103,7 @@ Thread ownership is part of the design, not an implementation detail.
 | EventDispatcher worker | Slow HTTP output and DMX/Art-Net delivery; scheduled MIDI/event dispatch. | Audio/light producers use bounded lock-free queues. Overflow behaviour must stay explicit. |
 | LightEngine worker | High-priority fixed-rate cue/effect resolution. | Reads `MasterClock` and an immutable project snapshot; queues output to EventDispatcher. |
 | Offline render worker | Independent non-realtime render from a project snapshot. | Must not borrow mutable live state, stop transport, or enter the device callback. |
+| Plug-in scanner helper | Enumerates VST3 and platform AU binaries and atomically publishes a device-local registry/catalog. | Separate process launched by Core; a third-party crash cannot unwind through playback. Dead-man's-pedal quarantines the item active at failure. |
 | Electron main | Core process orchestration, native UI, discovery, HTTP proxy, UDP validation. | Renderer receives only validated/coalesced data through preload IPC. |
 | React renderer | User interaction and visualization. | Treat all state as a view of Core, never as the real clock or show authority. |
 
@@ -410,6 +412,29 @@ fails, and it never overwrites an existing destination.
 Whenever routing or DSP semantics change, add parity tests proving offline and
 live graph behaviour remain equivalent.
 
+### Plug-in discovery boundary
+
+Plug-in discovery is available through `GET /api/v1/plugins/list` and
+`POST /api/v1/plugins/scan`. `PluginCatalogService` never loads a third-party
+binary in Core: it launches the packaged `resostage-plugin-scanner` executable,
+which uses JUCE's VST3/AU format scanners and writes `known-plugins.xml`, a
+bounded JSON catalog, scan status, and dead-man's-pedal under the device-local
+ResoStage application-data directory. Registry and catalog replacements are
+atomic. A scan is single-flight, runs at background priority inherited from
+Core, and the child is terminated when Core exits.
+
+The catalog is structural state, not telemetry. React fetches it only on the
+Plug-ins settings screen and polls while a scan is active; it must never be
+added to the high-rate UDP or WebSocket state frame. UI rendering is capped
+and filtered so catalog size cannot create an unbounded component tree.
+
+VST3 is enabled on all supported desktop builds and AU on macOS. VST2 remains
+disabled; do not enable or ship it without separately verified legacy SDK and
+distribution rights. Discovery does not imply live processing: adding project
+slots, processor banks, state restore, PDC, and private offline instances must
+preserve the callback and snapshot invariants above and land with their schema
+and parity tests.
+
 ## 12. Electron and UI conventions
 
 `electron/src/main.mts` is orchestration code, not a second backend. Keep
@@ -608,6 +633,11 @@ release code:
 - macOS Apple Silicon: `build/mac/arm64/ResoStage.app`
 - Windows x64: `build/win/x64/resostage.exe` with its sibling `core.exe` and
   Electron resources
+
+The assembled Core also carries `resostage-plugin-scanner` (or `.exe`) beside
+its executable. Do not move scanning back into Core or omit the helper from a
+platform adapter; missing helper means the catalog API reports a visible scan
+failure rather than falling back to unsafe in-process discovery.
 
 On Windows the executable is not standalone; keep the complete assembled
 directory together. On macOS the outer Electron application contains

@@ -768,6 +768,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return server->serveExportDownload(wsi);
                     if (std::strcmp(uri, "/api/v1/render/status") == 0)
                         return server->serveAudioRenderStatus(wsi);
+                    if (std::strcmp(uri, "/api/v1/plugins/list") == 0)
+                        return server->servePluginCatalog(wsi);
                     if (std::strcmp(uri, "/api/v1/player/peaks") == 0)
                         return server->servePeaks(wsi);
                     if (std::strcmp(uri, "/api/v1/player/peaks-all") == 0)
@@ -1933,6 +1935,8 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::RenderAudio, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/render/cancel") == 0) {
         cmd = {WebCommandKind::CancelAudioRender, 0};
+    } else if (std::strcmp(path, "/api/v1/plugins/scan") == 0) {
+        cmd = {WebCommandKind::PluginScan, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/project/open-recent") == 0) {
         const std::string s(body, bodyLen);
         std::string pathRaw;
@@ -2512,6 +2516,13 @@ int WebServer::serveAudioRenderStatus(struct lws* wsi) {
     wire.error = std::move(status.error);
     std::string json;
     (void)glz::write_json(wire, json);
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+}
+
+int WebServer::servePluginCatalog(struct lws* wsi) {
+    const std::string json = pluginCatalogProvider
+        ? pluginCatalogProvider()
+        : "{\"scan\":{\"state\":\"unavailable\",\"progress\":0,\"format\":\"\",\"currentPlugin\":\"\",\"error\":\"Plug-in catalog is unavailable\"},\"catalog\":{\"plugins\":[],\"blacklist\":[]}}";
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 

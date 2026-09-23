@@ -229,6 +229,13 @@ export class WinBuildAdapter extends BuildAdapter {
       this.patchWindowsExeMetadata(coreDstShort, existsSync(coreIco) ? coreIco : null, "core.exe");
     }
 
+    const scannerDst = join(shellDir, "resostage-plugin-scanner.exe");
+    const scannerRaw = findFileRecursively(BUILD_DIR, "resostage-plugin-scanner.exe");
+    if (scannerRaw && existsSync(scannerRaw)) {
+      rmSync(scannerDst, { force: true });
+      cpSync(scannerRaw, scannerDst);
+    }
+
     const kaishakuDst = join(shellDir, "kaishaku.exe");
     const kaishakuRaw = findFileRecursively(BUILD_DIR, "kaishaku.exe");
     if (kaishakuRaw && existsSync(kaishakuRaw)) {

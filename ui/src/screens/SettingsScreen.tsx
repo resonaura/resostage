@@ -3,12 +3,13 @@ import {
   Activity,
   Music3,
   Palette,
+  Plug,
   Radio,
   SlidersHorizontal,
   Workflow,
   Zap,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { FontIcon } from "../components/FontIcon";
 import { RemoteSettingsSection } from "../components/RemoteSettingsSection";
 import {
@@ -22,7 +23,11 @@ import {
   ToggleButton,
   type SelectOption,
 } from "../components/ui";
-import { settings as settingsApi } from "../lib/api";
+import {
+  pluginCatalog as pluginCatalogApi,
+  settings as settingsApi,
+  type PluginCatalogResponse,
+} from "../lib/api";
 import {
   readLongImportPreference,
   writeLongImportPreference,
@@ -281,6 +286,7 @@ type SettingsTab =
   | "appearance"
   | "performance"
   | "health"
+  | "plugins"
   | "remote";
 
 const SETTINGS_TABS: {
@@ -294,6 +300,7 @@ const SETTINGS_TABS: {
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "performance", label: "Performance", icon: Zap },
   { id: "health", label: "Health", icon: Activity },
+  { id: "plugins", label: "Plug-ins", icon: Plug },
   { id: "remote", label: "Remote", icon: Radio },
 ];
 
@@ -936,6 +943,190 @@ function HealthTab({ state }: { state: WebUiState }) {
   );
 }
 
+// ─── Plug-ins Tab ─────────────────────────────────────────────────────────
+// The catalog is intentionally fetched on demand instead of joining the 60 Hz
+// live-state payload. It can contain hundreds of rows and only changes after a
+// scan, so broadcasting it would waste CPU and network bandwidth.
+function PluginsTab() {
+  const [catalog, setCatalog] = useState<PluginCatalogResponse | null>(null);
+  const [query, setQuery] = useState("");
+  const [requestError, setRequestError] = useState("");
+
+  useEffect(() => {
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const next = await pluginCatalogApi.list();
+        if (disposed) return;
+        setCatalog(next);
+        setRequestError("");
+      } catch (error) {
+        if (!disposed)
+          setRequestError(
+            error instanceof Error ? error.message : "Could not load plug-ins",
+          );
+      }
+    };
+    void refresh();
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (catalog?.scan.state !== "scanning") return;
+    const timer = setInterval(() => {
+      void pluginCatalogApi.list().then(setCatalog).catch((error: unknown) => {
+        setRequestError(
+          error instanceof Error ? error.message : "Could not refresh scan state",
+        );
+      });
+    }, 750);
+    return () => clearInterval(timer);
+  }, [catalog?.scan.state]);
+
+  const beginScan = async (rescanAll: boolean) => {
+    try {
+      setRequestError("");
+      await pluginCatalogApi.scan(rescanAll);
+      const next = await pluginCatalogApi.list();
+      setCatalog(next);
+    } catch (error) {
+      setRequestError(
+        error instanceof Error ? error.message : "Could not start scan",
+      );
+    }
+  };
+
+  const plugins = catalog?.catalog.plugins;
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filtered = useMemo(
+    () =>
+      (plugins ?? []).filter((plugin) => {
+        if (!normalizedQuery) return true;
+        return [
+          plugin.name,
+          plugin.manufacturer,
+          plugin.category,
+          plugin.format,
+        ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
+      }),
+    [plugins, normalizedQuery],
+  );
+  const visible = filtered.slice(0, 250);
+  const scanning = catalog?.scan.state === "scanning";
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Section
+        title="Audio Plug-ins"
+        description="VST3 and Audio Units are scanned in a separate helper process, so a broken plug-in cannot crash playback. VST2 is intentionally not shipped."
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="primary"
+            isDisabled={scanning}
+            onPress={() => void beginScan(false)}
+          >
+            <Plug size={14} />
+            {scanning ? "Scanning…" : "Scan new or changed"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            isDisabled={scanning}
+            onPress={() => void beginScan(true)}
+          >
+            Rescan all
+          </Button>
+          <span className="text-xs text-foreground/50">
+            {plugins?.length ?? 0} available · {catalog?.catalog.blacklist.length ?? 0} quarantined
+          </span>
+        </div>
+
+        {scanning && (
+          <div className="flex flex-col gap-1.5" aria-live="polite">
+            <div className="h-1.5 overflow-hidden rounded-full bg-default/30">
+              <div
+                className="h-full rounded-full bg-accent transition-[width] duration-200"
+                style={{
+                  width: `${Math.max(1, Math.min(100, (catalog.scan.progress ?? 0) * 100))}%`,
+                }}
+              />
+            </div>
+            <div className="truncate text-xs text-foreground/50">
+              {catalog.scan.format || "Preparing"}
+              {catalog.scan.currentPlugin
+                ? ` · ${catalog.scan.currentPlugin}`
+                : ""}
+            </div>
+          </div>
+        )}
+
+        {(requestError || catalog?.scan.error) && (
+          <Alert status="danger">
+            <Alert.Content>
+              <Alert.Description>
+                {requestError || catalog?.scan.error}
+              </Alert.Description>
+            </Alert.Content>
+          </Alert>
+        )}
+      </Section>
+
+      <Section title="Catalog">
+        <input
+          aria-label="Search plug-ins"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search name, vendor, category, or format…"
+          className="h-9 rounded-lg border border-default/40 bg-default/20 px-3 text-sm outline-none transition-colors focus:border-accent"
+        />
+        <div className="max-h-[420px] overflow-auto rounded-lg border border-default/25">
+          {visible.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-foreground/45">
+              {catalog === null
+                ? "Loading catalog…"
+                : (plugins?.length ?? 0) === 0
+                  ? "Run a scan to discover installed plug-ins."
+                  : "No plug-ins match this search."}
+            </div>
+          ) : (
+            visible.map((plugin) => (
+              <div
+                key={plugin.id}
+                className="flex items-center justify-between gap-4 border-b border-default/20 px-3 py-2 last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{plugin.name}</div>
+                  <div className="truncate text-xs text-foreground/45">
+                    {plugin.manufacturer || "Unknown vendor"}
+                    {plugin.category ? ` · ${plugin.category}` : ""}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right text-[11px] text-foreground/45">
+                  <div>{plugin.format}</div>
+                  <div>
+                    {plugin.instrument
+                      ? "Instrument"
+                      : `${plugin.inputs} in / ${plugin.outputs} out`}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        {filtered.length > visible.length && (
+          <div className="text-xs text-foreground/45">
+            Showing the first {visible.length} of {filtered.length}; narrow the search to avoid rendering an unbounded list.
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
 // ─── Main SettingsScreen ──────────────────────────────────────────────────
 export interface ThemeControls {
   name: ThemeName;
@@ -993,6 +1184,7 @@ export function SettingsScreen({
               <PerformanceTab state={state} performance={performance} />
             )}
             {tab.id === "health" && <HealthTab state={state} />}
+            {tab.id === "plugins" && <PluginsTab />}
             {tab.id === "remote" && <RemoteSettingsSection />}
           </Tabs.Panel>
         ))}
