@@ -25,7 +25,7 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 3;
+inline constexpr int kCurrentFormatVersion = 4;
 
 // The single on-disk project data file (holds the full WProject schema, i.e.
 // everything that used to live in project.json). Chosen so double-clicking it
@@ -82,6 +82,27 @@ struct BusRoute {
     std::optional<std::string> target; // null unless type == ExtOut
 };
 
+// Stable catalog identity plus human-readable fallback metadata. The host
+// resolves `identifier` against its device-local catalog; the remaining fields
+// let another machine explain what is missing without guessing from a path.
+struct PluginReference {
+    std::string identifier;
+    std::string format;
+    std::string name;
+    std::string manufacturer;
+    std::string fileOrIdentifier;
+};
+
+// One ordered insert in a strip's pre-fader chain. Opaque vendor state is a
+// separate package resource (normally Plugins/<slot-id>.state), never base64
+// inside project.rsnrasetmeta. A missing effect degrades to pass-through.
+struct PluginSlot {
+    std::string id; // UUIDv7; stable across reorder/save/load
+    PluginReference plugin;
+    bool bypassed = false;
+    std::optional<std::string> stateResource;
+};
+
 // The project-global metronome. Same shape as a track (gain/pan/mute/solo/
 // channels/output) so it goes through the identical mix path instead of a
 // hand-duplicated one -- see Milestone 2 of the routing rewrite plan.
@@ -94,6 +115,7 @@ struct ClickChannel {
     bool mute = false;
     bool solo = false;   // joins the same solo group as TrackDef::solo
     SourceOutput output; // any of the three types -- the click is routed exactly like a track
+    std::vector<PluginSlot> plugins;
 };
 
 // Master (FOH) bus. Always owns its physical output channels directly
@@ -111,6 +133,7 @@ struct MasterChannel {
     bool mute = false;
     bool solo = false; // solo group of one -- inert for now, see routing plan Milestone 2
     BusRoute output;
+    std::vector<PluginSlot> plugins;
 };
 
 // An aux/monitor/FX send bus. Fed by TrackDef::sends / ClickChannel::sends
@@ -125,6 +148,7 @@ struct SendBus {
     bool mute = false;
     bool solo = false;
     BusRoute output;
+    std::vector<PluginSlot> plugins;
 };
 
 struct TrackDef {
@@ -136,6 +160,7 @@ struct TrackDef {
     bool mute = false;
     bool solo = false; // joins the same solo group as ClickChannel::solo
     SourceOutput output;
+    std::vector<PluginSlot> plugins;
 };
 
 struct RegionSource {

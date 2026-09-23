@@ -342,7 +342,7 @@ from audio or lighting.
 ## 10. Project model and persistence
 
 The schema lives in `core/engine/project/ProjectSchema.h`. Current on-disk
-format version is `3`. A `.rsnraset` is normally a directory package containing
+format version is `4`. A `.rsnraset` is normally a directory package containing
 `project.rsnrasetmeta`, audio resources, and derived caches; legacy ZIP
 packages and `project.json` still have compatibility paths.
 
@@ -356,6 +356,11 @@ Key ownership rules:
 - Optional strings serialize as JSON `null`, not an empty-string convention.
 - Application/device preferences live in `AppSettings`; they are not portable
   musical project content.
+- Track, click, send, and main strips own ordered `PluginSlot` chains. Each
+  slot persists a catalog identifier plus fallback vendor/name metadata;
+  opaque vendor state lives in a separate package resource referenced by
+  `stateResource`, never as base64 in the metadata JSON. Missing effects must
+  degrade to explicit pass-through, not make a project unloadable.
 - The message thread may mutate `ProjectLoader::project()`. Workers receive a
   snapshot or other explicitly published state; they must not retain a mutable
   project reference across threads.

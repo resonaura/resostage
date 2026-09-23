@@ -156,6 +156,21 @@ struct WBusOutput {
     std::optional<std::string> target;
 };
 
+struct WPluginReference {
+    std::string identifier;
+    std::string format;
+    std::string name;
+    std::string manufacturer;
+    std::string fileOrIdentifier;
+};
+
+struct WPluginSlot {
+    std::string id;
+    WPluginReference plugin;
+    bool bypassed = false;
+    std::optional<std::string> stateResource;
+};
+
 struct WClick {
     bool enabled = false;
     std::string name = "Click";
@@ -165,6 +180,7 @@ struct WClick {
     bool mute = false;
     bool solo = false;
     WSourceOutput output;
+    std::vector<WPluginSlot> plugins;
 };
 
 struct WMaster {
@@ -176,6 +192,7 @@ struct WMaster {
     bool mute = false;
     bool solo = false;
     WBusOutput output;
+    std::vector<WPluginSlot> plugins;
 };
 
 struct WSendBus {
@@ -187,6 +204,7 @@ struct WSendBus {
     bool mute = false;
     bool solo = false;
     WBusOutput output;
+    std::vector<WPluginSlot> plugins;
 };
 
 struct WTrack {
@@ -198,6 +216,7 @@ struct WTrack {
     bool mute = false;
     bool solo = false;
     WSourceOutput output;
+    std::vector<WPluginSlot> plugins;
 };
 
 struct WFixtureGrid {
@@ -494,6 +513,52 @@ BusRoute fromWireBusOutput(const WBusOutput& w) {
     return o;
 }
 
+WPluginSlot toWirePluginSlot(const PluginSlot& slot) {
+    WPluginSlot wire;
+    wire.id = slot.id;
+    wire.plugin.identifier = slot.plugin.identifier;
+    wire.plugin.format = slot.plugin.format;
+    wire.plugin.name = slot.plugin.name;
+    wire.plugin.manufacturer = slot.plugin.manufacturer;
+    wire.plugin.fileOrIdentifier = slot.plugin.fileOrIdentifier;
+    wire.bypassed = slot.bypassed;
+    wire.stateResource = slot.stateResource;
+    return wire;
+}
+
+PluginSlot fromWirePluginSlot(const WPluginSlot& wire) {
+    PluginSlot slot;
+    slot.id = wire.id;
+    slot.plugin.identifier = wire.plugin.identifier;
+    slot.plugin.format = wire.plugin.format;
+    slot.plugin.name = wire.plugin.name;
+    slot.plugin.manufacturer = wire.plugin.manufacturer;
+    slot.plugin.fileOrIdentifier = wire.plugin.fileOrIdentifier;
+    slot.bypassed = wire.bypassed;
+    slot.stateResource = wire.stateResource;
+    return slot;
+}
+
+template <typename WireContainer>
+std::vector<PluginSlot> fromWirePluginSlots(const WireContainer& wire) {
+    std::vector<PluginSlot> slots;
+    slots.reserve(wire.size());
+    for (const auto& item : wire) {
+        if (!item.id.empty() && !item.plugin.identifier.empty())
+            slots.push_back(fromWirePluginSlot(item));
+    }
+    return slots;
+}
+
+template <typename SlotContainer>
+std::vector<WPluginSlot> toWirePluginSlots(const SlotContainer& slots) {
+    std::vector<WPluginSlot> wire;
+    wire.reserve(slots.size());
+    for (const auto& slot : slots)
+        wire.push_back(toWirePluginSlot(slot));
+    return wire;
+}
+
 WColor toWireColor(const RgbColor& c) {
     return WColor{c.r, c.g, c.b};
 }
@@ -534,6 +599,7 @@ WProject toWire(const Project& p) {
     w.click.mute = p.click.mute;
     w.click.solo = p.click.solo;
     w.click.output = toWireSourceOutput(p.click.output);
+    w.click.plugins = toWirePluginSlots(p.click.plugins);
 
     w.main.enabled = p.main.enabled;
     w.main.name = p.main.name.empty() ? "Main" : p.main.name;
@@ -543,6 +609,7 @@ WProject toWire(const Project& p) {
     w.main.mute = p.main.mute;
     w.main.solo = p.main.solo;
     w.main.output = toWireBusOutput(p.main.output);
+    w.main.plugins = toWirePluginSlots(p.main.plugins);
 
     w.sends.reserve(p.sends.size());
     for (const auto& b : p.sends) {
@@ -555,6 +622,7 @@ WProject toWire(const Project& p) {
         wb.mute = b.mute;
         wb.solo = b.solo;
         wb.output = toWireBusOutput(b.output);
+        wb.plugins = toWirePluginSlots(b.plugins);
         w.sends.push_back(std::move(wb));
     }
 
@@ -569,6 +637,7 @@ WProject toWire(const Project& p) {
         wt.mute = t.mute;
         wt.solo = t.solo;
         wt.output = toWireSourceOutput(t.output);
+        wt.plugins = toWirePluginSlots(t.plugins);
         w.tracks.push_back(std::move(wt));
     }
 
@@ -814,6 +883,7 @@ Project fromWire(const WProject& w) {
     p.click.mute = w.click.mute;
     p.click.solo = w.click.solo;
     p.click.output = fromWireSourceOutput(w.click.output);
+    p.click.plugins = fromWirePluginSlots(w.click.plugins);
 
     p.main.enabled = w.main.enabled;
     p.main.name = w.main.name.empty() ? "Main" : w.main.name;
@@ -823,6 +893,7 @@ Project fromWire(const WProject& w) {
     p.main.mute = w.main.mute;
     p.main.solo = w.main.solo;
     p.main.output = fromWireBusOutput(w.main.output);
+    p.main.plugins = fromWirePluginSlots(w.main.plugins);
 
     p.sends.reserve(w.sends.size());
     for (const auto& b : w.sends) {
@@ -835,6 +906,7 @@ Project fromWire(const WProject& w) {
         bus.mute = b.mute;
         bus.solo = b.solo;
         bus.output = fromWireBusOutput(b.output);
+        bus.plugins = fromWirePluginSlots(b.plugins);
         p.sends.push_back(std::move(bus));
     }
 
@@ -849,6 +921,7 @@ Project fromWire(const WProject& w) {
         tr.mute = t.mute;
         tr.solo = t.solo;
         tr.output = fromWireSourceOutput(t.output);
+        tr.plugins = fromWirePluginSlots(t.plugins);
         p.tracks.push_back(std::move(tr));
     }
 

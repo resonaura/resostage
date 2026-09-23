@@ -37,7 +37,7 @@ std::string makeProjectArchive(const std::string& projectJson) {
 
 constexpr const char* kFullProjectJson = R"JSON(
 {
-  "format": { "version": 3 },
+  "format": { "version":4 },
   "name": "Full Parse Test",
   "sampleRate": 48000,
   "click": { "enabled": false, "name": "Click", "channels": 2, "gainDb": 0, "pan": 0, "mute": false, "solo": false,
@@ -88,7 +88,7 @@ TEST_CASE("ProjectLoader parses click, main, sends, tracks, songs, events, and m
     REQUIRE(loader.open(path, error));
 
     const Project& proj = loader.project();
-    CHECK(proj.format.version == 3);
+    CHECK(proj.format.version == 4);
     CHECK(proj.name == "Full Parse Test");
     CHECK(proj.sampleRate == 48000.0);
 
@@ -157,7 +157,7 @@ TEST_CASE("ProjectLoader parses click, main, sends, tracks, songs, events, and m
 TEST_CASE("ProjectLoader tolerates missing optional sections") {
     const std::string minimalJson = R"JSON(
 {
-  "format": { "version": 3 },
+  "format": { "version":4 },
   "name": "Minimal",
   "sampleRate": 44100,
   "sends": [],
@@ -184,7 +184,7 @@ TEST_CASE("ProjectLoader parses and round-trips a sends-only track") {
     // than an error.
     const std::string json = R"JSON(
 {
-  "format": { "version": 3 }, "name": "SendsOnly", "sampleRate": 48000,
+  "format": { "version":4 }, "name": "SendsOnly", "sampleRate": 48000,
   "main": { "enabled": true, "name": "Main", "channels": 2, "gainDb": 0, "pan": 0, "mute": false, "solo": false,
             "output": { "type": "ext-out", "target": "audio::out:1,audio::out:2" } },
   "sends": [
@@ -256,7 +256,7 @@ TEST_CASE("ProjectLoader rejects outdated format version 1 with migration error"
 TEST_CASE("ProjectLoader rejects a current-format event with an unknown type") {
     const std::string badJson = R"JSON(
 {
-  "format": { "version": 3 }, "name": "Bad", "sampleRate": 48000, "sends": [],
+  "format": { "version":4 }, "name": "Bad", "sampleRate": 48000, "sends": [],
   "songs": [
     { "id": "s1", "name": "S1", "bpm": 120,
       "events": [ { "id": "e1", "type": "notARealType" } ] }
@@ -283,6 +283,16 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     loader.project().songs[0].bpm = 99.5;
     loader.project().tracks[0].gainDb = -6.0;
     loader.project().main.output.target = "audio::out:5,audio::out:6";
+    PluginSlot slot;
+    slot.id = "019fd93b-3662-7f5b-8162-45f5ecad9811";
+    slot.plugin.identifier = "VST3-test-effect";
+    slot.plugin.format = "VST3";
+    slot.plugin.name = "Test Effect";
+    slot.plugin.manufacturer = "Resonaura Tests";
+    slot.plugin.fileOrIdentifier = "/PlugIns/Test.vst3";
+    slot.bypassed = true;
+    slot.stateResource = "Plugins/019fd93b-3662-7f5b-8162-45f5ecad9811.state";
+    loader.project().tracks[0].plugins.push_back(slot);
 
     const std::string outPath =
         std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp")
@@ -299,6 +309,13 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     REQUIRE_FALSE(p.tracks.empty());
     CHECK(p.tracks[0].gainDb == doctest::Approx(-6.0));
     CHECK(p.main.output.target.value_or("") == "audio::out:5,audio::out:6");
+    REQUIRE(p.tracks[0].plugins.size() == 1);
+    const auto& restoredSlot = p.tracks[0].plugins[0];
+    CHECK(restoredSlot.id == slot.id);
+    CHECK(restoredSlot.plugin.identifier == slot.plugin.identifier);
+    CHECK(restoredSlot.plugin.format == "VST3");
+    CHECK(restoredSlot.bypassed);
+    CHECK(restoredSlot.stateResource == slot.stateResource);
     // Events preserved
     REQUIRE(p.songs[0].events.size() == 4);
     REQUIRE(p.songs[0].events[2].httpUrl.has_value());

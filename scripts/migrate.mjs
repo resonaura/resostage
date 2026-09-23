@@ -1,5 +1,5 @@
 /**
- * One-shot project converter: any older ResoStage project.json -> format v3.
+ * One-shot project converter: any older ResoStage project.json -> current format.
  *
  * This is the ONLY migration path that exists. The engine deliberately has
  * none: ProjectLoader refuses to open anything below kCurrentFormatVersion and
@@ -14,7 +14,7 @@
  *   v2  half-migrated    -- nested output objects, but legacy ids (bar_1, lt_1,
  *                          reg_song_1_trk_4, sec_1), camelCase enum values and
  *                          "" where null belongs
- * and always emits the same v3 canon:
+ * and always emits the same current canon (v4 adds ordered plug-in slots):
  *
  *   ids            "<ns>::<kind>:<n>"  audio::track:1, audio::send:2,
  *                                      audio::out:11, light::bar:1,
@@ -35,7 +35,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 3;
+export const TARGET_FORMAT_VERSION = 4;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -562,10 +562,16 @@ export function migrateProjectObject(old) {
     format: { version: TARGET_FORMAT_VERSION },
     name: orNull(old.name) ?? "Untitled",
     sampleRate: num(old.sampleRate, 48000),
-    click: migrateClick(old, busIds),
-    main,
-    sends: migrateSends(old, busIds, main.output),
-    tracks: migrateTracks(old, busIds, trackIds),
+    click: { ...migrateClick(old, busIds), plugins: old.click?.plugins ?? [] },
+    main: { ...main, plugins: old.main?.plugins ?? [] },
+    sends: migrateSends(old, busIds, main.output).map((bus, index) => ({
+      ...bus,
+      plugins: old.sends?.[index]?.plugins ?? [],
+    })),
+    tracks: migrateTracks(old, busIds, trackIds).map((track, index) => ({
+      ...track,
+      plugins: old.tracks?.[index]?.plugins ?? [],
+    })),
     lighting: migrateLighting(old, fixtureIds, lightTrackIds),
     songs: migrateSongs(old, busIds, trackIds, lightTrackIds),
     cycle: {
