@@ -4,6 +4,8 @@ namespace resostage {
 namespace {
 
 constexpr int kMaxCatalogBytes = 8 * 1024 * 1024;
+constexpr int kScannerPollMilliseconds = 250;
+constexpr int64_t kScannerInactivityTimeoutMilliseconds = 60'000;
 
 juce::File pluginDataDirectory() {
     auto root = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
@@ -88,11 +90,26 @@ void PluginCatalogService::runScan(bool rescanAll) {
             "{\"state\":\"failed\",\"progress\":0,\"format\":\"\","
             "\"currentPlugin\":\"\",\"error\":\"Plug-in scanner helper is unavailable\"}");
     } else {
-        const bool finished = process->waitForProcessToFinish(-1);
-        if (!finished || process->getExitCode() != 0) {
+        auto lastProgressAt = juce::Time::currentTimeMillis();
+        auto lastStateModification = stateFile.getLastModificationTime();
+        bool timedOut = false;
+        while (!process->waitForProcessToFinish(kScannerPollMilliseconds)) {
+            const auto modification = stateFile.getLastModificationTime();
+            if (modification != lastStateModification) {
+                lastStateModification = modification;
+                lastProgressAt = juce::Time::currentTimeMillis();
+            }
+            if (juce::Time::currentTimeMillis() - lastProgressAt
+                > kScannerInactivityTimeoutMilliseconds) {
+                timedOut = true;
+                process->kill();
+                break;
+            }
+        }
+        if (timedOut || process->getExitCode() != 0) {
             (void)stateFile.replaceWithText(
                 "{\"state\":\"failed\",\"progress\":0,\"format\":\"\","
-                "\"currentPlugin\":\"\",\"error\":\"Plug-in scanner exited unexpectedly; the current item will be quarantined on the next scan\"}");
+                "\"currentPlugin\":\"\",\"error\":\"Plug-in scanner crashed or made no progress for 60 seconds; the current item will be quarantined on the next scan\"}");
         }
     }
 

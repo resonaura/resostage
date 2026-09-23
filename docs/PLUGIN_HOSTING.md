@@ -13,6 +13,9 @@ instance. The live Core therefore launches the packaged
 `resostage-plugin-scanner` helper. A helper crash cannot stop audio, lighting,
 or remote control. JUCE's dead-man's-pedal records the item being inspected;
 the next scan quarantines it and proceeds with the remaining candidates.
+Core also enforces a 60-second no-progress watchdog, so a plug-in that hangs
+rather than crashes cannot leave discovery running forever; the same
+dead-man entry identifies it on the next scan.
 
 Catalog files live in the platform application-data directory under
 `ResoStage/Plugins`. The XML registry is JUCE's canonical discovery data. The

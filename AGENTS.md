@@ -421,7 +421,9 @@ which uses JUCE's VST3/AU format scanners and writes `known-plugins.xml`, a
 bounded JSON catalog, scan status, and dead-man's-pedal under the device-local
 ResoStage application-data directory. Registry and catalog replacements are
 atomic. A scan is single-flight, runs at background priority inherited from
-Core, and the child is terminated when Core exits.
+Core, and the child is terminated when Core exits. Core also kills a helper
+that makes no observable progress for 60 seconds; the dead-man entry then
+quarantines the stuck candidate on the next scan.
 
 The catalog is structural state, not telemetry. React fetches it only on the
 Plug-ins settings screen and polls while a scan is active; it must never be
