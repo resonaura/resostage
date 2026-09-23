@@ -133,16 +133,26 @@ export interface AudioRenderOptions {
   bitDepth: 16 | 24 | 32;
   rangeStartSeconds: number;
   rangeEndSeconds: number;
-  tailPolicy: "cut" | "leave";
+  tailPolicy: "cut" | "leave" | "wrap";
   tailThresholdDb: number;
   tailQuietSeconds: number;
   maxTailSeconds: number;
+  dither: "none" | "tpdf";
+  normalization: "off" | "overload" | "peak";
+  normalizationCeilingDb: number;
   fileNamePattern: string;
 }
 
 export interface AudioRenderStatus {
   state: "idle" | "rendering" | "complete" | "cancelled" | "failed";
   progress: number;
+  jobId?: string;
+  phase?: string;
+  elapsedSeconds?: number;
+  estimatedRemainingSeconds?: number;
+  processingSpeedMultiplier?: number;
+  processedFrames?: number;
+  estimatedTotalFrames?: number;
   outputPath: string;
   /** Absent on older Core versions that supported only one render output. */
   outputPaths?: string[];

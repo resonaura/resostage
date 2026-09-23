@@ -1248,6 +1248,8 @@ void MainComponent::startAudioRender(const std::string& json) {
     std::string legacyTargetId;
     std::string namingPattern = "{project}_{song}_{stem}";
     std::string tailPolicy = "cut";
+    std::string dither = "none";
+    std::string normalization = "off";
     int songIndex = static_cast<int>(engine.currentSongIndex());
     int sampleRate = static_cast<int>(std::lround(std::max(8000.0, engine.project().sampleRate)));
     int bitDepth = 24;
@@ -1256,12 +1258,15 @@ void MainComponent::startAudioRender(const std::string& json) {
     double tailThresholdDb = -96.0;
     double tailQuietSeconds = 0.5;
     double maxTailSeconds = 30.0;
+    double normalizationCeilingDb = -0.1;
     (void)builder_json::getString(doc, "scope", scope);
     (void)builder_json::getString(doc, "target", legacyTarget);
     (void)builder_json::getString(doc, "targetId", legacyTargetId);
     if (!builder_json::getString(doc, "fileNamePattern", namingPattern))
         (void)builder_json::getString(doc, "fileName", namingPattern);
     (void)builder_json::getString(doc, "tailPolicy", tailPolicy);
+    (void)builder_json::getString(doc, "dither", dither);
+    (void)builder_json::getString(doc, "normalization", normalization);
     (void)builder_json::getInt(doc, "songIndex", songIndex);
     (void)builder_json::getInt(doc, "sampleRate", sampleRate);
     (void)builder_json::getInt(doc, "bitDepth", bitDepth);
@@ -1270,13 +1275,19 @@ void MainComponent::startAudioRender(const std::string& json) {
     (void)builder_json::getDouble(doc, "tailThresholdDb", tailThresholdDb);
     (void)builder_json::getDouble(doc, "tailQuietSeconds", tailQuietSeconds);
     (void)builder_json::getDouble(doc, "maxTailSeconds", maxTailSeconds);
+    (void)builder_json::getDouble(doc, "normalizationCeilingDb", normalizationCeilingDb);
 
     request.songIndex = scope == "project" ? -1 : songIndex;
     request.sampleRate = sampleRate;
     request.bitDepth = bitDepth;
     request.rangeStartSeconds = std::max(0.0, rangeStart);
     request.rangeEndSeconds = std::max(0.0, rangeEnd);
-    request.tailPolicy = tailPolicy == "leave" ? RenderTailPolicy::Leave : RenderTailPolicy::Cut;
+    request.tailPolicy = tailPolicy == "leave" ? RenderTailPolicy::Leave
+        : (tailPolicy == "wrap" ? RenderTailPolicy::Wrap : RenderTailPolicy::Cut);
+    request.dither = dither == "tpdf" ? RenderDither::Tpdf : RenderDither::None;
+    request.normalization = normalization == "overload" ? RenderNormalization::OverloadProtection
+        : (normalization == "peak" ? RenderNormalization::Peak : RenderNormalization::Off);
+    request.normalizationCeilingDb = std::clamp(normalizationCeilingDb, -12.0, 0.0);
     request.tailThresholdDb = std::clamp(tailThresholdDb, -144.0, -24.0);
     request.tailQuietSeconds = std::clamp(tailQuietSeconds, 0.05, 10.0);
     request.maxTailSeconds = std::clamp(maxTailSeconds, 0.0, 60.0);
@@ -1331,7 +1342,9 @@ void MainComponent::startAudioRender(const std::string& json) {
         juce::String expanded(namingPattern);
         expanded = expanded.replace("{project}", projectToken)
                            .replace("{song}", songToken)
-                           .replace("{stem}", stemName(target));
+                           .replace("{stem}", stemName(target))
+                           .replace("{sampleRate}", juce::String(request.sampleRate))
+                           .replace("{bitDepth}", juce::String(request.bitDepth));
         juce::String safeName = expanded.retainCharacters(
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-.()");
         if (safeName.endsWithIgnoreCase(".wav"))
@@ -1359,7 +1372,11 @@ void MainComponent::startAudioRender(const std::string& json) {
         OfflineRenderer renderer;
         const OfflineRenderResult result = renderer.render(
             projectSnapshot, projectPath, request,
-            [this](double progress) { webServer.updateAudioRenderProgress(progress); },
+            [this, renderSampleRate = request.sampleRate](const OfflineRenderProgress& progress) {
+                webServer.updateAudioRenderProgress(
+                    progress.progress, progress.processedFrames,
+                    progress.estimatedTotalFrames, renderSampleRate, progress.phase);
+            },
             &cancelAudioRender);
         if (result.ok)
             webServer.completeAudioRender(result.outputPaths);

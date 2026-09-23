@@ -114,20 +114,35 @@ struct RegionReader {
 
 class WavWriter {
 public:
-    ~WavWriter() { close(); }
+    ~WavWriter() { abort(); }
 
-    bool open(const std::string& path, int sampleRate, int bitDepth, std::string& error) {
+    bool open(const std::string& path, int sampleRate, int bitDepth,
+              RenderDither dither, RenderNormalization normalization,
+              double ceilingDb, std::string& error) {
+        finalPath = path;
+        partPath = path + ".resostage-part";
+        rawPath = path + ".resostage-float-part";
         sampleRate_ = sampleRate;
         bitDepth_ = bitDepth;
-        file = std::fopen(path.c_str(), "wb");
+        dither_ = dither;
+        normalization_ = normalization;
+        ceilingLinear = dbToGain(std::clamp(ceilingDb, -12.0, 0.0));
+        std::error_code ignored;
+        if (std::filesystem::exists(finalPath, ignored)) {
+            error = "Output file already exists: " + finalPath;
+            return false;
+        }
+        std::filesystem::remove(partPath, ignored);
+        std::filesystem::remove(rawPath, ignored);
+        file = std::fopen((normalization_ == RenderNormalization::Off
+                              ? partPath : rawPath).c_str(), "wb");
         if (file == nullptr) {
             error = "Cannot create output file: " + path;
             return false;
         }
-        uint8_t empty[44]{};
-        if (std::fwrite(empty, 1, sizeof(empty), file) != sizeof(empty)) {
+        if (normalization_ == RenderNormalization::Off && !writeEmptyHeader()) {
             error = "Cannot write WAV header: " + path;
-            close();
+            abort();
             return false;
         }
         return true;
@@ -135,17 +150,121 @@ public:
 
     bool write(const float* left, const float* right, int frames) {
         if (file == nullptr || frames <= 0) return false;
+        for (int i = 0; i < frames; ++i)
+            peak = std::max(peak, std::max(std::abs(left[i]), std::abs(right[i])));
+        if (normalization_ == RenderNormalization::Off)
+            return writeEncoded(left, right, frames, 1.0f);
+
+        floatScratch.resize(static_cast<size_t>(frames * 2));
+        for (int i = 0; i < frames; ++i) {
+            floatScratch[static_cast<size_t>(i * 2)] = left[i];
+            floatScratch[static_cast<size_t>(i * 2 + 1)] = right[i];
+        }
+        return std::fwrite(floatScratch.data(), sizeof(float), floatScratch.size(), file)
+            == floatScratch.size();
+    }
+
+    bool finish(std::string& error) {
+        if (file == nullptr) { error = "Render writer is not open"; return false; }
+        if (normalization_ == RenderNormalization::Off) {
+            if (!finalizeWavFile()) { error = "Failed to finalize output WAV"; return false; }
+        } else {
+            if (std::fclose(file) != 0) { file = nullptr; error = "Failed to close normalization pass"; return false; }
+            file = nullptr;
+            FILE* raw = std::fopen(rawPath.c_str(), "rb");
+            file = std::fopen(partPath.c_str(), "wb");
+            if (raw == nullptr || file == nullptr || !writeEmptyHeader()) {
+                if (raw != nullptr) std::fclose(raw);
+                error = "Cannot start normalized WAV finalization";
+                return false;
+            }
+            float gain = 1.0f;
+            if (peak > 0.0f) {
+                const float target = ceilingLinear;
+                const float normalized = target / peak;
+                gain = normalization_ == RenderNormalization::OverloadProtection
+                    ? std::min(1.0f, normalized) : normalized;
+            }
+            floatScratch.resize(static_cast<size_t>(kBlockSize * 2));
+            while (true) {
+                const size_t samples = std::fread(floatScratch.data(), sizeof(float),
+                                                  floatScratch.size(), raw);
+                if (samples == 0) break;
+                const int frames = static_cast<int>(samples / 2);
+                planarL.resize(static_cast<size_t>(frames));
+                planarR.resize(static_cast<size_t>(frames));
+                for (int i = 0; i < frames; ++i) {
+                    planarL[static_cast<size_t>(i)] = floatScratch[static_cast<size_t>(i * 2)];
+                    planarR[static_cast<size_t>(i)] = floatScratch[static_cast<size_t>(i * 2 + 1)];
+                }
+                if (!writeEncoded(planarL.data(), planarR.data(), frames, gain)) {
+                    std::fclose(raw);
+                    error = "Failed while normalizing output WAV";
+                    return false;
+                }
+            }
+            const bool rawOk = std::ferror(raw) == 0;
+            std::fclose(raw);
+            if (!rawOk || !finalizeWavFile()) {
+                error = "Failed to finalize normalized WAV";
+                return false;
+            }
+            std::error_code ignored;
+            std::filesystem::remove(rawPath, ignored);
+        }
+
+        std::error_code ec;
+        std::filesystem::rename(partPath, finalPath, ec);
+        if (ec) {
+            error = "Cannot publish rendered WAV: " + ec.message();
+            return false;
+        }
+        finalPath.clear();
+        partPath.clear();
+        rawPath.clear();
+        return true;
+    }
+
+    void abort() {
+        if (file != nullptr) {
+            std::fclose(file);
+            file = nullptr;
+        }
+        std::error_code ignored;
+        if (!partPath.empty()) std::filesystem::remove(partPath, ignored);
+        if (!rawPath.empty()) std::filesystem::remove(rawPath, ignored);
+    }
+
+private:
+    bool writeEmptyHeader() {
+        uint8_t empty[44]{};
+        return std::fwrite(empty, 1, sizeof(empty), file) == sizeof(empty);
+    }
+
+    float randomUnit() {
+        randomState ^= randomState << 13u;
+        randomState ^= randomState >> 17u;
+        randomState ^= randomState << 5u;
+        return static_cast<float>(randomState >> 8u) * (1.0f / 16777216.0f);
+    }
+
+    bool writeEncoded(const float* left, const float* right, int frames, float gain) {
         const int bytes = bitDepth_ / 8;
         scratch.resize(static_cast<size_t>(frames * 2 * bytes));
         uint8_t* p = scratch.data();
         for (int i = 0; i < frames; ++i) {
             const float values[2] = {left[i], right[i]};
             for (float value : values) {
+                value *= gain;
                 if (bitDepth_ == 16) {
+                    if (dither_ == RenderDither::Tpdf)
+                        value += (randomUnit() - randomUnit()) / 32768.0f;
                     const float v = std::clamp(value, -1.0f, 1.0f);
                     const int16_t s = static_cast<int16_t>(std::lrint(v * 32767.0f));
                     std::memcpy(p, &s, 2); p += 2;
                 } else if (bitDepth_ == 24) {
+                    if (dither_ == RenderDither::Tpdf)
+                        value += (randomUnit() - randomUnit()) / 8388608.0f;
                     const float v = std::clamp(value, -1.0f, 1.0f);
                     const int32_t s = static_cast<int32_t>(std::lrint(v * 8388607.0f));
                     *p++ = static_cast<uint8_t>(s);
@@ -167,7 +286,7 @@ public:
         return std::fwrite(scratch.data(), 1, n, file) == n;
     }
 
-    bool close() {
+    bool finalizeWavFile() {
         if (file == nullptr) return true;
         const uint16_t format = bitDepth_ == 32 ? 3 : 1;
         const uint16_t channels = 2;
@@ -193,12 +312,22 @@ public:
         return ok;
     }
 
-private:
     FILE* file = nullptr;
     int sampleRate_ = 48000;
     int bitDepth_ = 24;
     uint64_t dataBytes = 0;
+    float peak = 0.0f;
+    float ceilingLinear = 1.0f;
+    RenderDither dither_ = RenderDither::None;
+    RenderNormalization normalization_ = RenderNormalization::Off;
+    uint32_t randomState = 0x9e3779b9u;
+    std::string finalPath;
+    std::string partPath;
+    std::string rawPath;
     std::vector<uint8_t> scratch;
+    std::vector<float> floatScratch;
+    std::vector<float> planarL;
+    std::vector<float> planarR;
 };
 
 double regionDuration(const RegionReader& reader) {
@@ -281,9 +410,10 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         std::filesystem::create_directories(
             std::filesystem::path(target.outputPath).parent_path(), ec);
         auto writer = std::make_unique<WavWriter>();
-        if (!writer->open(target.outputPath, request.sampleRate, request.bitDepth, result.error)) {
-            for (auto& opened : writers) opened->close();
-            for (const auto& cleanup : targets) std::filesystem::remove(cleanup.outputPath, ec);
+        if (!writer->open(target.outputPath, request.sampleRate, request.bitDepth,
+                          request.dither, request.normalization,
+                          request.normalizationCeilingDb, result.error)) {
+            for (auto& opened : writers) opened->abort();
             return result;
         }
         writers.push_back(std::move(writer));
@@ -291,8 +421,7 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
 
     const auto fail = [&](std::string message) {
         result.error = std::move(message);
-        for (auto& writer : writers) writer->close();
-        for (const auto& target : targets) std::filesystem::remove(target.outputPath, ec);
+        for (auto& writer : writers) writer->abort();
         return result;
     };
 
@@ -314,10 +443,12 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
             + std::max(0.0, request.tailSeconds)
             + (request.tailPolicy == RenderTailPolicy::Leave
                    ? std::clamp(request.maxTailSeconds, 0.0, 60.0) : 0.0);
+        if (request.tailPolicy == RenderTailPolicy::Wrap) d *= 2.0;
         totalSeconds += d;
     }
 
     double completedSeconds = 0.0;
+    int64_t processedWorkFrames = 0;
     for (size_t selection = 0; selection < songIndices.size(); ++selection) {
         if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) {
             return fail("Render cancelled");
@@ -397,10 +528,15 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         std::vector<float> pitchL(kBlockSize), pitchR(kBlockSize);
         std::vector<float> clickMono(kBlockSize);
         const int64_t sourceStartFrame = static_cast<int64_t>(std::llround(rangeStart * request.sampleRate));
-        int64_t outputFrame = 0;
-        int64_t quietFrames = 0;
         const int64_t hardEndFrame = contentFrames + fixedTailFrames + maxTailFrames;
-        while (outputFrame < hardEndFrame) {
+        const int passCount = request.tailPolicy == RenderTailPolicy::Wrap ? 2 : 1;
+        int64_t processedSongFrames = 0;
+        for (int pass = 0; pass < passCount; ++pass) {
+          const bool recordPass = pass == passCount - 1;
+          int64_t outputFrame = 0;
+          int64_t quietFrames = 0;
+          float tailEnvelope = 0.0f;
+          while (outputFrame < hardEndFrame) {
             if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) {
                 return fail("Render cancelled");
             }
@@ -488,29 +624,50 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                 for (int i = 0; i < count; ++i)
                     blockPeak = std::max(blockPeak,
                         std::max(std::abs(left[i]), std::abs(right[i])));
-                if (!writers[outputIndex]->write(left, right, count))
+                if (recordPass && !writers[outputIndex]->write(left, right, count))
                     return fail("Failed while writing output WAV");
             }
-            result.framesWritten += count;
+            if (recordPass) {
+                result.framesWritten += count;
+            }
+            processedWorkFrames += count;
+            processedSongFrames += count;
             outputFrame += count;
 
             if (outputFrame >= contentFrames + fixedTailFrames
                 && request.tailPolicy == RenderTailPolicy::Leave) {
-                quietFrames = blockPeak < tailThreshold ? quietFrames + count : 0;
+                const float release = static_cast<float>(std::exp(
+                    -static_cast<double>(count) / (request.sampleRate * 0.1)));
+                tailEnvelope = std::max(blockPeak, release * tailEnvelope);
+                quietFrames = tailEnvelope < tailThreshold ? quietFrames + count : 0;
                 if (quietFrames >= quietFramesNeeded)
                     break;
             }
             if (onProgress) {
-                const double songDone = static_cast<double>(outputFrame) / request.sampleRate;
-                onProgress(std::clamp((completedSeconds + songDone) / std::max(0.01, totalSeconds), 0.0, 1.0));
+                const double passWork = static_cast<double>(pass * hardEndFrame + outputFrame);
+                const double songDone = passWork / request.sampleRate;
+                const double progress = std::clamp(
+                    (completedSeconds + songDone) / std::max(0.01, totalSeconds), 0.0, 0.98);
+                onProgress({progress, processedWorkFrames,
+                            static_cast<int64_t>(std::ceil(totalSeconds * request.sampleRate)),
+                            !recordPass ? "preparing"
+                                        : (outputFrame >= contentFrames ? "tail" : "rendering")});
             }
+          }
         }
-        completedSeconds += static_cast<double>(outputFrame) / request.sampleRate;
+        completedSeconds += static_cast<double>(processedSongFrames) / request.sampleRate;
     }
 
-    for (auto& writer : writers)
-        if (!writer->close()) return fail("Failed to finalize output WAV");
-    if (onProgress) onProgress(1.0);
+    if (onProgress) onProgress({0.99, processedWorkFrames, processedWorkFrames, "finalizing"});
+    std::vector<std::string> committedPaths;
+    for (size_t i = 0; i < writers.size(); ++i) {
+        if (!writers[i]->finish(result.error)) {
+            for (const auto& path : committedPaths) std::filesystem::remove(path, ec);
+            return fail(result.error);
+        }
+        committedPaths.push_back(targets[i].outputPath);
+    }
+    if (onProgress) onProgress({1.0, processedWorkFrames, processedWorkFrames, "finalizing"});
     result.ok = true;
     return result;
 }

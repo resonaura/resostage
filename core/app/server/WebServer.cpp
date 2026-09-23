@@ -2170,25 +2170,53 @@ void WebServer::failExport() {
 
 void WebServer::beginAudioRender() {
     std::lock_guard<std::mutex> lock(audioRenderMutex);
-    audioRenderStatus = {"rendering", 0.0, {}, {}, {}};
+    audioRenderStartedAt = std::chrono::steady_clock::now();
+    audioRenderStatus = {};
+    audioRenderStatus.state = "rendering";
+    audioRenderStatus.phase = "preparing";
+    audioRenderStatus.jobId = std::to_string(++audioRenderJobSequence);
 }
 
-void WebServer::updateAudioRenderProgress(double progress) {
+void WebServer::updateAudioRenderProgress(double progress, int64_t processedFrames,
+                                          int64_t estimatedTotalFrames, int sampleRate,
+                                          std::string phase) {
     std::lock_guard<std::mutex> lock(audioRenderMutex);
-    if (audioRenderStatus.state == "rendering")
+    if (audioRenderStatus.state == "rendering") {
         audioRenderStatus.progress = std::clamp(progress, 0.0, 1.0);
+        audioRenderStatus.phase = std::move(phase);
+        audioRenderStatus.processedFrames = processedFrames;
+        audioRenderStatus.estimatedTotalFrames = estimatedTotalFrames;
+        audioRenderStatus.elapsedSeconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - audioRenderStartedAt).count();
+        if (audioRenderStatus.elapsedSeconds > 0.0 && audioRenderStatus.progress > 0.0) {
+            const double estimatedTotalTime = audioRenderStatus.elapsedSeconds
+                / audioRenderStatus.progress;
+            audioRenderStatus.estimatedRemainingSeconds = std::max(
+                0.0, estimatedTotalTime - audioRenderStatus.elapsedSeconds);
+            const double renderedAudioSeconds = sampleRate > 0
+                ? static_cast<double>(processedFrames) / sampleRate : 0.0;
+            audioRenderStatus.processingSpeedMultiplier = renderedAudioSeconds
+                / audioRenderStatus.elapsedSeconds;
+        }
+    }
 }
 
 void WebServer::completeAudioRender(std::vector<std::string> outputPaths) {
     std::lock_guard<std::mutex> lock(audioRenderMutex);
     std::string first = outputPaths.empty() ? std::string{} : outputPaths.front();
-    audioRenderStatus = {"complete", 1.0, std::move(first), std::move(outputPaths), {}};
+    audioRenderStatus.state = "complete";
+    audioRenderStatus.phase = "completed";
+    audioRenderStatus.progress = 1.0;
+    audioRenderStatus.outputPath = std::move(first);
+    audioRenderStatus.outputPaths = std::move(outputPaths);
 }
 
 void WebServer::failAudioRender(std::string error) {
     std::lock_guard<std::mutex> lock(audioRenderMutex);
     const bool cancelled = error == "Render cancelled";
-    audioRenderStatus = {cancelled ? "cancelled" : "failed", 0.0, {}, {}, std::move(error)};
+    audioRenderStatus.state = cancelled ? "cancelled" : "failed";
+    audioRenderStatus.phase = audioRenderStatus.state;
+    audioRenderStatus.error = std::move(error);
 }
 
 void WebServer::beginTrackImport(int songIndex, int trackIndex, std::string fileName) {
@@ -2471,7 +2499,14 @@ int WebServer::serveAudioRenderStatus(struct lws* wsi) {
     }
     WAudioRenderStatusPayload wire;
     wire.state = std::move(status.state);
+    wire.jobId = std::move(status.jobId);
+    wire.phase = std::move(status.phase);
     wire.progress = status.progress;
+    wire.elapsedSeconds = status.elapsedSeconds;
+    wire.estimatedRemainingSeconds = status.estimatedRemainingSeconds;
+    wire.processingSpeedMultiplier = status.processingSpeedMultiplier;
+    wire.processedFrames = status.processedFrames;
+    wire.estimatedTotalFrames = status.estimatedTotalFrames;
     wire.outputPath = std::move(status.outputPath);
     wire.outputPaths = std::move(status.outputPaths);
     wire.error = std::move(status.error);

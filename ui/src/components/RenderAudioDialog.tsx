@@ -5,7 +5,7 @@ import type { WebUiState } from "../lib/types";
 import { Button, Modal, Select, Switch } from "./ui";
 
 type Scope = "song" | "project" | "cycle" | "custom";
-type TailPolicy = "cut" | "leave";
+type TailPolicy = "cut" | "leave" | "wrap";
 type OutputChoice = {
   key: string;
   kind: "master" | "track" | "bus" | "click";
@@ -15,7 +15,7 @@ type OutputChoice = {
 };
 
 const initialStatus: AudioRenderStatus = {
-  state: "rendering", progress: 0, outputPath: "", outputPaths: [], error: "",
+  state: "rendering", phase: "preparing", progress: 0, outputPath: "", outputPaths: [], error: "",
 };
 
 export function RenderAudioDialog({ open, state, onClose }: {
@@ -32,6 +32,9 @@ export function RenderAudioDialog({ open, state, onClose }: {
   const [tailThresholdDb, setTailThresholdDb] = useState("-96");
   const [tailQuietSeconds, setTailQuietSeconds] = useState("0.5");
   const [maxTailSeconds, setMaxTailSeconds] = useState("30");
+  const [dither, setDither] = useState<"none" | "tpdf">("none");
+  const [normalization, setNormalization] = useState<"off" | "overload" | "peak">("off");
+  const [normalizationCeilingDb, setNormalizationCeilingDb] = useState("-0.1");
   const [customStart, setCustomStart] = useState("0");
   const [customEnd, setCustomEnd] = useState("0");
   const [fileNamePattern, setFileNamePattern] = useState("{project}_{song}_{stem}");
@@ -62,6 +65,10 @@ export function RenderAudioDialog({ open, state, onClose }: {
     }).catch(() => {});
   }, [open, state.songIndex]);
 
+  useEffect(() => {
+    if (scope === "project" && tailPolicy === "wrap") setTailPolicy("cut");
+  }, [scope, tailPolicy]);
+
   const selectedSong = state.songs[Number(songIndex)];
   const selectedSongDuration = songDuration(selectedSong);
   const cycleAvailable = Boolean(state.cycle?.active && !state.cycle.skip
@@ -84,7 +91,16 @@ export function RenderAudioDialog({ open, state, onClose }: {
     });
   };
 
-  const applyPreset = (preset: "mix" | "stems") => {
+  const applyPreset = (preset: "mix" | "stems" | "loop") => {
+    if (preset === "loop") {
+      setSelected(new Set(["master"]));
+      setScope(cycleAvailable ? "cycle" : "song");
+      setTailPolicy("wrap");
+      setBitDepth("32");
+      setDither("none");
+      setNormalization("off");
+      return;
+    }
     setSelected(preset === "mix"
       ? new Set(["master"])
       : new Set(outputs.filter((output) => output.kind !== "click").map((output) => output.key)));
@@ -114,6 +130,9 @@ export function RenderAudioDialog({ open, state, onClose }: {
       tailThresholdDb: Number(tailThresholdDb),
       tailQuietSeconds: Number(tailQuietSeconds),
       maxTailSeconds: Number(maxTailSeconds),
+      dither,
+      normalization,
+      normalizationCeilingDb: Number(normalizationCeilingDb),
       fileNamePattern: fileNamePattern.trim() || "{project}_{song}_{stem}",
     };
     try {
@@ -147,6 +166,7 @@ export function RenderAudioDialog({ open, state, onClose }: {
                 <Section title="Preset"><div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onPress={() => applyPreset("mix")}>Quick mixdown</Button>
                   <Button size="sm" variant="outline" onPress={() => applyPreset("stems")}>Show backup stems</Button>
+                  <Button size="sm" variant="outline" onPress={() => applyPreset("loop")}>Loop asset</Button>
                 </div></Section>
 
                 <Section title="Range">
@@ -174,20 +194,23 @@ export function RenderAudioDialog({ open, state, onClose }: {
 
                 <Section title="Format"><div className="grid grid-cols-2 gap-3">
                   <Field label="Sample rate"><Select size="sm" value={sampleRate} onChange={setSampleRate} options={[44100, 48000, 88200, 96000, 192000].map((n) => ({ id: String(n), label: `${n / 1000} kHz` }))} /></Field>
-                  <Field label="WAV encoding"><Select size="sm" value={bitDepth} onChange={(v) => setBitDepth(v as "16" | "24" | "32")} options={[{ id: "16", label: "16-bit PCM" }, { id: "24", label: "24-bit PCM" }, { id: "32", label: "32-bit float" }]} /></Field>
+                  <Field label="WAV encoding"><Select size="sm" value={bitDepth} onChange={(value) => { const next = value as "16" | "24" | "32"; setBitDepth(next); setDither(next === "16" ? "tpdf" : "none"); }} options={[{ id: "16", label: "16-bit PCM" }, { id: "24", label: "24-bit PCM" }, { id: "32", label: "32-bit float" }]} /></Field>
                 </div></Section>
 
                 <Section title="Tail">
-                  <div className="grid grid-cols-2 gap-2"><Choice active={tailPolicy === "cut"} onPress={() => setTailPolicy("cut")}>Cut at range end</Choice><Choice active={tailPolicy === "leave"} onPress={() => setTailPolicy("leave")}>Leave natural tail</Choice></div>
-                  <p className="text-[10px] text-foreground/45">Wrap is unavailable until it can use a correct stateful second pass instead of a destructive post-sum trick.</p>
+                  <div className="grid grid-cols-3 gap-2"><Choice active={tailPolicy === "cut"} onPress={() => setTailPolicy("cut")}>Cut</Choice><Choice active={tailPolicy === "leave"} onPress={() => setTailPolicy("leave")}>Leave</Choice><Choice active={tailPolicy === "wrap"} disabled={scope === "project"} onPress={() => setTailPolicy("wrap")}>Wrap</Choice></div>
+                  <p className="text-[10px] text-foreground/45">Wrap primes the complete range once without writing, then records the second pass with processor state carried across the boundary.</p>
                 </Section>
 
                 <button type="button" className="flex items-center gap-1 text-xs font-semibold text-foreground/65" onClick={() => setAdvanced((value) => !value)}>{advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Advanced</button>
                 {advanced && <div className="grid grid-cols-1 gap-3 rounded-lg border border-default/20 bg-default/10 p-3 sm:grid-cols-3">
-                  <NumberField label="Tail threshold (dBFS)" value={tailThresholdDb} onChange={setTailThresholdDb} min={-144} max={-24} disabled={tailPolicy === "cut"} />
-                  <NumberField label="Quiet hold (seconds)" value={tailQuietSeconds} onChange={setTailQuietSeconds} min={0.05} max={10} step={0.05} disabled={tailPolicy === "cut"} />
-                  <NumberField label="Maximum tail (seconds)" value={maxTailSeconds} onChange={setMaxTailSeconds} min={0} max={60} step={0.5} disabled={tailPolicy === "cut"} />
-                  <div className="sm:col-span-3"><Field label="Filename pattern"><input value={fileNamePattern} onChange={(event) => setFileNamePattern(event.target.value)} className={inputClass} /><span className="mt-1 block text-[10px] text-foreground/40">Tokens: {'{project}'} {'{song}'} {'{stem}'}</span></Field></div>
+                  <NumberField label="Tail threshold (dBFS)" value={tailThresholdDb} onChange={setTailThresholdDb} min={-144} max={-24} disabled={tailPolicy !== "leave"} />
+                  <NumberField label="Quiet hold (seconds)" value={tailQuietSeconds} onChange={setTailQuietSeconds} min={0.05} max={10} step={0.05} disabled={tailPolicy !== "leave"} />
+                  <NumberField label="Maximum tail (seconds)" value={maxTailSeconds} onChange={setMaxTailSeconds} min={0} max={60} step={0.5} disabled={tailPolicy !== "leave"} />
+                  <Field label="Dither"><Select size="sm" value={dither} isDisabled={bitDepth === "32"} onChange={(value) => setDither(value as "none" | "tpdf")} options={[{ id: "none", label: "None" }, { id: "tpdf", label: "TPDF" }]} /></Field>
+                  <Field label="Normalize"><Select size="sm" value={normalization} onChange={(value) => setNormalization(value as "off" | "overload" | "peak")} options={[{ id: "off", label: "Off" }, { id: "overload", label: "Overload protection" }, { id: "peak", label: "Peak normalize" }]} /></Field>
+                  <NumberField label="Target peak (dBFS)" value={normalizationCeilingDb} onChange={setNormalizationCeilingDb} min={-12} max={0} step={0.1} disabled={normalization === "off"} />
+                  <div className="sm:col-span-3"><Field label="Filename pattern"><input value={fileNamePattern} onChange={(event) => setFileNamePattern(event.target.value)} className={inputClass} /><span className="mt-1 block text-[10px] text-foreground/40">Tokens: {'{project}'} {'{song}'} {'{stem}'} {'{sampleRate}'} {'{bitDepth}'}</span></Field></div>
                 </div>}
               </div>
 
@@ -238,7 +261,7 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 
 function RenderProgress({ status }: { status: AudioRenderStatus }) {
   return <div className="space-y-2 rounded-lg border border-default/20 bg-surface/60 p-3">
-    {status.state === "rendering" && <><div className="flex justify-between text-[10px]"><span>Rendering</span><span>{Math.round(status.progress * 100)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-default/25"><div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.round(status.progress * 100)}%` }} /></div></>}
+    {status.state === "rendering" && <><div className="flex justify-between text-[10px]"><span className="capitalize">{status.phase ?? "Rendering"}</span><span>{Math.round(status.progress * 100)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-default/25"><div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.round(status.progress * 100)}%` }} /></div><div className="flex justify-between text-[9px] text-foreground/45"><span>{(status.processingSpeedMultiplier ?? 0) > 0 ? `${status.processingSpeedMultiplier?.toFixed(1)}× realtime` : "Measuring speed…"}</span><span>{(status.estimatedRemainingSeconds ?? 0) > 0 ? `${formatDuration(status.estimatedRemainingSeconds ?? 0)} left` : ""}</span></div></>}
     {status.state === "complete" && <><div className="text-xs font-semibold text-success">Render complete</div><div className="max-h-28 space-y-1 overflow-y-auto">{(status.outputPaths?.length ? status.outputPaths : [status.outputPath]).map((path) => <div key={path} className="break-all font-mono text-[9px] text-foreground/55">{path}</div>)}</div></>}
     {status.state === "cancelled" && <div className="text-xs text-warning">Render cancelled. Partial files were removed.</div>}
     {status.state === "failed" && <div className="text-xs text-danger">{status.error || "Render failed"}</div>}

@@ -648,7 +648,14 @@ struct WExportStatusPayload {
 
 struct WAudioRenderStatusPayload {
     std::string state = "idle";
+    std::string jobId;
+    std::string phase = "idle";
     double progress = 0.0;
+    double elapsedSeconds = 0.0;
+    double estimatedRemainingSeconds = 0.0;
+    double processingSpeedMultiplier = 0.0;
+    int64_t processedFrames = 0;
+    int64_t estimatedTotalFrames = 0;
     std::string outputPath;
     std::vector<std::string> outputPaths;
     std::string error;

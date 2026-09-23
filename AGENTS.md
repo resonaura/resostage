@@ -390,12 +390,22 @@ thread mutates it. In a remote session the job runs on the remote Core and its
 reported output path belongs to the playback machine.
 
 Tail policy is explicit. `Cut` ends at the requested sample range. `Leave`
-feeds silence through the graph until every selected tap stays below the
-configured threshold for the quiet-hold duration, with a mandatory maximum
-tail bound. `Wrap` is intentionally not exposed until stateful processors can
-be primed with a correct second pass; do not fake it by post-summing an
-unbounded in-memory tail. Cancellation is cooperative at each bounded render
-block and must close and remove every partial output in the job.
+feeds silence through the graph until every selected tap's release envelope
+stays below the configured threshold for the quiet-hold duration, with a
+mandatory maximum tail bound. `Wrap` renders one complete priming pass without
+writing, preserves renderer/processor state, then records the second pass; do
+not replace it with post-summing an unbounded in-memory tail. Cancellation is
+cooperative at each bounded render block and must close and remove every
+partial output in the job.
+
+Writers publish atomically: output is built under `.resostage-part` and renamed
+only after its header and samples are complete. Normalization uses a bounded-
+memory float disk spool so peak/overload gain is decided before the one final
+integer quantization. TPDF dither is applied only in that final conversion;
+tail detection always observes pre-dither float samples. Float32 WAV preserves
+values above full scale for downstream mastering. A multi-file job either
+publishes every file or removes files already committed if a later commit
+fails, and it never overwrites an existing destination.
 
 Whenever routing or DSP semantics change, add parity tests proving offline and
 live graph behaviour remain equivalent.

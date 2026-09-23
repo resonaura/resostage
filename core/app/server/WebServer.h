@@ -3,6 +3,7 @@
 #include <readerwriterqueue.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -936,13 +937,22 @@ public:
 
     struct RenderStatus {
         std::string state = "idle"; // idle | rendering | complete | cancelled | failed
+        std::string jobId;
+        std::string phase = "idle";
         double progress = 0.0;
+        double elapsedSeconds = 0.0;
+        double estimatedRemainingSeconds = 0.0;
+        double processingSpeedMultiplier = 0.0;
+        int64_t processedFrames = 0;
+        int64_t estimatedTotalFrames = 0;
         std::string outputPath;
         std::vector<std::string> outputPaths;
         std::string error;
     };
     void beginAudioRender();
-    void updateAudioRenderProgress(double progress);
+    void updateAudioRenderProgress(double progress, int64_t processedFrames,
+                                   int64_t estimatedTotalFrames, int sampleRate,
+                                   std::string phase);
     void completeAudioRender(std::vector<std::string> outputPaths);
     void failAudioRender(std::string error);
 
@@ -1093,6 +1103,8 @@ private:
 
     mutable std::mutex audioRenderMutex;
     RenderStatus audioRenderStatus;
+    uint64_t audioRenderJobSequence = 0;
+    std::chrono::steady_clock::time_point audioRenderStartedAt{};
 
     mutable std::mutex importMutex;
     int pendingImportSongIndex = -1;

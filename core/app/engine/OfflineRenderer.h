@@ -20,7 +20,17 @@ struct OfflineRenderTarget {
     std::string outputPath;
 };
 
-enum class RenderTailPolicy { Cut, Leave };
+enum class RenderTailPolicy { Cut, Leave, Wrap };
+enum class RenderDither { None, Tpdf };
+enum class RenderNormalization { Off, OverloadProtection, Peak };
+
+struct OfflineRenderProgress {
+    double progress = 0.0;
+    int64_t processedFrames = 0;
+    int64_t estimatedTotalFrames = 0;
+    /** preparing | rendering | tail | finalizing */
+    std::string phase = "rendering";
+};
 
 struct OfflineRenderRequest {
     /** -1 renders every song in set-list order into one continuous file. */
@@ -37,6 +47,10 @@ struct OfflineRenderRequest {
     int sampleRate = 48000;
     /** 16/24 = integer PCM, 32 = IEEE float. */
     int bitDepth = 24;
+    RenderDither dither = RenderDither::None;
+    RenderNormalization normalization = RenderNormalization::Off;
+    /** Linear full-scale target expressed in dBFS; normally -0.1 or 0.0. */
+    double normalizationCeilingDb = -0.1;
     RenderTailPolicy tailPolicy = RenderTailPolicy::Cut;
     /** Leave stops after this many continuously quiet seconds. */
     double tailQuietSeconds = 0.5;
@@ -69,7 +83,7 @@ struct OfflineRenderResult {
  */
 class OfflineRenderer {
 public:
-    using Progress = std::function<void(double)>;
+    using Progress = std::function<void(const OfflineRenderProgress&)>;
 
     OfflineRenderResult render(const Project& project,
                                const std::string& projectPath,

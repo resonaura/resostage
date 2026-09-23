@@ -100,3 +100,8 @@ Cancelling is cooperative at the next render block and removes every partial
 WAV belonging to the job. `Leave tail` is bounded by both a quiet detector and
 the configured maximum tail time, so a non-decaying future processor cannot
 make a remote render run forever.
+
+`Wrap` performs a discarded priming pass followed by the recorded pass, keeping
+state across the range boundary. Normalized jobs use a temporary float spool
+on the playback machine; completed files appear atomically only after final
+conversion, dither, and WAV finalization.
