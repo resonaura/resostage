@@ -4,6 +4,7 @@
 
 #include "AppSettings.h"
 #include "AudioEngine.h"
+#include "OfflineRenderer.h"
 #include "lighting/LightOutputResolver.h"
 #include "midi/CoreMidiInputListener.h"
 #include "server/WebServer.h"
@@ -11,9 +12,11 @@
 #include "network/UdpDiscovery.h"
 
 #include <chrono>
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -174,6 +177,7 @@ private:
     void onProjectLoaded();
     void publishWebState();
     void drainWebCommands();
+    void startAudioRender(const std::string& json);
 
     // After structural edits from the web Builder: rebuild routing, stage a
     // song if needed. SPA re-renders from the next telemetry frame.
@@ -325,6 +329,10 @@ private:
 
     UdpDiscovery udpDiscovery;
     std::string bindAddress_ = "0.0.0.0";
+
+    std::thread audioRenderThread;
+    std::atomic<bool> audioRenderRunning{false};
+    std::atomic<bool> cancelAudioRender{false};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

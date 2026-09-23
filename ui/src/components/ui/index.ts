@@ -10,6 +10,9 @@ export type { ButtonGroupProps, ButtonProps, ButtonVariant } from "./Button";
 export { Card } from "./Card";
 export type { CardProps } from "./Card";
 
+export { Modal } from "./Modal";
+export type { ModalBackdropProps, ModalDialogProps, ModalProps } from "./Modal";
+
 export { ToggleButton, ToggleButtonGroup } from "./ToggleButton";
 export type {
   ToggleButtonGroupProps,

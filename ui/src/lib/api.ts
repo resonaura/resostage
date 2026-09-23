@@ -122,6 +122,40 @@ export const transport = {
     ),
 };
 
+export interface AudioRenderOptions {
+  scope: "song" | "project";
+  songIndex: number;
+  target: "master" | "bus" | "track" | "click";
+  targetId?: string;
+  sampleRate: number;
+  bitDepth: 16 | 24 | 32;
+  tailSeconds: number;
+  fileName: string;
+}
+
+export interface AudioRenderStatus {
+  state: "idle" | "rendering" | "complete" | "failed";
+  progress: number;
+  outputPath: string;
+  error: string;
+}
+
+export const audioRender = {
+  start: async (options: AudioRenderOptions): Promise<void> => {
+    const res = await apiFetch("/api/v1/render/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
+  status: async (): Promise<AudioRenderStatus> => {
+    const res = await apiFetch("/api/v1/render/status");
+    if (!res.ok) throw new Error(await res.text());
+    return res.json<AudioRenderStatus>();
+  },
+};
+
 // Per-track peak-overview waveform data for the currently-staged song (see
 // MainComponent::buildPeaksJson()). Not part of the live WS state -- fetch
 // on demand (mount + whenever state.songIndex changes).

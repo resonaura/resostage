@@ -83,6 +83,10 @@ enum class WebCommandKind : uint8_t {
     SaveProjectAs,
     LoadProjectFromPath,
     ExportProjectForDownload,
+    // Starts an offline WAV render on MainComponent's background worker.
+    // `json` contains target/range/format options; the live audio callback is
+    // never used or stopped by this operation.
+    RenderAudio,
     // Open Recent parity -- `path` carries the absolute .rsnraset path from
     // AppSettings::recentProjects. Unlike LoadProjectFromPath (which deletes
     // its temp file on failure -- it only ever points at a throwaway browser
@@ -927,6 +931,17 @@ public:
     void completeExport(std::string filePath, std::string fileName);
     void failExport();
 
+    struct RenderStatus {
+        std::string state = "idle"; // idle | rendering | complete | failed
+        double progress = 0.0;
+        std::string outputPath;
+        std::string error;
+    };
+    void beginAudioRender();
+    void updateAudioRenderProgress(double progress);
+    void completeAudioRender(std::string outputPath);
+    void failAudioRender(std::string error);
+
     // HTTP-thread: stash which track a following .../import-wav/upload POST
     // is for, plus the original filename (so the archive entry ends up
     // "Audio/kick.wav" instead of a generic temp name) -- see
@@ -1010,6 +1025,7 @@ private:
     int serveStatic(struct lws* wsi, const char* path);
     int serveExportStatus(struct lws* wsi);
     int serveExportDownload(struct lws* wsi);
+    int serveAudioRenderStatus(struct lws* wsi);
     int servePeaks(struct lws* wsi);
     int serveAllPeaks(struct lws* wsi);
     int serveWaveformRaw(struct lws* wsi, const char* queryArgs);
@@ -1070,6 +1086,9 @@ private:
     bool exportReady = false;
     std::string exportFilePath;
     std::string exportFileName;
+
+    mutable std::mutex audioRenderMutex;
+    RenderStatus audioRenderStatus;
 
     mutable std::mutex importMutex;
     int pendingImportSongIndex = -1;

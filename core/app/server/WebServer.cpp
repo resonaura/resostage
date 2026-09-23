@@ -766,6 +766,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return server->serveExportStatus(wsi);
                     if (std::strcmp(uri, "/api/v1/project/download") == 0)
                         return server->serveExportDownload(wsi);
+                    if (std::strcmp(uri, "/api/v1/render/status") == 0)
+                        return server->serveAudioRenderStatus(wsi);
                     if (std::strcmp(uri, "/api/v1/player/peaks") == 0)
                         return server->servePeaks(wsi);
                     if (std::strcmp(uri, "/api/v1/player/peaks-all") == 0)
@@ -1926,6 +1928,9 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     } else if (std::strcmp(path, "/api/v1/project/export") == 0) {
         beginExport();
         cmd = {WebCommandKind::ExportProjectForDownload, 0};
+    } else if (std::strcmp(path, "/api/v1/render/start") == 0) {
+        beginAudioRender();
+        cmd = {WebCommandKind::RenderAudio, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/project/open-recent") == 0) {
         const std::string s(body, bodyLen);
         std::string pathRaw;
@@ -2039,17 +2044,20 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
 }
 
 void WebServer::registerUdpSubscriber(const std::string& ip, int port) {
-    if (ip.empty() || ip == "127.0.0.1" || ip == "localhost" || ip == "::1")
+    if (ip.empty() || port <= 0 || port > 65535)
         return;
+    // libwebsockets may report an IPv4 peer through an IPv6-mapped address.
+    // DatagramSocket's IPv4 write expects the dotted quad.
+    const std::string normalizedIp = ip.rfind("::ffff:", 0) == 0 ? ip.substr(7) : ip;
     const double nowSec = juce::Time::getMillisecondCounterHiRes() * 0.001;
     std::lock_guard<std::mutex> lock(udpSubscribersMutex_);
     for (auto& s : udpSubscribers_) {
-        if (s.ip == ip && s.port == port) {
+        if (s.ip == normalizedIp && s.port == port) {
             s.lastSeenSec = nowSec;
             return;
         }
     }
-    udpSubscribers_.push_back({ip, port, nowSec});
+    udpSubscribers_.push_back({normalizedIp, port, nowSec});
 }
 
 int WebServer::serveStatic(struct lws* wsi, const char* path) {
@@ -2156,6 +2164,27 @@ void WebServer::failExport() {
     exportReady = false;
     exportFilePath.clear();
     exportFileName.clear();
+}
+
+void WebServer::beginAudioRender() {
+    std::lock_guard<std::mutex> lock(audioRenderMutex);
+    audioRenderStatus = {"rendering", 0.0, {}, {}};
+}
+
+void WebServer::updateAudioRenderProgress(double progress) {
+    std::lock_guard<std::mutex> lock(audioRenderMutex);
+    if (audioRenderStatus.state == "rendering")
+        audioRenderStatus.progress = std::clamp(progress, 0.0, 1.0);
+}
+
+void WebServer::completeAudioRender(std::string outputPath) {
+    std::lock_guard<std::mutex> lock(audioRenderMutex);
+    audioRenderStatus = {"complete", 1.0, std::move(outputPath), {}};
+}
+
+void WebServer::failAudioRender(std::string error) {
+    std::lock_guard<std::mutex> lock(audioRenderMutex);
+    audioRenderStatus = {"failed", 0.0, {}, std::move(error)};
 }
 
 void WebServer::beginTrackImport(int songIndex, int trackIndex, std::string fileName) {
@@ -2425,6 +2454,22 @@ int WebServer::serveExportStatus(struct lws* wsi) {
     WExportStatusPayload wire;
     wire.ready = ready;
     wire.fileName = std::move(name);
+    std::string json;
+    (void)glz::write_json(wire, json);
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+}
+
+int WebServer::serveAudioRenderStatus(struct lws* wsi) {
+    RenderStatus status;
+    {
+        std::lock_guard<std::mutex> lock(audioRenderMutex);
+        status = audioRenderStatus;
+    }
+    WAudioRenderStatusPayload wire;
+    wire.state = std::move(status.state);
+    wire.progress = status.progress;
+    wire.outputPath = std::move(status.outputPath);
+    wire.error = std::move(status.error);
     std::string json;
     (void)glz::write_json(wire, json);
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Modal, ScrollShadow } from "@heroui/react";
-import { Button } from "./ui";
+import { ScrollShadow } from "@heroui/react";
+import { Button, Modal } from "./ui";
 import { Check, FolderUp, Layers, Music } from "lucide-react";
 import type { WebUiState } from "../lib/types";
 import {
@@ -131,7 +131,7 @@ export function ImportStemsModal({
     <Modal isOpen={isOpen}>
       <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled={true}>
         <Modal.Container size="lg" placement="center">
-          <Modal.Dialog className="dark bg-surface text-foreground border border-default/40 rounded-xl p-4 shadow-2xl">
+          <Modal.Dialog aria-label="Import song stems" className="border border-default/40 rounded-xl p-4 shadow-2xl">
             <Modal.Header className="flex flex-col gap-1 border-b border-default/20 pb-3">
               <div className="flex items-center gap-2 text-lg font-bold text-accent">
                 <FolderUp size={20} />
@@ -300,5 +300,3 @@ export function ImportStemsModal({
     </Modal>
   );
 }
-
-

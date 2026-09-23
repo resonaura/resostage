@@ -39,6 +39,7 @@ import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { readFileSync, statSync, unlinkSync, writeFileSync, appendFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import dgram from "node:dgram";
+import { lookup } from "node:dns/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -52,6 +53,7 @@ import {
   DISCOVERY_PORT,
   type DiscoveredDevice,
 } from "./discovery.js";
+import { UdpTelemetryTracker } from "./udpTelemetry.js";
 import {
   createPlatformAdapter,
   type PlatformAdapter,
@@ -151,8 +153,10 @@ function waitForIpcReady(timeoutMs = 15_000): Promise<void> {
   });
 }
 
-const UDP_TELEMETRY_PORT = 2898;
 let udpTelemetrySocket: dgram.Socket | null = null;
+let udpTelemetryPort = 0;
+let acceptedTelemetrySources = new Set<string>();
+const udpTelemetryTracker = new UdpTelemetryTracker();
 
 function setupUdpTelemetry(): void {
   try {
@@ -164,7 +168,9 @@ function setupUdpTelemetry(): void {
         if (rinfo.address === "127.0.0.1" || rinfo.address === "localhost") {
           return;
         }
-        if (activeRemoteHost && rinfo.address !== activeRemoteHost && !activeRemoteHost.includes(rinfo.address)) {
+        // Fail closed while DNS is unresolved as well: accepting an arbitrary
+        // LAN sender here would let a stray/malicious datagram drive the UI.
+        if (acceptedTelemetrySources.size === 0 || !acceptedTelemetrySources.has(rinfo.address)) {
           return;
         }
       } else {
@@ -173,12 +179,24 @@ function setupUdpTelemetry(): void {
           return;
         }
       }
+      if (!udpTelemetryTracker.accept(msg, rinfo.address)) return;
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("udp-telemetry", msg);
       }
     });
-    udpTelemetrySocket.bind(UDP_TELEMETRY_PORT, "0.0.0.0", () => {
-      console.log(`[resostage] UDP Telemetry listener bound to 0.0.0.0:${UDP_TELEMETRY_PORT}`);
+    // Let the OS choose the port. A fixed 2898 listener prevented a second
+    // user/session on the same workstation from receiving anything and made
+    // an unrelated process able to black-hole telemetry. The selected port
+    // is advertised to Core by the subscription heartbeat below.
+    udpTelemetrySocket.bind(0, "0.0.0.0", () => {
+      const address = udpTelemetrySocket?.address();
+      udpTelemetryPort = typeof address === "object" ? address.port : 0;
+      udpTelemetryTracker.setLocalPort(udpTelemetryPort);
+      console.log(`[resostage] UDP Telemetry listener bound to 0.0.0.0:${udpTelemetryPort}`);
+      startUdpSubscription();
+    });
+    udpTelemetrySocket.on("error", (err) => {
+      console.warn("[resostage] UDP telemetry socket error:", err);
     });
   } catch (err) {
     console.warn("[resostage] UDP telemetry listener failed:", err);
@@ -370,7 +388,7 @@ function currentBackendUrl(): string {
   if (isRemoteSession && activeRemoteHost) {
     return `http://${activeRemoteHost}:${activeRemotePort}`;
   }
-  return `http://localhost:${PORT}`;
+  return `http://127.0.0.1:${PORT}`;
 }
 
 // ── Resilient HTTP to a (possibly remote) backend ────────────────────────
@@ -1982,20 +2000,41 @@ ipcMain.handle("remote:get-status", async () => {
   return {
     isRemoteMode: isRemoteSession,
     activeRemoteHost: activeRemoteHost ? `${activeRemoteHost}:${activeRemotePort}` : null,
+    controlReachable: remoteControlReachable,
+    telemetry: udpTelemetryTracker.snapshot(),
   };
 });
 
 let remoteUdpHeartbeatTimer: NodeJS.Timeout | null = null;
+let remoteControlReachable = !isRemoteSession;
 
-function startRemoteUdpHeartbeat(host: string, port: number): void {
+async function resolveTelemetrySources(host: string): Promise<Set<string>> {
+  const result = new Set<string>();
+  try {
+    const rows = await lookup(host, { all: true, family: 4 });
+    for (const row of rows) result.add(row.address);
+  } catch {
+    // A literal IPv4 remains useful even if the resolver is unavailable.
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) result.add(host);
+  }
+  return result;
+}
+
+function startUdpSubscription(): void {
   stopRemoteUdpHeartbeat();
+  if (udpTelemetryPort <= 0) return;
   const sendHeartbeat = () => {
-    void remoteHttp(`http://${host}:${port}/api/v1/remote/subscribe-udp`, {
+    const base = currentBackendUrl();
+    void remoteHttp(`${base}/api/v1/remote/subscribe-udp`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ port: UDP_TELEMETRY_PORT }),
+      body: JSON.stringify({ port: udpTelemetryPort }),
       timeoutMs: 2000,
-    }).catch(() => {});
+    }).then((result) => {
+      remoteControlReachable = result.ok;
+    }).catch(() => {
+      remoteControlReachable = false;
+    });
   };
   sendHeartbeat();
   remoteUdpHeartbeatTimer = setInterval(sendHeartbeat, 3000);
@@ -2010,15 +2049,31 @@ function stopRemoteUdpHeartbeat(): void {
 
 ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: number }) => {
   logRemoteHttp(`ipc:connect CALLED payload=${JSON.stringify(payload)}`);
-  if (!payload?.host) return false;
+  if (!payload?.host) return { ok: false, error: "Host is required" };
   const { host, port: parsedPort } = normalizeRemoteHost(payload.host, payload.port || DEFAULT_PORT);
-  if (!host) return false;
+  if (!host) return { ok: false, error: "Host is required" };
+
+  // Do not switch the entire application onto an unverified address. The old
+  // optimistic transition left every command pointed at a dead machine while
+  // still painting an "Active Remote Session" banner.
+  const probe = await remoteHttp(`http://${host}:${parsedPort}/api/v1/remote/discovery`, {
+    timeoutMs: 3000,
+  });
+  if (!probe.ok) {
+    return {
+      ok: false,
+      error: probe.error || `Remote Core did not answer (HTTP ${probe.status || 0})`,
+    };
+  }
 
   console.log(`[resostage] Remote session connecting to ${host}:${parsedPort}`);
+  acceptedTelemetrySources = await resolveTelemetrySources(host);
+  udpTelemetryTracker.reset();
   activeRemoteHost = host;
   activeRemotePort = parsedPort;
   isRemoteSession = true;
-  startRemoteUdpHeartbeat(activeRemoteHost, activeRemotePort);
+  remoteControlReachable = true;
+  startUdpSubscription();
   triggerLocalNetworkPermission();
   logRemoteHttp(`connect: isRemoteSession=true host=${activeRemoteHost}:${activeRemotePort}`);
 
@@ -2030,7 +2085,7 @@ ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: n
     }
   });
 
-  return true;
+  return { ok: true, url: `${host}:${parsedPort}` };
 });
 
 ipcMain.handle("remote:disconnect", async () => {
@@ -2038,6 +2093,10 @@ ipcMain.handle("remote:disconnect", async () => {
   activeRemoteHost = null;
   activeRemotePort = PORT;
   isRemoteSession = false;
+  acceptedTelemetrySources = new Set();
+  udpTelemetryTracker.reset();
+  remoteControlReachable = true;
+  startUdpSubscription();
   menuModel = await fetchMenuWithRetry(5, 200);
   refreshMenu();
   refreshTouchBar();
@@ -2162,6 +2221,9 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
     if (STANDALONE) spawnBackend();
     ensureAppNotSuspended();
+    if (activeRemoteHost) {
+      acceptedTelemetrySources = await resolveTelemetrySources(activeRemoteHost);
+    }
     setupUdpTelemetry();
     triggerLocalNetworkPermission();
     shellDiscovery.start();

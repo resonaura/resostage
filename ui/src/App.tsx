@@ -15,6 +15,7 @@ import {
   ContextMenuItem,
 } from "./components/ContextMenu";
 import { GlobalTransportBar } from "./components/GlobalTransportBar";
+import { RenderAudioDialog } from "./components/RenderAudioDialog";
 import { Button, Tabs } from "./components/ui";
 import { performAction, type ActionId } from "./lib/actions";
 import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/api";
@@ -850,6 +851,7 @@ function OpenConfirmDialog({ state }: { state: WebUiState }) {
 function ProjectMenu({ state }: { state: WebUiState }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [confirmNew, setConfirmNew] = useState(false);
+  const [renderOpen, setRenderOpen] = useState(false);
   const [saveLabel, setSaveLabel] = useState("Save");
   const saveFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recentBtnRef = useRef<HTMLButtonElement>(null);
@@ -964,6 +966,9 @@ function ProjectMenu({ state }: { state: WebUiState }) {
           Recent
         </Button>
       )}
+      <Button size="sm" variant="outline" onPress={() => setRenderOpen(true)}>
+        Render…
+      </Button>
       {recentAnchor && (
         <ContextMenu
           x={recentAnchor.x}
@@ -1041,6 +1046,7 @@ function ProjectMenu({ state }: { state: WebUiState }) {
           void project.new();
         }}
       />
+      <RenderAudioDialog open={renderOpen} state={state} onClose={() => setRenderOpen(false)} />
     </div>
   );
 }

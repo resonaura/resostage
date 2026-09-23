@@ -59,14 +59,14 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 select-none"
+      className="rs-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 select-none"
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       role="dialog"
       aria-modal="true"
       onClick={handleCancel}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-default/40 bg-surface p-5 shadow-2xl"
+        className="rs-modal-surface w-full max-w-md rounded-xl border border-default/40 p-5 shadow-2xl"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         onClick={(e) => e.stopPropagation()}
       >

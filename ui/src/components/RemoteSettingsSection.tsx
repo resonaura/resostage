@@ -1,6 +1,6 @@
 import { Chip, Spinner } from "@heroui/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Globe, Laptop, Radio, RefreshCw, Server, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Activity, Globe, Laptop, Radio, RefreshCw, Server, ShieldCheck, ShieldAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button, Card, Switch } from "./ui";
 import { IS_ELECTRON } from "../lib/electron";
@@ -13,6 +13,16 @@ interface DiscoveredDevice {
   port: number;
   protocolVersion: string;
   discoveryEnabled: boolean;
+}
+
+interface UdpTelemetryStatus {
+  state: "waiting" | "live" | "stale";
+  localPort: number;
+  source: string | null;
+  receivedPackets: number;
+  lostPackets: number;
+  outOfOrderPackets: number;
+  jitterMs: number;
 }
 
 import type { Variants } from "framer-motion";
@@ -48,6 +58,9 @@ export function RemoteSettingsSection() {
   const [manualPort, setManualPort] = useState("2899");
   const [isRemoteMode, setIsRemoteMode] = useState(false);
   const [activeRemoteHost, setActiveRemoteHost] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [telemetry, setTelemetry] = useState<UdpTelemetryStatus | null>(null);
+  const [controlReachable, setControlReachable] = useState(true);
   const isTogglingRef = useRef(false);
 
   const fetchStatusAndDevices = async (showSpinner = false) => {
@@ -104,6 +117,8 @@ export function RemoteSettingsSection() {
           setRemoteBackend(null);
           setActiveRemoteHost(null);
         }
+        setTelemetry(status.telemetry ?? null);
+        setControlReachable(status.controlReachable !== false);
       }
     } catch {
       /* ignore */
@@ -170,20 +185,26 @@ export function RemoteSettingsSection() {
     }
     if (!host) return;
 
+    setConnectError(null);
+    if (IS_ELECTRON && window.resostageElectron?.connectRemote) {
+      const result = await window.resostageElectron.connectRemote(host, port);
+      if (!result.ok) {
+        setConnectError(result.error || "Remote Core did not answer");
+        return;
+      }
+    }
     const target = `${host}:${port}`;
     setRemoteBackend(target);
     setIsRemoteMode(true);
     setActiveRemoteHost(target);
-
-    if (IS_ELECTRON && window.resostageElectron?.connectRemote) {
-      await window.resostageElectron.connectRemote(host, port);
-    }
+    setControlReachable(true);
   };
 
   const handleDisconnect = async () => {
     setRemoteBackend(null);
     setIsRemoteMode(false);
     setActiveRemoteHost(null);
+    setControlReachable(true);
 
     if (IS_ELECTRON && window.resostageElectron?.disconnectRemote) {
       await window.resostageElectron.disconnectRemote();
@@ -228,6 +249,41 @@ export function RemoteSettingsSection() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {connectError && (
+        <Card className="border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+          {connectError}
+        </Card>
+      )}
+
+      {isRemoteMode && telemetry && (
+        <motion.div variants={cardVariants}>
+          <Card className="p-4">
+            <div className="mb-3 flex items-center gap-2 font-semibold">
+              <Activity className="h-4 w-4 text-accent" />
+              UDP telemetry
+              <Chip
+                size="sm"
+                color={telemetry.state === "live" ? "success" : telemetry.state === "stale" ? "danger" : "warning"}
+                variant="soft"
+              >
+                {telemetry.state}
+              </Chip>
+              <Chip size="sm" color={controlReachable ? "success" : "danger"} variant="soft">
+                control {controlReachable ? "live" : "unreachable"}
+              </Chip>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs text-foreground/65 sm:grid-cols-4">
+              <div><span className="block text-foreground/40">Source</span>{telemetry.source ?? "Waiting"}</div>
+              <div><span className="block text-foreground/40">Local port</span>{telemetry.localPort || "—"}</div>
+              <div><span className="block text-foreground/40">Packets</span>{telemetry.receivedPackets.toLocaleString()}</div>
+              <div><span className="block text-foreground/40">Jitter</span>{telemetry.jitterMs.toFixed(1)} ms</div>
+              <div><span className="block text-foreground/40">Estimated loss</span>{telemetry.lostPackets.toLocaleString()}</div>
+              <div><span className="block text-foreground/40">Out of order</span>{telemetry.outOfOrderPackets.toLocaleString()}</div>
+            </div>
+          </Card>
+        </motion.div>
+      )}
 
       {/* Discovery Toggle Card */}
       <motion.div variants={cardVariants}>

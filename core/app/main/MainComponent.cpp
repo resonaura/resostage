@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <optional>
@@ -269,6 +270,9 @@ void MainComponent::notifyCoreReady() {
 
 MainComponent::~MainComponent() {
     stopTimer();
+    cancelAudioRender.store(true, std::memory_order_release);
+    if (audioRenderThread.joinable())
+        audioRenderThread.join();
     // In electron mode the shell is our on-screen window -- kill it first so
     // quitting ResoStage never strands a visible shell with no backend.
     terminateElectronShell();
@@ -1122,6 +1126,9 @@ void MainComponent::drainWebCommands() {
                 }
                 break;
             }
+            case WebCommandKind::RenderAudio:
+                startAudioRender(cmd.json);
+                break;
             case WebCommandKind::BuilderSongAdd: builderSongAdd(cmd.json); break;
             case WebCommandKind::BuilderSongImportFolder: builderSongImportFolder(cmd.json); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
@@ -1214,6 +1221,94 @@ void MainComponent::drainWebCommands() {
         dispatchOne(batch[i]);
         ++i;
     }
+}
+
+void MainComponent::startAudioRender(const std::string& json) {
+    if (audioRenderRunning.exchange(true, std::memory_order_acq_rel)) {
+        webServer.failAudioRender("Another audio render is already running");
+        return;
+    }
+    if (audioRenderThread.joinable())
+        audioRenderThread.join();
+
+    OfflineRenderRequest request;
+    glz::generic doc;
+    if (!builder_json::parseJson(json, doc)) {
+        audioRenderRunning.store(false, std::memory_order_release);
+        webServer.failAudioRender("Invalid render options");
+        return;
+    }
+
+    std::string scope = "song";
+    std::string target = "master";
+    std::string targetId;
+    std::string fileName;
+    int songIndex = static_cast<int>(engine.currentSongIndex());
+    int sampleRate = static_cast<int>(std::lround(std::max(8000.0, engine.project().sampleRate)));
+    int bitDepth = 24;
+    double tailSeconds = 0.0;
+    (void)builder_json::getString(doc, "scope", scope);
+    (void)builder_json::getString(doc, "target", target);
+    (void)builder_json::getString(doc, "targetId", targetId);
+    (void)builder_json::getString(doc, "fileName", fileName);
+    (void)builder_json::getInt(doc, "songIndex", songIndex);
+    (void)builder_json::getInt(doc, "sampleRate", sampleRate);
+    (void)builder_json::getInt(doc, "bitDepth", bitDepth);
+    (void)builder_json::getDouble(doc, "tailSeconds", tailSeconds);
+
+    request.songIndex = scope == "project" ? -1 : songIndex;
+    request.targetId = targetId;
+    request.sampleRate = sampleRate;
+    request.bitDepth = bitDepth;
+    request.tailSeconds = std::clamp(tailSeconds, 0.0, 30.0);
+    if (target == "track") request.targetKind = RenderTargetKind::Track;
+    else if (target == "bus") request.targetKind = RenderTargetKind::Bus;
+    else if (target == "click") request.targetKind = RenderTargetKind::Click;
+    else request.targetKind = RenderTargetKind::Master;
+
+    juce::String safeName = juce::String(fileName).retainCharacters(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-.()");
+    if (!safeName.endsWithIgnoreCase(".wav")) safeName += ".wav";
+    if (safeName == ".wav") {
+        safeName = juce::String(engine.project().name).retainCharacters(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-");
+        if (safeName.isEmpty()) safeName = "ResoStage Render";
+        safeName += ".wav";
+    }
+    juce::File base(engine.projectPath());
+    juce::File exportDir = base.getParentDirectory().getChildFile("Exports");
+    if (engine.projectPath().empty())
+        exportDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                        .getChildFile("ResoStage Exports");
+    exportDir.createDirectory();
+    juce::File output = exportDir.getChildFile(safeName);
+    if (output.exists())
+        output = exportDir.getNonexistentChildFile(output.getFileNameWithoutExtension(), ".wav", false);
+    request.outputPath = output.getFullPathName().toStdString();
+
+    const Project projectSnapshot = engine.project();
+    const std::string projectPath = engine.projectPath();
+    cancelAudioRender.store(false, std::memory_order_release);
+    setStatus("Rendering audio in background…");
+    const juce::Component::SafePointer<MainComponent> safeThis(this);
+    audioRenderThread = std::thread([this, safeThis, projectSnapshot, projectPath, request]() {
+        OfflineRenderer renderer;
+        const OfflineRenderResult result = renderer.render(
+            projectSnapshot, projectPath, request,
+            [this](double progress) { webServer.updateAudioRenderProgress(progress); },
+            &cancelAudioRender);
+        if (result.ok)
+            webServer.completeAudioRender(result.outputPath);
+        else
+            webServer.failAudioRender(result.error);
+        audioRenderRunning.store(false, std::memory_order_release);
+        juce::MessageManager::callAsync([safeThis, result]() {
+            if (safeThis == nullptr) return;
+            safeThis->setStatus(result.ok
+                ? "Render complete: " + juce::String(result.outputPath)
+                : "Render failed: " + juce::String(result.error));
+        });
+    });
 }
 
 void MainComponent::confirmQuitIfUnsaved(std::function<void(bool)> onDecision) {

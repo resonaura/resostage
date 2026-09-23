@@ -8,9 +8,25 @@ declare global {
       getDiscoveredDevices?: () => Promise<any[]>;
       getDiscoveryEnabled?: () => Promise<boolean>;
       setDiscoveryEnabled?: (enabled: boolean) => Promise<boolean>;
-      connectRemote?: (host: string, port: number) => Promise<boolean | { ok: boolean; url?: string }>;
+      connectRemote?: (host: string, port: number) => Promise<{ ok: boolean; url?: string; error?: string }>;
       disconnectRemote?: () => Promise<boolean | { ok: boolean; url?: string }>;
-      getRemoteStatus?: () => Promise<{ isRemoteMode: boolean; activeRemoteHost?: string | null }>;
+      getRemoteStatus?: () => Promise<{
+        isRemoteMode: boolean;
+        activeRemoteHost?: string | null;
+        controlReachable?: boolean;
+        telemetry?: {
+          state: "waiting" | "live" | "stale";
+          localPort: number;
+          source: string | null;
+          receivedPackets: number;
+          lostPackets: number;
+          outOfOrderPackets: number;
+          malformedPackets: number;
+          receivedBytes: number;
+          lastPacketAt: number | null;
+          jitterMs: number;
+        };
+      }>;
       proxyRequest?: (req: {
         path: string;
         method?: string;

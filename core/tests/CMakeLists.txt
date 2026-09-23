@@ -37,12 +37,17 @@ add_executable(resostage_engine_tests
   test_mix_renderer.cpp
   test_asio_diag.cpp
   test_udp_discovery.cpp
+  test_offline_renderer.cpp
   ../app/network/UdpDiscovery.cpp
+  ../app/engine/OfflineRenderer.cpp
 )
 
 target_include_directories(resostage_engine_tests PRIVATE ../app)
 
 target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)
+if(TARGET signalsmith-stretch)
+  target_link_libraries(resostage_engine_tests PRIVATE signalsmith-stretch)
+endif()
 if(TARGET juce_audio_devices)
   target_link_libraries(resostage_engine_tests PRIVATE juce_audio_devices)
 endif()
@@ -57,4 +62,3 @@ else()
 endif()
 
 add_test(NAME resostage_engine_tests COMMAND resostage_engine_tests)
-

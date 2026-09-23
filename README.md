@@ -104,6 +104,25 @@ High-contrast color palettes specifically measured and tuned for legibility in d
   <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-themes.png" width="850" alt="ResoStage Stage Themes" />
 </p>
 
+### Native Remote Control and Offline Render
+
+The desktop application can control a Core running on another machine from
+**Settings → Remote**. Commands and project edits use reliable HTTP requests;
+the latency-sensitive playhead, meters, mixer flags, health data, and lighting
+preview use a compact sequenced UDP datagram stream. The Remote page reports
+the actual source address, receive port, estimated loss, reordered packets,
+and jitter instead of treating an HTTP connection as proof that telemetry is
+healthy. See [docs/REMOTE_CONTROL.md](docs/REMOTE_CONTROL.md) for ports,
+firewall rules, the wire contract, and a two-machine verification checklist.
+
+**Render…** in the Project toolbar performs a background offline WAV render
+without stopping the live audio device. It can render the entire set or one
+song, and can select Main, an individual track, an aux bus, or the metronome.
+Output options include 44.1–192 kHz, 16/24-bit PCM or 32-bit float, and a
+configurable tail. Renders use the same `MixGraph` and `MixRenderer` as live
+playback, so faders, pan, mute/solo, sends, bus routing, fades, loops, speed,
+and pitch treatment follow the live mix rather than a parallel approximation.
+
 ---
 
 ## Technical Architecture

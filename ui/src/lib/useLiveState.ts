@@ -565,6 +565,29 @@ export function useLiveState(view: string = "player") {
     registerRefetchHandler(() => void fetchState());
     void fetchState();
     const statePollInterval = setInterval(fetchState, 1000);
+    // Embedded mode has no WebSocket lifecycle to drive the connection dot.
+    // Follow the shell's receive-side UDP watchdog so a dead/firewalled lane
+    // becomes visible within one packet timeout.
+    const udpStatusInterval =
+      isEmbeddedMode && window.resostageElectron?.getRemoteStatus
+        ? setInterval(() => {
+            void window.resostageElectron?.getRemoteStatus?.()
+              .then((remote) => {
+                if (cancelled) return;
+                const udpState = remote.telemetry?.state;
+                if (remote.controlReachable === false || udpState === "stale") {
+                  setStatus("reconnecting");
+                } else if (udpState === "live") {
+                  setStatus("live");
+                } else {
+                  setStatus("connecting");
+                }
+              })
+              .catch(() => {
+                if (!cancelled) setStatus("reconnecting");
+              });
+          }, 500)
+        : null;
 
     const wakeSocket = () => {
       if (cancelled) return;
@@ -627,6 +650,7 @@ export function useLiveState(view: string = "player") {
       unsubBackend();
       unregisterRefetchHandler();
       clearInterval(statePollInterval);
+      if (udpStatusInterval) clearInterval(udpStatusInterval);
       clearInterval(sampleInterval);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);

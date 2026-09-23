@@ -646,6 +646,13 @@ struct WExportStatusPayload {
     std::string fileName;
 };
 
+struct WAudioRenderStatusPayload {
+    std::string state = "idle";
+    double progress = 0.0;
+    std::string outputPath;
+    std::string error;
+};
+
 struct WMenuItem {
     std::optional<bool> separator;
     std::optional<std::string> kind;

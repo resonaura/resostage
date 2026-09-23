@@ -200,6 +200,20 @@
   border-radius: 1rem;
 }
 
+/* Modal is wrapped in components/ui/Modal.tsx. These also cover the handful
+   of purpose-built dialogs which cannot use HeroUI's compound component. */
+.rs-modal-backdrop {
+  background-color: color-mix(in oklab, var(--background) 60%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.modal__dialog.rs-modal-surface,
+.rs-modal-surface {
+  background-color: var(--surface);
+  color: var(--surface-foreground);
+}
+
 /* ── 2b. Toggle density: the DAW step below HeroUI's smallest ──────────────
    A mixer strip's M/S pair is 20px and the timeline's shrinks with the lane.
    Height and width are left alone on purpose so a call site can set them

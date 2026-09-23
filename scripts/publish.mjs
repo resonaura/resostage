@@ -354,6 +354,10 @@ Filename: "{tmp}\\${vcRedistFile}"; Parameters: "/quiet /norestart"; \\
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""ResoStage LAN Discovery"" dir=in action=allow protocol=UDP localport=28991 enable=yes"; Flags: runhidden
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""ResoStage Web Server"" dir=in action=allow protocol=TCP localport=2899 enable=yes"; Flags: runhidden
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""ResoStage Telemetry"" dir=in action=allow protocol=UDP localport=2898 enable=yes"; Flags: runhidden
+; Native remote mode listens on an OS-selected UDP port. Scope this exception
+; to the signed/installed controller executable instead of opening every
+; ephemeral UDP port system-wide.
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""ResoStage Controller Telemetry"" dir=in action=allow protocol=UDP program=""{app}\ResoStage.exe"" enable=yes"; Flags: runhidden
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""ResoStage Art-Net"" dir=in action=allow protocol=UDP localport=6454 enable=yes"; Flags: runhidden
 Filename: "{app}\\ResoStage.exe"; Description: "Launch ResoStage"; \\
   Flags: nowait postinstall skipifsilent
@@ -362,6 +366,7 @@ Filename: "{app}\\ResoStage.exe"; Description: "Launch ResoStage"; \\
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""ResoStage LAN Discovery"""; Flags: runhidden
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""ResoStage Web Server"""; Flags: runhidden
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""ResoStage Telemetry"""; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""ResoStage Controller Telemetry"""; Flags: runhidden
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""ResoStage Art-Net"""; Flags: runhidden
 
 [Code]
