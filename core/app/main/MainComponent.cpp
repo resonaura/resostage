@@ -1129,6 +1129,10 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::RenderAudio:
                 startAudioRender(cmd.json);
                 break;
+            case WebCommandKind::CancelAudioRender:
+                cancelAudioRender.store(true, std::memory_order_release);
+                setStatus("Cancelling audio render…");
+                break;
             case WebCommandKind::BuilderSongAdd: builderSongAdd(cmd.json); break;
             case WebCommandKind::BuilderSongImportFolder: builderSongImportFolder(cmd.json); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
@@ -1240,51 +1244,111 @@ void MainComponent::startAudioRender(const std::string& json) {
     }
 
     std::string scope = "song";
-    std::string target = "master";
-    std::string targetId;
-    std::string fileName;
+    std::string legacyTarget = "master";
+    std::string legacyTargetId;
+    std::string namingPattern = "{project}_{song}_{stem}";
+    std::string tailPolicy = "cut";
     int songIndex = static_cast<int>(engine.currentSongIndex());
     int sampleRate = static_cast<int>(std::lround(std::max(8000.0, engine.project().sampleRate)));
     int bitDepth = 24;
-    double tailSeconds = 0.0;
+    double rangeStart = 0.0;
+    double rangeEnd = 0.0;
+    double tailThresholdDb = -96.0;
+    double tailQuietSeconds = 0.5;
+    double maxTailSeconds = 30.0;
     (void)builder_json::getString(doc, "scope", scope);
-    (void)builder_json::getString(doc, "target", target);
-    (void)builder_json::getString(doc, "targetId", targetId);
-    (void)builder_json::getString(doc, "fileName", fileName);
+    (void)builder_json::getString(doc, "target", legacyTarget);
+    (void)builder_json::getString(doc, "targetId", legacyTargetId);
+    if (!builder_json::getString(doc, "fileNamePattern", namingPattern))
+        (void)builder_json::getString(doc, "fileName", namingPattern);
+    (void)builder_json::getString(doc, "tailPolicy", tailPolicy);
     (void)builder_json::getInt(doc, "songIndex", songIndex);
     (void)builder_json::getInt(doc, "sampleRate", sampleRate);
     (void)builder_json::getInt(doc, "bitDepth", bitDepth);
-    (void)builder_json::getDouble(doc, "tailSeconds", tailSeconds);
+    (void)builder_json::getDouble(doc, "rangeStartSeconds", rangeStart);
+    (void)builder_json::getDouble(doc, "rangeEndSeconds", rangeEnd);
+    (void)builder_json::getDouble(doc, "tailThresholdDb", tailThresholdDb);
+    (void)builder_json::getDouble(doc, "tailQuietSeconds", tailQuietSeconds);
+    (void)builder_json::getDouble(doc, "maxTailSeconds", maxTailSeconds);
 
     request.songIndex = scope == "project" ? -1 : songIndex;
-    request.targetId = targetId;
     request.sampleRate = sampleRate;
     request.bitDepth = bitDepth;
-    request.tailSeconds = std::clamp(tailSeconds, 0.0, 30.0);
-    if (target == "track") request.targetKind = RenderTargetKind::Track;
-    else if (target == "bus") request.targetKind = RenderTargetKind::Bus;
-    else if (target == "click") request.targetKind = RenderTargetKind::Click;
-    else request.targetKind = RenderTargetKind::Master;
+    request.rangeStartSeconds = std::max(0.0, rangeStart);
+    request.rangeEndSeconds = std::max(0.0, rangeEnd);
+    request.tailPolicy = tailPolicy == "leave" ? RenderTailPolicy::Leave : RenderTailPolicy::Cut;
+    request.tailThresholdDb = std::clamp(tailThresholdDb, -144.0, -24.0);
+    request.tailQuietSeconds = std::clamp(tailQuietSeconds, 0.05, 10.0);
+    request.maxTailSeconds = std::clamp(maxTailSeconds, 0.0, 60.0);
 
-    juce::String safeName = juce::String(fileName).retainCharacters(
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-.()");
-    if (!safeName.endsWithIgnoreCase(".wav")) safeName += ".wav";
-    if (safeName == ".wav") {
-        safeName = juce::String(engine.project().name).retainCharacters(
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-");
-        if (safeName.isEmpty()) safeName = "ResoStage Render";
-        safeName += ".wav";
+    auto kindFromWire = [](const std::string& kind) {
+        if (kind == "track") return RenderTargetKind::Track;
+        if (kind == "bus") return RenderTargetKind::Bus;
+        if (kind == "click") return RenderTargetKind::Click;
+        return RenderTargetKind::Master;
+    };
+    if (const auto* targetRows = builder_json::getArray(doc, "targets")) {
+        for (const auto& row : *targetRows) {
+            if (request.targets.size() >= 256) break;
+            std::string kind;
+            std::string id;
+            if (!builder_json::getString(row, "kind", kind)) continue;
+            (void)builder_json::getString(row, "id", id);
+            request.targets.push_back({kindFromWire(kind), std::move(id), {}});
+        }
     }
+    if (request.targets.empty())
+        request.targets.push_back({kindFromWire(legacyTarget), legacyTargetId, {}});
+
+    const Project& liveProject = engine.project();
+    auto stemName = [&liveProject](const OfflineRenderTarget& target) -> juce::String {
+        if (target.kind == RenderTargetKind::Master) return "Main";
+        if (target.kind == RenderTargetKind::Click) return "Click";
+        if (target.kind == RenderTargetKind::Track) {
+            for (const auto& track : liveProject.tracks)
+                if (track.id == target.id) return juce::String(track.name);
+            return "Track";
+        }
+        for (const auto& bus : liveProject.sends)
+            if (bus.id == target.id) return juce::String(bus.name);
+        return "Bus";
+    };
+
     juce::File base(engine.projectPath());
     juce::File exportDir = base.getParentDirectory().getChildFile("Exports");
     if (engine.projectPath().empty())
         exportDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
                         .getChildFile("ResoStage Exports");
     exportDir.createDirectory();
-    juce::File output = exportDir.getChildFile(safeName);
-    if (output.exists())
-        output = exportDir.getNonexistentChildFile(output.getFileNameWithoutExtension(), ".wav", false);
-    request.outputPath = output.getFullPathName().toStdString();
+
+    const juce::String projectToken = juce::String(liveProject.name).isNotEmpty()
+        ? juce::String(liveProject.name) : juce::String("Project");
+    juce::String songToken = "Project";
+    if (request.songIndex >= 0 && request.songIndex < static_cast<int>(liveProject.songs.size()))
+        songToken = juce::String(liveProject.songs[static_cast<size_t>(request.songIndex)].name);
+    std::vector<std::string> plannedOutputPaths;
+    for (auto& target : request.targets) {
+        juce::String expanded(namingPattern);
+        expanded = expanded.replace("{project}", projectToken)
+                           .replace("{song}", songToken)
+                           .replace("{stem}", stemName(target));
+        juce::String safeName = expanded.retainCharacters(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-.()");
+        if (safeName.endsWithIgnoreCase(".wav"))
+            safeName = safeName.dropLastCharacters(4);
+        safeName = safeName.trim();
+        if (safeName.isEmpty()) safeName = "ResoStage Render";
+        juce::File output = exportDir.getChildFile(safeName + ".wav");
+        int copy = 2;
+        while (output.exists()
+               || std::find(plannedOutputPaths.begin(), plannedOutputPaths.end(),
+                            output.getFullPathName().toStdString()) != plannedOutputPaths.end()) {
+            output = exportDir.getChildFile(safeName + " " + juce::String(copy++) + ".wav");
+        }
+        target.outputPath = output.getFullPathName().toStdString();
+        plannedOutputPaths.push_back(target.outputPath);
+    }
+    request.outputPath = request.targets.front().outputPath;
 
     const Project projectSnapshot = engine.project();
     const std::string projectPath = engine.projectPath();
@@ -1298,7 +1362,7 @@ void MainComponent::startAudioRender(const std::string& json) {
             [this](double progress) { webServer.updateAudioRenderProgress(progress); },
             &cancelAudioRender);
         if (result.ok)
-            webServer.completeAudioRender(result.outputPath);
+            webServer.completeAudioRender(result.outputPaths);
         else
             webServer.failAudioRender(result.error);
         audioRenderRunning.store(false, std::memory_order_release);

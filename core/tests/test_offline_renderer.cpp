@@ -17,6 +17,11 @@ std::filesystem::path temporaryWavPath() {
               std::chrono::steady_clock::now().time_since_epoch().count()) + ".wav");
 }
 
+std::filesystem::path temporaryWavPath(const char* suffix) {
+    auto path = temporaryWavPath();
+    return path.parent_path() / (path.stem().string() + suffix + ".wav");
+}
+
 uint32_t littleEndianU32(const std::array<uint8_t, 44>& bytes, size_t offset) {
     return static_cast<uint32_t>(bytes[offset])
         | (static_cast<uint32_t>(bytes[offset + 1]) << 8u)
@@ -77,4 +82,58 @@ TEST_CASE("OfflineRenderer rejects an unknown track without leaving a partial fi
     CHECK_FALSE(result.ok);
     CHECK(result.error.find("does not exist") != std::string::npos);
     CHECK_FALSE(std::filesystem::exists(path));
+}
+
+TEST_CASE("OfflineRenderer captures several taps in one bounded render job") {
+    Project project;
+    project.name = "Multi tap";
+    project.click.enabled = true;
+    project.click.output.type = OutputType::Main;
+    project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.05});
+
+    const auto mainPath = temporaryWavPath("-main");
+    const auto clickPath = temporaryWavPath("-click");
+    OfflineRenderRequest request;
+    request.songIndex = 0;
+    request.sampleRate = 48000;
+    request.bitDepth = 24;
+    request.targets = {
+        {RenderTargetKind::Master, {}, mainPath.string()},
+        {RenderTargetKind::Click, {}, clickPath.string()},
+    };
+
+    const auto result = OfflineRenderer{}.render(project, {}, request);
+    CHECK(result.ok);
+    CHECK(result.outputPaths.size() == 2);
+    CHECK(result.framesWritten == 2400);
+    CHECK(std::filesystem::file_size(mainPath) == 44 + 2400 * 2 * 3);
+    CHECK(std::filesystem::file_size(clickPath) == 44 + 2400 * 2 * 3);
+
+    std::error_code ignored;
+    std::filesystem::remove(mainPath, ignored);
+    std::filesystem::remove(clickPath, ignored);
+}
+
+TEST_CASE("OfflineRenderer Leave tail is quiet-detected and hard bounded") {
+    Project project;
+    project.click.enabled = true;
+    project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.01});
+
+    const auto path = temporaryWavPath("-tail");
+    OfflineRenderRequest request;
+    request.songIndex = 0;
+    request.targetKind = RenderTargetKind::Click;
+    request.outputPath = path.string();
+    request.sampleRate = 48000;
+    request.tailPolicy = RenderTailPolicy::Leave;
+    request.tailQuietSeconds = 0.05;
+    request.maxTailSeconds = 1.0;
+
+    const auto result = OfflineRenderer{}.render(project, {}, request);
+    CHECK(result.ok);
+    CHECK(result.framesWritten > 480);
+    CHECK(result.framesWritten < 480 + 48000);
+
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
 }

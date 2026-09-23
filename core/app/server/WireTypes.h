@@ -650,6 +650,7 @@ struct WAudioRenderStatusPayload {
     std::string state = "idle";
     double progress = 0.0;
     std::string outputPath;
+    std::vector<std::string> outputPaths;
     std::string error;
 };
 

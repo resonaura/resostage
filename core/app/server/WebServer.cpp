@@ -1931,6 +1931,8 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     } else if (std::strcmp(path, "/api/v1/render/start") == 0) {
         beginAudioRender();
         cmd = {WebCommandKind::RenderAudio, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/render/cancel") == 0) {
+        cmd = {WebCommandKind::CancelAudioRender, 0};
     } else if (std::strcmp(path, "/api/v1/project/open-recent") == 0) {
         const std::string s(body, bodyLen);
         std::string pathRaw;
@@ -2168,7 +2170,7 @@ void WebServer::failExport() {
 
 void WebServer::beginAudioRender() {
     std::lock_guard<std::mutex> lock(audioRenderMutex);
-    audioRenderStatus = {"rendering", 0.0, {}, {}};
+    audioRenderStatus = {"rendering", 0.0, {}, {}, {}};
 }
 
 void WebServer::updateAudioRenderProgress(double progress) {
@@ -2177,14 +2179,16 @@ void WebServer::updateAudioRenderProgress(double progress) {
         audioRenderStatus.progress = std::clamp(progress, 0.0, 1.0);
 }
 
-void WebServer::completeAudioRender(std::string outputPath) {
+void WebServer::completeAudioRender(std::vector<std::string> outputPaths) {
     std::lock_guard<std::mutex> lock(audioRenderMutex);
-    audioRenderStatus = {"complete", 1.0, std::move(outputPath), {}};
+    std::string first = outputPaths.empty() ? std::string{} : outputPaths.front();
+    audioRenderStatus = {"complete", 1.0, std::move(first), std::move(outputPaths), {}};
 }
 
 void WebServer::failAudioRender(std::string error) {
     std::lock_guard<std::mutex> lock(audioRenderMutex);
-    audioRenderStatus = {"failed", 0.0, {}, std::move(error)};
+    const bool cancelled = error == "Render cancelled";
+    audioRenderStatus = {cancelled ? "cancelled" : "failed", 0.0, {}, {}, std::move(error)};
 }
 
 void WebServer::beginTrackImport(int songIndex, int trackIndex, std::string fileName) {
@@ -2469,6 +2473,7 @@ int WebServer::serveAudioRenderStatus(struct lws* wsi) {
     wire.state = std::move(status.state);
     wire.progress = status.progress;
     wire.outputPath = std::move(status.outputPath);
+    wire.outputPaths = std::move(status.outputPaths);
     wire.error = std::move(status.error);
     std::string json;
     (void)glz::write_json(wire, json);

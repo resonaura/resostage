@@ -141,17 +141,21 @@ public:
         for (int i = 0; i < frames; ++i) {
             const float values[2] = {left[i], right[i]};
             for (float value : values) {
-                const float v = std::clamp(value, -1.0f, 1.0f);
                 if (bitDepth_ == 16) {
+                    const float v = std::clamp(value, -1.0f, 1.0f);
                     const int16_t s = static_cast<int16_t>(std::lrint(v * 32767.0f));
                     std::memcpy(p, &s, 2); p += 2;
                 } else if (bitDepth_ == 24) {
+                    const float v = std::clamp(value, -1.0f, 1.0f);
                     const int32_t s = static_cast<int32_t>(std::lrint(v * 8388607.0f));
                     *p++ = static_cast<uint8_t>(s);
                     *p++ = static_cast<uint8_t>(s >> 8);
                     *p++ = static_cast<uint8_t>(s >> 16);
                 } else {
-                    std::memcpy(p, &v, 4); p += 4;
+                    // Float WAV is the archival/interchange path: preserve
+                    // overs exactly so downstream mastering can recover them.
+                    // Integer PCM necessarily clips at full scale above.
+                    std::memcpy(p, &value, 4); p += 4;
                 }
             }
         }
@@ -213,12 +217,12 @@ double songDuration(const SongDef& song, const std::vector<RegionReader>& reader
     return end;
 }
 
-uint32_t targetStrip(const MixGraph& graph, const OfflineRenderRequest& request) {
-    switch (request.targetKind) {
+uint32_t targetStrip(const MixGraph& graph, RenderTargetKind kind, const std::string& id) {
+    switch (kind) {
         case RenderTargetKind::Master: return graph.find("audio::main");
         case RenderTargetKind::Click: return graph.find("audio::click");
         case RenderTargetKind::Bus:
-        case RenderTargetKind::Track: return graph.find(request.targetId);
+        case RenderTargetKind::Track: return graph.find(id);
     }
     return MixGraph::kNoStrip;
 }
@@ -231,8 +235,6 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                                              const Progress& onProgress,
                                              const std::atomic<bool>* cancel) const {
     OfflineRenderResult result;
-    result.outputPath = request.outputPath;
-    if (request.outputPath.empty()) { result.error = "Output path is empty"; return result; }
     if (request.sampleRate < 8000 || request.sampleRate > 384000) {
         result.error = "Sample rate must be between 8 kHz and 384 kHz"; return result;
     }
@@ -241,18 +243,21 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
     }
     if (project.songs.empty()) { result.error = "Project has no songs"; return result; }
 
-    ProjectLoader loader;
-    if (!projectPath.empty()) {
-        std::string openError;
-        if (!loader.open(projectPath, openError)) { result.error = openError; return result; }
+    std::vector<OfflineRenderTarget> targets = request.targets;
+    if (targets.empty()) {
+        targets.push_back({request.targetKind, request.targetId, request.outputPath});
     }
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(request.outputPath).parent_path(), ec);
-    WavWriter writer;
-    if (!writer.open(request.outputPath, request.sampleRate, request.bitDepth, result.error)) {
-        std::filesystem::remove(request.outputPath, ec);
-        return result;
+    if (targets.empty()) { result.error = "No render outputs selected"; return result; }
+    for (const auto& target : targets) {
+        if (target.outputPath.empty()) { result.error = "Output path is empty"; return result; }
+        if (std::find(result.outputPaths.begin(), result.outputPaths.end(), target.outputPath)
+            != result.outputPaths.end()) {
+            result.error = "Two render outputs resolve to the same file";
+            return result;
+        }
+        result.outputPaths.push_back(target.outputPath);
     }
+    result.outputPath = result.outputPaths.front();
 
     std::vector<int> songIndices;
     if (request.songIndex >= 0) {
@@ -264,10 +269,36 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         for (int i = 0; i < static_cast<int>(project.songs.size()); ++i) songIndices.push_back(i);
     }
 
-    // Progress is duration-weighted. Source-open failures are hard failures:
-    // a render that quietly omits a stem is more dangerous than no render.
+    ProjectLoader loader;
+    if (!projectPath.empty()) {
+        std::string openError;
+        if (!loader.open(projectPath, openError)) { result.error = openError; return result; }
+    }
+    std::error_code ec;
+    std::vector<std::unique_ptr<WavWriter>> writers;
+    writers.reserve(targets.size());
+    for (const auto& target : targets) {
+        std::filesystem::create_directories(
+            std::filesystem::path(target.outputPath).parent_path(), ec);
+        auto writer = std::make_unique<WavWriter>();
+        if (!writer->open(target.outputPath, request.sampleRate, request.bitDepth, result.error)) {
+            for (auto& opened : writers) opened->close();
+            for (const auto& cleanup : targets) std::filesystem::remove(cleanup.outputPath, ec);
+            return result;
+        }
+        writers.push_back(std::move(writer));
+    }
+
+    const auto fail = [&](std::string message) {
+        result.error = std::move(message);
+        for (auto& writer : writers) writer->close();
+        for (const auto& target : targets) std::filesystem::remove(target.outputPath, ec);
+        return result;
+    };
+
+    // Progress is duration-weighted against the hard maximum. It may reach
+    // completion early when Leave observes its quiet hold before maxTail.
     double totalSeconds = 0.0;
-    std::vector<double> estimatedDurations;
     for (int si : songIndices) {
         const auto& song = project.songs[static_cast<size_t>(si)];
         double d = song.endSeconds;
@@ -275,48 +306,86 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
             for (const auto& region : song.regions)
                 d = std::max(d, region.startSeconds + std::max(0.0, region.durationSeconds));
         }
-        d = std::max(0.01, d + std::max(0.0, request.tailSeconds));
-        estimatedDurations.push_back(d);
+        const double rangeStart = songIndices.size() == 1
+            ? std::clamp(request.rangeStartSeconds, 0.0, std::max(0.0, d)) : 0.0;
+        const double rangeEnd = songIndices.size() == 1 && request.rangeEndSeconds > rangeStart
+            ? std::min(request.rangeEndSeconds, d) : d;
+        d = std::max(0.01, rangeEnd - rangeStart)
+            + std::max(0.0, request.tailSeconds)
+            + (request.tailPolicy == RenderTailPolicy::Leave
+                   ? std::clamp(request.maxTailSeconds, 0.0, 60.0) : 0.0);
         totalSeconds += d;
     }
 
     double completedSeconds = 0.0;
     for (size_t selection = 0; selection < songIndices.size(); ++selection) {
         if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) {
-            result.error = "Render cancelled"; writer.close(); std::filesystem::remove(request.outputPath, ec); return result;
+            return fail("Render cancelled");
         }
         const SongDef& song = project.songs[static_cast<size_t>(songIndices[selection])];
+
+        bool needsEveryTrack = false;
+        std::unordered_map<std::string, bool> requestedTracks;
+        for (const auto& target : targets) {
+            if (target.kind == RenderTargetKind::Master || target.kind == RenderTargetKind::Bus)
+                needsEveryTrack = true;
+            if (target.kind == RenderTargetKind::Track)
+                requestedTracks[target.id] = true;
+        }
         std::vector<RegionReader> regions;
         regions.reserve(song.regions.size());
         for (const Region& region : song.regions) {
-            // A direct source render cannot be affected by other source
-            // strips. Avoid opening/decoding gigabytes of unrelated stems;
-            // bus/main renders still walk every input because sends and
-            // pre-fader routes can make any of them audible there.
-            if (request.targetKind == RenderTargetKind::Click)
-                continue;
-            if (request.targetKind == RenderTargetKind::Track
-                && region.trackId != request.targetId)
+            // A tracks/click-only job need not decode unrelated sources. Any
+            // bus or master tap must retain every input because sends and
+            // routing can make an apparently unrelated track audible there.
+            if (!needsEveryTrack && !requestedTracks.contains(region.trackId))
                 continue;
             RegionReader rr;
             rr.region = &region;
             rr.source = std::make_unique<WavSource>();
             if (!rr.source->open(loader, region.source.file, result.error)) {
-                writer.close(); std::filesystem::remove(request.outputPath, ec); return result;
+                return fail(result.error);
             }
             rr.preparePitch(request.sampleRate);
             regions.push_back(std::move(rr));
         }
 
-        const double duration = songDuration(song, regions) + std::max(0.0, request.tailSeconds);
-        const int64_t totalFrames = std::max<int64_t>(1, static_cast<int64_t>(std::ceil(duration * request.sampleRate)));
+        double authoredEnd = song.endSeconds;
+        if (authoredEnd <= 0.0) {
+            // Use all authored region durations even if this job deliberately
+            // skipped decoding unselected tracks.
+            for (const auto& region : song.regions)
+                authoredEnd = std::max(authoredEnd,
+                    region.startSeconds + std::max(0.0, region.durationSeconds));
+            authoredEnd = std::max(authoredEnd, songDuration(song, regions));
+        }
+        const double rangeStart = songIndices.size() == 1
+            ? std::clamp(request.rangeStartSeconds, 0.0, std::max(0.0, authoredEnd)) : 0.0;
+        const double rangeEnd = songIndices.size() == 1 && request.rangeEndSeconds > rangeStart
+            ? std::min(request.rangeEndSeconds, authoredEnd) : authoredEnd;
+        const int64_t contentFrames = std::max<int64_t>(1,
+            static_cast<int64_t>(std::ceil(std::max(0.0, rangeEnd - rangeStart) * request.sampleRate)));
+        const int64_t fixedTailFrames = static_cast<int64_t>(
+            std::max(0.0, request.tailSeconds) * request.sampleRate);
+        const int64_t maxTailFrames = request.tailPolicy == RenderTailPolicy::Leave
+            ? static_cast<int64_t>(std::clamp(request.maxTailSeconds, 0.0, 60.0)
+                                   * request.sampleRate)
+            : 0;
+        const int64_t quietFramesNeeded = std::max<int64_t>(1,
+            static_cast<int64_t>(std::clamp(request.tailQuietSeconds, 0.05, 10.0)
+                                 * request.sampleRate));
+        const float tailThreshold = dbToGain(
+            std::clamp(request.tailThresholdDb, -144.0, -24.0));
         OutputLaneConfig outputs;
         outputs.totalChannels = 2;
         const MixGraph graph = buildMixGraph(project, outputs);
-        const uint32_t selectedStrip = targetStrip(graph, request);
-        if (selectedStrip == MixGraph::kNoStrip) {
-            result.error = "Render target does not exist: " + request.targetId;
-            writer.close(); std::filesystem::remove(request.outputPath, ec); return result;
+        std::vector<uint32_t> selectedStrips;
+        selectedStrips.reserve(targets.size());
+        for (const auto& target : targets) {
+            const uint32_t strip = targetStrip(graph, target.kind, target.id);
+            if (strip == MixGraph::kNoStrip)
+                return fail("Render target does not exist: " + target.id);
+            selectedStrips.push_back(strip);
         }
         MixRenderer mixer;
         mixer.prepare(request.sampleRate, kBlockSize, graph.strips.size());
@@ -327,14 +396,22 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         std::vector<float> regionL(kBlockSize), regionR(kBlockSize);
         std::vector<float> pitchL(kBlockSize), pitchR(kBlockSize);
         std::vector<float> clickMono(kBlockSize);
-        for (int64_t frame = 0; frame < totalFrames; frame += kBlockSize) {
+        const int64_t sourceStartFrame = static_cast<int64_t>(std::llround(rangeStart * request.sampleRate));
+        int64_t outputFrame = 0;
+        int64_t quietFrames = 0;
+        const int64_t hardEndFrame = contentFrames + fixedTailFrames + maxTailFrames;
+        while (outputFrame < hardEndFrame) {
             if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) {
-                result.error = "Render cancelled"; writer.close(); std::filesystem::remove(request.outputPath, ec); return result;
+                return fail("Render cancelled");
             }
-            const int count = static_cast<int>(std::min<int64_t>(kBlockSize, totalFrames - frame));
+            const int count = static_cast<int>(std::min<int64_t>(kBlockSize, hardEndFrame - outputFrame));
+            const bool contentActive = outputFrame < contentFrames;
+            const int contentCount = contentActive
+                ? static_cast<int>(std::min<int64_t>(count, contentFrames - outputFrame)) : 0;
+            const int64_t sourceFrameBase = sourceStartFrame + outputFrame;
             mixer.beginBlock(graph, count);
 
-            for (uint32_t ti = 0; ti < project.tracks.size(); ++ti) {
+            for (uint32_t ti = 0; ti < project.tracks.size() && contentCount > 0; ++ti) {
                 float* trackL = mixer.sourceChannel(ti, 0);
                 float* trackR = mixer.sourceChannel(ti, 1);
                 if (trackL == nullptr || trackR == nullptr) continue;
@@ -350,8 +427,8 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                     const double loopLength = rr.region->loop.lengthSeconds > 0.0
                         ? std::min(sourceAvail, rr.region->loop.lengthSeconds) : sourceAvail;
                     const float gain = dbToGain(rr.region->gainDb);
-                    for (int i = 0; i < count; ++i) {
-                        const double time = static_cast<double>(frame + i) / request.sampleRate;
+                    for (int i = 0; i < contentCount; ++i) {
+                        const double time = static_cast<double>(sourceFrameBase + i) / request.sampleRate;
                         const double into = time - rr.region->startSeconds;
                         if (into < 0.0 || into >= durationSec || sourceAvail <= 0.0) continue;
                         double sourceInto = into * speed;
@@ -376,10 +453,10 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                     if (rr.pitchReady) {
                         float* in[2] = {regionL.data(), regionR.data()};
                         float* out[2] = {pitchL.data(), pitchR.data()};
-                        rr.pitch.process(in, count, out, count);
+                        rr.pitch.process(in, contentCount, out, contentCount);
                         addL = pitchL.data(); addR = pitchR.data();
                     }
-                    for (int i = 0; i < count; ++i) {
+                    for (int i = 0; i < contentCount; ++i) {
                         trackL[i] += addL[i];
                         trackR[i] += addR[i];
                     }
@@ -387,37 +464,52 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
             }
 
             const uint32_t clickStrip = graph.find("audio::click");
-            if (clickStrip != MixGraph::kNoStrip) {
-                click.render(clickMono.data(), count, frame);
+            if (clickStrip != MixGraph::kNoStrip && contentCount > 0) {
+                click.render(clickMono.data(), contentCount, sourceFrameBase);
                 float* l = mixer.sourceChannel(clickStrip, 0);
                 float* r = mixer.sourceChannel(clickStrip, 1);
                 if (l != nullptr && r != nullptr)
-                    for (int i = 0; i < count; ++i) l[i] = r[i] = clickMono[static_cast<size_t>(i)];
+                    for (int i = 0; i < contentCount; ++i)
+                        l[i] = r[i] = clickMono[static_cast<size_t>(i)];
             }
 
             mixer.process(graph, count);
-            const float* left = mixer.postChannel(selectedStrip, 0);
-            const float* right = mixer.postChannel(selectedStrip, 1);
-            if (left == nullptr || right == nullptr) {
-                result.error = "Render target produced no channels"; writer.close(); std::filesystem::remove(request.outputPath, ec); return result;
-            }
-            if (!graph.strips[selectedStrip].audible) {
-                std::fill_n(regionL.data(), count, 0.0f);
-                left = right = regionL.data();
-            }
-            if (!writer.write(left, right, count)) {
-                result.error = "Failed while writing output WAV"; writer.close(); std::filesystem::remove(request.outputPath, ec); return result;
+            float blockPeak = 0.0f;
+            for (size_t outputIndex = 0; outputIndex < selectedStrips.size(); ++outputIndex) {
+                const uint32_t strip = selectedStrips[outputIndex];
+                const float* left = mixer.postChannel(strip, 0);
+                const float* right = mixer.postChannel(strip, 1);
+                if (left == nullptr || right == nullptr)
+                    return fail("Render target produced no channels");
+                if (!graph.strips[strip].audible) {
+                    std::fill_n(regionL.data(), count, 0.0f);
+                    left = right = regionL.data();
+                }
+                for (int i = 0; i < count; ++i)
+                    blockPeak = std::max(blockPeak,
+                        std::max(std::abs(left[i]), std::abs(right[i])));
+                if (!writers[outputIndex]->write(left, right, count))
+                    return fail("Failed while writing output WAV");
             }
             result.framesWritten += count;
+            outputFrame += count;
+
+            if (outputFrame >= contentFrames + fixedTailFrames
+                && request.tailPolicy == RenderTailPolicy::Leave) {
+                quietFrames = blockPeak < tailThreshold ? quietFrames + count : 0;
+                if (quietFrames >= quietFramesNeeded)
+                    break;
+            }
             if (onProgress) {
-                const double songDone = static_cast<double>(frame + count) / request.sampleRate;
+                const double songDone = static_cast<double>(outputFrame) / request.sampleRate;
                 onProgress(std::clamp((completedSeconds + songDone) / std::max(0.01, totalSeconds), 0.0, 1.0));
             }
         }
-        completedSeconds += duration;
+        completedSeconds += static_cast<double>(outputFrame) / request.sampleRate;
     }
 
-    if (!writer.close()) { result.error = "Failed to finalize output WAV"; return result; }
+    for (auto& writer : writers)
+        if (!writer->close()) return fail("Failed to finalize output WAV");
     if (onProgress) onProgress(1.0);
     result.ok = true;
     return result;

@@ -87,6 +87,9 @@ enum class WebCommandKind : uint8_t {
     // `json` contains target/range/format options; the live audio callback is
     // never used or stopped by this operation.
     RenderAudio,
+    // Cooperative cancellation: the worker checks its atomic once per
+    // bounded render block and removes every partial output.
+    CancelAudioRender,
     // Open Recent parity -- `path` carries the absolute .rsnraset path from
     // AppSettings::recentProjects. Unlike LoadProjectFromPath (which deletes
     // its temp file on failure -- it only ever points at a throwaway browser
@@ -932,14 +935,15 @@ public:
     void failExport();
 
     struct RenderStatus {
-        std::string state = "idle"; // idle | rendering | complete | failed
+        std::string state = "idle"; // idle | rendering | complete | cancelled | failed
         double progress = 0.0;
         std::string outputPath;
+        std::vector<std::string> outputPaths;
         std::string error;
     };
     void beginAudioRender();
     void updateAudioRenderProgress(double progress);
-    void completeAudioRender(std::string outputPath);
+    void completeAudioRender(std::vector<std::string> outputPaths);
     void failAudioRender(std::string error);
 
     // HTTP-thread: stash which track a following .../import-wav/upload POST

@@ -88,8 +88,15 @@ Windows gives an explicit program block priority over a later port allow rule.
 ## Offline render in remote mode
 
 Render jobs execute on the active Core, including when it is remote. The
-finished path shown in the dialog is therefore a path on the playback machine.
-Files are written to an `Exports` directory next to the open project package.
-The render runs on a background worker against an immutable project snapshot;
-it neither stops transport nor enters the real-time callback. Source audio is
-decoded through bounded seek caches instead of loading the whole set into RAM.
+finished paths shown in the dialog are therefore paths on the playback
+machine. Files are written to an `Exports` directory next to the open project
+package. A job can capture Main, any set of tracks/buses, and Click from one
+offline graph pass; it does not repeatedly solo and rerender stems. The render
+runs on a background worker against an immutable project snapshot; it neither
+stops transport nor enters the real-time callback. Source audio is decoded
+through bounded seek caches instead of loading the whole set into RAM.
+
+Cancelling is cooperative at the next render block and removes every partial
+WAV belonging to the job. `Leave tail` is bounded by both a quiet detector and
+the configured maximum tail time, so a non-decaying future processor cannot
+make a remote render run forever.

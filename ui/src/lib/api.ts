@@ -123,20 +123,29 @@ export const transport = {
 };
 
 export interface AudioRenderOptions {
-  scope: "song" | "project";
+  scope: "song" | "project" | "cycle" | "custom";
   songIndex: number;
-  target: "master" | "bus" | "track" | "click";
-  targetId?: string;
+  targets: Array<{
+    kind: "master" | "bus" | "track" | "click";
+    id?: string;
+  }>;
   sampleRate: number;
   bitDepth: 16 | 24 | 32;
-  tailSeconds: number;
-  fileName: string;
+  rangeStartSeconds: number;
+  rangeEndSeconds: number;
+  tailPolicy: "cut" | "leave";
+  tailThresholdDb: number;
+  tailQuietSeconds: number;
+  maxTailSeconds: number;
+  fileNamePattern: string;
 }
 
 export interface AudioRenderStatus {
-  state: "idle" | "rendering" | "complete" | "failed";
+  state: "idle" | "rendering" | "complete" | "cancelled" | "failed";
   progress: number;
   outputPath: string;
+  /** Absent on older Core versions that supported only one render output. */
+  outputPaths?: string[];
   error: string;
 }
 
@@ -153,6 +162,14 @@ export const audioRender = {
     const res = await apiFetch("/api/v1/render/status");
     if (!res.ok) throw new Error(await res.text());
     return res.json<AudioRenderStatus>();
+  },
+  cancel: async (): Promise<void> => {
+    const res = await apiFetch("/api/v1/render/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (!res.ok) throw new Error(await res.text());
   },
 };
 
