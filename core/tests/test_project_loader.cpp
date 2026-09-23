@@ -290,6 +290,7 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     slot.plugin.name = "Test Effect";
     slot.plugin.manufacturer = "Resonaura Tests";
     slot.plugin.fileOrIdentifier = "/PlugIns/Test.vst3";
+    slot.plugin.instrument = true;
     slot.bypassed = true;
     slot.stateResource = "Plugins/019fd93b-3662-7f5b-8162-45f5ecad9811.state";
     loader.project().tracks[0].plugins.push_back(slot);
@@ -314,6 +315,7 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(restoredSlot.id == slot.id);
     CHECK(restoredSlot.plugin.identifier == slot.plugin.identifier);
     CHECK(restoredSlot.plugin.format == "VST3");
+    CHECK(restoredSlot.plugin.instrument);
     CHECK(restoredSlot.bypassed);
     CHECK(restoredSlot.stateResource == slot.stateResource);
     // Events preserved

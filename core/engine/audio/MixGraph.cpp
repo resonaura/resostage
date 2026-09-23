@@ -11,6 +11,65 @@ namespace {
 
 using mix_math::dbToGain;
 
+constexpr uint64_t kFnvOffset = 14695981039346656037ull;
+constexpr uint64_t kFnvPrime = 1099511628211ull;
+
+void hashBytes(uint64_t& hash, std::string_view value) {
+    for (const unsigned char byte : value) {
+        hash ^= byte;
+        hash *= kFnvPrime;
+    }
+    hash ^= 0xffu; // field delimiter
+    hash *= kFnvPrime;
+}
+
+void hashByte(uint64_t& hash, uint8_t value) {
+    hash ^= value;
+    hash *= kFnvPrime;
+}
+
+void hashSlots(uint64_t& hash, const std::vector<PluginSlot>& slots) {
+    hashByte(hash, static_cast<uint8_t>(std::min<size_t>(slots.size(), 255)));
+    for (const auto& slot : slots) {
+        hashBytes(hash, slot.id);
+        hashBytes(hash, slot.plugin.identifier);
+        hashBytes(hash, slot.stateResource.value_or(std::string{}));
+        hashByte(hash, slot.plugin.instrument ? 1u : 0u);
+        hashByte(hash, slot.bypassed ? 1u : 0u);
+    }
+}
+
+uint64_t processorLayoutKey(const Project& project, const MixGraph& graph) {
+    uint64_t hash = kFnvOffset;
+    for (const auto& strip : graph.strips) {
+        // Output lanes are always after every processable strip. Device
+        // hot-plug/channel-map changes may rebuild those lanes, but cannot
+        // invalidate the insert table that precedes them.
+        if (strip.kind == StripKind::OutputLane)
+            continue;
+        hashBytes(hash, strip.id);
+        hashByte(hash, static_cast<uint8_t>(strip.kind));
+        switch (strip.kind) {
+            case StripKind::Track:
+                if (strip.projectIndex < project.tracks.size())
+                    hashSlots(hash, project.tracks[strip.projectIndex].plugins);
+                break;
+            case StripKind::Click:
+                hashSlots(hash, project.click.plugins);
+                break;
+            case StripKind::Send:
+                if (strip.projectIndex < project.sends.size())
+                    hashSlots(hash, project.sends[strip.projectIndex].plugins);
+                break;
+            case StripKind::Main:
+                hashSlots(hash, project.main.plugins);
+                break;
+            case StripKind::OutputLane: break;
+        }
+    }
+    return hash;
+}
+
 float clampPan(double pan) {
     return static_cast<float>(std::clamp(pan, -1.0, 1.0));
 }
@@ -373,6 +432,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
     std::stable_sort(graph.edges.begin(), graph.edges.end(),
                      [](const MixEdge& a, const MixEdge& b) { return a.to < b.to; });
 
+    graph.processorLayoutKey = processorLayoutKey(project, graph);
     return graph;
 }
 

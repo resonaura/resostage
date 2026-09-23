@@ -1,4 +1,5 @@
 #include "PluginCatalogService.h"
+#include "PluginPaths.h"
 
 namespace resostage {
 namespace {
@@ -6,14 +7,6 @@ namespace {
 constexpr int kMaxCatalogBytes = 8 * 1024 * 1024;
 constexpr int kScannerPollMilliseconds = 250;
 constexpr int64_t kScannerInactivityTimeoutMilliseconds = 60'000;
-
-juce::File pluginDataDirectory() {
-    auto root = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
-#if JUCE_MAC
-    root = root.getChildFile("Application Support");
-#endif
-    return root.getChildFile("ResoStage").getChildFile("Plugins");
-}
 
 std::string loadBoundedJson(const juce::File& file, const char* fallback) {
     if (!file.existsAsFile() || file.getSize() <= 0 || file.getSize() > kMaxCatalogBytes)
@@ -28,7 +21,7 @@ std::string loadBoundedJson(const juce::File& file, const char* fallback) {
 
 PluginCatalogService::PluginCatalogService()
     : dataDirectory(pluginDataDirectory()),
-      registryFile(dataDirectory.getChildFile("known-plugins.xml")),
+      registryFile(pluginRegistryFile()),
       catalogFile(dataDirectory.getChildFile("catalog.json")),
       stateFile(dataDirectory.getChildFile("scan-state.json")),
       deadMansPedalFile(dataDirectory.getChildFile("scanner.pedal")),

@@ -58,6 +58,7 @@ target_sources(ResoStage PRIVATE
   engine/AudioEngine.cpp
   engine/AudioEngineImport.cpp
   engine/AudioEnginePeaks.cpp
+  engine/AudioEnginePlugins.cpp
   engine/AudioEngineProject.cpp
   engine/AudioEngineRouting.cpp
   engine/AudioEngineTransport.cpp
@@ -74,6 +75,7 @@ target_sources(ResoStage PRIVATE
   platform/ThermalStateGeneric.cpp
   platform/TrayIcon.cpp
   plugins/PluginCatalogService.cpp
+  plugins/PluginProcessorBank.cpp
   server/WebServer.cpp
   network/UdpDiscovery.cpp
 )
@@ -173,6 +175,7 @@ target_link_libraries(ResoStage
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_utils
+    juce::juce_audio_processors
     juce::juce_core
     juce::juce_data_structures
     juce::juce_events
@@ -201,6 +204,8 @@ target_include_directories(ResoStage PRIVATE
 
 if(APPLE)
   target_link_libraries(ResoStage PRIVATE
+    "-framework AudioUnit"
+    "-framework CoreAudioKit"
     "-framework CoreMIDI"
     "-framework CoreFoundation"
     "-framework CoreAudio"

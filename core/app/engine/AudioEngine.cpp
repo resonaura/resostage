@@ -40,6 +40,7 @@ AudioEngine::AudioEngine() {
 #endif
         purgeStaleDrafts(appSupport.getChildFile("ResoStage").getChildFile("Drafts"));
     }
+    startPluginBankBuilder();
     deviceManagerInstance.addAudioCallback(this);
     deviceManagerInstance.addChangeListener(this);
     midiDispatcher.start();
@@ -119,6 +120,7 @@ AudioEngine::~AudioEngine() {
     deviceManagerInstance.removeChangeListener(this);
     deviceManagerInstance.removeAudioCallback(this);
     deviceManagerInstance.closeAudioDevice();
+    stopPluginBankBuilder();
 }
 
 juce::String AudioEngine::initialiseDefaultDevices(int numInputChannels, int numOutputChannels) {
@@ -583,12 +585,24 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device) {
     // deterministically runs after it, rather than racing it.
     const bool shouldResume = resumeAfterDeviceRestart.exchange(false, std::memory_order_relaxed);
 
-    if (rateChanged) {
-        juce::MessageManager::callAsync([this, newSampleRate, previousPlayheadSeconds, shouldResume] {
-            handleSampleRateChanged(newSampleRate, previousPlayheadSeconds, shouldResume);
-        });
-    } else if (shouldResume) {
-        juce::MessageManager::callAsync([this] { play(); });
+    const int newBlockSize = currentBlockSize;
+    if (rateChanged || shouldResume || projectLoaded) {
+        juce::MessageManager::callAsync(
+            [this, newSampleRate, newBlockSize, previousPlayheadSeconds,
+             shouldResume, rateChanged] {
+                // A second device restart superseded this queued callback.
+                if (std::abs(currentSampleRate - newSampleRate) > 1e-6
+                    || currentBlockSize != newBlockSize)
+                    return;
+                if (rateChanged)
+                    handleSampleRateChanged(newSampleRate,
+                                            previousPlayheadSeconds,
+                                            shouldResume);
+                else if (shouldResume)
+                    play();
+                if (projectLoaded)
+                    schedulePluginBankRebuild();
+            });
     }
 }
 
@@ -981,6 +995,21 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     }
     const MixGraph& graph = *snap;
 
+    // One bank snapshot for this whole block. Compatibility is a pair of
+    // scalar checks prepared off-thread: no string lookup, map walk, lock, or
+    // allocation is introduced into the callback.
+    const auto pluginPublication =
+        std::atomic_load_explicit(&activePluginBank,
+                                  std::memory_order_acquire);
+    MixProcessorView pluginProcessors;
+    if (pluginPublication != nullptr
+        && pluginPublication->processorLayoutKey == graph.processorLayoutKey
+        && std::abs(pluginPublication->sampleRate - currentSampleRate) < 1e-6
+        && numSamples <= pluginPublication->maximumBlockSize
+        && pluginPublication->bank != nullptr) {
+        pluginProcessors = pluginPublication->bank->processorView();
+    }
+
     std::unique_lock<std::recursive_mutex> routeLock(routingMutex, std::try_to_lock);
     if (!routeLock.owns_lock()) {
         bailSilently();
@@ -996,6 +1025,34 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     }
 
     const int64_t playheadSample = renderPlayheadSample;
+
+    if (pluginProcessors.strips != nullptr) {
+        PluginTransportState pluginTransport;
+        pluginTransport.sample = playheadSample;
+        pluginTransport.sampleRate = currentSampleRate;
+        pluginTransport.playing = clockRunning;
+        pluginTransport.hostTimeNanos = hostTimeNanos;
+        if (currentSong < proj.songs.size()) {
+            const auto& transportSong = proj.songs[currentSong];
+            pluginTransport.bpm = transportSong.bpm;
+            pluginTransport.numerator = transportSong.timeSignature.numerator;
+            pluginTransport.denominator = transportSong.timeSignature.denominator;
+        }
+        pluginTransport.looping =
+            cycleActive.load(std::memory_order_relaxed)
+            && !cycleSkip.load(std::memory_order_relaxed);
+        if (pluginTransport.looping) {
+            double loopStart = cycleLeftSec.load(std::memory_order_relaxed);
+            double loopEnd = cycleRightSec.load(std::memory_order_relaxed);
+            if (loopEnd < loopStart)
+                std::swap(loopStart, loopEnd);
+            pluginTransport.loopStartSample = static_cast<int64_t>(
+                std::llround(loopStart * currentSampleRate));
+            pluginTransport.loopEndSample = static_cast<int64_t>(
+                std::llround(loopEnd * currentSampleRate));
+        }
+        pluginPublication->bank->publishTransport(pluginTransport);
+    }
 
     if (currentSong < proj.songs.size()) {
         const SongDef& song = proj.songs[currentSong];
@@ -1616,7 +1673,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
-    mixRenderer.process(graph, numSamples);
+    mixRenderer.process(graph, numSamples, pluginProcessors);
 
     // During micro-fades / holds the physical outs are ramped, but the meters
     // read the UN-faded mix and would flash a full-scale peak (a pegged master

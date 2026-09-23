@@ -91,6 +91,7 @@ struct PluginReference {
     std::string name;
     std::string manufacturer;
     std::string fileOrIdentifier;
+    bool instrument = false;
 };
 
 // One ordered insert in a strip's pre-fader chain. Opaque vendor state is a

@@ -25,6 +25,8 @@ public:
 
     /** Returns a bounded JSON snapshot containing scan state and catalog. */
     std::string snapshotJson() const;
+    /** Device-local JUCE registry used only by non-realtime bank builders. */
+    const juce::File& registryPath() const noexcept { return registryFile; }
 
 private:
     juce::File dataDirectory;

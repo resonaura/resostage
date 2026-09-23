@@ -32,6 +32,34 @@
     // of its own -- see engine/audio/MixRenderer.h.
     MixRenderer mixRenderer;
 
+    struct PluginBankBuildRequest {
+        uint64_t generation = 0;
+        Project project;
+        std::shared_ptr<const MixGraph> graph;
+        std::string archivePath;
+        double sampleRate = 48000.0;
+        int maximumBlockSize = 512;
+    };
+
+    struct PublishedPluginBank {
+        uint64_t processorLayoutKey = 0;
+        double sampleRate = 48000.0;
+        int maximumBlockSize = 512;
+        std::shared_ptr<PluginProcessorBank> bank;
+    };
+
+    // One bounded, latest-wins builder. Plug-in construction/state restore is
+    // vendor code and must never run on the message or audio thread. The
+    // audio callback acquires one immutable publication per block.
+    std::shared_ptr<const PublishedPluginBank> activePluginBank;
+    std::thread pluginBankThread;
+    std::mutex pluginBankMutex;
+    std::condition_variable pluginBankWake;
+    std::optional<PluginBankBuildRequest> pendingPluginBankBuild;
+    std::vector<std::shared_ptr<const PublishedPluginBank>> retiredPluginBanks;
+    std::atomic<uint64_t> pluginBankGeneration{0};
+    bool stopPluginBankWorker = false;
+
     // The metronome's strip in the graph. kNoStrip until a graph exists.
     uint32_t clickStripIndex = MixGraph::kNoStrip;
     // Message-thread copy of the most recently published graph, so telemetry
@@ -445,6 +473,10 @@
 
 
     void ensureScratchSizes();
+    void startPluginBankBuilder();
+    void stopPluginBankBuilder();
+    void schedulePluginBankRebuild();
+    void runPluginBankBuilder();
     // Derives the mixer's flat bus rail from a freshly built graph. Pure --
     // runs outside routingMutex on purpose (see publishRoutingSnapshot).
     std::vector<LoadedBus> buildBusRows(const MixGraph& graph) const;

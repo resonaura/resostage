@@ -443,6 +443,36 @@ TEST_CASE("buildMixGraph: an empty project still yields a usable master and lane
     CHECK(hasEdge(g, "audio::main", "audio::out:2"));
 }
 
+TEST_CASE("buildMixGraph: processor layout key ignores controls but tracks insert layout") {
+    Project p = makeProject();
+    PluginSlot insert;
+    insert.id = "slot-1";
+    insert.plugin.identifier = "VST3-test-id";
+    insert.plugin.name = "Test Effect";
+    p.tracks[0].plugins.push_back(insert);
+
+    const uint64_t original = buildMixGraph(p, outputs16()).processorLayoutKey;
+    p.tracks[0].gainDb = -12.0;
+    p.tracks[0].pan = 0.4;
+    p.tracks[0].mute = true;
+    p.tracks[0].output.target = "audio::send:1";
+    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey == original);
+
+    OutputLaneConfig fewerOutputs;
+    fewerOutputs.totalChannels = 2;
+    CHECK(buildMixGraph(p, fewerOutputs).processorLayoutKey == original);
+
+    p.tracks[0].plugins[0].bypassed = true;
+    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != original);
+    p.tracks[0].plugins[0].bypassed = false;
+    p.tracks[0].plugins[0].stateResource = "Plugins/slot-1.state";
+    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != original);
+
+    p.tracks.push_back(TrackDef{});
+    p.tracks.back().id = "audio::track:3";
+    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != original);
+}
+
 // ── Flat route ids (engine/project/RouteId.h) ───────────────────────────────
 
 TEST_CASE("routeId: every destination the UI can pick survives a round trip") {

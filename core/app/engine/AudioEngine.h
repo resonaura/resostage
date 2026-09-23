@@ -35,6 +35,7 @@
 #include "timing/OutputLatency.h"
 #include "LightEngine.h"
 #include "midi/CoreMidiDispatcher.h"
+#include "plugins/PluginProcessorBank.h"
 #include "project/ProjectHistory.h"
 #include "project/ProjectLoader.h"
 #include "project/ProjectSchema.h"
@@ -45,9 +46,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -132,6 +135,9 @@ public:
     void notifyLightEngineBpmChanged(double bpm) {
         lightEngine.setBpm(bpm);
     }
+
+    /** Rebuilds routing and the asynchronous insert bank after a chain edit. */
+    void notifyPluginChainsChanged();
 
 // The four public-API fragments and the private-members one below are class
 // body text, not headers. The guard is what lets an editor open one of them

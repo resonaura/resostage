@@ -159,6 +159,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     // deliberately no-ops before that, so the first graph has to be published
     // from here rather than earlier in the load.
     publishRoutingSnapshot();
+    schedulePluginBankRebuild();
     // A user-chosen / loaded archive is never a draft -- without this, a
     // prior newProject()'s usingDraftArchive=true leaked across Load and
     // made plain Save always open the file picker (hasRealSaveLocation
@@ -243,6 +244,7 @@ void AudioEngine::newProject(const std::string& name) {
 
     projectLoaded = true;
     publishRoutingSnapshot();
+    schedulePluginBankRebuild();
     midiClockEverStarted = false;
 
     if (!loader.project().songs.empty()) {

@@ -162,6 +162,7 @@ struct WPluginReference {
     std::string name;
     std::string manufacturer;
     std::string fileOrIdentifier;
+    bool instrument = false;
 };
 
 struct WPluginSlot {
@@ -521,6 +522,7 @@ WPluginSlot toWirePluginSlot(const PluginSlot& slot) {
     wire.plugin.name = slot.plugin.name;
     wire.plugin.manufacturer = slot.plugin.manufacturer;
     wire.plugin.fileOrIdentifier = slot.plugin.fileOrIdentifier;
+    wire.plugin.instrument = slot.plugin.instrument;
     wire.bypassed = slot.bypassed;
     wire.stateResource = slot.stateResource;
     return wire;
@@ -534,6 +536,7 @@ PluginSlot fromWirePluginSlot(const WPluginSlot& wire) {
     slot.plugin.name = wire.plugin.name;
     slot.plugin.manufacturer = wire.plugin.manufacturer;
     slot.plugin.fileOrIdentifier = wire.plugin.fileOrIdentifier;
+    slot.plugin.instrument = wire.plugin.instrument;
     slot.bypassed = wire.bypassed;
     slot.stateResource = wire.stateResource;
     return slot;
