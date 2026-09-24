@@ -4,6 +4,8 @@
 #include "platform/PlatformShellMode.h"
 #include "platform/ThermalState.h"
 #include "platform/TrayIcon.h"
+#include "plugins/PluginPaths.h"
+#include "plugins/PluginProcessorBank.h"
 #include "project/ProjectJson.h"
 #include "project/RouteId.h"
 #include "timing/BarSeek.h"
@@ -31,6 +33,39 @@
 #include <vector>
 
 namespace resostage {
+namespace {
+
+class OfflinePluginSession final : public OfflineProcessorSession {
+public:
+    explicit OfflinePluginSession(std::shared_ptr<PluginProcessorBank> bankIn)
+        : bank(std::move(bankIn)) {}
+
+    MixProcessorView processorView() const noexcept override {
+        return bank != nullptr ? bank->processorView() : MixProcessorView{};
+    }
+
+    void publishTransport(
+        const OfflineProcessorTransport& transport) noexcept override {
+        if (bank == nullptr)
+            return;
+        PluginTransportState state;
+        state.sample = transport.sample;
+        state.sampleRate = transport.sampleRate;
+        state.bpm = transport.bpm;
+        state.numerator = transport.numerator;
+        state.denominator = transport.denominator;
+        state.playing = transport.playing;
+        state.looping = transport.looping;
+        state.loopStartSample = transport.loopStartSample;
+        state.loopEndSample = transport.loopEndSample;
+        bank->publishTransport(state);
+    }
+
+private:
+    std::shared_ptr<PluginProcessorBank> bank;
+};
+
+} // namespace
 
 MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool enableDiscovery, std::string bindAddress) {
     ipcSocketPath = std::move(ipcSocketPath_);
@@ -1379,6 +1414,28 @@ void MainComponent::startAudioRender(const std::string& json) {
     const juce::Component::SafePointer<MainComponent> safeThis(this);
     audioRenderThread = std::thread([this, safeThis, projectSnapshot, projectPath, request]() {
         OfflineRenderer renderer;
+        const OfflineRenderer::ProcessorFactory processorFactory =
+            [projectPath](const Project& project, const MixGraph& graph,
+                          double renderSampleRate, int maximumBlockSize,
+                          std::string& error)
+                -> std::unique_ptr<OfflineProcessorSession> {
+                ProjectLoader resourceLoader;
+                const ProjectLoader* resources = nullptr;
+                if (!projectPath.empty()) {
+                    std::string openError;
+                    if (resourceLoader.open(projectPath, openError))
+                        resources = &resourceLoader;
+                }
+                auto built = PluginProcessorBank::build(
+                    project, graph, resources, pluginRegistryFile(), renderSampleRate,
+                    maximumBlockSize, /*nonRealtime=*/true);
+                if (built.bank == nullptr) {
+                    error = "Could not create offline plug-in bank";
+                    return nullptr;
+                }
+                return std::make_unique<OfflinePluginSession>(
+                    std::move(built.bank));
+            };
         const OfflineRenderResult result = renderer.render(
             projectSnapshot, projectPath, request,
             [this, renderSampleRate = request.sampleRate](const OfflineRenderProgress& progress) {
@@ -1386,7 +1443,7 @@ void MainComponent::startAudioRender(const std::string& json) {
                     progress.progress, progress.processedFrames,
                     progress.estimatedTotalFrames, renderSampleRate, progress.phase);
             },
-            &cancelAudioRender);
+            &cancelAudioRender, processorFactory);
         if (result.ok)
             webServer.completeAudioRender(result.outputPaths);
         else

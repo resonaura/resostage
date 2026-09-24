@@ -362,7 +362,8 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                                              const std::string& projectPath,
                                              const OfflineRenderRequest& request,
                                              const Progress& onProgress,
-                                             const std::atomic<bool>* cancel) const {
+                                             const std::atomic<bool>* cancel,
+                                             const ProcessorFactory& processorFactory) const {
     OfflineRenderResult result;
     if (request.sampleRate < 8000 || request.sampleRate > 384000) {
         result.error = "Sample rate must be between 8 kHz and 384 kHz"; return result;
@@ -520,6 +521,15 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         }
         MixRenderer mixer;
         mixer.prepare(request.sampleRate, kBlockSize, graph.strips.size());
+        std::unique_ptr<OfflineProcessorSession> processorSession;
+        if (processorFactory) {
+            processorSession = processorFactory(
+                project, graph, request.sampleRate, kBlockSize, result.error);
+            if (processorSession == nullptr && !result.error.empty())
+                return fail(result.error);
+        }
+        const MixProcessorView processors = processorSession != nullptr
+            ? processorSession->processorView() : MixProcessorView{};
         ClickGenerator click;
         click.prepare(request.sampleRate, song.bpm, song.timeSignature.numerator,
                       song.timeSignature.denominator);
@@ -609,7 +619,19 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                         l[i] = r[i] = clickMono[static_cast<size_t>(i)];
             }
 
-            mixer.process(graph, count);
+            if (processorSession != nullptr) {
+                OfflineProcessorTransport transport;
+                transport.sample = sourceFrameBase;
+                transport.sampleRate = request.sampleRate;
+                transport.bpm = song.bpm;
+                transport.numerator = song.timeSignature.numerator;
+                transport.denominator = song.timeSignature.denominator;
+                transport.looping = request.tailPolicy == RenderTailPolicy::Wrap;
+                transport.loopStartSample = sourceStartFrame;
+                transport.loopEndSample = sourceStartFrame + contentFrames;
+                processorSession->publishTransport(transport);
+            }
+            mixer.process(graph, count, processors);
             float blockPeak = 0.0f;
             for (size_t outputIndex = 0; outputIndex < selectedStrips.size(); ++outputIndex) {
                 const uint32_t strip = selectedStrips[outputIndex];

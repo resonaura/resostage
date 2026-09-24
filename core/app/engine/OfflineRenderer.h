@@ -1,9 +1,11 @@
 #pragma once
 
+#include "audio/MixRenderer.h"
 #include "project/ProjectSchema.h"
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -72,6 +74,32 @@ struct OfflineRenderResult {
     int64_t framesWritten = 0;
 };
 
+/** Song-local transport supplied to a private offline processor bank. */
+struct OfflineProcessorTransport {
+    int64_t sample = 0;
+    double sampleRate = 48000.0;
+    double bpm = 120.0;
+    int numerator = 4;
+    int denominator = 4;
+    bool playing = true;
+    bool looping = false;
+    int64_t loopStartSample = 0;
+    int64_t loopEndSample = 0;
+};
+
+/**
+ * JUCE-free boundary between the renderer and application-owned DSP.
+ * A session belongs to one render/song and must never share state with live
+ * playback. Its processor view is pre-bound and stable for the session.
+ */
+class OfflineProcessorSession {
+public:
+    virtual ~OfflineProcessorSession() = default;
+    virtual MixProcessorView processorView() const noexcept = 0;
+    virtual void publishTransport(
+        const OfflineProcessorTransport& transport) noexcept = 0;
+};
+
 /**
  * Offline audio export driven by the production MixGraph/MixRenderer.
  *
@@ -84,12 +112,16 @@ struct OfflineRenderResult {
 class OfflineRenderer {
 public:
     using Progress = std::function<void(const OfflineRenderProgress&)>;
+    using ProcessorFactory = std::function<std::unique_ptr<OfflineProcessorSession>(
+        const Project&, const MixGraph&, double sampleRate, int maximumBlockSize,
+        std::string& error)>;
 
     OfflineRenderResult render(const Project& project,
                                const std::string& projectPath,
                                const OfflineRenderRequest& request,
                                const Progress& onProgress = {},
-                               const std::atomic<bool>* cancel = nullptr) const;
+                               const std::atomic<bool>* cancel = nullptr,
+                               const ProcessorFactory& processorFactory = {}) const;
 };
 
 } // namespace resostage

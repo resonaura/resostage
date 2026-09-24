@@ -45,6 +45,39 @@ double maxPcm24Amplitude(const std::filesystem::path& path) {
     }
     return peak;
 }
+
+class ClearingProcessorSession final : public OfflineProcessorSession {
+public:
+    ClearingProcessorSession(const MixGraph& graph, int* processedBlocks,
+                             int* transportUpdates)
+        : entries(graph.strips.size()), blocks(processedBlocks),
+          updates(transportUpdates) {
+        const uint32_t click = graph.find("audio::click");
+        if (click != MixGraph::kNoStrip)
+            entries[click] = {this, process};
+    }
+
+    MixProcessorView processorView() const noexcept override {
+        return {entries.data(), entries.size()};
+    }
+
+    void publishTransport(const OfflineProcessorTransport&) noexcept override {
+        ++*updates;
+    }
+
+private:
+    static void process(void* context, float* left, float* right,
+                        int count) noexcept {
+        auto& self = *static_cast<ClearingProcessorSession*>(context);
+        ++*self.blocks;
+        std::fill_n(left, count, 0.0f);
+        std::fill_n(right, count, 0.0f);
+    }
+
+    std::vector<MixStripProcessor> entries;
+    int* blocks;
+    int* updates;
+};
 } // namespace
 
 TEST_CASE("OfflineRenderer writes a bounded click stem with a valid WAV header") {
@@ -180,6 +213,44 @@ TEST_CASE("OfflineRenderer Wrap primes once and writes one exact range") {
     CHECK(maxPcm24Amplitude(path) == doctest::Approx(std::pow(10.0, -1.0 / 20.0)).epsilon(0.002));
     CHECK_FALSE(std::filesystem::exists(path.string() + ".resostage-part"));
     CHECK_FALSE(std::filesystem::exists(path.string() + ".resostage-float-part"));
+
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+}
+
+TEST_CASE("OfflineRenderer creates private processor sessions and runs their strip taps") {
+    Project project;
+    project.click.enabled = true;
+    project.songs.push_back(
+        SongDef{.id = "meta::song:1", .name = "One", .endSeconds = 0.01});
+    project.songs.push_back(
+        SongDef{.id = "meta::song:2", .name = "Two", .endSeconds = 0.01});
+
+    const auto path = temporaryWavPath("-processors");
+    OfflineRenderRequest request;
+    request.songIndex = -1;
+    request.targetKind = RenderTargetKind::Click;
+    request.outputPath = path.string();
+    request.sampleRate = 48000;
+
+    int sessions = 0;
+    int blocks = 0;
+    int transportUpdates = 0;
+    const OfflineRenderer::ProcessorFactory factory =
+        [&](const Project&, const MixGraph& graph, double, int,
+            std::string&) -> std::unique_ptr<OfflineProcessorSession> {
+            ++sessions;
+            return std::make_unique<ClearingProcessorSession>(
+                graph, &blocks, &transportUpdates);
+        };
+    const auto result = OfflineRenderer{}.render(
+        project, {}, request, {}, nullptr, factory);
+
+    CHECK(result.ok);
+    CHECK(sessions == 2);
+    CHECK(blocks > 0);
+    CHECK(transportUpdates == blocks);
+    CHECK(maxPcm24Amplitude(path) == doctest::Approx(0.0));
 
     std::error_code ignored;
     std::filesystem::remove(path, ignored);
