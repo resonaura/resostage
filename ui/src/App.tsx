@@ -7,7 +7,7 @@ import {
   Settings2,
   Sliders,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import {
   ContextMenu,
@@ -15,7 +15,10 @@ import {
   ContextMenuItem,
 } from "./components/ContextMenu";
 import { GlobalTransportBar } from "./components/GlobalTransportBar";
-import { RenderAudioDialog } from "./components/RenderAudioDialog";
+import {
+  RenderAudioDialog,
+  type RenderDialogIntent,
+} from "./components/RenderAudioDialog";
 import { Button, Tabs } from "./components/ui";
 import { performAction, type ActionId } from "./lib/actions";
 import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/api";
@@ -294,6 +297,28 @@ const FULL_RATE_HZ = 120;
 
 export default function App() {
   const [tab, setTab] = useState("player");
+  const [renderRequest, setRenderRequest] = useState<{
+    open: boolean;
+    intent: RenderDialogIntent;
+    id: number;
+  }>({ open: false, intent: { kind: "generic" }, id: 0 });
+  const openRender = useCallback((intent: RenderDialogIntent) => {
+    setRenderRequest((current) => ({
+      open: true,
+      intent,
+      id: current.id + 1,
+    }));
+  }, []);
+
+  useEffect(() => {
+    const handleNativeRender = (event: Event) => {
+      const detail = (event as CustomEvent<RenderDialogIntent>).detail;
+      openRender(detail?.kind === "all-tracks" ? detail : { kind: "generic" });
+    };
+    window.addEventListener("resostage-open-audio-render", handleNativeRender);
+    return () =>
+      window.removeEventListener("resostage-open-audio-render", handleNativeRender);
+  }, [openRender]);
   // Tell the backend which SPA tab is active so WS frames only carry that
   // page's heavy arrays (transport/time always included).
   const {
@@ -586,7 +611,9 @@ export default function App() {
         </div>
 
         <div className="z-10 ml-auto flex shrink-0 items-center gap-3">
-          {(!IS_EMBEDDED && !IS_ELECTRON) || remoteHost ? <ProjectMenu state={state} /> : null}
+          {(!IS_EMBEDDED && !IS_ELECTRON) || remoteHost ? (
+            <ProjectMenu state={state} onRender={openRender} />
+          ) : null}
           <ConnectionBadge
             status={status}
             transport={transport}
@@ -653,7 +680,11 @@ export default function App() {
           id="mixer"
           className="flex min-h-0 flex-1 flex-col overflow-hidden p-1.5 sm:p-3"
         >
-          <MixerScreen state={state} />
+          <MixerScreen
+            state={state}
+            active={tab === "mixer"}
+            onRender={openRender}
+          />
         </Tabs.Panel>
         <Tabs.Panel
           id="editor"
@@ -719,6 +750,15 @@ export default function App() {
       <QuitConfirmDialog state={state} onStartQuitting={() => setIsQuittingOverlay(true)} />
       <OpenConfirmDialog state={state} />
       <QuitOverlay open={isQuittingOverlay} />
+      <RenderAudioDialog
+        open={renderRequest.open}
+        state={state}
+        intent={renderRequest.intent}
+        requestId={renderRequest.id}
+        onClose={() =>
+          setRenderRequest((current) => ({ ...current, open: false }))
+        }
+      />
 
       {toastNotifications.length > 0 && (
         <div className="fixed bottom-5 right-5 z-[300] flex flex-col gap-2.5 max-w-sm pointer-events-none">
@@ -848,10 +888,15 @@ function OpenConfirmDialog({ state }: { state: WebUiState }) {
   );
 }
 
-function ProjectMenu({ state }: { state: WebUiState }) {
+function ProjectMenu({
+  state,
+  onRender,
+}: {
+  state: WebUiState;
+  onRender: (intent: RenderDialogIntent) => void;
+}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [confirmNew, setConfirmNew] = useState(false);
-  const [renderOpen, setRenderOpen] = useState(false);
   const [saveLabel, setSaveLabel] = useState("Save");
   const saveFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recentBtnRef = useRef<HTMLButtonElement>(null);
@@ -966,7 +1011,7 @@ function ProjectMenu({ state }: { state: WebUiState }) {
           Recent
         </Button>
       )}
-      <Button size="sm" variant="outline" onPress={() => setRenderOpen(true)}>
+      <Button size="sm" variant="outline" onPress={() => onRender({ kind: "generic" })}>
         Render…
       </Button>
       {recentAnchor && (
@@ -1046,7 +1091,6 @@ function ProjectMenu({ state }: { state: WebUiState }) {
           void project.new();
         }}
       />
-      <RenderAudioDialog open={renderOpen} state={state} onClose={() => setRenderOpen(false)} />
     </div>
   );
 }

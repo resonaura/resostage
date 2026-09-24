@@ -497,11 +497,22 @@ bool ProjectLoader::reparseProject(std::string& error) {
         if (!extractFile(name, bytes, err))
             return false;
         const std::string_view json(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-        if (peekProjectFormatVersion(json) < kCurrentFormatVersion) {
+        const int formatVersion = peekProjectFormatVersion(json);
+        if (formatVersion < kMinimumReadableFormatVersion) {
             err = "Outdated project format version. Please run 'pnpm migrate <path>' to convert it to the current schema.";
             return false;
         }
-        return parseProjectJson(json, out, err);
+        if (formatVersion > kCurrentFormatVersion) {
+            err = "Project format is newer than this version of ResoStage supports.";
+            return false;
+        }
+        if (!parseProjectJson(json, out, err))
+            return false;
+        // v3 -> v4 is additive: plug-in vectors default empty. Promote the
+        // private in-memory snapshot so the next ordinary save writes v4;
+        // never rewrite the package merely because it was opened.
+        out.format.version = kCurrentFormatVersion;
+        return true;
     };
 
     Project proj;

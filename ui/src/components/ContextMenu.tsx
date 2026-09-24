@@ -1,8 +1,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Children,
+  createContext,
   Fragment,
   isValidElement,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -28,7 +30,15 @@ export type NativeMenuItem =
       /** When set, item is a checkbox (native checkmark in Electron). */
       checked?: boolean;
     }
+  | {
+      type: "submenu";
+      label: string;
+      disabled?: boolean;
+      items: NativeMenuItem[];
+    }
   | { type: "separator" };
+
+const MenuOpensLeftContext = createContext(false);
 
 type BridgeWindow = typeof window & {
   resostageElectron?: {
@@ -56,24 +66,24 @@ function collectNativeItems(children: ReactNode): {
   items: NativeMenuItem[];
   handlers: Map<string, () => void>;
 } {
-  const items: NativeMenuItem[] = [];
   const handlers = new Map<string, () => void>();
   let n = 0;
 
   // Recurse into Fragments / arrays. Menus often wrap items in `<>...</>`;
   // without flattening, Electron's native path gets zero items, popup exits
   // immediately, and the click looks dead (sections create menu).
-  const walk = (node: ReactNode) => {
+  const walk = (node: ReactNode): NativeMenuItem[] => {
+    const items: NativeMenuItem[] = [];
     Children.forEach(node, (child) => {
       if (child == null || typeof child === "boolean") return;
       if (Array.isArray(child)) {
-        walk(child);
+        items.push(...walk(child));
         return;
       }
       if (!isValidElement(child)) return;
 
       if (child.type === Fragment) {
-        walk((child.props as { children?: ReactNode }).children);
+        items.push(...walk((child.props as { children?: ReactNode }).children));
         return;
       }
 
@@ -105,12 +115,26 @@ function collectNativeItems(children: ReactNode): {
         }
         items.push(item);
         handlers.set(id, props.onClick);
+        return;
+      }
+      if (name === "ContextMenuSubmenu") {
+        const props = child.props as {
+          label: string;
+          disabled?: boolean;
+          children?: ReactNode;
+        };
+        items.push({
+          type: "submenu",
+          label: props.label,
+          disabled: props.disabled,
+          items: walk(props.children),
+        });
       }
     });
+    return items;
   };
 
-  walk(children);
-  return { items, handlers };
+  return { items: walk(children), handlers };
 }
 
 /**
@@ -238,6 +262,8 @@ export function ContextMenu({
 
   if (useNative) return null;
 
+  const opensLeft = x > window.innerWidth * 0.58;
+
   return createPortal(
     <>
       <div
@@ -257,7 +283,7 @@ export function ContextMenu({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94 }}
           transition={{ duration: 0.12, ease: "easeOut" }}
-          className="fixed z-[9999] overflow-hidden rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
+          className="fixed z-[9999] overflow-visible rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
           style={{
             left: pos.left,
             top: pos.top,
@@ -265,7 +291,9 @@ export function ContextMenu({
             visibility: pos.ready ? "visible" : "hidden",
           }}
         >
-          {children}
+          <MenuOpensLeftContext.Provider value={opensLeft}>
+            {children}
+          </MenuOpensLeftContext.Provider>
         </motion.div>
       </AnimatePresence>
     </>,
@@ -319,6 +347,43 @@ export function ContextMenuItem({
   );
 }
 ContextMenuItem.displayName = "ContextMenuItem";
+
+export function ContextMenuSubmenu({
+  label,
+  disabled = false,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  const opensLeft = useContext(MenuOpensLeftContext);
+  return (
+    <div className="group/submenu relative" role="none">
+      <button
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        disabled={disabled}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-foreground/80 transition-colors hover:bg-default/20 focus:bg-default/20 disabled:cursor-default disabled:opacity-30"
+      >
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span aria-hidden className="text-foreground/45">
+          {opensLeft ? "‹" : "›"}
+        </span>
+      </button>
+      <div
+        role="menu"
+        className={`absolute top-[-0.25rem] hidden max-h-[70vh] min-w-56 overflow-y-auto rounded-xl border border-default/40 bg-surface/95 py-1 text-xs shadow-2xl backdrop-blur-md group-hover/submenu:block group-focus-within/submenu:block ${
+          opensLeft ? "right-full mr-1" : "left-full ml-1"
+        }`}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+ContextMenuSubmenu.displayName = "ContextMenuSubmenu";
 
 export function ContextMenuDivider() {
   return <div className="my-1 h-px bg-default/20" />;

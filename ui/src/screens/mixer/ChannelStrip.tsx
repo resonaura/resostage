@@ -1,17 +1,22 @@
-import { SlidersHorizontal } from "lucide-react";
 import { Knob, LevelMeterBar } from "../../components/daw";
 import {
-  Button,
   Select,
   TOGGLE_BLINK_ACCENT,
   ToggleButton,
 } from "../../components/ui";
+import type { PluginCatalogEntry } from "../../lib/api";
 import { useChannelClipHold } from "../../hooks/useChannelClipHold";
 import { useLiveValue } from "../../lib/optimistic";
-import type { BusRow, ClickSendRow, SettingsState } from "../../lib/types";
+import type {
+  BusRow,
+  ClickSendRow,
+  PluginSlotRow,
+  SettingsState,
+} from "../../lib/types";
 import { ROUTING_SELECT_SIZE } from "./constants";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
+import { PluginInsertSlots } from "./PluginInsertSlots";
 import { SendKnobs } from "./SendKnobs";
 import { TrackOutputRouting } from "./TrackOutputRouting";
 
@@ -55,6 +60,7 @@ function StripButton({
 }
 
 export function ChannelStrip({
+  stripId,
   name,
   subtitle,
   color,
@@ -75,13 +81,15 @@ export function ChannelStrip({
   mute,
   solo,
   anySoloInGroup,
-  pluginCount = 0,
+  pluginSlots = [],
+  pluginCatalog = [],
   onPlugins,
   onGain,
   onPan,
   onMute,
   onSolo,
 }: {
+  stripId: string;
   name: string;
   subtitle?: string;
   color: string;
@@ -119,7 +127,8 @@ export function ChannelStrip({
   mute: boolean;
   solo: boolean;
   anySoloInGroup?: boolean;
-  pluginCount?: number;
+  pluginSlots?: PluginSlotRow[];
+  pluginCatalog?: PluginCatalogEntry[];
   onPlugins?: () => void;
   onGain: (v: number) => void;
   onPan: ((v: number) => void) | null;
@@ -220,16 +229,13 @@ export function ChannelStrip({
       {busDestination}
 
       {onPlugins && (
-        <Button
-          size="sm"
-          variant={pluginCount > 0 ? "accent-soft" : "outline"}
-          className="h-7 w-full min-w-0 gap-1 px-1.5 text-[9px] font-semibold"
-          aria-label={`Open insert effects for ${name}`}
-          onPress={onPlugins}
-        >
-          <SlidersHorizontal size={11} />
-          FX{pluginCount > 0 ? ` ${pluginCount}` : ""}
-        </Button>
+        <PluginInsertSlots
+          stripId={stripId}
+          stripName={name}
+          slots={pluginSlots}
+          catalog={pluginCatalog}
+          onOpenChain={onPlugins}
+        />
       )}
 
       {onPan && pan !== null ? (

@@ -92,6 +92,25 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
             item.actionId = "import_song_folder";
             section.items.push_back(std::move(item));
         }
+        {
+            MenuItemModel sep;
+            sep.kind = MenuItemModel::Kind::Separator;
+            section.items.push_back(sep);
+        }
+        {
+            MenuItemModel item;
+            item.title = "Render / Export…";
+            item.actionId = "show_render";
+            item.key = mod + " + b";
+            section.items.push_back(std::move(item));
+        }
+        {
+            MenuItemModel item;
+            item.title = "Export All Tracks as Audio Files…";
+            item.actionId = "show_render_all_tracks";
+            item.key = mod + " + shift + e";
+            section.items.push_back(std::move(item));
+        }
 #if !JUCE_MAC
         {
             MenuItemModel sep;

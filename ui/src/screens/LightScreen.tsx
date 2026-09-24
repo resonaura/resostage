@@ -5,7 +5,7 @@ import type { WebUiState } from "../lib/types";
 
 export function LightScreen({ state }: { state: WebUiState }) {
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col gap-4 overflow-auto pt-4 pb-6">
+    <div className="flex h-full w-full flex-col gap-4 overflow-auto pt-4 pb-6">
       <Alert status="accent">
         <Alert.Indicator>
           <FolderOpen size={14} />

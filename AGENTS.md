@@ -385,11 +385,15 @@ Key ownership rules:
   Directory containers can coexist with open file cursors; legacy ZIP access
   has stricter shared-handle constraints.
 
-There is deliberately no in-engine migration ladder during this pre-release
-phase. `ProjectLoader` rejects an older format and directs the operator to
-`pnpm migrate <project>`. When the persisted shape changes, bump the format,
-update serialization/parsing/defaults/fixtures, and update the external
-migrator. Do not silently reinterpret old data.
+There is deliberately no general in-engine migration ladder during this
+pre-release phase. `ProjectLoader` rejects formats older than the explicitly
+declared readable floor and directs the operator to `pnpm migrate <project>`.
+Format v3 is a narrow exception: v4 only added optional plug-in chains, so v3
+is parsed losslessly with empty chains and promoted in memory; the package is
+rewritten as v4 only on the next normal save. Newer unknown formats are always
+rejected. When persisted semantics change, bump the format, update
+serialization/parsing/defaults/fixtures and the external migrator, and add an
+explicit compatibility rule only when the old shape is provably unambiguous.
 
 Peak/waveform caches and other derived artifacts must be disposable. The audio
 thread reads the peak-duration map through an immutable `shared_ptr` snapshot
@@ -456,10 +460,17 @@ binary in Core: it launches the packaged `resostage-plugin-scanner` executable,
 which uses JUCE's VST3/AU format scanners and writes `known-plugins.xml`, a
 bounded JSON catalog, scan status, and dead-man's-pedal under the device-local
 ResoStage application-data directory. Registry and catalog replacements are
-atomic. A scan is single-flight, runs at background priority inherited from
-Core, and the child is terminated when Core exits. Core also kills a helper
-that makes no observable progress for 60 seconds; the dead-man entry then
-quarantines the stuck candidate on the next scan.
+atomic and checkpointed after each successfully inspected item; Core exposes
+those safe partial checkpoints while a scan is still running. A scan is
+single-flight and runs at background priority inherited from Core. If a vendor
+binary crashes, or makes no progress for 60 seconds, Core launches a fresh
+helper, applies the dead-man pedal to quarantine that candidate, and continues
+from the checkpoint. Recovery is bounded to 32 helper failures per requested
+scan. Core shutdown terminates the child without turning that expected stop
+into a scan failure, clears the active pedal so an intentional stop does not
+quarantine a healthy item, and resumes after the audio device and web server
+are ready on next startup. Do not run discovery or recovery on the audio path
+or make it delay device startup.
 
 The catalog is structural state, not telemetry. React fetches it only on the
 Plug-ins settings screen and polls while a scan is active; it must never be

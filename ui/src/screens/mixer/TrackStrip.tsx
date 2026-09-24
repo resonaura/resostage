@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { mixer } from "../../lib/api";
+import { mixer, type PluginCatalogEntry } from "../../lib/api";
 import { rowsSameExceptLevels, sameExceptLevels } from "../../lib/levelFields";
 import { getLiveLevels } from "../../lib/liveLevels";
 import {
@@ -22,6 +22,7 @@ function TrackStripInner({
   meters,
   settings,
   anySoloInGroup,
+  pluginCatalog,
   onDirectOutput,
   onOpenPlugins,
 }: {
@@ -33,6 +34,7 @@ function TrackStripInner({
   meters: MeterRow[];
   settings: SettingsState;
   anySoloInGroup?: boolean;
+  pluginCatalog: PluginCatalogEntry[];
   onDirectOutput: (
     trackIndex: number,
     mono: boolean,
@@ -50,6 +52,7 @@ function TrackStripInner({
 
   return (
     <ChannelStrip
+      stripId={t.id}
       name={t.name || t.id}
       subtitle={`Track ${index + 1}`}
       color={color}
@@ -85,7 +88,8 @@ function TrackStripInner({
       mute={t.mute}
       solo={t.solo}
       anySoloInGroup={anySoloInGroup}
-      pluginCount={t.plugins?.length ?? 0}
+      pluginSlots={t.plugins ?? []}
+      pluginCatalog={pluginCatalog}
       onPlugins={() => onOpenPlugins(t.id, t.name || t.id)}
       onGain={(v) => mixer.setTrackGain(index, v)}
       onPan={(v) => mixer.setTrackPan(index, v)}
@@ -109,6 +113,7 @@ export const TrackStrip = memo(TrackStripInner, (prev, next) => {
     prev.settings === next.settings &&
     prev.onDirectOutput === next.onDirectOutput &&
     prev.onOpenPlugins === next.onOpenPlugins &&
+    prev.pluginCatalog === next.pluginCatalog &&
     // The bus lists are `.filter()` results, so they are new arrays every
     // render even when nothing moved -- compare them by content.
     rowsSameExceptLevels(prev.destinationBusses, next.destinationBusses) &&

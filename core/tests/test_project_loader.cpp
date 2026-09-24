@@ -253,6 +253,40 @@ TEST_CASE("ProjectLoader rejects outdated format version 1 with migration error"
     std::remove(path.c_str());
 }
 
+TEST_CASE("ProjectLoader opens format version 3 and promotes optional plugin chains") {
+    std::string json = kFullProjectJson;
+    const auto version = json.find("\"version\":4");
+    REQUIRE(version != std::string::npos);
+    json.replace(version, std::strlen("\"version\":4"), "\"version\":3");
+    const std::string path = makeProjectArchive(json);
+
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE_MESSAGE(loader.open(path, error), error);
+    CHECK(loader.project().format.version == kCurrentFormatVersion);
+    CHECK(loader.project().tracks.size() == 1);
+    CHECK(loader.project().tracks[0].plugins.empty());
+    CHECK(loader.project().main.plugins.empty());
+    CHECK(loader.project().click.plugins.empty());
+
+    std::remove(path.c_str());
+}
+
+TEST_CASE("ProjectLoader rejects a project from a newer incompatible version") {
+    std::string json = kFullProjectJson;
+    const auto version = json.find("\"version\":4");
+    REQUIRE(version != std::string::npos);
+    json.replace(version, std::strlen("\"version\":4"), "\"version\":99");
+    const std::string path = makeProjectArchive(json);
+
+    ProjectLoader loader;
+    std::string error;
+    CHECK_FALSE(loader.open(path, error));
+    CHECK(error.find("newer") != std::string::npos);
+
+    std::remove(path.c_str());
+}
+
 TEST_CASE("ProjectLoader rejects a current-format event with an unknown type") {
     const std::string badJson = R"JSON(
 {

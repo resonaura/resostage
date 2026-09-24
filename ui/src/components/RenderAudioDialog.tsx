@@ -1,11 +1,19 @@
 import { AudioLines, ChevronDown, ChevronRight, FolderOutput, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { audioRender, type AudioRenderOptions, type AudioRenderStatus } from "../lib/api";
 import type { WebUiState } from "../lib/types";
 import { Button, Modal, Select, Switch } from "./ui";
 
 type Scope = "song" | "project" | "cycle" | "custom";
 type TailPolicy = "cut" | "leave" | "wrap";
+export type RenderDialogIntent =
+  | { kind: "generic" }
+  | { kind: "all-tracks" }
+  | {
+      kind: "target";
+      targetKind: "master" | "track" | "bus" | "click";
+      id?: string;
+    };
 type OutputChoice = {
   key: string;
   kind: "master" | "track" | "bus" | "click";
@@ -18,9 +26,11 @@ const initialStatus: AudioRenderStatus = {
   state: "rendering", phase: "preparing", progress: 0, outputPath: "", outputPaths: [], error: "",
 };
 
-export function RenderAudioDialog({ open, state, onClose }: {
+export function RenderAudioDialog({ open, state, intent, requestId, onClose }: {
   open: boolean;
   state: WebUiState;
+  intent: RenderDialogIntent;
+  requestId: number;
   onClose: () => void;
 }) {
   const [scope, setScope] = useState<Scope>("song");
@@ -42,6 +52,7 @@ export function RenderAudioDialog({ open, state, onClose }: {
   const [advanced, setAdvanced] = useState(false);
   const [renderStatus, setRenderStatus] = useState<AudioRenderStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const appliedRequestId = useRef(-1);
 
   const outputs = useMemo<OutputChoice[]>(() => [
     { key: "master", kind: "master", label: "Main mix", detail: "Post-master stereo output" },
@@ -49,6 +60,32 @@ export function RenderAudioDialog({ open, state, onClose }: {
     ...state.busses.filter((bus) => !bus.isDirectOut && bus.id !== "audio::main").map((bus) => ({ key: `bus:${bus.id}`, kind: "bus" as const, id: bus.id, label: bus.name, detail: "Post-bus fader tap" })),
     { key: "click", kind: "click", label: "Metronome", detail: "Click channel only" },
   ], [state.tracks, state.busses]);
+
+  useEffect(() => {
+    if (!open || appliedRequestId.current === requestId) return;
+    appliedRequestId.current = requestId;
+    setRenderStatus(null);
+    setError(null);
+    if (intent.kind === "all-tracks") {
+      setScope("project");
+      setSelected(new Set(outputs
+        .filter((output) => output.kind === "track")
+        .map((output) => output.key)));
+      return;
+    }
+    if (intent.kind === "target") {
+      setScope("song");
+      setSongIndex(String(Math.max(0, state.songIndex)));
+      const key = intent.targetKind === "master" || intent.targetKind === "click"
+        ? intent.targetKind
+        : `${intent.targetKind}:${intent.id ?? ""}`;
+      setSelected(new Set([key]));
+      return;
+    }
+    setScope("song");
+    setSongIndex(String(Math.max(0, state.songIndex)));
+    setSelected(new Set(["master"]));
+  }, [open, requestId, intent, outputs, state.songIndex]);
 
   useEffect(() => {
     if (!open || renderStatus?.state !== "rendering") return;

@@ -2,8 +2,14 @@ import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui";
+import type { RenderDialogIntent } from "../../components/RenderAudioDialog";
 import { useHorizontalWindow } from "../../hooks/useHorizontalWindow";
-import { builder, mixer } from "../../lib/api";
+import {
+  builder,
+  mixer,
+  pluginCatalog as pluginCatalogApi,
+  type PluginCatalogEntry,
+} from "../../lib/api";
 import { outputSendsToClickRows, type WebUiState } from "../../lib/types";
 import { useIsCompact } from "../../lib/useMediaQuery";
 import { BusStrip } from "./BusStrip";
@@ -70,7 +76,15 @@ function ConsolePane({
   );
 }
 
-export function MixerScreen({ state }: { state: WebUiState }) {
+export function MixerScreen({
+  state,
+  active,
+  onRender,
+}: {
+  state: WebUiState;
+  active: boolean;
+  onRender: (intent: RenderDialogIntent) => void;
+}) {
   const compact = useIsCompact();
   const auxBusses = state.busses.filter((b) => b.isAux);
   const trackWindow = useHorizontalWindow({
@@ -100,10 +114,43 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   stateRef.current = state;
   const [menu, setMenu] = useState<StripMenuTarget | null>(null);
   const [pluginTarget, setPluginTarget] = useState<PluginTarget | null>(null);
+  const [effectCatalog, setEffectCatalog] = useState<PluginCatalogEntry[]>([]);
 
   const openPlugins = useCallback((stripId: string, stripName: string) => {
     setPluginTarget({ stripId, stripName });
   }, []);
+
+  // The catalog is device-local structural state, so load it once for every
+  // strip instead of making each insert rack poll Core. If a scan is active,
+  // keep the single shared copy fresh until the helper finishes.
+  useEffect(() => {
+    if (!active) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refresh = () => {
+      void pluginCatalogApi
+        .list()
+        .then((response) => {
+          if (disposed) return;
+          setEffectCatalog(response.catalog.plugins);
+          if (response.scan.state === "scanning") {
+            timer = setTimeout(refresh, 1500);
+          }
+        })
+        .catch(() => {
+          // An unavailable catalog leaves explicit empty insert slots. The
+          // reliable settings screen owns scan errors and retry controls, but
+          // keep this one shared request recoverable across a Core restart or
+          // remote host switch instead of leaving the rack empty forever.
+          if (!disposed) timer = setTimeout(refresh, 3000);
+        });
+    };
+    refresh();
+    return () => {
+      disposed = true;
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [active]);
 
   useEffect(() => {
     if (pendingBusJobs.current.length === 0) return;
@@ -268,6 +315,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                         meters={state.meters}
                         settings={state.settings}
                         anySoloInGroup={anyTrackSolo}
+                        pluginCatalog={effectCatalog}
                         onDirectOutput={requestTrackDirectOutput}
                         onOpenPlugins={openPlugins}
                       />
@@ -333,6 +381,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                       master={master}
                       settings={state.settings}
                       anySoloInGroup={anyAuxSolo}
+                      pluginCatalog={effectCatalog}
                       onOpenPlugins={openPlugins}
                     />
                   </div>
@@ -377,6 +426,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                   state={state}
                   onDirectOutput={requestClickDirectOutput}
                   onOpenPlugins={openPlugins}
+                  pluginCatalog={effectCatalog}
                 />
               </div>
 
@@ -405,6 +455,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                     settings={state.settings}
                     anySoloInGroup={b.soloActiveInGroup}
                     isMaster
+                    pluginCatalog={effectCatalog}
                     onOpenPlugins={openPlugins}
                   />
                 </div>
@@ -414,7 +465,13 @@ export function MixerScreen({ state }: { state: WebUiState }) {
         )}
       </div>
 
-      {menu && <StripContextMenu target={menu} onClose={() => setMenu(null)} />}
+      {menu && (
+        <StripContextMenu
+          target={menu}
+          onRender={onRender}
+          onClose={() => setMenu(null)}
+        />
+      )}
       {pluginTarget && (
         <PluginChainModal
           open

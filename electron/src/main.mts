@@ -1232,6 +1232,18 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
 
   const action = item.actionId;
   if (!action) return { label: item.title ?? "" };
+  if (action === "show_render" || action === "show_render_all_tracks") {
+    return {
+      label: item.title ?? "",
+      accelerator: acceleratorFor(item.key),
+      click: () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.webContents.send("open-audio-render", {
+          kind: action === "show_render_all_tracks" ? "all-tracks" : "generic",
+        });
+      },
+    };
+  }
   if (action === "quit") {
     // Routed through the backend so the unsaved-changes prompt runs (the
     // JUCE process performs the actual quit and then kills this shell).
@@ -1906,6 +1918,12 @@ ipcMain.handle(
             /** When boolean, render as a native checkbox menu item. */
             checked?: boolean;
           }
+        | {
+            type: "submenu";
+            label: string;
+            disabled?: boolean;
+            items: unknown[];
+          }
       >;
       x?: number;
       y?: number;
@@ -1920,18 +1938,27 @@ ipcMain.handle(
         settled = true;
         resolve(id);
       };
-      const template: MenuItemConstructorOptions[] = items.map((it) => {
-        if (it.type === "separator") return { type: "separator" as const };
-        const isCheckbox = typeof it.checked === "boolean";
-        return {
-          label: it.label,
-          enabled: !it.disabled,
-          ...(isCheckbox
-            ? { type: "checkbox" as const, checked: it.checked }
-            : {}),
-          click: () => done(it.id),
-        };
-      });
+      const toTemplate = (rows: typeof items): MenuItemConstructorOptions[] =>
+        rows.map((it) => {
+          if (it.type === "separator") return { type: "separator" as const };
+          if (it.type === "submenu") {
+            return {
+              label: it.label,
+              enabled: !it.disabled,
+              submenu: toTemplate(it.items as typeof items),
+            };
+          }
+          const isCheckbox = typeof it.checked === "boolean";
+          return {
+            label: it.label,
+            enabled: !it.disabled,
+            ...(isCheckbox
+              ? { type: "checkbox" as const, checked: it.checked }
+              : {}),
+            click: () => done(it.id),
+          };
+        });
+      const template = toTemplate(items);
       if (template.length === 0) {
         done(null);
         return;

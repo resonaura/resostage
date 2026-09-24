@@ -5,6 +5,7 @@ import {
   ContextMenuItem,
 } from "../../components/ContextMenu";
 import { InlineNamePrompt } from "../../components/InlineNamePrompt";
+import type { RenderDialogIntent } from "../../components/RenderAudioDialog";
 import { builder, mixer } from "../../lib/api";
 import {
   sourceOutputBusId,
@@ -52,9 +53,11 @@ export type StripMenuTarget =
  */
 export function StripContextMenu({
   target,
+  onRender,
   onClose,
 }: {
   target: StripMenuTarget;
+  onRender: (intent: RenderDialogIntent) => void;
   onClose: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
@@ -139,6 +142,32 @@ export function StripContextMenu({
     <ContextMenu x={target.x} y={target.y} onClose={onClose}>
       <ContextMenuItem onClick={() => setRenaming(true)}>
         Rename...
+      </ContextMenuItem>
+
+      <ContextMenuItem
+        onClick={() =>
+          act(() =>
+            onRender({
+              kind: "target",
+              targetKind:
+                target.kind === "send" ? "bus" : target.kind,
+              id:
+                target.kind === "track"
+                  ? target.track.id
+                  : target.kind === "send" || target.kind === "master"
+                    ? target.bus.id
+                    : undefined,
+            }),
+          )
+        }
+      >
+        {target.kind === "track"
+          ? "Render Track…"
+          : target.kind === "send"
+            ? "Render Bus…"
+            : target.kind === "click"
+              ? "Render Metronome…"
+              : "Render Main Mix…"}
       </ContextMenuItem>
 
       {canMove && target.kind === "track" && (

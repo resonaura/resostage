@@ -1152,7 +1152,7 @@ export function SettingsScreen({
   const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col">
+    <div className="flex h-full w-full flex-col">
       <Tabs
         variant="accent-soft"
         selectedKey={activeTab}

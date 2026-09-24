@@ -26,6 +26,11 @@ namespace resostage {
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
 inline constexpr int kCurrentFormatVersion = 4;
+// Format 4 only added optional insert chains. Version 3 projects have the
+// same routing/timeline shape and can therefore be upgraded losslessly while
+// parsing by supplying empty chains. Older revisions changed identifiers and
+// ownership and still require the explicit migrator.
+inline constexpr int kMinimumReadableFormatVersion = 3;
 
 // The single on-disk project data file (holds the full WProject schema, i.e.
 // everything that used to live in project.json). Chosen so double-clicking it

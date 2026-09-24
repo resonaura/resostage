@@ -25,6 +25,8 @@ public:
 
     /** Starts one helper scan. Returns false when a scan is already active. */
     bool startScan(bool rescanAll);
+    /** Continues a scan that was cut short by the previous Core shutdown. */
+    void resumeInterruptedScanIfNeeded();
 
     /** Returns a bounded JSON snapshot containing scan state and catalog. */
     std::string snapshotJson() const;
@@ -46,6 +48,8 @@ private:
     std::thread worker;
     std::unique_ptr<juce::ChildProcess> scannerProcess;
     bool scanRunning = false;
+    bool shutdownRequested = false;
+    bool resumeScanOnStartup = false;
     std::string catalogJson = "{\"plugins\":[],\"blacklist\":[]}";
 
     void runScan(bool rescanAll);

@@ -82,3 +82,9 @@ ipcRenderer.on("shell-power", (_event, detail: unknown) => {
 ipcRenderer.on("udp-telemetry", (_event, buffer: unknown) => {
   emit("resostage-udp-telemetry", buffer);
 });
+
+// Native File menu -> the single React render dialog. The shell only conveys
+// user intent; Core still validates and runs the authoritative render job.
+ipcRenderer.on("open-audio-render", (_event, detail: unknown) => {
+  emit("resostage-open-audio-render", detail);
+});

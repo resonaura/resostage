@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { mixer } from "../../lib/api";
+import { mixer, type PluginCatalogEntry } from "../../lib/api";
 import { rowsSameExceptLevels, sameExceptLevels } from "../../lib/levelFields";
 import { getLiveLevels } from "../../lib/liveLevels";
 import type { BusRow, MeterRow, SettingsState } from "../../lib/types";
@@ -15,6 +15,7 @@ function BusStripInner({
   settings,
   isMaster = false,
   anySoloInGroup,
+  pluginCatalog,
   onOpenPlugins,
 }: {
   b: BusRow;
@@ -24,6 +25,7 @@ function BusStripInner({
   settings: SettingsState;
   isMaster?: boolean;
   anySoloInGroup?: boolean;
+  pluginCatalog: PluginCatalogEntry[];
   onOpenPlugins: (stripId: string, stripName: string) => void;
 }) {
   const meter = meters.find((m) => m.id === b.id);
@@ -34,6 +36,7 @@ function BusStripInner({
 
   return (
     <ChannelStrip
+      stripId={b.id}
       name={b.name || b.id}
       subtitle={isMaster ? "Master Output" : "Send"}
       color={color}
@@ -51,7 +54,8 @@ function BusStripInner({
       mute={b.mute}
       solo={b.solo}
       anySoloInGroup={anySoloInGroup}
-      pluginCount={b.plugins?.length ?? 0}
+      pluginSlots={b.plugins ?? []}
+      pluginCatalog={pluginCatalog}
       onPlugins={() => onOpenPlugins(b.id, b.name || b.id)}
       onGain={(v) => mixer.setBusGain(index, v)}
       onPan={(v) => mixer.setBusPan(index, v)}
@@ -77,6 +81,7 @@ export const BusStrip = memo(BusStripInner, (prev, next) => {
     prev.anySoloInGroup === next.anySoloInGroup &&
     prev.settings === next.settings &&
     prev.onOpenPlugins === next.onOpenPlugins &&
+    prev.pluginCatalog === next.pluginCatalog &&
     sameExceptLevels(prev.b, next.b) &&
     sameExceptLevels(prev.master, next.master) &&
     rowsSameExceptLevels(prev.meters, next.meters)

@@ -30,7 +30,7 @@ void writeScanState(const juce::File& file, const char* state, double progress,
     (void)replaceAtomically(file, json);
 }
 
-void writeCatalog(const juce::File& file, const juce::KnownPluginList& list) {
+bool writeCatalog(const juce::File& file, const juce::KnownPluginList& list) {
     auto types = list.getTypes();
     std::sort(types.begin(), types.end(), [](const auto& a, const auto& b) {
         const int manufacturer = a.manufacturerName.compareIgnoreCase(b.manufacturerName);
@@ -61,7 +61,15 @@ void writeCatalog(const juce::File& file, const juce::KnownPluginList& list) {
         json << jsonString(blocked);
     }
     json << "]}";
-    (void)replaceAtomically(file, json);
+    return replaceAtomically(file, json);
+}
+
+bool writeRegistry(const juce::File& file, const juce::KnownPluginList& list) {
+    if (file.getParentDirectory().createDirectory().failed()) return false;
+    juce::TemporaryFile temporary(file);
+    const auto xml = list.createXml();
+    return xml != nullptr && xml->writeTo(temporary.getFile())
+        && temporary.overwriteTargetFileWithTemporary();
 }
 
 juce::String argumentValue(const juce::StringArray& args, const juce::String& key) {
@@ -108,22 +116,27 @@ int main(int argc, char** argv) {
             const double progress = (static_cast<double>(i) + scanner.getProgress())
                                     / std::max(1, formatCount);
             writeScanState(state, "scanning", progress, format->getName(), current);
+            // A third-party binary may terminate this process at any item.
+            // Checkpoint each completed item so Core can launch a fresh helper,
+            // quarantine the pedal entry, and continue instead of repeating
+            // every successful plug-in from the beginning.
+            if (!writeRegistry(registry, known) || !writeCatalog(catalog, known)) {
+                writeScanState(state, "failed", progress, format->getName(), current,
+                               "Could not checkpoint plug-in catalog");
+                return 3;
+            }
         }
     }
 
-    const auto parentResult = registry.getParentDirectory().createDirectory();
-    if (parentResult.failed()) {
-        writeScanState(state, "failed", 1.0, {}, {}, parentResult.getErrorMessage());
-        return 3;
-    }
-    juce::TemporaryFile temporary(registry);
-    if (auto xml = known.createXml(); xml == nullptr || !xml->writeTo(temporary.getFile())
-        || !temporary.overwriteTargetFileWithTemporary()) {
+    if (!writeRegistry(registry, known)) {
         writeScanState(state, "failed", 1.0, {}, {}, "Could not commit plug-in registry");
         return 4;
     }
 
-    writeCatalog(catalog, known);
+    if (!writeCatalog(catalog, known)) {
+        writeScanState(state, "failed", 1.0, {}, {}, "Could not commit plug-in catalog");
+        return 5;
+    }
     writeScanState(state, "complete", 1.0, {}, {});
     return 0;
 }

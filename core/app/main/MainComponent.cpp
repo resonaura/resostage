@@ -265,6 +265,9 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     webServer.setPluginCatalogProvider([this] {
         return pluginCatalog.snapshotJson();
     });
+    // Do this only after the audio device and server are ready: recovery is
+    // background work and must never delay the deadline-critical startup path.
+    pluginCatalog.resumeInterruptedScanIfNeeded();
 
     // SelectSong / Play / etc. used to wait for the 30 Hz timer (up to ~33 ms).
     // Wake the message thread immediately so hops feel instant.

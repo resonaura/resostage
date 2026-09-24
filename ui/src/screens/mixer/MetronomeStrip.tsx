@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { builder, mixer } from "../../lib/api";
+import { builder, mixer, type PluginCatalogEntry } from "../../lib/api";
 import { rowsSameExceptLevels } from "../../lib/levelFields";
 import { getClickPeaks } from "../../lib/liveLevels";
 import {
@@ -15,11 +15,13 @@ function MetronomeStripInner({
   state,
   onDirectOutput,
   onOpenPlugins,
+  pluginCatalog,
 }: {
   state: WebUiState;
   /** Shared Ext. Out helper — reuses/creates a bus then sets clickBusId. */
   onDirectOutput: (startChannel: number, pair: boolean) => void;
   onOpenPlugins: (stripId: string, stripName: string) => void;
+  pluginCatalog: PluginCatalogEntry[];
 }) {
   const clickSolo = state.click?.solo ?? false;
   const hasSongs = state.songs.length > 0;
@@ -89,6 +91,7 @@ function MetronomeStripInner({
 
   return (
     <ChannelStrip
+      stripId="audio::click"
       name={clickName}
       subtitle="Metronome"
       color={metronomeColor()}
@@ -139,7 +142,8 @@ function MetronomeStripInner({
       getLiveDbR={getLiveClickR}
       mute={!isMetronomeOn}
       solo={clickSolo}
-      pluginCount={state.click?.plugins?.length ?? 0}
+      pluginSlots={state.click?.plugins ?? []}
+      pluginCatalog={pluginCatalog}
       onPlugins={() => onOpenPlugins("audio::click", clickName)}
       onGain={(v) => patchClick({ clickGainDb: v })}
       onPan={(v) => patchClick({ clickPan: v })}
@@ -160,6 +164,7 @@ export const MetronomeStrip = memo(MetronomeStripInner, (prev, next) => {
   return (
     prev.onDirectOutput === next.onDirectOutput &&
     prev.onOpenPlugins === next.onOpenPlugins &&
+    prev.pluginCatalog === next.pluginCatalog &&
     a.click === b.click &&
     a.songs === b.songs &&
     a.songIndex === b.songIndex &&
