@@ -138,6 +138,8 @@ public:
 
     /** Rebuilds routing and the asynchronous insert bank after a chain edit. */
     void notifyPluginChainsChanged();
+    /** Message-thread poll for realtime-safe host notifications from plug-ins. */
+    void servicePluginHostChanges();
 
 // The four public-API fragments and the private-members one below are class
 // body text, not headers. The guard is what lets an editor open one of them
@@ -231,7 +233,8 @@ public:
     int64_t hostTimeSkew() const { return hostTimeSkewNanos.load(std::memory_order_relaxed); }
     /** Device-reported output latency in frames, and in seconds. */
     int64_t outputLatencySamples() const {
-        return currentOutputLatencySamples.load(std::memory_order_relaxed);
+        return currentOutputLatencySamples.load(std::memory_order_relaxed)
+            + currentPluginLatencySamples.load(std::memory_order_relaxed);
     }
     double outputLatencySeconds() const {
         return resostage::outputLatencySeconds(outputLatencySamples(), currentSampleRate);

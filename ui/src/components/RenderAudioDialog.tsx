@@ -35,6 +35,7 @@ export function RenderAudioDialog({ open, state, onClose }: {
   const [dither, setDither] = useState<"none" | "tpdf">("none");
   const [normalization, setNormalization] = useState<"off" | "overload" | "peak">("off");
   const [normalizationCeilingDb, setNormalizationCeilingDb] = useState("-0.1");
+  const [trimOutputLatency, setTrimOutputLatency] = useState(true);
   const [customStart, setCustomStart] = useState("0");
   const [customEnd, setCustomEnd] = useState("0");
   const [fileNamePattern, setFileNamePattern] = useState("{project}_{song}_{stem}");
@@ -133,6 +134,7 @@ export function RenderAudioDialog({ open, state, onClose }: {
       dither,
       normalization,
       normalizationCeilingDb: Number(normalizationCeilingDb),
+      trimOutputLatency,
       fileNamePattern: fileNamePattern.trim() || "{project}_{song}_{stem}",
     };
     try {
@@ -210,6 +212,9 @@ export function RenderAudioDialog({ open, state, onClose }: {
                   <Field label="Dither"><Select size="sm" value={dither} isDisabled={bitDepth === "32"} onChange={(value) => setDither(value as "none" | "tpdf")} options={[{ id: "none", label: "None" }, { id: "tpdf", label: "TPDF" }]} /></Field>
                   <Field label="Normalize"><Select size="sm" value={normalization} onChange={(value) => setNormalization(value as "off" | "overload" | "peak")} options={[{ id: "off", label: "Off" }, { id: "overload", label: "Overload protection" }, { id: "peak", label: "Peak normalize" }]} /></Field>
                   <NumberField label="Target peak (dBFS)" value={normalizationCeilingDb} onChange={setNormalizationCeilingDb} min={-12} max={0} step={0.1} disabled={normalization === "off"} />
+                  <Switch isSelected={trimOutputLatency} isDisabled={tailPolicy === "wrap"} onChange={setTrimOutputLatency} className="sm:col-span-3">
+                    <span className="flex flex-col text-left"><span className="text-xs font-semibold">Trim plug-in delay</span><span className="text-[10px] text-foreground/45">Keep all selected stems sample-aligned and remove their common PDC startup silence. Wrap is primed by its first pass.</span></span>
+                  </Switch>
                   <div className="sm:col-span-3"><Field label="Filename pattern"><input value={fileNamePattern} onChange={(event) => setFileNamePattern(event.target.value)} className={inputClass} /><span className="mt-1 block text-[10px] text-foreground/40">Tokens: {'{project}'} {'{song}'} {'{stem}'} {'{sampleRate}'} {'{bitDepth}'}</span></Field></div>
                 </div>}
               </div>
@@ -262,7 +267,7 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 function RenderProgress({ status }: { status: AudioRenderStatus }) {
   return <div className="space-y-2 rounded-lg border border-default/20 bg-surface/60 p-3">
     {status.state === "rendering" && <><div className="flex justify-between text-[10px]"><span className="capitalize">{status.phase ?? "Rendering"}</span><span>{Math.round(status.progress * 100)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-default/25"><div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.round(status.progress * 100)}%` }} /></div><div className="flex justify-between text-[9px] text-foreground/45"><span>{(status.processingSpeedMultiplier ?? 0) > 0 ? `${status.processingSpeedMultiplier?.toFixed(1)}× realtime` : "Measuring speed…"}</span><span>{(status.estimatedRemainingSeconds ?? 0) > 0 ? `${formatDuration(status.estimatedRemainingSeconds ?? 0)} left` : ""}</span></div></>}
-    {status.state === "complete" && <><div className="text-xs font-semibold text-success">Render complete</div><div className="max-h-28 space-y-1 overflow-y-auto">{(status.outputPaths?.length ? status.outputPaths : [status.outputPath]).map((path) => <div key={path} className="break-all font-mono text-[9px] text-foreground/55">{path}</div>)}</div></>}
+    {status.state === "complete" && <><div className="text-xs font-semibold text-success">Render complete</div><div className="max-h-28 space-y-1 overflow-y-auto">{(status.outputPaths?.length ? status.outputPaths : [status.outputPath]).map((path) => <div key={path} className="break-all font-mono text-[9px] text-foreground/55">{path}</div>)}</div>{status.warnings?.map((warning) => <div key={warning} className="rounded bg-warning/10 px-2 py-1 text-[9px] text-warning">{warning}</div>)}</>}
     {status.state === "cancelled" && <div className="text-xs text-warning">Render cancelled. Partial files were removed.</div>}
     {status.state === "failed" && <div className="text-xs text-danger">{status.error || "Render failed"}</div>}
   </div>;

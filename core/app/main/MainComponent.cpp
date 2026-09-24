@@ -37,11 +37,15 @@ namespace {
 
 class OfflinePluginSession final : public OfflineProcessorSession {
 public:
-    explicit OfflinePluginSession(std::shared_ptr<PluginProcessorBank> bankIn)
-        : bank(std::move(bankIn)) {}
+    OfflinePluginSession(std::shared_ptr<PluginProcessorBank> bankIn,
+                         std::shared_ptr<PluginDelayBank> delayBankIn,
+                         std::vector<std::string> warningsIn)
+        : bank(std::move(bankIn)), delayBank(std::move(delayBankIn)),
+          buildWarnings(std::move(warningsIn)) {}
 
     MixProcessorView processorView() const noexcept override {
-        return bank != nullptr ? bank->processorView() : MixProcessorView{};
+        return bank != nullptr
+            ? bank->processorView(delayBank.get()) : MixProcessorView{};
     }
 
     void publishTransport(
@@ -61,8 +65,18 @@ public:
         bank->publishTransport(state);
     }
 
+    double declaredTailSeconds() const noexcept override {
+        return bank != nullptr ? bank->tailSeconds() : 0.0;
+    }
+
+    std::vector<std::string> warnings() const override {
+        return buildWarnings;
+    }
+
 private:
     std::shared_ptr<PluginProcessorBank> bank;
+    std::shared_ptr<PluginDelayBank> delayBank;
+    std::vector<std::string> buildWarnings;
 };
 
 } // namespace
@@ -908,6 +922,11 @@ void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to1
 }
 
 void MainComponent::timerCallback() {
+    // Vendor processors may report a new algorithmic latency from their own
+    // audio callback. Their listener only flips an atomic; this message-thread
+    // poll performs the bounded latest-wins bank rebuild.
+    engine.servicePluginHostChanges();
+
     // Busy is SPA-only (state.busy); Core does not draw an overlay.
     if (engine.isBusy()) {
         drainWebCommands();
@@ -1307,6 +1326,7 @@ void MainComponent::startAudioRender(const std::string& json) {
     double tailQuietSeconds = 0.5;
     double maxTailSeconds = 30.0;
     double normalizationCeilingDb = -0.1;
+    bool trimOutputLatency = true;
     (void)builder_json::getString(doc, "scope", scope);
     (void)builder_json::getString(doc, "target", legacyTarget);
     (void)builder_json::getString(doc, "targetId", legacyTargetId);
@@ -1324,6 +1344,7 @@ void MainComponent::startAudioRender(const std::string& json) {
     (void)builder_json::getDouble(doc, "tailQuietSeconds", tailQuietSeconds);
     (void)builder_json::getDouble(doc, "maxTailSeconds", maxTailSeconds);
     (void)builder_json::getDouble(doc, "normalizationCeilingDb", normalizationCeilingDb);
+    (void)builder_json::getBool(doc, "trimOutputLatency", trimOutputLatency);
 
     request.songIndex = scope == "project" ? -1 : songIndex;
     request.sampleRate = sampleRate;
@@ -1336,6 +1357,7 @@ void MainComponent::startAudioRender(const std::string& json) {
     request.normalization = normalization == "overload" ? RenderNormalization::OverloadProtection
         : (normalization == "peak" ? RenderNormalization::Peak : RenderNormalization::Off);
     request.normalizationCeilingDb = std::clamp(normalizationCeilingDb, -12.0, 0.0);
+    request.trimOutputLatency = trimOutputLatency;
     request.tailThresholdDb = std::clamp(tailThresholdDb, -144.0, -24.0);
     request.tailQuietSeconds = std::clamp(tailQuietSeconds, 0.05, 10.0);
     request.maxTailSeconds = std::clamp(maxTailSeconds, 0.0, 60.0);
@@ -1438,7 +1460,8 @@ void MainComponent::startAudioRender(const std::string& json) {
                     return nullptr;
                 }
                 return std::make_unique<OfflinePluginSession>(
-                    std::move(built.bank));
+                    std::move(built.bank), std::move(built.delayBank),
+                    std::move(built.warnings));
             };
         const OfflineRenderResult result = renderer.render(
             projectSnapshot, projectPath, request,
@@ -1449,7 +1472,7 @@ void MainComponent::startAudioRender(const std::string& json) {
             },
             &cancelAudioRender, processorFactory);
         if (result.ok)
-            webServer.completeAudioRender(result.outputPaths);
+            webServer.completeAudioRender(result.outputPaths, result.warnings);
         else
             webServer.failAudioRender(result.error);
         audioRenderRunning.store(false, std::memory_order_release);

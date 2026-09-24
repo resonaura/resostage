@@ -2235,7 +2235,8 @@ void WebServer::updateAudioRenderProgress(double progress, int64_t processedFram
     }
 }
 
-void WebServer::completeAudioRender(std::vector<std::string> outputPaths) {
+void WebServer::completeAudioRender(std::vector<std::string> outputPaths,
+                                    std::vector<std::string> warnings) {
     std::lock_guard<std::mutex> lock(audioRenderMutex);
     std::string first = outputPaths.empty() ? std::string{} : outputPaths.front();
     audioRenderStatus.state = "complete";
@@ -2243,6 +2244,7 @@ void WebServer::completeAudioRender(std::vector<std::string> outputPaths) {
     audioRenderStatus.progress = 1.0;
     audioRenderStatus.outputPath = std::move(first);
     audioRenderStatus.outputPaths = std::move(outputPaths);
+    audioRenderStatus.warnings = std::move(warnings);
 }
 
 void WebServer::failAudioRender(std::string error) {
@@ -2543,6 +2545,7 @@ int WebServer::serveAudioRenderStatus(struct lws* wsi) {
     wire.estimatedTotalFrames = status.estimatedTotalFrames;
     wire.outputPath = std::move(status.outputPath);
     wire.outputPaths = std::move(status.outputPaths);
+    wire.warnings = std::move(status.warnings);
     wire.error = std::move(status.error);
     std::string json;
     (void)glz::write_json(wire, json);

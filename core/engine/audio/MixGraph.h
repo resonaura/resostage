@@ -140,11 +140,15 @@ struct MixGraph {
     std::vector<MixEdge> edges;
 
     // Stable across gain/pan/mute/routing-only republishes, but changes when
-    // strip indices or an insert chain changes. The audio callback compares
-    // this with the asynchronously prepared processor bank before using its
-    // strip-indexed function table, so an old bank can never process a newly
-    // rearranged graph.
+    // processable strip indices or an insert chain changes. The audio callback
+    // compares this with the asynchronously prepared processor bank before
+    // using its strip-indexed function table.
     uint64_t processorLayoutKey = 0;
+
+    // Includes processorLayoutKey plus physical lanes and edge topology. PDC
+    // uses this separate key so a routing edit can rebuild only delay lines
+    // without recreating stateful vendor processors.
+    uint64_t latencyLayoutKey = 0;
 
     // Section boundaries in `strips` (sources < busses < lanes).
     uint32_t firstBusStrip = 0;

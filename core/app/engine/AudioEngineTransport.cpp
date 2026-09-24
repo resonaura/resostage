@@ -920,15 +920,17 @@ void AudioEngine::fireOnLoadEvents(const SongDef& song) {
             dispatchEvent(ev, now);
 }
 
-void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds, double blockEndSeconds,
-                                 uint64_t hostTimeNanosAtBlockStart) {
+void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds,
+                                double blockEndSeconds,
+                                uint64_t hostTimeNanosAtBlockStart,
+                                int64_t effectiveOutputLatencySamples) {
     // How long the audio for this block will sit in the device before anyone
     // hears it. Every event below is scheduled for that moment rather than for
     // now, so a MIDI note or a light cue lands WITH its downbeat instead of
     // ahead of it -- and, just as importantly, stops moving when the operator
     // changes the buffer size. See engine/timing/OutputLatency.h.
     const double outputLatencySec =
-        resostage::outputLatencySeconds(currentOutputLatencySamples.load(std::memory_order_relaxed),
+        resostage::outputLatencySeconds(effectiveOutputLatencySamples,
                                         currentSampleRate);
 
     for (size_t i = 0; i < song.events.size() && i < eventFiredFlags.size(); ++i) {

@@ -9,21 +9,25 @@ namespace resostage {
 
 const StripLevels MixRenderer::kSilentLevels{};
 
-void MixRenderer::prepare(double sampleRate, int maxBlockSize, size_t maxStrips) {
+void MixRenderer::prepare(double sampleRate, int maxBlockSize, size_t maxStrips,
+                          size_t maxEdges) {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 48000.0;
     maxBlock = std::max(1, maxBlockSize);
     stripCapacity = maxStrips;
+    edgeCapacity = maxEdges;
 
     const size_t samples = stripCapacity * 2 * static_cast<size_t>(maxBlock);
     preBuffer.assign(samples, 0.0f);
     postBuffer.assign(samples, 0.0f);
+    edgeDelayScratch.assign(static_cast<size_t>(maxBlock) * 2, 0.0f);
     stripLevels.assign(stripCapacity, StripLevels{});
     stripSmoothers.assign(stripCapacity, Smoother{});
-    edgeSmoothers.clear();
+    edgeSmoothers.assign(edgeCapacity, -1.0f);
 }
 
 bool MixRenderer::canRender(const MixGraph& graph, int numSamples) const {
     return graph.strips.size() <= stripCapacity && maxBlock > 0
+           && graph.edges.size() <= edgeCapacity
            && numSamples > 0 && numSamples <= maxBlock;
 }
 
@@ -97,12 +101,6 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
     if (span <= 0)
         return;
 
-    // Edge glide state is positional. Resizing here is the one allocation on
-    // this path and it only happens when the topology actually changed (a
-    // send added or removed), never for a knob move.
-    if (edgeSmoothers.size() != graph.edges.size())
-        edgeSmoothers.assign(graph.edges.size(), -1.0f);
-
     const float alpha = smoothingCoefficient();
 
     // Edges are sorted by destination and every edge runs from a lower strip
@@ -123,7 +121,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
             const MixEdge& edge = graph.edges[edgeCursor];
             const size_t edgeIndex = edgeCursor;
             ++edgeCursor;
-            if (!edge.active || edge.from >= graph.strips.size())
+            if (edge.from >= graph.strips.size())
                 continue;
 
             // Post-fader sends carry the source's own fader and pan (already
@@ -131,6 +129,24 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
             // untouched input sum.
             const float* srcL = edge.preFader ? preRow(edge.from, 0) : postRow(edge.from, 0);
             const float* srcR = edge.preFader ? preRow(edge.from, 1) : postRow(edge.from, 1);
+
+            // Delay state advances even while an edge is inactive. Feeding
+            // zeroes flushes a muted/unsoloed branch instead of freezing old
+            // audio in the ring and replaying it when the edge becomes live.
+            if (processors.edgeDelays != nullptr
+                && edgeIndex < processors.edgeDelayCount) {
+                const auto& delay = processors.edgeDelays[edgeIndex];
+                if (delay.process != nullptr) {
+                    float* delayedL = edgeDelayScratch.data();
+                    float* delayedR = delayedL + maxBlock;
+                    delay.process(delay.context, srcL, srcR, delayedL, delayedR,
+                                  span, edge.active);
+                    srcL = delayedL;
+                    srcR = delayedR;
+                }
+            }
+            if (!edge.active)
+                continue;
 
             float& smoothed = edgeSmoothers[edgeIndex];
             if (smoothed < 0.0f)

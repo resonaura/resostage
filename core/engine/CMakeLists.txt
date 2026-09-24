@@ -2,6 +2,7 @@ add_library(resostage_engine STATIC
   timing/MasterClock.cpp
   audio/RoutingEngine.cpp
   audio/MixGraph.cpp
+  audio/MixLatency.cpp
   audio/MixRenderer.cpp
   audio/Metering.cpp
   audio/SincInterpolator.cpp

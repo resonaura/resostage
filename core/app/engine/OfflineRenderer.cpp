@@ -23,6 +23,7 @@ namespace {
 
 constexpr int kBlockSize = 1024;
 constexpr int64_t kSourceCacheFrames = 8192;
+constexpr uint64_t kMaximumTapDelayBytes = 64ull * 1024ull * 1024ull;
 
 float dbToGain(double db) {
     return static_cast<float>(std::pow(10.0, db / 20.0));
@@ -32,6 +33,36 @@ float shapedFade(double t, double curve) {
     const double x = std::clamp(t, 0.0, 1.0);
     return static_cast<float>(std::pow(x, std::pow(2.0, -std::clamp(curve, -1.0, 1.0) * 2.0)));
 }
+
+class StereoTapDelay {
+public:
+    explicit StereoTapDelay(uint32_t delaySamples)
+        : left(delaySamples, 0.0f), right(delaySamples, 0.0f) {}
+
+    void process(const float* inputLeft, const float* inputRight,
+                 float* outputLeft, float* outputRight, int frames) noexcept {
+        if (left.empty()) {
+            std::copy_n(inputLeft, frames, outputLeft);
+            std::copy_n(inputRight, frames, outputRight);
+            return;
+        }
+        for (int frame = 0; frame < frames; ++frame) {
+            const float sourceLeft = inputLeft[frame];
+            const float sourceRight = inputRight[frame];
+            outputLeft[frame] = left[cursor];
+            outputRight[frame] = right[cursor];
+            left[cursor] = sourceLeft;
+            right[cursor] = sourceRight;
+            if (++cursor == left.size())
+                cursor = 0;
+        }
+    }
+
+private:
+    std::vector<float> left;
+    std::vector<float> right;
+    size_t cursor = 0;
+};
 
 class WavSource {
 public:
@@ -520,16 +551,68 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
             selectedStrips.push_back(strip);
         }
         MixRenderer mixer;
-        mixer.prepare(request.sampleRate, kBlockSize, graph.strips.size());
+        mixer.prepare(request.sampleRate, kBlockSize, graph.strips.size(),
+                      graph.edges.size());
         std::unique_ptr<OfflineProcessorSession> processorSession;
         if (processorFactory) {
             processorSession = processorFactory(
                 project, graph, request.sampleRate, kBlockSize, result.error);
             if (processorSession == nullptr && !result.error.empty())
                 return fail(result.error);
+            if (processorSession != nullptr) {
+                for (auto& warning : processorSession->warnings()) {
+                    if (std::find(result.warnings.begin(), result.warnings.end(),
+                                  warning) == result.warnings.end()) {
+                        result.warnings.push_back(std::move(warning));
+                    }
+                }
+            }
         }
         const MixProcessorView processors = processorSession != nullptr
             ? processorSession->processorView() : MixProcessorView{};
+        const int64_t declaredTailFrames =
+            request.tailPolicy == RenderTailPolicy::Leave
+            && processorSession != nullptr
+                ? std::min<int64_t>(
+                    maxTailFrames,
+                    static_cast<int64_t>(std::ceil(std::max(
+                        0.0, processorSession->declaredTailSeconds())
+                        * request.sampleRate)))
+                : 0;
+        uint32_t selectedMaximumLatency = 0;
+        if (processors.stripOutputLatencySamples != nullptr) {
+            for (const uint32_t strip : selectedStrips) {
+                if (strip < processors.stripOutputLatencyCount) {
+                    selectedMaximumLatency = std::max(
+                        selectedMaximumLatency,
+                        processors.stripOutputLatencySamples[strip]);
+                }
+            }
+        }
+        std::vector<std::unique_ptr<StereoTapDelay>> tapDelays(
+            selectedStrips.size());
+        uint64_t tapDelayBytes = 0;
+        for (size_t outputIndex = 0;
+             outputIndex < selectedStrips.size(); ++outputIndex) {
+            const uint32_t strip = selectedStrips[outputIndex];
+            const uint32_t stripLatency =
+                processors.stripOutputLatencySamples != nullptr
+                    && strip < processors.stripOutputLatencyCount
+                ? processors.stripOutputLatencySamples[strip] : 0;
+            const uint32_t delaySamples =
+                selectedMaximumLatency > stripLatency
+                    ? selectedMaximumLatency - stripLatency : 0;
+            tapDelayBytes += static_cast<uint64_t>(delaySamples)
+                             * 2ull * sizeof(float);
+            if (tapDelayBytes > kMaximumTapDelayBytes) {
+                return fail(
+                    "Selected stem delay compensation exceeds the 64 MiB memory budget");
+            }
+            if (delaySamples > 0) {
+                tapDelays[outputIndex] =
+                    std::make_unique<StereoTapDelay>(delaySamples);
+            }
+        }
         ClickGenerator click;
         click.prepare(request.sampleRate, song.bpm, song.timeSignature.numerator,
                       song.timeSignature.denominator);
@@ -538,23 +621,36 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         std::vector<float> pitchL(kBlockSize), pitchR(kBlockSize);
         std::vector<float> clickMono(kBlockSize);
         const int64_t sourceStartFrame = static_cast<int64_t>(std::llround(rangeStart * request.sampleRate));
-        const int64_t hardEndFrame = contentFrames + fixedTailFrames + maxTailFrames;
+        const int64_t outputEndFrame =
+            contentFrames + fixedTailFrames + maxTailFrames;
+        const int64_t trimLatencyFrames =
+            request.trimOutputLatency
+                && request.tailPolicy != RenderTailPolicy::Wrap
+            ? static_cast<int64_t>(selectedMaximumLatency) : 0;
+        const int64_t renderEndFrame = outputEndFrame + trimLatencyFrames;
         const int passCount = request.tailPolicy == RenderTailPolicy::Wrap ? 2 : 1;
         int64_t processedSongFrames = 0;
         for (int pass = 0; pass < passCount; ++pass) {
           const bool recordPass = pass == passCount - 1;
-          int64_t outputFrame = 0;
+          int64_t renderFrame = 0;
           int64_t quietFrames = 0;
           float tailEnvelope = 0.0f;
-          while (outputFrame < hardEndFrame) {
+          while (renderFrame < renderEndFrame) {
             if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) {
                 return fail("Render cancelled");
             }
-            const int count = static_cast<int>(std::min<int64_t>(kBlockSize, hardEndFrame - outputFrame));
-            const bool contentActive = outputFrame < contentFrames;
+            const int count = static_cast<int>(std::min<int64_t>(
+                kBlockSize, renderEndFrame - renderFrame));
+            const bool contentActive = renderFrame < contentFrames;
             const int contentCount = contentActive
-                ? static_cast<int>(std::min<int64_t>(count, contentFrames - outputFrame)) : 0;
-            const int64_t sourceFrameBase = sourceStartFrame + outputFrame;
+                ? static_cast<int>(std::min<int64_t>(
+                    count, contentFrames - renderFrame)) : 0;
+            const int64_t sourceFrameBase = sourceStartFrame + renderFrame;
+            const int writeOffset = recordPass
+                ? static_cast<int>(std::clamp<int64_t>(
+                    trimLatencyFrames - renderFrame, 0, count))
+                : count;
+            const int writeCount = recordPass ? count - writeOffset : 0;
             mixer.beginBlock(graph, count);
 
             for (uint32_t ti = 0; ti < project.tracks.size() && contentCount > 0; ++ti) {
@@ -643,37 +739,52 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                     std::fill_n(regionL.data(), count, 0.0f);
                     left = right = regionL.data();
                 }
-                for (int i = 0; i < count; ++i)
+                if (tapDelays[outputIndex] != nullptr) {
+                    tapDelays[outputIndex]->process(
+                        left, right, regionL.data(), regionR.data(), count);
+                    left = regionL.data();
+                    right = regionR.data();
+                }
+                for (int i = writeOffset; i < count; ++i)
                     blockPeak = std::max(blockPeak,
                         std::max(std::abs(left[i]), std::abs(right[i])));
-                if (recordPass && !writers[outputIndex]->write(left, right, count))
+                if (writeCount > 0
+                    && !writers[outputIndex]->write(
+                        left + writeOffset, right + writeOffset, writeCount))
                     return fail("Failed while writing output WAV");
             }
-            if (recordPass) {
-                result.framesWritten += count;
-            }
+            if (recordPass)
+                result.framesWritten += writeCount;
             processedWorkFrames += count;
             processedSongFrames += count;
-            outputFrame += count;
+            renderFrame += count;
+            const int64_t writtenFrame = std::clamp<int64_t>(
+                renderFrame - trimLatencyFrames, 0, outputEndFrame);
 
-            if (outputFrame >= contentFrames + fixedTailFrames
+            if (writtenFrame >= contentFrames + fixedTailFrames
                 && request.tailPolicy == RenderTailPolicy::Leave) {
                 const float release = static_cast<float>(std::exp(
-                    -static_cast<double>(count) / (request.sampleRate * 0.1)));
+                    -static_cast<double>(std::max(1, writeCount))
+                    / (request.sampleRate * 0.1)));
                 tailEnvelope = std::max(blockPeak, release * tailEnvelope);
-                quietFrames = tailEnvelope < tailThreshold ? quietFrames + count : 0;
-                if (quietFrames >= quietFramesNeeded)
+                quietFrames = tailEnvelope < tailThreshold
+                    ? quietFrames + writeCount : 0;
+                if (writtenFrame >= contentFrames + fixedTailFrames
+                                       + declaredTailFrames
+                    && quietFrames >= quietFramesNeeded)
                     break;
             }
             if (onProgress) {
-                const double passWork = static_cast<double>(pass * hardEndFrame + outputFrame);
+                const double passWork = static_cast<double>(
+                    pass * renderEndFrame + renderFrame);
                 const double songDone = passWork / request.sampleRate;
                 const double progress = std::clamp(
                     (completedSeconds + songDone) / std::max(0.01, totalSeconds), 0.0, 0.98);
                 onProgress({progress, processedWorkFrames,
                             static_cast<int64_t>(std::ceil(totalSeconds * request.sampleRate)),
                             !recordPass ? "preparing"
-                                        : (outputFrame >= contentFrames ? "tail" : "rendering")});
+                                        : (writtenFrame >= contentFrames
+                                               ? "tail" : "rendering")});
             }
           }
         }

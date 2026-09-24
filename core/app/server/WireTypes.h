@@ -672,6 +672,7 @@ struct WAudioRenderStatusPayload {
     int64_t estimatedTotalFrames = 0;
     std::string outputPath;
     std::vector<std::string> outputPaths;
+    std::vector<std::string> warnings;
     std::string error;
 };
 

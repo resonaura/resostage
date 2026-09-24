@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/MixGraph.h"
+#include "audio/MixLatency.h"
 #include "audio/MixRenderer.h"
 #include "project/ProjectLoader.h"
 
@@ -12,6 +13,39 @@
 #include <vector>
 
 namespace resostage {
+
+/** Immutable, graph-topology-specific PDC state with no vendor processors. */
+class PluginDelayBank final {
+public:
+    static std::shared_ptr<PluginDelayBank> build(
+        const MixGraph& graph,
+        const std::vector<uint32_t>& stripProcessorLatencySamples,
+        double sampleRate,
+        std::vector<std::string>& warnings);
+
+    PluginDelayBank(const PluginDelayBank&) = delete;
+    PluginDelayBank& operator=(const PluginDelayBank&) = delete;
+
+    void applyTo(MixProcessorView& view) const noexcept;
+    int latencySamples() const noexcept { return maximumLatencySamples; }
+
+private:
+    struct EdgeDelayLine;
+
+    PluginDelayBank() = default;
+    static void processEdgeDelay(void* context,
+                                 const float* inputLeft,
+                                 const float* inputRight,
+                                 float* outputLeft,
+                                 float* outputRight,
+                                 int numSamples,
+                                 bool inputEnabled) noexcept;
+
+    std::vector<std::unique_ptr<EdgeDelayLine>> edgeDelayLines;
+    std::vector<MixEdgeDelay> edgeDelayEntries;
+    std::vector<uint32_t> stripOutputLatencySamples;
+    int maximumLatencySamples = 0;
+};
 
 struct PluginTransportState {
     int64_t sample = 0;
@@ -52,10 +86,11 @@ private:
  * reached only through MixProcessorView's pre-bound function/context pairs;
  * it performs no lookup, resizing, state serialization, or filesystem work.
  */
-class PluginProcessorBank final {
+class PluginProcessorBank final : private juce::AudioProcessorListener {
 public:
     struct BuildResult {
         std::shared_ptr<PluginProcessorBank> bank;
+        std::shared_ptr<PluginDelayBank> delayBank;
         std::vector<std::string> warnings;
     };
 
@@ -65,18 +100,27 @@ public:
                              double sampleRate, int maximumBlockSize,
                              bool nonRealtime);
 
-    ~PluginProcessorBank();
+    ~PluginProcessorBank() override;
     PluginProcessorBank(const PluginProcessorBank&) = delete;
     PluginProcessorBank& operator=(const PluginProcessorBank&) = delete;
 
-    MixProcessorView processorView() const noexcept {
-        return {processorEntries.data(), processorEntries.size()};
+    MixProcessorView processorView(
+        const PluginDelayBank* delayBank = nullptr) const noexcept {
+        MixProcessorView view{processorEntries.data(), processorEntries.size()};
+        if (delayBank != nullptr)
+            delayBank->applyTo(view);
+        return view;
     }
     void publishTransport(const PluginTransportState& state) noexcept {
         playHead.publish(state);
     }
     int latencySamples() const noexcept { return maximumLatencySamples; }
     double tailSeconds() const noexcept { return maximumTailSeconds; }
+    /** Worker-thread refresh used after a JUCE latency-change notification. */
+    std::vector<uint32_t> snapshotStripLatencies() const;
+    bool consumeLatencyChange() noexcept {
+        return latencyChangePending.exchange(false, std::memory_order_acq_rel);
+    }
 
 private:
     struct Node;
@@ -85,12 +129,19 @@ private:
     PluginProcessorBank() = default;
     static void processChain(void* context, float* left, float* right,
                              int numSamples) noexcept;
+    void audioProcessorParameterChanged(juce::AudioProcessor*, int,
+                                        float) override {}
+    void audioProcessorChanged(
+        juce::AudioProcessor*,
+        const juce::AudioProcessorListener::ChangeDetails& details) override;
 
     PluginPlayHead playHead;
     std::vector<std::unique_ptr<StripChain>> chains;
     std::vector<MixStripProcessor> processorEntries;
+    std::vector<uint32_t> stripProcessorLatencySamples;
     int maximumLatencySamples = 0;
     double maximumTailSeconds = 0.0;
+    std::atomic<bool> latencyChangePending{false};
 };
 
 } // namespace resostage

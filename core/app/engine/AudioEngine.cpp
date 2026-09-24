@@ -1002,12 +1002,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         std::atomic_load_explicit(&activePluginBank,
                                   std::memory_order_acquire);
     MixProcessorView pluginProcessors;
+    int64_t pluginLatencyForBlock = 0;
     if (pluginPublication != nullptr
         && pluginPublication->processorLayoutKey == graph.processorLayoutKey
         && std::abs(pluginPublication->sampleRate - currentSampleRate) < 1e-6
         && numSamples <= pluginPublication->maximumBlockSize
         && pluginPublication->bank != nullptr) {
-        pluginProcessors = pluginPublication->bank->processorView();
+        const PluginDelayBank* compatibleDelayBank =
+            pluginPublication->latencyLayoutKey == graph.latencyLayoutKey
+                ? pluginPublication->delayBank.get() : nullptr;
+        pluginProcessors = pluginPublication->bank->processorView(
+            compatibleDelayBank);
+        pluginLatencyForBlock = compatibleDelayBank != nullptr
+            ? compatibleDelayBank->latencySamples()
+            : pluginPublication->bank->latencySamples();
     }
 
     std::unique_lock<std::recursive_mutex> routeLock(routingMutex, std::try_to_lock);
@@ -1059,7 +1067,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
         const double blockStartSeconds = static_cast<double>(playheadSample) / currentSampleRate;
         const double blockEndSeconds = static_cast<double>(playheadSample + numSamples) / currentSampleRate;
-        fireDueEvents(song, blockStartSeconds, blockEndSeconds, hostTimeNanos);
+        fireDueEvents(
+            song, blockStartSeconds, blockEndSeconds, hostTimeNanos,
+            currentOutputLatencySamples.load(std::memory_order_relaxed)
+                + pluginLatencyForBlock);
 
         // Cycle / skip-cycle (Logic-style locators, song-local). Applied on the
         // realtime path so loop authority is the engine -- not whichever SPA

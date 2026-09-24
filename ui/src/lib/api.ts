@@ -140,6 +140,7 @@ export interface AudioRenderOptions {
   dither: "none" | "tpdf";
   normalization: "off" | "overload" | "peak";
   normalizationCeilingDb: number;
+  trimOutputLatency: boolean;
   fileNamePattern: string;
 }
 
@@ -156,6 +157,7 @@ export interface AudioRenderStatus {
   outputPath: string;
   /** Absent on older Core versions that supported only one render output. */
   outputPaths?: string[];
+  warnings?: string[];
   error: string;
 }
 

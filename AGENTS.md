@@ -222,6 +222,18 @@ Preserve these rules:
   `MixProcessorView` hook. The renderer remains JUCE-free; application-owned
   live/offline processor banks publish one pre-bound function/context entry
   per graph strip. Pre-fader sends include inserts but bypass fader/mute.
+- Plug-in delay compensation is derived from the same topologically ordered
+  graph. A topology-specific delay bank publishes pre-bound per-edge entries
+  so every summing strip aligns to its slowest input without lookup or
+  allocation in the audio callback. It is separate from the stateful processor
+  bank: routing-only edits rebuild delay lines without recreating vendor
+  instances or resetting their tails. Delay rings are prepared off-thread and
+  bounded to 10 seconds and 128 MiB per bank; if either bound cannot be met,
+  compensation is disabled as one whole plan rather than partially
+  phase-aligning the graph. Inactive delayed edges consume zeroes so stale
+  audio cannot replay after unmute. A runtime latency-change notification only
+  flips an atomic; the message-thread host poll requests a new latest-wins
+  delay-bank generation.
 - Output lanes accumulate with `+=`; multiple valid sources may target the
   same lane.
 - If graph or block dimensions exceed prepared capacity, silence is safer
@@ -328,8 +340,9 @@ remain monotonic during callback gaps. UI time is only a visualization.
 
 Timeline events are detected against audio block boundaries for sample-aligned
 intent, then dispatched without performing slow I/O in the callback. Output
-latency is included when deriving target host time so MIDI/DMX/HTTP intent is
-aligned with audio as it is heard, not merely when buffers are filled.
+latency, including the compatible plug-in bank's compensated path latency, is
+included when deriving target host time so MIDI/DMX/HTTP intent is aligned
+with audio as it is heard, not merely when buffers are filled.
 
 `LightEngine` resolves cues/effects on its own high-priority loop (nominally
 60 Hz) from the master clock and immutable project state. Hardware protocols
@@ -394,6 +407,18 @@ separate WAV files in one graph sweep. Never implement stem export by
 repeatedly changing Solo and rerendering: that changes shared-bus/send
 semantics and repeats the expensive mix work.
 
+When several taps are exported together, shorter tap paths are delayed to the
+slowest selected tap so every WAV shares one compensated sample origin. These
+offline tap delays are bounded to 64 MiB and a job fails cleanly before
+publication when that budget would be exceeded. Output-latency trimming is on
+by default: the renderer processes the common latency as bounded extra work,
+discards that startup window, and still writes the exact requested range. A
+`Wrap` render needs no separate trim pass because its unwritten first cycle
+already primes both processors and delay lines. Missing plug-ins, unavailable
+state, and disabled PDC are recoverable render warnings carried through job
+status and shown with the completed outputs; they must not disappear in a
+background worker log.
+
 The renderer uses bounded seek/decode caches (currently 8192-frame chunks)
 rather than loading an entire show into memory. It must not stop or reconfigure
 the live engine, touch the device callback, or read a project while the message
@@ -403,11 +428,13 @@ reported output path belongs to the playback machine.
 Tail policy is explicit. `Cut` ends at the requested sample range. `Leave`
 feeds silence through the graph until every selected tap's release envelope
 stays below the configured threshold for the quiet-hold duration, with a
-mandatory maximum tail bound. `Wrap` renders one complete priming pass without
-writing, preserves renderer/processor state, then records the second pass; do
-not replace it with post-summing an unbounded in-memory tail. Cancellation is
-cooperative at each bounded render block and must close and remove every
-partial output in the job.
+mandatory maximum tail bound. A processor bank's conservative declared tail
+is a minimum before quiet-stop, preventing sparse echoes from terminating in
+the gap between repeats, but it can never extend the user-selected hard cap.
+`Wrap` renders one complete priming pass without writing, preserves
+renderer/processor state, then records the second pass; do not replace it with
+post-summing an unbounded in-memory tail. Cancellation is cooperative at each
+bounded render block and must close and remove every partial output in the job.
 
 Writers publish atomically: output is built under `.resostage-part` and renamed
 only after its header and samples are complete. Normalization uses a bounded-

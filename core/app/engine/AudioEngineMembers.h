@@ -43,9 +43,11 @@
 
     struct PublishedPluginBank {
         uint64_t processorLayoutKey = 0;
+        uint64_t latencyLayoutKey = 0;
         double sampleRate = 48000.0;
         int maximumBlockSize = 512;
         std::shared_ptr<PluginProcessorBank> bank;
+        std::shared_ptr<PluginDelayBank> delayBank;
     };
 
     // One bounded, latest-wins builder. Plug-in construction/state restore is
@@ -125,6 +127,10 @@
      * itself is deliberately not delayed to match.
      */
     std::atomic<int64_t> currentOutputLatencySamples{0};
+    // Maximum compensated plug-in path currently active in the callback.
+    // Kept separate from hardware latency because device restarts update the
+    // latter independently of asynchronous processor-bank publication.
+    std::atomic<int64_t> currentPluginLatencySamples{0};
     /** Callback host time minus the app clock; see the callback. */
     std::atomic<int64_t> hostTimeSkewNanos{0};
 
@@ -525,7 +531,10 @@
     void fireOnLoadEvents(const SongDef& song);
     /** Re-arms the fired-flag vector against the current song's event list. */
     void syncEventFiredFlags();
-    void fireDueEvents(const SongDef& song, double blockStartSeconds, double blockEndSeconds, uint64_t hostTimeNanosAtBlockStart);
+    void fireDueEvents(const SongDef& song, double blockStartSeconds,
+                       double blockEndSeconds,
+                       uint64_t hostTimeNanosAtBlockStart,
+                       int64_t effectiveOutputLatencySamples);
 
     // Hot-plug fail-safe: juce::AudioDeviceManager broadcasts a change
     // whenever the device list or the current device's state changes

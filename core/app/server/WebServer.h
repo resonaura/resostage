@@ -968,13 +968,15 @@ public:
         int64_t estimatedTotalFrames = 0;
         std::string outputPath;
         std::vector<std::string> outputPaths;
+        std::vector<std::string> warnings;
         std::string error;
     };
     void beginAudioRender();
     void updateAudioRenderProgress(double progress, int64_t processedFrames,
                                    int64_t estimatedTotalFrames, int sampleRate,
                                    std::string phase);
-    void completeAudioRender(std::vector<std::string> outputPaths);
+    void completeAudioRender(std::vector<std::string> outputPaths,
+                             std::vector<std::string> warnings = {});
     void failAudioRender(std::string error);
 
     using PluginCatalogProvider = std::function<std::string()>;

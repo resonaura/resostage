@@ -47,9 +47,28 @@ struct MixStripProcessor {
     Process process = nullptr;
 };
 
+// Optional per-edge delay prepared together with the strip processors. It
+// writes into renderer-owned scratch, so every edge needs only its persistent
+// delay ring rather than another maximum-block-sized output allocation.
+struct MixEdgeDelay {
+    using Process = void (*)(void* context,
+                             const float* inputLeft,
+                             const float* inputRight,
+                             float* outputLeft,
+                             float* outputRight,
+                             int numSamples,
+                             bool inputEnabled) noexcept;
+    void* context = nullptr;
+    Process process = nullptr;
+};
+
 struct MixProcessorView {
     const MixStripProcessor* strips = nullptr;
     size_t count = 0;
+    const MixEdgeDelay* edgeDelays = nullptr;
+    size_t edgeDelayCount = 0;
+    const uint32_t* stripOutputLatencySamples = nullptr;
+    size_t stripOutputLatencyCount = 0;
 };
 
 class MixRenderer {
@@ -58,9 +77,11 @@ public:
     // renderer will be asked to handle. Headroom above the current project's
     // strip count is deliberate: adding a send must not have to reallocate
     // while the transport is running.
-    void prepare(double sampleRate, int maxBlockSize, size_t maxStrips);
+    void prepare(double sampleRate, int maxBlockSize, size_t maxStrips,
+                 size_t maxEdges);
 
     size_t capacity() const { return stripCapacity; }
+    size_t edgeCapacityValue() const { return edgeCapacity; }
     /**
      * Whether this renderer can take `numSamples` for `graph` as it stands.
      *
@@ -125,10 +146,13 @@ private:
     double currentSampleRate = 48000.0;
     int maxBlock = 512;
     size_t stripCapacity = 0;
+    size_t edgeCapacity = 0;
 
     // Strip i owns rows 2*i (L) and 2*i+1 (R) of each buffer.
     std::vector<float> preBuffer;
     std::vector<float> postBuffer;
+    // Two rows shared by delayed edges. Edges are consumed serially.
+    std::vector<float> edgeDelayScratch;
     std::vector<StripLevels> stripLevels;
     std::vector<Smoother> stripSmoothers;
     // Glide state for edge gains, keyed by edge index. Rebuilt implicitly

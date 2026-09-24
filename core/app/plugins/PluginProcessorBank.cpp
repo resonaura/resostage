@@ -1,7 +1,10 @@
 #include "PluginProcessorBank.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
+#include <limits>
+#include <new>
 
 namespace resostage {
 namespace {
@@ -9,6 +12,12 @@ namespace {
 constexpr size_t kMaximumSlotsPerBank = 128;
 constexpr size_t kMaximumStateBytesPerSlot = 64 * 1024 * 1024;
 constexpr size_t kMaximumStateBytesPerBank = 256 * 1024 * 1024;
+// Delay compensation is intentionally bounded. A malicious or broken plug-in
+// can report an arbitrary latency and a dense routing graph multiplies that
+// by every faster incoming edge. Above this budget the bank still processes
+// audio, but publishes no partial compensation plan.
+constexpr uint64_t kMaximumDelayMemoryBytes = 128ull * 1024ull * 1024ull;
+constexpr double kMaximumCompensatedSeconds = 10.0;
 
 const std::vector<PluginSlot>* slotsForStrip(const Project& project,
                                              const MixStrip& strip) {
@@ -106,12 +115,132 @@ struct PluginProcessorBank::StripChain {
     double tailSeconds = 0.0;
 };
 
+struct PluginDelayBank::EdgeDelayLine {
+    explicit EdgeDelayLine(uint32_t delaySamples)
+        : left(delaySamples, 0.0f), right(delaySamples, 0.0f) {}
+
+    std::vector<float> left;
+    std::vector<float> right;
+    uint32_t cursor = 0;
+};
+
+void PluginDelayBank::applyTo(MixProcessorView& view) const noexcept {
+    view.edgeDelays = edgeDelayEntries.data();
+    view.edgeDelayCount = edgeDelayEntries.size();
+    view.stripOutputLatencySamples = stripOutputLatencySamples.data();
+    view.stripOutputLatencyCount = stripOutputLatencySamples.size();
+}
+
+void PluginDelayBank::processEdgeDelay(
+    void* context, const float* inputLeft, const float* inputRight,
+    float* outputLeft, float* outputRight, int numSamples,
+    bool inputEnabled) noexcept {
+    auto& delay = *static_cast<EdgeDelayLine*>(context);
+    const uint32_t length = static_cast<uint32_t>(delay.left.size());
+    if (length == 0)
+        return;
+    uint32_t cursor = delay.cursor;
+    for (int sample = 0; sample < numSamples; ++sample) {
+        outputLeft[sample] = delay.left[cursor];
+        outputRight[sample] = delay.right[cursor];
+        delay.left[cursor] = inputEnabled ? inputLeft[sample] : 0.0f;
+        delay.right[cursor] = inputEnabled ? inputRight[sample] : 0.0f;
+        if (++cursor == length)
+            cursor = 0;
+    }
+    delay.cursor = cursor;
+}
+
+std::shared_ptr<PluginDelayBank> PluginDelayBank::build(
+    const MixGraph& graph,
+    const std::vector<uint32_t>& stripProcessorLatencySamples,
+    double sampleRate,
+    std::vector<std::string>& warnings) {
+    auto bank = std::shared_ptr<PluginDelayBank>(new PluginDelayBank());
+    const MixLatencyPlan latencyPlan =
+        buildMixLatencyPlan(graph, stripProcessorLatencySamples);
+    bank->maximumLatencySamples = static_cast<int>(std::min<uint32_t>(
+        latencyPlan.maximumOutputLatencySamples,
+        static_cast<uint32_t>(INT_MAX)));
+    bank->stripOutputLatencySamples = latencyPlan.stripOutputLatencySamples;
+    bank->edgeDelayLines.resize(graph.edges.size());
+    bank->edgeDelayEntries.resize(graph.edges.size());
+
+    uint64_t delayMemoryBytes = 0;
+    for (const uint32_t delaySamples : latencyPlan.edgeDelaySamples) {
+        delayMemoryBytes += static_cast<uint64_t>(delaySamples)
+                            * 2ull * sizeof(float);
+    }
+    const uint64_t maximumLatencySamples = static_cast<uint64_t>(
+        std::max(1.0, sampleRate) * kMaximumCompensatedSeconds);
+    const bool latencyInRange =
+        latencyPlan.maximumOutputLatencySamples <= maximumLatencySamples;
+    const bool memoryInRange = delayMemoryBytes <= kMaximumDelayMemoryBytes;
+    if (!latencyInRange || !memoryInRange) {
+        warnings.push_back(
+            !latencyInRange
+                ? "Plug-in delay compensation exceeds the 10 second safety bound"
+                : "Plug-in delay compensation exceeds the 128 MiB memory budget");
+        bank->stripOutputLatencySamples.assign(graph.strips.size(), 0);
+        bank->maximumLatencySamples = 0;
+        return bank;
+    }
+
+    try {
+        for (size_t edgeIndex = 0;
+             edgeIndex < latencyPlan.edgeDelaySamples.size(); ++edgeIndex) {
+            const uint32_t delaySamples =
+                latencyPlan.edgeDelaySamples[edgeIndex];
+            if (delaySamples == 0)
+                continue;
+            auto delay = std::make_unique<EdgeDelayLine>(delaySamples);
+            bank->edgeDelayEntries[edgeIndex] =
+                {delay.get(), processEdgeDelay};
+            bank->edgeDelayLines[edgeIndex] = std::move(delay);
+        }
+    } catch (const std::bad_alloc&) {
+        bank->edgeDelayEntries.assign(graph.edges.size(), MixEdgeDelay{});
+        bank->edgeDelayLines.clear();
+        bank->stripOutputLatencySamples.assign(graph.strips.size(), 0);
+        bank->maximumLatencySamples = 0;
+        warnings.push_back(
+            "Plug-in delay compensation could not allocate its bounded buffers");
+    }
+    return bank;
+}
+
 PluginProcessorBank::~PluginProcessorBank() {
     for (auto& chain : chains)
         if (chain != nullptr)
             for (auto& node : chain->nodes)
-                if (node->instance != nullptr)
+                if (node->instance != nullptr) {
+                    node->instance->removeListener(this);
                     node->instance->releaseResources();
+                }
+}
+
+void PluginProcessorBank::audioProcessorChanged(
+    juce::AudioProcessor*,
+    const juce::AudioProcessorListener::ChangeDetails& details) {
+    if (details.latencyChanged)
+        latencyChangePending.store(true, std::memory_order_release);
+}
+
+std::vector<uint32_t> PluginProcessorBank::snapshotStripLatencies() const {
+    std::vector<uint32_t> latencies(chains.size(), 0);
+    for (size_t strip = 0; strip < chains.size(); ++strip) {
+        const auto& chain = chains[strip];
+        if (chain == nullptr)
+            continue;
+        uint64_t total = 0;
+        for (const auto& node : chain->nodes)
+            if (node->instance != nullptr)
+                total += static_cast<uint32_t>(
+                    std::max(0, node->instance->getLatencySamples()));
+        latencies[strip] = static_cast<uint32_t>(std::min<uint64_t>(
+            total, std::numeric_limits<uint32_t>::max()));
+    }
+    return latencies;
 }
 
 void PluginProcessorBank::processChain(void* context, float* left, float* right,
@@ -147,6 +276,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
     auto bank = std::shared_ptr<PluginProcessorBank>(new PluginProcessorBank());
     bank->chains.resize(graph.strips.size());
     bank->processorEntries.resize(graph.strips.size());
+    std::vector<uint32_t> stripProcessorLatencies(graph.strips.size(), 0);
+    std::vector<double> stripProcessorTails(graph.strips.size(), 0.0);
 
     juce::KnownPluginList known;
     if (registryFile.existsAsFile())
@@ -209,17 +340,57 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                     result.warnings.push_back("Missing plug-in state: " + slot.plugin.name);
                 }
             }
-            chain->latencySamples += std::max(0, node->instance->getLatencySamples());
-            chain->tailSeconds += std::max(0.0, node->instance->getTailLengthSeconds());
+            const int reportedLatency =
+                std::max(0, node->instance->getLatencySamples());
+            const uint64_t accumulatedLatency =
+                static_cast<uint64_t>(chain->latencySamples)
+                + static_cast<uint32_t>(reportedLatency);
+            chain->latencySamples = static_cast<int>(std::min<uint64_t>(
+                accumulatedLatency, static_cast<uint64_t>(INT_MAX)));
+            const double reportedTail = node->instance->getTailLengthSeconds();
+            if (std::isfinite(reportedTail) && reportedTail > 0.0)
+                chain->tailSeconds += reportedTail;
             chain->nodes.push_back(std::move(node));
         }
         bank->maximumLatencySamples = std::max(bank->maximumLatencySamples,
                                                chain->latencySamples);
-        bank->maximumTailSeconds = std::max(bank->maximumTailSeconds,
-                                            chain->tailSeconds);
         bank->processorEntries[stripIndex] = {chain.get(), processChain};
+        stripProcessorLatencies[stripIndex] =
+            static_cast<uint32_t>(chain->latencySamples);
+        stripProcessorTails[stripIndex] = chain->tailSeconds;
         bank->chains[stripIndex] = std::move(chain);
     }
+
+    // Serial downstream chains extend a source's decay; parallel branches
+    // take the longest path. This conservative bound prevents a sparse echo
+    // from being mistaken for finished silence between repeats.
+    std::vector<double> stripOutputTails(graph.strips.size(), 0.0);
+    size_t tailEdgeCursor = 0;
+    for (uint32_t strip = 0; strip < graph.strips.size(); ++strip) {
+        double inputTail = 0.0;
+        while (tailEdgeCursor < graph.edges.size()
+               && graph.edges[tailEdgeCursor].to == strip) {
+            const auto& edge = graph.edges[tailEdgeCursor++];
+            if (edge.from < stripOutputTails.size())
+                inputTail = std::max(inputTail, stripOutputTails[edge.from]);
+        }
+        stripOutputTails[strip] = inputTail + stripProcessorTails[strip];
+        bank->maximumTailSeconds = std::max(
+            bank->maximumTailSeconds, stripOutputTails[strip]);
+    }
+
+    bank->stripProcessorLatencySamples = std::move(stripProcessorLatencies);
+    result.delayBank = PluginDelayBank::build(
+        graph, bank->stripProcessorLatencySamples, sampleRate,
+        result.warnings);
+    // Subscribe only after preparation and state restore. Notifications from
+    // those setup calls describe the latency already measured above and must
+    // not trigger a rebuild loop immediately after publication.
+    for (auto& chain : bank->chains)
+        if (chain != nullptr)
+            for (auto& node : chain->nodes)
+                if (node->instance != nullptr)
+                    node->instance->addListener(bank.get());
     result.bank = std::move(bank);
     return result;
 }

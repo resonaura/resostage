@@ -28,6 +28,7 @@ void AudioEngine::stopPluginBankBuilder() {
     std::atomic_store_explicit(
         &activePluginBank, std::shared_ptr<const PublishedPluginBank>{},
         std::memory_order_release);
+    currentPluginLatencySamples.store(0, std::memory_order_relaxed);
     retiredPluginBanks.clear();
 }
 
@@ -64,7 +65,15 @@ void AudioEngine::schedulePluginBankRebuild() {
 
 void AudioEngine::notifyPluginChainsChanged() {
     publishRoutingSnapshot();
-    schedulePluginBankRebuild();
+}
+
+void AudioEngine::servicePluginHostChanges() {
+    const auto publication = std::atomic_load_explicit(
+        &activePluginBank, std::memory_order_acquire);
+    if (publication != nullptr && publication->bank != nullptr
+        && publication->bank->consumeLatencyChange()) {
+        schedulePluginBankRebuild();
+    }
 }
 
 void AudioEngine::runPluginBankBuilder() {
@@ -89,10 +98,28 @@ void AudioEngine::runPluginBankBuilder() {
             resources = &resourceLoader;
         }
 
-        auto result = PluginProcessorBank::build(
-            request.project, *request.graph, resources, pluginRegistryFile(),
-            request.sampleRate, request.maximumBlockSize,
-            /*nonRealtime=*/false);
+        PluginProcessorBank::BuildResult result;
+        const auto current = std::atomic_load_explicit(
+            &activePluginBank, std::memory_order_acquire);
+        const bool canReuseProcessors = current != nullptr
+            && current->bank != nullptr
+            && current->processorLayoutKey
+                   == request.graph->processorLayoutKey
+            && std::abs(current->sampleRate - request.sampleRate) < 1.0e-6
+            && current->maximumBlockSize == request.maximumBlockSize;
+        if (canReuseProcessors) {
+            result.bank = current->bank;
+            const auto currentLatencies =
+                result.bank->snapshotStripLatencies();
+            result.delayBank = PluginDelayBank::build(
+                *request.graph, currentLatencies,
+                request.sampleRate, result.warnings);
+        } else {
+            result = PluginProcessorBank::build(
+                request.project, *request.graph, resources,
+                pluginRegistryFile(), request.sampleRate,
+                request.maximumBlockSize, /*nonRealtime=*/false);
+        }
 
         // A newer chain/device request arrived while vendor code was being
         // constructed. Discard this result on the worker, never publish it.
@@ -103,15 +130,23 @@ void AudioEngine::runPluginBankBuilder() {
 
         auto publication = std::make_shared<PublishedPluginBank>();
         publication->processorLayoutKey = request.graph->processorLayoutKey;
+        publication->latencyLayoutKey = request.graph->latencyLayoutKey;
         publication->sampleRate = request.sampleRate;
         publication->maximumBlockSize = request.maximumBlockSize;
         publication->bank = std::move(result.bank);
+        publication->delayBank = std::move(result.delayBank);
+        const int publishedLatencySamples = publication->delayBank != nullptr
+            ? publication->delayBank->latencySamples()
+            : (publication->bank != nullptr
+                   ? publication->bank->latencySamples() : 0);
 
         std::shared_ptr<const PublishedPluginBank> immutablePublication =
             std::move(publication);
         auto previous = std::atomic_exchange_explicit(
             &activePluginBank, std::move(immutablePublication),
             std::memory_order_acq_rel);
+        currentPluginLatencySamples.store(
+            publishedLatencySamples, std::memory_order_relaxed);
         {
             std::lock_guard lock(pluginBankMutex);
             if (previous != nullptr)

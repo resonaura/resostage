@@ -451,16 +451,26 @@ TEST_CASE("buildMixGraph: processor layout key ignores controls but tracks inser
     insert.plugin.name = "Test Effect";
     p.tracks[0].plugins.push_back(insert);
 
-    const uint64_t original = buildMixGraph(p, outputs16()).processorLayoutKey;
+    const MixGraph originalGraph = buildMixGraph(p, outputs16());
+    const uint64_t original = originalGraph.processorLayoutKey;
+    const uint64_t originalLatency = originalGraph.latencyLayoutKey;
     p.tracks[0].gainDb = -12.0;
     p.tracks[0].pan = 0.4;
     p.tracks[0].mute = true;
+    p.tracks[0].output.type = OutputType::Bus;
     p.tracks[0].output.target = "audio::send:1";
+    const MixGraph rerouted = buildMixGraph(p, outputs16());
+    CHECK(rerouted.processorLayoutKey == original);
+    CHECK(rerouted.latencyLayoutKey != originalLatency);
+    p.tracks[0].output.type = OutputType::Main;
+    p.tracks[0].output.target.reset();
     CHECK(buildMixGraph(p, outputs16()).processorLayoutKey == original);
 
     OutputLaneConfig fewerOutputs;
     fewerOutputs.totalChannels = 2;
-    CHECK(buildMixGraph(p, fewerOutputs).processorLayoutKey == original);
+    const MixGraph fewerOutputGraph = buildMixGraph(p, fewerOutputs);
+    CHECK(fewerOutputGraph.processorLayoutKey == original);
+    CHECK(fewerOutputGraph.latencyLayoutKey != originalLatency);
 
     p.tracks[0].plugins[0].bypassed = true;
     CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != original);

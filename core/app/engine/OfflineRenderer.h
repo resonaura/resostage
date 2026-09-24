@@ -51,6 +51,8 @@ struct OfflineRenderRequest {
     int bitDepth = 24;
     RenderDither dither = RenderDither::None;
     RenderNormalization normalization = RenderNormalization::Off;
+    /** Remove the common PDC startup delay while preserving aligned taps. */
+    bool trimOutputLatency = true;
     /** Linear full-scale target expressed in dBFS; normally -0.1 or 0.0. */
     double normalizationCeilingDb = -0.1;
     RenderTailPolicy tailPolicy = RenderTailPolicy::Cut;
@@ -70,6 +72,7 @@ struct OfflineRenderResult {
     bool ok = false;
     std::string outputPath;
     std::vector<std::string> outputPaths;
+    std::vector<std::string> warnings;
     std::string error;
     int64_t framesWritten = 0;
 };
@@ -98,6 +101,9 @@ public:
     virtual MixProcessorView processorView() const noexcept = 0;
     virtual void publishTransport(
         const OfflineProcessorTransport& transport) noexcept = 0;
+    /** Conservative serial-path tail used as a Leave minimum, in seconds. */
+    virtual double declaredTailSeconds() const noexcept { return 0.0; }
+    virtual std::vector<std::string> warnings() const { return {}; }
 };
 
 /**

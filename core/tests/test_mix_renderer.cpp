@@ -1,6 +1,7 @@
 #include "doctest.h"
 
 #include "audio/MixMath.h"
+#include "audio/MixLatency.h"
 #include "audio/MixRenderer.h"
 
 #include <cmath>
@@ -22,6 +23,45 @@ void applyTestGain(void* context, float* left, float* right, int samples) noexce
     for (int i = 0; i < samples; ++i) {
         left[i] *= gain;
         right[i] *= gain;
+    }
+}
+
+struct TestDelay {
+    explicit TestDelay(size_t samples)
+        : left(samples, 0.0f), right(samples, 0.0f) {}
+    std::vector<float> left;
+    std::vector<float> right;
+    size_t cursor = 0;
+};
+
+void processTestStripDelay(void* context, float* left, float* right,
+                           int samples) noexcept {
+    auto& delay = *static_cast<TestDelay*>(context);
+    for (int i = 0; i < samples; ++i) {
+        const float inputL = left[i];
+        const float inputR = right[i];
+        left[i] = delay.left[delay.cursor];
+        right[i] = delay.right[delay.cursor];
+        delay.left[delay.cursor] = inputL;
+        delay.right[delay.cursor] = inputR;
+        delay.cursor = (delay.cursor + 1) % delay.left.size();
+    }
+}
+
+void processTestEdgeDelay(void* context,
+                          const float* inputLeft,
+                          const float* inputRight,
+                          float* outputLeft,
+                          float* outputRight,
+                          int samples,
+                          bool inputEnabled) noexcept {
+    auto& delay = *static_cast<TestDelay*>(context);
+    for (int i = 0; i < samples; ++i) {
+        outputLeft[i] = delay.left[delay.cursor];
+        outputRight[i] = delay.right[delay.cursor];
+        delay.left[delay.cursor] = inputEnabled ? inputLeft[i] : 0.0f;
+        delay.right[delay.cursor] = inputEnabled ? inputRight[i] : 0.0f;
+        delay.cursor = (delay.cursor + 1) % delay.left.size();
     }
 }
 
@@ -60,7 +100,7 @@ struct MixResult {
 
 MixResult runMix(const MixGraph& graph, const std::vector<std::pair<std::string, std::pair<float, float>>>& sources) {
     MixRenderer renderer;
-    renderer.prepare(48000.0, kBlock, graph.strips.size());
+    renderer.prepare(48000.0, kBlock, graph.strips.size(), graph.edges.size());
 
     std::vector<float> left(kBlock, 0.0f);
     std::vector<float> right(kBlock, 0.0f);
@@ -324,7 +364,7 @@ TEST_CASE("renderer: a shadow lane swallows its input without touching real outp
 TEST_CASE("renderer: a non-finite sample is scrubbed and never poisons the mix") {
     const MixGraph g = buildMixGraph(twoTrackProject(), stereoOut());
     MixRenderer renderer;
-    renderer.prepare(48000.0, kBlock, g.strips.size());
+    renderer.prepare(48000.0, kBlock, g.strips.size(), g.edges.size());
 
     std::vector<float> left(kBlock, 0.0f);
     std::vector<float> right(kBlock, 0.0f);
@@ -363,7 +403,7 @@ TEST_CASE("renderer: an unprepared renderer refuses to render rather than crashi
 TEST_CASE("renderer: a graph larger than the prepared capacity is refused, not written past") {
     const MixGraph g = buildMixGraph(twoTrackProject(), stereoOut());
     MixRenderer renderer;
-    renderer.prepare(48000.0, kBlock, g.strips.size() - 1);
+    renderer.prepare(48000.0, kBlock, g.strips.size() - 1, g.edges.size());
     CHECK_FALSE(renderer.canRender(g, kBlock));
 
     std::vector<float> left(kBlock, 0.0f);
@@ -393,7 +433,10 @@ struct Rig {
     std::vector<float> left{std::vector<float>(kBlock, 0.0f)};
     std::vector<float> right{std::vector<float>(kBlock, 0.0f)};
 
-    void prepare(const MixGraph& g) { renderer.prepare(48000.0, kBlock, g.strips.size() + 4); }
+    void prepare(const MixGraph& g) {
+        renderer.prepare(48000.0, kBlock, g.strips.size() + 4,
+                         g.edges.size() + 8);
+    }
 
     void run(const MixGraph& g, const std::string& sourceId, float value, int blocks) {
         float* outs[2] = {left.data(), right.data()};
@@ -476,7 +519,7 @@ TEST_CASE("renderer: a block bigger than it was prepared for is refused, not wri
     // renderer is exactly how it happens.
     const MixGraph g = buildMixGraph(twoTrackProject(), stereoOut());
     MixRenderer renderer;
-    renderer.prepare(48000.0, kBlock, g.strips.size());
+    renderer.prepare(48000.0, kBlock, g.strips.size(), g.edges.size());
 
     CHECK(renderer.canRender(g, kBlock));
     CHECK(renderer.canRender(g, kBlock / 2));
@@ -485,7 +528,7 @@ TEST_CASE("renderer: a block bigger than it was prepared for is refused, not wri
     CHECK(renderer.maxBlockSize() == kBlock);
 
     // ...and after being re-prepared for the bigger block, it accepts it.
-    renderer.prepare(48000.0, kBlock * 8, g.strips.size());
+    renderer.prepare(48000.0, kBlock * 8, g.strips.size(), g.edges.size());
     CHECK(renderer.canRender(g, kBlock * 8));
     CHECK(renderer.maxBlockSize() == kBlock * 8);
 }
@@ -506,14 +549,14 @@ TEST_CASE("renderer: a buffer-size change mid-playback does not bleed one strip 
     REQUIRE(two != MixGraph::kNoStrip);
 
     // Opening the project at the device's current size, before any hop.
-    renderer.prepare(48000.0, 512, g.strips.size());
+    renderer.prepare(48000.0, 512, g.strips.size(), g.edges.size());
 
     for (const int block : {512, 1024, 2048, 4096, 2048, 1024, 512, 4096}) {
         // What ensureScratchSizes() does on a device restart: grow to the new
         // block before the first callback at that size arrives, and never
         // shrink -- see the next test.
         if (renderer.maxBlockSize() < block)
-            renderer.prepare(48000.0, block, g.strips.size());
+            renderer.prepare(48000.0, block, g.strips.size(), g.edges.size());
         REQUIRE(renderer.canRender(g, block));
 
         std::vector<float> left(static_cast<size_t>(block), 0.0f);
@@ -556,7 +599,7 @@ TEST_CASE("renderer: shrinking the device buffer keeps the bigger allocation") {
     // critical path -- or, worse, be forgotten and overrun.
     const MixGraph g = buildMixGraph(twoTrackProject(), stereoOut());
     MixRenderer renderer;
-    renderer.prepare(48000.0, 4096, g.strips.size());
+    renderer.prepare(48000.0, 4096, g.strips.size(), g.edges.size());
 
     CHECK(renderer.canRender(g, 512));
     CHECK(renderer.canRender(g, 4096));
@@ -571,7 +614,7 @@ TEST_CASE("renderer: strip processors run post-input-sum and pre-fader") {
     REQUIRE(track != MixGraph::kNoStrip);
 
     MixRenderer renderer;
-    renderer.prepare(48000.0, kBlock, graph.strips.size());
+    renderer.prepare(48000.0, kBlock, graph.strips.size(), graph.edges.size());
     float gain = 0.25f;
     std::vector<MixStripProcessor> processors(graph.strips.size());
     processors[track] = MixStripProcessor{&gain, applyTestGain};
@@ -586,4 +629,70 @@ TEST_CASE("renderer: strip processors run post-input-sum and pre-fader") {
     CHECK(renderer.postChannel(track, 1)[0] == doctest::Approx(-0.125f));
     CHECK(renderer.levels(track).peakL == doctest::Approx(0.25f));
     CHECK(renderer.levels(track).peakR == doctest::Approx(0.125f));
+}
+
+TEST_CASE("latency plan aligns every input at a summing strip") {
+    const MixGraph graph = buildMixGraph(twoTrackProject(), stereoOut());
+    const uint32_t first = graph.find("audio::track:1");
+    const uint32_t second = graph.find("audio::track:2");
+    const uint32_t main = graph.find("audio::main");
+    REQUIRE(first != MixGraph::kNoStrip);
+    REQUIRE(second != MixGraph::kNoStrip);
+    REQUIRE(main != MixGraph::kNoStrip);
+
+    std::vector<uint32_t> processorLatency(graph.strips.size(), 0);
+    processorLatency[first] = 7;
+    processorLatency[second] = 2;
+    processorLatency[main] = 3;
+    const MixLatencyPlan plan = buildMixLatencyPlan(graph, processorLatency);
+
+    CHECK(plan.stripOutputLatencySamples[first] == 7);
+    CHECK(plan.stripOutputLatencySamples[second] == 2);
+    CHECK(plan.stripOutputLatencySamples[main] == 10);
+    for (size_t i = 0; i < graph.edges.size(); ++i) {
+        if (graph.edges[i].from == first && graph.edges[i].to == main)
+            CHECK(plan.edgeDelaySamples[i] == 0);
+        if (graph.edges[i].from == second && graph.edges[i].to == main)
+            CHECK(plan.edgeDelaySamples[i] == 5);
+    }
+}
+
+TEST_CASE("renderer applies prepared edge compensation without callback allocation") {
+    const MixGraph graph = buildMixGraph(twoTrackProject(), stereoOut());
+    const uint32_t first = graph.find("audio::track:1");
+    const uint32_t second = graph.find("audio::track:2");
+    const uint32_t main = graph.find("audio::main");
+    REQUIRE(first != MixGraph::kNoStrip);
+    REQUIRE(second != MixGraph::kNoStrip);
+    REQUIRE(main != MixGraph::kNoStrip);
+
+    constexpr int samples = 16;
+    constexpr size_t latency = 3;
+    MixRenderer renderer;
+    renderer.prepare(48000.0, samples, graph.strips.size(), graph.edges.size());
+    std::vector<MixStripProcessor> stripProcessors(graph.strips.size());
+    std::vector<MixEdgeDelay> edgeDelays(graph.edges.size());
+    TestDelay slowStrip(latency);
+    TestDelay fastEdge(latency);
+    stripProcessors[first] = {&slowStrip, processTestStripDelay};
+    for (size_t i = 0; i < graph.edges.size(); ++i) {
+        if (graph.edges[i].from == second && graph.edges[i].to == main)
+            edgeDelays[i] = {&fastEdge, processTestEdgeDelay};
+    }
+
+    renderer.beginBlock(graph, samples);
+    renderer.sourceChannel(first, 0)[0] = 1.0f;
+    renderer.sourceChannel(first, 1)[0] = 1.0f;
+    renderer.sourceChannel(second, 0)[0] = 2.0f;
+    renderer.sourceChannel(second, 1)[0] = 2.0f;
+    renderer.process(graph, samples,
+                     {stripProcessors.data(), stripProcessors.size(),
+                      edgeDelays.data(), edgeDelays.size()});
+
+    for (size_t i = 0; i < latency; ++i) {
+        CHECK(renderer.postChannel(main, 0)[i] == doctest::Approx(0.0f));
+        CHECK(renderer.postChannel(main, 1)[i] == doctest::Approx(0.0f));
+    }
+    CHECK(renderer.postChannel(main, 0)[latency] == doctest::Approx(3.0f));
+    CHECK(renderer.postChannel(main, 1)[latency] == doctest::Approx(3.0f));
 }

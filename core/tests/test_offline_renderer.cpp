@@ -46,6 +46,20 @@ double maxPcm24Amplitude(const std::filesystem::path& path) {
     return peak;
 }
 
+int64_t firstNonZeroPcm16Frame(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    input.seekg(44);
+    int64_t frame = 0;
+    std::array<int16_t, 2> samples{};
+    while (input.read(reinterpret_cast<char*>(samples.data()),
+                      static_cast<std::streamsize>(sizeof(samples)))) {
+        if (samples[0] != 0 || samples[1] != 0)
+            return frame;
+        ++frame;
+    }
+    return -1;
+}
+
 class ClearingProcessorSession final : public OfflineProcessorSession {
 public:
     ClearingProcessorSession(const MixGraph& graph, int* processedBlocks,
@@ -77,6 +91,88 @@ private:
     std::vector<MixStripProcessor> entries;
     int* blocks;
     int* updates;
+};
+
+class LatencyProcessorSession final : public OfflineProcessorSession {
+public:
+    explicit LatencyProcessorSession(const MixGraph& graph)
+        : entries(graph.strips.size()), latencies(graph.strips.size(), 0) {
+        const uint32_t main = graph.find("audio::main");
+        if (main != MixGraph::kNoStrip) {
+            entries[main] = {this, process};
+            latencies[main] = kLatency;
+        }
+    }
+
+    MixProcessorView processorView() const noexcept override {
+        return {entries.data(), entries.size(), nullptr, 0,
+                latencies.data(), latencies.size()};
+    }
+
+    void publishTransport(const OfflineProcessorTransport&) noexcept override {}
+    std::vector<std::string> warnings() const override {
+        return {"Synthetic processor warning"};
+    }
+
+private:
+    static constexpr size_t kLatency = 4;
+
+    static void process(void* context, float* left, float* right,
+                        int count) noexcept {
+        auto& self = *static_cast<LatencyProcessorSession*>(context);
+        for (int i = 0; i < count; ++i) {
+            const float inputLeft = left[i];
+            const float inputRight = right[i];
+            left[i] = self.delayLeft[self.cursor];
+            right[i] = self.delayRight[self.cursor];
+            self.delayLeft[self.cursor] = inputLeft;
+            self.delayRight[self.cursor] = inputRight;
+            self.cursor = (self.cursor + 1) % kLatency;
+        }
+    }
+
+    std::vector<MixStripProcessor> entries;
+    std::vector<uint32_t> latencies;
+    std::array<float, kLatency> delayLeft{};
+    std::array<float, kLatency> delayRight{};
+    size_t cursor = 0;
+};
+
+class SparseTailProcessorSession final : public OfflineProcessorSession {
+public:
+    explicit SparseTailProcessorSession(const MixGraph& graph)
+        : entries(graph.strips.size()) {
+        const uint32_t click = graph.find("audio::click");
+        if (click != MixGraph::kNoStrip)
+            entries[click] = {this, process};
+    }
+
+    MixProcessorView processorView() const noexcept override {
+        return {entries.data(), entries.size()};
+    }
+
+    void publishTransport(const OfflineProcessorTransport&) noexcept override {}
+    double declaredTailSeconds() const noexcept override { return 0.1; }
+
+private:
+    static void process(void* context, float* left, float* right,
+                        int count) noexcept {
+        auto& self = *static_cast<SparseTailProcessorSession*>(context);
+        std::fill_n(left, count, 0.0f);
+        std::fill_n(right, count, 0.0f);
+        constexpr int64_t echoFrame = 3600;
+        if (self.processedFrames <= echoFrame
+            && echoFrame < self.processedFrames + count) {
+            const size_t offset = static_cast<size_t>(
+                echoFrame - self.processedFrames);
+            left[offset] = 0.5f;
+            right[offset] = 0.5f;
+        }
+        self.processedFrames += count;
+    }
+
+    std::vector<MixStripProcessor> entries;
+    int64_t processedFrames = 0;
 };
 } // namespace
 
@@ -166,6 +262,46 @@ TEST_CASE("OfflineRenderer captures several taps in one bounded render job") {
     std::filesystem::remove(clickPath, ignored);
 }
 
+TEST_CASE("OfflineRenderer aligns selected stems to one compensated origin") {
+    Project project;
+    project.name = "Aligned taps";
+    project.click.enabled = true;
+    project.click.output.type = OutputType::Main;
+    project.songs.push_back(
+        SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.05});
+
+    const auto mainPath = temporaryWavPath("-aligned-main");
+    const auto clickPath = temporaryWavPath("-aligned-click");
+    OfflineRenderRequest request;
+    request.songIndex = 0;
+    request.sampleRate = 48000;
+    request.bitDepth = 16;
+    request.targets = {
+        {RenderTargetKind::Master, {}, mainPath.string()},
+        {RenderTargetKind::Click, {}, clickPath.string()},
+    };
+    const OfflineRenderer::ProcessorFactory factory =
+        [](const Project&, const MixGraph& graph, double, int,
+           std::string&) -> std::unique_ptr<OfflineProcessorSession> {
+            return std::make_unique<LatencyProcessorSession>(graph);
+        };
+
+    const auto result = OfflineRenderer{}.render(
+        project, {}, request, {}, nullptr, factory);
+    CHECK(result.ok);
+    CHECK(result.warnings == std::vector<std::string>{"Synthetic processor warning"});
+    const int64_t mainStart = firstNonZeroPcm16Frame(mainPath);
+    const int64_t clickStart = firstNonZeroPcm16Frame(clickPath);
+    CHECK(mainStart >= 0);
+    CHECK(clickStart == mainStart);
+    CHECK(mainStart < 4); // common four-sample PDC startup was trimmed
+    CHECK(result.framesWritten == 2400);
+
+    std::error_code ignored;
+    std::filesystem::remove(mainPath, ignored);
+    std::filesystem::remove(clickPath, ignored);
+}
+
 TEST_CASE("OfflineRenderer Leave tail is quiet-detected and hard bounded") {
     Project project;
     project.click.enabled = true;
@@ -186,6 +322,38 @@ TEST_CASE("OfflineRenderer Leave tail is quiet-detected and hard bounded") {
     CHECK(result.ok);
     CHECK(result.framesWritten > 480);
     CHECK(result.framesWritten < 480 + 48000);
+
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+}
+
+TEST_CASE("OfflineRenderer Leave honors declared sparse processor tails") {
+    Project project;
+    project.click.enabled = true;
+    project.songs.push_back(
+        SongDef{.id = "meta::song:1", .name = "Sparse tail", .endSeconds = 0.01});
+
+    const auto path = temporaryWavPath("-sparse-tail");
+    OfflineRenderRequest request;
+    request.songIndex = 0;
+    request.targetKind = RenderTargetKind::Click;
+    request.outputPath = path.string();
+    request.sampleRate = 48000;
+    request.tailPolicy = RenderTailPolicy::Leave;
+    request.tailQuietSeconds = 0.05;
+    request.maxTailSeconds = 1.0;
+    request.tailThresholdDb = -24.0;
+    const OfflineRenderer::ProcessorFactory factory =
+        [](const Project&, const MixGraph& graph, double, int,
+           std::string&) -> std::unique_ptr<OfflineProcessorSession> {
+            return std::make_unique<SparseTailProcessorSession>(graph);
+        };
+
+    const auto result = OfflineRenderer{}.render(
+        project, {}, request, {}, nullptr, factory);
+    CHECK(result.ok);
+    CHECK(result.framesWritten > 3600);
+    CHECK(result.framesWritten <= 480 + 48000);
 
     std::error_code ignored;
     std::filesystem::remove(path, ignored);

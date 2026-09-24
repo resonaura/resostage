@@ -28,6 +28,16 @@ void hashByte(uint64_t& hash, uint8_t value) {
     hash *= kFnvPrime;
 }
 
+void hashU32(uint64_t& hash, uint32_t value) {
+    for (int shift = 0; shift < 32; shift += 8)
+        hashByte(hash, static_cast<uint8_t>((value >> shift) & 0xffu));
+}
+
+void hashU64(uint64_t& hash, uint64_t value) {
+    for (int shift = 0; shift < 64; shift += 8)
+        hashByte(hash, static_cast<uint8_t>((value >> shift) & 0xffu));
+}
+
 void hashSlots(uint64_t& hash, const std::vector<PluginSlot>& slots) {
     hashByte(hash, static_cast<uint8_t>(std::min<size_t>(slots.size(), 255)));
     for (const auto& slot : slots) {
@@ -43,8 +53,7 @@ uint64_t processorLayoutKey(const Project& project, const MixGraph& graph) {
     uint64_t hash = kFnvOffset;
     for (const auto& strip : graph.strips) {
         // Output lanes are always after every processable strip. Device
-        // hot-plug/channel-map changes may rebuild those lanes, but cannot
-        // invalidate the insert table that precedes them.
+        // hot-plug/channel-map changes cannot invalidate the processor table.
         if (strip.kind == StripKind::OutputLane)
             continue;
         hashBytes(hash, strip.id);
@@ -66,6 +75,22 @@ uint64_t processorLayoutKey(const Project& project, const MixGraph& graph) {
                 break;
             case StripKind::OutputLane: break;
         }
+    }
+    return hash;
+}
+
+uint64_t latencyLayoutKey(const MixGraph& graph, uint64_t processorKey) {
+    uint64_t hash = kFnvOffset;
+    hashU64(hash, processorKey);
+    for (const auto& strip : graph.strips) {
+        hashBytes(hash, strip.id);
+        hashByte(hash, static_cast<uint8_t>(strip.kind));
+    }
+    for (const auto& edge : graph.edges) {
+        hashU32(hash, edge.from);
+        hashU32(hash, edge.to);
+        hashByte(hash, edge.preFader ? 1u : 0u);
+        hashByte(hash, static_cast<uint8_t>(edge.sourceChannel));
     }
     return hash;
 }
@@ -433,6 +458,8 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
                      [](const MixEdge& a, const MixEdge& b) { return a.to < b.to; });
 
     graph.processorLayoutKey = processorLayoutKey(project, graph);
+    graph.latencyLayoutKey = latencyLayoutKey(
+        graph, graph.processorLayoutKey);
     return graph;
 }
 

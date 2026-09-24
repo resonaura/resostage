@@ -228,16 +228,29 @@ void AudioEngine::publishRoutingSnapshot() {
     const uint32_t clickStrip = graph->find("audio::click");
     std::vector<LoadedBus> rows = buildBusRows(*graph);
     const size_t needed = graph->strips.size() + 16;
+    const size_t neededEdges = graph->edges.size() + 32;
+    bool processorLayoutChanged = false;
+    bool latencyLayoutChanged = false;
 
     // ── Critical section: swap the prebuilt state in ────────────────────────
     {
         std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        processorLayoutChanged = publishedGraph == nullptr
+            || publishedGraph->processorLayoutKey != graph->processorLayoutKey;
+        latencyLayoutChanged = publishedGraph == nullptr
+            || publishedGraph->latencyLayoutKey != graph->latencyLayoutKey;
         clickStripIndex = clickStrip;
         installBusRows(std::move(rows));
         // Sizing the renderer reallocates buffers the callback reads, so it
         // must happen here -- but only ever grows, i.e. never on a knob move.
-        if (mixRenderer.capacity() < needed)
-            mixRenderer.prepare(currentSampleRate, std::max(currentBlockSize, 1), needed);
+        if (mixRenderer.capacity() < needed
+            || mixRenderer.edgeCapacityValue() < neededEdges) {
+            mixRenderer.prepare(
+                currentSampleRate,
+                std::max({currentBlockSize, 1, mixRenderer.maxBlockSize()}),
+                std::max(needed, mixRenderer.capacity()),
+                std::max(neededEdges, mixRenderer.edgeCapacityValue()));
+        }
         publishedGraph = graph;
     }
 
@@ -245,6 +258,12 @@ void AudioEngine::publishRoutingSnapshot() {
     // deliberately outside so the callback picks the new graph up even if it
     // is mid-block.
     routing.publish(std::move(graph));
+    if ((processorLayoutChanged || latencyLayoutChanged) && projectLoaded) {
+        // The old bank is incompatible with this graph and the callback will
+        // bypass it until the worker publishes the matching generation.
+        currentPluginLatencySamples.store(0, std::memory_order_relaxed);
+        schedulePluginBankRebuild();
+    }
 }
 
 void AudioEngine::republishRouting() {
@@ -566,7 +585,8 @@ void AudioEngine::ensureScratchSizes() {
     // on the device thread before the first callback at the new size, is the
     // one place that can allocate safely.
     if (mixRenderer.capacity() > 0 && mixRenderer.maxBlockSize() < capacity)
-        mixRenderer.prepare(currentSampleRate, capacity, mixRenderer.capacity());
+        mixRenderer.prepare(currentSampleRate, capacity, mixRenderer.capacity(),
+                            mixRenderer.edgeCapacityValue());
 
     clickScratch.assign(static_cast<size_t>(capacity), 0.0f);
     // Shaped-playback scratch, sized the same way and for the same reason:
