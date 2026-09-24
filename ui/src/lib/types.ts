@@ -53,6 +53,17 @@ export interface SourceOutput {
  */
 export type SoloGroup = "sources" | "sends" | "main" | "none";
 
+export interface PluginSlotRow {
+  id: string;
+  pluginId: string;
+  name: string;
+  manufacturer: string;
+  format: string;
+  instrument: boolean;
+  bypassed: boolean;
+  hasState: boolean;
+}
+
 export interface Click {
   enabled: boolean;
   name: string;
@@ -67,6 +78,7 @@ export interface Click {
   soloActiveInGroup: boolean;
   /** Click output -- type is main or sends-only, never ext-out. */
   output: SourceOutput;
+  plugins?: PluginSlotRow[];
 }
 
 export interface SongTrackRow {
@@ -289,6 +301,7 @@ export interface TrackRow {
   peakDb: number;
   peakDbL?: number;
   peakDbR?: number;
+  plugins?: PluginSlotRow[];
 }
 
 export interface BusRow {
@@ -314,6 +327,7 @@ export interface BusRow {
   peakDb: number;
   peakDbL?: number;
   peakDbR?: number;
+  plugins?: PluginSlotRow[];
 }
 
 // ── Canonical output-routing model ──────────────────────────────────────────

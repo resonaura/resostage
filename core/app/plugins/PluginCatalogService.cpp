@@ -128,4 +128,41 @@ std::string PluginCatalogService::snapshotJson() const {
     return "{\"scan\":" + scan + ",\"catalog\":" + catalog + "}";
 }
 
+std::optional<PluginReference> PluginCatalogService::findPlugin(
+    const std::string& identifier) const {
+    std::string catalog;
+    {
+        std::lock_guard lock(mutex);
+        catalog = catalogJson;
+    }
+    const juce::var root = juce::JSON::parse(
+        juce::String::fromUTF8(catalog.c_str()));
+    const auto* object = root.getDynamicObject();
+    if (object == nullptr)
+        return std::nullopt;
+    const juce::var rows = object->getProperty("plugins");
+    const auto* plugins = rows.getArray();
+    if (plugins == nullptr)
+        return std::nullopt;
+    for (const auto& row : *plugins) {
+        const auto* plugin = row.getDynamicObject();
+        if (plugin == nullptr
+            || plugin->getProperty("id").toString().toStdString()
+                   != identifier) {
+            continue;
+        }
+        PluginReference result;
+        result.identifier = identifier;
+        result.format = plugin->getProperty("format").toString().toStdString();
+        result.name = plugin->getProperty("name").toString().toStdString();
+        result.manufacturer =
+            plugin->getProperty("manufacturer").toString().toStdString();
+        result.fileOrIdentifier =
+            plugin->getProperty("fileOrIdentifier").toString().toStdString();
+        result.instrument = static_cast<bool>(plugin->getProperty("instrument"));
+        return result;
+    }
+    return std::nullopt;
+}
+
 } // namespace resostage

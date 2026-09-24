@@ -54,6 +54,7 @@ target_sources(ResoStage PRIVATE
   main/MainComponentSettings.cpp
   main/MainComponentTimeline.cpp
   main/MainComponentLighting.cpp
+  main/MainComponentPlugins.cpp
   config/AppSettings.cpp
   engine/AudioEngine.cpp
   engine/AudioEngineImport.cpp

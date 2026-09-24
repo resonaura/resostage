@@ -8,6 +8,7 @@ import { outputSendsToClickRows, type WebUiState } from "../../lib/types";
 import { useIsCompact } from "../../lib/useMediaQuery";
 import { BusStrip } from "./BusStrip";
 import { MetronomeStrip } from "./MetronomeStrip";
+import { PluginChainModal } from "./PluginChainModal";
 import { extOutTarget, isMainBusId } from "./mixerIds";
 import { patchClickFields } from "./mixerUtils";
 import { StripContextMenu, type StripMenuTarget } from "./StripContextMenu";
@@ -16,6 +17,11 @@ import { TrackStrip } from "./TrackStrip";
 interface PendingBusJob {
   knownIds: Set<string>;
   finalize: (busId: string, index: number) => void;
+}
+
+interface PluginTarget {
+  stripId: string;
+  stripName: string;
 }
 
 /**
@@ -93,6 +99,11 @@ export function MixerScreen({ state }: { state: WebUiState }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const [menu, setMenu] = useState<StripMenuTarget | null>(null);
+  const [pluginTarget, setPluginTarget] = useState<PluginTarget | null>(null);
+
+  const openPlugins = useCallback((stripId: string, stripName: string) => {
+    setPluginTarget({ stripId, stripName });
+  }, []);
 
   useEffect(() => {
     if (pendingBusJobs.current.length === 0) return;
@@ -258,6 +269,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                         settings={state.settings}
                         anySoloInGroup={anyTrackSolo}
                         onDirectOutput={requestTrackDirectOutput}
+                        onOpenPlugins={openPlugins}
                       />
                     </div>
                   );
@@ -321,6 +333,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                       master={master}
                       settings={state.settings}
                       anySoloInGroup={anyAuxSolo}
+                      onOpenPlugins={openPlugins}
                     />
                   </div>
                 ))}
@@ -363,6 +376,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                 <MetronomeStrip
                   state={state}
                   onDirectOutput={requestClickDirectOutput}
+                  onOpenPlugins={openPlugins}
                 />
               </div>
 
@@ -391,6 +405,7 @@ export function MixerScreen({ state }: { state: WebUiState }) {
                     settings={state.settings}
                     anySoloInGroup={b.soloActiveInGroup}
                     isMaster
+                    onOpenPlugins={openPlugins}
                   />
                 </div>
               ))}
@@ -400,6 +415,23 @@ export function MixerScreen({ state }: { state: WebUiState }) {
       </div>
 
       {menu && <StripContextMenu target={menu} onClose={() => setMenu(null)} />}
+      {pluginTarget && (
+        <PluginChainModal
+          open
+          stripId={pluginTarget.stripId}
+          stripName={pluginTarget.stripName}
+          slots={
+            pluginTarget.stripId === "audio::click"
+              ? (state.click?.plugins ?? [])
+              : (state.tracks.find((track) => track.id === pluginTarget.stripId)
+                  ?.plugins ??
+                state.busses.find((bus) => bus.id === pluginTarget.stripId)
+                  ?.plugins ??
+                [])
+          }
+          onClose={() => setPluginTarget(null)}
+        />
+      )}
     </div>
   );
 }

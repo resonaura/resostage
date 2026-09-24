@@ -36,6 +36,19 @@ namespace {
 // KB; this is a safety net for huge editor projects.
 constexpr size_t kWsTxMax = 512 * 1024;
 
+WPluginSlotTelemetry pluginSlotToWire(const WebUiState::PluginSlotRow& slot) {
+    WPluginSlotTelemetry wire;
+    wire.id = slot.id;
+    wire.pluginId = slot.pluginId;
+    wire.name = slot.name;
+    wire.manufacturer = slot.manufacturer;
+    wire.format = slot.format;
+    wire.instrument = slot.instrument;
+    wire.bypassed = slot.bypassed;
+    wire.hasState = slot.hasState;
+    return wire;
+}
+
 // Target telemetry period — every client starts here and recovers back
 // toward it; see kTelemetryMinPeriodUs / LWS_CALLBACK_TIMER for the adaptive
 // backoff that can slow an individual client down under backpressure.
@@ -1454,6 +1467,9 @@ std::string WebServer::buildStateJson(const char* view) const {
             wS.enabled = cs.enabled;
             wc.output.sends.push_back(std::move(wS));
         }
+        wc.plugins.reserve(snap.clickPlugins.size());
+        for (const auto& slot : snap.clickPlugins)
+            wc.plugins.push_back(pluginSlotToWire(slot));
         wire.click = std::move(wc);
         wire.clickPeakDb = finiteOrDbFloor(snap.clickPeakDb);
         wire.clickPeakDbL = finiteOrDbFloor(snap.clickPeakDbL);
@@ -1639,6 +1655,9 @@ std::string WebServer::buildStateJson(const char* view) const {
                 wS.enabled = s.enabled;
                 wT.output.sends.push_back(std::move(wS));
             }
+            wT.plugins.reserve(t.plugins.size());
+            for (const auto& slot : t.plugins)
+                wT.plugins.push_back(pluginSlotToWire(slot));
             wT.peakDb = finiteOrDbFloor(t.peakDb);
             wT.peakDbL = finiteOrDbFloor(t.peakDbL);
             wT.peakDbR = finiteOrDbFloor(t.peakDbR);
@@ -1665,6 +1684,9 @@ std::string WebServer::buildStateJson(const char* view) const {
             wB.isAux = b.isAux;
             wB.startChannel = b.startChannel;
             wB.channels = b.channels;
+            wB.plugins.reserve(b.plugins.size());
+            for (const auto& slot : b.plugins)
+                wB.plugins.push_back(pluginSlotToWire(slot));
             wB.peakDb = finiteOrDbFloor(b.peakDb);
             wB.peakDbL = finiteOrDbFloor(b.peakDbL);
             wB.peakDbR = finiteOrDbFloor(b.peakDbR);
@@ -1937,6 +1959,14 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::CancelAudioRender, 0};
     } else if (std::strcmp(path, "/api/v1/plugins/scan") == 0) {
         cmd = {WebCommandKind::PluginScan, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/add") == 0) {
+        cmd = {WebCommandKind::PluginSlotAdd, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/remove") == 0) {
+        cmd = {WebCommandKind::PluginSlotRemove, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/move") == 0) {
+        cmd = {WebCommandKind::PluginSlotMove, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/bypass") == 0) {
+        cmd = {WebCommandKind::PluginSlotBypass, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/project/open-recent") == 0) {
         const std::string s(body, bodyLen);
         std::string pathRaw;

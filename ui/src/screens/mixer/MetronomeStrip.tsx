@@ -14,10 +14,12 @@ import { isMainBusId } from "./mixerIds";
 function MetronomeStripInner({
   state,
   onDirectOutput,
+  onOpenPlugins,
 }: {
   state: WebUiState;
   /** Shared Ext. Out helper — reuses/creates a bus then sets clickBusId. */
   onDirectOutput: (startChannel: number, pair: boolean) => void;
+  onOpenPlugins: (stripId: string, stripName: string) => void;
 }) {
   const clickSolo = state.click?.solo ?? false;
   const hasSongs = state.songs.length > 0;
@@ -137,6 +139,8 @@ function MetronomeStripInner({
       getLiveDbR={getLiveClickR}
       mute={!isMetronomeOn}
       solo={clickSolo}
+      pluginCount={state.click?.plugins?.length ?? 0}
+      onPlugins={() => onOpenPlugins("audio::click", clickName)}
       onGain={(v) => patchClick({ clickGainDb: v })}
       onPan={(v) => patchClick({ clickPan: v })}
       onMute={() => patchClick({ click: !isMetronomeOn })}
@@ -155,6 +159,7 @@ export const MetronomeStrip = memo(MetronomeStripInner, (prev, next) => {
   const b = next.state;
   return (
     prev.onDirectOutput === next.onDirectOutput &&
+    prev.onOpenPlugins === next.onOpenPlugins &&
     a.click === b.click &&
     a.songs === b.songs &&
     a.songIndex === b.songIndex &&

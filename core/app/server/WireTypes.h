@@ -151,6 +151,17 @@ struct WClickSendTelemetry {
     bool enabled = true;
 };
 
+struct WPluginSlotTelemetry {
+    std::string id;
+    std::string pluginId;
+    std::string name;
+    std::string manufacturer;
+    std::string format;
+    bool instrument = false;
+    bool bypassed = false;
+    bool hasState = false;
+};
+
 // Project-global metronome, mirrored field-for-field from ClickChannel in
 // ProjectSchema.h (type/target/sends carry the routing exactly like a track).
 struct WClickTelemetry {
@@ -166,6 +177,7 @@ struct WClickTelemetry {
     std::string soloGroup = "sources";
     bool soloActiveInGroup = false;
     WSourceOutput output;
+    std::vector<WPluginSlotTelemetry> plugins;
 };
 
 struct WRegionSource {
@@ -327,6 +339,7 @@ struct WTrackTelemetry {
     std::string soloGroup = "sources";
     bool soloActiveInGroup = false;
     WSourceOutput output; // type/target/sends, same as ClickChannel/track on disk
+    std::vector<WPluginSlotTelemetry> plugins;
     double peakDb = -100.0;
     double peakDbL = -100.0;
     double peakDbR = -100.0;
@@ -351,6 +364,7 @@ struct WBusTelemetry {
     bool unavailable = false;
     int startChannel = 0;
     int channels = 2;
+    std::vector<WPluginSlotTelemetry> plugins;
     double peakDb = -100.0;
     double peakDbL = -100.0;
     double peakDbR = -100.0;

@@ -15,6 +15,7 @@ function BusStripInner({
   settings,
   isMaster = false,
   anySoloInGroup,
+  onOpenPlugins,
 }: {
   b: BusRow;
   index: number;
@@ -23,6 +24,7 @@ function BusStripInner({
   settings: SettingsState;
   isMaster?: boolean;
   anySoloInGroup?: boolean;
+  onOpenPlugins: (stripId: string, stripName: string) => void;
 }) {
   const meter = meters.find((m) => m.id === b.id);
   const color = isMaster ? masterColor() : sendColor();
@@ -49,6 +51,8 @@ function BusStripInner({
       mute={b.mute}
       solo={b.solo}
       anySoloInGroup={anySoloInGroup}
+      pluginCount={b.plugins?.length ?? 0}
+      onPlugins={() => onOpenPlugins(b.id, b.name || b.id)}
       onGain={(v) => mixer.setBusGain(index, v)}
       onPan={(v) => mixer.setBusPan(index, v)}
       onMute={() => mixer.setBusMute(index, !b.mute)}
@@ -72,6 +76,7 @@ export const BusStrip = memo(BusStripInner, (prev, next) => {
     prev.isMaster === next.isMaster &&
     prev.anySoloInGroup === next.anySoloInGroup &&
     prev.settings === next.settings &&
+    prev.onOpenPlugins === next.onOpenPlugins &&
     sameExceptLevels(prev.b, next.b) &&
     sameExceptLevels(prev.master, next.master) &&
     rowsSameExceptLevels(prev.meters, next.meters)

@@ -94,6 +94,10 @@ enum class WebCommandKind : uint8_t {
     // Starts the crash-isolated VST3/AU catalog helper. Third-party code is
     // never loaded by the WebServer thread or the live Core process.
     PluginScan,
+    PluginSlotAdd,
+    PluginSlotRemove,
+    PluginSlotMove,
+    PluginSlotBypass,
     // Open Recent parity -- `path` carries the absolute .rsnraset path from
     // AppSettings::recentProjects. Unlike LoadProjectFromPath (which deletes
     // its temp file on failure -- it only ever points at a throwaway browser
@@ -246,6 +250,17 @@ struct WebCommand {
 // Strings are plain std::string under a mutex -- this path is never on the
 // audio callback.
 struct WebUiState {
+    struct PluginSlotRow {
+        std::string id;
+        std::string pluginId;
+        std::string name;
+        std::string manufacturer;
+        std::string format;
+        bool instrument = false;
+        bool bypassed = false;
+        bool hasState = false;
+    };
+
     std::string projectName;
     // Project-global metronome (same for every song).
     bool click = false;
@@ -276,6 +291,7 @@ struct WebUiState {
         bool enabled = true;
     };
     std::vector<ClickSendRow> clickSends;
+    std::vector<PluginSlotRow> clickPlugins;
     // Metronome-only peak (not the destination bus). Mono source → L=R.
     float clickPeakDb = -144.0f;
     float clickPeakDbL = -144.0f;
@@ -541,6 +557,7 @@ struct WebUiState {
         float peakDb = -144.0f;
         float peakDbL = -144.0f;
         float peakDbR = -144.0f;
+        std::vector<PluginSlotRow> plugins;
     };
     std::vector<TrackRow> tracks;
 
@@ -572,6 +589,7 @@ struct WebUiState {
         float peakDb = -144.0f;
         float peakDbL = -144.0f;
         float peakDbR = -144.0f;
+        std::vector<PluginSlotRow> plugins;
     };
     std::vector<BusRow> busses;
 

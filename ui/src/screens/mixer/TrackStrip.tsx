@@ -23,6 +23,7 @@ function TrackStripInner({
   settings,
   anySoloInGroup,
   onDirectOutput,
+  onOpenPlugins,
 }: {
   t: TrackRow;
   index: number;
@@ -38,6 +39,7 @@ function TrackStripInner({
     startChannel: number,
     pair: boolean,
   ) => void;
+  onOpenPlugins: (stripId: string, stripName: string) => void;
 }) {
   const color = colorForIndex(index);
   const busId = sourceOutputBusId(t.output);
@@ -83,6 +85,8 @@ function TrackStripInner({
       mute={t.mute}
       solo={t.solo}
       anySoloInGroup={anySoloInGroup}
+      pluginCount={t.plugins?.length ?? 0}
+      onPlugins={() => onOpenPlugins(t.id, t.name || t.id)}
       onGain={(v) => mixer.setTrackGain(index, v)}
       onPan={(v) => mixer.setTrackPan(index, v)}
       onMute={() => mixer.setTrackMute(index, !t.mute)}
@@ -104,6 +108,7 @@ export const TrackStrip = memo(TrackStripInner, (prev, next) => {
     prev.anySoloInGroup === next.anySoloInGroup &&
     prev.settings === next.settings &&
     prev.onDirectOutput === next.onDirectOutput &&
+    prev.onOpenPlugins === next.onOpenPlugins &&
     // The bus lists are `.filter()` results, so they are new arrays every
     // render even when nothing moved -- compare them by content.
     rowsSameExceptLevels(prev.destinationBusses, next.destinationBusses) &&

@@ -226,6 +226,17 @@ export const pluginCatalog = {
   },
 };
 
+export const pluginChains = {
+  add: (stripId: string, pluginId: string) =>
+    post("/api/v1/plugins/slot/add", { stripId, pluginId }),
+  remove: (stripId: string, slotId: string) =>
+    post("/api/v1/plugins/slot/remove", { stripId, slotId }),
+  move: (stripId: string, slotId: string, toIndex: number) =>
+    post("/api/v1/plugins/slot/move", { stripId, slotId, toIndex }),
+  setBypassed: (stripId: string, slotId: string, bypassed: boolean) =>
+    post("/api/v1/plugins/slot/bypass", { stripId, slotId, bypassed }),
+};
+
 // Per-track peak-overview waveform data for the currently-staged song (see
 // MainComponent::buildPeaksJson()). Not part of the live WS state -- fetch
 // on demand (mount + whenever state.songIndex changes).

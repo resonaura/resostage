@@ -180,6 +180,10 @@ private:
     void publishWebState();
     void drainWebCommands();
     void startAudioRender(const std::string& json);
+    void pluginSlotAdd(const std::string& json);
+    void pluginSlotRemove(const std::string& json);
+    void pluginSlotMove(const std::string& json);
+    void pluginSlotBypass(const std::string& json);
 
     // After structural edits from the web Builder: rebuild routing, stage a
     // song if needed. SPA re-renders from the next telemetry frame.

@@ -1177,6 +1177,10 @@ void MainComponent::drainWebCommands() {
                     setStatus("Plug-in scan is already running");
                 break;
             }
+            case WebCommandKind::PluginSlotAdd: pluginSlotAdd(cmd.json); break;
+            case WebCommandKind::PluginSlotRemove: pluginSlotRemove(cmd.json); break;
+            case WebCommandKind::PluginSlotMove: pluginSlotMove(cmd.json); break;
+            case WebCommandKind::PluginSlotBypass: pluginSlotBypass(cmd.json); break;
             case WebCommandKind::BuilderSongAdd: builderSongAdd(cmd.json); break;
             case WebCommandKind::BuilderSongImportFolder: builderSongImportFolder(cmd.json); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
@@ -1536,6 +1540,23 @@ void MainComponent::publishWebState() {
     state.hardwareAlarm = transport.hardwareAlarm.load(std::memory_order_relaxed);
 
     const Project& proj = engine.project();
+    const auto copyPluginSlots = [](const std::vector<PluginSlot>& slots) {
+        std::vector<WebUiState::PluginSlotRow> rows;
+        rows.reserve(slots.size());
+        for (const auto& slot : slots) {
+            WebUiState::PluginSlotRow row;
+            row.id = slot.id;
+            row.pluginId = slot.plugin.identifier;
+            row.name = slot.plugin.name;
+            row.manufacturer = slot.plugin.manufacturer;
+            row.format = slot.plugin.format;
+            row.instrument = slot.plugin.instrument;
+            row.bypassed = slot.bypassed;
+            row.hasState = slot.stateResource.has_value();
+            rows.push_back(std::move(row));
+        }
+        return rows;
+    };
     state.projectName = proj.name;
     state.click = proj.click.enabled;
     state.clickName = proj.click.name.empty() ? "Click" : proj.click.name;
@@ -1556,6 +1577,7 @@ void MainComponent::publishWebState() {
         csr.enabled = cs.enabled;
         state.clickSends.push_back(std::move(csr));
     }
+    state.clickPlugins = copyPluginSlots(proj.click.plugins);
     // Interval max of rendered click peaks since last poll — captures every
     // audible tick even when the impulse is shorter than the UI sample period.
     {
@@ -1746,6 +1768,7 @@ void MainComponent::publishWebState() {
         tr.solo = def.solo;
         tr.soloGroup = engine.trackSoloGroup();
         tr.soloActiveInGroup = engine.anySoloInGroup(tr.soloGroup.c_str());
+        tr.plugins = copyPluginSlots(def.plugins);
         // The project serializer's mapping, not a second copy of it. The copy
         // that used to live here had drifted: it had no case for
         // OutputType::Bus and folded it into a `default:` of "main", so a
@@ -1792,9 +1815,11 @@ void MainComponent::publishWebState() {
         if (i == 0) {
             br.pan = proj.main.pan;
             br.isAux = false;
+            br.plugins = copyPluginSlots(proj.main.plugins);
         } else if (i <= proj.sends.size()) {
             br.pan = proj.sends[i - 1].pan;
             br.isAux = true;
+            br.plugins = copyPluginSlots(proj.sends[i - 1].plugins);
         } else {
             br.pan = 0.0;
             br.isAux = false;

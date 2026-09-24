@@ -1,5 +1,7 @@
+import { SlidersHorizontal } from "lucide-react";
 import { Knob, LevelMeterBar } from "../../components/daw";
 import {
+  Button,
   Select,
   TOGGLE_BLINK_ACCENT,
   ToggleButton,
@@ -73,6 +75,8 @@ export function ChannelStrip({
   mute,
   solo,
   anySoloInGroup,
+  pluginCount = 0,
+  onPlugins,
   onGain,
   onPan,
   onMute,
@@ -115,6 +119,8 @@ export function ChannelStrip({
   mute: boolean;
   solo: boolean;
   anySoloInGroup?: boolean;
+  pluginCount?: number;
+  onPlugins?: () => void;
   onGain: (v: number) => void;
   onPan: ((v: number) => void) | null;
   onMute: () => void;
@@ -212,6 +218,19 @@ export function ChannelStrip({
       )}
 
       {busDestination}
+
+      {onPlugins && (
+        <Button
+          size="sm"
+          variant={pluginCount > 0 ? "accent-soft" : "outline"}
+          className="h-7 w-full min-w-0 gap-1 px-1.5 text-[9px] font-semibold"
+          aria-label={`Open insert effects for ${name}`}
+          onPress={onPlugins}
+        >
+          <SlidersHorizontal size={11} />
+          FX{pluginCount > 0 ? ` ${pluginCount}` : ""}
+        </Button>
+      )}
 
       {onPan && pan !== null ? (
         <div className="flex flex-col items-center gap-0.5 my-1">

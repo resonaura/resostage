@@ -1,8 +1,11 @@
 #pragma once
 
+#include "project/ProjectSchema.h"
+
 #include <juce_core/juce_core.h>
 
 #include <mutex>
+#include <optional>
 #include <thread>
 
 namespace resostage {
@@ -25,6 +28,9 @@ public:
 
     /** Returns a bounded JSON snapshot containing scan state and catalog. */
     std::string snapshotJson() const;
+    /** Resolves client ids against the scanner-owned catalog. */
+    std::optional<PluginReference> findPlugin(
+        const std::string& identifier) const;
     /** Device-local JUCE registry used only by non-realtime bank builders. */
     const juce::File& registryPath() const noexcept { return registryFile; }
 
