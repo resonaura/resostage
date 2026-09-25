@@ -56,12 +56,13 @@ export const CATEGORY_HINTS: ReadonlyArray<readonly [string, RegExp]> = [
  */
 export function displayCategory(plugin: {
   name: string;
-  category: string;
+  category?: string;
   instrument?: boolean;
 }): string {
   if (plugin.instrument) return "Instrument";
 
-  const parts = plugin.category
+  const rawCategory = plugin.category || "";
+  const parts = rawCategory
     .split(/[|/>\\]+/)
     .map((part) => part.trim())
     .filter(Boolean)
@@ -90,7 +91,7 @@ export function displayCategory(plugin: {
       return "Utility";
   }
 
-  const searchable = `${plugin.name} ${plugin.category}`;
+  const searchable = `${plugin.name} ${rawCategory}`;
   for (const [cat, pattern] of CATEGORY_HINTS) {
     if (pattern.test(searchable)) return cat;
   }

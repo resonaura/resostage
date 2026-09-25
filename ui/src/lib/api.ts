@@ -190,12 +190,12 @@ export interface PluginCatalogEntry {
   name: string;
   manufacturer: string;
   format: string;
-  category: string;
-  version: string;
+  category?: string;
+  version?: string;
   fileOrIdentifier: string;
   instrument: boolean;
-  inputs: number;
-  outputs: number;
+  inputs?: number;
+  outputs?: number;
   enabled: boolean;
   isNew: boolean;
 }

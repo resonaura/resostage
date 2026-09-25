@@ -606,9 +606,11 @@ int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
                                     reinterpret_cast<const unsigned char*>("*"), 1, &p, end))
         return 1;
 
+    static const char kCacheControl[] = "no-store, must-revalidate";
     if (lws_add_http_header_by_name(wsi,
                                     reinterpret_cast<const unsigned char*>("cache-control"),
-                                    reinterpret_cast<const unsigned char*>("no-store, must-revalidate"), 24, &p, end))
+                                    reinterpret_cast<const unsigned char*>(kCacheControl),
+                                    static_cast<int>(std::strlen(kCacheControl)), &p, end))
         return 1;
     if (contentDisposition != nullptr) {
         if (lws_add_http_header_by_name(

@@ -39,7 +39,7 @@ export function extOutTarget(startChannel0Based: number, pair: boolean): string 
 
 /** Lane numbers (1-based) of an ext-out target, or null if it isn't one. */
 export function parseOutputLanes(target: string): number[] | null {
-  if (!target) return null;
+  if (typeof target !== "string" || !target) return null;
   const parts = target
     .split(",")
     .map((token) => token.trim())

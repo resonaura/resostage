@@ -826,8 +826,12 @@ struct WPluginCatalogEntry {
     std::string name;
     std::string manufacturer;
     std::string format;
+    std::string category;
+    std::string version;
     std::string fileOrIdentifier;
     bool instrument = false;
+    int inputs = 2;
+    int outputs = 2;
     bool enabled = true;
     bool isNew = false;
 };

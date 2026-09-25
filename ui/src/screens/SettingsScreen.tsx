@@ -1123,12 +1123,12 @@ function PluginsTab() {
       const matchesScope =
         scopeFilter === "all" ||
         (scopeFilter === "effects" &&
-          variants.some((plugin) => !plugin.instrument && plugin.inputs > 0)) ||
+          variants.some((plugin) => !plugin.instrument && (plugin.inputs ?? 2) > 0)) ||
         (scopeFilter === "instruments" &&
           variants.some((plugin) => plugin.instrument)) ||
         (scopeFilter === "multi-io" &&
           variants.some(
-            (plugin) => plugin.inputs > 2 || plugin.outputs > 2,
+            (plugin) => (plugin.inputs ?? 2) > 2 || (plugin.outputs ?? 2) > 2,
           )) ||
         (scopeFilter === "new" &&
           variants.some((plugin) => plugin.isNew));
@@ -1155,12 +1155,12 @@ function PluginsTab() {
         const matchesScope =
           scopeFilter === "all" ||
           (scopeFilter === "effects" &&
-            variants.some((plugin) => !plugin.instrument && plugin.inputs > 0)) ||
+            variants.some((plugin) => !plugin.instrument && (plugin.inputs ?? 2) > 0)) ||
           (scopeFilter === "instruments" &&
             variants.some((plugin) => plugin.instrument)) ||
           (scopeFilter === "multi-io" &&
             variants.some(
-              (plugin) => plugin.inputs > 2 || plugin.outputs > 2,
+              (plugin) => (plugin.inputs ?? 2) > 2 || (plugin.outputs ?? 2) > 2,
             )) ||
           (scopeFilter === "new" &&
             variants.some((plugin) => plugin.isNew));
@@ -1180,7 +1180,7 @@ function PluginsTab() {
             plugin.category,
             plugin.format,
           ].some((value) =>
-            value.toLocaleLowerCase().includes(normalizedQuery),
+            Boolean(value && value.toLocaleLowerCase().includes(normalizedQuery)),
           ),
         );
       }),
@@ -1462,13 +1462,13 @@ function PluginsTab() {
                           {displayFormat(plugin.format)}
                         </span>
                         <span className="whitespace-nowrap font-mono text-[10px] text-foreground/45">
-                          {plugin.instrument ? "instrument" : `${plugin.inputs}→${plugin.outputs}`}
+                          {plugin.instrument ? "instrument" : `${plugin.inputs ?? 2}→${plugin.outputs ?? 2}`}
                         </span>
                       </Checkbox.Content>
                     </Checkbox>
                   ))}
                   {family.variants.some(
-                    (plugin) => plugin.inputs > 2 || plugin.outputs > 2,
+                    (plugin) => (plugin.inputs ?? 2) > 2 || (plugin.outputs ?? 2) > 2,
                   ) && (
                     <span className="rounded-md bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
                       Multi-I/O · main stereo pair hosted

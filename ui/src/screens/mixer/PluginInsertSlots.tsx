@@ -33,7 +33,7 @@ function groupEffects(plugins: PluginCatalogEntry[]): PluginGroup[] {
     // An audio insert must accept audio. Keep generators/instruments in the
     // device catalog, but do not offer them in an effect-chain menu where the
     // processor contract cannot be satisfied.
-    if (plugin.instrument || plugin.inputs <= 0) continue;
+    if (plugin.instrument || (plugin.inputs ?? 2) <= 0) continue;
     const category = displayCategory(plugin);
     const group = groups.get(category) ?? [];
     group.push(plugin);

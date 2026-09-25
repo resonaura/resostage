@@ -106,7 +106,7 @@ function collectSoloLanes(
   }
 
   const applyRefs = (id: string | undefined) => {
-    if (!id) return;
+    if (typeof id !== "string" || !id) return;
     const lanes = id
       .split(",")
       .map((s) => s.trim())

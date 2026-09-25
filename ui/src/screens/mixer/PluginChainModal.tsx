@@ -76,7 +76,7 @@ export function PluginChainModal({
           plugin.category,
           displayFormat(plugin.format),
           plugin.format,
-        ].some((field) => field.toLocaleLowerCase().includes(normalized));
+        ].some((field) => Boolean(field && field.toLocaleLowerCase().includes(normalized)));
       })
       .slice(0, 200);
   }, [catalog, normalized]);
