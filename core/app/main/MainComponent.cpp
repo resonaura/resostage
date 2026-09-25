@@ -10,6 +10,7 @@
 #include "project/RouteId.h"
 #include "timing/BarSeek.h"
 #include "server/BuilderJson.h"
+#include "server/WireTypes.h"
 #include "BinaryData.h"
 
 #if defined(_WIN32)
@@ -1194,8 +1195,9 @@ void MainComponent::drainWebCommands() {
                 setStatus("Cancelling audio render…");
                 break;
             case WebCommandKind::PluginScan: {
-                const bool rescanAll = cmd.json.find("\"rescanAll\":true") != std::string::npos;
-                if (!pluginCatalog.startScan(rescanAll))
+                wire::WPluginScanPayload p;
+                (void)glz::read_json(p, cmd.json);
+                if (!pluginCatalog.startScan(p.rescanAll))
                     setStatus("Plug-in scan is already running");
                 break;
             }
@@ -1222,6 +1224,9 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::PluginSlotMove: pluginSlotMove(cmd.json); break;
             case WebCommandKind::PluginSlotBypass: pluginSlotBypass(cmd.json); break;
             case WebCommandKind::PluginSlotOpenEditor: pluginSlotOpenEditor(cmd.json); break;
+            case WebCommandKind::PluginSlotKeepAwake: pluginSlotKeepAwake(cmd.json); break;
+            case WebCommandKind::PluginSlotPark: pluginSlotPark(cmd.json); break;
+            case WebCommandKind::PluginSlotUnpark: pluginSlotUnpark(cmd.json); break;
             case WebCommandKind::BuilderSongAdd: builderSongAdd(cmd.json); break;
             case WebCommandKind::BuilderSongImportFolder: builderSongImportFolder(cmd.json); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
@@ -1241,6 +1246,15 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderRegionAdd: builderRegionAdd(cmd.json); break;
             case WebCommandKind::BuilderRegionRemove: builderRegionRemove(cmd.json); break;
             case WebCommandKind::BuilderRegionUpdate: builderRegionUpdate(cmd.json); break;
+            case WebCommandKind::BuilderMidiRegionAdd: builderMidiRegionAdd(cmd.json); break;
+            case WebCommandKind::BuilderMidiRegionRemove: builderMidiRegionRemove(cmd.json); break;
+            case WebCommandKind::BuilderMidiRegionUpdate: builderMidiRegionUpdate(cmd.json); break;
+            case WebCommandKind::BuilderAutomationLaneAdd: builderAutomationLaneAdd(cmd.json); break;
+            case WebCommandKind::BuilderAutomationLaneRemove: builderAutomationLaneRemove(cmd.json); break;
+            case WebCommandKind::BuilderAutomationLaneUpdate: builderAutomationLaneUpdate(cmd.json); break;
+            case WebCommandKind::BuilderAutomationPointAdd: builderAutomationPointAdd(cmd.json); break;
+            case WebCommandKind::BuilderAutomationPointRemove: builderAutomationPointRemove(cmd.json); break;
+            case WebCommandKind::BuilderAutomationRecordGesture: builderAutomationRecordGesture(cmd.json); break;
             case WebCommandKind::BuilderBusAdd: builderBusAdd(); break;
             case WebCommandKind::BuilderBusRemove: builderBusRemove(cmd.json); break;
             case WebCommandKind::BuilderBusMove: builderBusMove(cmd.json); break;
@@ -1585,7 +1599,8 @@ void MainComponent::publishWebState() {
     state.hardwareAlarm = transport.hardwareAlarm.load(std::memory_order_relaxed);
 
     const Project& proj = engine.project();
-    const auto copyPluginSlots = [](const std::vector<PluginSlot>& slots) {
+    const auto activeBank = engine.activePluginProcessorBank();
+    const auto copyPluginSlots = [&activeBank](const std::vector<PluginSlot>& slots) {
         std::vector<WebUiState::PluginSlotRow> rows;
         rows.reserve(slots.size());
         for (const auto& slot : slots) {
@@ -1598,6 +1613,12 @@ void MainComponent::publishWebState() {
             row.instrument = slot.plugin.instrument;
             row.bypassed = slot.bypassed;
             row.hasState = slot.stateResource.has_value();
+            row.keepAwake = slot.keepAwake;
+            if (activeBank != nullptr) {
+                row.powerState = pluginPowerStateToString(activeBank->getSlotPowerState(slot.id));
+            } else {
+                row.powerState = "active";
+            }
             rows.push_back(std::move(row));
         }
         return rows;
@@ -1764,6 +1785,57 @@ void MainComponent::publishWebState() {
             row.lightCues.push_back(std::move(lcr));
         }
 
+        row.midiRegions.reserve(song.midiRegions.size());
+        for (const auto& mr : song.midiRegions) {
+            WebUiState::SongRow::MidiRegionRow mrr;
+            mrr.id = mr.id;
+            mrr.trackId = mr.trackId;
+            mrr.name = mr.name;
+            mrr.startBeats = mr.startBeats;
+            mrr.durationBeats = mr.durationBeats;
+            mrr.clipOffsetBeats = mr.clipOffsetBeats;
+            mrr.loop = mr.loop;
+            mrr.loopLengthBeats = mr.loopLengthBeats;
+            mrr.muted = mr.muted;
+            mrr.color = mr.color;
+            mrr.notes.reserve(mr.notes.size());
+            for (const auto& n : mr.notes) {
+                WebUiState::SongRow::MidiRegionRow::Note nr;
+                nr.id = n.id;
+                nr.pitch = n.pitch;
+                nr.startBeats = n.startBeats;
+                nr.durationBeats = n.durationBeats;
+                nr.velocity = n.velocity;
+                nr.releaseVelocity = n.releaseVelocity;
+                nr.probability = n.probability;
+                nr.pan = n.pan;
+                nr.tuningOffsetCents = n.tuningOffsetCents;
+                nr.muted = n.muted;
+                mrr.notes.push_back(std::move(nr));
+            }
+            row.midiRegions.push_back(std::move(mrr));
+        }
+
+        row.tempoPoints.reserve(song.tempoPoints.size());
+        for (const auto& tp : song.tempoPoints) {
+            WebUiState::SongRow::TempoPointRow tpr;
+            tpr.beat = tp.beat;
+            tpr.bpm = tp.bpm;
+            tpr.timeSeconds = tp.timeSeconds;
+            tpr.curve = tp.curve;
+            row.tempoPoints.push_back(std::move(tpr));
+        }
+
+        row.signaturePoints.reserve(song.signaturePoints.size());
+        for (const auto& sp : song.signaturePoints) {
+            WebUiState::SongRow::SignaturePointRow spr;
+            spr.beat = sp.beat;
+            spr.numerator = sp.numerator;
+            spr.denominator = sp.denominator;
+            spr.bar = sp.bar;
+            row.signaturePoints.push_back(std::move(spr));
+        }
+
         state.songs.push_back(std::move(row));
     }
 
@@ -1806,6 +1878,8 @@ void MainComponent::publishWebState() {
         WebUiState::TrackRow tr;
         tr.id = def.id;
         tr.name = def.name.empty() ? def.id : def.name;
+        tr.kind = trackKindToString(def.kind);
+        tr.stripId = def.effectiveStripId();
         tr.channels = def.channels;
         tr.gainDb = def.gainDb;
         tr.pan = def.pan;

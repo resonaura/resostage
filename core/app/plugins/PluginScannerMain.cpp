@@ -1,14 +1,49 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "glaze/glaze.hpp"
+
 #include <algorithm>
 #include <iostream>
+#include <string>
+#include <vector>
+
+namespace resostage {
+
+struct ScannerStatePayload {
+    std::string state;
+    double progress = 0.0;
+    std::string format;
+    int formatIndex = 0;
+    int formatCount = 0;
+    double formatProgress = 0.0;
+    std::string currentPlugin;
+    std::string error;
+};
+
+struct ScannerPluginEntry {
+    std::string id;
+    std::string name;
+    std::string manufacturer;
+    std::string format;
+    std::string category;
+    std::string version;
+    std::string fileOrIdentifier;
+    bool instrument = false;
+    int inputs = 2;
+    int outputs = 2;
+};
+
+struct ScannerCatalogPayload {
+    std::vector<ScannerPluginEntry> plugins;
+    std::vector<std::string> blacklist;
+};
+
+} // namespace resostage
 
 namespace {
 
-juce::String jsonString(const juce::String& value) {
-    return juce::JSON::toString(juce::var(value), true);
-}
+using namespace resostage;
 
 bool replaceAtomically(const juce::File& destination, const juce::String& text) {
     const auto parent = destination.getParentDirectory();
@@ -22,17 +57,19 @@ void writeScanState(const juce::File& file, const char* state, double progress,
                     const juce::String& format, const juce::String& current,
                     const juce::String& error = {}, int formatIndex = 0,
                     int formatCount = 0, double formatProgress = 0.0) {
-    juce::String json;
-    json << "{\"state\":" << jsonString(state)
-         << ",\"progress\":" << juce::String(std::clamp(progress, 0.0, 1.0), 5)
-         << ",\"format\":" << jsonString(format)
-         << ",\"formatIndex\":" << std::max(0, formatIndex)
-         << ",\"formatCount\":" << std::max(0, formatCount)
-         << ",\"formatProgress\":"
-         << juce::String(std::clamp(formatProgress, 0.0, 1.0), 5)
-         << ",\"currentPlugin\":" << jsonString(current)
-         << ",\"error\":" << jsonString(error) << "}";
-    (void)replaceAtomically(file, json);
+    ScannerStatePayload payload;
+    payload.state = state != nullptr ? state : "idle";
+    payload.progress = std::clamp(progress, 0.0, 1.0);
+    payload.format = format.toStdString();
+    payload.formatIndex = std::max(0, formatIndex);
+    payload.formatCount = std::max(0, formatCount);
+    payload.formatProgress = std::clamp(formatProgress, 0.0, 1.0);
+    payload.currentPlugin = current.toStdString();
+    payload.error = error.toStdString();
+
+    std::string json;
+    (void)glz::write_json(payload, json);
+    (void)replaceAtomically(file, juce::String::fromUTF8(json.c_str()));
 }
 
 bool writeCatalog(const juce::File& file, const juce::KnownPluginList& list) {
@@ -42,31 +79,32 @@ bool writeCatalog(const juce::File& file, const juce::KnownPluginList& list) {
         return manufacturer != 0 ? manufacturer < 0 : a.name.compareIgnoreCase(b.name) < 0;
     });
 
-    juce::String json("{\"plugins\":[");
-    bool first = true;
+    ScannerCatalogPayload catalog;
+    catalog.plugins.reserve(static_cast<size_t>(types.size()));
     for (const auto& plugin : types) {
-        if (!first) json << ',';
-        first = false;
-        json << "{\"id\":" << jsonString(plugin.createIdentifierString())
-             << ",\"name\":" << jsonString(plugin.name)
-             << ",\"manufacturer\":" << jsonString(plugin.manufacturerName)
-             << ",\"format\":" << jsonString(plugin.pluginFormatName)
-             << ",\"category\":" << jsonString(plugin.category)
-             << ",\"version\":" << jsonString(plugin.version)
-             << ",\"fileOrIdentifier\":" << jsonString(plugin.fileOrIdentifier)
-             << ",\"instrument\":" << (plugin.isInstrument ? "true" : "false")
-             << ",\"inputs\":" << plugin.numInputChannels
-             << ",\"outputs\":" << plugin.numOutputChannels << '}';
+        ScannerPluginEntry entry;
+        entry.id = plugin.createIdentifierString().toStdString();
+        entry.name = plugin.name.toStdString();
+        entry.manufacturer = plugin.manufacturerName.toStdString();
+        entry.format = plugin.pluginFormatName.toStdString();
+        entry.category = plugin.category.toStdString();
+        entry.version = plugin.version.toStdString();
+        entry.fileOrIdentifier = plugin.fileOrIdentifier.toStdString();
+        entry.instrument = plugin.isInstrument;
+        entry.inputs = plugin.numInputChannels;
+        entry.outputs = plugin.numOutputChannels;
+        catalog.plugins.push_back(std::move(entry));
     }
-    json << "],\"blacklist\":[";
-    first = true;
-    for (const auto& blocked : list.getBlacklistedFiles()) {
-        if (!first) json << ',';
-        first = false;
-        json << jsonString(blocked);
+
+    const auto blocked = list.getBlacklistedFiles();
+    catalog.blacklist.reserve(static_cast<size_t>(blocked.size()));
+    for (const auto& b : blocked) {
+        catalog.blacklist.push_back(b.toStdString());
     }
-    json << "]}";
-    return replaceAtomically(file, json);
+
+    std::string json;
+    (void)glz::write_json(catalog, json);
+    return replaceAtomically(file, juce::String::fromUTF8(json.c_str()));
 }
 
 bool writeRegistry(const juce::File& file, const juce::KnownPluginList& list) {

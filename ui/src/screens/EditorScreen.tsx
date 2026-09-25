@@ -11,6 +11,7 @@ import {
   Gauge,
   ListMusic,
   Loader2,
+  Music,
   Plus,
   Trash2,
   Upload,
@@ -28,22 +29,19 @@ import {
   executeStemImport,
 } from "../lib/stemImport";
 import { Timeline } from "../components/Timeline";
+import { PianoRoll } from "../components/pianoroll";
 import { builder } from "../lib/api";
 import { useIsCompact } from "../lib/useMediaQuery";
 import type {
   AllPeaksResponse,
+  MidiNoteRow,
   PeaksResponse,
   SongRow,
   WebUiState,
 } from "../lib/types";
 
 // ─── Re-export tab type ────────────────────────────────────────────────────
-// Tracks/Events/Busses tabs were cut -- Tracks/regions are fully covered by
-// the Timeline, Busses by the Mixer; Events (MIDI/HTTP/DMX triggers) had no
-// replacement, cut anyway per product decision. Songs keeps its own tab:
-// song-level setup (BPM, time signature, end mode, stem import) has no home
-// elsewhere.
-type EditorTab = "timeline" | "songs";
+type EditorTab = "timeline" | "pianoroll" | "songs";
 
 const inputCls =
   "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
@@ -407,6 +405,7 @@ export function EditorScreen({
     ? [{ id: "songs", label: "Songs" }]
     : [
         { id: "timeline", label: "Timeline" },
+        { id: "pianoroll", label: "Piano Roll" },
         { id: "songs", label: "Songs" },
       ];
   const activeTab: EditorTab = compact ? "songs" : tab;
@@ -450,7 +449,13 @@ export function EditorScreen({
           {TABS.flatMap((t, i) => [
             ...(i > 0 ? [<ToggleButtonGroup.Separator key={`${t.id}-sep`} />] : []),
             <ToggleButton key={t.id} id={t.id}>
-              {t.id === "timeline" ? <Gauge size={13} /> : <ListMusic size={13} />}
+              {t.id === "timeline" ? (
+                <Gauge size={13} />
+              ) : t.id === "pianoroll" ? (
+                <Music size={13} />
+              ) : (
+                <ListMusic size={13} />
+              )}
               {t.label}
             </ToggleButton>,
           ])}
@@ -472,6 +477,80 @@ export function EditorScreen({
             pxPerSec={pxPerSec}
             setPxPerSec={setPxPerSec}
           />
+        </div>
+      )}
+
+      {/* ── Piano Roll Tab ─────────────────────────────────────────────── */}
+      {activeTab === "pianoroll" && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {(() => {
+            const currentSong = state.songs[state.songIndex];
+            if (!currentSong) {
+              return (
+                <EmptyProjectState
+                  title="No song active"
+                  description="Select or create a song to edit MIDI notes."
+                  actions={emptyProjectActions({
+                    onCreateSong: () => builder.songAdd(),
+                  })}
+                />
+              );
+            }
+
+            const midiRegions = currentSong.midiRegions || [];
+            const activeRegion = midiRegions[0] || {
+              id: "midi::region:default",
+              trackId: state.tracks[0]?.id || "audio::track:1",
+              name: "Pattern 1",
+              startBeats: 0,
+              durationBeats: 16,
+              clipOffsetBeats: 0,
+              loop: true,
+              loopLengthBeats: 16,
+              notes: [],
+            };
+
+            const companionRegions = midiRegions.slice(1);
+            const playheadBeats =
+              currentSong.bpm > 0 ? (state.playheadSeconds * currentSong.bpm) / 60.0 : 0;
+
+            const handleNotesChange = (updatedNotes: MidiNoteRow[]) => {
+              if (midiRegions.length === 0) {
+                void builder
+                  .midiRegionAdd({
+                    songIndex: state.songIndex,
+                    trackId: activeRegion.trackId,
+                    name: activeRegion.name,
+                    startBeats: activeRegion.startBeats,
+                    durationBeats: activeRegion.durationBeats,
+                    loop: activeRegion.loop,
+                    loopLengthBeats: activeRegion.loopLengthBeats,
+                  })
+                  .then(() => {
+                    void builder.midiRegionUpdate({
+                      songIndex: state.songIndex,
+                      regionId: activeRegion.id,
+                      notes: updatedNotes,
+                    });
+                  });
+              } else {
+                void builder.midiRegionUpdate({
+                  songIndex: state.songIndex,
+                  regionId: activeRegion.id,
+                  notes: updatedNotes,
+                });
+              }
+            };
+
+            return (
+              <PianoRoll
+                region={activeRegion}
+                companionRegions={companionRegions}
+                playheadBeats={playheadBeats}
+                onNotesChange={handleNotesChange}
+              />
+            );
+          })()}
         </div>
       )}
 

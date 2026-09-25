@@ -366,6 +366,8 @@ function migrateTracks(old, busIds, trackIds) {
   return (Array.isArray(old.tracks) ? old.tracks : []).map((t, i) => ({
     id: trackIds.get(t.id) ?? `audio::track:${i + 1}`,
     name: orNull(t.name) ?? `Track ${i + 1}`,
+    kind: t.kind ?? "audio",
+    stripId: orNull(t.stripId),
     // v1 carried a `mono` flag; the schema carries a channel count.
     channels: t.channels === 1 || t.mono === true ? 1 : 2,
     gainDb: num(t.gainDb, 0),
@@ -469,6 +471,9 @@ function migrateSongs(old, busIds, trackIds, lightTrackIds) {
     },
     onEnded: normalizeOnEnded(s),
     regions: migrateRegions(s, trackIds),
+    midiRegions: Array.isArray(s.midiRegions) ? s.midiRegions : [],
+    tempoPoints: Array.isArray(s.tempoPoints) ? s.tempoPoints : [],
+    signaturePoints: Array.isArray(s.signaturePoints) ? s.signaturePoints : [],
     events: Array.isArray(s.events) ? s.events : [],
     sections: (Array.isArray(s.sections) ? s.sections : []).map((sec) => ({
       id: stableUuid(sec.id),

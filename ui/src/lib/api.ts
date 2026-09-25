@@ -256,6 +256,12 @@ export const pluginChains = {
     post("/api/v1/plugins/slot/move", { stripId, slotId, toIndex }),
   setBypassed: (stripId: string, slotId: string, bypassed: boolean) =>
     post("/api/v1/plugins/slot/bypass", { stripId, slotId, bypassed }),
+  setKeepAwake: (stripId: string, slotId: string, keepAwake: boolean) =>
+    post("/api/v1/plugins/slot/keep-awake", { stripId, slotId, keepAwake }),
+  park: (stripId: string, slotId: string) =>
+    post("/api/v1/plugins/slot/park", { stripId, slotId }),
+  unpark: (stripId: string, slotId: string) =>
+    post("/api/v1/plugins/slot/unpark", { stripId, slotId }),
   openEditor: (stripId: string, slotId: string) =>
     post("/api/v1/plugins/slot/editor", { stripId, slotId }),
 };
@@ -570,6 +576,85 @@ export const builder = {
     reverse?: boolean;
     gestureId?: string;
   }) => post("/api/v1/builder/region/update", patch),
+
+  midiRegionAdd: (patch: {
+    songIndex: number;
+    trackId: string;
+    name?: string;
+    startBeats?: number;
+    durationBeats?: number;
+    clipOffsetBeats?: number;
+    loop?: boolean;
+    loopLengthBeats?: number;
+    color?: string;
+    gestureId?: string;
+  }) => post("/api/v1/builder/midi-region/add", patch),
+  midiRegionRemove: (songIndex: number, regionId: string, gestureId?: string) =>
+    post("/api/v1/builder/midi-region/remove", { songIndex, regionId, gestureId }),
+  midiRegionUpdate: (patch: {
+    songIndex: number;
+    regionId: string;
+    trackId?: string;
+    name?: string;
+    startBeats?: number;
+    durationBeats?: number;
+    clipOffsetBeats?: number;
+    loop?: boolean;
+    loopLengthBeats?: number;
+    muted?: boolean;
+    color?: string;
+    notes?: import("./types").MidiNoteRow[];
+    gestureId?: string;
+  }) => post("/api/v1/builder/midi-region/update", patch),
+
+  automationLaneAdd: (patch: {
+    songIndex: number;
+    regionId?: string;
+    domain: import("./types").AutomationDomain;
+    entityId: string;
+    parameterId: string;
+    valueType?: import("./types").ParameterValueType;
+    defaultValue?: number;
+    minValue?: number;
+    maxValue?: number;
+    scope?: import("./types").AutomationScope;
+    writeMode?: import("./types").AutomationWriteMode;
+    enabled?: boolean;
+    muted?: boolean;
+    gestureId?: string;
+  }) => post("/api/v1/builder/automation-lane/add", patch),
+  automationLaneRemove: (songIndex: number, laneId: string, gestureId?: string) =>
+    post("/api/v1/builder/automation-lane/remove", { songIndex, laneId, gestureId }),
+  automationLaneUpdate: (patch: {
+    songIndex: number;
+    laneId: string;
+    enabled?: boolean;
+    muted?: boolean;
+    writeMode?: import("./types").AutomationWriteMode;
+    gestureId?: string;
+  }) => post("/api/v1/builder/automation-lane/update", patch),
+  automationPointAdd: (patch: {
+    songIndex: number;
+    laneId: string;
+    timeBeats: number;
+    value: number;
+    curve?: number;
+    gestureId?: string;
+  }) => post("/api/v1/builder/automation-point/add", patch),
+  automationPointRemove: (songIndex: number, laneId: string, timeBeats: number, gestureId?: string) =>
+    post("/api/v1/builder/automation-point/remove", { songIndex, laneId, timeBeats, gestureId }),
+  automationRecordGesture: (patch: {
+    songIndex: number;
+    laneId: string;
+    punchInBeats: number;
+    releaseBeats: number;
+    releaseValue: number;
+    returnRampBeats?: number;
+    underlyingValue?: number;
+    rdpTolerance?: number;
+    points: { timeBeats: number; value: number }[];
+    gestureId?: string;
+  }) => post("/api/v1/builder/automation/record-gesture", patch),
 
   async trackImportWav(
     songIndex: number,

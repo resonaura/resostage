@@ -69,6 +69,7 @@
     // it" from the same structure the audio thread renders -- rather than a
     // second, drifting implementation of the grouping rule.
     std::shared_ptr<const MixGraph> publishedGraph;
+    std::shared_ptr<const TempoMap> activeTempoMap;
 
     std::vector<LoadedBus> busses; // global, built once per loadProject()
     std::unordered_map<std::string, size_t> busIndexById;
@@ -544,6 +545,30 @@
                        int64_t effectiveOutputLatencySamples,
                        PluginProcessorBank* pluginBank = nullptr,
                        int numSamples = 0);
+    void dispatchMidiRegionsForBlock(const SongDef& song,
+                                     int64_t blockStartSample,
+                                     int numSamples,
+                                     double sampleRate,
+                                     const MixGraph* graph,
+                                     PluginProcessorBank* pluginBank,
+                                     const TempoMap* tempoMap,
+                                     uint64_t hostTimeNanos = 0,
+                                     double outputLatencySec = 0.0);
+    void dispatchAutomationForBlock(const SongDef& song,
+                                    int64_t blockStartSample,
+                                    int numSamples,
+                                    double sampleRate,
+                                    const MixGraph* graph,
+                                    PluginProcessorBank* pluginBank,
+                                    const TempoMap* tempoMap,
+                                    uint64_t hostTimeNanos = 0,
+                                    double outputLatencySec = 0.0);
+    void prewarmPluginsLookahead(const SongDef& song,
+                                 int64_t playheadSample,
+                                 double sampleRate,
+                                 const MixGraph* graph,
+                                 PluginProcessorBank* pluginBank,
+                                 const TempoMap* tempoMap);
 
     // Hot-plug fail-safe: juce::AudioDeviceManager broadcasts a change
     // whenever the device list or the current device's state changes

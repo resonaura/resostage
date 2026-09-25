@@ -313,6 +313,55 @@ void MainComponent::pluginSlotBypass(const std::string& json) {
     publishWebState();
 }
 
+void MainComponent::pluginSlotKeepAwake(const std::string& json) {
+    glz::generic doc;
+    std::string stripId;
+    std::string slotId;
+    bool keepAwake = false;
+    if (!parseSlotTarget(json, doc, stripId, slotId)
+        || !builder_json::getBool(doc, "keepAwake", keepAwake))
+        return;
+    auto* chain = pluginChainFor(engine.project(), stripId);
+    if (chain == nullptr)
+        return;
+    const auto found = std::find_if(chain->begin(), chain->end(),
+        [&](const PluginSlot& slot) { return slot.id == slotId; });
+    if (found == chain->end())
+        return;
+    engine.projectHistoryBeginEdit("", keepAwake ? "Pin plug-in awake"
+                                                 : "Unpin plug-in awake");
+    found->keepAwake = keepAwake;
+    engine.projectHistoryCommitEdit();
+    if (auto bank = engine.activePluginProcessorBank()) {
+        bank->setSlotKeepAwake(slotId, keepAwake);
+    }
+    publishWebState();
+}
+
+void MainComponent::pluginSlotPark(const std::string& json) {
+    glz::generic doc;
+    std::string stripId;
+    std::string slotId;
+    if (!parseSlotTarget(json, doc, stripId, slotId))
+        return;
+    if (auto bank = engine.activePluginProcessorBank()) {
+        bank->parkSlot(slotId);
+    }
+    publishWebState();
+}
+
+void MainComponent::pluginSlotUnpark(const std::string& json) {
+    glz::generic doc;
+    std::string stripId;
+    std::string slotId;
+    if (!parseSlotTarget(json, doc, stripId, slotId))
+        return;
+    if (auto bank = engine.activePluginProcessorBank()) {
+        bank->unparkSlot(slotId);
+    }
+    publishWebState();
+}
+
 void MainComponent::pluginSlotOpenEditor(const std::string& json) {
     glz::generic doc;
     std::string stripId;

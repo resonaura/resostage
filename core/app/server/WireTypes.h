@@ -160,6 +160,8 @@ struct WPluginSlotTelemetry {
     bool instrument = false;
     bool bypassed = false;
     bool hasState = false;
+    bool keepAwake = false;
+    std::string powerState = "active";
 };
 
 // Project-global metronome, mirrored field-for-field from ClickChannel in
@@ -284,6 +286,47 @@ struct WLightCueTelemetry {
     std::string blendMode = "normal";
 };
 
+struct WMidiNoteTelemetry {
+    uint64_t id = 0;
+    int pitch = 60;
+    double startBeats = 0.0;
+    double durationBeats = 1.0;
+    double velocity = 0.8;
+    double releaseVelocity = 0.5;
+    double probability = 1.0;
+    int pan = -1;
+    int tuningOffsetCents = 0;
+    bool muted = false;
+};
+
+struct WMidiRegionTelemetry {
+    std::string id;
+    std::string trackId;
+    std::string name;
+    double startBeats = 0.0;
+    double durationBeats = 16.0;
+    double clipOffsetBeats = 0.0;
+    bool loop = false;
+    double loopLengthBeats = 16.0;
+    bool muted = false;
+    std::string color = "#3b82f6";
+    std::vector<WMidiNoteTelemetry> notes;
+};
+
+struct WTempoPointTelemetry {
+    double beat = 0.0;
+    double bpm = 120.0;
+    double timeSeconds = 0.0;
+    double curve = 0.0;
+};
+
+struct WSignaturePointTelemetry {
+    double beat = 0.0;
+    int numerator = 4;
+    int denominator = 4;
+    int bar = 1;
+};
+
 struct WSongTelemetry {
     std::string name;
     double bpm = 120.0;
@@ -298,6 +341,9 @@ struct WSongTelemetry {
     double clickGainDb = 0.0;
     std::vector<WClickSendTelemetry> clickSends;
     std::vector<WRegionTelemetry> regions;
+    std::vector<WMidiRegionTelemetry> midiRegions;
+    std::vector<WTempoPointTelemetry> tempoPoints;
+    std::vector<WSignaturePointTelemetry> signaturePoints;
     std::vector<WEventTelemetry> events;
     std::vector<WSectionTelemetry> sections;
     std::vector<WLightCueTelemetry> lightCues;
@@ -331,6 +377,8 @@ struct WSendTelemetry {
 struct WTrackTelemetry {
     std::string id;
     std::string name;
+    std::string kind = "audio";
+    std::optional<std::string> stripId;
     int channels = 2; // 1 = mono (stereo regions summed L+R before pan/sends)
     double gainDb = 0.0;
     double pan = 0.0;
@@ -703,4 +751,120 @@ struct WMenuModelPayload {
     std::vector<WRecentProjectTelemetry> recentProjects;
 };
 
+// ── Generic API Payloads ─────────────────────────────────────────────────────
+
+struct WOkPayload {
+    bool ok = true;
+};
+
+struct WErrorPayload {
+    std::string error;
+};
+
+struct WEnabledPayload {
+    bool enabled = true;
+};
+
+struct WSelectIndexPayload {
+    int index = -1;
+};
+
+struct WOpenRecentPayload {
+    std::string path;
+};
+
+struct WViewPayload {
+    std::string view;
+};
+
+struct WTelemetryHzPayload {
+    int telemetryHz = 0;
+};
+
+struct WSubscribeUdpPayload {
+    int port = 0;
+};
+
+struct WTrackImportBeginPayload {
+    int songIndex = -1;
+    int index = -1;
+    std::string fileName;
+};
+
+struct WDiscoveryTogglePayload {
+    bool enabled = true;
+};
+
+struct WPluginScanPayload {
+    bool rescanAll = false;
+};
+
+// ── Discovery Payloads ───────────────────────────────────────────────────────
+
+struct WDiscoveredDevice {
+    std::string name;
+    std::string platform;
+    std::string ip;
+    int port = 0;
+    std::string protocolVersion;
+    bool discoveryEnabled = false;
+};
+
+struct WDiscoveryAnnouncement {
+    std::string type = "RESOSTAGE_DISCOVERY";
+    std::string name;
+    std::string platform;
+    int port = 0;
+    std::string protocolVersion;
+    bool discoveryEnabled = false;
+};
+
+// ── Plugin Catalog Payloads ──────────────────────────────────────────────────
+
+struct WPluginCatalogEntry {
+    std::string id;
+    std::string name;
+    std::string manufacturer;
+    std::string format;
+    std::string fileOrIdentifier;
+    bool instrument = false;
+    bool enabled = true;
+    bool isNew = false;
+};
+
+struct WPluginScanState {
+    std::string state = "idle";
+    double progress = 0.0;
+    std::string format;
+    int formatIndex = 0;
+    int formatCount = 0;
+    double formatProgress = 0.0;
+    std::string currentPlugin;
+    std::string error;
+};
+
+struct WPluginCatalogData {
+    std::vector<WPluginCatalogEntry> plugins;
+    std::vector<std::string> blacklist;
+};
+
+struct WPluginCatalogResponse {
+    WPluginScanState scan;
+    WPluginCatalogData catalog;
+};
+
+struct WPluginPreferences {
+    std::vector<std::string> disabled;
+    std::vector<std::string> newPlugins;
+};
+
 } // namespace resostage::wire
+
+template <>
+struct glz::meta<resostage::wire::WPluginPreferences> {
+    using T = resostage::wire::WPluginPreferences;
+    static constexpr auto value = object(
+        "disabled", &T::disabled,
+        "new", &T::newPlugins
+    );
+};

@@ -3,6 +3,7 @@
 #include "audio/MixGraph.h"
 #include "audio/MixLatency.h"
 #include "audio/MixRenderer.h"
+#include "plugins/PluginPowerManager.h"
 #include "project/ProjectLoader.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -132,7 +133,29 @@ public:
                            int samplePosition) noexcept;
     void clearStripMidi(size_t stripIndex) noexcept;
 
+    void requestAllNotesOff() noexcept {
+        allNotesOffPending.store(true, std::memory_order_release);
+    }
+    bool consumeAllNotesOff() noexcept {
+        return allNotesOffPending.exchange(false, std::memory_order_acq_rel);
+    }
+    void injectAllNotesOff() noexcept;
+
+    /** Real-time parameter automation methods (zero-allocation, non-blocking). */
+    void setPluginParameter(size_t stripIndex, size_t slotIndex, int paramIndex, float value) noexcept;
+    bool setPluginParameterBySlotId(const std::string& slotId, int paramIndex, float value) noexcept;
+
+    /** Power management inspection and control (Phase 5). */
+    PluginPowerState getSlotPowerState(const std::string& slotId) const noexcept;
+    void setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept;
+    void prewarmStrip(size_t stripIndex) noexcept;
+    void prewarmSlot(const std::string& slotId) noexcept;
+    void parkSlot(const std::string& slotId) noexcept;
+    void unparkSlot(const std::string& slotId) noexcept;
+    PluginPowerStats powerStats() const noexcept;
+
 private:
+    std::atomic<bool> allNotesOffPending{false};
     struct Node;
     struct StripChain;
 

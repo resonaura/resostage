@@ -7,6 +7,7 @@
 #include "project/RouteId.h"
 #include "events/DueQueue.h"
 #include "timing/SongLength.h"
+#include "automation/AutomationEvaluator.h"
 
 #include <algorithm>
 #include <cmath>
@@ -250,6 +251,14 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             clickGenerator.prepare(currentSampleRate, song.bpm,
                                    song.timeSignature.numerator,
                                    song.timeSignature.denominator);
+        }
+
+        auto newTempoMap = std::make_shared<const TempoMap>(song.bpm, song.tempoPoints);
+        std::atomic_store_explicit(&activeTempoMap, std::move(newTempoMap), std::memory_order_release);
+
+        auto pluginPub = std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
+        if (pluginPub != nullptr && pluginPub->bank != nullptr) {
+            pluginPub->bank->requestAllNotesOff();
         }
 
         currentSong = songIndex;
@@ -722,6 +731,10 @@ void AudioEngine::stop() {
     // Pause tail: we intentionally do NOT call resetMetersSilent() here.
     // The audio callback renders the decaying tail of active reverbs/delays,
     // publishing live decaying meters until the tail decays to silence.
+    auto pluginPub = std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
+    if (pluginPub != nullptr && pluginPub->bank != nullptr) {
+        pluginPub->bank->requestAllNotesOff();
+    }
     flushDeferredAutosave();
 }
 
@@ -826,6 +839,10 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
         transportTelemetry.playheadSeconds.store(seconds, std::memory_order_relaxed);
         flushPauseTailRequested.store(true, std::memory_order_release);
         resetMetersSilent();
+        auto pluginPub = std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
+        if (pluginPub != nullptr && pluginPub->bank != nullptr) {
+            pluginPub->bank->requestAllNotesOff();
+        }
 
         if (wasPlaying || sameSong) {
             // sameSong keeps transport running across the seek; cross-song
@@ -989,4 +1006,332 @@ void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds,
     }
 }
 
+void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
+                                              int64_t blockStartSample,
+                                              int numSamples,
+                                              double sampleRate,
+                                              const MixGraph* graph,
+                                              PluginProcessorBank* pluginBank,
+                                              const TempoMap* tempoMap,
+                                              uint64_t hostTimeNanos,
+                                              double outputLatencySec) {
+    if (numSamples <= 0 || sampleRate <= 0.0 || song.midiRegions.empty())
+        return;
+
+    const int64_t blockEndSample = blockStartSample + numSamples;
+
+    // Zero-allocation fallback for sample <-> beat conversion if tempoMap snapshot is not yet published
+    auto fallbackBeatsToSamples = [&](double beat) -> int64_t {
+        const double sec = beat * 60.0 / std::max(1.0, song.bpm);
+        return static_cast<int64_t>(std::llround(sec * sampleRate));
+    };
+
+    auto fallbackSamplesToBeats = [&](int64_t sample) -> double {
+        const double sec = static_cast<double>(sample) / sampleRate;
+        return (sec * std::max(1.0, song.bpm)) / 60.0;
+    };
+
+    auto beatsToSamples = [&](double beat) -> int64_t {
+        return tempoMap != nullptr ? tempoMap->beatsToSamples(beat, sampleRate)
+                                   : fallbackBeatsToSamples(beat);
+    };
+
+    auto samplesToBeats = [&](int64_t sample) -> double {
+        return tempoMap != nullptr ? tempoMap->samplesToBeats(sample, sampleRate)
+                                   : fallbackSamplesToBeats(sample);
+    };
+
+    const double blockStartBeat = samplesToBeats(blockStartSample);
+    const double blockEndBeat = samplesToBeats(blockEndSample);
+
+    const auto& projectTracks = project().tracks;
+
+    for (const auto& region : song.midiRegions) {
+        if (region.muted || region.notes.empty() || region.durationBeats <= 0.0)
+            continue;
+
+        const double regionStartBeat = region.startBeats;
+        const double regionEndBeat = region.startBeats + region.durationBeats;
+
+        // Bounded fast rejection: check if region timeline span overlaps the block in beats
+        if (blockEndBeat <= regionStartBeat || blockStartBeat >= regionEndBeat)
+            continue;
+
+        // Also check in sample space for exact boundaries
+        const int64_t regionStartSample = beatsToSamples(regionStartBeat);
+        const int64_t regionEndSample = beatsToSamples(regionEndBeat);
+        if (blockEndSample <= regionStartSample || blockStartSample >= regionEndSample)
+            continue;
+
+        // Resolve destination channel strip index and track kind
+        uint32_t targetStripIndex = MixGraph::kNoStrip;
+        TrackKind trackKind = TrackKind::Instrument;
+
+        for (const auto& tr : projectTracks) {
+            if (tr.id == region.trackId) {
+                trackKind = tr.kind;
+                if (graph != nullptr) {
+                    targetStripIndex = graph->find(tr.effectiveStripId());
+                }
+                break;
+            }
+        }
+        if (targetStripIndex == MixGraph::kNoStrip && graph != nullptr) {
+            targetStripIndex = graph->find(region.trackId);
+        }
+
+        const bool canSendToPlugin = (pluginBank != nullptr
+                                      && targetStripIndex != MixGraph::kNoStrip
+                                      && pluginBank->stripHasInstrument(targetStripIndex));
+        const bool canSendToExternalMidi = (trackKind == TrackKind::ExternalMIDI
+                                            || trackKind == TrackKind::MIDI);
+
+        if (!canSendToPlugin && !canSendToExternalMidi)
+            continue;
+
+        const double loopLen = (region.loop && region.loopLengthBeats > 1e-4)
+            ? region.loopLengthBeats
+            : region.durationBeats;
+
+        int kMin = 0;
+        int kMax = 0;
+
+        if (region.loop && loopLen > 1e-4) {
+            const double overlapStartBeat = std::max(blockStartBeat, regionStartBeat);
+            const double overlapEndBeat = std::min(blockEndBeat, regionEndBeat);
+            const double tStart = overlapStartBeat - regionStartBeat + region.clipOffsetBeats;
+            const double tEnd = overlapEndBeat - regionStartBeat + region.clipOffsetBeats;
+            kMin = static_cast<int>(std::floor(tStart / loopLen));
+            kMax = static_cast<int>(std::floor(tEnd / loopLen));
+        }
+
+        for (int k = kMin; k <= kMax; ++k) {
+            const double iterationOffset = regionStartBeat - region.clipOffsetBeats + (region.loop ? (k * loopLen) : 0.0);
+
+            for (const auto& note : region.notes) {
+                if (note.muted || note.durationBeats <= 0.0)
+                    continue;
+
+                const double noteOnBeat = iterationOffset + note.startBeats;
+                const double noteOffBeat = noteOnBeat + note.durationBeats;
+
+                const uint8_t ch = 1;
+                const uint8_t pitch = static_cast<uint8_t>(std::clamp(static_cast<int>(note.pitch), 0, 127));
+                const uint8_t vel = static_cast<uint8_t>(std::clamp(
+                    static_cast<int>(std::llround(note.velocity * 127.0f)), 1, 127));
+                const uint8_t relVel = static_cast<uint8_t>(std::clamp(
+                    static_cast<int>(std::llround(note.releaseVelocity * 127.0f)), 0, 127));
+
+                // Note-On dispatch
+                if (noteOnBeat >= regionStartBeat && noteOnBeat < regionEndBeat) {
+                    const int64_t onSample = beatsToSamples(noteOnBeat);
+                    if (onSample >= blockStartSample && onSample < blockEndSample) {
+                        const int sampleOffset = std::clamp(static_cast<int>(onSample - blockStartSample), 0, numSamples - 1);
+
+                        if (canSendToPlugin) {
+                            pluginBank->addStripMidiEvent(targetStripIndex, juce::MidiMessage::noteOn(ch, pitch, vel), sampleOffset);
+                        }
+                        if (canSendToExternalMidi) {
+                            const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
+                            MidiCommand cmd;
+                            cmd.kind = MidiCommandKind::NoteOn;
+                            cmd.channel = 0; // 0-indexed channel 1
+                            cmd.data1 = pitch;
+                            cmd.data2 = vel;
+                            cmd.targetHostTimeNanos = heardHostNanos(hostTimeNanos, offsetSec, outputLatencySec);
+                            midiDispatcher.enqueue(cmd);
+                        }
+                    }
+                }
+
+                // Note-Off dispatch
+                const double clampedOffBeat = std::min(noteOffBeat, regionEndBeat);
+                if (noteOnBeat < regionEndBeat && clampedOffBeat > regionStartBeat) {
+                    const int64_t offSample = beatsToSamples(clampedOffBeat);
+                    if (offSample >= blockStartSample && offSample < blockEndSample) {
+                        const int sampleOffset = std::clamp(static_cast<int>(offSample - blockStartSample), 0, numSamples - 1);
+
+                        if (canSendToPlugin) {
+                            pluginBank->addStripMidiEvent(targetStripIndex, juce::MidiMessage::noteOff(ch, pitch, relVel), sampleOffset);
+                        }
+                        if (canSendToExternalMidi) {
+                            const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
+                            MidiCommand cmd;
+                            cmd.kind = MidiCommandKind::NoteOff;
+                            cmd.channel = 0; // 0-indexed channel 1
+                            cmd.data1 = pitch;
+                            cmd.data2 = relVel;
+                            cmd.targetHostTimeNanos = heardHostNanos(hostTimeNanos, offsetSec, outputLatencySec);
+                            midiDispatcher.enqueue(cmd);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
+                                             int64_t blockStartSample,
+                                             int numSamples,
+                                             double sampleRate,
+                                             const MixGraph* graph,
+                                             PluginProcessorBank* pluginBank,
+                                             const TempoMap* tempoMap,
+                                             uint64_t hostTimeNanos,
+                                             double outputLatencySec) {
+    (void)numSamples;
+    (void)hostTimeNanos;
+    (void)outputLatencySec;
+
+    if (song.automationLanes.empty() && song.midiRegions.empty() && song.regions.empty())
+        return;
+
+    const double safeRate = sampleRate > 0.0 ? sampleRate : 48000.0;
+    const double blockStartSeconds = static_cast<double>(blockStartSample) / safeRate;
+    const double blockStartBeat = tempoMap != nullptr
+        ? tempoMap->samplesToBeats(blockStartSample, safeRate)
+        : (blockStartSeconds * 2.0);
+
+    // 1. Evaluate TrackAutomation lanes defined on the SongDef
+    for (const auto& lane : song.automationLanes) {
+        if (!lane.enabled || lane.muted || lane.points.empty())
+            continue;
+
+        const float value = AutomationEvaluator::evaluatePoints(
+            lane.points, blockStartBeat, lane.target.defaultValue);
+
+        if (lane.target.domain == AutomationDomain::Plugin) {
+            if (pluginBank != nullptr) {
+                int paramIdx = 0;
+                try {
+                    if (lane.target.parameterId.rfind("param:", 0) == 0) {
+                        paramIdx = std::stoi(lane.target.parameterId.substr(6));
+                    } else {
+                        paramIdx = std::stoi(lane.target.parameterId);
+                    }
+                } catch (...) {
+                    paramIdx = 0;
+                }
+                pluginBank->setPluginParameterBySlotId(lane.target.entityId, paramIdx, value);
+            }
+        } else if (lane.target.domain == AutomationDomain::MidiCC) {
+            int ccNum = 1;
+            try {
+                if (lane.target.parameterId.rfind("cc:", 0) == 0) {
+                    ccNum = std::stoi(lane.target.parameterId.substr(3));
+                } else {
+                    ccNum = std::stoi(lane.target.parameterId);
+                }
+            } catch (...) {
+                ccNum = 1;
+            }
+            ccNum = std::clamp(ccNum, 0, 127);
+            const uint8_t ccVal = static_cast<uint8_t>(std::clamp(
+                static_cast<int>(std::llround(value * 127.0f)), 0, 127));
+
+            if (graph != nullptr && pluginBank != nullptr) {
+                for (size_t stripIdx = 0; stripIdx < graph->strips.size(); ++stripIdx) {
+                    if (graph->strips[stripIdx].id == lane.target.entityId) {
+                        pluginBank->addStripMidiEvent(
+                            stripIdx,
+                            juce::MidiMessage::controllerEvent(1, ccNum, ccVal),
+                            0);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Evaluate RegionAutomation and RegionModulation for active regions
+    for (const auto& mr : song.midiRegions) {
+        if (mr.muted || mr.automationLanes.empty())
+            continue;
+        if (blockStartBeat < mr.startBeats || blockStartBeat >= mr.startBeats + mr.durationBeats)
+            continue;
+
+        double relBeats = blockStartBeat - mr.startBeats + mr.clipOffsetBeats;
+        if (mr.loop && mr.loopLengthBeats > 0.0) {
+            relBeats = std::fmod(relBeats, mr.loopLengthBeats);
+        }
+
+        for (const auto& lane : mr.automationLanes) {
+            if (!lane.enabled || lane.muted || lane.points.empty())
+                continue;
+
+            const float value = AutomationEvaluator::evaluatePoints(
+                lane.points, relBeats, lane.target.defaultValue);
+
+            if (lane.target.domain == AutomationDomain::Plugin && pluginBank != nullptr) {
+                int paramIdx = 0;
+                try {
+                    if (lane.target.parameterId.rfind("param:", 0) == 0) {
+                        paramIdx = std::stoi(lane.target.parameterId.substr(6));
+                    } else {
+                        paramIdx = std::stoi(lane.target.parameterId);
+                    }
+                } catch (...) {
+                    paramIdx = 0;
+                }
+                pluginBank->setPluginParameterBySlotId(lane.target.entityId, paramIdx, value);
+            }
+        }
+    }
+}
+
+void AudioEngine::prewarmPluginsLookahead(const SongDef& song,
+                                         int64_t playheadSample,
+                                         double sampleRate,
+                                         const MixGraph* graph,
+                                         PluginProcessorBank* pluginBank,
+                                         const TempoMap* tempoMap) {
+    if (pluginBank == nullptr || graph == nullptr)
+        return;
+
+    const double safeRate = sampleRate > 0.0 ? sampleRate : 48000.0;
+    const double currentSeconds = static_cast<double>(playheadSample) / safeRate;
+    const double currentBeat = tempoMap != nullptr
+        ? tempoMap->samplesToBeats(playheadSample, safeRate)
+        : (currentSeconds * (song.bpm / 60.0));
+
+    const double beatsPerBar = static_cast<double>(song.timeSignature.numerator) * 4.0
+                               / std::max(1, song.timeSignature.denominator);
+    const double lookaheadBars = 2.0;
+    const double lookaheadEndBeat = currentBeat + lookaheadBars * beatsPerBar;
+    const double lookaheadEndSeconds = tempoMap != nullptr
+        ? tempoMap->beatsToSeconds(lookaheadEndBeat)
+        : lookaheadEndBeat * (60.0 / std::max(1.0, song.bpm));
+
+    // Check audio regions within 2-bar horizon
+    for (const auto& reg : song.regions) {
+        const double regStart = reg.startSeconds;
+        const double regEnd = (reg.durationSeconds > 0.0)
+                                  ? (reg.startSeconds + reg.durationSeconds)
+                                  : std::numeric_limits<double>::infinity();
+        if (regEnd > currentSeconds && regStart < lookaheadEndSeconds) {
+            const uint32_t stripIdx = graph->find(reg.trackId);
+            if (stripIdx != MixGraph::kNoStrip) {
+                pluginBank->prewarmStrip(stripIdx);
+            }
+        }
+    }
+
+    // Check MIDI regions within 2-bar horizon
+    for (const auto& mreg : song.midiRegions) {
+        if (mreg.muted) continue;
+        const double mregStart = mreg.startBeats;
+        const double mregEnd = (mreg.durationBeats > 0.0)
+                                   ? (mreg.startBeats + mreg.durationBeats)
+                                   : std::numeric_limits<double>::infinity();
+        if (mregEnd > currentBeat && mregStart < lookaheadEndBeat) {
+            const uint32_t stripIdx = graph->find(mreg.trackId);
+            if (stripIdx != MixGraph::kNoStrip) {
+                pluginBank->prewarmStrip(stripIdx);
+            }
+        }
+    }
+}
+
 } // namespace resostage
+

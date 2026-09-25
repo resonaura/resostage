@@ -184,6 +184,9 @@ private:
     void pluginSlotRemove(const std::string& json);
     void pluginSlotMove(const std::string& json);
     void pluginSlotBypass(const std::string& json);
+    void pluginSlotKeepAwake(const std::string& json);
+    void pluginSlotPark(const std::string& json);
+    void pluginSlotUnpark(const std::string& json);
     void pluginSlotOpenEditor(const std::string& json);
     void closePluginEditor(const std::string& slotId);
     void closeAllPluginEditors();
@@ -215,6 +218,15 @@ private:
     void builderRegionAdd(const std::string& json);
     void builderRegionRemove(const std::string& json);
     void builderRegionUpdate(const std::string& json);
+    void builderMidiRegionAdd(const std::string& json);
+    void builderMidiRegionRemove(const std::string& json);
+    void builderMidiRegionUpdate(const std::string& json);
+    void builderAutomationLaneAdd(const std::string& json);
+    void builderAutomationLaneRemove(const std::string& json);
+    void builderAutomationLaneUpdate(const std::string& json);
+    void builderAutomationPointAdd(const std::string& json);
+    void builderAutomationPointRemove(const std::string& json);
+    void builderAutomationRecordGesture(const std::string& json);
     void setTrackSendFromJson(const std::string& json);
     void removeTrackSendFromJson(const std::string& json);
     void setProjectNameFromJson(const std::string& json);

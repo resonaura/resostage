@@ -244,6 +244,7 @@ target_compile_definitions(resostage_plugin_scanner PRIVATE
   JUCE_PLUGINHOST_AU=$<BOOL:${APPLE}>
 )
 target_link_libraries(resostage_plugin_scanner PRIVATE
+  glaze::glaze
   juce::juce_audio_processors
   juce::juce_gui_basics
   juce::juce_recommended_config_flags

@@ -170,6 +170,7 @@ struct WPluginSlot {
     WPluginReference plugin;
     bool bypassed = false;
     std::optional<std::string> stateResource;
+    bool keepAwake = false;
 };
 
 struct WClick {
@@ -211,6 +212,10 @@ struct WSendBus {
 struct WTrack {
     std::string id;
     std::string name;
+    std::string kind = "audio";
+    std::optional<std::string> stripId;
+    std::string target = "local";
+    std::optional<std::string> peerNodeId;
     int channels = 2;
     double gainDb = 0.0;
     double pan = 0.0;
@@ -334,6 +339,32 @@ struct WRegionPlayback {
     bool reverse = false;
 };
 
+struct WAutomationTarget {
+    std::string domain = "strip";
+    std::string entityId;
+    std::string parameterId;
+    std::string valueType = "floatNormalized";
+    double defaultValue = 0.0;
+    double minValue = 0.0;
+    double maxValue = 1.0;
+};
+
+struct WAutomationPoint {
+    double timeBeats = 0.0;
+    double value = 0.0;
+    double curve = 0.0;
+};
+
+struct WAutomationLane {
+    std::string id;
+    WAutomationTarget target;
+    std::string scope = "track";
+    bool enabled = true;
+    bool muted = false;
+    std::string writeMode = "read";
+    std::vector<WAutomationPoint> points;
+};
+
 struct WRegion {
     std::string id;
     std::string trackId;
@@ -344,6 +375,7 @@ struct WRegion {
     WRegionFade fade;
     WRegionLoop loop;
     WRegionPlayback playback;
+    std::vector<WAutomationLane> automationLanes;
 };
 
 struct WEvent {
@@ -401,6 +433,48 @@ struct WLightCue {
     std::string blendMode = "normal";
 };
 
+struct WMidiNote {
+    uint64_t id = 0;
+    int pitch = 60;
+    double startBeats = 0.0;
+    double durationBeats = 1.0;
+    double velocity = 0.8;
+    double releaseVelocity = 0.5;
+    double probability = 1.0;
+    int pan = -1;
+    int tuningOffsetCents = 0;
+    bool muted = false;
+};
+
+struct WMidiRegion {
+    std::string id;
+    std::string trackId;
+    std::string name;
+    double startBeats = 0.0;
+    double durationBeats = 16.0;
+    double clipOffsetBeats = 0.0;
+    bool loop = false;
+    double loopLengthBeats = 16.0;
+    bool muted = false;
+    std::string color = "#3b82f6";
+    std::vector<WMidiNote> notes;
+    std::vector<WAutomationLane> automationLanes;
+};
+
+struct WTempoPoint {
+    double beat = 0.0;
+    double bpm = 120.0;
+    double timeSeconds = 0.0;
+    double curve = 0.0;
+};
+
+struct WSignaturePoint {
+    double beat = 0.0;
+    int numerator = 4;
+    int denominator = 4;
+    int bar = 1;
+};
+
 struct WSong {
     std::string id;
     std::string name;
@@ -413,6 +487,10 @@ struct WSong {
     // glz::opts below), so this needs no format-version bump either way.
     double endSeconds = 0.0;
     std::vector<WRegion> regions;
+    std::vector<WMidiRegion> midiRegions;
+    std::vector<WAutomationLane> automationLanes;
+    std::vector<WTempoPoint> tempoPoints;
+    std::vector<WSignaturePoint> signaturePoints;
     std::vector<WEvent> events;
     std::vector<WSection> sections;
     std::vector<WLightCue> lightCues;
@@ -525,6 +603,7 @@ WPluginSlot toWirePluginSlot(const PluginSlot& slot) {
     wire.plugin.instrument = slot.plugin.instrument;
     wire.bypassed = slot.bypassed;
     wire.stateResource = slot.stateResource;
+    wire.keepAwake = slot.keepAwake;
     return wire;
 }
 
@@ -539,6 +618,7 @@ PluginSlot fromWirePluginSlot(const WPluginSlot& wire) {
     slot.plugin.instrument = wire.plugin.instrument;
     slot.bypassed = wire.bypassed;
     slot.stateResource = wire.stateResource;
+    slot.keepAwake = wire.keepAwake;
     return slot;
 }
 
@@ -560,6 +640,74 @@ std::vector<WPluginSlot> toWirePluginSlots(const SlotContainer& slots) {
     for (const auto& slot : slots)
         wire.push_back(toWirePluginSlot(slot));
     return wire;
+}
+
+WAutomationTarget toWireAutomationTarget(const AutomationTarget& t) {
+    WAutomationTarget wt;
+    wt.domain = automationDomainToString(t.domain);
+    wt.entityId = t.entityId;
+    wt.parameterId = t.parameterId;
+    wt.valueType = parameterValueTypeToString(t.valueType);
+    wt.defaultValue = finiteOrZero(t.defaultValue);
+    wt.minValue = finiteOrZero(t.minValue);
+    wt.maxValue = finiteOrZero(t.maxValue);
+    return wt;
+}
+
+AutomationTarget fromWireAutomationTarget(const WAutomationTarget& wt) {
+    AutomationTarget t;
+    t.domain = automationDomainFromString(wt.domain);
+    t.entityId = wt.entityId;
+    t.parameterId = wt.parameterId;
+    t.valueType = parameterValueTypeFromString(wt.valueType);
+    t.defaultValue = static_cast<float>(wt.defaultValue);
+    t.minValue = static_cast<float>(wt.minValue);
+    t.maxValue = static_cast<float>(wt.maxValue);
+    return t;
+}
+
+WAutomationPoint toWireAutomationPoint(const AutomationPoint& p) {
+    WAutomationPoint wp;
+    wp.timeBeats = finiteOrZero(p.timeBeats);
+    wp.value = finiteOrZero(p.value);
+    wp.curve = std::clamp(static_cast<double>(p.curve), -1.0, 1.0);
+    return wp;
+}
+
+AutomationPoint fromWireAutomationPoint(const WAutomationPoint& wp) {
+    AutomationPoint p;
+    p.timeBeats = finiteOrZero(wp.timeBeats);
+    p.value = static_cast<float>(finiteOrZero(wp.value));
+    p.curve = static_cast<float>(std::clamp(wp.curve, -1.0, 1.0));
+    return p;
+}
+
+WAutomationLane toWireAutomationLane(const AutomationLane& l) {
+    WAutomationLane wl;
+    wl.id = l.id;
+    wl.target = toWireAutomationTarget(l.target);
+    wl.scope = automationScopeToString(l.scope);
+    wl.enabled = l.enabled;
+    wl.muted = l.muted;
+    wl.writeMode = automationWriteModeToString(l.writeMode);
+    wl.points.reserve(l.points.size());
+    for (const auto& p : l.points)
+        wl.points.push_back(toWireAutomationPoint(p));
+    return wl;
+}
+
+AutomationLane fromWireAutomationLane(const WAutomationLane& wl) {
+    AutomationLane l;
+    l.id = wl.id;
+    l.target = fromWireAutomationTarget(wl.target);
+    l.scope = automationScopeFromString(wl.scope);
+    l.enabled = wl.enabled;
+    l.muted = wl.muted;
+    l.writeMode = automationWriteModeFromString(wl.writeMode);
+    l.points.reserve(wl.points.size());
+    for (const auto& wp : wl.points)
+        l.points.push_back(fromWireAutomationPoint(wp));
+    return l;
 }
 
 WColor toWireColor(const RgbColor& c) {
@@ -634,6 +782,10 @@ WProject toWire(const Project& p) {
         WTrack wt;
         wt.id = t.id;
         wt.name = t.name;
+        wt.kind = trackKindToString(t.kind);
+        wt.stripId = t.stripId;
+        wt.target = executionTargetToString(t.target);
+        wt.peerNodeId = t.peerNodeId;
         wt.channels = std::clamp(t.channels, 1, 2);
         wt.gainDb = finiteOrZero(t.gainDb);
         wt.pan = finiteOrZero(t.pan);
@@ -723,7 +875,62 @@ WProject toWire(const Project& p) {
             wr.playback.speed = r.playback.speed;
             wr.playback.semitones = finiteOrZero(r.playback.semitones);
             wr.playback.reverse = r.playback.reverse;
+            for (const auto& al : r.automationLanes)
+                wr.automationLanes.push_back(toWireAutomationLane(al));
             ws.regions.push_back(std::move(wr));
+        }
+
+        for (const auto& mr : s.midiRegions) {
+            WMidiRegion wmr;
+            wmr.id = mr.id;
+            wmr.trackId = mr.trackId;
+            wmr.name = mr.name;
+            wmr.startBeats = finiteOrZero(mr.startBeats);
+            wmr.durationBeats = finiteOrZero(mr.durationBeats);
+            wmr.clipOffsetBeats = finiteOrZero(mr.clipOffsetBeats);
+            wmr.loop = mr.loop;
+            wmr.loopLengthBeats = finiteOrZero(mr.loopLengthBeats);
+            wmr.muted = mr.muted;
+            wmr.color = mr.color;
+            wmr.notes.reserve(mr.notes.size());
+            for (const auto& n : mr.notes) {
+                WMidiNote wn;
+                wn.id = n.id;
+                wn.pitch = n.pitch;
+                wn.startBeats = finiteOrZero(n.startBeats);
+                wn.durationBeats = finiteOrZero(n.durationBeats);
+                wn.velocity = std::clamp(n.velocity, 0.0f, 1.0f);
+                wn.releaseVelocity = std::clamp(n.releaseVelocity, 0.0f, 1.0f);
+                wn.probability = std::clamp(n.probability, 0.0f, 1.0f);
+                wn.pan = n.pan;
+                wn.tuningOffsetCents = n.tuningOffsetCents;
+                wn.muted = n.muted;
+                wmr.notes.push_back(std::move(wn));
+            }
+            for (const auto& al : mr.automationLanes)
+                wmr.automationLanes.push_back(toWireAutomationLane(al));
+            ws.midiRegions.push_back(std::move(wmr));
+        }
+
+        for (const auto& al : s.automationLanes)
+            ws.automationLanes.push_back(toWireAutomationLane(al));
+
+        for (const auto& tp : s.tempoPoints) {
+            WTempoPoint wtp;
+            wtp.beat = finiteOrZero(tp.beat);
+            wtp.bpm = finiteOrZero(tp.bpm);
+            wtp.timeSeconds = finiteOrZero(tp.timeSeconds);
+            wtp.curve = finiteOrZero(tp.curve);
+            ws.tempoPoints.push_back(std::move(wtp));
+        }
+
+        for (const auto& sp : s.signaturePoints) {
+            WSignaturePoint wsp;
+            wsp.beat = finiteOrZero(sp.beat);
+            wsp.numerator = sp.numerator;
+            wsp.denominator = sp.denominator;
+            wsp.bar = sp.bar;
+            ws.signaturePoints.push_back(std::move(wsp));
         }
 
         for (const auto& e : s.events) {
@@ -918,6 +1125,10 @@ Project fromWire(const WProject& w) {
         TrackDef tr;
         tr.id = t.id;
         tr.name = t.name;
+        tr.kind = trackKindFromString(t.kind);
+        tr.stripId = t.stripId;
+        tr.target = executionTargetFromString(t.target);
+        tr.peerNodeId = t.peerNodeId;
         tr.channels = std::clamp(t.channels, 1, 2);
         tr.gainDb = t.gainDb;
         tr.pan = t.pan;
@@ -1017,7 +1228,62 @@ Project fromWire(const WProject& w) {
             reg.playback.semitones =
                 std::isfinite(r.playback.semitones) ? r.playback.semitones : 0.0;
             reg.playback.reverse = r.playback.reverse;
+            for (const auto& wal : r.automationLanes)
+                reg.automationLanes.push_back(fromWireAutomationLane(wal));
             song.regions.push_back(std::move(reg));
+        }
+
+        for (const auto& mr : s.midiRegions) {
+            MidiRegion reg;
+            reg.id = mr.id;
+            reg.trackId = mr.trackId;
+            reg.name = mr.name;
+            reg.startBeats = mr.startBeats;
+            reg.durationBeats = mr.durationBeats;
+            reg.clipOffsetBeats = mr.clipOffsetBeats;
+            reg.loop = mr.loop;
+            reg.loopLengthBeats = mr.loopLengthBeats;
+            reg.muted = mr.muted;
+            reg.color = mr.color.empty() ? "#3b82f6" : mr.color;
+            reg.notes.reserve(mr.notes.size());
+            for (const auto& n : mr.notes) {
+                MidiNote note;
+                note.id = n.id;
+                note.pitch = static_cast<uint8_t>(std::clamp(n.pitch, 0, 127));
+                note.startBeats = n.startBeats;
+                note.durationBeats = std::max(0.0, n.durationBeats);
+                note.velocity = std::clamp(static_cast<float>(n.velocity), 0.0f, 1.0f);
+                note.releaseVelocity = std::clamp(static_cast<float>(n.releaseVelocity), 0.0f, 1.0f);
+                note.probability = std::clamp(static_cast<float>(n.probability), 0.0f, 1.0f);
+                note.pan = static_cast<int8_t>(n.pan);
+                note.tuningOffsetCents = static_cast<int8_t>(std::clamp(n.tuningOffsetCents, -100, 100));
+                note.muted = n.muted;
+                reg.notes.push_back(std::move(note));
+            }
+            for (const auto& wal : mr.automationLanes)
+                reg.automationLanes.push_back(fromWireAutomationLane(wal));
+            song.midiRegions.push_back(std::move(reg));
+        }
+
+        for (const auto& wal : s.automationLanes)
+            song.automationLanes.push_back(fromWireAutomationLane(wal));
+
+        for (const auto& tp : s.tempoPoints) {
+            TempoPoint pt;
+            pt.beat = tp.beat;
+            pt.bpm = (tp.bpm > 0.0 && std::isfinite(tp.bpm)) ? tp.bpm : 120.0;
+            pt.timeSeconds = tp.timeSeconds;
+            pt.curve = tp.curve;
+            song.tempoPoints.push_back(std::move(pt));
+        }
+
+        for (const auto& sp : s.signaturePoints) {
+            SignaturePoint pt;
+            pt.beat = sp.beat;
+            pt.numerator = sp.numerator > 0 ? sp.numerator : 4;
+            pt.denominator = sp.denominator > 0 ? sp.denominator : 4;
+            pt.bar = sp.bar > 0 ? sp.bar : 1;
+            song.signaturePoints.push_back(std::move(pt));
         }
 
         for (const auto& e : s.events) {

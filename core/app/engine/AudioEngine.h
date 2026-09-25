@@ -33,6 +33,7 @@
 #include "platform/ThreadTime.h"
 #include "telemetry/CallbackTiming.h"
 #include "timing/OutputLatency.h"
+#include "timing/TempoMap.h"
 #include "LightEngine.h"
 #include "midi/CoreMidiDispatcher.h"
 #include "plugins/PluginProcessorBank.h"

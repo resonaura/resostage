@@ -103,6 +103,7 @@ struct PluginProcessorBank::Node {
     std::atomic<bool> faulted{false};
     int requiredChannels = 2;
     juce::AudioBuffer<float> buffer;
+    PluginSlotPowerTracker powerTracker;
 };
 
 struct PluginProcessorBank::StripChain {
@@ -269,10 +270,32 @@ void PluginProcessorBank::clearStripMidi(size_t stripIndex) noexcept {
     chains[stripIndex]->midi.clear();
 }
 
+void PluginProcessorBank::injectAllNotesOff() noexcept {
+    for (auto& chain : chains) {
+        if (chain != nullptr) {
+            for (int ch = 1; ch <= 16; ++ch) {
+                chain->midi.addEvent(juce::MidiMessage::allNotesOff(ch), 0);
+                chain->midi.addEvent(juce::MidiMessage::allSoundOff(ch), 0);
+                chain->midi.addEvent(juce::MidiMessage::controllerEvent(ch, 64, 0), 0);
+            }
+        }
+    }
+}
+
 void PluginProcessorBank::processChain(void* context, float* left, float* right,
                                        int numSamples) noexcept {
     auto& chain = *static_cast<StripChain*>(context);
     float* stereoChannels[] = {left, right};
+
+    const bool hasMidi = !chain.midi.isEmpty();
+    bool hasAudioInput = false;
+    for (int i = 0; i < numSamples; ++i) {
+        if (std::abs(left[i]) > 1.0e-5f || std::abs(right[i]) > 1.0e-5f) {
+            hasAudioInput = true;
+            break;
+        }
+    }
+
     for (auto& node : chain.nodes) {
         if (node->missingInstrument
             || (node->instrument && node->faulted.load(std::memory_order_relaxed))) {
@@ -282,6 +305,18 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
         }
         if (node->instance == nullptr || node->faulted.load(std::memory_order_relaxed))
             continue;
+
+        const bool hasInput = (node->instrument ? hasMidi : (hasAudioInput || hasMidi));
+        if (hasInput) {
+            // Immediate instantaneous wake-up (< 0.05 ms) if incoming signal enters
+            if (!node->powerTracker.isProcessingNeeded()) {
+                node->powerTracker.forceAwake();
+            }
+        } else if (!node->powerTracker.isProcessingNeeded()) {
+            // Suspended or parked: skip execution completely (O(1))
+            continue;
+        }
+
         try {
             const int inChannels = node->instance->getTotalNumInputChannels();
             const int outChannels = node->instance->getTotalNumOutputChannels();
@@ -331,6 +366,9 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
                 if (!std::isfinite(left[i])) left[i] = 0.0f;
                 if (!std::isfinite(right[i])) right[i] = 0.0f;
             }
+
+            // Real-time power tracking: monitor tail decay and evaluate Quiescent/Suspended
+            node->powerTracker.processBlockRealtime(left, right, numSamples, hasInput);
         } catch (...) {
             node->faulted.store(true, std::memory_order_relaxed);
         }
@@ -372,9 +410,14 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             node->slotId = slot.id;
             node->bypassed = slot.bypassed;
             node->instrument = slot.plugin.instrument;
+            PluginPowerFlags pflags;
+            pflags.keepAwake = slot.keepAwake;
+            pflags.isInstrument = slot.plugin.instrument;
+
             const auto* description = findDescription(descriptions, slot.plugin.identifier);
             if (description == nullptr) {
                 node->missingInstrument = slot.plugin.instrument;
+                node->powerTracker.prepare(slot.id, sampleRate, 0.0, pflags);
                 result.warnings.push_back("Missing plug-in: " + slot.plugin.name);
                 chain->nodes.push_back(std::move(node));
                 continue;
@@ -385,6 +428,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 *description, sampleRate, maximumBlockSize, error);
             if (node->instance == nullptr) {
                 node->missingInstrument = slot.plugin.instrument;
+                node->powerTracker.prepare(slot.id, sampleRate, 0.0, pflags);
                 result.warnings.push_back("Could not create " + slot.plugin.name + ": "
                                           + error.toStdString());
                 chain->nodes.push_back(std::move(node));
@@ -430,6 +474,9 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             const double reportedTail = node->instance->getTailLengthSeconds();
             if (std::isfinite(reportedTail) && reportedTail > 0.0)
                 chain->tailSeconds += reportedTail;
+
+            node->powerTracker.prepare(slot.id, sampleRate, reportedTail, pflags);
+
             chain->nodes.push_back(std::move(node));
         }
         if (!chain->nodes.empty())
@@ -491,4 +538,136 @@ PluginProcessorBank::createEditor(const std::string& slotId) {
     return {};
 }
 
+void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex,
+                                             int paramIndex, float value) noexcept {
+    if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
+        return;
+    auto& nodes = chains[stripIndex]->nodes;
+    if (slotIndex >= nodes.size() || nodes[slotIndex] == nullptr)
+        return;
+    auto* instance = nodes[slotIndex]->instance.get();
+    if (instance == nullptr)
+        return;
+    const auto& params = instance->getParameters();
+    if (paramIndex >= 0 && paramIndex < params.size()) {
+        if (auto* param = params[paramIndex])
+            param->setValue(std::clamp(value, 0.0f, 1.0f));
+    }
+}
+
+bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& slotId,
+                                                    int paramIndex, float value) noexcept {
+    for (const auto& chain : chains) {
+        if (chain == nullptr)
+            continue;
+        for (const auto& node : chain->nodes) {
+            if (node != nullptr && node->slotId == slotId) {
+                if (node->instance != nullptr) {
+                    const auto& params = node->instance->getParameters();
+                    if (paramIndex >= 0 && paramIndex < params.size()) {
+                        if (auto* param = params[paramIndex])
+                            param->setValue(std::clamp(value, 0.0f, 1.0f));
+                    }
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+PluginPowerState PluginProcessorBank::getSlotPowerState(const std::string& slotId) const noexcept {
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes) {
+            if (node != nullptr && node->slotId == slotId) {
+                return node->powerTracker.state();
+            }
+        }
+    }
+    return PluginPowerState::Active;
+}
+
+void PluginProcessorBank::setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept {
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes) {
+            if (node != nullptr && node->slotId == slotId) {
+                node->powerTracker.setKeepAwake(keepAwake);
+                return;
+            }
+        }
+    }
+}
+
+void PluginProcessorBank::prewarmStrip(size_t stripIndex) noexcept {
+    if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
+        return;
+    for (const auto& node : chains[stripIndex]->nodes) {
+        if (node != nullptr) {
+            node->powerTracker.forceAwake();
+        }
+    }
+}
+
+void PluginProcessorBank::prewarmSlot(const std::string& slotId) noexcept {
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes) {
+            if (node != nullptr && node->slotId == slotId) {
+                node->powerTracker.forceAwake();
+                return;
+            }
+        }
+    }
+}
+
+void PluginProcessorBank::parkSlot(const std::string& slotId) noexcept {
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes) {
+            if (node != nullptr && node->slotId == slotId) {
+                node->powerTracker.park();
+                return;
+            }
+        }
+    }
+}
+
+void PluginProcessorBank::unparkSlot(const std::string& slotId) noexcept {
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes) {
+            if (node != nullptr && node->slotId == slotId) {
+                node->powerTracker.unpark();
+                return;
+            }
+        }
+    }
+}
+
+PluginPowerStats PluginProcessorBank::powerStats() const noexcept {
+    PluginPowerStats s;
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes) {
+            if (node == nullptr) continue;
+            ++s.totalSlots;
+            switch (node->powerTracker.state()) {
+                case PluginPowerState::Active: ++s.activeCount; break;
+                case PluginPowerState::Quiescent: ++s.quiescentCount; break;
+                case PluginPowerState::Suspended: ++s.suspendedCount; break;
+                case PluginPowerState::Parked: ++s.parkedCount; break;
+            }
+        }
+    }
+    if (s.totalSlots > 0) {
+        const size_t saved = s.suspendedCount + s.parkedCount;
+        s.estimatedDspSavingsPercent =
+            (static_cast<float>(saved) / static_cast<float>(s.totalSlots)) * 100.0f;
+    }
+    return s;
+}
+
 } // namespace resostage
+

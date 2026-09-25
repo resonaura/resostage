@@ -1,4 +1,5 @@
 #include "AutomationEnvelope.h"
+#include "automation/AutomationCurve.h"
 
 namespace resostage {
 
@@ -35,12 +36,7 @@ void AutomationEnvelope::setPoints(std::vector<EnvelopePoint> newPoints) {
 }
 
 double AutomationEnvelope::interpolate(double t01, double v0, double v1, double curve) noexcept {
-    const double t = std::clamp(t01, 0.0, 1.0);
-    if (std::abs(curve) < 1.0e-6)
-        return v0 + t * (v1 - v0);
-    const double exp = std::pow(2.0, -curve * 2.0);
-    const double w = std::pow(t, exp);
-    return v0 + w * (v1 - v0);
+    return AutomationCurve::interpolate(t01, v0, v1, curve);
 }
 
 double AutomationEnvelope::evaluateAt(double timeSeconds, double defaultValue) const noexcept {

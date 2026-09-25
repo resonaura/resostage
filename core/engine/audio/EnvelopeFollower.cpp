@@ -34,7 +34,7 @@ void EnvelopeFollower::reset(float initialValue) noexcept {
 }
 
 void EnvelopeFollower::process(const float* input, float* output, int numSamples) noexcept {
-    if (input == nullptr || output == nullptr || numSamples <= 0)
+    if (input == nullptr || numSamples <= 0)
         return;
 
     float env = envelope;
@@ -53,7 +53,8 @@ void EnvelopeFollower::process(const float* input, float* output, int numSamples
             if (env < 1.0e-9f)
                 env = 0.0f;
 
-            output[i] = env;
+            if (output != nullptr)
+                output[i] = env;
         }
     } else { // RMS mode
         for (int i = 0; i < numSamples; ++i) {
@@ -66,7 +67,8 @@ void EnvelopeFollower::process(const float* input, float* output, int numSamples
             if (env < 1.0e-18f)
                 env = 0.0f;
 
-            output[i] = std::sqrt(env);
+            if (output != nullptr)
+                output[i] = std::sqrt(env);
         }
     }
 
@@ -75,7 +77,7 @@ void EnvelopeFollower::process(const float* input, float* output, int numSamples
 
 void EnvelopeFollower::processStereo(const float* inputL, const float* inputR,
                                      float* output, int numSamples) noexcept {
-    if (inputL == nullptr || inputR == nullptr || output == nullptr || numSamples <= 0)
+    if (inputL == nullptr || inputR == nullptr || numSamples <= 0)
         return;
 
     float env = envelope;
@@ -96,7 +98,8 @@ void EnvelopeFollower::processStereo(const float* inputL, const float* inputR,
             if (env < 1.0e-9f)
                 env = 0.0f;
 
-            output[i] = env;
+            if (output != nullptr)
+                output[i] = env;
         }
     } else { // RMS mode
         for (int i = 0; i < numSamples; ++i) {
@@ -112,7 +115,8 @@ void EnvelopeFollower::processStereo(const float* inputL, const float* inputR,
             if (env < 1.0e-18f)
                 env = 0.0f;
 
-            output[i] = std::sqrt(env);
+            if (output != nullptr)
+                output[i] = std::sqrt(env);
         }
     }
 

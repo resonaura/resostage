@@ -23,6 +23,8 @@ add_executable(resostage_engine_tests
   test_audio_folder_import.cpp
   test_bar_seek.cpp
   test_song_length.cpp
+  test_timeline_maps.cpp
+  test_timeline_midi.cpp
   test_output_latency.cpp
   test_due_queue.cpp
   test_region_source_map.cpp
@@ -39,9 +41,12 @@ add_executable(resostage_engine_tests
   test_udp_discovery.cpp
   test_offline_renderer.cpp
   test_automation_envelope.cpp
+  test_automation_framework.cpp
   test_envelope_follower.cpp
   test_plugin_hardening.cpp
   test_plugin_performance.cpp
+  test_plugin_power_manager.cpp
+  test_resolink_protocol.cpp
   ../app/network/UdpDiscovery.cpp
   ../app/engine/OfflineRenderer.cpp
 )

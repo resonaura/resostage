@@ -1,5 +1,7 @@
 #include "doctest.h"
 #include "network/UdpDiscovery.h"
+#include "server/WireTypes.h"
+#include "glaze/glaze.hpp"
 
 #include <juce_core/juce_core.h>
 
@@ -38,24 +40,46 @@ TEST_CASE("UdpDiscovery Start and Stop Lifecycle") {
 TEST_CASE("UdpDiscovery JSON Payload Parsing and Deduplication") {
     UdpDiscovery discovery;
 
-    // Test with mock payload
-    juce::var json(new juce::DynamicObject());
-    json.getDynamicObject()->setProperty("type", "RESOSTAGE_DISCOVERY");
-    json.getDynamicObject()->setProperty("name", "TestLaptop");
-    json.getDynamicObject()->setProperty("platform", "win32");
-    json.getDynamicObject()->setProperty("port", 2899);
-    json.getDynamicObject()->setProperty("protocolVersion", "1.0.0");
-    json.getDynamicObject()->setProperty("discoveryEnabled", true);
+    wire::WDiscoveryAnnouncement announcement;
+    announcement.type = "RESOSTAGE_DISCOVERY";
+    announcement.name = "TestLaptop";
+    announcement.platform = "win32";
+    announcement.port = 2899;
+    announcement.protocolVersion = "1.0.0";
+    announcement.discoveryEnabled = true;
 
-    juce::String serialized = juce::JSON::toString(json, true);
+    std::string serialized;
+    const auto ec = glz::write_json(announcement, serialized);
+    CHECK_FALSE(ec);
 
-    // Verify string serialization is valid JSON
-    auto parsed = juce::JSON::parse(serialized);
-    CHECK(parsed.isObject());
-    CHECK(parsed.getProperty("name", "").toString() == "TestLaptop");
-    CHECK(parsed.getProperty("platform", "").toString() == "win32");
-    CHECK(parsed.getProperty("port", 0).toString().getIntValue() == 2899);
-    CHECK(parsed.getProperty("protocolVersion", "").toString() == "1.0.0");
+    // Verify string deserialization with Glaze
+    wire::WDiscoveryAnnouncement parsed;
+    const auto readEc = glz::read_json(parsed, serialized);
+    CHECK_FALSE(readEc);
+    CHECK(parsed.name == "TestLaptop");
+    CHECK(parsed.platform == "win32");
+    CHECK(parsed.port == 2899);
+    CHECK(parsed.protocolVersion == "1.0.0");
+    CHECK(parsed.discoveryEnabled == true);
+
+    // Ingest via parseIncomingDatagram
+    discovery.parseIncomingDatagram(serialized.data(), static_cast<int>(serialized.size()), "192.168.1.105");
+    auto devices = discovery.getDiscoveredDevices();
+    REQUIRE(devices.size() == 1);
+    CHECK(devices[0].name == "TestLaptop");
+    CHECK(devices[0].platform == "win32");
+    CHECK(devices[0].ip == "192.168.1.105");
+    CHECK(devices[0].port == 2899);
+
+    // Ingest malformed payload: should be safely ignored
+    const std::string badJson = "{invalid-json-payload";
+    discovery.parseIncomingDatagram(badJson.data(), static_cast<int>(badJson.size()), "192.168.1.106");
+    CHECK(discovery.getDiscoveredDevices().size() == 1);
+
+    // Ingest non-discovery payload: should be safely ignored
+    const std::string wrongType = R"({"type":"SOME_OTHER_PACKET","name":"Ignored"})";
+    discovery.parseIncomingDatagram(wrongType.data(), static_cast<int>(wrongType.size()), "192.168.1.107");
+    CHECK(discovery.getDiscoveredDevices().size() == 1);
 }
 
 } // TEST_SUITE

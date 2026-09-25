@@ -1,5 +1,8 @@
 #include "PluginCatalogService.h"
 #include "PluginPaths.h"
+#include "server/WireTypes.h"
+#include "server/BuilderJson.h"
+#include "glaze/glaze.hpp"
 
 #include <algorithm>
 #include <unordered_set>
@@ -16,40 +19,34 @@ std::string loadBoundedJson(const juce::File& file, const char* fallback) {
     if (!file.existsAsFile() || file.getSize() <= 0 || file.getSize() > kMaxCatalogBytes)
         return fallback;
     const auto text = file.loadFileAsString().toStdString();
-    if (text.empty() || juce::JSON::parse(juce::String::fromUTF8(text.c_str())).isVoid())
+    if (text.empty())
+        return fallback;
+    glz::generic doc;
+    if (glz::read_json(doc, text))
         return fallback;
     return text;
 }
 
 juce::String scanStateName(const std::string& json) {
-    const auto root = juce::JSON::parse(juce::String::fromUTF8(json.c_str()));
-    const auto* object = root.getDynamicObject();
-    return object != nullptr ? object->getProperty("state").toString()
-                             : juce::String{};
+    glz::generic doc;
+    if (!glz::read_json(doc, json)) {
+        std::string s;
+        if (builder_json::getString(doc, "state", s))
+            return juce::String::fromUTF8(s.c_str());
+    }
+    return {};
 }
 
 std::unordered_set<std::string> pluginIdsFromCatalog(const std::string& json) {
     std::unordered_set<std::string> ids;
-    const auto root = juce::JSON::parse(juce::String::fromUTF8(json.c_str()));
-    const auto* object = root.getDynamicObject();
-    const auto* rows = object != nullptr
-        ? object->getProperty("plugins").getArray() : nullptr;
-    if (rows == nullptr) return ids;
-    ids.reserve(static_cast<size_t>(rows->size()));
-    for (const auto& row : *rows)
-        if (const auto* plugin = row.getDynamicObject()) {
-            const auto id = plugin->getProperty("id").toString().toStdString();
-            if (!id.empty()) ids.insert(id);
+    wire::WPluginCatalogData cat;
+    if (!glz::read_json(cat, json)) {
+        ids.reserve(cat.plugins.size());
+        for (const auto& p : cat.plugins) {
+            if (!p.id.empty()) ids.insert(p.id);
         }
+    }
     return ids;
-}
-
-void appendStringSet(juce::Array<juce::var>& destination,
-                     const std::unordered_set<std::string>& values) {
-    std::vector<std::string> sorted(values.begin(), values.end());
-    std::sort(sorted.begin(), sorted.end());
-    for (const auto& value : sorted)
-        destination.add(juce::String::fromUTF8(value.c_str()));
 }
 
 } // namespace
@@ -263,24 +260,31 @@ std::string PluginCatalogService::snapshotJson() const {
         disabled = disabledPluginIds;
         fresh = newPluginIds;
     }
-    auto scan = loadBoundedJson(stateFile,
-        "{\"state\":\"idle\",\"progress\":0,\"format\":\"\",\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,\"currentPlugin\":\"\",\"error\":\"\"}");
-    if (running && scan.find("\"state\":\"scanning\"") == std::string::npos)
-        scan = "{\"state\":\"scanning\",\"progress\":0,\"format\":\"\",\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,\"currentPlugin\":\"\",\"error\":\"\"}";
-    if (!running && scan.find("\"state\":\"scanning\"") != std::string::npos)
-        scan = "{\"state\":\"cancelled\",\"progress\":0,\"format\":\"\",\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,\"currentPlugin\":\"\",\"error\":\"Previous scan was interrupted; start a scan to continue\"}";
 
-    auto root = juce::JSON::parse(juce::String::fromUTF8(catalog.c_str()));
-    if (auto* object = root.getDynamicObject())
-        if (auto* rows = object->getProperty("plugins").getArray())
-            for (auto& row : *rows)
-                if (auto* plugin = row.getDynamicObject()) {
-                    const auto id = plugin->getProperty("id").toString().toStdString();
-                    plugin->setProperty("enabled", !disabled.contains(id));
-                    plugin->setProperty("isNew", fresh.contains(id));
-                }
-    return "{\"scan\":" + scan + ",\"catalog\":"
-        + juce::JSON::toString(root, true).toStdString() + "}";
+    wire::WPluginScanState scanState;
+    const std::string rawScan = loadBoundedJson(stateFile, "{}");
+    (void)glz::read_json(scanState, rawScan);
+    if (running && scanState.state != "scanning") {
+        scanState.state = "scanning";
+        scanState.progress = 0.0;
+        scanState.error.clear();
+    } else if (!running && scanState.state == "scanning") {
+        scanState.state = "cancelled";
+        scanState.progress = 0.0;
+        scanState.error = "Previous scan was interrupted; start a scan to continue";
+    }
+
+    wire::WPluginCatalogData catData;
+    (void)glz::read_json(catData, catalog);
+    for (auto& plugin : catData.plugins) {
+        plugin.enabled = !disabled.contains(plugin.id);
+        plugin.isNew = fresh.contains(plugin.id);
+    }
+
+    wire::WPluginCatalogResponse response{std::move(scanState), std::move(catData)};
+    std::string outJson;
+    (void)glz::write_json(response, outJson);
+    return outJson;
 }
 
 std::optional<PluginReference> PluginCatalogService::findPlugin(
@@ -291,32 +295,20 @@ std::optional<PluginReference> PluginCatalogService::findPlugin(
         if (disabledPluginIds.contains(identifier)) return std::nullopt;
         catalog = catalogJson;
     }
-    const juce::var root = juce::JSON::parse(
-        juce::String::fromUTF8(catalog.c_str()));
-    const auto* object = root.getDynamicObject();
-    if (object == nullptr)
+    wire::WPluginCatalogData catData;
+    if (glz::read_json(catData, catalog))
         return std::nullopt;
-    const juce::var rows = object->getProperty("plugins");
-    const auto* plugins = rows.getArray();
-    if (plugins == nullptr)
-        return std::nullopt;
-    for (const auto& row : *plugins) {
-        const auto* plugin = row.getDynamicObject();
-        if (plugin == nullptr
-            || plugin->getProperty("id").toString().toStdString()
-                   != identifier) {
-            continue;
+    for (const auto& plugin : catData.plugins) {
+        if (plugin.id == identifier) {
+            PluginReference result;
+            result.identifier = identifier;
+            result.format = plugin.format;
+            result.name = plugin.name;
+            result.manufacturer = plugin.manufacturer;
+            result.fileOrIdentifier = plugin.fileOrIdentifier;
+            result.instrument = plugin.instrument;
+            return result;
         }
-        PluginReference result;
-        result.identifier = identifier;
-        result.format = plugin->getProperty("format").toString().toStdString();
-        result.name = plugin->getProperty("name").toString().toStdString();
-        result.manufacturer =
-            plugin->getProperty("manufacturer").toString().toStdString();
-        result.fileOrIdentifier =
-            plugin->getProperty("fileOrIdentifier").toString().toStdString();
-        result.instrument = static_cast<bool>(plugin->getProperty("instrument"));
-        return result;
     }
     return std::nullopt;
 }
@@ -332,33 +324,28 @@ void PluginCatalogService::refreshCatalogLocked(std::string json) {
 
 void PluginCatalogService::loadPreferencesLocked() {
     const auto json = loadBoundedJson(preferencesFile, "{}");
-    const auto root = juce::JSON::parse(juce::String::fromUTF8(json.c_str()));
-    const auto* object = root.getDynamicObject();
-    if (object == nullptr) return;
-    const auto load = [object](const char* key,
-                               std::unordered_set<std::string>& destination) {
-        const auto* values = object->getProperty(key).getArray();
-        if (values == nullptr) return;
-        for (const auto& value : *values) {
-            const auto text = value.toString().toStdString();
-            if (!text.empty()) destination.insert(text);
-        }
-    };
-    load("disabled", disabledPluginIds);
-    load("new", newPluginIds);
+    wire::WPluginPreferences prefs;
+    if (glz::read_json(prefs, json)) return;
+    for (const auto& id : prefs.disabled) {
+        if (!id.empty()) disabledPluginIds.insert(id);
+    }
+    for (const auto& id : prefs.newPlugins) {
+        if (!id.empty()) newPluginIds.insert(id);
+    }
 }
 
 void PluginCatalogService::savePreferencesLocked() const {
-    auto root = std::make_unique<juce::DynamicObject>();
-    juce::Array<juce::var> disabled;
-    juce::Array<juce::var> fresh;
-    appendStringSet(disabled, disabledPluginIds);
-    appendStringSet(fresh, newPluginIds);
-    root->setProperty("disabled", juce::var(disabled));
-    root->setProperty("new", juce::var(fresh));
-    const juce::var value(root.release());
+    wire::WPluginPreferences prefs;
+    prefs.disabled.assign(disabledPluginIds.begin(), disabledPluginIds.end());
+    std::sort(prefs.disabled.begin(), prefs.disabled.end());
+    prefs.newPlugins.assign(newPluginIds.begin(), newPluginIds.end());
+    std::sort(prefs.newPlugins.begin(), prefs.newPlugins.end());
+
+    std::string text;
+    (void)glz::write_json(prefs, text);
+
     juce::TemporaryFile temporary(preferencesFile);
-    if (temporary.getFile().replaceWithText(juce::JSON::toString(value, true),
+    if (temporary.getFile().replaceWithText(juce::String::fromUTF8(text.c_str()),
                                             false, false, "\n"))
         (void)temporary.overwriteTargetFileWithTemporary();
 }

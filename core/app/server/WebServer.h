@@ -101,6 +101,9 @@ enum class WebCommandKind : uint8_t {
     PluginSlotMove,
     PluginSlotBypass,
     PluginSlotOpenEditor,
+    PluginSlotKeepAwake,
+    PluginSlotPark,
+    PluginSlotUnpark,
     // Open Recent parity -- `path` carries the absolute .rsnraset path from
     // AppSettings::recentProjects. Unlike LoadProjectFromPath (which deletes
     // its temp file on failure -- it only ever points at a throwaway browser
@@ -150,6 +153,15 @@ enum class WebCommandKind : uint8_t {
     BuilderRegionAdd,
     BuilderRegionRemove,
     BuilderRegionUpdate,
+    BuilderMidiRegionAdd,
+    BuilderMidiRegionRemove,
+    BuilderMidiRegionUpdate,
+    BuilderAutomationLaneAdd,
+    BuilderAutomationLaneRemove,
+    BuilderAutomationLaneUpdate,
+    BuilderAutomationPointAdd,
+    BuilderAutomationPointRemove,
+    BuilderAutomationRecordGesture,
     BuilderBusAdd,
     BuilderBusRemove,
     BuilderBusMove,
@@ -262,6 +274,8 @@ struct WebUiState {
         bool instrument = false;
         bool bypassed = false;
         bool hasState = false;
+        bool keepAwake = false;
+        std::string powerState = "active";
     };
 
     std::string projectName;
@@ -508,6 +522,49 @@ struct WebUiState {
             std::string blendMode;
         };
         std::vector<LightCueRow> lightCues;
+
+        struct MidiRegionRow {
+            std::string id;
+            std::string trackId;
+            std::string name;
+            double startBeats = 0.0;
+            double durationBeats = 16.0;
+            double clipOffsetBeats = 0.0;
+            bool loop = false;
+            double loopLengthBeats = 16.0;
+            bool muted = false;
+            std::string color = "#3b82f6";
+            struct Note {
+                uint64_t id = 0;
+                int pitch = 60;
+                double startBeats = 0.0;
+                double durationBeats = 1.0;
+                double velocity = 0.8;
+                double releaseVelocity = 0.5;
+                double probability = 1.0;
+                int pan = -1;
+                int tuningOffsetCents = 0;
+                bool muted = false;
+            };
+            std::vector<Note> notes;
+        };
+        std::vector<MidiRegionRow> midiRegions;
+
+        struct TempoPointRow {
+            double beat = 0.0;
+            double bpm = 120.0;
+            double timeSeconds = 0.0;
+            double curve = 0.0;
+        };
+        std::vector<TempoPointRow> tempoPoints;
+
+        struct SignaturePointRow {
+            double beat = 0.0;
+            int numerator = 4;
+            int denominator = 4;
+            int bar = 1;
+        };
+        std::vector<SignaturePointRow> signaturePoints;
     };
     std::vector<SongRow> songs;
 
@@ -538,6 +595,8 @@ struct WebUiState {
     struct TrackRow {
         std::string id;
         std::string name;
+        std::string kind = "audio";
+        std::string stripId;
         int channels = 2; // 1 = mono (stereo regions summed L+R before pan/sends)
         double gainDb = 0.0;
         double pan = 0.0;

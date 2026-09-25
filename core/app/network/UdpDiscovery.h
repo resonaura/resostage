@@ -33,11 +33,11 @@ public:
 
     bool isDiscoveryEnabled() const { return discoveryEnabled.load(); }
     std::vector<DiscoveredDevice> getDiscoveredDevices();
+    void parseIncomingDatagram(const char* data, int size, const juce::String& senderIp);
 
 private:
     void run() override;
     void sendAnnounce();
-    void parseIncomingDatagram(const char* data, int size, const juce::String& senderIp);
 
     std::atomic<bool> discoveryEnabled{true};
     std::atomic<bool> isRunning{false};

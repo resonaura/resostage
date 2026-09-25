@@ -6,6 +6,7 @@
 #include "project/ProjectJson.h"
 #include "project/ProjectLoader.h"
 #include "server/WireTypes.h"
+#include "server/BuilderJson.h"
 #include <juce_core/juce_core.h>
 
 #include <libwebsockets.h>
@@ -46,6 +47,8 @@ WPluginSlotTelemetry pluginSlotToWire(const WebUiState::PluginSlotRow& slot) {
     wire.instrument = slot.instrument;
     wire.bypassed = slot.bypassed;
     wire.hasState = slot.hasState;
+    wire.keepAwake = slot.keepAwake;
+    wire.powerState = slot.powerState;
     return wire;
 }
 
@@ -373,71 +376,65 @@ double finiteOrDbFloor(double v) {
     return v;
 }
 
-// Minimal body parse for {"index": N}. Avoids a JSON dependency for one field.
+int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
+                      const char* body, size_t bodyLen,
+                      const char* contentDisposition = nullptr);
+
+int writeJsonOk(struct lws* wsi) {
+    static const std::string kOk = []() {
+        std::string s;
+        (void)glz::write_json(wire::WOkPayload{}, s);
+        return s;
+    }();
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", kOk.data(), kOk.size());
+}
+
+int writeJsonError(struct lws* wsi, int status, const std::string& error) {
+    wire::WErrorPayload payload{error};
+    std::string s;
+    (void)glz::write_json(payload, s);
+    return writeHttpResponse(wsi, status, "application/json", s.data(), s.size());
+}
+
+int writeJsonEnabled(struct lws* wsi, bool enabled) {
+    wire::WEnabledPayload payload{enabled};
+    std::string s;
+    (void)glz::write_json(payload, s);
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", s.data(), s.size());
+}
+
+// Body parse for {"index": N} using Glaze.
 int parseSelectIndex(const char* body, size_t len) {
     if (body == nullptr || len == 0)
         return -1;
-    const std::string s(body, len);
-    const auto pos = s.find("\"index\"");
-    if (pos == std::string::npos)
+    wire::WSelectIndexPayload p;
+    const auto ec = glz::read_json(p, std::string_view(body, len));
+    if (ec || p.index < 0)
         return -1;
-    const auto colon = s.find(':', pos);
-    if (colon == std::string::npos)
-        return -1;
-    try {
-        return std::stoi(s.substr(colon + 1));
-    } catch (...) {
-        return -1;
-    }
+    return p.index;
 }
 
-// Finds "key": <raw-value-text> (up to the next , or }) and returns the raw
-// slice, trimmed. Same "avoid a JSON dependency" spirit as parseSelectIndex.
-bool findJsonField(const std::string& s, const char* key, std::string& outRaw) {
-    const auto pos = s.find(key);
-    if (pos == std::string::npos)
-        return false;
-    const auto colon = s.find(':', pos);
-    if (colon == std::string::npos)
-        return false;
-    size_t start = colon + 1;
-    while (start < s.size() && (s[start] == ' ' || s[start] == '\t'))
-        ++start;
-    size_t end = start;
-    while (end < s.size() && s[end] != ',' && s[end] != '}')
-        ++end;
-    while (end > start && (s[end - 1] == ' ' || s[end - 1] == '\t'))
-        --end;
-    outRaw = s.substr(start, end - start);
-    return !outRaw.empty();
-}
-
-// Minimal body parse for {"index": N, "value": X} where X is a number or a
-// JSON boolean (mixer mute/solo send booleans; gain/pan send numbers).
+// Body parse for {"index": N, "value": X} using Glaze.
+// X is either a number or a JSON boolean (mute/solo send booleans; gain/pan send numbers).
 bool parseIndexAndValue(const char* body, size_t len, int& outIndex, double& outValue) {
     if (body == nullptr || len == 0)
         return false;
-    const std::string s(body, len);
-    std::string idxRaw, valRaw;
-    if (!findJsonField(s, "\"index\"", idxRaw) || !findJsonField(s, "\"value\"", valRaw))
+    glz::generic doc;
+    const auto ec = glz::read_json(doc, std::string_view(body, len));
+    if (ec)
         return false;
-    try {
-        outIndex = std::stoi(idxRaw);
-    } catch (...) {
+    if (!builder_json::getInt(doc, "index", outIndex))
         return false;
+    const auto& val = doc["value"];
+    if (val.is_boolean()) {
+        outValue = val.get_boolean() ? 1.0 : 0.0;
+        return true;
     }
-    if (valRaw == "true") {
-        outValue = 1.0;
-    } else if (valRaw == "false") {
-        outValue = 0.0;
-    } else {
-        try {
-            outValue = std::stod(valRaw);
-        } catch (...) {
-            return false;
-        }
+    if (val.is_number()) {
+        outValue = val.get_number();
+        return true;
     }
-    return true;
+    return false;
 }
 
 bool isMixerCommandPath(const char* path) {
@@ -489,6 +486,15 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/region/add", WebCommandKind::BuilderRegionAdd},
     {"/api/v1/builder/region/remove", WebCommandKind::BuilderRegionRemove},
     {"/api/v1/builder/region/update", WebCommandKind::BuilderRegionUpdate},
+    {"/api/v1/builder/midi-region/add", WebCommandKind::BuilderMidiRegionAdd},
+    {"/api/v1/builder/midi-region/remove", WebCommandKind::BuilderMidiRegionRemove},
+    {"/api/v1/builder/midi-region/update", WebCommandKind::BuilderMidiRegionUpdate},
+    {"/api/v1/builder/automation-lane/add", WebCommandKind::BuilderAutomationLaneAdd},
+    {"/api/v1/builder/automation-lane/remove", WebCommandKind::BuilderAutomationLaneRemove},
+    {"/api/v1/builder/automation-lane/update", WebCommandKind::BuilderAutomationLaneUpdate},
+    {"/api/v1/builder/automation-point/add", WebCommandKind::BuilderAutomationPointAdd},
+    {"/api/v1/builder/automation-point/remove", WebCommandKind::BuilderAutomationPointRemove},
+    {"/api/v1/builder/automation/record-gesture", WebCommandKind::BuilderAutomationRecordGesture},
     {"/api/v1/builder/bus/add", WebCommandKind::BuilderBusAdd},
     {"/api/v1/builder/bus/remove", WebCommandKind::BuilderBusRemove},
     {"/api/v1/builder/bus/move", WebCommandKind::BuilderBusMove},
@@ -570,7 +576,7 @@ std::string sanitizeUploadFileName(const std::string& name) {
 
 int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
                       const char* body, size_t bodyLen,
-                      const char* contentDisposition = nullptr) {
+                      const char* contentDisposition) {
     uint8_t buf[LWS_PRE + 2048];
     uint8_t* start = &buf[LWS_PRE];
     uint8_t* p = start;
@@ -756,8 +762,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 std::snprintf(pss->uploadPath, sizeof(pss->uploadPath), "%s", tempPath.c_str());
                 pss->uploadFile = std::fopen(pss->uploadPath, "wb");
                 if (pss->uploadFile == nullptr) {
-                    return writeHttpResponse(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "application/json",
-                                             "{\"error\":\"temp file\"}", 22);
+                    return writeJsonError(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "temp file");
                 }
                 return 0;
             }
@@ -803,8 +808,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
                                                  json.c_str(), json.size());
                     }
-                    return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
-                                             "{\"error\":\"not found\"}", 21);
+                    return writeJsonError(wsi, HTTP_STATUS_NOT_FOUND, "not found");
                 }
 
                 // POST with no body (Content-Length 0 / absent): handle now.
@@ -817,8 +821,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 if (cl <= 0) {
                     if (server->handleHttpApi(wsi, pss->path, pss->method, "", 0))
                         return 0;
-                    return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
-                                             "{\"error\":\"not found\"}", 21);
+                    return writeJsonError(wsi, HTTP_STATUS_NOT_FOUND, "not found");
                 }
                 return 0;
             }
@@ -891,14 +894,13 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                     server->enqueueCommand(
                         WebCommand{WebCommandKind::LoadProjectFromPath, 0, 0.0, std::string(pss->uploadPath)});
                 }
-                return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+                return writeJsonOk(wsi);
             }
             const char* body = pss->body.empty() ? "" : pss->body.data();
             const size_t bodyLen = pss->body.size();
             if (server->handleHttpApi(wsi, pss->path, pss->method, body, bodyLen))
                 return 0;
-            return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
-                                     "{\"error\":\"not found\"}", 21);
+            return writeJsonError(wsi, HTTP_STATUS_NOT_FOUND, "not found");
     }
 
     return lws_callback_http_dummy(wsi, why, user, in, len);
@@ -1031,56 +1033,57 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
     if (why == LWS_CALLBACK_RECEIVE) {
             // Clients may send transport shortcuts or {"view":"mixer"} to
             // scope the outbound telemetry to the active SPA tab.
-            if (server == nullptr || in == nullptr || len == 0)
-                return 0;
-            const std::string msg(static_cast<const char*>(in), len);
-            std::string viewRaw;
-            if (findJsonField(msg, "\"view\"", viewRaw)
-                && viewRaw.size() >= 2 && viewRaw.front() == '"' && viewRaw.back() == '"') {
-                const std::string viewName = viewRaw.substr(1, viewRaw.size() - 2);
-                if (pss != nullptr) {
-                    const ClientView next = parseClientView(viewName);
-                    if (next != pss->view) {
-                        server->noteViewClosed(slotForView(pss->view));
-                        server->noteViewOpened(slotForView(next));
-                        pss->view = next;
+            glz::generic doc;
+            const auto ec = glz::read_json(doc, std::string_view(static_cast<const char*>(in), len));
+            if (!ec) {
+                std::string viewName;
+                if (builder_json::getString(doc, "view", viewName) && !viewName.empty()) {
+                    if (pss != nullptr) {
+                        const ClientView next = parseClientView(viewName);
+                        if (next != pss->view) {
+                            server->noteViewClosed(slotForView(pss->view));
+                            server->noteViewOpened(slotForView(next));
+                            pss->view = next;
+                        }
+                    }
+                    // Mirror into server so native UI (Touch Bar highlight) tracks
+                    // the embedded SPA tab, not a hardcoded "player".
+                    server->noteClientView(viewName);
+                    // View change takes effect on the next fixed timer tick —
+                    // keeps cadence uniform (no burst frames).
+                    return 0;
+                }
+
+                int hz = 0;
+                if (builder_json::getInt(doc, "telemetryHz", hz) && hz > 0) {
+                    if (pss != nullptr) {
+                        const int clamped =
+                            std::clamp(hz, WebServer::kTelemetryMinHz, WebServer::kTelemetryHz);
+                        pss->requestedPeriodUs = 1'000'000 / clamped;
+                        if (server != nullptr)
+                            server->setTargetTelemetryHz(clamped);
+                    }
+                    return 0;
+                }
+
+                std::string action;
+                if (builder_json::getString(doc, "action", action)
+                    || builder_json::getString(doc, "type", action)
+                    || builder_json::getString(doc, "command", action)) {
+                    if (action == "play")
+                        server->enqueueCommand({WebCommandKind::Play, 0});
+                    else if (action == "stop")
+                        server->enqueueCommand({WebCommandKind::Stop, 0});
+                    else if (action == "next")
+                        server->enqueueCommand({WebCommandKind::Next, 0});
+                    else if (action == "prev")
+                        server->enqueueCommand({WebCommandKind::Prev, 0});
+                    else if (action == "select") {
+                        int idx = -1;
+                        if (builder_json::getInt(doc, "index", idx) && idx >= 0)
+                            server->enqueueCommand({WebCommandKind::SelectSong, idx});
                     }
                 }
-                // Mirror into server so native UI (Touch Bar highlight) tracks
-                // the embedded SPA tab, not a hardcoded "player".
-                server->noteClientView(viewName);
-                // View change takes effect on the next fixed timer tick —
-                // keeps cadence uniform (no burst frames).
-                return 0;
-            }
-            std::string hzRaw;
-            if (findJsonField(msg, "\"telemetryHz\"", hzRaw)) {
-                // The SPA sends this whenever its frame budget changes. Clamped
-                // to the server's own range: a client cannot ask to be served
-                // faster than the target, nor slow itself below the floor that
-                // keeps the transport readable.
-                const int hz = std::atoi(hzRaw.c_str());
-                if (pss != nullptr && hz > 0) {
-                    const int clamped =
-                        std::clamp(hz, WebServer::kTelemetryMinHz, WebServer::kTelemetryHz);
-                    pss->requestedPeriodUs = 1'000'000 / clamped;
-                    if (server != nullptr)
-                        server->setTargetTelemetryHz(clamped);
-                }
-                return 0;
-            }
-            if (msg.find("\"play\"") != std::string::npos)
-                server->enqueueCommand({WebCommandKind::Play, 0});
-            else if (msg.find("\"stop\"") != std::string::npos)
-                server->enqueueCommand({WebCommandKind::Stop, 0});
-            else if (msg.find("\"next\"") != std::string::npos)
-                server->enqueueCommand({WebCommandKind::Next, 0});
-            else if (msg.find("\"prev\"") != std::string::npos)
-                server->enqueueCommand({WebCommandKind::Prev, 0});
-            else if (msg.find("\"select\"") != std::string::npos) {
-                const int idx = parseSelectIndex(msg.c_str(), msg.size());
-                if (idx >= 0)
-                    server->enqueueCommand({WebCommandKind::SelectSong, idx});
             }
             return 0;
     }
@@ -1600,6 +1603,57 @@ std::string WebServer::buildStateJson(const char* view) const {
                 wSong.lightCues.push_back(std::move(wLc));
             }
 
+            wSong.midiRegions.reserve(song.midiRegions.size());
+            for (const auto& mr : song.midiRegions) {
+                WMidiRegionTelemetry wMr;
+                wMr.id = mr.id;
+                wMr.trackId = mr.trackId;
+                wMr.name = mr.name;
+                wMr.startBeats = finiteOrZero(mr.startBeats);
+                wMr.durationBeats = finiteOrZero(mr.durationBeats);
+                wMr.clipOffsetBeats = finiteOrZero(mr.clipOffsetBeats);
+                wMr.loop = mr.loop;
+                wMr.loopLengthBeats = finiteOrZero(mr.loopLengthBeats);
+                wMr.muted = mr.muted;
+                wMr.color = mr.color;
+                wMr.notes.reserve(mr.notes.size());
+                for (const auto& n : mr.notes) {
+                    WMidiNoteTelemetry wN;
+                    wN.id = n.id;
+                    wN.pitch = n.pitch;
+                    wN.startBeats = finiteOrZero(n.startBeats);
+                    wN.durationBeats = finiteOrZero(n.durationBeats);
+                    wN.velocity = n.velocity;
+                    wN.releaseVelocity = n.releaseVelocity;
+                    wN.probability = n.probability;
+                    wN.pan = n.pan;
+                    wN.tuningOffsetCents = n.tuningOffsetCents;
+                    wN.muted = n.muted;
+                    wMr.notes.push_back(std::move(wN));
+                }
+                wSong.midiRegions.push_back(std::move(wMr));
+            }
+
+            wSong.tempoPoints.reserve(song.tempoPoints.size());
+            for (const auto& tp : song.tempoPoints) {
+                WTempoPointTelemetry wTp;
+                wTp.beat = finiteOrZero(tp.beat);
+                wTp.bpm = finiteOrZero(tp.bpm);
+                wTp.timeSeconds = finiteOrZero(tp.timeSeconds);
+                wTp.curve = finiteOrZero(tp.curve);
+                wSong.tempoPoints.push_back(std::move(wTp));
+            }
+
+            wSong.signaturePoints.reserve(song.signaturePoints.size());
+            for (const auto& sp : song.signaturePoints) {
+                WSignaturePointTelemetry wSp;
+                wSp.beat = finiteOrZero(sp.beat);
+                wSp.numerator = sp.numerator;
+                wSp.denominator = sp.denominator;
+                wSp.bar = sp.bar;
+                wSong.signaturePoints.push_back(std::move(wSp));
+            }
+
             songVec.push_back(std::move(wSong));
         }
         wire.songs = std::move(songVec);
@@ -1637,6 +1691,8 @@ std::string WebServer::buildStateJson(const char* view) const {
             WTrackTelemetry wT;
             wT.id = t.id;
             wT.name = t.name;
+            wT.kind = t.kind;
+            wT.stripId = t.stripId.empty() ? std::nullopt : std::make_optional(t.stripId);
             wT.channels = t.channels;
             wT.gainDb = finiteOrZero(t.gainDb);
             wT.pan = finiteOrZero(t.pan);
@@ -1927,8 +1983,7 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     } else if (std::strcmp(path, "/api/v1/transport/select") == 0) {
         const int idx = parseSelectIndex(body, bodyLen);
         if (idx < 0) {
-            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
-                              "{\"error\":\"missing index\"}", 28);
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "missing index");
             return true;
         }
         cmd = {WebCommandKind::SelectSong, idx, 0.0};
@@ -1936,8 +1991,7 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         int idx = 0;
         double value = 0.0;
         if (!parseIndexAndValue(body, bodyLen, idx, value)) {
-            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
-                              "{\"error\":\"missing index/value\"}", 34);
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "missing index/value");
             return true;
         }
         cmd = {mixerCommandKindForPath(path), idx, value};
@@ -1973,105 +2027,86 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::PluginSlotBypass, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/editor") == 0) {
         cmd = {WebCommandKind::PluginSlotOpenEditor, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/keep-awake") == 0) {
+        cmd = {WebCommandKind::PluginSlotKeepAwake, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/park") == 0) {
+        cmd = {WebCommandKind::PluginSlotPark, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/unpark") == 0) {
+        cmd = {WebCommandKind::PluginSlotUnpark, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/project/open-recent") == 0) {
-        const std::string s(body, bodyLen);
-        std::string pathRaw;
-        if (!findJsonField(s, "\"path\"", pathRaw) || pathRaw.size() < 2
-            || pathRaw.front() != '"' || pathRaw.back() != '"') {
-            static const char* kMsg = "{\"error\":\"missing path\"}";
-            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
-                              kMsg, std::strlen(kMsg));
+        wire::WOpenRecentPayload p;
+        if (glz::read_json(p, std::string_view(body, bodyLen)) || p.path.empty()) {
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "missing path");
             return true;
         }
-        cmd = {WebCommandKind::OpenRecentProject, 0, 0.0, pathRaw.substr(1, pathRaw.size() - 2)};
+        cmd = {WebCommandKind::OpenRecentProject, 0, 0.0, p.path};
     } else if (std::strcmp(path, "/api/v1/project/clear-recent") == 0) {
         cmd = {WebCommandKind::ClearRecentProjects, 0};
     } else if (std::strcmp(path, "/api/v1/project/quit-decision") == 0) {
         const int choice = parseSelectIndex(body, bodyLen);
         if (choice < 0) {
-            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
-                              "{\"error\":\"missing index\"}", 28);
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "missing index");
             return true;
         }
         cmd = {WebCommandKind::QuitDecision, choice};
     } else if (std::strcmp(path, "/api/v1/project/open-decision") == 0) {
         const int choice = parseSelectIndex(body, bodyLen);
         if (choice < 0) {
-            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
-                              "{\"error\":\"missing index\"}", 28);
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "missing index");
             return true;
         }
         cmd = {WebCommandKind::OpenDecision, choice};
     } else if (std::strcmp(path, "/api/v1/settings/ui-render-engine") == 0) {
-        const std::string s(body, bodyLen);
-        cmd = {WebCommandKind::SetUiRenderEngine, 0, 0.0, s};
-        writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+        cmd = {WebCommandKind::SetUiRenderEngine, 0, 0.0, std::string(body, bodyLen)};
+        writeJsonOk(wsi);
         return true;
     } else if (std::strcmp(path, "/api/v1/settings/telemetry-hz") == 0) {
-        const std::string s(body, bodyLen);
-        std::string hzRaw;
-        if (findJsonField(s, "\"telemetryHz\"", hzRaw)) {
-            const int hz = std::atoi(hzRaw.c_str());
-            if (hz > 0)
-                setTargetTelemetryHz(hz);
+        wire::WTelemetryHzPayload p;
+        if (!glz::read_json(p, std::string_view(body, bodyLen)) && p.telemetryHz > 0) {
+            setTargetTelemetryHz(p.telemetryHz);
         }
-        writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+        writeJsonOk(wsi);
         return true;
     } else if (std::strcmp(path, "/api/v1/view") == 0) {
-        const std::string s(body, bodyLen);
-        std::string viewRaw;
-        if (findJsonField(s, "\"view\"", viewRaw) && viewRaw.size() >= 2
-            && viewRaw.front() == '"' && viewRaw.back() == '"') {
-            const std::string viewName = viewRaw.substr(1, viewRaw.size() - 2);
-            noteClientView(viewName);
-            writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+        wire::WViewPayload p;
+        if (!glz::read_json(p, std::string_view(body, bodyLen)) && !p.view.empty()) {
+            noteClientView(p.view);
+            writeJsonOk(wsi);
         } else {
-            writeHttpResponse(wsi, HTTP_STATUS_BAD_REQUEST, "application/json",
-                              "{\"error\":\"missing view\"}", 24);
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "missing view");
         }
         return true;
     } else if (WebCommandKind builderKind; builderCommandKindForPath(path, builderKind)) {
         if (builderKind == WebCommandKind::BuilderTrackImportWavBegin) {
-            const std::string s(body, bodyLen);
-            std::string songRaw, indexRaw, fileNameRaw;
-            int songIndex = -1, trackIndex = -1;
-            if (findJsonField(s, "\"songIndex\"", songRaw))
-                try { songIndex = std::stoi(songRaw); } catch (...) {}
-            if (findJsonField(s, "\"index\"", indexRaw))
-                try { trackIndex = std::stoi(indexRaw); } catch (...) {}
-            std::string fileName;
-            if (findJsonField(s, "\"fileName\"", fileNameRaw) && fileNameRaw.size() >= 2
-                && fileNameRaw.front() == '"' && fileNameRaw.back() == '"')
-                fileName = fileNameRaw.substr(1, fileNameRaw.size() - 2);
-            beginTrackImport(songIndex, trackIndex, fileName);
+            wire::WTrackImportBeginPayload p;
+            if (!glz::read_json(p, std::string_view(body, bodyLen))) {
+                beginTrackImport(p.songIndex, p.index, p.fileName);
+            }
         }
         cmd = {builderKind, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/remote/discovery") == 0) {
+        wire::WDiscoveryTogglePayload p;
         bool enabled = true;
-        const std::string bodyStr(body, bodyLen);
-        if (bodyStr.find("false") != std::string::npos) {
-            enabled = false;
+        if (!glz::read_json(p, std::string_view(body, bodyLen))) {
+            enabled = p.enabled;
         }
         if (discoveryToggleHandler) {
             discoveryToggleHandler(enabled);
         }
-        const std::string json = "{\"enabled\":" + std::string(enabled ? "true" : "false") + "}";
-        writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+        writeJsonEnabled(wsi, enabled);
         return true;
     } else if (std::strcmp(path, "/api/v1/remote/subscribe-udp") == 0) {
         char clientIp[64] = "";
         lws_get_peer_simple(wsi, clientIp, sizeof(clientIp));
         int port = kUdpTelemetryPort;
-        const std::string s(body, bodyLen);
-        std::string portRaw;
-        if (findJsonField(s, "\"port\"", portRaw)) {
-            const int p = std::atoi(portRaw.c_str());
-            if (p > 0) port = p;
+        wire::WSubscribeUdpPayload p;
+        if (!glz::read_json(p, std::string_view(body, bodyLen)) && p.port > 0) {
+            port = p.port;
         }
         if (clientIp[0] != '\0') {
             registerUdpSubscriber(clientIp, port);
         }
-        writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+        writeJsonOk(wsi);
         return true;
     } else {
         ok = false;
@@ -2081,7 +2116,7 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         return false;
 
     enqueueCommand(cmd);
-    writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", "{\"ok\":true}", 11);
+    writeJsonOk(wsi);
     return true;
 }
 
@@ -2386,24 +2421,24 @@ int WebServer::serveUiMenu(struct lws* wsi) {
 }
 
 int WebServer::serveDiscoveredDevices(struct lws* wsi) {
-    juce::Array<juce::var> items;
+    std::vector<wire::WDiscoveredDevice> items;
     if (discoveredDevicesProvider) {
         const auto list = discoveredDevicesProvider();
+        items.reserve(list.size());
         for (const auto& dev : list) {
-            juce::var item(new juce::DynamicObject());
-            item.getDynamicObject()->setProperty("name", juce::String(dev.name));
-            item.getDynamicObject()->setProperty("platform", juce::String(dev.platform));
-            item.getDynamicObject()->setProperty("ip", juce::String(dev.ip));
-            item.getDynamicObject()->setProperty("port", static_cast<int>(dev.port));
-            item.getDynamicObject()->setProperty("protocolVersion", juce::String(dev.protocolVersion));
-            item.getDynamicObject()->setProperty("discoveryEnabled", dev.discoveryEnabled);
-            items.add(item);
+            wire::WDiscoveredDevice d;
+            d.name = dev.name;
+            d.platform = dev.platform;
+            d.ip = dev.ip;
+            d.port = dev.port;
+            d.protocolVersion = dev.protocolVersion;
+            d.discoveryEnabled = dev.discoveryEnabled;
+            items.push_back(std::move(d));
         }
     }
-    juce::var arr(items);
-    const juce::String json = juce::JSON::toString(arr, true);
-    auto raw = json.toRawUTF8();
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", raw, std::strlen(raw));
+    std::string json;
+    (void)glz::write_json(items, json);
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
 }
 
 int WebServer::serveDiscoveryStatus(struct lws* wsi) {
@@ -2411,8 +2446,7 @@ int WebServer::serveDiscoveryStatus(struct lws* wsi) {
     if (discoveryStatusProvider) {
         enabled = discoveryStatusProvider();
     }
-    const std::string json = "{\"enabled\":" + std::string(enabled ? "true" : "false") + "}";
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+    return writeJsonEnabled(wsi, enabled);
 }
 
 void WebServer::publishArchivePath(std::string path) {
@@ -2438,26 +2472,22 @@ int WebServer::serveWaveformRaw(struct lws* wsi, const char* queryArgs) {
         archivePath = archivePathForRaw;
     }
 
-    auto jsonError = [wsi](int status, const char* msg) {
-        return writeHttpResponse(wsi, status, "application/json", msg, std::strlen(msg));
-    };
-
     if (file.empty() || archivePath.empty() || !(endSec > startSec))
-        return jsonError(HTTP_STATUS_BAD_REQUEST, "{\"error\":\"bad request\"}");
+        return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "bad request");
 
     ProjectLoader rawLoader;
     std::string error;
     if (!rawLoader.open(archivePath, error))
-        return jsonError(HTTP_STATUS_INTERNAL_SERVER_ERROR, "{\"error\":\"archive open failed\"}");
+        return writeJsonError(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "archive open failed");
 
     ProjectLoader::StreamCursor cursor = rawLoader.openStream(file, error);
     if (!cursor.isValid())
-        return jsonError(HTTP_STATUS_NOT_FOUND, "{\"error\":\"file not found\"}");
+        return writeJsonError(wsi, HTTP_STATUS_NOT_FOUND, "file not found");
 
     auto readFn = [&](void* buf, size_t n) -> size_t { return cursor.read(buf, n); };
     WavStreamDecoder decoder;
     if (!decoder.parseHeader(readFn, error) || decoder.numChannels() <= 0 || decoder.sampleRate() <= 0.0)
-        return jsonError(HTTP_STATUS_INTERNAL_SERVER_ERROR, "{\"error\":\"bad wav header\"}");
+        return writeJsonError(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "bad wav header");
 
     const int numChannels = decoder.numChannels();
     const double sr = decoder.sampleRate();
@@ -2471,8 +2501,12 @@ int WebServer::serveWaveformRaw(struct lws* wsi, const char* queryArgs) {
     const int64_t endFrame = std::clamp<int64_t>(static_cast<int64_t>(endSec * sr), startFrame,
                                                  std::min(totalFrames, startFrame + maxFrames));
     const int64_t framesWanted = endFrame - startFrame;
-    if (framesWanted <= 0)
-        return jsonError(HTTP_STATUS_OK, "{\"sampleRate\":0,\"samples\":[]}");
+    if (framesWanted <= 0) {
+        wire::WWaveformRawPayload emptyPayload{0.0, 0.0, {}};
+        std::string json;
+        (void)glz::write_json(emptyPayload, json);
+        return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
+    }
 
     // Audio entries are stored uncompressed (MZ_NO_COMPRESSION, see
     // ProjectLoader::saveAsWithExtras), so this skip is a cheap forward read

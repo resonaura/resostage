@@ -18,10 +18,15 @@ add_library(resostage_engine STATIC
   audio/ArtNetPacket.cpp
   audio/AutomationEnvelope.cpp
   audio/EnvelopeFollower.cpp
+  automation/AutomationEvaluator.cpp
+  automation/RamerDouglasPeucker.cpp
+  automation/AutomationRecorder.cpp
+  plugins/PluginPowerManager.cpp
   project/ProjectLoader.cpp
   project/ProjectJson.cpp
   project/ProjectHistory.cpp
   telemetry/SystemHealth.cpp
+  resolink/SessionClock.cpp
 )
 
 if(WIN32)

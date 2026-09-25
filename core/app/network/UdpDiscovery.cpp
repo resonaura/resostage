@@ -1,4 +1,5 @@
 #include "UdpDiscovery.h"
+#include "server/WireTypes.h"
 
 #if JUCE_WINDOWS
   #include <winsock2.h>
@@ -177,17 +178,18 @@ void UdpDiscovery::sendAnnounce() {
     int sockHandle = socket->getRawSocketHandle();
     if (sockHandle < 0) return;
 
-    juce::var json(new juce::DynamicObject());
-    json.getDynamicObject()->setProperty("type", "RESOSTAGE_DISCOVERY");
-    json.getDynamicObject()->setProperty("name", juce::String(getHostDeviceName()));
-    json.getDynamicObject()->setProperty("platform", juce::String(getPlatformName()));
-    json.getDynamicObject()->setProperty("port", static_cast<int>(webPort));
-    json.getDynamicObject()->setProperty("protocolVersion", juce::String(kProtocolVersion));
-    json.getDynamicObject()->setProperty("discoveryEnabled", discoveryEnabled.load());
+    wire::WDiscoveryAnnouncement announcement;
+    announcement.type = "RESOSTAGE_DISCOVERY";
+    announcement.name = getHostDeviceName();
+    announcement.platform = getPlatformName();
+    announcement.port = static_cast<int>(webPort);
+    announcement.protocolVersion = kProtocolVersion;
+    announcement.discoveryEnabled = discoveryEnabled.load();
 
-    juce::String payload = juce::JSON::toString(json, true);
-    auto raw = payload.toRawUTF8();
-    int len = static_cast<int>(std::strlen(raw));
+    std::string payload;
+    (void)glz::write_json(announcement, payload);
+    const char* raw = payload.data();
+    int len = static_cast<int>(payload.size());
 
     auto sendToAddr = [&](const char* ipStr) {
         struct sockaddr_in targetAddress;
@@ -212,22 +214,17 @@ void UdpDiscovery::sendAnnounce() {
 void UdpDiscovery::parseIncomingDatagram(const char* data, int size, const juce::String& senderIp) {
     if (size <= 0 || data == nullptr) return;
 
-    juce::String str(juce::CharPointer_UTF8(data), static_cast<size_t>(size));
-    auto parsed = juce::JSON::parse(str);
-    if (!parsed.isObject()) return;
-
-    auto* obj = parsed.getDynamicObject();
-    if (obj == nullptr) return;
-
-    if (obj->getProperty("type").toString() != "RESOSTAGE_DISCOVERY") return;
+    wire::WDiscoveryAnnouncement announcement;
+    const auto ec = glz::read_json(announcement, std::string_view(data, static_cast<size_t>(size)));
+    if (ec || announcement.type != "RESOSTAGE_DISCOVERY") return;
 
     DiscoveredDevice dev;
-    dev.name = obj->getProperty("name").toString().toStdString();
-    dev.platform = obj->getProperty("platform").toString().toStdString();
+    dev.name = announcement.name.empty() ? senderIp.toStdString() : announcement.name;
+    dev.platform = announcement.platform.empty() ? "unknown" : announcement.platform;
     dev.ip = senderIp.toStdString();
-    dev.port = static_cast<uint16_t>(obj->getProperty("port").toString().getIntValue());
-    dev.protocolVersion = obj->getProperty("protocolVersion").toString().toStdString();
-    dev.discoveryEnabled = static_cast<bool>(obj->getProperty("discoveryEnabled"));
+    dev.port = announcement.port > 0 ? static_cast<uint16_t>(announcement.port) : static_cast<uint16_t>(2899);
+    dev.protocolVersion = announcement.protocolVersion.empty() ? "0.0.0" : announcement.protocolVersion;
+    dev.discoveryEnabled = announcement.discoveryEnabled;
     dev.lastSeenSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
 
     // Filter out our own self-announcements using IP matching

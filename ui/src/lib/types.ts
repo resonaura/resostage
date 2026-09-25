@@ -62,6 +62,8 @@ export interface PluginSlotRow {
   instrument: boolean;
   bypassed: boolean;
   hasState: boolean;
+  keepAwake?: boolean;
+  powerState?: 'active' | 'quiescent' | 'suspended' | 'parked';
 }
 
 export interface Click {
@@ -153,6 +155,7 @@ export interface RegionRow {
   loop?: RegionLoop;
   /** Speed / transpose / reverse. See RegionPlayback in ProjectSchema.h. */
   playback?: { speed: number; semitones: number; reverse: boolean };
+  automationLanes?: AutomationLaneRow[];
 }
 
 // Structural marker (Intro/Verse/Chorus/Bridge/Outro/Solo/custom). A point,
@@ -245,6 +248,98 @@ export interface LightCueRow {
   blendMode?: LightBlendMode;
 }
 
+export type TrackKindWire =
+  | "audio"
+  | "instrument"
+  | "midi"
+  | "externalMidi"
+  | "lighting"
+  | "folder"
+  | "busTimeline";
+
+export interface MidiNoteRow {
+  id: number;
+  pitch: number;
+  startBeats: number;
+  durationBeats: number;
+  velocity: number;
+  releaseVelocity: number;
+  probability: number;
+  pan?: number;
+  tuningOffsetCents?: number;
+  muted?: boolean;
+}
+
+export type AutomationDomain = "strip" | "plugin" | "midiCC" | "lighting";
+
+export type ParameterValueType =
+  | "floatNormalized"
+  | "decibels"
+  | "frequencyHz"
+  | "milliseconds"
+  | "boolean"
+  | "integer"
+  | "colorRgb";
+
+export type AutomationWriteMode = "read" | "touch" | "latch" | "write";
+
+export type AutomationScope = "track" | "region" | "modulation";
+
+export interface AutomationTargetRow {
+  domain: AutomationDomain;
+  entityId: string;
+  parameterId: string;
+  valueType: ParameterValueType;
+  defaultValue: number;
+  minValue: number;
+  maxValue: number;
+}
+
+export interface AutomationPointRow {
+  timeBeats: number;
+  value: number;
+  curve: number;
+}
+
+export interface AutomationLaneRow {
+  id: string;
+  target: AutomationTargetRow;
+  scope: AutomationScope;
+  enabled: boolean;
+  muted?: boolean;
+  writeMode: AutomationWriteMode;
+  points: AutomationPointRow[];
+}
+
+export interface MidiRegionRow {
+  id: string;
+  trackId: string;
+  name: string;
+  startBeats: number;
+  durationBeats: number;
+  clipOffsetBeats: number;
+  loop: boolean;
+  loopLengthBeats: number;
+  muted?: boolean;
+  color?: string;
+  notes: MidiNoteRow[];
+  automationLanes?: AutomationLaneRow[];
+}
+
+export interface TempoPointRow {
+  beat: number;
+  bpm: number;
+  timeSeconds: number;
+  curve: number;
+}
+
+export interface SignaturePointRow {
+  beat: number;
+  numerator: number;
+  denominator: number;
+  bar: number;
+}
+
 export interface SongRow {
   name: string;
   bpm: number;
@@ -264,6 +359,10 @@ export interface SongRow {
   clickSends: ClickSendRow[];
   tracks: SongTrackRow[];
   regions?: RegionRow[];
+  midiRegions?: MidiRegionRow[];
+  automationLanes?: AutomationLaneRow[];
+  tempoPoints?: TempoPointRow[];
+  signaturePoints?: SignaturePointRow[];
   events: SongEventRow[];
   sections?: SectionRow[];
   lightCues?: LightCueRow[];
@@ -286,6 +385,8 @@ export interface MeterRow {
 export interface TrackRow {
   id: string;
   name: string;
+  kind?: TrackKindWire;
+  stripId?: string | null;
   /** 1 = mono (stereo regions summed L+R before pan/sends). */
   channels: number;
   gainDb: number;

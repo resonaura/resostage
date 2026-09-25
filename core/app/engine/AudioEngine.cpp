@@ -1057,6 +1057,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
     const int64_t playheadSample = renderPlayheadSample;
 
+    if (pluginPublication != nullptr && pluginPublication->bank != nullptr) {
+        if (pluginPublication->bank->consumeAllNotesOff()) {
+            pluginPublication->bank->injectAllNotesOff();
+        }
+    }
+
     if (pluginProcessors.strips != nullptr) {
         PluginTransportState pluginTransport;
         pluginTransport.sample = playheadSample;
@@ -1096,6 +1102,34 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                 + pluginLatencyForBlock,
             pluginPublication != nullptr ? pluginPublication->bank.get() : nullptr,
             numSamples);
+
+        const auto tempoMap = std::atomic_load_explicit(&activeTempoMap, std::memory_order_acquire);
+        const double outputLatencySec =
+            resostage::outputLatencySeconds(
+                currentOutputLatencySamples.load(std::memory_order_relaxed) + pluginLatencyForBlock,
+                currentSampleRate);
+
+        dispatchMidiRegionsForBlock(
+            song, playheadSample, numSamples, currentSampleRate,
+            &graph,
+            pluginPublication != nullptr ? pluginPublication->bank.get() : nullptr,
+            tempoMap.get(),
+            hostTimeNanos,
+            outputLatencySec);
+
+        dispatchAutomationForBlock(
+            song, playheadSample, numSamples, currentSampleRate,
+            &graph,
+            pluginPublication != nullptr ? pluginPublication->bank.get() : nullptr,
+            tempoMap.get(),
+            hostTimeNanos,
+            outputLatencySec);
+
+        prewarmPluginsLookahead(
+            song, playheadSample, currentSampleRate,
+            &graph,
+            pluginPublication != nullptr ? pluginPublication->bank.get() : nullptr,
+            tempoMap.get());
 
         // Cycle / skip-cycle (Logic-style locators, song-local). Applied on the
         // realtime path so loop authority is the engine -- not whichever SPA

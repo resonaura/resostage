@@ -226,12 +226,16 @@ Preserve these rules:
   callback, timeline MIDI events within the block are stamped with sample
   offsets and deposited into the strip's preallocated MIDI buffer before
   processing; the chain clears its MIDI buffer immediately after execution
-  without heap allocation.
+  without heap allocation. Intelligent power management (`PluginPowerManager`)
+  monitors strip signal activity via preallocated envelope followers, automatically
+  suspending processing during silence while preserving tail decay and waking up
+  ahead of upcoming audio/MIDI regions.
 - Dynamic curves and parameter automation use `AutomationEnvelope` with
   shape-preserving curvature matching `RegionFade` (`pow(t, 2^(-curve*2))`),
   supporting real-time bounded block evaluation without heap allocation. Real-time
   signal tracking utilizes `EnvelopeFollower` with peak/RMS detection and anti-denormal
-  flush.
+  flush. Automation recording utilizes `AutomationRecorder` with touch/latch modes
+  and non-destructive Ramer-Douglas-Peucker reduction (`RamerDouglasPeucker.cpp`).
 - Plug-in delay compensation is derived from the same topologically ordered
   graph. A topology-specific delay bank publishes pre-bound per-edge entries
   so every summing strip aligns to its slowest input without lookup or
@@ -341,6 +345,25 @@ WebSocket/JSON state remains useful for browsers and slower structural state.
 In Electron, high-rate telemetry is UDP while HTTP polling supplies structural
 state that is unsuitable for a compact datagram. Do not reintroduce a
 high-frequency full JSON state broadcast.
+
+### ResoLink Core-to-Core session protocol and serialization
+
+All JSON communication (HTTP API, WebSocket messages, plug-in catalogs,
+discovery datagrams, and project serialization) is unified under Glaze
+compile-time reflection DTOs with external linkage (`server/WireTypes.h`,
+`project/ProjectJson.cpp`). Fragile substring searches and `juce::JSON` tree
+allocations are prohibited.
+
+For distributed multi-machine live rigs and redundant failover, Cores exchange
+compact binary beacons (`kResoLinkMagic = 0x52534C4B` on UDP `28992`) and
+NTP/PTP-grade Ping/Pong packets (`resolink/ResoLinkProtocol.h`). Follower
+instances run a Proportional-Integral (PI) phase-locked loop (PLL) tracking
+leader monotonic time and sample render position (`resolink/SessionClock.h`),
+bounded to safe $\pm 100\text{ PPM}$ frequency slewing without zipper noise,
+snapping on large seeks ($> 50\text{ ms}$), and providing 2-second holdover
+coasting during network packet loss. Individual tracks can be targeted for local
+execution or remote peer delegation via `ExecutionTarget` in `TrackDef`. Real-time
+threads query clock snapshots and rate multipliers wait-free via `SeqLock`.
 
 ## 9. Timing, events, MIDI, and lighting
 
