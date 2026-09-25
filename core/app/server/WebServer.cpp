@@ -1959,6 +1959,10 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::CancelAudioRender, 0};
     } else if (std::strcmp(path, "/api/v1/plugins/scan") == 0) {
         cmd = {WebCommandKind::PluginScan, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/scan/cancel") == 0) {
+        cmd = {WebCommandKind::PluginScanCancel, 0};
+    } else if (std::strcmp(path, "/api/v1/plugins/enabled") == 0) {
+        cmd = {WebCommandKind::PluginSetEnabled, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/add") == 0) {
         cmd = {WebCommandKind::PluginSlotAdd, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/remove") == 0) {
@@ -1967,6 +1971,8 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::PluginSlotMove, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/bypass") == 0) {
         cmd = {WebCommandKind::PluginSlotBypass, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/editor") == 0) {
+        cmd = {WebCommandKind::PluginSlotOpenEditor, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/project/open-recent") == 0) {
         const std::string s(body, bodyLen);
         std::string pathRaw;

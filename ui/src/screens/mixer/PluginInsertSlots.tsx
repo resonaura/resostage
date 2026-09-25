@@ -1,3 +1,4 @@
+import { SlidersHorizontal, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   ContextMenu,
@@ -18,48 +19,17 @@ interface SlotMenu {
   index: number;
 }
 
+import { deduplicatePlugins, displayCategory } from "../../lib/pluginCategories";
+
 interface PluginGroup {
   name: string;
   plugins: PluginCatalogEntry[];
 }
 
-const CATEGORY_HINTS: ReadonlyArray<readonly [string, RegExp]> = [
-  ["Dynamics", /compress|limit|gate|expander|dynamic|transient|de.?ess/i],
-  ["EQ", /\beq\b|equaliz|filter|shelf|bandpass|hi.?pass|low.?pass/i],
-  ["Reverb", /reverb|room|plate|hall|space/i],
-  ["Delay", /delay|echo/i],
-  ["Modulation", /chorus|flang|phaser|tremolo|vibrato|rotary/i],
-  ["Pitch", /pitch|tune|vocal|formant|transpose/i],
-  ["Distortion", /distort|saturat|overdrive|clip|crusher|amp/i],
-  ["Imaging", /stereo|image|spatial|surround|panner/i],
-  ["Metering", /meter|analy[sz]|scope|loudness|spectrum/i],
-  ["Restoration", /repair|restore|de.?noise|de.?click|de.?hum|isolate/i],
-  ["Utility", /utility|gain|trim|tool|mixer|send|receive|generator/i],
-];
-
-/**
- * JUCE categories commonly arrive as `Fx|Dynamics`, `Effect/Delay`, or a
- * vendor-defined free-form string. Prefer its final meaningful segment. AU
- * vendors often publish only the generic `Effect`, so classify that bounded
- * fallback from the plug-in name instead of putting most of a Mac catalog in
- * one unusable "Other" submenu.
- */
-function displayCategory(plugin: PluginCatalogEntry): string {
-  const parts = plugin.category
-    .split(/[|/>\\]+/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part) => !/^(fx|effect|effects)$/i.test(part));
-  const explicit = parts.at(-1);
-  if (explicit) return explicit;
-  const searchable = `${plugin.name} ${plugin.category}`;
-  return CATEGORY_HINTS.find(([, pattern]) => pattern.test(searchable))?.[0]
-    ?? "Other";
-}
-
 function groupEffects(plugins: PluginCatalogEntry[]): PluginGroup[] {
   const groups = new Map<string, PluginCatalogEntry[]>();
-  for (const plugin of plugins) {
+  const deduplicated = deduplicatePlugins(plugins);
+  for (const plugin of deduplicated) {
     // An audio insert must accept audio. Keep generators/instruments in the
     // device catalog, but do not offer them in an effect-chain menu where the
     // processor contract cannot be satisfied.
@@ -151,8 +121,26 @@ export function PluginInsertSlots({
 
   return (
     <>
+      <div className="my-1 flex w-full flex-col">
+      <div className="mb-0.5 flex w-full items-center justify-between px-0.5">
+        <span className="font-mono text-[8px] uppercase tracking-wider text-foreground/40">
+          Inserts
+        </span>
+        <button
+          type="button"
+          onClick={onOpenChain}
+          title={`Manage insert chain for ${stripName}`}
+          aria-label={`Manage insert chain for ${stripName}`}
+          className="rounded p-0.5 text-foreground/40 hover:bg-default/20 hover:text-foreground transition-colors"
+        >
+          <SlidersHorizontal size={10} />
+        </button>
+      </div>
+
       <div
-        className="my-1 max-h-[5.25rem] w-full overflow-y-auto rounded-md border border-default/30 bg-background/60 p-0.5"
+        className={`max-h-[5.5rem] w-full rounded-md border border-default/30 bg-background/60 p-0.5 ${
+          slots.length > 4 ? "overflow-y-auto" : "overflow-hidden"
+        }`}
         aria-label={`Insert effects for ${stripName}`}
       >
         {Array.from({ length: rowCount }, (_, index) => {
@@ -163,7 +151,7 @@ export function PluginInsertSlots({
               type="button"
               title={
                 slot
-                  ? `${slot.name} · click to manage, right-click for options`
+                  ? `${slot.name} · click to open editor, right-click for options`
                   : `Empty insert ${index + 1} · add effect`
               }
               aria-label={
@@ -171,9 +159,13 @@ export function PluginInsertSlots({
                   ? `${slot.name}, insert ${index + 1}`
                   : `Empty insert ${index + 1}`
               }
-              onClick={(event) =>
-                slot ? onOpenChain() : openEmptySlot(event, index)
-              }
+              onClick={(event) => {
+                if (slot) {
+                  void pluginChains.openEditor(stripId, slot.id);
+                } else {
+                  openEmptySlot(event, index);
+                }
+              }}
               onContextMenu={(event) => openMenu(event, slot, index)}
               className={`group/slot relative mb-0.5 flex h-[1.15rem] w-full items-center rounded-[4px] border px-1 text-left text-[8px] leading-none transition-colors last:mb-0 ${
                 slot
@@ -186,7 +178,27 @@ export function PluginInsertSlots({
               <span className="min-w-0 flex-1 truncate">
                 {slot?.name ?? ""}
               </span>
-              {!slot && (
+              {slot ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  title={`Remove ${slot.name}`}
+                  aria-label={`Remove ${slot.name}`}
+                  className="ml-0.5 inline-flex h-3 w-3 shrink-0 items-center justify-center rounded text-foreground/40 opacity-0 transition-opacity hover:bg-danger/20 hover:text-danger group-hover/slot:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void pluginChains.remove(stripId, slot.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.stopPropagation();
+                      void pluginChains.remove(stripId, slot.id);
+                    }
+                  }}
+                >
+                  <X size={9} strokeWidth={2.5} />
+                </span>
+              ) : (
                 <span
                   aria-hidden
                   className="opacity-0 transition-opacity group-hover/slot:opacity-70"
@@ -198,6 +210,7 @@ export function PluginInsertSlots({
           );
         })}
       </div>
+    </div>
 
       {menu && (
         <ContextMenu
@@ -208,6 +221,15 @@ export function PluginInsertSlots({
         >
           {menu.slot ? (
             <>
+              <ContextMenuItem
+                onClick={() => {
+                  void pluginChains.openEditor(stripId, menu.slot!.id);
+                  setMenu(null);
+                }}
+              >
+                Open Editor Window
+              </ContextMenuItem>
+              <ContextMenuDivider />
               <ContextMenuItem
                 onClick={() => {
                   void pluginChains.setBypassed(

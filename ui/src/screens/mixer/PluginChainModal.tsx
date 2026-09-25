@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronUp,
+  ExternalLink,
   Plus,
   Power,
   Search,
@@ -15,6 +16,7 @@ import {
 } from "../../lib/api";
 import type { PluginSlotRow } from "../../lib/types";
 import { Alert, Button, Modal } from "../../components/ui";
+import { deduplicatePlugins, displayFormat } from "../../lib/pluginCategories";
 
 export function PluginChainModal({
   open,
@@ -60,29 +62,31 @@ export function PluginChainModal({
     [catalog],
   );
   const normalized = query.trim().toLocaleLowerCase();
-  const available = useMemo(
-    () =>
-      (catalog?.catalog.plugins ?? [])
-        .filter((plugin) => !plugin.instrument)
-        .filter((plugin) => {
-          if (!normalized) return true;
-          return [
-            plugin.name,
-            plugin.manufacturer,
-            plugin.category,
-            plugin.format,
-          ].some((field) => field.toLocaleLowerCase().includes(normalized));
-        })
-        .slice(0, 200),
-    [catalog, normalized],
-  );
+  const available = useMemo(() => {
+    const nonInstruments = (catalog?.catalog.plugins ?? []).filter(
+      (plugin) => !plugin.instrument,
+    );
+    const deduplicated = deduplicatePlugins(nonInstruments);
+    return deduplicated
+      .filter((plugin) => {
+        if (!normalized) return true;
+        return [
+          plugin.name,
+          plugin.manufacturer,
+          plugin.category,
+          displayFormat(plugin.format),
+          plugin.format,
+        ].some((field) => field.toLocaleLowerCase().includes(normalized));
+      })
+      .slice(0, 200);
+  }, [catalog, normalized]);
 
   if (!open) return null;
 
   return (
     <Modal isOpen={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <Modal.Backdrop>
-        <Modal.Container size="lg" placement="center" scroll="inside">
+        <Modal.Container size="3xl" placement="center" scroll="inside">
           <Modal.Dialog
             aria-label={`Insert effects for ${stripName}`}
             className="max-h-[86vh] rounded-xl border border-default/40 p-0 shadow-2xl"
@@ -137,17 +141,34 @@ export function PluginChainModal({
                           <span className="w-5 shrink-0 text-center font-mono text-[10px] text-foreground/35">
                             {index + 1}
                           </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-xs font-semibold">
+                          <div
+                            className="min-w-0 flex-1 cursor-pointer select-none"
+                            title={`Open ${slot.name} editor`}
+                            onClick={() =>
+                              void pluginChains.openEditor(stripId, slot.id)
+                            }
+                          >
+                            <div className="truncate text-xs font-semibold hover:text-accent transition-colors">
                               {slot.name || "Unknown plug-in"}
                             </div>
                             <div className="truncate text-[10px] text-foreground/40">
-                              {slot.manufacturer || "Unknown vendor"} · {slot.format}
+                              {slot.manufacturer || "Unknown vendor"} · {displayFormat(slot.format)}
                               {missing ? " · unavailable on this Core" : ""}
                               {slot.hasState ? " · state saved" : ""}
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
+                            <Button
+                              isIconOnly
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`Open ${slot.name} editor window`}
+                              onPress={() =>
+                                void pluginChains.openEditor(stripId, slot.id)
+                              }
+                            >
+                              <ExternalLink size={14} />
+                            </Button>
                             <Button
                               isIconOnly
                               size="sm"
@@ -256,7 +277,7 @@ export function PluginChainModal({
                             {plugin.name}
                           </div>
                           <div className="truncate text-[10px] text-foreground/40">
-                            {plugin.manufacturer || "Unknown vendor"} · {plugin.format}
+                            {plugin.manufacturer || "Unknown vendor"} · {displayFormat(plugin.format)}
                           </div>
                         </div>
                         <Button

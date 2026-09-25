@@ -184,6 +184,11 @@ private:
     void pluginSlotRemove(const std::string& json);
     void pluginSlotMove(const std::string& json);
     void pluginSlotBypass(const std::string& json);
+    void pluginSlotOpenEditor(const std::string& json);
+    void closePluginEditor(const std::string& slotId);
+    void closeAllPluginEditors();
+    // Vendor editors stay bounded and pin the processor bank they belong to.
+    std::vector<std::unique_ptr<juce::DocumentWindow>> pluginEditorWindows;
 
     // After structural edits from the web Builder: rebuild routing, stage a
     // song if needed. SPA re-renders from the next telemetry frame.

@@ -16,6 +16,8 @@ add_library(resostage_engine STATIC
   audio/PeakCache.cpp
   audio/PeakBuildThreadPool.cpp
   audio/ArtNetPacket.cpp
+  audio/AutomationEnvelope.cpp
+  audio/EnvelopeFollower.cpp
   project/ProjectLoader.cpp
   project/ProjectJson.cpp
   project/ProjectHistory.cpp

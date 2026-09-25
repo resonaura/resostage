@@ -140,6 +140,8 @@ public:
     void notifyPluginChainsChanged();
     /** Message-thread poll for realtime-safe host notifications from plug-ins. */
     void servicePluginHostChanges();
+    /** Pins and returns the currently published live processor bank. */
+    std::shared_ptr<PluginProcessorBank> activePluginProcessorBank() const;
 
 // The four public-API fragments and the private-members one below are class
 // body text, not headers. The guard is what lets an editor open one of them

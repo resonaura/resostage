@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 namespace resostage {
 
 class PlatformShellMode {
@@ -21,6 +23,16 @@ public:
 
     // Explicitly triggers macOS Local Network Privacy prompt on startup
     virtual void triggerLocalNetworkPermission() {}
+
+    // Native window key focus and plug-in subview event routing
+    virtual void makeWindowKeyAndActive(void* /*nativeHandle*/) {}
+    virtual void forwardFocusToPluginNativeView(void* /*nativeHandle*/) {}
+    virtual bool isNativeTextInputFocused(void* /*nativeHandle*/) { return false; }
+    virtual void setupPluginWindow(void* /*nativeHandle*/,
+                                   std::function<void()> /*onTogglePlay*/ = nullptr,
+                                   std::function<void()> /*onClose*/ = nullptr) {}
+    virtual void cleanupPluginWindow(void* /*nativeHandle*/) {}
+    virtual void hidePluginWindow(void* /*nativeHandle*/) {}
 
     // Singleton access for current host platform
     static PlatformShellMode& getInstance();

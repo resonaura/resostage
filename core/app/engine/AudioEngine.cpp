@@ -875,19 +875,40 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     transportTelemetry.driftFactor.store(clock.driftFactor(), std::memory_order_relaxed);
     transportTelemetry.running.store(playing.load(std::memory_order_relaxed), std::memory_order_relaxed);
 
-    if (!playing.load(std::memory_order_acquire)) {
-        // Declick tail: the first silent callback right after a Stop/Pause
+    if (flushPauseTailRequested.exchange(false, std::memory_order_acq_rel)) {
+        pauseTailRemainingSamples = 0;
+        pauseTailSilenceBlocks = 0;
+    }
+
+    const auto pluginPub =
+        std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
+    const bool bankHasPlugins = (pluginPub != nullptr && pluginPub->bank != nullptr && pluginPub->bank->hasPlugins());
+
+    const bool isPlaying = playing.load(std::memory_order_acquire);
+    if (isPlaying) {
+        wasPlayingLastCallback = true;
+        pauseTailRemainingSamples = 0;
+        pauseTailSilenceBlocks = 0;
+    } else if (wasPlayingLastCallback) {
+        wasPlayingLastCallback = false;
+        // Transport just paused: arm the pause tail so active reverb/delay
+        // buffers can decay naturally through the MixGraph rather than cutting
+        // off abruptly.
+        const double tailSec = bankHasPlugins
+            ? std::clamp(pluginPub->bank->tailSeconds(), 4.0, 15.0)
+            : 4.0;
+        pauseTailRemainingSamples = (currentSampleRate > 0.0)
+            ? static_cast<int64_t>(std::llround(tailSec * currentSampleRate))
+            : static_cast<int64_t>(48000 * 4);
+        pauseTailSilenceBlocks = 0;
+    }
+
+    const bool isRenderingTail = !isPlaying && (pauseTailRemainingSamples > 0 || bankHasPlugins);
+
+    if (!isPlaying && !isRenderingTail) {
+        // Declick tail: the first silent callback right after transport stops
         // ramps the last real output sample on each channel down to zero
         // instead of a hard cut -- see kStopDeclickSamples' doc comment.
-        if (wasPlayingLastCallback) {
-            stopDeclickRemaining = kStopDeclickSamples;
-            // Deliberately no resize here: ensureScratchSizes pre-allocates a
-            // slot per lane. A channel count past that declicks the first
-            // kMaxSupportedOutputChannels and hard-cuts the rest, which is a
-            // far better failure than allocating inside the callback.
-        }
-        wasPlayingLastCallback = false;
-
         if (stopDeclickRemaining > 0) {
             const int declickSamples = std::min(numSamples, stopDeclickRemaining);
             for (int ch = 0; ch < numOutputChannels; ++ch) {
@@ -967,7 +988,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         return;
     }
     metersSilencedSinceStop = false;
-    wasPlayingLastCallback = true;
 
     // Every `return` from here on leaves the output buffers as the zeroes they
     // were filled with at the top -- i.e. it emits a whole block of silence
@@ -1024,10 +1044,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         return;
     }
 
-    StreamingEngine::ActiveSongHandle activeSong = streaming.acquireActiveSong();
+    StreamingEngine::ActiveSongHandle activeSong;
+    if (isPlaying) {
+        activeSong = streaming.acquireActiveSong();
+    }
     const Project& proj = loader.project();
 
-    if (!activeSong && currentSong < proj.songs.size()) {
+    if (isPlaying && !activeSong && currentSong < proj.songs.size()) {
         bailSilently();
         return;
     }
@@ -1038,7 +1061,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         PluginTransportState pluginTransport;
         pluginTransport.sample = playheadSample;
         pluginTransport.sampleRate = currentSampleRate;
-        pluginTransport.playing = clockRunning;
+        pluginTransport.playing = isPlaying;
         pluginTransport.hostTimeNanos = hostTimeNanos;
         if (currentSong < proj.songs.size()) {
             const auto& transportSong = proj.songs[currentSong];
@@ -1062,7 +1085,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         pluginPublication->bank->publishTransport(pluginTransport);
     }
 
-    if (currentSong < proj.songs.size()) {
+    if (isPlaying && currentSong < proj.songs.size()) {
         const SongDef& song = proj.songs[currentSong];
 
         const double blockStartSeconds = static_cast<double>(playheadSample) / currentSampleRate;
@@ -1070,7 +1093,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         fireDueEvents(
             song, blockStartSeconds, blockEndSeconds, hostTimeNanos,
             currentOutputLatencySamples.load(std::memory_order_relaxed)
-                + pluginLatencyForBlock);
+                + pluginLatencyForBlock,
+            pluginPublication != nullptr ? pluginPublication->bank.get() : nullptr,
+            numSamples);
 
         // Cycle / skip-cycle (Logic-style locators, song-local). Applied on the
         // realtime path so loop authority is the engine -- not whichever SPA
@@ -1187,6 +1212,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (scratch.getNumChannels() < 1 || scratch.getNumSamples() < numSamples)
             continue;
         scratch.clear();
+        if (!isPlaying)
+            continue;
 
         const std::string& trackId = trackIdByIndex[t];
         // EVERY region sounding in this block, not just the first.
@@ -1668,19 +1695,19 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // its strip, so the meter still shows the beat you are about to unmute
     // while nothing reaches a bus.
     if (clickStripIndex != MixGraph::kNoStrip) {
-        // Render only what is already allocated -- see ensureScratchSizes.
-        // This used to resize() when a callback arrived bigger than the block
-        // size the engine had prepared for, which is precisely what happens
-        // on the first callback after the buffer size is raised: a malloc, on
-        // the audio thread, at the exact moment the device restarts.
-        const int clickSamples =
-            std::min(numSamples, static_cast<int>(clickScratch.size()));
-        clickGenerator.render(clickScratch.data(), clickSamples, playheadSample);
         float* dstL = mixRenderer.sourceChannel(clickStripIndex, 0);
         float* dstR = mixRenderer.sourceChannel(clickStripIndex, 1);
-        if (dstL != nullptr && dstR != nullptr) {
-            std::copy_n(clickScratch.data(), clickSamples, dstL);
-            std::copy_n(clickScratch.data(), clickSamples, dstR);
+        if (isPlaying) {
+            const int clickSamples =
+                std::min(numSamples, static_cast<int>(clickScratch.size()));
+            clickGenerator.render(clickScratch.data(), clickSamples, playheadSample);
+            if (dstL != nullptr && dstR != nullptr) {
+                std::copy_n(clickScratch.data(), clickSamples, dstL);
+                std::copy_n(clickScratch.data(), clickSamples, dstR);
+            }
+        } else if (dstL != nullptr && dstR != nullptr) {
+            std::fill_n(dstL, numSamples, 0.0f);
+            std::fill_n(dstR, numSamples, 0.0f);
         }
     }
 
@@ -1832,6 +1859,34 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // clobbering the other.
     mixRenderer.writeToOutputs(graph, outputChannelData, numOutputChannels, numSamples);
 
+    if (isRenderingTail) {
+        bool anyAudible = false;
+        for (uint32_t s = 0; s < graph.strips.size(); ++s) {
+            if (graph.strips[s].kind == StripKind::OutputLane) {
+                const auto& lvl = mixRenderer.levels(s);
+                if (lvl.peakL > 1e-4f || lvl.peakR > 1e-4f) {
+                    anyAudible = true;
+                    break;
+                }
+            }
+        }
+        if (anyAudible) {
+            pauseTailSilenceBlocks = 0;
+        } else {
+            ++pauseTailSilenceBlocks;
+            if (pauseTailSilenceBlocks > 200) {
+                pauseTailRemainingSamples = 0;
+            }
+        }
+        if (pauseTailRemainingSamples > 0)
+            pauseTailRemainingSamples -= numSamples;
+
+        if (pauseTailRemainingSamples <= 0 && !anyAudible && !bankHasPlugins) {
+            stopDeclickRemaining = kStopDeclickSamples;
+            metersSilencedSinceStop = false;
+        }
+    }
+
     // Spec micro-fade on the summed physical outputs:
     //   - linear fade-out on underrun / song-end (length = whatever armed it)
     //   - linear fade-in on recovery / new song start (PREFERRED over hold,
@@ -1877,7 +1932,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // transition. Requiring both (not just the ramp counter reaching 0) means
     // a song shorter than the fade window can't trigger the transition before
     // its own real audio has finished playing.
-    if (pendingSongEndAction != SongEndAction::None && underrunFadeOutRemaining == 0
+    if (isPlaying && pendingSongEndAction != SongEndAction::None && underrunFadeOutRemaining == 0
         && playheadSample >= currentSongLengthFrames) {
         if (pendingSongEndAction == SongEndAction::GaplessAdvance) {
             const size_t nextIdx = pendingSongEndTargetSong;

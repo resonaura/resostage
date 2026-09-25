@@ -52,7 +52,8 @@ void AudioEngine::schedulePluginBankRebuild() {
     request.graph = std::move(graph);
     request.archivePath = loader.archivePath();
     request.sampleRate = currentSampleRate;
-    request.maximumBlockSize = std::max(1, currentBlockSize);
+    request.maximumBlockSize =
+        std::max({currentBlockSize, 512, mixRenderer.maxBlockSize()});
 
     {
         std::lock_guard lock(pluginBankMutex);
@@ -74,6 +75,12 @@ void AudioEngine::servicePluginHostChanges() {
         && publication->bank->consumeLatencyChange()) {
         schedulePluginBankRebuild();
     }
+}
+
+std::shared_ptr<PluginProcessorBank> AudioEngine::activePluginProcessorBank() const {
+    const auto publication = std::atomic_load_explicit(
+        &activePluginBank, std::memory_order_acquire);
+    return publication != nullptr ? publication->bank : nullptr;
 }
 
 void AudioEngine::runPluginBankBuilder() {
@@ -119,6 +126,10 @@ void AudioEngine::runPluginBankBuilder() {
                 request.project, *request.graph, resources,
                 pluginRegistryFile(), request.sampleRate,
                 request.maximumBlockSize, /*nonRealtime=*/false);
+        }
+
+        for (const auto& warning : result.warnings) {
+            std::fprintf(stderr, "[PluginBank] %s\n", warning.c_str());
         }
 
         // A newer chain/device request arrived while vendor code was being

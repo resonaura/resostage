@@ -1,6 +1,9 @@
 #include "PluginCatalogService.h"
 #include "PluginPaths.h"
 
+#include <algorithm>
+#include <unordered_set>
+
 namespace resostage {
 namespace {
 
@@ -18,23 +21,35 @@ std::string loadBoundedJson(const juce::File& file, const char* fallback) {
     return text;
 }
 
-bool isInterruptedScan(const std::string& json) {
-    const auto root = juce::JSON::parse(juce::String::fromUTF8(json.c_str()));
-    const auto* object = root.getDynamicObject();
-    if (object == nullptr) return false;
-    const auto state = object->getProperty("state").toString();
-    if (state == "scanning") return true;
-    if (state != "failed") return false;
-    const auto error = object->getProperty("error").toString();
-    return error.containsIgnoreCase("interrupted")
-        || error.containsIgnoreCase("scanner crashed");
-}
-
 juce::String scanStateName(const std::string& json) {
     const auto root = juce::JSON::parse(juce::String::fromUTF8(json.c_str()));
     const auto* object = root.getDynamicObject();
     return object != nullptr ? object->getProperty("state").toString()
                              : juce::String{};
+}
+
+std::unordered_set<std::string> pluginIdsFromCatalog(const std::string& json) {
+    std::unordered_set<std::string> ids;
+    const auto root = juce::JSON::parse(juce::String::fromUTF8(json.c_str()));
+    const auto* object = root.getDynamicObject();
+    const auto* rows = object != nullptr
+        ? object->getProperty("plugins").getArray() : nullptr;
+    if (rows == nullptr) return ids;
+    ids.reserve(static_cast<size_t>(rows->size()));
+    for (const auto& row : *rows)
+        if (const auto* plugin = row.getDynamicObject()) {
+            const auto id = plugin->getProperty("id").toString().toStdString();
+            if (!id.empty()) ids.insert(id);
+        }
+    return ids;
+}
+
+void appendStringSet(juce::Array<juce::var>& destination,
+                     const std::unordered_set<std::string>& values) {
+    std::vector<std::string> sorted(values.begin(), values.end());
+    std::sort(sorted.begin(), sorted.end());
+    for (const auto& value : sorted)
+        destination.add(juce::String::fromUTF8(value.c_str()));
 }
 
 } // namespace
@@ -44,15 +59,21 @@ PluginCatalogService::PluginCatalogService()
       registryFile(pluginRegistryFile()),
       catalogFile(dataDirectory.getChildFile("catalog.json")),
       stateFile(dataDirectory.getChildFile("scan-state.json")),
+      preferencesFile(dataDirectory.getChildFile("catalog-preferences.json")),
       deadMansPedalFile(dataDirectory.getChildFile("scanner.pedal")),
       helperExecutable(findHelperExecutable()) {
     (void)dataDirectory.createDirectory();
     catalogJson = loadBoundedJson(catalogFile, "{\"plugins\":[],\"blacklist\":[]}");
+    loadPreferencesLocked();
     const auto previousState = loadBoundedJson(stateFile, "{}");
-    // A normal Core shutdown terminates the crash-isolated helper. Resume once
-    // on the next launch instead of leaving Settings permanently reporting a
-    // stale "interrupted" failure.
-    resumeScanOnStartup = isInterruptedScan(previousState);
+    // Discovery is always an explicit operator action. A stale in-progress
+    // marker from a crash/shutdown is informational only; the dead-man pedal
+    // remains available to the next manually requested scan.
+    if (scanStateName(previousState) == "scanning")
+        (void)stateFile.replaceWithText(
+            "{\"state\":\"cancelled\",\"progress\":0,\"format\":\"\","
+            "\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,"
+            "\"currentPlugin\":\"\",\"error\":\"Previous scan was interrupted; start a scan to continue\"}");
 }
 
 PluginCatalogService::~PluginCatalogService() {
@@ -93,16 +114,35 @@ bool PluginCatalogService::startScan(bool rescanAll) {
     std::lock_guard lock(mutex);
     if (scanRunning || shutdownRequested) return false;
     if (worker.joinable()) worker.join();
+    cancelRequested = false;
+    scanBaselinePluginIds = pluginIdsFromCatalog(catalogJson);
+    newPluginIds.clear();
+    savePreferencesLocked();
     scanRunning = true;
     scannerProcess = std::make_unique<juce::ChildProcess>();
     worker = std::thread([this, rescanAll] { runScan(rescanAll); });
     return true;
 }
 
-void PluginCatalogService::resumeInterruptedScanIfNeeded() {
-    if (!resumeScanOnStartup) return;
-    resumeScanOnStartup = false;
-    (void)startScan(false);
+bool PluginCatalogService::cancelScan() {
+    std::lock_guard lock(mutex);
+    if (!scanRunning || shutdownRequested) return false;
+    cancelRequested = true;
+    if (scannerProcess != nullptr && scannerProcess->isRunning())
+        scannerProcess->kill();
+    return true;
+}
+
+bool PluginCatalogService::setPluginEnabled(const std::string& identifier,
+                                            bool enabled) {
+    std::lock_guard lock(mutex);
+    if (!pluginIdsFromCatalog(catalogJson).contains(identifier)) return false;
+    if (enabled)
+        disabledPluginIds.erase(identifier);
+    else
+        disabledPluginIds.insert(identifier);
+    savePreferencesLocked();
+    return true;
 }
 
 void PluginCatalogService::runScan(bool rescanAll) {
@@ -122,13 +162,14 @@ void PluginCatalogService::runScan(bool rescanAll) {
         juce::ChildProcess* process = nullptr;
         {
             std::lock_guard lock(mutex);
-            if (shutdownRequested) break;
+            if (shutdownRequested || cancelRequested) break;
             process = scannerProcess.get();
         }
         if (process == nullptr || !helperExecutable.existsAsFile()
             || !process->start(args)) {
             (void)stateFile.replaceWithText(
                 "{\"state\":\"failed\",\"progress\":0,\"format\":\"\","
+                "\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,"
                 "\"currentPlugin\":\"\",\"error\":\"Plug-in scanner helper is unavailable\"}");
             break;
         }
@@ -148,7 +189,7 @@ void PluginCatalogService::runScan(bool rescanAll) {
                 auto checkpoint = loadBoundedJson(catalogFile, "");
                 if (!checkpoint.empty()) {
                     std::lock_guard lock(mutex);
-                    catalogJson = std::move(checkpoint);
+                    refreshCatalogLocked(std::move(checkpoint));
                 }
             }
             if (juce::Time::currentTimeMillis() - lastProgressAt
@@ -166,6 +207,14 @@ void PluginCatalogService::runScan(bool rescanAll) {
             // The destructor clears the pedal after this worker has stopped;
             // an intentional app shutdown must not blacklist a healthy item.
             if (shutdownRequested) break;
+            if (cancelRequested) {
+                (void)deadMansPedalFile.deleteFile();
+                (void)stateFile.replaceWithText(
+                    "{\"state\":\"cancelled\",\"progress\":0,\"format\":\"\","
+                    "\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,"
+                    "\"currentPlugin\":\"\",\"error\":\"\"}");
+                break;
+            }
         }
 
         const auto persistedState = loadBoundedJson(stateFile, "{}");
@@ -180,6 +229,7 @@ void PluginCatalogService::runScan(bool rescanAll) {
         if (++recoveries > kMaxAutomaticScannerRecoveries) {
             (void)stateFile.replaceWithText(
                 "{\"state\":\"failed\",\"progress\":0,\"format\":\"\","
+                "\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,"
                 "\"currentPlugin\":\"\",\"error\":\"Plug-in scan stopped after 32 automatic crash recoveries; quarantined items remain in the catalog\"}");
             break;
         }
@@ -196,24 +246,41 @@ void PluginCatalogService::runScan(bool rescanAll) {
 
     std::lock_guard lock(mutex);
     scanRunning = false;
-    catalogJson = loadBoundedJson(catalogFile, "{\"plugins\":[],\"blacklist\":[]}");
+    refreshCatalogLocked(loadBoundedJson(
+        catalogFile, "{\"plugins\":[],\"blacklist\":[]}"));
+    scanBaselinePluginIds.clear();
 }
 
 std::string PluginCatalogService::snapshotJson() const {
     bool running = false;
     std::string catalog;
+    std::unordered_set<std::string> disabled;
+    std::unordered_set<std::string> fresh;
     {
         std::lock_guard lock(mutex);
         running = scanRunning;
         catalog = catalogJson;
+        disabled = disabledPluginIds;
+        fresh = newPluginIds;
     }
     auto scan = loadBoundedJson(stateFile,
-        "{\"state\":\"idle\",\"progress\":0,\"format\":\"\",\"currentPlugin\":\"\",\"error\":\"\"}");
+        "{\"state\":\"idle\",\"progress\":0,\"format\":\"\",\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,\"currentPlugin\":\"\",\"error\":\"\"}");
     if (running && scan.find("\"state\":\"scanning\"") == std::string::npos)
-        scan = "{\"state\":\"scanning\",\"progress\":0,\"format\":\"\",\"currentPlugin\":\"\",\"error\":\"\"}";
+        scan = "{\"state\":\"scanning\",\"progress\":0,\"format\":\"\",\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,\"currentPlugin\":\"\",\"error\":\"\"}";
     if (!running && scan.find("\"state\":\"scanning\"") != std::string::npos)
-        scan = "{\"state\":\"failed\",\"progress\":0,\"format\":\"\",\"currentPlugin\":\"\",\"error\":\"The previous scan was interrupted; rescan to quarantine the last plug-in and continue\"}";
-    return "{\"scan\":" + scan + ",\"catalog\":" + catalog + "}";
+        scan = "{\"state\":\"cancelled\",\"progress\":0,\"format\":\"\",\"formatIndex\":0,\"formatCount\":0,\"formatProgress\":0,\"currentPlugin\":\"\",\"error\":\"Previous scan was interrupted; start a scan to continue\"}";
+
+    auto root = juce::JSON::parse(juce::String::fromUTF8(catalog.c_str()));
+    if (auto* object = root.getDynamicObject())
+        if (auto* rows = object->getProperty("plugins").getArray())
+            for (auto& row : *rows)
+                if (auto* plugin = row.getDynamicObject()) {
+                    const auto id = plugin->getProperty("id").toString().toStdString();
+                    plugin->setProperty("enabled", !disabled.contains(id));
+                    plugin->setProperty("isNew", fresh.contains(id));
+                }
+    return "{\"scan\":" + scan + ",\"catalog\":"
+        + juce::JSON::toString(root, true).toStdString() + "}";
 }
 
 std::optional<PluginReference> PluginCatalogService::findPlugin(
@@ -221,6 +288,7 @@ std::optional<PluginReference> PluginCatalogService::findPlugin(
     std::string catalog;
     {
         std::lock_guard lock(mutex);
+        if (disabledPluginIds.contains(identifier)) return std::nullopt;
         catalog = catalogJson;
     }
     const juce::var root = juce::JSON::parse(
@@ -251,6 +319,48 @@ std::optional<PluginReference> PluginCatalogService::findPlugin(
         return result;
     }
     return std::nullopt;
+}
+
+void PluginCatalogService::refreshCatalogLocked(std::string json) {
+    catalogJson = std::move(json);
+    if (scanRunning) {
+        for (const auto& id : pluginIdsFromCatalog(catalogJson))
+            if (!scanBaselinePluginIds.contains(id)) newPluginIds.insert(id);
+        savePreferencesLocked();
+    }
+}
+
+void PluginCatalogService::loadPreferencesLocked() {
+    const auto json = loadBoundedJson(preferencesFile, "{}");
+    const auto root = juce::JSON::parse(juce::String::fromUTF8(json.c_str()));
+    const auto* object = root.getDynamicObject();
+    if (object == nullptr) return;
+    const auto load = [object](const char* key,
+                               std::unordered_set<std::string>& destination) {
+        const auto* values = object->getProperty(key).getArray();
+        if (values == nullptr) return;
+        for (const auto& value : *values) {
+            const auto text = value.toString().toStdString();
+            if (!text.empty()) destination.insert(text);
+        }
+    };
+    load("disabled", disabledPluginIds);
+    load("new", newPluginIds);
+}
+
+void PluginCatalogService::savePreferencesLocked() const {
+    auto root = std::make_unique<juce::DynamicObject>();
+    juce::Array<juce::var> disabled;
+    juce::Array<juce::var> fresh;
+    appendStringSet(disabled, disabledPluginIds);
+    appendStringSet(fresh, newPluginIds);
+    root->setProperty("disabled", juce::var(disabled));
+    root->setProperty("new", juce::var(fresh));
+    const juce::var value(root.release());
+    juce::TemporaryFile temporary(preferencesFile);
+    if (temporary.getFile().replaceWithText(juce::JSON::toString(value, true),
+                                            false, false, "\n"))
+        (void)temporary.overwriteTargetFileWithTemporary();
 }
 
 } // namespace resostage

@@ -20,11 +20,16 @@ bool replaceAtomically(const juce::File& destination, const juce::String& text) 
 
 void writeScanState(const juce::File& file, const char* state, double progress,
                     const juce::String& format, const juce::String& current,
-                    const juce::String& error = {}) {
+                    const juce::String& error = {}, int formatIndex = 0,
+                    int formatCount = 0, double formatProgress = 0.0) {
     juce::String json;
     json << "{\"state\":" << jsonString(state)
          << ",\"progress\":" << juce::String(std::clamp(progress, 0.0, 1.0), 5)
          << ",\"format\":" << jsonString(format)
+         << ",\"formatIndex\":" << std::max(0, formatIndex)
+         << ",\"formatCount\":" << std::max(0, formatCount)
+         << ",\"formatProgress\":"
+         << juce::String(std::clamp(formatProgress, 0.0, 1.0), 5)
          << ",\"currentPlugin\":" << jsonString(current)
          << ",\"error\":" << jsonString(error) << "}";
     (void)replaceAtomically(file, json);
@@ -103,11 +108,14 @@ int main(int argc, char** argv) {
     juce::AudioPluginFormatManager formats;
     juce::addDefaultFormatsToManager(formats);
     const int formatCount = formats.getNumFormats();
-    writeScanState(state, "scanning", 0.0, {}, {});
+    writeScanState(state, "scanning", 0.0, {}, {}, {}, 0, formatCount, 0.0);
 
     for (int i = 0; i < formatCount; ++i) {
         auto* format = formats.getFormat(i);
         if (format == nullptr) continue;
+        writeScanState(state, "scanning",
+                       static_cast<double>(i) / std::max(1, formatCount),
+                       format->getName(), {}, {}, i + 1, formatCount, 0.0);
         juce::PluginDirectoryScanner scanner(known, *format,
                                              format->getDefaultLocationsToSearch(), true,
                                              pedal, false);
@@ -115,14 +123,16 @@ int main(int argc, char** argv) {
         while (scanner.scanNextFile(!rescanAll, current)) {
             const double progress = (static_cast<double>(i) + scanner.getProgress())
                                     / std::max(1, formatCount);
-            writeScanState(state, "scanning", progress, format->getName(), current);
+            writeScanState(state, "scanning", progress, format->getName(), current,
+                           {}, i + 1, formatCount, scanner.getProgress());
             // A third-party binary may terminate this process at any item.
             // Checkpoint each completed item so Core can launch a fresh helper,
             // quarantine the pedal entry, and continue instead of repeating
             // every successful plug-in from the beginning.
             if (!writeRegistry(registry, known) || !writeCatalog(catalog, known)) {
                 writeScanState(state, "failed", progress, format->getName(), current,
-                               "Could not checkpoint plug-in catalog");
+                               "Could not checkpoint plug-in catalog", i + 1,
+                               formatCount, scanner.getProgress());
                 return 3;
             }
         }
@@ -137,6 +147,7 @@ int main(int argc, char** argv) {
         writeScanState(state, "failed", 1.0, {}, {}, "Could not commit plug-in catalog");
         return 5;
     }
-    writeScanState(state, "complete", 1.0, {}, {});
+    writeScanState(state, "complete", 1.0, {}, {}, {}, formatCount,
+                   formatCount, 1.0);
     return 0;
 }

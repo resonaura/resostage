@@ -5,8 +5,11 @@ import {
   Palette,
   Plug,
   Radio,
+  Search,
   SlidersHorizontal,
+  Square,
   Workflow,
+  X,
   Zap,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -16,18 +19,29 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   KeyHint,
+  ScrollShadow,
   Select,
   Switch,
   Tabs,
   ToggleButton,
+  ToggleButtonGroup,
   type SelectOption,
 } from "../components/ui";
 import {
   pluginCatalog as pluginCatalogApi,
   settings as settingsApi,
   type PluginCatalogResponse,
+  type PluginCatalogEntry,
 } from "../lib/api";
+import {
+  displayCategory,
+  displayFormat,
+  GLOBAL_CATEGORIES,
+  SCOPE_FILTERS,
+  type ScopeFilterDef,
+} from "../lib/pluginCategories";
 import {
   readLongImportPreference,
   writeLongImportPreference,
@@ -947,9 +961,66 @@ function HealthTab({ state }: { state: WebUiState }) {
 // The catalog is intentionally fetched on demand instead of joining the 60 Hz
 // live-state payload. It can contain hundreds of rows and only changes after a
 // scan, so broadcasting it would waste CPU and network bandwidth.
+interface PluginFamily {
+  key: string;
+  name: string;
+  manufacturer: string;
+  category: string;
+  variants: PluginCatalogEntry[];
+}
+
+function pluginFamilyKey(plugin: PluginCatalogEntry): string {
+  const normalize = (value: string) =>
+    value
+      .toLocaleLowerCase()
+      .replace(/\b(?:audio\s*unit|vst3?|au)\b/gi, "")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim();
+  return `${normalize(plugin.manufacturer)}::${normalize(plugin.name)}`;
+}
+
+function groupPluginFamilies(plugins: PluginCatalogEntry[]): PluginFamily[] {
+  const grouped = new Map<string, PluginFamily>();
+  for (const plugin of plugins) {
+    const key = pluginFamilyKey(plugin);
+    const cat = displayCategory(plugin);
+    const family = grouped.get(key) ?? {
+      key,
+      name: plugin.name,
+      manufacturer: plugin.manufacturer,
+      category: cat,
+      variants: [],
+    };
+    if (
+      !family.category ||
+      family.category === "Other" ||
+      family.category === "Effect" ||
+      family.category === "Fx"
+    ) {
+      family.category = cat;
+    }
+    family.variants.push(plugin);
+    grouped.set(key, family);
+  }
+  return [...grouped.values()]
+    .map((family) => ({
+      ...family,
+      variants: family.variants.sort((a, b) => a.format.localeCompare(b.format)),
+    }))
+    .sort((a, b) =>
+      `${a.manufacturer}\0${a.name}`.localeCompare(
+        `${b.manufacturer}\0${b.name}`,
+        undefined,
+        { sensitivity: "base" },
+      ),
+    );
+}
+
 function PluginsTab() {
   const [catalog, setCatalog] = useState<PluginCatalogResponse | null>(null);
   const [query, setQuery] = useState("");
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilterDef["id"]>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [requestError, setRequestError] = useState("");
 
   useEffect(() => {
@@ -998,30 +1069,157 @@ function PluginsTab() {
     }
   };
 
+  const cancelScan = async () => {
+    try {
+      setRequestError("");
+      await pluginCatalogApi.cancelScan();
+      setCatalog(await pluginCatalogApi.list());
+    } catch (error) {
+      setRequestError(
+        error instanceof Error ? error.message : "Could not cancel scan",
+      );
+    }
+  };
+
+  const setPluginEnabled = async (
+    plugin: PluginCatalogEntry,
+    enabled: boolean,
+  ) => {
+    setCatalog((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            catalog: {
+              ...current.catalog,
+              plugins: current.catalog.plugins.map((candidate) =>
+                candidate.id === plugin.id
+                  ? { ...candidate, enabled }
+                  : candidate,
+              ),
+            },
+          },
+    );
+    try {
+      await pluginCatalogApi.setEnabled(plugin.id, enabled);
+    } catch (error) {
+      setRequestError(
+        error instanceof Error ? error.message : "Could not update plug-in",
+      );
+      setCatalog(await pluginCatalogApi.list());
+    }
+  };
+
   const plugins = catalog?.catalog.plugins;
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const families = useMemo(
+    () => groupPluginFamilies(plugins ?? []),
+    [plugins],
+  );
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const family of families) {
+      const variants = family.variants;
+      const matchesScope =
+        scopeFilter === "all" ||
+        (scopeFilter === "effects" &&
+          variants.some((plugin) => !plugin.instrument && plugin.inputs > 0)) ||
+        (scopeFilter === "instruments" &&
+          variants.some((plugin) => plugin.instrument)) ||
+        (scopeFilter === "multi-io" &&
+          variants.some(
+            (plugin) => plugin.inputs > 2 || plugin.outputs > 2,
+          )) ||
+        (scopeFilter === "new" &&
+          variants.some((plugin) => plugin.isNew));
+      if (!matchesScope) continue;
+      const catKey = family.category.toLowerCase();
+      counts.set(catKey, (counts.get(catKey) ?? 0) + 1);
+    }
+    return counts;
+  }, [families, scopeFilter]);
+
+  const availableCategories = useMemo(() => {
+    return GLOBAL_CATEGORIES.filter((cat) => {
+      if (cat.id === "all") return true;
+      const count = categoryCounts.get(cat.id) ?? 0;
+      return count > 0 || categoryFilter === cat.id;
+    });
+  }, [categoryCounts, categoryFilter]);
+
   const filtered = useMemo(
     () =>
-      (plugins ?? []).filter((plugin) => {
+      families.filter((family) => {
+        if (scopeFilter === "quarantined") return false;
+        const variants = family.variants;
+        const matchesScope =
+          scopeFilter === "all" ||
+          (scopeFilter === "effects" &&
+            variants.some((plugin) => !plugin.instrument && plugin.inputs > 0)) ||
+          (scopeFilter === "instruments" &&
+            variants.some((plugin) => plugin.instrument)) ||
+          (scopeFilter === "multi-io" &&
+            variants.some(
+              (plugin) => plugin.inputs > 2 || plugin.outputs > 2,
+            )) ||
+          (scopeFilter === "new" &&
+            variants.some((plugin) => plugin.isNew));
+        if (!matchesScope) return false;
+
+        const matchesCategory =
+          categoryFilter === "all" ||
+          family.category.toLowerCase() === categoryFilter.toLowerCase();
+        if (!matchesCategory) return false;
+
         if (!normalizedQuery) return true;
-        return [
-          plugin.name,
-          plugin.manufacturer,
-          plugin.category,
-          plugin.format,
-        ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
+        return variants.some((plugin) =>
+          [
+            plugin.name,
+            plugin.manufacturer,
+            family.category,
+            plugin.category,
+            plugin.format,
+          ].some((value) =>
+            value.toLocaleLowerCase().includes(normalizedQuery),
+          ),
+        );
       }),
-    [plugins, normalizedQuery],
+    [families, scopeFilter, categoryFilter, normalizedQuery],
   );
+
+  const quarantined = useMemo(
+    () =>
+      (catalog?.catalog.blacklist ?? []).filter(
+        (item) =>
+          scopeFilter === "quarantined" &&
+          (!normalizedQuery || item.toLocaleLowerCase().includes(normalizedQuery)),
+      ),
+    [catalog?.catalog.blacklist, scopeFilter, normalizedQuery],
+  );
+
   const visible = filtered.slice(0, 250);
   const scanning = catalog?.scan.state === "scanning";
+  const resultCount =
+    scopeFilter === "quarantined" ? quarantined.length : filtered.length;
+  const newCount = (plugins ?? []).filter((plugin) => plugin.isNew).length;
+  const quarantinedCount = catalog?.catalog.blacklist.length ?? 0;
 
   return (
-    <div className="flex flex-col gap-4">
-      <Section
-        title="Audio Plug-ins"
-        description="VST3 and Audio Units are scanned in a separate helper process, so a broken plug-in cannot crash playback. VST2 is intentionally not shipped."
-      >
+    <Card className="flex h-full min-h-0 flex-col overflow-hidden">
+      <Card.Header className="shrink-0 gap-3.5 border-b border-default/20 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <Card.Title>Audio Plug-ins</Card.Title>
+            <p className="truncate text-[11px] text-foreground/45">
+              Isolated VST3/AU discovery · disabled items stay out of insert menus
+            </p>
+          </div>
+          <span className="shrink-0 text-[11px] tabular-nums text-foreground/50">
+            {plugins?.length ?? 0} plug-ins · {families.length} families ·{" "}
+            {catalog?.catalog.blacklist.length ?? 0} quarantined
+          </span>
+        </div>
+
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
@@ -1040,13 +1238,49 @@ function PluginsTab() {
           >
             Rescan all
           </Button>
-          <span className="text-xs text-foreground/50">
-            {plugins?.length ?? 0} available · {catalog?.catalog.blacklist.length ?? 0} quarantined
-          </span>
+          {scanning && (
+            <Button size="sm" variant="danger-soft" onPress={() => void cancelScan()}>
+              <Square size={12} fill="currentColor" />
+              Cancel
+            </Button>
+          )}
+          <label className="relative ml-auto min-w-[14rem] flex-1 sm:max-w-sm">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35"
+            />
+            <input
+              aria-label="Search plug-ins"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Name, vendor, category, format…"
+              className="h-8 w-full rounded-lg border border-default/35 bg-default/15 pl-9 pr-8 text-xs outline-none transition-colors focus:border-accent"
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label="Clear plug-in search"
+                onClick={() => setQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-foreground/40 hover:text-foreground"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </label>
         </div>
 
         {scanning && (
-          <div className="flex flex-col gap-1.5" aria-live="polite">
+          <div className="grid gap-1" aria-live="polite">
+            <div className="flex items-center justify-between gap-3 text-[11px] text-foreground/55">
+              <span className="truncate">
+                Stage {catalog.scan.formatIndex || 1} of{" "}
+                {catalog.scan.formatCount || "…"} ·{" "}
+                {catalog.scan.format || "Preparing scanner"}
+              </span>
+              <span className="shrink-0 tabular-nums">
+                {Math.round((catalog.scan.progress ?? 0) * 100)}%
+              </span>
+            </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-default/30">
               <div
                 className="h-full rounded-full bg-accent transition-[width] duration-200"
@@ -1056,10 +1290,7 @@ function PluginsTab() {
               />
             </div>
             <div className="truncate text-xs text-foreground/50">
-              {catalog.scan.format || "Preparing"}
-              {catalog.scan.currentPlugin
-                ? ` · ${catalog.scan.currentPlugin}`
-                : ""}
+              {catalog.scan.currentPlugin || "Finding installed plug-ins…"}
             </div>
           </div>
         )}
@@ -1073,57 +1304,197 @@ function PluginsTab() {
             </Alert.Content>
           </Alert>
         )}
-      </Section>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="w-16 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-foreground/45">
+            Type
+          </span>
+          <ToggleButtonGroup
+            size="xs"
+            isDetached
+            selectionMode="single"
+            disallowEmptySelection
+            selectedKeys={new Set([scopeFilter])}
+            onSelectionChange={(keys) => {
+              const next = Array.from(keys)[0];
+              if (next) setScopeFilter(String(next) as ScopeFilterDef["id"]);
+            }}
+            aria-label="Filter by plug-in type"
+            className="flex flex-wrap gap-1.5"
+          >
+            {SCOPE_FILTERS.map(({ id, label, icon: Icon, tone }) => {
+              const count =
+                id === "new"
+                  ? newCount
+                  : id === "quarantined"
+                    ? quarantinedCount
+                    : undefined;
+              return (
+                <ToggleButton
+                  key={id}
+                  id={id}
+                  tone={tone}
+                  onPress={() => setScopeFilter(id)}
+                  className="gap-1.5 px-3 py-1 text-xs"
+                >
+                  <Icon size={12} className="shrink-0" />
+                  <span>{label}</span>
+                  {count != null && count > 0 && (
+                    <span className="ml-1 rounded-full bg-default/30 px-1 text-[9px] font-mono tabular-nums">
+                      {count}
+                    </span>
+                  )}
+                </ToggleButton>
+              );
+            })}
+          </ToggleButtonGroup>
+        </div>
 
-      <Section title="Catalog">
-        <input
-          aria-label="Search plug-ins"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search name, vendor, category, or format…"
-          className="h-9 rounded-lg border border-default/40 bg-default/20 px-3 text-sm outline-none transition-colors focus:border-accent"
-        />
-        <div className="max-h-[420px] overflow-auto rounded-lg border border-default/25">
-          {visible.length === 0 ? (
+        {scopeFilter !== "quarantined" && (
+          <div className="flex flex-wrap items-center gap-3 pt-0.5">
+            <span className="w-16 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-foreground/45">
+              Category
+            </span>
+            <ToggleButtonGroup
+              size="xs"
+              isDetached
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={new Set([categoryFilter])}
+              onSelectionChange={(keys) => {
+                const next = Array.from(keys)[0];
+                if (next) setCategoryFilter(String(next));
+              }}
+              aria-label="Filter by plug-in category"
+              className="flex flex-wrap gap-1.5"
+            >
+              {availableCategories.map(({ id, label }) => {
+                const count =
+                  id === "all"
+                    ? undefined
+                    : categoryCounts.get(id);
+                return (
+                  <ToggleButton
+                    key={id}
+                    id={id}
+                    tone="accent-soft"
+                    onPress={() => setCategoryFilter(id)}
+                    className="px-3 py-1 text-xs"
+                  >
+                    <span>{label}</span>
+                    {count != null && (
+                      <span className="ml-1 text-[10px] font-mono opacity-50 tabular-nums">
+                        {count}
+                      </span>
+                    )}
+                  </ToggleButton>
+                );
+              })}
+            </ToggleButtonGroup>
+          </div>
+        )}
+      </Card.Header>
+
+      <Card.Content className="min-h-0 flex-1 p-0">
+        <ScrollShadow className="h-full overflow-y-auto" orientation="vertical">
+          {resultCount === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-foreground/45">
               {catalog === null
                 ? "Loading catalog…"
                 : (plugins?.length ?? 0) === 0
                   ? "Run a scan to discover installed plug-ins."
-                  : "No plug-ins match this search."}
+                  : "No plug-ins match this view."}
             </div>
-          ) : (
-            visible.map((plugin) => (
+          ) : scopeFilter === "quarantined" ? (
+            quarantined.map((item) => (
               <div
-                key={plugin.id}
-                className="flex items-center justify-between gap-4 border-b border-default/20 px-3 py-2 last:border-b-0"
+                key={item}
+                className="border-b border-danger/20 bg-danger/8 px-4 py-2.5 last:border-b-0"
               >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{plugin.name}</div>
-                  <div className="truncate text-xs text-foreground/45">
-                    {plugin.manufacturer || "Unknown vendor"}
-                    {plugin.category ? ` · ${plugin.category}` : ""}
-                  </div>
+                <div className="truncate text-xs font-semibold text-danger">
+                  Scan failed · quarantined
                 </div>
-                <div className="shrink-0 text-right text-[11px] text-foreground/45">
-                  <div>{plugin.format}</div>
-                  <div>
-                    {plugin.instrument
-                      ? "Instrument"
-                      : `${plugin.inputs} in / ${plugin.outputs} out`}
-                  </div>
+                <div className="truncate font-mono text-[10px] text-foreground/50">
+                  {item}
                 </div>
               </div>
             ))
+          ) : (
+            visible.map((family) => {
+              const isNew = family.variants.some((plugin) => plugin.isNew);
+              return (
+              <div
+                key={family.key}
+                className={`grid gap-2 border-b px-4 py-2.5 last:border-b-0 lg:grid-cols-[minmax(12rem,1fr)_minmax(20rem,1.35fr)] ${
+                  isNew
+                    ? "border-warning/25 bg-warning/8"
+                    : "border-default/20"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-semibold">{family.name}</span>
+                    {isNew && (
+                      <span className="shrink-0 text-[10px] font-bold uppercase text-warning">
+                        New
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate text-[11px] text-foreground/45">
+                    {family.manufacturer || "Unknown vendor"}
+                    {family.category ? ` · ${family.category}` : ""}
+                  </div>
+                </div>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+                  {family.variants.map((plugin) => (
+                    <Checkbox
+                      key={plugin.id}
+                      isSelected={plugin.enabled !== false}
+                      onChange={(enabled) =>
+                        void setPluginEnabled(plugin, enabled)
+                      }
+                      aria-label={`${plugin.enabled === false ? "Enable" : "Disable"} ${plugin.name} ${displayFormat(plugin.format)}`}
+                    >
+                      <Checkbox.Content className="gap-1.5">
+                        <Checkbox.Control>
+                          <Checkbox.Indicator />
+                        </Checkbox.Control>
+                        <span className="rounded-md bg-default/20 px-1.5 py-0.5 text-[10px] font-semibold">
+                          {displayFormat(plugin.format)}
+                        </span>
+                        <span className="whitespace-nowrap font-mono text-[10px] text-foreground/45">
+                          {plugin.instrument ? "instrument" : `${plugin.inputs}→${plugin.outputs}`}
+                        </span>
+                      </Checkbox.Content>
+                    </Checkbox>
+                  ))}
+                  {family.variants.some(
+                    (plugin) => plugin.inputs > 2 || plugin.outputs > 2,
+                  ) && (
+                    <span className="rounded-md bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+                      Multi-I/O · main stereo pair hosted
+                    </span>
+                  )}
+                  {family.variants.some((plugin) => plugin.instrument) && (
+                    <span className="rounded-md bg-secondary/15 px-1.5 py-0.5 text-[10px] font-semibold text-secondary">
+                      Instrument
+                    </span>
+                  )}
+                </div>
+              </div>
+              );
+            })
           )}
-        </div>
-        {filtered.length > visible.length && (
-          <div className="text-xs text-foreground/45">
-            Showing the first {visible.length} of {filtered.length}; narrow the search to avoid rendering an unbounded list.
-          </div>
+        </ScrollShadow>
+      </Card.Content>
+      <Card.Footer className="shrink-0 justify-between border-t border-default/20 px-4 py-2 text-[11px] text-foreground/45">
+        <span>{resultCount} matching</span>
+        {filtered.length > visible.length && scopeFilter !== "quarantined" && (
+          <span>
+            Showing {visible.length}; narrow the search for bounded rendering
+          </span>
         )}
-      </Section>
-    </div>
+      </Card.Footer>
+    </Card>
   );
 }
 

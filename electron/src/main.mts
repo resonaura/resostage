@@ -1932,8 +1932,13 @@ ipcMain.handle(
     const win = BrowserWindow.fromWebContents(event.sender);
     const items = payload?.items ?? [];
     return await new Promise((resolve) => {
+      let dismissTimer: NodeJS.Timeout | null = null;
       let settled = false;
       const done = (id: string | null) => {
+        if (dismissTimer) {
+          clearTimeout(dismissTimer);
+          dismissTimer = null;
+        }
         if (settled) return;
         settled = true;
         resolve(id);
@@ -1968,7 +1973,11 @@ ipcMain.handle(
         window: win ?? undefined,
         x: typeof payload.x === "number" ? Math.round(payload.x) : undefined,
         y: typeof payload.y === "number" ? Math.round(payload.y) : undefined,
-        callback: () => done(null),
+        callback: () => {
+          // macOS menuDidClose: can fire before NSMenuItem click action dispatch.
+          // Defer resolving null so any clicked item handler gets executed first.
+          dismissTimer = setTimeout(() => done(null), 250);
+        },
       });
     });
   },

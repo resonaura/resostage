@@ -99,6 +99,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
                 transportTelemetry.playheadSamples.store(0, std::memory_order_relaxed);
                 transportTelemetry.playheadSeconds.store(0.0, std::memory_order_relaxed);
                 transportTelemetry.running.store(false, std::memory_order_relaxed);
+                flushPauseTailRequested.store(true, std::memory_order_release);
             }
             resetMetersSilent();
             streamHandoff.store(false, std::memory_order_release);
@@ -718,16 +719,15 @@ void AudioEngine::stop() {
     transportTelemetry.playheadSamples.store(clock.currentSamplePosition(), std::memory_order_relaxed);
     transportTelemetry.playheadSeconds.store(clock.currentSeconds(), std::memory_order_relaxed);
     transportTelemetry.running.store(false, std::memory_order_relaxed);
-    // Stopped means the render callback stops producing blocks, so the peak
-    // sources the meters read would otherwise keep reporting the last block
-    // that played -- needles parked at whatever was going on when Stop was
-    // pressed. This is the one place that knows silence is now the truth.
-    resetMetersSilent();
-    // Flush autosave that was deferred during play (SSD stays free mid-show).
+    // Pause tail: we intentionally do NOT call resetMetersSilent() here.
+    // The audio callback renders the decaying tail of active reverbs/delays,
+    // publishing live decaying meters until the tail decays to silence.
     flushDeferredAutosave();
 }
 
 void AudioEngine::stopToStart() {
+    flushPauseTailRequested.store(true, std::memory_order_release);
+    resetMetersSilent();
     if (!projectLoaded || currentSong == static_cast<size_t>(-1)) {
         stop();
         return;
@@ -824,6 +824,7 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
         clock.start(currentSampleRate, sample);
         transportTelemetry.playheadSamples.store(sample, std::memory_order_relaxed);
         transportTelemetry.playheadSeconds.store(seconds, std::memory_order_relaxed);
+        flushPauseTailRequested.store(true, std::memory_order_release);
         resetMetersSilent();
 
         if (wasPlaying || sameSong) {
@@ -923,7 +924,9 @@ void AudioEngine::fireOnLoadEvents(const SongDef& song) {
 void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds,
                                 double blockEndSeconds,
                                 uint64_t hostTimeNanosAtBlockStart,
-                                int64_t effectiveOutputLatencySamples) {
+                                int64_t effectiveOutputLatencySamples,
+                                PluginProcessorBank* pluginBank,
+                                int numSamples) {
     // How long the audio for this block will sit in the device before anyone
     // hears it. Every event below is scheduled for that moment rather than for
     // now, so a MIDI note or a light cue lands WITH its downbeat instead of
@@ -950,6 +953,38 @@ void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds,
             heardHostNanos(hostTimeNanosAtBlockStart, offsetSeconds, outputLatencySec);
 
         dispatchEvent(ev, targetHostTimeNanos);
+
+        // If an active plug-in bank is present, route block MIDI events to instrument strips
+        if (pluginBank != nullptr && numSamples > 0) {
+            juce::MidiMessage msg;
+            if (ev.type == EventType::MidiNoteOn) {
+                msg = juce::MidiMessage::noteOn(
+                    std::clamp(ev.midiChannel, 1, 16),
+                    std::clamp(ev.midiNote, 0, 127),
+                    static_cast<uint8_t>(std::clamp(ev.midiVelocity, 0, 127)));
+            } else if (ev.type == EventType::MidiNoteOff) {
+                msg = juce::MidiMessage::noteOff(
+                    std::clamp(ev.midiChannel, 1, 16),
+                    std::clamp(ev.midiNote, 0, 127),
+                    static_cast<uint8_t>(std::clamp(ev.midiVelocity, 0, 127)));
+            } else if (ev.type == EventType::MidiCC) {
+                msg = juce::MidiMessage::controllerEvent(
+                    std::clamp(ev.midiChannel, 1, 16),
+                    std::clamp(ev.midiCC, 0, 127),
+                    std::clamp(ev.midiCCValue, 0, 127));
+            }
+            if (msg.getRawDataSize() > 0) {
+                const int sampleOffset = std::clamp(
+                    static_cast<int>(offsetSeconds * currentSampleRate), 0, numSamples - 1);
+                const auto& projectTracks = project().tracks;
+                for (size_t s = 0; s < projectTracks.size(); ++s) {
+                    if (pluginBank->stripHasInstrument(s)) {
+                        pluginBank->addStripMidiEvent(s, msg, sampleOffset);
+                    }
+                }
+            }
+        }
+
         eventFiredFlags[i] = 1;
     }
 }

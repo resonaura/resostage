@@ -7,6 +7,7 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <unordered_set>
 
 namespace resostage {
 
@@ -25,8 +26,10 @@ public:
 
     /** Starts one helper scan. Returns false when a scan is already active. */
     bool startScan(bool rescanAll);
-    /** Continues a scan that was cut short by the previous Core shutdown. */
-    void resumeInterruptedScanIfNeeded();
+    /** Cooperatively cancels the active helper scan. */
+    bool cancelScan();
+    /** Enables or hides one device-local catalog entry. */
+    bool setPluginEnabled(const std::string& identifier, bool enabled);
 
     /** Returns a bounded JSON snapshot containing scan state and catalog. */
     std::string snapshotJson() const;
@@ -41,6 +44,7 @@ private:
     juce::File registryFile;
     juce::File catalogFile;
     juce::File stateFile;
+    juce::File preferencesFile;
     juce::File deadMansPedalFile;
     juce::File helperExecutable;
 
@@ -49,10 +53,16 @@ private:
     std::unique_ptr<juce::ChildProcess> scannerProcess;
     bool scanRunning = false;
     bool shutdownRequested = false;
-    bool resumeScanOnStartup = false;
+    bool cancelRequested = false;
     std::string catalogJson = "{\"plugins\":[],\"blacklist\":[]}";
+    std::unordered_set<std::string> disabledPluginIds;
+    std::unordered_set<std::string> newPluginIds;
+    std::unordered_set<std::string> scanBaselinePluginIds;
 
     void runScan(bool rescanAll);
+    void refreshCatalogLocked(std::string json);
+    void loadPreferencesLocked();
+    void savePreferencesLocked() const;
     static juce::File findHelperExecutable();
 };
 

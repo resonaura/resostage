@@ -194,6 +194,7 @@ export function ContextMenu({
   useEffect(() => {
     if (!useNative) return;
     const items = nativeItemsRef.current;
+    const handlers = handlersRef.current;
     if (items.length === 0) {
       // Defensive: empty native menu is a no-op that would look like a dead click.
       onCloseRef.current();
@@ -211,7 +212,7 @@ export function ContextMenu({
             (it) => it.type === "item" && it.id === id && "checked" in it,
           );
           if (chosen) {
-            handlersRef.current.get(id)?.();
+            handlers.get(id)?.();
             setReopenNonce((n) => n + 1);
             return;
           }
@@ -221,7 +222,7 @@ export function ContextMenu({
           // back, so the field never appeared and the click read as dead.
           // The DOM path has always left this to the handler -- each one
           // calls its own onClose -- and the two paths have to agree.
-          handlersRef.current.get(id)?.();
+          handlers.get(id)?.();
           return;
         }
         onCloseRef.current();

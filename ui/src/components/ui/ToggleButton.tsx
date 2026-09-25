@@ -97,6 +97,7 @@ const DEFAULT_TONE: Tone = "accent-soft";
  * way ButtonGroup does), so this follows the same reach deliberately.
  */
 const ToggleGroupToneContext = createContext<Tone | undefined>(undefined);
+const ToggleGroupSizeContext = createContext<ToggleButtonSize | undefined>(undefined);
 
 function splitVariant(variant: ToggleButtonVariant | undefined): {
   heroVariant: HeroVariant | undefined;
@@ -121,17 +122,19 @@ export function ToggleButton({
   ...rest
 }: ToggleButtonProps) {
   const groupTone = use(ToggleGroupToneContext);
+  const groupSize = use(ToggleGroupSizeContext);
   const split = splitVariant(variant);
   // Widest to narrowest, with the house default last so anything stated
   // anywhere -- on the button, in its variant, or on its group -- wins.
   const activeTone = tone ?? split.tone ?? groupTone ?? DEFAULT_TONE;
-  const isXs = size === "xs";
+  const effectiveSize = size ?? groupSize;
+  const isXs = effectiveSize === "xs";
 
   return (
     <HeroToggleButton
       // `xs` is ours; HeroUI's `sm` is the closest structural base, and the
       // class below takes it the rest of the way down.
-      size={isXs ? "sm" : size}
+      size={isXs ? "sm" : effectiveSize}
       // Only forwarded when the caller actually named an unselected look; a
       // bare tone leaves HeroUI on its own `default` so the off state is
       // unchanged.
@@ -157,12 +160,16 @@ function joinClass(
 
 type HeroToggleGroupProps = ComponentProps<typeof HeroToggleButtonGroup>;
 
-export interface ToggleButtonGroupProps extends HeroToggleGroupProps {
+export interface ToggleButtonGroupProps
+  extends Omit<HeroToggleGroupProps, "size"> {
+  /** HeroUI's three sizes plus `xs` for DAW chrome; see ToggleButtonSize. */
+  size?: ToggleButtonSize;
   /** Selected colour for every toggle in the group. Overridden per button. */
   tone?: Tone;
 }
 
 function ToggleButtonGroupRoot({
+  size,
   tone,
   children,
   orientation,
@@ -185,17 +192,20 @@ function ToggleButtonGroupRoot({
     : baseClasses;
 
   return (
-    <ToggleGroupToneContext value={tone}>
-      <HeroToggleButtonGroup
-        orientation={orientation}
-        isDetached={isDetached}
-        fullWidth={fullWidth}
-        className={computedClassName}
-        {...rest}
-      >
-        {children}
-      </HeroToggleButtonGroup>
-    </ToggleGroupToneContext>
+    <ToggleGroupSizeContext value={size}>
+      <ToggleGroupToneContext value={tone}>
+        <HeroToggleButtonGroup
+          size={size === "xs" ? "sm" : size}
+          orientation={orientation}
+          isDetached={isDetached}
+          fullWidth={fullWidth}
+          className={computedClassName}
+          {...rest}
+        >
+          {children}
+        </HeroToggleButtonGroup>
+      </ToggleGroupToneContext>
+    </ToggleGroupSizeContext>
   );
 }
 

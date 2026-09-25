@@ -38,6 +38,10 @@ add_executable(resostage_engine_tests
   test_asio_diag.cpp
   test_udp_discovery.cpp
   test_offline_renderer.cpp
+  test_automation_envelope.cpp
+  test_envelope_follower.cpp
+  test_plugin_hardening.cpp
+  test_plugin_performance.cpp
   ../app/network/UdpDiscovery.cpp
   ../app/engine/OfflineRenderer.cpp
 )

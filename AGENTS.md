@@ -222,6 +222,16 @@ Preserve these rules:
   `MixProcessorView` hook. The renderer remains JUCE-free; application-owned
   live/offline processor banks publish one pre-bound function/context entry
   per graph strip. Pre-fader sends include inserts but bypass fader/mute.
+  Generator instruments are supported at track slot 0: during the audio
+  callback, timeline MIDI events within the block are stamped with sample
+  offsets and deposited into the strip's preallocated MIDI buffer before
+  processing; the chain clears its MIDI buffer immediately after execution
+  without heap allocation.
+- Dynamic curves and parameter automation use `AutomationEnvelope` with
+  shape-preserving curvature matching `RegionFade` (`pow(t, 2^(-curve*2))`),
+  supporting real-time bounded block evaluation without heap allocation. Real-time
+  signal tracking utilizes `EnvelopeFollower` with peak/RMS detection and anti-denormal
+  flush.
 - Plug-in delay compensation is derived from the same topologically ordered
   graph. A topology-specific delay bank publishes pre-bound per-edge entries
   so every summing strip aligns to its slowest input without lookup or
@@ -454,23 +464,29 @@ live graph behaviour remain equivalent.
 
 ### Plug-in discovery boundary
 
-Plug-in discovery is available through `GET /api/v1/plugins/list` and
-`POST /api/v1/plugins/scan`. `PluginCatalogService` never loads a third-party
-binary in Core: it launches the packaged `resostage-plugin-scanner` executable,
-which uses JUCE's VST3/AU format scanners and writes `known-plugins.xml`, a
-bounded JSON catalog, scan status, and dead-man's-pedal under the device-local
-ResoStage application-data directory. Registry and catalog replacements are
-atomic and checkpointed after each successfully inspected item; Core exposes
-those safe partial checkpoints while a scan is still running. A scan is
-single-flight and runs at background priority inherited from Core. If a vendor
-binary crashes, or makes no progress for 60 seconds, Core launches a fresh
-helper, applies the dead-man pedal to quarantine that candidate, and continues
-from the checkpoint. Recovery is bounded to 32 helper failures per requested
-scan. Core shutdown terminates the child without turning that expected stop
-into a scan failure, clears the active pedal so an intentional stop does not
-quarantine a healthy item, and resumes after the audio device and web server
-are ready on next startup. Do not run discovery or recovery on the audio path
-or make it delay device startup.
+Plug-in discovery is available through `GET /api/v1/plugins/list`,
+`POST /api/v1/plugins/scan`, and cooperative cancel via
+`POST /api/v1/plugins/scan/cancel`. Individual plug-in enable/disable states
+are managed via `POST /api/v1/plugins/enabled` and persisted in
+`scanner-prefs.json`. Plug-in discovery runs exclusively on explicit user
+request from the Settings screen, never on application startup, so background
+scanning never competes with audio device startup or project load. Native
+plug-in editor windows are managed on the message thread via
+`POST /api/v1/plugins/slot/editor`. `PluginCatalogService` never loads a
+third-party binary in Core: it launches the packaged `resostage-plugin-scanner`
+executable, which uses JUCE's VST3/AU format scanners and writes
+`known-plugins.xml`, a bounded JSON catalog, scan status, and dead-man's-pedal
+under the device-local ResoStage application-data directory. Registry and
+catalog replacements are atomic and checkpointed after each successfully
+inspected item; Core exposes those safe partial checkpoints while a scan is
+still running. A scan is single-flight and runs at background priority inherited
+from Core. If a vendor binary crashes, or makes no progress for 60 seconds,
+Core launches a fresh helper, applies the dead-man pedal to quarantine that
+candidate, and continues from the checkpoint. Recovery is bounded to 32 helper
+failures per requested scan. Core shutdown terminates the child without
+turning that expected stop into a scan failure, and clears the active pedal so
+an intentional stop does not quarantine a healthy item. Do not run discovery
+or recovery on the audio path or make it delay device startup.
 
 The catalog is structural state, not telemetry. React fetches it only on the
 Plug-ins settings screen and polls while a scan is active; it must never be

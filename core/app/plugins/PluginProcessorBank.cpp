@@ -95,11 +95,14 @@ PluginPlayHead::getPosition() const {
 }
 
 struct PluginProcessorBank::Node {
+    std::string slotId;
     std::unique_ptr<juce::AudioPluginInstance> instance;
     bool bypassed = false;
     bool instrument = false;
     bool missingInstrument = false;
     std::atomic<bool> faulted{false};
+    int requiredChannels = 2;
+    juce::AudioBuffer<float> buffer;
 };
 
 struct PluginProcessorBank::StripChain {
@@ -243,29 +246,97 @@ std::vector<uint32_t> PluginProcessorBank::snapshotStripLatencies() const {
     return latencies;
 }
 
+bool PluginProcessorBank::stripHasInstrument(size_t stripIndex) const noexcept {
+    if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
+        return false;
+    for (const auto& node : chains[stripIndex]->nodes) {
+        if (node != nullptr && node->instrument)
+            return true;
+    }
+    return false;
+}
+
+void PluginProcessorBank::addStripMidiEvent(size_t stripIndex, const juce::MidiMessage& message,
+                                            int samplePosition) noexcept {
+    if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
+        return;
+    chains[stripIndex]->midi.addEvent(message, samplePosition);
+}
+
+void PluginProcessorBank::clearStripMidi(size_t stripIndex) noexcept {
+    if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
+        return;
+    chains[stripIndex]->midi.clear();
+}
+
 void PluginProcessorBank::processChain(void* context, float* left, float* right,
                                        int numSamples) noexcept {
     auto& chain = *static_cast<StripChain*>(context);
-    float* channels[] = {left, right};
-    chain.audio.setDataToReferTo(channels, 2, numSamples);
-    chain.midi.clear();
+    float* stereoChannels[] = {left, right};
     for (auto& node : chain.nodes) {
         if (node->missingInstrument
             || (node->instrument && node->faulted.load(std::memory_order_relaxed))) {
+            chain.audio.setDataToReferTo(stereoChannels, 2, numSamples);
             chain.audio.clear();
             continue;
         }
         if (node->instance == nullptr || node->faulted.load(std::memory_order_relaxed))
             continue;
         try {
-            if (node->bypassed)
-                node->instance->processBlockBypassed(chain.audio, chain.midi);
-            else
-                node->instance->processBlock(chain.audio, chain.midi);
+            const int inChannels = node->instance->getTotalNumInputChannels();
+            const int outChannels = node->instance->getTotalNumOutputChannels();
+
+            // Mono-in folding: if plugin accepts 1 channel and input is stereo, sum L+R
+            if (inChannels == 1 && node->requiredChannels <= 2) {
+                for (int i = 0; i < numSamples; ++i)
+                    left[i] = 0.5f * (left[i] + right[i]);
+            }
+
+            if (node->requiredChannels > 2) {
+                const int samplesToProcess = std::min(numSamples, node->buffer.getNumSamples());
+                if (samplesToProcess <= 0)
+                    continue;
+
+                const size_t bytesToCopy = sizeof(float) * static_cast<size_t>(samplesToProcess);
+                std::memcpy(node->buffer.getWritePointer(0), left, bytesToCopy);
+                std::memcpy(node->buffer.getWritePointer(1), right, bytesToCopy);
+                for (int ch = 2; ch < node->requiredChannels; ++ch) {
+                    std::memset(node->buffer.getWritePointer(ch), 0, bytesToCopy);
+                }
+
+                juce::AudioBuffer<float> activeBuf(node->buffer.getArrayOfWritePointers(),
+                                                   node->requiredChannels, samplesToProcess);
+
+                if (node->bypassed)
+                    node->instance->processBlockBypassed(activeBuf, chain.midi);
+                else
+                    node->instance->processBlock(activeBuf, chain.midi);
+
+                std::memcpy(left, node->buffer.getReadPointer(0), bytesToCopy);
+                std::memcpy(right, node->buffer.getReadPointer(1), bytesToCopy);
+            } else {
+                chain.audio.setDataToReferTo(stereoChannels, 2, numSamples);
+                if (node->bypassed)
+                    node->instance->processBlockBypassed(chain.audio, chain.midi);
+                else
+                    node->instance->processBlock(chain.audio, chain.midi);
+
+                if (outChannels == 1) {
+                    std::memcpy(right, left, sizeof(float) * static_cast<size_t>(numSamples));
+                }
+            }
+
+            // Sanitize against non-finite values (NaN / Inf) produced by unstable plugins
+            for (int i = 0; i < numSamples; ++i) {
+                if (!std::isfinite(left[i])) left[i] = 0.0f;
+                if (!std::isfinite(right[i])) right[i] = 0.0f;
+            }
         } catch (...) {
             node->faulted.store(true, std::memory_order_relaxed);
         }
     }
+    // Clear strip MIDI buffer after all nodes in the strip have processed the block
+    chain.midi.clear();
 }
 
 PluginProcessorBank::BuildResult PluginProcessorBank::build(
@@ -298,6 +369,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 break;
             }
             auto node = std::make_unique<Node>();
+            node->slotId = slot.id;
             node->bypassed = slot.bypassed;
             node->instrument = slot.plugin.instrument;
             const auto* description = findDescription(descriptions, slot.plugin.identifier);
@@ -323,6 +395,14 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             node->instance->setPlayConfigDetails(slot.plugin.instrument ? 0 : 2, 2,
                                                   sampleRate, maximumBlockSize);
             node->instance->prepareToPlay(sampleRate, maximumBlockSize);
+
+            const int ins = node->instance->getTotalNumInputChannels();
+            const int outs = node->instance->getTotalNumOutputChannels();
+            node->requiredChannels = std::max(2, std::max(ins, outs));
+            if (node->requiredChannels > 2) {
+                node->buffer.setSize(node->requiredChannels, std::max(512, maximumBlockSize));
+                node->buffer.clear();
+            }
 
             if (resources != nullptr && slot.stateResource.has_value()) {
                 std::vector<uint8_t> state;
@@ -352,6 +432,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 chain->tailSeconds += reportedTail;
             chain->nodes.push_back(std::move(node));
         }
+        if (!chain->nodes.empty())
+            bank->hasAnyPlugins = true;
         bank->maximumLatencySamples = std::max(bank->maximumLatencySamples,
                                                chain->latencySamples);
         bank->processorEntries[stripIndex] = {chain.get(), processChain};
@@ -393,6 +475,20 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                     node->instance->addListener(bank.get());
     result.bank = std::move(bank);
     return result;
+}
+
+std::unique_ptr<juce::AudioProcessorEditor>
+PluginProcessorBank::createEditor(const std::string& slotId) {
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    for (auto& chain : chains)
+        if (chain != nullptr)
+            for (auto& node : chain->nodes)
+                if (node->slotId == slotId && node->instance != nullptr
+                    && node->instance->hasEditor()) {
+                    return std::unique_ptr<juce::AudioProcessorEditor>(
+                        node->instance->createEditorIfNeeded());
+                }
+    return {};
 }
 
 } // namespace resostage

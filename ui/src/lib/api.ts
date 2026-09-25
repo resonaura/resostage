@@ -196,13 +196,18 @@ export interface PluginCatalogEntry {
   instrument: boolean;
   inputs: number;
   outputs: number;
+  enabled: boolean;
+  isNew: boolean;
 }
 
 export interface PluginCatalogResponse {
   scan: {
-    state: "idle" | "scanning" | "complete" | "failed" | "unavailable";
+    state: "idle" | "scanning" | "complete" | "cancelled" | "failed" | "unavailable";
     progress: number;
     format: string;
+    formatIndex: number;
+    formatCount: number;
+    formatProgress: number;
     currentPlugin: string;
     error: string;
   };
@@ -226,6 +231,20 @@ export const pluginCatalog = {
     });
     if (!res.ok) throw new Error(await res.text());
   },
+  cancelScan: async (): Promise<void> => {
+    const res = await apiFetch("/api/v1/plugins/scan/cancel", {
+      method: "POST",
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
+  setEnabled: async (pluginId: string, enabled: boolean): Promise<void> => {
+    const res = await apiFetch("/api/v1/plugins/enabled", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pluginId, enabled }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
 };
 
 export const pluginChains = {
@@ -237,6 +256,8 @@ export const pluginChains = {
     post("/api/v1/plugins/slot/move", { stripId, slotId, toIndex }),
   setBypassed: (stripId: string, slotId: string, bypassed: boolean) =>
     post("/api/v1/plugins/slot/bypass", { stripId, slotId, bypassed }),
+  openEditor: (stripId: string, slotId: string) =>
+    post("/api/v1/plugins/slot/editor", { stripId, slotId }),
 };
 
 // Per-track peak-overview waveform data for the currently-staged song (see

@@ -10,6 +10,8 @@ export type { ButtonGroupProps, ButtonProps, ButtonVariant } from "./Button";
 export { Card } from "./Card";
 export type { CardProps } from "./Card";
 
+export { Checkbox } from "./Checkbox";
+
 export { Modal } from "./Modal";
 export type { ModalBackdropProps, ModalDialogProps, ModalProps } from "./Modal";
 
@@ -29,6 +31,8 @@ export type { SliderProps } from "./Slider";
 
 export { Switch } from "./Switch";
 export type { SwitchProps } from "./Switch";
+
+export { ScrollShadow } from "./ScrollShadow";
 
 export { Tabs } from "./Tabs";
 export type { TabsProps, TabsVariant } from "./Tabs";

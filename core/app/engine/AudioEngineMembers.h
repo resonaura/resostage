@@ -305,6 +305,13 @@
     int stopDeclickRemaining = 0;
     bool wasPlayingLastCallback = false;
 
+    // Pause tail: when pausing playback, active reverb/delay tails ring out naturally
+    // rather than cutting off instantly. Audio thread renders silent input blocks through
+    // the MixGraph until the tail decays or the timeout expires.
+    int64_t pauseTailRemainingSamples = 0;
+    uint32_t pauseTailSilenceBlocks = 0;
+    std::atomic<bool> flushPauseTailRequested{false};
+
     // Message-thread-owned. Discriminates "the project's MIDI clock has
     // never been started" from song-local playhead position, so play() can
     // tell a genuine transport start (send MIDI Start/0xFA) apart from a
@@ -534,7 +541,9 @@
     void fireDueEvents(const SongDef& song, double blockStartSeconds,
                        double blockEndSeconds,
                        uint64_t hostTimeNanosAtBlockStart,
-                       int64_t effectiveOutputLatencySamples);
+                       int64_t effectiveOutputLatencySamples,
+                       PluginProcessorBank* pluginBank = nullptr,
+                       int numSamples = 0);
 
     // Hot-plug fail-safe: juce::AudioDeviceManager broadcasts a change
     // whenever the device list or the current device's state changes

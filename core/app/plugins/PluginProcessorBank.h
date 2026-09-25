@@ -116,11 +116,21 @@ public:
     }
     int latencySamples() const noexcept { return maximumLatencySamples; }
     double tailSeconds() const noexcept { return maximumTailSeconds; }
+    bool hasPlugins() const noexcept { return hasAnyPlugins; }
     /** Worker-thread refresh used after a JUCE latency-change notification. */
     std::vector<uint32_t> snapshotStripLatencies() const;
     bool consumeLatencyChange() noexcept {
         return latencyChangePending.exchange(false, std::memory_order_acq_rel);
     }
+    /** Creates a vendor editor on the JUCE message thread for one live slot. */
+    std::unique_ptr<juce::AudioProcessorEditor> createEditor(
+        const std::string& slotId);
+
+    /** Audio-thread hooks for routing block MIDI messages to instrument strips. */
+    bool stripHasInstrument(size_t stripIndex) const noexcept;
+    void addStripMidiEvent(size_t stripIndex, const juce::MidiMessage& message,
+                           int samplePosition) noexcept;
+    void clearStripMidi(size_t stripIndex) noexcept;
 
 private:
     struct Node;
@@ -141,6 +151,7 @@ private:
     std::vector<uint32_t> stripProcessorLatencySamples;
     int maximumLatencySamples = 0;
     double maximumTailSeconds = 0.0;
+    bool hasAnyPlugins = false;
     std::atomic<bool> latencyChangePending{false};
 };
 

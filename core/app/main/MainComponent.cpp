@@ -267,7 +267,6 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     });
     // Do this only after the audio device and server are ready: recovery is
     // background work and must never delay the deadline-critical startup path.
-    pluginCatalog.resumeInterruptedScanIfNeeded();
 
     // SelectSong / Play / etc. used to wait for the 30 Hz timer (up to ~33 ms).
     // Wake the message thread immediately so hops feel instant.
@@ -324,6 +323,7 @@ void MainComponent::notifyCoreReady() {
 }
 
 MainComponent::~MainComponent() {
+    closeAllPluginEditors();
     stopTimer();
     cancelAudioRender.store(true, std::memory_order_release);
     if (audioRenderThread.joinable())
@@ -1199,10 +1199,29 @@ void MainComponent::drainWebCommands() {
                     setStatus("Plug-in scan is already running");
                 break;
             }
+            case WebCommandKind::PluginScanCancel:
+                setStatus(pluginCatalog.cancelScan()
+                    ? "Cancelling plug-in scan…"
+                    : "No plug-in scan is running");
+                break;
+            case WebCommandKind::PluginSetEnabled: {
+                glz::generic doc;
+                std::string pluginId;
+                bool enabled = true;
+                if (builder_json::parseJson(cmd.json, doc)
+                    && builder_json::getString(doc, "pluginId", pluginId)
+                    && builder_json::getBool(doc, "enabled", enabled)) {
+                    setStatus(pluginCatalog.setPluginEnabled(pluginId, enabled)
+                        ? (enabled ? "Plug-in enabled" : "Plug-in disabled")
+                        : "Could not update plug-in: catalog item not found");
+                }
+                break;
+            }
             case WebCommandKind::PluginSlotAdd: pluginSlotAdd(cmd.json); break;
             case WebCommandKind::PluginSlotRemove: pluginSlotRemove(cmd.json); break;
             case WebCommandKind::PluginSlotMove: pluginSlotMove(cmd.json); break;
             case WebCommandKind::PluginSlotBypass: pluginSlotBypass(cmd.json); break;
+            case WebCommandKind::PluginSlotOpenEditor: pluginSlotOpenEditor(cmd.json); break;
             case WebCommandKind::BuilderSongAdd: builderSongAdd(cmd.json); break;
             case WebCommandKind::BuilderSongImportFolder: builderSongImportFolder(cmd.json); break;
             case WebCommandKind::BuilderSongRemove: builderSongRemove(cmd.json); break;
@@ -1838,14 +1857,16 @@ void MainComponent::publishWebState() {
         br.channels = engine.busChannelCountAt(i);
         br.isDirectOut = engine.busIsDirectAt(i);
         br.unavailable = engine.busIsDirectAt(i) && !engine.busAvailableAt(i);
-        if (i == 0) {
+        const auto sendIt = std::find_if(proj.sends.begin(), proj.sends.end(),
+            [&](const SendBus& s) { return s.id == br.id; });
+        if (br.id == "audio::main") {
             br.pan = proj.main.pan;
             br.isAux = false;
             br.plugins = copyPluginSlots(proj.main.plugins);
-        } else if (i <= proj.sends.size()) {
-            br.pan = proj.sends[i - 1].pan;
+        } else if (sendIt != proj.sends.end()) {
+            br.pan = sendIt->pan;
             br.isAux = true;
-            br.plugins = copyPluginSlots(proj.sends[i - 1].plugins);
+            br.plugins = copyPluginSlots(sendIt->plugins);
         } else {
             br.pan = 0.0;
             br.isAux = false;
@@ -2310,6 +2331,8 @@ bool MainComponent::loadProjectFromPath(const juce::File& file) {
     if (target.existsAsFile()) {
         target = target.getParentDirectory();
     }
+
+    closeAllPluginEditors();
 
     std::string error;
     if (!engine.loadProject(target.getFullPathName().toStdString(), error)) {

@@ -94,10 +94,13 @@ enum class WebCommandKind : uint8_t {
     // Starts the crash-isolated VST3/AU catalog helper. Third-party code is
     // never loaded by the WebServer thread or the live Core process.
     PluginScan,
+    PluginScanCancel,
+    PluginSetEnabled,
     PluginSlotAdd,
     PluginSlotRemove,
     PluginSlotMove,
     PluginSlotBypass,
+    PluginSlotOpenEditor,
     // Open Recent parity -- `path` carries the absolute .rsnraset path from
     // AppSettings::recentProjects. Unlike LoadProjectFromPath (which deletes
     // its temp file on failure -- it only ever points at a throwaway browser
