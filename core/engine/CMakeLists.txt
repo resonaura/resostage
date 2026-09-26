@@ -1,24 +1,24 @@
 add_library(resostage_engine STATIC
   timing/MasterClock.cpp
-  audio/RoutingEngine.cpp
-  audio/MixGraph.cpp
-  audio/MixLatency.cpp
-  audio/MixRenderer.cpp
-  audio/Metering.cpp
-  audio/SincInterpolator.cpp
-  audio/WavStreamDecoder.cpp
-  audio/WavMetadata.cpp
-  audio/AudioRingBuffer.cpp
-  audio/AudioRecordWorker.cpp
-  audio/StreamingTrackBuffer.cpp
-  audio/StreamingEngine.cpp
-  audio/ClickGenerator.cpp
-  audio/PeakOverview.cpp
-  audio/PeakCache.cpp
-  audio/PeakBuildThreadPool.cpp
-  audio/ArtNetPacket.cpp
-  audio/AutomationEnvelope.cpp
-  audio/EnvelopeFollower.cpp
+  audio/graph/RoutingEngine.cpp
+  audio/graph/MixGraph.cpp
+  audio/graph/MixLatency.cpp
+  audio/graph/MixRenderer.cpp
+  audio/metering/Metering.cpp
+  audio/dsp/SincInterpolator.cpp
+  audio/streaming/WavStreamDecoder.cpp
+  audio/streaming/WavMetadata.cpp
+  audio/streaming/AudioRingBuffer.cpp
+  audio/recording/AudioRecordWorker.cpp
+  audio/streaming/StreamingTrackBuffer.cpp
+  audio/streaming/StreamingEngine.cpp
+  audio/dsp/ClickGenerator.cpp
+  audio/peaks/PeakOverview.cpp
+  audio/peaks/PeakCache.cpp
+  audio/peaks/PeakBuildThreadPool.cpp
+  lighting/ArtNetPacket.cpp
+  audio/dsp/AutomationEnvelope.cpp
+  audio/dsp/EnvelopeFollower.cpp
   automation/AutomationEvaluator.cpp
   automation/RamerDouglasPeucker.cpp
   automation/AutomationRecorder.cpp
@@ -32,12 +32,13 @@ add_library(resostage_engine STATIC
 
 if(WIN32)
   target_sources(resostage_engine PRIVATE telemetry/SystemHealthWindows.cpp)
-elseif(NOT APPLE)
+  elseif(NOT APPLE)
   target_sources(resostage_engine PRIVATE telemetry/SystemHealthLinux.cpp)
 endif()
 
 target_include_directories(resostage_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/audio
   # ResoLightProtocol.h: the ESP32/ESP8266 hardware transport's wire format,
   # shared verbatim (not hand-ported) with resolight/firmware -- see that
   # header's own doc comment for why.

@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../lib/dragCancel";
-import { triggerHaptic } from "../../lib/haptics";
-import type { SongRow } from "../../lib/types";
+} from "../../lib/interaction/dragCancel";
+import { triggerHaptic } from "../../lib/interaction/haptics";
+import type { SongRow } from "../../lib/state/types";
 import { RULER_CYCLE_HEIGHT } from "./constants";
 import { crossedDetent, songDetents } from "./detents";
 import { snapToGridSec } from "./geometry";

@@ -1,8 +1,8 @@
 #include "doctest.h"
 
-#include "audio/MixMath.h"
-#include "audio/MixLatency.h"
-#include "audio/MixRenderer.h"
+#include "audio/graph/MixMath.h"
+#include "audio/graph/MixLatency.h"
+#include "audio/graph/MixRenderer.h"
 
 #include <cmath>
 #include <limits>

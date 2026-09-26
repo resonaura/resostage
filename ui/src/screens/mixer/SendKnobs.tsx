@@ -1,19 +1,22 @@
 import { useRef, useState } from "react";
-import { ContextMenu, ContextMenuItem } from "../../components/ContextMenu";
+import {
+  ContextMenu,
+  ContextMenuItem,
+} from "../../components/common/ContextMenu";
 import {
   SEND_CEILING_DB,
   SEND_FLOOR_DB,
   SendArcKnob,
 } from "../../components/daw";
-import { mixer } from "../../lib/api";
-import { createEditGesture } from "../../lib/editGesture";
+import { mixer } from "../../lib/state/api";
+import { createEditGesture } from "../../lib/interaction/editGesture";
 import {
   sendDbToLevel,
   sendLevelToDb,
   type BusRow,
   type ClickSendRow,
   type SendTapMode,
-} from "../../lib/types";
+} from "../../lib/state/types";
 
 type SendMenu = {
   x: number;
@@ -54,7 +57,8 @@ export function SendKnobs({
   density?: "narrow" | "standard" | "wide";
   advancedSendRouting?: boolean;
 }) {
-  const advanced = advancedSendRouting ??
+  const advanced =
+    advancedSendRouting ??
     (typeof localStorage !== "undefined" &&
       localStorage.getItem("resostage:advanced-send-routing") === "true");
   const [menu, setMenu] = useState<SendMenu | null>(null);
@@ -85,7 +89,14 @@ export function SendKnobs({
   };
 
   const writeTap = (busId: string, tap: SendTapMode, level: number) => {
-    void mixer.setTrackSend(trackIndex, busId, level, undefined, gesture.id(), tap);
+    void mixer.setTrackSend(
+      trackIndex,
+      busId,
+      level,
+      undefined,
+      gesture.id(),
+      tap,
+    );
   };
 
   const removeSend = (busId: string) => {
@@ -127,7 +138,8 @@ export function SendKnobs({
                   : SEND_FLOOR_DB;
               const enabled = existing ? existing.enabled !== false : true;
               const tap: SendTapMode =
-                existing?.tap ?? (existing?.preFader ? "pre-fader" : "post-pan");
+                existing?.tap ??
+                (existing?.preFader ? "pre-fader" : "post-pan");
               const label = bus.name || bus.id;
               const numMatch = bus.name?.match(/\d+/);
               const sendNum = numMatch
@@ -199,7 +211,11 @@ export function SendKnobs({
           title="Add Aux Send"
           aria-label="Add Aux Send"
         >
-          {isNarrow ? "+" : activeAuxBusses.length === 0 ? "+ Add Send" : "+ Send"}
+          {isNarrow
+            ? "+"
+            : activeAuxBusses.length === 0
+              ? "+ Add Send"
+              : "+ Send"}
         </button>
       )}
 
@@ -242,7 +258,9 @@ export function SendKnobs({
                   setMenu(null);
                 }}
               >
-                {menu.tap === "post-pan" ? "✓ Post-Pan (Standard)" : "Post-Pan (Standard)"}
+                {menu.tap === "post-pan"
+                  ? "✓ Post-Pan (Standard)"
+                  : "Post-Pan (Standard)"}
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={() => {
@@ -250,7 +268,9 @@ export function SendKnobs({
                   setMenu(null);
                 }}
               >
-                {menu.tap === "post-fader" ? "✓ Post-Fader (Pre-Pan)" : "Post-Fader (Pre-Pan)"}
+                {menu.tap === "post-fader"
+                  ? "✓ Post-Fader (Pre-Pan)"
+                  : "Post-Fader (Pre-Pan)"}
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={() => {
@@ -258,7 +278,9 @@ export function SendKnobs({
                   setMenu(null);
                 }}
               >
-                {menu.tap === "pre-fader" ? "✓ Pre-Fader (Monitor)" : "Pre-Fader (Monitor)"}
+                {menu.tap === "pre-fader"
+                  ? "✓ Pre-Fader (Monitor)"
+                  : "Pre-Fader (Monitor)"}
               </ContextMenuItem>
               <div className="my-1 border-t border-default/20" />
             </>

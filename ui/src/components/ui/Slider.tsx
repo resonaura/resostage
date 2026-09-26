@@ -1,6 +1,6 @@
 import { Slider as HeroSlider } from "@heroui/react";
 import { useRef, type ComponentProps } from "react";
-import { triggerHaptic } from "../../lib/haptics";
+import { triggerHaptic } from "../../lib/interaction/haptics";
 import { withTone, type Tone } from "./tones";
 
 /**
@@ -50,8 +50,7 @@ function SliderRoot({
   const max = rest.maxValue ?? 100;
   const step = rest.step ?? 1;
   const detents = step > 0 ? (max - min) / step : Infinity;
-  const ticks =
-    hapticDetents ?? (detents > 1 && detents <= DETENT_LIMIT);
+  const ticks = hapticDetents ?? (detents > 1 && detents <= DETENT_LIMIT);
 
   const handleChange = (value: number | number[]) => {
     if (ticks) {

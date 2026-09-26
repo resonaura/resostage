@@ -1,4 +1,4 @@
-import { toHexColor } from "../../lib/cssColor";
+import { toHexColor } from "../../lib/theme/cssColor";
 
 /**
  * Compact-lane fill: lower lightness of a hex color, optionally push

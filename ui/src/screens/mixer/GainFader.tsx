@@ -1,6 +1,13 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useEscRevert } from "../../lib/useEscRevert";
-import { FaderLaw } from "../../lib/audioCurves";
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useEscRevert } from "../../lib/interaction/useEscRevert";
+import { FaderLaw } from "../../lib/audio/audioCurves";
 import { GAIN_MAX, GAIN_MIN } from "./constants";
 
 interface GainFaderProps {
@@ -34,7 +41,9 @@ function normalizedFor(db: number): number {
     const norm = (db - GAIN_MIN) / (0 - GAIN_MIN); // 0 at GAIN_MIN (-60), 1 at 0 dB
     return norm * norm * FaderLaw.unityPosition;
   }
-  return FaderLaw.unityPosition + (db / GAIN_MAX) * (1.0 - FaderLaw.unityPosition);
+  return (
+    FaderLaw.unityPosition + (db / GAIN_MAX) * (1.0 - FaderLaw.unityPosition)
+  );
 }
 
 const ALL_MARKERS = [GAIN_MAX, 6, 0, -6, -12, -18, -24, -36, GAIN_MIN] as const;
@@ -82,7 +91,10 @@ const FaderScale = memo(function FaderScale({
       {ALL_MARKERS.map((markerDb) => {
         const isZero = markerDb === 0;
         const isMajor =
-          isZero || Math.abs(markerDb) === 6 || markerDb === 12 || markerDb === -12;
+          isZero ||
+          Math.abs(markerDb) === 6 ||
+          markerDb === 12 ||
+          markerDb === -12;
         const isBottom = markerDb === GAIN_MIN;
         const hasLabel = showLabel(markerDb);
 
@@ -99,17 +111,9 @@ const FaderScale = memo(function FaderScale({
               <span
                 className={`font-mono leading-none tracking-tight tabular-nums ${
                   isNarrow ? "text-[7.5px]" : "text-[8px]"
-                } ${
-                  isZero
-                    ? "font-bold text-foreground"
-                    : "text-muted"
-                }`}
+                } ${isZero ? "font-bold text-foreground" : "text-muted"}`}
               >
-                {isBottom
-                  ? "-∞"
-                  : markerDb > 0
-                    ? `+${markerDb}`
-                    : markerDb}
+                {isBottom ? "-∞" : markerDb > 0 ? `+${markerDb}` : markerDb}
               </span>
             )}
             <div
@@ -228,7 +232,9 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
         const norm = Math.sqrt(clampedPct / FaderLaw.unityPosition);
         db = GAIN_MIN + norm * (0 - GAIN_MIN);
       } else {
-        const t = (clampedPct - FaderLaw.unityPosition) / (1.0 - FaderLaw.unityPosition);
+        const t =
+          (clampedPct - FaderLaw.unityPosition) /
+          (1.0 - FaderLaw.unityPosition);
         db = t * GAIN_MAX;
       }
 
@@ -254,7 +260,10 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      calculateValueFromPointer(e.clientY, e.metaKey || e.shiftKey || e.ctrlKey);
+      calculateValueFromPointer(
+        e.clientY,
+        e.metaKey || e.shiftKey || e.ctrlKey,
+      );
     }
   };
 

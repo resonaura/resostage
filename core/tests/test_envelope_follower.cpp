@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/EnvelopeFollower.h"
+#include "audio/dsp/EnvelopeFollower.h"
 #include <cmath>
 #include <vector>
 

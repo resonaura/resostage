@@ -78,9 +78,7 @@ export function pruneDevices(
   for (const [key, entry] of map) {
     if (nowMs - entry.seen > staleMs) map.delete(key);
   }
-  return [...map.values()]
-    .sort((a, b) => b.seen - a.seen)
-    .map((e) => e.dev);
+  return [...map.values()].sort((a, b) => b.seen - a.seen).map((e) => e.dev);
 }
 
 /**
@@ -135,7 +133,9 @@ export function remoteOriginFor(host: string, port: number): string {
 
 /** IPv4 dotted-quad to an unsigned 32-bit integer. */
 export function ipv4ToInt(ip: string): number {
-  return ip.split(".").reduce((acc, o) => (acc << 8) + parseInt(o, 10), 0) >>> 0;
+  return (
+    ip.split(".").reduce((acc, o) => (acc << 8) + parseInt(o, 10), 0) >>> 0
+  );
 }
 
 /** Unsigned 32-bit integer back to an IPv4 dotted-quad string. */

@@ -31,7 +31,10 @@ export function outputLaneId(channel0Based: number): string {
  * Main to 1/2, a mono wedge to 11 and a stereo IEM to 13/14 without inventing
  * stereo-pair bus objects.
  */
-export function extOutTarget(startChannel0Based: number, pair: boolean): string {
+export function extOutTarget(
+  startChannel0Based: number,
+  pair: boolean,
+): string {
   return pair
     ? `${outputLaneId(startChannel0Based)},${outputLaneId(startChannel0Based + 1)}`
     : outputLaneId(startChannel0Based);

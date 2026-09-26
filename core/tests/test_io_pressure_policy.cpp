@@ -13,7 +13,7 @@
 #include "doctest.h"
 
 #include <limits>
-#include "audio/IoPressurePolicy.h"
+#include "audio/streaming/IoPressurePolicy.h"
 
 #include <limits>
 

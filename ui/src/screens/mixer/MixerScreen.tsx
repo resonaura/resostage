@@ -2,16 +2,16 @@ import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui";
-import type { RenderDialogIntent } from "../../components/RenderAudioDialog";
+import type { RenderDialogIntent } from "../../components/dialogs/RenderAudioDialog";
 import { useHorizontalWindow } from "../../hooks/useHorizontalWindow";
 import {
   builder,
   mixer,
   pluginCatalog as pluginCatalogApi,
   type PluginCatalogEntry,
-} from "../../lib/api";
-import { outputSendsToClickRows, type WebUiState } from "../../lib/types";
-import { useIsCompact } from "../../lib/useMediaQuery";
+} from "../../lib/state/api";
+import { outputSendsToClickRows, type WebUiState } from "../../lib/state/types";
+import { useIsCompact } from "../../lib/interaction/useMediaQuery";
 import { BusStrip } from "./BusStrip";
 import { MetronomeStrip } from "./MetronomeStrip";
 import { PluginChainModal } from "./PluginChainModal";
@@ -75,7 +75,10 @@ function ConsolePane({
 }) {
   if (compact) return <div className={className}>{children}</div>;
   return (
-    <ScrollShadow orientation="horizontal" className={`${className} overflow-y-hidden`}>
+    <ScrollShadow
+      orientation="horizontal"
+      className={`${className} overflow-y-hidden`}
+    >
       {children}
     </ScrollShadow>
   );
@@ -94,7 +97,8 @@ export function MixerScreen({
   const [density, setDensity] = useState<MixerDensity>(() => {
     try {
       const saved = localStorage.getItem("resostage:mixer-density");
-      if (saved === "narrow" || saved === "standard" || saved === "wide") return saved;
+      if (saved === "narrow" || saved === "standard" || saved === "wide")
+        return saved;
     } catch {}
     return "standard";
   });
@@ -275,7 +279,9 @@ export function MixerScreen({
   const maxPluginSlots = useMemo(() => {
     let maxCount = 0;
     for (const t of state.tracks) {
-      const fxCount = t.plugins ? t.plugins.filter((p) => !p.instrument).length : 0;
+      const fxCount = t.plugins
+        ? t.plugins.filter((p) => !p.instrument).length
+        : 0;
       if (fxCount > maxCount) maxCount = fxCount;
     }
     for (const b of state.busses) {
@@ -412,7 +418,9 @@ export function MixerScreen({
               compact={compact}
               className={`flex shrink-0 ${compact ? "" : "max-w-[35%]"}`}
             >
-              <div className={`mr-2 flex h-full ${density === "narrow" ? "w-16" : density === "wide" ? "w-28" : "w-20"} shrink-0 flex-col items-center justify-center`}>
+              <div
+                className={`mr-2 flex h-full ${density === "narrow" ? "w-16" : density === "wide" ? "w-28" : "w-20"} shrink-0 flex-col items-center justify-center`}
+              >
                 {/* Dashed and full-height on purpose -- it stands where a
                     strip would, so it reads as a slot to fill rather than as
                     a control in the row. */}

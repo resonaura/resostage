@@ -1,4 +1,4 @@
-import type { SongRow } from "../../lib/types";
+import type { SongRow } from "../../lib/state/types";
 import type { CueSelKey } from "../light/LightTimeline";
 import { regionSelKey, type RegionSelKey } from "./regionUtils";
 import type { TimelineRow } from "./rows";

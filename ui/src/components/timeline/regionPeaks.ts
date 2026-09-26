@@ -3,7 +3,7 @@ import type {
   PeakLevelData,
   RegionRow,
   TrackPeaks,
-} from "../../lib/types";
+} from "../../lib/state/types";
 
 /** What a region actually needs to draw a waveform. */
 export interface ResolvedPeaks {
@@ -40,7 +40,10 @@ export function buildSongPeakLookup(
   files: AllPeaksResponse["files"] | undefined,
   coarseTrackEntries: TrackPeaks[] | undefined,
 ): SongPeakLookup {
-  const byRegionId = new Map<string, AllPeaksResponse["songs"][number]["tracks"][number]>();
+  const byRegionId = new Map<
+    string,
+    AllPeaksResponse["songs"][number]["tracks"][number]
+  >();
   for (const entry of regionEntries ?? []) byRegionId.set(entry.id, entry);
 
   const byFile = new Map<string, AllPeaksResponse["files"][number]>();

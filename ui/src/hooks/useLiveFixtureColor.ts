@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { getLiveLedOutputs, subscribeLiveLedOutputs } from "../lib/liveLevels";
+import {
+  getLiveLedOutputs,
+  subscribeLiveLedOutputs,
+} from "../lib/audio/liveLevels";
 import type { PreviewColor } from "../components/light/ResoLightStage3D";
 
 /**

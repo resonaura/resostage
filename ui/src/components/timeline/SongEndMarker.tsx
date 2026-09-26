@@ -1,5 +1,8 @@
 import { useRef } from "react";
-import { beginCancellableDrag, type CancellableDrag } from "../../lib/dragCancel";
+import {
+  beginCancellableDrag,
+  type CancellableDrag,
+} from "../../lib/interaction/dragCancel";
 import { RULER_HEIGHT } from "./constants";
 import { snapToGridSec } from "./geometry";
 

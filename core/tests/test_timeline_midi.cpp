@@ -3,7 +3,7 @@
 #include "project/ProjectSchema.h"
 #include "project/ProjectJson.h"
 #include "timing/TempoMap.h"
-#include "audio/MixGraph.h"
+#include "audio/graph/MixGraph.h"
 
 #include <cmath>
 #include <vector>

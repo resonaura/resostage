@@ -1,6 +1,6 @@
 #include "WebServer.h"
 
-#include "audio/WavStreamDecoder.h"
+#include "audio/streaming/WavStreamDecoder.h"
 #include "network/UdpDiscovery.h"
 #include "platform/MenuModel.h"
 #include "project/ProjectJson.h"

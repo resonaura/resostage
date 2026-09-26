@@ -1,7 +1,7 @@
 #include "PlatformThermalMonitor.h"
-#include "MacThermalMonitor.h"
-#include "WinThermalMonitor.h"
-#include "LinuxThermalMonitor.h"
+#include "mac/MacThermalMonitor.h"
+#include "win/WinThermalMonitor.h"
+#include "linux/LinuxThermalMonitor.h"
 
 namespace resostage {
 

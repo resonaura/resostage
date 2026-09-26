@@ -163,7 +163,10 @@ function ButtonGroupRoot({
   const split = splitVariant(variant);
   const activeTone = tone ?? split.tone;
   const value = useMemo(
-    () => ({ tone: activeTone, hasHeroVariant: split.heroVariant !== undefined }),
+    () => ({
+      tone: activeTone,
+      hasHeroVariant: split.heroVariant !== undefined,
+    }),
     [activeTone, split.heroVariant],
   );
   return (

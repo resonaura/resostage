@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { applyTheme, readThemeChoice, type ThemeName } from "../lib/theme";
-import { settings } from "../lib/api";
+import { settings } from "../lib/state/api";
 
 /**
  * The live theme choice, for the one place that lets you change it.
@@ -13,7 +13,9 @@ export function useTheme(): {
   name: ThemeName;
   setName: (name: ThemeName) => void;
 } {
-  const [name, setNameState] = useState<ThemeName>(() => readThemeChoice().name);
+  const [name, setNameState] = useState<ThemeName>(
+    () => readThemeChoice().name,
+  );
 
   return {
     name,

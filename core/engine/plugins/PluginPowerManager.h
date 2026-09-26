@@ -1,6 +1,6 @@
 #pragma once
 
-#include "audio/EnvelopeFollower.h"
+#include "audio/dsp/EnvelopeFollower.h"
 #include "project/ProjectSchema.h"
 
 #include <algorithm>

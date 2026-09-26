@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
-import { builder } from "../../lib/api";
-import { IS_EMBEDDED } from "../../lib/embedded";
+import { builder } from "../../lib/state/api";
+import { IS_EMBEDDED } from "../../lib/platform/embedded";
 import type {
   AllPeaksResponse,
   PeaksResponse,
@@ -8,7 +8,7 @@ import type {
   SongRow,
   TrackRow,
   WebUiState,
-} from "../../lib/types";
+} from "../../lib/state/types";
 import { isCompactLane, laneHeightPx } from "./laneDimensions";
 import { AudioRegionBlock } from "./AudioRegionBlock";
 import { LiveRecordingRegion } from "./LiveRecordingRegion";

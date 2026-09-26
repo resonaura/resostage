@@ -28,8 +28,8 @@ import { Lightbulb, Link2, Link2Off, Palette, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Alert, Button, ToggleButton, ToggleButtonGroup } from "../ui";
 
-import { lighting } from "../../lib/api";
-import type { LightCueValue } from "../../lib/lightCueInterpolation";
+import { lighting } from "../../lib/state/api";
+import type { LightCueValue } from "../../lib/light/lightCueInterpolation";
 import type {
   BusRow,
   LightCueRow,
@@ -37,7 +37,7 @@ import type {
   LightTrackRow,
   TrackRow,
   WebUiState,
-} from "../../lib/types";
+} from "../../lib/state/types";
 import { SidePanelShell } from "../timeline/SidePanelShell";
 import { ResoLightStage3D } from "./LazyResoLightStage3D";
 import {
@@ -880,7 +880,6 @@ export function LightSidePanel({
         </div>
       }
     >
-
       {/* One flat column, no cards: at 288px a card's own padding and radius
           eat most of the room the controls need, and stacking two of them
           reads as clutter rather than structure. A separator does the same

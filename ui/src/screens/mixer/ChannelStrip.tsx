@@ -1,15 +1,20 @@
 import { useMemo } from "react";
 import { Knob, LevelMeterBar } from "../../components/daw";
-import { Button, Select, TOGGLE_BLINK_ACCENT, type SelectOption } from "../../components/ui";
+import {
+  Button,
+  Select,
+  TOGGLE_BLINK_ACCENT,
+  type SelectOption,
+} from "../../components/ui";
 import { useChannelClipHold } from "../../hooks/useChannelClipHold";
-import type { PluginCatalogEntry } from "../../lib/api";
-import { useLiveValue } from "../../lib/optimistic";
+import type { PluginCatalogEntry } from "../../lib/state/api";
+import { useLiveValue } from "../../lib/state/optimistic";
 import type {
   BusRow,
   ClickSendRow,
   PluginSlotRow,
   SettingsState,
-} from "../../lib/types";
+} from "../../lib/state/types";
 import { ROUTING_SELECT_SIZE } from "./constants";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
@@ -360,13 +365,19 @@ export function ChannelStrip({
                   if (inputRouting.instrumentSlotId) {
                     inputRouting.onOpenInstrument?.();
                   } else {
-                    inputRouting.onInstrumentMenu?.({ x: e.clientX, y: e.clientY });
+                    inputRouting.onInstrumentMenu?.({
+                      x: e.clientX,
+                      y: e.clientY,
+                    });
                   }
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  inputRouting.onInstrumentMenu?.({ x: e.clientX, y: e.clientY });
+                  inputRouting.onInstrumentMenu?.({
+                    x: e.clientX,
+                    y: e.clientY,
+                  });
                 }}
                 title={
                   inputRouting.instrumentName
@@ -376,14 +387,18 @@ export function ChannelStrip({
                 className="flex h-full flex-1 min-w-0 items-center px-1.5 truncate text-left"
               >
                 <span className="truncate">
-                  {inputRouting.instrumentName || (isNarrow ? "+ Inst" : "+ Instrument")}
+                  {inputRouting.instrumentName ||
+                    (isNarrow ? "+ Inst" : "+ Instrument")}
                 </span>
               </button>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  inputRouting.onInstrumentMenu?.({ x: e.clientX, y: e.clientY });
+                  inputRouting.onInstrumentMenu?.({
+                    x: e.clientX,
+                    y: e.clientY,
+                  });
                 }}
                 title="Choose Software Instrument"
                 className="flex h-full px-1 items-center justify-center opacity-60 hover:opacity-100 text-[10px] select-none"
@@ -604,7 +619,9 @@ export function ChannelStrip({
         {(onRecordArm || onInputMonitor) && (
           <div className="flex w-full gap-1">
             <div className="flex-1" aria-hidden="true" />
-            <div className={`flex flex-1 items-center ${isNarrow ? "gap-0.5" : "gap-1"}`}>
+            <div
+              className={`flex flex-1 items-center ${isNarrow ? "gap-0.5" : "gap-1"}`}
+            >
               {onRecordArm && (
                 <button
                   type="button"

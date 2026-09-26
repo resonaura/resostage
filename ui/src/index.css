@@ -57,7 +57,8 @@ textarea,
 
 /* Logic Pro X style recording arm blink (armed while stopped) */
 @keyframes rs-record-blink {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
     background-color: var(--rs-record, #ff453a);
     color: #ffffff;
@@ -74,7 +75,6 @@ textarea,
 .rs-recording-blink {
   animation: rs-record-blink 1s ease-in-out infinite;
 }
-
 
 /* ── Themed scrollbars (Firefox + WebKit/Electron) ───────────────────────
    Matches the dark stage chrome: thin, low-contrast thumb, no bright OS chrome. */

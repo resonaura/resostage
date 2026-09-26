@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addRafTask } from "../lib/rafLoop";
+import { addRafTask } from "../lib/state/rafLoop";
 
 const FLOOR_DB = -100;
 /** Anything above this is treated as a metering glitch, not a real clip. */

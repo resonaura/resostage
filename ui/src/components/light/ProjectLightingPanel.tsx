@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { useLiveFixtureColor } from "../../hooks/useLiveFixtureColor";
-import { lighting } from "../../lib/api";
+import { lighting } from "../../lib/state/api";
 import {
   CHANNEL_PROFILES,
   DMX_GENERIC_SHAPES,
@@ -41,8 +41,8 @@ import {
   type ChannelProfile,
   type FixtureShape,
   type ResoLightColorType,
-} from "../../lib/dmxProfiles";
-import type { LightFixtureRow, LightingState } from "../../lib/types";
+} from "../../lib/light/dmxProfiles";
+import type { LightFixtureRow, LightingState } from "../../lib/state/types";
 import {
   Alert,
   Button,

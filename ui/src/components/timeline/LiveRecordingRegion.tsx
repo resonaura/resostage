@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { recording as recordingApi } from "../../lib/api";
-import type { LiveRecordingRegion as LiveRecordingRegionType } from "../../lib/types";
+import { recording as recordingApi } from "../../lib/state/api";
+import type { LiveRecordingRegion as LiveRecordingRegionType } from "../../lib/state/types";
 
 export interface LiveRecordingRegionProps {
   recording: LiveRecordingRegionType;
@@ -21,7 +21,8 @@ export function LiveRecordingRegion({
   const [peaks, setPeaks] = useState<Array<{ min: number; max: number }>>([]);
 
   const safeRate = sampleRate > 0 ? sampleRate : 48000;
-  const startSec = songOffsetSec + Math.max(0, recording.timelineStartSample) / safeRate;
+  const startSec =
+    songOffsetSec + Math.max(0, recording.timelineStartSample) / safeRate;
   const durationSec = Math.max(0, recording.capturedFrames) / safeRate;
   const leftPx = startSec * pxPerSec;
   const widthPx = Math.max(12, durationSec * pxPerSec);
@@ -34,7 +35,12 @@ export function LiveRecordingRegion({
     async function pollPeaks() {
       if (cancelled) return;
       try {
-        const resp = await recordingApi.fetchLivePeaks(recording.recordingId, 0, 0, 1024);
+        const resp = await recordingApi.fetchLivePeaks(
+          recording.recordingId,
+          0,
+          0,
+          1024,
+        );
         if (!cancelled && resp && Array.isArray(resp.peaks)) {
           setPeaks(resp.peaks);
         }
@@ -121,7 +127,9 @@ export function LiveRecordingRegion({
       {/* Recording badge */}
       <div className="absolute top-1 left-1.5 flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-[#ff453a] text-white text-[9px] font-black uppercase tracking-wider shadow-sm z-10">
         <span className="inline-block w-2 h-2 rounded-full bg-white animate-ping" />
-        <span>REC {elapsedMins}:{elapsedSecs}</span>
+        <span>
+          REC {elapsedMins}:{elapsedSecs}
+        </span>
       </div>
 
       {/* Live waveform canvas */}

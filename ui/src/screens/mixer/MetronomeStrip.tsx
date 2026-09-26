@@ -1,12 +1,12 @@
 import { memo } from "react";
-import { builder, mixer, type PluginCatalogEntry } from "../../lib/api";
-import { rowsSameExceptLevels } from "../../lib/levelFields";
-import { getClickPeaks } from "../../lib/liveLevels";
+import { builder, mixer, type PluginCatalogEntry } from "../../lib/state/api";
+import { rowsSameExceptLevels } from "../../lib/audio/levelFields";
+import { getClickPeaks } from "../../lib/audio/liveLevels";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
   type WebUiState,
-} from "../../lib/types";
+} from "../../lib/state/types";
 import { ChannelStrip } from "./ChannelStrip";
 import { metronomeColor } from "./constants";
 import { isMainBusId } from "./mixerIds";

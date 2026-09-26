@@ -10,13 +10,13 @@ import {
   type HealthSample,
   type PerformanceSettings,
   type PerformanceTier,
-} from "../lib/performance";
+} from "../lib/state/performance";
 import {
   onPowerStateChanged,
   powerPressure,
   startPowerWatch,
-} from "../lib/powerState";
-import type { WebUiState } from "../lib/types";
+} from "../lib/platform/powerState";
+import type { WebUiState } from "../lib/state/types";
 
 /**
  * Owns the UI's frame budget: what the user asked for, and what the machine
@@ -78,7 +78,8 @@ export function usePerformanceMode(health: WebUiState["health"]): {
       diskReadBytesPerSec: health.diskReadBytesPerSec ?? 0,
       diskWriteBytesPerSec: health.diskWriteBytesPerSec ?? 0,
     };
-    if (healthPressure(prevHealthRef.current, sample)) pressureRef.current = true;
+    if (healthPressure(prevHealthRef.current, sample))
+      pressureRef.current = true;
     prevHealthRef.current = sample;
   }, [health]);
 
@@ -121,7 +122,9 @@ export function usePerformanceMode(health: WebUiState["health"]): {
       autoRef.current = next;
       // Only a real move is worth a render; the ladder ticks every second
       // and almost always returns the tier it was already on.
-      setEffectiveTier((cur) => (cur === next.effective ? cur : next.effective));
+      setEffectiveTier((cur) =>
+        cur === next.effective ? cur : next.effective,
+      );
     });
   }, []);
 

@@ -7,7 +7,7 @@ import {
   DEFAULT_INSPECTOR_WIDTH,
   resolveInspectorBusses,
 } from "./inspectorRouting";
-import type { BusRow, TrackRow } from "../../lib/types";
+import type { BusRow, TrackRow } from "../../lib/state/types";
 
 describe("resolveInspectorBusses", () => {
   const masterBus: BusRow = {
@@ -226,8 +226,9 @@ describe("resolveInspectorBusses", () => {
       const peek = DEFAULT_INSPECTOR_2_3_WIDTH - 2 - (8 + 96 + 8 + 96 + 8);
       expect(peek).toBe(29);
       expect(Math.round((peek / 96) * 100) / 100).toBe(0.3);
-      expect(DEFAULT_INSPECTOR_OVERFLOW_WIDTH).toBe(DEFAULT_INSPECTOR_2_3_WIDTH);
+      expect(DEFAULT_INSPECTOR_OVERFLOW_WIDTH).toBe(
+        DEFAULT_INSPECTOR_2_3_WIDTH,
+      );
     });
   });
 });
-

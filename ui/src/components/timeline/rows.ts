@@ -1,4 +1,4 @@
-import type { SongRow, TrackRow } from "../../lib/types";
+import type { SongRow, TrackRow } from "../../lib/state/types";
 import { getTrackColor } from "./constants";
 
 // One row per unique track NAME across the whole project (tracks belong to

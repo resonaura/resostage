@@ -27,7 +27,9 @@ export interface UdpTelemetryStats {
   jitterMs: number;
 }
 
-export function parseTelemetryDatagram(data: Uint8Array): TelemetryDatagram | null {
+export function parseTelemetryDatagram(
+  data: Uint8Array,
+): TelemetryDatagram | null {
   if (data.byteLength < 8) return null;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   if (view.getUint16(0, true) !== TELEMETRY_MAGIC) return null;
@@ -94,7 +96,8 @@ export class UdpTelemetryTracker {
       return false;
     }
 
-    const longGap = this.lastArrivalMs !== null && nowMs - this.lastArrivalMs > 1500;
+    const longGap =
+      this.lastArrivalMs !== null && nowMs - this.lastArrivalMs > 1500;
     if (this.lastSequence !== null && !longGap) {
       if (!isNewerSequence(header.sequence, this.lastSequence)) {
         this.stats.outOfOrderPackets += 1;
@@ -128,6 +131,10 @@ export class UdpTelemetryTracker {
         : nowMs - this.stats.lastPacketAt > 1500
           ? "stale"
           : "live";
-    return { ...this.stats, state, jitterMs: Math.round(this.stats.jitterMs * 10) / 10 };
+    return {
+      ...this.stats,
+      state,
+      jitterMs: Math.round(this.stats.jitterMs * 10) / 10,
+    };
   }
 }

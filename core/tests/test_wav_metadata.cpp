@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/WavMetadata.h"
+#include "audio/streaming/WavMetadata.h"
 
 #include <cstddef>
 #include <cstdint>

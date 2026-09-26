@@ -13,10 +13,13 @@ import {
   pluginCatalog,
   pluginChains,
   type PluginCatalogResponse,
-} from "../../lib/api";
-import type { PluginSlotRow } from "../../lib/types";
+} from "../../lib/state/api";
+import type { PluginSlotRow } from "../../lib/state/types";
 import { Alert, Button, Modal } from "../../components/ui";
-import { deduplicatePlugins, displayFormat } from "../../lib/pluginCategories";
+import {
+  deduplicatePlugins,
+  displayFormat,
+} from "../../lib/plugins/pluginCategories";
 
 export function PluginChainModal({
   open,
@@ -76,7 +79,9 @@ export function PluginChainModal({
           plugin.category,
           displayFormat(plugin.format),
           plugin.format,
-        ].some((field) => Boolean(field && field.toLocaleLowerCase().includes(normalized)));
+        ].some((field) =>
+          Boolean(field && field.toLocaleLowerCase().includes(normalized)),
+        );
       })
       .slice(0, 200);
   }, [catalog, normalized]);
@@ -152,7 +157,8 @@ export function PluginChainModal({
                               {slot.name || "Unknown plug-in"}
                             </div>
                             <div className="truncate text-[10px] text-foreground/40">
-                              {slot.manufacturer || "Unknown vendor"} · {displayFormat(slot.format)}
+                              {slot.manufacturer || "Unknown vendor"} ·{" "}
+                              {displayFormat(slot.format)}
                               {missing ? " · unavailable on this Core" : ""}
                               {slot.hasState ? " · state saved" : ""}
                             </div>
@@ -206,7 +212,9 @@ export function PluginChainModal({
                             <Button
                               isIconOnly
                               size="sm"
-                              variant={slot.bypassed ? "outline" : "accent-soft"}
+                              variant={
+                                slot.bypassed ? "outline" : "accent-soft"
+                              }
                               aria-label={`${slot.bypassed ? "Enable" : "Bypass"} ${slot.name}`}
                               onPress={() =>
                                 void pluginChains.setBypassed(
@@ -279,7 +287,8 @@ export function PluginChainModal({
                             {plugin.name}
                           </div>
                           <div className="truncate text-[10px] text-foreground/40">
-                            {plugin.manufacturer || "Unknown vendor"} · {displayFormat(plugin.format)}
+                            {plugin.manufacturer || "Unknown vendor"} ·{" "}
+                            {displayFormat(plugin.format)}
                           </div>
                         </div>
                         <Button
@@ -302,8 +311,8 @@ export function PluginChainModal({
                   (plugin) => plugin.instrument,
                 ) && (
                   <p className="mt-3 text-[10px] leading-relaxed text-foreground/40">
-                    Instruments are hidden until MIDI instrument tracks are available;
-                    this chain hosts audio effects only.
+                    Instruments are hidden until MIDI instrument tracks are
+                    available; this chain hosts audio effects only.
                   </p>
                 )}
               </aside>

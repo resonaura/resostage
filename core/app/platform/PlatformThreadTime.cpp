@@ -1,7 +1,7 @@
 #include "PlatformThreadTime.h"
-#include "MacThreadTime.h"
-#include "WinThreadTime.h"
-#include "LinuxThreadTime.h"
+#include "mac/MacThreadTime.h"
+#include "win/WinThreadTime.h"
+#include "linux/LinuxThreadTime.h"
 
 namespace resostage {
 

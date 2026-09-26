@@ -1,5 +1,5 @@
-import { lighting } from "../../lib/api";
-import type { LightCueRow, SongRow } from "../../lib/types";
+import { lighting } from "../../lib/state/api";
+import type { LightCueRow, SongRow } from "../../lib/state/types";
 import type { CueSelKey } from "../light/LightTimeline";
 
 export interface CueClipboardEntry extends LightCueRow {

@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/StreamingTrackBuffer.h"
+#include "audio/streaming/StreamingTrackBuffer.h"
 #include "project/ProjectLoader.h"
 
 #include <cmath>

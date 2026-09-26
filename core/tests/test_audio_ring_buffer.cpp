@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/AudioRingBuffer.h"
+#include "audio/streaming/AudioRingBuffer.h"
 
 #include <atomic>
 #include <thread>

@@ -1,7 +1,7 @@
 #include "PlatformProcessPriority.h"
-#include "WinProcessPriority.h"
-#include "MacProcessPriority.h"
-#include "LinuxProcessPriority.h"
+#include "win/WinProcessPriority.h"
+#include "mac/MacProcessPriority.h"
+#include "linux/LinuxProcessPriority.h"
 
 namespace resostage {
 

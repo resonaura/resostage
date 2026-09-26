@@ -5,12 +5,9 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
   ContextMenuSubmenu,
-} from "../../components/ContextMenu";
-import {
-  pluginChains,
-  type PluginCatalogEntry,
-} from "../../lib/api";
-import type { PluginSlotRow } from "../../lib/types";
+} from "../../components/common/ContextMenu";
+import { pluginChains, type PluginCatalogEntry } from "../../lib/state/api";
+import type { PluginSlotRow } from "../../lib/state/types";
 
 interface SlotMenu {
   x: number;
@@ -19,7 +16,10 @@ interface SlotMenu {
   index: number;
 }
 
-import { deduplicatePlugins, displayCategory } from "../../lib/pluginCategories";
+import {
+  deduplicatePlugins,
+  displayCategory,
+} from "../../lib/plugins/pluginCategories";
 
 interface PluginGroup {
   name: string;
@@ -46,7 +46,9 @@ function groupEffects(plugins: PluginCatalogEntry[]): PluginGroup[] {
         a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
       ),
     }))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    .sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
 }
 
 function effectCategoryMenus(
@@ -99,7 +101,10 @@ export function PluginInsertSlots({
   const [menu, setMenu] = useState<SlotMenu | null>(null);
   const groups = useMemo(() => groupEffects(catalog), [catalog]);
   // Smart aligned mixer racks: match targetSlotCount across strips
-  const rowCount = Math.min(32, Math.max(targetSlotCount ?? 1, slots.length + 1));
+  const rowCount = Math.min(
+    32,
+    Math.max(targetSlotCount ?? 1, slots.length + 1),
+  );
 
   const openMenu = (
     event: React.MouseEvent<HTMLElement>,
@@ -129,94 +134,94 @@ export function PluginInsertSlots({
   return (
     <>
       <div className="my-1 flex w-full flex-col">
-      <div className="mb-0.5 flex w-full items-center justify-between px-0.5">
-        <span className="font-mono text-[8px] uppercase tracking-wider text-foreground/40">
-          Audio FX
-        </span>
-        <button
-          type="button"
-          onClick={onOpenChain}
-          title={`Manage Audio FX for ${stripName}`}
-          aria-label={`Manage Audio FX for ${stripName}`}
-          className="rounded p-0.5 text-foreground/40 hover:bg-default/20 hover:text-foreground transition-colors"
-        >
-          <SlidersHorizontal size={10} />
-        </button>
-      </div>
+        <div className="mb-0.5 flex w-full items-center justify-between px-0.5">
+          <span className="font-mono text-[8px] uppercase tracking-wider text-foreground/40">
+            Audio FX
+          </span>
+          <button
+            type="button"
+            onClick={onOpenChain}
+            title={`Manage Audio FX for ${stripName}`}
+            aria-label={`Manage Audio FX for ${stripName}`}
+            className="rounded p-0.5 text-foreground/40 hover:bg-default/20 hover:text-foreground transition-colors"
+          >
+            <SlidersHorizontal size={10} />
+          </button>
+        </div>
 
-      <div
-        className={`max-h-[6rem] w-full rounded-md border border-default/30 bg-background/60 p-0.5 ${
-          slots.length > 3 ? "overflow-y-auto" : "overflow-hidden"
-        }`}
-        aria-label={`Audio FX for ${stripName}`}
-      >
-        {Array.from({ length: rowCount }, (_, index) => {
-          const slot = slots[index] ?? null;
-          return (
-            <button
-              key={slot?.id ?? `empty-${index}`}
-              type="button"
-              title={
-                slot
-                  ? `${slot.name} · click to open editor, right-click for options`
-                  : `Empty FX ${index + 1} · add effect`
-              }
-              aria-label={
-                slot
-                  ? `${slot.name}, slot ${index + 1}`
-                  : `Empty FX slot ${index + 1}`
-              }
-              onClick={(event) => {
-                if (slot) {
-                  void pluginChains.openEditor(stripId, slot.id);
-                } else {
-                  openEmptySlot(event, index);
+        <div
+          className={`max-h-[6rem] w-full rounded-md border border-default/30 bg-background/60 p-0.5 ${
+            slots.length > 3 ? "overflow-y-auto" : "overflow-hidden"
+          }`}
+          aria-label={`Audio FX for ${stripName}`}
+        >
+          {Array.from({ length: rowCount }, (_, index) => {
+            const slot = slots[index] ?? null;
+            return (
+              <button
+                key={slot?.id ?? `empty-${index}`}
+                type="button"
+                title={
+                  slot
+                    ? `${slot.name} · click to open editor, right-click for options`
+                    : `Empty FX ${index + 1} · add effect`
                 }
-              }}
-              onContextMenu={(event) => openMenu(event, slot, index)}
-              className={`group/slot relative mb-0.5 flex h-[1.15rem] w-full items-center rounded-[4px] border px-1 text-left text-[8px] leading-none transition-colors last:mb-0 ${
-                slot
-                  ? slot.bypassed
-                    ? "border-default/20 bg-default/10 text-foreground/35"
-                    : "border-accent/30 bg-accent/10 text-foreground/75 hover:bg-accent/15"
-                  : "border-default/20 bg-surface/35 text-foreground/30 hover:border-default/45 hover:bg-default/10"
-              }`}
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {slot
-                  ? slot.name
-                  : isNarrow
-                    ? "+"
-                    : slots.length === 0
-                      ? "+ Audio FX"
-                      : `+ FX ${index + 1}`}
-              </span>
-              {slot ? (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  title={`Remove ${slot.name}`}
-                  aria-label={`Remove ${slot.name}`}
-                  className="ml-0.5 inline-flex h-3 w-3 shrink-0 items-center justify-center rounded text-foreground/40 opacity-0 transition-opacity hover:bg-danger/20 hover:text-danger group-hover/slot:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void pluginChains.remove(stripId, slot.id);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
+                aria-label={
+                  slot
+                    ? `${slot.name}, slot ${index + 1}`
+                    : `Empty FX slot ${index + 1}`
+                }
+                onClick={(event) => {
+                  if (slot) {
+                    void pluginChains.openEditor(stripId, slot.id);
+                  } else {
+                    openEmptySlot(event, index);
+                  }
+                }}
+                onContextMenu={(event) => openMenu(event, slot, index)}
+                className={`group/slot relative mb-0.5 flex h-[1.15rem] w-full items-center rounded-[4px] border px-1 text-left text-[8px] leading-none transition-colors last:mb-0 ${
+                  slot
+                    ? slot.bypassed
+                      ? "border-default/20 bg-default/10 text-foreground/35"
+                      : "border-accent/30 bg-accent/10 text-foreground/75 hover:bg-accent/15"
+                    : "border-default/20 bg-surface/35 text-foreground/30 hover:border-default/45 hover:bg-default/10"
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {slot
+                    ? slot.name
+                    : isNarrow
+                      ? "+"
+                      : slots.length === 0
+                        ? "+ Audio FX"
+                        : `+ FX ${index + 1}`}
+                </span>
+                {slot ? (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    title={`Remove ${slot.name}`}
+                    aria-label={`Remove ${slot.name}`}
+                    className="ml-0.5 inline-flex h-3 w-3 shrink-0 items-center justify-center rounded text-foreground/40 opacity-0 transition-opacity hover:bg-danger/20 hover:text-danger group-hover/slot:opacity-100"
+                    onClick={(e) => {
                       e.stopPropagation();
                       void pluginChains.remove(stripId, slot.id);
-                    }
-                  }}
-                >
-                  <X size={9} strokeWidth={2.5} />
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.stopPropagation();
+                        void pluginChains.remove(stripId, slot.id);
+                      }
+                    }}
+                  >
+                    <X size={9} strokeWidth={2.5} />
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </div>
 
       {menu && (
         <ContextMenu
@@ -251,7 +256,12 @@ export function PluginInsertSlots({
               <ContextMenuItem
                 disabled={menu.index === 0}
                 onClick={() => {
-                  void pluginChains.move(stripId, menu.slot!.id, menu.index - 1, -1);
+                  void pluginChains.move(
+                    stripId,
+                    menu.slot!.id,
+                    menu.index - 1,
+                    -1,
+                  );
                   setMenu(null);
                 }}
               >
@@ -260,7 +270,12 @@ export function PluginInsertSlots({
               <ContextMenuItem
                 disabled={menu.index >= slots.length - 1}
                 onClick={() => {
-                  void pluginChains.move(stripId, menu.slot!.id, menu.index + 1, 1);
+                  void pluginChains.move(
+                    stripId,
+                    menu.slot!.id,
+                    menu.index + 1,
+                    1,
+                  );
                   setMenu(null);
                 }}
               >
@@ -288,11 +303,7 @@ export function PluginInsertSlots({
                 label="Add Effect"
                 disabled={slots.length >= 32}
               >
-                {effectCategoryMenus(
-                  groups,
-                  slots.length >= 32,
-                  addPlugin,
-                )}
+                {effectCategoryMenus(groups, slots.length >= 32, addPlugin)}
               </ContextMenuSubmenu>
             </>
           ) : (

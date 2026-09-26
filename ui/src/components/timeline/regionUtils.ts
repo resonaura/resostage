@@ -1,4 +1,4 @@
-import type { RegionRow, SongRow } from "../../lib/types";
+import type { RegionRow, SongRow } from "../../lib/state/types";
 
 // ── Region UI state (mute overlay; geometry lives in project RegionRow) ──
 export interface RegionUiState {

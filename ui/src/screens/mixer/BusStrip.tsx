@@ -1,8 +1,11 @@
 import { memo } from "react";
-import { builder, mixer, type PluginCatalogEntry } from "../../lib/api";
-import { rowsSameExceptLevels, sameExceptLevels } from "../../lib/levelFields";
-import { getLiveLevels } from "../../lib/liveLevels";
-import type { BusRow, MeterRow, SettingsState } from "../../lib/types";
+import { builder, mixer, type PluginCatalogEntry } from "../../lib/state/api";
+import {
+  rowsSameExceptLevels,
+  sameExceptLevels,
+} from "../../lib/audio/levelFields";
+import { getLiveLevels } from "../../lib/audio/liveLevels";
+import type { BusRow, MeterRow, SettingsState } from "../../lib/state/types";
 import { BusDestinationRouting } from "./BusDestinationRouting";
 import { ChannelStrip } from "./ChannelStrip";
 import { masterColor, sendColor } from "./constants";

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { builder } from "../../lib/api";
-import type { ProjectCycleRow } from "../../lib/types";
+import { builder } from "../../lib/state/api";
+import type { ProjectCycleRow } from "../../lib/state/types";
 
 /**
  * Single project-wide Logic-style cycle (song-local seconds on songIndex).
@@ -80,11 +80,7 @@ export function useCycleState(
   useEffect(() => {
     if (draggingRef.current) return;
     setCycle(fromServer(serverCycle, activeSongIndex, cycleSongLength));
-  }, [
-    activeSongIndex,
-    cycleSongLength,
-    serverCycle,
-  ]);
+  }, [activeSongIndex, cycleSongLength, serverCycle]);
 
   const push = useCallback((next: CycleLocators, gestureId?: string) => {
     void builder.cycleUpdate({

@@ -82,10 +82,10 @@ target_sources(ResoStage PRIVATE
 )
 
 if(APPLE)
-  target_sources(ResoStage PRIVATE platform/MacShellMode.mm)
-  target_sources(ResoStage PRIVATE platform/MacProcessPriority.cpp)
-  target_sources(ResoStage PRIVATE platform/MacThermalMonitor.mm)
-  target_sources(ResoStage PRIVATE platform/MacThreadTime.cpp)
+  target_sources(ResoStage PRIVATE platform/mac/MacShellMode.mm)
+  target_sources(ResoStage PRIVATE platform/mac/MacProcessPriority.cpp)
+  target_sources(ResoStage PRIVATE platform/mac/MacThermalMonitor.mm)
+  target_sources(ResoStage PRIVATE platform/mac/MacThreadTime.cpp)
   target_sources(ResoStage PRIVATE
     midi/CoreMidiDispatcher.cpp
     midi/CoreMidiInputListener.cpp
@@ -98,20 +98,20 @@ elseif(WIN32)
   target_sources(ResoStage PRIVATE
     midi/CoreMidiDispatcherWindows.cpp
     midi/CoreMidiInputListenerWindows.cpp
-    platform/WinProcessPriority.cpp
-    platform/WinShellMode.cpp
-    platform/WinThermalMonitor.cpp
-    platform/WinThreadTime.cpp
+    platform/win/WinProcessPriority.cpp
+    platform/win/WinShellMode.cpp
+    platform/win/WinThermalMonitor.cpp
+    platform/win/WinThreadTime.cpp
   )
   target_link_libraries(ResoStage PRIVATE winmm)
 elseif(UNIX)
   target_sources(ResoStage PRIVATE
     midi/CoreMidiDispatcherLinux.cpp
     midi/CoreMidiInputListenerLinux.cpp
-    platform/LinuxProcessPriority.cpp
-    platform/LinuxShellMode.cpp
-    platform/LinuxThermalMonitor.cpp
-    platform/LinuxThreadTime.cpp
+    platform/linux/LinuxProcessPriority.cpp
+    platform/linux/LinuxShellMode.cpp
+    platform/linux/LinuxThermalMonitor.cpp
+    platform/linux/LinuxThreadTime.cpp
   )
 endif()
 
@@ -201,6 +201,7 @@ target_include_directories(ResoStage PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/main
   ${CMAKE_CURRENT_SOURCE_DIR}/config
   ${CMAKE_CURRENT_SOURCE_DIR}/light
+  ${CMAKE_CURRENT_SOURCE_DIR}/platform
   ${libwebsockets_SOURCE_DIR}/include
   ${libwebsockets_BINARY_DIR}/include
 )

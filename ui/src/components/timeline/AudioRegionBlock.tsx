@@ -1,6 +1,6 @@
-import { withHexAlpha } from "../../lib/cssColor";
-import type { PeakLevelData, RegionRow } from "../../lib/types";
-import { TrackWaveformLane } from "../TrackWaveformLane";
+import { withHexAlpha } from "../../lib/theme/cssColor";
+import type { PeakLevelData, RegionRow } from "../../lib/state/types";
+import { TrackWaveformLane } from "../audio/TrackWaveformLane";
 import { dimHexColor } from "./colors";
 import { FadeCurveOverlay } from "./FadeCurveOverlay";
 import { isCompactLane, laneHeightPx } from "./laneDimensions";
@@ -177,7 +177,11 @@ export function AudioRegionBlock({
               : isRegionSelected && compactLane
                 ? "0 0 0 1px rgba(255,255,255,0.5)"
                 : undefined,
-          cursor: readOnly ? "default" : tool === "stretch" ? "default" : "grab",
+          cursor: readOnly
+            ? "default"
+            : tool === "stretch"
+              ? "default"
+              : "grab",
           // Dim the WHOLE region chrome (border/fill/label/waveform), not just
           // the peaks canvas — mute + solo-isolate both go through here.
           opacity: dimmed ? 0.35 : 1,
@@ -201,22 +205,22 @@ export function AudioRegionBlock({
             e.altKey && (e.metaKey || e.ctrlKey)
               ? "ew-resize"
               : tool === "stretch"
-              ? regionStretchEdge(localX, regionWidth)
-                ? "ew-resize"
-                : "default"
-              : regionFadeHandleAt(
-                    localX,
-                    regionWidth,
-                    geom.fadeIn * pxPerSec,
-                    geom.fadeOut * pxPerSec,
-                  )
-                ? "col-resize"
-                : regionEdgeCursor(
-                  localX,
-                  e.clientY - rect.top,
-                    regionWidth,
-                    rect.height,
-                  );
+                ? regionStretchEdge(localX, regionWidth)
+                  ? "ew-resize"
+                  : "default"
+                : regionFadeHandleAt(
+                      localX,
+                      regionWidth,
+                      geom.fadeIn * pxPerSec,
+                      geom.fadeOut * pxPerSec,
+                    )
+                  ? "col-resize"
+                  : regionEdgeCursor(
+                      localX,
+                      e.clientY - rect.top,
+                      regionWidth,
+                      rect.height,
+                    );
           (e.currentTarget as HTMLElement).style.cursor = c;
         }}
         onContextMenu={onContextMenu}

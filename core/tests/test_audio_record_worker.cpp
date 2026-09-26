@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/AudioRecordWorker.h"
+#include "audio/recording/AudioRecordWorker.h"
 #include "engine/AudioEngineInternal.h"
 #include "project/ProjectSchema.h"
 

@@ -62,21 +62,20 @@ const POPOVER_SIZE_CLASS: Record<SelectSize, string> = {
 
 type HeroSelectRootProps = ComponentProps<typeof HeroSelect.Root>;
 
-export interface SelectProps
-  extends Omit<
-    HeroSelectRootProps,
-    | "children"
-    | "className"
-    | "defaultSelectedKey"
-    | "items"
-    // React Aria's own value/onChange are Key-shaped aliases of
-    // selectedKey/onSelectionChange; this wrapper reuses those two names for
-    // its plain-string API, so both spellings must be taken over at once.
-    | "onChange"
-    | "onSelectionChange"
-    | "selectedKey"
-    | "value"
-  > {
+export interface SelectProps extends Omit<
+  HeroSelectRootProps,
+  | "children"
+  | "className"
+  | "defaultSelectedKey"
+  | "items"
+  // React Aria's own value/onChange are Key-shaped aliases of
+  // selectedKey/onSelectionChange; this wrapper reuses those two names for
+  // its plain-string API, so both spellings must be taken over at once.
+  | "onChange"
+  | "onSelectionChange"
+  | "selectedKey"
+  | "value"
+> {
   options: readonly SelectOption[];
   /** Selected option id. An id not present in `options` shows the placeholder. */
   value?: string;

@@ -1,5 +1,5 @@
 #include "doctest.h"
-#include "audio/MonitorSourceMux.h"
+#include "audio/recording/MonitorSourceMux.h"
 
 using namespace resostage;
 

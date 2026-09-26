@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/WavStreamDecoder.h"
+#include "audio/streaming/WavStreamDecoder.h"
 
 #include <cmath>
 #include <cstddef>

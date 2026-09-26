@@ -31,7 +31,9 @@ export function PianoRoll({
   const [scaleMode, setScaleMode] = useState<ScaleMode>("minor");
   const [snapToScale, setSnapToScale] = useState<boolean>(false);
   const [showGhostNotes, setShowGhostNotes] = useState<boolean>(true);
-  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<number>>(new Set());
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<number>>(
+    new Set(),
+  );
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
 
   const effectiveTrackColor = trackColor || "#0485f7";
@@ -47,12 +49,21 @@ export function PianoRoll({
   // Quantize selected notes (or all if none selected)
   const handleQuantize = useCallback(() => {
     if (snap <= 0) return;
-    const targetIds = selectedNoteIds.size > 0 ? selectedNoteIds : new Set(region.notes.map((n) => n.id));
+    const targetIds =
+      selectedNoteIds.size > 0
+        ? selectedNoteIds
+        : new Set(region.notes.map((n) => n.id));
 
     const quantized = region.notes.map((note) => {
       if (!targetIds.has(note.id)) return note;
-      const snappedStart = Math.max(0, Math.round(note.startBeats / snap) * snap);
-      const snappedDuration = Math.max(snap, Math.round(note.durationBeats / snap) * snap);
+      const snappedStart = Math.max(
+        0,
+        Math.round(note.startBeats / snap) * snap,
+      );
+      const snappedDuration = Math.max(
+        snap,
+        Math.round(note.durationBeats / snap) * snap,
+      );
       return {
         ...note,
         startBeats: snappedStart,
@@ -65,7 +76,10 @@ export function PianoRoll({
 
   // Humanize timing and velocity
   const handleHumanize = useCallback(() => {
-    const targetIds = selectedNoteIds.size > 0 ? selectedNoteIds : new Set(region.notes.map((n) => n.id));
+    const targetIds =
+      selectedNoteIds.size > 0
+        ? selectedNoteIds
+        : new Set(region.notes.map((n) => n.id));
 
     const humanized = region.notes.map((note) => {
       if (!targetIds.has(note.id)) return note;
@@ -90,7 +104,10 @@ export function PianoRoll({
   // Transpose selected notes
   const handleTranspose = useCallback(
     (semitones: number) => {
-      const targetIds = selectedNoteIds.size > 0 ? selectedNoteIds : new Set(region.notes.map((n) => n.id));
+      const targetIds =
+        selectedNoteIds.size > 0
+          ? selectedNoteIds
+          : new Set(region.notes.map((n) => n.id));
 
       const transposed = region.notes.map((note) => {
         if (!targetIds.has(note.id)) return note;
@@ -106,7 +123,14 @@ export function PianoRoll({
 
       onNotesChange(transposed);
     },
-    [selectedNoteIds, region.notes, snapToScale, rootNote, scaleMode, onNotesChange],
+    [
+      selectedNoteIds,
+      region.notes,
+      snapToScale,
+      rootNote,
+      scaleMode,
+      onNotesChange,
+    ],
   );
 
   // Force Legato
@@ -169,7 +193,9 @@ export function PianoRoll({
   }, [handleDeleteSelected, handleQuantize, handleTranspose, region.notes]);
 
   return (
-    <div className={`flex flex-col h-full w-full bg-background border border-default/30 rounded-lg overflow-hidden ${className}`}>
+    <div
+      className={`flex flex-col h-full w-full bg-background border border-default/30 rounded-lg overflow-hidden ${className}`}
+    >
       {/* Header / Region & Track metadata */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-default/20 border-b border-default/30 text-xs font-semibold select-none">
         <div className="flex items-center gap-2 min-w-0">
@@ -180,27 +206,38 @@ export function PianoRoll({
                 className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
                 style={{ backgroundColor: effectiveTrackColor }}
               />
-              <span className="font-semibold text-foreground truncate max-w-[120px]" title={track.name || track.id}>
+              <span
+                className="font-semibold text-foreground truncate max-w-[120px]"
+                title={track.name || track.id}
+              >
                 {track.name || track.id}
               </span>
-              {tracks && onSelectTrack && (() => {
-                const instrumentTracks = tracks.filter((tr) => tr.kind === "instrument" || tr.kind === "midi");
-                if (instrumentTracks.length <= 1) return null;
-                return (
-                  <select
-                    aria-label="Switch active track"
-                    value={track.id}
-                    onChange={(e) => onSelectTrack(e.target.value)}
-                    className="bg-transparent text-[10px] text-foreground/60 hover:text-foreground cursor-pointer outline-none border-none ml-0.5"
-                  >
-                    {instrumentTracks.map((tr) => (
-                      <option key={tr.id} value={tr.id} className="bg-background text-foreground">
-                        {tr.name || tr.id}
-                      </option>
-                    ))}
-                  </select>
-                );
-              })()}
+              {tracks &&
+                onSelectTrack &&
+                (() => {
+                  const instrumentTracks = tracks.filter(
+                    (tr) => tr.kind === "instrument" || tr.kind === "midi",
+                  );
+                  if (instrumentTracks.length <= 1) return null;
+                  return (
+                    <select
+                      aria-label="Switch active track"
+                      value={track.id}
+                      onChange={(e) => onSelectTrack(e.target.value)}
+                      className="bg-transparent text-[10px] text-foreground/60 hover:text-foreground cursor-pointer outline-none border-none ml-0.5"
+                    >
+                      {instrumentTracks.map((tr) => (
+                        <option
+                          key={tr.id}
+                          value={tr.id}
+                          className="bg-background text-foreground"
+                        >
+                          {tr.name || tr.id}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
             </div>
           ) : (
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-default/30 bg-surface/50">
@@ -220,7 +257,11 @@ export function PianoRoll({
                 className="bg-surface/60 border border-default/30 rounded px-1.5 py-0.5 text-xs text-foreground font-medium outline-none cursor-pointer hover:border-accent/40"
               >
                 {regions.map((r) => (
-                  <option key={r.id} value={r.id} className="bg-background text-foreground">
+                  <option
+                    key={r.id}
+                    value={r.id}
+                    className="bg-background text-foreground"
+                  >
                     {r.name || r.id} ({r.notes.length} notes)
                   </option>
                 ))}

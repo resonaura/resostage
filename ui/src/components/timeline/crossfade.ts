@@ -81,10 +81,7 @@ function endOf(r: CrossfadeRegion): number {
  * one wholly contains the other -- a region buried inside another is not a
  * join, and fading it in and out at its own edges would be wrong.
  */
-export function overlapSeconds(
-  a: CrossfadeRegion,
-  b: CrossfadeRegion,
-): number {
+export function overlapSeconds(a: CrossfadeRegion, b: CrossfadeRegion): number {
   const [first, second] = a.startSeconds <= b.startSeconds ? [a, b] : [b, a];
   // Containment: the later region ends before the earlier one does.
   if (endOf(second) <= endOf(first)) return 0;

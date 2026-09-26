@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/PeakOverview.h"
+#include "audio/peaks/PeakOverview.h"
 #include "project/ProjectLoader.h"
 
 #include <cmath>

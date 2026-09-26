@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   horizontalWindow,
   type WindowResult,
-} from "../lib/horizontalWindow";
+} from "../lib/timeline/horizontalWindow";
 
 /**
  * Mount only the part of a fixed-pitch horizontal row that is near the
@@ -78,11 +78,10 @@ export function useHorizontalWindow({
     const measure = () => {
       const el = contentRef.current;
       if (!el) return;
-      const viewportPx = scroller
-        ? scroller.clientWidth
-        : window.innerWidth;
+      const viewportPx = scroller ? scroller.clientWidth : window.innerWidth;
       const offsetPx = scroller
-        ? el.getBoundingClientRect().left - scroller.getBoundingClientRect().left
+        ? el.getBoundingClientRect().left -
+          scroller.getBoundingClientRect().left
         : el.getBoundingClientRect().left;
 
       const next = horizontalWindow({

@@ -1,10 +1,10 @@
-import { builder } from "../../lib/api";
+import { builder } from "../../lib/state/api";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
   type ClickSendRow,
   type WebUiState,
-} from "../../lib/types";
+} from "../../lib/state/types";
 
 /** Helpers for the unified context menu (rename / reset / sends). */
 export function patchClickFields(

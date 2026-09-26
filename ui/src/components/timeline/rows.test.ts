@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RegionRow, SongRow, TrackRow } from "../../lib/types";
+import type { RegionRow, SongRow, TrackRow } from "../../lib/state/types";
 import { buildRows, songContentSeconds, songDurationSeconds } from "./rows";
 
 const track = (id: string, name: string): TrackRow => ({
@@ -103,18 +103,21 @@ describe("songDurationSeconds", () => {
       regions: [region({ id: "r1", trackId: "t1", durationSeconds: 10 })],
     });
     // Room to write into, past everything currently in the song...
-    expect(songDurationSeconds({ ...withContent, endSeconds: 240 }, undefined))
-      .toBe(240);
+    expect(
+      songDurationSeconds({ ...withContent, endSeconds: 240 }, undefined),
+    ).toBe(240);
     // ...and shorter than the content, which puts the tail out of bounds
     // rather than silently deleting it.
-    expect(songDurationSeconds({ ...withContent, endSeconds: 4 }, undefined))
-      .toBe(4);
+    expect(
+      songDurationSeconds({ ...withContent, endSeconds: 4 }, undefined),
+    ).toBe(4);
   });
 
   it("gives an empty song a real length once one is authored", () => {
     // The case the end marker exists for: nothing in the song at all.
-    expect(songDurationSeconds(song({ name: "empty", endSeconds: 120 }), undefined))
-      .toBe(120);
+    expect(
+      songDurationSeconds(song({ name: "empty", endSeconds: 120 }), undefined),
+    ).toBe(120);
   });
 
   it("treats a zero or negative end as 'derive from content'", () => {

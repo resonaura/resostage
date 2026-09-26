@@ -6,8 +6,8 @@
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
 
-#include "audio/PeakCache.h"
-#include "audio/WavMetadata.h"
+#include "audio/peaks/PeakCache.h"
+#include "audio/streaming/WavMetadata.h"
 #include "project/Uuid.h"
 
 #include <algorithm>

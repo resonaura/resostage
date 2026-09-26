@@ -1,4 +1,4 @@
-import type { SettingsState } from "../../lib/types";
+import type { SettingsState } from "../../lib/state/types";
 import { extOutTarget, parseOutputLanes } from "./mixerIds";
 
 export type DirectOutOption = {

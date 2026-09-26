@@ -1,4 +1,4 @@
-import type { MidiNoteRow } from "../../lib/types";
+import type { MidiNoteRow } from "../../lib/state/types";
 
 export interface HitTestResult {
   note: MidiNoteRow;
@@ -125,7 +125,8 @@ export class SpatialNoteIndex {
     for (const note of candidateNotes) {
       const noteEndBeat = note.startBeats + note.durationBeats;
       if (beat >= note.startBeats && beat <= noteEndBeat) {
-        const isResizeHandle = Math.abs(beat - noteEndBeat) <= handleToleranceBeats;
+        const isResizeHandle =
+          Math.abs(beat - noteEndBeat) <= handleToleranceBeats;
         return { note, isResizeHandle };
       }
     }

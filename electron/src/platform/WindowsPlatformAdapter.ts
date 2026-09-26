@@ -69,10 +69,37 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
       path.join(path.dirname(exe), "kaishaku.exe"),
       path.join(process.resourcesPath, "..", "kaishaku.exe"),
       path.join(process.resourcesPath, "kaishaku.exe"),
-      path.join(import.meta.dirname, "..", "..", "..", "build", "win", process.arch, "kaishaku.exe"),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "build",
+        "win",
+        process.arch,
+        "kaishaku.exe",
+      ),
       path.join(process.cwd(), "build", "win", process.arch, "kaishaku.exe"),
-      path.join(import.meta.dirname, "..", "..", "..", "build", "win", "arm64", "kaishaku.exe"),
-      path.join(import.meta.dirname, "..", "..", "..", "build", "win", "x64", "kaishaku.exe"),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "build",
+        "win",
+        "arm64",
+        "kaishaku.exe",
+      ),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "build",
+        "win",
+        "x64",
+        "kaishaku.exe",
+      ),
       path.join(process.cwd(), "build", "win", "arm64", "kaishaku.exe"),
       path.join(process.cwd(), "build", "win", "x64", "kaishaku.exe"),
     ];
@@ -128,8 +155,22 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
     const devCandidateDirs = [
       path.join(import.meta.dirname, "..", "..", "..", "build", "win", "x64"),
       path.join(process.cwd(), "build", "win", "x64"),
-      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "RelWithDebInfo"),
-      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "Debug"),
+      path.join(
+        process.cwd(),
+        "core",
+        "build",
+        "app",
+        "ResoStage_artefacts",
+        "RelWithDebInfo",
+      ),
+      path.join(
+        process.cwd(),
+        "core",
+        "build",
+        "app",
+        "ResoStage_artefacts",
+        "Debug",
+      ),
     ];
     for (const dir of devCandidateDirs) {
       for (const name of candidateNames) {
@@ -166,7 +207,8 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
           : [];
         const quitItem = appItems.find(
           (item) =>
-            item.label?.includes("Quit") || (item as { actionId?: string }).actionId === "quit",
+            item.label?.includes("Quit") ||
+            (item as { actionId?: string }).actionId === "quit",
         );
         if (quitItem) {
           fileSubmenu.push({ type: "separator" });
@@ -199,7 +241,10 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
     ];
     for (const key of staleKeys) {
       try {
-        execFileSync("reg", ["delete", key, "/f"], { windowsHide: true, stdio: "ignore" });
+        execFileSync("reg", ["delete", key, "/f"], {
+          windowsHide: true,
+          stdio: "ignore",
+        });
       } catch {
         /* ignore if key didn't exist */
       }
@@ -233,7 +278,10 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
 
     for (const [key, value] of entries) {
       try {
-        execFileSync("reg", ["add", key, "/ve", "/d", value, "/f"], { windowsHide: true, stdio: "ignore" });
+        execFileSync("reg", ["add", key, "/ve", "/d", value, "/f"], {
+          windowsHide: true,
+          stdio: "ignore",
+        });
       } catch {
         /* best-effort */
       }
@@ -242,9 +290,14 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
     // 4. Notify Windows Shell of file association changes so Explorer immediately updates icons
     try {
       const psCmd = `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Shell { [DllImport("shell32.dll")] public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2); }'; [Shell]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)`;
-      execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command", psCmd], { windowsHide: true }, () => {
-        /* best-effort */
-      });
+      execFile(
+        "powershell",
+        ["-NoProfile", "-NonInteractive", "-Command", psCmd],
+        { windowsHide: true },
+        () => {
+          /* best-effort */
+        },
+      );
     } catch {
       /* ignore */
     }
@@ -277,10 +330,20 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
     height: number;
   } {
     // Sensible unmaximized/restore bounds centered in workArea if user un-maximizes
-    const defaultWidth = Math.min(1440, Math.max(960, Math.round(workArea.width * 0.85)));
-    const defaultHeight = Math.min(900, Math.max(640, Math.round(workArea.height * 0.85)));
-    const defaultX = Math.round(workArea.x + (workArea.width - defaultWidth) / 2);
-    const defaultY = Math.round(workArea.y + (workArea.height - defaultHeight) / 2);
+    const defaultWidth = Math.min(
+      1440,
+      Math.max(960, Math.round(workArea.width * 0.85)),
+    );
+    const defaultHeight = Math.min(
+      900,
+      Math.max(640, Math.round(workArea.height * 0.85)),
+    );
+    const defaultX = Math.round(
+      workArea.x + (workArea.width - defaultWidth) / 2,
+    );
+    const defaultY = Math.round(
+      workArea.y + (workArea.height - defaultHeight) / 2,
+    );
     return {
       x: defaultX,
       y: defaultY,

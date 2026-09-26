@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { builder } from "../../lib/api";
+import { builder } from "../../lib/state/api";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../lib/dragCancel";
-import { triggerHaptic } from "../../lib/haptics";
-import type { SongRow } from "../../lib/types";
+} from "../../lib/interaction/dragCancel";
+import { triggerHaptic } from "../../lib/interaction/haptics";
+import type { SongRow } from "../../lib/state/types";
 import {
   DEFAULT_CROSSFADE_SHAPE,
   planTrackCrossfades,
@@ -208,14 +208,15 @@ export function useRegionDrag({
     // Stands in for "duration 0 = runs to the end of the song", the same
     // resolution effectiveRegionGeom does when drawing. An authored end wins
     // over the derived one, exactly as it does for the transport.
-    const songLength = song.endSeconds && song.endSeconds > 0
-      ? song.endSeconds
-      : Math.max(
-          0,
-          ...siblings.map((r) =>
-            r.durationSeconds > 0 ? r.startSeconds + r.durationSeconds : 0,
-          ),
-        );
+    const songLength =
+      song.endSeconds && song.endSeconds > 0
+        ? song.endSeconds
+        : Math.max(
+            0,
+            ...siblings.map((r) =>
+              r.durationSeconds > 0 ? r.startSeconds + r.durationSeconds : 0,
+            ),
+          );
     const resolve = (start: number, duration: number) =>
       duration > 0 ? duration : Math.max(0.05, songLength - start);
 

@@ -1,15 +1,15 @@
 import { TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { lighting } from "../../lib/api";
-import { withHexAlpha } from "../../lib/cssColor";
+import { lighting } from "../../lib/state/api";
+import { withHexAlpha } from "../../lib/theme/cssColor";
 import { roleColor } from "../../lib/theme";
-import { themeAdaptedColor } from "../../lib/tintFilter";
+import { themeAdaptedColor } from "../../lib/theme/tintFilter";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../lib/dragCancel";
-import { triggerHaptic } from "../../lib/haptics";
+} from "../../lib/interaction/dragCancel";
+import { triggerHaptic } from "../../lib/interaction/haptics";
 import { edgesCrossedDetent } from "../timeline/detents";
 import type {
   AllPeaksResponse,
@@ -19,8 +19,8 @@ import type {
   PeaksResponse,
   SongRow,
   WebUiState,
-} from "../../lib/types";
-import { ContextMenu, ContextMenuItem } from "../ContextMenu";
+} from "../../lib/state/types";
+import { ContextMenu, ContextMenuItem } from "../common/ContextMenu";
 import { splitCueAtPlayhead } from "../timeline/cueEdit";
 import {
   COMPACT_LANE_MAX_PX,
@@ -29,7 +29,7 @@ import {
 } from "../timeline/laneDimensions";
 import { buildSongPeakLookup } from "../timeline/regionPeaks";
 import { toolCursor, type TimelineTool } from "../timeline/tools";
-import { TrackWaveformLane } from "../TrackWaveformLane";
+import { TrackWaveformLane } from "../audio/TrackWaveformLane";
 import { EFFECT_META, effectUsesOwnColor } from "./lightEffectMeta";
 import type { EffectType } from "./LightSidePanel";
 
@@ -173,7 +173,8 @@ function LightCueBody({
           // Flipping between theme-adapted and true colours is a deliberate
           // switch, not a state change to be noticed -- so the colours cross
           // over rather than cutting.
-          transition: "background-color 260ms ease-out, background 260ms ease-out",
+          transition:
+            "background-color 260ms ease-out, background 260ms ease-out",
         }}
       />
       {labelShown && (

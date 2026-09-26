@@ -6,20 +6,20 @@ import {
   useRef,
   useState,
 } from "react";
-import { builder, transport } from "../../lib/api";
+import { builder, transport } from "../../lib/state/api";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../lib/dragCancel";
+} from "../../lib/interaction/dragCancel";
 import {
   useContinuousPlayhead,
   type CycleWrapRange,
-} from "../../lib/optimistic";
+} from "../../lib/state/optimistic";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
-import { useCoalescedCommit } from "../../lib/optimistic";
-import { addRafTask } from "../../lib/rafLoop";
+import { useCoalescedCommit } from "../../lib/state/optimistic";
+import { addRafTask } from "../../lib/state/rafLoop";
 import { useScrollShadow } from "@heroui/react";
-import { isPositionVisible } from "../../lib/timelineVisibility";
+import { isPositionVisible } from "../../lib/timeline/timelineVisibility";
 import {
   getClipboardCues,
   getClipboardRegions,
@@ -37,7 +37,7 @@ import type {
   AllPeaksResponse,
   PeaksResponse,
   WebUiState,
-} from "../../lib/types";
+} from "../../lib/state/types";
 import { getLightColor } from "../light/lightColors";
 import type { LightSidePanelSelection } from "../light/LightSidePanel";
 import { LightSidePanel } from "../light/LightSidePanel";
@@ -56,7 +56,7 @@ import {
 import {
   emptyProjectActions,
   EmptyProjectState,
-} from "../EmptyProjectState";
+} from "../project/EmptyProjectState";
 import { AudioDropGhost } from "./AudioDropGhost";
 import { AudioTrackLanes } from "./AudioTrackLanes";
 import { BeatGrid } from "./BeatGrid";
@@ -685,9 +685,7 @@ export function Timeline({
       localSeconds,
     );
     await addRegionEntries(placed);
-    showToast(
-      `Pasted ${getClipboardRegions().length} region(s) at playhead`,
-    );
+    showToast(`Pasted ${getClipboardRegions().length} region(s) at playhead`);
     setSelectedRegionKeys([]);
     setSelectedCueKeys([]);
     setCueSelection(null);
@@ -739,11 +737,10 @@ export function Timeline({
     startRegionDrag,
     writeGeomDraft,
     clearGeomDrafts,
-  } =
-    useRegionDrag({
-      songs: state.songs,
-      markGestureActive: () => markGestureActiveRef.current(),
-    });
+  } = useRegionDrag({
+    songs: state.songs,
+    markGestureActive: () => markGestureActiveRef.current(),
+  });
 
   // Light cue actively being dragged across LightTrackLane instances (each
   // lane is its own component, so -- unlike audio regions, which share one
@@ -1230,7 +1227,7 @@ export function Timeline({
     () =>
       ({}) as Record<
         string,
-        import("../../lib/lightCueInterpolation").LightCueValue
+        import("../../lib/light/lightCueInterpolation").LightCueValue
       >,
     [],
   );
@@ -1361,10 +1358,16 @@ export function Timeline({
         if (playheadRef.current) playheadRef.current.style.left = `${px}px`;
         if (playheadHandleRef.current)
           playheadHandleRef.current.style.left = `${px}px`;
-        commitScrollStateRef.current(targetScrollLeft, scroller.clientWidth || 1000);
+        commitScrollStateRef.current(
+          targetScrollLeft,
+          scroller.clientWidth || 1000,
+        );
         pendingScrollLeftRef.current = null;
       } else {
-        commitScrollStateRef.current(scroller.scrollLeft, scroller.clientWidth || 1000);
+        commitScrollStateRef.current(
+          scroller.scrollLeft,
+          scroller.clientWidth || 1000,
+        );
       }
     }
   }, [pxPerSec]);
@@ -2165,7 +2168,10 @@ export function Timeline({
         const outsideView =
           !!scroller && !isPositionVisible(px, scroller.scrollLeft, viewWidth);
         const jumped =
-          songJumped || notYetVisible || zoomCatchUp || (bigJump && outsideView);
+          songJumped ||
+          notYetVisible ||
+          zoomCatchUp ||
+          (bigJump && outsideView);
         const snapEdge =
           playingRef.current &&
           followModeRef.current === "snap" &&
@@ -2358,270 +2364,270 @@ export function Timeline({
               scrollShadowActive ? "rs-hshadow" : ""
             }`}
           >
-          <div
-            ref={scrollRef}
-            // Base cursor is the ordinary one. col-resize used to sit on the
-            // whole scrollport, so every empty gap in the arrangement claimed
-            // to be draggable; the surfaces that ARE scrubbable -- the ruler,
-            // the playhead handle -- set it themselves, and each lane sets
-            // whatever its current tool means.
-            className="h-full w-full min-h-0 overflow-auto relative select-none focus:outline-none"
-            style={{
-              // No transform/filter here: sticky ruler + playhead handle need
-              // a clean scrollport. will-change:scroll-position alone is fine.
-              willChange: "scroll-position",
-              // Kill macOS rubber-band past the content end -- user could
-              // pull the timeline into empty space past the last sample.
-              overscrollBehavior: "none",
-            }}
-            onScroll={onScrollSync}
-          >
             <div
-              ref={timelineBodyRef}
-              className="relative flex min-h-0 flex-col"
+              ref={scrollRef}
+              // Base cursor is the ordinary one. col-resize used to sit on the
+              // whole scrollport, so every empty gap in the arrangement claimed
+              // to be draggable; the surfaces that ARE scrubbable -- the ruler,
+              // the playhead handle -- set it themselves, and each lane sets
+              // whatever its current tool means.
+              className="h-full w-full min-h-0 overflow-auto relative select-none focus:outline-none"
               style={{
-                width: contentWidth,
-                minHeight: "100%",
-                // No translateZ(0): any transform on this node breaks
-                // position:sticky for the ruler and playhead handle.
+                // No transform/filter here: sticky ruler + playhead handle need
+                // a clean scrollport. will-change:scroll-position alone is fine.
+                willChange: "scroll-position",
+                // Kill macOS rubber-band past the content end -- user could
+                // pull the timeline into empty space past the last sample.
+                overscrollBehavior: "none",
               }}
+              onScroll={onScrollSync}
             >
-              {/* Behind the ruler (z-20) and the lanes, above their
+              <div
+                ref={timelineBodyRef}
+                className="relative flex min-h-0 flex-col"
+                style={{
+                  width: contentWidth,
+                  minHeight: "100%",
+                  // No translateZ(0): any transform on this node breaks
+                  // position:sticky for the ruler and playhead handle.
+                }}
+              >
+                {/* Behind the ruler (z-20) and the lanes, above their
                   backgrounds -- it shades the arrangement without hiding the
                   bar numbers that say where you are out here. */}
-              <OutOfBoundsOverlay
-                startPx={projectWidth}
-                widthPx={trailingSlackPx}
-              />
-              <SongRulerHeader
-                songs={songs}
-                songOffsets={songOffsets}
-                songLengths={songLengths}
-                songIndex={state.songIndex}
-                pxPerSec={pxPerSec}
-                contentWidth={contentWidth}
-                scrollState={scrollState}
-                playheadHandleRef={playheadHandleRef}
-                cycle={cycle}
-                songContentLengths={songContentLengths}
-                songEndDrag={songEndDrag}
-                onSongEndDrag={handleSongEndDrag}
-                onSongEndCommit={handleSongEndCommit}
-                snapToGrid={snapToGrid}
-                onCycleToggle={toggleCycle}
-                onCycleSetRange={setCycleRange}
-                onCycleToggleSkip={toggleCycleSkip}
-                onCycleDragEnd={commitCycleDrag}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={onPointerCancelOrLost}
-              />
+                <OutOfBoundsOverlay
+                  startPx={projectWidth}
+                  widthPx={trailingSlackPx}
+                />
+                <SongRulerHeader
+                  songs={songs}
+                  songOffsets={songOffsets}
+                  songLengths={songLengths}
+                  songIndex={state.songIndex}
+                  pxPerSec={pxPerSec}
+                  contentWidth={contentWidth}
+                  scrollState={scrollState}
+                  playheadHandleRef={playheadHandleRef}
+                  cycle={cycle}
+                  songContentLengths={songContentLengths}
+                  songEndDrag={songEndDrag}
+                  onSongEndDrag={handleSongEndDrag}
+                  onSongEndCommit={handleSongEndCommit}
+                  snapToGrid={snapToGrid}
+                  onCycleToggle={toggleCycle}
+                  onCycleSetRange={setCycleRange}
+                  onCycleToggleSkip={toggleCycleSkip}
+                  onCycleDragEnd={commitCycleDrag}
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerCancelOrLost}
+                />
 
-              {/* 1.5. Section Marker Lane -- structural markers per song (Intro/Verse/Chorus/...) */}
-              <SectionMarkerLane
-                songs={songs}
-                songOffsets={songOffsets}
-                songLengths={songLengths}
-                pxPerSec={pxPerSec}
-                contentWidth={contentWidth}
-                readOnly={readOnly}
-                snapToGrid={snapToGrid}
-                cycle={cycle}
-                getPlayheadAbsoluteSec={getLivePlayheadAbsolute}
-                onCycleFromSection={(songIndex, leftSec, rightSec) => {
-                  // Song section span (Intro/Verse/…), not an audio region.
-                  // Rebinds the single project cycle to this song.
-                  setCycleRange(leftSec, rightSec, {
-                    activate: true,
-                    songIndex,
-                    songLength: songLengths[songIndex] ?? 0,
-                  });
-                }}
-              />
-
-              <EventMarkerLane
-                songs={songs}
-                songOffsets={songOffsets}
-                pxPerSec={pxPerSec}
-                contentWidth={contentWidth}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={onPointerCancelOrLost}
-              />
-
-              {/* 2.5. Cross-mode hint strip: Audio mode shows dimmed light
-                  content (no click targets), Light mode shows a dimmed audio
-                  waveform reference. The opposite mode's content, one strip
-                  per mode. */}
-              {effectiveViewMode === "audio" ? (
-                hasLightContent && (
-                  <LightHintStrip
-                    songs={songs}
-                    songOffsets={songOffsets}
-                    songLengths={songLengths}
-                    pxPerSec={pxPerSec}
-                    scrollState={scrollState}
-                    contentWidth={contentWidth}
-                    height={LIGHT_HINT_HEIGHT}
-                    trackColor={lightTrackColorForId}
-                  />
-                )
-              ) : (
-                <AudioHintStrip
-                  state={state}
-                  peaks={peaks}
-                  allPeaks={allPeaks}
-                  audioRows={rows.map((r) => ({
-                    name: r.name,
-                    color: r.color,
-                  }))}
+                {/* 1.5. Section Marker Lane -- structural markers per song (Intro/Verse/Chorus/...) */}
+                <SectionMarkerLane
                   songs={songs}
                   songOffsets={songOffsets}
                   songLengths={songLengths}
                   pxPerSec={pxPerSec}
-                  scrollState={scrollState}
                   contentWidth={contentWidth}
+                  readOnly={readOnly}
+                  snapToGrid={snapToGrid}
+                  cycle={cycle}
+                  getPlayheadAbsoluteSec={getLivePlayheadAbsolute}
+                  onCycleFromSection={(songIndex, leftSec, rightSec) => {
+                    // Song section span (Intro/Verse/…), not an audio region.
+                    // Rebinds the single project cycle to this song.
+                    setCycleRange(leftSec, rightSec, {
+                      activate: true,
+                      songIndex,
+                      songLength: songLengths[songIndex] ?? 0,
+                    });
+                  }}
                 />
-              )}
 
-              {/* 3D preview moved to LightSidePanel — nothing to render here */}
+                <EventMarkerLane
+                  songs={songs}
+                  songOffsets={songOffsets}
+                  pxPerSec={pxPerSec}
+                  contentWidth={contentWidth}
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerCancelOrLost}
+                />
 
-              {/* 3. Track Waveforms & Grid Container -- one row per canonical track name, one segment per song */}
-              <div
-                ref={tracksOriginRef}
-                className="relative flex-1 touch-none select-none min-h-[120px]"
-                onPointerDown={onTracksPointerDown}
-                onPointerMove={onTracksPointerMove}
-                onPointerUp={onTracksPointerUp}
-                onPointerCancel={onTracksPointerCancel}
-                onLostPointerCapture={onTracksPointerCancel}
-                onDragOver={onTracksDragOver}
-                onDragLeave={onTracksDragLeave}
-                onDrop={onTracksDrop}
-              >
-                {marqueeRect && (
-                  <div
-                    className="pointer-events-none absolute z-40 border border-accent/80 tint--soft"
-                    style={{
-                      left: marqueeRect.left,
-                      top: marqueeRect.top,
-                      width: marqueeRect.width,
-                      height: marqueeRect.height,
-                    }}
-                  />
-                )}
-                {/* Dragged audio file -- fake region (waveform + duration),
-                    no import until the drop fires (see onTracksDrop). */}
-                {audioDropFile && audioDropPos && (
-                  <AudioDropGhost
-                    name={audioDropFile.name}
-                    duration={audioDropPreview?.duration ?? 0}
-                    min={audioDropPreview?.min ?? []}
-                    max={audioDropPreview?.max ?? []}
-                    color={rows[audioDropPos.rowIndex]?.color ?? "#fff"}
-                    leftPx={audioDropPos.startPx}
-                    topPx={audioDropPos.rowIndex * laneHeightPx(verticalZoom)}
-                    widthPx={Math.max(
-                      8,
-                      (audioDropPreview?.duration ?? 0) * pxPerSec,
-                    )}
-                    laneH={laneHeightPx(verticalZoom)}
-                  />
-                )}
-                {/* Beat/bar vertical grid canvas, per song (Viewport Sliced) */}
-                {songs.map((song, i) => (
-                  <div
-                    key={i}
-                    className="absolute top-0 bottom-0"
-                    style={{ left: Math.round(songOffsets[i] * pxPerSec) }}
-                  >
-                    <BeatGrid
+                {/* 2.5. Cross-mode hint strip: Audio mode shows dimmed light
+                  content (no click targets), Light mode shows a dimmed audio
+                  waveform reference. The opposite mode's content, one strip
+                  per mode. */}
+                {effectiveViewMode === "audio" ? (
+                  hasLightContent && (
+                    <LightHintStrip
+                      songs={songs}
+                      songOffsets={songOffsets}
+                      songLengths={songLengths}
                       pxPerSec={pxPerSec}
-                      contentWidth={Math.max(
-                        1,
-                        Math.round(songLengths[i] * pxPerSec),
-                      )}
-                      scrollLeft={Math.max(
-                        0,
-                        scrollState.scrollLeft - songOffsets[i] * pxPerSec,
-                      )}
-                      viewportWidth={scrollState.viewportWidth}
-                      songLength={songLengths[i]}
-                      bpm={song.bpm}
-                      tsNum={song.tsNum}
+                      scrollState={scrollState}
+                      contentWidth={contentWidth}
+                      height={LIGHT_HINT_HEIGHT}
+                      trackColor={lightTrackColorForId}
                     />
-                  </div>
-                ))}
-
-                {effectiveViewMode === "light" ? (
-                  <LightTrackLanes
-                    lightEnabled={lightEnabled}
-                    lightTracks={lightTracks}
-                    lightTrackIds={lightTrackIds}
-                    lightTrackColor={lightTrackColor}
-                    lightTrueColors={lightTrueColors}
-                    songs={songs}
-                    songOffsets={songOffsets}
-                    songLengths={songLengths}
-                    pxPerSec={pxPerSec}
-                    scrollState={scrollState}
-                    verticalZoom={verticalZoom}
-                    contentWidth={contentWidth}
-                    readOnly={readOnly}
-                    tool={effectiveTool}
-                    toAbsSec={toAbsSec}
-                    snapLocalSec={snapLocalSec}
-                    snapToGrid={snapToGrid}
-                    detentsForSong={detentsBySong}
-                    selectedCueKeys={selectedCueKeys}
-                    onSelectCue={selectCue}
-                    onCopySelectedCues={copySelectedCue}
-                    onDeleteSelectedCues={deleteSelectedCue}
-                    lightCueDrag={lightCueDrag}
-                    setLightCueDrag={setLightCueDrag}
-                  />
+                  )
                 ) : (
-                  <AudioTrackLanes
-                    writeGeomDraft={writeGeomDraft}
+                  <AudioHintStrip
                     state={state}
-                    rows={rows}
-                    songs={songs}
-                    songOffsets={songOffsets}
-                    songLengths={songLengths}
-                    pxPerSec={pxPerSec}
-                    verticalZoom={verticalZoom}
-                    contentWidth={contentWidth}
-                    scrollState={scrollState}
                     peaks={peaks}
                     allPeaks={allPeaks}
-                    regionGeomDraft={regionGeomDraft}
-                    clearGeomDrafts={clearGeomDrafts}
-                    regionDragKey={regionDragRef.current?.key ?? null}
-                    selectedRegionKeys={selectedRegionKeys}
-                    getRegionUi={getRegionUi}
-                    gestureActive={gestureActive}
-                    readOnly={readOnly}
-                    tool={effectiveTool}
-                    selectRegion={selectRegion}
-                    startRegionDrag={startRegionDrag}
-                    onRegionContextMenu={setRegionContextMenu}
+                    audioRows={rows.map((r) => ({
+                      name: r.name,
+                      color: r.color,
+                    }))}
+                    songs={songs}
+                    songOffsets={songOffsets}
+                    songLengths={songLengths}
+                    pxPerSec={pxPerSec}
+                    scrollState={scrollState}
+                    contentWidth={contentWidth}
                   />
                 )}
-              </div>
 
-              {/* 4. Lane needle (full content height). z below sticky ruler so
+                {/* 3D preview moved to LightSidePanel — nothing to render here */}
+
+                {/* 3. Track Waveforms & Grid Container -- one row per canonical track name, one segment per song */}
+                <div
+                  ref={tracksOriginRef}
+                  className="relative flex-1 touch-none select-none min-h-[120px]"
+                  onPointerDown={onTracksPointerDown}
+                  onPointerMove={onTracksPointerMove}
+                  onPointerUp={onTracksPointerUp}
+                  onPointerCancel={onTracksPointerCancel}
+                  onLostPointerCapture={onTracksPointerCancel}
+                  onDragOver={onTracksDragOver}
+                  onDragLeave={onTracksDragLeave}
+                  onDrop={onTracksDrop}
+                >
+                  {marqueeRect && (
+                    <div
+                      className="pointer-events-none absolute z-40 border border-accent/80 tint--soft"
+                      style={{
+                        left: marqueeRect.left,
+                        top: marqueeRect.top,
+                        width: marqueeRect.width,
+                        height: marqueeRect.height,
+                      }}
+                    />
+                  )}
+                  {/* Dragged audio file -- fake region (waveform + duration),
+                    no import until the drop fires (see onTracksDrop). */}
+                  {audioDropFile && audioDropPos && (
+                    <AudioDropGhost
+                      name={audioDropFile.name}
+                      duration={audioDropPreview?.duration ?? 0}
+                      min={audioDropPreview?.min ?? []}
+                      max={audioDropPreview?.max ?? []}
+                      color={rows[audioDropPos.rowIndex]?.color ?? "#fff"}
+                      leftPx={audioDropPos.startPx}
+                      topPx={audioDropPos.rowIndex * laneHeightPx(verticalZoom)}
+                      widthPx={Math.max(
+                        8,
+                        (audioDropPreview?.duration ?? 0) * pxPerSec,
+                      )}
+                      laneH={laneHeightPx(verticalZoom)}
+                    />
+                  )}
+                  {/* Beat/bar vertical grid canvas, per song (Viewport Sliced) */}
+                  {songs.map((song, i) => (
+                    <div
+                      key={i}
+                      className="absolute top-0 bottom-0"
+                      style={{ left: Math.round(songOffsets[i] * pxPerSec) }}
+                    >
+                      <BeatGrid
+                        pxPerSec={pxPerSec}
+                        contentWidth={Math.max(
+                          1,
+                          Math.round(songLengths[i] * pxPerSec),
+                        )}
+                        scrollLeft={Math.max(
+                          0,
+                          scrollState.scrollLeft - songOffsets[i] * pxPerSec,
+                        )}
+                        viewportWidth={scrollState.viewportWidth}
+                        songLength={songLengths[i]}
+                        bpm={song.bpm}
+                        tsNum={song.tsNum}
+                      />
+                    </div>
+                  ))}
+
+                  {effectiveViewMode === "light" ? (
+                    <LightTrackLanes
+                      lightEnabled={lightEnabled}
+                      lightTracks={lightTracks}
+                      lightTrackIds={lightTrackIds}
+                      lightTrackColor={lightTrackColor}
+                      lightTrueColors={lightTrueColors}
+                      songs={songs}
+                      songOffsets={songOffsets}
+                      songLengths={songLengths}
+                      pxPerSec={pxPerSec}
+                      scrollState={scrollState}
+                      verticalZoom={verticalZoom}
+                      contentWidth={contentWidth}
+                      readOnly={readOnly}
+                      tool={effectiveTool}
+                      toAbsSec={toAbsSec}
+                      snapLocalSec={snapLocalSec}
+                      snapToGrid={snapToGrid}
+                      detentsForSong={detentsBySong}
+                      selectedCueKeys={selectedCueKeys}
+                      onSelectCue={selectCue}
+                      onCopySelectedCues={copySelectedCue}
+                      onDeleteSelectedCues={deleteSelectedCue}
+                      lightCueDrag={lightCueDrag}
+                      setLightCueDrag={setLightCueDrag}
+                    />
+                  ) : (
+                    <AudioTrackLanes
+                      writeGeomDraft={writeGeomDraft}
+                      state={state}
+                      rows={rows}
+                      songs={songs}
+                      songOffsets={songOffsets}
+                      songLengths={songLengths}
+                      pxPerSec={pxPerSec}
+                      verticalZoom={verticalZoom}
+                      contentWidth={contentWidth}
+                      scrollState={scrollState}
+                      peaks={peaks}
+                      allPeaks={allPeaks}
+                      regionGeomDraft={regionGeomDraft}
+                      clearGeomDrafts={clearGeomDrafts}
+                      regionDragKey={regionDragRef.current?.key ?? null}
+                      selectedRegionKeys={selectedRegionKeys}
+                      getRegionUi={getRegionUi}
+                      gestureActive={gestureActive}
+                      readOnly={readOnly}
+                      tool={effectiveTool}
+                      selectRegion={selectRegion}
+                      startRegionDrag={startRegionDrag}
+                      onRegionContextMenu={setRegionContextMenu}
+                    />
+                  )}
+                </div>
+
+                {/* 4. Lane needle (full content height). z below sticky ruler so
                   it doesn't cover song labels; the ruler-band segment is drawn
                   inside the sticky header (playheadHandleRef). */}
-              <div
-                ref={playheadRef}
-                className="pointer-events-none absolute top-0 bottom-0 z-[15] w-0"
-              >
-                <div className="absolute top-0 bottom-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+                <div
+                  ref={playheadRef}
+                  className="pointer-events-none absolute top-0 bottom-0 z-[15] w-0"
+                >
+                  <div className="absolute top-0 bottom-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+                </div>
               </div>
             </div>
-          </div>
           </div>
 
           {/* Right Audio Region inspector — the Audio-mode counterpart to

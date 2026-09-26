@@ -3,15 +3,15 @@ import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../../components/ContextMenu";
-import { InlineNamePrompt } from "../../components/InlineNamePrompt";
-import type { RenderDialogIntent } from "../../components/RenderAudioDialog";
-import { builder, mixer } from "../../lib/api";
+} from "../../components/common/ContextMenu";
+import { InlineNamePrompt } from "../../components/common/InlineNamePrompt";
+import type { RenderDialogIntent } from "../../components/dialogs/RenderAudioDialog";
+import { builder, mixer } from "../../lib/state/api";
 import {
   sourceOutputBusId,
   type BusRow,
   type TrackRow,
-} from "../../lib/types";
+} from "../../lib/state/types";
 
 /** Kind of mixer strip — drives which menu items are visible. */
 export type StripMenuKind = "track" | "master" | "send" | "click";
@@ -149,8 +149,7 @@ export function StripContextMenu({
           act(() =>
             onRender({
               kind: "target",
-              targetKind:
-                target.kind === "send" ? "bus" : target.kind,
+              targetKind: target.kind === "send" ? "bus" : target.kind,
               id:
                 target.kind === "track"
                   ? target.track.id

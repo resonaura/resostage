@@ -1,9 +1,9 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Mic, Music } from "lucide-react";
-import { mixer } from "../../lib/api";
-import { getLiveLevels } from "../../lib/liveLevels";
-import { useLiveValue } from "../../lib/optimistic";
-import type { TrackRow } from "../../lib/types";
+import { mixer } from "../../lib/state/api";
+import { getLiveLevels } from "../../lib/audio/liveLevels";
+import { useLiveValue } from "../../lib/state/optimistic";
+import type { TrackRow } from "../../lib/state/types";
 import { Knob, LevelMeterBar, MeterFader } from "../daw";
 import { TOGGLE_BLINK_ACCENT, ToggleButton } from "../ui";
 import { laneHeightPx } from "./laneDimensions";
@@ -57,9 +57,9 @@ export const TrackHeaderControl = memo(
     const padY = h < 32 ? 2 : h < 48 ? 3 : h < 80 ? 4 : 6;
     const padX = h < 36 ? 6 : 8;
     const nameSize = h < 32 ? 10 : h < 64 ? 12 : 13;
-    const btn = showVol ? (h < 64 ? 18 : 20) : (h < 36 ? 16 : 18);
-    const btnFont = showVol ? (h < 64 ? 8.5 : 9.5) : (h < 36 ? 7.5 : 8.5);
-    const knobSize = showVol ? (h < 64 ? 18 : 20) : (h < 48 ? 15 : 18);
+    const btn = showVol ? (h < 64 ? 18 : 20) : h < 36 ? 16 : 18;
+    const btnFont = showVol ? (h < 64 ? 8.5 : 9.5) : h < 36 ? 7.5 : 8.5;
+    const knobSize = showVol ? (h < 64 ? 18 : 20) : h < 48 ? 15 : 18;
     // Quantize meter height so vertical zoom doesn't thrash ResizeObserver
     // (and flash the canvas meters) on every sub-step.
     const meterH = Math.round(Math.max(12, h - padY * 2 - 4) / 4) * 4;
@@ -69,7 +69,9 @@ export const TrackHeaderControl = memo(
     const swatchW = h < 32 ? 5 : 6;
 
     // Optimistic polarity: instant visual toggle, 1200ms lock against stale echo
-    const [optimisticPolarity, setOptimisticPolarity] = useState<"left" | "right" | "none" | "both" | null>(null);
+    const [optimisticPolarity, setOptimisticPolarity] = useState<
+      "left" | "right" | "none" | "both" | null
+    >(null);
     const lastPolarityEdit = useRef(0);
     useEffect(() => {
       if (Date.now() - lastPolarityEdit.current > 1200) {
@@ -78,7 +80,9 @@ export const TrackHeaderControl = memo(
     }, [track.polarity, track.phaseInvert]);
 
     const effectivePolarity: "left" | "right" | "none" | "both" =
-      optimisticPolarity ?? (track.polarity ?? (track.phaseInvert ? "both" : "none"));
+      optimisticPolarity ??
+      track.polarity ??
+      (track.phaseInvert ? "both" : "none");
     const isPolActive = effectivePolarity !== "none";
 
     const muteBtn = (
@@ -142,10 +146,19 @@ export const TrackHeaderControl = memo(
       <button
         type="button"
         onClick={() => {
-          const nextPol = isPolActive ? "none" : track.channels === 1 ? "left" : "both";
+          const nextPol = isPolActive
+            ? "none"
+            : track.channels === 1
+              ? "left"
+              : "both";
           lastPolarityEdit.current = Date.now();
           setOptimisticPolarity(nextPol);
-          void mixer.setTrackTrim(index, track.inputTrimDb ?? 0, nextPol !== "none", nextPol);
+          void mixer.setTrackTrim(
+            index,
+            track.inputTrimDb ?? 0,
+            nextPol !== "none",
+            nextPol,
+          );
         }}
         className={`flex items-center justify-center rounded border font-bold transition-all select-none ${
           isPolActive
@@ -153,7 +166,11 @@ export const TrackHeaderControl = memo(
             : "border-default/30 bg-surface/60 text-foreground/50 hover:bg-surface hover:text-foreground"
         }`}
         style={{ height: btn, width: btn, fontSize: Math.max(7, btnFont - 1) }}
-        title={isPolActive ? `Phase Inverted (${track.polarity?.toUpperCase() ?? "ON"})` : "Phase Normal (Ø)"}
+        title={
+          isPolActive
+            ? `Phase Inverted (${track.polarity?.toUpperCase() ?? "ON"})`
+            : "Phase Normal (Ø)"
+        }
         aria-label="Phase Invert"
       >
         Ø
@@ -215,9 +232,7 @@ export const TrackHeaderControl = memo(
           onCommit={(v) => setPan(v)}
         />
         {h >= 52 && (
-          <span
-            className="w-4 text-center font-mono font-medium text-foreground/50 text-[8px]"
-          >
+          <span className="w-4 text-center font-mono font-medium text-foreground/50 text-[8px]">
             {formatPan(pan)}
           </span>
         )}
@@ -227,7 +242,12 @@ export const TrackHeaderControl = memo(
     return (
       <div
         onClick={(e) => {
-          if ((e.target as HTMLElement).closest("button, input, [role='slider'], [role='button']")) return;
+          if (
+            (e.target as HTMLElement).closest(
+              "button, input, [role='slider'], [role='button']",
+            )
+          )
+            return;
           onSelect?.();
         }}
         className={`flex flex-col justify-center border-b border-default/15 select-none overflow-hidden transition-all duration-200 cursor-pointer ${
@@ -289,8 +309,12 @@ export const TrackHeaderControl = memo(
                   onChange={(v) => setGain(v)}
                   dbL={track.peakDbL ?? track.peakDb ?? -100}
                   dbR={track.peakDbR ?? track.peakDb ?? -100}
-                  getLiveDbL={() => getLiveLevels().tracks[index]?.peakDbL ?? -144}
-                  getLiveDbR={() => getLiveLevels().tracks[index]?.peakDbR ?? -144}
+                  getLiveDbL={() =>
+                    getLiveLevels().tracks[index]?.peakDbL ?? -144
+                  }
+                  getLiveDbR={() =>
+                    getLiveLevels().tracks[index]?.peakDbR ?? -144
+                  }
                   accent={color}
                   height={faderH}
                   aria-label={`${track.name || track.id} volume`}
@@ -308,7 +332,13 @@ export const TrackHeaderControl = memo(
                     const onPointerMove = (ev: PointerEvent) => {
                       const dy = startY - ev.clientY;
                       const step = ev.shiftKey ? 0.1 : 0.5;
-                      const next = Math.max(-60, Math.min(12, Math.round((startVal + dy * 0.15) / step) * step));
+                      const next = Math.max(
+                        -60,
+                        Math.min(
+                          12,
+                          Math.round((startVal + dy * 0.15) / step) * step,
+                        ),
+                      );
                       setGain(next);
                     };
 

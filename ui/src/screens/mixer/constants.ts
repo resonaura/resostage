@@ -8,7 +8,7 @@ export {
   metronomeColor,
   monoOutColor,
   sendColor,
-} from "../../lib/mixerColors";
+} from "../../lib/theme/mixerColors";
 
 // Sentinel for the primary routing select: picking it reveals the channel
 // list in the secondary select (two-step Ext. Out UX).

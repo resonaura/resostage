@@ -2,7 +2,7 @@ import { Checkbox } from "@heroui/react";
 import { Scissors, MoveHorizontal } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import type { LongImportChoice } from "../../lib/importPrefs";
+import type { LongImportChoice } from "../../lib/state/importPrefs";
 import { Button } from "../ui";
 import type { LongImportPrompt as LongImportPromptData } from "./useLongImportGuard";
 

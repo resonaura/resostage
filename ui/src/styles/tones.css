@@ -400,7 +400,8 @@
 }
 
 .rs-swatch-round .color-swatch-picker__swatch,
-.rs-swatch-round .color-swatch-picker__item[data-selected="true"]
+.rs-swatch-round
+  .color-swatch-picker__item[data-selected="true"]
   .color-swatch-picker__swatch {
   border-radius: 9999px;
 }

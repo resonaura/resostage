@@ -1,14 +1,14 @@
 import { Plus, Music, Mic, Sliders } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../ui";
-import { ContextMenu, ContextMenuItem } from "../ContextMenu";
+import { ContextMenu, ContextMenuItem } from "../common/ContextMenu";
 import type {
   LightFixtureRow,
   LightTrackRow,
   TrackRow,
   WebUiState,
-} from "../../lib/types";
-import { builder, lighting } from "../../lib/api";
+} from "../../lib/state/types";
+import { builder, lighting } from "../../lib/state/api";
 import {
   LightTrackHeader,
   AUDIO_HINT_HEIGHT,
@@ -62,7 +62,10 @@ export function TimelineSidebar({
   selectedTrackId?: string | null;
   onSelectTrack?: (id: string | null) => void;
 }) {
-  const [addTrackMenu, setAddTrackMenu] = useState<{ x: number; y: number } | null>(null);
+  const [addTrackMenu, setAddTrackMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   const handleAddTrack = async (kind: "audio" | "instrument", channels = 2) => {
     setAddTrackMenu(null);
@@ -180,7 +183,9 @@ export function TimelineSidebar({
                 variant="accent-soft"
                 className="gap-1 text-[11px]"
                 onPress={(e) => {
-                  const rect = (e.target as HTMLElement).getBoundingClientRect();
+                  const rect = (
+                    e.target as HTMLElement
+                  ).getBoundingClientRect();
                   setAddTrackMenu({ x: rect.left, y: rect.bottom + 2 });
                 }}
               >
@@ -199,10 +204,14 @@ export function TimelineSidebar({
                     verticalZoom={verticalZoom}
                     anySolo={anySolo}
                     isRecording={state.recording ?? false}
-                    isSelected={state.tracks[row.headerIndex]?.id === selectedTrackId}
+                    isSelected={
+                      state.tracks[row.headerIndex]?.id === selectedTrackId
+                    }
                     onSelect={() => {
                       if (row.headerIndex !== null) {
-                        onSelectTrack?.(state.tracks[row.headerIndex]?.id ?? null);
+                        onSelectTrack?.(
+                          state.tracks[row.headerIndex]?.id ?? null,
+                        );
                       }
                     }}
                   />

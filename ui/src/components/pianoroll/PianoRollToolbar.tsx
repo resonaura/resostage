@@ -12,10 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "../ui";
-import {
-  NOTE_NAMES,
-  SCALE_LABELS,
-} from "./scales";
+import { NOTE_NAMES, SCALE_LABELS } from "./scales";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
@@ -147,14 +144,22 @@ export function PianoRollToolbar({
       {/* Snap & Grid */}
       <div className="flex items-center gap-1.5">
         <Grid size={14} className="text-foreground/50" />
-        <span className="text-[11px] font-medium text-foreground/70">Snap:</span>
+        <span className="text-[11px] font-medium text-foreground/70">
+          Snap:
+        </span>
         <select
           value={snap}
-          onChange={(e) => onSnapChange(Number(e.target.value) as GridSnapValue)}
+          onChange={(e) =>
+            onSnapChange(Number(e.target.value) as GridSnapValue)
+          }
           className="rounded border border-default/50 bg-default/20 px-2 py-0.5 text-xs text-foreground outline-none hover:border-default focus:border-accent"
         >
           {SNAP_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value} className="bg-background text-foreground">
+            <option
+              key={opt.value}
+              value={opt.value}
+              className="bg-background text-foreground"
+            >
               {opt.label}
             </option>
           ))}
@@ -170,7 +175,11 @@ export function PianoRollToolbar({
           className="rounded border border-default/50 bg-default/20 px-1.5 py-0.5 text-xs text-foreground outline-none hover:border-default focus:border-accent"
         >
           {NOTE_NAMES.map((name, idx) => (
-            <option key={name} value={idx} className="bg-background text-foreground">
+            <option
+              key={name}
+              value={idx}
+              className="bg-background text-foreground"
+            >
               {name}
             </option>
           ))}

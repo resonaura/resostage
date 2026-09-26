@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/AutomationEnvelope.h"
+#include "audio/dsp/AutomationEnvelope.h"
 #include <cmath>
 #include <vector>
 

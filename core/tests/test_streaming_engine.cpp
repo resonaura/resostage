@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/StreamingEngine.h"
+#include "audio/streaming/StreamingEngine.h"
 #include "project/ProjectLoader.h"
 
 #include <atomic>

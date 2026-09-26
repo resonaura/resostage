@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SongRow } from "../../lib/types";
+import type { SongRow } from "../../lib/state/types";
 import { crossedDetent, edgesCrossedDetent, songDetents } from "./detents";
 
 const song = {

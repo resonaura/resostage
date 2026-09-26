@@ -60,7 +60,9 @@ export type ToggleButtonVariant = HeroVariant | Tone;
  * per call site (the timeline scales them with vertical zoom), since an inline
  * style outranks the class.
  */
-export type ToggleButtonSize = NonNullable<HeroToggleButtonProps["size"]> | "xs";
+export type ToggleButtonSize =
+  | NonNullable<HeroToggleButtonProps["size"]>
+  | "xs";
 
 const XS_CLASS = "rs-toggle--xs";
 
@@ -97,7 +99,9 @@ const DEFAULT_TONE: Tone = "accent-soft";
  * way ButtonGroup does), so this follows the same reach deliberately.
  */
 const ToggleGroupToneContext = createContext<Tone | undefined>(undefined);
-const ToggleGroupSizeContext = createContext<ToggleButtonSize | undefined>(undefined);
+const ToggleGroupSizeContext = createContext<ToggleButtonSize | undefined>(
+  undefined,
+);
 
 function splitVariant(variant: ToggleButtonVariant | undefined): {
   heroVariant: HeroVariant | undefined;
@@ -160,8 +164,10 @@ function joinClass(
 
 type HeroToggleGroupProps = ComponentProps<typeof HeroToggleButtonGroup>;
 
-export interface ToggleButtonGroupProps
-  extends Omit<HeroToggleGroupProps, "size"> {
+export interface ToggleButtonGroupProps extends Omit<
+  HeroToggleGroupProps,
+  "size"
+> {
   /** HeroUI's three sizes plus `xs` for DAW chrome; see ToggleButtonSize. */
   size?: ToggleButtonSize;
   /** Selected colour for every toggle in the group. Overridden per button. */

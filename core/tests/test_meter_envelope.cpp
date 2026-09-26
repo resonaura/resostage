@@ -14,7 +14,7 @@
 
 #include "doctest.h"
 
-#include "audio/MeterEnvelope.h"
+#include "audio/metering/MeterEnvelope.h"
 
 #include <algorithm>
 #include <cmath>

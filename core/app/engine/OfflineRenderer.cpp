@@ -1,9 +1,9 @@
 #include "OfflineRenderer.h"
 
-#include "audio/ClickGenerator.h"
-#include "audio/MixGraph.h"
-#include "audio/MixRenderer.h"
-#include "audio/WavStreamDecoder.h"
+#include "audio/dsp/ClickGenerator.h"
+#include "audio/graph/MixGraph.h"
+#include "audio/graph/MixRenderer.h"
+#include "audio/streaming/WavStreamDecoder.h"
 #include "project/ProjectLoader.h"
 #include "signalsmith-stretch/signalsmith-stretch.h"
 

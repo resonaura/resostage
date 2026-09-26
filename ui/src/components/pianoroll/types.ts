@@ -1,4 +1,4 @@
-import type { MidiNoteRow, MidiRegionRow } from "../../lib/types";
+import type { MidiNoteRow, MidiRegionRow } from "../../lib/state/types";
 
 export type PianoRollTool = "select" | "draw" | "erase" | "brush" | "slice";
 
@@ -10,13 +10,13 @@ export type PianoRollBottomLane =
   | "pitchBend";
 
 export type GridSnapValue =
-  | 4.0   // 1 Bar (4/4)
-  | 2.0   // 1/2 Bar
-  | 1.0   // 1/4 (1 Beat)
-  | 0.5   // 1/8 Beat
-  | 0.25  // 1/16 Beat
+  | 4.0 // 1 Bar (4/4)
+  | 2.0 // 1/2 Bar
+  | 1.0 // 1/4 (1 Beat)
+  | 0.5 // 1/8 Beat
+  | 0.25 // 1/16 Beat
   | 0.125 // 1/32 Beat
-  | 0;    // Off
+  | 0; // Off
 
 export type ScaleMode =
   | "chromatic"
@@ -42,7 +42,15 @@ export interface PianoRollViewport {
 }
 
 export interface DraggingState {
-  type: "move" | "resize" | "marquee" | "velocity" | "draw" | "brush" | "slice" | "cc";
+  type:
+    | "move"
+    | "resize"
+    | "marquee"
+    | "velocity"
+    | "draw"
+    | "brush"
+    | "slice"
+    | "cc";
   startPointerX: number;
   startPointerY: number;
   startBeat: number;
@@ -59,8 +67,8 @@ export interface DraggingState {
 export interface PianoRollProps {
   region: MidiRegionRow;
   companionRegions?: MidiRegionRow[];
-  track?: import("../../lib/types").TrackRow | null;
-  tracks?: import("../../lib/types").TrackRow[];
+  track?: import("../../lib/state/types").TrackRow | null;
+  tracks?: import("../../lib/state/types").TrackRow[];
   onSelectTrack?: (trackId: string) => void;
   regions?: MidiRegionRow[];
   onSelectRegion?: (regionId: string) => void;

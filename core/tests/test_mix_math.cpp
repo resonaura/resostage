@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/MixMath.h"
+#include "audio/graph/MixMath.h"
 
 #include <cmath>
 

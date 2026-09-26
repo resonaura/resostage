@@ -5,7 +5,7 @@
 // memory running estimate for live monitoring, not a certification tool.
 #include "doctest.h"
 
-#include "audio/Metering.h"
+#include "audio/metering/Metering.h"
 
 #include <algorithm>
 #include <cmath>

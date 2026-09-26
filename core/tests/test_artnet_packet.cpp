@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/ArtNetPacket.h"
+#include "lighting/ArtNetPacket.h"
 
 #include <chrono>
 #include <cstring>

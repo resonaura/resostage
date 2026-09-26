@@ -10,39 +10,47 @@ import {
   Sliders,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ConfirmDialog } from "./components/dialogs/ConfirmDialog";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "./components/ContextMenu";
-import { GlobalTransportBar } from "./components/GlobalTransportBar";
+} from "./components/common/ContextMenu";
+import { GlobalTransportBar } from "./components/transport/GlobalTransportBar";
 import {
   RenderAudioDialog,
   type RenderDialogIntent,
-} from "./components/RenderAudioDialog";
-import { VirtualMidiKeyboard } from "./components/VirtualMidiKeyboard";
+} from "./components/dialogs/RenderAudioDialog";
+import { VirtualMidiKeyboard } from "./components/midi/VirtualMidiKeyboard";
 import { Button, Tabs } from "./components/ui";
-import { performAction, type ActionId } from "./lib/actions";
-import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/api";
-import { apiFetch, getRemoteBackend, setRemoteBackend } from "./lib/backend";
-import { SHOW_TRANSPORT_LABEL } from "./lib/devFlags";
-import { IS_ELECTRON } from "./lib/electron";
-import { sendTypingFocus } from "./lib/electronBridge";
-import { forwardMenuState } from "./lib/electronBridge";
-import { IS_EMBEDDED } from "./lib/embedded";
-import { keyEventToDescription } from "./lib/keyEvents";
-import type { AllPeaksResponse, PeaksResponse, WebUiState } from "./lib/types";
-import { useLiveState, type TransportKind } from "./lib/useLiveState";
-import { EditorScreen } from "./screens/EditorScreen";
-import { LightScreen } from "./screens/LightScreen";
-import { MixerScreen } from "./screens/MixerScreen";
-import { PlayerScreen } from "./screens/PlayerScreen";
+import { performAction, type ActionId } from "./lib/state/actions";
+import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/state/api";
+import {
+  apiFetch,
+  getRemoteBackend,
+  setRemoteBackend,
+} from "./lib/state/backend";
+import { SHOW_TRANSPORT_LABEL } from "./lib/state/devFlags";
+import { IS_ELECTRON } from "./lib/platform/electron";
+import { sendTypingFocus } from "./lib/platform/electronBridge";
+import { forwardMenuState } from "./lib/platform/electronBridge";
+import { IS_EMBEDDED } from "./lib/platform/embedded";
+import { keyEventToDescription } from "./lib/interaction/keyEvents";
+import type {
+  AllPeaksResponse,
+  PeaksResponse,
+  WebUiState,
+} from "./lib/state/types";
+import { useLiveState, type TransportKind } from "./lib/state/useLiveState";
+import { EditorScreen } from "./screens/editor/EditorScreen";
+import { LightScreen } from "./screens/light/LightScreen";
+import { MixerScreen } from "./screens/mixer";
+import { PlayerScreen } from "./screens/player/PlayerScreen";
 import { usePerformanceMode } from "./hooks/usePerformanceMode";
 import { useTheme } from "./hooks/useTheme";
 import { applyTheme, getTheme, THEME_NAMES, type ThemeName } from "./lib/theme";
-import { TIER_FPS } from "./lib/performance";
-import { SettingsScreen } from "./screens/SettingsScreen";
+import { TIER_FPS } from "./lib/state/performance";
+import { SettingsScreen } from "./screens/settings/SettingsScreen";
 
 interface ToastNotification {
   id: string;
@@ -314,13 +322,17 @@ const FULL_RATE_HZ = 120;
 export default function App() {
   const isStandaloneKeyboardWindow =
     typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("window") === "virtual-keyboard";
+    new URLSearchParams(window.location.search).get("window") ===
+      "virtual-keyboard";
 
   const [tab, setTab] = useState("player");
   const [isVirtualKeyboardOpen, setIsVirtualKeyboardOpen] = useState(false);
 
   const toggleVirtualKeyboard = useCallback(() => {
-    if (window.resostageElectron?.isElectron && window.resostageElectron.toggleKeyboardWindow) {
+    if (
+      window.resostageElectron?.isElectron &&
+      window.resostageElectron.toggleKeyboardWindow
+    ) {
       void window.resostageElectron.toggleKeyboardWindow();
     } else {
       setIsVirtualKeyboardOpen((prev) => !prev);
@@ -353,9 +365,15 @@ export default function App() {
       const isOpen = Boolean((e as CustomEvent<boolean>).detail);
       setIsVirtualKeyboardOpen(isOpen);
     };
-    window.addEventListener("resostage-keyboard-state-changed", handleKeyboardState);
+    window.addEventListener(
+      "resostage-keyboard-state-changed",
+      handleKeyboardState,
+    );
     return () => {
-      window.removeEventListener("resostage-keyboard-state-changed", handleKeyboardState);
+      window.removeEventListener(
+        "resostage-keyboard-state-changed",
+        handleKeyboardState,
+      );
     };
   }, []);
 
@@ -379,7 +397,10 @@ export default function App() {
     };
     window.addEventListener("resostage-open-audio-render", handleNativeRender);
     return () =>
-      window.removeEventListener("resostage-open-audio-render", handleNativeRender);
+      window.removeEventListener(
+        "resostage-open-audio-render",
+        handleNativeRender,
+      );
   }, [openRender]);
   // Tell the backend which SPA tab is active so WS frames only carry that
   // page's heavy arrays (transport/time always included).
@@ -394,25 +415,6 @@ export default function App() {
     sendTelemetryHz,
     hasLiveSnapshot,
   } = useLiveState(tab);
-
-  if (isStandaloneKeyboardWindow) {
-    return (
-      <div className="w-screen h-screen bg-background text-foreground overflow-hidden select-none">
-        <VirtualMidiKeyboard
-          isOpen={true}
-          standalone={true}
-          onClose={() => {
-            if (window.resostageElectron?.closeKeyboardWindow) {
-              void window.resostageElectron.closeKeyboardWindow();
-            } else {
-              window.close();
-            }
-          }}
-          state={state}
-        />
-      </div>
-    );
-  }
 
   useGlobalHotkeys(state, setTab, isVirtualKeyboardOpen);
   // One frame budget for the whole UI -- see usePerformanceMode. Mounted here
@@ -490,10 +492,7 @@ export default function App() {
   // forever, since project name / song count / song index don't change on a
   // split -- looking like the peaks needed a slow recompute when they didn't).
   const totalRegionCount = Array.isArray(state.songs)
-    ? state.songs.reduce(
-        (sum, s) => sum + (s?.regions?.length ?? 0),
-        0,
-      )
+    ? state.songs.reduce((sum, s) => sum + (s?.regions?.length ?? 0), 0)
     : 0;
 
   // Per-song peaks (current staged song). Backend publishes each track as it
@@ -508,7 +507,9 @@ export default function App() {
         if (cancelled) return;
         if (data?.tracks && Array.isArray(data.tracks)) {
           setPeaks(data);
-          const filled = data.tracks.filter((t) => t?.levels && t.levels.length > 0).length;
+          const filled = data.tracks.filter(
+            (t) => t?.levels && t.levels.length > 0,
+          ).length;
           if (filled === lastFilled) {
             stable += 1;
             // Empty-lane tracks never get levels, so stop on plateau not on
@@ -533,6 +534,7 @@ export default function App() {
 
   // All-song peaks -- apply every partial so regions light up as the
   // background sweep fills the session cache.
+  const songCount = state.songs?.length ?? 0;
   useEffect(() => {
     let cancelled = false;
     // Region count at the moment this effect (re)ran -- the backend emits one
@@ -550,10 +552,17 @@ export default function App() {
           // levelsIndex >= 0 means this region's file made it into the shared
           // file table, i.e. its waveform is drawable.
           const filled = data.songs.reduce(
-            (n, s) => n + (Array.isArray(s?.tracks) ? s.tracks.filter((t) => t && t.levelsIndex >= 0).length : 0),
+            (n, s) =>
+              n +
+              (Array.isArray(s?.tracks)
+                ? s.tracks.filter((t) => t && t.levelsIndex >= 0).length
+                : 0),
             0,
           );
-          const total = data.songs.reduce((n, s) => n + (Array.isArray(s?.tracks) ? s.tracks.length : 0), 0);
+          const total = data.songs.reduce(
+            (n, s) => n + (Array.isArray(s?.tracks) ? s.tracks.length : 0),
+            0,
+          );
           // `total` counts entries in the PAYLOAD, not regions we know about.
           // The backend rebuilds that payload on its own ~30 Hz tick, so the
           // fetch this effect fires the instant a region appears (a split)
@@ -581,7 +590,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [state.projectName, state.songs?.length ?? 0, totalRegionCount]);
+  }, [state.projectName, songCount, totalRegionCount]);
 
   const [isQuittingOverlay, setIsQuittingOverlay] = useState(false);
   // Hardware alarm toast notifications (post-startup only)
@@ -646,6 +655,25 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  if (isStandaloneKeyboardWindow) {
+    return (
+      <div className="h-screen w-screen overflow-hidden bg-background select-none text-foreground">
+        <VirtualMidiKeyboard
+          isOpen={true}
+          standalone={true}
+          onClose={() => {
+            if (window.resostageElectron?.closeKeyboardWindow) {
+              void window.resostageElectron.closeKeyboardWindow();
+            } else {
+              window.close();
+            }
+          }}
+          state={state}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
       <header className="relative flex h-14 shrink-0 items-center bg-background px-2 sm:px-4">
@@ -665,7 +693,10 @@ export default function App() {
                 onClick={async () => {
                   setRemoteBackend(null);
                   setRemoteHost(null);
-                  if (IS_ELECTRON && window.resostageElectron?.disconnectRemote) {
+                  if (
+                    IS_ELECTRON &&
+                    window.resostageElectron?.disconnectRemote
+                  ) {
                     await window.resostageElectron.disconnectRemote();
                   } else {
                     window.location.href = "/";
@@ -708,7 +739,10 @@ export default function App() {
                 : "border-default/40 bg-default/10 text-foreground/70 hover:bg-default/20 hover:text-foreground"
             }`}
           >
-            <Keyboard size={15} className={isVirtualKeyboardOpen ? "text-accent" : ""} />
+            <Keyboard
+              size={15}
+              className={isVirtualKeyboardOpen ? "text-accent" : ""}
+            />
             <span className="hidden sm:inline">Keys</span>
           </button>
 
@@ -845,7 +879,10 @@ export default function App() {
         </span>
       </footer>
 
-      <QuitConfirmDialog state={state} onStartQuitting={() => setIsQuittingOverlay(true)} />
+      <QuitConfirmDialog
+        state={state}
+        onStartQuitting={() => setIsQuittingOverlay(true)}
+      />
       <OpenConfirmDialog state={state} />
       <QuitOverlay open={isQuittingOverlay} />
       <RenderAudioDialog
@@ -1125,7 +1162,11 @@ function ProjectMenu({
             Recent
           </Button>
         )}
-        <Button size="sm" variant="outline" onPress={() => onRender({ kind: "generic" })}>
+        <Button
+          size="sm"
+          variant="outline"
+          onPress={() => onRender({ kind: "generic" })}
+        >
           Render…
         </Button>
         <span title={IS_EMBEDDED ? "Save (⌘S)" : "Download project"}>

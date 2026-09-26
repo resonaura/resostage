@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/MixGraph.h"
+#include "audio/graph/MixGraph.h"
 #include "project/RouteId.h"
 
 #include <algorithm>

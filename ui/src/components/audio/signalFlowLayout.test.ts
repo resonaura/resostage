@@ -42,7 +42,11 @@ function strip(
   };
 }
 
-function edge(from: string, to: string, extra: Partial<MixGraphEdge> = {}): MixGraphEdge {
+function edge(
+  from: string,
+  to: string,
+  extra: Partial<MixGraphEdge> = {},
+): MixGraphEdge {
   return {
     from,
     to,
@@ -187,17 +191,13 @@ describe("labels", () => {
   });
 });
 
-
 describe("row ordering", () => {
   /** A desk shaped like the ones that made this unreadable: every track into
    *  every send, plus a direct path to main. */
   const busyDesk = (): MixGraphPayload => {
     const strips: MixGraphStrip[] = [];
     const edges: MixGraphEdge[] = [];
-    const strip = (
-      id: string,
-      kind: MixStripKind,
-    ): MixGraphStrip => ({
+    const strip = (id: string, kind: MixStripKind): MixGraphStrip => ({
       id,
       name: id,
       kind,
@@ -299,12 +299,54 @@ describe("pathThrough", () => {
   //  track2 ┘          └─ out2
   //  click ───────────────┘   (straight to out2, never through main)
   const edges: MixGraphEdge[] = [
-    { from: "track1", to: "send", level: 100, preFader: false, active: true, sourceChannel: -1 },
-    { from: "track2", to: "send", level: 100, preFader: false, active: true, sourceChannel: -1 },
-    { from: "send", to: "main", level: 100, preFader: false, active: true, sourceChannel: -1 },
-    { from: "main", to: "out1", level: 100, preFader: false, active: true, sourceChannel: -1 },
-    { from: "main", to: "out2", level: 100, preFader: false, active: true, sourceChannel: -1 },
-    { from: "click", to: "out2", level: 100, preFader: false, active: true, sourceChannel: -1 },
+    {
+      from: "track1",
+      to: "send",
+      level: 100,
+      preFader: false,
+      active: true,
+      sourceChannel: -1,
+    },
+    {
+      from: "track2",
+      to: "send",
+      level: 100,
+      preFader: false,
+      active: true,
+      sourceChannel: -1,
+    },
+    {
+      from: "send",
+      to: "main",
+      level: 100,
+      preFader: false,
+      active: true,
+      sourceChannel: -1,
+    },
+    {
+      from: "main",
+      to: "out1",
+      level: 100,
+      preFader: false,
+      active: true,
+      sourceChannel: -1,
+    },
+    {
+      from: "main",
+      to: "out2",
+      level: 100,
+      preFader: false,
+      active: true,
+      sourceChannel: -1,
+    },
+    {
+      from: "click",
+      to: "out2",
+      level: 100,
+      preFader: false,
+      active: true,
+      sourceChannel: -1,
+    },
   ];
 
   it("keeps everything upstream and downstream of the focus", () => {
@@ -338,8 +380,22 @@ describe("pathThrough", () => {
 
   it("terminates on a routing loop", () => {
     const loop: MixGraphEdge[] = [
-      { from: "a", to: "b", level: 100, preFader: false, active: true, sourceChannel: -1 },
-      { from: "b", to: "a", level: 100, preFader: false, active: true, sourceChannel: -1 },
+      {
+        from: "a",
+        to: "b",
+        level: 100,
+        preFader: false,
+        active: true,
+        sourceChannel: -1,
+      },
+      {
+        from: "b",
+        to: "a",
+        level: 100,
+        preFader: false,
+        active: true,
+        sourceChannel: -1,
+      },
     ];
     const p = pathThrough(loop, "a");
     expect([...p.strips].sort()).toEqual(["a", "b"]);

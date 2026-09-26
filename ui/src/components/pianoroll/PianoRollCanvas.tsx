@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MidiNoteRow, MidiRegionRow } from "../../lib/types";
+import type { MidiNoteRow, MidiRegionRow } from "../../lib/state/types";
 import { paintBrushNote, sliceNote } from "./pianoRollModel";
-import { isBlackKey, isPitchInScale, pitchToName, snapPitchToScale } from "./scales";
+import {
+  isBlackKey,
+  isPitchInScale,
+  pitchToName,
+  snapPitchToScale,
+} from "./scales";
 import { SpatialNoteIndex } from "./spatialIndex";
 import type {
   DraggingState,
@@ -99,14 +104,19 @@ export function PianoRollCanvas({
   // Coordinate transforms
   const beatToX = useCallback(
     (beat: number) => {
-      return viewport.keyWidth + (beat - viewport.scrollBeats) * viewport.pixelsPerBeat;
+      return (
+        viewport.keyWidth +
+        (beat - viewport.scrollBeats) * viewport.pixelsPerBeat
+      );
     },
     [viewport.keyWidth, viewport.scrollBeats, viewport.pixelsPerBeat],
   );
 
   const xToBeat = useCallback(
     (x: number) => {
-      return viewport.scrollBeats + (x - viewport.keyWidth) / viewport.pixelsPerBeat;
+      return (
+        viewport.scrollBeats + (x - viewport.keyWidth) / viewport.pixelsPerBeat
+      );
     },
     [viewport.keyWidth, viewport.scrollBeats, viewport.pixelsPerBeat],
   );
@@ -115,17 +125,31 @@ export function PianoRollCanvas({
     (pitch: number, height: number) => {
       const gridHeight = height - viewport.velocityLaneHeight;
       // High pitches at top, low pitches at bottom
-      return gridHeight - (pitch - viewport.scrollPitch + 1) * viewport.pixelsPerPitch;
+      return (
+        gridHeight -
+        (pitch - viewport.scrollPitch + 1) * viewport.pixelsPerPitch
+      );
     },
-    [viewport.velocityLaneHeight, viewport.scrollPitch, viewport.pixelsPerPitch],
+    [
+      viewport.velocityLaneHeight,
+      viewport.scrollPitch,
+      viewport.pixelsPerPitch,
+    ],
   );
 
   const yToPitch = useCallback(
     (y: number, height: number) => {
       const gridHeight = height - viewport.velocityLaneHeight;
-      return viewport.scrollPitch + Math.floor((gridHeight - y) / viewport.pixelsPerPitch);
+      return (
+        viewport.scrollPitch +
+        Math.floor((gridHeight - y) / viewport.pixelsPerPitch)
+      );
     },
-    [viewport.velocityLaneHeight, viewport.scrollPitch, viewport.pixelsPerPitch],
+    [
+      viewport.velocityLaneHeight,
+      viewport.scrollPitch,
+      viewport.pixelsPerPitch,
+    ],
   );
 
   // Quantize beat to grid snap
@@ -166,11 +190,20 @@ export function PianoRollCanvas({
 
       // Row background
       if (isBlack) {
-        ctx.fillStyle = inScale ? "rgba(25, 27, 33, 0.95)" : "rgba(16, 17, 21, 0.95)";
+        ctx.fillStyle = inScale
+          ? "rgba(25, 27, 33, 0.95)"
+          : "rgba(16, 17, 21, 0.95)";
       } else {
-        ctx.fillStyle = inScale ? "rgba(35, 38, 47, 0.85)" : "rgba(24, 26, 31, 0.85)";
+        ctx.fillStyle = inScale
+          ? "rgba(35, 38, 47, 0.85)"
+          : "rgba(24, 26, 31, 0.85)";
       }
-      ctx.fillRect(viewport.keyWidth, y, width - viewport.keyWidth, viewport.pixelsPerPitch);
+      ctx.fillRect(
+        viewport.keyWidth,
+        y,
+        width - viewport.keyWidth,
+        viewport.pixelsPerPitch,
+      );
 
       // Pitch divider line
       ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
@@ -198,7 +231,9 @@ export function PianoRollCanvas({
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, gridHeight);
-        ctx.strokeStyle = isBarLine ? "rgba(255, 255, 255, 0.22)" : "rgba(255, 255, 255, 0.08)";
+        ctx.strokeStyle = isBarLine
+          ? "rgba(255, 255, 255, 0.22)"
+          : "rgba(255, 255, 255, 0.08)";
         ctx.lineWidth = isBarLine ? 1.5 : 1;
         ctx.stroke();
 
@@ -234,7 +269,12 @@ export function PianoRollCanvas({
     }
 
     // ── 4. Active MIDI Notes ───────────────────────────────────────────────
-    const visibleNotes = spatialIndex.current.queryRange(minBeat, maxBeat, minPitch, maxPitch);
+    const visibleNotes = spatialIndex.current.queryRange(
+      minBeat,
+      maxBeat,
+      minPitch,
+      maxPitch,
+    );
     const [baseR, baseG, baseB] = parseRgb(trackColor);
 
     for (const note of visibleNotes) {
@@ -261,7 +301,9 @@ export function PianoRollCanvas({
       ctx.fill();
 
       // Border styling
-      ctx.strokeStyle = isSelected ? "rgba(255, 255, 255, 0.95)" : "rgba(0, 0, 0, 0.45)";
+      ctx.strokeStyle = isSelected
+        ? "rgba(255, 255, 255, 0.95)"
+        : "rgba(0, 0, 0, 0.45)";
       ctx.lineWidth = isSelected ? 2 : 1;
       ctx.stroke();
 
@@ -280,13 +322,18 @@ export function PianoRollCanvas({
     }
 
     // ── 5. Marquee Selection Box ───────────────────────────────────────────
-    if (draggingRef.current?.type === "marquee" && draggingRef.current.marqueeBox) {
+    if (
+      draggingRef.current?.type === "marquee" &&
+      draggingRef.current.marqueeBox
+    ) {
       const { startBeat, startPitch, currentBeat, currentPitch } =
         draggingRef.current.marqueeBox;
       const x1 = beatToX(Math.min(startBeat, currentBeat));
       const x2 = beatToX(Math.max(startBeat, currentBeat));
       const y1 = pitchToY(Math.max(startPitch, currentPitch), height);
-      const y2 = pitchToY(Math.min(startPitch, currentPitch), height) + viewport.pixelsPerPitch;
+      const y2 =
+        pitchToY(Math.min(startPitch, currentPitch), height) +
+        viewport.pixelsPerPitch;
 
       ctx.fillStyle = "rgba(59, 130, 246, 0.15)";
       ctx.strokeStyle = "rgba(59, 130, 246, 0.85)";
@@ -332,7 +379,11 @@ export function PianoRollCanvas({
     ctx.stroke();
 
     // ── 7. Playhead Line ───────────────────────────────────────────────────
-    if (playheadBeats !== undefined && playheadBeats >= minBeat && playheadBeats <= maxBeat) {
+    if (
+      playheadBeats !== undefined &&
+      playheadBeats >= minBeat &&
+      playheadBeats <= maxBeat
+    ) {
       const px = beatToX(playheadBeats);
       ctx.strokeStyle = "#ef4444";
       ctx.lineWidth = 2;
@@ -447,7 +498,9 @@ export function PianoRollCanvas({
       );
 
       if (lane && lane.points && lane.points.length > 0) {
-        const sorted = [...lane.points].sort((a, b) => a.timeBeats - b.timeBeats);
+        const sorted = [...lane.points].sort(
+          (a, b) => a.timeBeats - b.timeBeats,
+        );
         const valToY = (v: number) => {
           const norm = isPB ? (v + 8192) / 16383 : v / 127;
           return botY - norm * (botY - topY);
@@ -508,6 +561,7 @@ export function PianoRollCanvas({
     selectedNoteIds,
     playheadBeats,
     hoveredPitch,
+    trackColor,
     beatToX,
     xToBeat,
     pitchToY,
@@ -553,9 +607,16 @@ export function PianoRollCanvas({
     if (y >= gridHeight) {
       if (bottomLane === "velocity") {
         const beat = xToBeat(x);
-        const hit = spatialIndex.current.hitTest(beat, Math.floor(viewport.scrollPitch + 12), 0.5);
+        const hit = spatialIndex.current.hitTest(
+          beat,
+          Math.floor(viewport.scrollPitch + 12),
+          0.5,
+        );
         if (hit) {
-          const vel = Math.max(0.01, Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)));
+          const vel = Math.max(
+            0.01,
+            Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)),
+          );
           const updated = region.notes.map((n) =>
             n.id === hit.note.id ? { ...n, velocity: vel } : n,
           );
@@ -574,9 +635,14 @@ export function PianoRollCanvas({
         const beat = Math.max(0, snapBeat(xToBeat(x)));
         const topY = gridHeight + 18;
         const botY = height - 6;
-        const norm = Math.max(0, Math.min(1, (botY - y) / Math.max(1, botY - topY)));
+        const norm = Math.max(
+          0,
+          Math.min(1, (botY - y) / Math.max(1, botY - topY)),
+        );
         const isPB = bottomLane === "pitchBend";
-        const val = isPB ? Math.round(norm * 16383 - 8192) : Math.round(norm * 127);
+        const val = isPB
+          ? Math.round(norm * 16383 - 8192)
+          : Math.round(norm * 127);
 
         const lanes = region.automationLanes ? [...region.automationLanes] : [];
         let laneIdx = lanes.findIndex(
@@ -605,12 +671,18 @@ export function PianoRollCanvas({
             points: [{ timeBeats: beat, value: val, curve: 0 }],
           });
         } else {
-          const lane = { ...lanes[laneIdx], points: [...lanes[laneIdx].points] };
+          const lane = {
+            ...lanes[laneIdx],
+            points: [...lanes[laneIdx].points],
+          };
           const existingPtIdx = lane.points.findIndex(
             (p) => Math.abs(p.timeBeats - beat) < 0.1,
           );
           if (existingPtIdx >= 0) {
-            lane.points[existingPtIdx] = { ...lane.points[existingPtIdx], value: val };
+            lane.points[existingPtIdx] = {
+              ...lane.points[existingPtIdx],
+              value: val,
+            };
           } else {
             lane.points.push({ timeBeats: beat, value: val, curve: 0 });
             lane.points.sort((a, b) => a.timeBeats - b.timeBeats);
@@ -674,7 +746,12 @@ export function PianoRollCanvas({
         snappedPitch = snapPitchToScale(snappedPitch, rootNote, scaleMode);
       }
       const dur = snap > 0 ? snap : 0.25;
-      const painted = paintBrushNote(region.notes, snappedBeat, snappedPitch, dur);
+      const painted = paintBrushNote(
+        region.notes,
+        snappedBeat,
+        snappedPitch,
+        dur,
+      );
       if (painted) {
         onNotesChange(painted.updatedNotes);
         onSelectionChange(new Set([painted.newNote.id]));
@@ -791,9 +868,16 @@ export function PianoRollCanvas({
     const dragging = draggingRef.current;
 
     if (dragging.type === "velocity") {
-      const vel = Math.max(0.01, Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)));
+      const vel = Math.max(
+        0.01,
+        Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)),
+      );
       const beat = xToBeat(x);
-      const hit = spatialIndex.current.hitTest(beat, Math.floor(viewport.scrollPitch + 12), 0.5);
+      const hit = spatialIndex.current.hitTest(
+        beat,
+        Math.floor(viewport.scrollPitch + 12),
+        0.5,
+      );
       if (hit) {
         const updated = region.notes.map((n) =>
           n.id === hit.note.id ? { ...n, velocity: vel } : n,
@@ -807,9 +891,14 @@ export function PianoRollCanvas({
       const curBeat = Math.max(0, snapBeat(xToBeat(x)));
       const topY = gridHeight + 18;
       const botY = height - 6;
-      const norm = Math.max(0, Math.min(1, (botY - y) / Math.max(1, botY - topY)));
+      const norm = Math.max(
+        0,
+        Math.min(1, (botY - y) / Math.max(1, botY - topY)),
+      );
       const isPB = bottomLane === "pitchBend";
-      const val = isPB ? Math.round(norm * 16383 - 8192) : Math.round(norm * 127);
+      const val = isPB
+        ? Math.round(norm * 16383 - 8192)
+        : Math.round(norm * 127);
 
       const lanes = region.automationLanes ? [...region.automationLanes] : [];
       const laneIdx = lanes.findIndex(
@@ -825,7 +914,10 @@ export function PianoRollCanvas({
           (p) => Math.abs(p.timeBeats - curBeat) < 0.1,
         );
         if (existingPtIdx >= 0) {
-          lane.points[existingPtIdx] = { ...lane.points[existingPtIdx], value: val };
+          lane.points[existingPtIdx] = {
+            ...lane.points[existingPtIdx],
+            value: val,
+          };
         } else {
           lane.points.push({ timeBeats: curBeat, value: val, curve: 0 });
           lane.points.sort((a, b) => a.timeBeats - b.timeBeats);
@@ -875,7 +967,9 @@ export function PianoRollCanvas({
         const initial = dragging.initialNotesSnapshot.get(note.id) || note;
         const rawDuration = initial.durationBeats + deltaBeats;
         const snappedDuration =
-          snap > 0 ? Math.max(snap, snapBeat(rawDuration)) : Math.max(0.125, rawDuration);
+          snap > 0
+            ? Math.max(snap, snapBeat(rawDuration))
+            : Math.max(0.125, rawDuration);
         return { ...note, durationBeats: snappedDuration };
       });
 
@@ -891,7 +985,12 @@ export function PianoRollCanvas({
       const minP = Math.min(dragging.marqueeBox.startPitch, currentPitch);
       const maxP = Math.max(dragging.marqueeBox.startPitch, currentPitch);
 
-      const enclosedNotes = spatialIndex.current.queryRange(minB, maxB, minP, maxP);
+      const enclosedNotes = spatialIndex.current.queryRange(
+        minB,
+        maxB,
+        minP,
+        maxP,
+      );
       onSelectionChange(new Set(enclosedNotes.map((n) => n.id)));
       render();
     }
@@ -915,32 +1014,47 @@ export function PianoRollCanvas({
       const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
       setViewport((v) => ({
         ...v,
-        pixelsPerBeat: Math.max(20, Math.min(400, v.pixelsPerBeat * zoomFactor)),
+        pixelsPerBeat: Math.max(
+          20,
+          Math.min(400, v.pixelsPerBeat * zoomFactor),
+        ),
       }));
     } else if (e.altKey) {
       // Vertical zoom
       const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
       setViewport((v) => ({
         ...v,
-        pixelsPerPitch: Math.max(10, Math.min(40, v.pixelsPerPitch * zoomFactor)),
+        pixelsPerPitch: Math.max(
+          10,
+          Math.min(40, v.pixelsPerPitch * zoomFactor),
+        ),
       }));
     } else if (e.shiftKey) {
       // Horizontal scroll
       setViewport((v) => ({
         ...v,
-        scrollBeats: Math.max(0, v.scrollBeats + (e.deltaY || e.deltaX) / v.pixelsPerBeat),
+        scrollBeats: Math.max(
+          0,
+          v.scrollBeats + (e.deltaY || e.deltaX) / v.pixelsPerBeat,
+        ),
       }));
     } else {
       // Vertical pitch scroll
       setViewport((v) => ({
         ...v,
-        scrollPitch: Math.max(0, Math.min(100, v.scrollPitch - e.deltaY / v.pixelsPerPitch)),
+        scrollPitch: Math.max(
+          0,
+          Math.min(100, v.scrollPitch - e.deltaY / v.pixelsPerPitch),
+        ),
       }));
     }
   };
 
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden select-none bg-background">
+    <div
+      ref={containerRef}
+      className="relative h-full w-full overflow-hidden select-none bg-background"
+    >
       <canvas
         ref={canvasRef}
         onPointerDown={handlePointerDown}

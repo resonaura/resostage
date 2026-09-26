@@ -1,9 +1,9 @@
 import { EmptyState, Separator, Switch } from "@heroui/react";
 import { AudioWaveform, Blend, Repeat, Rewind } from "lucide-react";
 import { useMemo, useRef } from "react";
-import { builder } from "../../lib/api";
-import { createEditGesture } from "../../lib/editGesture";
-import type { RegionRow, SongRow, TrackRow } from "../../lib/types";
+import { builder } from "../../lib/state/api";
+import { createEditGesture } from "../../lib/interaction/editGesture";
+import type { RegionRow, SongRow, TrackRow } from "../../lib/state/types";
 import { Button, Select, ToggleButton } from "../ui";
 import { Field, LabeledSlider } from "../light/LightControls";
 import {
@@ -84,7 +84,10 @@ export function RegionSidePanel({
   const gesture = useRef(createEditGesture()).current;
 
   const patch = (
-    fields: Omit<Parameters<typeof builder.regionUpdate>[0], "songIndex" | "regionId">,
+    fields: Omit<
+      Parameters<typeof builder.regionUpdate>[0],
+      "songIndex" | "regionId"
+    >,
   ) => {
     if (!region) return;
     void builder.regionUpdate({
@@ -133,7 +136,8 @@ export function RegionSidePanel({
     if (!region) return null;
     const song = songs[songIndex];
     if (!song?.regions) return null;
-    const songEnd = song.endSeconds && song.endSeconds > 0 ? song.endSeconds : 0;
+    const songEnd =
+      song.endSeconds && song.endSeconds > 0 ? song.endSeconds : 0;
     const resolve = (r: RegionRow) =>
       r.durationSeconds > 0
         ? r.durationSeconds
@@ -376,7 +380,7 @@ export function RegionSidePanel({
             {loop?.enabled && (
               <LabeledSlider
                 label="Loop length"
-              defaultValue={0}
+                defaultValue={0}
                 value={loop.lengthSeconds ?? 0}
                 min={0}
                 max={Math.max(1, region.durationSeconds || 8)}

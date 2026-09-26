@@ -1,8 +1,8 @@
 #include "doctest.h"
 #include "project/ProjectJson.h"
 #include "project/ProjectLoader.h"
-#include "audio/PeakOverview.h"
-#include "audio/PeakCache.h"
+#include "audio/peaks/PeakOverview.h"
+#include "audio/peaks/PeakCache.h"
 
 #include <filesystem>
 #include <string>

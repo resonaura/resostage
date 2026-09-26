@@ -47,7 +47,9 @@ export class MacPlatformAdapter extends PlatformAdapter {
 
   override cleanupBeforeBackendSpawn(): void {
     try {
-      execFileSync("pkill", ["-9", "-x", "ResoStage Core"], { stdio: "ignore" });
+      execFileSync("pkill", ["-9", "-x", "ResoStage Core"], {
+        stdio: "ignore",
+      });
     } catch {
       /* ignore */
     }
@@ -55,17 +57,93 @@ export class MacPlatformAdapter extends PlatformAdapter {
 
   override forceKillSelfTree(backendPid?: number): void {
     const candidates = [
-      path.join(process.resourcesPath, "ResoStage Kaishaku.app", "Contents", "MacOS", "ResoStage Kaishaku"),
-      path.join(process.resourcesPath, "ResoStage Kaishaku.app", "Contents", "MacOS", "kaishaku"),
-      path.join(process.resourcesPath, "kaishaku.app", "Contents", "MacOS", "kaishaku"),
+      path.join(
+        process.resourcesPath,
+        "ResoStage Kaishaku.app",
+        "Contents",
+        "MacOS",
+        "ResoStage Kaishaku",
+      ),
+      path.join(
+        process.resourcesPath,
+        "ResoStage Kaishaku.app",
+        "Contents",
+        "MacOS",
+        "kaishaku",
+      ),
+      path.join(
+        process.resourcesPath,
+        "kaishaku.app",
+        "Contents",
+        "MacOS",
+        "kaishaku",
+      ),
       path.join(process.resourcesPath, "kaishaku"),
       path.join(process.resourcesPath, "..", "kaishaku"),
       path.join(path.dirname(process.execPath), "kaishaku"),
-      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "kaishaku_artefacts", "RelWithDebInfo", "ResoStage Kaishaku.app", "Contents", "MacOS", "ResoStage Kaishaku"),
-      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "kaishaku.app", "Contents", "MacOS", "kaishaku"),
-      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "kaishaku"),
-      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "RelWithDebInfo", "kaishaku.app", "Contents", "MacOS", "kaishaku"),
-      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "RelWithDebInfo", "kaishaku"),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "core",
+        "build",
+        "app",
+        "kaishaku_artefacts",
+        "RelWithDebInfo",
+        "ResoStage Kaishaku.app",
+        "Contents",
+        "MacOS",
+        "ResoStage Kaishaku",
+      ),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "core",
+        "build",
+        "app",
+        "kaishaku.app",
+        "Contents",
+        "MacOS",
+        "kaishaku",
+      ),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "core",
+        "build",
+        "app",
+        "kaishaku",
+      ),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "core",
+        "build",
+        "app",
+        "RelWithDebInfo",
+        "kaishaku.app",
+        "Contents",
+        "MacOS",
+        "kaishaku",
+      ),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "core",
+        "build",
+        "app",
+        "RelWithDebInfo",
+        "kaishaku",
+      ),
     ];
 
     const pidsToKill: string[] = [String(process.pid)];
@@ -95,11 +173,15 @@ export class MacPlatformAdapter extends PlatformAdapter {
     this.ensureNativeHaptics();
   }
 
-  private loadNativeLib<T>(libName: string): ((
-    funcName: string,
-    ret: string,
-    args: string[],
-  ) => (...args: unknown[]) => void) | null {
+  private loadNativeLib<T>(
+    libName: string,
+  ):
+    | ((
+        funcName: string,
+        ret: string,
+        args: string[],
+      ) => (...args: unknown[]) => void)
+    | null {
     // This adapter compiles to Contents/Resources/app/dist/platform, but the
     // native dylibs are built to dist/ (one level up).
     const libPath = path.join(import.meta.dirname, "..", libName);
@@ -118,17 +200,19 @@ export class MacPlatformAdapter extends PlatformAdapter {
     }
   }
 
-  private ensureNativeMenuFlash(): ((topTitle: string, itemTitle: string) => void) | null {
+  private ensureNativeMenuFlash():
+    | ((topTitle: string, itemTitle: string) => void)
+    | null {
     if (this.flashMenuItemNative) return this.flashMenuItemNative;
     if (this.flashLoadAttempted) return null;
     this.flashLoadAttempted = true;
     const load = this.loadNativeLib("MenuFlash.dylib");
     if (!load) return null;
     try {
-      this.flashMenuItemNative = load("FlashMenuItem", "void", ["str", "str"]) as (
-        topTitle: string,
-        itemTitle: string,
-      ) => void;
+      this.flashMenuItemNative = load("FlashMenuItem", "void", [
+        "str",
+        "str",
+      ]) as (topTitle: string, itemTitle: string) => void;
       console.log("MenuFlash: loaded");
       return this.flashMenuItemNative;
     } catch (err) {
@@ -177,14 +261,84 @@ export class MacPlatformAdapter extends PlatformAdapter {
   override findNestedCoreBinary(): string | null {
     const resourcesDir = path.resolve(import.meta.dirname, "..", "..", "..");
     const candidates = [
-      path.join(resourcesDir, "ResoStage Core.app", "Contents", "MacOS", "ResoStage"),
-      path.join(resourcesDir, "ResoStage Core.app", "Contents", "MacOS", "ResoStage Core"),
-      path.join(resourcesDir, "ResoStage.app", "Contents", "MacOS", "ResoStage"),
-      path.join(resourcesDir, "ResoStage.app", "Contents", "MacOS", "ResoStage Core"),
-      path.join(process.cwd(), "build", "mac", "arm64", "ResoStage.app", "Contents", "Resources", "ResoStage Core.app", "Contents", "MacOS", "ResoStage"),
-      path.join(process.cwd(), "build", "mac", "x64", "ResoStage.app", "Contents", "Resources", "ResoStage Core.app", "Contents", "MacOS", "ResoStage"),
-      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "RelWithDebInfo", "ResoStage.app", "Contents", "MacOS", "ResoStage"),
-      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "Debug", "ResoStage.app", "Contents", "MacOS", "ResoStage"),
+      path.join(
+        resourcesDir,
+        "ResoStage Core.app",
+        "Contents",
+        "MacOS",
+        "ResoStage",
+      ),
+      path.join(
+        resourcesDir,
+        "ResoStage Core.app",
+        "Contents",
+        "MacOS",
+        "ResoStage Core",
+      ),
+      path.join(
+        resourcesDir,
+        "ResoStage.app",
+        "Contents",
+        "MacOS",
+        "ResoStage",
+      ),
+      path.join(
+        resourcesDir,
+        "ResoStage.app",
+        "Contents",
+        "MacOS",
+        "ResoStage Core",
+      ),
+      path.join(
+        process.cwd(),
+        "build",
+        "mac",
+        "arm64",
+        "ResoStage.app",
+        "Contents",
+        "Resources",
+        "ResoStage Core.app",
+        "Contents",
+        "MacOS",
+        "ResoStage",
+      ),
+      path.join(
+        process.cwd(),
+        "build",
+        "mac",
+        "x64",
+        "ResoStage.app",
+        "Contents",
+        "Resources",
+        "ResoStage Core.app",
+        "Contents",
+        "MacOS",
+        "ResoStage",
+      ),
+      path.join(
+        process.cwd(),
+        "core",
+        "build",
+        "app",
+        "ResoStage_artefacts",
+        "RelWithDebInfo",
+        "ResoStage.app",
+        "Contents",
+        "MacOS",
+        "ResoStage",
+      ),
+      path.join(
+        process.cwd(),
+        "core",
+        "build",
+        "app",
+        "ResoStage_artefacts",
+        "Debug",
+        "ResoStage.app",
+        "Contents",
+        "MacOS",
+        "ResoStage",
+      ),
     ];
     for (const c of candidates) {
       if (existsSync(c)) return c;

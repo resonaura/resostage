@@ -21,8 +21,12 @@ import {
   Volume2,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { resolveCssVar, withHexAlpha } from "../../lib/cssColor";
-import { extOutColor, masterColor, sendColor } from "../../lib/mixerColors";
+import { resolveCssVar, withHexAlpha } from "../../lib/theme/cssColor";
+import {
+  extOutColor,
+  masterColor,
+  sendColor,
+} from "../../lib/theme/mixerColors";
 import { roleColor } from "../../lib/theme";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import {

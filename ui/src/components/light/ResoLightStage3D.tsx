@@ -1,15 +1,19 @@
 import { Grid, OrbitControls, Text } from "@react-three/drei";
-import { addRafTask } from "../../lib/rafLoop";
-import { Canvas, events as createPointerEvents, useThree } from "@react-three/fiber";
+import { addRafTask } from "../../lib/state/rafLoop";
+import {
+  Canvas,
+  events as createPointerEvents,
+  useThree,
+} from "@react-three/fiber";
 import { Maximize2, MoveUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { useRenderActive } from "../../lib/appActivity";
-import type { FixtureShape } from "../../lib/dmxProfiles";
-import { beginCancellableDrag } from "../../lib/dragCancel";
-import type { LightCueValue } from "../../lib/lightCueInterpolation";
-import type { LiveLedColor } from "../../lib/liveLevels";
-import type { LightFixtureRow } from "../../lib/types";
+import { useRenderActive } from "../../lib/state/appActivity";
+import type { FixtureShape } from "../../lib/light/dmxProfiles";
+import { beginCancellableDrag } from "../../lib/interaction/dragCancel";
+import type { LightCueValue } from "../../lib/light/lightCueInterpolation";
+import type { LiveLedColor } from "../../lib/audio/liveLevels";
+import type { LightFixtureRow } from "../../lib/state/types";
 import { Button } from "../ui";
 
 // One stage-grid cell is deliberately small enough for practical placement,
@@ -470,30 +474,30 @@ export function ResoLightStage3D({
   // a canvas we have already walked away from. See the context-lost handler.
   const liveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   /**
- * The stock pointer-event manager, minus the crash when it has nothing to
- * bind to.
- *
- * react-three-fiber builds its renderer asynchronously and then calls
- * `events.connect(eventSource)`. If the stage was unmounted in between -- and
- * a tab switch during startup is enough -- that arrives as null and the stock
- * manager goes straight to `null.addEventListener`. There is nothing to
- * connect to and nothing that wants connecting: the canvas it belonged to is
- * already gone. Skipping is the whole correct behaviour, and this is the only
- * seam r3f offers to say so.
- */
-const safePointerEvents: typeof createPointerEvents = (store) => {
-  const manager = createPointerEvents(store);
-  const connect = manager.connect;
-  return {
-    ...manager,
-    connect: (target: HTMLElement) => {
-      if (!target) return;
-      connect?.(target);
-    },
+   * The stock pointer-event manager, minus the crash when it has nothing to
+   * bind to.
+   *
+   * react-three-fiber builds its renderer asynchronously and then calls
+   * `events.connect(eventSource)`. If the stage was unmounted in between -- and
+   * a tab switch during startup is enough -- that arrives as null and the stock
+   * manager goes straight to `null.addEventListener`. There is nothing to
+   * connect to and nothing that wants connecting: the canvas it belonged to is
+   * already gone. Skipping is the whole correct behaviour, and this is the only
+   * seam r3f offers to say so.
+   */
+  const safePointerEvents: typeof createPointerEvents = (store) => {
+    const manager = createPointerEvents(store);
+    const connect = manager.connect;
+    return {
+      ...manager,
+      connect: (target: HTMLElement) => {
+        if (!target) return;
+        connect?.(target);
+      },
+    };
   };
-};
 
-/** The wrapper r3f binds its pointer events to; see the Canvas below. */
+  /** The wrapper r3f binds its pointer events to; see the Canvas below. */
   const stageRootRef = useRef<HTMLDivElement>(null);
   /**
    * The Canvas waits one commit for the wrapper above to exist.
@@ -603,157 +607,157 @@ const safePointerEvents: typeof createPointerEvents = (store) => {
       )}
 
       {stageRootReady && (
-      <Canvas
-        key={canvasEpoch}
-        // Listen on the wrapper, not on whatever the canvas's parent happens
-        // to be at the time.
-        //
-        // Left to itself react-three-fiber connects its pointer events to
-        // `canvas.parentElement`, which is null if the canvas has already been
-        // detached by the time that effect runs -- a tab switch or a
-        // canvasEpoch remount is enough. That is the
-        // "Cannot read properties of null (reading 'addEventListener')" this
-        // component logged on mount. The wrapper outlives every canvas it
-        // holds, so there is nothing to race.
-        eventSource={stageRootRef as React.RefObject<HTMLElement>}
-        events={safePointerEvents}
-        camera={{ position: [4, 3.5, 5], fov: 50 }}
-        style={{
-          width: "100%",
-          height: "100%",
-          // The stage does two different things with a drag, and until you
-          // press nothing says which: orbit the camera, or move the fixture
-          // under the pointer. `grab` covers both -- the gesture is the same
-          // and the target decides -- and `grabbing` confirms one has started.
-          // Editing is off in the compact preview, where orbit is all there is.
-          cursor: dragId !== null ? "grabbing" : minimal ? "default" : "grab",
-        }}
-        // On screen this is an ordinary continuous render loop -- unchanged,
-        // so nothing about how the stage looks or how the shaders run is
-        // being traded away. "never" only ever applies while the window is
-        // genuinely not being shown AND the transport is stopped, where the
-        // GPU was previously redrawing the same frame sixty times a second
-        // for nobody. Resuming is one prop flip on the next event; the WebGL
-        // context, camera and scene all stay exactly as they were.
-        frameloop={renderActive ? "always" : "never"}
-        // A 3x+ HiDPI panel would otherwise render this preview at nine times
-        // the pixels of a 1x one for no visible gain at these sizes.
-        dpr={[1, 2]}
-        onCreated={({ gl }) => {
-          const el = gl.domElement;
-          liveCanvasRef.current = el;
-          // Bound to THIS canvas, not to window.
+        <Canvas
+          key={canvasEpoch}
+          // Listen on the wrapper, not on whatever the canvas's parent happens
+          // to be at the time.
           //
-          // It used to be a capture listener on window, which meant any
-          // canvas anywhere losing its context rebuilt this stage -- including
-          // the context of a canvas this component had itself just discarded.
-          // On startup that is exactly what happened: the stage faded in,
-          // the superseded canvas released its context a beat later, and the
-          // fade was yanked back to zero and restarted. Hence the blink.
-          //
-          // A canvas that is no longer in the document, or is not the one
-          // currently on screen, has nothing worth rebuilding.
-          const lost = (e: Event) => {
-            e.preventDefault();
-            if (!aliveRef.current) return;
-            if (!el.isConnected || liveCanvasRef.current !== el) return;
-            setFadedIn(false);
-            setCanvasEpoch((n) => n + 1);
-          };
-          el.addEventListener("webglcontextlost", lost, false);
-        }}
-      >
-        <color attach="background" args={[stageColors.background]} />
-        <ambientLight intensity={0.55} />
-        <directionalLight position={[5, 8, 4]} intensity={0.7} />
-        <Grid
-          args={[40, 40]}
-          cellColor={stageColors.cell}
-          sectionColor={stageColors.section}
-          fadeDistance={28}
-          infiniteGrid
-        />
-
-        {/* Invisible ground plane -- drag raycast target for edit mode. */}
-        <mesh
-          rotation={[-Math.PI / 2, 0, 0]}
-          visible={false}
-          onPointerMove={(e) => {
-            if (mode !== "edit" || dragId === null) return;
-            e.stopPropagation();
-            setDragPos({
-              x: snapToStageGrid(e.point.x),
-              z: snapToStageGrid(e.point.z),
-            });
+          // Left to itself react-three-fiber connects its pointer events to
+          // `canvas.parentElement`, which is null if the canvas has already been
+          // detached by the time that effect runs -- a tab switch or a
+          // canvasEpoch remount is enough. That is the
+          // "Cannot read properties of null (reading 'addEventListener')" this
+          // component logged on mount. The wrapper outlives every canvas it
+          // holds, so there is nothing to race.
+          eventSource={stageRootRef as React.RefObject<HTMLElement>}
+          events={safePointerEvents}
+          camera={{ position: [4, 3.5, 5], fov: 50 }}
+          style={{
+            width: "100%",
+            height: "100%",
+            // The stage does two different things with a drag, and until you
+            // press nothing says which: orbit the camera, or move the fixture
+            // under the pointer. `grab` covers both -- the gesture is the same
+            // and the target decides -- and `grabbing` confirms one has started.
+            // Editing is off in the compact preview, where orbit is all there is.
+            cursor: dragId !== null ? "grabbing" : minimal ? "default" : "grab",
           }}
-          onPointerUp={() => {
-            if (dragId !== null && dragPos !== null)
-              onFixtureMoved?.(
-                dragId,
-                snapToStageGrid(dragPos.x),
-                snapToStageGrid(dragPos.z),
-              );
-            setDragId(null);
-            setDragPos(null);
-          }}
-          onPointerLeave={() => {
-            if (dragId !== null && dragPos !== null)
-              onFixtureMoved?.(
-                dragId,
-                snapToStageGrid(dragPos.x),
-                snapToStageGrid(dragPos.z),
-              );
-            setDragId(null);
-            setDragPos(null);
+          // On screen this is an ordinary continuous render loop -- unchanged,
+          // so nothing about how the stage looks or how the shaders run is
+          // being traded away. "never" only ever applies while the window is
+          // genuinely not being shown AND the transport is stopped, where the
+          // GPU was previously redrawing the same frame sixty times a second
+          // for nobody. Resuming is one prop flip on the next event; the WebGL
+          // context, camera and scene all stay exactly as they were.
+          frameloop={renderActive ? "always" : "never"}
+          // A 3x+ HiDPI panel would otherwise render this preview at nine times
+          // the pixels of a 1x one for no visible gain at these sizes.
+          dpr={[1, 2]}
+          onCreated={({ gl }) => {
+            const el = gl.domElement;
+            liveCanvasRef.current = el;
+            // Bound to THIS canvas, not to window.
+            //
+            // It used to be a capture listener on window, which meant any
+            // canvas anywhere losing its context rebuilt this stage -- including
+            // the context of a canvas this component had itself just discarded.
+            // On startup that is exactly what happened: the stage faded in,
+            // the superseded canvas released its context a beat later, and the
+            // fade was yanked back to zero and restarted. Hence the blink.
+            //
+            // A canvas that is no longer in the document, or is not the one
+            // currently on screen, has nothing worth rebuilding.
+            const lost = (e: Event) => {
+              e.preventDefault();
+              if (!aliveRef.current) return;
+              if (!el.isConnected || liveCanvasRef.current !== el) return;
+              setFadedIn(false);
+              setCanvasEpoch((n) => n + 1);
+            };
+            el.addEventListener("webglcontextlost", lost, false);
           }}
         >
-          <planeGeometry args={[200, 200]} />
-        </mesh>
+          <color attach="background" args={[stageColors.background]} />
+          <ambientLight intensity={0.55} />
+          <directionalLight position={[5, 8, 4]} intensity={0.7} />
+          <Grid
+            args={[40, 40]}
+            cellColor={stageColors.cell}
+            sectionColor={stageColors.section}
+            fadeDistance={28}
+            infiniteGrid
+          />
 
-        {fixtures.map((f, i) => {
-          const isDragging = dragId === f.id;
-          const x =
-            isDragging && dragPos ? dragPos.x : snapToStageGrid(f.position.x);
-          const z =
-            isDragging && dragPos ? dragPos.z : snapToStageGrid(f.position.z);
-          const commonProps = {
-            fixture: f,
-            fixtureIndex: i,
-            live,
-            x,
-            z,
-            selected: mode === "edit" && f.id === selectedFixtureId,
-            editable: mode === "edit",
-            onPointerDownStart: () => {
-              onSelectFixture?.(f.id);
-              if (mode === "edit") setDragId(f.id);
-            },
-          };
-          return f.kind === "resolight::bar" ? (
-            <ResoLightBar key={f.id} {...commonProps} />
-          ) : (
-            <GenericFixture key={f.id} {...commonProps} />
-          );
-        })}
+          {/* Invisible ground plane -- drag raycast target for edit mode. */}
+          <mesh
+            rotation={[-Math.PI / 2, 0, 0]}
+            visible={false}
+            onPointerMove={(e) => {
+              if (mode !== "edit" || dragId === null) return;
+              e.stopPropagation();
+              setDragPos({
+                x: snapToStageGrid(e.point.x),
+                z: snapToStageGrid(e.point.z),
+              });
+            }}
+            onPointerUp={() => {
+              if (dragId !== null && dragPos !== null)
+                onFixtureMoved?.(
+                  dragId,
+                  snapToStageGrid(dragPos.x),
+                  snapToStageGrid(dragPos.z),
+                );
+              setDragId(null);
+              setDragPos(null);
+            }}
+            onPointerLeave={() => {
+              if (dragId !== null && dragPos !== null)
+                onFixtureMoved?.(
+                  dragId,
+                  snapToStageGrid(dragPos.x),
+                  snapToStageGrid(dragPos.z),
+                );
+              setDragId(null);
+              setDragPos(null);
+            }}
+          >
+            <planeGeometry args={[200, 200]} />
+          </mesh>
 
-        <OrbitControls
-          makeDefault
-          enabled={orbitEnabled}
-          enableDamping={false}
-          enableRotate={orbitEnabled}
-          enablePan={orbitEnabled}
-          enableZoom={orbitEnabled}
-        />
-        <FrameAllHelper
-          fixtures={fixtures}
-          triggerRef={frameAllRef}
-          autoFrame
-          onFramed={onFramed}
-        />
-        {!minimal && (
-          <TopViewHelper fixtures={fixtures} triggerRef={topViewRef} />
-        )}
-      </Canvas>
+          {fixtures.map((f, i) => {
+            const isDragging = dragId === f.id;
+            const x =
+              isDragging && dragPos ? dragPos.x : snapToStageGrid(f.position.x);
+            const z =
+              isDragging && dragPos ? dragPos.z : snapToStageGrid(f.position.z);
+            const commonProps = {
+              fixture: f,
+              fixtureIndex: i,
+              live,
+              x,
+              z,
+              selected: mode === "edit" && f.id === selectedFixtureId,
+              editable: mode === "edit",
+              onPointerDownStart: () => {
+                onSelectFixture?.(f.id);
+                if (mode === "edit") setDragId(f.id);
+              },
+            };
+            return f.kind === "resolight::bar" ? (
+              <ResoLightBar key={f.id} {...commonProps} />
+            ) : (
+              <GenericFixture key={f.id} {...commonProps} />
+            );
+          })}
+
+          <OrbitControls
+            makeDefault
+            enabled={orbitEnabled}
+            enableDamping={false}
+            enableRotate={orbitEnabled}
+            enablePan={orbitEnabled}
+            enableZoom={orbitEnabled}
+          />
+          <FrameAllHelper
+            fixtures={fixtures}
+            triggerRef={frameAllRef}
+            autoFrame
+            onFramed={onFramed}
+          />
+          {!minimal && (
+            <TopViewHelper fixtures={fixtures} triggerRef={topViewRef} />
+          )}
+        </Canvas>
       )}
     </div>
   );

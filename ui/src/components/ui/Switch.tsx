@@ -23,7 +23,7 @@ function SwitchRoot({ tone, className, children, ...rest }: SwitchProps) {
       React.isValidElement(child) &&
       (child.type === HeroSwitch.Content ||
         (child.type as any)?.displayName === "SwitchContent" ||
-        (child.type as any)?.name === "SwitchContent")
+        (child.type as any)?.name === "SwitchContent"),
   );
 
   return (

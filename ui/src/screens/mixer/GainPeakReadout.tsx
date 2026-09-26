@@ -51,7 +51,10 @@ export function GainPeakReadout({
     const onPointerMove = (ev: PointerEvent) => {
       const dy = startY - ev.clientY;
       const step = ev.shiftKey ? 0.1 : 0.5;
-      const next = Math.max(-60, Math.min(12, Math.round((startVal + dy * 0.15) / step) * step));
+      const next = Math.max(
+        -60,
+        Math.min(12, Math.round((startVal + dy * 0.15) / step) * step),
+      );
       onGainChange(next);
     };
 
@@ -109,7 +112,9 @@ export function GainPeakReadout({
             : "bg-black/45 text-foreground/85 hover:bg-black/60 hover:text-foreground"
         }`}
         style={
-          clipped ? { background: clipColor(), boxShadow: clipGlow() } : undefined
+          clipped
+            ? { background: clipColor(), boxShadow: clipGlow() }
+            : undefined
         }
       >
         <LiveReadout

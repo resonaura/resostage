@@ -8,7 +8,7 @@
 
 #include "doctest.h"
 
-#include "audio/SincInterpolator.h"
+#include "audio/dsp/SincInterpolator.h"
 
 #include <cmath>
 #include <vector>

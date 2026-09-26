@@ -97,9 +97,9 @@ describe("crossfadeBetween", () => {
 
 describe("planTrackCrossfades", () => {
   it("produces nothing when no regions overlap", () => {
-    expect(
-      planTrackCrossfades([region("a", 0, 4), region("b", 4, 4)]),
-    ).toEqual([]);
+    expect(planTrackCrossfades([region("a", 0, 4), region("b", 4, 4)])).toEqual(
+      [],
+    );
   });
 
   it("writes both sides of a single join", () => {
@@ -131,7 +131,10 @@ describe("planTrackCrossfades", () => {
 
   it("is order independent", () => {
     const forward = planTrackCrossfades([region("a", 0, 4), region("b", 3, 4)]);
-    const backward = planTrackCrossfades([region("b", 3, 4), region("a", 0, 4)]);
+    const backward = planTrackCrossfades([
+      region("b", 3, 4),
+      region("a", 0, 4),
+    ]);
     expect(backward).toEqual(forward);
   });
 });

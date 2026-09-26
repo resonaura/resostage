@@ -30,13 +30,13 @@ import {
   builtinPalette,
   parseGradientStops,
   type GradientStop,
-} from "../../lib/lightCueInterpolation";
+} from "../../lib/light/lightCueInterpolation";
 import {
   useCoalescedCommit,
   useFocusDraft,
   useLiveValue,
-} from "../../lib/optimistic";
-import { useEscRevert } from "../../lib/useEscRevert";
+} from "../../lib/state/optimistic";
+import { useEscRevert } from "../../lib/interaction/useEscRevert";
 import {
   EFFECT_META,
   GRADIENT_META,
@@ -270,7 +270,10 @@ export function LabeledSlider({
   // label and the readout part of the double-click target, which is where
   // people aim anyway.
   return (
-    <div title="Double-click to reset" onDoubleClick={() => handleChange(defaultValue)}>
+    <div
+      title="Double-click to reset"
+      onDoubleClick={() => handleChange(defaultValue)}
+    >
       {slider}
     </div>
   );
@@ -333,7 +336,11 @@ function useRgbColor(
   );
   const lastRgb = useRef<[number, number, number]>([r, g, b]);
 
-  if (lastRgb.current[0] !== r || lastRgb.current[1] !== g || lastRgb.current[2] !== b) {
+  if (
+    lastRgb.current[0] !== r ||
+    lastRgb.current[1] !== g ||
+    lastRgb.current[2] !== b
+  ) {
     lastRgb.current = [r, g, b];
     const [cr, cg, cb] = toRgbTriple(color);
     if (cr !== r || cg !== g || cb !== b) {
@@ -413,11 +420,7 @@ export function LightColorPicker({
           className="w-full justify-between"
         >
           <span className="flex items-center gap-2">
-            <ColorSwatch
-              size="sm"
-              color={color}
-              className="rs-swatch-round"
-            />
+            <ColorSwatch size="sm" color={color} className="rs-swatch-round" />
             <span className="font-mono text-sm uppercase">
               {color.toString("hex")}
             </span>
@@ -531,8 +534,7 @@ export function GradientStopEditor({
 
   const gradientCss = stops
     .map(
-      (s, i) =>
-        `${rgbToHex(s.r, s.g, s.b)} ${(i / (stops.length - 1)) * 100}%`,
+      (s, i) => `${rgbToHex(s.r, s.g, s.b)} ${(i / (stops.length - 1)) * 100}%`,
     )
     .join(", ");
 
@@ -600,10 +602,7 @@ export function GradientStopEditor({
                 overIndex === i ? "ring-1 ring-accent" : ""
               }`}
             >
-              <ColorPicker
-                value={hex}
-                onChange={(next) => recolor(i, next)}
-              >
+              <ColorPicker value={hex} onChange={(next) => recolor(i, next)}>
                 <ColorPicker.Trigger
                   aria-label={`Stop ${i + 1} color`}
                   className="h-7 w-12 rounded-md border border-default"
@@ -722,7 +721,8 @@ export function EffectTypeGrid({
     // Keep the active one even when it no longer qualifies, so switching
     // fixture assignment never strands the cue on a selection that silently
     // vanishes from the grid.
-    (t) => hasAddressableFixture || t === value || !effectRequiresAddressable(t),
+    (t) =>
+      hasAddressableFixture || t === value || !effectRequiresAddressable(t),
   );
   return (
     <Field label={label} description={EFFECT_META[value]?.desc}>
@@ -787,7 +787,11 @@ export function GradientPresetGroup({
         }}
       >
         {(Object.keys(GRADIENT_META) as GradientPreset[]).map((g) => (
-          <ToggleButton key={g} id={g} className={isDense ? CELL_TOGGLE_CLS : ""}>
+          <ToggleButton
+            key={g}
+            id={g}
+            className={isDense ? CELL_TOGGLE_CLS : ""}
+          >
             {GRADIENT_META[g]}
           </ToggleButton>
         ))}

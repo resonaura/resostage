@@ -1,5 +1,5 @@
-import { withHexAlpha } from "../../lib/cssColor";
-import type { SongRow } from "../../lib/types";
+import { withHexAlpha } from "../../lib/theme/cssColor";
+import type { SongRow } from "../../lib/state/types";
 import { EVENT_LANE_HEIGHT, getEventColor } from "./constants";
 
 /** Events from every song, each at its song's absolute offset. */

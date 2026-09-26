@@ -1,5 +1,5 @@
 import { EmptyState } from "@heroui/react";
-import type { LightTrackRow, SongRow } from "../../lib/types";
+import type { LightTrackRow, SongRow } from "../../lib/state/types";
 import {
   LightTrackLane,
   type CueSelKey,

@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { builder } from "../../lib/api";
+import { builder } from "../../lib/state/api";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../lib/dragCancel";
-import { triggerHaptic } from "../../lib/haptics";
-import type { SectionRow, SongRow } from "../../lib/types";
+} from "../../lib/interaction/dragCancel";
+import { triggerHaptic } from "../../lib/interaction/haptics";
+import type { SectionRow, SongRow } from "../../lib/state/types";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../ContextMenu";
-import { InlineNamePrompt } from "../InlineNamePrompt";
+} from "../common/ContextMenu";
+import { InlineNamePrompt } from "../common/InlineNamePrompt";
 import { SECTION_LANE_HEIGHT, SECTION_PRESETS } from "./constants";
 import {
   crossedDetent,

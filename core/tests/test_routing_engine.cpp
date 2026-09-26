@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/RoutingEngine.h"
+#include "audio/graph/RoutingEngine.h"
 
 #include <atomic>
 #include <thread>

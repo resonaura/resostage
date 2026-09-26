@@ -79,7 +79,8 @@ export function snapPitchToScale(
   rootNote: number,
   scale: ScaleMode,
 ): number {
-  if (scale === "chromatic") return Math.max(0, Math.min(127, Math.round(pitch)));
+  if (scale === "chromatic")
+    return Math.max(0, Math.min(127, Math.round(pitch)));
 
   const clampedPitch = Math.max(0, Math.min(127, Math.round(pitch)));
   if (isPitchInScale(clampedPitch, rootNote, scale)) {

@@ -3,12 +3,12 @@ import {
   mixer,
   pluginCatalog as pluginCatalogApi,
   type PluginCatalogEntry,
-} from "../../lib/api";
+} from "../../lib/state/api";
 import {
   type MidiRegionRow,
   type RegionRow,
   type WebUiState,
-} from "../../lib/types";
+} from "../../lib/state/types";
 import { ScrollShadow } from "../../components/ui";
 import { BusStrip } from "../mixer/BusStrip";
 import { TrackStrip } from "../mixer/TrackStrip";
@@ -73,7 +73,9 @@ export function EditorInspector({
   const masterIndex = master ? state.busses.indexOf(master) : -1;
 
   const stripCount =
-    (selectedTrack ? 1 : 0) + sendBusses.length + (showMaster && master ? 1 : 0);
+    (selectedTrack ? 1 : 0) +
+    sendBusses.length +
+    (showMaster && master ? 1 : 0);
   const targetDefaultWidth =
     stripCount > 2 ? DEFAULT_INSPECTOR_OVERFLOW_WIDTH : DEFAULT_INSPECTOR_WIDTH;
 
@@ -96,7 +98,9 @@ export function EditorInspector({
   const width = customWidth ?? targetDefaultWidth;
 
   const [isDragging, setIsDragging] = useState(false);
-  const dragStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const dragStartRef = useRef<{ startX: number; startWidth: number } | null>(
+    null,
+  );
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -166,12 +170,7 @@ export function EditorInspector({
   );
 
   const requestTrackDirectOutput = useCallback(
-    (
-      tIdx: number,
-      _mono: boolean,
-      startChannel: number,
-      pair: boolean,
-    ) => {
+    (tIdx: number, _mono: boolean, startChannel: number, pair: boolean) => {
       void mixer.setTrackBus(tIdx, extOutTarget(startChannel, pair));
     },
     [],
@@ -184,7 +183,9 @@ export function EditorInspector({
       <aside
         style={{ width: `${width}px` }}
         className={`flex h-full shrink-0 select-none flex-col rounded-xl border border-default/30 bg-background-secondary z-20 text-xs overflow-hidden ${
-          isDragging ? "transition-none" : "transition-[width] duration-150 ease-out"
+          isDragging
+            ? "transition-none"
+            : "transition-[width] duration-150 ease-out"
         }`}
         aria-label="Channel Strip Inspector"
       >
@@ -194,113 +195,114 @@ export function EditorInspector({
           size={30}
           className="flex min-h-0 flex-1 flex-row items-stretch gap-2 px-2 py-2 overflow-x-auto overflow-y-hidden"
         >
-        {selectedTrack ? (
-          <div className="flex h-full min-h-0 shrink-0">
-            <TrackStrip
-              t={selectedTrack}
-              index={trackIndex}
-              destinationBusses={destinationBusses}
-              allBusses={state.busses}
-              auxBusses={auxBusses}
-              meters={state.meters}
-              settings={state.settings}
-              anySoloInGroup={anyTrackSolo}
-              pluginCatalog={effectCatalog}
-              isRecording={state.recording ?? false}
-              density="standard"
-              targetPluginSlots={maxPluginSlots}
-              onDirectOutput={requestTrackDirectOutput}
-              onOpenPlugins={openPlugins}
-            />
-          </div>
-        ) : (
-          <div className="flex h-full w-24 items-center justify-center p-2 text-center text-foreground/40 text-[10px]">
-            No track
-          </div>
-        )}
+          {selectedTrack ? (
+            <div className="flex h-full min-h-0 shrink-0">
+              <TrackStrip
+                t={selectedTrack}
+                index={trackIndex}
+                destinationBusses={destinationBusses}
+                allBusses={state.busses}
+                auxBusses={auxBusses}
+                meters={state.meters}
+                settings={state.settings}
+                anySoloInGroup={anyTrackSolo}
+                pluginCatalog={effectCatalog}
+                isRecording={state.recording ?? false}
+                density="standard"
+                targetPluginSlots={maxPluginSlots}
+                onDirectOutput={requestTrackDirectOutput}
+                onOpenPlugins={openPlugins}
+              />
+            </div>
+          ) : (
+            <div className="flex h-full w-24 items-center justify-center p-2 text-center text-foreground/40 text-[10px]">
+              No track
+            </div>
+          )}
 
-        {sendBusses.map((bus) => {
-          const bIndex = state.busses.indexOf(bus);
-          return (
-            <div key={bus.id} className="flex h-full min-h-0 shrink-0">
+          {sendBusses.map((bus) => {
+            const bIndex = state.busses.indexOf(bus);
+            return (
+              <div key={bus.id} className="flex h-full min-h-0 shrink-0">
+                <BusStrip
+                  b={bus}
+                  index={bIndex >= 0 ? bIndex : 0}
+                  meters={state.meters}
+                  master={master}
+                  settings={state.settings}
+                  anySoloInGroup={bus.soloActiveInGroup}
+                  isMaster={false}
+                  pluginCatalog={effectCatalog}
+                  density="standard"
+                  targetPluginSlots={maxPluginSlots}
+                  onOpenPlugins={openPlugins}
+                />
+              </div>
+            );
+          })}
+
+          {showMaster && master ? (
+            <div key={master.id} className="flex h-full min-h-0 shrink-0">
               <BusStrip
-                b={bus}
-                index={bIndex >= 0 ? bIndex : 0}
+                b={master}
+                index={masterIndex >= 0 ? masterIndex : 0}
                 meters={state.meters}
                 master={master}
                 settings={state.settings}
-                anySoloInGroup={bus.soloActiveInGroup}
-                isMaster={false}
+                anySoloInGroup={master.soloActiveInGroup}
+                isMaster={true}
                 pluginCatalog={effectCatalog}
                 density="standard"
                 targetPluginSlots={maxPluginSlots}
                 onOpenPlugins={openPlugins}
               />
             </div>
-          );
-        })}
+          ) : null}
+        </ScrollShadow>
+      </aside>
 
-        {showMaster && master ? (
-          <div key={master.id} className="flex h-full min-h-0 shrink-0">
-            <BusStrip
-              b={master}
-              index={masterIndex >= 0 ? masterIndex : 0}
-              meters={state.meters}
-              master={master}
-              settings={state.settings}
-              anySoloInGroup={master.soloActiveInGroup}
-              isMaster={true}
-              pluginCatalog={effectCatalog}
-              density="standard"
-              targetPluginSlots={maxPluginSlots}
-              onOpenPlugins={openPlugins}
-            />
-          </div>
-        ) : null}
-      </ScrollShadow>
-    </aside>
-
-    {/* ── Vertical Division Line / Resizer ── */}
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      onPointerDown={handlePointerDown}
-      onDoubleClick={handleDoubleClick}
-      className="group relative flex w-2.5 shrink-0 cursor-col-resize items-center justify-center -mx-1 select-none z-30"
-      title="Drag to resize inspector, double-click to reset"
-    >
-      {/* Base subtle division track */}
-      <div className="h-full w-0.5 rounded-full bg-default/20" />
-
-      {/* Accent background hit-zone overlay with smooth transition */}
+      {/* ── Vertical Division Line / Resizer ── */}
       <div
-        className={`absolute inset-y-0 w-full rounded-md bg-accent/15 pointer-events-none transition-opacity duration-200 ease-out ${
-          isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
-      />
+        role="separator"
+        aria-orientation="vertical"
+        onPointerDown={handlePointerDown}
+        onDoubleClick={handleDoubleClick}
+        className="group relative flex w-2.5 shrink-0 cursor-col-resize items-center justify-center -mx-1 select-none z-30"
+        title="Drag to resize inspector, double-click to reset"
+      >
+        {/* Base subtle division track */}
+        <div className="h-full w-0.5 rounded-full bg-default/20" />
 
-      {/* Accent solid indicator overlay with smooth transition (no glow) */}
-      <div
-        className={`absolute inset-y-0 w-0.75 rounded-full bg-accent pointer-events-none transition-opacity duration-200 ease-out ${
-          isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
-      />
-    </div>
+        {/* Accent background hit-zone overlay with smooth transition */}
+        <div
+          className={`absolute inset-y-0 w-full rounded-md bg-accent/15 pointer-events-none transition-opacity duration-200 ease-out ${
+            isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+        />
 
-    {/* Audio FX / Instrument Plug-in Editor Modal */}
-    {pluginTarget && (
-      <PluginChainModal
-        open
-        stripId={pluginTarget.stripId}
-        stripName={pluginTarget.stripName}
-        slots={
-          selectedTrack && selectedTrack.id === pluginTarget.stripId
-            ? (selectedTrack.plugins?.filter((p) => !p.instrument) ?? [])
-            : state.busses.find((b) => b.id === pluginTarget.stripId)?.plugins ?? []
-        }
-        onClose={() => setPluginTarget(null)}
-      />
-    )}
-  </>
+        {/* Accent solid indicator overlay with smooth transition (no glow) */}
+        <div
+          className={`absolute inset-y-0 w-0.75 rounded-full bg-accent pointer-events-none transition-opacity duration-200 ease-out ${
+            isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+        />
+      </div>
+
+      {/* Audio FX / Instrument Plug-in Editor Modal */}
+      {pluginTarget && (
+        <PluginChainModal
+          open
+          stripId={pluginTarget.stripId}
+          stripName={pluginTarget.stripName}
+          slots={
+            selectedTrack && selectedTrack.id === pluginTarget.stripId
+              ? (selectedTrack.plugins?.filter((p) => !p.instrument) ?? [])
+              : (state.busses.find((b) => b.id === pluginTarget.stripId)
+                  ?.plugins ?? [])
+          }
+          onClose={() => setPluginTarget(null)}
+        />
+      )}
+    </>
   );
 }

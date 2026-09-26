@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { addRafTask } from "../../lib/rafLoop";
+import { addRafTask } from "../../lib/state/rafLoop";
 import { onThemeChanged, roleColor } from "../../lib/theme";
 
 const VU_MIN_DB = -40;
@@ -377,7 +377,8 @@ export function VUMeter({
       // wherever it was parked, which reads as a meter catching up rather
       // than a meter that was simply off screen.
       const live = getRef.current?.();
-      const at = live !== undefined && Number.isFinite(live) ? live : dbRef.current;
+      const at =
+        live !== undefined && Number.isFinite(live) ? live : dbRef.current;
       anim.smoothedDb = Math.max(VU_MIN_DB, Math.min(VU_MAX_DB, at));
       anim.currentRot = dbToRotation(anim.smoothedDb);
       stopRaf = addRafTask(render);

@@ -9,7 +9,7 @@
 
 #include "doctest.h"
 
-#include "audio/RegionSourceMap.h"
+#include "audio/streaming/RegionSourceMap.h"
 
 #include <cmath>
 #include <vector>

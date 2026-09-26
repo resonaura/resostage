@@ -81,13 +81,13 @@ See `docs/REMOTE_CONTROL.md` for operator setup and the two-machine test.
 Important starting points:
 
 - `core/app/engine/AudioEngine.h` and the `AudioEngine*.cpp`/`*.h` split
-- `core/engine/audio/MixGraph.h`, `MixRenderer.h`, and `RoutingEngine.h`
-- `core/engine/audio/StreamingEngine.h` and `AudioRingBuffer.h`
+- `core/engine/audio/graph/MixGraph.h`, `MixRenderer.h`, and `RoutingEngine.h`
+- `core/engine/audio/streaming/StreamingEngine.h` and `AudioRingBuffer.h`
 - `core/engine/timing/MasterClock.h`
 - `core/app/server/WebServer.h` and `.cpp`
 - `core/app/main/MainComponent.cpp`
 - `electron/src/main.mts`, `udpTelemetry.ts`, and `discovery.ts`
-- `ui/src/hooks/useLiveState.ts` and `ui/src/lib/liveLevels.ts`
+- `ui/src/lib/state/useLiveState.ts` and `ui/src/lib/audio/liveLevels.ts`
 - `core/engine/project/ProjectSchema.h` and `ProjectLoader.h`
 
 ## 3. Ownership and thread model

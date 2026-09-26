@@ -11,7 +11,7 @@ import {
   type RegionDragSession,
   type RegionGeom,
 } from "./regionDrag";
-import type { RegionRow } from "../../lib/types";
+import type { RegionRow } from "../../lib/state/types";
 
 const session = (
   partial: Partial<RegionDragSession> & Pick<RegionDragSession, "mode">,
@@ -306,4 +306,3 @@ describe("Audio Slip Editing (Alt+Cmd+Drag)", () => {
     expect(gMax.sourceOffset).toBeCloseTo(17, 4);
   });
 });
-

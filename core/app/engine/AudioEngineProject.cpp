@@ -5,7 +5,7 @@
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
 
-#include "audio/PeakCache.h"
+#include "audio/peaks/PeakCache.h"
 
 #include <filesystem>
 #include <string>

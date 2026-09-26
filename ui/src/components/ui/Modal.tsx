@@ -14,8 +14,10 @@ type HeroContainerProps = ComponentProps<typeof HeroModal.Container>;
 type HeroDialogProps = ComponentProps<typeof HeroModal.Dialog>;
 
 export type ModalProps = HeroModalProps;
-export interface ModalBackdropProps
-  extends Omit<HeroBackdropProps, "variant" | "className"> {
+export interface ModalBackdropProps extends Omit<
+  HeroBackdropProps,
+  "variant" | "className"
+> {
   className?: string;
 }
 
@@ -77,11 +79,7 @@ function ModalContainer({ size, className, ...props }: ModalContainerProps) {
     : (size as HeroContainerProps["size"]);
   return (
     <ModalSizeContext value={size}>
-      <HeroModal.Container
-        size={heroSize}
-        className={className}
-        {...props}
-      />
+      <HeroModal.Container size={heroSize} className={className} {...props} />
     </ModalSizeContext>
   );
 }
@@ -95,7 +93,10 @@ function ModalDialog({ className, ...props }: ModalDialogProps) {
       : undefined;
   return (
     <HeroModal.Dialog
-      className={classes("rs-modal-surface", classes(sizeClass ?? "", className))}
+      className={classes(
+        "rs-modal-surface",
+        classes(sizeClass ?? "", className),
+      )}
       {...props}
     />
   );

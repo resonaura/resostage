@@ -1,4 +1,4 @@
-import type { RegionRow, SongRow, TrackRow } from "../../lib/types";
+import type { RegionRow, SongRow, TrackRow } from "../../lib/state/types";
 import { laneHeightPx } from "./laneDimensions";
 import { EDGE_PX } from "./constants";
 import type { CycleLocatorsForDetents } from "./detents";
@@ -266,8 +266,7 @@ export function regionDraftMatchesCommitted(
       Math.abs((r.fade?.inCurve ?? 0) - d.fadeInCurve) < 0.05) &&
     (d.fadeOutCurve === undefined ||
       Math.abs((r.fade?.outCurve ?? 0) - d.fadeOutCurve) < 0.05) &&
-    (d.loop === undefined ||
-      Boolean(r.loop?.enabled) === Boolean(d.loop)) &&
+    (d.loop === undefined || Boolean(r.loop?.enabled) === Boolean(d.loop)) &&
     (d.speed === undefined ||
       Math.abs((r.playback?.speed ?? 1) - d.speed) < 0.005) &&
     (d.trackId === undefined || r.trackId === d.trackId)
@@ -357,7 +356,10 @@ export function computeRegionDragGeom(
       ? Math.max(0.05, anchorEnd - Math.max(0, snapSec(rd.origStart + dSec)))
       : Math.max(
           0.05,
-          Math.min(rd.maxEnd - rd.origStart, snapSec(anchorEnd + dSec) - rd.origStart),
+          Math.min(
+            rd.maxEnd - rd.origStart,
+            snapSec(anchorEnd + dSec) - rd.origStart,
+          ),
         );
     // Speed is what actually gets stored, so clamp THERE and derive the
     // length back from it -- clamping the length instead would let the edge

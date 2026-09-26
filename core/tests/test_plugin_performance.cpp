@@ -1,9 +1,9 @@
 #include "doctest.h"
 
-#include "audio/AutomationEnvelope.h"
-#include "audio/EnvelopeFollower.h"
-#include "audio/MixGraph.h"
-#include "audio/MixRenderer.h"
+#include "audio/dsp/AutomationEnvelope.h"
+#include "audio/dsp/EnvelopeFollower.h"
+#include "audio/graph/MixGraph.h"
+#include "audio/graph/MixRenderer.h"
 
 #include <chrono>
 #include <iostream>

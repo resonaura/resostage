@@ -1,6 +1,6 @@
 #pragma once
 
-#include "audio/MixRenderer.h"
+#include "audio/graph/MixRenderer.h"
 #include "project/ProjectSchema.h"
 
 #include <atomic>

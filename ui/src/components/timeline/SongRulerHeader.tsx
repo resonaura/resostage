@@ -1,4 +1,4 @@
-import type { SongRow } from "../../lib/types";
+import type { SongRow } from "../../lib/state/types";
 import {
   RULER_BEAT_HEIGHT,
   RULER_CYCLE_HEIGHT,

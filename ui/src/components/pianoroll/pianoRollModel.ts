@@ -1,4 +1,4 @@
-import type { MidiNoteRow } from "../../lib/types";
+import type { MidiNoteRow } from "../../lib/state/types";
 
 let nextNoteCounter = 1;
 export function generateNoteId(): number {
@@ -16,7 +16,10 @@ export function sliceNote(
 ): [MidiNoteRow, MidiNoteRow] | null {
   const noteEnd = note.startBeats + note.durationBeats;
   const minDuration = 0.03125; // 1/128 beat minimum
-  if (cutBeat <= note.startBeats + minDuration || cutBeat >= noteEnd - minDuration) {
+  if (
+    cutBeat <= note.startBeats + minDuration ||
+    cutBeat >= noteEnd - minDuration
+  ) {
     return null;
   }
 
@@ -43,14 +46,15 @@ export function applyLegato(
   notes: MidiNoteRow[],
   selectedIds?: Set<number>,
 ): MidiNoteRow[] {
-  const isTarget = (n: MidiNoteRow) => !selectedIds || selectedIds.size === 0 || selectedIds.has(n.id);
+  const isTarget = (n: MidiNoteRow) =>
+    !selectedIds || selectedIds.size === 0 || selectedIds.has(n.id);
   const targetNotes = notes.filter(isTarget);
   if (targetNotes.length === 0) return notes;
 
   // Gather unique start times of all target notes in ascending order
-  const startTimes = Array.from(new Set(targetNotes.map((n) => n.startBeats))).sort(
-    (a, b) => a - b,
-  );
+  const startTimes = Array.from(
+    new Set(targetNotes.map((n) => n.startBeats)),
+  ).sort((a, b) => a - b);
 
   const durationOverrides = new Map<number, number>();
 
@@ -79,7 +83,8 @@ export function applyOverlapTrim(
   notes: MidiNoteRow[],
   selectedIds?: Set<number>,
 ): MidiNoteRow[] {
-  const isTarget = (n: MidiNoteRow) => !selectedIds || selectedIds.size === 0 || selectedIds.has(n.id);
+  const isTarget = (n: MidiNoteRow) =>
+    !selectedIds || selectedIds.size === 0 || selectedIds.has(n.id);
 
   // Group target notes by pitch
   const byPitch = new Map<number, MidiNoteRow[]>();
@@ -98,8 +103,14 @@ export function applyOverlapTrim(
       const current = pitchNotes[i];
       const next = pitchNotes[i + 1];
       const currentEnd = current.startBeats + current.durationBeats;
-      if (currentEnd > next.startBeats && next.startBeats > current.startBeats) {
-        const clampedDur = Math.max(0.0625, next.startBeats - current.startBeats);
+      if (
+        currentEnd > next.startBeats &&
+        next.startBeats > current.startBeats
+      ) {
+        const clampedDur = Math.max(
+          0.0625,
+          next.startBeats - current.startBeats,
+        );
         durationOverrides.set(current.id, clampedDur);
       }
     }

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "audio/MixGraph.h"
-#include "audio/MixLatency.h"
-#include "audio/MixRenderer.h"
+#include "audio/graph/MixGraph.h"
+#include "audio/graph/MixLatency.h"
+#include "audio/graph/MixRenderer.h"
 #include "plugins/PluginPowerManager.h"
 #include "project/ProjectLoader.h"
 

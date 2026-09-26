@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isMainBusId } from "./mixerIds";
 import { Select, type SelectOption } from "../../components/ui";
-import type { BusRow, SettingsState } from "../../lib/types";
+import type { BusRow, SettingsState } from "../../lib/state/types";
 import {
   EXT_OUTPUT_VALUE,
   ROUTING_SELECT_SIZE,
@@ -34,8 +34,7 @@ function serverPrimary(
   if (destinationBusses.some((b) => b.id === busId)) return busId;
   if (isExtAssigned) return EXT_OUTPUT_VALUE;
   return (
-    destinationBusses.find((b) => isMainBusId(b.id))
-      ?.id ?? SENDS_ONLY_VALUE
+    destinationBusses.find((b) => isMainBusId(b.id))?.id ?? SENDS_ONLY_VALUE
   );
 }
 
@@ -82,22 +81,29 @@ export function TrackOutputRouting({
     includeAllSingles: mono,
   });
 
-  const serverChannelId = isExtAssigned && extTarget
-    ? matchOptionId(options, extTarget.startChannel, extTarget.pair ? 2 : 1)
-    : matchOptionId(options, assigned?.startChannel ?? 0, assigned?.channels ?? 2);
+  const serverChannelId =
+    isExtAssigned && extTarget
+      ? matchOptionId(options, extTarget.startChannel, extTarget.pair ? 2 : 1)
+      : matchOptionId(
+          options,
+          assigned?.startChannel ?? 0,
+          assigned?.channels ?? 2,
+        );
   const serverPrimaryValue = serverPrimary(busId, busses, isExtAssigned);
 
   // Outputs the track is actually routed to that aren't reachable on this
   // device. A direct route is missing when ANY of its mono lanes is.
-  const missing = isExtAssigned && directLanes
-    ? directLanes.some((n) => !channelAvailable(settings, n - 1, 1))
-    : Boolean(
-        assigned?.isDirectOut &&
+  const missing =
+    isExtAssigned && directLanes
+      ? directLanes.some((n) => !channelAvailable(settings, n - 1, 1))
+      : Boolean(
+          assigned?.isDirectOut &&
           !channelAvailable(settings, assigned.startChannel, assigned.channels),
-      );
-  const firstLane = directLanes && directLanes.length > 0 ? directLanes[0] : undefined;
-  const missingOptionId = missing && firstLane != null
-    ? `u:${firstLane}` : undefined;
+        );
+  const firstLane =
+    directLanes && directLanes.length > 0 ? directLanes[0] : undefined;
+  const missingOptionId =
+    missing && firstLane != null ? `u:${firstLane}` : undefined;
   const missingLabel =
     isExtAssigned && directLanes && directLanes.length > 0
       ? directLanes.join("/")
@@ -113,9 +119,7 @@ export function TrackOutputRouting({
 
   useEffect(() => {
     if (!pending) return;
-    if (
-      serverMatchesPending(pending, serverPrimaryValue, serverChannelId)
-    ) {
+    if (serverMatchesPending(pending, serverPrimaryValue, serverChannelId)) {
       setPending(null);
     }
   }, [pending, serverPrimaryValue, serverChannelId]);

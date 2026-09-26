@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { isBlackKey, isPitchInScale, pitchToName, snapPitchToScale } from "./scales";
+import {
+  isBlackKey,
+  isPitchInScale,
+  pitchToName,
+  snapPitchToScale,
+} from "./scales";
 import { SpatialNoteIndex } from "./spatialIndex";
-import { applyLegato, applyOverlapTrim, paintBrushNote, sliceNote } from "./pianoRollModel";
-import type { MidiNoteRow } from "../../lib/types";
+import {
+  applyLegato,
+  applyOverlapTrim,
+  paintBrushNote,
+  sliceNote,
+} from "./pianoRollModel";
+import type { MidiNoteRow } from "../../lib/state/types";
 
 describe("Piano Roll Scales & Harmonics", () => {
   it("correctly identifies black and white piano keys", () => {
@@ -13,7 +23,7 @@ describe("Piano Roll Scales & Harmonics", () => {
     expect(isBlackKey(63)).toBe(true);
     expect(isBlackKey(64)).toBe(false); // E4
     expect(isBlackKey(65)).toBe(false); // F4
-    expect(isBlackKey(66)).toBe(true);  // F#4
+    expect(isBlackKey(66)).toBe(true); // F#4
   });
 
   it("formats pitch numbers to note names with octave", () => {
@@ -31,9 +41,9 @@ describe("Piano Roll Scales & Harmonics", () => {
     expect(isPitchInScale(62, 0, "major")).toBe(true);
 
     // A Minor (Root 9): A B C D E F G
-    expect(isPitchInScale(69, 9, "minor")).toBe(true);  // A4
+    expect(isPitchInScale(69, 9, "minor")).toBe(true); // A4
     expect(isPitchInScale(70, 9, "minor")).toBe(false); // A#4
-    expect(isPitchInScale(72, 9, "minor")).toBe(true);  // C5
+    expect(isPitchInScale(72, 9, "minor")).toBe(true); // C5
   });
 
   it("snaps out-of-scale pitches to nearest scale degree", () => {
@@ -192,10 +202,42 @@ describe("Piano Roll Pro Edit Operations (Logic Pro X Spec)", () => {
 
   it("applies Force Legato to extend notes to next event start", () => {
     const notes: MidiNoteRow[] = [
-      { id: 1, pitch: 60, startBeats: 0.0, durationBeats: 0.5, velocity: 0.8, releaseVelocity: 0.5, probability: 1.0 },
-      { id: 2, pitch: 64, startBeats: 0.0, durationBeats: 0.5, velocity: 0.8, releaseVelocity: 0.5, probability: 1.0 }, // chord with note 1
-      { id: 3, pitch: 62, startBeats: 2.0, durationBeats: 0.5, velocity: 0.8, releaseVelocity: 0.5, probability: 1.0 },
-      { id: 4, pitch: 67, startBeats: 3.0, durationBeats: 1.0, velocity: 0.8, releaseVelocity: 0.5, probability: 1.0 },
+      {
+        id: 1,
+        pitch: 60,
+        startBeats: 0.0,
+        durationBeats: 0.5,
+        velocity: 0.8,
+        releaseVelocity: 0.5,
+        probability: 1.0,
+      },
+      {
+        id: 2,
+        pitch: 64,
+        startBeats: 0.0,
+        durationBeats: 0.5,
+        velocity: 0.8,
+        releaseVelocity: 0.5,
+        probability: 1.0,
+      }, // chord with note 1
+      {
+        id: 3,
+        pitch: 62,
+        startBeats: 2.0,
+        durationBeats: 0.5,
+        velocity: 0.8,
+        releaseVelocity: 0.5,
+        probability: 1.0,
+      },
+      {
+        id: 4,
+        pitch: 67,
+        startBeats: 3.0,
+        durationBeats: 1.0,
+        velocity: 0.8,
+        releaseVelocity: 0.5,
+        probability: 1.0,
+      },
     ];
 
     const legatoNotes = applyLegato(notes);
@@ -213,9 +255,33 @@ describe("Piano Roll Pro Edit Operations (Logic Pro X Spec)", () => {
 
   it("trims overlapping note tails on identical pitch", () => {
     const notes: MidiNoteRow[] = [
-      { id: 10, pitch: 60, startBeats: 1.0, durationBeats: 2.5, velocity: 0.8, releaseVelocity: 0.5, probability: 1.0 }, // spans 1.0..3.5
-      { id: 11, pitch: 60, startBeats: 2.0, durationBeats: 2.0, velocity: 0.8, releaseVelocity: 0.5, probability: 1.0 }, // spans 2.0..4.0 (overlaps with 10)
-      { id: 12, pitch: 64, startBeats: 1.0, durationBeats: 3.0, velocity: 0.8, releaseVelocity: 0.5, probability: 1.0 }, // different pitch
+      {
+        id: 10,
+        pitch: 60,
+        startBeats: 1.0,
+        durationBeats: 2.5,
+        velocity: 0.8,
+        releaseVelocity: 0.5,
+        probability: 1.0,
+      }, // spans 1.0..3.5
+      {
+        id: 11,
+        pitch: 60,
+        startBeats: 2.0,
+        durationBeats: 2.0,
+        velocity: 0.8,
+        releaseVelocity: 0.5,
+        probability: 1.0,
+      }, // spans 2.0..4.0 (overlaps with 10)
+      {
+        id: 12,
+        pitch: 64,
+        startBeats: 1.0,
+        durationBeats: 3.0,
+        velocity: 0.8,
+        releaseVelocity: 0.5,
+        probability: 1.0,
+      }, // different pitch
     ];
 
     const trimmed = applyOverlapTrim(notes);
@@ -232,7 +298,15 @@ describe("Piano Roll Pro Edit Operations (Logic Pro X Spec)", () => {
 
   it("paints brush notes on grid without duplicating occupied slots", () => {
     const notes: MidiNoteRow[] = [
-      { id: 1, pitch: 60, startBeats: 0.0, durationBeats: 0.5, velocity: 0.8, releaseVelocity: 0.5, probability: 1.0 },
+      {
+        id: 1,
+        pitch: 60,
+        startBeats: 0.0,
+        durationBeats: 0.5,
+        velocity: 0.8,
+        releaseVelocity: 0.5,
+        probability: 1.0,
+      },
     ];
 
     // Attempting to paint on occupied slot (pitch 60, beat 0.25) fails
@@ -254,4 +328,3 @@ describe("Piano Roll Pro Edit Operations (Logic Pro X Spec)", () => {
     expect(diffPitchRes!.newNote.pitch).toBe(62);
   });
 });
-

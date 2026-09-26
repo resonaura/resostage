@@ -47,7 +47,8 @@ export interface AudioDragInfo {
 
 export function audioDragInfo(e: React.DragEvent): AudioDragInfo {
   const dt = e.dataTransfer;
-  if (!dt) return { anyFiles: false, audio: false, name: "", file: null, entry: null };
+  if (!dt)
+    return { anyFiles: false, audio: false, name: "", file: null, entry: null };
   const items = dt.items ? Array.from(dt.items) : [];
   const types = Array.from((dt.types as unknown as string[]) ?? []);
   const anyFiles =
@@ -113,7 +114,9 @@ export function audioDragInfo(e: React.DragEvent): AudioDragInfo {
 }
 
 /** Resolve the actual File from a dragover drop-entry (async). */
-export function entryToFile(entry: FileSystemFileEntry | null): Promise<File | null> {
+export function entryToFile(
+  entry: FileSystemFileEntry | null,
+): Promise<File | null> {
   if (!entry) return Promise.resolve(null);
   return new Promise((resolve) => {
     entry.file(resolve, () => resolve(null));
@@ -134,9 +137,11 @@ let audioCtx: AudioContext | null = null;
 function getAudioContext(): AudioContext | null {
   if (audioCtx) return audioCtx;
   try {
-    audioCtx = new (window.AudioContext ||
+    audioCtx = new (
+      window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext })
-        .webkitAudioContext)();
+        .webkitAudioContext
+    )();
   } catch {
     audioCtx = null;
   }
@@ -145,7 +150,10 @@ function getAudioContext(): AudioContext | null {
 
 const DECODE_BINS = 96;
 
-function envelopeFromBuffer(buffer: AudioBuffer): { min: number[]; max: number[] } {
+function envelopeFromBuffer(buffer: AudioBuffer): {
+  min: number[];
+  max: number[];
+} {
   const min = new Array<number>(DECODE_BINS).fill(0);
   const max = new Array<number>(DECODE_BINS).fill(0);
   const len = buffer.length;

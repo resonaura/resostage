@@ -28,7 +28,6 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
-
   Menu,
   powerMonitor,
   powerSaveBlocker,
@@ -37,7 +36,13 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
-import { readFileSync, statSync, unlinkSync, writeFileSync, appendFileSync } from "node:fs";
+import {
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+  appendFileSync,
+} from "node:fs";
 import { connect, type Socket } from "node:net";
 import dgram from "node:dgram";
 import { lookup } from "node:dns/promises";
@@ -171,12 +176,19 @@ function setupUdpTelemetry(): void {
         }
         // Fail closed while DNS is unresolved as well: accepting an arbitrary
         // LAN sender here would let a stray/malicious datagram drive the UI.
-        if (acceptedTelemetrySources.size === 0 || !acceptedTelemetrySources.has(rinfo.address)) {
+        if (
+          acceptedTelemetrySources.size === 0 ||
+          !acceptedTelemetrySources.has(rinfo.address)
+        ) {
           return;
         }
       } else {
         // In local session: only accept local loopback packets
-        if (rinfo.address !== "127.0.0.1" && rinfo.address !== "localhost" && rinfo.address !== "::1") {
+        if (
+          rinfo.address !== "127.0.0.1" &&
+          rinfo.address !== "localhost" &&
+          rinfo.address !== "::1"
+        ) {
           return;
         }
       }
@@ -196,7 +208,9 @@ function setupUdpTelemetry(): void {
       const address = udpTelemetrySocket?.address();
       udpTelemetryPort = typeof address === "object" ? address.port : 0;
       udpTelemetryTracker.setLocalPort(udpTelemetryPort);
-      console.log(`[resostage] UDP Telemetry listener bound to 0.0.0.0:${udpTelemetryPort}`);
+      console.log(
+        `[resostage] UDP Telemetry listener bound to 0.0.0.0:${udpTelemetryPort}`,
+      );
       startUdpSubscription();
     });
     udpTelemetrySocket.on("error", (err) => {
@@ -234,10 +248,21 @@ function triggerLocalNetworkPermission(): void {
   for (const host of hosts) {
     for (const port of ports) {
       try {
-        execFile(CURL_BIN, ["-sS", "--max-time", "2", "-o", "/dev/null", `http://${host}:${port}/`], (err) => {
-          // The result doesn't matter -- the attempt itself is what trips TCC.
-          void err;
-        });
+        execFile(
+          CURL_BIN,
+          [
+            "-sS",
+            "--max-time",
+            "2",
+            "-o",
+            "/dev/null",
+            `http://${host}:${port}/`,
+          ],
+          (err) => {
+            // The result doesn't matter -- the attempt itself is what trips TCC.
+            void err;
+          },
+        );
       } catch {
         /* ignore */
       }
@@ -289,7 +314,9 @@ const shellDiscovery = (() => {
         /* keep the app alive; discovery degrades gracefully */
       });
       socket.bind(DISCOVERY_PORT, "0.0.0.0", () => {
-        try { socket?.setBroadcast(true); } catch {}
+        try {
+          socket?.setBroadcast(true);
+        } catch {}
       });
       pruneTimer = setInterval(() => pruneDevices(heard, Date.now()), 5000);
       pruneTimer.unref?.();
@@ -454,14 +481,22 @@ async function remoteHttp(
   // curl connects immediately. Loopback (the local Core) stays on Node fetch.
   if (!isLoopbackHost(fullUrl)) {
     logRemoteHttp(`curl -> ${method} ${fullUrl}`);
-    return curlHttp(fullUrl, { method, headers: opts.headers, body: opts.body, timeoutMs });
+    return curlHttp(fullUrl, {
+      method,
+      headers: opts.headers,
+      body: opts.body,
+      timeoutMs,
+    });
   }
 
   try {
     const res = await fetch(fullUrl, {
       method,
       headers: opts.headers,
-      body: opts.body !== undefined && opts.body !== null ? (opts.body as unknown as string | Buffer) : undefined,
+      body:
+        opts.body !== undefined && opts.body !== null
+          ? (opts.body as unknown as string | Buffer)
+          : undefined,
       signal: AbortSignal.timeout(timeoutMs),
     });
     const ct = res.headers.get("content-type") || "";
@@ -518,22 +553,42 @@ function curlHttp(
       : Buffer.from(opts.body as string, "utf8");
 
   return new Promise((resolve) => {
-    const tmpOut = path.join(os.tmpdir(), `rs-http-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
-    const tmpIn = bodyBuf ? path.join(os.tmpdir(), `rs-http-in-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`) : null;
+    const tmpOut = path.join(
+      os.tmpdir(),
+      `rs-http-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`,
+    );
+    const tmpIn = bodyBuf
+      ? path.join(
+          os.tmpdir(),
+          `rs-http-in-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`,
+        )
+      : null;
 
     try {
       if (tmpIn && bodyBuf) writeFileSync(tmpIn, bodyBuf);
     } catch {
-      resolve({ ok: false, status: 0, statusText: "", headers: {}, data: null, isJson: false, error: "failed to write curl body" });
+      resolve({
+        ok: false,
+        status: 0,
+        statusText: "",
+        headers: {},
+        data: null,
+        isJson: false,
+        error: "failed to write curl body",
+      });
       return;
     }
 
     const args = [
       "-sS",
-      "--max-time", String(Math.ceil(opts.timeoutMs / 1000) || 8),
-      "-X", opts.method,
-      "-o", tmpOut,
-      "-w", "%{http_code}",
+      "--max-time",
+      String(Math.ceil(opts.timeoutMs / 1000) || 8),
+      "-X",
+      opts.method,
+      "-o",
+      tmpOut,
+      "-w",
+      "%{http_code}",
     ];
     for (const [k, v] of Object.entries(opts.headers || {})) {
       args.push("-H", `${k}: ${v}`);
@@ -549,16 +604,25 @@ function curlHttp(
         body = Buffer.alloc(0);
       }
       if (tmpIn) {
-        try { unlinkSync(tmpIn); } catch {}
+        try {
+          unlinkSync(tmpIn);
+        } catch {}
       }
-      try { unlinkSync(tmpOut); } catch {}
+      try {
+        unlinkSync(tmpOut);
+      } catch {}
 
       const status = parseInt(String(stdout).trim(), 10) || 0;
-      logRemoteHttp(`curl ${opts.method} ${fullUrl} -> status=${status} bytes=${body.length} err=${err ? (err as Error).message : "none"}`);
+      logRemoteHttp(
+        `curl ${opts.method} ${fullUrl} -> status=${status} bytes=${body.length} err=${err ? (err as Error).message : "none"}`,
+      );
       const text = body.toString("utf8");
       let isJson = false;
       let data: unknown = text;
-      if (text.trimStart().startsWith("{") || text.trimStart().startsWith("[")) {
+      if (
+        text.trimStart().startsWith("{") ||
+        text.trimStart().startsWith("[")
+      ) {
         try {
           data = JSON.parse(text);
           isJson = true;
@@ -574,13 +638,17 @@ function curlHttp(
         data,
         isJson,
         rawBody: body,
-        error: status ? undefined : `curl ${err ? (err as Error).message : "failed"}`,
+        error: status
+          ? undefined
+          : `curl ${err ? (err as Error).message : "failed"}`,
       });
     });
   });
 }
 
-const BACKEND = IS_REMOTE ? `http://${REMOTE}:${PORT}` : `http://localhost:${PORT}`;
+const BACKEND = IS_REMOTE
+  ? `http://${REMOTE}:${PORT}`
+  : `http://localhost:${PORT}`;
 // Must match ui/vite.config.ts's DEV_PORT.
 const DEV_PORT = 2900;
 const DEV_URL = `http://localhost:${DEV_PORT}/?embedded=1`;
@@ -630,7 +698,8 @@ async function findDevServer(budgetMs: number): Promise<boolean> {
 // --backend-port arg, which only the JUCE-spawned dev flow passes): we own
 // spawning + supervising the nested JUCE backend at Contents/Resources/
 // ResoStage Core.app instead of connecting to one JUCE already started.
-const STANDALONE = !IS_REMOTE && !process.argv.some((a) => a.startsWith("--backend-port="));
+const STANDALONE =
+  !IS_REMOTE && !process.argv.some((a) => a.startsWith("--backend-port="));
 let backendProcess: ChildProcess | null = null;
 
 function findNestedCoreBinary(): string | null {
@@ -663,14 +732,10 @@ function spawnBackend(): void {
     /* нет старого сокета — ок */
   }
   console.log(`[resostage] Spawning nested backend: ${corePath}`);
-  backendProcess = spawn(
-    corePath,
-    ["--ipc-socket", ipcPath, "--discovery"],
-    {
-      env: { ...process.env, RESOSTAGE_SPAWNED_BY_SHELL: "1" },
-      stdio: "pipe",
-    },
-  );
+  backendProcess = spawn(corePath, ["--ipc-socket", ipcPath, "--discovery"], {
+    env: { ...process.env, RESOSTAGE_SPAWNED_BY_SHELL: "1" },
+    stdio: "pipe",
+  });
   backendProcess.stdout?.on("data", (d) =>
     console.log(`[core stdout] ${d.toString().trim()}`),
   );
@@ -807,7 +872,11 @@ function closeKeyboardWindow(): void {
 }
 
 function toggleKeyboardWindow(): void {
-  if (keyboardWindow && !keyboardWindow.isDestroyed() && keyboardWindow.isVisible()) {
+  if (
+    keyboardWindow &&
+    !keyboardWindow.isDestroyed() &&
+    keyboardWindow.isVisible()
+  ) {
     closeKeyboardWindow();
   } else {
     openKeyboardWindow();
@@ -957,7 +1026,8 @@ async function handleFileDialogAction(action: string): Promise<boolean> {
           await dialog.showMessageBox(mainWindow, {
             type: "warning",
             title: "Cannot push a folder",
-            message: "Over a remote session, open an exported .rsnraset archive file (a project folder can only be opened on the machine it lives on).",
+            message:
+              "Over a remote session, open an exported .rsnraset archive file (a project folder can only be opened on the machine it lives on).",
           });
           return true;
         }
@@ -1045,7 +1115,8 @@ async function handleFileDialogAction(action: string): Promise<boolean> {
       await dialog.showMessageBox(mainWindow, {
         type: "info",
         title: "Not available over remote",
-        message: "Importing a local song folder over a remote session is not supported. Import the audio on the remote host directly, or export/import the whole project instead.",
+        message:
+          "Importing a local song folder over a remote session is not supported. Import the audio on the remote host directly, or export/import the whole project instead.",
       });
       return true;
     }
@@ -1527,7 +1598,9 @@ function buildMenu(): Menu | null {
 
   // Platform-specific section adaptation (macOS keeps the app menu, Windows
   // and Linux fold it into File) — delegated to the platform adapter.
-  platform.adaptMenuSections(sections as Parameters<PlatformAdapter["adaptMenuSections"]>[0]);
+  platform.adaptMenuSections(
+    sections as Parameters<PlatformAdapter["adaptMenuSections"]>[0],
+  );
 
   const editIdx = sections.findIndex((s) => s.label === "Edit");
   if (editIdx >= 0) {
@@ -1893,7 +1966,10 @@ function createWindow(): void {
       // -3 is ERR_ABORTED: a load we superseded ourselves, not a failure.
       if (!isMainFrame || errorCode === -3 || triedEmbed) return;
       // Only fall back to embedded build if the initial Vite dev server was unreachable
-      if (validatedURL && validatedURL.startsWith(`http://localhost:${DEV_PORT}`)) {
+      if (
+        validatedURL &&
+        validatedURL.startsWith(`http://localhost:${DEV_PORT}`)
+      ) {
         triedEmbed = true;
         activeAppUrl = EMBED_URL;
         void mainWindow?.loadURL(EMBED_URL);
@@ -1966,7 +2042,11 @@ function createWindow(): void {
 
 ipcMain.handle("keyboard-window:toggle", () => {
   toggleKeyboardWindow();
-  return keyboardWindow !== null && !keyboardWindow.isDestroyed() && keyboardWindow.isVisible();
+  return (
+    keyboardWindow !== null &&
+    !keyboardWindow.isDestroyed() &&
+    keyboardWindow.isVisible()
+  );
 });
 
 ipcMain.handle("keyboard-window:open", () => {
@@ -1980,7 +2060,11 @@ ipcMain.handle("keyboard-window:close", () => {
 });
 
 ipcMain.handle("keyboard-window:is-open", () => {
-  return keyboardWindow !== null && !keyboardWindow.isDestroyed() && keyboardWindow.isVisible();
+  return (
+    keyboardWindow !== null &&
+    !keyboardWindow.isDestroyed() &&
+    keyboardWindow.isVisible()
+  );
 });
 
 // The page tells us when a text field has focus, so bare-letter bindings
@@ -2177,10 +2261,14 @@ ipcMain.handle(
 
 async function discoveredFromBackend(): Promise<DiscoveredDevice[]> {
   try {
-    const res = await remoteHttp(`${currentBackendUrl()}/api/v1/remote/discovered-devices`, {
-      timeoutMs: 2000,
-    });
-    if (res.ok && Array.isArray(res.data)) return res.data as DiscoveredDevice[];
+    const res = await remoteHttp(
+      `${currentBackendUrl()}/api/v1/remote/discovered-devices`,
+      {
+        timeoutMs: 2000,
+      },
+    );
+    if (res.ok && Array.isArray(res.data))
+      return res.data as DiscoveredDevice[];
   } catch {}
   return [];
 }
@@ -2193,9 +2281,12 @@ ipcMain.handle("remote:get-discovered-devices", async () => {
 
 ipcMain.handle("remote:get-discovery-enabled", async () => {
   try {
-    const res = await remoteHttp(`${currentBackendUrl()}/api/v1/remote/discovery`, {
-      timeoutMs: 2500,
-    });
+    const res = await remoteHttp(
+      `${currentBackendUrl()}/api/v1/remote/discovery`,
+      {
+        timeoutMs: 2500,
+      },
+    );
     if (res.ok) {
       const data = res.data as { enabled?: boolean };
       return Boolean(data?.enabled);
@@ -2206,28 +2297,36 @@ ipcMain.handle("remote:get-discovery-enabled", async () => {
   return true;
 });
 
-ipcMain.handle("remote:set-discovery-enabled", async (_event, enabled: boolean) => {
-  try {
-    const res = await remoteHttp(`${currentBackendUrl()}/api/v1/remote/discovery`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: Boolean(enabled) }),
-      timeoutMs: 2500,
-    });
-    if (res.ok) {
-      const data = res.data as { enabled?: boolean };
-      return Boolean(data?.enabled);
+ipcMain.handle(
+  "remote:set-discovery-enabled",
+  async (_event, enabled: boolean) => {
+    try {
+      const res = await remoteHttp(
+        `${currentBackendUrl()}/api/v1/remote/discovery`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: Boolean(enabled) }),
+          timeoutMs: 2500,
+        },
+      );
+      if (res.ok) {
+        const data = res.data as { enabled?: boolean };
+        return Boolean(data?.enabled);
+      }
+    } catch {
+      /* fallback */
     }
-  } catch {
-    /* fallback */
-  }
-  return enabled;
-});
+    return enabled;
+  },
+);
 
 ipcMain.handle("remote:get-status", async () => {
   return {
     isRemoteMode: isRemoteSession,
-    activeRemoteHost: activeRemoteHost ? `${activeRemoteHost}:${activeRemotePort}` : null,
+    activeRemoteHost: activeRemoteHost
+      ? `${activeRemoteHost}:${activeRemotePort}`
+      : null,
     controlReachable: remoteControlReachable,
     telemetry: udpTelemetryTracker.snapshot(),
   };
@@ -2258,11 +2357,13 @@ function startUdpSubscription(): void {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ port: udpTelemetryPort }),
       timeoutMs: 2000,
-    }).then((result) => {
-      remoteControlReachable = result.ok;
-    }).catch(() => {
-      remoteControlReachable = false;
-    });
+    })
+      .then((result) => {
+        remoteControlReachable = result.ok;
+      })
+      .catch(() => {
+        remoteControlReachable = false;
+      });
   };
   sendHeartbeat();
   remoteUdpHeartbeatTimer = setInterval(sendHeartbeat, 3000);
@@ -2275,46 +2376,61 @@ function stopRemoteUdpHeartbeat(): void {
   }
 }
 
-ipcMain.handle("remote:connect", async (_event, payload: { host: string; port: number }) => {
-  logRemoteHttp(`ipc:connect CALLED payload=${JSON.stringify(payload)}`);
-  if (!payload?.host) return { ok: false, error: "Host is required" };
-  const { host, port: parsedPort } = normalizeRemoteHost(payload.host, payload.port || DEFAULT_PORT);
-  if (!host) return { ok: false, error: "Host is required" };
+ipcMain.handle(
+  "remote:connect",
+  async (_event, payload: { host: string; port: number }) => {
+    logRemoteHttp(`ipc:connect CALLED payload=${JSON.stringify(payload)}`);
+    if (!payload?.host) return { ok: false, error: "Host is required" };
+    const { host, port: parsedPort } = normalizeRemoteHost(
+      payload.host,
+      payload.port || DEFAULT_PORT,
+    );
+    if (!host) return { ok: false, error: "Host is required" };
 
-  // Do not switch the entire application onto an unverified address. The old
-  // optimistic transition left every command pointed at a dead machine while
-  // still painting an "Active Remote Session" banner.
-  const probe = await remoteHttp(`http://${host}:${parsedPort}/api/v1/remote/discovery`, {
-    timeoutMs: 3000,
-  });
-  if (!probe.ok) {
-    return {
-      ok: false,
-      error: probe.error || `Remote Core did not answer (HTTP ${probe.status || 0})`,
-    };
-  }
-
-  console.log(`[resostage] Remote session connecting to ${host}:${parsedPort}`);
-  acceptedTelemetrySources = await resolveTelemetrySources(host);
-  udpTelemetryTracker.reset();
-  activeRemoteHost = host;
-  activeRemotePort = parsedPort;
-  isRemoteSession = true;
-  remoteControlReachable = true;
-  startUdpSubscription();
-  triggerLocalNetworkPermission();
-  logRemoteHttp(`connect: isRemoteSession=true host=${activeRemoteHost}:${activeRemotePort}`);
-
-  void fetchMenuWithRetry(5, 200).then((m) => {
-    if (m) {
-      menuModel = m;
-      refreshMenu();
-      refreshTouchBar();
+    // Do not switch the entire application onto an unverified address. The old
+    // optimistic transition left every command pointed at a dead machine while
+    // still painting an "Active Remote Session" banner.
+    const probe = await remoteHttp(
+      `http://${host}:${parsedPort}/api/v1/remote/discovery`,
+      {
+        timeoutMs: 3000,
+      },
+    );
+    if (!probe.ok) {
+      return {
+        ok: false,
+        error:
+          probe.error ||
+          `Remote Core did not answer (HTTP ${probe.status || 0})`,
+      };
     }
-  });
 
-  return { ok: true, url: `${host}:${parsedPort}` };
-});
+    console.log(
+      `[resostage] Remote session connecting to ${host}:${parsedPort}`,
+    );
+    acceptedTelemetrySources = await resolveTelemetrySources(host);
+    udpTelemetryTracker.reset();
+    activeRemoteHost = host;
+    activeRemotePort = parsedPort;
+    isRemoteSession = true;
+    remoteControlReachable = true;
+    startUdpSubscription();
+    triggerLocalNetworkPermission();
+    logRemoteHttp(
+      `connect: isRemoteSession=true host=${activeRemoteHost}:${activeRemotePort}`,
+    );
+
+    void fetchMenuWithRetry(5, 200).then((m) => {
+      if (m) {
+        menuModel = m;
+        refreshMenu();
+        refreshTouchBar();
+      }
+    });
+
+    return { ok: true, url: `${host}:${parsedPort}` };
+  },
+);
 
 ipcMain.handle("remote:disconnect", async () => {
   stopRemoteUdpHeartbeat();
@@ -2331,47 +2447,56 @@ ipcMain.handle("remote:disconnect", async () => {
   return true;
 });
 
-ipcMain.handle("http:proxy", async (_event, req: {
-  path: string;
-  method?: string;
-  headers?: Record<string, string>;
-  body?: string | null;
-}) => {
-  const base = currentBackendUrl();
-  let fullUrl: string;
-  if (req.path.startsWith("http://") || req.path.startsWith("https://")) {
-    fullUrl = req.path;
-  } else {
-    fullUrl = `${base}${req.path.startsWith("/") ? req.path : `/${req.path}`}`;
-  }
-  logRemoteHttp(`proxy[${req.method || "GET"}] path=${req.path} base=${base} full=${fullUrl}`);
+ipcMain.handle(
+  "http:proxy",
+  async (
+    _event,
+    req: {
+      path: string;
+      method?: string;
+      headers?: Record<string, string>;
+      body?: string | null;
+    },
+  ) => {
+    const base = currentBackendUrl();
+    let fullUrl: string;
+    if (req.path.startsWith("http://") || req.path.startsWith("https://")) {
+      fullUrl = req.path;
+    } else {
+      fullUrl = `${base}${req.path.startsWith("/") ? req.path : `/${req.path}`}`;
+    }
+    logRemoteHttp(
+      `proxy[${req.method || "GET"}] path=${req.path} base=${base} full=${fullUrl}`,
+    );
 
-  try {
-    const res = await remoteHttp(fullUrl, {
-      method: req.method || "GET",
-      headers: req.headers,
-      body: req.body !== undefined && req.body !== null ? req.body : undefined,
-    });
-    return {
-      ok: res.ok,
-      status: res.status,
-      statusText: res.statusText || (res.status ? `HTTP ${res.status}` : ""),
-      headers: res.headers,
-      data: res.data,
-      isJson: res.isJson,
-      error: res.error,
-    };
-  } catch (err: any) {
-    return {
-      ok: false,
-      status: 0,
-      statusText: err?.message || String(err),
-      headers: {},
-      data: null,
-      error: err?.message || String(err),
-    };
-  }
-});
+    try {
+      const res = await remoteHttp(fullUrl, {
+        method: req.method || "GET",
+        headers: req.headers,
+        body:
+          req.body !== undefined && req.body !== null ? req.body : undefined,
+      });
+      return {
+        ok: res.ok,
+        status: res.status,
+        statusText: res.statusText || (res.status ? `HTTP ${res.status}` : ""),
+        headers: res.headers,
+        data: res.data,
+        isJson: res.isJson,
+        error: res.error,
+      };
+    } catch (err: any) {
+      return {
+        ok: false,
+        status: 0,
+        statusText: err?.message || String(err),
+        headers: {},
+        data: null,
+        error: err?.message || String(err),
+      };
+    }
+  },
+);
 
 app.setAboutPanelOptions({
   applicationName: "ResoStage",
@@ -2450,7 +2575,8 @@ if (!app.requestSingleInstanceLock()) {
     if (STANDALONE) spawnBackend();
     ensureAppNotSuspended();
     if (activeRemoteHost) {
-      acceptedTelemetrySources = await resolveTelemetrySources(activeRemoteHost);
+      acceptedTelemetrySources =
+        await resolveTelemetrySources(activeRemoteHost);
     }
     setupUdpTelemetry();
     triggerLocalNetworkPermission();
@@ -2494,60 +2620,60 @@ if (!app.requestSingleInstanceLock()) {
       void handleOpenProjectFile(pathToOpen);
     }
 
-  // No runtime dock.setIcon() workaround needed anymore: when launched as
-  // the branded copy (electron/scripts/brand-mac-app.mjs), the bundle's own
-  // Info.plist + electron.icns already carry the correct icon. When running
-  // unbranded (`electron .` in dev), this intentionally shows the stock
-  // Electron icon rather than a single-resolution PNG override.
-  createWindow();
+    // No runtime dock.setIcon() workaround needed anymore: when launched as
+    // the branded copy (electron/scripts/brand-mac-app.mjs), the bundle's own
+    // Info.plist + electron.icns already carry the correct icon. When running
+    // unbranded (`electron .` in dev), this intentionally shows the stock
+    // Electron icon rather than a single-resolution PNG override.
+    createWindow();
 
-  // On Windows the menu is attached to the BrowserWindow (mainWindow.setMenu),
-  // which only exists once createWindow() has run -- refreshing before it
-  // silently drops the menu bar until some undo/redo/recent change happens to
-  // trigger a rebuild. macOS/Linux use the window-independent application menu.
-  refreshMenu();
+    // On Windows the menu is attached to the BrowserWindow (mainWindow.setMenu),
+    // which only exists once createWindow() has run -- refreshing before it
+    // silently drops the menu bar until some undo/redo/recent change happens to
+    // trigger a rebuild. macOS/Linux use the window-independent application menu.
+    refreshMenu();
 
-  // Register the .rsnrasetmeta association for the portable Windows build.
-  registerFileAssociations();
+    // Register the .rsnrasetmeta association for the portable Windows build.
+    registerFileAssociations();
 
-  // System sleep / display off → wake: GPU + compositor often leave a black
-  // frame. Recover automatically (double-pass: GPU may not be ready at +50ms).
-  const onSystemWake = (reason: string) => {
-    exitIdle(reason);
-    lastRecoverAt = 0;
-    setTimeout(() => recoverRenderer(reason), 80);
-    setTimeout(() => {
+    // System sleep / display off → wake: GPU + compositor often leave a black
+    // frame. Recover automatically (double-pass: GPU may not be ready at +50ms).
+    const onSystemWake = (reason: string) => {
+      exitIdle(reason);
       lastRecoverAt = 0;
-      recoverRenderer(`${reason}-late`);
-    }, 500);
-  };
-  powerMonitor.on("resume", () => onSystemWake("power-resume"));
-  powerMonitor.on("unlock-screen", () => onSystemWake("unlock-screen"));
+      setTimeout(() => recoverRenderer(reason), 80);
+      setTimeout(() => {
+        lastRecoverAt = 0;
+        recoverRenderer(`${reason}-late`);
+      }, 500);
+    };
+    powerMonitor.on("resume", () => onSystemWake("power-resume"));
+    powerMonitor.on("unlock-screen", () => onSystemWake("unlock-screen"));
 
-  // Power / thermal state. Event-driven where the platform offers events, with
-  // a slow poll behind it because macOS reports entering Low Power Mode only
-  // as a thermal-state change, and not always promptly.
-  powerMonitor.on("on-battery", publishPowerState);
-  powerMonitor.on("on-ac", publishPowerState);
-  powerMonitor.on("speed-limit-change", publishPowerState);
-  powerMonitor.on("thermal-state-change", publishPowerState);
-  publishPowerState();
-  setInterval(publishPowerState, 30_000).unref?.();
+    // Power / thermal state. Event-driven where the platform offers events, with
+    // a slow poll behind it because macOS reports entering Low Power Mode only
+    // as a thermal-state change, and not always promptly.
+    powerMonitor.on("on-battery", publishPowerState);
+    powerMonitor.on("on-ac", publishPowerState);
+    powerMonitor.on("speed-limit-change", publishPowerState);
+    powerMonitor.on("thermal-state-change", publishPowerState);
+    publishPowerState();
+    setInterval(publishPowerState, 30_000).unref?.();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    else {
-      exitIdle("activate");
-      lastRecoverAt = 0;
-      recoverRenderer("activate");
-    }
-  });
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      else {
+        exitIdle("activate");
+        lastRecoverAt = 0;
+        recoverRenderer("activate");
+      }
+    });
 
-  // Dock-hide / Cmd+H puts every window out of view without a per-window
-  // "hide" on some platforms; app-level focus is the reliable signal that the
-  // user is back regardless of which path took the window away.
-  app.on("browser-window-focus", () => exitIdle("app-focus"));
-  app.on("did-become-active", () => exitIdle("app-active"));
+    // Dock-hide / Cmd+H puts every window out of view without a per-window
+    // "hide" on some platforms; app-level focus is the reliable signal that the
+    // user is back regardless of which path took the window away.
+    app.on("browser-window-focus", () => exitIdle("app-focus"));
+    app.on("did-become-active", () => exitIdle("app-active"));
   });
 }
 
@@ -2584,7 +2710,9 @@ app.on("before-quit", (e) => {
     // stems on exit, give it full time to finish. Only force-kill if it hangs completely.
     setTimeout(() => {
       if (backendProcess && !backendProcess.killed && !isQuitting) {
-        console.warn("[resostage] Backend shutdown timeout (20s) -- force killing process");
+        console.warn(
+          "[resostage] Backend shutdown timeout (20s) -- force killing process",
+        );
         isQuitting = true;
         releaseAppSuspensionBlocker();
         killBackend();

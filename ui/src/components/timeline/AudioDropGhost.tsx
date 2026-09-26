@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { withHexAlpha } from "../../lib/cssColor";
+import { withHexAlpha } from "../../lib/theme/cssColor";
 import { formatTimeShort } from "./geometry";
 
 // Visual ghost of an audio file being dragged over the timeline: "as if

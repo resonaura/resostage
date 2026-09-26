@@ -30,13 +30,13 @@ import {
   CollapsibleInline,
 } from "../ui";
 
-import { timelineHistory } from "../../lib/api";
-import { useEscRevert } from "../../lib/useEscRevert";
+import { timelineHistory } from "../../lib/state/api";
+import { useEscRevert } from "../../lib/interaction/useEscRevert";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../ContextMenu";
+} from "../common/ContextMenu";
 import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
 import { formatTimeShort } from "./geometry";
 import { TIMELINE_TOOLS, type TimelineTool } from "./tools";
@@ -202,7 +202,9 @@ export function TimelineToolbar({
                   it was always being mistaken for. */}
               <Button
                 isIconOnly
-                aria-label={light ? "Cut selected cues (⌘X)" : "Cut selected regions (⌘X)"}
+                aria-label={
+                  light ? "Cut selected cues (⌘X)" : "Cut selected regions (⌘X)"
+                }
                 isDisabled={selectionEmpty}
                 variant="default-soft"
                 onPress={onCut}

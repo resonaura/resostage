@@ -6,7 +6,7 @@ import type {
   PeakLevelData,
   RegionRow,
   TrackPeaks,
-} from "../../lib/types";
+} from "../../lib/state/types";
 
 const LEVELS: PeakLevelData[] = [
   { samplesPerBin: 256, min: [-1], max: [1], rms: [0.5] },

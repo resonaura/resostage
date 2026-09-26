@@ -12,7 +12,7 @@
 #include <thread>
 #include <vector>
 
-#include "audio/AudioRecordWorker.h"
+#include "audio/recording/AudioRecordWorker.h"
 
 
 // Forward-declare libwebsockets types so the header stays lightweight.

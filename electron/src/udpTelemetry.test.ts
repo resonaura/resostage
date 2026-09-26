@@ -16,7 +16,10 @@ function frame(sequence: number, version = 8): Uint8Array {
 
 describe("UDP telemetry framing", () => {
   it("parses the v8 header", () => {
-    expect(parseTelemetryDatagram(frame(42))).toEqual({ version: 8, sequence: 42 });
+    expect(parseTelemetryDatagram(frame(42))).toEqual({
+      version: 8,
+      sequence: 42,
+    });
   });
 
   it("rejects malformed and obsolete frames", () => {

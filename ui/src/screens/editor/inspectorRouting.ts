@@ -3,16 +3,23 @@ import {
   sourceOutputBusId,
   type BusRow,
   type TrackRow,
-} from "../../lib/types";
+} from "../../lib/state/types";
 import { isMainBusId, MAIN_BUS_ID } from "../mixer/mixerIds";
 
 export function busFeedsMaster(bus: BusRow, master?: BusRow): boolean {
   if (!master) return false;
-  const busOut = (bus as { output?: { type?: string; target?: string | null } }).output;
+  const busOut = (bus as { output?: { type?: string; target?: string | null } })
+    .output;
   if (busOut?.type === "main") return true;
-  if (busOut?.target === MAIN_BUS_ID || (master.id && busOut?.target === master.id)) return true;
+  if (
+    busOut?.target === MAIN_BUS_ID ||
+    (master.id && busOut?.target === master.id)
+  )
+    return true;
   if (bus.isDirectOut) return false;
-  return bus.channels === master.channels && bus.startChannel === master.startChannel;
+  return (
+    bus.channels === master.channels && bus.startChannel === master.startChannel
+  );
 }
 
 export const DEFAULT_INSPECTOR_WIDTH = 218; // Width of 2 tracks in standard mode (2 * 96 + 8 gap + 16 padding + 2 border)
@@ -54,7 +61,9 @@ export function resolveInspectorBusses({
 
   // If track main output explicitly routes into an aux bus:
   if (selectedTrack?.output?.type === "bus" && selectedTrack.output.target) {
-    const directBus = auxBusses.find((b) => b.id === selectedTrack.output.target);
+    const directBus = auxBusses.find(
+      (b) => b.id === selectedTrack.output.target,
+    );
     if (directBus && !sendBusses.some((b) => b.id === directBus.id)) {
       sendBusses.push(directBus);
     }
@@ -66,20 +75,29 @@ export function resolveInspectorBusses({
   // - Hide if track routes to physical outs (ext-out) or sends-only, and no send feeds master
   const trackFeedsMasterDirectly = Boolean(
     selectedTrack &&
-      (selectedTrack.output?.type === "main" ||
-        sourceOutputBusId(selectedTrack.output) === MAIN_BUS_ID ||
-        (master && sourceOutputBusId(selectedTrack.output) === master.id)),
+    (selectedTrack.output?.type === "main" ||
+      sourceOutputBusId(selectedTrack.output) === MAIN_BUS_ID ||
+      (master && sourceOutputBusId(selectedTrack.output) === master.id)),
   );
 
-  const anySendFeedsMaster = sendBusses.some((bus) => busFeedsMaster(bus, master));
+  const anySendFeedsMaster = sendBusses.some((bus) =>
+    busFeedsMaster(bus, master),
+  );
 
-  const showMaster = Boolean(master && (trackFeedsMasterDirectly || anySendFeedsMaster));
+  const showMaster = Boolean(
+    master && (trackFeedsMasterDirectly || anySendFeedsMaster),
+  );
 
   const stripCount =
-    (selectedTrack ? 1 : 0) + sendBusses.length + (showMaster && master ? 1 : 0);
+    (selectedTrack ? 1 : 0) +
+    sendBusses.length +
+    (showMaster && master ? 1 : 0);
   const computedWidth =
     stripCount > 0
-      ? Math.min(500, Math.max(120, stripCount * 96 + (stripCount - 1) * 8 + 16))
+      ? Math.min(
+          500,
+          Math.max(120, stripCount * 96 + (stripCount - 1) * 8 + 16),
+        )
       : 120;
 
   return {

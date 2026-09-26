@@ -1,6 +1,6 @@
 #include "EventDispatcher.h"
 
-#include "audio/ArtNetPacket.h"
+#include "lighting/ArtNetPacket.h"
 #include "events/DueQueue.h"
 #include "timing/MasterClock.h"
 

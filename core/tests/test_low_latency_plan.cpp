@@ -1,5 +1,5 @@
 #include "doctest.h"
-#include "audio/LowLatencyPlan.h"
+#include "audio/recording/LowLatencyPlan.h"
 
 using namespace resostage;
 

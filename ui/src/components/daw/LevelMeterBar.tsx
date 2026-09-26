@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { addRafTask } from "../../lib/rafLoop";
+import { addRafTask } from "../../lib/state/rafLoop";
 import {
   clipColor,
   CLIP_GLOW_BLUR_PX,
@@ -183,8 +183,7 @@ function ChannelBar({
 
       // Peak hold needle (1 CSS px line, not a fill trail).
       if (showPeak) {
-        ctx.fillStyle =
-          peakNeedleColor(s.peak > 0);
+        ctx.fillStyle = peakNeedleColor(s.peak > 0);
         if (v) {
           const y = cssH * (1 - peakPct);
           ctx.fillRect(0, Math.min(cssH - 1, Math.max(0, y - 0.5)), cssW, 1);

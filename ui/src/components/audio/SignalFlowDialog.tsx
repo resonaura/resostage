@@ -1,7 +1,7 @@
 import { Button } from "../ui";
 import { RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { fetchMixGraph } from "../../lib/api";
+import { fetchMixGraph } from "../../lib/state/api";
 import { SignalFlowGraph } from "./SignalFlowGraph";
 import type { MixGraphPayload } from "./signalFlowLayout";
 
@@ -36,7 +36,10 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
       }
     };
     void load();
-    if (!live) return () => { cancelled = true; };
+    if (!live)
+      return () => {
+        cancelled = true;
+      };
     const timer = setInterval(load, REFRESH_MS);
     return () => {
       cancelled = true;
@@ -66,7 +69,9 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
       >
         <div className="flex shrink-0 items-center gap-3 border-b border-default/25 px-4 py-2.5">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-foreground">Signal flow</h2>
+            <h2 className="text-sm font-semibold text-foreground">
+              Signal flow
+            </h2>
             <p className="truncate text-[11px] text-foreground/45">
               Exactly what the audio engine is rendering — sources on the left,
               physical outputs on the right.
@@ -94,7 +99,10 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
                   : "Frozen — click to follow live changes"
               }
             >
-              <RefreshCw size={12} className={live ? "animate-spin [animation-duration:3s]" : ""} />
+              <RefreshCw
+                size={12}
+                className={live ? "animate-spin [animation-duration:3s]" : ""}
+              />
               {live ? "Live" : "Frozen"}
             </Button>
             <Button

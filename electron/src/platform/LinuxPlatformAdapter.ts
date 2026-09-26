@@ -44,8 +44,26 @@ export class LinuxPlatformAdapter extends PlatformAdapter {
     const candidates = [
       path.join(path.dirname(process.execPath), "kaishaku"),
       path.join(process.resourcesPath, "kaishaku"),
-      path.join(import.meta.dirname, "..", "..", "..", "build", "linux", process.arch, "kaishaku"),
-      path.join(import.meta.dirname, "..", "..", "..", "core", "build", "app", "kaishaku"),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "build",
+        "linux",
+        process.arch,
+        "kaishaku",
+      ),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "core",
+        "build",
+        "app",
+        "kaishaku",
+      ),
     ];
 
     const pidsToKill: string[] = [String(process.pid)];
@@ -82,12 +100,34 @@ export class LinuxPlatformAdapter extends PlatformAdapter {
     }
 
     const devCandidateDirs = [
-      path.join(import.meta.dirname, "..", "..", "..", "build", "linux", process.arch),
+      path.join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "..",
+        "build",
+        "linux",
+        process.arch,
+      ),
       path.join(process.cwd(), "build", "linux", process.arch),
       path.join(import.meta.dirname, "..", "..", "..", "build", "linux"),
       path.join(process.cwd(), "build", "linux"),
-      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "RelWithDebInfo"),
-      path.join(process.cwd(), "core", "build", "app", "ResoStage_artefacts", "Debug"),
+      path.join(
+        process.cwd(),
+        "core",
+        "build",
+        "app",
+        "ResoStage_artefacts",
+        "RelWithDebInfo",
+      ),
+      path.join(
+        process.cwd(),
+        "core",
+        "build",
+        "app",
+        "ResoStage_artefacts",
+        "Debug",
+      ),
     ];
     for (const dir of devCandidateDirs) {
       for (const name of candidateNames) {
@@ -120,7 +160,8 @@ export class LinuxPlatformAdapter extends PlatformAdapter {
           : [];
         const quitItem = appItems.find(
           (item) =>
-            item.label?.includes("Quit") || (item as { actionId?: string }).actionId === "quit",
+            item.label?.includes("Quit") ||
+            (item as { actionId?: string }).actionId === "quit",
         );
         if (quitItem) {
           fileSubmenu.push({ type: "separator" });
@@ -162,10 +203,20 @@ export class LinuxPlatformAdapter extends PlatformAdapter {
     width: number;
     height: number;
   } {
-    const defaultWidth = Math.min(1440, Math.max(960, Math.round(workArea.width * 0.85)));
-    const defaultHeight = Math.min(900, Math.max(640, Math.round(workArea.height * 0.85)));
-    const defaultX = Math.round(workArea.x + (workArea.width - defaultWidth) / 2);
-    const defaultY = Math.round(workArea.y + (workArea.height - defaultHeight) / 2);
+    const defaultWidth = Math.min(
+      1440,
+      Math.max(960, Math.round(workArea.width * 0.85)),
+    );
+    const defaultHeight = Math.min(
+      900,
+      Math.max(640, Math.round(workArea.height * 0.85)),
+    );
+    const defaultX = Math.round(
+      workArea.x + (workArea.width - defaultWidth) / 2,
+    );
+    const defaultY = Math.round(
+      workArea.y + (workArea.height - defaultHeight) / 2,
+    );
     return {
       x: defaultX,
       y: defaultY,

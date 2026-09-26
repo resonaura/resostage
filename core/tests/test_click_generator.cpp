@@ -1,6 +1,6 @@
 #include "doctest.h"
 
-#include "audio/ClickGenerator.h"
+#include "audio/dsp/ClickGenerator.h"
 
 #include <algorithm>
 #include <cmath>

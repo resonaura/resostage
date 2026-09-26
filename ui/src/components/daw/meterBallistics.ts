@@ -13,7 +13,7 @@
  * from a rAF task and painted to canvas.
  */
 
-import { resolveCssVar, withHexAlpha } from "../../lib/cssColor";
+import { resolveCssVar, withHexAlpha } from "../../lib/theme/cssColor";
 import { onThemeChanged, roleColor } from "../../lib/theme";
 
 /** Anything quieter than this is silence as far as a meter is concerned. */

@@ -4,11 +4,18 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
   ContextMenuSubmenu,
-} from "../../components/ContextMenu";
-import { mixer, pluginChains, type PluginCatalogEntry } from "../../lib/api";
-import { rowsSameExceptLevels, sameExceptLevels } from "../../lib/levelFields";
-import { getLiveLevels } from "../../lib/liveLevels";
-import { deduplicatePlugins } from "../../lib/pluginCategories";
+} from "../../components/common/ContextMenu";
+import {
+  mixer,
+  pluginChains,
+  type PluginCatalogEntry,
+} from "../../lib/state/api";
+import {
+  rowsSameExceptLevels,
+  sameExceptLevels,
+} from "../../lib/audio/levelFields";
+import { getLiveLevels } from "../../lib/audio/liveLevels";
+import { deduplicatePlugins } from "../../lib/plugins/pluginCategories";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
@@ -16,7 +23,7 @@ import {
   type MeterRow,
   type SettingsState,
   type TrackRow,
-} from "../../lib/types";
+} from "../../lib/state/types";
 import { ChannelStrip } from "./ChannelStrip";
 import { colorForIndex } from "./constants";
 
@@ -27,7 +34,9 @@ interface InstrumentGroup {
 
 function groupInstruments(plugins: PluginCatalogEntry[]): InstrumentGroup[] {
   const groups = new Map<string, PluginCatalogEntry[]>();
-  const instruments = plugins.filter((p) => p.instrument && p.enabled !== false);
+  const instruments = plugins.filter(
+    (p) => p.instrument && p.enabled !== false,
+  );
   const deduplicated = deduplicatePlugins(instruments);
 
   for (const plugin of deduplicated) {
@@ -45,7 +54,9 @@ function groupInstruments(plugins: PluginCatalogEntry[]): InstrumentGroup[] {
         a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
       ),
     }))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    .sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
 }
 
 function TrackStripInner({
@@ -94,13 +105,18 @@ function TrackStripInner({
   const isInstrument = t.kind === "instrument";
   const isMono = t.channels === 1;
   const currentInput = t.inputSource || (isMono ? "in:1" : "in:1+2");
-  
-  const [optimisticPolarity, setOptimisticPolarity] = useState<"left" | "right" | "none" | "both" | null>(null);
+
+  const [optimisticPolarity, setOptimisticPolarity] = useState<
+    "left" | "right" | "none" | "both" | null
+  >(null);
   const lastPolarityEdit = useRef(0);
   const polarity: "left" | "right" | "none" | "both" =
-    optimisticPolarity ?? (t.polarity ?? (t.phaseInvert ? "both" : "none"));
+    optimisticPolarity ?? t.polarity ?? (t.phaseInvert ? "both" : "none");
   const isPolarityActive = polarity !== "none";
-  const [polarityMenu, setPolarityMenu] = useState<{ x: number; y: number } | null>(null);
+  const [polarityMenu, setPolarityMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   useEffect(() => {
     if (Date.now() - lastPolarityEdit.current > 1200) {
@@ -112,7 +128,12 @@ function TrackStripInner({
     const nextPolarity = isPolarityActive ? "none" : isMono ? "left" : "both";
     lastPolarityEdit.current = Date.now();
     setOptimisticPolarity(nextPolarity);
-    void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, nextPolarity !== "none", nextPolarity);
+    void mixer.setTrackTrim(
+      index,
+      t.inputTrimDb ?? 0,
+      nextPolarity !== "none",
+      nextPolarity,
+    );
   };
 
   const instrumentSlot = t.plugins?.find((p) => p.instrument);
@@ -121,7 +142,10 @@ function TrackStripInner({
     () => (t.plugins ?? []).filter((p) => !p.instrument),
     [t.plugins],
   );
-  const [instrumentMenu, setInstrumentMenu] = useState<{ x: number; y: number } | null>(null);
+  const [instrumentMenu, setInstrumentMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const instrumentGroups = useMemo(
     () => (isInstrument ? groupInstruments(pluginCatalog) : []),
     [isInstrument, pluginCatalog],
@@ -140,7 +164,9 @@ function TrackStripInner({
         }))
       : [
           { id: "in:1+2", label: "In 1+2" },
-          ...(hwChannels.length >= 4 ? [{ id: "in:3+4", label: "In 3+4" }] : []),
+          ...(hwChannels.length >= 4
+            ? [{ id: "in:3+4", label: "In 3+4" }]
+            : []),
           { id: "in:1", label: "In 1 (Spread)" },
           { id: "in:2", label: "In 2 (Spread)" },
         ]),
@@ -169,7 +195,8 @@ function TrackStripInner({
           instrumentName,
           instrumentSlotId: instrumentSlot?.id,
           onOpenInstrument: () => {
-            if (instrumentSlot) void pluginChains.openEditor(t.id, instrumentSlot.id);
+            if (instrumentSlot)
+              void pluginChains.openEditor(t.id, instrumentSlot.id);
           },
           onInstrumentMenu: (pos) => setInstrumentMenu(pos),
           inputOptions,
@@ -192,7 +219,9 @@ function TrackStripInner({
         inputMonitoring={t.inputMonitoring}
         isRecording={isRecording}
         onRecordArm={() => void mixer.setTrackRecordArm(index, !t.recordArmed)}
-        onInputMonitor={() => void mixer.setTrackInputMonitor(index, !t.inputMonitoring)}
+        onInputMonitor={() =>
+          void mixer.setTrackInputMonitor(index, !t.inputMonitoring)
+        }
         onBusSelect={(bId) => mixer.setTrackBus(index, bId)}
         directOutput={{
           settings,
@@ -210,7 +239,12 @@ function TrackStripInner({
             const current = outputSendsToClickRows(t.output).find(
               (s) => s.busId === sBusId,
             );
-            void mixer.setTrackSend(index, sBusId, current?.level ?? 100, enabled);
+            void mixer.setTrackSend(
+              index,
+              sBusId,
+              current?.level ?? 100,
+              enabled,
+            );
           },
         }}
         gainDb={t.gainDb ?? 0}
@@ -249,25 +283,41 @@ function TrackStripInner({
               setPolarityMenu(null);
             }}
           >
-            {polarity === "both" ? "✓ Both Channels (L+R)" : "Both Channels (L+R)"}
+            {polarity === "both"
+              ? "✓ Both Channels (L+R)"
+              : "Both Channels (L+R)"}
           </ContextMenuItem>
           {!isMono && (
             <>
               <ContextMenuItem
                 onClick={() => {
-                  void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, true, "left");
+                  void mixer.setTrackTrim(
+                    index,
+                    t.inputTrimDb ?? 0,
+                    true,
+                    "left",
+                  );
                   setPolarityMenu(null);
                 }}
               >
-                {polarity === "left" ? "✓ Left Channel Only (L)" : "Left Channel Only (L)"}
+                {polarity === "left"
+                  ? "✓ Left Channel Only (L)"
+                  : "Left Channel Only (L)"}
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={() => {
-                  void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, true, "right");
+                  void mixer.setTrackTrim(
+                    index,
+                    t.inputTrimDb ?? 0,
+                    true,
+                    "right",
+                  );
                   setPolarityMenu(null);
                 }}
               >
-                {polarity === "right" ? "✓ Right Channel Only (R)" : "Right Channel Only (R)"}
+                {polarity === "right"
+                  ? "✓ Right Channel Only (R)"
+                  : "Right Channel Only (R)"}
               </ContextMenuItem>
             </>
           )}

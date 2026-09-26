@@ -1,5 +1,9 @@
 import { useMemo } from "react";
-import type { AllPeaksResponse, PeaksResponse, SongRow } from "../../lib/types";
+import type {
+  AllPeaksResponse,
+  PeaksResponse,
+  SongRow,
+} from "../../lib/state/types";
 import { songDurationSeconds } from "./rows";
 
 /**

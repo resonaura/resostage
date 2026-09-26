@@ -1,7 +1,7 @@
 #include "PlatformShellMode.h"
-#include "MacShellMode.h"
-#include "WinShellMode.h"
-#include "LinuxShellMode.h"
+#include "mac/MacShellMode.h"
+#include "win/WinShellMode.h"
+#include "linux/LinuxShellMode.h"
 
 namespace resostage {
 

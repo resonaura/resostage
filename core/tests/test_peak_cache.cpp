@@ -1,7 +1,7 @@
 #include "doctest.h"
 
-#include "audio/PeakCache.h"
-#include "audio/PeakOverview.h"
+#include "audio/peaks/PeakCache.h"
+#include "audio/peaks/PeakOverview.h"
 
 #include <cstring>
 #include <string>

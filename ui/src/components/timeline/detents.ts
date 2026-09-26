@@ -1,4 +1,4 @@
-import type { SongRow } from "../../lib/types";
+import type { SongRow } from "../../lib/state/types";
 
 /**
  * Where a free drag is allowed to tick the trackpad.
