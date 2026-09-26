@@ -205,6 +205,18 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
         section.title = "Window";
         {
             MenuItemModel item;
+            item.title = "Show Musical Typing";
+            item.actionId = "toggle_musical_typing";
+            item.key = mod + " + k";
+            section.items.push_back(std::move(item));
+        }
+        {
+            MenuItemModel sep;
+            sep.kind = MenuItemModel::Kind::Separator;
+            section.items.push_back(sep);
+        }
+        {
+            MenuItemModel item;
             item.title = "Minimize";
             item.role = "minimize";
             item.key = mod + " + m";

@@ -184,6 +184,9 @@ function setupUdpTelemetry(): void {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("udp-telemetry", msg);
       }
+      if (keyboardWindow && !keyboardWindow.isDestroyed()) {
+        keyboardWindow.webContents.send("udp-telemetry", msg);
+      }
     });
     // Let the OS choose the port. A fixed 2898 listener prevented a second
     // user/session on the same workstation from receiving anything and made
@@ -710,6 +713,107 @@ function killBackend(): void {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let keyboardWindow: BrowserWindow | null = null;
+let activeAppUrl: string = EMBED_URL;
+
+function getKeyboardWindowUrl(): string {
+  try {
+    const url = new URL(activeAppUrl);
+    url.searchParams.set("window", "virtual-keyboard");
+    return url.toString();
+  } catch {
+    return `${activeAppUrl}&window=virtual-keyboard`;
+  }
+}
+
+function openKeyboardWindow(): void {
+  if (keyboardWindow && !keyboardWindow.isDestroyed()) {
+    if (!keyboardWindow.isVisible()) {
+      keyboardWindow.show();
+    }
+    keyboardWindow.focus();
+    mainWindow?.webContents.send("keyboard-window:state-changed", true);
+    return;
+  }
+
+  let x: number | undefined;
+  let y: number | undefined;
+  const width = 720;
+  const height = 240;
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const bounds = mainWindow.getBounds();
+    x = Math.round(bounds.x + (bounds.width - width) / 2);
+    y = Math.round(bounds.y + bounds.height - height - 40);
+  }
+
+  keyboardWindow = new BrowserWindow({
+    x,
+    y,
+    width,
+    height,
+    minWidth: 540,
+    minHeight: 200,
+    title: "Musical Typing — ResoStage",
+    backgroundColor: "#09090b",
+    alwaysOnTop: true,
+    autoHideMenuBar: true,
+    show: false,
+    paintWhenInitiallyHidden: true,
+    webPreferences: {
+      preload: path.join(import.meta.dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: false,
+      backgroundThrottling: false,
+      spellcheck: false,
+    },
+  });
+
+  try {
+    keyboardWindow.webContents.setBackgroundThrottling(false);
+  } catch {
+    /* ignore */
+  }
+
+  keyboardWindow.once("ready-to-show", () => {
+    keyboardWindow?.show();
+    keyboardWindow?.focus();
+    mainWindow?.webContents.send("keyboard-window:state-changed", true);
+  });
+
+  keyboardWindow.on("close", () => {
+    if (!isQuitting) {
+      mainWindow?.webContents.send("keyboard-window:state-changed", false);
+    }
+  });
+
+  keyboardWindow.on("closed", () => {
+    keyboardWindow = null;
+    if (!isQuitting) {
+      mainWindow?.webContents.send("keyboard-window:state-changed", false);
+    }
+  });
+
+  void keyboardWindow.loadURL(getKeyboardWindowUrl());
+}
+
+function closeKeyboardWindow(): void {
+  if (keyboardWindow && !keyboardWindow.isDestroyed()) {
+    keyboardWindow.close();
+    keyboardWindow = null;
+  }
+}
+
+function toggleKeyboardWindow(): void {
+  if (keyboardWindow && !keyboardWindow.isDestroyed() && keyboardWindow.isVisible()) {
+    closeKeyboardWindow();
+  } else {
+    openKeyboardWindow();
+  }
+}
+
 let menuModel: MenuModel | null = null; // cached GET /api/v1/ui/menu
 let menuState: MenuState = {
   canUndo: false,
@@ -1010,6 +1114,11 @@ async function postAction(action: string): Promise<boolean> {
   // after any concurrent refreshMenu from menu-state.
   flashMenuAction(action);
 
+  if (action === "toggle_musical_typing") {
+    toggleKeyboardWindow();
+    return true;
+  }
+
   if (
     action === "open_project" ||
     action === "save_project_as" ||
@@ -1236,6 +1345,15 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
 
   const action = item.actionId;
   if (!action) return { label: item.title ?? "" };
+  if (action === "toggle_musical_typing") {
+    return {
+      label: item.title ?? "Show Musical Typing",
+      accelerator: acceleratorFor(item.key),
+      click: () => {
+        toggleKeyboardWindow();
+      },
+    };
+  }
   if (action === "show_render" || action === "show_render_all_tracks") {
     return {
       label: item.title ?? "",
@@ -1777,12 +1895,17 @@ function createWindow(): void {
       // Only fall back to embedded build if the initial Vite dev server was unreachable
       if (validatedURL && validatedURL.startsWith(`http://localhost:${DEV_PORT}`)) {
         triedEmbed = true;
+        activeAppUrl = EMBED_URL;
         void mainWindow?.loadURL(EMBED_URL);
       }
     },
   );
 
   mainWindow.on("close", (e) => {
+    if (keyboardWindow && !keyboardWindow.isDestroyed()) {
+      keyboardWindow.destroy();
+      keyboardWindow = null;
+    }
     if (isQuitting) return;
     if (isRemoteSession) {
       isQuitting = true;
@@ -1824,20 +1947,41 @@ function createWindow(): void {
   // without a dev server, and it burned a real navigation to discover
   // something a refused connection answers instantly.
   if (DEV_UI === "off") {
+    activeAppUrl = EMBED_URL;
     void mainWindow.loadURL(EMBED_URL);
     return;
   }
   void findDevServer(DEV_UI === "wait" ? 10_000 : 0).then((up) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    activeAppUrl = up ? DEV_URL : EMBED_URL;
     console.log(
       up
         ? `[resostage] using the Vite dev server on :${DEV_PORT} (HMR live)`
         : `[resostage] no dev server on :${DEV_PORT} -- using the embedded UI build` +
             ` (RESOSTAGE_UI_DEV=wait to wait for one)`,
     );
-    void mainWindow.loadURL(up ? DEV_URL : EMBED_URL);
+    void mainWindow.loadURL(activeAppUrl);
   });
 }
+
+ipcMain.handle("keyboard-window:toggle", () => {
+  toggleKeyboardWindow();
+  return keyboardWindow !== null && !keyboardWindow.isDestroyed() && keyboardWindow.isVisible();
+});
+
+ipcMain.handle("keyboard-window:open", () => {
+  openKeyboardWindow();
+  return true;
+});
+
+ipcMain.handle("keyboard-window:close", () => {
+  closeKeyboardWindow();
+  return true;
+});
+
+ipcMain.handle("keyboard-window:is-open", () => {
+  return keyboardWindow !== null && !keyboardWindow.isDestroyed() && keyboardWindow.isVisible();
+});
 
 // The page tells us when a text field has focus, so bare-letter bindings
 // ("n" for Next Song) do not eat characters while someone is naming a track.

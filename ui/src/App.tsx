@@ -312,8 +312,20 @@ function useGlobalHotkeys(
 const FULL_RATE_HZ = 120;
 
 export default function App() {
+  const isStandaloneKeyboardWindow =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("window") === "virtual-keyboard";
+
   const [tab, setTab] = useState("player");
   const [isVirtualKeyboardOpen, setIsVirtualKeyboardOpen] = useState(false);
+
+  const toggleVirtualKeyboard = useCallback(() => {
+    if (window.resostageElectron?.isElectron && window.resostageElectron.toggleKeyboardWindow) {
+      void window.resostageElectron.toggleKeyboardWindow();
+    } else {
+      setIsVirtualKeyboardOpen((prev) => !prev);
+    }
+  }, []);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -329,11 +341,22 @@ export default function App() {
           return;
         }
         e.preventDefault();
-        setIsVirtualKeyboardOpen((prev) => !prev);
+        toggleVirtualKeyboard();
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
+  }, [toggleVirtualKeyboard]);
+
+  useEffect(() => {
+    const handleKeyboardState = (e: Event) => {
+      const isOpen = Boolean((e as CustomEvent<boolean>).detail);
+      setIsVirtualKeyboardOpen(isOpen);
+    };
+    window.addEventListener("resostage-keyboard-state-changed", handleKeyboardState);
+    return () => {
+      window.removeEventListener("resostage-keyboard-state-changed", handleKeyboardState);
+    };
   }, []);
 
   const [renderRequest, setRenderRequest] = useState<{
@@ -371,6 +394,26 @@ export default function App() {
     sendTelemetryHz,
     hasLiveSnapshot,
   } = useLiveState(tab);
+
+  if (isStandaloneKeyboardWindow) {
+    return (
+      <div className="w-screen h-screen bg-background text-foreground overflow-hidden select-none">
+        <VirtualMidiKeyboard
+          isOpen={true}
+          standalone={true}
+          onClose={() => {
+            if (window.resostageElectron?.closeKeyboardWindow) {
+              void window.resostageElectron.closeKeyboardWindow();
+            } else {
+              window.close();
+            }
+          }}
+          state={state}
+        />
+      </div>
+    );
+  }
+
   useGlobalHotkeys(state, setTab, isVirtualKeyboardOpen);
   // One frame budget for the whole UI -- see usePerformanceMode. Mounted here
   // and only here, so there is exactly one auto ladder deciding it.
@@ -656,7 +699,7 @@ export default function App() {
           {/* Musical Typing / Virtual MIDI Keyboard Toggle */}
           <button
             type="button"
-            onClick={() => setIsVirtualKeyboardOpen((prev) => !prev)}
+            onClick={toggleVirtualKeyboard}
             title="Musical Typing / Virtual MIDI Keyboard (Cmd+K)"
             aria-label="Musical Typing Keyboard"
             className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
@@ -815,11 +858,13 @@ export default function App() {
         }
       />
 
-      <VirtualMidiKeyboard
-        isOpen={isVirtualKeyboardOpen}
-        onClose={() => setIsVirtualKeyboardOpen(false)}
-        state={state}
-      />
+      {!window.resostageElectron?.isElectron && (
+        <VirtualMidiKeyboard
+          isOpen={isVirtualKeyboardOpen}
+          onClose={() => setIsVirtualKeyboardOpen(false)}
+          state={state}
+        />
+      )}
 
       {toastNotifications.length > 0 && (
         <div className="fixed bottom-5 right-5 z-[300] flex flex-col gap-2.5 max-w-sm pointer-events-none">

@@ -77,13 +77,15 @@ function getKeyBadge(offset: number): string | null {
 }
 
 export function VirtualMidiKeyboard({
-  isOpen,
+  isOpen = true,
   onClose,
   state,
+  standalone = false,
 }: {
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   state: WebUiState;
+  standalone?: boolean;
 }) {
   const [octave, setOctave] = useState<number>(() => {
     const saved = localStorage.getItem("resostage:virtual-keyboard-octave");
@@ -346,14 +348,26 @@ export function VirtualMidiKeyboard({
     [octave, releaseAllNotes],
   );
 
-  // Physical keyboard listeners - ONLY registered when isOpen === true!
+  // Physical keyboard listeners - registered when isOpen === true or standalone === true
   useEffect(() => {
-    if (!isOpen) {
+    if (!isOpen && !standalone) {
       releaseAllNotes();
       return;
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Close window on Escape or Cmd+W / Cmd+K
+      if (
+        e.key === "Escape" ||
+        (e.metaKey && (e.key === "k" || e.key === "K" || e.key === "w" || e.key === "W"))
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        onClose();
+        return;
+      }
+
       // Do not hijack typing if focused inside an input or editable field
       const activeEl = document.activeElement as HTMLElement | null;
       if (
@@ -369,7 +383,7 @@ export function VirtualMidiKeyboard({
       // Ignore OS key repeats to prevent re-triggering note on
       if (e.repeat) return;
 
-      // Allow shortcuts with modifiers (Cmd+K, Cmd+Z, Cmd+S, Alt+...) to pass through
+      // Allow other shortcuts with modifiers to pass through
       if (e.metaKey || e.ctrlKey || e.altKey) {
         return;
       }
@@ -494,7 +508,7 @@ export function VirtualMidiKeyboard({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen && !standalone) return null;
 
   const whiteKeys = keysData.keys.filter((k) => !k.isBlack);
   const blackKeys = keysData.keys.filter((k) => k.isBlack);
@@ -505,30 +519,44 @@ export function VirtualMidiKeyboard({
       role="region"
       aria-label="Virtual MIDI Keyboard"
       style={
-        position
-          ? {
-              left: `${position.x}px`,
-              top: `${position.y}px`,
-            }
-          : undefined
+        standalone
+          ? undefined
+          : position
+            ? {
+                left: `${position.x}px`,
+                top: `${position.y}px`,
+              }
+            : undefined
       }
-      className={`fixed ${
-        position ? "" : "bottom-9 left-1/2 -translate-x-1/2"
-      } z-40 flex flex-col w-[96vw] max-w-[680px] rounded-2xl border border-white/10 bg-background-secondary/80 backdrop-blur-2xl p-2.5 text-xs select-none shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_2px_6px_rgba(0,0,0,0.35),0_12px_28px_-4px_rgba(0,0,0,0.55),0_36px_84px_-10px_rgba(0,0,0,0.7)] ${
-        isDragging ? "cursor-grabbing select-none" : ""
-      }`}
+      className={
+        standalone
+          ? "w-full h-full flex flex-col bg-background text-xs select-none p-3 overflow-hidden justify-between border-t border-white/5"
+          : `fixed ${
+              position ? "" : "bottom-9 left-1/2 -translate-x-1/2"
+            } z-40 flex flex-col w-[96vw] max-w-[680px] rounded-2xl border border-white/10 bg-background-secondary/80 backdrop-blur-2xl p-2.5 text-xs select-none shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_2px_6px_rgba(0,0,0,0.35),0_12px_28px_-4px_rgba(0,0,0,0.55),0_36px_84px_-10px_rgba(0,0,0,0.7)] ${
+              isDragging ? "cursor-grabbing select-none" : ""
+            }`
+      }
     >
       {/* Header bar */}
       <div
-        onPointerDown={handlePointerDownHeader}
-        onPointerMove={handlePointerMoveHeader}
-        onPointerUp={handlePointerUpHeader}
-        onDoubleClick={handleResetPosition}
-        title="Drag to reposition · Double-click to reset"
-        className="flex flex-wrap items-center justify-between gap-2 border-b border-default/20 pb-2 mb-2 cursor-grab active:cursor-grabbing"
+        onPointerDown={standalone ? undefined : handlePointerDownHeader}
+        onPointerMove={standalone ? undefined : handlePointerMoveHeader}
+        onPointerUp={standalone ? undefined : handlePointerUpHeader}
+        onDoubleClick={standalone ? undefined : handleResetPosition}
+        title={standalone ? "Musical Typing" : "Drag to reposition · Double-click to reset"}
+        style={standalone ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined}
+        className={`flex flex-wrap items-center justify-between gap-2 border-b border-default/20 pb-2 mb-2 select-none ${
+          standalone ? "" : "cursor-grab active:cursor-grabbing"
+        }`}
       >
-        <div className="flex items-center gap-1.5">
-          <GripVertical size={14} className="text-foreground/30 hover:text-foreground/60 shrink-0" />
+        <div
+          className="flex items-center gap-1.5"
+          style={standalone ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined}
+        >
+          {!standalone && (
+            <GripVertical size={14} className="text-foreground/30 hover:text-foreground/60 shrink-0" />
+          )}
           <div className="flex items-center gap-1.5 font-semibold text-foreground">
             <Keyboard size={16} className="text-accent" />
             <span>Musical Typing</span>
@@ -607,7 +635,10 @@ export function VirtualMidiKeyboard({
         </div>
 
         {/* Controls: Octave & Velocity & Close */}
-        <div className="flex items-center gap-3">
+        <div
+          className="flex items-center gap-3"
+          style={standalone ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined}
+        >
           {/* Octave Controls */}
           <div className="flex items-center gap-1 bg-default/20 border border-default/30 rounded-lg px-1.5 py-0.5">
             <span className="text-[10px] font-mono text-foreground/50 uppercase mr-1">Oct</span>
@@ -668,8 +699,8 @@ export function VirtualMidiKeyboard({
             </span>
           </div>
 
-          {/* Dock reset button (visible only when dragged) */}
-          {position && (
+          {/* Dock reset button (visible only when dragged and not in standalone window) */}
+          {position && !standalone && (
             <button
               type="button"
               onClick={handleResetPosition}
@@ -693,7 +724,7 @@ export function VirtualMidiKeyboard({
       </div>
 
       {/* Piano Keyboard Canvas */}
-      <div className="relative w-full h-28 sm:h-32 bg-background/90 rounded-xl p-1 overflow-hidden select-none touch-none shadow-inner border border-default/30">
+      <div className={`relative w-full ${standalone ? "flex-1 min-h-[110px]" : "h-28 sm:h-32"} bg-background/90 rounded-xl p-1 overflow-hidden select-none touch-none shadow-inner border border-default/30`}>
         {/* White keys container */}
         <div className="flex h-full w-full">
           {whiteKeys.map((k) => {

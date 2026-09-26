@@ -41,6 +41,10 @@ declare global {
         isJson: boolean;
         error?: string;
       }>;
+      toggleKeyboardWindow?: () => Promise<boolean>;
+      openKeyboardWindow?: () => Promise<boolean>;
+      closeKeyboardWindow?: () => Promise<boolean>;
+      isKeyboardWindowOpen?: () => Promise<boolean>;
     };
   }
 }

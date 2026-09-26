@@ -38,6 +38,11 @@ contextBridge.exposeInMainWorld("resostageElectron", {
     headers?: Record<string, string>;
     body?: string | null;
   }) => ipcRenderer.invoke("http:proxy", req),
+  /** Floating Musical Typing / Virtual MIDI keyboard window management */
+  toggleKeyboardWindow: () => ipcRenderer.invoke("keyboard-window:toggle"),
+  openKeyboardWindow: () => ipcRenderer.invoke("keyboard-window:open"),
+  closeKeyboardWindow: () => ipcRenderer.invoke("keyboard-window:close"),
+  isKeyboardWindowOpen: () => ipcRenderer.invoke("keyboard-window:is-open"),
 });
 
 type BridgeGlobal = typeof globalThis & {
@@ -87,4 +92,9 @@ ipcRenderer.on("udp-telemetry", (_event, buffer: unknown) => {
 // user intent; Core still validates and runs the authoritative render job.
 ipcRenderer.on("open-audio-render", (_event, detail: unknown) => {
   emit("resostage-open-audio-render", detail);
+});
+
+// Floating Musical Typing window open/close state sync
+ipcRenderer.on("keyboard-window:state-changed", (_event, isOpen: boolean) => {
+  emit("resostage-keyboard-state-changed", isOpen);
 });
