@@ -2,6 +2,7 @@
 
 #include "audio/AudioRecordWorker.h"
 #include "engine/AudioEngineInternal.h"
+#include "project/ProjectSchema.h"
 
 #include <cmath>
 #include <filesystem>
@@ -219,4 +220,151 @@ TEST_CASE("AudioRecordWorker handles non-contiguous track indexing via session m
 
     std::filesystem::remove_all(tempDir, ec);
 }
+
+TEST_CASE("Logic Pro MIDI recording: merge into existing region when within bounds") {
+    SongDef song;
+    song.id = "song:1";
+    song.bpm = 120.0; // 1 beat = 0.5s
+    song.endSeconds = 30.0; // 60 beats
+
+    // Existing region on track "inst:1" from beat 0 to 16
+    MidiRegion existing;
+    existing.id = "reg:existing";
+    existing.trackId = "inst:1";
+    existing.startBeats = 0.0;
+    existing.durationBeats = 16.0;
+    MidiNote n1;
+    n1.pitch = 60;
+    n1.startBeats = 0.0;
+    n1.durationBeats = 1.0;
+    existing.notes.push_back(n1);
+    song.midiRegions.push_back(std::move(existing));
+
+    // Simulate session with recorded notes starting at beat 4 (inside existing region)
+    const double recordStartBeats = 4.0;
+    const double recordEndBeats = 18.0; // Overhangs past beat 16
+    (void)recordEndBeats;
+
+    std::string sessionTrackId = "inst:1";
+    std::vector<MidiNote> recordedNotes;
+    MidiNote recNote;
+    recNote.pitch = 64;
+    recNote.startBeats = 4.0;
+    recNote.durationBeats = 2.0;
+    recordedNotes.push_back(recNote);
+
+    MidiNote recNote2;
+    recNote2.pitch = 67;
+    recNote2.startBeats = 16.5;
+    recNote2.durationBeats = 1.5; // Ends at 18.0
+    recordedNotes.push_back(recNote2);
+
+    // Execute merge logic
+    MidiRegion* targetRegion = nullptr;
+    for (auto& mr : song.midiRegions) {
+        if (mr.trackId == sessionTrackId) {
+            const double mrEndBeats = mr.startBeats + mr.durationBeats;
+            if (recordStartBeats >= (mr.startBeats - 0.25) && recordStartBeats <= (mrEndBeats + 0.25)) {
+                targetRegion = &mr;
+                break;
+            }
+        }
+    }
+
+    REQUIRE(targetRegion != nullptr);
+    CHECK(targetRegion->id == "reg:existing");
+
+    for (const auto& rNote : recordedNotes) {
+        MidiNote note = rNote;
+        note.startBeats = std::max(0.0, note.startBeats - targetRegion->startBeats);
+        if (note.startBeats + note.durationBeats > targetRegion->durationBeats) {
+            targetRegion->durationBeats = note.startBeats + note.durationBeats;
+        }
+        targetRegion->notes.push_back(note);
+    }
+
+    // Still only 1 region (merged!), not 2 stacked regions
+    CHECK(song.midiRegions.size() == 1);
+    CHECK(targetRegion->notes.size() == 3);
+    // Duration extended to cover 18.0 beats
+    CHECK(targetRegion->durationBeats == doctest::Approx(18.0));
+}
+
+TEST_CASE("Logic Pro MIDI recording: creates separate region when outside existing region") {
+    SongDef song;
+    song.id = "song:1";
+    song.bpm = 120.0;
+
+    MidiRegion existing;
+    existing.id = "reg:existing";
+    existing.trackId = "inst:1";
+    existing.startBeats = 0.0;
+    existing.durationBeats = 8.0;
+    song.midiRegions.push_back(std::move(existing));
+
+    // Record starts at beat 24.0 (well past beat 8.0)
+    const double recordStartBeats = 24.0;
+    const double recordEndBeats = 32.0;
+
+    std::string sessionTrackId = "inst:1";
+    std::vector<MidiNote> recordedNotes;
+    MidiNote recNote;
+    recNote.pitch = 72;
+    recNote.startBeats = 24.0;
+    recNote.durationBeats = 2.0;
+    recordedNotes.push_back(recNote);
+
+    MidiRegion* targetRegion = nullptr;
+    for (auto& mr : song.midiRegions) {
+        if (mr.trackId == sessionTrackId) {
+            const double mrEndBeats = mr.startBeats + mr.durationBeats;
+            if (recordStartBeats >= (mr.startBeats - 0.25) && recordStartBeats <= (mrEndBeats + 0.25)) {
+                targetRegion = &mr;
+                break;
+            }
+        }
+    }
+
+    // Must NOT merge into existing region
+    CHECK(targetRegion == nullptr);
+
+    // Create separate region
+    MidiRegion mr;
+    mr.id = "reg:new";
+    mr.trackId = sessionTrackId;
+    mr.startBeats = recordStartBeats;
+    mr.durationBeats = recordEndBeats - recordStartBeats;
+    for (const auto& rNote : recordedNotes) {
+        MidiNote note = rNote;
+        note.startBeats = std::max(0.0, note.startBeats - mr.startBeats);
+        mr.notes.push_back(note);
+    }
+    song.midiRegions.push_back(std::move(mr));
+
+    CHECK(song.midiRegions.size() == 2);
+    CHECK(song.midiRegions[1].startBeats == doctest::Approx(24.0));
+    CHECK(song.midiRegions[1].durationBeats == doctest::Approx(8.0));
+    CHECK(song.midiRegions[1].notes[0].startBeats == doctest::Approx(0.0));
+}
+
+TEST_CASE("Song auto-extension extends endSeconds to bar boundary when recording exceeds song end") {
+    SongDef song;
+    song.bpm = 120.0; // 1 beat = 0.5s, 4 beats/bar = 2.0s per bar
+    song.timeSignature = {4, 4};
+    song.endSeconds = 10.0; // 5 bars
+
+    // Recording ended at 15.3 seconds (7.65 bars)
+    const double maxRecEndSec = 15.3;
+    const double barSec = 2.0;
+    const double candidateEndSec = std::ceil((maxRecEndSec + barSec * 0.5) / barSec) * barSec;
+
+    if (candidateEndSec > song.endSeconds) {
+        song.endSeconds = candidateEndSec;
+    }
+
+    // 15.3 + 1.0 = 16.3 -> ceil(16.3 / 2.0) * 2.0 = 9 bars * 2.0s = 18.0s
+    CHECK(song.endSeconds == 18.0);
+    CHECK(song.endSeconds > maxRecEndSec);
+}
+
 

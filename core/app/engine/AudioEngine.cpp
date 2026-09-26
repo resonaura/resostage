@@ -694,6 +694,11 @@ void AudioEngine::handleSampleRateChanged(double newSampleRate, double previousP
             double maxContentSec = 0.0;
             for (const auto& r : sDef.regions)
                 maxContentSec = std::max(maxContentSec, r.startSeconds + r.durationSeconds);
+            const double bpm = sDef.bpm > 0.0 ? sDef.bpm : 120.0;
+            for (const auto& mr : sDef.midiRegions) {
+                const double mrEndSec = ((mr.startBeats + mr.durationBeats) * 60.0) / bpm;
+                maxContentSec = std::max(maxContentSec, mrEndSec);
+            }
             for (const auto& sec : sDef.sections)
                 maxContentSec = std::max(maxContentSec, sec.startSeconds);
             for (const auto& ev : sDef.events)
@@ -1340,7 +1345,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             && !cycleSkip.load(std::memory_order_relaxed)
             && (cycleHi - cycleLo) >= 0.05;
         const int64_t fadeArmSample = currentSongLengthFrames - kSongEndFadeSamples;
-        if (!cycleLoopBlocksSongEnd
+        const bool isRecActive = isRecordingState.load(std::memory_order_relaxed);
+        if (!isRecActive && !cycleLoopBlocksSongEnd
             && currentSongLengthFrames > 0 && playheadSample + numSamples >= fadeArmSample) {
             if (pendingSongEndAction == SongEndAction::None) {
                 if (underrunFadeOutRemaining <= 0) {
@@ -2140,7 +2146,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     // transition. Requiring both (not just the ramp counter reaching 0) means
     // a song shorter than the fade window can't trigger the transition before
     // its own real audio has finished playing.
-    if (isPlaying && pendingSongEndAction != SongEndAction::None && underrunFadeOutRemaining == 0
+    if (isPlaying && !isRecordingState.load(std::memory_order_relaxed) && pendingSongEndAction != SongEndAction::None && underrunFadeOutRemaining == 0
         && playheadSample >= currentSongLengthFrames) {
         if (pendingSongEndAction == SongEndAction::GaplessAdvance) {
             const size_t nextIdx = pendingSongEndTargetSong;

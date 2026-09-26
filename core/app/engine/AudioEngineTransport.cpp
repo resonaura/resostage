@@ -62,6 +62,11 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         double maxContentSec = 0.0;
         for (const auto& r : song.regions)
             maxContentSec = std::max(maxContentSec, r.startSeconds + r.durationSeconds);
+        const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
+        for (const auto& mr : song.midiRegions) {
+            const double mrEndSec = ((mr.startBeats + mr.durationBeats) * 60.0) / bpm;
+            maxContentSec = std::max(maxContentSec, mrEndSec);
+        }
         for (const auto& sec : song.sections)
             maxContentSec = std::max(maxContentSec, sec.startSeconds);
         for (const auto& ev : song.events)
@@ -204,6 +209,11 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     double maxContentSec = 0.0;
     for (const auto& r : song.regions)
         maxContentSec = std::max(maxContentSec, r.startSeconds + r.durationSeconds);
+    const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
+    for (const auto& mr : song.midiRegions) {
+        const double mrEndSec = ((mr.startBeats + mr.durationBeats) * 60.0) / bpm;
+        maxContentSec = std::max(maxContentSec, mrEndSec);
+    }
     for (const auto& sec : song.sections)
         maxContentSec = std::max(maxContentSec, sec.startSeconds);
     for (const auto& ev : song.events)
@@ -913,8 +923,13 @@ void AudioEngine::stopRecording() {
     const int64_t startSample = recordStartSamplePos.load(std::memory_order_acquire);
     const double recordStartSeconds = static_cast<double>(startSample) / sr;
     const int64_t endSample = clock.currentSamplePosition();
+    const double recordEndSeconds = static_cast<double>(endSample) / sr;
+    const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
+    const double recordStartBeats = (recordStartSeconds * bpm) / 60.0;
+    const double recordEndBeats = (recordEndSeconds * bpm) / 60.0;
 
     bool projectModified = false;
+    double maxRecEndSec = 0.0;
 
     // 1. Commit recorded audio regions
     for (const auto& rec : recordedAudio) {
@@ -934,12 +949,14 @@ void AudioEngine::stopRecording() {
         r.source.offsetSeconds = 0.0;
         r.fade.inSeconds = 0.005;
         r.fade.outSeconds = 0.005;
+        maxRecEndSec = std::max(maxRecEndSec, r.startSeconds + r.durationSeconds);
         song.regions.push_back(std::move(r));
         projectModified = true;
     }
 
-    // 2. Commit recorded MIDI regions
+    // 2. Commit recorded MIDI regions (Logic Pro Merge vs Separate Region behavior)
     for (auto& session : activeMidiRecordSessions) {
+        // Complete any notes that were still sounding when recording was stopped
         for (int p = 0; p < 128; ++p) {
             auto& activeNote = session.activeNotes[static_cast<size_t>(p)];
             if (activeNote.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
@@ -948,7 +965,6 @@ void AudioEngine::stopRecording() {
                 completed.velocity = activeNote.velocity;
                 const double noteStartSec = static_cast<double>(activeNote.startSample) / sr;
                 const double durSec = static_cast<double>(endSample - activeNote.startSample) / sr;
-                const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
                 completed.startBeats = (noteStartSec * bpm) / 60.0;
                 completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
                 session.recordedNotes[session.recordedNoteCount++] = completed;
@@ -957,28 +973,85 @@ void AudioEngine::stopRecording() {
         }
 
         if (session.recordedNoteCount > 0) {
-            MidiRegion mr;
-            mr.id = generateUuidV7();
-            mr.trackId = session.trackId;
-            mr.name = "Recorded MIDI";
-            const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
-            mr.startBeats = (recordStartSeconds * bpm) / 60.0;
-            const double endSec = static_cast<double>(endSample) / sr;
-            mr.durationBeats = std::max(1.0, ((endSec - recordStartSeconds) * bpm) / 60.0);
-            mr.notes.reserve(session.recordedNoteCount);
-            for (size_t n = 0; n < session.recordedNoteCount; ++n) {
-                MidiNote note = session.recordedNotes[n];
-                note.startBeats = std::max(0.0, note.startBeats - mr.startBeats);
-                if (note.startBeats + note.durationBeats > mr.durationBeats) {
-                    mr.durationBeats = note.startBeats + note.durationBeats;
+            // Find existing MIDI region on this track containing recordStartBeats (Logic Pro Merge behavior)
+            MidiRegion* targetRegion = nullptr;
+            for (auto& mr : song.midiRegions) {
+                if (mr.trackId == session.trackId) {
+                    const double mrEndBeats = mr.startBeats + mr.durationBeats;
+                    // Check if recording began within (or at the boundary of) this region
+                    if (recordStartBeats >= (mr.startBeats - 0.25) && recordStartBeats <= (mrEndBeats + 0.25)) {
+                        targetRegion = &mr;
+                        break;
+                    }
                 }
-                mr.notes.push_back(note);
             }
-            song.midiRegions.push_back(std::move(mr));
-            projectModified = true;
+
+            if (targetRegion != nullptr) {
+                // Merge notes into existing region
+                for (size_t n = 0; n < session.recordedNoteCount; ++n) {
+                    MidiNote note = session.recordedNotes[n];
+                    note.startBeats = std::max(0.0, note.startBeats - targetRegion->startBeats);
+                    if (note.startBeats + note.durationBeats > targetRegion->durationBeats) {
+                        targetRegion->durationBeats = note.startBeats + note.durationBeats;
+                    }
+                    targetRegion->notes.push_back(note);
+                }
+                std::sort(targetRegion->notes.begin(), targetRegion->notes.end(),
+                          [](const MidiNote& a, const MidiNote& b) {
+                              return a.startBeats < b.startBeats;
+                          });
+                const double rEndSec = ((targetRegion->startBeats + targetRegion->durationBeats) * 60.0) / bpm;
+                maxRecEndSec = std::max(maxRecEndSec, rEndSec);
+                projectModified = true;
+            } else {
+                // Outside existing region: create new distinct region (Logic Pro standard)
+                MidiRegion mr;
+                mr.id = generateUuidV7();
+                mr.trackId = session.trackId;
+                mr.name = "Recorded MIDI";
+                mr.startBeats = recordStartBeats;
+                const double durBeats = std::max(1.0, recordEndBeats - recordStartBeats);
+                mr.durationBeats = durBeats;
+                mr.notes.reserve(session.recordedNoteCount);
+                for (size_t n = 0; n < session.recordedNoteCount; ++n) {
+                    MidiNote note = session.recordedNotes[n];
+                    note.startBeats = std::max(0.0, note.startBeats - mr.startBeats);
+                    if (note.startBeats + note.durationBeats > mr.durationBeats) {
+                        mr.durationBeats = note.startBeats + note.durationBeats;
+                    }
+                    mr.notes.push_back(note);
+                }
+                std::sort(mr.notes.begin(), mr.notes.end(),
+                          [](const MidiNote& a, const MidiNote& b) {
+                              return a.startBeats < b.startBeats;
+                          });
+                const double rEndSec = ((mr.startBeats + mr.durationBeats) * 60.0) / bpm;
+                maxRecEndSec = std::max(maxRecEndSec, rEndSec);
+                song.midiRegions.push_back(std::move(mr));
+                projectModified = true;
+            }
         }
     }
     activeMidiRecordSessions.clear();
+
+    // Auto-extend song if recording exceeded the song boundary
+    if (projectModified && maxRecEndSec > 0.0) {
+        const double beatsPerBar = static_cast<double>(song.timeSignature.numerator > 0 ? song.timeSignature.numerator : 4);
+        const double barSec = (beatsPerBar * 60.0) / bpm;
+        // Round up to nearest bar with 1 bar breathing room (Logic Pro behavior)
+        const double candidateEndSec = std::ceil((maxRecEndSec + barSec * 0.5) / barSec) * barSec;
+        if (song.endSeconds > 0.0) {
+            if (candidateEndSec > song.endSeconds) {
+                song.endSeconds = candidateEndSec;
+            }
+        } else {
+            constexpr double kDefault64Bars = 64.0;
+            const double default64Sec = (kDefault64Bars * beatsPerBar * 60.0) / bpm;
+            if (candidateEndSec > default64Sec) {
+                song.endSeconds = candidateEndSec;
+            }
+        }
+    }
 
     if (projectModified) {
         markDirty();

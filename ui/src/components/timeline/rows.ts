@@ -76,6 +76,12 @@ export function songContentSeconds(
   for (const s of song.sections ?? []) {
     if (s.startSeconds) max = Math.max(max, s.startSeconds);
   }
+  const bpm = song.bpm > 0 ? song.bpm : 120;
+  for (const mr of song.midiRegions ?? []) {
+    const endBeats = (mr.startBeats ?? 0) + (mr.durationBeats ?? 0);
+    const endSec = (endBeats * 60) / bpm;
+    max = Math.max(max, endSec);
+  }
   return max;
 }
 

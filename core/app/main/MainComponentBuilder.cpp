@@ -38,6 +38,9 @@ void MainComponent::builderSongAdd(const std::string& json) {
     song.id = makeUniqueId("song", used);
     song.name = "New Song";
     song.bpm = 120.0;
+    // Default 64 bars (Logic Pro standard project start length)
+    constexpr double kDefaultBars = 64.0;
+    song.endSeconds = (kDefaultBars * 4.0 * 60.0) / 120.0; // 128.0 seconds
     // Metronome is project-global and already defaults to routing into
     // Master (ClickChannel::output defaults OutputType::Main) -- no seeding
     // needed here.

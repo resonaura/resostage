@@ -125,4 +125,26 @@ describe("songDurationSeconds", () => {
     expect(songDurationSeconds({ ...s, endSeconds: 0 }, undefined)).toBe(10);
     expect(songDurationSeconds({ ...s, endSeconds: -5 }, undefined)).toBe(10);
   });
+
+  it("measures midiRegions in songContentSeconds using song bpm", () => {
+    // 120 BPM -> 1 beat = 0.5s. 16 beats start + 32 beats duration = 48 beats = 24 seconds.
+    const s = song({
+      name: "MidiSong",
+      bpm: 120,
+      midiRegions: [
+        {
+          id: "mr1",
+          trackId: "inst1",
+          name: "Synth Lead",
+          startBeats: 16,
+          durationBeats: 32,
+          clipOffsetBeats: 0,
+          loop: false,
+          loopLengthBeats: 0,
+          notes: [],
+        },
+      ],
+    });
+    expect(songContentSeconds(s, undefined)).toBe(24);
+  });
 });
