@@ -14,8 +14,14 @@ CoreMidiInputListener::~CoreMidiInputListener() {
     closeSource();
 }
 
+std::string CoreMidiInputListener::currentSource() const {
+    std::lock_guard<std::mutex> lock(sourceMutex);
+    return currentSourceName;
+}
+
 std::vector<std::string> CoreMidiInputListener::availableSourceNames() const {
     std::vector<std::string> names;
+    names.push_back("All Inputs");
     snd_seq_t* seq = nullptr;
     if (snd_seq_open(&seq, "default", SND_SEQ_OPEN_INPUT, 0) < 0) {
         return names;
@@ -44,10 +50,14 @@ std::vector<std::string> CoreMidiInputListener::availableSourceNames() const {
 }
 
 bool CoreMidiInputListener::openSource(const std::string& sourceName, std::string& error) {
-    (void)sourceName;
-    closeSource();
+    std::lock_guard<std::mutex> lock(sourceMutex);
+    closeSourceInternal();
+
+    currentSourceName = sourceName.empty() ? "All Inputs" : sourceName;
     snd_seq_t* seq = nullptr;
     if (snd_seq_open(&seq, "default", SND_SEQ_OPEN_INPUT, 0) < 0) {
+        if (currentSourceName == "All Inputs" || currentSourceName == "all")
+            return true;
         error = "Failed to open ALSA sequencer input";
         return false;
     }
@@ -57,6 +67,11 @@ bool CoreMidiInputListener::openSource(const std::string& sourceName, std::strin
 }
 
 void CoreMidiInputListener::closeSource() {
+    std::lock_guard<std::mutex> lock(sourceMutex);
+    closeSourceInternal();
+}
+
+void CoreMidiInputListener::closeSourceInternal() {
     if (client != 0) {
         auto* seq = reinterpret_cast<snd_seq_t*>(client);
         snd_seq_close(seq);

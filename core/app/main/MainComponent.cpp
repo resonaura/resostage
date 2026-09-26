@@ -192,17 +192,23 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
             handleMidiLearnMessage(type, channel, number);
         });
     };
+    midiInput.onSourcesChanged = [this] {
+        juce::MessageManager::callAsync([this] {
+            invalidateHardwareSettingsCache();
+            publishWebState();
+        });
+    };
 
-    // Restore saved MIDI in/out/virtual-port preference (best-effort -- a
-    // footswitch that isn't plugged in yet just means these stay closed
-    // until the user picks something in Settings).
+    // Restore saved MIDI in/out/virtual-port preference (defaults to "All Inputs"
+    // so any connected or hotplugged keyboard works out-of-the-box).
     if (!appSettings.midiOutputName.empty()) {
         std::string err;
         (void)engine.midi().openDestination(appSettings.midiOutputName, err);
     }
-    if (!appSettings.midiInputName.empty()) {
+    {
+        const std::string inputToOpen = appSettings.midiInputName.empty() ? "All Inputs" : appSettings.midiInputName;
         std::string err;
-        (void)midiInput.openSource(appSettings.midiInputName, err);
+        (void)midiInput.openSource(inputToOpen, err);
     }
     if (appSettings.virtualMidiPortEnabled) {
         std::string err;

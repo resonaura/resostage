@@ -67,10 +67,16 @@ CoreMidiInputListener::~CoreMidiInputListener() {
     closeSource();
 }
 
+std::string CoreMidiInputListener::currentSource() const {
+    std::lock_guard<std::mutex> lock(sourceMutex);
+    return currentSourceName;
+}
+
 std::vector<std::string> CoreMidiInputListener::availableSourceNames() const {
     std::vector<std::string> names;
+    names.push_back("All Inputs");
     const UINT count = midiInGetNumDevs();
-    names.reserve(count);
+    names.reserve(count + 1);
     for (UINT i = 0; i < count; ++i) {
         MIDIINCAPS caps{};
         if (midiInGetDevCaps(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
@@ -81,17 +87,21 @@ std::vector<std::string> CoreMidiInputListener::availableSourceNames() const {
 }
 
 bool CoreMidiInputListener::openSource(const std::string& sourceName, std::string& error) {
-    closeSource();
+    std::lock_guard<std::mutex> lock(sourceMutex);
+    closeSourceInternal();
 
+    currentSourceName = sourceName.empty() ? "All Inputs" : sourceName;
     const UINT count = midiInGetNumDevs();
     if (count == 0) {
+        if (currentSourceName == "All Inputs" || currentSourceName == "all")
+            return true;
         error = "No Windows MIDI input devices available";
         return false;
     }
 
     UINT deviceId = 0;
     bool found = false;
-    if (sourceName.empty()) {
+    if (currentSourceName == "All Inputs" || currentSourceName == "all") {
         deviceId = 0;
         found = true;
     } else {
@@ -99,7 +109,7 @@ bool CoreMidiInputListener::openSource(const std::string& sourceName, std::strin
             MIDIINCAPS caps{};
             if (midiInGetDevCaps(i, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
                 continue;
-            if (devNameToUtf8(caps.szPname) == sourceName) {
+            if (devNameToUtf8(caps.szPname) == currentSourceName) {
                 deviceId = i;
                 found = true;
                 break;
@@ -108,7 +118,7 @@ bool CoreMidiInputListener::openSource(const std::string& sourceName, std::strin
     }
 
     if (!found) {
-        error = "Windows MIDI input device not found: " + sourceName;
+        error = "Windows MIDI input device not found: " + currentSourceName;
         return false;
     }
 
@@ -132,6 +142,11 @@ bool CoreMidiInputListener::openSource(const std::string& sourceName, std::strin
 }
 
 void CoreMidiInputListener::closeSource() {
+    std::lock_guard<std::mutex> lock(sourceMutex);
+    closeSourceInternal();
+}
+
+void CoreMidiInputListener::closeSourceInternal() {
     if (source != 0) {
         HMIDIIN handle = reinterpret_cast<HMIDIIN>(source);
         midiInStop(handle);

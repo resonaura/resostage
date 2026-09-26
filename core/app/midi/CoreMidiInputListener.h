@@ -55,6 +55,7 @@ public:
     // audio thread, so brief lock contention has no real-time consequence.
     void setMappings(std::vector<MidiMapping> newMappings);
 
+    std::string currentSource() const;
     std::function<void(const std::string& action)> onAction;
     std::function<void(const std::string& target, float normalizedValue)> onContinuousAction;
     std::function<void(const uint8_t* data, int length)> onMidiMessageReceived;
@@ -66,10 +67,17 @@ public:
     // on CoreMIDI's driver thread, callers must marshal to the message thread.
     std::function<void(MidiTriggerType type, int channel1to16, int number, int value)> onRawMessage;
 
+    // Fired when MIDI devices are hotplugged / removed or ports change
+    std::function<void()> onSourcesChanged;
+
 private:
+    void closeSourceInternal();
+
 #if defined(__APPLE__)
     static void readProc(const MIDIPacketList* packetList, void* readProcRefCon, void* srcConnRefCon);
+    static void notifyProc(const MIDINotification* message, void* refCon);
     void handlePacketList(const MIDIPacketList* packetList);
+    std::vector<MidiEndpointRef> connectedSources;
 #elif defined(_WIN32)
     friend void midiInProc(void* hMidiIn, unsigned int wMsg, void* dwInstance, void* dwParam1, void* dwParam2);
     void handleIncomingMessage(uint8_t status, uint8_t data1, uint8_t data2);
@@ -80,6 +88,8 @@ private:
     MidiClientRef client = 0;
     MidiPortRef inputPort = 0;
     MidiEndpointRef source = 0;
+    std::string currentSourceName = "All Inputs";
+    mutable std::mutex sourceMutex;
 
     std::mutex mappingsMutex;
     std::vector<MidiMapping> mappings;

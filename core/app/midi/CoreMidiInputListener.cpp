@@ -22,7 +22,7 @@ std::string cfStringToStd(CFStringRef ref) {
 } // namespace
 
 CoreMidiInputListener::CoreMidiInputListener() {
-    MIDIClientCreate(CFSTR("ResoStage MIDI Input"), nullptr, nullptr, &client);
+    MIDIClientCreate(CFSTR("ResoStage MIDI Input"), &notifyProc, this, &client);
     if (client != 0)
         MIDIInputPortCreate(client, CFSTR("ResoStage Input"), &readProc, this, &inputPort);
 }
@@ -35,65 +35,140 @@ CoreMidiInputListener::~CoreMidiInputListener() {
         MIDIClientDispose(client);
 }
 
+std::string CoreMidiInputListener::currentSource() const {
+    std::lock_guard<std::mutex> lock(sourceMutex);
+    return currentSourceName;
+}
+
 std::vector<std::string> CoreMidiInputListener::availableSourceNames() const {
     std::vector<std::string> names;
+    names.push_back("All Inputs");
     const ItemCount count = MIDIGetNumberOfSources();
-    names.reserve(count);
+    names.reserve(count + 1);
     for (ItemCount i = 0; i < count; ++i) {
         MIDIEndpointRef src = MIDIGetSource(i);
         CFStringRef nameRef = nullptr;
         MIDIObjectGetStringProperty(src, kMIDIPropertyName, &nameRef);
-        names.push_back(cfStringToStd(nameRef));
+        std::string n = cfStringToStd(nameRef);
+        if (!n.empty())
+            names.push_back(std::move(n));
         if (nameRef != nullptr)
             CFRelease(nameRef);
     }
     return names;
 }
 
-bool CoreMidiInputListener::openSource(const std::string& sourceName, std::string& error) {
-    closeSource();
+void CoreMidiInputListener::notifyProc(const MIDINotification* message, void* refCon) {
+    if (message == nullptr || refCon == nullptr)
+        return;
+    auto* self = static_cast<CoreMidiInputListener*>(refCon);
+    if (message->messageID == kMIDIMsgObjectAdded ||
+        message->messageID == kMIDIMsgObjectRemoved ||
+        message->messageID == kMIDIMsgSetupChanged) {
+        {
+            std::lock_guard<std::mutex> lock(self->sourceMutex);
+            if (self->currentSourceName == "All Inputs" || self->currentSourceName.empty()) {
+                // Reconnect all available sources
+                for (MIDIEndpointRef src : self->connectedSources) {
+                    if (self->inputPort != 0 && src != 0) {
+                        MIDIPortDisconnectSource(self->inputPort, src);
+                    }
+                }
+                self->connectedSources.clear();
+                self->source = 0;
 
+                const ItemCount count = MIDIGetNumberOfSources();
+                for (ItemCount i = 0; i < count; ++i) {
+                    MIDIEndpointRef src = MIDIGetSource(i);
+                    if (MIDIPortConnectSource(self->inputPort, src, nullptr) == noErr) {
+                        self->connectedSources.push_back(src);
+                    }
+                }
+                if (!self->connectedSources.empty()) {
+                    self->source = self->connectedSources.front();
+                }
+            }
+        }
+        if (self->onSourcesChanged) {
+            self->onSourcesChanged();
+        }
+    }
+}
+
+bool CoreMidiInputListener::openSource(const std::string& sourceName, std::string& error) {
+    std::lock_guard<std::mutex> lock(sourceMutex);
+    closeSourceInternal();
+
+    currentSourceName = sourceName.empty() ? "All Inputs" : sourceName;
     const ItemCount count = MIDIGetNumberOfSources();
+
+    if (currentSourceName == "All Inputs" || currentSourceName == "all") {
+        if (count == 0) {
+            // "All Inputs" mode is armed; devices will auto-connect when hotplugged
+            return true;
+        }
+        bool anyConnected = false;
+        for (ItemCount i = 0; i < count; ++i) {
+            MIDIEndpointRef src = MIDIGetSource(i);
+            if (MIDIPortConnectSource(inputPort, src, nullptr) == noErr) {
+                connectedSources.push_back(src);
+                anyConnected = true;
+            }
+        }
+        if (!anyConnected) {
+            error = "Failed to connect to CoreMIDI sources";
+            return false;
+        }
+        source = connectedSources.empty() ? 0 : connectedSources.front();
+        return true;
+    }
+
     if (count == 0) {
         error = "No CoreMIDI sources available";
         return false;
     }
 
     MIDIEndpointRef chosen = 0;
-    if (sourceName.empty()) {
-        chosen = MIDIGetSource(0);
-    } else {
-        for (ItemCount i = 0; i < count; ++i) {
-            MIDIEndpointRef src = MIDIGetSource(i);
-            CFStringRef nameRef = nullptr;
-            MIDIObjectGetStringProperty(src, kMIDIPropertyName, &nameRef);
-            const std::string name = cfStringToStd(nameRef);
-            if (nameRef != nullptr)
-                CFRelease(nameRef);
-            if (name == sourceName) {
-                chosen = src;
-                break;
-            }
+    for (ItemCount i = 0; i < count; ++i) {
+        MIDIEndpointRef src = MIDIGetSource(i);
+        CFStringRef nameRef = nullptr;
+        MIDIObjectGetStringProperty(src, kMIDIPropertyName, &nameRef);
+        const std::string name = cfStringToStd(nameRef);
+        if (nameRef != nullptr)
+            CFRelease(nameRef);
+        if (name == currentSourceName) {
+            chosen = src;
+            break;
         }
     }
 
     if (chosen == 0) {
-        error = "CoreMIDI source not found: " + sourceName;
+        error = "CoreMIDI source not found: " + currentSourceName;
         return false;
     }
 
     if (MIDIPortConnectSource(inputPort, chosen, nullptr) != noErr) {
-        error = "Failed to connect to CoreMIDI source: " + sourceName;
+        error = "Failed to connect to CoreMIDI source: " + currentSourceName;
         return false;
     }
 
+    connectedSources.push_back(chosen);
     source = chosen;
     return true;
 }
 
 void CoreMidiInputListener::closeSource() {
-    if (source != 0 && inputPort != 0)
-        MIDIPortDisconnectSource(inputPort, source);
+    std::lock_guard<std::mutex> lock(sourceMutex);
+    closeSourceInternal();
+}
+
+void CoreMidiInputListener::closeSourceInternal() {
+    for (MIDIEndpointRef src : connectedSources) {
+        if (inputPort != 0 && src != 0) {
+            MIDIPortDisconnectSource(inputPort, src);
+        }
+    }
+    connectedSources.clear();
     source = 0;
 }
 
