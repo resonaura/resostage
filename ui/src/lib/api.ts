@@ -308,8 +308,13 @@ export const pluginChains = {
     post("/api/v1/plugins/slot/add", { stripId, pluginId }),
   remove: (stripId: string, slotId: string) =>
     post("/api/v1/plugins/slot/remove", { stripId, slotId }),
-  move: (stripId: string, slotId: string, toIndex: number) =>
-    post("/api/v1/plugins/slot/move", { stripId, slotId, toIndex }),
+  move: (stripId: string, slotId: string, toIndex: number, delta?: number) =>
+    post(
+      "/api/v1/plugins/slot/move",
+      delta !== undefined
+        ? { stripId, slotId, toIndex, delta }
+        : { stripId, slotId, toIndex },
+    ),
   setBypassed: (stripId: string, slotId: string, bypassed: boolean) =>
     post("/api/v1/plugins/slot/bypass", { stripId, slotId, bypassed }),
   setKeepAwake: (stripId: string, slotId: string, keepAwake: boolean) =>

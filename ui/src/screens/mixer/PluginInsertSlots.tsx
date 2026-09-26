@@ -251,7 +251,7 @@ export function PluginInsertSlots({
               <ContextMenuItem
                 disabled={menu.index === 0}
                 onClick={() => {
-                  void pluginChains.move(stripId, menu.slot!.id, menu.index - 1);
+                  void pluginChains.move(stripId, menu.slot!.id, menu.index - 1, -1);
                   setMenu(null);
                 }}
               >
@@ -260,7 +260,7 @@ export function PluginInsertSlots({
               <ContextMenuItem
                 disabled={menu.index >= slots.length - 1}
                 onClick={() => {
-                  void pluginChains.move(stripId, menu.slot!.id, menu.index + 1);
+                  void pluginChains.move(stripId, menu.slot!.id, menu.index + 1, 1);
                   setMenu(null);
                 }}
               >

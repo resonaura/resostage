@@ -273,9 +273,7 @@ void MainComponent::pluginSlotMove(const std::string& json) {
     glz::generic doc;
     std::string stripId;
     std::string slotId;
-    int toIndex = -1;
-    if (!parseSlotTarget(json, doc, stripId, slotId)
-        || !builder_json::getInt(doc, "toIndex", toIndex))
+    if (!parseSlotTarget(json, doc, stripId, slotId))
         return;
     auto* chain = pluginChainFor(engine.project(), stripId);
     if (chain == nullptr || chain->empty())
@@ -284,9 +282,23 @@ void MainComponent::pluginSlotMove(const std::string& json) {
         [&](const PluginSlot& slot) { return slot.id == slotId; });
     if (found == chain->end())
         return;
+    if (found->plugin.instrument)
+        return;
+
+    const bool hasInstrumentAtHead = (!chain->empty() && chain->front().plugin.instrument);
+    const int minIndex = hasInstrumentAtHead ? 1 : 0;
+    const int maxIndex = static_cast<int>(chain->size() - 1);
     const size_t from = static_cast<size_t>(std::distance(chain->begin(), found));
-    const size_t to = static_cast<size_t>(std::clamp(
-        toIndex, 0, static_cast<int>(chain->size() - 1)));
+
+    int toIndex = -1;
+    int delta = 0;
+    if (builder_json::getInt(doc, "delta", delta)) {
+        toIndex = static_cast<int>(from) + delta;
+    } else if (!builder_json::getInt(doc, "toIndex", toIndex)) {
+        return;
+    }
+
+    const size_t to = static_cast<size_t>(std::clamp(toIndex, minIndex, maxIndex));
     if (from == to)
         return;
     engine.projectHistoryBeginEdit("", "Move plug-in");

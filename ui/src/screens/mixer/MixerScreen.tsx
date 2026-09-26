@@ -275,7 +275,8 @@ export function MixerScreen({
   const maxPluginSlots = useMemo(() => {
     let maxCount = 0;
     for (const t of state.tracks) {
-      if (t.plugins && t.plugins.length > maxCount) maxCount = t.plugins.length;
+      const fxCount = t.plugins ? t.plugins.filter((p) => !p.instrument).length : 0;
+      if (fxCount > maxCount) maxCount = fxCount;
     }
     for (const b of state.busses) {
       if (b.plugins && b.plugins.length > maxCount) maxCount = b.plugins.length;
@@ -562,8 +563,9 @@ export function MixerScreen({
           slots={
             pluginTarget.stripId === "audio::click"
               ? (state.click?.plugins ?? [])
-              : (state.tracks.find((track) => track.id === pluginTarget.stripId)
-                  ?.plugins ??
+              : (state.tracks
+                  .find((track) => track.id === pluginTarget.stripId)
+                  ?.plugins?.filter((p) => !p.instrument) ??
                 state.busses.find((bus) => bus.id === pluginTarget.stripId)
                   ?.plugins ??
                 [])

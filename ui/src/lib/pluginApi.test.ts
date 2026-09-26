@@ -109,4 +109,27 @@ describe("pluginChains", () => {
       body: JSON.stringify({ stripId: "audio::bus:send:1", slotId: "slot_123" }),
     });
   });
+
+  it("move() posts toIndex and optional delta to /api/v1/plugins/slot/move", async () => {
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "{}",
+      json: async () => ({}),
+    } as unknown as Response);
+
+    await pluginChains.move("audio::track:1", "slot_abc", 2);
+    expect(fetchSpy).toHaveBeenCalledWith("/api/v1/plugins/slot/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stripId: "audio::track:1", slotId: "slot_abc", toIndex: 2 }),
+    });
+
+    await pluginChains.move("audio::track:1", "slot_abc", 0, -1);
+    expect(fetchSpy).toHaveBeenCalledWith("/api/v1/plugins/slot/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stripId: "audio::track:1", slotId: "slot_abc", toIndex: 0, delta: -1 }),
+    });
+  });
 });

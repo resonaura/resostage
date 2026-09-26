@@ -117,6 +117,10 @@ function TrackStripInner({
 
   const instrumentSlot = t.plugins?.find((p) => p.instrument);
   const instrumentName = instrumentSlot?.name;
+  const audioFxSlots = useMemo(
+    () => (t.plugins ?? []).filter((p) => !p.instrument),
+    [t.plugins],
+  );
   const [instrumentMenu, setInstrumentMenu] = useState<{ x: number; y: number } | null>(null);
   const instrumentGroups = useMemo(
     () => (isInstrument ? groupInstruments(pluginCatalog) : []),
@@ -220,7 +224,7 @@ function TrackStripInner({
         solo={t.solo}
         soloSafe={t.soloSafe}
         anySoloInGroup={anySoloInGroup}
-        pluginSlots={t.plugins ?? []}
+        pluginSlots={audioFxSlots}
         pluginCatalog={pluginCatalog}
         density={density}
         targetPluginSlots={targetPluginSlots}

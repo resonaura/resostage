@@ -180,6 +180,7 @@ export function PluginChainModal({
                                   stripId,
                                   slot.id,
                                   index - 1,
+                                  -1,
                                 )
                               }
                             >
@@ -196,6 +197,7 @@ export function PluginChainModal({
                                   stripId,
                                   slot.id,
                                   index + 1,
+                                  1,
                                 )
                               }
                             >

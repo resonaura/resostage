@@ -160,7 +160,9 @@ export function EditorInspector({
   ].filter(Boolean);
   const maxPluginSlots = Math.max(
     1,
-    ...inspectorStrips.map((s) => (s?.plugins?.length ?? 0) + 1),
+    ...inspectorStrips.map(
+      (s) => (s?.plugins?.filter((p) => !p.instrument).length ?? 0) + 1,
+    ),
   );
 
   const requestTrackDirectOutput = useCallback(
@@ -293,7 +295,7 @@ export function EditorInspector({
         stripName={pluginTarget.stripName}
         slots={
           selectedTrack && selectedTrack.id === pluginTarget.stripId
-            ? (selectedTrack.plugins ?? [])
+            ? (selectedTrack.plugins?.filter((p) => !p.instrument) ?? [])
             : state.busses.find((b) => b.id === pluginTarget.stripId)?.plugins ?? []
         }
         onClose={() => setPluginTarget(null)}

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Knob, LevelMeterBar } from "../../components/daw";
 import { Button, Select, TOGGLE_BLINK_ACCENT, type SelectOption } from "../../components/ui";
 import { useChannelClipHold } from "../../hooks/useChannelClipHold";
@@ -272,6 +273,11 @@ export function ChannelStrip({
     : isWide
       ? "w-32 p-2.5"
       : "w-24 p-2";
+
+  const audioFxSlots = useMemo(
+    () => pluginSlots.filter((p) => !p.instrument),
+    [pluginSlots],
+  );
   const knobSize = isNarrow ? 20 : isWide ? 28 : 24;
   const meterBarClass = isNarrow
     ? "h-full w-1"
@@ -449,7 +455,7 @@ export function ChannelStrip({
         <PluginInsertSlots
           stripId={stripId}
           stripName={name}
-          slots={pluginSlots}
+          slots={audioFxSlots}
           catalog={pluginCatalog}
           density={density}
           targetSlotCount={targetPluginSlots}
