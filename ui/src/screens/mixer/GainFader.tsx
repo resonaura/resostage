@@ -177,7 +177,7 @@ const FaderVisuals = memo(function FaderVisuals({
         style={{ top: `${(1 - normalized) * 100}%` }}
       >
         {/* Tactile DAW cap grip lines */}
-        <div className="flex flex-col items-center gap-[2px]">
+        <div className="flex flex-col items-center gap-0.5">
           <div className="h-px w-2 rounded-full bg-default-foreground/20" />
           <div className="h-0.5 w-2 sm:w-2.5 rounded-full bg-foreground/90 shadow-[0_0_2px_rgba(255,255,255,0.4)]" />
           <div className="h-px w-2 rounded-full bg-default-foreground/20" />

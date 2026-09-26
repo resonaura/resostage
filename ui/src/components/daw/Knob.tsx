@@ -62,7 +62,7 @@ export function Knob({
       style={{ width: size, height: size }}
     >
       <div
-        className="absolute left-1/2 top-1/2 w-[2px] -translate-x-1/2 -translate-y-full rounded-full"
+        className="absolute left-1/2 top-1/2 w-0.5 -translate-x-1/2 -translate-y-full rounded-full"
         style={{
           height: size * 0.4,
           backgroundColor: accent,

@@ -480,6 +480,10 @@ export function lintAll() {
   if (run("pnpm", ["lint"], { cwd: join(ROOT, "ui"), allowFail: true }) !== 0) {
     failed = true;
   }
+  log("Lint tailwind canonical classes...");
+  if (run("node", ["scripts/lint-tailwind.mjs"], { cwd: ROOT, allowFail: true }) !== 0) {
+    failed = true;
+  }
   log("Typecheck ui (tsc)...");
   if (
     run("pnpm", ["exec", "tsc", "-b", "--pretty", "false"], {

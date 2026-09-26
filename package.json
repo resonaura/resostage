@@ -30,6 +30,8 @@
     "test": "node scripts/dev.mjs test",
     "test:remote": "node scripts/test-remote.mjs",
     "lint": "node scripts/dev.mjs lint",
+    "lint:tailwind": "node scripts/lint-tailwind.mjs",
+    "lint:tailwind:fix": "node scripts/lint-tailwind.mjs --fix",
     "typecheck": "pnpm --dir ui exec tsc -b --pretty false",
     "configure": "node scripts/dev.mjs configure",
     "clean": "node scripts/dev.mjs clean",

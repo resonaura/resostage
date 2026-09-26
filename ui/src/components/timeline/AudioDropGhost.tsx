@@ -98,7 +98,7 @@ export function AudioDropGhost({
 
   return (
     <div
-      className="pointer-events-none absolute z-[30] overflow-hidden rounded-md"
+      className="pointer-events-none absolute z-30 overflow-hidden rounded-md"
       style={{
         left: leftPx,
         top: topPx,

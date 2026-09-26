@@ -765,7 +765,7 @@ export function VirtualMidiKeyboard({
             >
               <Minus size={12} />
             </button>
-            <span className="font-mono text-xs font-bold text-accent px-1 min-w-[28px] text-center">
+            <span className="font-mono text-xs font-bold text-accent px-1 min-w-7 text-center">
               C{octave}
             </span>
             <button

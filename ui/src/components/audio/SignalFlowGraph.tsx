@@ -156,7 +156,7 @@ function StripNode({ data }: NodeProps<Node<StripNodeData>>) {
       </div>
 
       <div
-        className="truncate text-[12px] font-semibold text-foreground"
+        className="truncate text-xs font-semibold text-foreground"
         title={s.name || s.id}
       >
         {s.name || s.id}
