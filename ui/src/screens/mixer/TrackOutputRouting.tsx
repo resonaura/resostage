@@ -16,6 +16,7 @@ import {
   channelAvailable,
 } from "./directOutput";
 import { missingOutputSelectProps } from "./MissingOutputSelect";
+import { RoutingSlotPlaceholder } from "./RoutingSlotPlaceholder";
 
 type PendingRouting = {
   /** Primary select: bus id, SENDS_ONLY_VALUE, or EXT_OUTPUT_VALUE. */
@@ -182,7 +183,7 @@ export function TrackOutputRouting({
         }}
       />
 
-      {directOutputOpen && (
+      {directOutputOpen ? (
         <Select
           aria-label="Physical output"
           size={ROUTING_SELECT_SIZE}
@@ -196,6 +197,8 @@ export function TrackOutputRouting({
           }}
           {...missingOutputSelectProps(missing)}
         />
+      ) : (
+        <RoutingSlotPlaceholder />
       )}
     </div>
   );

@@ -36,6 +36,7 @@ export function SendArcKnob({
   onChange,
   onContextMenu,
   size = 24,
+  label,
 }: {
   value: number;
   min?: number;
@@ -45,6 +46,7 @@ export function SendArcKnob({
   onChange: (val: number) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   size?: number;
+  label?: string | number | React.ReactNode;
 }) {
   const roundValue = (v: number) => Math.round(v * 10) / 10;
 
@@ -76,6 +78,7 @@ export function SendArcKnob({
           knob.value + (e.deltaY < 0 ? 1 : -1) * ((max - min) / 40),
         );
       }}
+      style={{ width: size, height: size }}
     >
       {/*
         SVG stroke starts at 3 o'clock; rotate +135° so dash begins at SW
@@ -94,7 +97,7 @@ export function SendArcKnob({
           cy={12}
           r={radius}
           fill="none"
-          stroke="color-mix(in oklab, var(--foreground) 15%, transparent)"
+          stroke="var(--default)"
           strokeWidth={strokeWidth}
           strokeDasharray={`${arcLength} ${circumference}`}
           strokeLinecap="round"
@@ -120,6 +123,16 @@ export function SendArcKnob({
           }}
         />
       </svg>
+      {label !== undefined && label !== null && (
+        <span
+          className={`absolute inset-0 flex items-center justify-center font-mono font-bold pointer-events-none select-none ${
+            String(label).length > 1 ? "text-[8px]" : "text-[9px]"
+          }`}
+          style={{ color: busColor || "var(--muted)" }}
+        >
+          {label}
+        </span>
+      )}
     </div>
   );
 }

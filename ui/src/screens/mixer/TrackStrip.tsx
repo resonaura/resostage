@@ -8,7 +8,6 @@ import {
 import { mixer, pluginChains, type PluginCatalogEntry } from "../../lib/api";
 import { rowsSameExceptLevels, sameExceptLevels } from "../../lib/levelFields";
 import { getLiveLevels } from "../../lib/liveLevels";
-import { useLiveValue } from "../../lib/optimistic";
 import { deduplicatePlugins } from "../../lib/pluginCategories";
 import {
   outputSendsToClickRows,
@@ -19,8 +18,7 @@ import {
   type TrackRow,
 } from "../../lib/types";
 import { ChannelStrip } from "./ChannelStrip";
-import { colorForIndex, ROUTING_SELECT_SIZE } from "./constants";
-import { Select } from "../../components/ui";
+import { colorForIndex } from "./constants";
 
 interface InstrumentGroup {
   name: string;
@@ -110,16 +108,11 @@ function TrackStripInner({
     }
   }, [t.polarity, t.phaseInvert]);
 
-  const [displayTrimDb, commitTrimDb] = useLiveValue(
-    t.inputTrimDb ?? 0.0,
-    (val) => void mixer.setTrackTrim(index, val, isPolarityActive, polarity),
-  );
-
   const togglePolarity = () => {
     const nextPolarity = isPolarityActive ? "none" : isMono ? "left" : "both";
     lastPolarityEdit.current = Date.now();
     setOptimisticPolarity(nextPolarity);
-    void mixer.setTrackTrim(index, displayTrimDb, nextPolarity !== "none", nextPolarity);
+    void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, nextPolarity !== "none", nextPolarity);
   };
 
   const instrumentSlot = t.plugins?.find((p) => p.instrument);
@@ -154,198 +147,90 @@ function TrackStripInner({
     { id: "none", label: "No In" },
   ];
 
-  const handleTrimPointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
-    const startY = e.clientY;
-    const startVal = displayTrimDb;
-
-    const onPointerMove = (ev: PointerEvent) => {
-      const dy = startY - ev.clientY; // Up is positive dB, Down is negative dB
-      const sensitivity = ev.shiftKey ? 0.02 : 0.15; // smooth like a real knob
-      const step = ev.shiftKey ? 0.05 : 0.1;
-      const raw = startVal + dy * sensitivity;
-      const next = Math.max(-24, Math.min(24, Math.round(raw / step) * step));
-      commitTrimDb(Math.round(next * 100) / 100);
-    };
-
-    const onPointerUp = (ev: PointerEvent) => {
-      try {
-        if (e.currentTarget.hasPointerCapture(ev.pointerId)) {
-          e.currentTarget.releasePointerCapture(ev.pointerId);
-        }
-      } catch {}
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-  };
-
-  const inputRoutingNode = (
-    <div className="my-1 flex w-full flex-col gap-1">
-      {/* Logic Pro X style Channel Format + Input routing / Instrument slot row */}
-      <div className="flex w-full items-center gap-1">
-        {/* Format button: Mono [ ◎ ] vs Stereo [ ◎◎ ] */}
-        <button
-          type="button"
-          onClick={() => void mixer.setTrackMono(index, !isMono)}
-          title={
-            isMono
-              ? "Format: Mono (Click to switch to Stereo)"
-              : "Format: Stereo (Click to switch to Mono)"
-          }
-          className={`flex h-[22px] w-[26px] shrink-0 items-center justify-center rounded border transition-colors ${
-            isMono
-              ? "border-default/40 bg-surface/70 text-foreground/80 hover:bg-surface hover:text-foreground"
-              : "border-accent/40 bg-accent/15 text-accent hover:bg-accent/25"
-          }`}
-          aria-label={isMono ? "Mono format" : "Stereo format"}
-        >
-          {isMono ? (
-            /* Single Circle (Mono) [ ◎ ] */
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-              <circle
-                cx="8"
-                cy="8"
-                r="5.5"
-                stroke="currentColor"
-                fill="none"
-                strokeWidth="1.6"
-              />
-              <circle cx="8" cy="8" r="1.8" fill="currentColor" />
-            </svg>
-          ) : (
-            /* Interlocking Circles (Stereo) [ ◎◎ ] */
-            <svg width="15" height="13" viewBox="0 0 18 16" fill="currentColor">
-              <circle
-                cx="6.5"
-                cy="8"
-                r="4.2"
-                stroke="currentColor"
-                fill="none"
-                strokeWidth="1.4"
-              />
-              <circle
-                cx="11.5"
-                cy="8"
-                r="4.2"
-                stroke="currentColor"
-                fill="none"
-                strokeWidth="1.4"
-              />
-            </svg>
-          )}
-        </button>
-
-        {/* If instrument track: Green Instrument Slot [ Serum 2 ] / [ + Instrument ] */}
-        {isInstrument ? (
-          <div
-            className={`flex h-[22px] flex-1 min-w-0 items-center justify-between rounded border text-xs font-semibold transition-all ${
-              instrumentName
-                ? "border-emerald-500/70 bg-emerald-600/25 text-emerald-300 hover:bg-emerald-600/35 shadow-[0_1px_4px_rgba(16,185,129,0.2)]"
-                : "border-dashed border-emerald-500/40 text-emerald-400/60 hover:border-emerald-500/70 hover:bg-emerald-500/10 hover:text-emerald-300"
-            }`}
-          >
-            <button
-              type="button"
-              onClick={(e) => {
-                if (instrumentSlot) {
-                  void pluginChains.openEditor(t.id, instrumentSlot.id);
-                } else {
-                  setInstrumentMenu({ x: e.clientX, y: e.clientY });
-                }
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setInstrumentMenu({ x: e.clientX, y: e.clientY });
-              }}
-              title={
-                instrumentName
-                  ? `Software Instrument: ${instrumentName} (Click to open UI, right-click to change)`
-                  : "Add Software Instrument (Click to choose)"
-              }
-              className="flex h-full flex-1 min-w-0 items-center px-1.5 truncate text-left"
-            >
-              <span className="truncate">
-                {instrumentName || "+ Instrument"}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setInstrumentMenu({ x: e.clientX, y: e.clientY });
-              }}
-              title="Choose Software Instrument"
-              className="flex h-full px-1 items-center justify-center opacity-60 hover:opacity-100 text-[10px] select-none"
-            >
-              ⇅
-            </button>
-          </div>
-        ) : (
-          /* Audio track: Hardware audio input dropdown */
-          <div className="flex-1 min-w-0">
-            <Select
-              aria-label="Input routing"
-              size={ROUTING_SELECT_SIZE}
-              options={inputOptions}
-              value={currentInput}
-              onChange={(val) =>
-                void mixer.setTrackInputSource(
-                  index,
-                  val,
-                  t.midiInputChannel ?? 0,
-                  t.midiInputDevice ?? "all",
-                )
-              }
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Input Conditioning: Polarity Inversion (Ø) and Gain Trim */}
-      <div className="flex w-full items-center justify-between px-0.5 text-[9px]">
-        <button
-          type="button"
-          onClick={togglePolarity}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setPolarityMenu({ x: e.clientX, y: e.clientY });
-          }}
-          title={
-            isPolarityActive
-              ? `Polarity Inverted (${polarity.toUpperCase()}) — right-click for L/R options`
-              : "Polarity Normal (0°) — click to invert, right-click for L/R options"
-          }
-          className={`flex h-4 px-1 items-center justify-center rounded border transition-colors ${
-            isPolarityActive
-              ? "border-[var(--rs-phase)]/60 bg-[var(--rs-phase)]/20 text-[var(--rs-phase)] font-black shadow-[0_0_6px_rgba(48,209,88,0.4)]"
-              : "border-default/20 text-foreground/45 hover:text-foreground/80 hover:bg-surface/50"
-          }`}
-          aria-label="Phase Invert"
-        >
-          {polarity === "left" ? "Ø L" : polarity === "right" ? "Ø R" : "Ø"}
-        </button>
-
-        <span
-          className="font-mono text-foreground/50 hover:text-foreground cursor-ns-resize transition-colors select-none px-1 rounded hover:bg-surface/60"
-          title="Input Trim dB (Drag up/down like a knob, Shift for fine, double-click for 0.0dB)"
-          onPointerDown={handleTrimPointerDown}
-          onDoubleClick={(e) => {
-            e.preventDefault();
-            commitTrimDb(0.0);
-          }}
-        >
-          {displayTrimDb === 0 ? "±0.0dB" : `${displayTrimDb > 0 ? "+" : ""}${displayTrimDb.toFixed(1)}dB`}
-        </span>
-      </div>
+  return (
+    <>
+      <ChannelStrip
+        stripId={t.id}
+        name={t.name || t.id}
+        subtitle={`Track ${index + 1}`}
+        color={color}
+        busses={destinationBusses}
+        busId={busId}
+        formatToggle={{
+          stereo: !isMono,
+          onToggle: () => void mixer.setTrackMono(index, !isMono),
+        }}
+        inputRouting={{
+          isInstrument,
+          instrumentName,
+          instrumentSlotId: instrumentSlot?.id,
+          onOpenInstrument: () => {
+            if (instrumentSlot) void pluginChains.openEditor(t.id, instrumentSlot.id);
+          },
+          onInstrumentMenu: (pos) => setInstrumentMenu(pos),
+          inputOptions,
+          currentInput,
+          onInputChange: (val) =>
+            void mixer.setTrackInputSource(
+              index,
+              val,
+              t.midiInputChannel ?? 0,
+              t.midiInputDevice ?? "all",
+            ),
+          polarity,
+          onTogglePolarity: togglePolarity,
+          onPolarityMenu: (pos) => setPolarityMenu(pos),
+          trimDb: t.inputTrimDb ?? 0,
+          onTrimChange: (trim) =>
+            void mixer.setTrackTrim(index, trim, isPolarityActive, polarity),
+        }}
+        recordArmed={t.recordArmed}
+        inputMonitoring={t.inputMonitoring}
+        isRecording={isRecording}
+        onRecordArm={() => void mixer.setTrackRecordArm(index, !t.recordArmed)}
+        onInputMonitor={() => void mixer.setTrackInputMonitor(index, !t.inputMonitoring)}
+        onBusSelect={(bId) => mixer.setTrackBus(index, bId)}
+        directOutput={{
+          settings,
+          allBusses,
+          mono: t.channels === 1,
+          onMonoChange: (m) => void mixer.setTrackMono(index, m),
+          onDirectOutput: (mono, ch, pair) =>
+            onDirectOutput(index, mono, ch, pair),
+        }}
+        sends={{
+          auxBusses,
+          values: outputSendsToClickRows(t.output),
+          trackIndex: index,
+          onSendEnabledChange: (sBusId, enabled) => {
+            const current = outputSendsToClickRows(t.output).find(
+              (s) => s.busId === sBusId,
+            );
+            void mixer.setTrackSend(index, sBusId, current?.level ?? 100, enabled);
+          },
+        }}
+        gainDb={t.gainDb ?? 0}
+        pan={t.pan ?? 0}
+        peakDb={peakDb}
+        peakDbL={peakDbL}
+        peakDbR={peakDbR}
+        getLiveDbL={() => getLiveLevels().tracks[index]?.peakDbL ?? -144}
+        getLiveDbR={() => getLiveLevels().tracks[index]?.peakDbR ?? -144}
+        mute={t.mute}
+        solo={t.solo}
+        soloSafe={t.soloSafe}
+        anySoloInGroup={anySoloInGroup}
+        pluginSlots={t.plugins ?? []}
+        pluginCatalog={pluginCatalog}
+        density={density}
+        targetPluginSlots={targetPluginSlots}
+        onPlugins={() => onOpenPlugins(t.id, t.name || t.id)}
+        onGain={(v) => mixer.setTrackGain(index, v)}
+        onPan={(v) => mixer.setTrackPan(index, v)}
+        onMute={() => mixer.setTrackMute(index, !t.mute)}
+        onSolo={() => mixer.setTrackSolo(index, !t.solo)}
+        onSoloSafe={(safe) => void mixer.setTrackSoloSafe(index, safe)}
+      />
 
       {polarityMenu && (
         <ContextMenu
@@ -356,7 +241,7 @@ function TrackStripInner({
         >
           <ContextMenuItem
             onClick={() => {
-              void mixer.setTrackTrim(index, displayTrimDb, true, "both");
+              void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, true, "both");
               setPolarityMenu(null);
             }}
           >
@@ -366,7 +251,7 @@ function TrackStripInner({
             <>
               <ContextMenuItem
                 onClick={() => {
-                  void mixer.setTrackTrim(index, displayTrimDb, true, "left");
+                  void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, true, "left");
                   setPolarityMenu(null);
                 }}
               >
@@ -374,7 +259,7 @@ function TrackStripInner({
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={() => {
-                  void mixer.setTrackTrim(index, displayTrimDb, true, "right");
+                  void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, true, "right");
                   setPolarityMenu(null);
                 }}
               >
@@ -384,7 +269,7 @@ function TrackStripInner({
           )}
           <ContextMenuItem
             onClick={() => {
-              void mixer.setTrackTrim(index, displayTrimDb, false, "none");
+              void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, false, "none");
               setPolarityMenu(null);
             }}
           >
@@ -448,65 +333,7 @@ function TrackStripInner({
           )}
         </ContextMenu>
       )}
-    </div>
-  );
-
-  return (
-    <ChannelStrip
-      stripId={t.id}
-      name={t.name || t.id}
-      subtitle={`Track ${index + 1}`}
-      color={color}
-      busses={destinationBusses}
-      busId={busId}
-      inputRoutingNode={inputRoutingNode}
-      recordArmed={t.recordArmed}
-      inputMonitoring={t.inputMonitoring}
-      isRecording={isRecording}
-      onRecordArm={() => void mixer.setTrackRecordArm(index, !t.recordArmed)}
-      onInputMonitor={() => void mixer.setTrackInputMonitor(index, !t.inputMonitoring)}
-      onBusSelect={(bId) => mixer.setTrackBus(index, bId)}
-      directOutput={{
-        settings,
-        allBusses,
-        mono: t.channels === 1,
-        onMonoChange: (m) => void mixer.setTrackMono(index, m),
-        onDirectOutput: (mono, ch, pair) =>
-          onDirectOutput(index, mono, ch, pair),
-      }}
-      sends={{
-        auxBusses,
-        values: outputSendsToClickRows(t.output),
-        trackIndex: index,
-        onSendEnabledChange: (sBusId, enabled) => {
-          const current = outputSendsToClickRows(t.output).find(
-            (s) => s.busId === sBusId,
-          );
-          void mixer.setTrackSend(index, sBusId, current?.level ?? 100, enabled);
-        },
-      }}
-      gainDb={t.gainDb ?? 0}
-      pan={t.pan ?? 0}
-      peakDb={peakDb}
-      peakDbL={peakDbL}
-      peakDbR={peakDbR}
-      getLiveDbL={() => getLiveLevels().tracks[index]?.peakDbL ?? -144}
-      getLiveDbR={() => getLiveLevels().tracks[index]?.peakDbR ?? -144}
-      mute={t.mute}
-      solo={t.solo}
-      soloSafe={t.soloSafe}
-      anySoloInGroup={anySoloInGroup}
-      pluginSlots={t.plugins ?? []}
-      pluginCatalog={pluginCatalog}
-      density={density}
-      targetPluginSlots={targetPluginSlots}
-      onPlugins={() => onOpenPlugins(t.id, t.name || t.id)}
-      onGain={(v) => mixer.setTrackGain(index, v)}
-      onPan={(v) => mixer.setTrackPan(index, v)}
-      onMute={() => mixer.setTrackMute(index, !t.mute)}
-      onSolo={() => mixer.setTrackSolo(index, !t.solo)}
-      onSoloSafe={(safe) => void mixer.setTrackSoloSafe(index, safe)}
-    />
+    </>
   );
 }
 

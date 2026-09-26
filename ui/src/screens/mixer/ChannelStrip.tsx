@@ -1,10 +1,7 @@
 import { Knob, LevelMeterBar } from "../../components/daw";
-import {
-  Select,
-  TOGGLE_BLINK_ACCENT,
-} from "../../components/ui";
-import type { PluginCatalogEntry } from "../../lib/api";
+import { Button, Select, TOGGLE_BLINK_ACCENT, type SelectOption } from "../../components/ui";
 import { useChannelClipHold } from "../../hooks/useChannelClipHold";
+import type { PluginCatalogEntry } from "../../lib/api";
 import { useLiveValue } from "../../lib/optimistic";
 import type {
   BusRow,
@@ -15,9 +12,11 @@ import type {
 import { ROUTING_SELECT_SIZE } from "./constants";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
+import { MonoStereoIcon } from "./MonoStereoIcon";
 import { PluginInsertSlots } from "./PluginInsertSlots";
 import { SendKnobs } from "./SendKnobs";
 import { TrackOutputRouting } from "./TrackOutputRouting";
+import { RoutingSlotPlaceholder } from "./RoutingSlotPlaceholder";
 
 /** Stable identity so useLiveValue's commit ref doesn't churn. */
 const noop = () => {};
@@ -113,11 +112,12 @@ export function ChannelStrip({
   recordArmed,
   inputMonitoring,
   isRecording = false,
-  isMaster = false,
-  shortTermLufs,
+  isMaster: _isMaster = false,
+  shortTermLufs: _shortTermLufs,
   onRecordArm,
   onInputMonitor,
-  inputRoutingNode,
+  formatToggle,
+  inputRouting,
   pluginSlots = [],
   pluginCatalog = [],
   onPlugins,
@@ -175,7 +175,25 @@ export function ChannelStrip({
   shortTermLufs?: number;
   onRecordArm?: () => void;
   onInputMonitor?: () => void;
-  inputRoutingNode?: React.ReactNode;
+  formatToggle?: {
+    stereo: boolean;
+    onToggle: () => void;
+  };
+  inputRouting?: {
+    isInstrument: boolean;
+    instrumentName?: string | null;
+    instrumentSlotId?: string;
+    onOpenInstrument?: () => void;
+    onInstrumentMenu?: (pos: { x: number; y: number }) => void;
+    inputOptions?: SelectOption[];
+    currentInput?: string;
+    onInputChange?: (source: string) => void;
+    polarity?: "none" | "left" | "right" | "both";
+    onTogglePolarity?: () => void;
+    onPolarityMenu?: (pos: { x: number; y: number }) => void;
+    trimDb?: number;
+    onTrimChange?: (trim: number) => void;
+  };
   pluginSlots?: PluginSlotRow[];
   pluginCatalog?: PluginCatalogEntry[];
   onPlugins?: () => void;
@@ -197,6 +215,46 @@ export function ChannelStrip({
   // last confirmed ────────────────────────────────────────────────────────
   const [displayGainDb, commitGain] = useLiveValue(gainDb, onGain);
   const [displayPan, commitPan] = useLiveValue(pan ?? 0, onPan ?? noop);
+  const [displayTrimDb, commitTrimDb] = useLiveValue(
+    inputRouting?.trimDb ?? 0,
+    inputRouting?.onTrimChange ?? noop,
+  );
+
+  const handleTrimPointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    if (!inputRouting?.onTrimChange) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+    const startY = e.clientY;
+    const startVal = displayTrimDb;
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const dy = startY - ev.clientY;
+      const sensitivity = ev.shiftKey ? 0.02 : 0.15;
+      const step = ev.shiftKey ? 0.05 : 0.1;
+      const raw = startVal + dy * sensitivity;
+      const next = Math.max(-24, Math.min(24, Math.round(raw / step) * step));
+      commitTrimDb(Math.round(next * 100) / 100);
+    };
+
+    const onPointerUp = (ev: PointerEvent) => {
+      try {
+        if (e.currentTarget.hasPointerCapture(ev.pointerId)) {
+          e.currentTarget.releasePointerCapture(ev.pointerId);
+        }
+      } catch {}
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  };
+
+  const isPolarityActive =
+    inputRouting?.polarity && inputRouting.polarity !== "none";
 
   // If this strip is solo-safed, it is isolated and never dimmed by others' solos!
   const isDimmed = !!anySoloInGroup && !solo && !soloSafe;
@@ -205,19 +263,25 @@ export function ChannelStrip({
   const stripRightDb = peakDbR ?? peakDb ?? -100;
   const liveLeft = () => getLiveDbL?.() ?? getLiveDb?.() ?? stripLeftDb;
   const liveRight = () => getLiveDbR?.() ?? getLiveDb?.() ?? stripRightDb;
-  const stripClip = useChannelClipHold(() =>
-    Math.max(liveLeft(), liveRight()),
-  );
+  const stripClip = useChannelClipHold(() => Math.max(liveLeft(), liveRight()));
 
   const isNarrow = density === "narrow";
   const isWide = density === "wide";
-  const widthClass = isNarrow ? "w-16 p-1 sm:p-1.5" : isWide ? "w-32 p-2.5" : "w-24 p-2";
+  const widthClass = isNarrow
+    ? "w-16 p-1 sm:p-1.5"
+    : isWide
+      ? "w-32 p-2.5"
+      : "w-24 p-2";
   const knobSize = isNarrow ? 20 : isWide ? 28 : 24;
-  const meterBarClass = isNarrow ? "h-full w-1" : isWide ? "h-full w-2" : "h-full w-1.5";
+  const meterBarClass = isNarrow
+    ? "h-full w-1"
+    : isWide
+      ? "h-full w-2"
+      : "h-full w-1.5";
 
   return (
     <div
-      className={`flex h-full min-h-[380px] ${widthClass} shrink-0 select-none flex-col items-center justify-between rounded-xl border border-default/25 bg-background-secondary transition-opacity duration-300 ${
+      className={`flex h-full min-h-0 ${widthClass} shrink-0 select-none flex-col items-center justify-between rounded-xl border border-default/25 bg-background-secondary pb-1.5 transition-opacity duration-300 overflow-hidden ${
         isDimmed ? "opacity-35" : "opacity-100"
       }`}
     >
@@ -229,18 +293,24 @@ export function ChannelStrip({
         }}
       >
         <div
-          className="h-[3px] w-full shrink-0 rounded-full"
+          className="h-0.75 w-full shrink-0 rounded-full"
           style={{ backgroundColor: color }}
         />
         <div
-          className="w-full min-w-0 truncate text-xs font-semibold text-foreground"
+          style={{
+            color: `color-mix(in srgb, ${color} 100%, transparent)`,
+          }}
+          className="w-full min-w-0 truncate text-xs font-semibold"
           title={name}
         >
           {name}
         </div>
         {subtitle && !isNarrow && (
           <div
-            className="w-full min-w-0 truncate font-mono text-[9px] uppercase tracking-wide text-foreground/45"
+            style={{
+              color: `color-mix(in srgb, ${color} 50%, transparent)`,
+            }}
+            className={`w-full min-w-0 truncate font-mono text-[9px] uppercase tracking-wide`}
             title={subtitle}
           >
             {subtitle}
@@ -248,8 +318,131 @@ export function ChannelStrip({
         )}
       </div>
 
-      {/* 2. Input Section */}
-      {inputRoutingNode}
+      {/* 2. Top Format & Input Section */}
+      {(formatToggle || inputRouting) && (
+        <div className="my-1 flex w-full flex-col gap-1">
+          {formatToggle && (
+            <div className="my-0.5 flex w-full items-center justify-center">
+              <Button
+                size="sm"
+                variant="ghost"
+                isIconOnly
+                className="size-6 min-w-0 text-foreground/60 hover:text-foreground hover:bg-surface/80"
+                aria-label={
+                  formatToggle.stereo
+                    ? "Stereo (click for mono)"
+                    : "Mono (click for stereo)"
+                }
+                onPress={formatToggle.onToggle}
+              >
+                <MonoStereoIcon stereo={formatToggle.stereo} />
+              </Button>
+            </div>
+          )}
+
+          {inputRouting?.isInstrument ? (
+            <div
+              className={`flex h-[22px] w-full min-w-0 items-center justify-between rounded border text-xs font-semibold transition-all ${
+                inputRouting.instrumentName
+                  ? "border-emerald-500/70 bg-emerald-600/25 text-emerald-300 hover:bg-emerald-600/35 shadow-[0_1px_4px_rgba(16,185,129,0.2)]"
+                  : "border-dashed border-emerald-500/40 text-emerald-400/60 hover:border-emerald-500/70 hover:bg-emerald-500/10 hover:text-emerald-300"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  if (inputRouting.instrumentSlotId) {
+                    inputRouting.onOpenInstrument?.();
+                  } else {
+                    inputRouting.onInstrumentMenu?.({ x: e.clientX, y: e.clientY });
+                  }
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  inputRouting.onInstrumentMenu?.({ x: e.clientX, y: e.clientY });
+                }}
+                title={
+                  inputRouting.instrumentName
+                    ? `Software Instrument: ${inputRouting.instrumentName} (Click to open UI, right-click to change)`
+                    : "Add Software Instrument (Click to choose)"
+                }
+                className="flex h-full flex-1 min-w-0 items-center px-1.5 truncate text-left"
+              >
+                <span className="truncate">
+                  {inputRouting.instrumentName || (isNarrow ? "+ Inst" : "+ Instrument")}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  inputRouting.onInstrumentMenu?.({ x: e.clientX, y: e.clientY });
+                }}
+                title="Choose Software Instrument"
+                className="flex h-full px-1 items-center justify-center opacity-60 hover:opacity-100 text-[10px] select-none"
+              >
+                ⇅
+              </button>
+            </div>
+          ) : inputRouting?.inputOptions && inputRouting.onInputChange ? (
+            <div className="w-full min-w-0">
+              <Select
+                aria-label="Input routing"
+                size={ROUTING_SELECT_SIZE}
+                options={inputRouting.inputOptions}
+                value={inputRouting.currentInput ?? ""}
+                onChange={inputRouting.onInputChange}
+              />
+            </div>
+          ) : null}
+
+          {inputRouting?.onTogglePolarity && (
+            <div className="flex w-full items-center justify-between px-0.5 text-[9px]">
+              <button
+                type="button"
+                onClick={inputRouting.onTogglePolarity}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  inputRouting.onPolarityMenu?.({ x: e.clientX, y: e.clientY });
+                }}
+                title={
+                  isPolarityActive
+                    ? `Polarity Inverted (${inputRouting.polarity?.toUpperCase()}) — right-click for L/R options`
+                    : "Polarity Normal (0°) — click to invert, right-click for L/R options"
+                }
+                className={`flex h-4 px-1 items-center justify-center rounded border transition-colors ${
+                  isPolarityActive
+                    ? "border-[var(--rs-phase)]/60 bg-[var(--rs-phase)]/20 text-[var(--rs-phase)] font-black shadow-[0_0_6px_rgba(48,209,88,0.4)]"
+                    : "border-default/20 text-foreground/45 hover:text-foreground/80 hover:bg-surface/50"
+                }`}
+                aria-label="Phase Invert"
+              >
+                {inputRouting.polarity === "left"
+                  ? "Ø L"
+                  : inputRouting.polarity === "right"
+                    ? "Ø R"
+                    : "Ø"}
+              </button>
+
+              <span
+                className="font-mono text-foreground/50 hover:text-foreground cursor-ns-resize transition-colors select-none px-1 rounded hover:bg-surface/60"
+                title="Input Trim dB (Drag up/down like a knob, Shift for fine, double-click for 0.0dB)"
+                onPointerDown={handleTrimPointerDown}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  commitTrimDb(0.0);
+                }}
+              >
+                {displayTrimDb === 0
+                  ? "±0.0dB"
+                  : `${displayTrimDb > 0 ? "+" : ""}${displayTrimDb.toFixed(1)}dB`}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 3. Audio FX Section */}
       {onPlugins && (
@@ -278,7 +471,41 @@ export function ChannelStrip({
         </div>
       )}
 
-      {/* 5. Pan / Balance Section */}
+      {/* 5. Output Routing Section (after sends) */}
+      {((busses && onBusSelect) || busDestination) && (
+        <div className="w-full my-0.5 border-t border-default/20 pt-1">
+          {busses && onBusSelect && directOutput ? (
+            <TrackOutputRouting
+              busId={busId || ""}
+              busses={busses}
+              allBusses={directOutput.allBusses}
+              settings={directOutput.settings}
+              mono={directOutput.mono}
+              onMonoChange={directOutput.onMonoChange}
+              onBusSelect={onBusSelect}
+              onDirectOutput={directOutput.onDirectOutput}
+            />
+          ) : busses && onBusSelect ? (
+            <div className="my-0.5 flex w-full flex-col items-center gap-1">
+              <Select
+                aria-label="Output bus"
+                size={ROUTING_SELECT_SIZE}
+                options={busses.map((b) => ({
+                  id: b.id,
+                  label: b.name || b.id,
+                }))}
+                value={busId || ""}
+                onChange={onBusSelect}
+              />
+              <RoutingSlotPlaceholder />
+            </div>
+          ) : null}
+
+          {busDestination}
+        </div>
+      )}
+
+      {/* 6. Pan / Balance Section */}
       {onPan && pan !== null ? (
         <div className="my-0.5 flex flex-col items-center gap-0.5">
           <Knob
@@ -303,7 +530,10 @@ export function ChannelStrip({
               const onPointerMove = (ev: PointerEvent) => {
                 const dy = startY - ev.clientY;
                 const step = ev.shiftKey ? 0.01 : 0.05;
-                const next = Math.max(-1, Math.min(1, Math.round((startVal + dy * 0.01) / step) * step));
+                const next = Math.max(
+                  -1,
+                  Math.min(1, Math.round((startVal + dy * 0.01) / step) * step),
+                );
                 commitPan(next);
               };
 
@@ -336,25 +566,17 @@ export function ChannelStrip({
           heldPeakDb={stripClip.heldPeakDb}
           onClear={stripClip.clear}
           onGainChange={commitGain}
+          density={density}
         />
       </div>
 
-      {isMaster && (
-        <div className="flex w-full items-center justify-between rounded bg-surface/50 px-1 py-0.5 font-mono text-[8.5px] text-foreground/75 shadow-inner">
-          <span title="EBU R128 Short-Term LUFS">
-            {shortTermLufs !== undefined && Number.isFinite(shortTermLufs)
-              ? `${shortTermLufs.toFixed(1)} LUFS`
-              : "-14.0 LUFS"}
-          </span>
-          <span className="font-sans text-[7.5px] font-semibold text-foreground/40">
-            BS.1770
-          </span>
-        </div>
-      )}
-
       {/* Fader and Level Meter Bar */}
-      <div className="flex min-h-[120px] flex-1 w-full items-center justify-center gap-1.5 py-1 overflow-hidden">
-        <GainFader value={displayGainDb} onChange={commitGain} density={density} />
+      <div className="flex min-h-0 flex-1 w-full items-stretch justify-center gap-1.5 py-0.5 overflow-hidden">
+        <GainFader
+          value={displayGainDb}
+          onChange={commitGain}
+          density={density}
+        />
         <LevelMeterBar
           db={peakDb ?? -100}
           dbL={stripLeftDb}
@@ -371,8 +593,62 @@ export function ChannelStrip({
         />
       </div>
 
-      {/* 7. Bottom controls: M/S row + R/I row + Output routing */}
-      <div className="mt-auto flex w-full shrink-0 flex-col gap-1 pt-1 border-t border-default/15">
+      {/* 7. Bottom controls: R/I row + M/S row */}
+      <div className="mt-auto flex w-full shrink-0 flex-col gap-1 pt-1 px-1 border-t border-default/15">
+        {(onRecordArm || onInputMonitor) && (
+          <div className="flex w-full gap-1">
+            <div className="flex-1" aria-hidden="true" />
+            <div className={`flex flex-1 items-center ${isNarrow ? "gap-0.5" : "gap-1"}`}>
+              {onRecordArm && (
+                <button
+                  type="button"
+                  onClick={onRecordArm}
+                  title={
+                    recordArmed
+                      ? isRecording
+                        ? "Recording active"
+                        : "Record Armed (Click to disarm)"
+                      : "Record Arm (Click to arm)"
+                  }
+                  aria-label="Record Arm"
+                  className={`relative flex h-[18px] flex-1 items-center justify-center rounded border text-[9px] font-bold transition-all select-none ${
+                    recordArmed
+                      ? isRecording
+                        ? "border-[var(--rs-record)] bg-[var(--rs-record)] text-white shadow-[0_0_8px_rgba(255,59,48,0.7)]"
+                        : "border-[var(--rs-record)] bg-[var(--rs-record)]/20 text-[var(--rs-record)] rs-recording-blink font-bold"
+                      : "border-default/30 bg-surface/60 text-foreground/75 hover:border-[var(--rs-record)]/60 hover:text-[var(--rs-record)]"
+                  }`}
+                >
+                  {isRecording ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-white shadow-sm" />
+                  ) : (
+                    "R"
+                  )}
+                </button>
+              )}
+              {onInputMonitor && (
+                <button
+                  type="button"
+                  onClick={onInputMonitor}
+                  title={
+                    inputMonitoring
+                      ? "Input Monitoring Active"
+                      : "Input Monitoring"
+                  }
+                  aria-label="Input Monitoring"
+                  className={`relative flex h-[18px] flex-1 items-center justify-center rounded border text-[9px] font-bold transition-all select-none ${
+                    inputMonitoring
+                      ? "border-[var(--rs-monitor)] bg-[var(--rs-monitor)] text-black font-bold shadow-[0_0_8px_rgba(255,149,0,0.5)]"
+                      : "border-default/30 bg-surface/60 text-foreground/75 hover:bg-surface hover:text-foreground"
+                  }`}
+                >
+                  I
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex w-full gap-1">
           <StripButton
             active={mute}
@@ -410,76 +686,6 @@ export function ChannelStrip({
             S
           </StripButton>
         </div>
-
-        {(onRecordArm || onInputMonitor) && (
-          <div className="flex w-full gap-1 items-center justify-center">
-            {onRecordArm && (
-              <button
-                type="button"
-                onClick={onRecordArm}
-                title={recordArmed ? (isRecording ? "Recording active" : "Record Armed (Click to disarm)") : "Record Arm (Click to arm)"}
-                aria-label="Record Arm"
-                className={`relative flex h-[20px] flex-1 items-center justify-center rounded-full border text-[9.5px] font-black transition-all select-none ${
-                  recordArmed
-                    ? isRecording
-                      ? "border-[var(--rs-record)] bg-[var(--rs-record)] text-white shadow-[0_0_8px_rgba(255,59,48,0.7)]"
-                      : "border-[var(--rs-record)] bg-[var(--rs-record)]/20 text-[var(--rs-record)] rs-recording-blink font-black"
-                    : "border-default/30 bg-surface/60 text-foreground/75 hover:border-[var(--rs-record)]/60 hover:text-[var(--rs-record)]"
-                }`}
-              >
-                {isRecording ? (
-                  <span className="w-2 h-2 rounded-full bg-white shadow-sm" />
-                ) : (
-                  "R"
-                )}
-              </button>
-            )}
-            {onInputMonitor && (
-              <button
-                type="button"
-                onClick={onInputMonitor}
-                title={inputMonitoring ? "Input Monitoring Active" : "Input Monitoring"}
-                aria-label="Input Monitoring"
-                className={`relative flex h-[20px] flex-1 items-center justify-center rounded border text-[9.5px] font-black transition-all select-none ${
-                  inputMonitoring
-                    ? "border-[var(--rs-monitor)] bg-[var(--rs-monitor)] text-black font-black shadow-[0_0_8px_rgba(255,149,0,0.5)]"
-                    : "border-default/30 bg-surface/60 text-foreground/75 hover:bg-surface hover:text-foreground"
-                }`}
-              >
-                I
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* 8. Output Routing Section (Bottom of channel strip) */}
-        {busses && onBusSelect && directOutput ? (
-          <TrackOutputRouting
-            busId={busId || ""}
-            busses={busses}
-            allBusses={directOutput.allBusses}
-            settings={directOutput.settings}
-            mono={directOutput.mono}
-            onMonoChange={directOutput.onMonoChange}
-            onBusSelect={onBusSelect}
-            onDirectOutput={directOutput.onDirectOutput}
-          />
-        ) : (
-          busses &&
-          onBusSelect && (
-            <div className="w-full">
-              <Select
-                aria-label="Output bus"
-                size={ROUTING_SELECT_SIZE}
-                options={busses.map((b) => ({ id: b.id, label: b.name || b.id }))}
-                value={busId || ""}
-                onChange={onBusSelect}
-              />
-            </div>
-          )
-        )}
-
-        {busDestination}
       </div>
     </div>
   );

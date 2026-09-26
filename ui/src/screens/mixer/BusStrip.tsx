@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { mixer, type PluginCatalogEntry } from "../../lib/api";
+import { builder, mixer, type PluginCatalogEntry } from "../../lib/api";
 import { rowsSameExceptLevels, sameExceptLevels } from "../../lib/levelFields";
 import { getLiveLevels } from "../../lib/liveLevels";
 import type { BusRow, MeterRow, SettingsState } from "../../lib/types";
@@ -46,6 +46,23 @@ function BusStripInner({
       color={color}
       density={density}
       targetPluginSlots={targetPluginSlots}
+      formatToggle={{
+        stereo: b.channels === 2,
+        onToggle: () => {
+          const nextChannels = b.channels === 2 ? 1 : 2;
+          void builder.busUpdate({
+            index,
+            name: b.name,
+            channels: nextChannels,
+            startChannel: b.startChannel,
+            mute: b.mute,
+            solo: b.solo,
+            gainDb: b.gainDb,
+            pan: b.pan,
+            isAux: b.isAux,
+          });
+        },
+      }}
       gainDb={b.gainDb ?? 0}
       pan={b.pan ?? 0}
       peakDb={peakDb}

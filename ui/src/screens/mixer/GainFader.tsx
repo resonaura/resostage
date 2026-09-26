@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo, useRef } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscRevert } from "../../lib/useEscRevert";
 import { FaderLaw } from "../../lib/audioCurves";
 import { GAIN_MAX, GAIN_MIN } from "./constants";
@@ -14,77 +14,111 @@ interface GainFaderProps {
   density?: "narrow" | "standard" | "wide";
 }
 
-
-/** Where a dB value sits on the throw: 0 at the bottom, 1 at the top using smooth acoustic taper (0dB at 0.80). */
+/**
+ * Where a dB value sits on the throw: 0 at the bottom (-60 dB / -inf), 1 at the top (+12 dB).
+ * Calibrated quadratic taper matching DAW console engineering:
+ * - +12 dB = 1.00
+ * - +6 dB  = 0.90
+ * - 0 dB   = 0.80 (unity position)
+ * - -6 dB  = ~0.65
+ * - -12 dB = ~0.51 (physical midpoint of fader throw)
+ * - -18 dB = ~0.39
+ * - -24 dB = ~0.29
+ * - -36 dB = ~0.13
+ * - -60 dB = 0.00 (-inf / silence)
+ */
 function normalizedFor(db: number): number {
   if (!Number.isFinite(db) || db <= GAIN_MIN) return 0.0;
   if (db >= GAIN_MAX) return 1.0;
   if (db <= 0.0) {
-    const norm = (db - GAIN_MIN) / (0 - GAIN_MIN); // 0 at GAIN_MIN, 1 at 0dB
-    return Math.pow(norm, 1.4) * 0.80;
+    const norm = (db - GAIN_MIN) / (0 - GAIN_MIN); // 0 at GAIN_MIN (-60), 1 at 0 dB
+    return norm * norm * FaderLaw.unityPosition;
   }
-  return 0.80 + (db / GAIN_MAX) * 0.20;
+  return FaderLaw.unityPosition + (db / GAIN_MAX) * (1.0 - FaderLaw.unityPosition);
 }
 
-// ── How loud a scale mark is drawn ───────────────────────────────────────
-const MARK_OPACITY_AT_UNITY = 0.85;
-const MARK_OPACITY_AT_EXTREME = 0.18;
-/** Furthest any mark sits from unity, in dB -- the fade's full scale. */
-const MARK_FADE_RANGE_DB = Math.max(GAIN_MAX, -GAIN_MIN);
-
-function markOpacity(db: number): number {
-  const t = Math.min(1, Math.abs(db) / MARK_FADE_RANGE_DB);
-  return (
-    MARK_OPACITY_AT_EXTREME +
-    (MARK_OPACITY_AT_UNITY - MARK_OPACITY_AT_EXTREME) * (1 - t) ** 1.5
-  );
-}
+const ALL_MARKERS = [GAIN_MAX, 6, 0, -6, -12, -18, -24, -36, GAIN_MIN] as const;
 
 /**
  * The dB scale down the left of the throw.
+ * Automatically adapts label density based on available vertical height and mixer strip density
+ * to prevent overlapping or cramped text.
  */
 const FaderScale = memo(function FaderScale({
   density = "standard",
+  trackHeight = 200,
 }: {
   density?: "narrow" | "standard" | "wide";
+  trackHeight?: number;
 }) {
   const isNarrow = density === "narrow";
-  const markers = isNarrow
-    ? [GAIN_MAX, 0, -12, GAIN_MIN]
-    : [GAIN_MAX, 6, 0, -6, -18, -36, GAIN_MIN];
+  const isCramped = isNarrow || trackHeight < 145;
+  const isMedium = !isCramped && trackHeight < 195;
+
+  const showLabel = (db: number) => {
+    if (isCramped) {
+      return db === GAIN_MAX || db === 0 || db === -12 || db === GAIN_MIN;
+    }
+    if (isMedium) {
+      return (
+        db === GAIN_MAX ||
+        db === 6 ||
+        db === 0 ||
+        db === -6 ||
+        db === -12 ||
+        db === -24 ||
+        db === GAIN_MIN
+      );
+    }
+    return true;
+  };
 
   return (
-    <div className="pointer-events-none relative h-full w-5 sm:w-6 shrink-0 overflow-hidden">
-      {markers.map((markerDb) => {
+    <div
+      className={`pointer-events-none relative h-full shrink-0 select-none ${
+        isNarrow ? "w-3.5" : "w-5 sm:w-5.5"
+      }`}
+    >
+      {ALL_MARKERS.map((markerDb) => {
         const isZero = markerDb === 0;
-        const isSix = Math.abs(markerDb) === 6;
+        const isMajor =
+          isZero || Math.abs(markerDb) === 6 || markerDb === 12 || markerDb === -12;
+        const isBottom = markerDb === GAIN_MIN;
+        const hasLabel = showLabel(markerDb);
+
         return (
           <div
             key={markerDb}
-            className="absolute right-0 flex -translate-y-1/2 items-center gap-0.5 text-foreground"
+            className="absolute right-0 flex -translate-y-1/2 items-center gap-0.5"
             style={{
               top: `${(1 - normalizedFor(markerDb)) * 100}%`,
-              opacity: isZero ? 1.0 : markOpacity(markerDb),
+              opacity: isZero ? 1.0 : isMajor ? 0.9 : 0.6,
             }}
           >
-            <span
-              className={`font-mono text-[8px] leading-none tracking-tight tabular-nums ${
-                isZero ? "font-bold text-foreground" : "text-foreground/60"
-              }`}
-            >
-              {markerDb === GAIN_MIN
-                ? "-∞"
-                : markerDb > 0
-                  ? `+${markerDb}`
-                  : markerDb}
-            </span>
+            {hasLabel && (
+              <span
+                className={`font-mono leading-none tracking-tight tabular-nums ${
+                  isNarrow ? "text-[7.5px]" : "text-[8px]"
+                } ${
+                  isZero
+                    ? "font-bold text-foreground"
+                    : "text-muted"
+                }`}
+              >
+                {isBottom
+                  ? "-∞"
+                  : markerDb > 0
+                    ? `+${markerDb}`
+                    : markerDb}
+              </span>
+            )}
             <div
-              className={`h-px rounded-full ${
+              className={`rounded-full ${
                 isZero
-                  ? "bg-foreground w-1.5"
-                  : isSix
-                    ? "bg-foreground/80 w-1"
-                    : "bg-foreground/50 w-0.5"
+                  ? "bg-foreground w-2 h-[1.5px]"
+                  : isMajor
+                    ? "bg-default-foreground/60 w-1.5 h-px"
+                    : "bg-default-foreground/35 w-1 h-px"
               }`}
             />
           </div>
@@ -95,38 +129,55 @@ const FaderScale = memo(function FaderScale({
 });
 
 /**
- * Track, fill, 0 dB unity detent tick, and cap.
+ * Track rail slot, fill, 0 dB unity detent tick, and styled fader cap.
+ * Uses HeroUI theme design tokens (surface, default, border, foreground, accent).
  */
 const FaderVisuals = memo(function FaderVisuals({
   normalized,
+  density = "standard",
 }: {
   normalized: number;
+  density?: "narrow" | "standard" | "wide";
 }) {
   const zeroPos = FaderLaw.unityPosition; // 0.80
+  const isNarrow = density === "narrow";
+  const isWide = density === "wide";
+
   return (
     <>
       {/* Slot: cut INTO the strip */}
-      <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-black/60 shadow-inner" />
+      <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-background border border-default/30 shadow-inner" />
 
       {/* 0 dB unity detent mark on rail */}
       <div
-        className="pointer-events-none absolute left-1/2 -translate-x-1/2 h-[1px] w-3 bg-foreground/45 rounded-full"
+        className="pointer-events-none absolute left-1/2 -translate-x-1/2 h-[1.5px] w-3.5 bg-foreground/60 rounded-full shadow-[0_0_2px_rgba(255,255,255,0.2)]"
         style={{ top: `${(1 - zeroPos) * 100}%` }}
         title="0 dB Unity Detent"
       />
 
       {/* Travelled part of the throw */}
       <div
-        className="pointer-events-none absolute bottom-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-foreground/25"
+        className="pointer-events-none absolute bottom-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-default-foreground/25"
         style={{ height: `${normalized * 100}%` }}
       />
 
-      {/* Cap */}
+      {/* Cap - styled with HeroUI surface-secondary and surface tones */}
       <div
-        className="pointer-events-none absolute left-1/2 flex h-5 w-3.5 sm:h-6 sm:w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[3px] bg-gradient-to-b from-[#3a3f4b] to-[#1c1e24] shadow-[0_1px_4px_rgba(0,0,0,0.6)] border border-white/20"
+        className={`pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[3px] bg-gradient-to-b from-surface-secondary to-surface shadow-[0_2px_6px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] border border-default/50 transition-colors ${
+          isNarrow
+            ? "h-5 w-3.5"
+            : isWide
+              ? "h-6 w-5"
+              : "h-5.5 w-4 sm:h-6 sm:w-4.5"
+        }`}
         style={{ top: `${(1 - normalized) * 100}%` }}
       >
-        <div className="h-0.5 w-2 rounded-full bg-white/70" />
+        {/* Tactile DAW cap grip lines */}
+        <div className="flex flex-col items-center gap-[2px]">
+          <div className="h-px w-2 rounded-full bg-default-foreground/20" />
+          <div className="h-0.5 w-2 sm:w-2.5 rounded-full bg-foreground/90 shadow-[0_0_2px_rgba(255,255,255,0.4)]" />
+          <div className="h-px w-2 rounded-full bg-default-foreground/20" />
+        </div>
       </div>
     </>
   );
@@ -141,6 +192,22 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
 }) {
   const escRevert = useEscRevert(() => value, onChange);
   const trackRef = useRef<HTMLDivElement>(null);
+  const [trackHeight, setTrackHeight] = useState<number>(200);
+
+  // Monitor physical track height for adaptive scale decimation
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.height > 0) {
+          setTrackHeight(entry.contentRect.height);
+        }
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const normalized = useMemo(() => normalizedFor(value), [value]);
 
@@ -155,13 +222,13 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
       const clampedPct = Math.max(0, Math.min(1, rawPct));
 
       let db = GAIN_MIN;
-      if (clampedPct <= 0.015) {
+      if (clampedPct <= 0.008) {
         db = GAIN_MIN;
-      } else if (clampedPct <= 0.80) {
-        const norm = Math.pow(clampedPct / 0.80, 1 / 1.4);
+      } else if (clampedPct <= FaderLaw.unityPosition) {
+        const norm = Math.sqrt(clampedPct / FaderLaw.unityPosition);
         db = GAIN_MIN + norm * (0 - GAIN_MIN);
       } else {
-        const t = (clampedPct - 0.80) / 0.20;
+        const t = (clampedPct - FaderLaw.unityPosition) / (1.0 - FaderLaw.unityPosition);
         db = t * GAIN_MAX;
       }
 
@@ -211,24 +278,28 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
     // same padded box -- so a tick at 0 dB is at the same height as the cap
     // when the fader reads 0 dB, without either side restating the padding.
     <div
-      className="flex h-full min-h-[110px] w-full max-w-[4.5rem] touch-none select-none items-stretch py-1.5"
-      title="Double-click to reset"
+      className="flex h-full min-h-0 w-full max-w-[4.5rem] touch-none select-none items-stretch py-2"
+      title="Double-click or Alt+click to reset (0 dB)"
       {...escRevert}
       onDoubleClick={handleDoubleClick}
     >
-      <div className="relative h-full w-5 sm:w-6 shrink-0 my-3 pointer-events-none">
-        <FaderScale density={density} />
+      <div
+        className={`relative h-full shrink-0 pointer-events-none ${
+          density === "narrow" ? "w-3.5" : "w-5 sm:w-5.5"
+        }`}
+      >
+        <FaderScale density={density} trackHeight={trackHeight} />
       </div>
 
       <div
         ref={trackRef}
         // A vertical fader drags up and down; `pointer` said "click me".
-        className="relative flex-1 cursor-ns-resize my-3"
+        className="relative flex-1 cursor-ns-resize h-full"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
-        <FaderVisuals normalized={normalized} />
+        <FaderVisuals normalized={normalized} density={density} />
       </div>
     </div>
   );

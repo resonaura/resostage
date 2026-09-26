@@ -1,20 +1,19 @@
 import { useEffect, useState } from "react";
 import { isMainBusId } from "./mixerIds";
 import { builder } from "../../lib/api";
-import { Button, Select, type SelectOption } from "../../components/ui";
+import { Select, type SelectOption } from "../../components/ui";
 import type { BusRow, SettingsState } from "../../lib/types";
 import {
   EXT_OUTPUT_VALUE,
   ROUTING_SELECT_SIZE,
-  ROUTING_SELECT_SPACER,
 } from "./constants";
+import { RoutingSlotPlaceholder } from "./RoutingSlotPlaceholder";
 import {
   directOutputOptions,
   matchOptionId,
   parseOptionId,
   channelAvailable,
 } from "./directOutput";
-import { MonoStereoIcon } from "./MonoStereoIcon";
 import { missingOutputSelectProps } from "./MissingOutputSelect";
 import {
   missingRouteLabel,
@@ -104,27 +103,10 @@ export function BusDestinationRouting({
     />
   );
 
-  const monoStereoToggle = (
-    <Button
-      size="sm"
-      variant="ghost"
-      isIconOnly
-      className="mx-auto size-6 min-w-0 text-foreground/60"
-      aria-label={stereo ? "Stereo (click for mono)" : "Mono (click for stereo)"}
-      onPress={() => updateBusChannels(stereo ? 1 : 2, bus.startChannel)}
-    >
-      <MonoStereoIcon stereo={stereo} />
-    </Button>
-  );
-
   if (isMaster) {
     // Master always: [Ext. Out only] + [channel list].
     return (
-      <div className="my-1 flex w-full flex-col items-center gap-1.5">
-        <div className="my-0.5 flex w-full items-center justify-center">
-          {monoStereoToggle}
-        </div>
-
+      <div className="my-0.5 flex w-full flex-col items-center gap-1">
         <Select
           aria-label="Master destination"
           title="Master always routes to a physical Ext. Out"
@@ -141,11 +123,7 @@ export function BusDestinationRouting({
 
   // Aux / send bus: Master | Ext. Out, then channel picker when Ext. Out.
   return (
-    <div className="my-1 flex w-full flex-col items-center gap-1.5">
-      <div className="my-0.5 flex w-full items-center justify-center">
-        {monoStereoToggle}
-      </div>
-
+    <div className="my-0.5 flex w-full flex-col items-center gap-1">
       <Select
         aria-label="Bus destination"
         title="Where this bus goes (Main = same outs as the Main bus; both still sum)"
@@ -179,7 +157,7 @@ export function BusDestinationRouting({
       {extOutputOpen ? (
         channelSelect("Bus physical output")
       ) : (
-        <div className={ROUTING_SELECT_SPACER} aria-hidden />
+        <RoutingSlotPlaceholder />
       )}
     </div>
   );

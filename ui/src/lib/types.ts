@@ -1108,7 +1108,10 @@ export const emptyState: WebUiState = {
     midiOutputs: [],
     midiInputs: [],
     virtualMidiPortEnabled: false,
-    advancedSendRouting: false,
+    advancedSendRouting:
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("resostage:advanced-send-routing") === "true"
+        : false,
     keybindings: [],
     midiBindings: [],
     midiLearnAction: "",

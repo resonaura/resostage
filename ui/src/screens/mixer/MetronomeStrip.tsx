@@ -103,6 +103,10 @@ function MetronomeStripInner({
       busId={currentClickBus}
       density={density}
       onBusSelect={(busId) => patchClick({ clickBusId: busId })}
+      formatToggle={{
+        stereo: !clickMono,
+        onToggle: () => patchClick({ clickMono: !clickMono }),
+      }}
       directOutput={{
         settings: state.settings,
         allBusses: state.busses,

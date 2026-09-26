@@ -75,7 +75,7 @@ function ConsolePane({
 }) {
   if (compact) return <div className={className}>{children}</div>;
   return (
-    <ScrollShadow orientation="horizontal" className={`${className} overflow-y-auto`}>
+    <ScrollShadow orientation="horizontal" className={`${className} overflow-y-hidden`}>
       {children}
     </ScrollShadow>
   );

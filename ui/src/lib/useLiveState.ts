@@ -158,7 +158,10 @@ function buildMergedState(
             next.settings.uiRenderEngine ?? prev.settings.uiRenderEngine,
           theme: next.settings.theme ?? prev.settings.theme,
           advancedSendRouting:
-            next.settings.advancedSendRouting ?? prev.settings.advancedSendRouting,
+            next.settings.advancedSendRouting ??
+            (typeof localStorage !== "undefined"
+              ? localStorage.getItem("resostage:advanced-send-routing") === "true"
+              : prev.settings.advancedSendRouting),
         }
       : prev.settings,
   };

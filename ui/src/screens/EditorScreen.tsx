@@ -523,7 +523,7 @@ export function EditorScreen({
           width and because building every lane's waveform canvas is the most
           expensive thing this app does. */}
       {activeTab === "timeline" && (
-        <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-row gap-1.5 overflow-hidden">
           {showInspector && !compact && (
             <EditorInspector
               state={state}

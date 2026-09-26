@@ -1,41 +1,38 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ChevronDown,
-  ChevronRight,
-  Mic,
-  Music,
-  X,
-} from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import {
-  builder,
   mixer,
   pluginCatalog as pluginCatalogApi,
   type PluginCatalogEntry,
 } from "../../lib/api";
 import {
-  sourceOutputBusId,
   type MidiRegionRow,
   type RegionRow,
   type WebUiState,
 } from "../../lib/types";
+import { ScrollShadow } from "../../components/ui";
 import { BusStrip } from "../mixer/BusStrip";
 import { TrackStrip } from "../mixer/TrackStrip";
 import { PluginChainModal } from "../mixer/PluginChainModal";
-import { extOutTarget, isMainBusId } from "../mixer/mixerIds";
+import { extOutTarget } from "../mixer/mixerIds";
+import {
+  DEFAULT_INSPECTOR_OVERFLOW_WIDTH,
+  DEFAULT_INSPECTOR_WIDTH,
+  MAX_INSPECTOR_WIDTH,
+  MIN_INSPECTOR_WIDTH,
+  resolveInspectorBusses,
+} from "./inspectorRouting";
 
 export function EditorInspector({
   state,
   selectedTrackId,
-  selectedRegion,
-  onClose,
+  selectedRegion: _selectedRegion,
+  onClose: _onClose,
 }: {
   state: WebUiState;
   selectedTrackId: string | null;
   selectedRegion?: RegionRow | MidiRegionRow | null;
   onClose?: () => void;
 }) {
-  const [regionExpanded, setRegionExpanded] = useState(true);
-  const [trackExpanded, setTrackExpanded] = useState(true);
   const [effectCatalog, setEffectCatalog] = useState<PluginCatalogEntry[]>([]);
   const [pluginTarget, setPluginTarget] = useState<{
     stripId: string;
@@ -66,15 +63,105 @@ export function EditorInspector({
   );
   const selectedTrack = state.tracks[trackIndex] ?? null;
 
-  const master = state.busses.find((b) => isMainBusId(b.id)) ?? state.busses[0];
   const auxBusses = state.busses.filter((b) => b.isAux);
   const destinationBusses = state.busses.filter((b) => !b.isAux);
 
-  // Find destination bus for the track or master bus
-  const trackBusId = selectedTrack ? sourceOutputBusId(selectedTrack.output) : "";
-  const outputBus =
-    state.busses.find((b) => b.id === trackBusId) ?? master ?? state.busses[0];
-  const outputBusIndex = outputBus ? state.busses.indexOf(outputBus) : 0;
+  const { sendBusses, showMaster, master } = resolveInspectorBusses({
+    selectedTrack,
+    busses: state.busses,
+  });
+  const masterIndex = master ? state.busses.indexOf(master) : -1;
+
+  const stripCount =
+    (selectedTrack ? 1 : 0) + sendBusses.length + (showMaster && master ? 1 : 0);
+  const targetDefaultWidth =
+    stripCount > 2 ? DEFAULT_INSPECTOR_OVERFLOW_WIDTH : DEFAULT_INSPECTOR_WIDTH;
+
+  // Custom user-resized width from localStorage or active drag.
+  // When null, automatically uses targetDefaultWidth (218px for <= 2 strips, 254px for > 2 strips to fit the ScrollShadow).
+  const [customWidth, setCustomWidth] = useState<number | null>(() => {
+    if (typeof localStorage !== "undefined") {
+      const saved = Number(localStorage.getItem("resostage:inspector-width"));
+      if (
+        Number.isFinite(saved) &&
+        saved >= MIN_INSPECTOR_WIDTH &&
+        saved <= MAX_INSPECTOR_WIDTH
+      ) {
+        return saved;
+      }
+    }
+    return null;
+  });
+
+  const width = customWidth ?? targetDefaultWidth;
+
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+    dragStartRef.current = { startX: e.clientX, startWidth: width };
+
+    const handlePointerMove = (ev: PointerEvent) => {
+      if (!dragStartRef.current) return;
+      const delta = ev.clientX - dragStartRef.current.startX;
+      const nextWidth = Math.max(
+        MIN_INSPECTOR_WIDTH,
+        Math.min(
+          MAX_INSPECTOR_WIDTH,
+          Math.round(dragStartRef.current.startWidth + delta),
+        ),
+      );
+      setCustomWidth(nextWidth);
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("resostage:inspector-width", String(nextWidth));
+      }
+    };
+
+    const handlePointerUp = () => {
+      setIsDragging(false);
+      dragStartRef.current = null;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCustomWidth(null);
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem("resostage:inspector-width");
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, []);
+
+  // Max plugin slots aligned across inspector strips:
+  const inspectorStrips = [
+    selectedTrack,
+    ...sendBusses,
+    showMaster ? master : null,
+  ].filter(Boolean);
+  const maxPluginSlots = Math.max(
+    1,
+    ...inspectorStrips.map((s) => (s?.plugins?.length ?? 0) + 1),
+  );
 
   const requestTrackDirectOutput = useCallback(
     (
@@ -90,146 +177,23 @@ export function EditorInspector({
 
   const anyTrackSolo = state.tracks.some((t) => t.solo);
 
-  const isMidiRegion = selectedRegion ? "notes" in selectedRegion : false;
-  const regionName = selectedRegion
-    ? isMidiRegion
-      ? (selectedRegion as MidiRegionRow).name
-      : ((selectedRegion as RegionRow).source?.file?.split("/").pop() || selectedRegion.id)
-    : selectedTrack?.kind === "instrument"
-      ? "MIDI Defaults"
-      : "Audio Defaults";
-
-  const regionGainDb =
-    selectedRegion && "gainDb" in selectedRegion
-      ? (selectedRegion as RegionRow).gainDb
-      : 0;
-
-  const isRegionMuted = isMidiRegion
-    ? Boolean((selectedRegion as MidiRegionRow).muted)
-    : false;
-
   return (
-    <aside
-      className="flex h-full w-[260px] shrink-0 select-none flex-col border-r border-default/30 bg-background-tertiary z-20 text-xs overflow-hidden"
-      aria-label="Channel Strip Inspector"
-    >
-      {/* ── Top Header / Inspector Accordions (Logic Pro style) ── */}
-      <div className="flex shrink-0 flex-col border-b border-default/20 bg-background-secondary/80">
-        {/* Region Section */}
-        <div className="border-b border-default/15">
-          <button
-            type="button"
-            onClick={() => setRegionExpanded((v) => !v)}
-            className="flex w-full items-center justify-between px-2 py-1 text-left font-semibold text-foreground/80 hover:bg-surface/50 transition-colors"
-          >
-            <div className="flex items-center gap-1 min-w-0 truncate text-[11px]">
-              {regionExpanded ? (
-                <ChevronDown size={12} className="shrink-0 text-foreground/50" />
-              ) : (
-                <ChevronRight size={12} className="shrink-0 text-foreground/50" />
-              )}
-              <span className="font-bold text-foreground/50">Region:</span>
-              <span className="truncate text-foreground/90 font-medium">
-                {regionName}
-              </span>
-            </div>
-            {onClose && (
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose();
-                }}
-                className="rounded p-0.5 text-foreground/40 hover:bg-default/20 hover:text-foreground cursor-pointer"
-                title="Hide Inspector (I)"
-              >
-                <X size={11} />
-              </span>
-            )}
-          </button>
-          {regionExpanded && (
-            <div className="flex flex-col gap-1 px-3 py-1 bg-surface/20 text-[10px] text-foreground/70">
-              {isMidiRegion && (
-                <div className="flex items-center justify-between">
-                  <span className="text-foreground/40 font-mono uppercase text-[9px]">Mute</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedRegion && state.songIndex >= 0) {
-                        void builder.midiRegionUpdate({
-                          songIndex: state.songIndex,
-                          regionId: selectedRegion.id,
-                          muted: !isRegionMuted,
-                        });
-                      }
-                    }}
-                    className={`px-1.5 py-0.2 rounded border text-[9px] font-bold ${
-                      isRegionMuted
-                        ? "border-warning/60 bg-warning/20 text-warning"
-                        : "border-default/25 text-foreground/40 hover:text-foreground"
-                    }`}
-                  >
-                    {isRegionMuted ? "MUTED" : "OFF"}
-                  </button>
-                </div>
-              )}
-              {!isMidiRegion && selectedRegion && (
-                <div className="flex items-center justify-between">
-                  <span className="text-foreground/40 font-mono uppercase text-[9px]">Gain</span>
-                  <span className="font-mono text-foreground/70">
-                    {regionGainDb !== 0
-                      ? `${regionGainDb > 0 ? "+" : ""}${regionGainDb.toFixed(1)} dB`
-                      : "0.0 dB"}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Track Section */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setTrackExpanded((v) => !v)}
-            className="flex w-full items-center gap-1 px-2 py-1 text-left font-semibold text-foreground/80 hover:bg-surface/50 transition-colors text-[11px]"
-          >
-            {trackExpanded ? (
-              <ChevronDown size={12} className="shrink-0 text-foreground/50" />
-            ) : (
-              <ChevronRight size={12} className="shrink-0 text-foreground/50" />
-            )}
-            <span className="font-bold text-foreground/50">Track:</span>
-            <span className="truncate text-foreground/90 font-medium">
-              {selectedTrack?.name || "No Track Selected"}
-            </span>
-          </button>
-          {trackExpanded && selectedTrack && (
-            <div className="flex items-center justify-between px-3 py-1 bg-surface/20 text-[10px] text-foreground/70">
-              <div className="flex items-center gap-1.5">
-                {selectedTrack.kind === "instrument" ? (
-                  <span className="flex items-center gap-1 text-purple-400 font-medium">
-                    <Music size={10} /> Inst
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-sky-400 font-medium">
-                    <Mic size={10} /> Audio
-                  </span>
-                )}
-              </div>
-              <span className="font-mono text-[9px] text-foreground/45 truncate max-w-[100px]">
-                {selectedTrack.inputSource || (selectedTrack.channels === 1 ? "In 1" : "In 1-2")}
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Dual Channel Strips Container ── */}
-      <div className="flex min-h-0 flex-1 flex-row items-stretch justify-center gap-1.5 px-1.5 py-2 overflow-y-auto overflow-x-hidden">
+    <>
+      <aside
+        style={{ width: `${width}px` }}
+        className={`flex h-full shrink-0 select-none flex-col rounded-xl border border-default/30 bg-background-secondary z-20 text-xs overflow-hidden ${
+          isDragging ? "transition-none" : "transition-[width] duration-150 ease-out"
+        }`}
+        aria-label="Channel Strip Inspector"
+      >
+        {/* ── Channel Strips Container with ScrollShadow ── */}
+        <ScrollShadow
+          orientation="horizontal"
+          size={30}
+          className="flex min-h-0 flex-1 flex-row items-stretch gap-2 px-2 py-2 overflow-x-auto overflow-y-hidden"
+        >
         {selectedTrack ? (
-          <div className="flex h-full min-h-0 flex-1">
+          <div className="flex h-full min-h-0 shrink-0">
             <TrackStrip
               t={selectedTrack}
               index={trackIndex}
@@ -241,8 +205,8 @@ export function EditorInspector({
               anySoloInGroup={anyTrackSolo}
               pluginCatalog={effectCatalog}
               isRecording={state.recording ?? false}
-              density="narrow"
-              targetPluginSlots={2}
+              density="standard"
+              targetPluginSlots={maxPluginSlots}
               onDirectOutput={requestTrackDirectOutput}
               onOpenPlugins={openPlugins}
             />
@@ -253,41 +217,88 @@ export function EditorInspector({
           </div>
         )}
 
-        {outputBus ? (
-          <div className="flex h-full min-h-0 flex-1">
+        {sendBusses.map((bus) => {
+          const bIndex = state.busses.indexOf(bus);
+          return (
+            <div key={bus.id} className="flex h-full min-h-0 shrink-0">
+              <BusStrip
+                b={bus}
+                index={bIndex >= 0 ? bIndex : 0}
+                meters={state.meters}
+                master={master}
+                settings={state.settings}
+                anySoloInGroup={bus.soloActiveInGroup}
+                isMaster={false}
+                pluginCatalog={effectCatalog}
+                density="standard"
+                targetPluginSlots={maxPluginSlots}
+                onOpenPlugins={openPlugins}
+              />
+            </div>
+          );
+        })}
+
+        {showMaster && master ? (
+          <div key={master.id} className="flex h-full min-h-0 shrink-0">
             <BusStrip
-              b={outputBus}
-              index={outputBusIndex}
+              b={master}
+              index={masterIndex >= 0 ? masterIndex : 0}
               meters={state.meters}
               master={master}
               settings={state.settings}
-              anySoloInGroup={outputBus.soloActiveInGroup}
-              isMaster={outputBus.id === master?.id}
+              anySoloInGroup={master.soloActiveInGroup}
+              isMaster={true}
               pluginCatalog={effectCatalog}
-              density="narrow"
-              targetPluginSlots={2}
+              density="standard"
+              targetPluginSlots={maxPluginSlots}
               onOpenPlugins={openPlugins}
             />
           </div>
         ) : null}
-      </div>
-
-      {/* Audio FX / Instrument Plug-in Editor Modal */}
-      {pluginTarget && (
-        <PluginChainModal
-          open
-          stripId={pluginTarget.stripId}
-          stripName={pluginTarget.stripName}
-          slots={
-            selectedTrack && selectedTrack.id === pluginTarget.stripId
-              ? (selectedTrack.plugins ?? [])
-              : outputBus && outputBus.id === pluginTarget.stripId
-                ? (outputBus.plugins ?? [])
-                : []
-          }
-          onClose={() => setPluginTarget(null)}
-        />
-      )}
+      </ScrollShadow>
     </aside>
+
+    {/* ── Vertical Division Line / Resizer ── */}
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      onPointerDown={handlePointerDown}
+      onDoubleClick={handleDoubleClick}
+      className="group relative flex w-2.5 shrink-0 cursor-col-resize items-center justify-center -mx-1 select-none z-30"
+      title="Drag to resize inspector, double-click to reset"
+    >
+      {/* Base subtle division track */}
+      <div className="h-full w-0.5 rounded-full bg-default/20" />
+
+      {/* Accent background hit-zone overlay with smooth transition */}
+      <div
+        className={`absolute inset-y-0 w-full rounded-md bg-accent/15 pointer-events-none transition-opacity duration-200 ease-out ${
+          isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
+      />
+
+      {/* Accent solid indicator overlay with smooth transition (no glow) */}
+      <div
+        className={`absolute inset-y-0 w-0.75 rounded-full bg-accent pointer-events-none transition-opacity duration-200 ease-out ${
+          isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
+      />
+    </div>
+
+    {/* Audio FX / Instrument Plug-in Editor Modal */}
+    {pluginTarget && (
+      <PluginChainModal
+        open
+        stripId={pluginTarget.stripId}
+        stripName={pluginTarget.stripName}
+        slots={
+          selectedTrack && selectedTrack.id === pluginTarget.stripId
+            ? (selectedTrack.plugins ?? [])
+            : state.busses.find((b) => b.id === pluginTarget.stripId)?.plugins ?? []
+        }
+        onClose={() => setPluginTarget(null)}
+      />
+    )}
+  </>
   );
 }

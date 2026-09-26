@@ -24,6 +24,7 @@ export function GainPeakReadout({
   heldPeakDb,
   onClear,
   onGainChange,
+  density = "standard",
 }: {
   gainDb: number;
   /** max/avg of the strip's live channels, sampled off the shared rAF. */
@@ -32,6 +33,7 @@ export function GainPeakReadout({
   heldPeakDb: number;
   onClear: () => void;
   onGainChange?: (v: number) => void;
+  density?: "narrow" | "standard" | "wide";
 }) {
   const getLiveDbRef = useRef(getLiveDb);
   getLiveDbRef.current = getLiveDb;
@@ -62,13 +64,25 @@ export function GainPeakReadout({
     window.addEventListener("pointerup", onPointerUp);
   };
 
+  const isNarrow = density === "narrow";
+
   return (
-    <div className="flex w-full gap-1 text-[10px] font-mono font-semibold tabular-nums">
+    <div
+      className={`flex w-full min-w-0 gap-1 font-mono font-semibold tabular-nums leading-none tracking-tight whitespace-nowrap ${
+        isNarrow ? "text-[8px]" : "text-[8.5px] sm:text-[9px]"
+      }`}
+    >
       <div
-        className={`flex-1 rounded-md bg-black/40 px-1 py-0.5 text-center text-foreground/80 select-none ${
-          onGainChange ? "cursor-ns-resize hover:text-foreground hover:bg-black/60 transition-colors" : ""
+        className={`flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded-md bg-black/45 px-0.5 py-1 text-center text-foreground/85 select-none ${
+          onGainChange
+            ? "cursor-ns-resize hover:text-foreground hover:bg-black/60 transition-colors"
+            : ""
         }`}
-        title={onGainChange ? "Fader value (Drag up/down to adjust, double-click for 0 dB)" : "Fader value"}
+        title={
+          onGainChange
+            ? "Fader value (Drag up/down to adjust, double-click for 0 dB)"
+            : "Fader value"
+        }
         onPointerDown={handleGainPointerDown}
         onDoubleClick={(e) => {
           if (onGainChange) {
@@ -77,7 +91,9 @@ export function GainPeakReadout({
           }
         }}
       >
-        {formatDbReadout(gainDb)}
+        <span className="block truncate whitespace-nowrap">
+          {formatDbReadout(gainDb)}
+        </span>
       </div>
       <button
         type="button"
@@ -87,16 +103,17 @@ export function GainPeakReadout({
             ? "Peak hold (dB) — click to clear and show the current level"
             : "Current level (dB, avg L/R)"
         }
-        className={`flex-1 rounded-md px-1 py-0.5 text-center transition-colors ${
+        className={`flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded-md px-0.5 py-1 text-center transition-colors ${
           clipped
             ? "text-white"
-            : "bg-black/40 text-foreground/80 hover:bg-black/55"
+            : "bg-black/45 text-foreground/85 hover:bg-black/60 hover:text-foreground"
         }`}
         style={
           clipped ? { background: clipColor(), boxShadow: clipGlow() } : undefined
         }
       >
         <LiveReadout
+          className="block truncate whitespace-nowrap"
           sample={() =>
             formatDbReadout(heldRef.current ?? getLiveDbRef.current())
           }

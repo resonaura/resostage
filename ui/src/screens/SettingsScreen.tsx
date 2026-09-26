@@ -348,6 +348,11 @@ function Section({
 // ─── Audio Tab ────────────────────────────────────────────────────────────
 function AudioTab({ state }: { state: WebUiState }) {
   const [flowOpen, setFlowOpen] = useState(false);
+  const [advancedSendRouting, setAdvancedSendRouting] = useState(() =>
+    typeof localStorage !== "undefined"
+      ? localStorage.getItem("resostage:advanced-send-routing") === "true"
+      : false,
+  );
   const s = state.settings;
   const outputDevices =
     s.outputDevices.length > 0
@@ -430,12 +435,9 @@ function AudioTab({ state }: { state: WebUiState }) {
           <div className="flex items-center gap-3">
             <Switch
               aria-label="Advanced Send Tap Routing"
-              isSelected={
-                s.advancedSendRouting ??
-                (typeof localStorage !== "undefined" &&
-                  localStorage.getItem("resostage:advanced-send-routing") === "true")
-              }
+              isSelected={advancedSendRouting}
               onChange={(checked) => {
+                setAdvancedSendRouting(checked);
                 if (typeof localStorage !== "undefined") {
                   localStorage.setItem(
                     "resostage:advanced-send-routing",

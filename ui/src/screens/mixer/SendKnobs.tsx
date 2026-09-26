@@ -98,64 +98,91 @@ export function SendKnobs({
 
   const isNarrow = density === "narrow";
 
+  // Group active sends in pairs (2 per row)
+  const rows: BusRow[][] = [];
+  for (let i = 0; i < activeAuxBusses.length; i += 2) {
+    rows.push(activeAuxBusses.slice(i, i + 2));
+  }
+
   return (
-    <div className="flex w-full flex-col gap-1 border-t border-default/20 py-1">
-      {activeAuxBusses.map((bus) => {
-        const existing = sends.find((s) => s.busId === bus.id);
-        const value =
-          existing !== undefined
-            ? sendLevelToDb(existing.level)
-            : SEND_FLOOR_DB;
-        const enabled = existing ? existing.enabled !== false : true;
-        const tap: SendTapMode = existing?.tap ?? (existing?.preFader ? "pre-fader" : "post-pan");
-        const label = bus.name || bus.id;
-
-        const ringColor = advanced
-          ? (tap === "pre-fader"
-            ? "var(--rs-send-pre, #0a84ff)"
-            : tap === "post-fader"
-              ? "var(--rs-send-post, #5e5ce6)"
-              : "var(--rs-send-pan, #30d158)")
-          : "var(--rs-send-post, #5e5ce6)";
-
+    <div className="flex w-full flex-col gap-1.5 py-0.5">
+      {rows.map((row, rowIndex) => {
+        const isSingle = row.length === 1;
         return (
           <div
-            key={bus.id}
-            className={`flex items-center justify-between gap-1 w-full px-0.5 min-w-0 transition-opacity duration-300 ${
-              enabled ? "opacity-100" : "opacity-35"
+            key={`send-row-${rowIndex}`}
+            className={`flex w-full items-center ${
+              isSingle
+                ? "justify-center"
+                : isNarrow
+                  ? "justify-center gap-2"
+                  : "justify-center gap-3.5"
             }`}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setMenu({
-                x: e.clientX,
-                y: e.clientY,
-                busId: bus.id,
-                busName: label,
-                enabled,
-                tap,
-                level: existing?.level ?? 100,
-              });
-            }}
           >
-            <span
-              className="truncate text-[9px] font-mono font-medium min-w-0 flex-1 text-foreground/75 select-none"
-              title={advanced ? `${label} (${tap.toUpperCase()}) — right-click for options` : `${label} — right-click for options`}
-            >
-              {label}
-            </span>
-            <SendArcKnob
-              value={value}
-              min={SEND_FLOOR_DB}
-              max={SEND_CEILING_DB}
-              busColor={ringColor}
-              title={
-                enabled
-                  ? (advanced ? `Send to ${label} (${tap.toUpperCase()}) — right-click for options` : `Send to ${label}`)
-                  : `Send to ${label} — disabled`
-              }
-              onChange={(v) => writeLevel(bus.id, sendDbToLevel(v))}
-            />
+            {row.map((bus) => {
+              const existing = sends.find((s) => s.busId === bus.id);
+              const value =
+                existing !== undefined
+                  ? sendLevelToDb(existing.level)
+                  : SEND_FLOOR_DB;
+              const enabled = existing ? existing.enabled !== false : true;
+              const tap: SendTapMode =
+                existing?.tap ?? (existing?.preFader ? "pre-fader" : "post-pan");
+              const label = bus.name || bus.id;
+              const numMatch = bus.name?.match(/\d+/);
+              const sendNum = numMatch
+                ? numMatch[0]
+                : auxBusses.findIndex((b) => b.id === bus.id) + 1;
+
+              const ringColor = advanced
+                ? tap === "pre-fader"
+                  ? "var(--rs-send-pre, #0a84ff)"
+                  : tap === "post-fader"
+                    ? "var(--muted)"
+                    : "var(--rs-send-pan, #30d158)"
+                : "var(--muted)";
+
+              const knobSize = isNarrow ? 22 : 24;
+
+              return (
+                <div
+                  key={bus.id}
+                  className={`flex items-center justify-center transition-opacity duration-300 ${
+                    enabled ? "opacity-100" : "opacity-35"
+                  }`}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      busId: bus.id,
+                      busName: label,
+                      enabled,
+                      tap,
+                      level: existing?.level ?? 100,
+                    });
+                  }}
+                >
+                  <SendArcKnob
+                    value={value}
+                    min={SEND_FLOOR_DB}
+                    max={SEND_CEILING_DB}
+                    busColor={ringColor}
+                    size={knobSize}
+                    label={sendNum}
+                    title={
+                      enabled
+                        ? advanced
+                          ? `${label} (${tap.toUpperCase()}): ${Math.round(value)}dB — right-click for options`
+                          : `${label}: ${Math.round(value)}dB — right-click for options`
+                        : `${label} — disabled`
+                    }
+                    onChange={(v) => writeLevel(bus.id, sendDbToLevel(v))}
+                  />
+                </div>
+              );
+            })}
           </div>
         );
       })}
