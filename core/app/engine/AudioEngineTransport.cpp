@@ -24,15 +24,15 @@ namespace resostage {
 using audio_engine_detail::dbToGain;
 using audio_engine_detail::kRingBufferSeconds;
 
-bool AudioEngine::selectSong(size_t songIndex, std::string& error, bool fireOnLoadEventsFlag) {
+bool AudioEngine::selectSong(size_t songIndex, std::string& error, bool fireOnLoadEventsFlag, bool forceRestage) {
     // Setlist hop / Next while already PLAYING: keep transport live and start
     // the new song from 0 (same keep-playing path as gapless AutoplayNext).
     const bool keepPlaying = playing.load(std::memory_order_acquire);
-    return selectSongInternal(songIndex, error, fireOnLoadEventsFlag, keepPlaying);
+    return selectSongInternal(songIndex, error, fireOnLoadEventsFlag, keepPlaying, forceRestage);
 }
 
 bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool fireOnLoadEventsFlag,
-                                     bool gaplessKeepPlaying) {
+                                     bool gaplessKeepPlaying, bool forceRestage) {
     if (!projectLoaded) {
         error = "No project loaded";
         return false;
@@ -52,7 +52,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
     // Already on this song (re-click / coalesced hop that landed where we
     // are): rewind in place — never re-open every stem. That used to make
     // "click current song" and rapid same-target coalescing feel laggy.
-    if (songIndex == currentSong && static_cast<bool>(streaming.acquireActiveSong())) {
+    if (!forceRestage && songIndex == currentSong && static_cast<bool>(streaming.acquireActiveSong())) {
         if (!wasPlaying)
             stop();
         else
@@ -777,15 +777,42 @@ void AudioEngine::stopToStart() {
     seekToSeconds(0.0, error);
 }
 
-void AudioEngine::startRecording() {
+void AudioEngine::startRecording(int targetTrackIndex) {
     if (isRecordingState.load(std::memory_order_acquire))
         return;
 
     if (!projectLoaded || currentSong >= loader.project().songs.size())
         return;
 
-    const auto& song = loader.project().songs[currentSong];
     refreshMonitoringAndArmCounts();
+
+    auto& tracks = loader.project().tracks;
+
+    // Logic Pro standard behavior: If no tracks are record-armed when user hits record,
+    // automatically arm the target track (or first eligible audio/instrument track).
+    if (activeRecordArmCount.load(std::memory_order_relaxed) == 0 && !tracks.empty()) {
+        int armTrackIdx = -1;
+        if (targetTrackIndex >= 0 && targetTrackIndex < static_cast<int>(tracks.size())) {
+            armTrackIdx = targetTrackIndex;
+        } else {
+            for (size_t t = 0; t < tracks.size(); ++t) {
+                if (tracks[t].kind == TrackKind::Instrument || tracks[t].kind == TrackKind::Audio) {
+                    armTrackIdx = static_cast<int>(t);
+                    break;
+                }
+            }
+            if (armTrackIdx < 0) {
+                armTrackIdx = 0;
+            }
+        }
+
+        if (armTrackIdx >= 0 && armTrackIdx < static_cast<int>(tracks.size())) {
+            tracks[static_cast<size_t>(armTrackIdx)].recordArmed = true;
+            refreshMonitoringAndArmCounts();
+            publishRoutingSnapshot();
+            markDirty();
+        }
+    }
 
     const double sr = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
     const int64_t startPos = clock.currentSamplePosition();
@@ -807,12 +834,12 @@ void AudioEngine::startRecording() {
 
     std::vector<TrackAudioRecordSession> requestedSessions;
     activeMidiRecordSessions.clear();
+    trackToAudioRecordSession.fill(-1);
 
     const auto nowTime = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     char timeStr[64];
     std::strftime(timeStr, sizeof(timeStr), "%Y%m%d_%H%M%S", std::localtime(&nowTime));
 
-    const auto& tracks = loader.project().tracks;
     for (size_t t = 0; t < tracks.size(); ++t) {
         const auto& track = tracks[t];
         if (!track.recordArmed)
@@ -832,15 +859,20 @@ void AudioEngine::startRecording() {
             audio_engine_detail::parseInputRouting(track.inputSource, track.channels, chL, chR);
             s.inputChannel0 = chL;
             s.inputChannel1 = chR;
+            if (t < trackToAudioRecordSession.size()) {
+                trackToAudioRecordSession[t] = static_cast<int>(requestedSessions.size());
+            }
             requestedSessions.push_back(std::move(s));
         }
 
         // Active MIDI recording session
-        TrackMidiRecordSession midiSession;
-        midiSession.trackId = track.id;
-        midiSession.inputChannel = track.midiInputChannel;
-        midiSession.recordedNoteCount = 0;
-        activeMidiRecordSessions.push_back(std::move(midiSession));
+        if (track.kind == TrackKind::Instrument || track.kind == TrackKind::MIDI || track.kind == TrackKind::ExternalMIDI) {
+            TrackMidiRecordSession midiSession;
+            midiSession.trackId = track.id;
+            midiSession.inputChannel = track.midiInputChannel;
+            midiSession.recordedNoteCount = 0;
+            activeMidiRecordSessions.push_back(std::move(midiSession));
+        }
     }
 
     if (!requestedSessions.empty()) {
@@ -848,8 +880,11 @@ void AudioEngine::startRecording() {
         audioRecordWorker.prepareRecording(recPath.string(), requestedSessions, sr, startPos, err);
     }
 
-    recordStartSamplePos.store(startPos, std::memory_order_release);
-    isRecordingState.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        recordStartSamplePos.store(startPos, std::memory_order_release);
+        isRecordingState.store(true, std::memory_order_release);
+    }
 
     if (!playing.load(std::memory_order_acquire)) {
         play();
@@ -860,7 +895,11 @@ void AudioEngine::stopRecording() {
     if (!isRecordingState.load(std::memory_order_acquire))
         return;
 
-    isRecordingState.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        isRecordingState.store(false, std::memory_order_release);
+        trackToAudioRecordSession.fill(-1);
+    }
 
     std::vector<RecordedAudioTrackResult> recordedAudio = audioRecordWorker.stopAndFinalize();
 
@@ -930,6 +969,9 @@ void AudioEngine::stopRecording() {
             for (size_t n = 0; n < session.recordedNoteCount; ++n) {
                 MidiNote note = session.recordedNotes[n];
                 note.startBeats = std::max(0.0, note.startBeats - mr.startBeats);
+                if (note.startBeats + note.durationBeats > mr.durationBeats) {
+                    mr.durationBeats = note.startBeats + note.durationBeats;
+                }
                 mr.notes.push_back(note);
             }
             song.midiRegions.push_back(std::move(mr));
@@ -939,17 +981,23 @@ void AudioEngine::stopRecording() {
     activeMidiRecordSessions.clear();
 
     if (projectModified) {
+        markDirty();
         std::string err;
-        (void)selectSong(currentSong, err, false);
+        (void)selectSong(currentSong, err, false, /*forceRestage=*/true);
+        seekToSeconds(recordStartSeconds, err);
         publishRoutingSnapshot();
+        rebuildTrackPeaks();
+        if (onRecordingFinished) {
+            onRecordingFinished();
+        }
     }
 }
 
-void AudioEngine::toggleRecording() {
+void AudioEngine::toggleRecording(int targetTrackIndex) {
     if (isRecording()) {
         stopRecording();
     } else {
-        startRecording();
+        startRecording(targetTrackIndex);
     }
 }
 

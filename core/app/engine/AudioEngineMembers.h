@@ -522,7 +522,7 @@
 
     void publishRoutingSnapshot(); // message-thread: build RoutingSnapshot from Project
     void ensureTrackMeters(size_t count);
-    bool selectSongInternal(size_t songIndex, std::string& error, bool fireOnLoadEvents, bool gaplessKeepPlaying);
+    bool selectSongInternal(size_t songIndex, std::string& error, bool fireOnLoadEvents, bool gaplessKeepPlaying, bool forceRestage = false);
 
     // Message-thread completion shared by importWavForTrackAsync() and
     // importSongFromFolderAsync(): closes the old archive handle, replaces
@@ -588,6 +588,7 @@
     // Audio recording & live monitoring state
     AudioRecordWorker audioRecordWorker;
     std::atomic<bool> isRecordingState{false};
+    std::array<int, 256> trackToAudioRecordSession{};
     std::atomic<int> activeInputMonitoringCount{0};
     std::atomic<int> activeRecordArmCount{0};
     std::atomic<int64_t> recordStartSamplePos{0};

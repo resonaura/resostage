@@ -17,7 +17,7 @@
     // stages. Fires the song's triggerOnLoad events when fireOnLoadEvents is
     // true (disabled for seek restages so gear isn't re-programmed on every
     // scrub). Precaches next song.
-    bool selectSong(size_t songIndex, std::string& error, bool fireOnLoadEvents = true);
+    bool selectSong(size_t songIndex, std::string& error, bool fireOnLoadEvents = true, bool forceRestage = false);
 
     // Gapless AutoplayNext handoff: promotes the precached next song without
     // going through Stop, restarts the timeline at 0, keeps PLAYING. Message
@@ -42,11 +42,11 @@
     // transports' Stop button. Message-thread only.
     void stopToStart();
 
-    void startRecording();
+    void startRecording(int targetTrackIndex = -1);
 
     void stopRecording();
 
-    void toggleRecording();
+    void toggleRecording(int targetTrackIndex = -1);
 
     bool isRecording() const;
 

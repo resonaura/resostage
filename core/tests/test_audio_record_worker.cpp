@@ -169,3 +169,54 @@ TEST_CASE("AudioRecordWorker records 24-bit PCM WAV with correct headers and aud
     // Cleanup
     std::filesystem::remove_all(tempDir, ec);
 }
+
+TEST_CASE("AudioRecordWorker handles non-contiguous track indexing via session map") {
+    const std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "resostage_test_rec_map";
+    std::error_code ec;
+    std::filesystem::remove_all(tempDir, ec);
+    std::filesystem::create_directories(tempDir, ec);
+
+    AudioRecordWorker worker;
+
+    // Simulate scenario: Track 0 is an Instrument track (no audio session).
+    // Track 1 is an Audio track armed for recording -> Session 0.
+    std::vector<TrackAudioRecordSession> sessions;
+    TrackAudioRecordSession s;
+    s.trackId = "audio::track:2";
+    s.filename = "test_track2_offset.wav";
+    s.fullPath = (tempDir / s.filename).string();
+    s.channels = 2;
+    s.inputChannel0 = 0;
+    s.inputChannel1 = 1;
+    sessions.push_back(std::move(s));
+
+    std::string err;
+    const double sr = 48000.0;
+    bool ok = worker.prepareRecording(tempDir.string(), sessions, sr, 0, err);
+    CHECK(ok);
+
+    // Map: track 0 -> -1, track 1 -> 0
+    std::array<int, 256> trackToSession;
+    trackToSession.fill(-1);
+    trackToSession[1] = 0;
+
+    const size_t blockSize = 128;
+    std::vector<float> bufL(blockSize, 0.5f);
+    std::vector<float> bufR(blockSize, -0.5f);
+    const float* ptrs[2] = {bufL.data(), bufR.data()};
+
+    // Track 1 pushes using mapped session index (0)
+    int sessIdx = trackToSession[1];
+    CHECK(sessIdx == 0);
+    worker.pushFrames(static_cast<size_t>(sessIdx), ptrs, blockSize);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+
+    auto results = worker.stopAndFinalize();
+    REQUIRE(results.size() == 1);
+    CHECK(results[0].trackId == "audio::track:2");
+    CHECK(results[0].recordedFrames == blockSize);
+
+    std::filesystem::remove_all(tempDir, ec);
+}
+

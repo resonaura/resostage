@@ -151,6 +151,9 @@ public:
     /** Pins and returns the currently published live processor bank. */
     std::shared_ptr<PluginProcessorBank> activePluginProcessorBank() const;
 
+    /** Hook called on message thread when recording has finished and project modified. */
+    std::function<void()> onRecordingFinished;
+
 // The four public-API fragments and the private-members one below are class
 // body text, not headers. The guard is what lets an editor open one of them
 // directly and still get a real AST: on its own each file sees the guard

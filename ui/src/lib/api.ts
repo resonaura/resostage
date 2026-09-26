@@ -128,8 +128,11 @@ async function postContinuous(path: string, body: unknown): Promise<void> {
 
 export const transport = {
   play: () => post("/api/v1/transport/play"),
-  record: (recording?: boolean) =>
-    post("/api/v1/transport/record", recording !== undefined ? { recording } : {}),
+  record: (recording?: boolean, trackIndex?: number) =>
+    post("/api/v1/transport/record", {
+      ...(recording !== undefined ? { recording } : {}),
+      ...(trackIndex !== undefined ? { trackIndex } : {})
+    }),
   // Pause -- freezes in place, resumed by play(). Used by the Play/Pause
   // toggle + spacebar. See AudioEngine::stop()'s doc comment.
   stop: () => post("/api/v1/transport/stop"),

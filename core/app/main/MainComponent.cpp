@@ -291,6 +291,10 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     webServer.setMidiInputHandler([this](const uint8_t* data, int length, int targetTrackIndex) {
         engine.enqueueIncomingMidi(data, length, targetTrackIndex);
     });
+    engine.onRecordingFinished = [this] {
+        notifyProjectStructureChanged();
+        publishWebState();
+    };
     // Do this only after the audio device and server are ready: recovery is
     // background work and must never delay the deadline-critical startup path.
 
@@ -1114,7 +1118,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::StopToStart: stopToStartClicked(); break;
             case WebCommandKind::Next: nextSong(); break;
             case WebCommandKind::Prev: prevSong(); break;
-            case WebCommandKind::TransportRecord: engine.toggleRecording(); break;
+            case WebCommandKind::TransportRecord: engine.toggleRecording(cmd.arg); break;
             case WebCommandKind::SelectSong: goToSong(cmd.arg); break;
             case WebCommandKind::SetTrackGain: {
                 engine.projectHistoryBeginEdit("tg" + std::to_string(idx), "Set Track Gain");

@@ -24,6 +24,8 @@ using audio_engine_detail::kRingBufferSeconds;
 using audio_engine_detail::purgeStaleDrafts;
 
 AudioEngine::AudioEngine() {
+    trackToAudioRecordSession.fill(-1);
+
     // Before anything can play. A few hundred thousand transcendental
     // evaluations, once, on the thread that constructs the engine -- never on
     // the audio thread, and never in response to a speed change.
@@ -1130,7 +1132,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     const uint32_t midiReadPos = midiInputQueueRead.load(std::memory_order_relaxed);
     const uint32_t midiWritePos = midiInputQueueWrite.load(std::memory_order_acquire);
     const uint32_t availablePktCount = midiWritePos - midiReadPos;
-    const bool isRec = isRecordingState.load(std::memory_order_relaxed);
+    const bool isRec = isRecordingState.load(std::memory_order_acquire);
 
     if (availablePktCount > 0) {
         for (uint32_t i = 0; i < availablePktCount; ++i) {
@@ -1166,7 +1168,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                         }
 
                         if (isRec && isArmed) {
-                            if (msg.isNoteOn()) {
+                            const bool isNoteOnMsg = msg.isNoteOn() && msg.getVelocity() > 0;
+                            const bool isNoteOffMsg = msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0);
+                            if (isNoteOnMsg) {
                                 const int pitch = msg.getNoteNumber();
                                 const float vel = static_cast<float>(msg.getVelocity()) / 127.0f;
                                 for (auto& session : activeMidiRecordSessions) {
@@ -1191,7 +1195,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                         break;
                                     }
                                 }
-                            } else if (msg.isNoteOff()) {
+                            } else if (isNoteOffMsg) {
                                 const int pitch = msg.getNoteNumber();
                                 for (auto& session : activeMidiRecordSessions) {
                                     if (session.trackId == tDef->id) {
@@ -1384,7 +1388,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         const bool shouldMonitorInput = isMonitored || (isArmed && (isRec || !isPlaying || isInstrument));
 
         if (shouldMonitorInput) {
-            if (inputChannelData != nullptr && numInputChannels > 0 && tDef != nullptr) {
+            if (!isInstrument && inputChannelData != nullptr && numInputChannels > 0 && tDef != nullptr) {
                 int chL = 0, chR = (tDef->channels == 1 ? -1 : 1);
                 audio_engine_detail::parseInputRouting(tDef->inputSource, tDef->channels, chL, chR);
                 if (chR < 0) {
@@ -1403,12 +1407,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                     }
                 }
             }
-            if (isRec && isArmed) {
-                const float* pushPtrs[2] = {
-                    scratch.getReadPointer(0),
-                    scratch.getNumChannels() > 1 ? scratch.getReadPointer(1) : scratch.getReadPointer(0)
-                };
-                audioRecordWorker.pushFrames(t, pushPtrs, numSamples);
+            if (isRec && isArmed && !isInstrument && t < trackToAudioRecordSession.size()) {
+                const int sessIdx = trackToAudioRecordSession[t];
+                if (sessIdx >= 0) {
+                    const float* pushPtrs[2] = {
+                        scratch.getReadPointer(0),
+                        scratch.getNumChannels() > 1 ? scratch.getReadPointer(1) : scratch.getReadPointer(0)
+                    };
+                    audioRecordWorker.pushFrames(static_cast<size_t>(sessIdx), pushPtrs, numSamples);
+                }
             }
             continue;
         }

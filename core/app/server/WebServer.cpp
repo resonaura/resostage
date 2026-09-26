@@ -2061,7 +2061,14 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     if (std::strcmp(path, "/api/v1/transport/play") == 0) {
         cmd = {WebCommandKind::Play, 0};
     } else if (std::strcmp(path, "/api/v1/transport/record") == 0) {
-        cmd = {WebCommandKind::TransportRecord, 0};
+        int trackIdx = -1;
+        if (body != nullptr && bodyLen > 0) {
+            glz::generic doc;
+            if (!glz::read_json(doc, std::string_view(body, bodyLen))) {
+                (void)builder_json::getInt(doc, "trackIndex", trackIdx);
+            }
+        }
+        cmd = {WebCommandKind::TransportRecord, trackIdx};
     } else if (std::strcmp(path, "/api/v1/transport/stop") == 0) {
         cmd = {WebCommandKind::Stop, 0};
     } else if (std::strcmp(path, "/api/v1/transport/stop-to-start") == 0) {
