@@ -1189,7 +1189,10 @@ function installHotkeyHandler(win: BrowserWindow): void {
     if (input.type !== "keyDown") return;
     // Held keys must not machine-gun Next Song.
     if (input.isAutoRepeat) return;
-    if (typingFocus) return;
+    if (typingFocus) {
+      const hasModifier = input.control || input.meta || input.alt;
+      if (!hasModifier) return;
+    }
     if (!win.isFocused()) return;
 
     const bindings = menuModel?.keybindings ?? {};
@@ -1914,6 +1917,14 @@ ipcMain.on("haptic-feedback", (_event, pattern: unknown) => {
   platform.hapticFeedback(p);
 });
 
+// Holds the currently open native context menu and its resolver so V8 cannot
+// garbage-collect the Menu / MenuItem instances before the click action is dispatched.
+let activeContextMenuSession: {
+  menu: Menu;
+  done: (id: string | null) => void;
+  dismissTimer: NodeJS.Timeout | null;
+} | null = null;
+
 // SPA → native context menu (mixer track menus, etc.). Returns chosen id
 // or null when dismissed / cancelled. Checkbox items use Electron's native
 // `type: "checkbox"` so the OS draws platform checkmarks (macOS NSMenu, etc.).
@@ -1944,15 +1955,26 @@ ipcMain.handle(
       y?: number;
     },
   ): Promise<string | null> => {
+    // If a previous context menu was somehow still pending, cleanly settle it first.
+    if (activeContextMenuSession) {
+      if (activeContextMenuSession.dismissTimer) {
+        clearTimeout(activeContextMenuSession.dismissTimer);
+      }
+      activeContextMenuSession.done(null);
+      activeContextMenuSession = null;
+    }
+
     const win = BrowserWindow.fromWebContents(event.sender);
     const items = payload?.items ?? [];
     return await new Promise((resolve) => {
-      let dismissTimer: NodeJS.Timeout | null = null;
       let settled = false;
       const done = (id: string | null) => {
-        if (dismissTimer) {
-          clearTimeout(dismissTimer);
-          dismissTimer = null;
+        if (activeContextMenuSession?.dismissTimer) {
+          clearTimeout(activeContextMenuSession.dismissTimer);
+          activeContextMenuSession.dismissTimer = null;
+        }
+        if (activeContextMenuSession?.menu === menu) {
+          activeContextMenuSession = null;
         }
         if (settled) return;
         settled = true;
@@ -1984,14 +2006,25 @@ ipcMain.handle(
         return;
       }
       const menu = Menu.buildFromTemplate(template);
+      activeContextMenuSession = {
+        menu,
+        done,
+        dismissTimer: null,
+      };
+
       menu.popup({
         window: win ?? undefined,
         x: typeof payload.x === "number" ? Math.round(payload.x) : undefined,
         y: typeof payload.y === "number" ? Math.round(payload.y) : undefined,
         callback: () => {
           // macOS menuDidClose: can fire before NSMenuItem click action dispatch.
-          // Defer resolving null so any clicked item handler gets executed first.
-          dismissTimer = setTimeout(() => done(null), 250);
+          // Keep menu alive and give ample time (600ms) for Cocoa to dispatch
+          // the MenuItem click action if an item was selected, without racing
+          // high-rate UDP telemetry packets or event loop tasks.
+          const timer = setTimeout(() => done(null), 600);
+          if (activeContextMenuSession?.menu === menu) {
+            activeContextMenuSession.dismissTimer = timer;
+          }
         },
       });
     });

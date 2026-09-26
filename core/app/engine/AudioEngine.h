@@ -106,7 +106,7 @@ public:
 
     LightHardwareServer& lightHardware() { return lightHardwareServer; }
 
-    void enqueueIncomingMidi(const uint8_t* data, int length);
+    void enqueueIncomingMidi(const uint8_t* data, int length, int targetTrackIndex = -1);
     void setPluginParameter(size_t stripIndex, size_t slotIndex, int paramIndex, float value);
     bool setPluginParameterBySlotId(const std::string& slotId, int paramIndex, float value);
 

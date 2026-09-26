@@ -68,19 +68,6 @@ export function TimelineSidebar({
     setAddTrackMenu(null);
     const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
     await builder.trackAdd(songIndex, { kind, channels });
-    if (kind === "instrument") {
-      // Create an initial pattern region for the new instrument track
-      const newTrackId = `trk${state.tracks.length + 1}`;
-      void builder.midiRegionAdd({
-        songIndex,
-        trackId: newTrackId,
-        name: `Pattern ${state.tracks.length + 1}`,
-        startBeats: 0,
-        durationBeats: 16,
-        loop: true,
-        loopLengthBeats: 16,
-      });
-    }
   };
 
   const handleAddBus = () => {

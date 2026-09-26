@@ -137,6 +137,20 @@ function collectNativeItems(children: ReactNode): {
   return { items: walk(children), handlers };
 }
 
+function findNativeItem(
+  items: NativeMenuItem[],
+  id: string,
+): NativeMenuItem | undefined {
+  for (const it of items) {
+    if (it.type === "item" && it.id === id) return it;
+    if (it.type === "submenu") {
+      const found = findNativeItem(it.items, id);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Shared right-click menu shell for the whole app.
  *
@@ -208,11 +222,13 @@ export function ContextMenu({
           // A toggle leaves the menu up in the DOM path so a second one can
           // be flipped without re-opening; the OS menu always closes, so it
           // is put back with its checkmarks refreshed.
-          const chosen = items.find(
-            (it) => it.type === "item" && it.id === id && "checked" in it,
-          );
-          if (chosen) {
-            handlers.get(id)?.();
+          const chosen = findNativeItem(items, id);
+          const isCheckbox =
+            chosen && chosen.type === "item" && typeof chosen.checked === "boolean";
+          // Check freshest handlers first, falling back to initial render map
+          const fn = handlersRef.current.get(id) ?? handlers.get(id);
+          if (isCheckbox) {
+            fn?.();
             setReopenNonce((n) => n + 1);
             return;
           }
@@ -222,8 +238,10 @@ export function ContextMenu({
           // back, so the field never appeared and the click read as dead.
           // The DOM path has always left this to the handler -- each one
           // calls its own onClose -- and the two paths have to agree.
-          handlers.get(id)?.();
-          return;
+          if (fn) {
+            fn();
+            return;
+          }
         }
         onCloseRef.current();
       })

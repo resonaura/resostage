@@ -4,12 +4,13 @@ import {
   Minus,
   Plus,
   RotateCcw,
-  Volume2,
   X,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mixer, sendLiveMidi } from "../lib/api";
 import type { WebUiState } from "../lib/types";
+import { Slider } from "./ui";
 
 // FL Studio / Logic Pro QWERTY typing keyboard mappings
 // Lower row (base octave)
@@ -112,6 +113,7 @@ export function VirtualMidiKeyboard({
     return null;
   });
 
+  const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ startX: number; startY: number; initX: number; initY: number }>({
     startX: 0,
@@ -119,46 +121,125 @@ export function VirtualMidiKeyboard({
     initX: 0,
     initY: 0,
   });
+  const currentPosRef = useRef<{ x: number; y: number } | null>(position);
+  const rafIdRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Initialize centered bottom position on mount if none saved
+  useEffect(() => {
+    if (position === null && typeof window !== "undefined") {
+      const defaultWidth = Math.min(680, window.innerWidth * 0.96);
+      const defaultHeight = 180;
+      const x = Math.max(10, Math.round((window.innerWidth - defaultWidth) / 2));
+      const y = Math.max(10, Math.round(window.innerHeight - defaultHeight - 36));
+      setPosition({ x, y });
+      currentPosRef.current = { x, y };
+    }
+  }, [position]);
+
   const handlePointerDownHeader = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest("button, input")) return;
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if ((e.target as HTMLElement).closest("button, input, [role='slider'], .rs-slider")) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const startX = Math.round(rect.left);
+    const startY = Math.round(rect.top);
+
     isDraggingRef.current = true;
+    setIsDragging(true);
+    setPosition({ x: startX, y: startY });
+    currentPosRef.current = { x: startX, y: startY };
+
     dragStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      initX: rect.left,
-      initY: rect.top,
+      initX: startX,
+      initY: startY,
     };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
+    el.style.left = `${startX}px`;
+    el.style.top = `${startY}px`;
+    el.style.bottom = "auto";
+    el.style.transform = "none";
+
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
   };
 
   const handlePointerMoveHeader = (e: React.PointerEvent) => {
     if (!isDraggingRef.current) return;
+    const el = containerRef.current;
+    const width = el?.offsetWidth || 680;
+    const height = el?.offsetHeight || 180;
+    const minX = 8;
+    const maxX = Math.max(8, window.innerWidth - width - 8);
+    const minY = 8;
+    const maxY = Math.max(8, window.innerHeight - height - 8);
+
     const dx = e.clientX - dragStartRef.current.startX;
     const dy = e.clientY - dragStartRef.current.startY;
-    const newX = Math.max(10, Math.min(window.innerWidth - 300, dragStartRef.current.initX + dx));
-    const newY = Math.max(10, Math.min(window.innerHeight - 80, dragStartRef.current.initY + dy));
-    const pos = { x: Math.round(newX), y: Math.round(newY) };
-    setPosition(pos);
-    localStorage.setItem("resostage:virtual-keyboard-pos", JSON.stringify(pos));
+    const newX = Math.max(minX, Math.min(maxX, dragStartRef.current.initX + dx));
+    const newY = Math.max(minY, Math.min(maxY, dragStartRef.current.initY + dy));
+    const roundX = Math.round(newX);
+    const roundY = Math.round(newY);
+    currentPosRef.current = { x: roundX, y: roundY };
+
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        if (containerRef.current && currentPosRef.current) {
+          containerRef.current.style.left = `${currentPosRef.current.x}px`;
+          containerRef.current.style.top = `${currentPosRef.current.y}px`;
+        }
+      });
+    }
   };
 
   const handlePointerUpHeader = (e: React.PointerEvent) => {
     if (isDraggingRef.current) {
       isDraggingRef.current = false;
+      setIsDragging(false);
       try {
         (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
       } catch {}
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      if (currentPosRef.current) {
+        setPosition(currentPosRef.current);
+        localStorage.setItem(
+          "resostage:virtual-keyboard-pos",
+          JSON.stringify(currentPosRef.current),
+        );
+      }
     }
   };
 
   const handleResetPosition = () => {
-    setPosition(null);
     localStorage.removeItem("resostage:virtual-keyboard-pos");
+    const defaultWidth = Math.min(680, window.innerWidth * 0.96);
+    const defaultHeight = 180;
+    const x = Math.max(10, Math.round((window.innerWidth - defaultWidth) / 2));
+    const y = Math.max(10, Math.round(window.innerHeight - defaultHeight - 36));
+    setPosition({ x, y });
+    currentPosRef.current = { x, y };
+    if (containerRef.current) {
+      containerRef.current.style.left = `${x}px`;
+      containerRef.current.style.top = `${y}px`;
+      containerRef.current.style.transform = "none";
+      containerRef.current.style.bottom = "auto";
+    }
   };
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
 
   // Base MIDI note for current octave (C4 = 60)
   const baseNote = (octave + 1) * 12;
@@ -172,6 +253,8 @@ export function VirtualMidiKeyboard({
     localStorage.setItem("resostage:virtual-keyboard-velocity", String(velocity));
   }, [velocity]);
 
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+
   // Target track: find instrument tracks
   const instrumentTracks = useMemo(() => {
     return state.tracks.filter((t) => t.kind === "instrument");
@@ -179,58 +262,78 @@ export function VirtualMidiKeyboard({
 
   // Selected or active instrument track
   const activeInstrument = useMemo(() => {
+    if (selectedTrackId) {
+      const match = instrumentTracks.find((t) => t.id === selectedTrackId);
+      if (match) return match;
+    }
     return (
       instrumentTracks.find((t) => t.recordArmed || t.inputMonitoring) ??
       instrumentTracks[0] ??
       null
     );
-  }, [instrumentTracks]);
+  }, [instrumentTracks, selectedTrackId]);
 
   const activeInstrumentIndex = useMemo(() => {
     if (!activeInstrument) return -1;
     return state.tracks.findIndex((t) => t.id === activeInstrument.id);
   }, [state.tracks, activeInstrument]);
 
+  // Track has instrument plugin loaded
+  const hasInstrumentPlugin = useMemo(() => {
+    if (!activeInstrument) return false;
+    return activeInstrument.plugins?.some((p) => p.instrument && !p.bypassed) ?? false;
+  }, [activeInstrument]);
+
   // Helper to trigger Note On
   const triggerNoteOn = useCallback(
     (note: number, vel: number) => {
-      sendLiveMidi(0x90, note, vel);
+      sendLiveMidi(0x90, note, vel, activeInstrumentIndex >= 0 ? activeInstrumentIndex : undefined);
       setActiveNotes((prev) => {
         const next = new Set(prev);
         next.add(note);
         return next;
       });
     },
-    [],
+    [activeInstrumentIndex],
   );
 
   // Helper to trigger Note Off
   const triggerNoteOff = useCallback(
     (note: number) => {
-      sendLiveMidi(0x80, note, 0);
+      sendLiveMidi(0x80, note, 0, activeInstrumentIndex >= 0 ? activeInstrumentIndex : undefined);
       setActiveNotes((prev) => {
         const next = new Set(prev);
         next.delete(note);
         return next;
       });
     },
-    [],
+    [activeInstrumentIndex],
   );
 
   // Release all active notes cleanly
   const releaseAllNotes = useCallback(() => {
-    activeKeysRef.current.forEach((note) => {
-      sendLiveMidi(0x80, note, 0);
-    });
-    activeKeysRef.current.clear();
+    let hadNotes = false;
+    const targetIdx = activeInstrumentIndex >= 0 ? activeInstrumentIndex : undefined;
+    if (activeKeysRef.current.size > 0) {
+      activeKeysRef.current.forEach((note) => {
+        sendLiveMidi(0x80, note, 0, targetIdx);
+      });
+      activeKeysRef.current.clear();
+      hadNotes = true;
+    }
 
-    mouseDownNotesRef.current.forEach((note) => {
-      sendLiveMidi(0x80, note, 0);
-    });
-    mouseDownNotesRef.current.clear();
+    if (mouseDownNotesRef.current.size > 0) {
+      mouseDownNotesRef.current.forEach((note) => {
+        sendLiveMidi(0x80, note, 0, targetIdx);
+      });
+      mouseDownNotesRef.current.clear();
+      hadNotes = true;
+    }
 
-    setActiveNotes(new Set());
-  }, []);
+    if (hadNotes) {
+      setActiveNotes(new Set());
+    }
+  }, [activeInstrumentIndex]);
 
   // When changing octave, release active notes so none stay stuck
   const changeOctave = useCallback(
@@ -266,39 +369,52 @@ export function VirtualMidiKeyboard({
       // Ignore OS key repeats to prevent re-triggering note on
       if (e.repeat) return;
 
+      // Allow shortcuts with modifiers (Cmd+K, Cmd+Z, Cmd+S, Alt+...) to pass through
+      if (e.metaKey || e.ctrlKey || e.altKey) {
+        return;
+      }
+
       // Octave controls via physical keyboard: Minus / NumpadSubtract, Plus / NumpadAdd
       if (e.code === "Minus" || e.code === "NumpadSubtract") {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         changeOctave(octave - 1);
         return;
       }
-      if (e.code === "Equal" && !e.shiftKey) {
-        // Equal without shift is often the same key as +
-        // Note: Equal is also used for F# in upper row, so check if not mapped or use Numpad
-      }
       if (e.code === "NumpadAdd") {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         changeOctave(octave + 1);
         return;
       }
 
       const mapping = COMBINED_KEY_MAP[e.code];
-      if (!mapping) return;
+      if (mapping) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
 
-      e.preventDefault();
+        const note = baseNote + mapping.offset;
+        if (note >= 0 && note <= 127) {
+          activeKeysRef.current.set(e.code, note);
+          triggerNoteOn(note, velocity);
+        }
+        return;
+      }
+
+      // Suppress un-modified bare shortcuts (song jumping digits 1-9, space, etc.)
+      // from firing while musical typing is active
       e.stopPropagation();
-
-      const note = baseNote + mapping.offset;
-      if (note < 0 || note > 127) return;
-
-      activeKeysRef.current.set(e.code, note);
-      triggerNoteOn(note, velocity);
+      e.stopImmediatePropagation();
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (activeKeysRef.current.has(e.code)) {
         e.preventDefault();
         e.stopPropagation();
+        e.stopImmediatePropagation();
         const note = activeKeysRef.current.get(e.code)!;
         activeKeysRef.current.delete(e.code);
         triggerNoteOff(note);
@@ -309,13 +425,13 @@ export function VirtualMidiKeyboard({
       releaseAllNotes();
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    window.addEventListener("keyup", handleKeyUp, { capture: true });
     window.addEventListener("blur", handleBlur);
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+      window.removeEventListener("keyup", handleKeyUp, { capture: true });
       window.removeEventListener("blur", handleBlur);
       releaseAllNotes();
     };
@@ -393,14 +509,14 @@ export function VirtualMidiKeyboard({
           ? {
               left: `${position.x}px`,
               top: `${position.y}px`,
-              transform: "none",
-              bottom: "auto",
             }
           : undefined
       }
       className={`fixed ${
         position ? "" : "bottom-9 left-1/2 -translate-x-1/2"
-      } z-40 flex flex-col w-[96vw] max-w-[680px] rounded-2xl border border-default/40 bg-surface/95 backdrop-blur-xl shadow-2xl p-2.5 text-xs select-none transition-all duration-75 animate-in fade-in`}
+      } z-40 flex flex-col w-[96vw] max-w-[680px] rounded-2xl border border-white/10 bg-background-secondary/80 backdrop-blur-2xl p-2.5 text-xs select-none shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_2px_6px_rgba(0,0,0,0.35),0_12px_28px_-4px_rgba(0,0,0,0.55),0_36px_84px_-10px_rgba(0,0,0,0.7)] ${
+        isDragging ? "cursor-grabbing select-none" : ""
+      }`}
     >
       {/* Header bar */}
       <div
@@ -414,7 +530,7 @@ export function VirtualMidiKeyboard({
         <div className="flex items-center gap-1.5">
           <GripVertical size={14} className="text-foreground/30 hover:text-foreground/60 shrink-0" />
           <div className="flex items-center gap-1.5 font-semibold text-foreground">
-            <Keyboard size={16} className="text-emerald-400" />
+            <Keyboard size={16} className="text-accent" />
             <span>Musical Typing</span>
           </div>
 
@@ -422,9 +538,24 @@ export function VirtualMidiKeyboard({
           {activeInstrument && activeInstrumentIndex >= 0 ? (
             <div className="flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-lg bg-default/20 border border-default/30">
               <span className="text-[10px] text-foreground/50 uppercase font-mono">Track:</span>
-              <span className="text-xs font-semibold text-emerald-300 max-w-[110px] truncate">
-                {activeInstrument.name}
-              </span>
+              {instrumentTracks.length > 1 ? (
+                <select
+                  value={activeInstrument.id}
+                  onChange={(e) => setSelectedTrackId(e.target.value)}
+                  className="bg-transparent text-xs font-semibold text-accent max-w-[120px] truncate outline-none cursor-pointer"
+                  title="Switch Target Instrument Track"
+                >
+                  {instrumentTracks.map((tr) => (
+                    <option key={tr.id} value={tr.id} className="bg-background-secondary text-foreground">
+                      {tr.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs font-semibold text-accent max-w-[110px] truncate">
+                  {activeInstrument.name}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() =>
@@ -436,7 +567,7 @@ export function VirtualMidiKeyboard({
                 title={activeInstrument.recordArmed ? "Armed for record/input" : "Click to Record Arm"}
                 className={`flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold transition-colors ${
                   activeInstrument.recordArmed
-                    ? "bg-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.7)]"
+                    ? "bg-[var(--rs-record,#ff3b30)] text-white shadow-[0_0_8px_rgba(255,59,48,0.6)]"
                     : "bg-default/30 text-foreground/50 hover:bg-default/50"
                 }`}
               >
@@ -453,16 +584,24 @@ export function VirtualMidiKeyboard({
                 title={activeInstrument.inputMonitoring ? "Input Monitoring Active" : "Click to Monitor Input"}
                 className={`flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold transition-colors ${
                   activeInstrument.inputMonitoring
-                    ? "bg-amber-500 text-neutral-950 shadow-[0_0_8px_rgba(245,158,11,0.7)]"
+                    ? "bg-[var(--rs-monitor,#ff9500)] text-neutral-950 shadow-[0_0_8px_rgba(255,149,0,0.6)]"
                     : "bg-default/30 text-foreground/50 hover:bg-default/50"
                 }`}
               >
                 I
               </button>
+              {!hasInstrumentPlugin && (
+                <span
+                  className="text-[9px] text-warning/80 font-mono hidden sm:inline ml-1"
+                  title="No instrument synth inserted on this track. Add one in the Mixer or Track Header."
+                >
+                  (No synth)
+                </span>
+              )}
             </div>
           ) : (
-            <span className="ml-2 text-[10px] text-amber-400/80 font-mono">
-              (No instrument track armed)
+            <span className="ml-2 text-[10px] text-foreground/50 font-mono">
+              (No instrument track)
             </span>
           )}
         </div>
@@ -477,7 +616,7 @@ export function VirtualMidiKeyboard({
               disabled={octave <= 1}
               onClick={() => changeOctave(octave - 1)}
               title="Octave Down (Minus key)"
-              className="flex h-5 w-5 items-center justify-center rounded bg-default/30 hover:bg-default/60 disabled:opacity-30 disabled:cursor-default"
+              className="flex h-5 w-5 items-center justify-center rounded bg-default/30 hover:bg-default/60 disabled:opacity-30 disabled:cursor-default text-foreground"
             >
               <Minus size={12} />
             </button>
@@ -489,25 +628,42 @@ export function VirtualMidiKeyboard({
               disabled={octave >= 7}
               onClick={() => changeOctave(octave + 1)}
               title="Octave Up (Numpad +)"
-              className="flex h-5 w-5 items-center justify-center rounded bg-default/30 hover:bg-default/60 disabled:opacity-30 disabled:cursor-default"
+              className="flex h-5 w-5 items-center justify-center rounded bg-default/30 hover:bg-default/60 disabled:opacity-30 disabled:cursor-default text-foreground"
             >
               <Plus size={12} />
             </button>
           </div>
 
           {/* Velocity slider */}
-          <div className="flex items-center gap-1.5 bg-default/20 border border-default/30 rounded-lg px-2 py-0.5">
-            <Volume2 size={12} className="text-foreground/50 shrink-0" />
-            <input
-              type="range"
-              min="1"
-              max="127"
-              value={velocity}
-              onChange={(e) => setVelocity(parseInt(e.target.value, 10))}
-              title={`Velocity: ${velocity}`}
-              className="w-16 h-1 accent-emerald-400 cursor-pointer"
-            />
-            <span className="font-mono text-[10px] text-foreground/70 w-6 text-right">
+          <div
+            className="flex items-center gap-1.5 bg-default/20 border border-default/30 rounded-lg px-2 py-0.5 cursor-pointer"
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setVelocity(100);
+            }}
+            title="Double-click to reset velocity (100)"
+          >
+            <Zap size={12} className="text-foreground/50 shrink-0" />
+            <div className="w-16 sm:w-20 flex items-center">
+              <Slider
+                aria-label="Note Velocity"
+                minValue={1}
+                maxValue={127}
+                step={1}
+                value={velocity}
+                onChange={(v) => {
+                  const val = Array.isArray(v) ? v[0] : v;
+                  if (typeof val === "number") setVelocity(Math.round(val));
+                }}
+                className="w-full"
+              >
+                <Slider.Track>
+                  <Slider.Fill />
+                  <Slider.Thumb />
+                </Slider.Track>
+              </Slider>
+            </div>
+            <span className="font-mono text-[10px] text-foreground/70 w-6 text-right tabular-nums">
               {velocity}
             </span>
           </div>
@@ -537,7 +693,7 @@ export function VirtualMidiKeyboard({
       </div>
 
       {/* Piano Keyboard Canvas */}
-      <div className="relative w-full h-28 sm:h-32 bg-neutral-950/80 rounded-xl p-1 overflow-hidden select-none touch-none shadow-inner border border-neutral-800">
+      <div className="relative w-full h-28 sm:h-32 bg-background/90 rounded-xl p-1 overflow-hidden select-none touch-none shadow-inner border border-default/30">
         {/* White keys container */}
         <div className="flex h-full w-full">
           {whiteKeys.map((k) => {
@@ -551,20 +707,20 @@ export function VirtualMidiKeyboard({
                 onMouseUp={() => handleKeyMouseUp(k.note)}
                 onMouseEnter={(e) => handleKeyMouseEnter(k.note, e)}
                 onMouseLeave={() => handleKeyMouseLeave(k.note)}
-                className={`relative flex-1 h-full mx-px rounded-b-md border transition-all duration-75 flex flex-col justify-between items-center pb-1.5 pt-1 cursor-pointer select-none ${
+                className={`relative flex-1 h-full mx-px rounded-b-md border transition-colors duration-75 flex flex-col justify-between items-center pb-1.5 pt-1 cursor-pointer select-none ${
                   isPressed
-                    ? "!bg-amber-400 !text-neutral-950 border-amber-500 shadow-[0_0_14px_rgba(251,191,36,0.8)] z-0"
+                    ? "!bg-accent !text-accent-foreground border-accent shadow-[0_0_14px_var(--accent)] z-0"
                     : isC
-                      ? "bg-neutral-100 text-neutral-800 border-neutral-300 hover:bg-neutral-200"
-                      : "bg-neutral-200 text-neutral-700 border-neutral-300 hover:bg-neutral-100"
+                      ? "bg-neutral-100 text-neutral-900 border-neutral-300 hover:bg-neutral-50 shadow-sm"
+                      : "bg-neutral-200 text-neutral-800 border-neutral-300 hover:bg-neutral-100 shadow-sm"
                 }`}
               >
                 {/* Upper key badge */}
                 <span
                   className={`text-[9px] font-bold font-mono px-1 rounded ${
                     isPressed
-                      ? "bg-neutral-950/20 text-neutral-950"
-                      : "bg-neutral-300/60 text-neutral-600"
+                      ? "bg-accent-foreground/20 text-accent-foreground"
+                      : "bg-neutral-300/80 text-neutral-700"
                   }`}
                 >
                   {k.badge || ""}
@@ -574,9 +730,9 @@ export function VirtualMidiKeyboard({
                 <span
                   className={`text-[9px] font-mono font-semibold ${
                     isPressed
-                      ? "text-neutral-950 font-bold"
+                      ? "text-accent-foreground font-bold"
                       : isC
-                        ? "text-blue-600 font-bold"
+                        ? "text-accent font-bold"
                         : "text-neutral-500"
                   }`}
                 >
@@ -606,24 +762,24 @@ export function VirtualMidiKeyboard({
                 left: `calc(${leftPercent}% - 0.75rem)`,
                 width: "1.5rem",
               }}
-              className={`absolute top-1 h-[60%] rounded-b-sm border transition-all duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none z-10 ${
+              className={`absolute top-1 h-[60%] rounded-b-sm border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none z-10 ${
                 isPressed
-                  ? "!bg-amber-500 !text-neutral-950 border-amber-600 shadow-[0_0_14px_rgba(245,158,11,0.9)]"
-                  : "bg-neutral-900 text-neutral-200 border-neutral-700 hover:bg-neutral-800 shadow-md"
+                  ? "!bg-accent !text-accent-foreground border-accent shadow-[0_0_14px_var(--accent)]"
+                  : "bg-surface-secondary text-foreground/85 border-default/45 hover:bg-surface-tertiary shadow-md"
               }`}
             >
               <span
                 className={`text-[8px] font-bold font-mono px-0.5 rounded ${
                   isPressed
-                    ? "bg-neutral-950/20 text-neutral-950"
-                    : "bg-neutral-800 text-neutral-300"
+                    ? "bg-accent-foreground/20 text-accent-foreground"
+                    : "bg-background/80 text-foreground/60"
                 }`}
               >
                 {k.badge || ""}
               </span>
               <span
                 className={`text-[8px] font-mono leading-none ${
-                  isPressed ? "text-neutral-950 font-bold" : "text-neutral-400"
+                  isPressed ? "text-accent-foreground font-bold" : "text-foreground/60"
                 }`}
               >
                 {k.name.replace(/^[A-G]/, "")}

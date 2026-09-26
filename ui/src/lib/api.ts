@@ -37,7 +37,7 @@ export function unregisterLiveMidiSender(): void {
   _liveMidiSender = null;
 }
 
-export function sendLiveMidi(status: number, data1: number, data2: number): void {
+export function sendLiveMidi(status: number, data1: number, data2: number, trackIndex?: number): void {
   const bytes = new Uint8Array([status, data1, data2]);
   if (_liveMidiSender && _liveMidiSender(bytes)) {
     return;
@@ -45,7 +45,12 @@ export function sendLiveMidi(status: number, data1: number, data2: number): void
   void apiFetch("/api/v1/midi/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status, data1, data2 }),
+    body: JSON.stringify({
+      status,
+      data1,
+      data2,
+      ...(trackIndex !== undefined && trackIndex >= 0 ? { trackIndex } : {}),
+    }),
   }).catch(() => {});
 }
 

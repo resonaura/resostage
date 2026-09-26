@@ -322,7 +322,13 @@ void MainComponent::builderTrackAdd(const std::string& json) {
     for (const auto& t : proj.tracks)
         used.push_back(t.id);
     TrackDef track;
-    track.id = makeUniqueId("trk", used);
+    std::string customId;
+    getString(doc, "id", customId);
+    if (!customId.empty() && std::find(used.begin(), used.end(), customId) == used.end()) {
+        track.id = customId;
+    } else {
+        track.id = makeUniqueId("trk", used);
+    }
 
     TrackKind trackKind = TrackKind::Audio;
     if (kindStr == "instrument") trackKind = TrackKind::Instrument;
@@ -362,6 +368,25 @@ void MainComponent::builderTrackAdd(const std::string& json) {
 
     engine.projectHistoryBeginEdit("", trackKind == TrackKind::Instrument ? "Add instrument track" : "Add track");
     proj.tracks.push_back(track);
+
+    int songIdx = -1;
+    getInt(doc, "songIndex", songIdx);
+    if (trackKind == TrackKind::Instrument && songIdx >= 0 && songIdx < static_cast<int>(proj.songs.size())) {
+        SongDef& s = proj.songs[static_cast<size_t>(songIdx)];
+        std::vector<std::string> usedMidi;
+        for (const auto& r : s.midiRegions)
+            usedMidi.push_back(r.id);
+        MidiRegion reg;
+        reg.id = makeUniqueId("midi_reg", usedMidi);
+        reg.trackId = track.id;
+        reg.name = "Pattern 1";
+        reg.startBeats = 0.0;
+        reg.durationBeats = 16.0;
+        reg.loop = true;
+        reg.loopLengthBeats = 16.0;
+        s.midiRegions.push_back(std::move(reg));
+    }
+
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     setStatus(trackKind == TrackKind::Instrument ? "Instrument track added" : "Track added");

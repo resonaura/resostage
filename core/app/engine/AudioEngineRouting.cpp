@@ -242,6 +242,12 @@ void AudioEngine::publishRoutingSnapshot() {
             outputs.active[static_cast<size_t>(i)] = setup.outputChannels[i];
     }
 
+    std::vector<std::string> newTrackIds;
+    const auto& projTracks = loader.project().tracks;
+    newTrackIds.reserve(projTracks.size());
+    for (const auto& t : projTracks)
+        newTrackIds.push_back(t.id);
+
     auto graph = std::make_shared<const MixGraph>(buildMixGraph(loader.project(), outputs));
     const uint32_t clickStrip = graph->find("audio::click");
     std::vector<LoadedBus> rows = buildBusRows(*graph);
@@ -253,6 +259,17 @@ void AudioEngine::publishRoutingSnapshot() {
     // ── Critical section: swap the prebuilt state in ────────────────────────
     {
         std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        const bool tracksChanged = (trackIdByIndex != newTrackIds);
+        if (tracksChanged || trackScratch.size() != newTrackIds.size()) {
+            trackIdByIndex = std::move(newTrackIds);
+            trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
+            ensureTrackMeters(trackIdByIndex.size());
+        }
+        const int samples = std::max({currentBlockSize, mixRenderer.maxBlockSize(), 1});
+        for (auto& scratch : trackScratch) {
+            if (scratch.getNumChannels() != 2 || scratch.getNumSamples() != samples)
+                scratch.setSize(2, samples, false, false, true);
+        }
         processorLayoutChanged = publishedGraph == nullptr
             || publishedGraph->processorLayoutKey != graph->processorLayoutKey;
         latencyLayoutChanged = publishedGraph == nullptr

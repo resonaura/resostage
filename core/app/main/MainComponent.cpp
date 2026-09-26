@@ -288,8 +288,8 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     webServer.setLivePeaksProvider([this](const std::string& trackId, size_t level, size_t first, size_t count) {
         return engine.getLiveRecordingPeaks(trackId, level, first, count);
     });
-    webServer.setMidiInputHandler([this](const uint8_t* data, int length) {
-        engine.enqueueIncomingMidi(data, length);
+    webServer.setMidiInputHandler([this](const uint8_t* data, int length, int targetTrackIndex) {
+        engine.enqueueIncomingMidi(data, length, targetTrackIndex);
     });
     // Do this only after the audio device and server are ready: recovery is
     // background work and must never delay the deadline-critical startup path.

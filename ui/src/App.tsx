@@ -61,7 +61,13 @@ function eventMatchesBinding(e: KeyboardEvent, description: string): boolean {
   return desc === description.toLowerCase();
 }
 
-function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
+function useGlobalHotkeys(
+  state: WebUiState,
+  setTab: (tab: string) => void,
+  isVirtualKeyboardOpen: boolean,
+) {
+  const isVirtualKeyboardOpenRef = useRef(isVirtualKeyboardOpen);
+  isVirtualKeyboardOpenRef.current = isVirtualKeyboardOpen;
   const playingRef = useRef(state.playing);
   playingRef.current = state.playing;
   const playheadRef = useRef(state.playheadSeconds);
@@ -90,12 +96,12 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
     if (!IS_ELECTRON) return;
     const update = () => {
       const el = document.activeElement as HTMLElement | null;
-      sendTypingFocus(
+      const isInput =
         !!el &&
-          (el.tagName === "INPUT" ||
-            el.tagName === "TEXTAREA" ||
-            el.isContentEditable),
-      );
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable);
+      sendTypingFocus(isInput || isVirtualKeyboardOpen);
     };
     update();
     document.addEventListener("focusin", update);
@@ -105,7 +111,7 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
       document.removeEventListener("focusout", update);
       sendTypingFocus(false);
     };
-  }, []);
+  }, [isVirtualKeyboardOpen]);
 
   useEffect(() => {
     // Who owns the configurable bindings:
@@ -128,6 +134,13 @@ function useGlobalHotkeys(state: WebUiState, setTab: (tab: string) => void) {
             target.tagName === "SELECT" ||
             target.isContentEditable)
         ) {
+          return;
+        }
+
+        const hasModifier = e.metaKey || e.ctrlKey || e.altKey;
+        if (isVirtualKeyboardOpenRef.current && !hasModifier) {
+          // Virtual keyboard is active: ignore all un-modified hotkeys
+          // (song jumping digits 1-9, stop 0, transport space, arrows, etc.)
           return;
         }
 
@@ -358,7 +371,7 @@ export default function App() {
     sendTelemetryHz,
     hasLiveSnapshot,
   } = useLiveState(tab);
-  useGlobalHotkeys(state, setTab);
+  useGlobalHotkeys(state, setTab, isVirtualKeyboardOpen);
   // One frame budget for the whole UI -- see usePerformanceMode. Mounted here
   // and only here, so there is exactly one auto ladder deciding it.
   const performance = usePerformanceMode(state.health);
@@ -648,11 +661,11 @@ export default function App() {
             aria-label="Musical Typing Keyboard"
             className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
               isVirtualKeyboardOpen
-                ? "border-emerald-500 bg-emerald-500/20 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+                ? "border-accent/60 bg-accent/20 text-accent shadow-[0_0_12px_var(--accent)]"
                 : "border-default/40 bg-default/10 text-foreground/70 hover:bg-default/20 hover:text-foreground"
             }`}
           >
-            <Keyboard size={15} className={isVirtualKeyboardOpen ? "text-emerald-400" : ""} />
+            <Keyboard size={15} className={isVirtualKeyboardOpen ? "text-accent" : ""} />
             <span className="hidden sm:inline">Keys</span>
           </button>
 

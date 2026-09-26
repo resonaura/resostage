@@ -621,6 +621,7 @@
     struct QueuedMidiPacket {
         uint8_t data[4]{};
         uint8_t length = 0;
+        int16_t targetTrackIndex = -1;
     };
     static constexpr size_t kMidiQueueCapacity = 1024;
     std::array<QueuedMidiPacket, kMidiQueueCapacity> midiInputQueue{};

@@ -289,13 +289,6 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
     float* stereoChannels[] = {left, right};
 
     const bool hasMidi = !chain.midi.isEmpty();
-    bool hasAudioInput = false;
-    for (int i = 0; i < numSamples; ++i) {
-        if (std::abs(left[i]) > 1.0e-5f || std::abs(right[i]) > 1.0e-5f) {
-            hasAudioInput = true;
-            break;
-        }
-    }
 
     for (auto& node : chain.nodes) {
         if (node->missingInstrument
@@ -306,6 +299,14 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
         }
         if (node->instance == nullptr || node->faulted.load(std::memory_order_relaxed))
             continue;
+
+        bool hasAudioInput = false;
+        for (int i = 0; i < numSamples; ++i) {
+            if (std::abs(left[i]) > 1.0e-5f || std::abs(right[i]) > 1.0e-5f) {
+                hasAudioInput = true;
+                break;
+            }
+        }
 
         const bool hasInput = (node->instrument ? hasMidi : (hasAudioInput || hasMidi));
         if (hasInput) {

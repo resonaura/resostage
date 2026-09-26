@@ -1139,9 +1139,9 @@ WebServer::~WebServer() {
     stop();
 }
 
-void WebServer::injectMidi(const uint8_t* data, int length) {
+void WebServer::injectMidi(const uint8_t* data, int length, int targetTrackIndex) {
     if (midiInputHandler != nullptr)
-        midiInputHandler(data, length);
+        midiInputHandler(data, length, targetTrackIndex);
 }
 
 bool WebServer::start(uint16_t port, std::string& error) {
@@ -2102,13 +2102,15 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             return true;
         }
         int status = 0, d1 = 0, d2 = 0;
+        int trackIndex = -1;
+        builder_json::getInt(doc, "trackIndex", trackIndex);
         if (builder_json::getInt(doc, "status", status)
             && builder_json::getInt(doc, "data1", d1)
             && builder_json::getInt(doc, "data2", d2)) {
             const uint8_t pkt[3] = { static_cast<uint8_t>(status),
                                      static_cast<uint8_t>(d1),
                                      static_cast<uint8_t>(d2) };
-            injectMidi(pkt, 3);
+            injectMidi(pkt, 3, trackIndex);
             writeJsonOk(wsi);
             return true;
         }
@@ -2124,7 +2126,7 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             st = 0x80 | ch;
         const uint8_t pkt[3] = { st, static_cast<uint8_t>(std::clamp(note, 0, 127)),
                                  static_cast<uint8_t>(std::clamp(velocity, 0, 127)) };
-        injectMidi(pkt, 3);
+        injectMidi(pkt, 3, trackIndex);
         writeJsonOk(wsi);
         return true;
     } else if (std::strcmp(path, "/api/v1/project/new") == 0) {

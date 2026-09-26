@@ -1139,13 +1139,26 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                 const juce::MidiMessage msg(pkt.data, pkt.length);
                 const int msgChannel = msg.getChannel();
 
+                const int activeArms = activeRecordArmCount.load(std::memory_order_relaxed);
+                const int activeMonitors = activeInputMonitoringCount.load(std::memory_order_relaxed);
+                const bool hasAnyArmOrMonitor = (activeArms > 0 || activeMonitors > 0);
+
                 for (size_t t = 0; t < trackIdByIndex.size() && t < trackScratch.size(); ++t) {
                     const TrackDef* tDef = trackDefAt(t);
                     if (tDef == nullptr) continue;
                     const bool isArmed = tDef->recordArmed;
                     const bool isMonitored = tDef->inputMonitoring;
-                    const bool shouldMonitorInput = isMonitored || (isArmed && (isRec || !isPlaying));
-                    if (!shouldMonitorInput) continue;
+                    const bool isInstrument = (tDef->kind == TrackKind::Instrument);
+
+                    bool shouldDeliver = false;
+                    if (pkt.targetTrackIndex >= 0) {
+                        shouldDeliver = (static_cast<int>(t) == pkt.targetTrackIndex);
+                    } else if (hasAnyArmOrMonitor) {
+                        shouldDeliver = (isArmed || isMonitored);
+                    } else {
+                        shouldDeliver = isInstrument;
+                    }
+                    if (!shouldDeliver) continue;
 
                     if (tDef->midiInputChannel == 0 || tDef->midiInputChannel == msgChannel) {
                         if (pluginProcessors.strips != nullptr && pluginPublication != nullptr && pluginPublication->bank != nullptr) {
@@ -1367,7 +1380,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         const TrackDef* tDef = trackDefAt(t);
         const bool isArmed = tDef != nullptr && tDef->recordArmed;
         const bool isMonitored = tDef != nullptr && tDef->inputMonitoring;
-        const bool shouldMonitorInput = isMonitored || (isArmed && (isRec || !isPlaying));
+        const bool isInstrument = (tDef != nullptr && tDef->kind == TrackKind::Instrument);
+        const bool shouldMonitorInput = isMonitored || (isArmed && (isRec || !isPlaying || isInstrument));
 
         if (shouldMonitorInput) {
             if (inputChannelData != nullptr && numInputChannels > 0 && tDef != nullptr) {
@@ -2165,7 +2179,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             lastOutputSample[static_cast<size_t>(ch)] = outputChannelData[ch][numSamples - 1];
 }
 
-void AudioEngine::enqueueIncomingMidi(const uint8_t* data, int length) {
+void AudioEngine::enqueueIncomingMidi(const uint8_t* data, int length, int targetTrackIndex) {
     if (data == nullptr || length <= 0 || length > 4)
         return;
     const uint32_t currentWrite = midiInputQueueWrite.load(std::memory_order_relaxed);
@@ -2177,6 +2191,7 @@ void AudioEngine::enqueueIncomingMidi(const uint8_t* data, int length) {
     for (int i = 0; i < length; ++i)
         pkt.data[i] = data[i];
     pkt.length = static_cast<uint8_t>(length);
+    pkt.targetTrackIndex = static_cast<int16_t>(targetTrackIndex);
     midiInputQueueWrite.store(currentWrite + 1, std::memory_order_release);
 }
 

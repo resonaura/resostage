@@ -345,8 +345,10 @@ export function EditorScreen({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "i" || e.key === "I") {
+        if (e.defaultPrevented) return;
         const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
         if (tag === "input" || tag === "textarea") return;
+        if (document.querySelector('[aria-label="Musical Typing"]') || document.querySelector('[aria-label="Virtual MIDI Keyboard"]')) return;
         toggleInspector();
       }
     };

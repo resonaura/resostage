@@ -1097,11 +1097,11 @@ public:
         livePeaksProvider = std::move(provider);
     }
 
-    using MidiInputHandler = std::function<void(const uint8_t* data, int length)>;
+    using MidiInputHandler = std::function<void(const uint8_t* data, int length, int targetTrackIndex)>;
     void setMidiInputHandler(MidiInputHandler handler) {
         midiInputHandler = std::move(handler);
     }
-    void injectMidi(const uint8_t* data, int length);
+    void injectMidi(const uint8_t* data, int length, int targetTrackIndex = -1);
 
 
     // HTTP-thread: stash which track a following .../import-wav/upload POST
