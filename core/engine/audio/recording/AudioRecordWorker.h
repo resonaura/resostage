@@ -110,6 +110,20 @@ enum class LiveRecordingState : uint8_t {
     Failed = 4
 };
 
+enum class LiveRecordingKind : uint8_t {
+    Audio = 0,
+    Midi = 1
+};
+
+struct LiveRecordingMidiNoteInfo {
+    uint64_t id = 0;
+    uint8_t pitch = 60;
+    double startBeats = 0.0;
+    double durationBeats = 0.0;
+    float velocity = 0.8f;
+    bool active = false;
+};
+
 struct LiveRecordingRegionInfo {
     std::string recordingId;
     std::string trackId;
@@ -117,6 +131,8 @@ struct LiveRecordingRegionInfo {
     int64_t capturedFrames = 0;
     uint32_t channelCount = 2;
     LiveRecordingState state = LiveRecordingState::Pending;
+    LiveRecordingKind kind = LiveRecordingKind::Audio;
+    std::vector<LiveRecordingMidiNoteInfo> midiNotes;
 };
 
 struct TrackAudioRecordSession {

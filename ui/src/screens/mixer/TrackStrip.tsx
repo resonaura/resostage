@@ -103,6 +103,14 @@ function TrackStripInner({
   const peakDbR = t.peakDbR ?? busMeter?.peakDbR ?? peakDb;
 
   const isInstrument = t.kind === "instrument";
+  const isMidiInputTrack =
+    t.kind === "instrument" ||
+    t.kind === "midi" ||
+    t.kind === "externalMidi";
+  const hasAudioInput =
+    (t.kind === "audio" || t.kind == null) && t.inputSource !== "none";
+  const canRecord = hasAudioInput || isMidiInputTrack;
+  const canMonitorInput = hasAudioInput || isMidiInputTrack;
   const isMono = t.channels === 1;
   const currentInput = t.inputSource || (isMono ? "in:1" : "in:1+2");
 
@@ -218,9 +226,15 @@ function TrackStripInner({
         recordArmed={t.recordArmed}
         inputMonitoring={t.inputMonitoring}
         isRecording={isRecording}
-        onRecordArm={() => void mixer.setTrackRecordArm(index, !t.recordArmed)}
-        onInputMonitor={() =>
-          void mixer.setTrackInputMonitor(index, !t.inputMonitoring)
+        onRecordArm={
+          canRecord
+            ? () => void mixer.setTrackRecordArm(index, !t.recordArmed)
+            : undefined
+        }
+        onInputMonitor={
+          canMonitorInput
+            ? () => void mixer.setTrackInputMonitor(index, !t.inputMonitoring)
+            : undefined
         }
         onBusSelect={(bId) => mixer.setTrackBus(index, bId)}
         directOutput={{

@@ -665,7 +665,12 @@ export function VirtualMidiKeyboard({
               {instrumentTracks.length > 1 ? (
                 <select
                   value={activeInstrument.id}
-                  onChange={(e) => setSelectedTrackId(e.target.value)}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setSelectedTrackId(id);
+                    const index = state.tracks.findIndex((t) => t.id === id);
+                    if (index >= 0) void mixer.setFocusedTrack(index);
+                  }}
                   className="bg-transparent text-xs font-semibold text-accent max-w-30 truncate outline-none cursor-pointer"
                   title="Switch Target Instrument Track"
                 >
@@ -715,14 +720,15 @@ export function VirtualMidiKeyboard({
                 }
                 title={
                   activeInstrument.inputMonitoring
-                    ? "Input Monitoring Active"
-                    : "Click to Monitor Input"
+                    ? "Stop monitoring this instrument"
+                    : "Monitor this instrument alongside the focused track"
                 }
                 className={`flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold transition-colors ${
                   activeInstrument.inputMonitoring
                     ? "bg-(--rs-monitor,#ff9500) text-neutral-950 shadow-[0_0_8px_rgba(255,149,0,0.6)]"
                     : "bg-default/30 text-foreground/50 hover:bg-default/50"
                 }`}
+                aria-label="Input Monitoring"
               >
                 I
               </button>

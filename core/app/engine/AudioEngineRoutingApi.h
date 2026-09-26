@@ -105,6 +105,10 @@
 
     void setTrackInputMonitoring(size_t songIndex, size_t trackIndex, bool monitoring);
 
+    void setFocusedTrack(int trackIndex) noexcept;
+
+    int focusedTrack() const noexcept;
+
     void setTrackInputSource(size_t songIndex, size_t trackIndex, const std::string& inputSource, int midiChannel = 0, const std::string& midiDevice = "all");
 
     bool isTrackRecordArmed(size_t trackIndex) const;

@@ -255,7 +255,11 @@ export function PianoRollCanvas({
       for (const comp of companionRegions) {
         for (const note of comp.notes) {
           if (note.pitch < minPitch || note.pitch > maxPitch) continue;
-          const x = beatToX(note.startBeats);
+          // Notes are stored region-local. Align companion content against
+          // the primary region's arrangement start before drawing ghosts.
+          const relativeBeat =
+            comp.startBeats - region.startBeats + note.startBeats;
+          const x = beatToX(relativeBeat);
           const y = pitchToY(note.pitch, height);
           const w = Math.max(2, note.durationBeats * viewport.pixelsPerBeat);
           const h = viewport.pixelsPerPitch - 1;

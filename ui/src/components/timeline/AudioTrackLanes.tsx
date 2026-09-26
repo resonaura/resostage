@@ -66,6 +66,7 @@ export function AudioTrackLanes({
   startRegionDrag,
   writeGeomDraft,
   onRegionContextMenu,
+  onOpenMidiRegion,
 }: {
   state: WebUiState;
   rows: TimelineRow[];
@@ -101,6 +102,7 @@ export function AudioTrackLanes({
     regionId: string;
     selKey: RegionSelKey;
   }) => void;
+  onOpenMidiRegion?: (trackId: string, regionId: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingImportRef = useRef<{
@@ -237,6 +239,7 @@ export function AudioTrackLanes({
                   sampleRate={state.sampleRate || 48000}
                   pxPerSec={pxPerSec}
                   laneHeight={laneHeightPx(verticalZoom)}
+                  bpm={state.bpm || songs[state.songIndex]?.bpm || 120}
                 />
               );
             })()}
@@ -268,7 +271,12 @@ export function AudioTrackLanes({
                   effectiveTrackId === row.name
                 );
               });
-              if (trackRegions.length === 0) return null;
+              const midiRegions = (song.midiRegions ?? []).filter(
+                (region) =>
+                  region.trackId === track?.id || region.trackId === row.name,
+              );
+              if (trackRegions.length === 0 && midiRegions.length === 0)
+                return null;
 
               const segDuration = songLengths[i];
               const peakEntryFor = (r: RegionRow) =>
@@ -321,6 +329,67 @@ export function AudioTrackLanes({
                   className="absolute top-0 bottom-0"
                   style={{ left: segStart, width: segWidth }}
                 >
+                  {midiRegions.map((midiRegion) => {
+                    const bpm = song.bpm > 0 ? song.bpm : 120;
+                    const startSeconds = (midiRegion.startBeats * 60) / bpm;
+                    const durationSeconds = Math.max(
+                      0.05,
+                      (midiRegion.durationBeats * 60) / bpm,
+                    );
+                    const width = Math.max(8, durationSeconds * pxPerSec);
+                    const pitches = midiRegion.notes.map((note) => note.pitch);
+                    const minPitch = pitches.length
+                      ? Math.min(...pitches)
+                      : 48;
+                    const maxPitch = pitches.length
+                      ? Math.max(...pitches)
+                      : 72;
+                    const pitchSpan = Math.max(12, maxPitch - minPitch + 4);
+                    return (
+                      <button
+                        key={`midi:${midiRegion.id}`}
+                        type="button"
+                        className="absolute top-1 bottom-1 overflow-hidden rounded border border-violet-300/70 bg-violet-500/35 text-left shadow-sm hover:border-violet-200 focus-visible:outline-2 focus-visible:outline-accent"
+                        style={{
+                          left: startSeconds * pxPerSec,
+                          width,
+                          opacity:
+                            trackMuted || midiRegion.muted || soloDimmed
+                              ? 0.35
+                              : 1,
+                        }}
+                        title={`${midiRegion.name || "MIDI Region"} · Double-click to edit in Piano Roll`}
+                        onClick={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => {
+                          event.stopPropagation();
+                          onOpenMidiRegion?.(
+                            midiRegion.trackId,
+                            midiRegion.id,
+                          );
+                        }}
+                      >
+                        <span className="absolute left-1 top-0.5 z-10 max-w-[calc(100%-8px)] truncate text-[9px] font-semibold text-white/90">
+                          {midiRegion.name || "MIDI Region"}
+                        </span>
+                        {midiRegion.notes.map((note) => (
+                          <span
+                            key={`${note.id}:${note.pitch}:${note.startBeats}`}
+                            className="absolute rounded-[1px] bg-white/75"
+                            style={{
+                              left: `${Math.max(0, (note.startBeats / midiRegion.durationBeats) * 100)}%`,
+                              width: `${Math.max(0.6, (note.durationBeats / midiRegion.durationBeats) * 100)}%`,
+                              top: `${18 + ((maxPitch + 2 - note.pitch) / pitchSpan) * Math.max(1, laneHeightPx(verticalZoom) - 22)}px`,
+                              height: Math.max(
+                                2,
+                                (laneHeightPx(verticalZoom) - 22) / pitchSpan,
+                              ),
+                              opacity: 0.45 + note.velocity * 0.5,
+                            }}
+                          />
+                        ))}
+                      </button>
+                    );
+                  })}
                   {trackRegions.map((songRegion) => {
                     const thisRegionSelKey = regionSelKey(i, songRegion.id);
                     const isRegionSelected =

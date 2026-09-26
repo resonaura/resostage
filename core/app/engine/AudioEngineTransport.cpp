@@ -802,17 +802,22 @@ void AudioEngine::startRecording(int targetTrackIndex) {
     // automatically arm the target track (or first eligible audio/instrument track).
     if (activeRecordArmCount.load(std::memory_order_relaxed) == 0 && !tracks.empty()) {
         int armTrackIdx = -1;
-        if (targetTrackIndex >= 0 && targetTrackIndex < static_cast<int>(tracks.size())) {
+        if (targetTrackIndex >= 0 && targetTrackIndex < static_cast<int>(tracks.size())
+            && trackSupportsRecordArm(tracks[static_cast<size_t>(targetTrackIndex)])) {
             armTrackIdx = targetTrackIndex;
-        } else {
+        }
+        if (armTrackIdx < 0 && focusedTrack() >= 0
+            && focusedTrack() < static_cast<int>(tracks.size())) {
+            if (trackSupportsRecordArm(tracks[static_cast<size_t>(focusedTrack())])) {
+                armTrackIdx = focusedTrack();
+            }
+        }
+        if (armTrackIdx < 0) {
             for (size_t t = 0; t < tracks.size(); ++t) {
-                if (tracks[t].kind == TrackKind::Instrument || tracks[t].kind == TrackKind::Audio) {
+                if (trackSupportsRecordArm(tracks[t])) {
                     armTrackIdx = static_cast<int>(t);
                     break;
                 }
-            }
-            if (armTrackIdx < 0) {
-                armTrackIdx = 0;
             }
         }
 
@@ -824,8 +829,15 @@ void AudioEngine::startRecording(int targetTrackIndex) {
         }
     }
 
+    // Folder, lighting and bus-timeline rows cannot become recording targets.
+    if (activeRecordArmCount.load(std::memory_order_relaxed) == 0)
+        return;
+
     const double sr = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
     const int64_t startPos = clock.currentSamplePosition();
+    const int64_t captureStartPos = autoPunchEnabledState.load(std::memory_order_acquire)
+        ? std::max(startPos, autoPunchStartSample.load(std::memory_order_acquire))
+        : startPos;
 
     // Prepare recording output directory
     std::filesystem::path recPath;
@@ -844,6 +856,7 @@ void AudioEngine::startRecording(int targetTrackIndex) {
 
     std::vector<TrackAudioRecordSession> requestedSessions;
     activeMidiRecordSessions.clear();
+    liveMidiPreviewGeneration.fetch_add(1, std::memory_order_acq_rel);
     trackToAudioRecordSession.fill(-1);
 
     const auto nowTime = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
@@ -881,18 +894,25 @@ void AudioEngine::startRecording(int targetTrackIndex) {
             midiSession.trackId = track.id;
             midiSession.inputChannel = track.midiInputChannel;
             midiSession.recordedNoteCount = 0;
+            uint64_t maxNoteId = 0;
+            for (const auto& region : loader.project().songs[currentSong].midiRegions) {
+                if (region.trackId != track.id) continue;
+                for (const auto& note : region.notes)
+                    maxNoteId = std::max(maxNoteId, note.id);
+            }
+            midiSession.nextNoteId = maxNoteId + 1;
             activeMidiRecordSessions.push_back(std::move(midiSession));
         }
     }
 
     if (!requestedSessions.empty()) {
         std::string err;
-        audioRecordWorker.prepareRecording(recPath.string(), requestedSessions, sr, startPos, err);
+        audioRecordWorker.prepareRecording(recPath.string(), requestedSessions, sr, captureStartPos, err);
     }
 
     {
         std::lock_guard<std::recursive_mutex> lock(routingMutex);
-        recordStartSamplePos.store(startPos, std::memory_order_release);
+        recordStartSamplePos.store(captureStartPos, std::memory_order_release);
         isRecordingState.store(true, std::memory_order_release);
     }
 
@@ -922,7 +942,13 @@ void AudioEngine::stopRecording() {
     const double sr = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
     const int64_t startSample = recordStartSamplePos.load(std::memory_order_acquire);
     const double recordStartSeconds = static_cast<double>(startSample) / sr;
-    const int64_t endSample = clock.currentSamplePosition();
+    const int64_t rawEndSample = clock.currentSamplePosition();
+    const int64_t endSample = autoPunchEnabledState.load(std::memory_order_acquire)
+        ? std::clamp(
+            rawEndSample,
+            autoPunchStartSample.load(std::memory_order_acquire),
+            autoPunchEndSample.load(std::memory_order_acquire))
+        : rawEndSample;
     const double recordEndSeconds = static_cast<double>(endSample) / sr;
     const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
     const double recordStartBeats = (recordStartSeconds * bpm) / 60.0;
@@ -961,6 +987,7 @@ void AudioEngine::stopRecording() {
             auto& activeNote = session.activeNotes[static_cast<size_t>(p)];
             if (activeNote.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
                 MidiNote completed;
+                completed.id = activeNote.id;
                 completed.pitch = static_cast<uint8_t>(p);
                 completed.velocity = activeNote.velocity;
                 const double noteStartSec = static_cast<double>(activeNote.startSample) / sr;
@@ -1079,7 +1106,81 @@ bool AudioEngine::isRecording() const {
 }
 
 std::vector<LiveRecordingRegionInfo> AudioEngine::getLiveRecordingRegions() const {
-    return audioRecordWorker.getLiveRegions();
+    auto result = audioRecordWorker.getLiveRegions();
+    if (!isRecordingState.load(std::memory_order_acquire))
+        return result;
+
+    LiveMidiPreviewFrame frame;
+    (void)liveMidiPreviewFrame.read(frame);
+    const uint64_t previewGeneration = liveMidiPreviewGeneration.load(std::memory_order_acquire);
+    const int64_t startSample = recordStartSamplePos.load(std::memory_order_acquire);
+    const int64_t nowSample = std::max(startSample, clock.currentSamplePosition());
+
+    result.reserve(result.size() + activeMidiRecordSessions.size());
+    for (size_t sessionIndex = 0; sessionIndex < activeMidiRecordSessions.size(); ++sessionIndex) {
+        LiveRecordingRegionInfo info;
+        info.recordingId = "midi-live-" + activeMidiRecordSessions[sessionIndex].trackId;
+        info.trackId = activeMidiRecordSessions[sessionIndex].trackId;
+        info.timelineStartSample = startSample;
+        info.capturedFrames = nowSample - startSample;
+        info.channelCount = 0;
+        info.state = LiveRecordingState::Capturing;
+        info.kind = LiveRecordingKind::Midi;
+        for (uint32_t i = 0;
+             frame.generation == previewGeneration
+                 && i < frame.noteCount
+                 && i < LiveMidiPreviewFrame::kMaxNotes;
+             ++i) {
+            const auto& note = frame.notes[i];
+            if (note.sessionIndex != sessionIndex) continue;
+            info.midiNotes.push_back({
+                note.id, note.pitch, note.startBeats, note.durationBeats,
+                note.velocity, note.active
+            });
+        }
+        result.push_back(std::move(info));
+    }
+    return result;
+}
+
+void AudioEngine::publishLiveMidiPreview(double bpm, int64_t playheadSample) {
+    LiveMidiPreviewFrame frame;
+    frame.generation = liveMidiPreviewGeneration.load(std::memory_order_relaxed);
+    const double safeRate = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
+    const double safeBpm = bpm > 0.0 ? bpm : 120.0;
+
+    for (size_t sessionIndex = 0; sessionIndex < activeMidiRecordSessions.size(); ++sessionIndex) {
+        const auto& session = activeMidiRecordSessions[sessionIndex];
+        const size_t completedToCopy = std::min(
+            session.recordedNoteCount,
+            LiveMidiPreviewFrame::kMaxNotes - frame.noteCount);
+        const size_t completedStart = session.recordedNoteCount - completedToCopy;
+        for (size_t n = completedStart; n < session.recordedNoteCount && frame.noteCount < LiveMidiPreviewFrame::kMaxNotes; ++n) {
+            const auto& source = session.recordedNotes[n];
+            auto& dest = frame.notes[frame.noteCount++];
+            dest.sessionIndex = static_cast<uint16_t>(sessionIndex);
+            dest.id = source.id;
+            dest.pitch = source.pitch;
+            dest.velocity = source.velocity;
+            dest.startBeats = source.startBeats;
+            dest.durationBeats = source.durationBeats;
+            dest.active = false;
+        }
+        for (const auto& source : session.activeNotes) {
+            if (!source.active || frame.noteCount >= LiveMidiPreviewFrame::kMaxNotes) continue;
+            auto& dest = frame.notes[frame.noteCount++];
+            dest.sessionIndex = static_cast<uint16_t>(sessionIndex);
+            dest.id = source.id;
+            dest.pitch = source.pitch;
+            dest.velocity = source.velocity;
+            dest.startBeats = (static_cast<double>(source.startSample) / safeRate) * safeBpm / 60.0;
+            dest.durationBeats = std::max(
+                0.0,
+                (static_cast<double>(playheadSample - source.startSample) / safeRate) * safeBpm / 60.0);
+            dest.active = true;
+        }
+    }
+    liveMidiPreviewFrame.write(frame);
 }
 
 std::vector<PeakPair16> AudioEngine::getLiveRecordingPeaks(const std::string& trackId, size_t level, size_t first, size_t count) const {
@@ -1651,4 +1752,3 @@ void AudioEngine::prewarmPluginsLookahead(const SongDef& song,
 }
 
 } // namespace resostage
-

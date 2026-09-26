@@ -292,6 +292,24 @@ struct TrackDef {
     }
 };
 
+[[nodiscard]] inline bool isMidiInputTrack(TrackKind kind) noexcept {
+    return kind == TrackKind::Instrument || kind == TrackKind::MIDI
+        || kind == TrackKind::ExternalMIDI;
+}
+
+[[nodiscard]] inline bool hasUsableAudioInput(const TrackDef& track) noexcept {
+    return track.kind == TrackKind::Audio
+        && !track.inputSource.empty() && track.inputSource != "none";
+}
+
+[[nodiscard]] inline bool trackSupportsRecordArm(const TrackDef& track) noexcept {
+    return hasUsableAudioInput(track) || isMidiInputTrack(track.kind);
+}
+
+[[nodiscard]] inline bool trackSupportsInputMonitoring(const TrackDef& track) noexcept {
+    return hasUsableAudioInput(track) || isMidiInputTrack(track.kind);
+}
+
 struct RegionSource {
     std::string file; // archive path, e.g. "Audio/song1_synths1.wav"
     double offsetSeconds = 0.0; // start offset into source audio file

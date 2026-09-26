@@ -8,6 +8,7 @@ export interface LiveRecordingRegionProps {
   sampleRate: number;
   pxPerSec: number;
   laneHeight: number;
+  bpm: number;
 }
 
 export function LiveRecordingRegion({
@@ -16,6 +17,7 @@ export function LiveRecordingRegion({
   sampleRate,
   pxPerSec,
   laneHeight,
+  bpm,
 }: LiveRecordingRegionProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [peaks, setPeaks] = useState<Array<{ min: number; max: number }>>([]);
@@ -34,6 +36,7 @@ export function LiveRecordingRegion({
 
     async function pollPeaks() {
       if (cancelled) return;
+      if (recording.kind === 1) return;
       try {
         const resp = await recordingApi.fetchLivePeaks(
           recording.recordingId,
@@ -59,12 +62,12 @@ export function LiveRecordingRegion({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [recording.recordingId, recording.state]);
+  }, [recording.recordingId, recording.state, recording.kind]);
 
   // Draw real-time bipolar waveform onto the canvas
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || recording.kind === 1) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -110,10 +113,19 @@ export function LiveRecordingRegion({
       ctx.lineTo(x, Math.max(yTop, yBottom));
     }
     ctx.stroke();
-  }, [peaks, widthPx, laneHeight]);
+  }, [peaks, widthPx, laneHeight, recording.kind]);
 
   const elapsedMins = Math.floor(durationSec / 60);
   const elapsedSecs = (durationSec % 60).toFixed(1).padStart(4, "0");
+  const isMidi = recording.kind === 1;
+  const safeBpm = bpm > 0 ? bpm : 120;
+  const recordingStartBeat =
+    (Math.max(0, recording.timelineStartSample) / safeRate) * (safeBpm / 60);
+  const midiNotes = recording.midiNotes ?? [];
+  const pitchValues = midiNotes.map((note) => note.pitch);
+  const minPitch = pitchValues.length > 0 ? Math.min(...pitchValues) : 48;
+  const maxPitch = pitchValues.length > 0 ? Math.max(...pitchValues) : 72;
+  const pitchSpan = Math.max(12, maxPitch - minPitch + 4);
 
   return (
     <div
@@ -132,12 +144,43 @@ export function LiveRecordingRegion({
         </span>
       </div>
 
-      {/* Live waveform canvas */}
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full block"
-        style={{ width: `${widthPx}px`, height: `${laneHeight}px` }}
-      />
+      {isMidi ? (
+        <div className="absolute inset-0 overflow-hidden pt-5">
+          {midiNotes.map((note) => {
+            const noteStartSec =
+              ((note.startBeats - recordingStartBeat) * 60) / safeBpm;
+            const noteDurationSec = Math.max(
+              0.04,
+              (note.durationBeats * 60) / safeBpm,
+            );
+            const noteTop =
+              ((maxPitch + 2 - note.pitch) / pitchSpan) *
+              Math.max(1, laneHeight - 22);
+            return (
+              <span
+                key={`${note.id}:${note.pitch}`}
+                className={`absolute rounded-sm border border-white/70 bg-white/85 ${
+                  note.active ? "shadow-[0_0_5px_rgba(255,255,255,0.8)]" : ""
+                }`}
+                style={{
+                  left: `${Math.max(0, noteStartSec * pxPerSec)}px`,
+                  width: `${Math.max(3, noteDurationSec * pxPerSec)}px`,
+                  top: `${20 + noteTop}px`,
+                  height: `${Math.max(2, (laneHeight - 22) / pitchSpan)}px`,
+                  opacity: 0.55 + Math.min(1, note.velocity) * 0.45,
+                }}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        /* Live waveform canvas */
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full block"
+          style={{ width: `${widthPx}px`, height: `${laneHeight}px` }}
+        />
+      )}
     </div>
   );
 }

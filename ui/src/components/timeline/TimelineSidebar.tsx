@@ -8,7 +8,7 @@ import type {
   TrackRow,
   WebUiState,
 } from "../../lib/state/types";
-import { builder, lighting } from "../../lib/state/api";
+import { builder, lighting, mixer } from "../../lib/state/api";
 import {
   LightTrackHeader,
   AUDIO_HINT_HEIGHT,
@@ -209,6 +209,7 @@ export function TimelineSidebar({
                     }
                     onSelect={() => {
                       if (row.headerIndex !== null) {
+                        void mixer.setFocusedTrack(row.headerIndex);
                         onSelectTrack?.(
                           state.tracks[row.headerIndex]?.id ?? null,
                         );

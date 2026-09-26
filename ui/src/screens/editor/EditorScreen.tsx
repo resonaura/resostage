@@ -32,8 +32,9 @@ import {
 } from "../../lib/audio/stemImport";
 import { Timeline } from "../../components/timeline";
 import { PianoRoll } from "../../components/pianoroll";
+import { MidiRegionSidePanel } from "../../components/pianoroll/MidiRegionSidePanel";
 import { getTrackColor } from "../../components/timeline/constants";
-import { builder } from "../../lib/state/api";
+import { builder, mixer } from "../../lib/state/api";
 import { useIsCompact } from "../../lib/interaction/useMediaQuery";
 import type {
   AllPeaksResponse,
@@ -364,6 +365,45 @@ export function EditorScreen({
   const [selectedMidiRegionId, setSelectedMidiRegionId] = useState<
     string | null
   >(null);
+  const [visibleMidiRegionIds, setVisibleMidiRegionIds] = useState<string[]>(
+    [],
+  );
+  const midiRecordingWasActiveRef = useRef(false);
+  const midiRecordingBaselineRef = useRef<Map<string, number>>(new Map());
+  const awaitingRecordedMidiRef = useRef(false);
+
+  useEffect(() => {
+    const recording = state.recording ?? false;
+    const song = state.songs[state.songIndex];
+    if (recording && !midiRecordingWasActiveRef.current) {
+      midiRecordingBaselineRef.current = new Map(
+        (song?.midiRegions ?? []).map((region) => [
+          region.id,
+          region.notes.length,
+        ]),
+      );
+      awaitingRecordedMidiRef.current = false;
+    } else if (!recording && midiRecordingWasActiveRef.current) {
+      awaitingRecordedMidiRef.current = true;
+    }
+    midiRecordingWasActiveRef.current = recording;
+
+    if (!recording && awaitingRecordedMidiRef.current) {
+      const added = (song?.midiRegions ?? []).filter(
+        (region) =>
+          !midiRecordingBaselineRef.current.has(region.id) ||
+          midiRecordingBaselineRef.current.get(region.id) !==
+            region.notes.length,
+      );
+      const primary = added[added.length - 1];
+      if (primary) {
+        setSelectedMidiTrackId(primary.trackId);
+        setSelectedMidiRegionId(primary.id);
+        setVisibleMidiRegionIds(added.map((region) => region.id));
+        awaitingRecordedMidiRef.current = false;
+      }
+    }
+  }, [state.recording, state.songIndex, state.songs]);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setSelected(-1), [tab]);
@@ -553,6 +593,13 @@ export function EditorScreen({
               setPxPerSec={setPxPerSec}
               selectedTrackId={selectedTrackId}
               onSelectTrackId={setSelectedTrackId}
+              onOpenMidiRegion={(trackId, regionId) => {
+                setSelectedTrackId(trackId);
+                setSelectedMidiTrackId(trackId);
+                setSelectedMidiRegionId(regionId);
+                setVisibleMidiRegionIds([regionId]);
+                setTab("pianoroll");
+              }}
             />
           </div>
         </div>
@@ -646,8 +693,15 @@ export function EditorScreen({
                 notes: [],
               };
 
-            const companionRegions = midiRegions.filter(
-              (r) => r.id !== activeRegion.id,
+            const effectiveVisibleRegionIds = visibleMidiRegionIds.includes(
+              activeRegion.id,
+            )
+              ? visibleMidiRegionIds
+              : [activeRegion.id, ...visibleMidiRegionIds];
+            const companionRegions = trackRegions.filter(
+              (r) =>
+                r.id !== activeRegion.id &&
+                effectiveVisibleRegionIds.includes(r.id),
             );
             const playheadBeats =
               currentSong.bpm > 0
@@ -684,6 +738,7 @@ export function EditorScreen({
             };
 
             return (
+              <div className="flex min-h-0 flex-1 flex-row gap-1.5 overflow-hidden">
               <PianoRoll
                 region={activeRegion}
                 companionRegions={companionRegions}
@@ -691,19 +746,59 @@ export function EditorScreen({
                 tracks={state.tracks}
                 onSelectTrack={(trackId) => {
                   setSelectedMidiTrackId(trackId);
+                  const focusedIndex = state.tracks.findIndex(
+                    (track) => track.id === trackId,
+                  );
+                  if (focusedIndex >= 0)
+                    void mixer.setFocusedTrack(focusedIndex);
                   const firstRegion = midiRegions.find(
                     (r) => r.trackId === trackId,
                   );
                   setSelectedMidiRegionId(firstRegion ? firstRegion.id : null);
+                  setVisibleMidiRegionIds(
+                    firstRegion ? [firstRegion.id] : [],
+                  );
                 }}
                 regions={
                   trackRegions.length > 0 ? trackRegions : [activeRegion]
                 }
-                onSelectRegion={(regionId) => setSelectedMidiRegionId(regionId)}
+                onSelectRegion={(regionId) => {
+                  setSelectedMidiRegionId(regionId);
+                  setVisibleMidiRegionIds((current) =>
+                    current.includes(regionId)
+                      ? current
+                      : [...current, regionId],
+                  );
+                }}
+                selectedRegionIds={effectiveVisibleRegionIds}
+                onToggleRegionVisible={(regionId, visible) => {
+                  setVisibleMidiRegionIds((current) => {
+                    const withPrimary = current.includes(activeRegion.id)
+                      ? current
+                      : [activeRegion.id, ...current];
+                    if (visible)
+                      return withPrimary.includes(regionId)
+                        ? withPrimary
+                        : [...withPrimary, regionId];
+                    return withPrimary.filter(
+                      (id) => id !== regionId || id === activeRegion.id,
+                    );
+                  });
+                }}
                 trackColor={trackColor}
-                playheadBeats={playheadBeats}
+                playheadBeats={playheadBeats - activeRegion.startBeats}
                 onNotesChange={handleNotesChange}
               />
+              <MidiRegionSidePanel
+                songIndex={state.songIndex}
+                region={activeRegion}
+                track={activeTrack ?? null}
+                trackIndex={trackIndex}
+                persisted={midiRegions.some(
+                  (region) => region.id === activeRegion.id,
+                )}
+              />
+              </div>
             );
           })()}
         </div>

@@ -924,7 +924,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
 
     const bool isRenderingTail = !isPlaying && (pauseTailRemainingSamples > 0 || bankHasPlugins);
     const bool hasLiveMonitoring = (activeInputMonitoringCount.load(std::memory_order_relaxed) > 0 ||
-                                    activeRecordArmCount.load(std::memory_order_relaxed) > 0);
+                                    activeRecordArmCount.load(std::memory_order_relaxed) > 0 ||
+                                    focusedMidiMonitorActive.load(std::memory_order_relaxed));
 
     if (!isPlaying && !isRenderingTail && !hasLiveMonitoring) {
         // Declick tail: the first silent callback right after transport stops
@@ -1138,6 +1139,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     const uint32_t midiWritePos = midiInputQueueWrite.load(std::memory_order_acquire);
     const uint32_t availablePktCount = midiWritePos - midiReadPos;
     const bool isRec = isRecordingState.load(std::memory_order_acquire);
+    const bool autoPunch = autoPunchEnabledState.load(std::memory_order_relaxed);
+    const int64_t punchStart = autoPunchStartSample.load(std::memory_order_relaxed);
+    const int64_t punchEnd = autoPunchEndSample.load(std::memory_order_relaxed);
+    const TransportMonitorPhase monitorPhase = resolveTransportMonitorPhase(
+        isPlaying, isRec, autoPunch, playheadSample, playheadSample + numSamples,
+        punchStart, punchEnd);
+    const bool midiCaptureActive = isRec && (!autoPunch
+        || (playheadSample >= punchStart && playheadSample < punchEnd));
 
     if (availablePktCount > 0) {
         for (uint32_t i = 0; i < availablePktCount; ++i) {
@@ -1146,24 +1155,41 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                 const juce::MidiMessage msg(pkt.data, pkt.length);
                 const int msgChannel = msg.getChannel();
 
-                const int activeArms = activeRecordArmCount.load(std::memory_order_relaxed);
-                const int activeMonitors = activeInputMonitoringCount.load(std::memory_order_relaxed);
-                const bool hasAnyArmOrMonitor = (activeArms > 0 || activeMonitors > 0);
+                int liveMidiFocus = focusedTrackIndex.load(std::memory_order_relaxed);
+                if (liveMidiFocus < 0 || liveMidiFocus >= static_cast<int>(trackIdByIndex.size())) {
+                    liveMidiFocus = -1;
+                } else {
+                    const TrackDef* focused = trackDefAt(static_cast<size_t>(liveMidiFocus));
+                    if (focused == nullptr || !isMidiInputTrack(focused->kind))
+                        liveMidiFocus = -1;
+                }
+                if (liveMidiFocus < 0) {
+                    for (size_t candidate = 0; candidate < trackIdByIndex.size(); ++candidate) {
+                        const TrackDef* candidateDef = trackDefAt(candidate);
+                        if (candidateDef != nullptr && isMidiInputTrack(candidateDef->kind)) {
+                            liveMidiFocus = static_cast<int>(candidate);
+                            break;
+                        }
+                    }
+                }
 
                 for (size_t t = 0; t < trackIdByIndex.size() && t < trackScratch.size(); ++t) {
                     const TrackDef* tDef = trackDefAt(t);
                     if (tDef == nullptr) continue;
                     const bool isArmed = tDef->recordArmed;
-                    const bool isMonitored = tDef->inputMonitoring;
-                    const bool isInstrument = (tDef->kind == TrackKind::Instrument);
+                    const bool acceptsMidiInput = isMidiInputTrack(tDef->kind);
+                    const bool isMonitored = acceptsMidiInput && tDef->inputMonitoring;
 
                     bool shouldDeliver = false;
                     if (pkt.targetTrackIndex >= 0) {
                         shouldDeliver = (static_cast<int>(t) == pkt.targetTrackIndex);
-                    } else if (hasAnyArmOrMonitor) {
-                        shouldDeliver = (isArmed || isMonitored);
                     } else {
-                        shouldDeliver = isInstrument;
+                        // Logic-style live MIDI: the focused instrument always
+                        // auditions, while every explicitly armed or monitored
+                        // MIDI-capable track receives the same untargeted input.
+                        shouldDeliver = acceptsMidiInput
+                            && (isArmed || isMonitored
+                                || static_cast<int>(t) == liveMidiFocus);
                     }
                     if (!shouldDeliver) continue;
 
@@ -1172,7 +1198,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                             pluginPublication->bank->addStripMidiEvent(static_cast<uint32_t>(t), msg, 0);
                         }
 
-                        if (isRec && isArmed) {
+                        if (midiCaptureActive && isArmed) {
                             const bool isNoteOnMsg = msg.isNoteOn() && msg.getVelocity() > 0;
                             const bool isNoteOffMsg = msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0);
                             if (isNoteOnMsg) {
@@ -1183,6 +1209,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                         auto& note = session.activeNotes[static_cast<size_t>(pitch)];
                                         if (note.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
                                             MidiNote completed;
+                                            completed.id = note.id;
                                             completed.pitch = static_cast<uint8_t>(pitch);
                                             completed.velocity = note.velocity;
                                             const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
@@ -1193,6 +1220,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                             session.recordedNotes[session.recordedNoteCount++] = completed;
                                         }
                                         note.pitch = static_cast<uint8_t>(pitch);
+                                        note.id = session.nextNoteId++;
                                         note.velocity = vel;
                                         note.startSample = playheadSample;
                                         note.channel = msgChannel;
@@ -1207,6 +1235,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                         auto& note = session.activeNotes[static_cast<size_t>(pitch)];
                                         if (note.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
                                             MidiNote completed;
+                                            completed.id = note.id;
                                             completed.pitch = static_cast<uint8_t>(pitch);
                                             completed.velocity = note.velocity;
                                             completed.releaseVelocity = static_cast<float>(msg.getVelocity()) / 127.0f;
@@ -1228,6 +1257,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             }
         }
         midiInputQueueRead.store(midiReadPos + availablePktCount, std::memory_order_release);
+    }
+
+    if (midiCaptureActive && !activeMidiRecordSessions.empty()) {
+        const double previewBpm = currentSong < proj.songs.size()
+            ? proj.songs[currentSong].bpm
+            : 120.0;
+        publishLiveMidiPreview(previewBpm, playheadSample + numSamples);
     }
 
     if (isPlaying && currentSong < proj.songs.size()) {
@@ -1389,12 +1425,31 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
 
         const TrackDef* tDef = trackDefAt(t);
         const bool isArmed = tDef != nullptr && tDef->recordArmed;
-        const bool isMonitored = tDef != nullptr && tDef->inputMonitoring;
-        const bool isInstrument = (tDef != nullptr && tDef->kind == TrackKind::Instrument);
-        const bool shouldMonitorInput = isMonitored || (isArmed && (isRec || !isPlaying || isInstrument));
+        const bool isAudio = tDef != nullptr && tDef->kind == TrackKind::Audio;
+        const bool isMonitored = isAudio && tDef->inputMonitoring;
+        const MonitorSource monitorSource = isAudio
+            ? computeEffectiveMonitorSource(
+                monitorPhase, isArmed, isMonitored,
+                autoInputMonitoringState.load(std::memory_order_relaxed),
+                monitorBackendState.load(std::memory_order_relaxed))
+            : MonitorSource::Timeline;
+        const bool useInput = monitorSource == MonitorSource::Input
+            || monitorSource == MonitorSource::TimelinePlusInput;
+        const bool useTimeline = monitorSource == MonitorSource::Timeline
+            || monitorSource == MonitorSource::TimelinePlusInput;
+        const int64_t captureBegin = autoPunch
+            ? std::max<int64_t>(playheadSample, punchStart) : playheadSample;
+        const int64_t captureEnd = autoPunch
+            ? std::min<int64_t>(playheadSample + numSamples, punchEnd)
+            : playheadSample + numSamples;
+        const int captureOffset = static_cast<int>(
+            std::clamp<int64_t>(captureBegin - playheadSample, 0, numSamples));
+        const int captureLength = static_cast<int>(
+            std::clamp<int64_t>(captureEnd - captureBegin, 0, numSamples - captureOffset));
+        const bool captureInput = isAudio && isRec && isArmed && captureLength > 0;
 
-        if (shouldMonitorInput) {
-            if (!isInstrument && inputChannelData != nullptr && numInputChannels > 0 && tDef != nullptr) {
+        if ((useInput || captureInput) && inputChannelData != nullptr
+            && numInputChannels > 0 && tDef != nullptr) {
                 int chL = 0, chR = (tDef->channels == 1 ? -1 : 1);
                 audio_engine_detail::parseInputRouting(tDef->inputSource, tDef->channels, chL, chR);
                 if (chR < 0) {
@@ -1412,17 +1467,24 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                         scratch.copyFrom(1, 0, inputChannelData[chR], numSamples);
                     }
                 }
-            }
-            if (isRec && isArmed && !isInstrument && t < trackToAudioRecordSession.size()) {
+            if (captureInput && t < trackToAudioRecordSession.size()) {
                 const int sessIdx = trackToAudioRecordSession[t];
                 if (sessIdx >= 0) {
                     const float* pushPtrs[2] = {
-                        scratch.getReadPointer(0),
-                        scratch.getNumChannels() > 1 ? scratch.getReadPointer(1) : scratch.getReadPointer(0)
+                        scratch.getReadPointer(0, captureOffset),
+                        scratch.getNumChannels() > 1
+                            ? scratch.getReadPointer(1, captureOffset)
+                            : scratch.getReadPointer(0, captureOffset)
                     };
-                    audioRecordWorker.pushFrames(static_cast<size_t>(sessIdx), pushPtrs, numSamples);
+                    audioRecordWorker.pushFrames(
+                        static_cast<size_t>(sessIdx), pushPtrs, captureLength);
                 }
             }
+            if (!useInput)
+                scratch.clear();
+        }
+
+        if (!useTimeline) {
             continue;
         }
 
@@ -1484,7 +1546,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         const Region* reg = sounding[regionSlot];
         // The first region owns the track's scratch; the rest render into a
         // side buffer and are summed in at the end of the iteration.
-        const bool additive = regionSlot > 0;
+        const bool additive = monitorSource == MonitorSource::TimelinePlusInput
+            || regionSlot > 0;
         juce::AudioBuffer<float>& dst = additive ? regionMixScratch : scratch;
         if (additive) {
             if (regionMixScratch.getNumChannels() < 1

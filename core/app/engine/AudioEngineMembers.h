@@ -591,6 +591,11 @@
     std::array<int, 256> trackToAudioRecordSession{};
     std::atomic<int> activeInputMonitoringCount{0};
     std::atomic<int> activeRecordArmCount{0};
+    // UI focus is ephemeral device/controller state, not portable project data.
+    // It selects the default live-MIDI destination and the track auto-armed by
+    // the global Record button when nothing is already armed.
+    std::atomic<int> focusedTrackIndex{-1};
+    std::atomic<bool> focusedMidiMonitorActive{false};
     std::atomic<int64_t> recordStartSamplePos{0};
     std::atomic<bool> autoInputMonitoringState{true};
     std::atomic<bool> autoPunchEnabledState{false};
@@ -601,6 +606,7 @@
     std::atomic<double> lowLatencyLimitMsState{5.0};
 
     struct ActiveRecordedMidiNote {
+        uint64_t id = 0;
         uint8_t pitch = 60;
         float velocity = 0.8f;
         int64_t startSample = 0;
@@ -615,8 +621,32 @@
         std::array<ActiveRecordedMidiNote, 128> activeNotes{};
         std::array<MidiNote, kMaxSessionRecordedNotes> recordedNotes{};
         size_t recordedNoteCount = 0;
+        uint64_t nextNoteId = 1;
     };
     std::vector<TrackMidiRecordSession> activeMidiRecordSessions;
+
+    // Bounded audio-thread publication used by the UI's live MIDI regions.
+    // Strings remain message-thread-owned: entries identify a recording
+    // session by its stable index, which getLiveRecordingRegions() maps back
+    // to the session's track id after taking a consistent POD snapshot.
+    struct LiveMidiPreviewNoteFrame {
+        uint16_t sessionIndex = 0;
+        uint64_t id = 0;
+        uint8_t pitch = 60;
+        float velocity = 0.8f;
+        double startBeats = 0.0;
+        double durationBeats = 0.0;
+        bool active = false;
+    };
+    struct LiveMidiPreviewFrame {
+        static constexpr size_t kMaxNotes = 512;
+        uint64_t generation = 0;
+        uint32_t noteCount = 0;
+        std::array<LiveMidiPreviewNoteFrame, kMaxNotes> notes{};
+    };
+    SeqLock<LiveMidiPreviewFrame> liveMidiPreviewFrame;
+    std::atomic<uint64_t> liveMidiPreviewGeneration{0};
+    void publishLiveMidiPreview(double bpm, int64_t playheadSample);
 
     // Lock-free incoming MIDI queue for real-time instrument playback & MIDI recording
     struct QueuedMidiPacket {

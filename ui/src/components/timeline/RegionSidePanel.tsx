@@ -1,7 +1,7 @@
 import { EmptyState, Separator, Switch } from "@heroui/react";
-import { AudioWaveform, Blend, Repeat, Rewind } from "lucide-react";
+import { AudioWaveform, Blend, Mic, Music, Repeat, Rewind } from "lucide-react";
 import { useMemo, useRef } from "react";
-import { builder } from "../../lib/state/api";
+import { builder, mixer } from "../../lib/state/api";
 import { createEditGesture } from "../../lib/interaction/editGesture";
 import type { RegionRow, SongRow, TrackRow } from "../../lib/state/types";
 import { Button, Select, ToggleButton } from "../ui";
@@ -73,6 +73,8 @@ export function RegionSidePanel({
 
   const trackName =
     tracks.find((t) => t.id === region?.trackId)?.name ?? "Track";
+  const trackIndex = tracks.findIndex((t) => t.id === region?.trackId);
+  const track = trackIndex >= 0 ? tracks[trackIndex] : null;
 
   /**
    * Every write from this panel, tagged so a slider drag is one undo step.
@@ -90,12 +92,18 @@ export function RegionSidePanel({
     >,
   ) => {
     if (!region) return;
-    void builder.regionUpdate({
-      songIndex,
-      regionId: region.id,
-      gestureId: gesture.id(),
-      ...fields,
-    });
+    const gestureId = gesture.id();
+    const targets = selectedRegionKeys
+      .map((key) => lookupRegion(songs, key))
+      .filter((value): value is NonNullable<typeof value> => value !== null);
+    for (const target of targets.length > 0 ? targets : [hit!]) {
+      void builder.regionUpdate({
+        songIndex: target.songIndex,
+        regionId: target.region.id,
+        gestureId,
+        ...fields,
+      });
+    }
   };
 
   /**
@@ -201,7 +209,7 @@ export function RegionSidePanel({
 
   return (
     <SidePanelShell
-      title="Region"
+      title="Track & Region"
       icon={<AudioWaveform size={13} />}
       storageKey="resostage.timeline.regionPanelOpen"
       hasSelection={!!region}
@@ -211,7 +219,7 @@ export function RegionSidePanel({
         {!region && (
           <EmptyState className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center text-xs">
             <AudioWaveform size={28} strokeWidth={1} />
-            <span>Select a region to edit its gain, fades and loop</span>
+            <span>Default Settings · select a region to edit it</span>
           </EmptyState>
         )}
 
@@ -230,6 +238,108 @@ export function RegionSidePanel({
             </div>
 
             <Separator />
+
+            <div className="flex items-center gap-2">
+              {track?.kind === "audio" ? (
+                <Mic size={13} className="text-muted" />
+              ) : (
+                <Music size={13} className="text-muted" />
+              )}
+              <span className="text-[11px] font-semibold">
+                Track · {trackName}
+              </span>
+            </div>
+            {track && trackIndex >= 0 && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
+                    Mute
+                    <Switch
+                      aria-label="Mute track"
+                      isSelected={track.mute}
+                      onChange={(value) =>
+                        void mixer.setTrackMute(trackIndex, value)
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
+                    Solo
+                    <Switch
+                      aria-label="Solo track"
+                      isSelected={track.solo}
+                      onChange={(value) =>
+                        void mixer.setTrackSolo(trackIndex, value)
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
+                    Record
+                    <Switch
+                      aria-label="Record-enable track"
+                      isSelected={track.recordArmed ?? false}
+                      onChange={(value) =>
+                        void mixer.setTrackRecordArm(trackIndex, value)
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
+                    Monitor
+                    <Switch
+                      aria-label="Monitor track input"
+                      isSelected={track.inputMonitoring ?? false}
+                      onChange={(value) =>
+                        void mixer.setTrackInputMonitor(trackIndex, value)
+                      }
+                    />
+                  </div>
+                </div>
+                {track.inputSource && (
+                  <div className="flex items-center justify-between text-[10px] text-muted">
+                    <span>Input</span>
+                    <span className="max-w-36 truncate text-foreground">
+                      {track.inputSource}
+                    </span>
+                  </div>
+                )}
+                <LabeledSlider
+                  label="Track gain"
+                  defaultValue={0}
+                  value={track.gainDb}
+                  min={-60}
+                  max={12}
+                  step={0.1}
+                  format={fmtDb}
+                  onChange={(value) =>
+                    void mixer.setTrackGain(trackIndex, value)
+                  }
+                />
+                <LabeledSlider
+                  label="Pan"
+                  defaultValue={0}
+                  value={track.pan}
+                  min={-1}
+                  max={1}
+                  step={0.01}
+                  format={(value) =>
+                    value === 0
+                      ? "C"
+                      : `${value < 0 ? "L" : "R"}${Math.round(Math.abs(value) * 100)}`
+                  }
+                  onChange={(value) =>
+                    void mixer.setTrackPan(trackIndex, value)
+                  }
+                />
+              </>
+            )}
+
+            <Separator />
+
+            <div className="flex items-center gap-2">
+              <AudioWaveform size={13} className="text-muted" />
+              <span className="text-[11px] font-semibold">
+                Region · Audio
+              </span>
+            </div>
 
             <LabeledSlider
               label="Clip gain"

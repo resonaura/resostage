@@ -443,7 +443,7 @@ bool isMixerCommandPath(const char* path) {
     static const char* const kPaths[] = {
         "/api/v1/track/gain", "/api/v1/track/pan",  "/api/v1/track/mute", "/api/v1/track/solo",
         "/api/v1/track/solo-safe",
-        "/api/v1/track/mono", "/api/v1/track/arm",  "/api/v1/track/monitor",
+        "/api/v1/track/mono", "/api/v1/track/arm",  "/api/v1/track/monitor", "/api/v1/track/focus",
         "/api/v1/bus/gain",   "/api/v1/bus/pan",    "/api/v1/bus/mute",   "/api/v1/bus/solo",
         "/api/v1/bus/solo-safe",
         "/api/v1/click/solo", "/api/v1/click/solo-safe",
@@ -463,6 +463,7 @@ WebCommandKind mixerCommandKindForPath(const char* path) {
     if (std::strcmp(path, "/api/v1/track/mono") == 0) return WebCommandKind::SetTrackMono;
     if (std::strcmp(path, "/api/v1/track/arm") == 0) return WebCommandKind::SetTrackRecordArm;
     if (std::strcmp(path, "/api/v1/track/monitor") == 0) return WebCommandKind::SetTrackInputMonitor;
+    if (std::strcmp(path, "/api/v1/track/focus") == 0) return WebCommandKind::SetFocusedTrack;
     if (std::strcmp(path, "/api/v1/bus/gain") == 0) return WebCommandKind::SetBusGain;
     if (std::strcmp(path, "/api/v1/bus/pan") == 0) return WebCommandKind::SetBusPan;
     if (std::strcmp(path, "/api/v1/bus/mute") == 0) return WebCommandKind::SetBusMute;
@@ -1488,6 +1489,18 @@ std::string WebServer::buildStateJson(const char* view) const {
         wr.capturedFrames = reg.capturedFrames;
         wr.channelCount = reg.channelCount;
         wr.state = static_cast<uint8_t>(reg.state);
+        wr.kind = static_cast<uint8_t>(reg.kind);
+        wr.midiNotes.reserve(reg.midiNotes.size());
+        for (const auto& note : reg.midiNotes) {
+            wire::WLiveRecordingRegion::MidiNote wn;
+            wn.id = note.id;
+            wn.pitch = note.pitch;
+            wn.startBeats = note.startBeats;
+            wn.durationBeats = note.durationBeats;
+            wn.velocity = note.velocity;
+            wn.active = note.active;
+            wr.midiNotes.push_back(wn);
+        }
         wire.liveRecordings.push_back(std::move(wr));
     }
     wire.hardwareAlarm = snap.hardwareAlarm;

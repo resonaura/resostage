@@ -2146,11 +2146,16 @@ ipcMain.on("haptic-feedback", (_event, pattern: unknown) => {
 });
 
 // Holds the currently open native context menu and its resolver so V8 cannot
-// garbage-collect the Menu / MenuItem instances before the click action is dispatched.
+// garbage-collect the Menu / MenuItem instances before the click action is
+// dispatched.  Both pending handles are tracked explicitly so done() and
+// session replacement can cancel them deterministically — no stray timers.
 let activeContextMenuSession: {
   menu: Menu;
   done: (id: string | null) => void;
-  dismissTimer: NodeJS.Timeout | null;
+  /** Tracked setImmediate handle from the dismiss cascade. */
+  immediate: NodeJS.Immediate | null;
+  /** Tracked setTimeout handle from the dismiss cascade. */
+  timer: NodeJS.Timeout | null;
 } | null = null;
 
 // SPA → native context menu (mixer track menus, etc.). Returns chosen id
@@ -2185,8 +2190,11 @@ ipcMain.handle(
   ): Promise<string | null> => {
     // If a previous context menu was somehow still pending, cleanly settle it first.
     if (activeContextMenuSession) {
-      if (activeContextMenuSession.dismissTimer) {
-        clearTimeout(activeContextMenuSession.dismissTimer);
+      if (activeContextMenuSession.immediate) {
+        clearImmediate(activeContextMenuSession.immediate);
+      }
+      if (activeContextMenuSession.timer) {
+        clearTimeout(activeContextMenuSession.timer);
       }
       activeContextMenuSession.done(null);
       activeContextMenuSession = null;
@@ -2197,11 +2205,16 @@ ipcMain.handle(
     return await new Promise((resolve) => {
       let settled = false;
       const done = (id: string | null) => {
-        if (activeContextMenuSession?.dismissTimer) {
-          clearTimeout(activeContextMenuSession.dismissTimer);
-          activeContextMenuSession.dismissTimer = null;
-        }
+        // Cancel every pending cascade handle so nothing fires after settle.
         if (activeContextMenuSession?.menu === menu) {
+          if (activeContextMenuSession.immediate) {
+            clearImmediate(activeContextMenuSession.immediate);
+            activeContextMenuSession.immediate = null;
+          }
+          if (activeContextMenuSession.timer) {
+            clearTimeout(activeContextMenuSession.timer);
+            activeContextMenuSession.timer = null;
+          }
           activeContextMenuSession = null;
         }
         if (settled) return;
@@ -2237,7 +2250,8 @@ ipcMain.handle(
       activeContextMenuSession = {
         menu,
         done,
-        dismissTimer: null,
+        immediate: null,
+        timer: null,
       };
 
       menu.popup({
@@ -2245,14 +2259,37 @@ ipcMain.handle(
         x: typeof payload.x === "number" ? Math.round(payload.x) : undefined,
         y: typeof payload.y === "number" ? Math.round(payload.y) : undefined,
         callback: () => {
-          // macOS menuDidClose: can fire before NSMenuItem click action dispatch.
-          // Keep menu alive and give ample time (600ms) for Cocoa to dispatch
-          // the MenuItem click action if an item was selected, without racing
-          // high-rate UDP telemetry packets or event loop tasks.
-          const timer = setTimeout(() => done(null), 600);
-          if (activeContextMenuSession?.menu === menu) {
-            activeContextMenuSession.dismissTimer = timer;
-          }
+          // macOS menuDidClose: fires before the NSMenuItem click action is
+          // dispatched through the Cocoa run-loop.  A fixed timeout (the old
+          // 600 ms approach) races the Node/libuv event-loop: under heavy
+          // load (high-rate UDP telemetry, rapid React renders) the timer
+          // could fire before Cocoa dispatched the action, resolving the
+          // promise with `null` and swallowing the click.
+          //
+          // Instead we use exactly two tracked handles:
+          //
+          //   1. setImmediate — libuv "check" phase, runs after I/O callbacks.
+          //      The Cocoa action integrates via libuv I/O, so in the common
+          //      case the click handler has already called done(id) by now and
+          //      the setImmediate callback exits on the `settled` guard.
+          //
+          //   2. setTimeout(150) — fallback for heavy event-loop contention.
+          //      Created only if setImmediate fires and settled is still false.
+          //
+          // Both handles are stored on the session and cancelled
+          // deterministically by done() — no untracked timers can linger.
+          const session = activeContextMenuSession;
+          if (!session || session.menu !== menu) return;
+
+          session.immediate = setImmediate(() => {
+            session.immediate = null;
+            if (settled) return;
+            session.timer = setTimeout(() => {
+              session.timer = null;
+              if (settled) return;
+              done(null);
+            }, 150);
+          });
         },
       });
     });

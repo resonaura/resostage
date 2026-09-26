@@ -54,6 +54,7 @@ enum class WebCommandKind : uint8_t {
     SetTrackMono,
     SetTrackRecordArm,
     SetTrackInputMonitor,
+    SetFocusedTrack,
     SetTrackInputSource,
     SetTrackTrim,
     SetAutoInputMonitoring,

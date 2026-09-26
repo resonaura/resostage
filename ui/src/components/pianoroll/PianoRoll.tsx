@@ -19,6 +19,8 @@ export function PianoRoll({
   onSelectTrack,
   regions,
   onSelectRegion,
+  selectedRegionIds,
+  onToggleRegionVisible,
   trackColor,
   playheadBeats,
   onNotesChange,
@@ -266,6 +268,48 @@ export function PianoRoll({
                   </option>
                 ))}
               </select>
+              {selectedRegionIds && onToggleRegionVisible && (
+                <details className="relative">
+                  <summary className="cursor-pointer list-none rounded border border-default/30 bg-surface/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70 hover:border-accent/40">
+                    {selectedRegionIds.length} visible
+                  </summary>
+                  <div className="absolute left-0 top-full z-50 mt-1 min-w-52 rounded-md border border-default/40 bg-background/95 p-2 shadow-xl backdrop-blur">
+                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground/50">
+                      Visible MIDI regions
+                    </div>
+                    {regions.map((candidate) => {
+                      const checked = selectedRegionIds.includes(candidate.id);
+                      const isPrimary = candidate.id === region.id;
+                      return (
+                        <label
+                          key={candidate.id}
+                          className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-default/15"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={isPrimary}
+                            onChange={(event) =>
+                              onToggleRegionVisible(
+                                candidate.id,
+                                event.target.checked,
+                              )
+                            }
+                          />
+                          <span className="min-w-0 flex-1 truncate text-[11px]">
+                            {candidate.name || candidate.id}
+                          </span>
+                          {isPrimary && (
+                            <span className="text-[9px] font-semibold text-accent">
+                              EDIT
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </details>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-1.5">

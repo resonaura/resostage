@@ -145,6 +145,7 @@ export function Timeline({
   readOnly = false,
   selectedTrackId,
   onSelectTrackId,
+  onOpenMidiRegion,
 }: {
   state: WebUiState;
   peaks: PeaksResponse | null;
@@ -155,6 +156,7 @@ export function Timeline({
   readOnly?: boolean;
   selectedTrackId?: string | null;
   onSelectTrackId?: (id: string | null) => void;
+  onOpenMidiRegion?: (trackId: string, regionId: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -496,6 +498,34 @@ export function Timeline({
   const [selectedRegionKeys, setSelectedRegionKeys] = useState<RegionSelKey[]>(
     [],
   );
+  const recordingWasActiveRef = useRef(false);
+  const recordingBaselineRef = useRef<Set<RegionSelKey>>(new Set());
+  const awaitingRecordedRegionsRef = useRef(false);
+
+  // Recording completion is a project mutation arriving from Core, not a UI
+  // gesture. Remember the arrangement at Record start and select the newly
+  // committed audio regions when the structural snapshot catches up; do not
+  // open an editor automatically.
+  useEffect(() => {
+    const recording = state.recording ?? false;
+    if (recording && !recordingWasActiveRef.current) {
+      recordingBaselineRef.current = new Set(allRegionSelKeys(state.songs));
+      awaitingRecordedRegionsRef.current = false;
+    } else if (!recording && recordingWasActiveRef.current) {
+      awaitingRecordedRegionsRef.current = true;
+    }
+    recordingWasActiveRef.current = recording;
+
+    if (!recording && awaitingRecordedRegionsRef.current) {
+      const added = allRegionSelKeys(state.songs).filter(
+        (key) => !recordingBaselineRef.current.has(key),
+      );
+      if (added.length > 0) {
+        setSelectedRegionKeys(added);
+        awaitingRecordedRegionsRef.current = false;
+      }
+    }
+  }, [state.recording, state.songs]);
   // Clipboards live in a module, not in this component -- see
   // timelineClipboard.ts: Timeline unmounts on a tab switch, and a clipboard
   // that empties because you looked at the Player is not a clipboard.
@@ -2613,6 +2643,7 @@ export function Timeline({
                       selectRegion={selectRegion}
                       startRegionDrag={startRegionDrag}
                       onRegionContextMenu={setRegionContextMenu}
+                      onOpenMidiRegion={onOpenMidiRegion}
                     />
                   )}
                 </div>

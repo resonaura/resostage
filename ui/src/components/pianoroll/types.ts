@@ -72,6 +72,8 @@ export interface PianoRollProps {
   onSelectTrack?: (trackId: string) => void;
   regions?: MidiRegionRow[];
   onSelectRegion?: (regionId: string) => void;
+  selectedRegionIds?: string[];
+  onToggleRegionVisible?: (regionId: string, visible: boolean) => void;
   trackColor?: string;
   playheadBeats?: number;
   isPlaying?: boolean;

@@ -181,17 +181,23 @@ void AudioEngine::refreshMonitoringAndArmCounts() {
     if (!projectLoaded) {
         activeInputMonitoringCount.store(0, std::memory_order_release);
         activeRecordArmCount.store(0, std::memory_order_release);
+        focusedMidiMonitorActive.store(false, std::memory_order_release);
         return;
     }
     const auto& proj = loader.project();
     int monitors = 0;
     int arms = 0;
     for (const auto& track : proj.tracks) {
-        if (track.inputMonitoring) ++monitors;
-        if (track.recordArmed) ++arms;
+        if (trackSupportsInputMonitoring(track) && track.inputMonitoring) ++monitors;
+        if (trackSupportsRecordArm(track) && track.recordArmed) ++arms;
     }
     activeInputMonitoringCount.store(monitors, std::memory_order_release);
     activeRecordArmCount.store(arms, std::memory_order_release);
+    const int focused = focusedTrackIndex.load(std::memory_order_relaxed);
+    const bool focusedMidi = focused >= 0
+        && focused < static_cast<int>(proj.tracks.size())
+        && isMidiInputTrack(proj.tracks[static_cast<size_t>(focused)].kind);
+    focusedMidiMonitorActive.store(focusedMidi, std::memory_order_release);
 }
 
 void AudioEngine::publishRoutingSnapshot() {
@@ -373,7 +379,7 @@ void AudioEngine::setTrackRecordArmed(size_t songIndex, size_t trackIndex, bool 
     TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
-    t->recordArmed = armed;
+    t->recordArmed = trackSupportsRecordArm(*t) && armed;
     publishRoutingSnapshot();
 }
 
@@ -382,8 +388,26 @@ void AudioEngine::setTrackInputMonitoring(size_t songIndex, size_t trackIndex, b
     TrackDef* t = trackDefAt(trackIndex);
     if (t == nullptr)
         return;
-    t->inputMonitoring = monitoring;
+    // I is an explicit per-track live-input subscription. Focus gives one
+    // MIDI track automatic auditioning, while I permits any additional audio
+    // and MIDI/instrument tracks to monitor simultaneously.
+    t->inputMonitoring = trackSupportsInputMonitoring(*t) && monitoring;
     publishRoutingSnapshot();
+}
+
+void AudioEngine::setFocusedTrack(int trackIndex) noexcept {
+    const int count = static_cast<int>(trackCount());
+    const int validIndex = trackIndex >= 0 && trackIndex < count ? trackIndex : -1;
+    focusedTrackIndex.store(validIndex, std::memory_order_release);
+    const TrackDef* focused = validIndex >= 0
+        ? trackDefAt(static_cast<size_t>(validIndex)) : nullptr;
+    focusedMidiMonitorActive.store(
+        focused != nullptr && isMidiInputTrack(focused->kind),
+        std::memory_order_release);
+}
+
+int AudioEngine::focusedTrack() const noexcept {
+    return focusedTrackIndex.load(std::memory_order_acquire);
 }
 
 void AudioEngine::setTrackInputSource(size_t songIndex, size_t trackIndex, const std::string& inputSource, int midiChannel, const std::string& midiDevice) {
@@ -394,6 +418,10 @@ void AudioEngine::setTrackInputSource(size_t songIndex, size_t trackIndex, const
     t->inputSource = inputSource;
     t->midiInputChannel = midiChannel;
     t->midiInputDevice = midiDevice;
+    if (!trackSupportsRecordArm(*t))
+        t->recordArmed = false;
+    if (!trackSupportsInputMonitoring(*t))
+        t->inputMonitoring = false;
     publishRoutingSnapshot();
 }
 
@@ -416,6 +444,8 @@ bool AudioEngine::isAutoInputMonitoring() const noexcept {
 }
 
 void AudioEngine::setAutoPunch(bool enabled, int64_t startSample, int64_t endSample) {
+    if (endSample < startSample)
+        std::swap(startSample, endSample);
     autoPunchStartSample.store(startSample, std::memory_order_release);
     autoPunchEndSample.store(endSample, std::memory_order_release);
     autoPunchEnabledState.store(enabled, std::memory_order_release);

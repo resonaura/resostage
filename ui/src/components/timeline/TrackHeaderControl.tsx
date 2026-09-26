@@ -46,6 +46,15 @@ export const TrackHeaderControl = memo(
     };
 
     const isDimmed = anySolo && !track.solo && !track.soloSafe;
+    const isMidiInputTrack =
+      track.kind === "instrument" ||
+      track.kind === "midi" ||
+      track.kind === "externalMidi";
+    const hasAudioInput =
+      (track.kind === "audio" || track.kind == null) &&
+      track.inputSource !== "none";
+    const canRecord = hasAudioInput || isMidiInputTrack;
+    const canMonitorInput = hasAudioInput || isMidiInputTrack;
     const h = laneHeightPx(verticalZoom);
     // Density tiers keyed to lane height (LANE_HEIGHT=56 at zoom 1).
     const showVol = h >= 48;
@@ -182,16 +191,33 @@ export const TrackHeaderControl = memo(
         size="xs"
         tone="danger-soft"
         isSelected={track.recordArmed ?? false}
-        onChange={() => void mixer.setTrackRecordArm(index, !track.recordArmed)}
+        onChange={() => {
+          onSelect?.();
+          void mixer.setTrackRecordArm(index, !track.recordArmed);
+        }}
         className={
           track.recordArmed
             ? isRecording
               ? "bg-(--rs-record) text-white shadow-[0_0_8px_rgba(255,69,58,0.7)] font-black"
               : "rs-recording-blink font-black"
-            : undefined
+            : isSelected
+              ? "font-black"
+              : undefined
         }
-        style={{ height: btn, width: btn, fontSize: btnFont }}
-        aria-label="Record Arm"
+        style={{
+          height: btn,
+          width: btn,
+          fontSize: btnFont,
+          color:
+            isSelected && !track.recordArmed ? "var(--rs-record)" : undefined,
+        }}
+        aria-label={
+          track.recordArmed
+            ? "Record armed"
+            : isSelected
+              ? "Focused track — click to record-arm"
+              : "Record arm"
+        }
       >
         R
       </ToggleButton>
@@ -202,16 +228,35 @@ export const TrackHeaderControl = memo(
         size="xs"
         tone="warning-soft"
         isSelected={track.inputMonitoring ?? false}
-        onChange={() =>
-          void mixer.setTrackInputMonitor(index, !track.inputMonitoring)
-        }
+        onChange={() => {
+          onSelect?.();
+          void mixer.setTrackInputMonitor(index, !track.inputMonitoring);
+        }}
         className={
           track.inputMonitoring
             ? "bg-(--rs-monitor) text-black font-black shadow-[0_0_8px_rgba(255,159,10,0.5)]"
-            : undefined
+            : isSelected
+              ? "font-black"
+              : undefined
         }
-        style={{ height: btn, width: btn, fontSize: btnFont }}
-        aria-label="Input Monitoring"
+        style={{
+          height: btn,
+          width: btn,
+          fontSize: btnFont,
+          color:
+            isSelected && !track.inputMonitoring
+              ? "var(--rs-monitor)"
+              : undefined,
+        }}
+        aria-label={
+          track.inputMonitoring
+            ? "Input monitoring enabled"
+            : isSelected && isMidiInputTrack
+              ? "Focused MIDI input is monitored automatically; click to keep monitoring with other tracks"
+              : isSelected
+                ? "Focused track — click to monitor input"
+                : "Input monitoring"
+        }
       >
         I
       </ToggleButton>
@@ -297,8 +342,8 @@ export const TrackHeaderControl = memo(
             {/* Bottom row: Ø, R, I, Pan, Volume Fader & dB */}
             <div className="flex shrink-0 items-center gap-1">
               {phaseBtn}
-              {recBtn}
-              {monBtn}
+              {canRecord && recBtn}
+              {canMonitorInput && monBtn}
               {panControl}
               <div className="flex min-w-0 flex-1 items-center gap-1">
                 <MeterFader
@@ -408,8 +453,8 @@ export const TrackHeaderControl = memo(
             <div className="ml-auto flex shrink-0 items-center gap-1">
               {panControl}
               {h >= 36 && phaseBtn}
-              {recBtn}
-              {h >= 36 && monBtn}
+              {canRecord && recBtn}
+              {h >= 36 && canMonitorInput && monBtn}
               {muteBtn}
               {soloBtn}
             </div>

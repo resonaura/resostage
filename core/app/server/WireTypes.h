@@ -184,6 +184,16 @@ struct WLiveRecordingRegion {
     int64_t capturedFrames = 0;
     uint32_t channelCount = 2;
     uint8_t state = 1;
+    uint8_t kind = 0;
+    struct MidiNote {
+        uint64_t id = 0;
+        int pitch = 60;
+        double startBeats = 0.0;
+        double durationBeats = 0.0;
+        double velocity = 0.8;
+        bool active = false;
+    };
+    std::vector<MidiNote> midiNotes;
 };
 
 struct WPeakPair {

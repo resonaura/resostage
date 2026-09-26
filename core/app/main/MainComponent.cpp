@@ -1174,6 +1174,9 @@ void MainComponent::drainWebCommands() {
                 engine.projectHistoryCommitEdit();
                 break;
             }
+            case WebCommandKind::SetFocusedTrack:
+                engine.setFocusedTrack(cmd.arg);
+                break;
             case WebCommandKind::SetTrackInputSource: {
                 wire::WTrackInputSourcePayload payload;
                 if (!glz::read_json(payload, cmd.json) && payload.trackIndex >= 0) {

@@ -434,6 +434,8 @@ export const mixer = {
     post("/api/v1/track/arm", { index, value }),
   setTrackInputMonitor: (index: number, value: boolean) =>
     post("/api/v1/track/monitor", { index, value }),
+  setFocusedTrack: (index: number) =>
+    post("/api/v1/track/focus", { index, value: true }),
   setTrackInputSource: (
     trackIndex: number,
     inputSource: string,

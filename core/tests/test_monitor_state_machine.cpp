@@ -1,9 +1,37 @@
 #include "doctest.h"
 #include "audio/recording/MonitorSourceMux.h"
+#include "project/ProjectSchema.h"
 
 using namespace resostage;
 
 TEST_SUITE("MonitorSourceMux") {
+    TEST_CASE("record and monitor controls follow track input capabilities") {
+        TrackDef audio;
+        audio.kind = TrackKind::Audio;
+        audio.inputSource = "none";
+        CHECK_FALSE(trackSupportsRecordArm(audio));
+        CHECK_FALSE(trackSupportsInputMonitoring(audio));
+
+        audio.inputSource = "in:1";
+        CHECK(trackSupportsRecordArm(audio));
+        CHECK(trackSupportsInputMonitoring(audio));
+
+        TrackDef instrument;
+        instrument.kind = TrackKind::Instrument;
+        CHECK(trackSupportsRecordArm(instrument));
+        CHECK(trackSupportsInputMonitoring(instrument));
+
+        TrackDef midi;
+        midi.kind = TrackKind::MIDI;
+        CHECK(trackSupportsRecordArm(midi));
+        CHECK(trackSupportsInputMonitoring(midi));
+
+        TrackDef folder;
+        folder.kind = TrackKind::Folder;
+        CHECK_FALSE(trackSupportsRecordArm(folder));
+        CHECK_FALSE(trackSupportsInputMonitoring(folder));
+    }
+
     TEST_CASE("Auto Input Monitoring normative truth table") {
         // R=off, I=off
         CHECK(computeEffectiveMonitorSource(TransportMonitorPhase::Stopped, false, false, true) == MonitorSource::Silence);

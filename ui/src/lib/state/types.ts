@@ -857,6 +857,16 @@ export interface LiveRecordingRegion {
   capturedFrames: number;
   channelCount: number;
   state: number;
+  /** 0 = audio, 1 = MIDI. */
+  kind?: number;
+  midiNotes?: Array<{
+    id: number;
+    pitch: number;
+    startBeats: number;
+    durationBeats: number;
+    velocity: number;
+    active: boolean;
+  }>;
 }
 
 export interface LivePeakPair {
