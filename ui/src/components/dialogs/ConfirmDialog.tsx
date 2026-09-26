@@ -59,7 +59,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="rs-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 select-none"
+      className="rs-modal-backdrop fixed inset-0 z-9999 flex items-center justify-center p-4 select-none"
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       role="dialog"
       aria-modal="true"

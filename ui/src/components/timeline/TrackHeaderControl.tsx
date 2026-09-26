@@ -91,7 +91,7 @@ export const TrackHeaderControl = memo(
         onClick={() => void mixer.setTrackMute(index, !track.mute)}
         className={`flex items-center justify-center rounded border font-bold transition-all select-none ${
           track.mute
-            ? "bg-[var(--rs-mute)] text-white border-[var(--rs-mute)] shadow-[0_0_6px_rgba(0,122,255,0.5)] font-black"
+            ? "bg-(--rs-mute) text-white border-(--rs-mute) shadow-[0_0_6px_rgba(0,122,255,0.5)] font-black"
             : "bg-surface/60 text-foreground/75 border-default/30 hover:bg-surface hover:text-foreground"
         } ${isDimmed && !track.mute ? TOGGLE_BLINK_ACCENT : ""}`}
         style={{ height: btn, width: btn, fontSize: btnFont }}
@@ -119,7 +119,7 @@ export const TrackHeaderControl = memo(
         }}
         className={`relative flex items-center justify-center rounded border font-bold transition-all select-none ${
           track.solo
-            ? "bg-[var(--rs-solo)] text-black border-[var(--rs-solo)] shadow-[0_0_6px_rgba(255,214,10,0.5)] font-black"
+            ? "bg-(--rs-solo) text-black border-(--rs-solo) shadow-[0_0_6px_rgba(255,214,10,0.5)] font-black"
             : "bg-surface/60 text-foreground/75 border-default/30 hover:bg-surface hover:text-foreground"
         } ${track.soloSafe ? "ring-1 ring-danger ring-inset" : ""}`}
         style={{ height: btn, width: btn, fontSize: btnFont }}
@@ -162,7 +162,7 @@ export const TrackHeaderControl = memo(
         }}
         className={`flex items-center justify-center rounded border font-bold transition-all select-none ${
           isPolActive
-            ? "border-[var(--rs-phase)]/70 bg-[var(--rs-phase)]/20 text-[var(--rs-phase)] font-black shadow-[0_0_6px_rgba(48,209,88,0.4)]"
+            ? "border-(--rs-phase)/70 bg-(--rs-phase)/20 text-(--rs-phase) font-black shadow-[0_0_6px_rgba(48,209,88,0.4)]"
             : "border-default/30 bg-surface/60 text-foreground/50 hover:bg-surface hover:text-foreground"
         }`}
         style={{ height: btn, width: btn, fontSize: Math.max(7, btnFont - 1) }}
@@ -186,7 +186,7 @@ export const TrackHeaderControl = memo(
         className={
           track.recordArmed
             ? isRecording
-              ? "bg-[var(--rs-record)] text-white shadow-[0_0_8px_rgba(255,69,58,0.7)] font-black"
+              ? "bg-(--rs-record) text-white shadow-[0_0_8px_rgba(255,69,58,0.7)] font-black"
               : "rs-recording-blink font-black"
             : undefined
         }
@@ -207,7 +207,7 @@ export const TrackHeaderControl = memo(
         }
         className={
           track.inputMonitoring
-            ? "bg-[var(--rs-monitor)] text-black font-black shadow-[0_0_8px_rgba(255,159,10,0.5)]"
+            ? "bg-(--rs-monitor) text-black font-black shadow-[0_0_8px_rgba(255,159,10,0.5)]"
             : undefined
         }
         style={{ height: btn, width: btn, fontSize: btnFont }}

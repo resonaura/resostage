@@ -380,7 +380,7 @@ export function SectionMarkerLane({
   return (
     <div
       ref={laneRef}
-      className={`relative z-[5] shrink-0 border-b border-default/30 bg-surface/20 touch-none ${
+      className={`relative z-5 shrink-0 border-b border-default/30 bg-surface/20 touch-none ${
         readOnly ? "" : "cursor-context-menu"
       }`}
       style={{
@@ -454,7 +454,7 @@ export function SectionMarkerLane({
             // not be created at all. Only the visible chrome takes pointers.
             <div
               key={`${i}:${sec.id}`}
-              className="pointer-events-none absolute top-0 bottom-0 z-[1] flex items-center overflow-hidden"
+              className="pointer-events-none absolute top-0 bottom-0 z-1 flex items-center overflow-hidden"
               style={{
                 // Shifted left by the grab slop and padded back by it, so the
                 // line still lands exactly on `left` and the chip still clips

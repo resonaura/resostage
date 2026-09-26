@@ -37,13 +37,13 @@ export function LongImportPrompt({
   return createPortal(
     <>
       <div
-        className="rs-modal-backdrop fixed inset-0 z-[9998]"
+        className="rs-modal-backdrop fixed inset-0 z-9998"
         onClick={onDismiss}
       />
       <div
         role="dialog"
         aria-label="Imported audio is longer than the song"
-        className="rs-modal-surface fixed left-1/2 top-1/2 z-[9999] w-[26rem] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-default/40 p-4 shadow-2xl"
+        className="rs-modal-surface fixed left-1/2 top-1/2 z-9999 w-104 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-default/40 p-4 shadow-2xl"
       >
         <div className="text-sm font-semibold">
           This audio runs past the end of the song

@@ -904,7 +904,7 @@ export default function App() {
       )}
 
       {toastNotifications.length > 0 && (
-        <div className="fixed bottom-5 right-5 z-[300] flex flex-col gap-2.5 max-w-sm pointer-events-none">
+        <div className="fixed bottom-5 right-5 z-300 flex flex-col gap-2.5 max-w-sm pointer-events-none">
           {toastNotifications.map((toast) => (
             <div
               key={toast.id}
@@ -954,7 +954,7 @@ function QuitOverlay({ open }: { open: boolean }) {
 
   return (
     <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-background/50 backdrop-blur-xl transition-all duration-300 animate-in fade-in ease-out pointer-events-auto"
+      className="fixed inset-0 z-10000 flex items-center justify-center bg-background/50 backdrop-blur-xl transition-all duration-300 animate-in fade-in ease-out pointer-events-auto"
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
     >
       <div className="flex flex-col items-center gap-4 text-foreground select-none">

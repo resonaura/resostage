@@ -150,7 +150,7 @@ export function PluginInsertSlots({
         </div>
 
         <div
-          className={`max-h-[6rem] w-full rounded-md border border-default/30 bg-background/60 p-0.5 ${
+          className={`max-h-24 w-full rounded-md border border-default/30 bg-background/60 p-0.5 ${
             slots.length > 3 ? "overflow-y-auto" : "overflow-hidden"
           }`}
           aria-label={`Audio FX for ${stripName}`}
@@ -179,7 +179,7 @@ export function PluginInsertSlots({
                   }
                 }}
                 onContextMenu={(event) => openMenu(event, slot, index)}
-                className={`group/slot relative mb-0.5 flex h-[1.15rem] w-full items-center rounded-[4px] border px-1 text-left text-[8px] leading-none transition-colors last:mb-0 ${
+                className={`group/slot relative mb-0.5 flex h-[1.15rem] w-full items-center rounded-lg border px-1 text-left text-[8px] leading-none transition-colors last:mb-0 ${
                   slot
                     ? slot.bypassed
                       ? "border-default/20 bg-default/10 text-foreground/35"

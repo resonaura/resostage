@@ -744,8 +744,8 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
                 key={g.id}
                 className={
                   compact
-                    ? "flex h-[88px] w-[104px] shrink-0 items-center"
-                    : "flex h-full w-[176px] shrink-0 items-center"
+                    ? "flex h-22 w-26 shrink-0 items-center"
+                    : "flex h-full w-44 shrink-0 items-center"
                 }
               >
                 <VUMeter
@@ -787,13 +787,13 @@ const BusMetersPanelInner = memo(function BusMetersPanel({
                 key={g.id}
                 className={
                   compact
-                    ? "flex h-[104px] w-[68px] shrink-0 flex-col items-center justify-between gap-0.5"
+                    ? "flex h-26 w-17 shrink-0 flex-col items-center justify-between gap-0.5"
                     : "flex h-full flex-col items-center justify-between gap-1.5 py-1"
                 }
               >
                 <div
                   className={`truncate text-center font-semibold text-foreground/80 ${
-                    compact ? "w-[64px] text-[10px]" : "w-[72px] text-xs"
+                    compact ? "w-16 text-[10px]" : "w-18 text-xs"
                   }`}
                   title={g.name}
                 >
@@ -1461,7 +1461,7 @@ export function PlayerScreen({
       </Card>
 
       {/* ── 2. Middle: Setlist + Bus meters (flex layout, max 40% meters width) ─ */}
-      <div className="flex shrink-0 flex-col gap-2 sm:h-[210px] sm:flex-row sm:gap-3">
+      <div className="flex shrink-0 flex-col gap-2 sm:h-52.5 sm:flex-row sm:gap-3">
         <SetlistPanel
           songs={state.songs}
           activeIndex={displaySongIndex}

@@ -123,7 +123,7 @@ export function AudioDropGhost({
             />
           </div>
         )}
-        <div className="pointer-events-none absolute left-0.5 top-px z-[3] max-w-[min(90%,14rem)] select-none">
+        <div className="pointer-events-none absolute left-0.5 top-px z-3 max-w-[min(90%,14rem)] select-none">
           <span
             className="inline-block max-w-full truncate rounded-md px-1 py-0.5 font-semibold leading-none"
             style={{

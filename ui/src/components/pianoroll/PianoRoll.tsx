@@ -207,7 +207,7 @@ export function PianoRoll({
                 style={{ backgroundColor: effectiveTrackColor }}
               />
               <span
-                className="font-semibold text-foreground truncate max-w-[120px]"
+                className="font-semibold text-foreground truncate max-w-30"
                 title={track.name || track.id}
               >
                 {track.name || track.id}

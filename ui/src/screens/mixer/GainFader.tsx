@@ -150,7 +150,7 @@ const FaderVisuals = memo(function FaderVisuals({
   return (
     <>
       {/* Slot: cut INTO the strip */}
-      <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-background border border-default/30 shadow-inner" />
+      <div className="absolute inset-y-0 left-1/2 w-0.75 -translate-x-1/2 rounded-full bg-background border border-default/30 shadow-inner" />
 
       {/* 0 dB unity detent mark on rail */}
       <div
@@ -161,13 +161,13 @@ const FaderVisuals = memo(function FaderVisuals({
 
       {/* Travelled part of the throw */}
       <div
-        className="pointer-events-none absolute bottom-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-default-foreground/25"
+        className="pointer-events-none absolute bottom-0 left-1/2 w-0.75 -translate-x-1/2 rounded-full bg-default-foreground/25"
         style={{ height: `${normalized * 100}%` }}
       />
 
       {/* Cap - styled with HeroUI surface-secondary and surface tones */}
       <div
-        className={`pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[3px] bg-gradient-to-b from-surface-secondary to-surface shadow-[0_2px_6px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] border border-default/50 transition-colors ${
+        className={`pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md bg-linear-to-b from-surface-secondary to-surface shadow-[0_2px_6px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] border border-default/50 transition-colors ${
           isNarrow
             ? "h-5 w-3.5"
             : isWide
@@ -287,7 +287,7 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
     // same padded box -- so a tick at 0 dB is at the same height as the cap
     // when the fader reads 0 dB, without either side restating the padding.
     <div
-      className="flex h-full min-h-0 w-full max-w-[4.5rem] touch-none select-none items-stretch py-2"
+      className="flex h-full min-h-0 w-full max-w-18 touch-none select-none items-stretch py-2"
       title="Double-click or Alt+click to reset (0 dB)"
       {...escRevert}
       onDoubleClick={handleDoubleClick}

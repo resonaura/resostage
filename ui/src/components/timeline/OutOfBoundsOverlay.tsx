@@ -29,7 +29,7 @@ export function OutOfBoundsOverlay({
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute top-0 z-[5]"
+      className="pointer-events-none absolute top-0 z-5"
       style={{
         left: startPx,
         width: widthPx,

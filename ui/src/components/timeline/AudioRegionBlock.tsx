@@ -251,8 +251,8 @@ export function AudioRegionBlock({
         <div
           className={
             compactLane
-              ? "pointer-events-none relative z-[3] max-w-[min(90%,14rem)] select-none shrink-0"
-              : "pointer-events-none absolute left-0.5 top-px z-[3] max-w-[min(90%,14rem)] select-none"
+              ? "pointer-events-none relative z-3 max-w-[min(90%,14rem)] select-none shrink-0"
+              : "pointer-events-none absolute left-0.5 top-px z-3 max-w-[min(90%,14rem)] select-none"
           }
           style={compactLane ? { paddingLeft: compactInsetL } : undefined}
         >
@@ -325,7 +325,7 @@ export function AudioRegionBlock({
               return (
                 <div
                   key={`loop-${li}`}
-                  className="pointer-events-none absolute top-0 bottom-0 z-[3]"
+                  className="pointer-events-none absolute top-0 bottom-0 z-3"
                   style={{ left: x }}
                   title="Loop boundary"
                 >

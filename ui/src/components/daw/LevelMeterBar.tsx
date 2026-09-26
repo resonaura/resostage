@@ -221,7 +221,7 @@ function ChannelBar({
       type="button"
       onClick={clearClip}
       title={clipLatched ? "Peak / clip — click to clear" : undefined}
-      className={`relative block overflow-hidden rounded-[3px] bg-black/50 ${
+      className={`relative block overflow-hidden rounded-md bg-black/50 ${
         className ?? (vertical ? "h-24 w-1.5" : "h-3 w-full")
       }`}
     >

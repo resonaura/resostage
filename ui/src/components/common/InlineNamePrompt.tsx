@@ -35,7 +35,7 @@ export function InlineNamePrompt({
   return createPortal(
     <>
       <div
-        className="fixed inset-0 z-[9998]"
+        className="fixed inset-0 z-9998"
         onClick={onCancel}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -43,7 +43,7 @@ export function InlineNamePrompt({
         }}
       />
       <form
-        className="fixed z-[9999] rounded-xl border border-default/40 bg-surface/95 p-2 shadow-2xl backdrop-blur-md"
+        className="fixed z-9999 rounded-xl border border-default/40 bg-surface/95 p-2 shadow-2xl backdrop-blur-md"
         style={{ left: x, top: y, width }}
         onSubmit={(e) => {
           e.preventDefault();

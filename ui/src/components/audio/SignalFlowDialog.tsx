@@ -57,14 +57,14 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="rs-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-6"
+      className="rs-modal-backdrop fixed inset-0 z-9999 flex items-center justify-center p-6"
       role="dialog"
       aria-modal="true"
       aria-label="Signal flow"
       onClick={onClose}
     >
       <div
-        className="rs-modal-surface flex h-full w-full max-w-[1400px] flex-col overflow-hidden rounded-xl border border-default/40 shadow-2xl"
+        className="rs-modal-surface flex h-full w-full max-w-350 flex-col overflow-hidden rounded-xl border border-default/40 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center gap-3 border-b border-default/25 px-4 py-2.5">
@@ -92,7 +92,7 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
               size="sm"
               variant={live ? "secondary" : "outline"}
               onPress={() => setLive((v) => !v)}
-              className="!h-7 !min-h-0 !px-2 text-[11px]"
+              className="h-7! min-h-0! px-2! text-[11px]"
               aria-label={
                 live
                   ? "Following live changes — click to freeze"
@@ -101,7 +101,7 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
             >
               <RefreshCw
                 size={12}
-                className={live ? "animate-spin [animation-duration:3s]" : ""}
+                className={live ? "animate-spin animation-duration-[3s]" : ""}
               />
               {live ? "Live" : "Frozen"}
             </Button>
@@ -109,7 +109,7 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
               size="sm"
               variant="outline"
               onPress={onClose}
-              className="!h-7 !min-h-0 !px-2 text-[11px]"
+              className="h-7! min-h-0! px-2! text-[11px]"
               aria-label="Close"
             >
               <X size={13} />

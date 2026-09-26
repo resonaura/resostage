@@ -3,7 +3,7 @@ export function RoutingSlotPlaceholder() {
     <div
       aria-hidden="true"
       title="Direct output channel (active when Ext. Out is selected)"
-      className="h-[22px] w-full shrink-0 rounded-lg ring-1 ring-inset ring-default/25 select-none"
+      className="h-5.5 w-full shrink-0 rounded-lg ring-1 ring-inset ring-default/25 select-none"
     />
   );
 }

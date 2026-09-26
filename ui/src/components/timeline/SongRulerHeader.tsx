@@ -193,7 +193,7 @@ export function SongRulerHeader({
 
       {/* Lower tier only: playhead scrub (does not compete with cycle). */}
       <div
-        className="absolute inset-x-0 z-[15] cursor-col-resize"
+        className="absolute inset-x-0 z-15 cursor-col-resize"
         style={{ top: RULER_CYCLE_HEIGHT, height: RULER_BEAT_HEIGHT }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -219,7 +219,7 @@ export function SongRulerHeader({
         onLostPointerCapture={onPointerCancel}
       >
         {/* Needle only through the beat tier; full arrangement line lives below. */}
-        <div className="absolute inset-y-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+        <div className="absolute inset-y-0 left-0 w-[1.5px] -translate-x-1/2 bg-white shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
         <div
           className="absolute top-0 left-0 -translate-x-1/2"
           style={{

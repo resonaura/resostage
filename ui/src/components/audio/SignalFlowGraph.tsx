@@ -106,19 +106,19 @@ function StripNode({ data }: NodeProps<Node<StripNodeData>>) {
 
   return (
     <div
-      className={`flex h-[74px] w-[190px] flex-col justify-between rounded-lg border bg-background-secondary px-2.5 py-1.5 transition-opacity ${
+      className={`flex h-18.5 w-47.5 flex-col justify-between rounded-lg border bg-background-secondary px-2.5 py-1.5 transition-opacity ${
         style.ring
       } ${dimmed ? "opacity-15" : s.audible ? "opacity-100" : "opacity-55"}`}
     >
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-2 !w-2 !border-0 !bg-foreground/30"
+        className="h-2! w-2! border-0! bg-foreground/30!"
       />
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-2 !w-2 !border-0 !bg-foreground/30"
+        className="h-2! w-2! border-0! bg-foreground/30!"
       />
 
       <div className="flex items-center gap-1.5">
@@ -349,7 +349,7 @@ export function SignalFlowGraph({ graph }: { graph: MixGraphPayload }) {
         pannable
         zoomable
         maskColor={flowColors.mask}
-        className="!bg-background-secondary"
+        className="bg-background-secondary!"
         nodeColor={(n) => {
           const kind = (n.data as StripNodeData | undefined)?.strip.kind;
           if (kind === "main") return masterColor();

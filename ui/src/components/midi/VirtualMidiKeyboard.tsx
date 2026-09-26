@@ -612,7 +612,7 @@ export function VirtualMidiKeyboard({
           ? "w-full h-full flex flex-col bg-background text-xs select-none p-3 overflow-hidden justify-between border-t border-white/5"
           : `fixed ${
               position ? "" : "bottom-9 left-1/2 -translate-x-1/2"
-            } z-40 flex flex-col w-[96vw] max-w-[680px] rounded-2xl border border-white/10 bg-background-secondary/80 backdrop-blur-2xl p-2.5 text-xs select-none shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_2px_6px_rgba(0,0,0,0.35),0_12px_28px_-4px_rgba(0,0,0,0.55),0_36px_84px_-10px_rgba(0,0,0,0.7)] ${
+            } z-40 flex flex-col w-[96vw] max-w-170 rounded-2xl border border-white/10 bg-background-secondary/80 backdrop-blur-2xl p-2.5 text-xs select-none shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_2px_6px_rgba(0,0,0,0.35),0_12px_28px_-4px_rgba(0,0,0,0.55),0_36px_84px_-10px_rgba(0,0,0,0.7)] ${
               isDragging ? "cursor-grabbing select-none" : ""
             }`
       }
@@ -666,7 +666,7 @@ export function VirtualMidiKeyboard({
                 <select
                   value={activeInstrument.id}
                   onChange={(e) => setSelectedTrackId(e.target.value)}
-                  className="bg-transparent text-xs font-semibold text-accent max-w-[120px] truncate outline-none cursor-pointer"
+                  className="bg-transparent text-xs font-semibold text-accent max-w-30 truncate outline-none cursor-pointer"
                   title="Switch Target Instrument Track"
                 >
                   {instrumentTracks.map((tr) => (
@@ -680,7 +680,7 @@ export function VirtualMidiKeyboard({
                   ))}
                 </select>
               ) : (
-                <span className="text-xs font-semibold text-accent max-w-[110px] truncate">
+                <span className="text-xs font-semibold text-accent max-w-27.5 truncate">
                   {activeInstrument.name}
                 </span>
               )}
@@ -699,7 +699,7 @@ export function VirtualMidiKeyboard({
                 }
                 className={`flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold transition-colors ${
                   activeInstrument.recordArmed
-                    ? "bg-[var(--rs-record,#ff3b30)] text-white shadow-[0_0_8px_rgba(255,59,48,0.6)]"
+                    ? "bg-(--rs-record,#ff3b30) text-white shadow-[0_0_8px_rgba(255,59,48,0.6)]"
                     : "bg-default/30 text-foreground/50 hover:bg-default/50"
                 }`}
               >
@@ -720,7 +720,7 @@ export function VirtualMidiKeyboard({
                 }
                 className={`flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold transition-colors ${
                   activeInstrument.inputMonitoring
-                    ? "bg-[var(--rs-monitor,#ff9500)] text-neutral-950 shadow-[0_0_8px_rgba(255,149,0,0.6)]"
+                    ? "bg-(--rs-monitor,#ff9500) text-neutral-950 shadow-[0_0_8px_rgba(255,149,0,0.6)]"
                     : "bg-default/30 text-foreground/50 hover:bg-default/50"
                 }`}
               >
@@ -839,7 +839,7 @@ export function VirtualMidiKeyboard({
 
       {/* Piano Keyboard Canvas */}
       <div
-        className={`relative w-full ${standalone ? "flex-1 min-h-[110px]" : "h-28 sm:h-32"} bg-background/90 rounded-xl p-1 overflow-hidden select-none touch-none shadow-inner border border-default/30`}
+        className={`relative w-full ${standalone ? "flex-1 min-h-27.5" : "h-28 sm:h-32"} bg-background/90 rounded-xl p-1 overflow-hidden select-none touch-none shadow-inner border border-default/30`}
       >
         {/* White keys container */}
         <div className="flex h-full w-full">
@@ -856,7 +856,7 @@ export function VirtualMidiKeyboard({
                 onMouseLeave={() => handleKeyMouseLeave(k.note)}
                 className={`relative flex-1 h-full mx-px rounded-b-md border transition-colors duration-75 flex flex-col justify-between items-center pb-1.5 pt-1 cursor-pointer select-none ${
                   isPressed
-                    ? "!bg-accent !text-accent-foreground border-accent shadow-[0_0_14px_var(--accent)] z-0"
+                    ? "bg-accent! text-accent-foreground! border-accent shadow-[0_0_14px_var(--accent)] z-0"
                     : isC
                       ? "bg-neutral-100 text-neutral-900 border-neutral-300 hover:bg-neutral-50 shadow-sm"
                       : "bg-neutral-200 text-neutral-800 border-neutral-300 hover:bg-neutral-100 shadow-sm"
@@ -911,7 +911,7 @@ export function VirtualMidiKeyboard({
               }}
               className={`absolute top-1 h-[60%] rounded-b-sm border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none z-10 ${
                 isPressed
-                  ? "!bg-accent !text-accent-foreground border-accent shadow-[0_0_14px_var(--accent)]"
+                  ? "bg-accent! text-accent-foreground! border-accent shadow-[0_0_14px_var(--accent)]"
                   : "bg-surface-secondary text-foreground/85 border-default/45 hover:bg-surface-tertiary shadow-md"
               }`}
             >

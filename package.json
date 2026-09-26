@@ -2,7 +2,7 @@
   "name": "resoset",
   "private": true,
   "version": "0.1.0",
-  "description": "ResoStage \u2014 stage playback engine + web UI",
+  "description": "ResoStage — stage playback engine + web UI",
   "type": "module",
   "packageManager": "pnpm@10.0.0",
   "engines": {
@@ -44,6 +44,7 @@
     "firmware:list-strips": "pnpm --dir resolight/firmware list-strips"
   },
   "devDependencies": {
+    "@tailwindcss/language-server": "^0.16.0",
     "resedit": "^1.7.2"
   },
   "pnpm": {

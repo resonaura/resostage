@@ -52,7 +52,7 @@ export function TimeDisplay({
     <button
       type="button"
       onClick={() => setMode((m) => (m === "time" ? "bars" : "time"))}
-      className={`flex h-7 w-[5.5rem] shrink-0 items-center justify-center rounded-md px-1 font-mono text-xs tabular-nums transition-colors hover:bg-default/20 ${
+      className={`flex h-7 w-22 shrink-0 items-center justify-center rounded-md px-1 font-mono text-xs tabular-nums transition-colors hover:bg-default/20 ${
         playing ? "text-accent" : "text-foreground/70"
       } ${className}`}
       title={

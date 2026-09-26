@@ -775,7 +775,7 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-3 text-xs">
       <span className="text-foreground/45">{label}</span>
-      <span className="max-w-[10rem] text-right font-semibold">{value}</span>
+      <span className="max-w-40 text-right font-semibold">{value}</span>
     </div>
   );
 }

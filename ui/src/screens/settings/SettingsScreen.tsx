@@ -200,7 +200,7 @@ function BindingRow({
             dotVisible ? "scale-100 opacity-100" : "scale-0 opacity-0"
           }`}
         />
-        <span className="min-w-[10rem] text-sm">{actionLabel(action)}</span>
+        <span className="min-w-40 text-sm">{actionLabel(action)}</span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {/* Both bindings are armed states, not one-shot actions -- "listening"
@@ -211,7 +211,7 @@ function BindingRow({
             tone="accent-soft"
             isSelected={listening}
             onChange={(on) => setListening(on)}
-            className="min-w-[7.5rem] tabular-nums"
+            className="min-w-30 tabular-nums"
           >
             {listening ? (
               "Press a key…"
@@ -234,7 +234,7 @@ function BindingRow({
               if (on) void settingsApi.midiLearn(action);
               else void settingsApi.midiLearnCancel();
             }}
-            className="min-w-[7.5rem]"
+            className="min-w-30"
             aria-label={
               learning
                 ? "Listening for MIDI"
@@ -1363,7 +1363,7 @@ function PluginsTab() {
               Cancel
             </Button>
           )}
-          <label className="relative ml-auto min-w-[14rem] flex-1 sm:max-w-sm">
+          <label className="relative ml-auto min-w-56 flex-1 sm:max-w-sm">
             <Search
               size={14}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35"

@@ -353,7 +353,7 @@ export function ChannelStrip({
 
           {inputRouting?.isInstrument ? (
             <div
-              className={`flex h-[22px] w-full min-w-0 items-center justify-between rounded border text-xs font-semibold transition-all ${
+              className={`flex h-5.5 w-full min-w-0 items-center justify-between rounded border text-xs font-semibold transition-all ${
                 inputRouting.instrumentName
                   ? "border-emerald-500/70 bg-emerald-600/25 text-emerald-300 hover:bg-emerald-600/35 shadow-[0_1px_4px_rgba(16,185,129,0.2)]"
                   : "border-dashed border-emerald-500/40 text-emerald-400/60 hover:border-emerald-500/70 hover:bg-emerald-500/10 hover:text-emerald-300"
@@ -435,7 +435,7 @@ export function ChannelStrip({
                 }
                 className={`flex h-4 px-1 items-center justify-center rounded border transition-colors ${
                   isPolarityActive
-                    ? "border-[var(--rs-phase)]/60 bg-[var(--rs-phase)]/20 text-[var(--rs-phase)] font-black shadow-[0_0_6px_rgba(48,209,88,0.4)]"
+                    ? "border-(--rs-phase)/60 bg-(--rs-phase)/20 text-(--rs-phase) font-black shadow-[0_0_6px_rgba(48,209,88,0.4)]"
                     : "border-default/20 text-foreground/45 hover:text-foreground/80 hover:bg-surface/50"
                 }`}
                 aria-label="Phase Invert"
@@ -634,12 +634,12 @@ export function ChannelStrip({
                       : "Record Arm (Click to arm)"
                   }
                   aria-label="Record Arm"
-                  className={`relative flex h-[18px] flex-1 items-center justify-center rounded border text-[9px] font-bold transition-all select-none ${
+                  className={`relative flex h-4.5 flex-1 items-center justify-center rounded border text-[9px] font-bold transition-all select-none ${
                     recordArmed
                       ? isRecording
-                        ? "border-[var(--rs-record)] bg-[var(--rs-record)] text-white shadow-[0_0_8px_rgba(255,59,48,0.7)]"
-                        : "border-[var(--rs-record)] bg-[var(--rs-record)]/20 text-[var(--rs-record)] rs-recording-blink font-bold"
-                      : "border-default/30 bg-surface/60 text-foreground/75 hover:border-[var(--rs-record)]/60 hover:text-[var(--rs-record)]"
+                        ? "border-(--rs-record) bg-(--rs-record) text-white shadow-[0_0_8px_rgba(255,59,48,0.7)]"
+                        : "border-(--rs-record) bg-(--rs-record)/20 text-(--rs-record) rs-recording-blink font-bold"
+                      : "border-default/30 bg-surface/60 text-foreground/75 hover:border-(--rs-record)/60 hover:text-(--rs-record)"
                   }`}
                 >
                   {isRecording ? (
@@ -659,9 +659,9 @@ export function ChannelStrip({
                       : "Input Monitoring"
                   }
                   aria-label="Input Monitoring"
-                  className={`relative flex h-[18px] flex-1 items-center justify-center rounded border text-[9px] font-bold transition-all select-none ${
+                  className={`relative flex h-4.5 flex-1 items-center justify-center rounded border text-[9px] font-bold transition-all select-none ${
                     inputMonitoring
-                      ? "border-[var(--rs-monitor)] bg-[var(--rs-monitor)] text-black font-bold shadow-[0_0_8px_rgba(255,149,0,0.5)]"
+                      ? "border-(--rs-monitor) bg-(--rs-monitor) text-black font-bold shadow-[0_0_8px_rgba(255,149,0,0.5)]"
                       : "border-default/30 bg-surface/60 text-foreground/75 hover:bg-surface hover:text-foreground"
                   }`}
                 >

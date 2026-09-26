@@ -2497,7 +2497,7 @@ export function Timeline({
                 {/* 3. Track Waveforms & Grid Container -- one row per canonical track name, one segment per song */}
                 <div
                   ref={tracksOriginRef}
-                  className="relative flex-1 touch-none select-none min-h-[120px]"
+                  className="relative flex-1 touch-none select-none min-h-30"
                   onPointerDown={onTracksPointerDown}
                   onPointerMove={onTracksPointerMove}
                   onPointerUp={onTracksPointerUp}
@@ -2622,9 +2622,9 @@ export function Timeline({
                   inside the sticky header (playheadHandleRef). */}
                 <div
                   ref={playheadRef}
-                  className="pointer-events-none absolute top-0 bottom-0 z-[15] w-0"
+                  className="pointer-events-none absolute top-0 bottom-0 z-15 w-0"
                 >
-                  <div className="absolute top-0 bottom-0 left-0 w-[1.5px] -translate-x-1/2 bg-[#fff] shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+                  <div className="absolute top-0 bottom-0 left-0 w-[1.5px] -translate-x-1/2 bg-white shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
                 </div>
               </div>
             </div>

@@ -90,7 +90,7 @@ export function SongEndMarker({
 
   return (
     <div
-      className="absolute z-[45] touch-none"
+      className="absolute z-45 touch-none"
       style={{
         left: left - GRAB_HALF_WIDTH,
         top: 0,

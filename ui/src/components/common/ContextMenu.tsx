@@ -288,7 +288,7 @@ export function ContextMenu({
   return createPortal(
     <>
       <div
-        className="fixed inset-0 z-[9998]"
+        className="fixed inset-0 z-9998"
         onClick={onClose}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -304,7 +304,7 @@ export function ContextMenu({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94 }}
           transition={{ duration: 0.12, ease: "easeOut" }}
-          className="fixed z-[9999] overflow-visible rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
+          className="fixed z-9999 overflow-visible rounded-xl border border-default/40 bg-surface/95 backdrop-blur-md py-1 text-xs shadow-2xl"
           style={{
             left: pos.left,
             top: pos.top,
@@ -395,7 +395,7 @@ export function ContextMenuSubmenu({
       </button>
       <div
         role="menu"
-        className={`absolute top-[-0.25rem] hidden max-h-[70vh] min-w-56 overflow-y-auto rounded-xl border border-default/40 bg-surface/95 py-1 text-xs shadow-2xl backdrop-blur-md group-hover/submenu:block group-focus-within/submenu:block ${
+        className={`absolute -top-1 hidden max-h-[70vh] min-w-56 overflow-y-auto rounded-xl border border-default/40 bg-surface/95 py-1 text-xs shadow-2xl backdrop-blur-md group-hover/submenu:block group-focus-within/submenu:block ${
           opensLeft ? "right-full mr-1" : "left-full ml-1"
         }`}
       >
