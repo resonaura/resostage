@@ -133,7 +133,7 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     // these live outside the project file.
     appSettings = loadAppSettings();
 
-    engine.initialiseDefaultDevices(0, 2);
+    engine.initialiseDefaultDevices(2, 2);
     {
         auto setup = engine.deviceManager().getAudioDeviceSetup();
         // Saved device/channel preference wins; otherwise prefer 48 kHz for
@@ -142,6 +142,10 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
         if (!appSettings.outputDeviceName.empty()) {
             setup.outputDeviceName = appSettings.outputDeviceName;
             setup.useDefaultOutputChannels = appSettings.activeOutputChannels.empty();
+        }
+        if (!appSettings.inputDeviceName.empty()) {
+            setup.inputDeviceName = appSettings.inputDeviceName;
+            setup.useDefaultInputChannels = appSettings.activeInputChannels.empty();
         }
         setup.sampleRate = appSettings.sampleRate > 0.0 ? appSettings.sampleRate : 48000.0;
         if (appSettings.bufferSize > 0)
@@ -152,6 +156,13 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
                 bits.setBit(idx);
             setup.outputChannels = bits;
             setup.useDefaultOutputChannels = false;
+        }
+        if (!appSettings.activeInputChannels.empty()) {
+            juce::BigInteger bits;
+            for (int idx : appSettings.activeInputChannels)
+                bits.setBit(idx);
+            setup.inputChannels = bits;
+            setup.useDefaultInputChannels = false;
         }
         (void)engine.setAudioDeviceSetup(setup, true);
     }
@@ -168,7 +179,15 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     midiInput.onAction = [this](const std::string& action) {
         juce::MessageManager::callAsync([this, action] { performAction(action); });
     };
-    midiInput.onRawMessage = [this](MidiTriggerType type, int channel, int number) {
+    midiInput.onContinuousAction = [this](const std::string& target, float normalizedVal) {
+        juce::MessageManager::callAsync([this, target, normalizedVal] {
+            performContinuousAction(target, normalizedVal);
+        });
+    };
+    midiInput.onMidiMessageReceived = [this](const uint8_t* data, int length) {
+        engine.enqueueIncomingMidi(data, length);
+    };
+    midiInput.onRawMessage = [this](MidiTriggerType type, int channel, int number, int /*value*/) {
         juce::MessageManager::callAsync([this, type, channel, number] {
             handleMidiLearnMessage(type, channel, number);
         });
@@ -265,6 +284,12 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     });
     webServer.setPluginCatalogProvider([this] {
         return pluginCatalog.snapshotJson();
+    });
+    webServer.setLivePeaksProvider([this](const std::string& trackId, size_t level, size_t first, size_t count) {
+        return engine.getLiveRecordingPeaks(trackId, level, first, count);
+    });
+    webServer.setMidiInputHandler([this](const uint8_t* data, int length) {
+        engine.enqueueIncomingMidi(data, length);
     });
     // Do this only after the audio device and server are ready: recovery is
     // background work and must never delay the deadline-critical startup path.
@@ -527,6 +552,8 @@ void MainComponent::performAction(const std::string& action) {
 
     if (action == "play")
         togglePlayback();
+    else if (action == "record")
+        engine.toggleRecording();
     else if (action == "stop")
         engine.stop();
     else if (action == "stop_to_start")
@@ -619,6 +646,59 @@ void MainComponent::performAction(const std::string& action) {
     else if (action.rfind("import_song_folder_path:", 0) == 0) {
         const std::string path = action.substr(std::string("import_song_folder_path:").size());
         importSongFolderFromPath(path);
+    }
+}
+
+void MainComponent::performContinuousAction(const std::string& target, float normalizedVal) {
+    const float val = std::clamp(normalizedVal, 0.0f, 1.0f);
+    if (target.rfind("track_gain:", 0) == 0) {
+        try {
+            const size_t idx = static_cast<size_t>(std::stoul(target.substr(11)));
+            const double gainDb = (val <= 0.001f) ? -100.0 : (val < 0.75f ? -60.0 + (val / 0.75f) * 60.0 : (val - 0.75f) / 0.25f * 6.0);
+            engine.setTrackGainDb(engine.currentSongIndex(), idx, gainDb);
+        } catch (...) {}
+    } else if (target.rfind("track_pan:", 0) == 0) {
+        try {
+            const size_t idx = static_cast<size_t>(std::stoul(target.substr(10)));
+            const double pan = static_cast<double>(val * 2.0f - 1.0f);
+            engine.setTrackPan(engine.currentSongIndex(), idx, pan);
+        } catch (...) {}
+    } else if (target.rfind("track_arm:", 0) == 0) {
+        try {
+            const size_t idx = static_cast<size_t>(std::stoul(target.substr(10)));
+            engine.setTrackRecordArmed(engine.currentSongIndex(), idx, val > 0.5f);
+        } catch (...) {}
+    } else if (target.rfind("track_monitor:", 0) == 0) {
+        try {
+            const size_t idx = static_cast<size_t>(std::stoul(target.substr(14)));
+            engine.setTrackInputMonitoring(engine.currentSongIndex(), idx, val > 0.5f);
+        } catch (...) {}
+    } else if (target == "master_gain") {
+        const double gainDb = (val <= 0.001f) ? -100.0 : (val < 0.75f ? -60.0 + (val / 0.75f) * 60.0 : (val - 0.75f) / 0.25f * 6.0);
+        engine.setBusGainDb(0, gainDb);
+    } else if (target == "master_pan") {
+        const double pan = static_cast<double>(val * 2.0f - 1.0f);
+        engine.setBusPan(0, pan);
+    } else if (target.rfind("send_level:", 0) == 0) {
+        try {
+            const size_t busIdx = static_cast<size_t>(std::stoul(target.substr(11)));
+            const double gainDb = (val <= 0.001f) ? -100.0 : (val < 0.75f ? -60.0 + (val / 0.75f) * 60.0 : (val - 0.75f) / 0.25f * 6.0);
+            engine.setBusGainDb(busIdx, gainDb);
+        } catch (...) {}
+    } else if (target.rfind("plugin_param:", 0) == 0) {
+        const std::string rest = target.substr(13);
+        const auto colon1 = rest.find(':');
+        if (colon1 != std::string::npos) {
+            const auto colon2 = rest.find(':', colon1 + 1);
+            if (colon2 != std::string::npos) {
+                try {
+                    const size_t stripIdx = static_cast<size_t>(std::stoul(rest.substr(0, colon1)));
+                    const size_t slotIdx = static_cast<size_t>(std::stoul(rest.substr(colon1 + 1, colon2 - colon1 - 1)));
+                    const int paramIdx = std::stoi(rest.substr(colon2 + 1));
+                    engine.setPluginParameter(stripIdx, slotIdx, paramIdx, val);
+                } catch (...) {}
+            }
+        }
     }
 }
 
@@ -1034,6 +1114,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::StopToStart: stopToStartClicked(); break;
             case WebCommandKind::Next: nextSong(); break;
             case WebCommandKind::Prev: prevSong(); break;
+            case WebCommandKind::TransportRecord: engine.toggleRecording(); break;
             case WebCommandKind::SelectSong: goToSong(cmd.arg); break;
             case WebCommandKind::SetTrackGain: {
                 engine.projectHistoryBeginEdit("tg" + std::to_string(idx), "Set Track Gain");
@@ -1059,10 +1140,75 @@ void MainComponent::drainWebCommands() {
                 engine.projectHistoryCommitEdit();
                 break;
             }
+            case WebCommandKind::SetTrackSoloSafe: {
+                engine.projectHistoryBeginEdit("", "Toggle Track Solo-Safe");
+                engine.setTrackSoloSafe(engine.currentSongIndex(), idx, cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
+                break;
+            }
             case WebCommandKind::SetTrackMono: {
                 engine.projectHistoryBeginEdit("", "Toggle Track Mono");
                 engine.setTrackMono(engine.currentSongIndex(), idx, cmd.value != 0.0);
                 engine.projectHistoryCommitEdit();
+                break;
+            }
+            case WebCommandKind::SetTrackRecordArm: {
+                engine.projectHistoryBeginEdit("", "Toggle Track Record Arm");
+                engine.setTrackRecordArmed(engine.currentSongIndex(), idx, cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
+                break;
+            }
+            case WebCommandKind::SetTrackInputMonitor: {
+                engine.projectHistoryBeginEdit("", "Toggle Track Input Monitor");
+                engine.setTrackInputMonitoring(engine.currentSongIndex(), idx, cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
+                break;
+            }
+            case WebCommandKind::SetTrackInputSource: {
+                wire::WTrackInputSourcePayload payload;
+                if (!glz::read_json(payload, cmd.json) && payload.trackIndex >= 0) {
+                    engine.projectHistoryBeginEdit("", "Set Track Input Source");
+                    engine.setTrackInputSource(engine.currentSongIndex(), static_cast<size_t>(payload.trackIndex), payload.inputSource, payload.midiInputChannel, payload.midiInputDevice);
+                    engine.projectHistoryCommitEdit();
+                }
+                break;
+            }
+            case WebCommandKind::SetTrackTrim: {
+                wire::WTrackTrimPayload payload;
+                if (!glz::read_json(payload, cmd.json)) {
+                    const size_t tIdx = payload.trackIndex >= 0 ? static_cast<size_t>(payload.trackIndex) : static_cast<size_t>(-1);
+                    if (tIdx < engine.trackCount()) {
+                        if (TrackDef* t = engine.trackDefAt(tIdx)) {
+                            engine.projectHistoryBeginEdit("", "Set Track Trim");
+                            t->inputTrimDb = payload.inputTrimDb;
+                            t->polarity = polarityFromString(payload.polarity, payload.phaseInvert);
+                            t->phaseInvert = payload.phaseInvert || (t->polarity != PolarityMask::None);
+                            engine.projectHistoryCommitEdit();
+                            engine.republishRouting();
+                        }
+                    }
+                }
+                break;
+            }
+            case WebCommandKind::SetAutoInputMonitoring: {
+                wire::WAutoInputPayload payload;
+                if (!glz::read_json(payload, cmd.json)) {
+                    engine.setAutoInputMonitoring(payload.enabled);
+                }
+                break;
+            }
+            case WebCommandKind::SetAutoPunch: {
+                wire::WAutoPunchPayload payload;
+                if (!glz::read_json(payload, cmd.json)) {
+                    engine.setAutoPunch(payload.enabled, payload.startSample, payload.endSample);
+                }
+                break;
+            }
+            case WebCommandKind::SetLowLatencyMonitoring: {
+                wire::WLowLatencyPayload payload;
+                if (!glz::read_json(payload, cmd.json)) {
+                    engine.setLowLatencyMonitoring(payload.enabled, payload.limitMs);
+                }
                 break;
             }
             case WebCommandKind::SetBusGain: {
@@ -1089,9 +1235,21 @@ void MainComponent::drainWebCommands() {
                 engine.projectHistoryCommitEdit();
                 break;
             }
+            case WebCommandKind::SetBusSoloSafe: {
+                engine.projectHistoryBeginEdit("", "Toggle Bus Solo-Safe");
+                engine.setBusSoloSafe(idx, cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
+                break;
+            }
             case WebCommandKind::SetClickSolo: {
                 engine.projectHistoryBeginEdit("", "Toggle Click Solo");
                 engine.setClickSolo(cmd.value != 0.0);
+                engine.projectHistoryCommitEdit();
+                break;
+            }
+            case WebCommandKind::SetClickSoloSafe: {
+                engine.projectHistoryBeginEdit("", "Toggle Click Solo-Safe");
+                engine.setClickSoloSafe(cmd.value != 0.0);
                 engine.projectHistoryCommitEdit();
                 break;
             }
@@ -1282,6 +1440,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::TimelineUndo: performTimelineUndo(); break;
             case WebCommandKind::TimelineRedo: performTimelineRedo(); break;
             case WebCommandKind::SetAudioOutputDevice: settingsSetAudioOutputDevice(cmd.json); break;
+            case WebCommandKind::SetAudioInputDevice: settingsSetAudioInputDevice(cmd.json); break;
             case WebCommandKind::SetAudioDeviceType: settingsSetAudioDeviceType(cmd.json); break;
             case WebCommandKind::ShowAudioControlPanel: settingsShowAudioControlPanel(); break;
             case WebCommandKind::SetSampleRate: settingsSetSampleRate(cmd.json); break;
@@ -1293,6 +1452,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetTheme: settingsSetTheme(cmd.json); break;
             case WebCommandKind::SetKeybinding: settingsSetKeybinding(cmd.json); break;
             case WebCommandKind::SetOutputChannels: settingsSetOutputChannels(cmd.json); break;
+            case WebCommandKind::SetInputChannels: settingsSetInputChannels(cmd.json); break;
             case WebCommandKind::MidiLearn: settingsMidiLearn(cmd.json); break;
             case WebCommandKind::MidiLearnCancel: settingsMidiLearnCancel(); break;
             case WebCommandKind::MidiClear: settingsMidiClear(cmd.json); break;
@@ -1596,6 +1756,12 @@ void MainComponent::publishWebState() {
     state.sampleRate = transport.sampleRate.load(std::memory_order_relaxed);
     state.driftFactor = transport.driftFactor.load(std::memory_order_relaxed);
     state.playing = transport.running.load(std::memory_order_relaxed);
+    state.recording = engine.isRecording();
+    state.autoInputMonitoring = engine.isAutoInputMonitoring();
+    state.autoPunchEnabled = engine.isAutoPunchEnabled();
+    state.lowLatencyMonitoring = engine.isLowLatencyMonitoring();
+    state.lowLatencyLimitMs = engine.getLowLatencyLimitMs();
+    state.liveRecordings = engine.getLiveRecordingRegions();
     state.hardwareAlarm = transport.hardwareAlarm.load(std::memory_order_relaxed);
 
     const Project& proj = engine.project();
@@ -1631,6 +1797,7 @@ void MainComponent::publishWebState() {
     state.clickPan = proj.click.pan;
     state.clickMono = proj.click.channels == 1;
     state.clickSolo = proj.click.solo;
+    state.clickSoloSafe = engine.isClickSoloSafe();
     state.clickOutputType = outputTypeToString(proj.click.output.type);
     state.clickOutputTarget = proj.click.output.target.value_or("");
     state.clickSoloGroup = engine.trackSoloGroup();
@@ -1885,8 +2052,17 @@ void MainComponent::publishWebState() {
         tr.pan = def.pan;
         tr.mute = def.mute;
         tr.solo = def.solo;
+        tr.soloSafe = def.soloSafe;
         tr.soloGroup = engine.trackSoloGroup();
         tr.soloActiveInGroup = engine.anySoloInGroup(tr.soloGroup.c_str());
+        tr.recordArmed = def.recordArmed;
+        tr.inputMonitoring = def.inputMonitoring;
+        tr.inputSource = def.inputSource;
+        tr.midiInputChannel = def.midiInputChannel;
+        tr.midiInputDevice = def.midiInputDevice;
+        tr.inputTrimDb = def.inputTrimDb;
+        tr.phaseInvert = def.phaseInvert;
+        tr.polarity = polarityToString(def.polarity);
         tr.plugins = copyPluginSlots(def.plugins);
         // The project serializer's mapping, not a second copy of it. The copy
         // that used to live here had drifted: it had no case for
@@ -1901,8 +2077,10 @@ void MainComponent::publishWebState() {
             WebUiState::TrackRow::SendRow sr;
             sr.bus = send.bus;
             sr.level = send.level;
-            sr.preFader = send.preFader;
+            sr.preFader = send.preFader || (send.tap == SendTap::PreFader);
             sr.enabled = send.enabled;
+            sr.lowLatencySafe = send.lowLatencySafe;
+            sr.tap = sendTapToString(send.tap != SendTap::PostPan ? send.tap : (send.preFader ? SendTap::PreFader : SendTap::PostPan));
             tr.output.sends.push_back(std::move(sr));
         }
 
@@ -1925,6 +2103,7 @@ void MainComponent::publishWebState() {
         br.gainDb = engine.busGainDb(i);
         br.mute = engine.isBusMuted(i);
         br.solo = engine.isBusSoloed(i);
+        br.soloSafe = engine.isBusSoloSafe(i);
         br.soloGroup = engine.busSoloGroupAt(i);
         br.soloActiveInGroup = engine.anySoloInGroup(br.soloGroup.c_str());
         br.startChannel = engine.busStartChannelAt(i);
@@ -1984,6 +2163,7 @@ void MainComponent::publishWebState() {
             row.pan = strip.pan;
             row.mute = strip.mute;
             row.solo = strip.solo;
+            row.soloSafe = strip.soloSafe;
             row.audible = strip.audible;
             row.physicalChannel = strip.physicalChannel;
             // Live level, so the diagram shows which paths are actually
@@ -2364,19 +2544,29 @@ void MainComponent::newProjectClicked() {
         engine.newProject();
         applyGlobalBindings();
         onProjectLoaded();
-        setStatus("New project -- add songs in Builder, then Save As to create the .rsnraset file");
+        setStatus("New project -- start editing or add songs in Builder, then Save As to create the .rsnraset file");
     };
 
     // Not destructive to click accidentally when nothing meaningful has
-    // happened yet (no songs, never saved for real) -- skip the confirm nag
-    // in that case. A draft archive doesn't count as "saved" here (every
-    // fresh project auto-creates one; that's an implementation detail, not
-    // something the user did on purpose), only a real user-chosen save
+    // happened yet (only empty default song, never saved for real) -- skip the
+    // confirm nag in that case. A draft archive doesn't count as "saved" here
+    // (every fresh project auto-creates one; that's an implementation detail,
+    // not something the user did on purpose), only a real user-chosen save
     // location does. Otherwise this discards in-memory edits with no undo,
-    // so confirm first (there's no dirty-flag tracking to know precisely
-    // what would be lost).
+    // so confirm first.
+    bool hasContent = false;
+    if (engine.project().songs.size() > 1) {
+        hasContent = true;
+    } else if (engine.project().songs.size() == 1) {
+        const auto& s = engine.project().songs[0];
+        if (!s.regions.empty() || !s.midiRegions.empty() || !s.events.empty()
+            || !s.lightCues.empty() || !s.sections.empty() || !s.automationLanes.empty()
+            || (s.name != "New Song" && s.name != "Song 1")) {
+            hasContent = true;
+        }
+    }
     const bool hasSomethingToLose =
-        !engine.project().songs.empty() || (!engine.projectPath().empty() && !engine.isDraftProject());
+        hasContent || engine.canUndoTimeline() || (!engine.projectPath().empty() && !engine.isDraftProject());
     if (!hasSomethingToLose) {
         doNew();
         return;

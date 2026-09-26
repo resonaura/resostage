@@ -216,25 +216,34 @@ void MainComponent::pluginSlotAdd(const std::string& json) {
         setStatus("Could not add plug-in: rescan or choose an available item");
         return;
     }
+    bool replaceExistingInstrument = false;
     if (plugin->instrument) {
-        if (stripId.rfind("audio::track:", 0) != 0) {
+        const bool isTrack = std::any_of(project.tracks.begin(), project.tracks.end(),
+            [&stripId](const auto& t) { return t.id == stripId; });
+        if (!isTrack) {
             setStatus("Instrument plug-ins can only be placed on tracks");
             return;
         }
-        if (!chain->empty()) {
-            setStatus("Instrument plug-ins must be placed as the first insert on a track");
-            return;
+        if (!chain->empty() && chain->front().plugin.instrument) {
+            replaceExistingInstrument = true;
         }
     }
 
-    engine.projectHistoryBeginEdit("", "Add plug-in");
+    engine.projectHistoryBeginEdit("", replaceExistingInstrument ? "Replace instrument" : "Add plug-in");
     PluginSlot slot;
     slot.id = generateUuidV7();
     slot.plugin = *plugin;
-    chain->push_back(std::move(slot));
+    if (replaceExistingInstrument) {
+        closePluginEditor(chain->front().id);
+        chain->front() = std::move(slot);
+    } else if (plugin->instrument) {
+        chain->insert(chain->begin(), std::move(slot));
+    } else {
+        chain->push_back(std::move(slot));
+    }
     engine.projectHistoryCommitEdit();
     engine.notifyPluginChainsChanged();
-    setStatus("Plug-in added: " + juce::String(plugin->name));
+    setStatus((replaceExistingInstrument ? "Instrument replaced: " : "Plug-in added: ") + juce::String(plugin->name));
     publishWebState();
 }
 

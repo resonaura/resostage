@@ -225,12 +225,13 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint3
     }
 
     // Per-track mixer flags (v5). Bit 0 = mute, bit 1 = solo, bit 2 =
-    // soloActiveInGroup (this track is silenced by someone else's solo).
+    // soloActiveInGroup (this track is silenced by someone else's solo), bit 3 = soloSafe.
     for (const auto& tr : s.tracks) {
         uint8_t flags = 0;
         if (tr.mute) flags |= 1;
         if (tr.solo) flags |= 2;
         if (tr.soloActiveInGroup) flags |= 4;
+        if (tr.soloSafe) flags |= 8;
         writeU8(flags);
     }
     // Per-bus mixer flags (v5).
@@ -239,6 +240,7 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint3
         if (b.mute) flags |= 1;
         if (b.solo) flags |= 2;
         if (b.soloActiveInGroup) flags |= 4;
+        if (b.soloSafe) flags |= 8;
         writeU8(flags);
     }
 
@@ -440,9 +442,11 @@ bool parseIndexAndValue(const char* body, size_t len, int& outIndex, double& out
 bool isMixerCommandPath(const char* path) {
     static const char* const kPaths[] = {
         "/api/v1/track/gain", "/api/v1/track/pan",  "/api/v1/track/mute", "/api/v1/track/solo",
-        "/api/v1/track/mono",
+        "/api/v1/track/solo-safe",
+        "/api/v1/track/mono", "/api/v1/track/arm",  "/api/v1/track/monitor",
         "/api/v1/bus/gain",   "/api/v1/bus/pan",    "/api/v1/bus/mute",   "/api/v1/bus/solo",
-        "/api/v1/click/solo",
+        "/api/v1/bus/solo-safe",
+        "/api/v1/click/solo", "/api/v1/click/solo-safe",
     };
     for (const char* p : kPaths)
         if (std::strcmp(path, p) == 0)
@@ -455,11 +459,16 @@ WebCommandKind mixerCommandKindForPath(const char* path) {
     if (std::strcmp(path, "/api/v1/track/pan") == 0) return WebCommandKind::SetTrackPan;
     if (std::strcmp(path, "/api/v1/track/mute") == 0) return WebCommandKind::SetTrackMute;
     if (std::strcmp(path, "/api/v1/track/solo") == 0) return WebCommandKind::SetTrackSolo;
+    if (std::strcmp(path, "/api/v1/track/solo-safe") == 0) return WebCommandKind::SetTrackSoloSafe;
     if (std::strcmp(path, "/api/v1/track/mono") == 0) return WebCommandKind::SetTrackMono;
+    if (std::strcmp(path, "/api/v1/track/arm") == 0) return WebCommandKind::SetTrackRecordArm;
+    if (std::strcmp(path, "/api/v1/track/monitor") == 0) return WebCommandKind::SetTrackInputMonitor;
     if (std::strcmp(path, "/api/v1/bus/gain") == 0) return WebCommandKind::SetBusGain;
     if (std::strcmp(path, "/api/v1/bus/pan") == 0) return WebCommandKind::SetBusPan;
     if (std::strcmp(path, "/api/v1/bus/mute") == 0) return WebCommandKind::SetBusMute;
     if (std::strcmp(path, "/api/v1/bus/solo") == 0) return WebCommandKind::SetBusSolo;
+    if (std::strcmp(path, "/api/v1/bus/solo-safe") == 0) return WebCommandKind::SetBusSoloSafe;
+    if (std::strcmp(path, "/api/v1/click/solo-safe") == 0) return WebCommandKind::SetClickSoloSafe;
     return WebCommandKind::SetClickSolo; // "/api/v1/click/solo" -- last remaining option per isMixerCommandPath's list
 }
 
@@ -522,6 +531,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/timeline/undo", WebCommandKind::TimelineUndo},
     {"/api/v1/timeline/redo", WebCommandKind::TimelineRedo},
     {"/api/v1/settings/audio-device", WebCommandKind::SetAudioOutputDevice},
+    {"/api/v1/settings/audio-input-device", WebCommandKind::SetAudioInputDevice},
     {"/api/v1/settings/audio-driver", WebCommandKind::SetAudioDeviceType},
     {"/api/v1/settings/audio-control-panel", WebCommandKind::ShowAudioControlPanel},
     {"/api/v1/settings/sample-rate", WebCommandKind::SetSampleRate},
@@ -533,6 +543,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/settings/theme", WebCommandKind::SetTheme},
     {"/api/v1/settings/keybinding", WebCommandKind::SetKeybinding},
     {"/api/v1/settings/output-channels", WebCommandKind::SetOutputChannels},
+    {"/api/v1/settings/input-channels", WebCommandKind::SetInputChannels},
     {"/api/v1/settings/midi-learn", WebCommandKind::MidiLearn},
     {"/api/v1/settings/midi-learn-cancel", WebCommandKind::MidiLearnCancel},
     {"/api/v1/settings/midi-clear", WebCommandKind::MidiClear},
@@ -799,6 +810,11 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
                         return server->serveWaveformRaw(wsi, argsBuf);
                     }
+                    if (std::strncmp(uri, "/api/v1/recording/", 18) == 0 && std::strstr(uri, "/peaks") != nullptr) {
+                        char argsBuf[512] = "";
+                        lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
+                        return server->serveLiveRecordingPeaks(wsi, uri, argsBuf);
+                    }
                     if (std::strcmp(uri, "/api/v1/ui/menu") == 0)
                         return server->serveUiMenu(wsi);
                     if (std::strcmp(uri, "/api/v1/remote/discovered-devices") == 0)
@@ -1033,61 +1049,81 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
     }
 
     if (why == LWS_CALLBACK_RECEIVE) {
-            // Clients may send transport shortcuts or {"view":"mixer"} to
-            // scope the outbound telemetry to the active SPA tab.
-            glz::generic doc;
-            const auto ec = glz::read_json(doc, std::string_view(static_cast<const char*>(in), len));
-            if (!ec) {
-                std::string viewName;
-                if (builder_json::getString(doc, "view", viewName) && !viewName.empty()) {
-                    if (pss != nullptr) {
-                        const ClientView next = parseClientView(viewName);
-                        if (next != pss->view) {
-                            server->noteViewClosed(slotForView(pss->view));
-                            server->noteViewOpened(slotForView(next));
-                            pss->view = next;
-                        }
-                    }
-                    // Mirror into server so native UI (Touch Bar highlight) tracks
-                    // the embedded SPA tab, not a hardcoded "player".
-                    server->noteClientView(viewName);
-                    // View change takes effect on the next fixed timer tick —
-                    // keeps cadence uniform (no burst frames).
-                    return 0;
-                }
-
-                int hz = 0;
-                if (builder_json::getInt(doc, "telemetryHz", hz) && hz > 0) {
-                    if (pss != nullptr) {
-                        const int clamped =
-                            std::clamp(hz, WebServer::kTelemetryMinHz, WebServer::kTelemetryHz);
-                        pss->requestedPeriodUs = 1'000'000 / clamped;
-                        if (server != nullptr)
-                            server->setTargetTelemetryHz(clamped);
-                    }
-                    return 0;
-                }
-
-                std::string action;
-                if (builder_json::getString(doc, "action", action)
-                    || builder_json::getString(doc, "type", action)
-                    || builder_json::getString(doc, "command", action)) {
-                    if (action == "play")
-                        server->enqueueCommand({WebCommandKind::Play, 0});
-                    else if (action == "stop")
-                        server->enqueueCommand({WebCommandKind::Stop, 0});
-                    else if (action == "next")
-                        server->enqueueCommand({WebCommandKind::Next, 0});
-                    else if (action == "prev")
-                        server->enqueueCommand({WebCommandKind::Prev, 0});
-                    else if (action == "select") {
-                        int idx = -1;
-                        if (builder_json::getInt(doc, "index", idx) && idx >= 0)
-                            server->enqueueCommand({WebCommandKind::SelectSong, idx});
-                    }
-                }
+        if (lws_frame_is_binary(wsi)) {
+            if (server != nullptr && in != nullptr && len >= 1 && len <= 4) {
+                server->injectMidi(static_cast<const uint8_t*>(in), static_cast<int>(len));
             }
             return 0;
+        }
+
+        // Clients may send transport shortcuts or {"view":"mixer"} to
+        // scope the outbound telemetry to the active SPA tab.
+        glz::generic doc;
+        const auto ec = glz::read_json(doc, std::string_view(static_cast<const char*>(in), len));
+        if (!ec) {
+            std::string viewName;
+            if (builder_json::getString(doc, "view", viewName) && !viewName.empty()) {
+                if (pss != nullptr) {
+                    const ClientView next = parseClientView(viewName);
+                    if (next != pss->view) {
+                        server->noteViewClosed(slotForView(pss->view));
+                        server->noteViewOpened(slotForView(next));
+                        pss->view = next;
+                    }
+                }
+                // Mirror into server so native UI (Touch Bar highlight) tracks
+                // the embedded SPA tab, not a hardcoded "player".
+                server->noteClientView(viewName);
+                // View change takes effect on the next fixed timer tick —
+                // keeps cadence uniform (no burst frames).
+                return 0;
+            }
+
+            int hz = 0;
+            if (builder_json::getInt(doc, "telemetryHz", hz) && hz > 0) {
+                if (pss != nullptr) {
+                    const int clamped =
+                        std::clamp(hz, WebServer::kTelemetryMinHz, WebServer::kTelemetryHz);
+                    pss->requestedPeriodUs = 1'000'000 / clamped;
+                    if (server != nullptr)
+                        server->setTargetTelemetryHz(clamped);
+                }
+                return 0;
+            }
+
+            std::string action;
+            if (builder_json::getString(doc, "action", action)
+                || builder_json::getString(doc, "type", action)
+                || builder_json::getString(doc, "command", action)) {
+                if (action == "midi") {
+                    int status = 0, d1 = 0, d2 = 0;
+                    if (builder_json::getInt(doc, "status", status)
+                        && builder_json::getInt(doc, "data1", d1)
+                        && builder_json::getInt(doc, "data2", d2)) {
+                        const uint8_t pkt[3] = { static_cast<uint8_t>(status),
+                                                 static_cast<uint8_t>(d1),
+                                                 static_cast<uint8_t>(d2) };
+                        if (server != nullptr)
+                            server->injectMidi(pkt, 3);
+                    }
+                    return 0;
+                }
+                if (action == "play")
+                    server->enqueueCommand({WebCommandKind::Play, 0});
+                else if (action == "stop")
+                    server->enqueueCommand({WebCommandKind::Stop, 0});
+                else if (action == "next")
+                    server->enqueueCommand({WebCommandKind::Next, 0});
+                else if (action == "prev")
+                    server->enqueueCommand({WebCommandKind::Prev, 0});
+                else if (action == "select") {
+                    int idx = -1;
+                    if (builder_json::getInt(doc, "index", idx) && idx >= 0)
+                        server->enqueueCommand({WebCommandKind::SelectSong, idx});
+                }
+            }
+        }
+        return 0;
     }
 
     return 0;
@@ -1101,6 +1137,11 @@ WebServer::WebServer() = default;
 
 WebServer::~WebServer() {
     stop();
+}
+
+void WebServer::injectMidi(const uint8_t* data, int length) {
+    if (midiInputHandler != nullptr)
+        midiInputHandler(data, length);
 }
 
 bool WebServer::start(uint16_t port, std::string& error) {
@@ -1431,6 +1472,24 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.drift = finiteOrZero(snap.driftFactor);
     wire.bpm = finiteOrZero(snap.bpm);
     wire.playing = snap.playing;
+    wire.recording = snap.recording;
+    wire.autoInputMonitoring = snap.autoInputMonitoring;
+    wire.autoPunchEnabled = snap.autoPunchEnabled;
+    wire.punchStartSample = snap.punchStartSample;
+    wire.punchEndSample = snap.punchEndSample;
+    wire.lowLatencyMonitoring = snap.lowLatencyMonitoring;
+    wire.lowLatencyLimitMs = snap.lowLatencyLimitMs;
+    wire.liveRecordings.reserve(snap.liveRecordings.size());
+    for (const auto& reg : snap.liveRecordings) {
+        wire::WLiveRecordingRegion wr;
+        wr.recordingId = reg.recordingId;
+        wr.trackId = reg.trackId;
+        wr.timelineStartSample = reg.timelineStartSample;
+        wr.capturedFrames = reg.capturedFrames;
+        wr.channelCount = reg.channelCount;
+        wr.state = static_cast<uint8_t>(reg.state);
+        wire.liveRecordings.push_back(std::move(wr));
+    }
     wire.hardwareAlarm = snap.hardwareAlarm;
     wire.songIndex = snap.songIndex;
     wire.songCount = snap.songCount;
@@ -1457,6 +1516,7 @@ std::string WebServer::buildStateJson(const char* view) const {
         wc.pan = finiteOrZero(snap.clickPan);
         wc.channels = snap.clickMono ? 1 : 2;
         wc.solo = snap.clickSolo;
+        wc.soloSafe = snap.clickSoloSafe;
         wc.soloGroup = snap.clickSoloGroup;
         wc.soloActiveInGroup = snap.clickSoloActiveInGroup;
         // Mirrors the on-disk SourceOutput exactly, including ext-out and
@@ -1700,8 +1760,17 @@ std::string WebServer::buildStateJson(const char* view) const {
             wT.pan = finiteOrZero(t.pan);
             wT.mute = t.mute;
             wT.solo = t.solo;
+            wT.soloSafe = t.soloSafe;
             wT.soloGroup = t.soloGroup;
             wT.soloActiveInGroup = t.soloActiveInGroup;
+            wT.recordArmed = t.recordArmed;
+            wT.inputMonitoring = t.inputMonitoring;
+            wT.inputSource = t.inputSource;
+            wT.midiInputChannel = t.midiInputChannel;
+            wT.midiInputDevice = t.midiInputDevice;
+            wT.inputTrimDb = finiteOrZero(t.inputTrimDb);
+            wT.phaseInvert = t.phaseInvert;
+            wT.polarity = t.polarity.empty() ? "none" : t.polarity;
             wT.output.type = t.output.type;
             wT.output.target = t.output.target;
             wT.output.sends.reserve(t.output.sends.size());
@@ -1711,6 +1780,8 @@ std::string WebServer::buildStateJson(const char* view) const {
                 wS.level = s.level;
                 wS.preFader = s.preFader;
                 wS.enabled = s.enabled;
+                wS.lowLatencySafe = s.lowLatencySafe;
+                wS.tap = s.tap.empty() ? "post-pan" : s.tap;
                 wT.output.sends.push_back(std::move(wS));
             }
             wT.plugins.reserve(t.plugins.size());
@@ -1735,6 +1806,7 @@ std::string WebServer::buildStateJson(const char* view) const {
             wB.pan = finiteOrZero(b.pan);
             wB.mute = b.mute;
             wB.solo = b.solo;
+            wB.soloSafe = b.soloSafe;
             wB.soloGroup = b.soloGroup;
             wB.soloActiveInGroup = b.soloActiveInGroup;
             wB.isDirectOut = b.isDirectOut;
@@ -1836,6 +1908,7 @@ std::string WebServer::buildStateJson(const char* view) const {
             wS.pan = finiteOrZero(st.pan);
             wS.mute = st.mute;
             wS.solo = st.solo;
+            wS.soloSafe = st.soloSafe;
             wS.audible = st.audible;
             wS.physicalChannel = st.physicalChannel;
             wS.peakDb = finiteOrDbFloor(st.peakDb);
@@ -1898,6 +1971,8 @@ std::string WebServer::buildStateJson(const char* view) const {
     if (wantSettingsFull) {
         wire.settings.currentOutputDevice = s.currentOutputDevice;
         wire.settings.outputDevices = s.outputDevices;
+        wire.settings.currentInputDevice = s.currentInputDevice;
+        wire.settings.inputDevices = s.inputDevices;
         wire.settings.audioDrivers = s.audioDrivers;
         wire.settings.currentAudioDriver = s.currentAudioDriver;
         wire.settings.hasControlPanel = s.hasControlPanel;
@@ -1918,6 +1993,17 @@ std::string WebServer::buildStateJson(const char* view) const {
         for (bool active : s.activeOutputChannels)
             chVec.push_back(active);
         wire.settings.activeOutputChannels = std::move(chVec);
+
+        wire.settings.inputChannelNames = s.inputChannelNames;
+        std::vector<bool> inChVec;
+        inChVec.reserve(s.activeInputChannels.size());
+        for (bool active : s.activeInputChannels)
+            inChVec.push_back(active);
+        wire.settings.activeInputChannels = std::move(inChVec);
+
+        wire.settings.inputLatencyMs = finiteOrZero(s.inputLatencyMs);
+        wire.settings.outputLatencyMs = finiteOrZero(s.outputLatencyMs);
+        wire.settings.roundtripLatencyMs = finiteOrZero(s.roundtripLatencyMs);
 
         wire.settings.midiOutputs = s.midiOutputs;
         wire.settings.midiInputs = s.midiInputs;
@@ -1974,6 +2060,8 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
 
     if (std::strcmp(path, "/api/v1/transport/play") == 0) {
         cmd = {WebCommandKind::Play, 0};
+    } else if (std::strcmp(path, "/api/v1/transport/record") == 0) {
+        cmd = {WebCommandKind::TransportRecord, 0};
     } else if (std::strcmp(path, "/api/v1/transport/stop") == 0) {
         cmd = {WebCommandKind::Stop, 0};
     } else if (std::strcmp(path, "/api/v1/transport/stop-to-start") == 0) {
@@ -1997,6 +2085,48 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             return true;
         }
         cmd = {mixerCommandKindForPath(path), idx, value};
+    } else if (std::strcmp(path, "/api/v1/track/input-source") == 0) {
+        cmd = {WebCommandKind::SetTrackInputSource, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/track/trim") == 0 || std::strcmp(path, "/api/v1/track/polarity") == 0) {
+        cmd = {WebCommandKind::SetTrackTrim, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/recording/auto-input") == 0) {
+        cmd = {WebCommandKind::SetAutoInputMonitoring, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/recording/auto-punch") == 0) {
+        cmd = {WebCommandKind::SetAutoPunch, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/recording/low-latency") == 0) {
+        cmd = {WebCommandKind::SetLowLatencyMonitoring, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/midi/send") == 0 || std::strcmp(path, "/api/v1/midi/event") == 0) {
+        glz::generic doc;
+        if (!builder_json::parseJson(std::string(body, bodyLen), doc)) {
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid json");
+            return true;
+        }
+        int status = 0, d1 = 0, d2 = 0;
+        if (builder_json::getInt(doc, "status", status)
+            && builder_json::getInt(doc, "data1", d1)
+            && builder_json::getInt(doc, "data2", d2)) {
+            const uint8_t pkt[3] = { static_cast<uint8_t>(status),
+                                     static_cast<uint8_t>(d1),
+                                     static_cast<uint8_t>(d2) };
+            injectMidi(pkt, 3);
+            writeJsonOk(wsi);
+            return true;
+        }
+        std::string type;
+        int note = 60, velocity = 100, channel = 1;
+        builder_json::getString(doc, "type", type);
+        builder_json::getInt(doc, "note", note);
+        builder_json::getInt(doc, "velocity", velocity);
+        builder_json::getInt(doc, "channel", channel);
+        const uint8_t ch = static_cast<uint8_t>(std::clamp(channel, 1, 16) - 1);
+        uint8_t st = 0x90 | ch;
+        if (type == "note_off" || velocity <= 0)
+            st = 0x80 | ch;
+        const uint8_t pkt[3] = { st, static_cast<uint8_t>(std::clamp(note, 0, 127)),
+                                 static_cast<uint8_t>(std::clamp(velocity, 0, 127)) };
+        injectMidi(pkt, 3);
+        writeJsonOk(wsi);
+        return true;
     } else if (std::strcmp(path, "/api/v1/project/new") == 0) {
         cmd = {WebCommandKind::NewProject, 0};
     } else if (std::strcmp(path, "/api/v1/project/load-dialog") == 0) {
@@ -2632,6 +2762,47 @@ int WebServer::serveExportDownload(struct lws* wsi) {
     const std::string disposition = "attachment; filename=\"" + name + "\"";
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/zip", bytes.data(), bytes.size(),
                              disposition.c_str());
+}
+
+int WebServer::serveLiveRecordingPeaks(struct lws* wsi, const char* uri, const char* queryArgs) {
+    std::string path(uri);
+    constexpr const char* prefix = "/api/v1/recording/";
+    auto p1 = path.find(prefix);
+    if (p1 == std::string::npos)
+        return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid uri");
+    p1 += std::strlen(prefix);
+    auto p2 = path.rfind("/peaks");
+    if (p2 == std::string::npos || p2 <= p1)
+        return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid uri");
+
+    const std::string trackId = path.substr(p1, p2 - p1);
+
+    const std::string levelStr = queryParam(queryArgs, "level");
+    const std::string firstStr = queryParam(queryArgs, "first");
+    const std::string countStr = queryParam(queryArgs, "count");
+
+    size_t level = levelStr.empty() ? 0 : static_cast<size_t>(std::max(0, std::stoi(levelStr)));
+    size_t first = firstStr.empty() ? 0 : static_cast<size_t>(std::max(0, std::stoi(firstStr)));
+    size_t count = countStr.empty() ? 512 : static_cast<size_t>(std::clamp(std::stoi(countStr), 1, 4096));
+
+    std::vector<PeakPair16> rawPeaks;
+    if (livePeaksProvider) {
+        rawPeaks = livePeaksProvider(trackId, level, first, count);
+    }
+
+    wire::WLivePeakChunkResponse resp;
+    resp.trackId = trackId;
+    resp.level = level;
+    resp.first = first;
+    resp.count = rawPeaks.size();
+    resp.peaks.reserve(rawPeaks.size());
+    for (const auto& p : rawPeaks) {
+        resp.peaks.push_back(wire::WPeakPair{p.min, p.max});
+    }
+
+    std::string json;
+    (void)glz::write_json(resp, json);
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
 }
 
 } // namespace resostage

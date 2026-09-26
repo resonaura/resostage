@@ -337,8 +337,8 @@ export function subscribeLiveTransport(listener: (s: LiveTransportState) => void
  * `state.busses` row.
  */
 export type LiveMixerFlags = {
-  tracks: { mute: boolean; solo: boolean; soloActiveInGroup: boolean }[];
-  busses: { mute: boolean; solo: boolean; soloActiveInGroup: boolean }[];
+  tracks: { mute: boolean; solo: boolean; soloActiveInGroup: boolean; soloSafe?: boolean }[];
+  busses: { mute: boolean; solo: boolean; soloActiveInGroup: boolean; soloSafe?: boolean }[];
 };
 
 let mixerFlagsListeners: ((f: LiveMixerFlags) => void)[] = [];
@@ -553,6 +553,7 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
       mute: (raw & 1) !== 0,
       solo: (raw & 2) !== 0,
       soloActiveInGroup: (raw & 4) !== 0,
+      soloSafe: (raw & 8) !== 0,
     });
     const flagTracks: LiveMixerFlags["tracks"] = [];
     for (let i = 0; i < numTracks; i++) {

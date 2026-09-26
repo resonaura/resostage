@@ -55,6 +55,7 @@ struct PluginTransportState {
     int numerator = 4;
     int denominator = 4;
     bool playing = false;
+    bool recording = false;
     bool looping = false;
     int64_t loopStartSample = 0;
     int64_t loopEndSample = 0;
@@ -74,6 +75,7 @@ private:
     std::atomic<int> numerator{4};
     std::atomic<int> denominator{4};
     std::atomic<bool> playing{false};
+    std::atomic<bool> recording{false};
     std::atomic<bool> looping{false};
     std::atomic<int64_t> loopStartSample{0};
     std::atomic<int64_t> loopEndSample{0};

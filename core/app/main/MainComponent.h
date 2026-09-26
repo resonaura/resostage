@@ -58,6 +58,7 @@ public:
 
     /** Called from the Electron menu bar, MIDI, and web action POSTs. */
     void performAction(const std::string& action);
+    void performContinuousAction(const std::string& target, float normalizedVal);
     /** Called from Electron IPC when user opens .rsnrasetmeta or .rsnraset file. */
     void openProjectFromIpc(const std::string& path);
     void saveProjectToPath(const std::string& path, std::function<void(bool)> onDone = nullptr);
@@ -259,6 +260,7 @@ private:
     void lightingCueUpdate(const std::string& json);
 
     void settingsSetAudioOutputDevice(const std::string& json);
+    void settingsSetAudioInputDevice(const std::string& json);
     void settingsSetAudioDeviceType(const std::string& json);
     void settingsShowAudioControlPanel();
     // Snapshots the live device's rate/buffer/channels into
@@ -274,6 +276,7 @@ private:
     void settingsSetTheme(const std::string& json);
     void settingsSetKeybinding(const std::string& json);
     void settingsSetOutputChannels(const std::string& json);
+    void settingsSetInputChannels(const std::string& json);
     void settingsMidiLearn(const std::string& json);
     void settingsMidiLearnCancel();
     void settingsMidiClear(const std::string& json);
@@ -285,6 +288,8 @@ private:
     struct HardwareSettingsCache {
         std::vector<std::string> outputDevices;
         std::string currentOutputDevice;
+        std::vector<std::string> inputDevices;
+        std::string currentInputDevice;
         // Host audio APIs this build can drive (ASIO / CoreAudio / ALSA /
         // JACK / Windows Audio ...). More than one only on Windows and Linux.
         std::vector<std::string> audioDrivers;
@@ -296,6 +301,11 @@ private:
         std::vector<int> availableBufferSizes;
         std::vector<std::string> outputChannelNames;
         std::vector<bool> activeOutputChannels;
+        std::vector<std::string> inputChannelNames;
+        std::vector<bool> activeInputChannels;
+        double inputLatencyMs = 0.0;
+        double outputLatencyMs = 0.0;
+        double roundtripLatencyMs = 0.0;
         std::vector<std::string> midiOutputs;
         std::vector<std::string> midiInputs;
         bool virtualMidiPortEnabled = false;

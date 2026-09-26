@@ -4,7 +4,10 @@ import {
   Layers,
   MousePointer,
   Music,
+  Paintbrush,
   Pencil,
+  Scissors,
+  Sliders,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -13,7 +16,12 @@ import {
   NOTE_NAMES,
   SCALE_LABELS,
 } from "./scales";
-import type { GridSnapValue, PianoRollTool, ScaleMode } from "./types";
+import type {
+  GridSnapValue,
+  PianoRollBottomLane,
+  PianoRollTool,
+  ScaleMode,
+} from "./types";
 
 interface PianoRollToolbarProps {
   tool: PianoRollTool;
@@ -31,8 +39,12 @@ interface PianoRollToolbarProps {
   selectedCount: number;
   onQuantize: () => void;
   onHumanize: () => void;
+  onLegato?: () => void;
+  onOverlapTrim?: () => void;
   onTranspose: (semitones: number) => void;
   onDeleteSelected: () => void;
+  bottomLane?: PianoRollBottomLane;
+  onBottomLaneChange?: (lane: PianoRollBottomLane) => void;
 }
 
 const SNAP_OPTIONS: { label: string; value: GridSnapValue }[] = [
@@ -43,6 +55,14 @@ const SNAP_OPTIONS: { label: string; value: GridSnapValue }[] = [
   { label: "1/16", value: 0.25 },
   { label: "1/32", value: 0.125 },
   { label: "Off", value: 0 },
+];
+
+const BOTTOM_LANE_OPTIONS: { label: string; value: PianoRollBottomLane }[] = [
+  { label: "Velocity", value: "velocity" },
+  { label: "CC 1: Modulation", value: "cc1" },
+  { label: "CC 11: Expression", value: "cc11" },
+  { label: "CC 64: Sustain", value: "cc64" },
+  { label: "Pitch Bend", value: "pitchBend" },
 ];
 
 export function PianoRollToolbar({
@@ -61,8 +81,12 @@ export function PianoRollToolbar({
   selectedCount,
   onQuantize,
   onHumanize,
+  onLegato,
+  onOverlapTrim,
   onTranspose,
   onDeleteSelected,
+  bottomLane = "velocity",
+  onBottomLaneChange,
 }: PianoRollToolbarProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-default/30 bg-default/10 px-3 py-1.5 text-xs select-none">
@@ -87,6 +111,26 @@ export function PianoRollToolbar({
         >
           <Pencil size={14} className="mr-1" />
           Draw
+        </Button>
+        <Button
+          size="sm"
+          variant={tool === "brush" ? "secondary" : "outline"}
+          onPress={() => onToolChange("brush")}
+          aria-label="Brush / Paint Repeating Notes (P)"
+          className="h-7 px-2"
+        >
+          <Paintbrush size={14} className="mr-1" />
+          Brush
+        </Button>
+        <Button
+          size="sm"
+          variant={tool === "slice" ? "secondary" : "outline"}
+          onPress={() => onToolChange("slice")}
+          aria-label="Scissor / Slice tool (S)"
+          className="h-7 px-2"
+        >
+          <Scissors size={14} className="mr-1" />
+          Slice
         </Button>
         <Button
           size="sm"
@@ -186,6 +230,28 @@ export function PianoRollToolbar({
           <Sparkles size={13} className="mr-1" />
           Humanize
         </Button>
+        {onLegato && (
+          <Button
+            size="sm"
+            variant="outline"
+            onPress={onLegato}
+            aria-label="Legato: extend notes to touch subsequent note start"
+            className="h-7 px-2 text-[11px]"
+          >
+            Legato
+          </Button>
+        )}
+        {onOverlapTrim && (
+          <Button
+            size="sm"
+            variant="outline"
+            onPress={onOverlapTrim}
+            aria-label="Trim Overlaps: prevent overlapping note tails"
+            className="h-7 px-2 text-[11px]"
+          >
+            Trim Overlaps
+          </Button>
+        )}
         <div className="flex items-center gap-0.5">
           <Button
             size="sm"
@@ -217,6 +283,31 @@ export function PianoRollToolbar({
             <Trash2 size={13} className="mr-1" />
             Delete ({selectedCount})
           </Button>
+        )}
+
+        {/* Bottom Automation Lane Selector */}
+        {onBottomLaneChange && (
+          <div className="flex items-center gap-1 border-l border-default/30 pl-2">
+            <Sliders size={13} className="text-foreground/50" />
+            <select
+              value={bottomLane}
+              onChange={(e) =>
+                onBottomLaneChange(e.target.value as PianoRollBottomLane)
+              }
+              aria-label="Bottom automation lane"
+              className="rounded border border-default/50 bg-default/20 px-2 py-0.5 text-xs text-foreground outline-none hover:border-default focus:border-accent"
+            >
+              {BOTTOM_LANE_OPTIONS.map((opt) => (
+                <option
+                  key={opt.value}
+                  value={opt.value}
+                  className="bg-background text-foreground"
+                >
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         )}
       </div>
     </div>

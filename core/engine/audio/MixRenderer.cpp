@@ -19,6 +19,7 @@ void MixRenderer::prepare(double sampleRate, int maxBlockSize, size_t maxStrips,
     const size_t samples = stripCapacity * 2 * static_cast<size_t>(maxBlock);
     preBuffer.assign(samples, 0.0f);
     postBuffer.assign(samples, 0.0f);
+    postFaderBuffer.assign(samples, 0.0f);
     edgeDelayScratch.assign(static_cast<size_t>(maxBlock) * 2, 0.0f);
     stripLevels.assign(stripCapacity, StripLevels{});
     stripSmoothers.assign(stripCapacity, Smoother{});
@@ -61,6 +62,18 @@ float* MixRenderer::postRow(uint32_t stripIndex, int channel) {
 
 const float* MixRenderer::postRow(uint32_t stripIndex, int channel) const {
     return postBuffer.data()
+           + (static_cast<size_t>(stripIndex) * 2 + static_cast<size_t>(channel))
+                 * static_cast<size_t>(maxBlock);
+}
+
+float* MixRenderer::postFaderRow(uint32_t stripIndex, int channel) {
+    return postFaderBuffer.data()
+           + (static_cast<size_t>(stripIndex) * 2 + static_cast<size_t>(channel))
+                 * static_cast<size_t>(maxBlock);
+}
+
+const float* MixRenderer::postFaderRow(uint32_t stripIndex, int channel) const {
+    return postFaderBuffer.data()
            + (static_cast<size_t>(stripIndex) * 2 + static_cast<size_t>(channel))
                  * static_cast<size_t>(maxBlock);
 }
@@ -124,11 +137,22 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
             if (edge.from >= graph.strips.size())
                 continue;
 
-            // Post-fader sends carry the source's own fader and pan (already
-            // baked into `post`); pre-fader sends bypass them by reading the
-            // untouched input sum.
-            const float* srcL = edge.preFader ? preRow(edge.from, 0) : postRow(edge.from, 0);
-            const float* srcR = edge.preFader ? preRow(edge.from, 1) : postRow(edge.from, 1);
+            // Post-pan sends carry the source's own fader and pan (already
+            // baked into `post`); post-fader sends carry fader but bypass pan;
+            // pre-fader sends bypass fader and pan by reading `pre`.
+            const SendTap effectiveTap = edge.tap != SendTap::PostPan ? edge.tap : (edge.preFader ? SendTap::PreFader : SendTap::PostPan);
+            const float* srcL = nullptr;
+            const float* srcR = nullptr;
+            if (effectiveTap == SendTap::PreFader) {
+                srcL = preRow(edge.from, 0);
+                srcR = preRow(edge.from, 1);
+            } else if (effectiveTap == SendTap::PostFader) {
+                srcL = postFaderRow(edge.from, 0);
+                srcR = postFaderRow(edge.from, 1);
+            } else {
+                srcL = postRow(edge.from, 0);
+                srcR = postRow(edge.from, 1);
+            }
 
             // Delay state advances even while an edge is inactive. Feeding
             // zeroes flushes a muted/unsoloed branch instead of freezing old
@@ -209,6 +233,44 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
                 smoothed = edge.gainLinear;
         }
 
+        // Input conditioning (gain trim and polarity inversion).
+        // Applied pre-insert so insert plugins and pre-fader sends hear the conditioned signal.
+        const float targetTrim = strip.trimLinear;
+        const float targetPolL = (strip.polarity == PolarityMask::Left || strip.polarity == PolarityMask::Both) ? -1.0f : 1.0f;
+        const float targetPolR = (strip.polarity == PolarityMask::Right || strip.polarity == PolarityMask::Both) ? -1.0f : 1.0f;
+
+        Smoother& smoother = stripSmoothers[s];
+        if (!smoother.primed) {
+            smoother.trim = targetTrim;
+            smoother.polL = targetPolL;
+            smoother.polR = targetPolR;
+        }
+
+        const bool condSettled = (smoother.trim == targetTrim && smoother.polL == targetPolL && smoother.polR == targetPolR);
+        if (condSettled) {
+            const float factorL = targetTrim * targetPolL;
+            const float factorR = targetTrim * targetPolR;
+            if (factorL != 1.0f || factorR != 1.0f) {
+                for (int i = 0; i < span; ++i) {
+                    destL[i] *= factorL;
+                    destR[i] *= factorR;
+                }
+            }
+        } else {
+            // Gliding transition (smooth ramp to eliminate DC clicks)
+            const Smoother atBlockStart = smoother;
+            for (int i = 0; i < span; ++i) {
+                smoother.trim += alpha * (targetTrim - smoother.trim);
+                smoother.polL += alpha * (targetPolL - smoother.polL);
+                smoother.polR += alpha * (targetPolR - smoother.polR);
+                destL[i] *= (smoother.trim * smoother.polL);
+                destR[i] *= (smoother.trim * smoother.polR);
+            }
+            if (smoother.trim == atBlockStart.trim) smoother.trim = targetTrim;
+            if (smoother.polL == atBlockStart.polL) smoother.polL = targetPolL;
+            if (smoother.polR == atBlockStart.polR) smoother.polR = targetPolR;
+        }
+
         // Strip inserts are pre-fader and post-input-sum, matching normal DAW
         // channel-strip semantics. Processing `pre` in place also means a
         // pre-fader send hears the insert chain but still bypasses fader/mute.
@@ -218,13 +280,16 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
                 processor.process(processor.context, destL, destR, span);
         }
 
-        // 2 + 3. Fader, pan, mono fold, meter.
+        // 2 + 3. Fader, pan, mono fold, post-fader row, meter.
+        float* pfL = postFaderRow(s, 0);
+        float* pfR = postFaderRow(s, 1);
         float* outL = postRow(s, 0);
         float* outR = postRow(s, 1);
 
         float targetL = 0.0f;
         float targetR = 0.0f;
         mix_math::panGains(strip.gainLinear, strip.pan, targetL, targetR);
+        const float targetFader = strip.gainLinear;
         const float targetMono = strip.channels == 1 ? 1.0f : 0.0f;
 
         // Where a one-channel strip's single signal comes from. A source
@@ -236,10 +301,10 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
         const bool foldsOwnStereo =
             strip.kind == StripKind::Track || strip.kind == StripKind::Click;
 
-        Smoother& smoother = stripSmoothers[s];
         if (!smoother.primed) {
             smoother.gainL = targetL;
             smoother.gainR = targetR;
+            smoother.faderGain = targetFader;
             smoother.monoMix = targetMono;
             smoother.primed = true;
         }
@@ -247,7 +312,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
         float peakL = 0.0f;
         float peakR = 0.0f;
 
-        // Settled: all three glide states sit exactly on their targets, so
+        // Settled: all glide states sit exactly on their targets, so
         // every `x += alpha * (target - x)` below is a no-op and `monoMix` is
         // exactly 0 or exactly 1. Splitting that case out costs nothing in
         // fidelity -- the arithmetic left in each branch is the general
@@ -256,6 +321,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
         // because an output lane is settled from its very first block (its
         // fader and pan are constants the graph never changes).
         const bool settled = smoother.gainL == targetL && smoother.gainR == targetR
+                             && smoother.faderGain == targetFader
                              && smoother.monoMix == targetMono;
 
         if (settled && targetMono == 1.0f) {
@@ -264,6 +330,9 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
                 const float inL = std::isfinite(destL[i]) ? destL[i] : 0.0f;
                 const float inR = std::isfinite(destR[i]) ? destR[i] : 0.0f;
                 const float mid = foldsOwnStereo ? mix_math::monoSum(inL, inR) : inL;
+                const float pf = mid * targetFader;
+                pfL[i] = pf;
+                pfR[i] = pf;
                 // Written as the general lerp with monoMix == 1 rather than
                 // plain `mid`, because `a + (b - a)` is not exactly `b` in
                 // IEEE arithmetic and this must not drift from the slow path.
@@ -279,6 +348,8 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
             for (int i = 0; i < span; ++i) {
                 const float inL = std::isfinite(destL[i]) ? destL[i] : 0.0f;
                 const float inR = std::isfinite(destR[i]) ? destR[i] : 0.0f;
+                pfL[i] = inL * targetFader;
+                pfR[i] = inR * targetFader;
                 const float wetL = inL * targetL;
                 const float wetR = inR * targetR;
                 outL[i] = wetL;
@@ -292,6 +363,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
             for (int i = 0; i < span; ++i) {
                 smoother.gainL += alpha * (targetL - smoother.gainL);
                 smoother.gainR += alpha * (targetR - smoother.gainR);
+                smoother.faderGain += alpha * (targetFader - smoother.faderGain);
                 smoother.monoMix += alpha * (targetMono - smoother.monoMix);
 
                 // A denormal or a NaN from a decoder must not poison the whole
@@ -306,6 +378,9 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
                 const float mid = foldsOwnStereo ? mix_math::monoSum(inL, inR) : inL;
                 const float foldedL = inL + smoother.monoMix * (mid - inL);
                 const float foldedR = inR + smoother.monoMix * (mid - inR);
+
+                pfL[i] = foldedL * smoother.faderGain;
+                pfR[i] = foldedR * smoother.faderGain;
 
                 const float wetL = foldedL * smoother.gainL;
                 const float wetR = foldedR * smoother.gainR;
@@ -325,6 +400,8 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
                 smoother.gainL = targetL;
             if (smoother.gainR == atBlockStart.gainR)
                 smoother.gainR = targetR;
+            if (smoother.faderGain == atBlockStart.faderGain)
+                smoother.faderGain = targetFader;
             if (smoother.monoMix == atBlockStart.monoMix)
                 smoother.monoMix = targetMono;
         }

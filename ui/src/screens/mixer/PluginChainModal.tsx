@@ -88,13 +88,13 @@ export function PluginChainModal({
       <Modal.Backdrop>
         <Modal.Container size="3xl" placement="center" scroll="inside">
           <Modal.Dialog
-            aria-label={`Insert effects for ${stripName}`}
+            aria-label={`Audio FX for ${stripName}`}
             className="max-h-[86vh] rounded-xl border border-default/40 p-0 shadow-2xl"
           >
             <Modal.Header className="flex items-center justify-between border-b border-default/20 px-5 py-4">
               <div className="min-w-0">
                 <Modal.Heading className="truncate text-base font-bold">
-                  Insert effects · {stripName}
+                  Audio FX · {stripName}
                 </Modal.Heading>
                 <p className="mt-1 text-xs text-foreground/45">
                   Post-input, pre-fader. Order is top to bottom.
@@ -104,7 +104,7 @@ export function PluginChainModal({
                 isIconOnly
                 size="sm"
                 variant="ghost"
-                aria-label="Close insert effects"
+                aria-label="Close Audio FX"
                 onPress={onClose}
               >
                 <X size={16} />
@@ -118,7 +118,7 @@ export function PluginChainModal({
                     Chain
                   </h3>
                   <span className="text-[10px] text-foreground/40">
-                    {slots.length}/32 inserts
+                    {slots.length}/32 audio effects
                   </span>
                 </div>
                 {slots.length === 0 ? (

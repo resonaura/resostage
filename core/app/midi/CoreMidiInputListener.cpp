@@ -115,6 +115,11 @@ void CoreMidiInputListener::handlePacketList(const MIDIPacketList* packetList) {
         const uint8_t statusHigh = static_cast<uint8_t>(status & 0xF0);
         const uint8_t channel = static_cast<uint8_t>(status & 0x0F);
 
+        // Forward all valid MIDI packets for live instrument playback & MIDI recording
+        if (onMidiMessageReceived && packet->length > 0) {
+            onMidiMessageReceived(packet->data, static_cast<int>(packet->length));
+        }
+
         // Note On with velocity 0 is, by MIDI convention, a de-facto Note
         // Off (used for running-status efficiency by many controllers). A
         // footswitch/pad sending press+release would otherwise fire the
@@ -123,6 +128,7 @@ void CoreMidiInputListener::handlePacketList(const MIDIPacketList* packetList) {
         bool haveEvent = false;
         MidiTriggerType eventType = MidiTriggerType::NoteOn;
         uint8_t number = 0;
+        uint8_t rawValue = 0;
 
         if (statusHigh == 0x90 && packet->length >= 3) {
             const uint8_t note = packet->data[1];
@@ -131,16 +137,18 @@ void CoreMidiInputListener::handlePacketList(const MIDIPacketList* packetList) {
                 haveEvent = true;
                 eventType = MidiTriggerType::NoteOn;
                 number = note;
+                rawValue = velocity;
             }
         } else if (statusHigh == 0xB0 && packet->length >= 3) {
             haveEvent = true;
             eventType = MidiTriggerType::ControlChange;
             number = packet->data[1];
+            rawValue = packet->data[2];
         }
 
         if (haveEvent) {
             if (onRawMessage)
-                onRawMessage(eventType, channel + 1, number);
+                onRawMessage(eventType, channel + 1, number, rawValue);
 
             std::lock_guard<std::mutex> lock(mappingsMutex);
             for (const MidiMapping& m : mappings) {
@@ -148,8 +156,21 @@ void CoreMidiInputListener::handlePacketList(const MIDIPacketList* packetList) {
                     continue;
                 if (m.triggerType != eventType || m.number != number)
                     continue;
-                if (onAction)
+
+                // Check for continuous parameter targets (track_gain, track_pan, master_gain, send_level, plugin_param)
+                const bool isContinuous = (m.action.rfind("track_gain:", 0) == 0 ||
+                                           m.action.rfind("track_pan:", 0) == 0 ||
+                                           m.action == "master_gain" ||
+                                           m.action.rfind("send_level:", 0) == 0 ||
+                                           m.action.rfind("plugin_param:", 0) == 0);
+                if (isContinuous && eventType == MidiTriggerType::ControlChange) {
+                    if (onContinuousAction) {
+                        const float norm = static_cast<float>(rawValue) / 127.0f;
+                        onContinuousAction(m.action, norm);
+                    }
+                } else if (onAction) {
                     onAction(m.action);
+                }
             }
         }
         packet = MIDIPacketNext(packet);

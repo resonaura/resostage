@@ -10,9 +10,13 @@
 #include "automation/AutomationEvaluator.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cctype>
 #include <cmath>
+#include <filesystem>
 #include <string>
 #include <vector>
+#include "project/Uuid.h"
 
 
 namespace resostage {
@@ -715,6 +719,10 @@ void AudioEngine::play() {
 }
 
 void AudioEngine::stop() {
+    if (isRecordingState.load(std::memory_order_acquire)) {
+        stopRecording();
+    }
+
     // Freeze the playhead at the current position so Stop/Play resumes rather
     // than jumping to 0 (explicit restarts go through selectSong / seek).
     if (playing.load(std::memory_order_acquire)) {
@@ -767,6 +775,194 @@ void AudioEngine::stopToStart() {
     stop();
     std::string error;
     seekToSeconds(0.0, error);
+}
+
+void AudioEngine::startRecording() {
+    if (isRecordingState.load(std::memory_order_acquire))
+        return;
+
+    if (!projectLoaded || currentSong >= loader.project().songs.size())
+        return;
+
+    const auto& song = loader.project().songs[currentSong];
+    refreshMonitoringAndArmCounts();
+
+    const double sr = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
+    const int64_t startPos = clock.currentSamplePosition();
+
+    // Prepare recording output directory
+    std::filesystem::path recPath;
+    if (!projectPath().empty()) {
+        const std::filesystem::path p(projectPath());
+        if (std::filesystem::is_directory(p)) {
+            recPath = p / "Recordings";
+        } else {
+            recPath = p.parent_path() / "Recordings";
+        }
+    } else {
+        recPath = std::filesystem::temp_directory_path() / "ResoStageRecordings";
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(recPath, ec);
+
+    std::vector<TrackAudioRecordSession> requestedSessions;
+    activeMidiRecordSessions.clear();
+
+    const auto nowTime = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    char timeStr[64];
+    std::strftime(timeStr, sizeof(timeStr), "%Y%m%d_%H%M%S", std::localtime(&nowTime));
+
+    const auto& tracks = loader.project().tracks;
+    for (size_t t = 0; t < tracks.size(); ++t) {
+        const auto& track = tracks[t];
+        if (!track.recordArmed)
+            continue;
+
+        if (track.kind == TrackKind::Audio) {
+            TrackAudioRecordSession s;
+            s.trackId = track.id;
+            std::string sanitizedName = track.name.empty() ? track.id : track.name;
+            for (char& c : sanitizedName) {
+                if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') c = '_';
+            }
+            s.filename = "Take_" + std::string(timeStr) + "_" + sanitizedName + ".wav";
+            s.fullPath = (recPath / s.filename).string();
+            s.channels = (track.channels == 1) ? 1 : 2;
+            int chL = 0, chR = (track.channels == 1 ? -1 : 1);
+            audio_engine_detail::parseInputRouting(track.inputSource, track.channels, chL, chR);
+            s.inputChannel0 = chL;
+            s.inputChannel1 = chR;
+            requestedSessions.push_back(std::move(s));
+        }
+
+        // Active MIDI recording session
+        TrackMidiRecordSession midiSession;
+        midiSession.trackId = track.id;
+        midiSession.inputChannel = track.midiInputChannel;
+        midiSession.recordedNoteCount = 0;
+        activeMidiRecordSessions.push_back(std::move(midiSession));
+    }
+
+    if (!requestedSessions.empty()) {
+        std::string err;
+        audioRecordWorker.prepareRecording(recPath.string(), requestedSessions, sr, startPos, err);
+    }
+
+    recordStartSamplePos.store(startPos, std::memory_order_release);
+    isRecordingState.store(true, std::memory_order_release);
+
+    if (!playing.load(std::memory_order_acquire)) {
+        play();
+    }
+}
+
+void AudioEngine::stopRecording() {
+    if (!isRecordingState.load(std::memory_order_acquire))
+        return;
+
+    isRecordingState.store(false, std::memory_order_release);
+
+    std::vector<RecordedAudioTrackResult> recordedAudio = audioRecordWorker.stopAndFinalize();
+
+    if (!projectLoaded || currentSong >= loader.project().songs.size())
+        return;
+
+    Project& proj = loader.project();
+    SongDef& song = proj.songs[currentSong];
+
+    const double sr = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
+    const int64_t startSample = recordStartSamplePos.load(std::memory_order_acquire);
+    const double recordStartSeconds = static_cast<double>(startSample) / sr;
+    const int64_t endSample = clock.currentSamplePosition();
+
+    bool projectModified = false;
+
+    // 1. Commit recorded audio regions
+    for (const auto& rec : recordedAudio) {
+        if (rec.recordedFrames <= 0)
+            continue;
+        Region r;
+        r.id = generateUuidV7();
+        r.trackId = rec.trackId;
+        r.startSeconds = recordStartSeconds;
+        r.durationSeconds = static_cast<double>(rec.recordedFrames) / rec.sampleRate;
+        r.gainDb = 0.0;
+        if (!projectPath().empty() && rec.fullPath.find(projectPath()) == 0) {
+            r.source.file = "Recordings/" + rec.filename;
+        } else {
+            r.source.file = rec.fullPath;
+        }
+        r.source.offsetSeconds = 0.0;
+        r.fade.inSeconds = 0.005;
+        r.fade.outSeconds = 0.005;
+        song.regions.push_back(std::move(r));
+        projectModified = true;
+    }
+
+    // 2. Commit recorded MIDI regions
+    for (auto& session : activeMidiRecordSessions) {
+        for (int p = 0; p < 128; ++p) {
+            auto& activeNote = session.activeNotes[static_cast<size_t>(p)];
+            if (activeNote.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
+                MidiNote completed;
+                completed.pitch = static_cast<uint8_t>(p);
+                completed.velocity = activeNote.velocity;
+                const double noteStartSec = static_cast<double>(activeNote.startSample) / sr;
+                const double durSec = static_cast<double>(endSample - activeNote.startSample) / sr;
+                const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
+                completed.startBeats = (noteStartSec * bpm) / 60.0;
+                completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
+                session.recordedNotes[session.recordedNoteCount++] = completed;
+                activeNote.active = false;
+            }
+        }
+
+        if (session.recordedNoteCount > 0) {
+            MidiRegion mr;
+            mr.id = generateUuidV7();
+            mr.trackId = session.trackId;
+            mr.name = "Recorded MIDI";
+            const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
+            mr.startBeats = (recordStartSeconds * bpm) / 60.0;
+            const double endSec = static_cast<double>(endSample) / sr;
+            mr.durationBeats = std::max(1.0, ((endSec - recordStartSeconds) * bpm) / 60.0);
+            mr.notes.reserve(session.recordedNoteCount);
+            for (size_t n = 0; n < session.recordedNoteCount; ++n) {
+                MidiNote note = session.recordedNotes[n];
+                note.startBeats = std::max(0.0, note.startBeats - mr.startBeats);
+                mr.notes.push_back(note);
+            }
+            song.midiRegions.push_back(std::move(mr));
+            projectModified = true;
+        }
+    }
+    activeMidiRecordSessions.clear();
+
+    if (projectModified) {
+        std::string err;
+        (void)selectSong(currentSong, err, false);
+        publishRoutingSnapshot();
+    }
+}
+
+void AudioEngine::toggleRecording() {
+    if (isRecording()) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+}
+
+bool AudioEngine::isRecording() const {
+    return isRecordingState.load(std::memory_order_acquire);
+}
+
+std::vector<LiveRecordingRegionInfo> AudioEngine::getLiveRecordingRegions() const {
+    return audioRecordWorker.getLiveRegions();
+}
+
+std::vector<PeakPair16> AudioEngine::getLiveRecordingPeaks(const std::string& trackId, size_t level, size_t first, size_t count) const {
+    return audioRecordWorker.getPeakChunk(trackId, level, first, count);
 }
 
 bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songIndex) {

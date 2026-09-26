@@ -4,7 +4,7 @@
 // koffi), the app-bundle nested Core discovery, the global application menu,
 // and the Touch Bar. Everything mac-specific about the shell lives here.
 
-import { app, Menu, TouchBar } from "electron";
+import { app, Menu, TouchBar, type BrowserWindow } from "electron";
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -236,6 +236,29 @@ export class MacPlatformAdapter extends PlatformAdapter {
       event.preventDefault();
       handle(filePath);
     });
+  }
+
+  // ── Window sizing / positioning ─────────────────────────────────────────
+
+  override getInitialWindowBounds(workArea: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    // On macOS, use the display's exact workArea (visibleFrame):
+    // starts right beneath the menu bar and stops right above the Dock.
+    return workArea;
+  }
+
+  override applyInitialWindowState(_win: BrowserWindow): void {
+    // Window is created with the exact workArea bounds, cleanly filling
+    // the screen between menu bar and Dock without entering exclusive fullscreen Space.
   }
 
   // ── Tray (macOS menu bar status item) ───────────────────────────────────

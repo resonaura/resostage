@@ -1,5 +1,5 @@
 import { Separator, Toolbar } from "@heroui/react";
-import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
+import { Circle, Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
 import { transport } from "../lib/api";
 import { useContinuousPlayhead } from "../lib/optimistic";
 import type { WebUiState } from "../lib/types";
@@ -88,6 +88,24 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
         </ToggleButton>
         <ToggleButton
           isIconOnly
+          isSelected={state.recording ?? false}
+          onPress={() => void transport.record()}
+          aria-label={state.recording ? "Stop Recording" : "Record"}
+          variant={state.recording ? "danger-soft" : "ghost"}
+          className={
+            state.recording
+              ? "text-danger animate-pulse font-bold"
+              : "text-foreground/70 hover:text-danger"
+          }
+        >
+          <ToggleButtonGroup.Separator />
+          <Circle
+            size={12}
+            className={state.recording ? "fill-danger" : "fill-current"}
+          />
+        </ToggleButton>
+        <ToggleButton
+          isIconOnly
           isSelected={false}
           onPress={() => transport.next()}
           aria-label="Next"
@@ -100,7 +118,7 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
       <Separator orientation="vertical" />
       {/* Fixed song + BPM chip */}
       <div
-        className="hidden h-7 w-36 shrink-0 flex-col justify-center pl-2 sm:flex"
+        className="hidden h-7 w-36 shrink-0 flex-col justify-center pl-2 2xl:flex"
         title={state.songName || undefined}
       >
         <div className="truncate text-center text-[11px] font-medium leading-tight text-foreground/70">

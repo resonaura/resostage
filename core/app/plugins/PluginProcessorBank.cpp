@@ -53,6 +53,7 @@ void PluginPlayHead::publish(const PluginTransportState& state) noexcept {
     numerator.store(std::max(1, state.numerator), std::memory_order_relaxed);
     denominator.store(std::max(1, state.denominator), std::memory_order_relaxed);
     playing.store(state.playing, std::memory_order_relaxed);
+    recording.store(state.recording, std::memory_order_relaxed);
     looping.store(state.looping, std::memory_order_relaxed);
     loopStartSample.store(state.loopStartSample, std::memory_order_relaxed);
     loopEndSample.store(state.loopEndSample, std::memory_order_relaxed);
@@ -79,7 +80,7 @@ PluginPlayHead::getPosition() const {
     position.setPpqPositionOfLastBarStart(
         quartersPerBar > 0.0 ? std::floor(ppq / quartersPerBar) * quartersPerBar : 0.0);
     position.setIsPlaying(playing.load(std::memory_order_relaxed));
-    position.setIsRecording(false);
+    position.setIsRecording(recording.load(std::memory_order_relaxed));
     const bool isLooping = looping.load(std::memory_order_relaxed);
     position.setIsLooping(isLooping);
     if (isLooping) {
@@ -520,6 +521,19 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             for (auto& node : chain->nodes)
                 if (node->instance != nullptr)
                     node->instance->addListener(bank.get());
+
+    PluginTransportState initialTransport;
+    initialTransport.sample = 0;
+    initialTransport.sampleRate = sampleRate;
+    initialTransport.playing = false;
+    if (!project.songs.empty()) {
+        const auto& song = project.songs.front();
+        initialTransport.bpm = song.bpm;
+        initialTransport.numerator = song.timeSignature.numerator;
+        initialTransport.denominator = song.timeSignature.denominator;
+    }
+    bank->playHead.publish(initialTransport);
+
     result.bank = std::move(bank);
     return result;
 }

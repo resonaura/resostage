@@ -5,7 +5,7 @@ import {
   type ColorRole,
 } from "../../lib/theme";
 
-export const SIDEBAR_WIDTH = 240;
+export const SIDEBAR_WIDTH = 260;
 export const EVENT_LANE_HEIGHT = 24;
 export const SECTION_LANE_HEIGHT = 22;
 /**

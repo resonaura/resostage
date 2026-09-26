@@ -12,6 +12,9 @@
 #include <thread>
 #include <vector>
 
+#include "audio/AudioRecordWorker.h"
+
+
 // Forward-declare libwebsockets types so the header stays lightweight.
 struct lws_context;
 struct lws;
@@ -28,6 +31,8 @@ struct DiscoveredDevice;
 // thread itself -- that would race with AudioEngine/JUCE state.
 enum class WebCommandKind : uint8_t {
     Play,
+    // Dedicated transport recording toggle
+    TransportRecord,
     // Pause -- freezes in place, resumed by Play (see AudioEngine::stop()'s
     // doc comment). Used by the Play/Pause toggle button + spacebar.
     Stop,
@@ -45,15 +50,25 @@ enum class WebCommandKind : uint8_t {
     SetTrackPan,
     SetTrackMute,
     SetTrackSolo,
+    SetTrackSoloSafe,
     SetTrackMono,
+    SetTrackRecordArm,
+    SetTrackInputMonitor,
+    SetTrackInputSource,
+    SetTrackTrim,
+    SetAutoInputMonitoring,
+    SetAutoPunch,
+    SetLowLatencyMonitoring,
     SetBusGain,
     SetBusPan,
     SetBusMute,
     SetBusSolo,
+    SetBusSoloSafe,
     // Metronome solo -- joins the same solo group as SetTrackSolo (see
     // AudioEngine::setClickSolo()). `value` is the boolean (0.0/1.0), `arg`
     // unused.
     SetClickSolo,
+    SetClickSoloSafe,
     // Ableton-style per-track send routing -- `json` carries
     // {trackIndex, busId, gainDb}. Mirrors MixerPanel.cpp's onSendChanged:
     // find the track's existing send row for busId and update its level
@@ -212,6 +227,7 @@ enum class WebCommandKind : uint8_t {
     // device selection, keybindings. Same raw-JSON-passthrough routing as
     // the Builder commands above; handled in MainComponentSettings.cpp.
     SetAudioOutputDevice,
+    SetAudioInputDevice,
     SetAudioDeviceType,
     ShowAudioControlPanel,
     SetSampleRate,
@@ -225,6 +241,7 @@ enum class WebCommandKind : uint8_t {
     SetTheme,
     SetKeybinding,
     SetOutputChannels,
+    SetInputChannels,
     // MIDI learn / clear for a named action (see Project::midiMappings).
     // Learn arms the next Note On / CC from the remote input; Clear drops
     // any existing mapping for that action. Both take JSON { "action": "..." }.
@@ -296,6 +313,7 @@ struct WebUiState {
     // Metronome solo -- joins the same solo group as track solo (see
     // AudioEngine::setClickSolo()).
     bool clickSolo = false;
+    bool clickSoloSafe = false;
     // The metronome is in the tracks' solo group -- see BusRow's soloGroup.
     std::string clickSoloGroup = "sources";
     bool clickSoloActiveInGroup = false;
@@ -338,6 +356,14 @@ struct WebUiState {
     double driftFactor = 1.0;
     double bpm = 0.0;
     bool playing = false;
+    bool recording = false;
+    bool autoInputMonitoring = true;
+    bool autoPunchEnabled = false;
+    int64_t punchStartSample = 0;
+    int64_t punchEndSample = 0;
+    bool lowLatencyMonitoring = true;
+    double lowLatencyLimitMs = 5.0;
+    std::vector<LiveRecordingRegionInfo> liveRecordings;
     bool hardwareAlarm = false;
     int songIndex = -1;
     int songCount = 0;
@@ -602,6 +628,7 @@ struct WebUiState {
         double pan = 0.0;
         bool mute = false;
         bool solo = false;
+        bool soloSafe = false;
         // Solo group + whether anything in it is soloed -- see BusRow.
         std::string soloGroup = "sources";
         bool soloActiveInGroup = false;
@@ -610,6 +637,8 @@ struct WebUiState {
             double level = 100.0; // 0-100 LINEAR percent, 100 = unity/0 dB
             bool preFader = false;
             bool enabled = true;
+            bool lowLatencySafe = false;
+            std::string tap = "post-pan";
         };
         struct Output {
             std::string type = "main"; // "main" | "sends-only" | "ext-out"
@@ -619,6 +648,14 @@ struct WebUiState {
         float peakDb = -144.0f;
         float peakDbL = -144.0f;
         float peakDbR = -144.0f;
+        bool recordArmed = false;
+        bool inputMonitoring = false;
+        std::string inputSource = "none";
+        int midiInputChannel = 0;
+        std::string midiInputDevice = "all";
+        double inputTrimDb = 0.0;
+        bool phaseInvert = false;
+        std::string polarity = "none";
         std::vector<PluginSlotRow> plugins;
     };
     std::vector<TrackRow> tracks;
@@ -630,6 +667,7 @@ struct WebUiState {
         double pan = 0.0; // -1..+1 balance on physical outs
         bool mute = false;
         bool solo = false;
+        bool soloSafe = false;
         // Which solo group this row belongs to ("sources" | "sends" | "main"
         // | "none") and whether anything in that group is currently soloed.
         // Together they tell the SPA which strips to draw as silenced without
@@ -776,6 +814,7 @@ struct WebUiState {
             double pan = 0.0;
             bool mute = false;
             bool solo = false;
+            bool soloSafe = false;
             // Resolved: false when muted OR silenced by someone else's solo.
             bool audible = true;
             // Output lanes only: 0-based device channel, -1 = shadow lane
@@ -883,6 +922,8 @@ struct WebUiState {
     struct SettingsRow {
         std::string currentOutputDevice;
         std::vector<std::string> outputDevices;
+        std::string currentInputDevice;
+        std::vector<std::string> inputDevices;
         std::vector<std::string> audioDrivers;
         std::string currentAudioDriver;
         bool hasControlPanel = false;
@@ -895,6 +936,11 @@ struct WebUiState {
         // AudioDeviceSelectorComponent's channel checkbox list.
         std::vector<std::string> outputChannelNames;
         std::vector<bool> activeOutputChannels;
+        std::vector<std::string> inputChannelNames;
+        std::vector<bool> activeInputChannels;
+        double inputLatencyMs = 0.0;
+        double outputLatencyMs = 0.0;
+        double roundtripLatencyMs = 0.0;
         std::vector<std::string> midiOutputs;
         std::vector<std::string> midiInputs;
         // Whether CoreMidiDispatcher's "ResoStage Sync" virtual source (see
@@ -1046,6 +1092,18 @@ public:
         pluginCatalogProvider = std::move(provider);
     }
 
+    using LivePeaksProvider = std::function<std::vector<PeakPair16>(const std::string& trackId, size_t level, size_t first, size_t count)>;
+    void setLivePeaksProvider(LivePeaksProvider provider) {
+        livePeaksProvider = std::move(provider);
+    }
+
+    using MidiInputHandler = std::function<void(const uint8_t* data, int length)>;
+    void setMidiInputHandler(MidiInputHandler handler) {
+        midiInputHandler = std::move(handler);
+    }
+    void injectMidi(const uint8_t* data, int length);
+
+
     // HTTP-thread: stash which track a following .../import-wav/upload POST
     // is for, plus the original filename (so the archive entry ends up
     // "Audio/kick.wav" instead of a generic temp name) -- see
@@ -1134,6 +1192,7 @@ private:
     int servePeaks(struct lws* wsi);
     int serveAllPeaks(struct lws* wsi);
     int serveWaveformRaw(struct lws* wsi, const char* queryArgs);
+    int serveLiveRecordingPeaks(struct lws* wsi, const char* uri, const char* queryArgs);
     int serveDiscoveredDevices(struct lws* wsi);
     // GET /api/v1/ui/menu -- serializes platform/MenuModel.h/.cpp (the same
     // single source the AppKit menu bar is built from) + current keybindings
@@ -1156,6 +1215,7 @@ private:
     // per-client send period, mirrored here as Hz for the telemetry frame.
     std::atomic<int> effectiveTelemetryHz_{kTelemetryHz};
     std::function<void()> urgentCommandHook;
+    MidiInputHandler midiInputHandler;
 
     mutable std::mutex stateMutex;
     WebUiState state;
@@ -1215,6 +1275,7 @@ private:
     DiscoveryStatusProvider discoveryStatusProvider;
     DiscoveryToggleHandler discoveryToggleHandler;
     PluginCatalogProvider pluginCatalogProvider;
+    LivePeaksProvider livePeaksProvider;
 
     std::unique_ptr<juce::DatagramSocket> udpSocket_;
     std::atomic<int> targetTelemetryHz_{60};

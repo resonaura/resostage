@@ -268,3 +268,42 @@ describe("regionFadeHandleAt", () => {
     expect(regionFadeHandleAt(398, 400, 0, 0)).toBeNull();
   });
 });
+
+describe("Audio Slip Editing (Alt+Cmd+Drag)", () => {
+  const slipSession = (): RegionDragSession =>
+    session({
+      mode: "slip",
+      origStart: 10,
+      origDuration: 8,
+      origSourceOffset: 5,
+      maxSourceDur: 20, // file has 25s total (5 offset + 20 remaining)
+    });
+
+  it("shifts source offset without moving start or duration", () => {
+    // Dragging right by 20px (2s @ 10px/s) reveals earlier audio (sourceOffset: 5 - 2 = 3s)
+    const gRight = computeRegionDragGeom(slipSession(), ctx, 120, 50);
+    expect(gRight.start).toBe(10);
+    expect(gRight.duration).toBe(8);
+    expect(gRight.sourceOffset).toBeCloseTo(3, 4);
+
+    // Dragging left by 20px reveals later audio (sourceOffset: 5 - (-2) = 7s)
+    const gLeft = computeRegionDragGeom(slipSession(), ctx, 80, 50);
+    expect(gLeft.start).toBe(10);
+    expect(gLeft.duration).toBe(8);
+    expect(gLeft.sourceOffset).toBeCloseTo(7, 4);
+  });
+
+  it("clamps source offset between zero and total file length minus duration", () => {
+    // Total file duration = 5 + 20 = 25s. Region duration = 8s.
+    // Max offset = 25 - 8 = 17s.
+
+    // Drag far right: clamps to 0
+    const gMin = computeRegionDragGeom(slipSession(), ctx, 300, 50);
+    expect(gMin.sourceOffset).toBe(0);
+
+    // Drag far left: clamps to 17
+    const gMax = computeRegionDragGeom(slipSession(), ctx, -200, 50);
+    expect(gMax.sourceOffset).toBeCloseTo(17, 4);
+  });
+});
+

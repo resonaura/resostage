@@ -9,6 +9,7 @@ add_library(resostage_engine STATIC
   audio/WavStreamDecoder.cpp
   audio/WavMetadata.cpp
   audio/AudioRingBuffer.cpp
+  audio/AudioRecordWorker.cpp
   audio/StreamingTrackBuffer.cpp
   audio/StreamingEngine.cpp
   audio/ClickGenerator.cpp

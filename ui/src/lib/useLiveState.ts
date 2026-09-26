@@ -3,7 +3,13 @@ import { isRenderActive, setTransportPlaying } from "./appActivity";
 import { wsUrl, onBackendChange, apiFetch } from "./backend";
 import { pushLiveLevels, pushLiveBinaryFrame, setMeterIds, subscribeLiveTransport, subscribeLiveMixerFlags, subscribeLiveHealth, getLastMixerFlagsMs, getLastUdpFrameMs } from "./liveLevels";
 import type { LiveMixerFlags } from "./liveLevels";
-import { registerRefetchHandler, unregisterRefetchHandler, clearApiCaches } from "./api";
+import {
+  registerRefetchHandler,
+  unregisterRefetchHandler,
+  registerLiveMidiSender,
+  unregisterLiveMidiSender,
+  clearApiCaches,
+} from "./api";
 import { shareStructure } from "./structuralShare";
 import { IS_ELECTRON } from "./electron";
 import { IS_EMBEDDED } from "./embedded";
@@ -75,21 +81,29 @@ function buildMergedState(
     settings: next.settings
       ? {
           ...prev.settings,
+          ...next.settings,
           // Only overwrite fields that are actually present & meaningful.
           // Server omits device lists on non-settings views; never treat
           // missing/empty as "clear the UI".
           ...(next.settings.currentOutputDevice !== undefined &&
           next.settings.currentOutputDevice !== ""
             ? { currentOutputDevice: next.settings.currentOutputDevice }
-            : {}),
+            : { currentOutputDevice: prev.settings.currentOutputDevice }),
+          currentInputDevice:
+            next.settings.currentInputDevice !== undefined
+              ? next.settings.currentInputDevice
+              : prev.settings.currentInputDevice,
+          inputDevices: next.settings.inputDevices?.length
+            ? next.settings.inputDevices
+            : prev.settings.inputDevices,
           ...(next.settings.sampleRate !== undefined &&
           next.settings.sampleRate > 0
             ? { sampleRate: next.settings.sampleRate }
-            : {}),
+            : { sampleRate: prev.settings.sampleRate }),
           ...(next.settings.bufferSize !== undefined &&
           next.settings.bufferSize > 0
             ? { bufferSize: next.settings.bufferSize }
-            : {}),
+            : { bufferSize: prev.settings.bufferSize }),
           outputDevices: next.settings.outputDevices?.length
             ? next.settings.outputDevices
             : prev.settings.outputDevices,
@@ -105,6 +119,25 @@ function buildMergedState(
           activeOutputChannels: next.settings.activeOutputChannels?.length
             ? next.settings.activeOutputChannels
             : prev.settings.activeOutputChannels,
+          inputChannelNames: next.settings.inputChannelNames?.length
+            ? next.settings.inputChannelNames
+            : prev.settings.inputChannelNames,
+          activeInputChannels: next.settings.activeInputChannels?.length
+            ? next.settings.activeInputChannels
+            : prev.settings.activeInputChannels,
+          audioDrivers: next.settings.audioDrivers?.length
+            ? next.settings.audioDrivers
+            : prev.settings.audioDrivers,
+          currentAudioDriver:
+            next.settings.currentAudioDriver ?? prev.settings.currentAudioDriver,
+          hasControlPanel:
+            next.settings.hasControlPanel ?? prev.settings.hasControlPanel,
+          inputLatencyMs:
+            next.settings.inputLatencyMs ?? prev.settings.inputLatencyMs,
+          outputLatencyMs:
+            next.settings.outputLatencyMs ?? prev.settings.outputLatencyMs,
+          roundtripLatencyMs:
+            next.settings.roundtripLatencyMs ?? prev.settings.roundtripLatencyMs,
           midiOutputs: next.settings.midiOutputs?.length
             ? next.settings.midiOutputs
             : prev.settings.midiOutputs,
@@ -124,6 +157,8 @@ function buildMergedState(
           uiRenderEngine:
             next.settings.uiRenderEngine ?? prev.settings.uiRenderEngine,
           theme: next.settings.theme ?? prev.settings.theme,
+          advancedSendRouting:
+            next.settings.advancedSendRouting ?? prev.settings.advancedSendRouting,
         }
       : prev.settings,
   };
@@ -154,6 +189,20 @@ export function useLiveState(view: string = "player") {
   const wsRef = useRef<WebSocket | null>(null);
   const viewRef = useRef(view);
   viewRef.current = view;
+
+  useEffect(() => {
+    registerLiveMidiSender((bytes) => {
+      const cur = wsRef.current;
+      if (cur && cur.readyState === WebSocket.OPEN) {
+        cur.send(bytes.buffer as ArrayBuffer);
+        return true;
+      }
+      return false;
+    });
+    return () => {
+      unregisterLiveMidiSender();
+    };
+  }, []);
 
   // Structural state is rAF-coalesced (latest wins). Meter levels are pushed
   // on every frame into liveLevels so short impulses (metronome) are never
@@ -189,6 +238,7 @@ export function useLiveState(view: string = "player") {
         if (
           t.mute === f.mute &&
           t.solo === f.solo &&
+          t.soloSafe === f.soloSafe &&
           t.soloActiveInGroup === f.soloActiveInGroup
         )
           return t;
@@ -201,6 +251,7 @@ export function useLiveState(view: string = "player") {
         if (
           b.mute === f.mute &&
           b.solo === f.solo &&
+          b.soloSafe === f.soloSafe &&
           b.soloActiveInGroup === f.soloActiveInGroup
         )
           return b;
@@ -361,9 +412,9 @@ export function useLiveState(view: string = "player") {
               ...(data.tracks
                 ? {
                     tracks: data.tracks.map((t) => {
-                      const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
+                      const { mute: _m, solo: _s, soloSafe: _ss, soloActiveInGroup: _si, ...rest } =
                         t as unknown as Record<string, unknown>;
-                      void _m; void _s; void _si;
+                      void _m; void _s; void _ss; void _si;
                       return rest as unknown as typeof t;
                     }),
                   }
@@ -371,9 +422,9 @@ export function useLiveState(view: string = "player") {
               ...(data.busses
                 ? {
                     busses: data.busses.map((b) => {
-                      const { mute: _m, solo: _s, soloActiveInGroup: _si, ...rest } =
+                      const { mute: _m, solo: _s, soloSafe: _ss, soloActiveInGroup: _si, ...rest } =
                         b as unknown as Record<string, unknown>;
-                      void _m; void _s; void _si;
+                      void _m; void _s; void _ss; void _si;
                       return rest as unknown as typeof b;
                     }),
                   }

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MidiNoteRow, MidiRegionRow } from "../../lib/types";
+import { paintBrushNote, sliceNote } from "./pianoRollModel";
 import { isBlackKey, isPitchInScale, pitchToName, snapPitchToScale } from "./scales";
 import { SpatialNoteIndex } from "./spatialIndex";
 import type {
   DraggingState,
   GridSnapValue,
+  PianoRollBottomLane,
   PianoRollTool,
   PianoRollViewport,
   ScaleMode,
@@ -13,6 +15,7 @@ import type {
 interface PianoRollCanvasProps {
   region: MidiRegionRow;
   companionRegions?: MidiRegionRow[];
+  trackColor?: string;
   tool: PianoRollTool;
   snap: GridSnapValue;
   rootNote: number;
@@ -22,7 +25,36 @@ interface PianoRollCanvasProps {
   selectedNoteIds: Set<number>;
   onSelectionChange: (ids: Set<number>) => void;
   onNotesChange: (notes: MidiNoteRow[]) => void;
+  onRegionChange?: (region: MidiRegionRow) => void;
+  bottomLane?: PianoRollBottomLane;
   playheadBeats?: number;
+}
+
+function parseRgb(color?: string): [number, number, number] {
+  if (!color) return [59, 130, 246];
+  if (color.startsWith("#")) {
+    const hex = color.slice(1);
+    if (hex.length === 3) {
+      return [
+        parseInt(hex[0] + hex[0], 16),
+        parseInt(hex[1] + hex[1], 16),
+        parseInt(hex[2] + hex[2], 16),
+      ];
+    }
+    if (hex.length >= 6) {
+      return [
+        parseInt(hex.slice(0, 2), 16),
+        parseInt(hex.slice(2, 4), 16),
+        parseInt(hex.slice(4, 6), 16),
+      ];
+    }
+  } else if (color.startsWith("rgb")) {
+    const m = color.match(/\d+/g);
+    if (m && m.length >= 3) {
+      return [parseInt(m[0], 10), parseInt(m[1], 10), parseInt(m[2], 10)];
+    }
+  }
+  return [59, 130, 246];
 }
 
 const DEFAULT_VIEWPORT: PianoRollViewport = {
@@ -37,6 +69,7 @@ const DEFAULT_VIEWPORT: PianoRollViewport = {
 export function PianoRollCanvas({
   region,
   companionRegions = [],
+  trackColor,
   tool,
   snap,
   rootNote,
@@ -46,6 +79,8 @@ export function PianoRollCanvas({
   selectedNoteIds,
   onSelectionChange,
   onNotesChange,
+  onRegionChange,
+  bottomLane = "velocity",
   playheadBeats,
 }: PianoRollCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -200,6 +235,7 @@ export function PianoRollCanvas({
 
     // ── 4. Active MIDI Notes ───────────────────────────────────────────────
     const visibleNotes = spatialIndex.current.queryRange(minBeat, maxBeat, minPitch, maxPitch);
+    const [baseR, baseG, baseB] = parseRgb(trackColor);
 
     for (const note of visibleNotes) {
       const isSelected = selectedNoteIds.has(note.id);
@@ -208,15 +244,16 @@ export function PianoRollCanvas({
       const w = Math.max(4, note.durationBeats * viewport.pixelsPerBeat);
       const h = Math.max(4, viewport.pixelsPerPitch - 2);
 
-      // Velocity-based color mapping: from blue (low velocity) to bright emerald/amber (high)
+      // Track-color velocity modulation: dim at low velocity, vibrant at high velocity
       const vel = Math.max(0.1, Math.min(1.0, note.velocity));
-      const r = Math.round(30 + vel * 70);
-      const g = Math.round(90 + vel * 130);
-      const b = Math.round(230 - vel * 50);
+      const factor = 0.5 + 0.5 * vel;
+      const nr = Math.min(255, Math.round(baseR * factor));
+      const ng = Math.min(255, Math.round(baseG * factor));
+      const nb = Math.min(255, Math.round(baseB * factor));
 
       ctx.fillStyle = isSelected
-        ? "rgb(245, 158, 11)" // Warm amber for selected
-        : `rgb(${r}, ${g}, ${b})`;
+        ? "#ffd60a" // Logic Pro warm amber/gold for selected
+        : `rgb(${nr}, ${ng}, ${nb})`;
 
       // Note rounded rect body
       ctx.beginPath();
@@ -224,15 +261,21 @@ export function PianoRollCanvas({
       ctx.fill();
 
       // Border styling
-      ctx.strokeStyle = isSelected ? "rgba(255, 255, 255, 0.95)" : "rgba(0, 0, 0, 0.4)";
+      ctx.strokeStyle = isSelected ? "rgba(255, 255, 255, 0.95)" : "rgba(0, 0, 0, 0.45)";
       ctx.lineWidth = isSelected ? 2 : 1;
       ctx.stroke();
 
-      // Note name label inside note if room permits
-      if (w >= 28) {
+      // Dynamic LOD: note pitch name and velocity inside note body
+      if (w >= 24 && viewport.pixelsPerPitch >= 12) {
         ctx.fillStyle = isSelected ? "#000000" : "#ffffff";
         ctx.font = "bold 9px sans-serif";
-        ctx.fillText(pitchToName(note.pitch), x + 4, y + h - 2);
+        const name = pitchToName(note.pitch);
+        if (w >= 54 && viewport.pixelsPerPitch >= 15) {
+          const velVal = Math.round(note.velocity * 127);
+          ctx.fillText(`${name} · ${velVal}`, x + 4, y + h - 2);
+        } else {
+          ctx.fillText(name, x + 4, y + h - 2);
+        }
       }
     }
 
@@ -308,7 +351,7 @@ export function PianoRollCanvas({
       ctx.fill();
     }
 
-    // ── 8. Velocity Lane (Bottom Strip) ────────────────────────────────────
+    // ── 8. Bottom Lane (Velocity or CC Automation) ─────────────────────────
     const laneY = gridHeight;
     ctx.fillStyle = "#0e1014";
     ctx.fillRect(0, laneY, width, viewport.velocityLaneHeight);
@@ -321,37 +364,143 @@ export function PianoRollCanvas({
     ctx.lineTo(width, laneY);
     ctx.stroke();
 
-    // Lane title
-    ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
-    ctx.font = "9px sans-serif";
-    ctx.fillText("VELOCITY", 8, laneY + 14);
+    if (bottomLane === "velocity") {
+      // Lane title
+      ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.font = "9px sans-serif";
+      ctx.fillText("VELOCITY", 8, laneY + 14);
 
-    // Render velocity lollipops for visible notes
-    for (const note of visibleNotes) {
-      const isSelected = selectedNoteIds.has(note.id);
-      const x = beatToX(note.startBeats);
-      const vel = Math.max(0.01, Math.min(1.0, note.velocity));
-      const stalkHeight = vel * (viewport.velocityLaneHeight - 20);
-      const stalkBottom = height - 4;
-      const stalkTop = stalkBottom - stalkHeight;
+      // Render velocity lollipops for visible notes
+      for (const note of visibleNotes) {
+        const isSelected = selectedNoteIds.has(note.id);
+        const x = beatToX(note.startBeats);
+        const vel = Math.max(0.01, Math.min(1.0, note.velocity));
+        const stalkHeight = vel * (viewport.velocityLaneHeight - 20);
+        const stalkBottom = height - 4;
+        const stalkTop = stalkBottom - stalkHeight;
 
-      ctx.strokeStyle = isSelected ? "#f59e0b" : "#3b82f6";
-      ctx.lineWidth = 2;
+        const velColor = trackColor || "#3b82f6";
+        ctx.strokeStyle = isSelected ? "#ffd60a" : velColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, stalkBottom);
+        ctx.lineTo(x, stalkTop);
+        ctx.stroke();
+
+        // Circular lollipop knob
+        ctx.fillStyle = isSelected ? "#ffd60a" : velColor;
+        ctx.beginPath();
+        ctx.arc(x, stalkTop, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      // CC Automation Lane
+      const laneLabels: Record<string, string> = {
+        cc1: "CC 1 · MODULATION",
+        cc11: "CC 11 · EXPRESSION",
+        cc64: "CC 64 · SUSTAIN",
+        pitchBend: "PITCH BEND",
+      };
+      const title = laneLabels[bottomLane] || bottomLane.toUpperCase();
+
+      ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.font = "9px sans-serif";
+      ctx.fillText(title, 8, laneY + 14);
+
+      // Value grid lines: min, mid (dashed), max
+      const isPB = bottomLane === "pitchBend";
+      const topY = laneY + 18;
+      const botY = height - 6;
+      const midY = (topY + botY) / 2;
+
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(x, stalkBottom);
-      ctx.lineTo(x, stalkTop);
+      ctx.moveTo(viewport.keyWidth, topY);
+      ctx.lineTo(width, topY);
+      ctx.moveTo(viewport.keyWidth, botY);
+      ctx.lineTo(width, botY);
       ctx.stroke();
 
-      // Circular lollipop knob
-      ctx.fillStyle = isSelected ? "#f59e0b" : "#60a5fa";
+      // Dotted mid line
+      ctx.setLineDash([4, 4]);
       ctx.beginPath();
-      ctx.arc(x, stalkTop, 3.5, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(viewport.keyWidth, midY);
+      ctx.lineTo(width, midY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Margin scale labels
+      ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+      ctx.font = "8px sans-serif";
+      ctx.fillText(isPB ? "+8191" : "127", 6, topY + 4);
+      ctx.fillText(isPB ? "0" : "64", 6, midY + 3);
+      ctx.fillText(isPB ? "-8192" : "0", 6, botY - 1);
+
+      // Automation points if present
+      const lane = region.automationLanes?.find(
+        (l) =>
+          l.target.parameterId === bottomLane ||
+          (bottomLane === "cc1" && l.target.parameterId === "1") ||
+          (bottomLane === "cc11" && l.target.parameterId === "11") ||
+          (bottomLane === "cc64" && l.target.parameterId === "64"),
+      );
+
+      if (lane && lane.points && lane.points.length > 0) {
+        const sorted = [...lane.points].sort((a, b) => a.timeBeats - b.timeBeats);
+        const valToY = (v: number) => {
+          const norm = isPB ? (v + 8192) / 16383 : v / 127;
+          return botY - norm * (botY - topY);
+        };
+
+        ctx.strokeStyle = "#38bdf8";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        sorted.forEach((pt, idx) => {
+          const px = beatToX(pt.timeBeats);
+          const py = valToY(pt.value);
+          if (idx === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.stroke();
+
+        // Fill area under curve
+        if (sorted.length > 1) {
+          ctx.fillStyle = "rgba(56, 189, 248, 0.12)";
+          ctx.beginPath();
+          const firstX = beatToX(sorted[0].timeBeats);
+          const lastX = beatToX(sorted[sorted.length - 1].timeBeats);
+          ctx.moveTo(firstX, botY);
+          sorted.forEach((pt) => {
+            ctx.lineTo(beatToX(pt.timeBeats), valToY(pt.value));
+          });
+          ctx.lineTo(lastX, botY);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Point knobs
+        for (const pt of sorted) {
+          const px = beatToX(pt.timeBeats);
+          const py = valToY(pt.value);
+          if (px >= viewport.keyWidth - 4 && px <= width + 4) {
+            ctx.fillStyle = "#38bdf8";
+            ctx.beginPath();
+            ctx.arc(px, py, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+      }
     }
 
     ctx.restore();
   }, [
     viewport,
+    bottomLane,
+    region,
     rootNote,
     scaleMode,
     showGhostNotes,
@@ -400,25 +549,85 @@ export function PianoRollCanvas({
 
     canvas.setPointerCapture(e.pointerId);
 
-    // Click in velocity lane
+    // Click in bottom lane (velocity or CC automation)
     if (y >= gridHeight) {
-      const beat = xToBeat(x);
-      const hit = spatialIndex.current.hitTest(beat, Math.floor(viewport.scrollPitch + 12), 0.5);
-      if (hit) {
-        const vel = Math.max(0.01, Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)));
-        const updated = region.notes.map((n) =>
-          n.id === hit.note.id ? { ...n, velocity: vel } : n,
+      if (bottomLane === "velocity") {
+        const beat = xToBeat(x);
+        const hit = spatialIndex.current.hitTest(beat, Math.floor(viewport.scrollPitch + 12), 0.5);
+        if (hit) {
+          const vel = Math.max(0.01, Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)));
+          const updated = region.notes.map((n) =>
+            n.id === hit.note.id ? { ...n, velocity: vel } : n,
+          );
+          onNotesChange(updated);
+        }
+        draggingRef.current = {
+          type: "velocity",
+          startPointerX: x,
+          startPointerY: y,
+          startBeat: beat,
+          startPitch: 0,
+          initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
+        };
+      } else {
+        // CC lane editing
+        const beat = Math.max(0, snapBeat(xToBeat(x)));
+        const topY = gridHeight + 18;
+        const botY = height - 6;
+        const norm = Math.max(0, Math.min(1, (botY - y) / Math.max(1, botY - topY)));
+        const isPB = bottomLane === "pitchBend";
+        const val = isPB ? Math.round(norm * 16383 - 8192) : Math.round(norm * 127);
+
+        const lanes = region.automationLanes ? [...region.automationLanes] : [];
+        let laneIdx = lanes.findIndex(
+          (l) =>
+            l.target.parameterId === bottomLane ||
+            (bottomLane === "cc1" && l.target.parameterId === "1") ||
+            (bottomLane === "cc11" && l.target.parameterId === "11") ||
+            (bottomLane === "cc64" && l.target.parameterId === "64"),
         );
-        onNotesChange(updated);
+
+        if (laneIdx < 0) {
+          lanes.push({
+            id: `lane_${bottomLane}`,
+            target: {
+              domain: "midiCC",
+              entityId: region.id,
+              parameterId: bottomLane,
+              valueType: "integer",
+              defaultValue: 0,
+              minValue: isPB ? -8192 : 0,
+              maxValue: isPB ? 8191 : 127,
+            },
+            scope: "region",
+            enabled: true,
+            writeMode: "read",
+            points: [{ timeBeats: beat, value: val, curve: 0 }],
+          });
+        } else {
+          const lane = { ...lanes[laneIdx], points: [...lanes[laneIdx].points] };
+          const existingPtIdx = lane.points.findIndex(
+            (p) => Math.abs(p.timeBeats - beat) < 0.1,
+          );
+          if (existingPtIdx >= 0) {
+            lane.points[existingPtIdx] = { ...lane.points[existingPtIdx], value: val };
+          } else {
+            lane.points.push({ timeBeats: beat, value: val, curve: 0 });
+            lane.points.sort((a, b) => a.timeBeats - b.timeBeats);
+          }
+          lanes[laneIdx] = lane;
+        }
+
+        onRegionChange?.({ ...region, automationLanes: lanes });
+        draggingRef.current = {
+          type: "cc",
+          startPointerX: x,
+          startPointerY: y,
+          startBeat: beat,
+          startPitch: 0,
+          initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
+        };
       }
-      draggingRef.current = {
-        type: "velocity",
-        startPointerX: x,
-        startPointerY: y,
-        startBeat: beat,
-        startPitch: 0,
-        initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
-      };
       return;
     }
 
@@ -439,6 +648,45 @@ export function PianoRollCanvas({
       if (hit) {
         onNotesChange(region.notes.filter((n) => n.id !== hit.note.id));
       }
+      return;
+    }
+
+    if (tool === "slice") {
+      if (hit) {
+        const cutBeat = snap > 0 ? snapBeat(beat) : beat;
+        const sliced = sliceNote(hit.note, cutBeat);
+        if (sliced) {
+          const [noteA, noteB] = sliced;
+          const updated = region.notes
+            .map((n) => (n.id === hit.note.id ? noteA : n))
+            .concat(noteB);
+          onNotesChange(updated);
+          onSelectionChange(new Set([noteB.id]));
+        }
+      }
+      return;
+    }
+
+    if (tool === "brush") {
+      const snappedBeat = snapBeat(beat);
+      let snappedPitch = Math.max(0, Math.min(127, pitch));
+      if (snapToScale) {
+        snappedPitch = snapPitchToScale(snappedPitch, rootNote, scaleMode);
+      }
+      const dur = snap > 0 ? snap : 0.25;
+      const painted = paintBrushNote(region.notes, snappedBeat, snappedPitch, dur);
+      if (painted) {
+        onNotesChange(painted.updatedNotes);
+        onSelectionChange(new Set([painted.newNote.id]));
+      }
+      draggingRef.current = {
+        type: "brush",
+        startPointerX: x,
+        startPointerY: y,
+        startBeat: snappedBeat,
+        startPitch: snappedPitch,
+        initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
+      };
       return;
     }
 
@@ -539,7 +787,69 @@ export function PianoRollCanvas({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const height = rect.height;
+    const gridHeight = height - viewport.velocityLaneHeight;
     const dragging = draggingRef.current;
+
+    if (dragging.type === "velocity") {
+      const vel = Math.max(0.01, Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)));
+      const beat = xToBeat(x);
+      const hit = spatialIndex.current.hitTest(beat, Math.floor(viewport.scrollPitch + 12), 0.5);
+      if (hit) {
+        const updated = region.notes.map((n) =>
+          n.id === hit.note.id ? { ...n, velocity: vel } : n,
+        );
+        onNotesChange(updated);
+      }
+      return;
+    }
+
+    if (dragging.type === "cc" && onRegionChange) {
+      const curBeat = Math.max(0, snapBeat(xToBeat(x)));
+      const topY = gridHeight + 18;
+      const botY = height - 6;
+      const norm = Math.max(0, Math.min(1, (botY - y) / Math.max(1, botY - topY)));
+      const isPB = bottomLane === "pitchBend";
+      const val = isPB ? Math.round(norm * 16383 - 8192) : Math.round(norm * 127);
+
+      const lanes = region.automationLanes ? [...region.automationLanes] : [];
+      const laneIdx = lanes.findIndex(
+        (l) =>
+          l.target.parameterId === bottomLane ||
+          (bottomLane === "cc1" && l.target.parameterId === "1") ||
+          (bottomLane === "cc11" && l.target.parameterId === "11") ||
+          (bottomLane === "cc64" && l.target.parameterId === "64"),
+      );
+      if (laneIdx >= 0) {
+        const lane = { ...lanes[laneIdx], points: [...lanes[laneIdx].points] };
+        const existingPtIdx = lane.points.findIndex(
+          (p) => Math.abs(p.timeBeats - curBeat) < 0.1,
+        );
+        if (existingPtIdx >= 0) {
+          lane.points[existingPtIdx] = { ...lane.points[existingPtIdx], value: val };
+        } else {
+          lane.points.push({ timeBeats: curBeat, value: val, curve: 0 });
+          lane.points.sort((a, b) => a.timeBeats - b.timeBeats);
+        }
+        lanes[laneIdx] = lane;
+        onRegionChange({ ...region, automationLanes: lanes });
+      }
+      return;
+    }
+
+    if (dragging.type === "brush") {
+      const curBeat = snapBeat(xToBeat(x));
+      let curPitch = yToPitch(y, height);
+      if (snapToScale) {
+        curPitch = snapPitchToScale(curPitch, rootNote, scaleMode);
+      }
+      const dur = snap > 0 ? snap : 0.25;
+      const painted = paintBrushNote(region.notes, curBeat, curPitch, dur);
+      if (painted) {
+        onNotesChange(painted.updatedNotes);
+        onSelectionChange(new Set([painted.newNote.id]));
+      }
+      return;
+    }
 
     if (dragging.type === "move") {
       const deltaX = x - dragging.startPointerX;

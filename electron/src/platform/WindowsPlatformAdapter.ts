@@ -5,7 +5,7 @@
 // lives in the window title bar (mainWindow.setMenu), not the global
 // application menu. The tray is shared with Linux (see tray.ts).
 
-import { Menu } from "electron";
+import { Menu, type BrowserWindow } from "electron";
 import { spawn, execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -261,6 +261,37 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
       );
     });
     return fileArg ? fileArg.replace(/^"+|"+$/g, "") : null;
+  }
+
+  // ── Window sizing / positioning ─────────────────────────────────────────
+
+  override getInitialWindowBounds(workArea: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    // Sensible unmaximized/restore bounds centered in workArea if user un-maximizes
+    const defaultWidth = Math.min(1440, Math.max(960, Math.round(workArea.width * 0.85)));
+    const defaultHeight = Math.min(900, Math.max(640, Math.round(workArea.height * 0.85)));
+    const defaultX = Math.round(workArea.x + (workArea.width - defaultWidth) / 2);
+    const defaultY = Math.round(workArea.y + (workArea.height - defaultHeight) / 2);
+    return {
+      x: defaultX,
+      y: defaultY,
+      width: defaultWidth,
+      height: defaultHeight,
+    };
+  }
+
+  override applyInitialWindowState(win: BrowserWindow): void {
+    // On Windows, native maximize fills the workArea precisely above the taskbar.
+    win.maximize();
   }
 
   // ── Tray ────────────────────────────────────────────────────────────────

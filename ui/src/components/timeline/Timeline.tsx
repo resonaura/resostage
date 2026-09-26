@@ -104,6 +104,7 @@ import {
 } from "./regionEdit";
 import {
   allRegionSelKeys,
+  lookupRegion,
   type RegionSelKey,
   type RegionUiState,
 } from "./regionUtils";
@@ -142,6 +143,8 @@ export function Timeline({
   pxPerSec,
   setPxPerSec,
   readOnly = false,
+  selectedTrackId,
+  onSelectTrackId,
 }: {
   state: WebUiState;
   peaks: PeaksResponse | null;
@@ -150,6 +153,8 @@ export function Timeline({
   setPxPerSec: React.Dispatch<React.SetStateAction<number>>;
   /** Player: no track sidebar, no region trim/edit. */
   readOnly?: boolean;
+  selectedTrackId?: string | null;
+  onSelectTrackId?: (id: string | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -617,6 +622,10 @@ export function Timeline({
     );
     setCueSelection(null);
     setSelectedCueKeys([]);
+    const found = lookupRegion(state.songs, key);
+    if (found?.region?.trackId) {
+      onSelectTrackId?.(found.region.trackId);
+    }
   };
 
   const copySelectedRegions = () => {
@@ -2327,6 +2336,8 @@ export function Timeline({
               setSidePanelTrackIndex={setSidePanelTrackIndex}
               setCueSelection={() => selectCue(null)}
               sidebarContentRef={sidebarContentRef}
+              selectedTrackId={selectedTrackId}
+              onSelectTrack={onSelectTrackId}
             />
           )}
 

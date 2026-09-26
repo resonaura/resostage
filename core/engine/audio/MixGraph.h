@@ -82,7 +82,8 @@ struct MixStrip {
 
     bool mute = false;
     bool solo = false;
-    // Resolved from mute + solo + "is anyone soloed in my group". The render
+    bool soloSafe = false;
+    // Resolved from mute + solo + soloSafe + "is anyone soloed in my group". The render
     // path reads only this, never re-derives it.
     bool audible = true;
 
@@ -98,6 +99,9 @@ struct MixStrip {
     // meters and telemetry up with project rows without re-parsing ids.
     // Meaningless for Main/OutputLane.
     uint32_t projectIndex = 0;
+
+    PolarityMask polarity = PolarityMask::None;
+    float trimLinear = 1.0f; // input trim, already converted from dB
 };
 
 struct MixEdge {
@@ -110,6 +114,7 @@ struct MixEdge {
     // Pre-fader sends read the source's `pre` buffer and ignore its fader and
     // its mute -- a monitor mix the performer keeps hearing when FOH mutes them.
     bool preFader = false;
+    SendTap tap = SendTap::PostPan;
     // Which source channel feeds a ONE-channel destination:
     //   -1  sum L+R (a single mono lane, or a mono collapse)
     //    0  left only, 1 right only

@@ -56,13 +56,15 @@ public:
     void setMappings(std::vector<MidiMapping> newMappings);
 
     std::function<void(const std::string& action)> onAction;
+    std::function<void(const std::string& target, float normalizedValue)> onContinuousAction;
+    std::function<void(const uint8_t* data, int length)> onMidiMessageReceived;
 
     // Fires for every recognized Note On (velocity > 0) / Control Change
     // message, regardless of whether it currently matches a mapping -- feeds
     // "MIDI learn" UI (arm learn mode, wait for one message, fill in
     // channel/type/number). Same threading rule as onAction: called directly
     // on CoreMIDI's driver thread, callers must marshal to the message thread.
-    std::function<void(MidiTriggerType type, int channel1to16, int number)> onRawMessage;
+    std::function<void(MidiTriggerType type, int channel1to16, int number, int value)> onRawMessage;
 
 private:
 #if defined(__APPLE__)

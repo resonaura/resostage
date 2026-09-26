@@ -532,3 +532,31 @@ TEST_CASE("routeId: applying a new destination clears the previous target") {
     CHECK(output.type == OutputType::SendsOnly);
     CHECK_FALSE(output.target.has_value());
 }
+
+TEST_CASE("MixGraph: soloSafe prevents strip from being silenced when other strip in group is soloed") {
+    Project p = makeProject();
+    p.tracks[0].solo = true;
+    p.tracks[1].soloSafe = true;
+
+    const MixGraph g = buildMixGraph(p, outputs16());
+
+    const auto& drums = stripFor(g, "audio::track:1");
+    const auto& bass = stripFor(g, "audio::track:2");
+
+    CHECK(drums.audible);
+    CHECK(bass.audible);
+}
+
+TEST_CASE("MixGraph: mute overrides soloSafe") {
+    Project p = makeProject();
+    p.tracks[0].solo = true;
+    p.tracks[1].soloSafe = true;
+    p.tracks[1].mute = true;
+
+    const MixGraph g = buildMixGraph(p, outputs16());
+
+    const auto& bass = stripFor(g, "audio::track:2");
+
+    CHECK_FALSE(bass.audible);
+}
+

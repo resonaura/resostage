@@ -13,15 +13,17 @@ import {
   Loader2,
   Music,
   Plus,
+  Sliders,
   Trash2,
   Upload,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   emptyProjectActions,
   EmptyProjectState,
 } from "../components/EmptyProjectState";
 import { ImportStemsModal } from "../components/ImportStemsModal";
+import { EditorInspector } from "./editor/EditorInspector";
 import {
   autoDetectBpm,
   autoDetectSongName,
@@ -30,6 +32,7 @@ import {
 } from "../lib/stemImport";
 import { Timeline } from "../components/Timeline";
 import { PianoRoll } from "../components/pianoroll";
+import { getTrackColor } from "../components/timeline/constants";
 import { builder } from "../lib/api";
 import { useIsCompact } from "../lib/useMediaQuery";
 import type {
@@ -320,6 +323,39 @@ export function EditorScreen({
   const compact = useIsCompact();
   const [tab, setTab] = useState<EditorTab>("timeline");
   const [selected, setSelected] = useState(-1);
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+  const [showInspector, setShowInspector] = useState(() => {
+    try {
+      return localStorage.getItem("resostage:editor-inspector") !== "false";
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleInspector = useCallback(() => {
+    setShowInspector((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem("resostage:editor-inspector", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "i" || e.key === "I") {
+        const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+        if (tag === "input" || tag === "textarea") return;
+        toggleInspector();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleInspector]);
+
+  const [selectedMidiTrackId, setSelectedMidiTrackId] = useState<string | null>(null);
+  const [selectedMidiRegionId, setSelectedMidiRegionId] = useState<string | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setSelected(-1), [tab]);
@@ -460,6 +496,24 @@ export function EditorScreen({
             </ToggleButton>,
           ])}
         </ToggleButtonGroup>
+
+        {activeTab === "timeline" && (
+          <Button
+            size="sm"
+            variant={showInspector ? "secondary" : "outline"}
+            onPress={toggleInspector}
+            className={`gap-1.5 px-2.5 text-xs font-medium transition-all ${
+              showInspector ? "border-accent/40 bg-accent/15 text-accent shadow-sm" : ""
+            }`}
+            aria-label="Toggle Inspector (I)"
+          >
+            <Sliders size={13} />
+            <span>Inspector</span>
+            <kbd className="ml-0.5 rounded bg-default/20 px-1 py-0.2 font-mono text-[9px] text-foreground/50">
+              I
+            </kbd>
+          </Button>
+        )}
       </div>
 
       {/* ── Timeline Tab ──────────────────────────────────────────────── */}
@@ -469,14 +523,26 @@ export function EditorScreen({
           width and because building every lane's waveform canvas is the most
           expensive thing this app does. */}
       {activeTab === "timeline" && (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <Timeline
-            state={state}
-            peaks={peaks}
-            allPeaks={allPeaks}
-            pxPerSec={pxPerSec}
-            setPxPerSec={setPxPerSec}
-          />
+        <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
+          {showInspector && !compact && (
+            <EditorInspector
+              state={state}
+              selectedTrackId={selectedTrackId ?? state.tracks[0]?.id ?? null}
+              selectedRegion={null}
+              onClose={toggleInspector}
+            />
+          )}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <Timeline
+              state={state}
+              peaks={peaks}
+              allPeaks={allPeaks}
+              pxPerSec={pxPerSec}
+              setPxPerSec={setPxPerSec}
+              selectedTrackId={selectedTrackId}
+              onSelectTrackId={setSelectedTrackId}
+            />
+          </div>
         </div>
       )}
 
@@ -498,24 +564,80 @@ export function EditorScreen({
             }
 
             const midiRegions = currentSong.midiRegions || [];
-            const activeRegion = midiRegions[0] || {
-              id: "midi::region:default",
-              trackId: state.tracks[0]?.id || "audio::track:1",
-              name: "Pattern 1",
-              startBeats: 0,
-              durationBeats: 16,
-              clipOffsetBeats: 0,
-              loop: true,
-              loopLengthBeats: 16,
-              notes: [],
-            };
 
-            const companionRegions = midiRegions.slice(1);
+            // Piano Roll is strictly for Software Instrument / MIDI tracks
+            const availableTracks = state.tracks.filter(
+              (t) =>
+                t.kind === "instrument" ||
+                t.kind === "midi" ||
+                midiRegions.some((r) => r.trackId === t.id),
+            );
+
+            if (availableTracks.length === 0) {
+              return (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-center p-6">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                    <Music size={24} />
+                  </div>
+                  <div className="text-sm font-semibold text-foreground/90">
+                    No Instrument Tracks in Project
+                  </div>
+                  <div className="text-xs text-foreground/50 max-w-sm">
+                    Piano Roll is dedicated to editing MIDI notes and melodies for Software Instruments. Audio tracks contain recorded audio waveforms and cannot be edited in Piano Roll.
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-purple-500/40 text-purple-300 hover:bg-purple-500/15"
+                    onPress={() =>
+                      void builder.trackAdd(state.songIndex, {
+                        kind: "instrument",
+                        name: "Classic Electric Piano",
+                      })
+                    }
+                  >
+                    <Plus size={14} className="mr-1" />
+                    Create Instrument Track
+                  </Button>
+                </div>
+              );
+            }
+
+            const activeTrack =
+              availableTracks.find((t) => t.id === selectedMidiTrackId) ||
+              availableTracks[0];
+
+            const trackIndex = state.tracks.findIndex((t) => t.id === activeTrack?.id);
+            const trackColor =
+              trackIndex >= 0 ? getTrackColor(trackIndex) : "#0485f7";
+
+            const trackRegions = midiRegions.filter(
+              (r) => r.trackId === (activeTrack?.id || ""),
+            );
+
+            const activeRegion =
+              (selectedMidiRegionId
+                ? trackRegions.find((r) => r.id === selectedMidiRegionId)
+                : trackRegions[0]) ||
+              trackRegions[0] || {
+                id: `midi::region:${activeTrack?.id || "default"}:1`,
+                trackId: activeTrack?.id || "audio::track:1",
+                name: `${activeTrack?.name || "Track"} Pattern`,
+                startBeats: 0,
+                durationBeats: 16,
+                clipOffsetBeats: 0,
+                loop: true,
+                loopLengthBeats: 16,
+                notes: [],
+              };
+
+            const companionRegions = midiRegions.filter((r) => r.id !== activeRegion.id);
             const playheadBeats =
               currentSong.bpm > 0 ? (state.playheadSeconds * currentSong.bpm) / 60.0 : 0;
 
             const handleNotesChange = (updatedNotes: MidiNoteRow[]) => {
-              if (midiRegions.length === 0) {
+              const exists = midiRegions.some((r) => r.id === activeRegion.id);
+              if (!exists) {
                 void builder
                   .midiRegionAdd({
                     songIndex: state.songIndex,
@@ -546,6 +668,16 @@ export function EditorScreen({
               <PianoRoll
                 region={activeRegion}
                 companionRegions={companionRegions}
+                track={activeTrack}
+                tracks={state.tracks}
+                onSelectTrack={(trackId) => {
+                  setSelectedMidiTrackId(trackId);
+                  const firstRegion = midiRegions.find((r) => r.trackId === trackId);
+                  setSelectedMidiRegionId(firstRegion ? firstRegion.id : null);
+                }}
+                regions={trackRegions.length > 0 ? trackRegions : [activeRegion]}
+                onSelectRegion={(regionId) => setSelectedMidiRegionId(regionId)}
+                trackColor={trackColor}
                 playheadBeats={playheadBeats}
                 onNotesChange={handleNotesChange}
               />

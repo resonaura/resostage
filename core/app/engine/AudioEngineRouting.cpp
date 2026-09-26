@@ -177,11 +177,29 @@ void AudioEngine::installBusRows(std::vector<LoadedBus> rows) {
         busEnvelopeRings.push_back(std::make_unique<MeterEnvelopeRing<kMeterRingPoints>>());
 }
 
+void AudioEngine::refreshMonitoringAndArmCounts() {
+    if (!projectLoaded) {
+        activeInputMonitoringCount.store(0, std::memory_order_release);
+        activeRecordArmCount.store(0, std::memory_order_release);
+        return;
+    }
+    const auto& proj = loader.project();
+    int monitors = 0;
+    int arms = 0;
+    for (const auto& track : proj.tracks) {
+        if (track.inputMonitoring) ++monitors;
+        if (track.recordArmed) ++arms;
+    }
+    activeInputMonitoringCount.store(monitors, std::memory_order_release);
+    activeRecordArmCount.store(arms, std::memory_order_release);
+}
+
 void AudioEngine::publishRoutingSnapshot() {
     if (!projectLoaded)
         return;
 
     markDirty();
+    refreshMonitoringAndArmCounts();
 
     // ── Everything below, up to the lock, runs UNLOCKED on purpose ──────────
     //
@@ -324,6 +342,93 @@ void AudioEngine::setTrackSolo(size_t songIndex, size_t trackIndex, bool solo) {
     publishRoutingSnapshot();
 }
 
+void AudioEngine::setTrackSoloSafe(size_t songIndex, size_t trackIndex, bool soloSafe) {
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
+    if (t == nullptr)
+        return;
+    t->soloSafe = soloSafe;
+    publishRoutingSnapshot();
+}
+
+void AudioEngine::setTrackRecordArmed(size_t songIndex, size_t trackIndex, bool armed) {
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
+    if (t == nullptr)
+        return;
+    t->recordArmed = armed;
+    publishRoutingSnapshot();
+}
+
+void AudioEngine::setTrackInputMonitoring(size_t songIndex, size_t trackIndex, bool monitoring) {
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
+    if (t == nullptr)
+        return;
+    t->inputMonitoring = monitoring;
+    publishRoutingSnapshot();
+}
+
+void AudioEngine::setTrackInputSource(size_t songIndex, size_t trackIndex, const std::string& inputSource, int midiChannel, const std::string& midiDevice) {
+    (void)songIndex;
+    TrackDef* t = trackDefAt(trackIndex);
+    if (t == nullptr)
+        return;
+    t->inputSource = inputSource;
+    t->midiInputChannel = midiChannel;
+    t->midiInputDevice = midiDevice;
+    publishRoutingSnapshot();
+}
+
+bool AudioEngine::isTrackRecordArmed(size_t trackIndex) const {
+    const TrackDef* t = trackDefAt(trackIndex);
+    return t != nullptr && t->recordArmed;
+}
+
+bool AudioEngine::isTrackInputMonitoring(size_t trackIndex) const {
+    const TrackDef* t = trackDefAt(trackIndex);
+    return t != nullptr && t->inputMonitoring;
+}
+
+void AudioEngine::setAutoInputMonitoring(bool enabled) {
+    autoInputMonitoringState.store(enabled, std::memory_order_release);
+}
+
+bool AudioEngine::isAutoInputMonitoring() const noexcept {
+    return autoInputMonitoringState.load(std::memory_order_relaxed);
+}
+
+void AudioEngine::setAutoPunch(bool enabled, int64_t startSample, int64_t endSample) {
+    autoPunchStartSample.store(startSample, std::memory_order_release);
+    autoPunchEndSample.store(endSample, std::memory_order_release);
+    autoPunchEnabledState.store(enabled, std::memory_order_release);
+}
+
+bool AudioEngine::isAutoPunchEnabled() const noexcept {
+    return autoPunchEnabledState.load(std::memory_order_relaxed);
+}
+
+void AudioEngine::setMonitorBackend(MonitorBackend backend) {
+    monitorBackendState.store(backend, std::memory_order_release);
+}
+
+MonitorBackend AudioEngine::getMonitorBackend() const noexcept {
+    return monitorBackendState.load(std::memory_order_relaxed);
+}
+
+void AudioEngine::setLowLatencyMonitoring(bool enabled, double limitMs) {
+    lowLatencyLimitMsState.store(limitMs > 0.0 ? limitMs : 5.0, std::memory_order_relaxed);
+    lowLatencyMonitoringState.store(enabled, std::memory_order_release);
+}
+
+bool AudioEngine::isLowLatencyMonitoring() const noexcept {
+    return lowLatencyMonitoringState.load(std::memory_order_relaxed);
+}
+
+double AudioEngine::getLowLatencyLimitMs() const noexcept {
+    return lowLatencyLimitMsState.load(std::memory_order_relaxed);
+}
+
 void AudioEngine::setTrackBusId(size_t songIndex, size_t trackIndex, const std::string& busId) {
     (void)songIndex;
     TrackDef* t = trackDefAt(trackIndex);
@@ -423,6 +528,19 @@ void AudioEngine::setBusSolo(size_t busIndex, bool solo) {
     publishRoutingSnapshot();
 }
 
+void AudioEngine::setBusSoloSafe(size_t busIndex, bool soloSafe) {
+    Project& proj = loader.project();
+    if (busIndex == 0) {
+        proj.main.soloSafe = soloSafe;
+    } else {
+        const size_t si = busIndex - 1;
+        if (si >= proj.sends.size())
+            return;
+        proj.sends[si].soloSafe = soloSafe;
+    }
+    publishRoutingSnapshot();
+}
+
 void AudioEngine::setBusChannels(size_t busIndex, int channels) {
     Project& proj = loader.project();
     const int c = (channels >= 2) ? 2 : 1;
@@ -439,6 +557,11 @@ void AudioEngine::setBusChannels(size_t busIndex, int channels) {
 
 void AudioEngine::setClickSolo(bool solo) {
     loader.project().click.solo = solo;
+    publishRoutingSnapshot();
+}
+
+void AudioEngine::setClickSoloSafe(bool soloSafe) {
+    loader.project().click.soloSafe = soloSafe;
     publishRoutingSnapshot();
 }
 

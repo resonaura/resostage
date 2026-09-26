@@ -2,6 +2,8 @@ import { Spinner } from "@heroui/react";
 import {
   AlertTriangle,
   Gauge,
+  ChevronDown,
+  Keyboard,
   Lightbulb,
   Music4,
   Settings2,
@@ -19,6 +21,7 @@ import {
   RenderAudioDialog,
   type RenderDialogIntent,
 } from "./components/RenderAudioDialog";
+import { VirtualMidiKeyboard } from "./components/VirtualMidiKeyboard";
 import { Button, Tabs } from "./components/ui";
 import { performAction, type ActionId } from "./lib/actions";
 import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/api";
@@ -297,6 +300,29 @@ const FULL_RATE_HZ = 120;
 
 export default function App() {
   const [tab, setTab] = useState("player");
+  const [isVirtualKeyboardOpen, setIsVirtualKeyboardOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        const activeEl = document.activeElement as HTMLElement | null;
+        if (
+          activeEl &&
+          (activeEl.tagName === "INPUT" ||
+            activeEl.tagName === "TEXTAREA" ||
+            activeEl.tagName === "SELECT" ||
+            activeEl.isContentEditable)
+        ) {
+          return;
+        }
+        e.preventDefault();
+        setIsVirtualKeyboardOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, []);
+
   const [renderRequest, setRenderRequest] = useState<{
     open: boolean;
     intent: RenderDialogIntent;
@@ -600,20 +626,36 @@ export default function App() {
         {/* Center transport: always mounted, fades out on Player tab. Hidden
             outright on phones -- it cannot fit beside the logo and the status
             badge, and every screen that needs transport has its own. */}
-        <div className="pointer-events-none absolute inset-0 hidden items-center justify-center md:flex">
-          <div
-            className={`pointer-events-auto transition-opacity duration-200 ease-out ${
-              tab !== "player" ? "opacity-100" : "pointer-events-none opacity-0"
-            }`}
-          >
+        <div
+          className={`pointer-events-none hidden md:flex flex-1 items-center justify-center min-w-0 transition-opacity duration-200 ease-out ${
+            tab !== "player" ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <div className="pointer-events-auto">
             <GlobalTransportBar state={state} />
           </div>
         </div>
 
-        <div className="z-10 ml-auto flex shrink-0 items-center gap-3">
+        <div className="z-10 flex shrink-0 items-center gap-2 sm:gap-3">
           {(!IS_EMBEDDED && !IS_ELECTRON) || remoteHost ? (
             <ProjectMenu state={state} onRender={openRender} />
           ) : null}
+          {/* Musical Typing / Virtual MIDI Keyboard Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsVirtualKeyboardOpen((prev) => !prev)}
+            title="Musical Typing / Virtual MIDI Keyboard (Cmd+K)"
+            aria-label="Musical Typing Keyboard"
+            className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+              isVirtualKeyboardOpen
+                ? "border-emerald-500 bg-emerald-500/20 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+                : "border-default/40 bg-default/10 text-foreground/70 hover:bg-default/20 hover:text-foreground"
+            }`}
+          >
+            <Keyboard size={15} className={isVirtualKeyboardOpen ? "text-emerald-400" : ""} />
+            <span className="hidden sm:inline">Keys</span>
+          </button>
+
           <ConnectionBadge
             status={status}
             transport={transport}
@@ -760,6 +802,12 @@ export default function App() {
         }
       />
 
+      <VirtualMidiKeyboard
+        isOpen={isVirtualKeyboardOpen}
+        onClose={() => setIsVirtualKeyboardOpen(false)}
+        state={state}
+      />
+
       {toastNotifications.length > 0 && (
         <div className="fixed bottom-5 right-5 z-[300] flex flex-col gap-2.5 max-w-sm pointer-events-none">
           {toastNotifications.map((toast) => (
@@ -900,7 +948,12 @@ function ProjectMenu({
   const [saveLabel, setSaveLabel] = useState("Save");
   const saveFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recentBtnRef = useRef<HTMLButtonElement>(null);
+  const projectDropdownRef = useRef<HTMLButtonElement>(null);
   const [recentAnchor, setRecentAnchor] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [projectMenuAnchor, setProjectMenuAnchor] = useState<{
     x: number;
     y: number;
   } | null>(null);
@@ -990,30 +1043,123 @@ function ProjectMenu({
         className="hidden"
         onChange={handleFileChosen}
       />
-      <Button size="sm" variant="outline" onPress={handleNew}>
-        New
-      </Button>
-      <Button size="sm" variant="outline" onPress={handleLoad}>
-        {IS_EMBEDDED ? "Load…" : "Upload…"}
-      </Button>
-      {IS_EMBEDDED && (
+
+      {/* Desktop view (>= xl): full button row */}
+      <div className="hidden xl:flex items-center gap-1.5">
+        <Button size="sm" variant="outline" onPress={handleNew}>
+          New
+        </Button>
+        <Button size="sm" variant="outline" onPress={handleLoad}>
+          {IS_EMBEDDED ? "Load…" : "Upload…"}
+        </Button>
+        {IS_EMBEDDED && (
+          <Button
+            ref={recentBtnRef}
+            size="sm"
+            variant="outline"
+            onPress={() => {
+              const r = recentBtnRef.current?.getBoundingClientRect();
+              setRecentAnchor(
+                r ? { x: r.left, y: r.bottom + 4 } : { x: 0, y: 0 },
+              );
+            }}
+          >
+            Recent
+          </Button>
+        )}
+        <Button size="sm" variant="outline" onPress={() => onRender({ kind: "generic" })}>
+          Render…
+        </Button>
+        <span title={IS_EMBEDDED ? "Save (⌘S)" : "Download project"}>
+          <Button
+            size="sm"
+            variant={saveLabel === "Saved" ? "primary" : "outline"}
+            onPress={handleSave}
+          >
+            {IS_EMBEDDED ? saveLabel : "Download"}
+          </Button>
+        </span>
+        {IS_EMBEDDED && (
+          <span title="Save As (⇧⌘S)">
+            <Button size="sm" variant="outline" onPress={handleSaveAs}>
+              Save As&hellip;
+            </Button>
+          </span>
+        )}
+      </div>
+
+      {/* Compact dropdown for narrower screens (< xl) */}
+      <div className="xl:hidden">
         <Button
-          ref={recentBtnRef}
+          ref={projectDropdownRef}
           size="sm"
           variant="outline"
+          className="flex items-center gap-1"
           onPress={() => {
-            const r = recentBtnRef.current?.getBoundingClientRect();
-            setRecentAnchor(
+            const r = projectDropdownRef.current?.getBoundingClientRect();
+            setProjectMenuAnchor(
               r ? { x: r.left, y: r.bottom + 4 } : { x: 0, y: 0 },
             );
           }}
         >
-          Recent
+          <span>Project</span>
+          <ChevronDown size={13} className="text-foreground/50" />
         </Button>
+      </div>
+
+      {projectMenuAnchor && (
+        <ContextMenu
+          x={projectMenuAnchor.x}
+          y={projectMenuAnchor.y}
+          width={190}
+          onClose={() => setProjectMenuAnchor(null)}
+        >
+          <ContextMenuItem
+            onClick={() => {
+              setProjectMenuAnchor(null);
+              handleNew();
+            }}
+          >
+            New Project
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              setProjectMenuAnchor(null);
+              handleLoad();
+            }}
+          >
+            {IS_EMBEDDED ? "Load Project…" : "Upload Project…"}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              setProjectMenuAnchor(null);
+              onRender({ kind: "generic" });
+            }}
+          >
+            Render…
+          </ContextMenuItem>
+          <ContextMenuDivider />
+          <ContextMenuItem
+            onClick={() => {
+              setProjectMenuAnchor(null);
+              handleSave();
+            }}
+          >
+            {IS_EMBEDDED ? `${saveLabel} (⌘S)` : "Download Project"}
+          </ContextMenuItem>
+          {IS_EMBEDDED && (
+            <ContextMenuItem
+              onClick={() => {
+                setProjectMenuAnchor(null);
+                handleSaveAs();
+              }}
+            >
+              Save As… (⇧⌘S)
+            </ContextMenuItem>
+          )}
+        </ContextMenu>
       )}
-      <Button size="sm" variant="outline" onPress={() => onRender({ kind: "generic" })}>
-        Render…
-      </Button>
+
       {recentAnchor && (
         <ContextMenu
           x={recentAnchor.x}
@@ -1061,22 +1207,6 @@ function ProjectMenu({
             </>
           )}
         </ContextMenu>
-      )}
-      <span title={IS_EMBEDDED ? "Save (⌘S)" : "Download project"}>
-        <Button
-          size="sm"
-          variant={saveLabel === "Saved" ? "primary" : "outline"}
-          onPress={handleSave}
-        >
-          {IS_EMBEDDED ? saveLabel : "Download"}
-        </Button>
-      </span>
-      {IS_EMBEDDED && (
-        <span title="Save As (⇧⌘S)">
-          <Button size="sm" variant="outline" onPress={handleSaveAs}>
-            Save As&hellip;
-          </Button>
-        </span>
       )}
       <ConfirmDialog
         open={confirmNew}

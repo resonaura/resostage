@@ -301,23 +301,70 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     setStatus("Song updated");
 }
 
-void MainComponent::builderTrackAdd(const std::string& /*json*/) {
+void MainComponent::builderTrackAdd(const std::string& json) {
     if (!engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
+
+    glz::generic doc;
+    std::string kindStr;
+    std::string customName;
+    int channelsVal = 2;
+    std::string pluginId;
+    if (parseJson(json, doc)) {
+        getString(doc, "kind", kindStr);
+        getString(doc, "name", customName);
+        getInt(doc, "channels", channelsVal);
+        getString(doc, "instrumentPluginId", pluginId);
+    }
 
     std::vector<std::string> used;
     for (const auto& t : proj.tracks)
         used.push_back(t.id);
     TrackDef track;
     track.id = makeUniqueId("trk", used);
-    track.name = "New Track";
+
+    TrackKind trackKind = TrackKind::Audio;
+    if (kindStr == "instrument") trackKind = TrackKind::Instrument;
+    else if (kindStr == "midi") trackKind = TrackKind::MIDI;
+    track.kind = trackKind;
+
+    if (!customName.empty()) {
+        track.name = customName;
+    } else {
+        if (trackKind == TrackKind::Instrument) {
+            track.name = "Inst " + std::to_string(proj.tracks.size() + 1);
+        } else if (trackKind == TrackKind::MIDI) {
+            track.name = "MIDI " + std::to_string(proj.tracks.size() + 1);
+        } else {
+            track.name = "Audio " + std::to_string(proj.tracks.size() + 1);
+        }
+    }
+
+    track.channels = (channelsVal == 1) ? 1 : 2;
     track.output.type = OutputType::Main;
-    engine.projectHistoryBeginEdit("", "Add track");
+
+    if (trackKind == TrackKind::Instrument || trackKind == TrackKind::MIDI) {
+        track.midiInputChannel = 0; // Omni
+        track.midiInputDevice = "all";
+        track.inputSource = "none";
+        if (!pluginId.empty()) {
+            PluginSlot slot;
+            slot.id = "slot:0";
+            slot.plugin.identifier = pluginId;
+            slot.plugin.instrument = true;
+            slot.bypassed = false;
+            track.plugins.push_back(std::move(slot));
+        }
+    } else {
+        track.inputSource = (channelsVal == 1) ? "in:1" : "in:1+2";
+    }
+
+    engine.projectHistoryBeginEdit("", trackKind == TrackKind::Instrument ? "Add instrument track" : "Add track");
     proj.tracks.push_back(track);
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
-    setStatus("Track added");
+    setStatus(trackKind == TrackKind::Instrument ? "Instrument track added" : "Track added");
 }
 
 void MainComponent::builderTrackRemove(const std::string& json) {
@@ -1213,6 +1260,10 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
     // enabled, and turning a knob up from the floor implicitly creates one.
     bool enabled = true;
     const bool enabledGiven = getBool(doc, "enabled", enabled);
+    std::string tapStr;
+    bool preFader = false;
+    const bool tapGiven = getString(doc, "tap", tapStr);
+    const bool preFaderGiven = getBool(doc, "preFader", preFader);
 
     const size_t idx = static_cast<size_t>(trackIndex);
     const size_t songIdx = engine.currentSongIndex();
@@ -1232,6 +1283,13 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
             SendConfig updated = t->output.sends[si];
             updated.level = level;
             updated.enabled = enabledGiven ? enabled : updated.enabled;
+            if (tapGiven) {
+                updated.tap = sendTapFromString(tapStr, preFader);
+                updated.preFader = (updated.tap == SendTap::PreFader);
+            } else if (preFaderGiven) {
+                updated.preFader = preFader;
+                updated.tap = preFader ? SendTap::PreFader : SendTap::PostPan;
+            }
             engine.projectHistoryBeginEdit(gestureId, "Edit send");
             engine.setTrackSend(songIdx, idx, si, updated);
             engine.projectHistoryCommitEdit();
@@ -1243,6 +1301,13 @@ void MainComponent::setTrackSendFromJson(const std::string& json) {
     newSend.bus = busId;
     newSend.level = level;
     newSend.enabled = enabledGiven ? enabled : true;
+    if (tapGiven) {
+        newSend.tap = sendTapFromString(tapStr, preFader);
+        newSend.preFader = (newSend.tap == SendTap::PreFader);
+    } else if (preFaderGiven) {
+        newSend.preFader = preFader;
+        newSend.tap = preFader ? SendTap::PreFader : SendTap::PostPan;
+    }
     engine.projectHistoryBeginEdit(gestureId, "Add send");
     engine.addTrackSend(songIdx, idx, newSend);
     engine.projectHistoryCommitEdit();

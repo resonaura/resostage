@@ -36,6 +36,7 @@ AppSettings loadAppSettings() {
         return settings; // corrupt file -- start from defaults rather than fail startup
 
     settings.outputDeviceName = std::move(wire.outputDeviceName);
+    settings.inputDeviceName = std::move(wire.inputDeviceName);
     settings.audioDeviceType = std::move(wire.audioDeviceType);
     settings.sampleRate = wire.sampleRate;
     settings.bufferSize = wire.bufferSize;
@@ -51,6 +52,7 @@ AppSettings loadAppSettings() {
     }
 
     settings.activeOutputChannels = std::move(wire.activeOutputChannels);
+    settings.activeInputChannels = std::move(wire.activeInputChannels);
     for (auto& [name, wp] : wire.deviceProfiles) {
         if (name.empty())
             continue;
@@ -58,6 +60,7 @@ AppSettings loadAppSettings() {
         profile.sampleRate = wp.sampleRate;
         profile.bufferSize = wp.bufferSize;
         profile.activeOutputChannels = wp.activeOutputChannels;
+        profile.activeInputChannels = wp.activeInputChannels;
         settings.deviceProfiles.emplace(name, std::move(profile));
     }
     settings.keybindings = std::move(wire.keybindings);
@@ -104,6 +107,7 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
 
     WAppSettings wire;
     wire.outputDeviceName = settings.outputDeviceName;
+    wire.inputDeviceName = settings.inputDeviceName;
     wire.audioDeviceType = settings.audioDeviceType;
     wire.sampleRate = settings.sampleRate;
     wire.bufferSize = settings.bufferSize;
@@ -113,11 +117,13 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
     wire.uiRenderEngine = settings.uiRenderEngine;
     wire.theme = settings.theme;
     wire.activeOutputChannels = settings.activeOutputChannels;
+    wire.activeInputChannels = settings.activeInputChannels;
     for (const auto& [name, profile] : settings.deviceProfiles) {
         WDeviceProfile wp;
         wp.sampleRate = profile.sampleRate;
         wp.bufferSize = profile.bufferSize;
         wp.activeOutputChannels = profile.activeOutputChannels;
+        wp.activeInputChannels = profile.activeInputChannels;
         wire.deviceProfiles.emplace(name, std::move(wp));
     }
     wire.keybindings = settings.keybindings;

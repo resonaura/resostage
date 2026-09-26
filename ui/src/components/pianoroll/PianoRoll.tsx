@@ -1,14 +1,28 @@
 import { useCallback, useEffect, useState } from "react";
 import { PianoRollCanvas } from "./PianoRollCanvas";
 import { PianoRollToolbar } from "./PianoRollToolbar";
+import { applyLegato, applyOverlapTrim } from "./pianoRollModel";
 import { snapPitchToScale } from "./scales";
-import type { GridSnapValue, PianoRollProps, PianoRollTool, ScaleMode } from "./types";
+import type {
+  GridSnapValue,
+  PianoRollBottomLane,
+  PianoRollProps,
+  PianoRollTool,
+  ScaleMode,
+} from "./types";
 
 export function PianoRoll({
   region,
   companionRegions = [],
+  track,
+  tracks,
+  onSelectTrack,
+  regions,
+  onSelectRegion,
+  trackColor,
   playheadBeats,
   onNotesChange,
+  onRegionChange,
   className = "",
 }: PianoRollProps) {
   const [tool, setTool] = useState<PianoRollTool>("draw");
@@ -18,6 +32,9 @@ export function PianoRoll({
   const [snapToScale, setSnapToScale] = useState<boolean>(false);
   const [showGhostNotes, setShowGhostNotes] = useState<boolean>(true);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<number>>(new Set());
+  const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
+
+  const effectiveTrackColor = trackColor || "#0485f7";
 
   // Delete selected notes
   const handleDeleteSelected = useCallback(() => {
@@ -92,6 +109,18 @@ export function PianoRoll({
     [selectedNoteIds, region.notes, snapToScale, rootNote, scaleMode, onNotesChange],
   );
 
+  // Force Legato
+  const handleLegato = useCallback(() => {
+    const updated = applyLegato(region.notes, selectedNoteIds);
+    onNotesChange(updated);
+  }, [region.notes, selectedNoteIds, onNotesChange]);
+
+  // Overlap Trim
+  const handleOverlapTrim = useCallback(() => {
+    const updated = applyOverlapTrim(region.notes, selectedNoteIds);
+    onNotesChange(updated);
+  }, [region.notes, selectedNoteIds, onNotesChange]);
+
   // Keyboard hotkeys
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -112,6 +141,12 @@ export function PianoRoll({
         setTool("select");
       } else if (e.key === "b" || e.key === "B") {
         setTool("draw");
+      } else if (e.key === "p" || e.key === "P") {
+        setTool("brush");
+      } else if (e.key === "s" || e.key === "S") {
+        if (!e.metaKey && !e.ctrlKey) {
+          setTool("slice");
+        }
       } else if (e.key === "e" || e.key === "E") {
         setTool("erase");
       } else if (e.key === "q" || e.key === "Q") {
@@ -135,17 +170,81 @@ export function PianoRoll({
 
   return (
     <div className={`flex flex-col h-full w-full bg-background border border-default/30 rounded-lg overflow-hidden ${className}`}>
-      {/* Header / Region metadata */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-default/20 border-b border-default/30 text-xs font-semibold">
-        <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-          <span>Piano Roll: {region.name || "Untitled MIDI Region"}</span>
+      {/* Header / Region & Track metadata */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-default/20 border-b border-default/30 text-xs font-semibold select-none">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Track linkage pill/badge */}
+          {track ? (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-default/30 bg-surface/50">
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
+                style={{ backgroundColor: effectiveTrackColor }}
+              />
+              <span className="font-semibold text-foreground truncate max-w-[120px]" title={track.name || track.id}>
+                {track.name || track.id}
+              </span>
+              {tracks && onSelectTrack && (() => {
+                const instrumentTracks = tracks.filter((tr) => tr.kind === "instrument" || tr.kind === "midi");
+                if (instrumentTracks.length <= 1) return null;
+                return (
+                  <select
+                    aria-label="Switch active track"
+                    value={track.id}
+                    onChange={(e) => onSelectTrack(e.target.value)}
+                    className="bg-transparent text-[10px] text-foreground/60 hover:text-foreground cursor-pointer outline-none border-none ml-0.5"
+                  >
+                    {instrumentTracks.map((tr) => (
+                      <option key={tr.id} value={tr.id} className="bg-background text-foreground">
+                        {tr.name || tr.id}
+                      </option>
+                    ))}
+                  </select>
+                );
+              })()}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-default/30 bg-surface/50">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+              <span className="text-foreground/70">Unlinked</span>
+            </div>
+          )}
+
+          {/* Region selector or name */}
+          {regions && regions.length > 1 && onSelectRegion ? (
+            <div className="flex items-center gap-1">
+              <span className="text-foreground/40">&middot;</span>
+              <select
+                aria-label="Select MIDI region"
+                value={region.id}
+                onChange={(e) => onSelectRegion(e.target.value)}
+                className="bg-surface/60 border border-default/30 rounded px-1.5 py-0.5 text-xs text-foreground font-medium outline-none cursor-pointer hover:border-accent/40"
+              >
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id} className="bg-background text-foreground">
+                    {r.name || r.id} ({r.notes.length} notes)
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="text-foreground/40">&middot;</span>
+              <span className="text-foreground font-semibold">
+                {region.name || "MIDI Region"}
+              </span>
+            </div>
+          )}
+
           <span className="text-[10px] font-normal text-foreground/50">
             ({region.notes.length} notes)
           </span>
         </div>
-        <div className="text-[11px] font-normal text-foreground/60">
-          Length: {region.durationBeats} beats {region.loop ? `(Loop: ${region.loopLengthBeats}b)` : ""}
+
+        <div className="flex items-center gap-2 text-[11px] font-normal text-foreground/60 shrink-0">
+          <span>
+            {region.durationBeats} beats
+            {region.loop ? ` (Loop: ${region.loopLengthBeats}b)` : ""}
+          </span>
         </div>
       </div>
 
@@ -166,8 +265,12 @@ export function PianoRoll({
         selectedCount={selectedNoteIds.size}
         onQuantize={handleQuantize}
         onHumanize={handleHumanize}
+        onLegato={handleLegato}
+        onOverlapTrim={handleOverlapTrim}
         onTranspose={handleTranspose}
         onDeleteSelected={handleDeleteSelected}
+        bottomLane={bottomLane}
+        onBottomLaneChange={setBottomLane}
       />
 
       {/* Canvas Viewport */}
@@ -175,6 +278,7 @@ export function PianoRoll({
         <PianoRollCanvas
           region={region}
           companionRegions={companionRegions}
+          trackColor={effectiveTrackColor}
           tool={tool}
           snap={snap}
           rootNote={rootNote}
@@ -184,6 +288,8 @@ export function PianoRoll({
           selectedNoteIds={selectedNoteIds}
           onSelectionChange={setSelectedNoteIds}
           onNotesChange={onNotesChange}
+          onRegionChange={onRegionChange}
+          bottomLane={bottomLane}
           playheadBeats={playheadBeats}
         />
       </div>

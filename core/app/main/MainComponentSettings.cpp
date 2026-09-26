@@ -47,6 +47,8 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
 
     out.outputDevices = hardwareSettingsCache.outputDevices;
     out.currentOutputDevice = hardwareSettingsCache.currentOutputDevice;
+    out.inputDevices = hardwareSettingsCache.inputDevices;
+    out.currentInputDevice = hardwareSettingsCache.currentInputDevice;
     out.audioDrivers = hardwareSettingsCache.audioDrivers;
     out.currentAudioDriver = hardwareSettingsCache.currentAudioDriver;
     out.sampleRate = hardwareSettingsCache.sampleRate;
@@ -55,6 +57,11 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
     out.availableBufferSizes = hardwareSettingsCache.availableBufferSizes;
     out.outputChannelNames = hardwareSettingsCache.outputChannelNames;
     out.activeOutputChannels = hardwareSettingsCache.activeOutputChannels;
+    out.inputChannelNames = hardwareSettingsCache.inputChannelNames;
+    out.activeInputChannels = hardwareSettingsCache.activeInputChannels;
+    out.inputLatencyMs = hardwareSettingsCache.inputLatencyMs;
+    out.outputLatencyMs = hardwareSettingsCache.outputLatencyMs;
+    out.roundtripLatencyMs = hardwareSettingsCache.roundtripLatencyMs;
     out.midiOutputs = hardwareSettingsCache.midiOutputs;
     out.midiInputs = hardwareSettingsCache.midiInputs;
     out.virtualMidiPortEnabled = hardwareSettingsCache.virtualMidiPortEnabled;
@@ -115,8 +122,10 @@ void MainComponent::rescanHardwareSettings() {
             out.audioDrivers.push_back(type->getTypeName().toStdString());
         }
     }
-    if (auto* curType = dm.getCurrentDeviceTypeObject())
+    if (auto* curType = dm.getCurrentDeviceTypeObject()) {
+        curType->scanForDevices();
         out.currentAudioDriver = curType->getTypeName().toStdString();
+    }
     if (auto* dev = dm.getCurrentAudioDevice())
         out.hasControlPanel = dev->hasControlPanel();
 
@@ -125,12 +134,18 @@ void MainComponent::rescanHardwareSettings() {
         const auto names = curType->getDeviceNames(/*wantInputNames=*/false);
         for (const auto& n : names)
             out.outputDevices.push_back(n.toStdString());
+        const auto inNames = curType->getDeviceNames(/*wantInputNames=*/true);
+        for (const auto& n : inNames)
+            out.inputDevices.push_back(n.toStdString());
     }
     // Then any other types (aggregate, no dups).
     {
         juce::StringArray seen;
         for (const auto& s : out.outputDevices)
             seen.add(juce::String(s));
+        juce::StringArray seenIn;
+        for (const auto& s : out.inputDevices)
+            seenIn.add(juce::String(s));
         for (auto* type : types) {
             if (type == nullptr || type == dm.getCurrentDeviceTypeObject())
                 continue;
@@ -140,6 +155,13 @@ void MainComponent::rescanHardwareSettings() {
                     continue;
                 seen.add(n);
                 out.outputDevices.push_back(n.toStdString());
+            }
+            const auto inNames = type->getDeviceNames(true);
+            for (const auto& n : inNames) {
+                if (seenIn.contains(n))
+                    continue;
+                seenIn.add(n);
+                out.inputDevices.push_back(n.toStdString());
             }
         }
     }
@@ -163,6 +185,19 @@ void MainComponent::rescanHardwareSettings() {
             out.outputDevices.insert(out.outputDevices.begin(), out.currentOutputDevice);
     }
 
+    out.currentInputDevice = setup.inputDeviceName.toStdString();
+    if (!out.currentInputDevice.empty()) {
+        bool found = false;
+        for (const auto& d : out.inputDevices) {
+            if (d == out.currentInputDevice) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            out.inputDevices.insert(out.inputDevices.begin(), out.currentInputDevice);
+    }
+
     out.sampleRate = setup.sampleRate;
     out.bufferSize = setup.bufferSize;
     if (auto* device = dm.getCurrentAudioDevice()) {
@@ -180,6 +215,21 @@ void MainComponent::rescanHardwareSettings() {
         for (int i = 0; i < channelNames.size(); ++i) {
             out.outputChannelNames.push_back(channelNames[i].toStdString());
             out.activeOutputChannels.push_back(active[i]);
+        }
+
+        const auto inChannelNames = device->getInputChannelNames();
+        const auto activeIn = device->getActiveInputChannels();
+        for (int i = 0; i < inChannelNames.size(); ++i) {
+            out.inputChannelNames.push_back(inChannelNames[i].toStdString());
+            out.activeInputChannels.push_back(activeIn[i]);
+        }
+
+        const int inLatencySamples = device->getInputLatencyInSamples();
+        const int outLatencySamples = device->getOutputLatencyInSamples();
+        if (out.sampleRate > 0.0) {
+            out.inputLatencyMs = (inLatencySamples * 1000.0) / out.sampleRate;
+            out.outputLatencyMs = (outLatencySamples * 1000.0) / out.sampleRate;
+            out.roundtripLatencyMs = ((inLatencySamples + outLatencySamples) * 1000.0) / out.sampleRate;
         }
     }
     // Fallback so selects are never blank when the device is open.
@@ -227,8 +277,17 @@ void MainComponent::rememberCurrentDeviceProfile() {
             if (active[i])
                 profile.activeOutputChannels.push_back(i);
         }
+        const auto activeIn = device->getActiveInputChannels();
+        for (int i = 0; i < activeIn.getHighestBit() + 1; ++i) {
+            if (activeIn[i])
+                profile.activeInputChannels.push_back(i);
+        }
     }
-    appSettings.deviceProfiles[name] = std::move(profile);
+    appSettings.deviceProfiles[name] = profile;
+    if (setup.inputDeviceName.isNotEmpty() && setup.inputDeviceName != setup.outputDeviceName) {
+        const std::string compositeKey = setup.outputDeviceName.toStdString() + "|" + setup.inputDeviceName.toStdString();
+        appSettings.deviceProfiles[compositeKey] = profile;
+    }
 }
 
 /**
@@ -262,10 +321,14 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
     setup.outputDeviceName = name;
 
     // Restore what this device had last time, if we have ever seen it.
-    const auto known = appSettings.deviceProfiles.find(name);
-    const bool haveProfile = known != appSettings.deviceProfiles.end();
+    const std::string compositeKey = name + "|" + setup.inputDeviceName.toStdString();
+    auto it = appSettings.deviceProfiles.find(compositeKey);
+    if (it == appSettings.deviceProfiles.end()) {
+        it = appSettings.deviceProfiles.find(name);
+    }
+    const bool haveProfile = it != appSettings.deviceProfiles.end();
     if (haveProfile) {
-        const auto& p = known->second;
+        const auto& p = it->second;
         if (p.sampleRate > 0.0)
             setup.sampleRate = p.sampleRate;
         if (p.bufferSize > 0)
@@ -281,10 +344,22 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
         } else {
             setup.useDefaultOutputChannels = true;
         }
+        if (!p.activeInputChannels.empty()) {
+            juce::BigInteger bits;
+            for (int idx : p.activeInputChannels) {
+                if (idx >= 0)
+                    bits.setBit(idx);
+            }
+            setup.inputChannels = bits;
+            setup.useDefaultInputChannels = false;
+        } else {
+            setup.useDefaultInputChannels = true;
+        }
     } else {
         // Never seen: let the driver pick both, which is also what happens
         // after a reset. 0 means "your choice" to JUCE, not "zero".
         setup.useDefaultOutputChannels = true;
+        setup.useDefaultInputChannels = true;
         setup.sampleRate = 0;
         setup.bufferSize = 0;
     }
@@ -294,11 +369,12 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
         appSettings.outputDeviceName = name;
         appSettings.activeOutputChannels.clear();
         if (haveProfile) {
-            appSettings.activeOutputChannels = known->second.activeOutputChannels;
-            if (known->second.sampleRate > 0.0)
-                appSettings.sampleRate = known->second.sampleRate;
-            if (known->second.bufferSize > 0)
-                appSettings.bufferSize = known->second.bufferSize;
+            appSettings.activeOutputChannels = it->second.activeOutputChannels;
+            appSettings.activeInputChannels = it->second.activeInputChannels;
+            if (it->second.sampleRate > 0.0)
+                appSettings.sampleRate = it->second.sampleRate;
+            if (it->second.bufferSize > 0)
+                appSettings.bufferSize = it->second.bufferSize;
         }
         saveAppSettingsToDisk();
         engine.rebuildDirectOutBusses();
@@ -308,6 +384,51 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
                       : "Audio output: " + juce::String(name));
     } else {
         setStatus("Audio device error: " + error);
+    }
+}
+
+void MainComponent::settingsSetAudioInputDevice(const std::string& json) {
+    invalidateHardwareSettingsCache();
+    glz::generic doc;
+    std::string name;
+    if (!parseJson(json, doc) || !getString(doc, "name", name))
+        return;
+
+    rememberCurrentDeviceProfile();
+
+    auto setup = engine.deviceManager().getAudioDeviceSetup();
+    setup.inputDeviceName = name;
+
+    const std::string compositeKey = setup.outputDeviceName.toStdString() + "|" + name;
+    auto it = appSettings.deviceProfiles.find(compositeKey);
+    if (it == appSettings.deviceProfiles.end()) {
+        it = appSettings.deviceProfiles.find(setup.outputDeviceName.toStdString());
+    }
+    const bool haveProfile = it != appSettings.deviceProfiles.end();
+    if (haveProfile && !it->second.activeInputChannels.empty()) {
+        juce::BigInteger bits;
+        for (int idx : it->second.activeInputChannels) {
+            if (idx >= 0)
+                bits.setBit(idx);
+        }
+        setup.inputChannels = bits;
+        setup.useDefaultInputChannels = false;
+    } else {
+        setup.useDefaultInputChannels = true;
+    }
+
+    const juce::String error = applyDeviceSetupWithFade(engine, setup);
+    if (error.isEmpty()) {
+        appSettings.inputDeviceName = name;
+        appSettings.activeInputChannels.clear();
+        if (haveProfile) {
+            appSettings.activeInputChannels = it->second.activeInputChannels;
+        }
+        saveAppSettingsToDisk();
+        publishWebState();
+        setStatus(name.empty() ? "Audio input disabled" : "Audio input: " + juce::String(name));
+    } else {
+        setStatus("Audio input device error: " + error);
     }
 }
 
@@ -582,6 +703,42 @@ void MainComponent::settingsSetOutputChannels(const std::string& json) {
         setStatus("Output channels updated");
     } else {
         setStatus("Output channels error: " + error);
+    }
+}
+
+void MainComponent::settingsSetInputChannels(const std::string& json) {
+    invalidateHardwareSettingsCache();
+    glz::generic doc;
+    if (!parseJson(json, doc))
+        return;
+    const auto* channels = getArray(doc, "channels");
+    if (channels == nullptr)
+        return;
+
+    juce::BigInteger bits;
+    for (const auto& v : *channels) {
+        int idx = 0;
+        if (asInt(v, idx) && idx >= 0)
+            bits.setBit(idx);
+    }
+
+    auto setup = engine.deviceManager().getAudioDeviceSetup();
+    setup.inputChannels = bits;
+    setup.useDefaultInputChannels = false;
+    const juce::String error = applyDeviceSetupWithFade(engine, setup);
+    if (error.isEmpty()) {
+        appSettings.activeInputChannels.clear();
+        for (const auto& v : *channels) {
+            int idx = 0;
+            if (asInt(v, idx) && idx >= 0)
+                appSettings.activeInputChannels.push_back(idx);
+        }
+        rememberCurrentDeviceProfile();
+        saveAppSettingsToDisk();
+        publishWebState();
+        setStatus("Input channels updated");
+    } else {
+        setStatus("Input channels error: " + error);
     }
 }
 

@@ -1,6 +1,6 @@
 import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui";
 import type { RenderDialogIntent } from "../../components/RenderAudioDialog";
 import { useHorizontalWindow } from "../../hooks/useHorizontalWindow";
@@ -30,14 +30,19 @@ interface PluginTarget {
   stripName: string;
 }
 
+export type MixerDensity = "narrow" | "standard" | "wide";
+
 /**
- * One strip's footprint: the 96px strip (ChannelStrip's `w-24`) plus the 8px
- * that separates it from the next. The virtualised panes carry that gap as a
- * right margin on each item rather than as the flex `gap-2` the other panes
- * use, so a spacer standing in for N strips is exactly N * this and the
- * scrollbar is the same length virtualised or not.
+ * Density-dependent strip pitch: strip width + 8px gap.
+ * Narrow: 64px + 8px = 72px
+ * Standard: 96px + 8px = 104px
+ * Wide: 128px + 8px = 136px
  */
-const STRIP_PITCH_PX = 104;
+const DENSITY_PITCH_MAP: Record<MixerDensity, number> = {
+  narrow: 72,
+  standard: 104,
+  wide: 136,
+};
 
 /**
  * Below this many strips, mount the lot.
@@ -70,7 +75,7 @@ function ConsolePane({
 }) {
   if (compact) return <div className={className}>{children}</div>;
   return (
-    <ScrollShadow orientation="horizontal" className={className}>
+    <ScrollShadow orientation="horizontal" className={`${className} overflow-y-auto`}>
       {children}
     </ScrollShadow>
   );
@@ -86,15 +91,31 @@ export function MixerScreen({
   onRender: (intent: RenderDialogIntent) => void;
 }) {
   const compact = useIsCompact();
+  const [density, setDensity] = useState<MixerDensity>(() => {
+    try {
+      const saved = localStorage.getItem("resostage:mixer-density");
+      if (saved === "narrow" || saved === "standard" || saved === "wide") return saved;
+    } catch {}
+    return "standard";
+  });
+
+  const handleDensityChange = (d: MixerDensity) => {
+    setDensity(d);
+    try {
+      localStorage.setItem("resostage:mixer-density", d);
+    } catch {}
+  };
+
   const auxBusses = state.busses.filter((b) => b.isAux);
+  const pitchPx = DENSITY_PITCH_MAP[density];
   const trackWindow = useHorizontalWindow({
     count: state.tracks.length,
-    pitchPx: STRIP_PITCH_PX,
+    pitchPx,
     enabled: state.tracks.length >= VIRTUALIZE_FROM,
   });
   const sendWindow = useHorizontalWindow({
     count: auxBusses.length,
-    pitchPx: STRIP_PITCH_PX,
+    pitchPx,
     enabled: auxBusses.length >= VIRTUALIZE_FROM,
   });
   // Match the master by its canonical id and nothing else. The old code fell
@@ -250,14 +271,66 @@ export function MixerScreen({
     ? outputSendsToClickRows(state.click.output)
     : [];
 
+  // Smart aligned mixer racks: align Audio FX slot rows horizontally across the mixer
+  const maxPluginSlots = useMemo(() => {
+    let maxCount = 0;
+    for (const t of state.tracks) {
+      if (t.plugins && t.plugins.length > maxCount) maxCount = t.plugins.length;
+    }
+    for (const b of state.busses) {
+      if (b.plugins && b.plugins.length > maxCount) maxCount = b.plugins.length;
+    }
+    if (state.click?.plugins && state.click.plugins.length > maxCount) {
+      maxCount = state.click.plugins.length;
+    }
+    return Math.max(1, maxCount) + 1;
+  }, [state.tracks, state.busses, state.click?.plugins]);
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex shrink-0 items-center gap-2 text-xs text-foreground/40">
-        <span className="font-semibold uppercase tracking-wide">Console</span>
-        <span>&middot;</span>
-        <span>{state.tracks.length} tracks</span>
-        <span>&middot;</span>
-        <span>{state.busses.length} busses</span>
+      <div className="flex shrink-0 items-center justify-between text-xs text-foreground/40">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold uppercase tracking-wide">Console</span>
+          <span>&middot;</span>
+          <span>{state.tracks.length} tracks</span>
+          <span>&middot;</span>
+          <span>{state.busses.length} busses</span>
+        </div>
+        <div className="flex items-center gap-0.5 rounded-lg border border-default/20 bg-surface/40 p-0.5">
+          <button
+            type="button"
+            onClick={() => handleDensityChange("narrow")}
+            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+              density === "narrow"
+                ? "bg-accent/20 text-accent font-bold shadow-sm"
+                : "text-foreground/50 hover:text-foreground"
+            }`}
+          >
+            Narrow (64px)
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDensityChange("standard")}
+            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+              density === "standard"
+                ? "bg-accent/20 text-accent font-bold shadow-sm"
+                : "text-foreground/50 hover:text-foreground"
+            }`}
+          >
+            Standard (96px)
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDensityChange("wide")}
+            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+              density === "wide"
+                ? "bg-accent/20 text-accent font-bold shadow-sm"
+                : "text-foreground/50 hover:text-foreground"
+            }`}
+          >
+            Wide (128px)
+          </button>
+        </div>
       </div>
 
       <div
@@ -316,6 +389,9 @@ export function MixerScreen({
                         settings={state.settings}
                         anySoloInGroup={anyTrackSolo}
                         pluginCatalog={effectCatalog}
+                        isRecording={state.recording ?? false}
+                        density={density}
+                        targetPluginSlots={maxPluginSlots}
                         onDirectOutput={requestTrackDirectOutput}
                         onOpenPlugins={openPlugins}
                       />
@@ -335,7 +411,7 @@ export function MixerScreen({
               compact={compact}
               className={`flex shrink-0 ${compact ? "" : "max-w-[35%]"}`}
             >
-              <div className="mr-2 flex h-full w-20 shrink-0 flex-col items-center justify-center">
+              <div className={`mr-2 flex h-full ${density === "narrow" ? "w-16" : density === "wide" ? "w-28" : "w-20"} shrink-0 flex-col items-center justify-center`}>
                 {/* Dashed and full-height on purpose -- it stands where a
                     strip would, so it reads as a slot to fill rather than as
                     a control in the row. */}
@@ -343,7 +419,7 @@ export function MixerScreen({
                   variant="default-soft"
                   aria-label="Add a new return/send bus"
                   onPress={() => requestAddSend()}
-                  className="h-full w-20 shrink-0 flex-col bg-background-secondary hover:bg-background-tertiary/50 transition-all gap-0 rounded-xl border border-dashed border-default/40 text-foreground/60"
+                  className={`h-full ${density === "narrow" ? "w-16" : density === "wide" ? "w-28" : "w-20"} shrink-0 flex-col bg-background-secondary hover:bg-background-tertiary/50 transition-all gap-0 rounded-xl border border-dashed border-default/40 text-foreground/60`}
                 >
                   <Plus size={22} />
                   <span className="text-[11px] font-semibold">Send</span>
@@ -382,6 +458,8 @@ export function MixerScreen({
                       settings={state.settings}
                       anySoloInGroup={anyAuxSolo}
                       pluginCatalog={effectCatalog}
+                      density={density}
+                      targetPluginSlots={maxPluginSlots}
                       onOpenPlugins={openPlugins}
                     />
                   </div>
@@ -424,6 +502,8 @@ export function MixerScreen({
               >
                 <MetronomeStrip
                   state={state}
+                  density={density}
+                  targetPluginSlots={maxPluginSlots}
                   onDirectOutput={requestClickDirectOutput}
                   onOpenPlugins={openPlugins}
                   pluginCatalog={effectCatalog}
@@ -456,6 +536,8 @@ export function MixerScreen({
                     anySoloInGroup={b.soloActiveInGroup}
                     isMaster
                     pluginCatalog={effectCatalog}
+                    density={density}
+                    targetPluginSlots={maxPluginSlots}
                     onOpenPlugins={openPlugins}
                   />
                 </div>

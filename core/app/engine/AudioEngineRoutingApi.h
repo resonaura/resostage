@@ -97,7 +97,32 @@
 
     void setTrackSolo(size_t songIndex, size_t trackIndex, bool solo);
 
+    void setTrackSoloSafe(size_t songIndex, size_t trackIndex, bool soloSafe);
+
     void setTrackMono(size_t songIndex, size_t trackIndex, bool mono);
+
+    void setTrackRecordArmed(size_t songIndex, size_t trackIndex, bool armed);
+
+    void setTrackInputMonitoring(size_t songIndex, size_t trackIndex, bool monitoring);
+
+    void setTrackInputSource(size_t songIndex, size_t trackIndex, const std::string& inputSource, int midiChannel = 0, const std::string& midiDevice = "all");
+
+    bool isTrackRecordArmed(size_t trackIndex) const;
+
+    bool isTrackInputMonitoring(size_t trackIndex) const;
+
+    void setAutoInputMonitoring(bool enabled);
+    bool isAutoInputMonitoring() const noexcept;
+
+    void setAutoPunch(bool enabled, int64_t startSample, int64_t endSample);
+    bool isAutoPunchEnabled() const noexcept;
+
+    void setMonitorBackend(MonitorBackend backend);
+    MonitorBackend getMonitorBackend() const noexcept;
+
+    void setLowLatencyMonitoring(bool enabled, double limitMs = 5.0);
+    bool isLowLatencyMonitoring() const noexcept;
+    double getLowLatencyLimitMs() const noexcept;
 
     void setTrackBusId(size_t songIndex, size_t trackIndex, const std::string& busId);
 
@@ -110,6 +135,8 @@
 
     void setBusSolo(size_t busIndex, bool solo);
 
+    void setBusSoloSafe(size_t busIndex, bool soloSafe);
+
     void setBusChannels(size_t busIndex, int channels);
 
     // Soloing the metronome joins the same solo group as track solo -- every
@@ -117,6 +144,7 @@
     // (see publishRoutingSnapshot()'s anyTrackSolo). Project-global, like
     // click gain/pan.
     void setClickSolo(bool solo);
+    void setClickSoloSafe(bool soloSafe);
 
     void setBusOutputChannel(size_t busIndex, int startChannel);
 

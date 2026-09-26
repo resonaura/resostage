@@ -89,7 +89,7 @@ uint64_t latencyLayoutKey(const MixGraph& graph, uint64_t processorKey) {
     for (const auto& edge : graph.edges) {
         hashU32(hash, edge.from);
         hashU32(hash, edge.to);
-        hashByte(hash, edge.preFader ? 1u : 0u);
+        hashByte(hash, static_cast<uint8_t>(edge.tap));
         hashByte(hash, static_cast<uint8_t>(edge.sourceChannel));
     }
     return hash;
@@ -236,6 +236,9 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         strip.pan = clampPan(track.pan);
         strip.mute = track.mute;
         strip.solo = track.solo;
+        strip.soloSafe = track.soloSafe;
+        strip.polarity = track.polarity;
+        strip.trimLinear = dbToGain(track.inputTrimDb);
         strip.projectIndex = i;
         addStrip(std::move(strip));
     }
@@ -254,6 +257,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         // and still feeds nothing, through the one audibility rule.
         strip.mute = project.click.mute || !project.click.enabled;
         strip.solo = project.click.solo;
+        strip.soloSafe = project.click.soloSafe;
         return addStrip(std::move(strip));
     }();
 
@@ -272,6 +276,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         strip.pan = clampPan(send.pan);
         strip.mute = send.mute;
         strip.solo = send.solo;
+        strip.soloSafe = send.soloSafe;
         strip.projectIndex = i;
         addStrip(std::move(strip));
     }
@@ -287,6 +292,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         strip.pan = clampPan(project.main.pan);
         strip.mute = project.main.mute || !project.main.enabled;
         strip.solo = project.main.solo;
+        strip.soloSafe = project.main.soloSafe;
         return addStrip(std::move(strip));
     }();
 
@@ -345,7 +351,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
     for (MixStrip& strip : graph.strips) {
         if (strip.mute)
             strip.audible = false;
-        else if (anySoloFor(strip.soloGroup) && !strip.solo)
+        else if (anySoloFor(strip.soloGroup) && !strip.solo && !strip.soloSafe)
             strip.audible = false;
         else
             strip.audible = true;
@@ -358,11 +364,11 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         // muting a channel at FOH should not take it out of the performer's
         // monitor mix, but soloing something else should.
         if (preFader)
-            return !(anySoloFor(source.soloGroup) && !source.solo);
+            return !(anySoloFor(source.soloGroup) && !source.solo && !source.soloSafe);
         return source.audible;
     };
 
-    const auto addEdge = [&](uint32_t from, uint32_t to, float gain, bool preFader,
+    const auto addEdge = [&](uint32_t from, uint32_t to, float gain, SendTap tap,
                              int8_t sourceChannel) {
         if (from == MixGraph::kNoStrip || to == MixGraph::kNoStrip)
             return;
@@ -370,9 +376,10 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         edge.from = from;
         edge.to = to;
         edge.gainLinear = gain;
-        edge.preFader = preFader;
+        edge.tap = tap;
+        edge.preFader = (tap == SendTap::PreFader);
         edge.sourceChannel = sourceChannel;
-        edge.active = edgeActive(from, preFader);
+        edge.active = edgeActive(from, edge.preFader);
         graph.edges.push_back(edge);
     };
 
@@ -381,14 +388,14 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
     // decides how a strip meets physical channels -- tracks, sends, the click
     // and Main all come through here.
     const auto addExtOutEdges = [&](uint32_t from, const std::optional<std::string>& target,
-                                    float gain, bool preFader) {
+                                    float gain, SendTap tap = SendTap::PostPan) {
         if (!target.has_value())
             return;
         const std::vector<std::string> lanes = splitLaneIds(*target);
         for (std::size_t i = 0; i < lanes.size(); ++i) {
             const int8_t sourceChannel =
                 lanes.size() >= 2 ? static_cast<int8_t>(i == 0 ? 0 : 1) : static_cast<int8_t>(-1);
-            addEdge(from, graph.find(lanes[i]), gain, preFader, sourceChannel);
+            addEdge(from, graph.find(lanes[i]), gain, tap, sourceChannel);
         }
     };
 
@@ -396,16 +403,16 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
     const auto addSourceEdges = [&](uint32_t from, const SourceOutput& output) {
         switch (output.type) {
             case OutputType::Main:
-                addEdge(from, mainStrip, 1.0f, /*preFader=*/false, /*sourceChannel=*/-1);
+                addEdge(from, mainStrip, 1.0f, SendTap::PostPan, /*sourceChannel=*/-1);
                 break;
             case OutputType::Bus:
                 // Main route into an aux/group bus. Always forward (sources
                 // precede busses in `strips`), so it cannot form a cycle.
                 addEdge(from, graph.find(output.target.value_or("")), 1.0f,
-                        /*preFader=*/false, /*sourceChannel=*/-1);
+                        SendTap::PostPan, /*sourceChannel=*/-1);
                 break;
             case OutputType::ExtOut:
-                addExtOutEdges(from, output.target, 1.0f, /*preFader=*/false);
+                addExtOutEdges(from, output.target, 1.0f, SendTap::PostPan);
                 break;
             case OutputType::SendsOnly:
                 break; // audible only through the send rows below
@@ -413,7 +420,8 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         for (const SendConfig& send : output.sends) {
             if (!send.enabled)
                 continue;
-            addEdge(from, graph.find(send.bus), sendLevelToGain(send.level), send.preFader,
+            const SendTap tap = send.tap != SendTap::PostPan ? send.tap : (send.preFader ? SendTap::PreFader : SendTap::PostPan);
+            addEdge(from, graph.find(send.bus), sendLevelToGain(send.level), tap,
                     /*sourceChannel=*/-1);
         }
     };
@@ -431,10 +439,10 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         const uint32_t from = graph.firstBusStrip + i;
         switch (send.output.type) {
             case OutputType::Main:
-                addEdge(from, mainStrip, 1.0f, /*preFader=*/false, /*sourceChannel=*/-1);
+                addEdge(from, mainStrip, 1.0f, SendTap::PostPan, /*sourceChannel=*/-1);
                 break;
             case OutputType::ExtOut:
-                addExtOutEdges(from, send.output.target, 1.0f, /*preFader=*/false);
+                addExtOutEdges(from, send.output.target, 1.0f, SendTap::PostPan);
                 break;
             case OutputType::Bus:
             case OutputType::SendsOnly:
@@ -448,7 +456,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
 
     // Main always owns its physical channels; it is the one strip that can
     // never fold into anything else.
-    addExtOutEdges(mainStrip, project.main.output.target, 1.0f, /*preFader=*/false);
+    addExtOutEdges(mainStrip, project.main.output.target, 1.0f, SendTap::PostPan);
 
     // Group edges by destination so the render pass can walk strips and edges
     // together in one forward sweep. Legal because the strip ordering above

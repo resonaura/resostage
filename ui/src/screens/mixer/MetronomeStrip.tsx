@@ -16,12 +16,16 @@ function MetronomeStripInner({
   onDirectOutput,
   onOpenPlugins,
   pluginCatalog,
+  density = "standard",
+  targetPluginSlots,
 }: {
   state: WebUiState;
   /** Shared Ext. Out helper — reuses/creates a bus then sets clickBusId. */
   onDirectOutput: (startChannel: number, pair: boolean) => void;
   onOpenPlugins: (stripId: string, stripName: string) => void;
   pluginCatalog: PluginCatalogEntry[];
+  density?: "narrow" | "standard" | "wide";
+  targetPluginSlots?: number;
 }) {
   const clickSolo = state.click?.solo ?? false;
   const hasSongs = state.songs.length > 0;
@@ -97,6 +101,7 @@ function MetronomeStripInner({
       color={metronomeColor()}
       busses={destinationBusses}
       busId={currentClickBus}
+      density={density}
       onBusSelect={(busId) => patchClick({ clickBusId: busId })}
       directOutput={{
         settings: state.settings,
@@ -142,13 +147,16 @@ function MetronomeStripInner({
       getLiveDbR={getLiveClickR}
       mute={!isMetronomeOn}
       solo={clickSolo}
+      soloSafe={state.click?.soloSafe}
       pluginSlots={state.click?.plugins ?? []}
       pluginCatalog={pluginCatalog}
+      targetPluginSlots={targetPluginSlots}
       onPlugins={() => onOpenPlugins("audio::click", clickName)}
       onGain={(v) => patchClick({ clickGainDb: v })}
       onPan={(v) => patchClick({ clickPan: v })}
       onMute={() => patchClick({ click: !isMetronomeOn })}
       onSolo={() => void mixer.setClickSolo(!clickSolo)}
+      onSoloSafe={(safe) => void mixer.setClickSoloSafe(safe)}
     />
   );
 }
@@ -162,6 +170,8 @@ export const MetronomeStrip = memo(MetronomeStripInner, (prev, next) => {
   const a = prev.state;
   const b = next.state;
   return (
+    prev.density === next.density &&
+    prev.targetPluginSlots === next.targetPluginSlots &&
     prev.onDirectOutput === next.onDirectOutput &&
     prev.onOpenPlugins === next.onOpenPlugins &&
     prev.pluginCatalog === next.pluginCatalog &&

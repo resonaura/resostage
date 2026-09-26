@@ -1,6 +1,7 @@
 import { Popover, ScrollShadow, Separator, Tooltip } from "@heroui/react";
 import {
   ChevronDown,
+  Circle,
   Gauge,
   LayoutGrid,
   Pause,
@@ -1271,6 +1272,29 @@ export function PlayerScreen({
               </Button>
               <Tooltip.Content>
                 Stop — press again at song start to jump to project start
+              </Tooltip.Content>
+            </Tooltip>
+            <Tooltip>
+              <Button
+                size="sm"
+                isIconOnly
+                variant={state.recording ? "danger" : "default-soft"}
+                className={
+                  state.recording
+                    ? "text-danger animate-pulse font-bold"
+                    : "text-foreground/70 hover:text-danger"
+                }
+                onPress={() => void transport.record()}
+                aria-label={state.recording ? "Stop Recording" : "Record"}
+              >
+                <ButtonGroup.Separator />
+                <Circle
+                  size={14}
+                  className={state.recording ? "fill-danger" : "fill-current"}
+                />
+              </Button>
+              <Tooltip.Content>
+                {state.recording ? "Stop Recording" : "Record (Audio & MIDI)"}
               </Tooltip.Content>
             </Tooltip>
             <Tooltip>

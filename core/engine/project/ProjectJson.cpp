@@ -143,6 +143,8 @@ struct WSendConfig {
     double level = 100.0;
     bool preFader = false;
     bool enabled = true;
+    bool lowLatencySafe = false;
+    std::string tap = "post-pan";
 };
 
 struct WSourceOutput {
@@ -181,6 +183,7 @@ struct WClick {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    bool soloSafe = false;
     WSourceOutput output;
     std::vector<WPluginSlot> plugins;
 };
@@ -193,6 +196,7 @@ struct WMaster {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    bool soloSafe = false;
     WBusOutput output;
     std::vector<WPluginSlot> plugins;
 };
@@ -205,6 +209,7 @@ struct WSendBus {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    bool soloSafe = false;
     WBusOutput output;
     std::vector<WPluginSlot> plugins;
 };
@@ -221,9 +226,19 @@ struct WTrack {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    bool soloSafe = false;
     WSourceOutput output;
     std::vector<WPluginSlot> plugins;
+    bool recordArmed = false;
+    bool inputMonitoring = false;
+    std::string inputSource = "none";
+    int midiInputChannel = 0;
+    std::string midiInputDevice = "all";
+    double inputTrimDb = 0.0;
+    bool phaseInvert = false;
+    std::string polarity = "none";
 };
+
 
 struct WFixtureGrid {
     int column = 0;
@@ -544,8 +559,10 @@ WSendConfig toWireSend(const SendConfig& s) {
     WSendConfig w;
     w.bus = s.bus;
     w.level = std::clamp(finiteOrZero(s.level), 0.0, 100.0);
-    w.preFader = s.preFader;
+    w.preFader = s.preFader || (s.tap == SendTap::PreFader);
     w.enabled = s.enabled;
+    w.lowLatencySafe = s.lowLatencySafe;
+    w.tap = sendTapToString(s.tap != SendTap::PostPan ? s.tap : (s.preFader ? SendTap::PreFader : SendTap::PostPan));
     return w;
 }
 
@@ -553,8 +570,10 @@ SendConfig fromWireSend(const WSendConfig& w) {
     SendConfig s;
     s.bus = w.bus;
     s.level = std::clamp(finiteOrZero(w.level), 0.0, 100.0);
-    s.preFader = w.preFader;
+    s.tap = sendTapFromString(w.tap, w.preFader);
+    s.preFader = (s.tap == SendTap::PreFader);
     s.enabled = w.enabled;
+    s.lowLatencySafe = w.lowLatencySafe;
     return s;
 }
 
@@ -749,6 +768,7 @@ WProject toWire(const Project& p) {
     w.click.pan = finiteOrZero(p.click.pan);
     w.click.mute = p.click.mute;
     w.click.solo = p.click.solo;
+    w.click.soloSafe = p.click.soloSafe;
     w.click.output = toWireSourceOutput(p.click.output);
     w.click.plugins = toWirePluginSlots(p.click.plugins);
 
@@ -759,6 +779,7 @@ WProject toWire(const Project& p) {
     w.main.pan = finiteOrZero(p.main.pan);
     w.main.mute = p.main.mute;
     w.main.solo = p.main.solo;
+    w.main.soloSafe = p.main.soloSafe;
     w.main.output = toWireBusOutput(p.main.output);
     w.main.plugins = toWirePluginSlots(p.main.plugins);
 
@@ -772,6 +793,7 @@ WProject toWire(const Project& p) {
         wb.pan = finiteOrZero(b.pan);
         wb.mute = b.mute;
         wb.solo = b.solo;
+        wb.soloSafe = b.soloSafe;
         wb.output = toWireBusOutput(b.output);
         wb.plugins = toWirePluginSlots(b.plugins);
         w.sends.push_back(std::move(wb));
@@ -791,8 +813,17 @@ WProject toWire(const Project& p) {
         wt.pan = finiteOrZero(t.pan);
         wt.mute = t.mute;
         wt.solo = t.solo;
+        wt.soloSafe = t.soloSafe;
         wt.output = toWireSourceOutput(t.output);
         wt.plugins = toWirePluginSlots(t.plugins);
+        wt.recordArmed = t.recordArmed;
+        wt.inputMonitoring = t.inputMonitoring;
+        wt.inputSource = t.inputSource;
+        wt.midiInputChannel = t.midiInputChannel;
+        wt.midiInputDevice = t.midiInputDevice;
+        wt.inputTrimDb = finiteOrZero(t.inputTrimDb);
+        wt.phaseInvert = t.phaseInvert || (t.polarity != PolarityMask::None);
+        wt.polarity = polarityToString(t.polarity);
         w.tracks.push_back(std::move(wt));
     }
 
@@ -1102,6 +1133,7 @@ Project fromWire(const WProject& w) {
     p.main.pan = std::clamp(w.main.pan, -1.0, 1.0);
     p.main.mute = w.main.mute;
     p.main.solo = w.main.solo;
+    p.main.soloSafe = w.main.soloSafe;
     p.main.output = fromWireBusOutput(w.main.output);
     p.main.plugins = fromWirePluginSlots(w.main.plugins);
 
@@ -1115,6 +1147,7 @@ Project fromWire(const WProject& w) {
         bus.pan = std::clamp(b.pan, -1.0, 1.0);
         bus.mute = b.mute;
         bus.solo = b.solo;
+        bus.soloSafe = b.soloSafe;
         bus.output = fromWireBusOutput(b.output);
         bus.plugins = fromWirePluginSlots(b.plugins);
         p.sends.push_back(std::move(bus));
@@ -1134,8 +1167,18 @@ Project fromWire(const WProject& w) {
         tr.pan = t.pan;
         tr.mute = t.mute;
         tr.solo = t.solo;
+        tr.soloSafe = t.soloSafe;
         tr.output = fromWireSourceOutput(t.output);
         tr.plugins = fromWirePluginSlots(t.plugins);
+        tr.recordArmed = t.recordArmed;
+        tr.inputMonitoring = t.inputMonitoring;
+        tr.inputSource = t.inputSource.empty() ? "none" : t.inputSource;
+        tr.midiInputChannel = t.midiInputChannel;
+        tr.midiInputDevice = t.midiInputDevice.empty() ? "all" : t.midiInputDevice;
+        tr.inputTrimDb = t.inputTrimDb;
+        tr.phaseInvert = t.phaseInvert;
+        tr.polarity = polarityFromString(t.polarity, t.phaseInvert);
+        tr.phaseInvert = tr.phaseInvert || (tr.polarity != PolarityMask::None);
         p.tracks.push_back(std::move(tr));
     }
 

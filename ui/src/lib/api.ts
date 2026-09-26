@@ -4,6 +4,7 @@ import type {
   AllPeaksResponse,
   EventTypeWire,
   LightCueRow,
+  LivePeakChunkResponse,
   PeaksResponse,
 } from "./types";
 
@@ -23,6 +24,29 @@ export function registerRefetchHandler(fn: () => void): void {
 }
 export function unregisterRefetchHandler(): void {
   _refetchHandler = null;
+}
+
+// ── Ultra-low latency MIDI transport ──────────────────────────────────────────
+let _liveMidiSender: ((bytes: Uint8Array) => boolean) | null = null;
+
+export function registerLiveMidiSender(sender: (bytes: Uint8Array) => boolean): void {
+  _liveMidiSender = sender;
+}
+
+export function unregisterLiveMidiSender(): void {
+  _liveMidiSender = null;
+}
+
+export function sendLiveMidi(status: number, data1: number, data2: number): void {
+  const bytes = new Uint8Array([status, data1, data2]);
+  if (_liveMidiSender && _liveMidiSender(bytes)) {
+    return;
+  }
+  void apiFetch("/api/v1/midi/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, data1, data2 }),
+  }).catch(() => {});
 }
 
 function _triggerRefetch(): void {
@@ -92,12 +116,15 @@ async function postContinuous(path: string, body: unknown): Promise<void> {
     state.busy = false;
     if (state.pending === null) {
       _continuousInFlight.delete(targetKey);
+      _triggerRefetch();
     }
   }
 }
 
 export const transport = {
   play: () => post("/api/v1/transport/play"),
+  record: (recording?: boolean) =>
+    post("/api/v1/transport/record", recording !== undefined ? { recording } : {}),
   // Pause -- freezes in place, resumed by play(). Used by the Play/Pause
   // toggle + spacebar. See AudioEngine::stop()'s doc comment.
   stop: () => post("/api/v1/transport/stop"),
@@ -120,6 +147,27 @@ export const transport = {
       "/api/v1/transport/seek",
       songIndex !== undefined ? { seconds, songIndex } : { seconds },
     ),
+};
+
+export const recording = {
+  setAutoInputMonitoring: (enabled: boolean) =>
+    post("/api/v1/recording/auto-input", { enabled }),
+  setAutoPunch: (enabled: boolean, startSample: number, endSample: number) =>
+    post("/api/v1/recording/auto-punch", { enabled, startSample, endSample }),
+  setLowLatencyMonitoring: (enabled: boolean, limitMs: number = 5.0) =>
+    post("/api/v1/recording/low-latency", { enabled, limitMs }),
+  fetchLivePeaks: async (
+    recordingId: string,
+    level: number = 0,
+    first: number = 0,
+    count: number = 512,
+  ): Promise<LivePeakChunkResponse> => {
+    const res = await apiFetch(
+      `/api/v1/recording/${encodeURIComponent(recordingId)}/peaks?level=${level}&first=${first}&count=${count}`,
+    );
+    if (!res.ok) throw new Error(`Live peaks fetch failed: ${res.status}`);
+    return res.json() as Promise<LivePeakChunkResponse>;
+  },
 };
 
 export interface AudioRenderOptions {
@@ -351,8 +399,49 @@ export const mixer = {
     post("/api/v1/track/mute", { index, value }),
   setTrackSolo: (index: number, value: boolean) =>
     post("/api/v1/track/solo", { index, value }),
+  setTrackSoloSafe: (index: number, value: boolean) =>
+    post("/api/v1/track/solo-safe", { index, value }),
+  setTrackRecordArm: (index: number, value: boolean) =>
+    post("/api/v1/track/arm", { index, value }),
+  setTrackInputMonitor: (index: number, value: boolean) =>
+    post("/api/v1/track/monitor", { index, value }),
+  setTrackInputSource: (
+    trackIndex: number,
+    inputSource: string,
+    midiInputChannel: number = 0,
+    midiInputDevice: string = "all",
+  ) =>
+    post("/api/v1/track/input-source", {
+      trackIndex,
+      inputSource,
+      midiInputChannel,
+      midiInputDevice,
+    }),
   setTrackMono: (index: number, mono: boolean) =>
     post("/api/v1/track/mono", { index, value: mono }),
+  setTrackTrim: (
+    trackIndex: number,
+    inputTrimDb: number,
+    phaseInvert: boolean,
+    polarity: "none" | "left" | "right" | "both" = phaseInvert ? "both" : "none",
+  ) =>
+    postContinuous("/api/v1/track/trim", {
+      trackIndex,
+      inputTrimDb,
+      phaseInvert,
+      polarity,
+    }),
+  setTrackPolarity: (
+    trackIndex: number,
+    polarity: "none" | "left" | "right" | "both",
+    inputTrimDb: number = 0.0,
+  ) =>
+    postContinuous("/api/v1/track/trim", {
+      trackIndex,
+      inputTrimDb,
+      phaseInvert: polarity !== "none",
+      polarity,
+    }),
   // Bus assignment for the track's main output -- matches the MixerStrip
   // outputBusBox in the native UI. Empty busId = "(sends only)".
   setTrackBus: (index: number, busId: string) =>
@@ -365,11 +454,15 @@ export const mixer = {
     post("/api/v1/bus/mute", { index, value }),
   setBusSolo: (index: number, value: boolean) =>
     post("/api/v1/bus/solo", { index, value }),
+  setBusSoloSafe: (index: number, value: boolean) =>
+    post("/api/v1/bus/solo-safe", { index, value }),
   // Metronome solo -- joins the same solo group as setTrackSolo, silencing
   // every regular track exactly as if one of them had solo engaged. See
   // AudioEngine::setClickSolo(). `index` is unused (server ignores it).
   setClickSolo: (value: boolean) =>
     post("/api/v1/click/solo", { index: 0, value }),
+  setClickSoloSafe: (value: boolean) =>
+    post("/api/v1/click/solo-safe", { index: 0, value }),
   /**
    * Find-or-create this track's send to busId at `level`, the schema's own
    * 0-100 LINEAR percent (100 = unity / 0 dB). Turning a knob up from its
@@ -386,6 +479,7 @@ export const mixer = {
     enabled?: boolean,
     /** Collapses a knob drag into one undo entry -- see lib/editGesture. */
     gestureId?: string,
+    tap?: import("./types").SendTapMode,
   ) =>
     postContinuous("/api/v1/mixer/track/send", {
       trackIndex,
@@ -393,6 +487,7 @@ export const mixer = {
       busId,
       level,
       ...(enabled === undefined ? {} : { enabled }),
+      ...(tap === undefined ? {} : { tap, preFader: tap === "pre-fader" }),
     }),
   // Actually erases the track's TrackSendDef for busId (as opposed to setting
   // its level to 0 or disabling it, both of which keep the send entry). Still
@@ -515,8 +610,15 @@ export const builder = {
     clickSends: { busId: string; level: number; enabled: boolean }[];
   }) => post("/api/v1/builder/song/update", patch),
 
-  trackAdd: (songIndex: number) =>
-    post("/api/v1/builder/track/add", { songIndex }),
+  trackAdd: (
+    songIndex: number,
+    params?: {
+      kind?: import("./types").TrackKindWire;
+      name?: string;
+      channels?: number;
+      instrumentPluginId?: string;
+    },
+  ) => post("/api/v1/builder/track/add", { songIndex, ...params }),
   trackRemove: (songIndex: number, index: number) =>
     post("/api/v1/builder/track/remove", { songIndex, index }),
   trackMove: (songIndex: number, index: number, delta: number) =>
@@ -916,6 +1018,8 @@ export const timelineHistory = {
 export const settings = {
   setAudioOutputDevice: (name: string) =>
     post("/api/v1/settings/audio-device", { name }),
+  setAudioInputDevice: (name: string) =>
+    post("/api/v1/settings/audio-input-device", { name }),
   /** Switch host audio API (ASIO / CoreAudio / ALSA / JACK / Windows Audio). */
   setAudioDriver: (type: string) =>
     post("/api/v1/settings/audio-driver", { type }),
@@ -943,6 +1047,8 @@ export const settings = {
   // list's "whole BigInteger bitmask" semantics.
   setOutputChannels: (channels: number[]) =>
     post("/api/v1/settings/output-channels", { channels }),
+  setInputChannels: (channels: number[]) =>
+    post("/api/v1/settings/input-channels", { channels }),
   /** Arm MIDI-learn for `action` -- next Note On / CC from the remote is bound. */
   midiLearn: (action: string) =>
     post("/api/v1/settings/midi-learn", { action }),
@@ -950,4 +1056,13 @@ export const settings = {
   /** Drop any MIDI mapping for `action`. */
   midiClear: (action: string) =>
     post("/api/v1/settings/midi-clear", { action }),
+  /** Toggle advanced send tap routing (Pre/Post-Fader, Post-Pan). Client-only. */
+  setAdvancedSendRouting: (enabled: boolean) => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("resostage:advanced-send-routing", String(enabled));
+    }
+    // Trigger a refetch so useLiveState picks up the localStorage change
+    _triggerRefetch();
+    return Promise.resolve();
+  },
 };

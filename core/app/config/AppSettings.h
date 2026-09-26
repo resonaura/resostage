@@ -30,9 +30,11 @@ struct AppSettings {
     // Audio device setup. Empty/zero fields mean "no saved preference yet"
     // -- callers fall back to JUCE's own default-device selection.
     std::string outputDeviceName;
+    std::string inputDeviceName;
     double sampleRate = 0.0;
     int bufferSize = 0;
     std::vector<int> activeOutputChannels; // indices into the device's channel list
+    std::vector<int> activeInputChannels;
 
     // Which host audio API to drive: "ASIO", "CoreAudio", "ALSA", "JACK",
     // "Windows Audio"... Empty means "let the platform decide", which is what
@@ -55,6 +57,7 @@ struct AppSettings {
         double sampleRate = 0.0;
         int bufferSize = 0;
         std::vector<int> activeOutputChannels;
+        std::vector<int> activeInputChannels;
     };
     std::unordered_map<std::string, DeviceProfile> deviceProfiles;
 

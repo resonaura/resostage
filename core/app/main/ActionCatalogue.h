@@ -21,6 +21,7 @@ namespace resostage {
 // MainComponent.h's keyBindings) into one.
 inline constexpr const char* kActionIds[] = {
     "play",
+    "record",
     "stop",
     "stop_to_start",
     "next",
@@ -43,6 +44,16 @@ inline bool isKnownActionId(const std::string& action) {
     for (const char* a : kActionIds) {
         if (action == a)
             return true;
+    }
+    // Continuous parameters & dynamic targets
+    if (action.rfind("track_gain:", 0) == 0 ||
+        action.rfind("track_pan:", 0) == 0 ||
+        action == "master_gain" ||
+        action.rfind("send_level:", 0) == 0 ||
+        action.rfind("plugin_param:", 0) == 0 ||
+        action.rfind("track_arm:", 0) == 0 ||
+        action.rfind("track_monitor:", 0) == 0) {
+        return true;
     }
     return false;
 }

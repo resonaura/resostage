@@ -59,6 +59,7 @@ export function TrackWaveformLane({
   embedded = false,
   loop = false,
   loopLengthSec = 0,
+  invertPolarity = false,
 }: {
   levels: PeakLevelData[];
   durationSeconds: number;
@@ -88,6 +89,7 @@ export function TrackWaveformLane({
   embedded?: boolean;
   loop?: boolean;
   loopLengthSec?: number;
+  invertPolarity?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rawWindow, setRawWindow] = useState<{
@@ -263,6 +265,12 @@ export function TrackWaveformLane({
           minV = 0;
         }
 
+        if (invertPolarity) {
+          const originalMax = maxV;
+          maxV = -minV;
+          minV = -originalMax;
+        }
+
         topPoints.push({ x, y: mid - maxV * halfH });
         botPoints.push({ x, y: mid - minV * halfH });
       }
@@ -333,7 +341,8 @@ export function TrackWaveformLane({
           const y2 = samples[baseIdx + 1] ?? samples[samples.length - 1] ?? 0;
           const y3 = samples[baseIdx + 2] ?? samples[samples.length - 1] ?? 0;
           const v = cubicHermite(y0, y1, y2, y3, mu);
-          const y = mid - v * halfH;
+          const sampleVal = invertPolarity ? -v : v;
+          const y = mid - sampleVal * halfH;
           if (first) {
             ctx.moveTo(x, y);
             first = false;
@@ -367,6 +376,7 @@ export function TrackWaveformLane({
     visibleEndSec,
     loop,
     loopLengthSec,
+    invertPolarity,
   ]);
 
   if (compact) return null;

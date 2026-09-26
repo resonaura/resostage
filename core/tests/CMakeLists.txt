@@ -47,6 +47,11 @@ add_executable(resostage_engine_tests
   test_plugin_performance.cpp
   test_plugin_power_manager.cpp
   test_resolink_protocol.cpp
+  test_audio_record_worker.cpp
+  test_monitor_state_machine.cpp
+  test_peak_accumulator.cpp
+  test_low_latency_plan.cpp
+  test_midi_takeover.cpp
   ../app/network/UdpDiscovery.cpp
   ../app/engine/OfflineRenderer.cpp
 )

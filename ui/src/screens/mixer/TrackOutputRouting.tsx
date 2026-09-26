@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { isMainBusId } from "./mixerIds";
-import { Button, Select, type SelectOption } from "../../components/ui";
+import { Select, type SelectOption } from "../../components/ui";
 import type { BusRow, SettingsState } from "../../lib/types";
 import {
   EXT_OUTPUT_VALUE,
   ROUTING_SELECT_SIZE,
-  ROUTING_SELECT_SPACER,
   SENDS_ONLY_VALUE,
 } from "./constants";
 import {
@@ -16,7 +15,6 @@ import {
   routeToOptionId,
   channelAvailable,
 } from "./directOutput";
-import { MonoStereoIcon } from "./MonoStereoIcon";
 import { missingOutputSelectProps } from "./MissingOutputSelect";
 
 type PendingRouting = {
@@ -56,7 +54,6 @@ export function TrackOutputRouting({
   allBusses,
   settings,
   mono = false,
-  onMonoChange,
   onBusSelect,
   onDirectOutput,
 }: {
@@ -166,26 +163,7 @@ export function TrackOutputRouting({
     });
 
   return (
-    <div className="my-1 flex w-full flex-col items-center gap-1.5">
-      {onMonoChange && (
-        <div className="my-0.5 flex w-full items-center justify-center">
-          <Button
-            size="sm"
-            variant="ghost"
-            isIconOnly
-            className="mx-auto size-6 min-w-0 text-foreground/60"
-            aria-label={
-              mono
-                ? "Mono — click for stereo"
-                : "Stereo — click for mono (sum L+R)"
-            }
-            onPress={() => onMonoChange(!mono)}
-          >
-            <MonoStereoIcon stereo={!mono} />
-          </Button>
-        </div>
-      )}
-
+    <div className="my-0.5 flex w-full flex-col items-center gap-1">
       <Select
         aria-label="Track output"
         size={ROUTING_SELECT_SIZE}
@@ -204,7 +182,7 @@ export function TrackOutputRouting({
         }}
       />
 
-      {directOutputOpen ? (
+      {directOutputOpen && (
         <Select
           aria-label="Physical output"
           size={ROUTING_SELECT_SIZE}
@@ -218,8 +196,6 @@ export function TrackOutputRouting({
           }}
           {...missingOutputSelectProps(missing)}
         />
-      ) : (
-        <div className={ROUTING_SELECT_SPACER} aria-hidden />
       )}
     </div>
   );

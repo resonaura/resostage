@@ -44,12 +44,36 @@ struct ProjectFormat {
     int version = kCurrentFormatVersion;
 };
 
-// One aux send from a track/click into a send bus (post-fader by default).
+enum class SendTap : uint8_t {
+    PreFader = 0,
+    PostFader = 1,
+    PostPan = 2,
+};
+
+inline std::string sendTapToString(SendTap tap) {
+    switch (tap) {
+        case SendTap::PreFader: return "pre-fader";
+        case SendTap::PostFader: return "post-fader";
+        case SendTap::PostPan:
+        default: return "post-pan";
+    }
+}
+
+inline SendTap sendTapFromString(const std::string& str, bool fallbackPreFader = false) {
+    if (str == "pre" || str == "pre-fader" || str == "prefader") return SendTap::PreFader;
+    if (str == "post-fader" || str == "postfader") return SendTap::PostFader;
+    if (str == "post" || str == "post-pan" || str == "postpan") return SendTap::PostPan;
+    return fallbackPreFader ? SendTap::PreFader : SendTap::PostPan;
+}
+
+// One aux send from a track/click into a send bus (post-pan by default).
 struct SendConfig {
     std::string bus;      // target send bus id, e.g. "audio::send:1"
     double level = 100.0; // 0-100, LINEAR percent: gain = level / 100. 100 = unity (0 dB).
     bool preFader = false; // if true, ignores the source's own mute (still respects solo)
     bool enabled = true;
+    bool lowLatencySafe = false;
+    SendTap tap = SendTap::PostPan;
 };
 
 enum class OutputType {
@@ -121,6 +145,7 @@ struct ClickChannel {
     double pan = 0.0; // -1..+1
     bool mute = false;
     bool solo = false;   // joins the same solo group as TrackDef::solo
+    bool soloSafe = false;
     SourceOutput output; // any of the three types -- the click is routed exactly like a track
     std::vector<PluginSlot> plugins;
 };
@@ -139,6 +164,7 @@ struct MasterChannel {
     double pan = 0.0;
     bool mute = false;
     bool solo = false; // solo group of one -- inert for now, see routing plan Milestone 2
+    bool soloSafe = false;
     BusRoute output;
     std::vector<PluginSlot> plugins;
 };
@@ -154,6 +180,7 @@ struct SendBus {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    bool soloSafe = false;
     BusRoute output;
     std::vector<PluginSlot> plugins;
 };
@@ -209,6 +236,31 @@ inline ExecutionTarget executionTargetFromString(const std::string& s) {
     return ExecutionTarget::Local;
 }
 
+enum class PolarityMask : uint8_t {
+    None = 0,
+    Left = 1,
+    Right = 2,
+    Both = 3,
+};
+
+inline std::string polarityToString(PolarityMask mask) {
+    switch (mask) {
+        case PolarityMask::Left: return "left";
+        case PolarityMask::Right: return "right";
+        case PolarityMask::Both: return "both";
+        case PolarityMask::None:
+        default: return "none";
+    }
+}
+
+inline PolarityMask polarityFromString(const std::string& str, bool fallbackPhaseInvert = false) {
+    if (str == "left") return PolarityMask::Left;
+    if (str == "right") return PolarityMask::Right;
+    if (str == "both") return PolarityMask::Both;
+    if (str == "none") return fallbackPhaseInvert ? PolarityMask::Both : PolarityMask::None;
+    return fallbackPhaseInvert ? PolarityMask::Both : PolarityMask::None;
+}
+
 struct TrackDef {
     std::string id;   // "audio::track:N"
     std::string name;
@@ -223,8 +275,17 @@ struct TrackDef {
     double pan = 0.0; // -1..+1
     bool mute = false;
     bool solo = false; // joins the same solo group as ClickChannel::solo
+    bool soloSafe = false;
     SourceOutput output;
     std::vector<PluginSlot> plugins;
+    bool recordArmed = false;
+    bool inputMonitoring = false;
+    std::string inputSource = "none";
+    int midiInputChannel = 0; // 0 = omni, 1..16
+    std::string midiInputDevice = "all";
+    double inputTrimDb = 0.0;
+    bool phaseInvert = false;
+    PolarityMask polarity = PolarityMask::None;
 
     [[nodiscard]] const std::string& effectiveStripId() const noexcept {
         return (stripId && !stripId->empty()) ? *stripId : id;

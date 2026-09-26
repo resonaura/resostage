@@ -213,9 +213,42 @@ Preserve these rules:
   buses. Fan-out happens after the source block is in scratch memory.
 - Track/click solo is one group; send-bus solo is a separate group. Do not
   infer or duplicate this logic in UI code.
-- `preFader` sends and main/bus/ext-out routing semantics are defined by
-  `ProjectSchema.h` and graph construction. Change schema, builder, renderer,
-  serialization, UI, and tests together.
+- `SendTap` routing (`PreFader`, `PostFader`, `PostPan`) and main/bus/ext-out
+  routing semantics are defined by `ProjectSchema.h` and graph construction:
+  - `PreFader`: Taps signal post-insert FX and polarity conditioning, bypassing fader, mute, and pan.
+  - `PostFader`: Taps signal post-fader and post-mute, pre-pan.
+  - `PostPan`: Taps signal post-fader, post-mute, and post-pan (stereo distribution to destination bus).
+  Change schema, builder, renderer, serialization, UI, and tests together.
+- Polarity inversion (`PolarityMask { None = 0, Left = 1, Right = 2, Both = 3 }`):
+  Applied at strip input conditioning in `MixRenderer` before insert plug-in chains
+  using smooth 32-sample glide to prevent declick artifacts. The real-time timeline
+  and mixer waveform canvas mirrors active polarity state by vertically inverting rendered
+  peaks (`maxV = -minV`, `minV = -origMax`).
+- Hardware audio input configuration:
+  `AppSettings` persists `inputDeviceName` and `activeInputChannels` bitmap.
+  `MainComponent` computes and publishes full hardware latency breakdown
+  (`inputLatencyMs`, `outputLatencyMs`, `roundtripLatencyMs`) served via
+  `/api/v1/settings/audio-input-device` and `/api/v1/settings/input-channels`.
+- Mixer layout & dynamic ergonomics:
+  - Three switchable density modes: `Narrow (64px)`, `Standard (96px)`, and `Wide (128px)`,
+    persisted in `localStorage["resostage:mixer-density"]`, with dynamically scaled faders, knobs, and meters.
+  - Dynamic $N+1$ slot architecture: strips display only active plug-in inserts and send knobs
+    plus a single `+ Add` slot to eliminate vertical clutter.
+  - Logic Pro circular contour record arming button `[R]` with soft pulse when armed and
+    solid red with white inner circle when actively recording.
+  - Centralized DAW design tokens (`--rs-record`, `--rs-monitor`, `--rs-solo`, `--rs-mute`,
+    `--rs-phase`, `--rs-send-pre`, `--rs-send-post`, `--rs-send-pan`).
+- Timeline & track creation:
+  - Software Instrument tracks (`kind: "instrument"`), Audio tracks (`kind: "audio"`), and
+    Aux Buses created via `builder.trackAdd(songIndex, { kind, name, instrumentPluginId })`
+    with default MIDI pattern generation.
+  - Track header controls include track kind icons (`Music` vs `Mic`) and phase invert toggle `Ø`.
+- Piano Roll track linkage:
+  - Header explicitly displays active track badge with track color pill and switcher dropdown,
+    plus region selector dropdown for switching active pattern.
+  - Note bodies render using the track's color token (`getTrackColor(trackIndex)`), modulated
+    by note velocity (dimmer at low velocity, vibrant at high velocity).
+  - Selected notes are highlighted in bright Logic Pro amber `#ffd60a`.
 - Coefficient changes are smoothed (approximately 10 ms) to avoid zipper
   noise. Do not bypass smoothing for a “faster” fader.
 - Strip plug-in chains run post-input-sum and pre-fader through the flat
@@ -229,7 +262,10 @@ Preserve these rules:
   without heap allocation. Intelligent power management (`PluginPowerManager`)
   monitors strip signal activity via preallocated envelope followers, automatically
   suspending processing during silence while preserving tail decay and waking up
-  ahead of upcoming audio/MIDI regions.
+  ahead of upcoming audio/MIDI regions. Software Instrument slot on instrument tracks
+  provides dedicated AU/VST3 generator selection via categorized context menus grouped
+  by manufacturer (with 'Open UI' and 'No Plug-in' removal options), and `pluginSlotAdd`
+  atomically replaces existing slot 0 instruments or prepends them before existing audio insert FX.
 - Dynamic curves and parameter automation use `AutomationEnvelope` with
   shape-preserving curvature matching `RegionFade` (`pow(t, 2^(-curve*2))`),
   supporting real-time bounded block evaluation without heap allocation. Real-time
@@ -250,6 +286,7 @@ Preserve these rules:
   delay-bank generation.
 - Output lanes accumulate with `+=`; multiple valid sources may target the
   same lane.
+- Real-time audio and MIDI recording: tracks support input monitoring (`inputMonitoring`, Logic Pro 'I' button) and record arming (`recordArmed`, Logic Pro 'R' button) with configurable hardware input routing (`inputSource`). In the real-time audio callback, live monitored tracks process incoming hardware inputs through scratch memory and plug-in chains even when transport is stopped without blocking or allocating. Real-time audio recording writes planar frames via lock-free SPSC `AudioRingBuffer`s drained by the asynchronous `AudioRecordWorker`, which finalizes 24-bit PCM WAV files and creates timeline regions upon transport stop. Incoming hardware and virtual MIDI messages are routed directly to armed/monitored track instrument plug-ins and recorded into sample-accurate timeline MIDI regions. Auto Input Monitoring (AIM) state machine (`MonitorSourceMux.h`) governs monitor source switching (`StoppedMonitoring` vs playback tape monitoring and sub-block punch switching). The dry record tap samples input audio before insert FX, trim, or phase inversion. Live peak pyramids (`PeakMipAccumulator`, L0..L5) are populated off-thread by `AudioRecordWorker` and served range-wise via `/api/v1/recording/{id}/peaks` for real-time waveform visualization in `LiveRecordingRegion`. Low-Latency Monitoring (`LowLatencyPlan.h`) selectively bypasses high-latency plug-ins and non-safe sends on armed strips.
 - If graph or block dimensions exceed prepared capacity, silence is safer
   than allocating or writing out of bounds.
 - Offline render must use the production graph and renderer. A second mixing
@@ -388,6 +425,11 @@ Queue capacity is a safety boundary. If adding an event type, document whether
 overflow drops newest, drops oldest, coalesces, or raises health state. Never
 replace bounded queues with an unbounded container on a producer that can run
 from audio or lighting.
+
+Continuous MIDI learn: hardware footswitches, pads, rotary knobs, and CCs map via
+`ActionCatalogue` actions including transport recording (`record`), mixer strip
+parameters (`track_gain:`, `track_pan:`, `track_arm:`, `track_monitor:`, `master_gain:`,
+`master_pan:`, `send_level:`), and hosted VST3/AU parameters (`plugin_param:<slotId>:<paramIndex>`).
 
 ## 10. Project model and persistence
 

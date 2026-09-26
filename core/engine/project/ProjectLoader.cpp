@@ -97,6 +97,12 @@ void ProjectLoader::newProject(const std::string& name) {
         t.output.type = OutputType::Main;
         parsedProject.tracks.push_back(std::move(t));
     }
+
+    SongDef defaultSong;
+    defaultSong.id = "meta::song:1";
+    defaultSong.name = "New Song";
+    parsedProject.songs.push_back(std::move(defaultSong));
+    parsedProject.cycle.songIndex = 0;
 }
 
 bool ProjectLoader::isOpen() const {

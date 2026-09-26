@@ -11,6 +11,7 @@ import type {
 } from "../../lib/types";
 import { isCompactLane, laneHeightPx } from "./laneDimensions";
 import { AudioRegionBlock } from "./AudioRegionBlock";
+import { LiveRecordingRegion } from "./LiveRecordingRegion";
 import { CrossfadeOverlay } from "./CrossfadeOverlay";
 import { MIN_CROSSFADE_SECONDS } from "./crossfade";
 import { resizeCrossfade } from "./crossfadeResize";
@@ -177,6 +178,9 @@ export function AudioTrackLanes({
         // Orphan rows (no staged track) never count as soloed.
         const soloDimmed = anySolo && !(track?.solo ?? false);
         const trackMuted = track?.mute ?? false;
+        const invertPolarity = Boolean(
+          track?.phaseInvert || (track?.polarity && track.polarity !== "none"),
+        );
 
         return (
           <div
@@ -219,6 +223,23 @@ export function AudioTrackLanes({
               openWavPicker(songIndex, trackIndex);
             }}
           >
+            {(() => {
+              const activeRecording = state.liveRecordings?.find(
+                (r) =>
+                  (r.trackId === track?.id || r.trackId === row.name) &&
+                  (r.state === 1 || r.state === 0),
+              );
+              if (!activeRecording) return null;
+              return (
+                <LiveRecordingRegion
+                  recording={activeRecording}
+                  songOffsetSec={songOffsets[state.songIndex] ?? 0}
+                  sampleRate={state.sampleRate || 48000}
+                  pxPerSec={pxPerSec}
+                  laneHeight={laneHeightPx(verticalZoom)}
+                />
+              );
+            })()}
             {songs.map((song, i) => {
               const segStart = songOffsets[i] * pxPerSec;
               const segWidth = Math.max(
@@ -426,7 +447,7 @@ export function AudioTrackLanes({
                         );
                         return;
                       }
-                      if (tool !== "pointer") return;
+                      if (tool !== "pointer" && mode !== "slip") return;
                       const originTrackId =
                         songRegion.trackId || track?.id || row.name;
                       startRegionDrag(
@@ -455,6 +476,7 @@ export function AudioTrackLanes({
                         rowName={row.name}
                         rowColor={row.color}
                         dimmed={trackMuted || regionUi.muted || soloDimmed}
+                        invertPolarity={invertPolarity}
                         thisRegionSelKey={thisRegionSelKey}
                         isRegionSelected={isRegionSelected}
                         regionUi={regionUi}

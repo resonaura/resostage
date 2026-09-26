@@ -125,6 +125,31 @@ export abstract class PlatformAdapter {
     return null;
   }
 
+  // ── Window sizing / positioning ─────────────────────────────────────────
+
+  /**
+   * Return initial window bounds for BrowserWindow constructor to use all available
+   * width and height within the display's workArea (excluding taskbars / menu bars / docks).
+   */
+  getInitialWindowBounds(workArea: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    return workArea;
+  }
+
+  /**
+   * Apply post-creation window sizing / maximization (e.g. win.maximize() on Windows/Linux).
+   */
+  applyInitialWindowState(_win: BrowserWindow): void {}
+
   // ── Tray (Windows only) ─────────────────────────────────────────────────
 
   /** Install the system-tray icon + menu. No-op where unsupported. */

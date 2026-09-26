@@ -42,6 +42,18 @@
     // transports' Stop button. Message-thread only.
     void stopToStart();
 
+    void startRecording();
+
+    void stopRecording();
+
+    void toggleRecording();
+
+    bool isRecording() const;
+
+    std::vector<LiveRecordingRegionInfo> getLiveRecordingRegions() const;
+
+    std::vector<PeakPair16> getLiveRecordingPeaks(const std::string& trackId, size_t level, size_t first, size_t count) const;
+
     bool isPlaying() const { return playing.load(std::memory_order_acquire); }
 
     // Seeks to `seconds` (clamped to [0, target song length]) within

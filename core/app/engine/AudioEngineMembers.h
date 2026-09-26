@@ -585,4 +585,48 @@
     std::atomic<bool> isChangingSetup{false};
     std::string lastKnownDeviceName;
 
+    // Audio recording & live monitoring state
+    AudioRecordWorker audioRecordWorker;
+    std::atomic<bool> isRecordingState{false};
+    std::atomic<int> activeInputMonitoringCount{0};
+    std::atomic<int> activeRecordArmCount{0};
+    std::atomic<int64_t> recordStartSamplePos{0};
+    std::atomic<bool> autoInputMonitoringState{true};
+    std::atomic<bool> autoPunchEnabledState{false};
+    std::atomic<int64_t> autoPunchStartSample{0};
+    std::atomic<int64_t> autoPunchEndSample{0};
+    std::atomic<MonitorBackend> monitorBackendState{MonitorBackend::Software};
+    std::atomic<bool> lowLatencyMonitoringState{true};
+    std::atomic<double> lowLatencyLimitMsState{5.0};
+
+    struct ActiveRecordedMidiNote {
+        uint8_t pitch = 60;
+        float velocity = 0.8f;
+        int64_t startSample = 0;
+        int channel = 1;
+        bool active = false;
+    };
+
+    struct TrackMidiRecordSession {
+        static constexpr size_t kMaxSessionRecordedNotes = 4096;
+        std::string trackId;
+        int inputChannel = 0; // 0 = omni, 1..16
+        std::array<ActiveRecordedMidiNote, 128> activeNotes{};
+        std::array<MidiNote, kMaxSessionRecordedNotes> recordedNotes{};
+        size_t recordedNoteCount = 0;
+    };
+    std::vector<TrackMidiRecordSession> activeMidiRecordSessions;
+
+    // Lock-free incoming MIDI queue for real-time instrument playback & MIDI recording
+    struct QueuedMidiPacket {
+        uint8_t data[4]{};
+        uint8_t length = 0;
+    };
+    static constexpr size_t kMidiQueueCapacity = 1024;
+    std::array<QueuedMidiPacket, kMidiQueueCapacity> midiInputQueue{};
+    alignas(64) std::atomic<uint32_t> midiInputQueueWrite{0};
+    alignas(64) std::atomic<uint32_t> midiInputQueueRead{0};
+
+    void refreshMonitoringAndArmCounts();
+
 #endif // RESOSTAGE_INSIDE_AUDIOENGINE_CLASS

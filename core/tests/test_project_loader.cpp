@@ -545,8 +545,11 @@ TEST_CASE("newProject creates an unsaved project that can be saved for the first
     CHECK(loader.project().main.output.type == OutputType::ExtOut);
     REQUIRE_FALSE(loader.project().tracks.empty());
     CHECK(loader.project().tracks[0].id == "audio::track:1");
+    REQUIRE(loader.project().songs.size() == 1);
+    CHECK(loader.project().songs[0].id == "meta::song:1");
+    CHECK(loader.project().songs[0].name == "New Song");
+    CHECK(loader.project().cycle.songIndex == 0);
 
-    loader.project().songs.push_back(SongDef{});
     loader.project().songs[0].id = "song1";
     loader.project().songs[0].name = "Song One";
     loader.project().songs[0].bpm = 128.0;

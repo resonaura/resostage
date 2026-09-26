@@ -36,6 +36,46 @@ inline float shapedFadeGain(float t01, double curve) {
     return std::pow(t, exp);
 }
 
+inline void parseInputRouting(const std::string& inputSource, int trackChannels, int& outChL, int& outChR) {
+    if (inputSource.empty() || inputSource == "none") {
+        if (trackChannels == 1) {
+            outChL = 0;
+            outChR = -1;
+        } else {
+            outChL = 0;
+            outChR = 1;
+        }
+        return;
+    }
+    // format: "in:1", "in:2", "in:1+2", "in:3+4", "in:1,2", "in:stereo"
+    if (inputSource.rfind("in:", 0) == 0) {
+        std::string sub = inputSource.substr(3);
+        auto plusPos = sub.find('+');
+        if (plusPos == std::string::npos)
+            plusPos = sub.find(',');
+        if (plusPos != std::string::npos) {
+            try {
+                outChL = std::max(0, std::stoi(sub.substr(0, plusPos)) - 1);
+                outChR = std::max(0, std::stoi(sub.substr(plusPos + 1)) - 1);
+            } catch (...) {
+                outChL = 0;
+                outChR = 1;
+            }
+            return;
+        }
+        try {
+            outChL = std::max(0, std::stoi(sub) - 1);
+            outChR = -1;
+        } catch (...) {
+            outChL = 0;
+            outChR = -1;
+        }
+        return;
+    }
+    outChL = 0;
+    outChR = (trackChannels > 1) ? 1 : -1;
+}
+
 // Lookahead ring per stem. Larger = more resilience to SSD thrashing
 // (Spotlight, backups, Xcode) before an underrun; memory cost is
 // tracks * ch * rate * seconds * 4B — e.g. 16 stereo 48 kHz × 8 s ≈ 50 MB.

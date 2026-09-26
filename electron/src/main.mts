@@ -32,6 +32,7 @@ import {
   Menu,
   powerMonitor,
   powerSaveBlocker,
+  screen,
   TouchBar,
   type MenuItemConstructorOptions,
 } from "electron";
@@ -1708,9 +1709,21 @@ function refreshTouchBar(): void {
 function createWindow(): void {
   platform.installTray();
 
+  let display = screen.getPrimaryDisplay();
+  try {
+    const cursor = screen.getCursorScreenPoint();
+    display = screen.getDisplayNearestPoint(cursor) ?? display;
+  } catch {
+    /* fallback to primary display */
+  }
+
+  const initialBounds = platform.getInitialWindowBounds(display.workArea);
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    x: initialBounds.x,
+    y: initialBounds.y,
+    width: initialBounds.width,
+    height: initialBounds.height,
     minWidth: 960,
     minHeight: 640,
     title: "ResoStage",
@@ -1733,6 +1746,8 @@ function createWindow(): void {
       spellcheck: false,
     },
   });
+
+  platform.applyInitialWindowState(mainWindow);
 
   // Keybindings are dispatched here rather than in the page -- see
   // installHotkeyHandler for why, and for the focus rules.

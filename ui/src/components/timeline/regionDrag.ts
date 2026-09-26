@@ -43,7 +43,8 @@ export type RegionDragMode =
   | "fadeIn" // left top
   | "fadeOut" // right top
   | "fadeInCurve"
-  | "fadeOutCurve";
+  | "fadeOutCurve"
+  | "slip"; // Alt+Cmd+Drag: slip audio sourceOffset without moving region bounds
 
 export type RegionGeom = {
   start: number;
@@ -437,6 +438,20 @@ export function computeRegionDragGeom(
   if (rd.mode === "fadeOutCurve") {
     const next = Math.max(-1, Math.min(1, rd.origFadeOutCurve - dY / 40));
     return { ...baseRegionGeom(rd), fadeOutCurve: next };
+  }
+
+  if (rd.mode === "slip") {
+    const totalFileDur = rd.origSourceOffset + rd.maxSourceDur;
+    const maxOffset = Math.max(0, totalFileDur - rd.origDuration);
+    // Mouse drag to the right slides waveform right (revealing earlier source audio)
+    const nextOffset = Math.max(
+      0,
+      Math.min(maxOffset, rd.origSourceOffset - dSec),
+    );
+    return {
+      ...baseRegionGeom(rd),
+      sourceOffset: nextOffset,
+    };
   }
 
   return baseRegionGeom(rd);

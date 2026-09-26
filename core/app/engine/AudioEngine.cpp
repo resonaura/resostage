@@ -403,6 +403,18 @@ bool AudioEngine::isBusSoloed(size_t busIndex) const {
     return si < proj.sends.size() && proj.sends[si].solo;
 }
 
+bool AudioEngine::isBusSoloSafe(size_t busIndex) const {
+    const Project& proj = loader.project();
+    if (busIndex == 0)
+        return proj.main.soloSafe;
+    const size_t si = busIndex - 1;
+    return si < proj.sends.size() && proj.sends[si].soloSafe;
+}
+
+bool AudioEngine::isClickSoloSafe() const {
+    return loader.project().click.soloSafe;
+}
+
 double AudioEngine::busGainDb(size_t busIndex) const {
     const Project& proj = loader.project();
     if (busIndex == 0)
@@ -735,8 +747,8 @@ void AudioEngine::audioDeviceStopped() {
     playing.store(false, std::memory_order_release);
 }
 
-void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputChannelData*/,
-                                                     int /*numInputChannels*/,
+void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
+                                                     int numInputChannels,
                                                      float* const* outputChannelData,
                                                      int numOutputChannels,
                                                      int numSamples,
@@ -904,8 +916,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     }
 
     const bool isRenderingTail = !isPlaying && (pauseTailRemainingSamples > 0 || bankHasPlugins);
+    const bool hasLiveMonitoring = (activeInputMonitoringCount.load(std::memory_order_relaxed) > 0 ||
+                                    activeRecordArmCount.load(std::memory_order_relaxed) > 0);
 
-    if (!isPlaying && !isRenderingTail) {
+    if (!isPlaying && !isRenderingTail && !hasLiveMonitoring) {
         // Declick tail: the first silent callback right after transport stops
         // ramps the last real output sample on each channel down to zero
         // instead of a hard cut -- see kStopDeclickSamples' doc comment.
@@ -982,8 +996,28 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // *now* either way -- but if left stale from before Stop/Pause,
         // the gap computed on the very first callback after Play resumes
         // would span the *entire pause*, tripping a false underrun the
-        // instant transport restarts. A genuine dropout is still caught
-        // (the gap is measured from here, not from further back).
+        // Publish current transport with project BPM, time signature, and playhead
+        // even while stopped so hosted plug-ins (and their open UI editors) receive
+        // the project's tempo and time signature.
+        const auto stoppedPluginBank =
+            std::atomic_load_explicit(&activePluginBank,
+                                      std::memory_order_relaxed);
+        if (stoppedPluginBank != nullptr && stoppedPluginBank->bank != nullptr) {
+            PluginTransportState pluginTransport;
+            pluginTransport.sample = renderPlayheadSample;
+            pluginTransport.sampleRate = currentSampleRate;
+            pluginTransport.playing = false;
+            pluginTransport.hostTimeNanos = hostTimeNanos;
+            const Project& proj = loader.project();
+            if (currentSong < proj.songs.size()) {
+                const auto& transportSong = proj.songs[currentSong];
+                pluginTransport.bpm = transportSong.bpm;
+                pluginTransport.numerator = transportSong.timeSignature.numerator;
+                pluginTransport.denominator = transportSong.timeSignature.denominator;
+            }
+            stoppedPluginBank->bank->publishTransport(pluginTransport);
+        }
+
         lastCallbackHostNanos = hostTimeNanos;
         return;
     }
@@ -1088,7 +1122,90 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             pluginTransport.loopEndSample = static_cast<int64_t>(
                 std::llround(loopEnd * currentSampleRate));
         }
+        pluginTransport.recording = isRecordingState.load(std::memory_order_relaxed);
         pluginPublication->bank->publishTransport(pluginTransport);
+    }
+
+    // Drain queued incoming MIDI for real-time plugin instruments and MIDI recording
+    const uint32_t midiReadPos = midiInputQueueRead.load(std::memory_order_relaxed);
+    const uint32_t midiWritePos = midiInputQueueWrite.load(std::memory_order_acquire);
+    const uint32_t availablePktCount = midiWritePos - midiReadPos;
+    const bool isRec = isRecordingState.load(std::memory_order_relaxed);
+
+    if (availablePktCount > 0) {
+        for (uint32_t i = 0; i < availablePktCount; ++i) {
+            const auto& pkt = midiInputQueue[(midiReadPos + i) % kMidiQueueCapacity];
+            if (pkt.length > 0) {
+                const juce::MidiMessage msg(pkt.data, pkt.length);
+                const int msgChannel = msg.getChannel();
+
+                for (size_t t = 0; t < trackIdByIndex.size() && t < trackScratch.size(); ++t) {
+                    const TrackDef* tDef = trackDefAt(t);
+                    if (tDef == nullptr) continue;
+                    const bool isArmed = tDef->recordArmed;
+                    const bool isMonitored = tDef->inputMonitoring;
+                    const bool shouldMonitorInput = isMonitored || (isArmed && (isRec || !isPlaying));
+                    if (!shouldMonitorInput) continue;
+
+                    if (tDef->midiInputChannel == 0 || tDef->midiInputChannel == msgChannel) {
+                        if (pluginProcessors.strips != nullptr && pluginPublication != nullptr && pluginPublication->bank != nullptr) {
+                            pluginPublication->bank->addStripMidiEvent(static_cast<uint32_t>(t), msg, 0);
+                        }
+
+                        if (isRec && isArmed) {
+                            if (msg.isNoteOn()) {
+                                const int pitch = msg.getNoteNumber();
+                                const float vel = static_cast<float>(msg.getVelocity()) / 127.0f;
+                                for (auto& session : activeMidiRecordSessions) {
+                                    if (session.trackId == tDef->id) {
+                                        auto& note = session.activeNotes[static_cast<size_t>(pitch)];
+                                        if (note.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
+                                            MidiNote completed;
+                                            completed.pitch = static_cast<uint8_t>(pitch);
+                                            completed.velocity = note.velocity;
+                                            const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
+                                            const double durSec = static_cast<double>(playheadSample - note.startSample) / currentSampleRate;
+                                            const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
+                                            completed.startBeats = (noteStartSec * bpm) / 60.0;
+                                            completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
+                                            session.recordedNotes[session.recordedNoteCount++] = completed;
+                                        }
+                                        note.pitch = static_cast<uint8_t>(pitch);
+                                        note.velocity = vel;
+                                        note.startSample = playheadSample;
+                                        note.channel = msgChannel;
+                                        note.active = true;
+                                        break;
+                                    }
+                                }
+                            } else if (msg.isNoteOff()) {
+                                const int pitch = msg.getNoteNumber();
+                                for (auto& session : activeMidiRecordSessions) {
+                                    if (session.trackId == tDef->id) {
+                                        auto& note = session.activeNotes[static_cast<size_t>(pitch)];
+                                        if (note.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
+                                            MidiNote completed;
+                                            completed.pitch = static_cast<uint8_t>(pitch);
+                                            completed.velocity = note.velocity;
+                                            completed.releaseVelocity = static_cast<float>(msg.getVelocity()) / 127.0f;
+                                            const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
+                                            const double durSec = static_cast<double>(playheadSample - note.startSample) / currentSampleRate;
+                                            const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
+                                            completed.startBeats = (noteStartSec * bpm) / 60.0;
+                                            completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
+                                            session.recordedNotes[session.recordedNoteCount++] = completed;
+                                            note.active = false;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        midiInputQueueRead.store(midiReadPos + availablePktCount, std::memory_order_release);
     }
 
     if (isPlaying && currentSong < proj.songs.size()) {
@@ -1246,6 +1363,42 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (scratch.getNumChannels() < 1 || scratch.getNumSamples() < numSamples)
             continue;
         scratch.clear();
+
+        const TrackDef* tDef = trackDefAt(t);
+        const bool isArmed = tDef != nullptr && tDef->recordArmed;
+        const bool isMonitored = tDef != nullptr && tDef->inputMonitoring;
+        const bool shouldMonitorInput = isMonitored || (isArmed && (isRec || !isPlaying));
+
+        if (shouldMonitorInput) {
+            if (inputChannelData != nullptr && numInputChannels > 0 && tDef != nullptr) {
+                int chL = 0, chR = (tDef->channels == 1 ? -1 : 1);
+                audio_engine_detail::parseInputRouting(tDef->inputSource, tDef->channels, chL, chR);
+                if (chR < 0) {
+                    if (chL >= 0 && chL < numInputChannels && inputChannelData[chL] != nullptr) {
+                        scratch.copyFrom(0, 0, inputChannelData[chL], numSamples);
+                        if (scratch.getNumChannels() > 1) {
+                            scratch.copyFrom(1, 0, inputChannelData[chL], numSamples);
+                        }
+                    }
+                } else {
+                    if (chL >= 0 && chL < numInputChannels && inputChannelData[chL] != nullptr) {
+                        scratch.copyFrom(0, 0, inputChannelData[chL], numSamples);
+                    }
+                    if (chR >= 0 && chR < numInputChannels && inputChannelData[chR] != nullptr && scratch.getNumChannels() > 1) {
+                        scratch.copyFrom(1, 0, inputChannelData[chR], numSamples);
+                    }
+                }
+            }
+            if (isRec && isArmed) {
+                const float* pushPtrs[2] = {
+                    scratch.getReadPointer(0),
+                    scratch.getNumChannels() > 1 ? scratch.getReadPointer(1) : scratch.getReadPointer(0)
+                };
+                audioRecordWorker.pushFrames(t, pushPtrs, numSamples);
+            }
+            continue;
+        }
+
         if (!isPlaying)
             continue;
 
@@ -2012,5 +2165,34 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             lastOutputSample[static_cast<size_t>(ch)] = outputChannelData[ch][numSamples - 1];
 }
 
+void AudioEngine::enqueueIncomingMidi(const uint8_t* data, int length) {
+    if (data == nullptr || length <= 0 || length > 4)
+        return;
+    const uint32_t currentWrite = midiInputQueueWrite.load(std::memory_order_relaxed);
+    const uint32_t currentRead = midiInputQueueRead.load(std::memory_order_acquire);
+    if ((currentWrite - currentRead) >= kMidiQueueCapacity)
+        return;
+
+    QueuedMidiPacket& pkt = midiInputQueue[currentWrite % kMidiQueueCapacity];
+    for (int i = 0; i < length; ++i)
+        pkt.data[i] = data[i];
+    pkt.length = static_cast<uint8_t>(length);
+    midiInputQueueWrite.store(currentWrite + 1, std::memory_order_release);
+}
+
+void AudioEngine::setPluginParameter(size_t stripIndex, size_t slotIndex, int paramIndex, float value) {
+    auto pub = std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
+    if (pub != nullptr && pub->bank != nullptr) {
+        pub->bank->setPluginParameter(stripIndex, slotIndex, paramIndex, value);
+    }
+}
+
+bool AudioEngine::setPluginParameterBySlotId(const std::string& slotId, int paramIndex, float value) {
+    auto pub = std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
+    if (pub != nullptr && pub->bank != nullptr) {
+        return pub->bank->setPluginParameterBySlotId(slotId, paramIndex, value);
+    }
+    return false;
+}
 
 } // namespace resostage

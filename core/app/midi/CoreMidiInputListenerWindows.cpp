@@ -151,23 +151,31 @@ void CoreMidiInputListener::handleIncomingMessage(uint8_t status, uint8_t data1,
     const uint8_t statusHigh = static_cast<uint8_t>(status & 0xF0);
     const uint8_t channel = static_cast<uint8_t>(status & 0x0F);
 
+    const uint8_t msgBytes[3] = {status, data1, data2};
+    if (onMidiMessageReceived) {
+        onMidiMessageReceived(msgBytes, 3);
+    }
+
     bool haveEvent = false;
     MidiTriggerType eventType = MidiTriggerType::NoteOn;
     uint8_t number = 0;
+    uint8_t rawValue = 0;
 
     if (statusHigh == 0x90 && data2 > 0) {
         haveEvent = true;
         eventType = MidiTriggerType::NoteOn;
         number = data1;
+        rawValue = data2;
     } else if (statusHigh == 0xB0) {
         haveEvent = true;
         eventType = MidiTriggerType::ControlChange;
         number = data1;
+        rawValue = data2;
     }
 
     if (haveEvent) {
         if (onRawMessage)
-            onRawMessage(eventType, channel + 1, number);
+            onRawMessage(eventType, channel + 1, number, rawValue);
 
         std::lock_guard<std::mutex> lock(mappingsMutex);
         for (const MidiMapping& m : mappings) {
@@ -175,8 +183,20 @@ void CoreMidiInputListener::handleIncomingMessage(uint8_t status, uint8_t data1,
                 continue;
             if (m.triggerType != eventType || m.number != number)
                 continue;
-            if (onAction)
+
+            const bool isContinuous = (m.action.rfind("track_gain:", 0) == 0 ||
+                                       m.action.rfind("track_pan:", 0) == 0 ||
+                                       m.action == "master_gain" ||
+                                       m.action.rfind("send_level:", 0) == 0 ||
+                                       m.action.rfind("plugin_param:", 0) == 0);
+            if (isContinuous && eventType == MidiTriggerType::ControlChange) {
+                if (onContinuousAction) {
+                    const float norm = static_cast<float>(rawValue) / 127.0f;
+                    onContinuousAction(m.action, norm);
+                }
+            } else if (onAction) {
                 onAction(m.action);
+            }
         }
     }
 }

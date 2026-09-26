@@ -696,3 +696,103 @@ TEST_CASE("renderer applies prepared edge compensation without callback allocati
     CHECK(renderer.postChannel(main, 0)[latency] == doctest::Approx(3.0f));
     CHECK(renderer.postChannel(main, 1)[latency] == doctest::Approx(3.0f));
 }
+
+TEST_CASE("renderer: polarity mask negates channels independently and pre-insert") {
+    Project p = twoTrackProject();
+    p.tracks[0].polarity = PolarityMask::Left;
+    p.tracks[1].polarity = PolarityMask::Both;
+
+    const MixGraph g = buildMixGraph(p, stereoOut());
+    const uint32_t t1 = g.find("audio::track:1");
+    const uint32_t t2 = g.find("audio::track:2");
+    REQUIRE(t1 != MixGraph::kNoStrip);
+    REQUIRE(t2 != MixGraph::kNoStrip);
+
+    constexpr int samples = 32;
+    MixRenderer renderer;
+    renderer.prepare(48000.0, samples, g.strips.size(), g.edges.size());
+    renderer.beginBlock(g, samples);
+    for (int i = 0; i < samples; ++i) {
+        renderer.sourceChannel(t1, 0)[i] = 1.0f;
+        renderer.sourceChannel(t1, 1)[i] = 1.0f;
+        renderer.sourceChannel(t2, 0)[i] = 1.0f;
+        renderer.sourceChannel(t2, 1)[i] = 1.0f;
+    }
+    renderer.process(g, samples);
+
+    CHECK(renderer.postChannel(t1, 0)[0] == doctest::Approx(-1.0f));
+    CHECK(renderer.postChannel(t1, 1)[0] == doctest::Approx(1.0f));
+    CHECK(renderer.postChannel(t2, 0)[0] == doctest::Approx(-1.0f));
+    CHECK(renderer.postChannel(t2, 1)[0] == doctest::Approx(-1.0f));
+}
+
+TEST_CASE("renderer: SendTap PreFader, PostFader, and PostPan signal behavior") {
+    Project p = twoTrackProject();
+    p.tracks[0].gainDb = -6.0205999; // linear ~0.5
+    p.tracks[0].pan = -1.0; // hard left
+    p.tracks[0].output.type = OutputType::SendsOnly;
+
+    // Create 3 send busses
+    for (int i = 1; i <= 3; ++i) {
+        SendBus bus;
+        bus.id = "audio::send:" + std::to_string(i);
+        bus.channels = 2;
+        bus.output.type = OutputType::ExtOut;
+        bus.output.target = "audio::out:1,audio::out:2";
+        p.sends.push_back(bus);
+    }
+
+    // Send 1: Pre-Fader
+    SendConfig sPre;
+    sPre.bus = "audio::send:1";
+    sPre.level = 100.0;
+    sPre.tap = SendTap::PreFader;
+    p.tracks[0].output.sends.push_back(sPre);
+
+    // Send 2: Post-Fader (pre-pan)
+    SendConfig sPostFader;
+    sPostFader.bus = "audio::send:2";
+    sPostFader.level = 100.0;
+    sPostFader.tap = SendTap::PostFader;
+    p.tracks[0].output.sends.push_back(sPostFader);
+
+    // Send 3: Post-Pan
+    SendConfig sPostPan;
+    sPostPan.bus = "audio::send:3";
+    sPostPan.level = 100.0;
+    sPostPan.tap = SendTap::PostPan;
+    p.tracks[0].output.sends.push_back(sPostPan);
+
+    const MixGraph g = buildMixGraph(p, stereoOut());
+    const uint32_t t1 = g.find("audio::track:1");
+    const uint32_t send1 = g.find("audio::send:1");
+    const uint32_t send2 = g.find("audio::send:2");
+    const uint32_t send3 = g.find("audio::send:3");
+    REQUIRE(t1 != MixGraph::kNoStrip);
+    REQUIRE(send1 != MixGraph::kNoStrip);
+    REQUIRE(send2 != MixGraph::kNoStrip);
+    REQUIRE(send3 != MixGraph::kNoStrip);
+
+    constexpr int samples = 32;
+    MixRenderer renderer;
+    renderer.prepare(48000.0, samples, g.strips.size(), g.edges.size());
+    renderer.beginBlock(g, samples);
+    for (int i = 0; i < samples; ++i) {
+        renderer.sourceChannel(t1, 0)[i] = 1.0f;
+        renderer.sourceChannel(t1, 1)[i] = 1.0f;
+    }
+    renderer.process(g, samples);
+
+    // Pre-Fader: bypasses fader (-6dB) and pan (-1.0), so both channels are 1.0
+    CHECK(renderer.postChannel(send1, 0)[0] == doctest::Approx(1.0f).epsilon(1e-3));
+    CHECK(renderer.postChannel(send1, 1)[0] == doctest::Approx(1.0f).epsilon(1e-3));
+
+    // Post-Fader: applies fader (-6dB ~ 0.5) but bypasses pan (-1.0), so both channels are ~0.5
+    CHECK(renderer.postChannel(send2, 0)[0] == doctest::Approx(0.5f).epsilon(1e-3));
+    CHECK(renderer.postChannel(send2, 1)[0] == doctest::Approx(0.5f).epsilon(1e-3));
+
+    // Post-Pan: applies fader (-6dB ~ 0.5) AND pan (-1.0 hard left), so Left is ~0.5, Right is 0.0
+    CHECK(renderer.postChannel(send3, 0)[0] == doctest::Approx(0.5f).epsilon(1e-3));
+    CHECK(renderer.postChannel(send3, 1)[0] == doctest::Approx(0.0f).epsilon(1e-3));
+}
+

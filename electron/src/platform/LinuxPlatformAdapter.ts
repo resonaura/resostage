@@ -6,7 +6,7 @@
 // and project files arrive via argv. No Touch Bar, no native dylibs. The tray
 // is shared with Windows (see tray.ts).
 
-import { app, Menu } from "electron";
+import { app, Menu, type BrowserWindow } from "electron";
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -147,6 +147,35 @@ export class LinuxPlatformAdapter extends PlatformAdapter {
       (a) => a.endsWith(".rsnrasetmeta") || a.endsWith(".rsnraset"),
     );
     return fileArg ?? null;
+  }
+
+  // ── Window sizing / positioning ─────────────────────────────────────────
+
+  override getInitialWindowBounds(workArea: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    const defaultWidth = Math.min(1440, Math.max(960, Math.round(workArea.width * 0.85)));
+    const defaultHeight = Math.min(900, Math.max(640, Math.round(workArea.height * 0.85)));
+    const defaultX = Math.round(workArea.x + (workArea.width - defaultWidth) / 2);
+    const defaultY = Math.round(workArea.y + (workArea.height - defaultHeight) / 2);
+    return {
+      x: defaultX,
+      y: defaultY,
+      width: defaultWidth,
+      height: defaultHeight,
+    };
+  }
+
+  override applyInitialWindowState(win: BrowserWindow): void {
+    win.maximize();
   }
 
   // ── Tray ────────────────────────────────────────────────────────────────

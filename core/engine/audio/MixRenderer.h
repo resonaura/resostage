@@ -134,7 +134,11 @@ private:
     struct Smoother {
         float gainL = 1.0f;
         float gainR = 1.0f;
+        float faderGain = 1.0f;
         float monoMix = 0.0f; // 0 = stereo, 1 = folded to mono
+        float trim = 1.0f;
+        float polL = 1.0f;
+        float polR = 1.0f;
         bool primed = false;
     };
 
@@ -151,6 +155,7 @@ private:
     // Strip i owns rows 2*i (L) and 2*i+1 (R) of each buffer.
     std::vector<float> preBuffer;
     std::vector<float> postBuffer;
+    std::vector<float> postFaderBuffer;
     // Two rows shared by delayed edges. Edges are consumed serially.
     std::vector<float> edgeDelayScratch;
     std::vector<StripLevels> stripLevels;
@@ -165,6 +170,8 @@ private:
     const float* preRow(uint32_t stripIndex, int channel) const;
     float* postRow(uint32_t stripIndex, int channel);
     const float* postRow(uint32_t stripIndex, int channel) const;
+    float* postFaderRow(uint32_t stripIndex, int channel);
+    const float* postFaderRow(uint32_t stripIndex, int channel) const;
 };
 
 } // namespace resostage

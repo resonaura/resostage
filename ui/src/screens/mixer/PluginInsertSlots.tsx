@@ -85,16 +85,21 @@ export function PluginInsertSlots({
   slots,
   catalog,
   onOpenChain,
+  density = "standard",
+  targetSlotCount,
 }: {
   stripId: string;
   stripName: string;
   slots: PluginSlotRow[];
   catalog: PluginCatalogEntry[];
   onOpenChain: () => void;
+  density?: "narrow" | "standard" | "wide";
+  targetSlotCount?: number;
 }) {
   const [menu, setMenu] = useState<SlotMenu | null>(null);
   const groups = useMemo(() => groupEffects(catalog), [catalog]);
-  const rowCount = Math.max(4, Math.min(32, slots.length + 1));
+  // Smart aligned mixer racks: match targetSlotCount across strips
+  const rowCount = Math.min(32, Math.max(targetSlotCount ?? 1, slots.length + 1));
 
   const openMenu = (
     event: React.MouseEvent<HTMLElement>,
@@ -119,18 +124,20 @@ export function PluginInsertSlots({
     setMenu(null);
   };
 
+  const isNarrow = density === "narrow";
+
   return (
     <>
       <div className="my-1 flex w-full flex-col">
       <div className="mb-0.5 flex w-full items-center justify-between px-0.5">
         <span className="font-mono text-[8px] uppercase tracking-wider text-foreground/40">
-          Inserts
+          Audio FX
         </span>
         <button
           type="button"
           onClick={onOpenChain}
-          title={`Manage insert chain for ${stripName}`}
-          aria-label={`Manage insert chain for ${stripName}`}
+          title={`Manage Audio FX for ${stripName}`}
+          aria-label={`Manage Audio FX for ${stripName}`}
           className="rounded p-0.5 text-foreground/40 hover:bg-default/20 hover:text-foreground transition-colors"
         >
           <SlidersHorizontal size={10} />
@@ -138,10 +145,10 @@ export function PluginInsertSlots({
       </div>
 
       <div
-        className={`max-h-[5.5rem] w-full rounded-md border border-default/30 bg-background/60 p-0.5 ${
-          slots.length > 4 ? "overflow-y-auto" : "overflow-hidden"
+        className={`max-h-[6rem] w-full rounded-md border border-default/30 bg-background/60 p-0.5 ${
+          slots.length > 3 ? "overflow-y-auto" : "overflow-hidden"
         }`}
-        aria-label={`Insert effects for ${stripName}`}
+        aria-label={`Audio FX for ${stripName}`}
       >
         {Array.from({ length: rowCount }, (_, index) => {
           const slot = slots[index] ?? null;
@@ -152,12 +159,12 @@ export function PluginInsertSlots({
               title={
                 slot
                   ? `${slot.name} · click to open editor, right-click for options`
-                  : `Empty insert ${index + 1} · add effect`
+                  : `Empty FX ${index + 1} · add effect`
               }
               aria-label={
                 slot
-                  ? `${slot.name}, insert ${index + 1}`
-                  : `Empty insert ${index + 1}`
+                  ? `${slot.name}, slot ${index + 1}`
+                  : `Empty FX slot ${index + 1}`
               }
               onClick={(event) => {
                 if (slot) {
@@ -172,11 +179,17 @@ export function PluginInsertSlots({
                   ? slot.bypassed
                     ? "border-default/20 bg-default/10 text-foreground/35"
                     : "border-accent/30 bg-accent/10 text-foreground/75 hover:bg-accent/15"
-                  : "border-default/20 bg-surface/35 text-foreground/25 hover:border-default/45 hover:bg-default/10"
+                  : "border-default/20 bg-surface/35 text-foreground/30 hover:border-default/45 hover:bg-default/10"
               }`}
             >
               <span className="min-w-0 flex-1 truncate">
-                {slot?.name ?? ""}
+                {slot
+                  ? slot.name
+                  : isNarrow
+                    ? "+"
+                    : slots.length === 0
+                      ? "+ Audio FX"
+                      : `+ FX ${index + 1}`}
               </span>
               {slot ? (
                 <span
@@ -198,14 +211,7 @@ export function PluginInsertSlots({
                 >
                   <X size={9} strokeWidth={2.5} />
                 </span>
-              ) : (
-                <span
-                  aria-hidden
-                  className="opacity-0 transition-opacity group-hover/slot:opacity-70"
-                >
-                  +
-                </span>
-              )}
+              ) : null}
             </button>
           );
         })}
@@ -276,7 +282,7 @@ export function PluginInsertSlots({
                   onOpenChain();
                 }}
               >
-                Manage Insert Chain…
+                Manage Audio FX Chain…
               </ContextMenuItem>
               <ContextMenuSubmenu
                 label="Add Effect"

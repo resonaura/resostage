@@ -147,6 +147,20 @@
      one element allowed to be pure white. */
   --daw-playhead: oklch(1 0 0);
 
+  /* ── ResoStage DAW Semantic Tokens (Logic Pro 12.3 Parity) ──────────────── */
+  --rs-record: #ff3b30;
+  --rs-monitor: #ff9500;
+  --rs-solo: #ffd60a;
+  --rs-mute: #007aff;
+  --rs-phase: #30d158;
+  --rs-surface-0: #141416;
+  --rs-border-subtle: rgba(255, 255, 255, 0.08);
+
+  /* Send Ring Colors */
+  --rs-send-pre: #0a84ff;
+  --rs-send-post: #5e5ce6;
+  --rs-send-pan: #30d158;
+
   /* Track color palette — cycles through these for audio tracks. Cool/blue-heavy
      to contrast with warm light-track palette. */
   /* Slot 0 is the accent, to the byte: it is the first colour every new track
@@ -239,4 +253,10 @@
   --vu-scale: color-mix(in oklab, var(--foreground) 78%, var(--background));
   --vu-hot: var(--danger);
   --vu-needle: var(--foreground);
+
+  /* DAW Strip Buttons & Recording grammar (Logic Pro X spec) */
+  --rs-record: #ff453a;
+  --rs-monitor: #ff9f0a;
+  --rs-mute: #0a84ff;
+  --rs-solo: #ffd60a;
 }

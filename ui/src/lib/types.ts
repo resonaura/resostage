@@ -14,6 +14,8 @@ export type EventTypeWire =
   | "http"
   | "dmx";
 
+export type SendTapMode = "pre-fader" | "post-fader" | "post-pan";
+
 /** One aux send from a track/click into a send bus. level is 0-100 LINEAR
  *  percent (100 = unity/0 dB). */
 export interface SendConfig {
@@ -21,6 +23,8 @@ export interface SendConfig {
   level: number;
   preFader?: boolean;
   enabled?: boolean;
+  tap?: SendTapMode;
+  lowLatencySafe?: boolean;
 }
 
 /** A track/click source output: main route + aux sends ("main" only ever
@@ -76,6 +80,8 @@ export interface Click {
   mute: boolean;
   /** Joins the same solo group as a TrackDef. */
   solo: boolean;
+  /** Solo-safe (isolate) flag prevents this strip from being muted when others are soloed. */
+  soloSafe?: boolean;
   soloGroup: SoloGroup;
   soloActiveInGroup: boolean;
   /** Click output -- type is main or sends-only, never ext-out. */
@@ -121,6 +127,8 @@ export interface ClickSendRow {
   busId: string;
   level: number;
   enabled: boolean;
+  preFader?: boolean;
+  tap?: SendTapMode;
 }
 
 export interface RegionSource {
@@ -393,6 +401,8 @@ export interface TrackRow {
   pan: number;
   mute: boolean;
   solo: boolean;
+  /** Solo-safe (isolate) flag prevents this strip from being muted when others are soloed. */
+  soloSafe?: boolean;
   /** Solo group this strip belongs to, as decided by the engine. */
   soloGroup: SoloGroup;
   /** True when something in `soloGroup` is soloed -- i.e. this strip is
@@ -402,6 +412,14 @@ export interface TrackRow {
   peakDb: number;
   peakDbL?: number;
   peakDbR?: number;
+  recordArmed?: boolean;
+  inputMonitoring?: boolean;
+  inputSource?: string;
+  midiInputChannel?: number;
+  midiInputDevice?: string;
+  inputTrimDb?: number;
+  phaseInvert?: boolean;
+  polarity?: "none" | "left" | "right" | "both";
   plugins?: PluginSlotRow[];
 }
 
@@ -413,6 +431,8 @@ export interface BusRow {
   pan?: number;
   mute: boolean;
   solo: boolean;
+  /** Solo-safe (isolate) flag prevents this strip from being muted when others are soloed. */
+  soloSafe?: boolean;
   soloGroup: SoloGroup;
   soloActiveInGroup: boolean;
   isAux: boolean;
@@ -569,7 +589,7 @@ export function sourceOutputBusId(
  *  value the mixer send strips read/write. Exact mirror of
  *  ProjectJson.h sendLevelToDb(). */
 export function sendLevelToDb(level: number): number {
-  if (!(level > 0)) return -144;
+  if (!(level > 0)) return -60;
   return 20 * Math.log10(level / 100);
 }
 
@@ -577,7 +597,7 @@ export function sendLevelToDb(level: number): number {
  *  Exact mirror of ProjectJson.h sendDbToLevel(), including its clamp: the
  *  format cannot store a send above unity, so neither can the UI. */
 export function sendDbToLevel(db: number): number {
-  if (!Number.isFinite(db)) return 0;
+  if (!Number.isFinite(db) || db <= -59.5) return 0;
   return Math.min(100, Math.max(0, Math.pow(10, db / 20) * 100));
 }
 
@@ -591,6 +611,8 @@ export function outputSendsToClickRows(
     busId: s.bus,
     level: s.level,
     enabled: s.enabled ?? true,
+    preFader: s.preFader,
+    tap: s.tap ?? (s.preFader ? "pre-fader" : "post-pan"),
   }));
 }
 
@@ -771,6 +793,8 @@ export interface RecentProjectEntry {
 export interface SettingsState {
   currentOutputDevice: string;
   outputDevices: string[];
+  currentInputDevice?: string;
+  inputDevices?: string[];
   /** Host audio APIs this build can drive. One entry on macOS; ASIO shows up
    *  here on Windows only when the build found the Steinberg SDK. */
   audioDrivers: string[];
@@ -782,6 +806,11 @@ export interface SettingsState {
   availableBufferSizes: number[];
   outputChannelNames: string[];
   activeOutputChannels: boolean[];
+  inputChannelNames?: string[];
+  activeInputChannels?: boolean[];
+  inputLatencyMs?: number;
+  outputLatencyMs?: number;
+  roundtripLatencyMs?: number;
   midiOutputs: string[];
   midiInputs: string[];
   /** Whether the "AboutStage Sync" virtual MIDI source is enabled (see settings.setMidiVirtualPort). */
@@ -790,6 +819,8 @@ export interface SettingsState {
   uiRenderEngine?: "browser" | "electron";
   /** Active UI theme name ("default", "sunset", "forest", "purple", "pinky", "sky", "blue", "mono"). */
   theme?: string;
+  /** Whether advanced send tap routing (Pre-Fader / Post-Fader / Post-Pan) is shown in the mixer. */
+  advancedSendRouting?: boolean;
   keybindings: KeybindingRow[];
   midiBindings?: MidiBindingRow[];
   /** Non-empty while MIDI-learn is armed for this action. */
@@ -818,6 +849,29 @@ export interface TrackPeaks {
 export interface PeaksResponse {
   tracks: TrackPeaks[];
 }
+
+export interface LiveRecordingRegion {
+  recordingId: string;
+  trackId: string;
+  timelineStartSample: number;
+  capturedFrames: number;
+  channelCount: number;
+  state: number;
+}
+
+export interface LivePeakPair {
+  min: number;
+  max: number;
+}
+
+export interface LivePeakChunkResponse {
+  trackId: string;
+  level: number;
+  first: number;
+  count: number;
+  peaks: LivePeakPair[];
+}
+
 
 // One source file's peak levels. Peaks are a property of the FILE, not of the
 // clip -- every region cut from a wav draws the same levels through a
@@ -889,6 +943,14 @@ export interface WebUiState {
   drift: number;
   bpm: number;
   playing: boolean;
+  recording?: boolean;
+  autoInputMonitoring?: boolean;
+  autoPunchEnabled?: boolean;
+  punchStartSample?: number;
+  punchEndSample?: number;
+  lowLatencyMonitoring?: boolean;
+  lowLatencyLimitMs?: number;
+  liveRecordings?: LiveRecordingRegion[];
   hardwareAlarm: boolean;
   /**
    * Action id last executed via native hotkey, MIDI, or the macOS menu bar
@@ -953,6 +1015,7 @@ export const emptyState: WebUiState = {
   drift: 1,
   bpm: 0,
   playing: false,
+  recording: false,
   hardwareAlarm: false,
   lastAction: "",
   lastActionNonce: 0,
@@ -1027,6 +1090,8 @@ export const emptyState: WebUiState = {
   settings: {
     currentOutputDevice: "",
     outputDevices: [],
+    currentInputDevice: "",
+    inputDevices: [],
     audioDrivers: [],
     currentAudioDriver: "",
     sampleRate: 0,
@@ -1035,9 +1100,15 @@ export const emptyState: WebUiState = {
     availableBufferSizes: [],
     outputChannelNames: [],
     activeOutputChannels: [],
+    inputChannelNames: [],
+    activeInputChannels: [],
+    inputLatencyMs: 0,
+    outputLatencyMs: 0,
+    roundtripLatencyMs: 0,
     midiOutputs: [],
     midiInputs: [],
     virtualMidiPortEnabled: false,
+    advancedSendRouting: false,
     keybindings: [],
     midiBindings: [],
     midiLearnAction: "",

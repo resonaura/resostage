@@ -29,10 +29,12 @@ struct WDeviceProfile {
     double sampleRate = 0.0;
     int bufferSize = 0;
     std::vector<int> activeOutputChannels;
+    std::vector<int> activeInputChannels;
 };
 
 struct WAppSettings {
     std::string outputDeviceName;
+    std::string inputDeviceName;
     std::string audioDeviceType;
     double sampleRate = 0.0;
     int bufferSize = 0;
@@ -44,6 +46,7 @@ struct WAppSettings {
     std::string uiRenderEngine = "browser";
     std::string theme = "default";
     std::vector<int> activeOutputChannels;
+    std::vector<int> activeInputChannels;
     std::unordered_map<std::string, std::string> keybindings;
     std::vector<WMidiMapping> midiMappings;
     std::vector<WRecentProject> recentProjects;
@@ -115,6 +118,87 @@ struct WSeekPayload {
     std::optional<int> songIndex;
 };
 
+struct WTrackArmPayload {
+    int trackIndex = -1;
+    std::string trackId;
+    bool armed = false;
+};
+
+struct WTrackMonitorPayload {
+    int trackIndex = -1;
+    std::string trackId;
+    bool monitoring = false;
+};
+
+struct WTrackSoloSafePayload {
+    int trackIndex = -1;
+    std::string trackId;
+    bool soloSafe = false;
+};
+
+struct WBusSoloSafePayload {
+    int busIndex = -1;
+    std::string busId;
+    bool soloSafe = false;
+};
+
+struct WTrackInputSourcePayload {
+    int trackIndex = -1;
+    std::string trackId;
+    std::string inputSource = "none";
+    int midiInputChannel = 0;
+    std::string midiInputDevice = "all";
+};
+
+struct WTransportRecordPayload {
+    std::optional<bool> recording;
+};
+
+struct WTrackTrimPayload {
+    int trackIndex = -1;
+    std::string trackId;
+    double inputTrimDb = 0.0;
+    bool phaseInvert = false;
+    std::string polarity = "none";
+};
+
+struct WAutoInputPayload {
+    bool enabled = true;
+};
+
+struct WAutoPunchPayload {
+    bool enabled = false;
+    int64_t startSample = 0;
+    int64_t endSample = 0;
+};
+
+struct WLowLatencyPayload {
+    bool enabled = true;
+    double limitMs = 5.0;
+};
+
+struct WLiveRecordingRegion {
+    std::string recordingId;
+    std::string trackId;
+    int64_t timelineStartSample = 0;
+    int64_t capturedFrames = 0;
+    uint32_t channelCount = 2;
+    uint8_t state = 1;
+};
+
+struct WPeakPair {
+    int16_t min = 0;
+    int16_t max = 0;
+};
+
+struct WLivePeakChunkResponse {
+    std::string trackId;
+    size_t level = 0;
+    size_t first = 0;
+    size_t count = 0;
+    std::vector<WPeakPair> peaks;
+};
+
 // ── Web Server Telemetry ─────────────────────────────────────────────────────
 //
 // Mirrors the canonical nested keys of the on-disk project format (see
@@ -130,6 +214,8 @@ struct WSendConfig {
     double level = 100.0;
     bool preFader = false;
     bool enabled = true;
+    bool lowLatencySafe = false;
+    std::string tap = "post-pan";
 };
 
 // A source's main route + aux sends (tracks/clicks). `type` is the on-disk
@@ -174,6 +260,7 @@ struct WClickTelemetry {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    bool soloSafe = false;
     // The metronome shares the tracks' solo group -- soloing a track during a
     // show means "against the click", not "kill the click".
     std::string soloGroup = "sources";
@@ -384,6 +471,7 @@ struct WTrackTelemetry {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    bool soloSafe = false;
     std::string soloGroup = "sources";
     bool soloActiveInGroup = false;
     WSourceOutput output; // type/target/sends, same as ClickChannel/track on disk
@@ -391,6 +479,14 @@ struct WTrackTelemetry {
     double peakDb = -100.0;
     double peakDbL = -100.0;
     double peakDbR = -100.0;
+    bool recordArmed = false;
+    bool inputMonitoring = false;
+    std::string inputSource = "none";
+    int midiInputChannel = 0;
+    std::string midiInputDevice = "all";
+    double inputTrimDb = 0.0;
+    bool phaseInvert = false;
+    std::string polarity = "none";
 };
 
 struct WBusTelemetry {
@@ -400,6 +496,7 @@ struct WBusTelemetry {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    bool soloSafe = false;
     // See WebServer.h's BusRow -- solo is always scoped to a group.
     std::string soloGroup = "none";
     bool soloActiveInGroup = false;
@@ -533,6 +630,7 @@ struct WMixStripTelemetry {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
+    bool soloSafe = false;
     bool audible = true;
     int physicalChannel = -1;
     double peakDb = -144.0;
@@ -612,6 +710,8 @@ struct WMidiBindingTelemetry {
 struct WSettingsTelemetry {
     std::optional<std::string> currentOutputDevice;
     std::optional<std::vector<std::string>> outputDevices;
+    std::optional<std::string> currentInputDevice;
+    std::optional<std::vector<std::string>> inputDevices;
     std::optional<std::vector<std::string>> audioDrivers;
     std::optional<std::string> currentAudioDriver;
     std::optional<bool> hasControlPanel;
@@ -621,6 +721,11 @@ struct WSettingsTelemetry {
     std::optional<std::vector<int>> availableBufferSizes;
     std::optional<std::vector<std::string>> outputChannelNames;
     std::optional<std::vector<bool>> activeOutputChannels;
+    std::optional<std::vector<std::string>> inputChannelNames;
+    std::optional<std::vector<bool>> activeInputChannels;
+    std::optional<double> inputLatencyMs;
+    std::optional<double> outputLatencyMs;
+    std::optional<double> roundtripLatencyMs;
     std::optional<std::vector<std::string>> midiOutputs;
     std::optional<std::vector<std::string>> midiInputs;
     std::optional<bool> virtualMidiPortEnabled;
@@ -643,6 +748,14 @@ struct WEngineTelemetryPayload {
     double drift = 0.0;
     double bpm = 0.0;
     bool playing = false;
+    bool recording = false;
+    bool autoInputMonitoring = true;
+    bool autoPunchEnabled = false;
+    int64_t punchStartSample = 0;
+    int64_t punchEndSample = 0;
+    bool lowLatencyMonitoring = true;
+    double lowLatencyLimitMs = 5.0;
+    std::vector<WLiveRecordingRegion> liveRecordings;
     bool hardwareAlarm = false;
     int songIndex = 0;
     int songCount = 0;
@@ -797,6 +910,14 @@ struct WDiscoveryTogglePayload {
 
 struct WPluginScanPayload {
     bool rescanAll = false;
+};
+
+struct WSetAudioInputDevicePayload {
+    std::string name;
+};
+
+struct WSetInputChannelsPayload {
+    std::vector<int> channels;
 };
 
 // ── Discovery Payloads ───────────────────────────────────────────────────────

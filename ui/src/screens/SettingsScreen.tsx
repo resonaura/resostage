@@ -112,6 +112,7 @@ const ACTION_LABELS: Record<string, string> = {
   play: "Play / Pause",
   stop: "Stop (pause in place)",
   stop_to_start: "Full stop (return to start)",
+  record: "Record (Audio & MIDI)",
   next: "Next song",
   prev: "Previous song",
   mode_player: "Mode: Player",
@@ -267,7 +268,7 @@ function BindingRow({
 const ACTION_GROUPS: { title: string; actions: string[] }[] = [
   {
     title: "Transport",
-    actions: ["play", "stop", "stop_to_start", "next", "prev"],
+    actions: ["play", "stop", "stop_to_start", "record", "next", "prev"],
   },
   {
     title: "Modes",
@@ -379,6 +380,21 @@ function AudioTab({ state }: { state: WebUiState }) {
     ...outputDevices.map((d) => ({ id: d, label: d })),
   ];
 
+  const inputDevices =
+    s.inputDevices && s.inputDevices.length > 0
+      ? s.inputDevices
+      : s.currentInputDevice
+        ? [s.currentInputDevice]
+        : [];
+
+  const inputDeviceOptions: SelectOption[] = [
+    { id: "", label: "None (Disabled)" },
+    ...(s.currentInputDevice && !inputDevices.includes(s.currentInputDevice)
+      ? [{ id: s.currentInputDevice, label: s.currentInputDevice }]
+      : []),
+    ...inputDevices.map((d) => ({ id: d, label: d })),
+  ];
+
   return (
     <div className="flex flex-col gap-4">
       {devicesEmpty && (
@@ -406,7 +422,37 @@ function AudioTab({ state }: { state: WebUiState }) {
         </Suspense>
       )}
 
-      <Section title="Audio Driver & Output Device">
+      <Section
+        title="Mixer & Routing"
+        description="Controls for how the mixer surface behaves."
+      >
+        <Field label="Advanced Send Tap Routing">
+          <div className="flex items-center gap-3">
+            <Switch
+              aria-label="Advanced Send Tap Routing"
+              isSelected={
+                s.advancedSendRouting ??
+                (typeof localStorage !== "undefined" &&
+                  localStorage.getItem("resostage:advanced-send-routing") === "true")
+              }
+              onChange={(checked) => {
+                if (typeof localStorage !== "undefined") {
+                  localStorage.setItem(
+                    "resostage:advanced-send-routing",
+                    String(checked),
+                  );
+                }
+                void settingsApi.setAdvancedSendRouting(checked);
+              }}
+            />
+            <span className="text-xs text-foreground/60">
+              Show Pre-Fader / Post-Fader / Post-Pan tap mode options on send knobs
+            </span>
+          </div>
+        </Field>
+      </Section>
+
+      <Section title="Audio Hardware & I/O">
         {s.audioDrivers.length > 0 && (
           <Field label="Audio Driver Type">
             <Select
@@ -418,15 +464,26 @@ function AudioTab({ state }: { state: WebUiState }) {
             />
           </Field>
         )}
-        <Field label="Output device">
-          <Select
-            aria-label="Output device"
-            placeholder="No devices reported"
-            options={deviceOptions}
-            value={s.currentOutputDevice || outputDevices[0] || ""}
-            onChange={(d) => void settingsApi.setAudioOutputDevice(d)}
-          />
-        </Field>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="Output device">
+            <Select
+              aria-label="Output device"
+              placeholder="No devices reported"
+              options={deviceOptions}
+              value={s.currentOutputDevice || outputDevices[0] || ""}
+              onChange={(d) => void settingsApi.setAudioOutputDevice(d)}
+            />
+          </Field>
+          <Field label="Input device">
+            <Select
+              aria-label="Input device"
+              placeholder="No input devices"
+              options={inputDeviceOptions}
+              value={s.currentInputDevice ?? ""}
+              onChange={(d) => void settingsApi.setAudioInputDevice(d)}
+            />
+          </Field>
+        </div>
         {(s.hasControlPanel ||
           (s.currentAudioDriver &&
             s.currentAudioDriver.toUpperCase().includes("ASIO"))) && (
@@ -495,6 +552,51 @@ function AudioTab({ state }: { state: WebUiState }) {
               })}
             </div>
           </Field>
+        )}
+        {s.inputChannelNames && s.inputChannelNames.length > 0 && (
+          <Field label="Active input channels">
+            <div className="flex flex-wrap gap-1.5">
+              {s.inputChannelNames.map((name, i) => {
+                const active = s.activeInputChannels?.[i] ?? false;
+                return (
+                  <ToggleButton
+                    key={i}
+                    size="sm"
+                    tone="accent-soft"
+                    isSelected={active}
+                    onChange={() => {
+                      const activeIndices = s.inputChannelNames!
+                        .map((_, idx) => idx)
+                        .filter((idx) =>
+                          idx === i
+                            ? !active
+                            : (s.activeInputChannels?.[idx] ?? false),
+                        );
+                      void settingsApi.setInputChannels(activeIndices);
+                    }}
+                  >
+                    {name}
+                  </ToggleButton>
+                );
+              })}
+            </div>
+          </Field>
+        )}
+        {((s.inputLatencyMs ?? 0) > 0 || (s.outputLatencyMs ?? 0) > 0) && (
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border-subtle/50">
+            <Stat
+              label="Input Latency"
+              value={`${(s.inputLatencyMs ?? 0).toFixed(1)} ms`}
+            />
+            <Stat
+              label="Output Latency"
+              value={`${(s.outputLatencyMs ?? 0).toFixed(1)} ms`}
+            />
+            <Stat
+              label="Roundtrip"
+              value={`${(s.roundtripLatencyMs ?? ((s.inputLatencyMs ?? 0) + (s.outputLatencyMs ?? 0))).toFixed(1)} ms`}
+            />
+          </div>
         )}
       </Section>
 

@@ -45,7 +45,9 @@ export function AudioRegionBlock({
   onContextMenu,
   crossfadeIn = false,
   crossfadeOut = false,
+  invertPolarity = false,
 }: {
+  invertPolarity?: boolean;
   songRegion: RegionRow;
   songName: string;
   songIndex: number;
@@ -106,6 +108,10 @@ export function AudioRegionBlock({
     );
     if (fadeHandle) {
       onBeginDrag(e, fadeHandle);
+      return;
+    }
+    if (e.altKey && (e.metaKey || e.ctrlKey)) {
+      onBeginDrag(e, "slip");
       return;
     }
     const mode = regionEdgeMode(localX, localY, regionWidth, rect.height);
@@ -192,7 +198,9 @@ export function AudioRegionBlock({
           // do it, so the height-banded trim/fade/loop cursors would be
           // describing gestures that are not available.
           const c =
-            tool === "stretch"
+            e.altKey && (e.metaKey || e.ctrlKey)
+              ? "ew-resize"
+              : tool === "stretch"
               ? regionStretchEdge(localX, regionWidth)
                 ? "ew-resize"
                 : "default"
@@ -233,6 +241,7 @@ export function AudioRegionBlock({
             embedded
             loop={geom.loop}
             loopLengthSec={geom.loopLengthSeconds}
+            invertPolarity={invertPolarity}
           />
         )}
         <div

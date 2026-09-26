@@ -16,6 +16,8 @@ function BusStripInner({
   isMaster = false,
   anySoloInGroup,
   pluginCatalog,
+  density = "standard",
+  targetPluginSlots,
   onOpenPlugins,
 }: {
   b: BusRow;
@@ -26,6 +28,8 @@ function BusStripInner({
   isMaster?: boolean;
   anySoloInGroup?: boolean;
   pluginCatalog: PluginCatalogEntry[];
+  density?: "narrow" | "standard" | "wide";
+  targetPluginSlots?: number;
   onOpenPlugins: (stripId: string, stripName: string) => void;
 }) {
   const meter = meters.find((m) => m.id === b.id);
@@ -40,6 +44,8 @@ function BusStripInner({
       name={b.name || b.id}
       subtitle={isMaster ? "Master Output" : "Send"}
       color={color}
+      density={density}
+      targetPluginSlots={targetPluginSlots}
       gainDb={b.gainDb ?? 0}
       pan={b.pan ?? 0}
       peakDb={peakDb}
@@ -53,7 +59,10 @@ function BusStripInner({
       }
       mute={b.mute}
       solo={b.solo}
+      soloSafe={b.soloSafe}
       anySoloInGroup={anySoloInGroup}
+      isMaster={isMaster}
+      shortTermLufs={meter?.shortTermLufs}
       pluginSlots={b.plugins ?? []}
       pluginCatalog={pluginCatalog}
       onPlugins={() => onOpenPlugins(b.id, b.name || b.id)}
@@ -61,6 +70,7 @@ function BusStripInner({
       onPan={(v) => mixer.setBusPan(index, v)}
       onMute={() => mixer.setBusMute(index, !b.mute)}
       onSolo={() => mixer.setBusSolo(index, !b.solo)}
+      onSoloSafe={(safe) => void mixer.setBusSoloSafe(index, safe)}
       busDestination={
         <BusDestinationRouting
           bus={b}
@@ -77,6 +87,8 @@ function BusStripInner({
 export const BusStrip = memo(BusStripInner, (prev, next) => {
   return (
     prev.index === next.index &&
+    prev.density === next.density &&
+    prev.targetPluginSlots === next.targetPluginSlots &&
     prev.isMaster === next.isMaster &&
     prev.anySoloInGroup === next.anySoloInGroup &&
     prev.settings === next.settings &&

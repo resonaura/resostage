@@ -1,44 +1,32 @@
 import React, { memo, useCallback, useMemo, useRef } from "react";
 import { useEscRevert } from "../../lib/useEscRevert";
+import { FaderLaw } from "../../lib/audioCurves";
 import { GAIN_MAX, GAIN_MIN } from "./constants";
 
 interface GainFaderProps {
   /**
    * The dB the fader should draw RIGHT NOW -- already optimistic.
-   *
-   * This used to be the raw server value, with the fader holding its own
-   * optimistic copy privately. That made the knob follow the pointer instantly
-   * while everything else on the strip -- above all the dB readout directly
-   * above it -- kept showing whatever the engine had last echoed back, so a
-   * drag read as the number lagging the handle by a couple of frames. The
-   * optimistic value now belongs to the strip, which hands the same one to
-   * both. See ChannelStrip.
    */
   value: number;
   onChange: (v: number) => void;
   defaultValue?: number;
   step?: number;
+  density?: "narrow" | "standard" | "wide";
 }
 
-const SCALE_MARKERS = [GAIN_MAX, 6, 0, -6, -12, -24, -36, GAIN_MIN];
-const GAIN_RANGE = GAIN_MAX - GAIN_MIN;
 
-/** Where a dB value sits on the throw: 0 at the bottom, 1 at the top. */
+/** Where a dB value sits on the throw: 0 at the bottom, 1 at the top using smooth acoustic taper (0dB at 0.80). */
 function normalizedFor(db: number): number {
-  return Math.max(0, Math.min(1, (db - GAIN_MIN) / GAIN_RANGE));
+  if (!Number.isFinite(db) || db <= GAIN_MIN) return 0.0;
+  if (db >= GAIN_MAX) return 1.0;
+  if (db <= 0.0) {
+    const norm = (db - GAIN_MIN) / (0 - GAIN_MIN); // 0 at GAIN_MIN, 1 at 0dB
+    return Math.pow(norm, 1.4) * 0.80;
+  }
+  return 0.80 + (db / GAIN_MAX) * 0.20;
 }
 
 // ── How loud a scale mark is drawn ───────────────────────────────────────
-//
-// Unity is the mark that gets looked for -- "is this fader where I left it"
-// is a question about 0 dB, and the marks either side of it are what you read
-// a small trim against. -36 and -∞ are context: you need to know the scale
-// runs that far, not to read a value there.
-//
-// So a mark fades with its DISTANCE FROM UNITY, symmetrically (+12 is as
-// present as -12), rather than every non-zero mark sharing one flat grey. The
-// fade is eased rather than linear so the useful band around unity separates
-// from the tail instead of the whole column drifting evenly to nothing.
 const MARK_OPACITY_AT_UNITY = 0.85;
 const MARK_OPACITY_AT_EXTREME = 0.18;
 /** Furthest any mark sits from unity, in dB -- the fade's full scale. */
@@ -54,29 +42,34 @@ function markOpacity(db: number): number {
 
 /**
  * The dB scale down the left of the throw.
- *
- * Static -- it never depends on the value -- so it is memoised away from the
- * handle, which moves every frame of a drag.
  */
-const FaderScale = memo(function FaderScale() {
+const FaderScale = memo(function FaderScale({
+  density = "standard",
+}: {
+  density?: "narrow" | "standard" | "wide";
+}) {
+  const isNarrow = density === "narrow";
+  const markers = isNarrow
+    ? [GAIN_MAX, 0, -12, GAIN_MIN]
+    : [GAIN_MAX, 6, 0, -6, -18, -36, GAIN_MIN];
+
   return (
-    <div className="pointer-events-none relative w-7 shrink-0">
-      {SCALE_MARKERS.map((markerDb) => {
+    <div className="pointer-events-none relative h-full w-5 sm:w-6 shrink-0 overflow-hidden">
+      {markers.map((markerDb) => {
         const isZero = markerDb === 0;
+        const isSix = Math.abs(markerDb) === 6;
         return (
           <div
             key={markerDb}
-            className="absolute right-0 flex -translate-y-1/2 items-center gap-1 text-foreground"
+            className="absolute right-0 flex -translate-y-1/2 items-center gap-0.5 text-foreground"
             style={{
               top: `${(1 - normalizedFor(markerDb)) * 100}%`,
-              // One opacity for the pair: a label and its tick are one mark,
-              // and fading them apart makes the column look misprinted.
-              opacity: markOpacity(markerDb),
+              opacity: isZero ? 1.0 : markOpacity(markerDb),
             }}
           >
             <span
-              className={`font-mono text-[9px] leading-none tracking-tight tabular-nums ${
-                isZero ? "font-semibold" : ""
+              className={`font-mono text-[8px] leading-none tracking-tight tabular-nums ${
+                isZero ? "font-bold text-foreground" : "text-foreground/60"
               }`}
             >
               {markerDb === GAIN_MIN
@@ -85,11 +78,14 @@ const FaderScale = memo(function FaderScale() {
                   ? `+${markerDb}`
                   : markerDb}
             </span>
-            {/* Held under the label so the ticks read as a scale rather than
-                as a second column of content. */}
             <div
-              className="h-px rounded-full bg-foreground/60"
-              style={{ width: isZero ? 6 : 3 }}
+              className={`h-px rounded-full ${
+                isZero
+                  ? "bg-foreground w-1.5"
+                  : isSix
+                    ? "bg-foreground/80 w-1"
+                    : "bg-foreground/50 w-0.5"
+              }`}
             />
           </div>
         );
@@ -99,40 +95,38 @@ const FaderScale = memo(function FaderScale() {
 });
 
 /**
- * Track, fill and cap.
- *
- * Deliberately monochrome: the strip already says which channel this is twice
- * over (the colour bar in its header and the meter beside the fader), and a
- * third coloured element made a console of twelve strips read as decoration
- * rather than as twelve identical controls at different positions.
+ * Track, fill, 0 dB unity detent tick, and cap.
  */
 const FaderVisuals = memo(function FaderVisuals({
   normalized,
 }: {
   normalized: number;
 }) {
+  const zeroPos = FaderLaw.unityPosition; // 0.80
   return (
     <>
-      {/* Slot: cut INTO the strip, so it has to be darker than the panel --
-          a slot the same weight as the fill below it reads as one flat line
-          and the fader stops showing where it is set from across a stage. */}
-      <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-black/55" />
+      {/* Slot: cut INTO the strip */}
+      <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-black/60 shadow-inner" />
+
+      {/* 0 dB unity detent mark on rail */}
+      <div
+        className="pointer-events-none absolute left-1/2 -translate-x-1/2 h-[1px] w-3 bg-foreground/45 rounded-full"
+        style={{ top: `${(1 - zeroPos) * 100}%` }}
+        title="0 dB Unity Detent"
+      />
 
       {/* Travelled part of the throw */}
       <div
-        className="pointer-events-none absolute bottom-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-foreground/20"
+        className="pointer-events-none absolute bottom-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-foreground/25"
         style={{ height: `${normalized * 100}%` }}
       />
 
-      {/* Cap. Upright, the way a console fader cap is: the grip is taller than
-          it is wide so the pointer has something to aim at over a 180px throw,
-          and the hairline across it is what you actually read the position
-          from. */}
+      {/* Cap */}
       <div
-        className="pointer-events-none absolute left-1/2 flex h-6 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[4px] bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.35)] ring-1 ring-inset ring-default"
+        className="pointer-events-none absolute left-1/2 flex h-5 w-3.5 sm:h-6 sm:w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[3px] bg-gradient-to-b from-[#3a3f4b] to-[#1c1e24] shadow-[0_1px_4px_rgba(0,0,0,0.6)] border border-white/20"
         style={{ top: `${(1 - normalized) * 100}%` }}
       >
-        <div className="h-px w-2 rounded-full bg-foreground/45" />
+        <div className="h-0.5 w-2 rounded-full bg-white/70" />
       </div>
     </>
   );
@@ -143,6 +137,7 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
   onChange,
   defaultValue = 0,
   step = 0.1,
+  density = "standard",
 }) {
   const escRevert = useEscRevert(() => value, onChange);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -150,7 +145,7 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
   const normalized = useMemo(() => normalizedFor(value), [value]);
 
   const calculateValueFromPointer = useCallback(
-    (clientY: number) => {
+    (clientY: number, isFine = false) => {
       if (!trackRef.current) return;
       const rect = trackRef.current.getBoundingClientRect();
       if (rect.height === 0) return;
@@ -159,8 +154,19 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
       const rawPct = 1 - relativeY / rect.height;
       const clampedPct = Math.max(0, Math.min(1, rawPct));
 
-      const rawVal = GAIN_MIN + clampedPct * GAIN_RANGE;
-      const steppedVal = Math.round(rawVal / step) * step;
+      let db = GAIN_MIN;
+      if (clampedPct <= 0.015) {
+        db = GAIN_MIN;
+      } else if (clampedPct <= 0.80) {
+        const norm = Math.pow(clampedPct / 0.80, 1 / 1.4);
+        db = GAIN_MIN + norm * (0 - GAIN_MIN);
+      } else {
+        const t = (clampedPct - 0.80) / 0.20;
+        db = t * GAIN_MAX;
+      }
+
+      const effectiveStep = isFine ? 0.05 : step;
+      const steppedVal = Math.round(db / effectiveStep) * effectiveStep;
       const finalVal = Math.max(GAIN_MIN, Math.min(GAIN_MAX, steppedVal));
 
       onChange(finalVal);
@@ -170,13 +176,18 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    if (e.altKey) {
+      e.preventDefault();
+      onChange(defaultValue);
+      return;
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
-    calculateValueFromPointer(e.clientY);
+    calculateValueFromPointer(e.clientY, e.metaKey || e.shiftKey || e.ctrlKey);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      calculateValueFromPointer(e.clientY);
+      calculateValueFromPointer(e.clientY, e.metaKey || e.shiftKey || e.ctrlKey);
     }
   };
 
@@ -200,17 +211,19 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
     // same padded box -- so a tick at 0 dB is at the same height as the cap
     // when the fader reads 0 dB, without either side restating the padding.
     <div
-      className="flex h-full min-h-[180px] w-16 touch-none select-none items-stretch py-3"
+      className="flex h-full min-h-[110px] w-full max-w-[4.5rem] touch-none select-none items-stretch py-1.5"
       title="Double-click to reset"
       {...escRevert}
       onDoubleClick={handleDoubleClick}
     >
-      <FaderScale />
+      <div className="relative h-full w-5 sm:w-6 shrink-0 my-3 pointer-events-none">
+        <FaderScale density={density} />
+      </div>
 
       <div
         ref={trackRef}
         // A vertical fader drags up and down; `pointer` said "click me".
-        className="relative flex-1 cursor-ns-resize"
+        className="relative flex-1 cursor-ns-resize my-3"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

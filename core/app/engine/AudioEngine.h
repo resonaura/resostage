@@ -19,6 +19,9 @@
 // Phase vocoder for per-region transposition; see AudioEngineMembers' PitchSlot.
 #include "signalsmith-stretch/signalsmith-stretch.h"
 
+#include "audio/AudioRecordWorker.h"
+#include "audio/MonitorSourceMux.h"
+#include "audio/LowLatencyPlan.h"
 #include "audio/ClickGenerator.h"
 #include "audio/MeterEnvelope.h"
 #include "audio/Metering.h"
@@ -102,6 +105,10 @@ public:
     EventDispatcher& events() { return eventDispatcher; }
 
     LightHardwareServer& lightHardware() { return lightHardwareServer; }
+
+    void enqueueIncomingMidi(const uint8_t* data, int length);
+    void setPluginParameter(size_t stripIndex, size_t slotIndex, int paramIndex, float value);
+    bool setPluginParameterBySlotId(const std::string& slotId, int paramIndex, float value);
 
     const Project& project() const { return loader.project(); }
 
@@ -209,6 +216,10 @@ public:
     bool isBusMuted(size_t busIndex) const;
 
     bool isBusSoloed(size_t busIndex) const;
+
+    bool isBusSoloSafe(size_t busIndex) const;
+
+    bool isClickSoloSafe() const;
 
     double busGainDb(size_t busIndex) const;
 
