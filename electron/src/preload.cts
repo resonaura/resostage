@@ -5,6 +5,24 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 
+let nextContextMenuRequestId = 1;
+const pendingContextMenus = new Map<
+  number,
+  (id: string | null) => void
+>();
+
+ipcRenderer.on(
+  "context-menu-result",
+  (_event, payload: { requestId?: number; id?: string | null }) => {
+    const requestId = payload?.requestId;
+    if (typeof requestId !== "number") return;
+    const resolve = pendingContextMenus.get(requestId);
+    if (!resolve) return;
+    pendingContextMenus.delete(requestId);
+    resolve(typeof payload.id === "string" ? payload.id : null);
+  },
+);
+
 contextBridge.exposeInMainWorld("resostageElectron", {
   isElectron: true,
   sendMenuState: (state: unknown) => ipcRenderer.send("menu-state", state),
@@ -12,13 +30,19 @@ contextBridge.exposeInMainWorld("resostageElectron", {
   /** Text field focused / blurred -- suppresses bare-key hotkeys in the shell. */
   setTypingFocus: (focused: boolean) =>
     ipcRenderer.send("typing-focus", focused),
-  /** Native OS context menu. Resolves to selected item id, or null if dismissed. */
+  /** Native OS context menu. Event-driven internally: the Promise is local to
+   * the preload and never blocks on an ipcRenderer.invoke round trip. */
   showContextMenu: (
     items: unknown,
     x: number,
     y: number,
-  ): Promise<string | null> =>
-    ipcRenderer.invoke("show-context-menu", { items, x, y }),
+  ): Promise<string | null> => {
+    const requestId = nextContextMenuRequestId++;
+    return new Promise((resolve) => {
+      pendingContextMenus.set(requestId, resolve);
+      ipcRenderer.send("show-context-menu", { requestId, items, x, y });
+    });
+  },
   /** Trackpad haptic tick (Force Touch Taptic Engine). Fire-and-forget,
    * no-op on non-mac / non-Force-Touch hardware. */
   hapticFeedback: (pattern?: "generic" | "alignment" | "levelChange") =>

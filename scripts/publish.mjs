@@ -91,6 +91,11 @@ const ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
   <true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
   <true/>
+  <!-- CoreAudio capture. The nested JUCE Core is the process that opens the
+       input device, but signing every executable in the bundle with the same
+       entitlement keeps helper and shell policy consistent. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
   <!-- Network access for LAN discovery, Art-Net/DMX, remote control, and WebSockets -->
   <key>com.apple.security.network.client</key>
   <true/>
@@ -99,6 +104,37 @@ const ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
 </dict>
 </plist>
 `;
+
+/**
+ * Resolve one stable signing identity for the whole nested app.
+ *
+ * RESOSTAGE_CODESIGN_IDENTITY may be a certificate name, SHA-1 hash, or "-"
+ * for an explicit ad-hoc build. Local development otherwise prefers an
+ * installed Apple Development identity. Reusing the same certificate keeps
+ * macOS TCC's designated requirement stable across C++/Electron rebuilds.
+ */
+function resolveCodesignIdentity() {
+  const explicit = String(process.env.RESOSTAGE_CODESIGN_IDENTITY || "").trim();
+  if (explicit) return explicit;
+  const found = runQuiet("security", ["find-identity", "-v", "-p", "codesigning"]);
+  if (found.status !== 0) return "-";
+  const identities = String(found.stdout || "")
+    .split("\n")
+    .map((line) => {
+      const match = line.match(/^\s*\d+\)\s+([0-9A-F]+)\s+"([^"]+)"/);
+      return match ? { hash: match[1], name: match[2] } : null;
+    })
+    .filter(Boolean);
+  for (const prefix of [
+    "Developer ID Application:",
+    "Apple Distribution:",
+    "Apple Development:",
+  ]) {
+    const match = identities.find((identity) => identity.name.startsWith(prefix));
+    if (match) return match.hash;
+  }
+  return identities[0]?.hash || "-";
+}
 
 /**
  * Every Mach-O inside the bundle, deepest first.
@@ -129,21 +165,22 @@ function machOTargetsDeepestFirst(bundle) {
 }
 
 function adhocSignBundle(bundle, entitlementsPath) {
-  log("Ad-hoc signing, deepest first...");
+  const identity = resolveCodesignIdentity();
+  log(`${identity === "-" ? "Ad-hoc" : "Certificate"} signing, deepest first (${identity})...`);
   const entArgs = entitlementsPath ? ["--entitlements", entitlementsPath, "--options", "runtime"] : [];
   for (const target of machOTargetsDeepestFirst(bundle)) {
     // allowFail: a resource that merely looks like a Mach-O (a stray .so in a
     // node_modules fixture) is not worth aborting a release for.
-    run("codesign", ["--force", "--timestamp=none", "--sign", "-", ...entArgs, target],
+    run("codesign", ["--force", "--timestamp=none", "--sign", identity, ...entArgs, target],
       { allowFail: true });
   }
-  run("codesign", ["--force", "--timestamp=none", "--sign", "-", ...entArgs, bundle],
+  run("codesign", ["--force", "--timestamp=none", "--sign", identity, ...entArgs, bundle],
     { allowFail: true });
   const verify = runQuiet("codesign", ["--verify", "--deep", "--strict", bundle]);
   if (verify.status !== 0) {
     log(`codesign --verify reported: ${String(verify.stderr || "").trim()}`);
   }
-  ok("Ad-hoc signed");
+  ok(identity === "-" ? "Ad-hoc signed" : "Signed with stable certificate identity");
 }
 
 function publishMac() {
@@ -175,9 +212,9 @@ function publishMac() {
   log("Staging payload...");
   run("cp", ["-R", bundle, join(stage, "root", "Applications", `${SHELL_APP_NAME}.app`)]);
 
-  // The installed copy is what actually has to run, so it is re-signed in
-  // place after installation: pkgbuild rewrites file metadata on the way in,
-  // and the copy inherits quarantine from the .pkg it arrived in.
+  // Preserve the certificate signature produced above. Re-signing the
+  // installed copy ad-hoc changes its designated requirement and makes TCC
+  // ask for microphone access again after every update.
   const postinstall = join(stage, "scripts", "postinstall");
   writeFileSync(postinstall, `#!/bin/bash
 # Installed-copy fixups. Both are things the user would otherwise be asked to
@@ -186,7 +223,6 @@ set -u
 APP="/Applications/${SHELL_APP_NAME}.app"
 [ -d "$APP" ] || exit 0
 /usr/bin/xattr -cr "$APP" 2>/dev/null || true
-/usr/bin/codesign --force --deep --sign - "$APP" 2>/dev/null || true
 exit 0
 `);
   chmodSync(postinstall, 0o755);
@@ -498,7 +534,15 @@ AppImage instead of this tarball.
 
 // ── Entry ──────────────────────────────────────────────────────────────────
 
-export { publishMac, publishWindows, publishLinux, adhocSignBundle, machOTargetsDeepestFirst };
+export {
+  publishMac,
+  publishWindows,
+  publishLinux,
+  adhocSignBundle,
+  machOTargetsDeepestFirst,
+  resolveCodesignIdentity,
+  ENTITLEMENTS,
+};
 
 export function publish() {
   log(`Publishing ResoStage ${appVersion()} (${BUILD_TYPE})`);

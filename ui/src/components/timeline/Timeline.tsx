@@ -1287,6 +1287,13 @@ export function Timeline({
         track: lightTracks[sidePanelTrackIndex],
       };
     }
+    if (sidePanelTrackIndex === null && lightTracks.length > 0) {
+      return {
+        type: "track" as const,
+        trackIndex: 0,
+        track: lightTracks[0],
+      };
+    }
     return null;
   })();
 
@@ -1838,6 +1845,31 @@ export function Timeline({
     commitScrollStateRef.current(left, scroller.clientWidth);
   };
 
+  const handleSidebarWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+
+    const lineMult =
+      e.deltaMode === 1 ? 24 : e.deltaMode === 2 ? scroller.clientHeight : 1;
+    const dy = e.deltaY * lineMult;
+    const dx = e.deltaX * lineMult;
+
+    if (e.shiftKey && !dx && dy) {
+      scroller.scrollLeft += dy;
+    } else {
+      if (dy) {
+        scroller.scrollTop += dy;
+        if (sidebarContentRef.current) {
+          sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
+        }
+      }
+      if (dx) {
+        scroller.scrollLeft += dx;
+      }
+    }
+  }, []);
+
   const keyboardActions = useMemo(
     () => ({
       copySelectedCue,
@@ -2374,6 +2406,7 @@ export function Timeline({
               sidebarContentRef={sidebarContentRef}
               selectedTrackId={selectedTrackId}
               onSelectTrack={onSelectTrackId}
+              onWheel={handleSidebarWheel}
             />
           )}
 
@@ -2675,6 +2708,7 @@ export function Timeline({
             <RegionSidePanel
               songs={state.songs}
               tracks={state.tracks}
+              selectedTrackId={selectedTrackId}
               selectedRegionKeys={selectedRegionKeys}
               onClearSelection={() => setSelectedRegionKeys([])}
             />

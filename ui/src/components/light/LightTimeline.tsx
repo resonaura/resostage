@@ -1117,6 +1117,7 @@ export function LightTrackHeader({
   height,
   selected,
   onSelect,
+  onContextMenu,
 }: {
   track: LightTrackRow;
   index?: number;
@@ -1125,6 +1126,7 @@ export function LightTrackHeader({
   height: number;
   selected?: boolean;
   onSelect?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const h = Math.max(22, Math.round(height));
   const padX = h < 36 ? 8 : 12;
@@ -1142,7 +1144,8 @@ export function LightTrackHeader({
       }`}
       style={{ height: h, padding: `0 ${padX}px` }}
       onClick={onSelect}
-      title="Click to edit track in side panel"
+      onContextMenu={onContextMenu}
+      title="Click to edit track in side panel (Right-click for context menu)"
     >
       <span
         className="shrink-0 rounded-sm"

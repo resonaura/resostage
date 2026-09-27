@@ -123,6 +123,13 @@ function main() {
   execFileSync("plutil", ["-replace", "CFBundleIdentifier", "-string", BUNDLE_ID, plistPath]);
   execFileSync("plutil", [
     "-replace",
+    "NSMicrophoneUsageDescription",
+    "-string",
+    "ResoStage uses audio inputs for recording and real-time input monitoring.",
+    plistPath,
+  ]);
+  execFileSync("plutil", [
+    "-replace",
     "NSLocalNetworkUsageDescription",
     "-string",
     "ResoStage requires local network access to discover remote control devices, synchronize with other stage instances, receive live telemetry, and control Art-Net/DMX lighting.",

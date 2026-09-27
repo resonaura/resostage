@@ -20,7 +20,7 @@ import {
   findFileRecursively,
 } from "../lib.mjs";
 
-import { publishMac, adhocSignBundle } from "../publish.mjs";
+import { publishMac, adhocSignBundle, ENTITLEMENTS } from "../publish.mjs";
 
 export class MacBuildAdapter extends BuildAdapter {
   get key() {
@@ -213,7 +213,9 @@ export class MacBuildAdapter extends BuildAdapter {
     }
 
     try {
-      adhocSignBundle(shellBundle);
+      const entitlementsPath = join(resources, "entitlements.plist");
+      writeFileSync(entitlementsPath, ENTITLEMENTS);
+      adhocSignBundle(shellBundle, entitlementsPath);
     } catch (e) {
       log(`Warning: adhocSignBundle: ${e?.message || e}`);
     }

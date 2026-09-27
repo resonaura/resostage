@@ -7,6 +7,8 @@
 	     not this nested Core bundle. Core receives open-project commands via IPC. -->
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ResoStage uses audio inputs for recording and real-time input monitoring.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ResoStage requires local network access to discover remote control devices, synchronize with other stage instances, receive live telemetry, and control Art-Net/DMX lighting.</string>
 	<key>NSBonjourServices</key>

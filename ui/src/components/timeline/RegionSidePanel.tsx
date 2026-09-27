@@ -56,11 +56,13 @@ function shapeOfCurve(curve: number): CrossfadeShape | null {
 export function RegionSidePanel({
   songs,
   tracks,
+  selectedTrackId,
   selectedRegionKeys,
   onClearSelection,
 }: {
   songs: SongRow[];
   tracks: TrackRow[];
+  selectedTrackId?: string | null;
   selectedRegionKeys: RegionSelKey[];
   onClearSelection: () => void;
 }) {
@@ -71,10 +73,24 @@ export function RegionSidePanel({
   const region = hit?.region ?? null;
   const songIndex = hit?.songIndex ?? 0;
 
-  const trackName =
-    tracks.find((t) => t.id === region?.trackId)?.name ?? "Track";
-  const trackIndex = tracks.findIndex((t) => t.id === region?.trackId);
-  const track = trackIndex >= 0 ? tracks[trackIndex] : null;
+  const activeTrack = useMemo(() => {
+    if (region) {
+      return tracks.find((t) => t.id === region.trackId) ?? null;
+    }
+    if (selectedTrackId) {
+      return tracks.find((t) => t.id === selectedTrackId) ?? null;
+    }
+    return tracks[0] ?? null;
+  }, [region, selectedTrackId, tracks]);
+
+  const activeTrackIndex = activeTrack ? tracks.indexOf(activeTrack) : -1;
+  const activeTrackName = activeTrack?.name || activeTrack?.id || "Track";
+
+  const regionName = region?.source?.file
+    ? region.source.file.split(/[/\\]/).pop() || "Region"
+    : region?.id
+      ? (activeTrack?.kind === "instrument" ? "MIDI Pattern" : "Audio Region")
+      : "Region";
 
   /**
    * Every write from this panel, tagged so a slider drag is one undo step.
@@ -212,53 +228,51 @@ export function RegionSidePanel({
       title="Track & Region"
       icon={<AudioWaveform size={13} />}
       storageKey="resostage.timeline.regionPanelOpen"
-      hasSelection={!!region}
-      selectionLabel={region ? trackName : undefined}
+      hasSelection={Boolean(activeTrack || region)}
+      selectionLabel={
+        region
+          ? `${activeTrackName} · ${regionName}`
+          : activeTrack
+            ? activeTrackName
+            : undefined
+      }
     >
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
-        {!region && (
+        {!activeTrack && !region ? (
           <EmptyState className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center text-xs">
             <AudioWaveform size={28} strokeWidth={1} />
-            <span>Default Settings · select a region to edit it</span>
+            <span>No track or region selected</span>
           </EmptyState>
-        )}
-
-        {region && (
+        ) : (
           <>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-xs font-semibold">
-                {trackName}
-              </span>
-              <span className="truncate text-[10px] text-muted">
-                {songs[songIndex]?.name ?? `Song ${songIndex + 1}`}
-                {selectedRegionKeys.length > 1
-                  ? ` · ${selectedRegionKeys.length} selected`
-                  : ""}
-              </span>
-            </div>
+            {activeTrack && activeTrackIndex >= 0 && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {activeTrack.kind === "audio" ? (
+                      <Mic size={14} className="text-blue-400" />
+                    ) : (
+                      <Music size={14} className="text-purple-400" />
+                    )}
+                    <span className="text-xs font-semibold">
+                      Track {activeTrackIndex + 1} · {activeTrackName}
+                    </span>
+                  </div>
+                  {activeTrack.kind && (
+                    <span className="rounded bg-default/20 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-foreground/50">
+                      {activeTrack.kind}
+                    </span>
+                  )}
+                </div>
 
-            <Separator />
-
-            <div className="flex items-center gap-2">
-              {track?.kind === "audio" ? (
-                <Mic size={13} className="text-muted" />
-              ) : (
-                <Music size={13} className="text-muted" />
-              )}
-              <span className="text-[11px] font-semibold">
-                Track · {trackName}
-              </span>
-            </div>
-            {track && trackIndex >= 0 && (
-              <>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
                     Mute
                     <Switch
                       aria-label="Mute track"
-                      isSelected={track.mute}
+                      isSelected={activeTrack.mute}
                       onChange={(value) =>
-                        void mixer.setTrackMute(trackIndex, value)
+                        void mixer.setTrackMute(activeTrackIndex, value)
                       }
                     />
                   </div>
@@ -266,9 +280,9 @@ export function RegionSidePanel({
                     Solo
                     <Switch
                       aria-label="Solo track"
-                      isSelected={track.solo}
+                      isSelected={activeTrack.solo}
                       onChange={(value) =>
-                        void mixer.setTrackSolo(trackIndex, value)
+                        void mixer.setTrackSolo(activeTrackIndex, value)
                       }
                     />
                   </div>
@@ -276,9 +290,9 @@ export function RegionSidePanel({
                     Record
                     <Switch
                       aria-label="Record-enable track"
-                      isSelected={track.recordArmed ?? false}
+                      isSelected={activeTrack.recordArmed ?? false}
                       onChange={(value) =>
-                        void mixer.setTrackRecordArm(trackIndex, value)
+                        void mixer.setTrackRecordArm(activeTrackIndex, value)
                       }
                     />
                   </div>
@@ -286,37 +300,38 @@ export function RegionSidePanel({
                     Monitor
                     <Switch
                       aria-label="Monitor track input"
-                      isSelected={track.inputMonitoring ?? false}
+                      isSelected={activeTrack.inputMonitoring ?? false}
                       onChange={(value) =>
-                        void mixer.setTrackInputMonitor(trackIndex, value)
+                        void mixer.setTrackInputMonitor(activeTrackIndex, value)
                       }
                     />
                   </div>
                 </div>
-                {track.inputSource && (
+
+                {activeTrack.inputSource && (
                   <div className="flex items-center justify-between text-[10px] text-muted">
-                    <span>Input</span>
-                    <span className="max-w-36 truncate text-foreground">
-                      {track.inputSource}
+                    <span>Input Source</span>
+                    <span className="max-w-36 truncate font-mono text-foreground">
+                      {activeTrack.inputSource}
                     </span>
                   </div>
                 )}
                 <LabeledSlider
                   label="Track gain"
                   defaultValue={0}
-                  value={track.gainDb}
+                  value={activeTrack.gainDb}
                   min={-60}
                   max={12}
                   step={0.1}
                   format={fmtDb}
                   onChange={(value) =>
-                    void mixer.setTrackGain(trackIndex, value)
+                    void mixer.setTrackGain(activeTrackIndex, value)
                   }
                 />
                 <LabeledSlider
                   label="Pan"
                   defaultValue={0}
-                  value={track.pan}
+                  value={activeTrack.pan}
                   min={-1}
                   max={1}
                   step={0.01}
@@ -326,31 +341,42 @@ export function RegionSidePanel({
                       : `${value < 0 ? "L" : "R"}${Math.round(Math.abs(value) * 100)}`
                   }
                   onChange={(value) =>
-                    void mixer.setTrackPan(trackIndex, value)
+                    void mixer.setTrackPan(activeTrackIndex, value)
                   }
                 />
-              </>
+              </div>
             )}
 
             <Separator />
 
-            <div className="flex items-center gap-2">
-              <AudioWaveform size={13} className="text-muted" />
-              <span className="text-[11px] font-semibold">
-                Region · Audio
-              </span>
-            </div>
+            {/* Region Section */}
+            {region ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AudioWaveform size={13} className="text-accent" />
+                    <span className="text-[11px] font-semibold">
+                      Region · {regionName}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-muted">
+                    {songs[songIndex]?.name ?? `Song ${songIndex + 1}`}
+                    {selectedRegionKeys.length > 1
+                      ? ` · ${selectedRegionKeys.length} selected`
+                      : ""}
+                  </span>
+                </div>
 
-            <LabeledSlider
-              label="Clip gain"
-              defaultValue={0}
-              value={region.gainDb ?? 0}
-              min={GAIN_MIN_DB}
-              max={GAIN_MAX_DB}
-              step={0.1}
-              format={fmtDb}
-              onChange={(gainDb) => patch({ gainDb })}
-            />
+                <LabeledSlider
+                  label="Clip gain"
+                  defaultValue={0}
+                  value={region.gainDb ?? 0}
+                  min={GAIN_MIN_DB}
+                  max={GAIN_MAX_DB}
+                  step={0.1}
+                  format={fmtDb}
+                  onChange={(gainDb) => patch({ gainDb })}
+                />
 
             <Separator />
 
@@ -513,8 +539,19 @@ export function RegionSidePanel({
               Clear selection
             </Button>
           </>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-2 py-6 text-center text-xs text-muted">
+            <AudioWaveform
+              size={20}
+              strokeWidth={1}
+              className="text-foreground/30"
+            />
+            <span>Select a region on this track to edit clip parameters</span>
+          </div>
         )}
-      </div>
-    </SidePanelShell>
+      </>
+    )}
+  </div>
+</SidePanelShell>
   );
 }

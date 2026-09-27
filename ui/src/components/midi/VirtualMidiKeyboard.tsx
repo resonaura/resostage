@@ -342,47 +342,60 @@ export function VirtualMidiKeyboard({
     );
   }, [activeInstrument]);
 
+  const [isSustainDown, setIsSustainDown] = useState(false);
+  const isSustainDownRef = useRef(false);
+
+  // Keep latest refs for all dynamic values so keyboard listeners remain stable
+  const activeInstrumentIndexRef = useRef(activeInstrumentIndex);
+  activeInstrumentIndexRef.current = activeInstrumentIndex;
+
+  const baseNoteRef = useRef(baseNote);
+  baseNoteRef.current = baseNote;
+
+  const velocityRef = useRef(velocity);
+  velocityRef.current = velocity;
+
+  const octaveRef = useRef(octave);
+  octaveRef.current = octave;
+
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   // Helper to trigger Note On
-  const triggerNoteOn = useCallback(
-    (note: number, vel: number) => {
-      sendLiveMidi(
-        0x90,
-        note,
-        vel,
-        activeInstrumentIndex >= 0 ? activeInstrumentIndex : undefined,
-      );
-      setActiveNotes((prev) => {
-        const next = new Set(prev);
-        next.add(note);
-        return next;
-      });
-    },
-    [activeInstrumentIndex],
-  );
+  const triggerNoteOn = useCallback((note: number, vel: number) => {
+    const targetIdx =
+      activeInstrumentIndexRef.current >= 0
+        ? activeInstrumentIndexRef.current
+        : undefined;
+    sendLiveMidi(0x90, note, vel, targetIdx);
+    setActiveNotes((prev) => {
+      const next = new Set(prev);
+      next.add(note);
+      return next;
+    });
+  }, []);
 
   // Helper to trigger Note Off
-  const triggerNoteOff = useCallback(
-    (note: number) => {
-      sendLiveMidi(
-        0x80,
-        note,
-        0,
-        activeInstrumentIndex >= 0 ? activeInstrumentIndex : undefined,
-      );
-      setActiveNotes((prev) => {
-        const next = new Set(prev);
-        next.delete(note);
-        return next;
-      });
-    },
-    [activeInstrumentIndex],
-  );
+  const triggerNoteOff = useCallback((note: number) => {
+    const targetIdx =
+      activeInstrumentIndexRef.current >= 0
+        ? activeInstrumentIndexRef.current
+        : undefined;
+    sendLiveMidi(0x80, note, 0, targetIdx);
+    setActiveNotes((prev) => {
+      const next = new Set(prev);
+      next.delete(note);
+      return next;
+    });
+  }, []);
 
   // Release all active notes cleanly
   const releaseAllNotes = useCallback(() => {
     let hadNotes = false;
     const targetIdx =
-      activeInstrumentIndex >= 0 ? activeInstrumentIndex : undefined;
+      activeInstrumentIndexRef.current >= 0
+        ? activeInstrumentIndexRef.current
+        : undefined;
     if (activeKeysRef.current.size > 0) {
       activeKeysRef.current.forEach((note) => {
         sendLiveMidi(0x80, note, 0, targetIdx);
@@ -399,21 +412,30 @@ export function VirtualMidiKeyboard({
       hadNotes = true;
     }
 
+    if (isSustainDownRef.current) {
+      isSustainDownRef.current = false;
+      setIsSustainDown(false);
+      sendLiveMidi(0xB0, 64, 0, targetIdx);
+    }
+
     if (hadNotes) {
       setActiveNotes(new Set());
     }
-  }, [activeInstrumentIndex]);
+  }, []);
 
   // When changing octave, release active notes so none stay stuck
   const changeOctave = useCallback(
     (newOctave: number) => {
       const clamped = Math.max(1, Math.min(7, newOctave));
-      if (clamped === octave) return;
+      if (clamped === octaveRef.current) return;
       releaseAllNotes();
       setOctave(clamped);
     },
-    [octave, releaseAllNotes],
+    [releaseAllNotes],
   );
+
+  const changeOctaveRef = useRef(changeOctave);
+  changeOctaveRef.current = changeOctave;
 
   // Physical keyboard listeners - registered when isOpen === true or standalone === true
   useEffect(() => {
@@ -432,7 +454,7 @@ export function VirtualMidiKeyboard({
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -445,6 +467,23 @@ export function VirtualMidiKeyboard({
           activeEl.tagName === "SELECT" ||
           activeEl.isContentEditable)
       ) {
+        return;
+      }
+
+      // Tab key functions as Sustain Pedal (damper CC 64: 127 = down, 0 = up)
+      if (e.code === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (!isSustainDownRef.current) {
+          isSustainDownRef.current = true;
+          setIsSustainDown(true);
+          const targetIdx =
+            activeInstrumentIndexRef.current >= 0
+              ? activeInstrumentIndexRef.current
+              : undefined;
+          sendLiveMidi(0xB0, 64, 127, targetIdx);
+        }
         return;
       }
 
@@ -461,14 +500,14 @@ export function VirtualMidiKeyboard({
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        changeOctave(octave - 1);
+        changeOctaveRef.current(octaveRef.current - 1);
         return;
       }
       if (e.code === "NumpadAdd") {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        changeOctave(octave + 1);
+        changeOctaveRef.current(octaveRef.current + 1);
         return;
       }
 
@@ -478,10 +517,10 @@ export function VirtualMidiKeyboard({
         e.stopPropagation();
         e.stopImmediatePropagation();
 
-        const note = baseNote + mapping.offset;
+        const note = baseNoteRef.current + mapping.offset;
         if (note >= 0 && note <= 127) {
           activeKeysRef.current.set(e.code, note);
-          triggerNoteOn(note, velocity);
+          triggerNoteOn(note, velocityRef.current);
         }
         return;
       }
@@ -493,6 +532,23 @@ export function VirtualMidiKeyboard({
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      // Release sustain pedal when Tab key is released
+      if (e.code === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (isSustainDownRef.current) {
+          isSustainDownRef.current = false;
+          setIsSustainDown(false);
+          const targetIdx =
+            activeInstrumentIndexRef.current >= 0
+              ? activeInstrumentIndexRef.current
+              : undefined;
+          sendLiveMidi(0xB0, 64, 0, targetIdx);
+        }
+        return;
+      }
+
       if (activeKeysRef.current.has(e.code)) {
         e.preventDefault();
         e.stopPropagation();
@@ -517,18 +573,7 @@ export function VirtualMidiKeyboard({
       window.removeEventListener("blur", handleBlur);
       releaseAllNotes();
     };
-  }, [
-    isOpen,
-    standalone,
-    onClose,
-    baseNote,
-    velocity,
-    octave,
-    changeOctave,
-    triggerNoteOn,
-    triggerNoteOff,
-    releaseAllNotes,
-  ]);
+  }, [isOpen, standalone, releaseAllNotes, triggerNoteOn, triggerNoteOff]);
 
   // Construct piano keys for 32 semitones (from offset 0 up to 31, ~2.6 octaves)
   const keysData = useMemo(() => {
@@ -817,6 +862,21 @@ export function VirtualMidiKeyboard({
             <span className="font-mono text-[10px] text-foreground/70 w-6 text-right tabular-nums">
               {velocity}
             </span>
+          </div>
+
+          {/* Sustain pedal (Tab) indicator */}
+          <div
+            className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 text-[10px] font-mono transition-all select-none ${
+              isSustainDown
+                ? "bg-accent/25 border-accent text-accent font-semibold shadow-[0_0_10px_rgba(255,214,10,0.35)]"
+                : "bg-default/20 border-default/30 text-foreground/50"
+            }`}
+            title="Sustain Pedal (Hold Tab key to sustain notes · CC 64)"
+          >
+            <span className="font-bold border border-default/30 rounded px-1 text-[9px] bg-default/20 text-foreground/70">
+              Tab
+            </span>
+            <span>Sustain</span>
           </div>
 
           {/* Dock reset button (visible only when dragged and not in standalone window) */}

@@ -362,6 +362,7 @@ private:
 
     UdpDiscovery udpDiscovery;
     std::string bindAddress_ = "0.0.0.0";
+    double lastTogglePlaybackTime_{0.0};
 
     std::thread audioRenderThread;
     std::atomic<bool> audioRenderRunning{false};

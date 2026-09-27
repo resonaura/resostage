@@ -2811,6 +2811,11 @@ void MainComponent::prevSong() {
 }
 
 void MainComponent::togglePlayback() {
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    if (now - lastTogglePlaybackTime_ < 100.0)
+        return;
+    lastTogglePlaybackTime_ = now;
+
     if (engine.isPlaying())
         engine.stop();
     else

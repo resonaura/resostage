@@ -1179,7 +1179,18 @@ async function handleFileDialogAction(action: string): Promise<boolean> {
   return false;
 }
 
+let lastPostedAction = "";
+let lastPostedActionAt = 0;
+
 async function postAction(action: string): Promise<boolean> {
+  const now = Date.now();
+  // Debounce identical back-to-back actions within 120ms (e.g. Cocoa NSMenuItem keyEquivalent click + webContents before-input-event)
+  if (action === lastPostedAction && now - lastPostedActionAt < 120) {
+    return true;
+  }
+  lastPostedAction = action;
+  lastPostedActionAt = now;
+
   // Flash for menu-click / shell-originated actions (don't wait for the
   // SPA's WebSocket round-trip of lastActionNonce). Deferred so it lands
   // after any concurrent refreshMenu from menu-state.
@@ -2145,27 +2156,24 @@ ipcMain.on("haptic-feedback", (_event, pattern: unknown) => {
   platform.hapticFeedback(p);
 });
 
-// Holds the currently open native context menu and its resolver so V8 cannot
-// garbage-collect the Menu / MenuItem instances before the click action is
-// dispatched.  Both pending handles are tracked explicitly so done() and
-// session replacement can cancel them deterministically — no stray timers.
+// Keep the native Menu alive until Cocoa reports that the top-level popup is
+// closed. Selection is captured directly by the item click handler; the close
+// callback only commits that already-known result (or null for dismissal).
 let activeContextMenuSession: {
   menu: Menu;
-  done: (id: string | null) => void;
-  /** Tracked setImmediate handle from the dismiss cascade. */
-  immediate: NodeJS.Immediate | null;
-  /** Tracked setTimeout handle from the dismiss cascade. */
-  timer: NodeJS.Timeout | null;
+  finish: (id: string | null) => void;
 } | null = null;
 
-// SPA → native context menu (mixer track menus, etc.). Returns chosen id
-// or null when dismissed / cancelled. Checkbox items use Electron's native
-// `type: "checkbox"` so the OS draws platform checkmarks (macOS NSMenu, etc.).
-ipcMain.handle(
+// SPA → native context menu. This is deliberately send/on rather than
+// invoke/handle: NSMenu runs a modal tracking loop on macOS, so an invoke
+// promise couples renderer progress to that loop and used to require racy
+// dismissal timers. requestId correlates concurrent/replaced requests.
+ipcMain.on(
   "show-context-menu",
-  async (
+  (
     event,
     payload: {
+      requestId?: number;
       items?: Array<
         | { type: "separator" }
         | {
@@ -2187,111 +2195,71 @@ ipcMain.handle(
       x?: number;
       y?: number;
     },
-  ): Promise<string | null> => {
-    // If a previous context menu was somehow still pending, cleanly settle it first.
+  ) => {
+    const requestId = payload?.requestId;
+    if (typeof requestId !== "number") return;
+
+    // A native window can own only one active popup. Resolve a replaced menu
+    // explicitly so the preload never retains an orphaned local Promise.
     if (activeContextMenuSession) {
-      if (activeContextMenuSession.immediate) {
-        clearImmediate(activeContextMenuSession.immediate);
-      }
-      if (activeContextMenuSession.timer) {
-        clearTimeout(activeContextMenuSession.timer);
-      }
-      activeContextMenuSession.done(null);
+      activeContextMenuSession.finish(null);
       activeContextMenuSession = null;
     }
 
     const win = BrowserWindow.fromWebContents(event.sender);
+    const sender = event.sender;
     const items = payload?.items ?? [];
-    return await new Promise((resolve) => {
-      let settled = false;
-      const done = (id: string | null) => {
-        // Cancel every pending cascade handle so nothing fires after settle.
-        if (activeContextMenuSession?.menu === menu) {
-          if (activeContextMenuSession.immediate) {
-            clearImmediate(activeContextMenuSession.immediate);
-            activeContextMenuSession.immediate = null;
-          }
-          if (activeContextMenuSession.timer) {
-            clearTimeout(activeContextMenuSession.timer);
-            activeContextMenuSession.timer = null;
-          }
-          activeContextMenuSession = null;
-        }
-        if (settled) return;
-        settled = true;
-        resolve(id);
-      };
-      const toTemplate = (rows: typeof items): MenuItemConstructorOptions[] =>
-        rows.map((it) => {
-          if (it.type === "separator") return { type: "separator" as const };
-          if (it.type === "submenu") {
-            return {
-              label: it.label,
-              enabled: !it.disabled,
-              submenu: toTemplate(it.items as typeof items),
-            };
-          }
-          const isCheckbox = typeof it.checked === "boolean";
+    let selectedId: string | null = null;
+    let settled = false;
+    let menu: Menu;
+    const finish = (id: string | null) => {
+      if (settled) return;
+      settled = true;
+      if (activeContextMenuSession?.menu === menu)
+        activeContextMenuSession = null;
+      if (!sender.isDestroyed())
+        sender.send("context-menu-result", { requestId, id });
+    };
+    const toTemplate = (rows: typeof items): MenuItemConstructorOptions[] =>
+      rows.map((it) => {
+        if (it.type === "separator") return { type: "separator" as const };
+        if (it.type === "submenu") {
           return {
             label: it.label,
             enabled: !it.disabled,
-            ...(isCheckbox
-              ? { type: "checkbox" as const, checked: it.checked }
-              : {}),
-            click: () => done(it.id),
+            submenu: toTemplate(it.items as typeof items),
           };
-        });
-      const template = toTemplate(items);
-      if (template.length === 0) {
-        done(null);
-        return;
-      }
-      const menu = Menu.buildFromTemplate(template);
-      activeContextMenuSession = {
-        menu,
-        done,
-        immediate: null,
-        timer: null,
-      };
-
-      menu.popup({
-        window: win ?? undefined,
-        x: typeof payload.x === "number" ? Math.round(payload.x) : undefined,
-        y: typeof payload.y === "number" ? Math.round(payload.y) : undefined,
-        callback: () => {
-          // macOS menuDidClose: fires before the NSMenuItem click action is
-          // dispatched through the Cocoa run-loop.  A fixed timeout (the old
-          // 600 ms approach) races the Node/libuv event-loop: under heavy
-          // load (high-rate UDP telemetry, rapid React renders) the timer
-          // could fire before Cocoa dispatched the action, resolving the
-          // promise with `null` and swallowing the click.
-          //
-          // Instead we use exactly two tracked handles:
-          //
-          //   1. setImmediate — libuv "check" phase, runs after I/O callbacks.
-          //      The Cocoa action integrates via libuv I/O, so in the common
-          //      case the click handler has already called done(id) by now and
-          //      the setImmediate callback exits on the `settled` guard.
-          //
-          //   2. setTimeout(150) — fallback for heavy event-loop contention.
-          //      Created only if setImmediate fires and settled is still false.
-          //
-          // Both handles are stored on the session and cancelled
-          // deterministically by done() — no untracked timers can linger.
-          const session = activeContextMenuSession;
-          if (!session || session.menu !== menu) return;
-
-          session.immediate = setImmediate(() => {
-            session.immediate = null;
-            if (settled) return;
-            session.timer = setTimeout(() => {
-              session.timer = null;
-              if (settled) return;
-              done(null);
-            }, 150);
-          });
-        },
+        }
+        const isCheckbox = typeof it.checked === "boolean";
+        return {
+          label: it.label,
+          enabled: !it.disabled,
+          ...(isCheckbox
+            ? { type: "checkbox" as const, checked: it.checked }
+            : {}),
+          click: () => {
+            selectedId = it.id;
+          },
+        };
       });
+    const template = toTemplate(items);
+    if (template.length === 0) {
+      finish(null);
+      return;
+    }
+    menu = Menu.buildFromTemplate(template);
+    activeContextMenuSession = { menu, finish };
+
+    menu.popup({
+      window: win ?? undefined,
+      x: typeof payload.x === "number" ? Math.round(payload.x) : undefined,
+      y: typeof payload.y === "number" ? Math.round(payload.y) : undefined,
+      callback: () => {
+        // Electron 41+ reports this only for the top-level popup. Refocus
+        // before React handles actions that open an inline prompt/modal.
+        if (win && !win.isDestroyed()) win.focus();
+        finish(selectedId);
+      },
     });
   },
 );

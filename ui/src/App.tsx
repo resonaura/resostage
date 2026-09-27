@@ -86,6 +86,8 @@ function useGlobalHotkeys(
   songsRef.current = state.songs;
   const songIndexRef = useRef(state.songIndex);
   songIndexRef.current = state.songIndex;
+  const lastSpaActionRef = useRef("");
+  const lastSpaActionAtRef = useRef(0);
 
   // When embedded in the native app, the MacKeyMonitor NSEvent handler
   // processes all key bindings natively (play/stop/next/prev/mode/section/
@@ -134,6 +136,7 @@ function useGlobalHotkeys(
     // installed, and only the binding loop inside it is gated.
     {
       const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.repeat) return;
         const target = e.target as HTMLElement | null;
         if (
           target &&
@@ -189,6 +192,16 @@ function useGlobalHotkeys(
           e.preventDefault();
           e.stopPropagation();
           const action = kb.action as ActionId;
+          const now = Date.now();
+          if (
+            action === lastSpaActionRef.current &&
+            now - lastSpaActionAtRef.current < 120
+          ) {
+            return;
+          }
+          lastSpaActionRef.current = action;
+          lastSpaActionAtRef.current = now;
+
           void apiFetch("/api/v1/action", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
