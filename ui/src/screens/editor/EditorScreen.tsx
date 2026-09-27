@@ -34,7 +34,8 @@ import { Timeline } from "../../components/timeline";
 import { PianoRoll } from "../../components/pianoroll";
 import { MidiRegionSidePanel } from "../../components/pianoroll/MidiRegionSidePanel";
 import { getTrackColor } from "../../components/timeline/constants";
-import { builder, mixer, transport } from "../../lib/state/api";
+import { songDurationSeconds } from "../../components/timeline/rows";
+import { builder, mixer, timelineHistory, transport } from "../../lib/state/api";
 import { useIsCompact } from "../../lib/interaction/useMediaQuery";
 import type {
   AllPeaksResponse,
@@ -839,6 +840,16 @@ export function EditorScreen({
                   void transport.seek(seekSec, state.songIndex);
                 }}
                 onNotesChange={handleNotesChange}
+                projectCycle={state.cycle}
+                projectSongIndex={state.songIndex}
+                projectSong={currentSong}
+                projectSongLength={songDurationSeconds(currentSong, peaks?.tracks)}
+                canUndo={Boolean(state.canUndo)}
+                canRedo={Boolean(state.canRedo)}
+                undoLabel={state.undoLabel}
+                redoLabel={state.redoLabel}
+                onUndo={() => void timelineHistory.undo()}
+                onRedo={() => void timelineHistory.redo()}
                 onRegionChange={(updated) => {
                   if (!midiRegions.some((region) => region.id === updated.id))
                     return;

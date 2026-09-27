@@ -1,6 +1,7 @@
 add_executable(resostage_engine_tests
   test_main.cpp
   test_master_clock.cpp
+  test_cycle_math.cpp
   test_routing_engine.cpp
   test_metering.cpp
   test_meter_envelope.cpp

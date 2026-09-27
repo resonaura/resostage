@@ -473,10 +473,10 @@ TEST_CASE("buildMixGraph: processor layout key ignores controls but tracks inser
     CHECK(fewerOutputGraph.latencyLayoutKey != originalLatency);
 
     p.tracks[0].plugins[0].bypassed = true;
-    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != original);
+    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey == original);
     p.tracks[0].plugins[0].bypassed = false;
     p.tracks[0].plugins[0].stateResource = "Plugins/slot-1.state";
-    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != original);
+    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey == original);
 
     p.tracks.push_back(TrackDef{});
     p.tracks.back().id = "audio::track:3";
@@ -559,4 +559,3 @@ TEST_CASE("MixGraph: mute overrides soloSafe") {
 
     CHECK_FALSE(bass.audible);
 }
-

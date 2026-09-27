@@ -330,7 +330,8 @@ void MainComponent::pluginSlotBypass(const std::string& json) {
                                                  : "Enable plug-in");
     found->bypassed = bypassed;
     engine.projectHistoryCommitEdit();
-    engine.notifyPluginChainsChanged();
+    engine.markDirty();
+    engine.setPluginSlotBypassed(slotId, bypassed);
     publishWebState();
 }
 
@@ -353,6 +354,7 @@ void MainComponent::pluginSlotKeepAwake(const std::string& json) {
                                                  : "Unpin plug-in awake");
     found->keepAwake = keepAwake;
     engine.projectHistoryCommitEdit();
+    engine.markDirty();
     if (auto bank = engine.activePluginProcessorBank()) {
         bank->setSlotKeepAwake(slotId, keepAwake);
     }

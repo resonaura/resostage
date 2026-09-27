@@ -65,15 +65,18 @@ void AudioEngine::schedulePluginBankRebuild() {
 }
 
 void AudioEngine::notifyPluginChainsChanged() {
+    markDirty();
     publishRoutingSnapshot();
 }
 
 void AudioEngine::servicePluginHostChanges() {
     const auto publication = std::atomic_load_explicit(
         &activePluginBank, std::memory_order_acquire);
-    if (publication != nullptr && publication->bank != nullptr
-        && publication->bank->consumeLatencyChange()) {
-        schedulePluginBankRebuild();
+    if (publication != nullptr && publication->bank != nullptr) {
+        if (publication->bank->consumeStateChange())
+            markDirty();
+        if (publication->bank->consumeLatencyChange())
+            schedulePluginBankRebuild();
     }
 }
 
@@ -81,6 +84,16 @@ std::shared_ptr<PluginProcessorBank> AudioEngine::activePluginProcessorBank() co
     const auto publication = std::atomic_load_explicit(
         &activePluginBank, std::memory_order_acquire);
     return publication != nullptr ? publication->bank : nullptr;
+}
+
+void AudioEngine::setPluginSlotBypassed(const std::string& slotId,
+                                        bool bypassed) {
+    if (auto bank = activePluginProcessorBank())
+        bank->setSlotBypassed(slotId, bypassed);
+    // Supersede a build that may already have snapshotted the previous bypass
+    // value (for example Add Instrument followed immediately by Power Off).
+    // Identical layouts reuse the live processor instances.
+    schedulePluginBankRebuild();
 }
 
 void AudioEngine::runPluginBankBuilder() {

@@ -14,6 +14,7 @@
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <vector>
 #include "project/Uuid.h"
@@ -452,6 +453,12 @@ void AudioEngine::syncTransportCycleFromProject() {
     cycleSkip.store(c.skip, std::memory_order_relaxed);
     cycleLeftSec.store(lo, std::memory_order_relaxed);
     cycleRightSec.store(hi, std::memory_order_relaxed);
+
+    // A project cycle must be able to jump back inside a device block. Give
+    // its source material resident-worker priority now, while there is still
+    // time before the right locator. The callback only takes the exact
+    // zero-I/O path once every active buffer has published its RAM window.
+    streaming.setActiveSongCycleRandomAccess(appliesHere && !c.skip);
 }
 
 bool AudioEngine::consumeCycleSeek(double& outSeconds) {
@@ -1181,6 +1188,8 @@ void AudioEngine::updateActiveMidiNote(size_t strip, int pitch, bool noteOn) {
 
 void AudioEngine::clearActiveMidiNotes() {
     for (auto& track : activeMidiNoteCounts) track.fill(0);
+    for (auto& track : sequencedMidiNoteCounts) track.fill(0);
+    sequencedMidiFlushAtBlockStart = false;
     activeMidiNotesWorkingFrame = {};
     activeMidiNotesFrame.write(activeMidiNotesWorkingFrame);
 }
@@ -1420,7 +1429,11 @@ void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds,
             continue;
 
         const double fireAtSeconds = ev.timeSeconds - (ev.latencyCompensationMs / 1000.0);
-        if (fireAtSeconds > blockEndSeconds)
+        // Blocks are half-open [start, end). An event exactly on `end`
+        // belongs to the next block; firing it here would put a right-locator
+        // event one sample before a cycle wrap and then fire it again at the
+        // left-side segment.
+        if (fireAtSeconds >= blockEndSeconds)
             continue;
 
         // Events already in the past when we get to them (e.g. several were
@@ -1599,6 +1612,11 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                         }
                         if (canSendToPlugin || canSendToExternalMidi)
                             updateActiveMidiNote(targetStripIndex, pitch, true);
+                        if (targetStripIndex < kMaxActiveMidiStrips) {
+                            auto& count = sequencedMidiNoteCounts[targetStripIndex][pitch];
+                            if (count < std::numeric_limits<uint8_t>::max())
+                                ++count;
+                        }
                         if (canSendToExternalMidi) {
                             const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
                             MidiCommand cmd;
@@ -1624,6 +1642,11 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                         }
                         if (canSendToPlugin || canSendToExternalMidi)
                             updateActiveMidiNote(targetStripIndex, pitch, false);
+                        if (targetStripIndex < kMaxActiveMidiStrips) {
+                            auto& count = sequencedMidiNoteCounts[targetStripIndex][pitch];
+                            if (count != 0)
+                                --count;
+                        }
                         if (canSendToExternalMidi) {
                             const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
                             MidiCommand cmd;

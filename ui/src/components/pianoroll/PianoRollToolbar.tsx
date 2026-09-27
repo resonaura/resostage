@@ -5,6 +5,7 @@ import {
   Locate,
   LocateFixed,
   LocateOff,
+  Magnet,
   MousePointer,
   MoveHorizontalIcon,
   MoveVerticalIcon,
@@ -13,9 +14,12 @@ import {
   Pencil,
   Repeat2,
   Scissors,
+  SquareSplitHorizontal,
   Sliders,
   Sparkles,
   Trash2,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { useState } from "react";
 import { Button, Slider, ToggleButton } from "../ui";
@@ -58,6 +62,16 @@ interface PianoRollToolbarProps {
   onOverlapTrim?: () => void;
   onTranspose: (semitones: number) => void;
   onDeleteSelected: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  undoLabel?: string | null;
+  redoLabel?: string | null;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onCutSelected?: () => void;
+  onSplitAtPlayhead?: () => void;
+  snapEnabled?: boolean;
+  onToggleSnap?: () => void;
   bottomLane?: PianoRollBottomLane;
   onBottomLaneChange?: (lane: PianoRollBottomLane) => void;
   // Zoom & Follow controls
@@ -116,6 +130,16 @@ export function PianoRollToolbar({
   onOverlapTrim,
   onTranspose,
   onDeleteSelected,
+  canUndo = false,
+  canRedo = false,
+  undoLabel,
+  redoLabel,
+  onUndo,
+  onRedo,
+  onCutSelected,
+  onSplitAtPlayhead,
+  snapEnabled,
+  onToggleSnap,
   bottomLane = "velocity",
   onBottomLaneChange,
   pixelsPerBeat,
@@ -136,6 +160,10 @@ export function PianoRollToolbar({
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-default/30 bg-default/10 px-3 py-1.5 text-xs select-none">
       {/* Tool Selector */}
       <div className="flex items-center gap-1">
+        {onUndo && <Button size="sm" variant="ghost" isDisabled={!canUndo} onPress={onUndo} aria-label={undoLabel ? `Undo: ${undoLabel}` : "Undo"} className="h-7 w-7 min-w-7 px-1"><Undo2 size={14} /></Button>}
+        {onRedo && <Button size="sm" variant="ghost" isDisabled={!canRedo} onPress={onRedo} aria-label={redoLabel ? `Redo: ${redoLabel}` : "Redo"} className="h-7 w-7 min-w-7 px-1"><Redo2 size={14} /></Button>}
+        {onCutSelected && <Button size="sm" variant="ghost" isDisabled={selectedCount === 0} onPress={onCutSelected} aria-label="Cut selected notes" className="h-7 w-7 min-w-7 px-1"><Scissors size={14} /></Button>}
+        {onSplitAtPlayhead && <Button size="sm" variant="ghost" onPress={onSplitAtPlayhead} aria-label="Split notes at playhead" className="h-7 w-7 min-w-7 px-1"><SquareSplitHorizontal size={14} /></Button>}
         <Button
           size="sm"
           variant={tool === "select" ? "secondary" : "outline"}
@@ -228,6 +256,11 @@ export function PianoRollToolbar({
           </>
         )}
         <Grid size={14} className="text-foreground/50" />
+        {onToggleSnap && (
+          <ToggleButton size="sm" isSelected={Boolean(snapEnabled)} onChange={onToggleSnap} aria-label={snapEnabled ? "Snap to grid: ON" : "Snap to grid: OFF"} className="h-7 w-7 min-w-7 px-1">
+            <Magnet size={14} />
+          </ToggleButton>
+        )}
         <span className="text-[11px] font-medium text-foreground/70">
           Snap:
         </span>

@@ -28,6 +28,7 @@ export interface MidiRegionBlockProps {
 export function MidiRegionBlock({
   midiRegion,
   songBpm,
+  rowColor,
   laneHeight,
   pxPerSec,
   dimmed = false,
@@ -120,19 +121,13 @@ export function MidiRegionBlock({
       className={`absolute top-1 bottom-1 select-none overflow-hidden rounded border transition-shadow ${
         isSelected
           ? "ring-2 ring-amber-400 border-amber-300 shadow-md z-20"
-          : "border-violet-400/70 hover:border-violet-200"
+          : "hover:brightness-115"
       } ${isDragging ? "opacity-90 shadow-lg z-30 cursor-grabbing" : "cursor-pointer"}`}
       style={{
         left: leftPx,
         width: widthPx,
-        backgroundColor: midiRegion.color
-          ? `${midiRegion.color}35`
-          : "rgba(139, 92, 246, 0.35)",
-        borderColor: isSelected
-          ? undefined
-          : midiRegion.color
-            ? `${midiRegion.color}90`
-            : undefined,
+        backgroundColor: `color-mix(in srgb, ${rowColor} 42%, var(--background))`,
+        borderColor: isSelected ? undefined : rowColor,
         opacity: dimmed || midiRegion.muted ? 0.35 : 1,
       }}
       title={`${midiRegion.name || "MIDI Region"} · Drag to move · Edges to trim · Double-click to edit in Piano Roll`}
@@ -177,12 +172,13 @@ export function MidiRegionBlock({
           return (
             <span
               key={`${note.id}:${iteration}:${displayStart}`}
-              className="absolute rounded-[1px] bg-white/80"
+              className="absolute rounded-[1px]"
               style={{
                 left: `${noteLeftPercent}%`,
                 width: `${noteWidthPercent}%`,
                 top: `${noteTop}px`,
                 height: `${noteHeight}px`,
+                backgroundColor: `color-mix(in srgb, ${rowColor} 30%, white)`,
                 opacity: 0.45 + note.velocity * 0.5,
               }}
             />

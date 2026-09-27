@@ -43,9 +43,7 @@ void hashSlots(uint64_t& hash, const std::vector<PluginSlot>& slots) {
     for (const auto& slot : slots) {
         hashBytes(hash, slot.id);
         hashBytes(hash, slot.plugin.identifier);
-        hashBytes(hash, slot.stateResource.value_or(std::string{}));
         hashByte(hash, slot.plugin.instrument ? 1u : 0u);
-        hashByte(hash, slot.bypassed ? 1u : 0u);
     }
 }
 

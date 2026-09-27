@@ -7,8 +7,12 @@
 
 #include "audio/peaks/PeakCache.h"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
+#include <cstdio>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -18,6 +22,90 @@
 #endif
 
 namespace resostage {
+
+namespace {
+
+using PluginStateReferences = std::vector<std::pair<std::string, std::string>>;
+
+PluginSlot* findPluginSlot(Project& project, const std::string& slotId) {
+    const auto findIn = [&slotId](std::vector<PluginSlot>& slots) -> PluginSlot* {
+        const auto it = std::find_if(slots.begin(), slots.end(),
+            [&slotId](const PluginSlot& slot) { return slot.id == slotId; });
+        return it == slots.end() ? nullptr : &*it;
+    };
+    if (auto* slot = findIn(project.main.plugins)) return slot;
+    if (auto* slot = findIn(project.click.plugins)) return slot;
+    for (auto& track : project.tracks)
+        if (auto* slot = findIn(track.plugins)) return slot;
+    for (auto& send : project.sends)
+        if (auto* slot = findIn(send.plugins)) return slot;
+    return nullptr;
+}
+
+std::string pluginStateResourceFor(const PluginSlot& slot) {
+    // Slot IDs are UUIDv7 today. Keep the fallback path portable for older
+    // projects that may contain punctuation not accepted in Windows names.
+    std::string filename = slot.id;
+    bool sanitized = false;
+    for (char& c : filename) {
+        const auto uc = static_cast<unsigned char>(c);
+        if (!std::isalnum(uc) && c != '-' && c != '_') {
+            c = '_';
+            sanitized = true;
+        }
+    }
+    if (filename.empty())
+        filename = "unnamed";
+    if (sanitized) {
+        uint64_t hash = 1469598103934665603ull;
+        for (const char raw : slot.id) {
+            const auto c = static_cast<unsigned char>(raw);
+            hash ^= c;
+            hash *= 1099511628211ull;
+        }
+        filename += "_" + std::to_string(hash);
+    }
+    return "Plugins/" + filename + ".state";
+}
+
+PluginStateReferences appendPluginStateFiles(
+    Project& project, std::vector<ProjectLoader::ExtraFile>& extras,
+    PluginProcessorBank::StateSnapshot&& state) {
+    for (const auto& warning : state.warnings)
+        std::fprintf(stderr, "[PluginState] %s\n", warning.c_str());
+
+    PluginStateReferences references;
+    references.reserve(state.blobs.size());
+    for (auto& blob : state.blobs) {
+        auto* slot = findPluginSlot(project, blob.slotId);
+        if (slot == nullptr)
+            continue;
+        const std::string resource = pluginStateResourceFor(*slot);
+        slot->stateResource = resource;
+        extras.push_back({resource, std::move(blob.data)});
+        references.emplace_back(blob.slotId, resource);
+    }
+    return references;
+}
+
+void applyPluginStateReferences(Project& project,
+                                const PluginStateReferences& references) {
+    for (const auto& [slotId, resource] : references)
+        if (auto* slot = findPluginSlot(project, slotId))
+            slot->stateResource = resource;
+}
+
+PluginProcessorBank::StateSnapshot capturePluginStatesOffThread(
+    const std::shared_ptr<PluginProcessorBank>& bank) {
+    PluginProcessorBank::StateSnapshot state;
+    if (bank == nullptr)
+        return state;
+    std::thread worker([&state, bank] { state = bank->snapshotStates(); });
+    worker.join();
+    return state;
+}
+
+} // namespace
 
 static void forceClearAttributes(const std::filesystem::path& p) {
 #if JUCE_WINDOWS
@@ -309,7 +397,12 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     const bool promotingDraft = usingDraftArchive && !overwriteOpen;
     const bool switchingToNewPath = !overwriteOpen && !promotingDraft;
     const std::string oldDraftPath = usingDraftArchive ? loader.archivePath() : std::string();
+    auto capturedPluginState = capturePluginStatesOffThread(
+        activePluginProcessorBank());
     Project snapshot = loader.project();
+    auto saveExtras = pendingPeakCacheExtras;
+    const auto pluginStateReferences = appendPluginStateFiles(
+        snapshot, saveExtras, std::move(capturedPluginState));
     std::string sourcePath = loader.archivePath();
     [[maybe_unused]] const bool isContainer = loader.isDirectoryContainer();
 #if JUCE_WINDOWS
@@ -327,7 +420,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     // ── Play-through overwrite (directory package, same path, while playing) ──
     if (playThroughOk) {
         const std::string tempOut = path + ".saving";
-        if (!loader.saveAsWithExtras(tempOut, pendingPeakCacheExtras, error, &snapshot))
+        if (!loader.saveAsWithExtras(tempOut, saveExtras, error, &snapshot))
             return false;
         const std::string aside = path + ".play-old";
         std::error_code ec;
@@ -352,6 +445,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
         forceRemoveAll(aside, ec);
         if (ec)
             staleSavePackages.push_back(aside);
+        applyPluginStateReferences(loader.project(), pluginStateReferences);
         usingDraftArchive = false;
         clearDirty();
         clearAutosave();
@@ -366,7 +460,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
 
     if (overwriteOpen || promotingDraft) {
         const std::string tempOut = path + ".new";
-        if (!loader.saveAsWithExtras(tempOut, pendingPeakCacheExtras, error, &snapshot))
+        if (!loader.saveAsWithExtras(tempOut, saveExtras, error, &snapshot))
             return false;
 
         loader.close();
@@ -392,7 +486,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             }
         }
     } else if (switchingToNewPath) {
-        if (!loader.saveAsWithExtras(path, pendingPeakCacheExtras, error, &snapshot))
+        if (!loader.saveAsWithExtras(path, saveExtras, error, &snapshot))
             return false;
         loader.close();
         if (!loader.open(path, error)) {
@@ -405,7 +499,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             forceRemoveAll(oldDraftPath, ec);
         }
     } else {
-        if (!loader.saveAsWithExtras(path, pendingPeakCacheExtras, error, &snapshot))
+        if (!loader.saveAsWithExtras(path, saveExtras, error, &snapshot))
             return false;
 
         if (!loader.isOpen()) {
@@ -417,6 +511,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     }
 
     projectLoaded = true;
+    applyPluginStateReferences(loader.project(), pluginStateReferences);
     publishRoutingSnapshot();
     streaming.start(&loader,
                     streamingIoThreadStart,
@@ -505,6 +600,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
 #endif
     Project snapshot = loader.project();
     auto extras = pendingPeakCacheExtras;
+    auto pluginBank = activePluginProcessorBank();
     const std::string tempOut = path + ".saving";
 
     // Heavy archive write off the message thread. Directory packages copy via
@@ -512,8 +608,13 @@ void AudioEngine::saveProjectAsync(const std::string& path,
     // openArchivePath, so streaming keeps the correct live path the whole time.
     saveThread = std::thread([this, path, tempOut, snapshot, extras, sourcePath, promotingDraft,
                               oldDraftPath, songToRestore, wasPlaying, playThroughOk, isContainer,
-                              onComplete]() mutable {
+                              pluginBank, onComplete]() mutable {
         std::string error;
+        auto pluginStateReferences = appendPluginStateFiles(
+            snapshot, extras,
+            pluginBank != nullptr
+                ? pluginBank->snapshotStates()
+                : PluginProcessorBank::StateSnapshot{});
         // Legacy ZIP shares mz_zip with streaming — serialize against IO.
         bool wrote = false;
         if (isContainer) {
@@ -526,6 +627,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
 
         juce::MessageManager::callAsync([this, wrote, error, path, tempOut, sourcePath, promotingDraft,
                                          oldDraftPath, songToRestore, wasPlaying, playThroughOk,
+                                         savedPluginStateReferences = std::move(pluginStateReferences),
                                          onComplete]() {
             namespace fs = std::filesystem;
             auto finish = [&](bool ok, const std::string& err) {
@@ -574,6 +676,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                 if (ec)
                     staleSavePackages.push_back(aside);
                 // openArchivePath already equals `path`.
+                applyPluginStateReferences(loader.project(), savedPluginStateReferences);
                 usingDraftArchive = false;
                 clearDirty();
                 clearAutosave();
@@ -615,6 +718,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
             }
 
             projectLoaded = true;
+            applyPluginStateReferences(loader.project(), savedPluginStateReferences);
             publishRoutingSnapshot();
             streaming.start(&loader,
                     streamingIoThreadStart,

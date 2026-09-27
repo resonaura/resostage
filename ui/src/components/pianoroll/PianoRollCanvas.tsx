@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MidiNoteRow, MidiRegionRow } from "../../lib/state/types";
+import type { MidiNoteRow, MidiRegionRow, SongRow } from "../../lib/state/types";
 import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
+import { RULER_HEIGHT } from "../timeline/constants";
+import { Ruler } from "../timeline/Ruler";
+import { CycleStrip } from "../timeline/CycleStrip";
+import type { CycleLocators } from "../timeline/useCycleState";
 import { triggerHaptic } from "../../lib/interaction/haptics";
+import { resolveCssVar } from "../../lib/theme/cssColor";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
 import {
   canvasYToPitch,
   generateNoteId,
@@ -23,8 +29,6 @@ import type {
   PianoRollViewport,
   ScaleMode,
 } from "./types";
-
-const RULER_HEIGHT = 26;
 
 function isPrimaryModifier(event: Pick<PointerEvent, "metaKey" | "ctrlKey">) {
   const usesMetaKey = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
@@ -56,34 +60,18 @@ interface PianoRollCanvasProps {
   followMode?: TimelineFollowMode;
   catchOnPlay?: boolean;
   catchOnSeek?: boolean;
+  projectCycle?: CycleLocators;
+  projectSong?: SongRow;
+  projectSongIndex?: number;
+  projectSongLength?: number;
+  projectCycleOwner?: boolean;
+  onCycleToggleActive?: () => void;
+  onCycleSetRange?: CycleStripProps["onSetRange"];
+  onCycleToggleSkip?: () => void;
+  onCycleDragEnd?: () => void;
 }
 
-function parseRgb(color?: string): [number, number, number] {
-  if (!color) return [59, 130, 246];
-  if (color.startsWith("#")) {
-    const hex = color.slice(1);
-    if (hex.length === 3) {
-      return [
-        parseInt(hex[0] + hex[0], 16),
-        parseInt(hex[1] + hex[1], 16),
-        parseInt(hex[2] + hex[2], 16),
-      ];
-    }
-    if (hex.length >= 6) {
-      return [
-        parseInt(hex.slice(0, 2), 16),
-        parseInt(hex.slice(2, 4), 16),
-        parseInt(hex.slice(4, 6), 16),
-      ];
-    }
-  } else if (color.startsWith("rgb")) {
-    const m = color.match(/\d+/g);
-    if (m && m.length >= 3) {
-      return [parseInt(m[0], 10), parseInt(m[1], 10), parseInt(m[2], 10)];
-    }
-  }
-  return [59, 130, 246];
-}
+type CycleStripProps = React.ComponentProps<typeof CycleStrip>;
 
 export function PianoRollCanvas({
   region,
@@ -110,18 +98,53 @@ export function PianoRollCanvas({
   followMode = "snap",
   catchOnPlay = true,
   catchOnSeek = true,
+  projectCycle,
+  projectSong,
+  projectSongIndex = 0,
+  projectSongLength = 0,
+  projectCycleOwner = false,
+  onCycleToggleActive,
+  onCycleSetRange,
+  onCycleToggleSkip,
+  onCycleDragEnd,
 }: PianoRollCanvasProps) {
+  const currentThemeVersion = useThemeVersion();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const spatialIndex = useRef(new SpatialNoteIndex(4.0, 12));
   const draggingRef = useRef<DraggingState | null>(null);
   const [hoveredPitch, setHoveredPitch] = useState<number | null>(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const projectPixelsPerSecond = viewport.pixelsPerBeat * (projectSong?.bpm || 120) / 60;
+  const projectScrollPx = (region.startBeats + viewport.scrollBeats) * viewport.pixelsPerBeat;
+  const projectContentWidth = projectSongLength * projectPixelsPerSecond;
 
   // Local working copy of notes during interactive drag to provide 120 FPS feedback
   // with zero network roundtrip latency or runaway accumulation.
   const [localNotes, setLocalNotes] = useState<MidiNoteRow[] | null>(null);
   const notesToRender = localNotes || region.notes;
+  const pendingCommitRef = useRef<MidiNoteRow[] | null>(null);
+
+  // Keep the optimistic canvas image until Core's authoritative region catches
+  // up. Clearing it on pointer-up used to flash the old note positions while
+  // the asynchronous HTTP command was still in flight.
+  useEffect(() => {
+    const pending = pendingCommitRef.current;
+    if (!pending || pending.length !== region.notes.length) return;
+    const committed = new Map(region.notes.map((note) => [note.id, note]));
+    const matches = pending.every((note) => {
+      const actual = committed.get(note.id);
+      return actual && actual.pitch === note.pitch &&
+        actual.startBeats === note.startBeats &&
+        actual.durationBeats === note.durationBeats &&
+        actual.velocity === note.velocity;
+    });
+    if (matches) {
+      pendingCommitRef.current = null;
+      setLocalNotes(null);
+    }
+  }, [region.notes]);
 
   // Auto-scroll loop state while dragging notes near canvas edges
   const autoScrollRafRef = useRef<number | null>(null);
@@ -400,6 +423,7 @@ export function PianoRollCanvas({
 
   // ── Render Loop ────────────────────────────────────────────────────────
   const render = useCallback(() => {
+    void currentThemeVersion;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -411,6 +435,17 @@ export function PianoRollCanvas({
     const gridTop = RULER_HEIGHT;
     const gridBottom = height - viewport.velocityLaneHeight;
     const gridHeight = gridBottom - gridTop;
+    const theme = {
+      background: resolveCssVar("--background", "#1f1f1f"),
+      backgroundSecondary: resolveCssVar("--background-secondary", "#282828"),
+      backgroundTertiary: resolveCssVar("--background-tertiary", "#303030"),
+      surface: resolveCssVar("--surface", "#eeeeee"),
+      border: resolveCssVar("--border", "#666666"),
+      foreground: resolveCssVar("--foreground", "#ffffff"),
+      muted: resolveCssVar("--muted", "#a0a0a0"),
+      accent: resolveCssVar("--accent", "#0485f7"),
+      accentForeground: resolveCssVar("--accent-foreground", "#ffffff"),
+    };
 
     ctx.save();
     ctx.scale(dpr, dpr);
@@ -427,20 +462,18 @@ export function PianoRollCanvas({
       127,
       Math.ceil(viewport.scrollPitch + gridHeight / viewport.pixelsPerPitch),
     );
-
     for (let p = minPitch; p <= maxPitch; ++p) {
       const y = pitchToY(p, height);
       const isBlack = isBlackKey(p);
       const inScale = isPitchInScale(p, rootNote, scaleMode);
-
+      // The editor grid deliberately uses only the dark theme field tokens.
+      // `surface*` is reserved for the physical piano keys below: using it in
+      // the grid made the whole editor read as a light panel in otherwise dark
+      // themes. Keep the scale hint, but make it a restrained dark contrast.
       if (isBlack) {
-        ctx.fillStyle = inScale
-          ? "rgba(25, 27, 33, 0.95)"
-          : "rgba(16, 17, 21, 0.95)";
+        ctx.fillStyle = inScale ? theme.backgroundSecondary : theme.background;
       } else {
-        ctx.fillStyle = inScale
-          ? "rgba(35, 38, 47, 0.85)"
-          : "rgba(24, 26, 31, 0.85)";
+        ctx.fillStyle = inScale ? theme.backgroundTertiary : theme.backgroundSecondary;
       }
       ctx.fillRect(
         viewport.keyWidth,
@@ -450,7 +483,7 @@ export function PianoRollCanvas({
       );
 
       // Pitch horizontal divider line
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+      ctx.strokeStyle = theme.backgroundTertiary;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(viewport.keyWidth, y + viewport.pixelsPerPitch);
@@ -462,22 +495,20 @@ export function PianoRollCanvas({
     const minBeat = Math.max(0, xToBeat(viewport.keyWidth));
     const maxBeat = xToBeat(width);
     const beatsPerBar = Math.max(1, Math.round(timeSignatureNumerator));
-    const startBar = Math.floor(minBeat / beatsPerBar);
-    const endBar = Math.ceil(maxBeat / beatsPerBar);
+    const startBar = Math.floor((region.startBeats + minBeat) / beatsPerBar);
+    const endBar = Math.ceil((region.startBeats + maxBeat) / beatsPerBar);
 
     for (let bar = startBar; bar <= endBar; ++bar) {
       for (let b = 0; b < beatsPerBar; ++b) {
         const beatNum = bar * beatsPerBar + b;
-        const x = beatToX(beatNum);
+        const x = beatToX(beatNum - region.startBeats);
         if (x < viewport.keyWidth || x > width) continue;
 
         const isBarLine = b === 0;
         ctx.beginPath();
         ctx.moveTo(x, gridTop);
         ctx.lineTo(x, gridBottom);
-        ctx.strokeStyle = isBarLine
-          ? "rgba(255, 255, 255, 0.18)"
-          : "rgba(255, 255, 255, 0.06)";
+        ctx.strokeStyle = isBarLine ? theme.border : theme.backgroundTertiary;
         ctx.lineWidth = isBarLine ? 1.5 : 1;
         ctx.stroke();
       }
@@ -492,7 +523,7 @@ export function PianoRollCanvas({
       const lastRepeat = Math.ceil(Math.min(maxBeat, region.durationBeats) / region.loopLengthBeats);
       ctx.save();
       ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = "rgba(59, 130, 246, 0.55)";
+      ctx.strokeStyle = theme.accent;
       ctx.lineWidth = 1;
       for (let repeat = firstRepeat; repeat <= lastRepeat; repeat += 1) {
         const x = beatToX(repeat * region.loopLengthBeats);
@@ -507,8 +538,10 @@ export function PianoRollCanvas({
 
     // ── 3. Ghost Notes (from companion tracks) ────────────────────────────
     if (showGhostNotes && companionRegions.length > 0) {
-      ctx.fillStyle = "rgba(160, 174, 192, 0.18)";
-      ctx.strokeStyle = "rgba(160, 174, 192, 0.35)";
+      // Ghost notes are a solid, subdued theme field—not a translucent or
+      // light surface—so they stay subordinate to editable track-colour notes.
+      ctx.fillStyle = theme.backgroundTertiary;
+      ctx.strokeStyle = theme.border;
       ctx.lineWidth = 1;
 
       for (const comp of companionRegions) {
@@ -569,8 +602,6 @@ export function PianoRollCanvas({
     };
     const visibleNotes = expandLoopViews(sourceVisibleNotes);
     const timeVisibleNotes = expandLoopViews(sourceTimeVisibleNotes);
-    const [baseR, baseG, baseB] = parseRgb(trackColor);
-
     for (const { note, beat: noteBeat } of visibleNotes) {
       const isSelected = selectedNoteIds.has(note.id);
       const x = beatToX(noteBeat);
@@ -578,15 +609,10 @@ export function PianoRollCanvas({
       const w = Math.max(4, note.durationBeats * viewport.pixelsPerBeat);
       const h = Math.max(4, viewport.pixelsPerPitch - 2);
 
-      const vel = Math.max(0.1, Math.min(1.0, note.velocity));
-      const factor = 0.5 + 0.5 * vel;
-      const nr = Math.min(255, Math.round(baseR * factor));
-      const ng = Math.min(255, Math.round(baseG * factor));
-      const nb = Math.min(255, Math.round(baseB * factor));
-
+      ctx.save();
       ctx.fillStyle = isSelected
-        ? "#ffd60a" // Logic Pro warm amber/gold for selected notes
-        : `rgb(${nr}, ${ng}, ${nb})`;
+        ? theme.accent
+        : (trackColor || theme.accent);
 
       // Rounded rect note body
       ctx.beginPath();
@@ -594,15 +620,13 @@ export function PianoRollCanvas({
       ctx.fill();
 
       // Border styling
-      ctx.strokeStyle = isSelected
-        ? "rgba(255, 255, 255, 0.95)"
-        : "rgba(0, 0, 0, 0.45)";
+      ctx.strokeStyle = isSelected ? theme.accentForeground : theme.border;
       ctx.lineWidth = isSelected ? 2 : 1;
       ctx.stroke();
 
       // Dynamic LOD: note pitch name and velocity
       if (w >= 24 && viewport.pixelsPerPitch >= 12) {
-        ctx.fillStyle = isSelected ? "#000000" : "#ffffff";
+        ctx.fillStyle = isSelected ? theme.accentForeground : theme.foreground;
         ctx.font = "bold 9px sans-serif";
         const name = pitchToName(note.pitch);
         if (w >= 54 && viewport.pixelsPerPitch >= 15) {
@@ -612,6 +636,7 @@ export function PianoRollCanvas({
           ctx.fillText(name, x + 4, y + h - 2);
         }
       }
+      ctx.restore();
     }
 
     // ── 5. Marquee Selection Box ─────────────────────────────────────────
@@ -628,8 +653,8 @@ export function PianoRollCanvas({
         pitchToY(Math.min(startPitch, currentPitch), height) +
         viewport.pixelsPerPitch;
 
-      ctx.fillStyle = "rgba(59, 130, 246, 0.15)";
-      ctx.strokeStyle = "rgba(59, 130, 246, 0.85)";
+      ctx.fillStyle = theme.backgroundTertiary;
+      ctx.strokeStyle = theme.accent;
       ctx.lineWidth = 1;
       ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
@@ -643,7 +668,7 @@ export function PianoRollCanvas({
     ctx.rect(0, gridTop, viewport.keyWidth, gridHeight);
     ctx.clip();
 
-    ctx.fillStyle = "#121418";
+    ctx.fillStyle = theme.backgroundSecondary;
     ctx.fillRect(0, gridTop, viewport.keyWidth, gridHeight);
 
     for (let p = minPitch; p <= maxPitch; ++p) {
@@ -652,20 +677,23 @@ export function PianoRollCanvas({
       const isC = p % 12 === 0;
 
       if (p === hoveredPitch) {
-        ctx.fillStyle = "#3b82f6";
+        ctx.fillStyle = theme.accent;
       } else if (activeMidiPitches.has(p)) {
-        ctx.fillStyle = isBlack ? "#9a5b00" : "#ffd166";
+        ctx.fillStyle = trackColor || theme.accent;
       } else {
-        ctx.fillStyle = isBlack ? "#1e2128" : "#f1f3f5";
+        // The left keyboard is deliberately physical-key coloured rather
+        // than themed like the editor field: white naturals and black
+        // accidentals remain immediately legible in every application theme.
+        ctx.fillStyle = isBlack ? "#171717" : "#f7f7f5";
       }
       ctx.fillRect(0, y, viewport.keyWidth - 1, viewport.pixelsPerPitch);
 
-      ctx.strokeStyle = "#0b0c0e";
+      ctx.strokeStyle = "#393939";
       ctx.lineWidth = 1;
       ctx.strokeRect(0, y, viewport.keyWidth - 1, viewport.pixelsPerPitch);
 
       if (isC) {
-        ctx.fillStyle = "#1e2128";
+        ctx.fillStyle = isBlack ? "#f7f7f5" : "#171717";
         ctx.font = "bold 9px sans-serif";
         ctx.fillText(pitchToName(p), 4, y + viewport.pixelsPerPitch - 4);
       }
@@ -674,7 +702,7 @@ export function PianoRollCanvas({
     ctx.restore(); // Restore keyboard clipping
 
     // Key / Grid vertical separator
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.strokeStyle = theme.border;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(viewport.keyWidth - 0.5, 0);
@@ -682,87 +710,36 @@ export function PianoRollCanvas({
     ctx.stroke();
 
     // ── 7. Timeline Ruler Header (Top Bar: 0 .. RULER_HEIGHT) ─────────────
-    ctx.fillStyle = "#14161c";
+    ctx.fillStyle = theme.backgroundTertiary;
     ctx.fillRect(viewport.keyWidth, 0, width - viewport.keyWidth, RULER_HEIGHT);
 
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+    ctx.strokeStyle = theme.border;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(viewport.keyWidth, RULER_HEIGHT - 0.5);
     ctx.lineTo(width, RULER_HEIGHT - 0.5);
     ctx.stroke();
 
-    // Loop range indicator if region loops
-    if (region.loop && region.loopLengthBeats > 0) {
-      const loopStartX = Math.max(viewport.keyWidth, beatToX(0));
-      const loopEndX = Math.min(
-        width,
-        beatToX(Math.max(region.loopLengthBeats, region.durationBeats)),
-      );
-      if (loopEndX > loopStartX) {
-        ctx.fillStyle = "rgba(59, 130, 246, 0.14)";
-        ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, RULER_HEIGHT - 1);
-        ctx.fillStyle = "#3b82f6";
-        ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, 2);
-      }
-    }
-
-    // Ruler bar and beat markings
-    for (let bar = startBar; bar <= endBar; ++bar) {
-      for (let b = 0; b < beatsPerBar; ++b) {
-        const beatNum = bar * beatsPerBar + b;
-        const x = beatToX(beatNum);
-        if (x < viewport.keyWidth || x > width) continue;
-
-        const isBar = b === 0;
-        if (isBar) {
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, RULER_HEIGHT);
-          ctx.stroke();
-
-          ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-          ctx.font = "bold 10px sans-serif";
-          ctx.fillText(`${bar + 1}`, x + 5, 14);
-        } else {
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(x, RULER_HEIGHT - 7);
-          ctx.lineTo(x, RULER_HEIGHT);
-          ctx.stroke();
-
-          if (viewport.pixelsPerBeat >= 70) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-            ctx.font = "9px sans-serif";
-            ctx.fillText(`${bar + 1}.${b + 1}`, x + 3, 13);
-          }
-        }
-      }
-    }
-
     // Top-left corner cell (above piano keys)
-    ctx.fillStyle = "#101216";
+    ctx.fillStyle = theme.backgroundSecondary;
     ctx.fillRect(0, 0, viewport.keyWidth, RULER_HEIGHT);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.strokeStyle = theme.border;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, RULER_HEIGHT - 0.5);
     ctx.lineTo(viewport.keyWidth, RULER_HEIGHT - 0.5);
     ctx.stroke();
 
-    ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.fillStyle = theme.muted;
     ctx.font = "bold 9px sans-serif";
     ctx.fillText("KEYS", 8, 16);
 
     // ── 8. Bottom Lane (Velocity or CC Automation) ─────────────────────────
     const laneY = gridBottom;
-    ctx.fillStyle = "#0e1014";
+    ctx.fillStyle = theme.backgroundSecondary;
     ctx.fillRect(0, laneY, width, viewport.velocityLaneHeight);
 
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.strokeStyle = theme.border;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, laneY);
@@ -770,7 +747,7 @@ export function PianoRollCanvas({
     ctx.stroke();
 
     if (bottomLane === "velocity") {
-      ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.fillStyle = theme.muted;
       ctx.font = "9px sans-serif";
       ctx.fillText("VELOCITY", 8, laneY + 14);
 
@@ -782,15 +759,15 @@ export function PianoRollCanvas({
         const stalkBottom = height - 4;
         const stalkTop = stalkBottom - stalkHeight;
 
-        const velColor = trackColor || "#3b82f6";
-        ctx.strokeStyle = isSelected ? "#ffd60a" : velColor;
+        const velColor = trackColor || theme.accent;
+        ctx.strokeStyle = isSelected ? theme.accent : velColor;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(x, stalkBottom);
         ctx.lineTo(x, stalkTop);
         ctx.stroke();
 
-        ctx.fillStyle = isSelected ? "#ffd60a" : velColor;
+        ctx.fillStyle = isSelected ? theme.accent : velColor;
         ctx.beginPath();
         ctx.arc(x, stalkTop, 3.5, 0, Math.PI * 2);
         ctx.fill();
@@ -804,7 +781,7 @@ export function PianoRollCanvas({
       };
       const title = laneLabels[bottomLane] || bottomLane.toUpperCase();
 
-      ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.fillStyle = theme.muted;
       ctx.font = "9px sans-serif";
       ctx.fillText(title, 8, laneY + 14);
 
@@ -813,7 +790,7 @@ export function PianoRollCanvas({
       const botY = height - 6;
       const midY = (topY + botY) / 2;
 
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.strokeStyle = theme.border;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(viewport.keyWidth, topY);
@@ -829,7 +806,7 @@ export function PianoRollCanvas({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+      ctx.fillStyle = theme.muted;
       ctx.font = "8px sans-serif";
       ctx.fillText(isPB ? "+8191" : "127", 6, topY + 4);
       ctx.fillText(isPB ? "0" : "64", 6, midY + 3);
@@ -852,7 +829,7 @@ export function PianoRollCanvas({
           return botY - norm * (botY - topY);
         };
 
-        ctx.strokeStyle = "#38bdf8";
+        ctx.strokeStyle = theme.accent;
         ctx.lineWidth = 2;
         ctx.beginPath();
         sorted.forEach((pt, idx) => {
@@ -864,62 +841,23 @@ export function PianoRollCanvas({
         ctx.stroke();
 
         if (sorted.length > 1) {
-          ctx.fillStyle = "rgba(56, 189, 248, 0.12)";
-          ctx.beginPath();
-          const firstX = beatToX(sorted[0].timeBeats);
-          const lastX = beatToX(sorted[sorted.length - 1].timeBeats);
-          ctx.moveTo(firstX, botY);
-          sorted.forEach((pt) => {
-            ctx.lineTo(beatToX(pt.timeBeats), valToY(pt.value));
-          });
-          ctx.lineTo(lastX, botY);
-          ctx.closePath();
-          ctx.fill();
+          // Keep automation previews crisp and theme-solid; translucent
+          // underlays made the whole editor appear washed out.
         }
 
         for (const pt of sorted) {
           const px = beatToX(pt.timeBeats);
           const py = valToY(pt.value);
           if (px >= viewport.keyWidth - 4 && px <= width + 4) {
-            ctx.fillStyle = "#38bdf8";
+            ctx.fillStyle = theme.accent;
             ctx.beginPath();
             ctx.arc(px, py, 3, 0, Math.PI * 2);
             ctx.fill();
-            ctx.strokeStyle = "#ffffff";
+            ctx.strokeStyle = theme.accentForeground;
             ctx.lineWidth = 1;
             ctx.stroke();
           }
         }
-      }
-    }
-
-    // ── 9. Playhead Line & Ruler Triangle Badge ────────────────────────────
-    if (playheadBeats !== undefined) {
-      const px = beatToX(playheadBeats);
-      if (px >= viewport.keyWidth - 6 && px <= width + 6) {
-        // Red vertical playhead line through grid and bottom lane
-        ctx.strokeStyle = "#ef4444";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(px, RULER_HEIGHT);
-        ctx.lineTo(px, height);
-        ctx.stroke();
-
-        // Ruler downward playhead badge
-        ctx.fillStyle = "#ef4444";
-        ctx.beginPath();
-        ctx.moveTo(px - 6, 2);
-        ctx.lineTo(px + 6, 2);
-        ctx.lineTo(px + 6, RULER_HEIGHT - 8);
-        ctx.lineTo(px, RULER_HEIGHT - 1);
-        ctx.lineTo(px - 6, RULER_HEIGHT - 8);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(px, 7, 1.8, 0, Math.PI * 2);
-        ctx.fill();
       }
     }
 
@@ -938,6 +876,7 @@ export function PianoRollCanvas({
     timeSignatureNumerator,
     hoveredPitch,
     trackColor,
+    currentThemeVersion,
     beatToX,
     xToBeat,
     pitchToY,
@@ -952,6 +891,7 @@ export function PianoRollCanvas({
 
       const rect = container.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
+      setCanvasSize({ width: rect.width, height: rect.height });
       canvas.width = Math.floor(rect.width * dpr);
       canvas.height = Math.floor(rect.height * dpr);
       render();
@@ -1154,6 +1094,7 @@ export function PianoRollCanvas({
 
   // ── Pointer Down Interaction ───────────────────────────────────────────
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.stopPropagation();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -1461,6 +1402,7 @@ export function PianoRollCanvas({
 
   // ── Pointer Move Interaction ───────────────────────────────────────────
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.stopPropagation();
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -1676,6 +1618,7 @@ export function PianoRollCanvas({
 
   // ── Pointer Up Interaction ─────────────────────────────────────────────
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.stopPropagation();
     stopAutoScroll();
 
     const canvas = canvasRef.current;
@@ -1689,18 +1632,21 @@ export function PianoRollCanvas({
         (dragging.type === "move" || dragging.type === "resize") &&
         localNotes
       ) {
+        pendingCommitRef.current = localNotes;
         onNotesChange(localNotes);
         triggerHaptic("generic");
+      } else {
+        pendingCommitRef.current = null;
+        setLocalNotes(null);
       }
     }
-
-    setLocalNotes(null);
     draggingRef.current = null;
     setHoveredPitch(null);
     render();
   };
 
   const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.stopPropagation();
     stopAutoScroll();
     const canvas = canvasRef.current;
     if (canvas?.hasPointerCapture(e.pointerId)) {
@@ -1709,6 +1655,7 @@ export function PianoRollCanvas({
     // A cancelled gesture must not leave a speculative local preview or a
     // running RAF loop behind. The authoritative notes were not committed.
     setLocalNotes(null);
+    pendingCommitRef.current = null;
     draggingRef.current = null;
     lastDragDetentRef.current = null;
     render();
@@ -1719,6 +1666,52 @@ export function PianoRollCanvas({
       ref={containerRef}
       className="relative h-full w-full overflow-hidden select-none bg-background"
     >
+      {projectSong && projectCycle && projectSongLength > 0 && (
+        <div
+          className="pointer-events-none absolute top-0 z-20 h-9 overflow-hidden"
+          style={{ left: viewport.keyWidth, right: 0 }}
+        >
+          <div className="relative h-full" style={{ left: -projectScrollPx, width: projectContentWidth }}>
+            <Ruler
+              layer="backdrop"
+              pxPerSec={projectPixelsPerSecond}
+              contentWidth={projectContentWidth}
+              songLength={projectSongLength}
+              bpm={projectSong.bpm || 120}
+              tsNum={projectSong.tsNum || timeSignatureNumerator}
+              scrollLeft={projectScrollPx}
+              viewportWidth={Math.max(1, canvasSize.width - viewport.keyWidth)}
+            />
+            {onCycleToggleActive && onCycleSetRange && onCycleToggleSkip && (
+              <CycleStrip
+                song={projectSong}
+                songIndex={projectSongIndex}
+                songLength={projectSongLength}
+                pxPerSec={projectPixelsPerSecond}
+                cycle={projectCycle}
+                ownsCycle={projectCycleOwner}
+                bpm={projectSong.bpm || 120}
+                tsNum={projectSong.tsNum || timeSignatureNumerator}
+                snapToGrid={snap > 0}
+                onToggleActive={onCycleToggleActive}
+                onSetRange={onCycleSetRange}
+                onToggleSkip={onCycleToggleSkip}
+                onDragEnd={onCycleDragEnd}
+              />
+            )}
+            <Ruler
+              layer="labels"
+              pxPerSec={projectPixelsPerSecond}
+              contentWidth={projectContentWidth}
+              songLength={projectSongLength}
+              bpm={projectSong.bpm || 120}
+              tsNum={projectSong.tsNum || timeSignatureNumerator}
+              scrollLeft={projectScrollPx}
+              viewportWidth={Math.max(1, canvasSize.width - viewport.keyWidth)}
+            />
+          </div>
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         onPointerDown={handlePointerDown}
@@ -1727,6 +1720,17 @@ export function PianoRollCanvas({
         onPointerCancel={handlePointerCancel}
         className="block h-full w-full touch-none"
       />
+      {playheadBeats !== undefined && (
+        <div
+          className="pointer-events-none absolute inset-y-0 z-50 w-0"
+          style={{ left: beatToX(playheadBeats) }}
+        >
+          <div className="absolute inset-y-0 left-0 w-[1.5px] -translate-x-1/2 bg-white shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+          <div className="absolute left-0 top-0 -translate-x-1/2">
+            <div className="h-0 w-0 border-x-[5px] border-t-[7px] border-x-transparent border-t-white" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

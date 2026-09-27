@@ -49,6 +49,9 @@ export function useTimelineKeyboard({
     if (readOnly) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
+      // Piano Roll owns note-level copy/cut/paste and selection shortcuts.
+      // Do not also apply arrangement-region commands to its focused canvas.
+      if (t?.closest("[data-pianoroll]")) return;
       if (
         t &&
         (t.tagName === "INPUT" ||

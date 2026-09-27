@@ -985,6 +985,32 @@ bool StreamingEngine::seekActiveSongTo(int64_t deviceFrame, std::string& error, 
     return true;
 }
 
+void StreamingEngine::setActiveSongCycleRandomAccess(bool enabled) {
+    // `StagedSong` is immutable after publication; its vector only contains
+    // shared file buffers. The flag on each buffer is atomic, so this remains
+    // safe while the audio and resident workers hold the same active snapshot.
+    const auto s = std::atomic_load_explicit(&active, std::memory_order_acquire);
+    if (s == nullptr)
+        return;
+    for (const auto& buf : s->buffers) {
+        if (buf != nullptr)
+            buf->setCycleRandomAccess(enabled);
+    }
+}
+
+bool StreamingEngine::activeSongFullyResident() const {
+    // The snapshot keeps every buffer alive for this check. A song with no
+    // audio is trivially ready for an exact MIDI/click cycle.
+    const auto s = std::atomic_load_explicit(&active, std::memory_order_acquire);
+    if (s == nullptr)
+        return false;
+    for (const auto& buf : s->buffers) {
+        if (buf != nullptr && !buf->isResident())
+            return false;
+    }
+    return true;
+}
+
 bool StreamingEngine::isPrecacheWarm(size_t songIndex, double minSeconds, double deviceSampleRate) const {
     if (deviceSampleRate <= 0.0)
         deviceSampleRate = 48000.0;

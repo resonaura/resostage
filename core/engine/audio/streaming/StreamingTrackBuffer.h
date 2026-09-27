@@ -49,7 +49,11 @@ public:
         needsRandomAccess.store(v, std::memory_order_relaxed);
     }
     bool wantsRandomAccess() const {
-        return needsRandomAccess.load(std::memory_order_relaxed);
+        return needsRandomAccess.load(std::memory_order_relaxed)
+            || cycleRandomAccess.load(std::memory_order_relaxed);
+    }
+    void setCycleRandomAccess(bool v) {
+        cycleRandomAccess.store(v, std::memory_order_relaxed);
     }
 
     void setPreferredResidentWindow(int64_t deviceStart, int64_t deviceLength);
@@ -222,6 +226,9 @@ private:
 
     // Serializes open/refill/hardSeek/commit-resident against each other.
     std::atomic<bool> needsRandomAccess{false};
+    // Independent from region speed/reverse: disabling the project cycle must
+    // not accidentally remove a region's own random-access requirement.
+    std::atomic<bool> cycleRandomAccess{false};
 
     // Never held on the audio-thread read() hot path when resident.
     mutable std::mutex diskIoMutex;

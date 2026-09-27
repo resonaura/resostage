@@ -91,6 +91,16 @@ private:
  */
 class PluginProcessorBank final : private juce::AudioProcessorListener {
 public:
+    struct StateBlob {
+        std::string slotId;
+        std::vector<uint8_t> data;
+    };
+
+    struct StateSnapshot {
+        std::vector<StateBlob> blobs;
+        std::vector<std::string> warnings;
+    };
+
     struct BuildResult {
         std::shared_ptr<PluginProcessorBank> bank;
         std::shared_ptr<PluginDelayBank> delayBank;
@@ -125,6 +135,15 @@ public:
     bool consumeLatencyChange() noexcept {
         return latencyChangePending.exchange(false, std::memory_order_acq_rel);
     }
+    bool consumeStateChange() noexcept {
+        return stateChangePending.exchange(false, std::memory_order_acq_rel);
+    }
+    /**
+     * Captures opaque vendor state away from the audio thread. Each processor
+     * is bypassed independently while its blob is read; the callback never
+     * waits for the snapshot worker.
+     */
+    StateSnapshot snapshotStates();
     /** Creates a vendor editor on the JUCE message thread for one live slot. */
     std::unique_ptr<juce::AudioProcessorEditor> createEditor(
         const std::string& slotId);
@@ -146,6 +165,8 @@ public:
     /** Real-time parameter automation methods (zero-allocation, non-blocking). */
     void setPluginParameter(size_t stripIndex, size_t slotIndex, int paramIndex, float value) noexcept;
     bool setPluginParameterBySlotId(const std::string& slotId, int paramIndex, float value) noexcept;
+    /** Message-thread bypass update; preserves the live vendor instance. */
+    bool setSlotBypassed(const std::string& slotId, bool bypassed) noexcept;
 
     /** Power management inspection and control (Phase 5). */
     PluginPowerState getSlotPowerState(const std::string& slotId) const noexcept;
@@ -165,7 +186,7 @@ private:
     static void processChain(void* context, float* left, float* right,
                              int numSamples) noexcept;
     void audioProcessorParameterChanged(juce::AudioProcessor*, int,
-                                        float) override {}
+                                        float) override;
     void audioProcessorChanged(
         juce::AudioProcessor*,
         const juce::AudioProcessorListener::ChangeDetails& details) override;
@@ -178,6 +199,11 @@ private:
     double maximumTailSeconds = 0.0;
     bool hasAnyPlugins = false;
     std::atomic<bool> latencyChangePending{false};
+    std::atomic<bool> stateChangePending{false};
+    // Timeline/MIDI-learn automation must not make the project look edited.
+    // JUCE parameter notifications are normally synchronous with setValue().
+    std::atomic<uint32_t> hostParameterWrites{0};
+    std::atomic<bool> stateSerializationInProgress{false};
 };
 
 } // namespace resostage

@@ -156,6 +156,15 @@ the mathematical click therefore use the same sample index. `MasterClock`
 also maintains a drift-corrected monotonic projection so MIDI/DMX scheduling
 and telemetry continue advancing if the device callback temporarily stops.
 
+Project-cycle playback uses a half-open `[left, right)` sample range. Enabling
+a loop marks the active song's buffers as priority random-access material for
+the resident worker. Once resident, the audio callback splits a hardware block
+that crosses `right`, renders its remainder immediately from `left`, and uses
+absolute modulo sample arithmetic rather than an accumulated floating phase.
+This path must not perform a message-thread seek, stream handoff, global MIDI
+all-notes-off, or allocation. Only sequenced notes that cross the locator are
+released; independently held live-input notes remain active.
+
 Host timestamps must be in the same nanosecond epoch as
 `SystemMonotonicClock`. In particular, JUCE/CoreAudio exposes raw Mach ticks
 through a misleadingly named field; always use `ticksToNanos()` before mixing
@@ -274,7 +283,14 @@ Preserve these rules:
   callback, timeline MIDI events within the block are stamped with sample
   offsets and deposited into the strip's preallocated MIDI buffer before
   processing; the chain clears its MIDI buffer immediately after execution
-  without heap allocation. Intelligent power management (`PluginPowerManager`)
+  without heap allocation. Project saves capture each live processor's opaque
+  vendor state on the save worker and store it as `Plugins/<slot>.state`; a
+  per-node atomic gate makes the callback bypass only that processor while its
+  state is read, so the audio thread never waits for serialization. User-originated
+  parameter and program notifications mark the project dirty; host automation is
+  suppressed from that dirty signal. Slot bypass is an atomic live-bank property:
+  toggling power calls `processBlockBypassed` without rebuilding the processor bank
+  or replacing the vendor instance. Intelligent power management (`PluginPowerManager`)
   monitors strip signal activity via preallocated envelope followers, automatically
   suspending processing during silence while preserving tail decay and waking up
   ahead of upcoming audio/MIDI regions. Software Instrument slot on instrument tracks

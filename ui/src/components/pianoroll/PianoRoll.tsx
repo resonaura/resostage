@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PianoRollCanvas } from "./PianoRollCanvas";
 import { PianoRollToolbar } from "./PianoRollToolbar";
-import { applyLegato, applyOverlapTrim } from "./pianoRollModel";
+import { applyLegato, applyOverlapTrim, generateNoteId, sliceNote } from "./pianoRollModel";
 import { snapPitchToScale } from "./scales";
 import { getRegionActivePitches } from "../midi/activeMidiPitches";
+import type { MidiNoteRow } from "../../lib/state/types";
 import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
+import { useCycleState } from "../timeline/useCycleState";
+import { timelineHistory } from "../../lib/state/api";
+import { getTrackColor } from "../timeline/constants";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
@@ -41,13 +46,26 @@ export function PianoRoll({
   onSeek,
   onNotesChange,
   onRegionChange,
+  canUndo = false,
+  canRedo = false,
+  undoLabel,
+  redoLabel,
+  onUndo,
+  onRedo,
+  projectCycle,
+  projectSongIndex = 0,
+  projectSong,
+  projectSongLength = 0,
   className = "",
 }: PianoRollProps) {
+  useThemeVersion();
+  const projectCycleState = useCycleState(projectSongIndex, projectSongLength, projectCycle);
   // Selection is the safe/default editing gesture. Drawing remains one key
   // press away (B), but opening a region must never make a plain click create
   // or resize notes when the user only meant to inspect one.
   const [tool, setTool] = useState<PianoRollTool>("select");
   const [snap, setSnap] = useState<GridSnapValue>(0.25); // 1/16 Beat default
+  const [lastSnap, setLastSnap] = useState<GridSnapValue>(0.25);
   const [rootNote, setRootNote] = useState<number>(0); // C
   const [scaleMode, setScaleMode] = useState<ScaleMode>("minor");
   const [snapToScale, setSnapToScale] = useState<boolean>(false);
@@ -55,6 +73,7 @@ export function PianoRoll({
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<number>>(
     new Set(),
   );
+  const [noteClipboard, setNoteClipboard] = useState<MidiNoteRow[]>([]);
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
 
@@ -102,7 +121,10 @@ export function PianoRoll({
     });
   }, []);
 
-  const effectiveTrackColor = trackColor || "#0485f7";
+  const trackColorIndex = tracks?.findIndex((candidate) => candidate.id === track?.id) ?? -1;
+  const effectiveTrackColor = trackColorIndex >= 0
+    ? getTrackColor(trackColorIndex)
+    : trackColor || getTrackColor(0);
   const activeMidiPitches = useMemo(
     () => new Set([
       ...getRegionActivePitches(
@@ -132,6 +154,49 @@ export function PianoRoll({
     onNotesChange(remaining);
     setSelectedNoteIds(new Set());
   }, [region.notes, selectedNoteIds, onNotesChange]);
+
+  const handleCutSelected = useCallback(() => {
+    if (selectedNoteIds.size === 0) return;
+    const copied = region.notes.filter((note) => selectedNoteIds.has(note.id));
+    setNoteClipboard(copied.map((note) => ({ ...note })));
+    onNotesChange(region.notes.filter((note) => !selectedNoteIds.has(note.id)));
+    setSelectedNoteIds(new Set());
+  }, [region.notes, selectedNoteIds, onNotesChange]);
+
+  const handlePasteNotes = useCallback(() => {
+    if (noteClipboard.length === 0) return;
+    const sourceStart = Math.min(...noteClipboard.map((note) => note.startBeats));
+    const pasteStart = Math.max(0, playheadBeats ?? sourceStart);
+    const pasted = noteClipboard.map((note) => ({
+      ...note,
+      id: generateNoteId(),
+      startBeats: pasteStart + note.startBeats - sourceStart,
+    }));
+    onNotesChange([...region.notes, ...pasted]);
+    setSelectedNoteIds(new Set(pasted.map((note) => note.id)));
+  }, [noteClipboard, playheadBeats, region.notes, onNotesChange]);
+
+  const handleSplitAtPlayhead = useCallback(() => {
+    const beat = Math.max(0, playheadBeats ?? 0);
+    const targets = selectedNoteIds.size > 0
+      ? region.notes.filter((note) => selectedNoteIds.has(note.id))
+      : region.notes.filter((note) => beat > note.startBeats && beat < note.startBeats + note.durationBeats);
+    if (targets.length === 0) return;
+    const targetIds = new Set(targets.map((note) => note.id));
+    const updated: MidiNoteRow[] = [];
+    const newIds = new Set<number>();
+    for (const note of region.notes) {
+      if (!targetIds.has(note.id)) { updated.push(note); continue; }
+      const split = sliceNote(note, beat);
+      if (!split) { updated.push(note); continue; }
+      updated.push(...split);
+      newIds.add(split[0].id);
+      newIds.add(split[1].id);
+    }
+    if (updated.length === region.notes.length) return;
+    onNotesChange(updated);
+    setSelectedNoteIds(newIds);
+  }, [playheadBeats, selectedNoteIds, region.notes, onNotesChange]);
 
   // Quantize selected notes (or all if none selected)
   const handleQuantize = useCallback(() => {
@@ -220,6 +285,21 @@ export function PianoRoll({
     ],
   );
 
+  // Nudge follows the Piano Roll's own snap division (in beats). Like
+  // transpose, an empty selection intentionally targets the whole region.
+  const handleNudge = useCallback(
+    (direction: -1 | 1) => {
+      const targetIds = selectedNoteIds.size > 0
+        ? selectedNoteIds
+        : new Set(region.notes.map((note) => note.id));
+      const amount = snap > 0 ? snap : 0.25;
+      onNotesChange(region.notes.map((note) => targetIds.has(note.id)
+        ? { ...note, startBeats: Math.max(0, note.startBeats + direction * amount) }
+        : note));
+    },
+    [selectedNoteIds, region.notes, snap, onNotesChange],
+  );
+
   // Force Legato
   const handleLegato = useCallback(() => {
     const updated = applyLegato(region.notes, selectedNoteIds);
@@ -269,21 +349,40 @@ export function PianoRoll({
       } else if (hasPrimaryModifier(e) && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
         setSelectedNoteIds(new Set(region.notes.map((n) => n.id)));
-      } else if (e.key === "ArrowUp") {
+      } else if (hasPrimaryModifier(e) && (e.key === "x" || e.key === "X")) {
         e.preventDefault();
-        handleTranspose(hasPrimaryModifier(e) || e.shiftKey ? 12 : 1);
-      } else if (e.key === "ArrowDown") {
+        e.stopPropagation();
+        handleCutSelected();
+      } else if (hasPrimaryModifier(e) && (e.key === "c" || e.key === "C")) {
         e.preventDefault();
-        handleTranspose(hasPrimaryModifier(e) || e.shiftKey ? -12 : -1);
+        e.stopPropagation();
+        setNoteClipboard(region.notes.filter((note) => selectedNoteIds.has(note.id)).map((note) => ({ ...note })));
+      } else if (hasPrimaryModifier(e) && (e.key === "v" || e.key === "V")) {
+        e.preventDefault();
+        e.stopPropagation();
+        handlePasteNotes();
+      } else if (e.altKey && e.key === "ArrowUp") {
+        e.preventDefault();
+        handleTranspose(e.shiftKey ? 12 : 1);
+      } else if (e.altKey && e.key === "ArrowDown") {
+        e.preventDefault();
+        handleTranspose(e.shiftKey ? -12 : -1);
+      } else if (e.altKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        handleNudge(-1);
+      } else if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        handleNudge(1);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleDeleteSelected, handleQuantize, handleTranspose, region.notes]);
+  }, [handleDeleteSelected, handleCutSelected, handlePasteNotes, handleQuantize, handleTranspose, handleNudge, region.notes, selectedNoteIds]);
 
   return (
     <div
+      data-pianoroll="true"
       className={`flex flex-col h-full w-full bg-background border border-default/30 rounded-lg overflow-hidden ${className}`}
     >
       {/* Header / Region & Track metadata */}
@@ -426,7 +525,12 @@ export function PianoRoll({
         tool={tool}
         onToolChange={setTool}
         snap={snap}
-        onSnapChange={setSnap}
+        onSnapChange={(value) => {
+          setSnap(value);
+          if (value > 0) setLastSnap(value);
+        }}
+        snapEnabled={snap > 0}
+        onToggleSnap={() => setSnap((current) => current > 0 ? 0 : lastSnap)}
         scaleMode={scaleMode}
         onScaleModeChange={setScaleMode}
         rootNote={rootNote}
@@ -470,6 +574,14 @@ export function PianoRoll({
         onOverlapTrim={handleOverlapTrim}
         onTranspose={handleTranspose}
         onDeleteSelected={handleDeleteSelected}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        undoLabel={undoLabel}
+        redoLabel={redoLabel}
+        onUndo={onUndo ?? (() => void timelineHistory.undo())}
+        onRedo={onRedo ?? (() => void timelineHistory.redo())}
+        onCutSelected={handleCutSelected}
+        onSplitAtPlayhead={handleSplitAtPlayhead}
         bottomLane={bottomLane}
         onBottomLaneChange={setBottomLane}
         pixelsPerBeat={viewport.pixelsPerBeat}
@@ -527,6 +639,15 @@ export function PianoRoll({
           followMode={followMode}
           catchOnPlay={catchOnPlay}
           catchOnSeek={catchOnSeek}
+          projectCycle={projectCycleState.cycle}
+          projectSong={projectSong}
+          projectSongIndex={projectSongIndex}
+          projectSongLength={projectSongLength}
+          projectCycleOwner={projectCycleState.cycle.songIndex === projectSongIndex}
+          onCycleToggleActive={projectCycleState.toggleActive}
+          onCycleSetRange={projectCycleState.setRange}
+          onCycleToggleSkip={projectCycleState.toggleSkip}
+          onCycleDragEnd={projectCycleState.commitDrag}
         />
       </div>
       {loopLengthDraft !== null && (

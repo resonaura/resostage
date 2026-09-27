@@ -10,8 +10,10 @@
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
+#include "timing/CycleMath.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -22,6 +24,18 @@ using audio_engine_detail::dbToGain;
 using audio_engine_detail::shapedFadeGain;
 using audio_engine_detail::kRingBufferSeconds;
 using audio_engine_detail::purgeStaleDrafts;
+
+namespace {
+// The normal device callback is deliberately monolithic: it owns the one
+// graph snapshot, scratch lifetime and physical-output write for a block. At
+// an exact project-cycle boundary we invoke that same bounded renderer for the
+// two contiguous portions of the device block. This guard prevents either
+// child render from attempting to split itself again.
+thread_local bool gRenderingExactCycleSegment = false;
+thread_local int gExactCycleSegmentOrdinal = 0;
+thread_local int gExactCycleRootSamples = 0;
+thread_local uint64_t gExactCycleHostOffsetNanos = 0;
+}
 
 AudioEngine::AudioEngine() {
     trackToAudioRecordSession.fill(-1);
@@ -791,7 +805,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         double startWallMs;
         double startCpuMs;
         double deadlineMs;
+        bool enabled;
         ~CallbackTimer() {
+            if (!enabled)
+                return;
             const double endWallMs =
                 static_cast<double>(SystemMonotonicClock{}.nowNanos()) / 1.0e6;
             into.record(endWallMs - startWallMs, currentThreadCpuMillis() - startCpuMs,
@@ -802,7 +819,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                     currentThreadCpuMillis(),
                     currentSampleRate > 0.0
                         ? 1000.0 * static_cast<double>(numSamples) / currentSampleRate
-                        : 0.0};
+                        : 0.0,
+                    !gRenderingExactCycleSegment};
 
     for (int ch = 0; ch < numOutputChannels; ++ch)
         if (outputChannelData[ch] != nullptr)
@@ -822,9 +840,120 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     // billions of samples ahead within the first couple of callbacks and
     // immediately trips the song-end-reached check -- i.e. "press Play, it
     // jumps to some timestamp and stops instantly, nothing audible plays".
-    const uint64_t hostTimeNanos = (context.hostTimeNs != nullptr)
-                                        ? SystemMonotonicClock::ticksToNanos(*context.hostTimeNs)
-                                        : SystemMonotonicClock{}.nowNanos();
+    const uint64_t baseHostTimeNanos = (context.hostTimeNs != nullptr)
+                                            ? SystemMonotonicClock::ticksToNanos(*context.hostTimeNs)
+                                            : SystemMonotonicClock{}.nowNanos();
+    const uint64_t hostTimeNanos = baseHostTimeNanos + gExactCycleHostOffsetNanos;
+
+    // A message-thread seek is intrinsically the wrong primitive for a cycle:
+    // it waits for a later UI tick, parks stream reads and requests a global
+    // all-notes-off. That is audible as a seam, truncates a held live-MIDI
+    // note, and can never be sample-exact. Once the cycle material is resident
+    // (the resident worker is prioritised when the locator is enabled), split
+    // THIS device block at the exact sample instead. Both children use the
+    // usual renderer, so plug-ins, MIDI regions and the click see a genuine
+    // [left, right) timeline rather than a visual-only playhead jump.
+    const bool mayRenderExactCycle =
+        !gRenderingExactCycleSegment
+        && numSamples > 0
+        && numInputChannels >= 0
+        && numOutputChannels >= 0
+        && numInputChannels <= static_cast<int>(kMaxSupportedOutputChannels)
+        && numOutputChannels <= static_cast<int>(kMaxSupportedOutputChannels)
+        && currentSampleRate > 0.0
+        && clock.isRunning()
+        && playing.load(std::memory_order_acquire)
+        && cycleActive.load(std::memory_order_relaxed)
+        && !cycleSkip.load(std::memory_order_relaxed)
+        && streaming.activeSongFullyResident();
+    if (mayRenderExactCycle) {
+        double leftSec = cycleLeftSec.load(std::memory_order_relaxed);
+        double rightSec = cycleRightSec.load(std::memory_order_relaxed);
+        if (rightSec < leftSec)
+            std::swap(leftSec, rightSec);
+        const int64_t leftSample = static_cast<int64_t>(std::llround(leftSec * currentSampleRate));
+        const int64_t rightSample = static_cast<int64_t>(std::llround(rightSec * currentSampleRate));
+        const int64_t cycleLength = rightSample - leftSample;
+        const int64_t blockStart = hwSamplePosition.load(std::memory_order_relaxed);
+
+        if (cycleLength > 0 && blockStart >= rightSample) {
+            // A locator can be enabled or edited while the clock is already
+            // past its right edge. Normalise before rendering, preserving the
+            // overshoot rather than accumulating a frame of drift per lap.
+            const int64_t wrapped = wrapCycleSample(blockStart, leftSample, rightSample);
+            std::array<const float*, kMaxSupportedOutputChannels> in{};
+            std::array<float*, kMaxSupportedOutputChannels> out{};
+            for (int ch = 0; ch < numInputChannels; ++ch)
+                in[static_cast<size_t>(ch)] = inputChannelData != nullptr ? inputChannelData[ch] : nullptr;
+            for (int ch = 0; ch < numOutputChannels; ++ch)
+                out[static_cast<size_t>(ch)] = outputChannelData != nullptr ? outputChannelData[ch] : nullptr;
+
+            hwSamplePosition.store(wrapped, std::memory_order_relaxed);
+            clock.start(currentSampleRate, wrapped);
+            lastCallbackHostNanos = 0;
+            sequencedMidiFlushAtBlockStart = true;
+            systemHealth.noteAudioCallback();
+            gRenderingExactCycleSegment = true;
+            gExactCycleSegmentOrdinal = 0;
+            gExactCycleRootSamples = numSamples;
+            gExactCycleHostOffsetNanos = 0;
+            audioDeviceIOCallbackWithContext(in.data(), numInputChannels, out.data(),
+                                             numOutputChannels, numSamples, context);
+            gRenderingExactCycleSegment = false;
+            gExactCycleRootSamples = 0;
+            gExactCycleHostOffsetNanos = 0;
+            lastCallbackHostNanos = baseHostTimeNanos;
+            return;
+        }
+
+        const int64_t blockEnd = blockStart + numSamples;
+        if (cycleLength > 0 && blockStart < rightSample && blockEnd > rightSample) {
+            const int firstSamples = static_cast<int>(rightSample - blockStart);
+            const int secondSamples = numSamples - firstSamples;
+            std::array<const float*, kMaxSupportedOutputChannels> firstIn{};
+            std::array<const float*, kMaxSupportedOutputChannels> secondIn{};
+            std::array<float*, kMaxSupportedOutputChannels> firstOut{};
+            std::array<float*, kMaxSupportedOutputChannels> secondOut{};
+            for (int ch = 0; ch < numInputChannels; ++ch) {
+                const float* input = inputChannelData != nullptr ? inputChannelData[ch] : nullptr;
+                firstIn[static_cast<size_t>(ch)] = input;
+                secondIn[static_cast<size_t>(ch)] = input != nullptr ? input + firstSamples : nullptr;
+            }
+            for (int ch = 0; ch < numOutputChannels; ++ch) {
+                float* output = outputChannelData != nullptr ? outputChannelData[ch] : nullptr;
+                firstOut[static_cast<size_t>(ch)] = output;
+                secondOut[static_cast<size_t>(ch)] = output != nullptr ? output + firstSamples : nullptr;
+            }
+
+            // First render ends at `rightSample` (exclusive); reset the
+            // hardware-domain transport to the left locator and render the
+            // remainder immediately into the latter part of the same driver
+            // buffer. No stream handoff, async task or silence is involved.
+            hwSamplePosition.store(blockStart, std::memory_order_relaxed);
+            systemHealth.noteAudioCallback();
+            gRenderingExactCycleSegment = true;
+            gExactCycleSegmentOrdinal = 0;
+            gExactCycleRootSamples = numSamples;
+            gExactCycleHostOffsetNanos = 0;
+            audioDeviceIOCallbackWithContext(firstIn.data(), numInputChannels, firstOut.data(),
+                                             numOutputChannels, firstSamples, context);
+            hwSamplePosition.store(leftSample, std::memory_order_relaxed);
+            clock.start(currentSampleRate, leftSample);
+            lastCallbackHostNanos = 0;
+            sequencedMidiFlushAtBlockStart = true;
+            gExactCycleSegmentOrdinal = 1;
+            gExactCycleHostOffsetNanos = static_cast<uint64_t>(std::llround(
+                (static_cast<double>(firstSamples) / currentSampleRate) * 1.0e9));
+            audioDeviceIOCallbackWithContext(secondIn.data(), numInputChannels, secondOut.data(),
+                                             numOutputChannels, secondSamples, context);
+            gRenderingExactCycleSegment = false;
+            gExactCycleRootSamples = 0;
+            gExactCycleHostOffsetNanos = 0;
+            lastCallbackHostNanos = baseHostTimeNanos;
+            return;
+        }
+    }
+
     // Sample-accurate render playhead for THIS block. Driven by the free-run
     // hardware counter (incremented once per callback while the transport
     // clock is running), NOT by MasterClock's wall-clock free-run projection.
@@ -845,14 +974,21 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         renderPlayheadSample = hwPos;
     }
 
-    systemHealth.noteAudioCallback();
+    if (!gRenderingExactCycleSegment)
+        systemHealth.noteAudioCallback();
     // Underrun heuristic: gap between consecutive callbacks more than 2.5x the
     // expected block duration (or an explicit simulateUnderrun stall).
     // Skip while the transport clock is stopped -- gapless handoff deliberately
     // parks the clock for a few blocks and must not look like a dropout.
     bool underrunThisCallback = false;
-    if (clockRunning && lastCallbackHostNanos != 0 && currentSampleRate > 0.0 && numSamples > 0) {
-        const double expectedNs = (static_cast<double>(numSamples) / currentSampleRate) * 1.0e9;
+    const bool measureCallbackGap =
+        !gRenderingExactCycleSegment || gExactCycleSegmentOrdinal == 0;
+    if (measureCallbackGap && clockRunning && lastCallbackHostNanos != 0
+        && currentSampleRate > 0.0 && numSamples > 0) {
+        const int deadlineSamples = gRenderingExactCycleSegment
+            ? gExactCycleRootSamples : numSamples;
+        const double expectedNs =
+            (static_cast<double>(deadlineSamples) / currentSampleRate) * 1.0e9;
         const double gapNs = static_cast<double>(hostTimeNanos - lastCallbackHostNanos);
         if (gapNs > expectedNs * 2.5 || stallMs > 0.0) {
             systemHealth.noteUnderrun();
@@ -862,14 +998,16 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         }
     }
     // After an underrun gap, start a short fade-in so recovery isn't a click.
-    if (lastCallbackWasUnderrun && !underrunThisCallback) {
-        outputHeldSilent = false;
-        recoveryFadeInLength = kUnderrunFadeSamples;
-        recoveryFadeInRemaining = kUnderrunFadeSamples;
+    if (measureCallbackGap) {
+        if (lastCallbackWasUnderrun && !underrunThisCallback) {
+            outputHeldSilent = false;
+            recoveryFadeInLength = kUnderrunFadeSamples;
+            recoveryFadeInRemaining = kUnderrunFadeSamples;
+        }
+        lastCallbackWasUnderrun = underrunThisCallback;
+        if (clockRunning)
+            lastCallbackHostNanos = hostTimeNanos;
     }
-    lastCallbackWasUnderrun = underrunThisCallback;
-    if (clockRunning)
-        lastCallbackHostNanos = hostTimeNanos;
 
     // Telemetry prefers the sample-accurate render position while playing so
     // the UI playhead tracks the actual audio, not a wall-clock estimate.
@@ -1106,6 +1244,59 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         if (pluginPublication->bank->consumeAllNotesOff()) {
             pluginPublication->bank->injectAllNotesOff();
         }
+    }
+
+    if (sequencedMidiFlushAtBlockStart) {
+        // Release only notes emitted by MIDI regions. A blanket all-notes-off
+        // here used to terminate live notes held on other focused/monitored
+        // synths at every lap. These targeted offs also prevent a region note
+        // whose authored end lies beyond the right locator from accumulating
+        // one stuck voice (and one lit preview key) per cycle.
+        const double latencySec = resostage::outputLatencySeconds(
+            currentOutputLatencySamples.load(std::memory_order_relaxed)
+                + pluginLatencyForBlock,
+            currentSampleRate);
+        for (size_t strip = 0;
+             strip < kMaxActiveMidiStrips && strip < trackIdByIndex.size();
+             ++strip) {
+            const TrackDef* track = trackDefAt(strip);
+            const bool external = track != nullptr
+                && (track->kind == TrackKind::ExternalMIDI
+                    || track->kind == TrackKind::MIDI);
+            for (int pitch = 0; pitch < 128; ++pitch) {
+                auto& count = sequencedMidiNoteCounts[strip][static_cast<size_t>(pitch)];
+                while (count != 0) {
+                    if (pluginPublication != nullptr
+                        && pluginPublication->bank != nullptr
+                        && pluginPublication->bank->stripHasInstrument(strip)) {
+                        pluginPublication->bank->addStripMidiEvent(
+                            strip, juce::MidiMessage::noteOff(1, pitch), 0);
+                    }
+                    if (external) {
+                        MidiCommand cmd;
+                        cmd.kind = MidiCommandKind::NoteOff;
+                        cmd.channel = 0;
+                        cmd.data1 = static_cast<uint8_t>(pitch);
+                        cmd.data2 = 0;
+                        cmd.targetHostTimeNanos = heardHostNanos(
+                            hostTimeNanos, 0.0, latencySec);
+                        midiDispatcher.enqueue(cmd);
+                    }
+                    updateActiveMidiNote(strip, pitch, false);
+                    --count;
+                }
+            }
+        }
+        if (currentSong < proj.songs.size()) {
+            const auto& events = proj.songs[currentSong].events;
+            const double cycleLeft = cycleLeftSec.load(std::memory_order_relaxed);
+            const size_t count = std::min(events.size(), eventFiredFlags.size());
+            for (size_t i = 0; i < count; ++i) {
+                if (!events[i].triggerOnLoad)
+                    eventFiredFlags[i] = events[i].timeSeconds < cycleLeft ? 1 : 0;
+            }
+        }
+        sequencedMidiFlushAtBlockStart = false;
     }
 
     if (pluginProcessors.strips != nullptr) {
@@ -1345,7 +1536,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                             });
                         }
                     }
-                } else if (blockStartSeconds < hi && blockEndSeconds >= hi) {
+                } else if (blockStartSeconds < hi && blockEndSeconds > hi) {
                     // Loop: crossing the right locator → jump to left.
                     const uint64_t epoch = cycleEpoch.load(std::memory_order_relaxed);
                     pendingCycleSeekSec.store(lo, std::memory_order_release);
@@ -2247,6 +2438,30 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             playing.store(false, std::memory_order_release);
             clock.stop();
             pendingSongEndAction = SongEndAction::None;
+        }
+    }
+
+    // If the right locator landed exactly on the device-block end there was
+    // no second segment to render above. Canonicalise the transport now so
+    // the next callback starts at the left locator and the stored position
+    // cannot accumulate even a single sample over thousands of iterations.
+    if (isPlaying
+        && cycleActive.load(std::memory_order_relaxed)
+        && !cycleSkip.load(std::memory_order_relaxed)
+        && streaming.activeSongFullyResident()) {
+        double leftSec = cycleLeftSec.load(std::memory_order_relaxed);
+        double rightSec = cycleRightSec.load(std::memory_order_relaxed);
+        if (rightSec < leftSec)
+            std::swap(leftSec, rightSec);
+        const int64_t leftSample = static_cast<int64_t>(std::llround(leftSec * currentSampleRate));
+        const int64_t rightSample = static_cast<int64_t>(std::llround(rightSec * currentSampleRate));
+        const int64_t cycleLength = rightSample - leftSample;
+        const int64_t nextSample = hwSamplePosition.load(std::memory_order_relaxed);
+        if (cycleLength > 0 && nextSample >= rightSample) {
+            const int64_t wrapped = wrapCycleSample(nextSample, leftSample, rightSample);
+            hwSamplePosition.store(wrapped, std::memory_order_relaxed);
+            clock.start(currentSampleRate, wrapped);
+            sequencedMidiFlushAtBlockStart = true;
         }
     }
 

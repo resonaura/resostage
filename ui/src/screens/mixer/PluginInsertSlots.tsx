@@ -1,4 +1,4 @@
-import { SlidersHorizontal, X } from "lucide-react";
+import { Power, SlidersHorizontal, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   ContextMenu,
@@ -89,6 +89,7 @@ export function PluginInsertSlots({
   onOpenChain,
   density = "standard",
   targetSlotCount,
+  accentColor,
 }: {
   stripId: string;
   stripName: string;
@@ -97,6 +98,7 @@ export function PluginInsertSlots({
   onOpenChain: () => void;
   density?: "narrow" | "standard" | "wide";
   targetSlotCount?: number;
+  accentColor?: string;
 }) {
   const [menu, setMenu] = useState<SlotMenu | null>(null);
   const groups = useMemo(() => groupEffects(catalog), [catalog]);
@@ -157,67 +159,83 @@ export function PluginInsertSlots({
         >
           {Array.from({ length: rowCount }, (_, index) => {
             const slot = slots[index] ?? null;
-            return (
-              <button
-                key={slot?.id ?? `empty-${index}`}
-                type="button"
-                title={
-                  slot
-                    ? `${slot.name} · click to open editor, right-click for options`
-                    : `Empty FX ${index + 1} · add effect`
-                }
-                aria-label={
-                  slot
-                    ? `${slot.name}, slot ${index + 1}`
-                    : `Empty FX slot ${index + 1}`
-                }
-                onClick={(event) => {
-                  if (slot) {
-                    void pluginChains.openEditor(stripId, slot.id);
-                  } else {
-                    openEmptySlot(event, index);
-                  }
-                }}
-                onContextMenu={(event) => openMenu(event, slot, index)}
-                className={`group/slot relative mb-0.5 flex h-[1.15rem] w-full items-center rounded-lg border px-1 text-left text-[8px] leading-none transition-colors last:mb-0 ${
-                  slot
-                    ? slot.bypassed
-                      ? "border-default/20 bg-default/10 text-foreground/35"
-                      : "border-accent/30 bg-accent/10 text-foreground/75 hover:bg-accent/15"
-                    : "border-default/20 bg-surface/35 text-foreground/30 hover:border-default/45 hover:bg-default/10"
-                }`}
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {slot
-                    ? slot.name
-                    : isNarrow
+            if (!slot) {
+              return (
+                <button
+                  key={`empty-${index}`}
+                  type="button"
+                  title={`Empty FX ${index + 1} · add effect`}
+                  aria-label={`Empty FX slot ${index + 1}`}
+                  onClick={(event) => openEmptySlot(event, index)}
+                  onContextMenu={(event) => openMenu(event, null, index)}
+                  className="mb-0.5 flex h-[1.15rem] w-full items-center rounded-lg border border-default/20 bg-surface/35 px-1 text-left text-[8px] leading-none text-foreground/30 transition-colors last:mb-0 hover:border-default/45 hover:bg-default/10"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {isNarrow
                       ? "+"
                       : slots.length === 0
                         ? "+ Audio FX"
                         : `+ FX ${index + 1}`}
-                </span>
-                {slot ? (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    title={`Remove ${slot.name}`}
-                    aria-label={`Remove ${slot.name}`}
-                    className="ml-0.5 inline-flex h-3 w-3 shrink-0 items-center justify-center rounded text-foreground/40 opacity-0 transition-opacity hover:bg-danger/20 hover:text-danger group-hover/slot:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void pluginChains.remove(stripId, slot.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.stopPropagation();
-                        void pluginChains.remove(stripId, slot.id);
-                      }
-                    }}
-                  >
-                    <X size={9} strokeWidth={2.5} />
                   </span>
-                ) : null}
-              </button>
+                </button>
+              );
+            }
+            return (
+              <div
+                key={slot?.id ?? `empty-${index}`}
+                title={`${slot.name} · click to open editor, right-click for options`}
+                aria-label={`${slot.name}, slot ${index + 1}`}
+                onContextMenu={(event) => openMenu(event, slot, index)}
+                className={`group/slot relative mb-0.5 flex h-[1.15rem] w-full items-center overflow-hidden rounded-lg border text-left text-[8px] leading-none transition-colors last:mb-0 ${
+                  slot.bypassed
+                    ? "border-default/20 bg-default/10 text-foreground/35"
+                    : "text-foreground/75"
+                }`}
+                style={
+                  slot.bypassed
+                    ? undefined
+                    : {
+                        borderColor: `color-mix(in srgb, ${accentColor ?? "var(--accent)"} 45%, transparent)`,
+                        backgroundColor: `color-mix(in srgb, ${accentColor ?? "var(--accent)"} 12%, var(--background))`,
+                      }
+                }
+              >
+                <button
+                  type="button"
+                  title={slot.bypassed ? `Enable ${slot.name}` : `Bypass ${slot.name}`}
+                  aria-label={slot.bypassed ? `Enable ${slot.name}` : `Bypass ${slot.name}`}
+                  className="flex h-full w-5 shrink-0 items-center justify-center border-r border-default/30 transition-colors hover:bg-foreground/10"
+                  style={{
+                    color: slot.bypassed
+                      ? "var(--muted)"
+                      : accentColor,
+                  }}
+                  onClick={() =>
+                    void pluginChains.setBypassed(stripId, slot.id, !slot.bypassed)
+                  }
+                >
+                  <Power size={9} strokeWidth={2.5} />
+                </button>
+                <button
+                  type="button"
+                  className="h-full min-w-0 flex-1 truncate px-1 text-left"
+                  onClick={() => void pluginChains.openEditor(stripId, slot.id)}
+                >
+                  {slot.name}
+                </button>
+                <button
+                  type="button"
+                  title={`Remove ${slot.name}`}
+                  aria-label={`Remove ${slot.name}`}
+                  className="mr-0.5 inline-flex h-3 w-3 shrink-0 items-center justify-center rounded text-foreground/40 opacity-0 transition-opacity hover:bg-danger/20 hover:text-danger group-hover/slot:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void pluginChains.remove(stripId, slot.id);
+                  }}
+                >
+                  <X size={9} strokeWidth={2.5} />
+                </button>
+              </div>
             );
           })}
         </div>

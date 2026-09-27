@@ -202,6 +202,15 @@ function TrackStripInner({
           isInstrument,
           instrumentName,
           instrumentSlotId: instrumentSlot?.id,
+          instrumentBypassed: instrumentSlot?.bypassed,
+          onToggleInstrumentBypass: instrumentSlot
+            ? () =>
+                void pluginChains.setBypassed(
+                  t.id,
+                  instrumentSlot.id,
+                  !instrumentSlot.bypassed,
+                )
+            : undefined,
           onOpenInstrument: () => {
             if (instrumentSlot)
               void pluginChains.openEditor(t.id, instrumentSlot.id);

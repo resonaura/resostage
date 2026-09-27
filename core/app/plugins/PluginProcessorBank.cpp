@@ -1,10 +1,12 @@
 #include "PluginProcessorBank.h"
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <limits>
 #include <new>
+#include <thread>
 
 namespace resostage {
 namespace {
@@ -98,10 +100,16 @@ PluginPlayHead::getPosition() const {
 struct PluginProcessorBank::Node {
     std::string slotId;
     std::unique_ptr<juce::AudioPluginInstance> instance;
-    bool bypassed = false;
+    std::atomic<bool> bypassed{false};
     bool instrument = false;
     bool missingInstrument = false;
     std::atomic<bool> faulted{false};
+    // A save worker raises stateCaptureRequested and waits only for an
+    // already-running processBlock call to leave. The callback re-checks the
+    // flag after publishing an active call, so it either owns the instance
+    // or skips it; it never waits for vendor serialization.
+    std::atomic<bool> stateCaptureRequested{false};
+    std::atomic<uint32_t> activeCalls{0};
     int requiredChannels = 2;
     juce::AudioBuffer<float> buffer;
     PluginSlotPowerTracker powerTracker;
@@ -229,6 +237,75 @@ void PluginProcessorBank::audioProcessorChanged(
     const juce::AudioProcessorListener::ChangeDetails& details) {
     if (details.latencyChanged)
         latencyChangePending.store(true, std::memory_order_release);
+    if (hostParameterWrites.load(std::memory_order_acquire) == 0
+        && !stateSerializationInProgress.load(std::memory_order_acquire))
+        stateChangePending.store(true, std::memory_order_release);
+}
+
+void PluginProcessorBank::audioProcessorParameterChanged(
+    juce::AudioProcessor*, int, float) {
+    if (hostParameterWrites.load(std::memory_order_acquire) == 0
+        && !stateSerializationInProgress.load(std::memory_order_acquire))
+        stateChangePending.store(true, std::memory_order_release);
+}
+
+PluginProcessorBank::StateSnapshot PluginProcessorBank::snapshotStates() {
+    StateSnapshot snapshot;
+    size_t totalBytes = 0;
+
+    for (auto& chain : chains) {
+        if (chain == nullptr)
+            continue;
+        for (auto& node : chain->nodes) {
+            if (node == nullptr || node->instance == nullptr)
+                continue;
+
+            node->stateCaptureRequested.store(true, std::memory_order_release);
+            const auto deadline = std::chrono::steady_clock::now()
+                                  + std::chrono::seconds(2);
+            while (node->activeCalls.load(std::memory_order_acquire) != 0
+                   && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::yield();
+            }
+            if (node->activeCalls.load(std::memory_order_acquire) != 0) {
+                node->stateCaptureRequested.store(false, std::memory_order_release);
+                snapshot.warnings.push_back(
+                    "Timed out waiting to snapshot plug-in slot " + node->slotId);
+                continue;
+            }
+
+            juce::MemoryBlock state;
+            stateSerializationInProgress.store(true, std::memory_order_release);
+            try {
+                node->instance->getStateInformation(state);
+            } catch (...) {
+                stateSerializationInProgress.store(false, std::memory_order_release);
+                node->stateCaptureRequested.store(false, std::memory_order_release);
+                snapshot.warnings.push_back(
+                    "Plug-in threw while saving state for slot " + node->slotId);
+                continue;
+            }
+            stateSerializationInProgress.store(false, std::memory_order_release);
+            node->stateCaptureRequested.store(false, std::memory_order_release);
+
+            const size_t bytes = state.getSize();
+            if (bytes > kMaximumStateBytesPerSlot
+                || totalBytes + bytes > kMaximumStateBytesPerBank) {
+                snapshot.warnings.push_back(
+                    "Plug-in state limit exceeded for slot " + node->slotId);
+                continue;
+            }
+            StateBlob blob;
+            blob.slotId = node->slotId;
+            if (bytes > 0) {
+                const auto* begin = static_cast<const uint8_t*>(state.getData());
+                blob.data.assign(begin, begin + bytes);
+            }
+            totalBytes += bytes;
+            snapshot.blobs.push_back(std::move(blob));
+        }
+    }
+    return snapshot;
 }
 
 std::vector<uint32_t> PluginProcessorBank::snapshotStripLatencies() const {
@@ -319,6 +396,14 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
             continue;
         }
 
+        if (node->stateCaptureRequested.load(std::memory_order_acquire))
+            continue;
+        node->activeCalls.fetch_add(1, std::memory_order_acq_rel);
+        if (node->stateCaptureRequested.load(std::memory_order_acquire)) {
+            node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
+            continue;
+        }
+
         try {
             const int inChannels = node->instance->getTotalNumInputChannels();
             const int outChannels = node->instance->getTotalNumOutputChannels();
@@ -331,8 +416,10 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
 
             if (node->requiredChannels > 2) {
                 const int samplesToProcess = std::min(numSamples, node->buffer.getNumSamples());
-                if (samplesToProcess <= 0)
+                if (samplesToProcess <= 0) {
+                    node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
                     continue;
+                }
 
                 const size_t bytesToCopy = sizeof(float) * static_cast<size_t>(samplesToProcess);
                 std::memcpy(node->buffer.getWritePointer(0), left, bytesToCopy);
@@ -344,7 +431,7 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
                 juce::AudioBuffer<float> activeBuf(node->buffer.getArrayOfWritePointers(),
                                                    node->requiredChannels, samplesToProcess);
 
-                if (node->bypassed)
+                if (node->bypassed.load(std::memory_order_relaxed))
                     node->instance->processBlockBypassed(activeBuf, chain.midi);
                 else
                     node->instance->processBlock(activeBuf, chain.midi);
@@ -353,7 +440,7 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
                 std::memcpy(right, node->buffer.getReadPointer(1), bytesToCopy);
             } else {
                 chain.audio.setDataToReferTo(stereoChannels, 2, numSamples);
-                if (node->bypassed)
+                if (node->bypassed.load(std::memory_order_relaxed))
                     node->instance->processBlockBypassed(chain.audio, chain.midi);
                 else
                     node->instance->processBlock(chain.audio, chain.midi);
@@ -374,6 +461,7 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
         } catch (...) {
             node->faulted.store(true, std::memory_order_relaxed);
         }
+        node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
     }
     // Clear strip MIDI buffer after all nodes in the strip have processed the block
     chain.midi.clear();
@@ -410,7 +498,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             }
             auto node = std::make_unique<Node>();
             node->slotId = slot.id;
-            node->bypassed = slot.bypassed;
+            node->bypassed.store(slot.bypassed, std::memory_order_relaxed);
             node->instrument = slot.plugin.instrument;
             PluginPowerFlags pflags;
             pflags.keepAwake = slot.keepAwake;
@@ -563,11 +651,23 @@ void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex
     auto* instance = nodes[slotIndex]->instance.get();
     if (instance == nullptr)
         return;
+    auto& node = *nodes[slotIndex];
+    if (node.stateCaptureRequested.load(std::memory_order_acquire))
+        return;
+    node.activeCalls.fetch_add(1, std::memory_order_acq_rel);
+    if (node.stateCaptureRequested.load(std::memory_order_acquire)) {
+        node.activeCalls.fetch_sub(1, std::memory_order_acq_rel);
+        return;
+    }
     const auto& params = instance->getParameters();
     if (paramIndex >= 0 && paramIndex < params.size()) {
-        if (auto* param = params[paramIndex])
+        if (auto* param = params[paramIndex]) {
+            hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
             param->setValue(std::clamp(value, 0.0f, 1.0f));
+            hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+        }
     }
+    node.activeCalls.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& slotId,
@@ -578,13 +678,39 @@ bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& slotId,
         for (const auto& node : chain->nodes) {
             if (node != nullptr && node->slotId == slotId) {
                 if (node->instance != nullptr) {
+                    if (node->stateCaptureRequested.load(std::memory_order_acquire))
+                        return false;
+                    node->activeCalls.fetch_add(1, std::memory_order_acq_rel);
+                    if (node->stateCaptureRequested.load(std::memory_order_acquire)) {
+                        node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
+                        return false;
+                    }
                     const auto& params = node->instance->getParameters();
                     if (paramIndex >= 0 && paramIndex < params.size()) {
-                        if (auto* param = params[paramIndex])
+                        if (auto* param = params[paramIndex]) {
+                            hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
                             param->setValue(std::clamp(value, 0.0f, 1.0f));
+                            hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+                        }
                     }
+                    node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
                     return true;
                 }
+            }
+        }
+    }
+    return false;
+}
+
+bool PluginProcessorBank::setSlotBypassed(const std::string& slotId,
+                                          bool bypassed) noexcept {
+    for (const auto& chain : chains) {
+        if (chain == nullptr)
+            continue;
+        for (const auto& node : chain->nodes) {
+            if (node != nullptr && node->slotId == slotId) {
+                node->bypassed.store(bypassed, std::memory_order_release);
+                return true;
             }
         }
     }
@@ -685,4 +811,3 @@ PluginPowerStats PluginProcessorBank::powerStats() const noexcept {
 }
 
 } // namespace resostage
-

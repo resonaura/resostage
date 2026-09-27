@@ -146,6 +146,15 @@ public:
     // (0 = open/seek only — use when stopped; IO workers fill before Play).
     bool seekActiveSongTo(int64_t deviceFrame, std::string& error, double primeMaxWait = 0.05);
 
+    // Project-cycle preparation. A transport cycle may jump backwards in the
+    // middle of a device callback, where disk seeking is forbidden. Mark the
+    // active material as random-access so the resident worker promotes it
+    // ahead of ordinary stems; once every active buffer is resident the audio
+    // callback can split exactly at the locator with no I/O or mute handoff.
+    // These calls only touch atomics / an immutable active-song snapshot.
+    void setActiveSongCycleRandomAccess(bool enabled);
+    bool activeSongFullyResident() const;
+
     bool tryPromotePrecached(size_t songIndex);
     bool hasPrecacheFor(size_t songIndex) const;
     bool isPrecacheWarm(size_t songIndex, double minSeconds, double deviceSampleRate) const;

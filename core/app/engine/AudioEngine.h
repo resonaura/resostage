@@ -155,6 +155,8 @@ public:
     void servicePluginHostChanges();
     /** Pins and returns the currently published live processor bank. */
     std::shared_ptr<PluginProcessorBank> activePluginProcessorBank() const;
+    /** Applies slot bypass immediately and refreshes any in-flight bank request. */
+    void setPluginSlotBypassed(const std::string& slotId, bool bypassed);
 
     /** Hook called on message thread when recording has finished and project modified. */
     std::function<void()> onRecordingFinished;

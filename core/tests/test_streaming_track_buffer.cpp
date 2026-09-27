@@ -12,6 +12,19 @@
 
 using namespace resostage;
 
+TEST_CASE("cycle residency priority does not erase a region random-access requirement") {
+    StreamingTrackBuffer buffer;
+    CHECK_FALSE(buffer.wantsRandomAccess());
+
+    buffer.setNeedsRandomAccess(true);
+    buffer.setCycleRandomAccess(true);
+    buffer.setCycleRandomAccess(false);
+    CHECK(buffer.wantsRandomAccess());
+
+    buffer.setNeedsRandomAccess(false);
+    CHECK_FALSE(buffer.wantsRandomAccess());
+}
+
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;

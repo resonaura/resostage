@@ -656,6 +656,12 @@
         std::array<std::array<uint64_t, 2>, kMaxActiveMidiStrips> masks{};
     };
     std::array<std::array<uint8_t, 128>, kMaxActiveMidiStrips> activeMidiNoteCounts{};
+    // Subset of the active counts created by timeline MIDI regions. Kept
+    // separate from live input so a project-cycle wrap can release notes that
+    // extend beyond the right locator without sending All Notes Off and
+    // killing a performer's held note on another monitored instrument.
+    std::array<std::array<uint8_t, 128>, kMaxActiveMidiStrips> sequencedMidiNoteCounts{};
+    bool sequencedMidiFlushAtBlockStart = false; // audio-thread owned
     ActiveMidiNotesFrame activeMidiNotesWorkingFrame{};
     SeqLock<ActiveMidiNotesFrame> activeMidiNotesFrame;
     std::atomic<bool> activeMidiNotesClearRequested{false};

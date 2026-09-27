@@ -40,7 +40,7 @@ export function normalizeMarquee(
 }
 
 /**
- * Hit-test audio regions under a marquee in track-lane coordinates
+ * Hit-test audio and MIDI regions under a marquee in track-lane coordinates
  * (origin = top-left of the first audio row, x = absolute timeline px).
  */
 export function marqueeHitRegions(
@@ -70,6 +70,24 @@ export function marqueeHitRegions(
           r.durationSeconds > 0
             ? r.durationSeconds
             : Math.max(0.05, (songLengths[si] ?? 0) - start);
+        const left = segStart + start * pxPerSec;
+        const right = left + Math.max(4, dur * pxPerSec);
+        if (
+          rectsIntersect(marquee, {
+            left,
+            top: y0,
+            right,
+            bottom: y1,
+          })
+        ) {
+          keys.push(regionSelKey(si, r.id));
+        }
+      }
+      const bpm = song.bpm > 0 ? song.bpm : 120;
+      for (const r of song.midiRegions ?? []) {
+        if (!(r.trackId === track?.id || r.trackId === row.name)) continue;
+        const start = (r.startBeats * 60) / bpm;
+        const dur = Math.max(0.05, (r.durationBeats * 60) / bpm);
         const left = segStart + start * pxPerSec;
         const right = left + Math.max(4, dur * pxPerSec);
         if (

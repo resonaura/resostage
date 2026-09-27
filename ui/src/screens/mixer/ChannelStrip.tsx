@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Power } from "lucide-react";
 import { Knob, LevelMeterBar } from "../../components/daw";
 import {
   Button,
@@ -189,6 +190,8 @@ export function ChannelStrip({
     isInstrument: boolean;
     instrumentName?: string | null;
     instrumentSlotId?: string;
+    instrumentBypassed?: boolean;
+    onToggleInstrumentBypass?: () => void;
     onOpenInstrument?: () => void;
     onInstrumentMenu?: (pos: { x: number; y: number }) => void;
     inputOptions?: SelectOption[];
@@ -353,12 +356,52 @@ export function ChannelStrip({
 
           {inputRouting?.isInstrument ? (
             <div
-              className={`flex h-5.5 w-full min-w-0 items-center justify-between rounded border text-xs font-semibold transition-all ${
+              className={`flex h-5.5 w-full min-w-0 items-center justify-between overflow-hidden rounded border text-xs font-semibold transition-all ${
                 inputRouting.instrumentName
-                  ? "border-emerald-500/70 bg-emerald-600/25 text-emerald-300 hover:bg-emerald-600/35 shadow-[0_1px_4px_rgba(16,185,129,0.2)]"
-                  : "border-dashed border-emerald-500/40 text-emerald-400/60 hover:border-emerald-500/70 hover:bg-emerald-500/10 hover:text-emerald-300"
+                  ? inputRouting.instrumentBypassed
+                    ? "border-default/25 bg-default/10 text-foreground/35"
+                    : "text-foreground/85"
+                  : "border-dashed text-foreground/55 hover:text-foreground/80"
               }`}
+              style={{
+                borderColor: inputRouting.instrumentName
+                  ? inputRouting.instrumentBypassed
+                    ? undefined
+                    : color
+                  : `color-mix(in srgb, ${color} 45%, transparent)`,
+                backgroundColor:
+                  inputRouting.instrumentName && !inputRouting.instrumentBypassed
+                    ? `color-mix(in srgb, ${color} 20%, var(--background))`
+                    : undefined,
+              }}
             >
+              {inputRouting.instrumentSlotId && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    inputRouting.onToggleInstrumentBypass?.();
+                  }}
+                  title={
+                    inputRouting.instrumentBypassed
+                      ? `Enable ${inputRouting.instrumentName}`
+                      : `Bypass ${inputRouting.instrumentName}`
+                  }
+                  aria-label={
+                    inputRouting.instrumentBypassed
+                      ? `Enable ${inputRouting.instrumentName}`
+                      : `Bypass ${inputRouting.instrumentName}`
+                  }
+                  className="flex h-full w-5 shrink-0 items-center justify-center border-r border-default/30 transition-colors hover:bg-foreground/10"
+                  style={{
+                    color: inputRouting.instrumentBypassed
+                      ? "var(--muted)"
+                      : color,
+                  }}
+                >
+                  <Power size={10} strokeWidth={2.4} />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -475,6 +518,7 @@ export function ChannelStrip({
           density={density}
           targetSlotCount={targetPluginSlots}
           onOpenChain={onPlugins}
+          accentColor={color}
         />
       )}
 
