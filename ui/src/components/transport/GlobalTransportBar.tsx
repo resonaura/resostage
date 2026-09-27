@@ -25,7 +25,8 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
     state.songIndex >= 0 && state.songs[state.songIndex]
       ? state.songs[state.songIndex]
       : null;
-  const bpm = song && song.bpm > 0 ? song.bpm : 0;
+  const songTitle = state.songName || song?.name || "";
+  const bpm = song && song.bpm > 0 ? song.bpm : (state.bpm ?? 0);
   const tsNum = song && song.tsNum > 0 ? song.tsNum : 4;
 
   // A local clock that keeps moving between telemetry frames, re-synced to
@@ -123,16 +124,16 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
         </ToggleButton>
       </ToggleButtonGroup>
       <Separator orientation="vertical" />
-      {/* Fixed song + BPM chip */}
+      {/* Song + BPM chip */}
       <div
-        className="hidden h-7 w-36 shrink-0 flex-col justify-center pl-2 2xl:flex"
-        title={state.songName || undefined}
+        className="flex h-7 w-28 sm:w-36 shrink-0 flex-col justify-center pl-2"
+        title={songTitle || undefined}
       >
-        <div className="truncate text-center text-[11px] font-medium leading-tight text-foreground/70">
-          {state.songName || "—"}
+        <div className="truncate text-center text-[11px] font-medium leading-tight text-foreground/80">
+          {songTitle || "—"}
         </div>
-        <div className="text-center font-mono text-[10px] tabular-nums leading-tight text-foreground/40">
-          {bpm > 0 ? `${bpm.toFixed(1)} BPM` : "—"}
+        <div className="text-center font-mono text-[10px] tabular-nums leading-tight text-foreground/50">
+          {bpm > 0 ? `${Number.isInteger(bpm) ? bpm : bpm.toFixed(1)} BPM` : "—"}
         </div>
       </div>
     </Toolbar>
