@@ -17,15 +17,22 @@ function regionLocalBeat(region: MidiRegionRow, songBeat: number): number | null
 }
 
 /** MIDI pitches active at the current transport position, plus notes held by
- * the live MIDI record preview. This is a view-only projection; Core remains
- * the clock and playback authority. */
-export function getActiveMidiPitches(state: WebUiState): Set<number> {
+ * the live MIDI record preview. When trackId is supplied every source is
+ * scoped to that one actual/focused track. This is a view-only projection;
+ * Core remains the clock and playback authority. */
+export function getActiveMidiPitches(
+  state: WebUiState,
+  trackId?: string | null,
+): Set<number> {
   const active = new Set<number>();
-  for (const note of state.activeMidiNotes ?? []) active.add(note.pitch);
+  for (const note of state.activeMidiNotes ?? []) {
+    if (!trackId || note.trackId === trackId) active.add(note.pitch);
+  }
   if (state.playing && state.bpm > 0 && state.songIndex >= 0) {
     const song = state.songs[state.songIndex];
     const songBeat = state.playheadSeconds * state.bpm / 60;
     for (const region of song?.midiRegions ?? []) {
+      if (trackId && region.trackId !== trackId) continue;
       const localBeat = regionLocalBeat(region, songBeat);
       if (localBeat === null) continue;
       for (const note of region.notes) {
@@ -37,6 +44,7 @@ export function getActiveMidiPitches(state: WebUiState): Set<number> {
   }
 
   for (const recording of state.liveRecordings ?? []) {
+    if (trackId && recording.trackId !== trackId) continue;
     for (const note of recording.midiNotes ?? []) {
       if (note.active) active.add(note.pitch);
     }

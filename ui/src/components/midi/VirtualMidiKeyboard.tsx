@@ -10,6 +10,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mixer, sendLiveMidi } from "../../lib/state/api";
 import type { WebUiState } from "../../lib/state/types";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
+import { getTrackColor } from "../timeline/constants";
 import { getActiveMidiPitches } from "./activeMidiPitches";
 import { Slider } from "../ui";
 
@@ -114,6 +116,7 @@ export function VirtualMidiKeyboard({
   state: WebUiState;
   standalone?: boolean;
 }) {
+  useThemeVersion();
   const [octave, setOctave] = useState<number>(() => {
     const saved = localStorage.getItem("resostage:virtual-keyboard-octave");
     return saved ? Math.max(1, Math.min(7, parseInt(saved, 10))) : 4;
@@ -125,10 +128,6 @@ export function VirtualMidiKeyboard({
   });
 
   const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
-  const visibleActiveNotes = useMemo(
-    () => new Set([...activeNotes, ...getActiveMidiPitches(state)]),
-    [activeNotes, state],
-  );
   const activeKeysRef = useRef<Map<string, number>>(new Map()); // code -> midiNote
   const mouseDownNotesRef = useRef<Set<number>>(new Set());
 
@@ -313,30 +312,46 @@ export function VirtualMidiKeyboard({
     );
   }, [velocity]);
 
-  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
-
-  // Target track: find instrument tracks
+  // Musical Typing follows Core's focused track. This keeps the floating and
+  // standalone keyboards on the same target as the timeline and Piano Roll.
   const instrumentTracks = useMemo(() => {
-    return state.tracks.filter((t) => t.kind === "instrument");
+    return state.tracks.filter(
+      (t) =>
+        t.kind === "instrument" ||
+        t.kind === "midi" ||
+        t.kind === "externalMidi",
+    );
   }, [state.tracks]);
 
-  // Selected or active instrument track
   const activeInstrument = useMemo(() => {
-    if (selectedTrackId) {
-      const match = instrumentTracks.find((t) => t.id === selectedTrackId);
-      if (match) return match;
-    }
+    const focused = instrumentTracks.find((t) => t.id === state.activeTrackId);
+    if (focused) return focused;
+    // Never silently play a different instrument while an audio/non-MIDI
+    // track is the actual focused track.
+    if (state.activeTrackId) return null;
     return (
       instrumentTracks.find((t) => t.recordArmed || t.inputMonitoring) ??
       instrumentTracks[0] ??
       null
     );
-  }, [instrumentTracks, selectedTrackId]);
+  }, [instrumentTracks, state.activeTrackId]);
 
   const activeInstrumentIndex = useMemo(() => {
     if (!activeInstrument) return -1;
     return state.tracks.findIndex((t) => t.id === activeInstrument.id);
   }, [state.tracks, activeInstrument]);
+  const activeTrackColor =
+    activeInstrumentIndex >= 0 ? getTrackColor(activeInstrumentIndex) : "#0485f7";
+  const visibleActiveNotes = useMemo(
+    () =>
+      new Set([
+        ...activeNotes,
+        ...(activeInstrument
+          ? getActiveMidiPitches(state, activeInstrument.id)
+          : []),
+      ]),
+    [activeNotes, state, activeInstrument?.id],
+  );
 
   // Track has instrument plugin loaded
   const hasInstrumentPlugin = useMemo(() => {
@@ -353,6 +368,28 @@ export function VirtualMidiKeyboard({
   // Keep latest refs for all dynamic values so keyboard listeners remain stable
   const activeInstrumentIndexRef = useRef(activeInstrumentIndex);
   activeInstrumentIndexRef.current = activeInstrumentIndex;
+  const previousInstrumentIndexRef = useRef(activeInstrumentIndex);
+
+  useEffect(() => {
+    const previousIndex = previousInstrumentIndexRef.current;
+    if (previousIndex === activeInstrumentIndex) return;
+
+    const previousTarget = previousIndex >= 0 ? previousIndex : undefined;
+    activeKeysRef.current.forEach((note) => {
+      sendLiveMidi(0x80, note, 0, previousTarget);
+    });
+    mouseDownNotesRef.current.forEach((note) => {
+      sendLiveMidi(0x80, note, 0, previousTarget);
+    });
+    if (isSustainDownRef.current) sendLiveMidi(0xb0, 64, 0, previousTarget);
+
+    activeKeysRef.current.clear();
+    mouseDownNotesRef.current.clear();
+    isSustainDownRef.current = false;
+    setIsSustainDown(false);
+    setActiveNotes(new Set());
+    previousInstrumentIndexRef.current = activeInstrumentIndex;
+  }, [activeInstrumentIndex]);
 
   const baseNoteRef = useRef(baseNote);
   baseNoteRef.current = baseNote;
@@ -717,11 +754,12 @@ export function VirtualMidiKeyboard({
                   value={activeInstrument.id}
                   onChange={(e) => {
                     const id = e.target.value;
-                    setSelectedTrackId(id);
+                    releaseAllNotes();
                     const index = state.tracks.findIndex((t) => t.id === id);
                     if (index >= 0) void mixer.setFocusedTrack(index);
                   }}
-                  className="bg-transparent text-xs font-semibold text-accent max-w-30 truncate outline-none cursor-pointer"
+                  className="bg-transparent text-xs font-semibold max-w-30 truncate outline-none cursor-pointer"
+                  style={{ color: activeTrackColor }}
                   title="Switch Target Instrument Track"
                 >
                   {instrumentTracks.map((tr) => (
@@ -735,7 +773,10 @@ export function VirtualMidiKeyboard({
                   ))}
                 </select>
               ) : (
-                <span className="text-xs font-semibold text-accent max-w-27.5 truncate">
+                <span
+                  className="text-xs font-semibold max-w-27.5 truncate"
+                  style={{ color: activeTrackColor }}
+                >
                   {activeInstrument.name}
                 </span>
               )}
@@ -925,9 +966,18 @@ export function VirtualMidiKeyboard({
                 onMouseUp={() => handleKeyMouseUp(k.note)}
                 onMouseEnter={(e) => handleKeyMouseEnter(k.note, e)}
                 onMouseLeave={() => handleKeyMouseLeave(k.note)}
+                style={
+                  isPressed
+                    ? {
+                        backgroundColor: activeTrackColor,
+                        borderColor: activeTrackColor,
+                        boxShadow: `0 0 14px ${activeTrackColor}`,
+                      }
+                    : undefined
+                }
                 className={`relative flex-1 h-full mx-px rounded-b-md border transition-colors duration-75 flex flex-col justify-between items-center pb-1.5 pt-1 cursor-pointer select-none ${
                   isPressed
-                    ? "bg-accent! text-accent-foreground! border-accent shadow-[0_0_14px_var(--accent)] z-0"
+                    ? "text-white! z-0"
                     : isC
                       ? "bg-neutral-100 text-neutral-900 border-neutral-300 hover:bg-neutral-50 shadow-sm"
                       : "bg-neutral-200 text-neutral-800 border-neutral-300 hover:bg-neutral-100 shadow-sm"
@@ -937,7 +987,7 @@ export function VirtualMidiKeyboard({
                 <span
                   className={`text-[9px] font-bold font-mono px-1 rounded ${
                     isPressed
-                      ? "bg-accent-foreground/20 text-accent-foreground"
+                      ? "bg-black/20 text-white"
                       : "bg-neutral-300/80 text-neutral-700"
                   }`}
                 >
@@ -948,7 +998,7 @@ export function VirtualMidiKeyboard({
                 <span
                   className={`text-[9px] font-mono font-semibold ${
                     isPressed
-                      ? "text-accent-foreground font-bold"
+                      ? "text-white font-bold"
                       : isC
                         ? "text-accent font-bold"
                         : "text-neutral-500"
@@ -979,17 +1029,24 @@ export function VirtualMidiKeyboard({
               style={{
                 left: `calc(${leftPercent}% - 0.75rem)`,
                 width: "1.5rem",
+                ...(isPressed
+                  ? {
+                      backgroundColor: activeTrackColor,
+                      borderColor: activeTrackColor,
+                      boxShadow: `0 0 14px ${activeTrackColor}`,
+                    }
+                  : {}),
               }}
               className={`absolute top-1 h-[60%] rounded-b-sm border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none z-10 ${
                 isPressed
-                  ? "bg-accent! text-accent-foreground! border-accent shadow-[0_0_14px_var(--accent)]"
+                  ? "text-white!"
                   : "bg-surface-secondary text-foreground/85 border-default/45 hover:bg-surface-tertiary shadow-md"
               }`}
             >
               <span
                 className={`text-[8px] font-bold font-mono px-0.5 rounded ${
                   isPressed
-                    ? "bg-accent-foreground/20 text-accent-foreground"
+                    ? "bg-black/20 text-white"
                     : "bg-background/80 text-foreground/60"
                 }`}
               >
@@ -998,7 +1055,7 @@ export function VirtualMidiKeyboard({
               <span
                 className={`text-[8px] font-mono leading-none ${
                   isPressed
-                    ? "text-accent-foreground font-bold"
+                    ? "text-white font-bold"
                     : "text-foreground/60"
                 }`}
               >

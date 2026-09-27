@@ -30,7 +30,7 @@ export const TrackHeaderControl = memo(
     anySolo?: boolean;
     isRecording?: boolean;
     isSelected?: boolean;
-    onSelect?: () => void;
+    onSelect?: (additive?: boolean) => void;
   }) {
     const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) =>
       mixer.setTrackGain(index, v),
@@ -192,7 +192,7 @@ export const TrackHeaderControl = memo(
         tone="danger-soft"
         isSelected={track.recordArmed ?? false}
         onChange={() => {
-          onSelect?.();
+          onSelect?.(false);
           void mixer.setTrackRecordArm(index, !track.recordArmed);
         }}
         className={
@@ -229,7 +229,7 @@ export const TrackHeaderControl = memo(
         tone="warning-soft"
         isSelected={track.inputMonitoring ?? false}
         onChange={() => {
-          onSelect?.();
+          onSelect?.(false);
           void mixer.setTrackInputMonitor(index, !track.inputMonitoring);
         }}
         className={
@@ -293,17 +293,24 @@ export const TrackHeaderControl = memo(
             )
           )
             return;
-          onSelect?.();
+          onSelect?.(e.shiftKey);
         }}
         className={`flex flex-col justify-center border-b border-default/15 select-none overflow-hidden transition-all duration-200 cursor-pointer ${
           isSelected
-            ? "bg-surface/90 border-l-[3px] border-l-accent shadow-[inset_0_0_12px_rgba(255,255,255,0.04)]"
+            ? "border-l-[3px]"
             : "bg-surface/40 hover:bg-surface/70 border-l-[3px] border-l-transparent"
         } ${isDimmed ? "opacity-35" : "opacity-100"}`}
         style={{
           height: h,
           padding: `${padY}px ${padX}px`,
           gap: showVol ? 3 : 0,
+          ...(isSelected
+            ? {
+                backgroundColor: `${color}24`,
+                borderLeftColor: color,
+                boxShadow: `inset 0 0 14px ${color}24`,
+              }
+            : {}),
         }}
       >
         {showVol ? (

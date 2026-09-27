@@ -324,6 +324,7 @@ export function EditorScreen({
   const [tab, setTab] = useState<EditorTab>("timeline");
   const [selected, setSelected] = useState(-1);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+  const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
   const [showInspector, setShowInspector] = useState(() => {
     try {
       return localStorage.getItem("resostage:editor-inspector") !== "false";
@@ -345,9 +346,17 @@ export function EditorScreen({
   const lastProjectNameRef = useRef<string | null>(null);
   const pendingUserTrackSelectRef = useRef<string | null>(null);
 
-  const handleSelectTrack = useCallback((trackId: string | null) => {
+  const handleSelectTrack = useCallback((
+    trackId: string | null,
+    additive = false,
+  ) => {
     pendingUserTrackSelectRef.current = trackId;
     setSelectedTrackId(trackId);
+    setSelectedTrackIds((current) => {
+      if (!trackId) return [];
+      if (!additive) return [trackId];
+      return current.includes(trackId) ? current : [...current, trackId];
+    });
   }, []);
 
   useEffect(() => {
@@ -361,6 +370,7 @@ export function EditorScreen({
         state.tracks.some((t) => t.id === state.activeTrackId)
       ) {
         setSelectedTrackId(state.activeTrackId);
+        setSelectedTrackIds([state.activeTrackId]);
       }
       return;
     }
@@ -378,9 +388,19 @@ export function EditorScreen({
         state.tracks.some((t) => t.id === state.activeTrackId)
       ) {
         setSelectedTrackId(state.activeTrackId);
+        setSelectedTrackIds([state.activeTrackId]);
       }
     }
   }, [state.activeTrackId, state.projectName, state.tracks, selectedTrackId]);
+
+  useEffect(() => {
+    const available = new Set(state.tracks.map((track) => track.id));
+    setSelectedTrackIds((current) =>
+      current.every((id) => available.has(id))
+        ? current
+        : current.filter((id) => available.has(id)),
+    );
+  }, [state.tracks]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -412,6 +432,38 @@ export function EditorScreen({
   const midiRecordingWasActiveRef = useRef(false);
   const midiRecordingBaselineRef = useRef<Map<string, number>>(new Map());
   const awaitingRecordedMidiRef = useRef(false);
+
+  useEffect(() => {
+    const focused = state.tracks.find(
+      (track) =>
+        track.id === state.activeTrackId &&
+        (track.kind === "instrument" ||
+          track.kind === "midi" ||
+          track.kind === "externalMidi"),
+    );
+    if (!focused) return;
+
+    const regions = state.songs[state.songIndex]?.midiRegions ?? [];
+    const firstRegion = regions.find((region) => region.trackId === focused.id);
+    setSelectedMidiTrackId(focused.id);
+    setSelectedMidiRegionId((current) =>
+      current && regions.some(
+        (region) => region.id === current && region.trackId === focused.id,
+      )
+        ? current
+        : firstRegion?.id ?? null,
+    );
+    setVisibleMidiRegionIds((current) => {
+      const onFocusedTrack = current.filter((id) =>
+        regions.some(
+          (region) => region.id === id && region.trackId === focused.id,
+        ),
+      );
+      if (!firstRegion || onFocusedTrack.includes(firstRegion.id))
+        return onFocusedTrack;
+      return [firstRegion.id, ...onFocusedTrack];
+    });
+  }, [state.activeTrackId, state.songIndex, state.songs, state.tracks]);
 
   useEffect(() => {
     const recording = state.recording ?? false;
@@ -633,6 +685,7 @@ export function EditorScreen({
               pxPerSec={pxPerSec}
               setPxPerSec={setPxPerSec}
               selectedTrackId={selectedTrackId}
+              selectedTrackIds={selectedTrackIds}
               onSelectTrackId={handleSelectTrack}
               onOpenMidiRegion={(trackId, regionId) => {
                 handleSelectTrack(trackId);
@@ -706,6 +759,7 @@ export function EditorScreen({
             }
 
             const activeTrack =
+              availableTracks.find((t) => t.id === state.activeTrackId) ||
               availableTracks.find((t) => t.id === selectedMidiTrackId) ||
               availableTracks[0];
 

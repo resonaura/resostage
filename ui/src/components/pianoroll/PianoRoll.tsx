@@ -125,19 +125,27 @@ export function PianoRoll({
   const effectiveTrackColor = trackColorIndex >= 0
     ? getTrackColor(trackColorIndex)
     : trackColor || getTrackColor(0);
+  const previewTrackId = track?.id ?? region.trackId;
   const activeMidiPitches = useMemo(
     () => new Set([
       ...getRegionActivePitches(
         region,
-        companionRegions,
+        companionRegions.filter((candidate) => candidate.trackId === previewTrackId),
         playheadBeats ?? -1,
         Boolean(isPlaying),
       ),
       ...activeMidiNotes
-        .filter((note) => note.trackId === region.trackId)
+        .filter((note) => note.trackId === previewTrackId)
         .map((note) => note.pitch),
     ]),
-    [region, companionRegions, playheadBeats, isPlaying, activeMidiNotes],
+    [
+      region,
+      companionRegions,
+      previewTrackId,
+      playheadBeats,
+      isPlaying,
+      activeMidiNotes,
+    ],
   );
   const parsedLoopLength = loopLengthDraft === null ? null : Number(loopLengthDraft);
   const previewLoopLength = parsedLoopLength !== null && Number.isFinite(parsedLoopLength) && parsedLoopLength > 0

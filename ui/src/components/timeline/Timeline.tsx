@@ -147,6 +147,7 @@ export function Timeline({
   setPxPerSec,
   readOnly = false,
   selectedTrackId,
+  selectedTrackIds,
   onSelectTrackId,
   onOpenMidiRegion,
 }: {
@@ -158,7 +159,8 @@ export function Timeline({
   /** Player: no track sidebar, no region trim/edit. */
   readOnly?: boolean;
   selectedTrackId?: string | null;
-  onSelectTrackId?: (id: string | null) => void;
+  selectedTrackIds?: string[];
+  onSelectTrackId?: (id: string | null, additive?: boolean) => void;
   onOpenMidiRegion?: (trackId: string, regionId: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -657,7 +659,7 @@ export function Timeline({
     setSelectedCueKeys([]);
     const found = lookupAnyRegion(state.songs, key);
     if (found?.region?.trackId) {
-      onSelectTrackId?.(found.region.trackId);
+      onSelectTrackId?.(found.region.trackId, Boolean(e.shiftKey));
     }
   };
 
@@ -2494,9 +2496,10 @@ export function Timeline({
               setCueSelection={() => selectCue(null)}
               sidebarContentRef={sidebarContentRef}
               selectedTrackId={selectedTrackId}
-              onSelectTrack={(id) => {
+              selectedTrackIds={selectedTrackIds}
+              onSelectTrack={(id, additive) => {
                 setSelectedRegionKeys([]);
-                onSelectTrackId?.(id);
+                onSelectTrackId?.(id, additive);
               }}
               onWheel={handleSidebarWheel}
               onAutoScroll={handleAutoScroll}

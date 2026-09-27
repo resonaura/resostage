@@ -50,6 +50,7 @@ export function TimelineSidebar({
   setCueSelection,
   sidebarContentRef,
   selectedTrackId,
+  selectedTrackIds,
   onSelectTrack,
   onWheel,
   onAutoScroll,
@@ -68,7 +69,8 @@ export function TimelineSidebar({
   setCueSelection: (v: null) => void; // clears primary; parent also clears multi
   sidebarContentRef: React.RefObject<HTMLDivElement | null>;
   selectedTrackId?: string | null;
-  onSelectTrack?: (id: string | null) => void;
+  selectedTrackIds?: string[];
+  onSelectTrack?: (id: string | null, additive?: boolean) => void;
   onWheel?: (e: React.WheelEvent) => void;
   onAutoScroll?: (deltaY: number) => void;
 }) {
@@ -279,7 +281,7 @@ export function TimelineSidebar({
       // treat a sub-threshold gesture as selection, not as a no-op.
       if (d.kind === "audio") {
         void mixer.setFocusedTrack(d.index);
-        onSelectTrack?.(state.tracks[d.index]?.id ?? null);
+        onSelectTrack?.(state.tracks[d.index]?.id ?? null, e.shiftKey);
       } else {
         setSidePanelTrackIndex(d.index);
         setCueSelection(null);
@@ -314,6 +316,20 @@ export function TimelineSidebar({
 
   const anySolo =
     state.tracks.some((t) => t.solo) || state.busses.some((b) => b.solo);
+  const selectedAudioTrackIds =
+    selectedTrackIds && selectedTrackIds.length > 0
+      ? selectedTrackIds
+      : selectedTrackId
+        ? [selectedTrackId]
+        : [];
+  const selectedAudioTrackIdSet = new Set(selectedAudioTrackIds);
+  const contextTrackIndices = trackMenu
+    ? selectedAudioTrackIdSet.has(trackMenu.track.id)
+      ? state.tracks.flatMap((track, index) =>
+          selectedAudioTrackIdSet.has(track.id) ? [index] : [],
+        )
+      : [trackMenu.trackIndex]
+    : [];
   const laneH = laneHeightPx(verticalZoom);
 
   // Keep spacer height in lockstep with the body's hint strip so rows align.
@@ -526,7 +542,11 @@ export function TimelineSidebar({
                         track: state.tracks[trackIdx] as TrackRow,
                       });
                       void mixer.setFocusedTrack(trackIdx);
-                      onSelectTrack?.(state.tracks[trackIdx]?.id ?? null);
+                      const trackId = state.tracks[trackIdx]?.id ?? null;
+                      onSelectTrack?.(
+                        trackId,
+                        Boolean(trackId && selectedAudioTrackIdSet.has(trackId)),
+                      );
                     }}
                     className={`transition-all duration-150 relative ${
                       isDraggingAny && !isDraggingThis
@@ -546,11 +566,14 @@ export function TimelineSidebar({
                       anySolo={anySolo}
                       isRecording={state.recording ?? false}
                       isSelected={
-                        state.tracks[trackIdx]?.id === selectedTrackId
+                        selectedAudioTrackIdSet.has(state.tracks[trackIdx]?.id)
                       }
-                      onSelect={() => {
+                      onSelect={(additive) => {
                         void mixer.setFocusedTrack(trackIdx);
-                        onSelectTrack?.(state.tracks[trackIdx]?.id ?? null);
+                        onSelectTrack?.(
+                          state.tracks[trackIdx]?.id ?? null,
+                          additive,
+                        );
                       }}
                     />
                   </div>
@@ -611,7 +634,13 @@ export function TimelineSidebar({
           width={210}
           onClose={() => setTrackMenu(null)}
         >
+          {contextTrackIndices.length > 1 && (
+            <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-foreground/40 border-b border-default/20">
+              {contextTrackIndices.length} Selected Tracks
+            </div>
+          )}
           <ContextMenuItem
+            disabled={contextTrackIndices.length > 1}
             onClick={() => {
               const tm = trackMenu;
               setTrackMenu(null);
@@ -627,7 +656,9 @@ export function TimelineSidebar({
           </ContextMenuItem>
           <ContextMenuDivider />
           <ContextMenuItem
-            disabled={trackMenu.trackIndex === 0}
+            disabled={
+              contextTrackIndices.length > 1 || trackMenu.trackIndex === 0
+            }
             onClick={() => {
               const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
               void builder.trackMove(songIdx, trackMenu.trackIndex, -1);
@@ -637,7 +668,10 @@ export function TimelineSidebar({
             Move Up
           </ContextMenuItem>
           <ContextMenuItem
-            disabled={trackMenu.trackIndex >= state.tracks.length - 1}
+            disabled={
+              contextTrackIndices.length > 1 ||
+              trackMenu.trackIndex >= state.tracks.length - 1
+            }
             onClick={() => {
               const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
               void builder.trackMove(songIdx, trackMenu.trackIndex, 1);
@@ -649,53 +683,63 @@ export function TimelineSidebar({
           <ContextMenuDivider />
           <ContextMenuItem
             onClick={() => {
-              void mixer.setTrackGain(trackMenu.trackIndex, 0);
-              void mixer.setTrackPan(trackMenu.trackIndex, 0);
+              for (const index of contextTrackIndices) {
+                void mixer.setTrackGain(index, 0);
+                void mixer.setTrackPan(index, 0);
+              }
               setTrackMenu(null);
             }}
           >
-            Reset Gain & Pan
+            Reset Gain & Pan{contextTrackIndices.length > 1 ? " (Selected)" : ""}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={() => {
-              void mixer.setTrackMute(trackMenu.trackIndex, false);
-              void mixer.setTrackSolo(trackMenu.trackIndex, false);
+              for (const index of contextTrackIndices) {
+                void mixer.setTrackMute(index, false);
+                void mixer.setTrackSolo(index, false);
+              }
               setTrackMenu(null);
             }}
           >
-            Clear Mute & Solo
+            Clear Mute & Solo{contextTrackIndices.length > 1 ? " (Selected)" : ""}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={() => {
-              const isPol =
-                (trackMenu.track.polarity ??
-                  (trackMenu.track.phaseInvert ? "both" : "none")) !== "none";
-              const nextPol = isPol
-                ? "none"
-                : trackMenu.track.channels === 1
-                  ? "left"
-                  : "both";
-              void mixer.setTrackTrim(
-                trackMenu.trackIndex,
-                trackMenu.track.inputTrimDb ?? 0,
-                nextPol !== "none",
-                nextPol,
-              );
+              for (const index of contextTrackIndices) {
+                const track = state.tracks[index];
+                if (!track) continue;
+                const isPol =
+                  (track.polarity ??
+                    (track.phaseInvert ? "both" : "none")) !== "none";
+                const nextPol = isPol
+                  ? "none"
+                  : track.channels === 1
+                    ? "left"
+                    : "both";
+                void mixer.setTrackTrim(
+                  index,
+                  track.inputTrimDb ?? 0,
+                  nextPol !== "none",
+                  nextPol,
+                );
+              }
               setTrackMenu(null);
             }}
           >
-            Phase Invert (Ø)
+            Phase Invert (Ø){contextTrackIndices.length > 1 ? " (Selected)" : ""}
           </ContextMenuItem>
           <ContextMenuDivider />
           <ContextMenuItem
             danger
-            onClick={() => {
+            onClick={async () => {
               const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
-              void builder.trackRemove(songIdx, trackMenu.trackIndex);
               setTrackMenu(null);
+              for (const index of [...contextTrackIndices].sort((a, b) => b - a)) {
+                await builder.trackRemove(songIdx, index);
+              }
             }}
           >
-            Delete Track
+            Delete {contextTrackIndices.length > 1 ? `${contextTrackIndices.length} Tracks` : "Track"}
           </ContextMenuItem>
         </ContextMenu>
       )}
