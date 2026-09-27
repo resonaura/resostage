@@ -925,6 +925,7 @@ export type SongCycleRow = ProjectCycleRow;
 
 export interface WebUiState {
   projectName: string;
+  activeTrackId?: string;
   /** Project-global metronome channel (mirrors ClickChannel; carry the routing
    *  nested exactly like a track. Null when the player/mixer view doesn't
    *  include it. */
@@ -1005,6 +1006,7 @@ export interface WebUiState {
 
 export const emptyState: WebUiState = {
   projectName: "",
+  activeTrackId: "",
   clickPeakDb: -100,
   clickPeakDbL: -100,
   clickPeakDbR: -100,

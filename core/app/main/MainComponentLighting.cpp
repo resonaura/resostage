@@ -433,18 +433,24 @@ void MainComponent::lightingTrackRemove(const std::string& json) {
 
 void MainComponent::lightingTrackMove(const std::string& json) {
     glz::generic doc;
-    int index = -1, delta = 0;
-    if (!parseJson(json, doc) || !getInt(doc, "index", index) || !getInt(doc, "delta", delta)
-        || !engine.isProjectLoaded())
+    int index = -1;
+    if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    const int to = index + delta;
+    int to = -1;
+    if (!getInt(doc, "to", to)) {
+        int delta = 0;
+        if (getInt(doc, "delta", delta))
+            to = index + delta;
+    }
     if (index < 0 || index >= static_cast<int>(proj.lighting.tracks.size())
-        || to < 0 || to >= static_cast<int>(proj.lighting.tracks.size()))
+        || to < 0 || to >= static_cast<int>(proj.lighting.tracks.size()) || index == to)
         return;
 
     engine.projectHistoryBeginEdit("", "Move light track");
-    std::swap(proj.lighting.tracks[static_cast<size_t>(index)], proj.lighting.tracks[static_cast<size_t>(to)]);
+    auto item = std::move(proj.lighting.tracks[static_cast<size_t>(index)]);
+    proj.lighting.tracks.erase(proj.lighting.tracks.begin() + index);
+    proj.lighting.tracks.insert(proj.lighting.tracks.begin() + to, std::move(item));
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
     engine.notifyLightEngineProjectChanged();

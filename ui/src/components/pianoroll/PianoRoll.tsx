@@ -3,13 +3,24 @@ import { PianoRollCanvas } from "./PianoRollCanvas";
 import { PianoRollToolbar } from "./PianoRollToolbar";
 import { applyLegato, applyOverlapTrim } from "./pianoRollModel";
 import { snapPitchToScale } from "./scales";
+import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
   PianoRollProps,
   PianoRollTool,
+  PianoRollViewport,
   ScaleMode,
 } from "./types";
+
+const DEFAULT_VIEWPORT: PianoRollViewport = {
+  pixelsPerBeat: 80,
+  pixelsPerPitch: 18,
+  scrollBeats: 0,
+  scrollPitch: 48, // Start around C3 (pitch 48)
+  keyWidth: 54,
+  velocityLaneHeight: 90,
+};
 
 export function PianoRoll({
   region,
@@ -23,11 +34,17 @@ export function PianoRoll({
   onToggleRegionVisible,
   trackColor,
   playheadBeats,
+  timeSignatureNumerator = 4,
+  isPlaying,
+  onSeek,
   onNotesChange,
   onRegionChange,
   className = "",
 }: PianoRollProps) {
-  const [tool, setTool] = useState<PianoRollTool>("draw");
+  // Selection is the safe/default editing gesture. Drawing remains one key
+  // press away (B), but opening a region must never make a plain click create
+  // or resize notes when the user only meant to inspect one.
+  const [tool, setTool] = useState<PianoRollTool>("select");
   const [snap, setSnap] = useState<GridSnapValue>(0.25); // 1/16 Beat default
   const [rootNote, setRootNote] = useState<number>(0); // C
   const [scaleMode, setScaleMode] = useState<ScaleMode>("minor");
@@ -37,6 +54,48 @@ export function PianoRoll({
     new Set(),
   );
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
+
+  useEffect(() => {
+    const available = new Set(region.notes.map((note) => note.id));
+    setSelectedNoteIds((current) => {
+      const next = new Set([...current].filter((id) => available.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [region.id, region.notes]);
+
+  const [viewport, setViewport] = useState<PianoRollViewport>(() => {
+    try {
+      const savedPpb = localStorage.getItem("resostage.pianoroll.pixelsPerBeat");
+      const savedPpp = localStorage.getItem("resostage.pianoroll.pixelsPerPitch");
+      return {
+        ...DEFAULT_VIEWPORT,
+        pixelsPerBeat: savedPpb ? Number(savedPpb) : DEFAULT_VIEWPORT.pixelsPerBeat,
+        pixelsPerPitch: savedPpp ? Number(savedPpp) : DEFAULT_VIEWPORT.pixelsPerPitch,
+      };
+    } catch {
+      return DEFAULT_VIEWPORT;
+    }
+  });
+
+  const [followMode, setFollowMode] = useState<TimelineFollowMode>(() => {
+    try {
+      const saved = localStorage.getItem("resostage.pianoroll.followMode");
+      if (saved === "off" || saved === "snap" || saved === "smooth") return saved;
+    } catch {}
+    return "snap";
+  });
+  const [catchOnPlay, setCatchOnPlay] = useState<boolean>(true);
+  const [catchOnSeek, setCatchOnSeek] = useState<boolean>(true);
+
+  const cycleFollowMode = useCallback(() => {
+    setFollowMode((cur) => {
+      const next = cur === "off" ? "snap" : cur === "snap" ? "smooth" : "off";
+      try {
+        localStorage.setItem("resostage.pianoroll.followMode", next);
+      } catch {}
+      return next;
+    });
+  }, []);
 
   const effectiveTrackColor = trackColor || "#0485f7";
 
@@ -347,6 +406,17 @@ export function PianoRoll({
         onSnapToScaleChange={setSnapToScale}
         showGhostNotes={showGhostNotes}
         onShowGhostNotesChange={setShowGhostNotes}
+        loopEnabled={region.loop}
+        onLoopEnabledChange={(enabled) =>
+          onRegionChange?.({
+            ...region,
+            loop: enabled,
+            loopLengthBeats:
+              region.loopLengthBeats > 0
+                ? region.loopLengthBeats
+                : region.durationBeats,
+          })
+        }
         selectedCount={selectedNoteIds.size}
         onQuantize={handleQuantize}
         onHumanize={handleHumanize}
@@ -356,6 +426,32 @@ export function PianoRoll({
         onDeleteSelected={handleDeleteSelected}
         bottomLane={bottomLane}
         onBottomLaneChange={setBottomLane}
+        pixelsPerBeat={viewport.pixelsPerBeat}
+        onPixelsPerBeatChange={(ppb) => {
+          setViewport((v) => ({ ...v, pixelsPerBeat: ppb }));
+          try {
+            localStorage.setItem(
+              "resostage.pianoroll.pixelsPerBeat",
+              String(ppb),
+            );
+          } catch {}
+        }}
+        pixelsPerPitch={viewport.pixelsPerPitch}
+        onPixelsPerPitchChange={(ppp) => {
+          setViewport((v) => ({ ...v, pixelsPerPitch: ppp }));
+          try {
+            localStorage.setItem(
+              "resostage.pianoroll.pixelsPerPitch",
+              String(ppp),
+            );
+          } catch {}
+        }}
+        followMode={followMode}
+        onCycleFollowMode={cycleFollowMode}
+        catchOnPlay={catchOnPlay}
+        onCatchOnPlayChange={setCatchOnPlay}
+        catchOnSeek={catchOnSeek}
+        onCatchOnSeekChange={setCatchOnSeek}
       />
 
       {/* Canvas Viewport */}
@@ -376,6 +472,14 @@ export function PianoRoll({
           onRegionChange={onRegionChange}
           bottomLane={bottomLane}
           playheadBeats={playheadBeats}
+          timeSignatureNumerator={timeSignatureNumerator}
+          isPlaying={isPlaying}
+          onSeek={onSeek}
+          viewport={viewport}
+          onViewportChange={setViewport}
+          followMode={followMode}
+          catchOnPlay={catchOnPlay}
+          catchOnSeek={catchOnSeek}
         />
       </div>
     </div>

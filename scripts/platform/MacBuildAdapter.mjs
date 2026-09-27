@@ -29,9 +29,21 @@ export class MacBuildAdapter extends BuildAdapter {
 
   getRawCoreAppBundle() {
     const candidates = [
-      join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, BUILD_TYPE, `${APP_TARGET}.app`),
+      join(
+        BUILD_DIR,
+        "app",
+        `${APP_TARGET}_artefacts`,
+        BUILD_TYPE,
+        `${APP_TARGET}.app`,
+      ),
       join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, `${APP_TARGET}.app`),
-      join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, BUILD_TYPE, `${CORE_APP_NAME}.app`),
+      join(
+        BUILD_DIR,
+        "app",
+        `${APP_TARGET}_artefacts`,
+        BUILD_TYPE,
+        `${CORE_APP_NAME}.app`,
+      ),
       join(BUILD_DIR, "app", `${APP_TARGET}_artefacts`, `${CORE_APP_NAME}.app`),
     ];
     for (const c of candidates) {
@@ -58,7 +70,10 @@ export class MacBuildAdapter extends BuildAdapter {
       return;
     }
     log(`Stopping ${SHELL_APP_NAME}...`);
-    runQuiet("osascript", ["-e", `tell application "${SHELL_APP_NAME}" to quit`]);
+    runQuiet("osascript", [
+      "-e",
+      `tell application "${SHELL_APP_NAME}" to quit`,
+    ]);
     for (let i = 0; i < 8; i++) {
       if (!this.appIsRunning()) {
         ok(`${SHELL_APP_NAME} stopped`);
@@ -94,7 +109,12 @@ export class MacBuildAdapter extends BuildAdapter {
       log("ui/dist missing -- skipping web UI embed (run pnpm build:ui first)");
       return;
     }
-    const dst = join(this.getRawCoreAppBundle(), "Contents", "Resources", "web");
+    const dst = join(
+      this.getRawCoreAppBundle(),
+      "Contents",
+      "Resources",
+      "web",
+    );
     log(`Embedding web UI -> ${dst}`);
     cpSync(src, dst, { recursive: true });
     ok("Web UI embedded as folder (Resources/web)");
@@ -107,7 +127,9 @@ export class MacBuildAdapter extends BuildAdapter {
     buildElectronShell();
     const rawCore = this.getRawCoreAppBundle();
     if (!existsSync(rawCore)) {
-      log(`${rawCore} missing -- skipping shell bundle assembly (build the app first)`);
+      log(
+        `${rawCore} missing -- skipping shell bundle assembly (build the app first)`,
+      );
       return;
     }
 
@@ -127,7 +149,10 @@ export class MacBuildAdapter extends BuildAdapter {
     const appDst = join(resources, "app");
     run("rm", ["-rf", appDst]);
     run("mkdir", ["-p", appDst]);
-    cpSync(join(ROOT, "electron", "package.json"), join(appDst, "package.json"));
+    cpSync(
+      join(ROOT, "electron", "package.json"),
+      join(appDst, "package.json"),
+    );
     cpSync(join(ROOT, "electron", "dist"), join(appDst, "dist"), {
       recursive: true,
     });
@@ -143,10 +168,43 @@ export class MacBuildAdapter extends BuildAdapter {
     rmSync(coreDst, { recursive: true, force: true });
     cpSync(rawCore, coreDst, { recursive: true });
 
+    // JUCE/CMake may reuse a generated Info.plist from an older configure.
+    // The nested Core process (not Chromium) opens CoreAudio inputs, so its
+    // own bundle must always carry the microphone purpose string.
+    const corePlist = join(coreDst, "Contents", "Info.plist");
+    const microphonePurpose =
+      "ResoStage uses audio inputs for recording and real-time input monitoring.";
+    try {
+      execFileSync(
+        "/usr/bin/plutil",
+        [
+          "-replace",
+          "NSMicrophoneUsageDescription",
+          "-string",
+          microphonePurpose,
+          corePlist,
+        ],
+        { stdio: "ignore" },
+      );
+    } catch {
+      execFileSync("/usr/bin/plutil", [
+        "-insert",
+        "NSMicrophoneUsageDescription",
+        "-string",
+        microphonePurpose,
+        corePlist,
+      ]);
+    }
+
     // Post-build icon patching: copy core.icns into ResoStage Core.app
     const coreIcns = join(ROOT, "icons", "core.icns");
     if (existsSync(coreIcns)) {
-      const coreIconDst = join(coreDst, "Contents", "Resources", "AppIcon.icns");
+      const coreIconDst = join(
+        coreDst,
+        "Contents",
+        "Resources",
+        "AppIcon.icns",
+      );
       cpSync(coreIcns, coreIconDst, { force: true });
     }
 
@@ -163,15 +221,22 @@ export class MacBuildAdapter extends BuildAdapter {
         rmSync(kaishakuDst1, { recursive: true, force: true });
         cpSync(kaishakuRaw, kaishakuDst1, { recursive: true });
 
-        const kaishakuDst2 = join(coreDst, "Contents", "Resources", targetAppName);
+        const kaishakuDst2 = join(
+          coreDst,
+          "Contents",
+          "Resources",
+          targetAppName,
+        );
         rmSync(kaishakuDst2, { recursive: true, force: true });
         cpSync(kaishakuRaw, kaishakuDst2, { recursive: true });
 
         // Clean up legacy kaishaku.app if present
         const legacy1 = join(resources, "kaishaku.app");
         const legacy2 = join(coreDst, "Contents", "Resources", "kaishaku.app");
-        if (existsSync(legacy1)) rmSync(legacy1, { recursive: true, force: true });
-        if (existsSync(legacy2)) rmSync(legacy2, { recursive: true, force: true });
+        if (existsSync(legacy1))
+          rmSync(legacy1, { recursive: true, force: true });
+        if (existsSync(legacy2))
+          rmSync(legacy2, { recursive: true, force: true });
 
         // Copy icon into ResoStage Kaishaku.app if present
         const kaishakuIcns = join(ROOT, "icons", "kaishaku.icns");
@@ -185,8 +250,20 @@ export class MacBuildAdapter extends BuildAdapter {
         }
 
         try {
-          execFileSync("codesign", ["--force", "--deep", "--sign", "-", kaishakuDst1]);
-          execFileSync("codesign", ["--force", "--deep", "--sign", "-", kaishakuDst2]);
+          execFileSync("codesign", [
+            "--force",
+            "--deep",
+            "--sign",
+            "-",
+            kaishakuDst1,
+          ]);
+          execFileSync("codesign", [
+            "--force",
+            "--deep",
+            "--sign",
+            "-",
+            kaishakuDst2,
+          ]);
         } catch {}
       } else {
         const kaishakuDst1 = join(resources, "kaishaku");
@@ -212,13 +289,15 @@ export class MacBuildAdapter extends BuildAdapter {
       log(`Warning: kaishaku raw binary not found in ${BUILD_DIR}`);
     }
 
-    try {
-      const entitlementsPath = join(resources, "entitlements.plist");
-      writeFileSync(entitlementsPath, ENTITLEMENTS);
-      adhocSignBundle(shellBundle, entitlementsPath);
-    } catch (e) {
-      log(`Warning: adhocSignBundle: ${e?.message || e}`);
-    }
+    const entitlementsPath = join(resources, "entitlements.plist");
+    writeFileSync(entitlementsPath, ENTITLEMENTS);
+    // A missing/expired local certificate must not make `pnpm dev`
+    // unusable. Publish remains strict; development explicitly falls back
+    // to an ad-hoc signature and prints the TCC persistence trade-off.
+    adhocSignBundle(shellBundle, entitlementsPath, {
+      allowAdhocFallback: true,
+      allowLocalIdentity: true,
+    });
     try {
       const lsregister =
         "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";

@@ -49,7 +49,6 @@ const session = (
   originTrackId: "trk_a",
   ...partial,
 });
-
 const ctx: RegionDragCtx = {
   pxPerSec: 10,
   verticalZoom: 1,
@@ -304,5 +303,56 @@ describe("Audio Slip Editing (Alt+Cmd+Drag)", () => {
     // Drag far left: clamps to 17
     const gMax = computeRegionDragGeom(slipSession(), ctx, -200, 50);
     expect(gMax.sourceOffset).toBeCloseTo(17, 4);
+  });
+});
+
+describe("Unified MIDI Region Dragging", () => {
+  const midiSession = (): RegionDragSession =>
+    session({
+      kind: "midi",
+      mode: "move",
+      bpm: 120, // 2 beats/sec (0.5s per beat)
+      origStartBeats: 4,
+      origDurationBeats: 8,
+      origStart: 2, // 4 beats @ 120bpm = 2s
+      origDuration: 4, // 8 beats @ 120bpm = 4s
+      startX: 100,
+      startY: 50,
+      originRowIndex: 0,
+      originTrackId: "trk_a",
+    });
+
+  it("moves MIDI region in beat units", () => {
+    // Dragging right by 20px (2s @ 10px/s) -> 4 beats forward -> start = 4 + 4 = 8 beats = 4s
+    const g = computeRegionDragGeom(midiSession(), ctx, 120, 50);
+    expect(g.start).toBeCloseTo(4, 4);
+    expect(g.duration).toBe(4);
+  });
+
+  it("trims MIDI start with beat quantization", () => {
+    const s = midiSession();
+    s.mode = "trimStart";
+    // Dragging right by 10px (1s @ 10px/s) -> +2 beats start, -2 beats duration
+    const g = computeRegionDragGeom(s, ctx, 110, 50);
+    expect(g.start).toBeCloseTo(3, 4); // 6 beats = 3s
+    expect(g.duration).toBeCloseTo(3, 4); // 6 beats = 3s
+  });
+
+  it("trims MIDI end with beat quantization", () => {
+    const s = midiSession();
+    s.mode = "trimEnd";
+    // Dragging right by 10px (1s @ 10px/s) -> +2 beats duration -> 10 beats = 5s
+    const g = computeRegionDragGeom(s, ctx, 110, 50);
+    expect(g.start).toBe(2);
+    expect(g.duration).toBeCloseTo(5, 4);
+  });
+
+  it("accounts for scroll offsets during drag", () => {
+    const s = midiSession();
+    s.startScrollLeft = 100;
+    // Mouse stays at clientX 100, but scroller scrolled right to 150 (+50px = +5s = +10 beats)
+    const g = computeRegionDragGeom(s, ctx, 100, 50, 150, 0);
+    // origStartBeats = 4 + 10 = 14 beats @ 120bpm = 7s
+    expect(g.start).toBeCloseTo(7, 4);
   });
 });

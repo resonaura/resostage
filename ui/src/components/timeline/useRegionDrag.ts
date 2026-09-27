@@ -13,7 +13,7 @@ import {
   type CrossfadeShape,
 } from "./crossfade";
 import { edgesCrossedDetent, songDetents } from "./detents";
-import { lookupRegion, type RegionSelKey } from "./regionUtils";
+import { lookupAnyRegion, type RegionSelKey } from "./regionUtils";
 import {
   baseRegionGeom,
   computeRegionDragGeom,
@@ -39,10 +39,18 @@ export function useRegionDrag({
   songs,
   markGestureActive,
   crossfadeShape = DEFAULT_CROSSFADE_SHAPE,
+  scrollerRef,
+  sidebarContentRef,
+  commitScrollState,
+  onSelectTrackId,
 }: {
   songs: SongRow[];
   markGestureActive: () => void;
   crossfadeShape?: CrossfadeShape;
+  scrollerRef?: React.RefObject<HTMLDivElement | null>;
+  sidebarContentRef?: React.RefObject<HTMLDivElement | null>;
+  commitScrollState?: (scrollLeft: number, viewportWidth: number) => void;
+  onSelectTrackId?: (trackId: string | null) => void;
 }) {
   const [regionGeomDraft, setRegionGeomDraft] = useState<
     Record<RegionSelKey, RegionGeomDraft>
@@ -83,6 +91,15 @@ export function useRegionDrag({
   crossfadeRef.current = { crossfadeShape };
   const songsRef = useRef(songs);
   songsRef.current = songs;
+  const onSelectTrackIdRef = useRef(onSelectTrackId);
+  onSelectTrackIdRef.current = onSelectTrackId;
+
+  // Auto-scrolling state and accelerated rAF loop
+  const autoScrollRafRef = useRef<number | null>(null);
+  const lastPointerPosRef = useRef<{ clientX: number; clientY: number }>({
+    clientX: 0,
+    clientY: 0,
+  });
 
   // Drop draft once project state reflects it (or the region vanished).
   useEffect(() => {
@@ -94,16 +111,30 @@ export function useRegionDrag({
       const next = { ...prev };
       for (const key of Object.keys(next) as RegionSelKey[]) {
         const d = next[key];
-        const hit = lookupRegion(songs, key);
+        const hit = lookupAnyRegion(songs, key);
         if (!hit) {
           delete next[key];
           changed = true;
           continue;
         }
-        if (regionDraftMatchesCommitted(hit.region, d)) {
-          delete next[key];
-          changed = true;
-          continue;
+        if (hit.kind === "audio") {
+          if (regionDraftMatchesCommitted(hit.region, d)) {
+            delete next[key];
+            changed = true;
+            continue;
+          }
+        } else if (hit.kind === "midi") {
+          const bpm = songs[hit.songIndex]?.bpm || 120;
+          const committedStartSec = (hit.region.startBeats * 60) / bpm;
+          const committedDurSec = (hit.region.durationBeats * 60) / bpm;
+          const matchStart = Math.abs(committedStartSec - d.start) < 0.05;
+          const matchDur = Math.abs(committedDurSec - d.duration) < 0.05;
+          const matchTrack = !d.trackId || hit.region.trackId === d.trackId;
+          if (matchStart && matchDur && matchTrack) {
+            delete next[key];
+            changed = true;
+            continue;
+          }
         }
         const writtenAt = draftWrittenAtRef.current[key] ?? 0;
         if (writtenAt > 0 && Date.now() - writtenAt > DRAFT_MAX_AGE_MS) {
@@ -162,14 +193,95 @@ export function useRegionDrag({
     }
   };
 
+  const stopAutoScroll = () => {
+    if (autoScrollRafRef.current !== null) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+  };
+
+  const startAutoScrollLoop = () => {
+    stopAutoScroll();
+    const tick = () => {
+      const rd = regionDragRef.current;
+      if (!rd) {
+        autoScrollRafRef.current = null;
+        return;
+      }
+      const scroller = scrollerRef?.current;
+      if (scroller) {
+        const rect = scroller.getBoundingClientRect();
+        const { clientX, clientY } = lastPointerPosRef.current;
+
+        const EDGE_X = 75;
+        const MIN_SPEED_X = 3;
+        const MAX_SPEED_X = 30;
+        let speedX = 0;
+
+        if (clientX > rect.right - EDGE_X && clientX <= rect.right + 100) {
+          const prox = Math.max(
+            0,
+            Math.min(1, (clientX - (rect.right - EDGE_X)) / EDGE_X),
+          );
+          speedX = MIN_SPEED_X + (MAX_SPEED_X - MIN_SPEED_X) * (prox * prox);
+        } else if (clientX < rect.left + EDGE_X && clientX >= rect.left - 100) {
+          const prox = Math.max(
+            0,
+            Math.min(1, (rect.left + EDGE_X - clientX) / EDGE_X),
+          );
+          speedX = -(MIN_SPEED_X + (MAX_SPEED_X - MIN_SPEED_X) * (prox * prox));
+        }
+
+        const EDGE_Y = 55;
+        const MIN_SPEED_Y = 2;
+        const MAX_SPEED_Y = 24;
+        let speedY = 0;
+
+        if (clientY > rect.bottom - EDGE_Y && clientY <= rect.bottom + 80) {
+          const prox = Math.max(
+            0,
+            Math.min(1, (clientY - (rect.bottom - EDGE_Y)) / EDGE_Y),
+          );
+          speedY = MIN_SPEED_Y + (MAX_SPEED_Y - MIN_SPEED_Y) * (prox * prox);
+        } else if (clientY < rect.top + EDGE_Y && clientY >= rect.top - 80) {
+          const prox = Math.max(
+            0,
+            Math.min(1, (rect.top + EDGE_Y - clientY) / EDGE_Y),
+          );
+          speedY = -(MIN_SPEED_Y + (MAX_SPEED_Y - MIN_SPEED_Y) * (prox * prox));
+        }
+
+        if (speedX !== 0 || speedY !== 0) {
+          if (speedX !== 0) {
+            scroller.scrollLeft += speedX;
+            commitScrollState?.(scroller.scrollLeft, scroller.clientWidth);
+          }
+          if (speedY !== 0) {
+            scroller.scrollTop += speedY;
+            if (sidebarContentRef?.current) {
+              sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
+            }
+          }
+          processRegionDragMove(clientX, clientY);
+        }
+      }
+      autoScrollRafRef.current = requestAnimationFrame(tick);
+    };
+    autoScrollRafRef.current = requestAnimationFrame(tick);
+  };
+
   const processRegionDragMove = (clientX: number, clientY: number) => {
     const rd = regionDragRef.current;
     if (!rd) return;
+    lastPointerPosRef.current = { clientX, clientY };
+    const scroller = scrollerRef?.current;
     const geom = computeRegionDragGeom(
       rd,
       regionDragCtxRef.current,
       clientX,
       clientY,
+      scroller?.scrollLeft,
+      scroller?.scrollTop,
     );
     hapticForDragMove(rd.lastGeom, geom);
     writeGeomDraft(rd.key, geom);
@@ -260,6 +372,7 @@ export function useRegionDrag({
   };
 
   const finishRegionDrag = () => {
+    stopAutoScroll();
     const rd = regionDragRef.current;
     if (!rd) return;
     const finalGeom: RegionGeom = rd.lastGeom ?? baseRegionGeom(rd);
@@ -267,31 +380,63 @@ export function useRegionDrag({
     writeGeomDraft(rd.key, finalGeom);
     triggerHaptic("generic");
 
-    // One id for the move AND for any crossfades it causes: undo has to put
-    // the neighbours' fades back in the same step that puts the region back,
-    // or a single Cmd-Z leaves the track sounding wrong.
-    const gestureId = crypto.randomUUID();
-    void builder.regionUpdate({
-      songIndex: rd.songIndex,
-      regionId: rd.regionId,
-      ...(finalGeom.trackId !== undefined
-        ? { trackId: finalGeom.trackId }
-        : {}),
-      startSeconds: finalGeom.start,
-      sourceOffsetSeconds: finalGeom.sourceOffset,
-      durationSeconds: finalGeom.duration,
-      // Only the stretch drag changes this, but sending it always keeps the
-      // commit a straight copy of the geometry that was on screen.
-      speed: finalGeom.speed,
-      fadeInSeconds: finalGeom.fadeIn,
-      fadeOutSeconds: finalGeom.fadeOut,
-      fadeInCurve: finalGeom.fadeInCurve,
-      fadeOutCurve: finalGeom.fadeOutCurve,
-      loop: finalGeom.loop,
-      loopLengthSeconds: finalGeom.loopLengthSeconds,
-      gestureId,
-    });
-    applyCrossfades(rd.songIndex, rd.regionId, finalGeom, gestureId);
+    if (rd.kind === "midi") {
+      const bpm = rd.bpm ?? (songsRef.current[rd.songIndex]?.bpm || 120);
+      const finalStartBeats = Math.max(0, (finalGeom.start * bpm) / 60);
+      const finalDurationBeats = Math.max(0.25, (finalGeom.duration * bpm) / 60);
+      void builder.midiRegionUpdate({
+        songIndex: rd.songIndex,
+        regionId: rd.regionId,
+        startBeats: Math.round(finalStartBeats * 1000) / 1000,
+        durationBeats: Math.round(finalDurationBeats * 1000) / 1000,
+        clipOffsetBeats:
+          Math.round(((finalGeom.sourceOffset * bpm) / 60) * 1000) / 1000,
+        trackId: finalGeom.trackId ?? rd.originTrackId,
+        loop: finalGeom.loop,
+        loopLengthBeats:
+          finalGeom.loop && finalGeom.loopLengthSeconds
+            ? Math.max(
+                0.25,
+                Math.round(
+                  ((finalGeom.loopLengthSeconds * bpm) / 60) * 1000,
+                ) / 1000,
+              )
+            : rd.origDurationBeats,
+      });
+      if (finalGeom.trackId) {
+        onSelectTrackIdRef.current?.(finalGeom.trackId);
+      }
+    } else {
+      // One id for the move AND for any crossfades it causes: undo has to put
+      // the neighbours' fades back in the same step that puts the region back,
+      // or a single Cmd-Z leaves the track sounding wrong.
+      const gestureId = crypto.randomUUID();
+      void builder.regionUpdate({
+        songIndex: rd.songIndex,
+        regionId: rd.regionId,
+        ...(finalGeom.trackId !== undefined
+          ? { trackId: finalGeom.trackId }
+          : {}),
+        startSeconds: finalGeom.start,
+        sourceOffsetSeconds: finalGeom.sourceOffset,
+        durationSeconds: finalGeom.duration,
+        // Only the stretch drag changes this, but sending it always keeps the
+        // commit a straight copy of the geometry that was on screen.
+        speed: finalGeom.speed,
+        fadeInSeconds: finalGeom.fadeIn,
+        fadeOutSeconds: finalGeom.fadeOut,
+        fadeInCurve: finalGeom.fadeInCurve,
+        fadeOutCurve: finalGeom.fadeOutCurve,
+        loop: finalGeom.loop,
+        loopLengthSeconds: finalGeom.loopLengthSeconds,
+        gestureId,
+      });
+      applyCrossfades(rd.songIndex, rd.regionId, finalGeom, gestureId);
+      if (finalGeom.trackId && finalGeom.trackId !== rd.originTrackId) {
+        onSelectTrackIdRef.current?.(finalGeom.trackId);
+      }
+    }
+
     regionDragRef.current = null;
     regionDragWindowCleanupRef.current?.();
     regionDragWindowCleanupRef.current = null;
@@ -307,6 +452,7 @@ export function useRegionDrag({
    * the region straight back on its committed geometry.
    */
   const cancelRegionDrag = () => {
+    stopAutoScroll();
     const rd = regionDragRef.current;
     regionDragRef.current = null;
     regionDragWindowCleanupRef.current?.();
@@ -344,9 +490,10 @@ export function useRegionDrag({
     };
   };
 
-  // Drop window listeners if the host unmounts mid-drag.
+  // Drop window listeners and auto-scroll if the host unmounts mid-drag.
   useEffect(
     () => () => {
+      stopAutoScroll();
       regionDragWindowCleanupRef.current?.();
       regionDragWindowCleanupRef.current = null;
       regionDragRef.current = null;
@@ -357,6 +504,13 @@ export function useRegionDrag({
   );
 
   const startRegionDrag = (session: RegionDragSession) => {
+    const scroller = scrollerRef?.current;
+    session.startScrollLeft = scroller ? scroller.scrollLeft : 0;
+    session.startScrollTop = scroller ? scroller.scrollTop : 0;
+    lastPointerPosRef.current = {
+      clientX: session.startX,
+      clientY: session.startY,
+    };
     regionDragRef.current = session;
     const ctx = regionDragCtxRef.current;
     dragDetentsRef.current = ctx.snapToGrid
@@ -367,6 +521,7 @@ export function useRegionDrag({
           excludeRegionId: session.regionId,
         });
     attachRegionDragWindowListeners();
+    startAutoScrollLoop();
     dragCancelRef.current?.end();
     dragCancelRef.current = beginCancellableDrag(cancelRegionDrag);
     markGestureActiveRef.current();

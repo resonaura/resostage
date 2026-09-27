@@ -1176,6 +1176,13 @@ void MainComponent::drainWebCommands() {
             }
             case WebCommandKind::SetFocusedTrack:
                 engine.setFocusedTrack(cmd.arg);
+                if (cmd.arg >= 0 && static_cast<size_t>(cmd.arg) < engine.trackCount()) {
+                    if (const auto* t = engine.trackDefAt(static_cast<size_t>(cmd.arg))) {
+                        engine.project().activeTrackId = t->id;
+                    }
+                } else if (cmd.arg < 0) {
+                    engine.project().activeTrackId.clear();
+                }
                 break;
             case WebCommandKind::SetTrackInputSource: {
                 wire::WTrackInputSourcePayload payload;
@@ -1803,6 +1810,7 @@ void MainComponent::publishWebState() {
         return rows;
     };
     state.projectName = proj.name;
+    state.activeTrackId = proj.activeTrackId;
     state.click = proj.click.enabled;
     state.clickName = proj.click.name.empty() ? "Click" : proj.click.name;
     state.clickBusId = routeIdOf(proj.click.output);
@@ -2773,6 +2781,15 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
 
 void MainComponent::onProjectLoaded() {
     ensureSongSelected();
+    const auto& proj = engine.project();
+    if (!proj.activeTrackId.empty()) {
+        for (size_t i = 0; i < proj.tracks.size(); ++i) {
+            if (proj.tracks[i].id == proj.activeTrackId) {
+                engine.setFocusedTrack(static_cast<int>(i));
+                break;
+            }
+        }
+    }
 }
 
 void MainComponent::ensureSongSelected() {

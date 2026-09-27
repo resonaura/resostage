@@ -2,16 +2,29 @@ import {
   Eraser,
   Grid,
   Layers,
+  Locate,
+  LocateFixed,
+  LocateOff,
   MousePointer,
+  MoveHorizontalIcon,
+  MoveVerticalIcon,
   Music,
   Paintbrush,
   Pencil,
+  Repeat2,
   Scissors,
   Sliders,
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { Button } from "../ui";
+import { useState } from "react";
+import { Button, Slider, ToggleButton } from "../ui";
+import {
+  ContextMenu,
+  ContextMenuDivider,
+  ContextMenuItem,
+} from "../common/ContextMenu";
+import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
 import { NOTE_NAMES, SCALE_LABELS } from "./scales";
 import type {
   GridSnapValue,
@@ -33,6 +46,8 @@ interface PianoRollToolbarProps {
   onSnapToScaleChange: (snap: boolean) => void;
   showGhostNotes: boolean;
   onShowGhostNotesChange: (show: boolean) => void;
+  loopEnabled?: boolean;
+  onLoopEnabledChange?: (enabled: boolean) => void;
   selectedCount: number;
   onQuantize: () => void;
   onHumanize: () => void;
@@ -42,6 +57,17 @@ interface PianoRollToolbarProps {
   onDeleteSelected: () => void;
   bottomLane?: PianoRollBottomLane;
   onBottomLaneChange?: (lane: PianoRollBottomLane) => void;
+  // Zoom & Follow controls
+  pixelsPerBeat?: number;
+  onPixelsPerBeatChange?: (val: number) => void;
+  pixelsPerPitch?: number;
+  onPixelsPerPitchChange?: (val: number) => void;
+  followMode?: TimelineFollowMode;
+  onCycleFollowMode?: () => void;
+  catchOnPlay?: boolean;
+  onCatchOnPlayChange?: (v: boolean) => void;
+  catchOnSeek?: boolean;
+  onCatchOnSeekChange?: (v: boolean) => void;
 }
 
 const SNAP_OPTIONS: { label: string; value: GridSnapValue }[] = [
@@ -75,6 +101,8 @@ export function PianoRollToolbar({
   onSnapToScaleChange,
   showGhostNotes,
   onShowGhostNotesChange,
+  loopEnabled,
+  onLoopEnabledChange,
   selectedCount,
   onQuantize,
   onHumanize,
@@ -84,7 +112,20 @@ export function PianoRollToolbar({
   onDeleteSelected,
   bottomLane = "velocity",
   onBottomLaneChange,
+  pixelsPerBeat,
+  onPixelsPerBeatChange,
+  pixelsPerPitch,
+  onPixelsPerPitchChange,
+  followMode,
+  onCycleFollowMode,
+  catchOnPlay,
+  onCatchOnPlayChange,
+  catchOnSeek,
+  onCatchOnSeekChange,
 }: PianoRollToolbarProps) {
+  const [followMenu, setFollowMenu] = useState<{ x: number; y: number } | null>(
+    null,
+  );
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-default/30 bg-default/10 px-3 py-1.5 text-xs select-none">
       {/* Tool Selector */}
@@ -143,6 +184,18 @@ export function PianoRollToolbar({
 
       {/* Snap & Grid */}
       <div className="flex items-center gap-1.5">
+        {onLoopEnabledChange && (
+          <ToggleButton
+            size="sm"
+            isSelected={Boolean(loopEnabled)}
+            onChange={onLoopEnabledChange}
+            aria-label="Loop MIDI region"
+            className="h-7 px-2"
+          >
+            <Repeat2 size={14} className="mr-1" />
+            Loop
+          </ToggleButton>
+        )}
         <Grid size={14} className="text-foreground/50" />
         <span className="text-[11px] font-medium text-foreground/70">
           Snap:
@@ -318,6 +371,132 @@ export function PianoRollToolbar({
             </select>
           </div>
         )}
+
+        {/* Playhead Autofollow Button */}
+        {followMode && onCycleFollowMode && (
+          <div className="flex items-center border-l border-default/30 pl-2">
+            <ToggleButton
+              size="sm"
+              isIconOnly
+              isSelected={followMode !== "off"}
+              aria-label={
+                followMode === "off"
+                  ? "Playhead autofollow: off (click cycles mode, right-click options)"
+                  : followMode === "snap"
+                    ? "Playhead autofollow: standard (click cycles, right-click options)"
+                    : "Playhead autofollow: smooth (click cycles, right-click options)"
+              }
+              onPress={onCycleFollowMode}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setFollowMenu({ x: e.clientX, y: e.clientY });
+              }}
+              className="h-7 w-7"
+            >
+              {followMode === "off" ? (
+                <LocateOff size={13} />
+              ) : followMode === "snap" ? (
+                <Locate size={13} />
+              ) : (
+                <LocateFixed size={13} />
+              )}
+            </ToggleButton>
+          </div>
+        )}
+
+        {followMenu && onCatchOnPlayChange && onCatchOnSeekChange && (
+          <ContextMenu
+            x={followMenu.x}
+            y={followMenu.y}
+            width={240}
+            onClose={() => setFollowMenu(null)}
+          >
+            <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-foreground/40">
+              Follow playhead
+            </div>
+            <ContextMenuItem
+              checked={catchOnPlay ?? true}
+              onClick={() => {
+                onCatchOnPlayChange(!catchOnPlay);
+              }}
+            >
+              Catch when Starting Playback
+            </ContextMenuItem>
+            <ContextMenuItem
+              checked={catchOnSeek ?? true}
+              onClick={() => {
+                onCatchOnSeekChange(!catchOnSeek);
+              }}
+            >
+              Catch when Moving Playhead
+            </ContextMenuItem>
+            <ContextMenuDivider />
+            <div className="px-2.5 py-1.5 text-[10px] leading-snug text-foreground/40">
+              Manual scroll while playing suspends follow. Play / scrub can
+              re-enable it based on the options above.
+            </div>
+          </ContextMenu>
+        )}
+
+        {/* Horizontal and Vertical Zoom Sliders */}
+        {pixelsPerBeat !== undefined &&
+          onPixelsPerBeatChange &&
+          pixelsPerPitch !== undefined &&
+          onPixelsPerPitchChange && (
+            <div className="flex w-52 shrink-0 items-center gap-1.5 border-l border-default/30 pl-2">
+              <MoveHorizontalIcon
+                style={{ opacity: 0.4, width: "14px", height: "14px" }}
+              />
+              <div className="flex-1 min-w-0 flex items-center">
+                <Slider
+                  aria-label="Horizontal zoom"
+                  minValue={0}
+                  maxValue={1}
+                  step={0.001}
+                  value={Math.max(
+                    0,
+                    Math.min(
+                      1,
+                      Math.log(pixelsPerBeat / 20) / Math.log(400 / 20),
+                    ),
+                  )}
+                  onChange={(v) => {
+                    const t = Array.isArray(v) ? v[0] : v;
+                    const next = 20 * Math.pow(400 / 20, t);
+                    onPixelsPerBeatChange(next);
+                  }}
+                  className="min-w-0 flex-1 flex items-center justify-center"
+                >
+                  <Slider.Track>
+                    <Slider.Fill />
+                    <Slider.Thumb />
+                  </Slider.Track>
+                </Slider>
+              </div>
+              <MoveVerticalIcon
+                style={{ opacity: 0.4, width: "14px", height: "14px" }}
+              />
+              <div className="flex-1 min-w-0 flex items-center">
+                <Slider
+                  aria-label="Vertical zoom"
+                  minValue={10}
+                  maxValue={40}
+                  step={0.5}
+                  value={pixelsPerPitch}
+                  onChange={(v) => {
+                    const z = Array.isArray(v) ? v[0] : v;
+                    onPixelsPerPitchChange(z);
+                  }}
+                  className="min-w-0 flex-1 flex items-center justify-center"
+                >
+                  <Slider.Track>
+                    <Slider.Fill />
+                    <Slider.Thumb />
+                  </Slider.Track>
+                </Slider>
+              </div>
+            </div>
+          )}
       </div>
     </div>
   );

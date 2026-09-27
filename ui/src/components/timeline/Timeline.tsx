@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { builder, transport } from "../../lib/state/api";
+import { builder, mixer, transport } from "../../lib/state/api";
 import {
   beginCancellableDrag,
   type CancellableDrag,
@@ -43,6 +43,7 @@ import type { LightSidePanelSelection } from "../light/LightSidePanel";
 import { LightSidePanel } from "../light/LightSidePanel";
 import type { CueSelKey, LightCueDragState } from "../light/LightTimeline";
 import {
+  AUDIO_HINT_HEIGHT,
   AudioHintStrip,
   LIGHT_HINT_HEIGHT,
   LightHintStrip,
@@ -61,8 +62,10 @@ import { AudioDropGhost } from "./AudioDropGhost";
 import { AudioTrackLanes } from "./AudioTrackLanes";
 import { BeatGrid } from "./BeatGrid";
 import {
+  EVENT_LANE_HEIGHT,
   MAX_PX_PER_SEC,
   MIN_PX_PER_SEC,
+  SECTION_LANE_HEIGHT,
   TRAILING_SLACK_MIN_PX,
   TRAILING_SLACK_SECONDS,
 } from "./constants";
@@ -104,7 +107,7 @@ import {
 } from "./regionEdit";
 import {
   allRegionSelKeys,
-  lookupRegion,
+  lookupAnyRegion,
   type RegionSelKey,
   type RegionUiState,
 } from "./regionUtils";
@@ -652,7 +655,7 @@ export function Timeline({
     );
     setCueSelection(null);
     setSelectedCueKeys([]);
-    const found = lookupRegion(state.songs, key);
+    const found = lookupAnyRegion(state.songs, key);
     if (found?.region?.trackId) {
       onSelectTrackId?.(found.region.trackId);
     }
@@ -698,7 +701,7 @@ export function Timeline({
 
   const duplicateSelectedRegions = async () => {
     const entries = resolveSelectedRegions(selectedRegionKeys, state.songs);
-    await addRegionEntries(entries);
+    await addRegionEntries(entries, state.songs);
     if (entries.length) showToast(`Duplicated ${entries.length} region(s)`);
   };
 
@@ -714,7 +717,7 @@ export function Timeline({
       songIndex,
       localSeconds,
     );
-    await addRegionEntries(placed);
+    await addRegionEntries(placed, state.songs);
     showToast(`Pasted ${getClipboardRegions().length} region(s) at playhead`);
     setSelectedRegionKeys([]);
     setSelectedCueKeys([]);
@@ -770,6 +773,11 @@ export function Timeline({
   } = useRegionDrag({
     songs: state.songs,
     markGestureActive: () => markGestureActiveRef.current(),
+    scrollerRef: scrollRef,
+    sidebarContentRef: sidebarContentRef,
+    commitScrollState: (left, width) =>
+      commitScrollStateRef.current(left, width),
+    onSelectTrackId: (id) => onSelectTrackId?.(id),
   });
 
   // Light cue actively being dragged across LightTrackLane instances (each
@@ -1862,6 +1870,95 @@ export function Timeline({
     }
   }, []);
 
+  const handleAutoScroll = useCallback((deltaY: number) => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    scroller.scrollTop += deltaY;
+    if (sidebarContentRef.current) {
+      sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
+    }
+  }, []);
+
+  const scrollToTrackIndex = useCallback(
+    (trackIdx: number) => {
+      const scroller = scrollRef.current;
+      if (!scroller || trackIdx < 0) return;
+      const laneH = laneHeightPx(verticalZoom);
+      const showHintSpacer =
+        effectiveViewMode === "audio" ? hasLightContent : true;
+      const hintHeight =
+        effectiveViewMode === "light" ? AUDIO_HINT_HEIGHT : LIGHT_HINT_HEIGHT;
+      const baseTop =
+        SECTION_LANE_HEIGHT + EVENT_LANE_HEIGHT + (showHintSpacer ? hintHeight : 0);
+
+      let rowIndex = trackIdx;
+      if (effectiveViewMode === "audio") {
+        const foundRowIdx = rows.findIndex((r) => r.headerIndex === trackIdx);
+        if (foundRowIdx >= 0) rowIndex = foundRowIdx;
+      }
+      const rowTop = baseTop + rowIndex * laneH;
+      const rowBottom = rowTop + laneH;
+      const currentScrollTop = scroller.scrollTop;
+      const clientHeight = scroller.clientHeight;
+
+      if (rowTop < currentScrollTop) {
+        scroller.scrollTop = Math.max(0, rowTop - 12);
+        if (sidebarContentRef.current) {
+          sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
+        }
+      } else if (rowBottom > currentScrollTop + clientHeight) {
+        scroller.scrollTop = rowBottom - clientHeight + 12;
+        if (sidebarContentRef.current) {
+          sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
+        }
+      }
+    },
+    [verticalZoom, effectiveViewMode, hasLightContent, rows],
+  );
+
+  // Auto-focus and scroll to new track on creation
+  const prevTrackCountRef = useRef(state.tracks.length);
+  useEffect(() => {
+    if (state.tracks.length > prevTrackCountRef.current) {
+      const newTrackIdx = state.tracks.length - 1;
+      const newTrack = state.tracks[newTrackIdx];
+      if (newTrack) {
+        void mixer.setFocusedTrack(newTrackIdx);
+        onSelectTrackId?.(newTrack.id);
+        scrollToTrackIndex(newTrackIdx);
+      }
+    }
+    prevTrackCountRef.current = state.tracks.length;
+  }, [state.tracks.length, state.tracks, onSelectTrackId, scrollToTrackIndex]);
+
+  // Auto-focus and scroll to new light track on creation
+  const prevLightTrackCountRef = useRef(lightTracks.length);
+  useEffect(() => {
+    if (lightTracks.length > prevLightTrackCountRef.current) {
+      const newIdx = lightTracks.length - 1;
+      setSidePanelTrackIndex(newIdx);
+      selectCue(null);
+      scrollToTrackIndex(newIdx);
+    }
+    prevLightTrackCountRef.current = lightTracks.length;
+  }, [lightTracks.length, scrollToTrackIndex]);
+
+  // Auto-scroll to active track on project load
+  const lastProjectNameRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state.projectName) return;
+    const isNewProject = lastProjectNameRef.current !== state.projectName;
+    if (isNewProject) {
+      lastProjectNameRef.current = state.projectName;
+      if (selectedTrackId) {
+        const idx = state.tracks.findIndex((t) => t.id === selectedTrackId);
+        if (idx >= 0) {
+          scrollToTrackIndex(idx);
+        }
+      }
+    }
+  }, [state.projectName, selectedTrackId, state.tracks, scrollToTrackIndex]);
+
   const keyboardActions = useMemo(
     () => ({
       copySelectedCue,
@@ -2397,8 +2494,12 @@ export function Timeline({
               setCueSelection={() => selectCue(null)}
               sidebarContentRef={sidebarContentRef}
               selectedTrackId={selectedTrackId}
-              onSelectTrack={onSelectTrackId}
+              onSelectTrack={(id) => {
+                setSelectedRegionKeys([]);
+                onSelectTrackId?.(id);
+              }}
               onWheel={handleSidebarWheel}
+              onAutoScroll={handleAutoScroll}
             />
           )}
 
@@ -2665,6 +2766,7 @@ export function Timeline({
                       gestureActive={gestureActive}
                       readOnly={readOnly}
                       tool={effectiveTool}
+                      snapToGrid={snapToGrid}
                       selectRegion={selectRegion}
                       startRegionDrag={startRegionDrag}
                       onRegionContextMenu={setRegionContextMenu}

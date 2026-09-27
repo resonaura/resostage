@@ -9,10 +9,31 @@ import { SpatialNoteIndex } from "./spatialIndex";
 import {
   applyLegato,
   applyOverlapTrim,
+  canvasYToPitch,
   paintBrushNote,
   sliceNote,
 } from "./pianoRollModel";
 import type { MidiNoteRow } from "../../lib/state/types";
+
+describe("Piano Roll canvas geometry", () => {
+  it("hit-tests the rendered semitone after fractional vertical scrolling", () => {
+    const gridBottom = 365;
+    const scrollPitch = 89.7;
+    const pixelsPerPitch = 29;
+    const renderedPitch = 98;
+    const renderedTop =
+      gridBottom - (renderedPitch - scrollPitch + 1) * pixelsPerPitch;
+
+    expect(
+      canvasYToPitch(
+        renderedTop + pixelsPerPitch / 2,
+        gridBottom,
+        scrollPitch,
+        pixelsPerPitch,
+      ),
+    ).toBe(renderedPitch);
+  });
+});
 
 describe("Piano Roll Scales & Harmonics", () => {
   it("correctly identifies black and white piano keys", () => {
@@ -132,6 +153,33 @@ describe("Piano Roll Spatial Index", () => {
     // Hit outside note: null
     const miss = index.hitTest(1.0, 60.0, 0.1);
     expect(miss).toBeNull();
+  });
+
+  it("hit-tests velocity stalks independently of the visible pitch window", () => {
+    const index = new SpatialNoteIndex(4.0, 12);
+    const lowNote: MidiNoteRow = {
+      id: 20,
+      pitch: 12,
+      startBeats: 2,
+      durationBeats: 4,
+      velocity: 0.4,
+      releaseVelocity: 0.5,
+      probability: 1,
+    };
+    const highNote: MidiNoteRow = {
+      id: 21,
+      pitch: 110,
+      startBeats: 3,
+      durationBeats: 0.5,
+      velocity: 0.9,
+      releaseVelocity: 0.5,
+      probability: 1,
+    };
+    index.rebuild([lowNote, highNote]);
+
+    expect(index.hitTestStart(2.04, 0.08)?.id).toBe(lowNote.id);
+    expect(index.hitTestStart(3.06, 0.08)?.id).toBe(highNote.id);
+    expect(index.hitTestStart(2.5, 0.08)).toBeNull();
   });
 
   it("handles high density benchmark (10,000 notes) in < 1ms query time", () => {

@@ -1466,6 +1466,7 @@ std::string WebServer::buildStateJson(const char* view) const {
 
     wire.projectName = snap.projectName;
     wire.songName = snap.songName;
+    wire.activeTrackId = snap.activeTrackId;
     wire.playheadSeconds = finiteOrZero(snap.playheadSeconds);
     wire.globalPlayheadSeconds = finiteOrZero(snap.globalPlayheadSeconds);
     wire.globalBeatsElapsed = finiteOrZero(snap.globalBeatsElapsed);

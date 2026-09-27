@@ -1,8 +1,9 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { builder } from "../../lib/state/api";
 import { IS_EMBEDDED } from "../../lib/platform/embedded";
 import type {
   AllPeaksResponse,
+  MidiRegionRow,
   PeaksResponse,
   RegionRow,
   SongRow,
@@ -11,6 +12,12 @@ import type {
 } from "../../lib/state/types";
 import { isCompactLane, laneHeightPx } from "./laneDimensions";
 import { AudioRegionBlock } from "./AudioRegionBlock";
+import { MidiRegionBlock } from "./MidiRegionBlock";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuDivider,
+} from "../common/ContextMenu";
 import { LiveRecordingRegion } from "./LiveRecordingRegion";
 import { CrossfadeOverlay } from "./CrossfadeOverlay";
 import { MIN_CROSSFADE_SECONDS } from "./crossfade";
@@ -25,6 +32,7 @@ import {
   type RegionGeomDraft,
 } from "./regionDrag";
 import { splitRegionsAtPlayhead } from "./regionEdit";
+import { midiRegionPlacementAt } from "./midiRegionPlacement";
 import { buildSongPeakLookup } from "./regionPeaks";
 import {
   regionSelKey,
@@ -62,6 +70,7 @@ export function AudioTrackLanes({
   gestureActive,
   readOnly,
   tool = "pointer",
+  snapToGrid = true,
   selectRegion,
   startRegionDrag,
   writeGeomDraft,
@@ -88,6 +97,7 @@ export function AudioTrackLanes({
   gestureActive: boolean;
   readOnly: boolean;
   tool?: TimelineTool;
+  snapToGrid?: boolean;
   /** Live geometry for a region mid-gesture; see useRegionDrag. */
   writeGeomDraft: (key: RegionSelKey, geom: RegionGeom) => void;
   selectRegion: (
@@ -104,6 +114,13 @@ export function AudioTrackLanes({
   }) => void;
   onOpenMidiRegion?: (trackId: string, regionId: string) => void;
 }) {
+  const [midiContextMenu, setMidiContextMenu] = useState<{
+    x: number;
+    y: number;
+    songIndex: number;
+    region: MidiRegionRow;
+  } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingImportRef = useRef<{
     songIndex: number;
@@ -222,7 +239,38 @@ export function AudioTrackLanes({
                 if (i === songOffsets.length - 1) songIndex = i;
               }
               if (trackIndex < 0) return;
-              openWavPicker(songIndex, trackIndex);
+              const clickedSong = songs[songIndex];
+              const trackKind = track?.kind ?? "audio";
+              const acceptsMidi =
+                trackKind === "instrument" ||
+                trackKind === "midi" ||
+                trackKind === "externalMidi";
+              if (acceptsMidi && track) {
+                const localSeconds = Math.max(
+                  0,
+                  x / pxPerSec - (songOffsets[songIndex] ?? 0),
+                );
+                const placement = midiRegionPlacementAt(
+                  localSeconds,
+                  songLengths[songIndex] ?? 0,
+                  clickedSong?.bpm ?? 120,
+                  clickedSong?.tsNum ?? 4,
+                  pxPerSec,
+                  snapToGrid,
+                );
+                void builder.midiRegionAdd({
+                  songIndex,
+                  trackId: track.id,
+                  name: "MIDI Region",
+                  startBeats: placement.startBeats,
+                  durationBeats: placement.durationBeats,
+                  loop: false,
+                  loopLengthBeats: placement.durationBeats,
+                  color: row.color,
+                });
+                return;
+              }
+              if (trackKind === "audio") openWavPicker(songIndex, trackIndex);
             }}
           >
             {(() => {
@@ -271,16 +319,123 @@ export function AudioTrackLanes({
                   effectiveTrackId === row.name
                 );
               });
-              const midiRegions = (song.midiRegions ?? []).filter(
-                (region) =>
-                  region.trackId === track?.id || region.trackId === row.name,
-              );
+              const midiRegions = (song.midiRegions ?? []).filter((region) => {
+                const draftTrackId =
+                  regionGeomDraft[regionSelKey(i, region.id)]?.trackId;
+                const effectiveTrackId = draftTrackId ?? region.trackId;
+                return (
+                  effectiveTrackId === track?.id ||
+                  effectiveTrackId === row.name
+                );
+              });
               if (trackRegions.length === 0 && midiRegions.length === 0)
                 return null;
 
               const segDuration = songLengths[i];
               const peakEntryFor = (r: RegionRow) =>
                 peakLookupPerSong[i]?.forRegion(r, track?.id);
+
+              const beginMidiDrag = (
+                midiRegion: MidiRegionRow,
+                e: React.PointerEvent,
+                mode: RegionDragMode,
+              ) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (readOnly) return;
+                if (tool === "eraser") {
+                  void builder.midiRegionRemove(i, midiRegion.id);
+                  return;
+                }
+                const songBpm = song.bpm > 0 ? song.bpm : 120;
+                if (tool === "scissors") {
+                  const rect = (
+                    e.currentTarget as HTMLElement
+                  ).getBoundingClientRect();
+                  const clickSec = Math.max(
+                    0,
+                    Math.min(
+                      (midiRegion.durationBeats * 60) / songBpm,
+                      (e.clientX - rect.left) / pxPerSec,
+                    ),
+                  );
+                  const abs =
+                    songOffsets[i] +
+                    (midiRegion.startBeats * 60) / songBpm +
+                    clickSec;
+                  const key = regionSelKey(i, midiRegion.id);
+                  clearGeomDrafts([key]);
+                  void splitRegionsAtPlayhead(
+                    [key],
+                    songs,
+                    songOffsets,
+                    songLengths,
+                    abs,
+                  );
+                  return;
+                }
+
+                const key = regionSelKey(i, midiRegion.id);
+
+                const startSec = (midiRegion.startBeats * 60) / songBpm;
+                const durSec = Math.max(
+                  0.05,
+                  (midiRegion.durationBeats * 60) / songBpm,
+                );
+                const clipOffsetSec =
+                  (midiRegion.clipOffsetBeats * 60) / songBpm;
+                const geom: RegionGeom = {
+                  start: startSec,
+                  sourceOffset: clipOffsetSec,
+                  duration: durSec,
+                  speed: 1,
+                  fadeIn: 0,
+                  fadeOut: 0,
+                  fadeInCurve: 0,
+                  fadeOutCurve: 0,
+                  loop: midiRegion.loop,
+                  loopLengthSeconds:
+                    midiRegion.loopLengthBeats > 0
+                      ? (midiRegion.loopLengthBeats * 60) / songBpm
+                      : durSec,
+                  trackId: midiRegion.trackId,
+                };
+
+                const originTrackId =
+                  midiRegion.trackId || track?.id || row.name;
+
+                startRegionDrag({
+                  key,
+                  kind: "midi",
+                  mode,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  songIndex: i,
+                  regionId: midiRegion.id,
+                  origStart: startSec,
+                  origSourceOffset: clipOffsetSec,
+                  origDuration: durSec,
+                  origFadeIn: 0,
+                  origFadeOut: 0,
+                  origFadeInCurve: 0,
+                  origFadeOutCurve: 0,
+                  origLoop: midiRegion.loop,
+                  origLoopLength:
+                    midiRegion.loopLengthBeats > 0
+                      ? (midiRegion.loopLengthBeats * 60) / songBpm
+                      : durSec,
+                  origSpeed: 1,
+                  maxEnd: songLengths[i] ?? 600,
+                  maxSourceDur: 3600,
+                  lastGeom: geom,
+                  originRowIndex: rowIndex,
+                  targetRowIndex: rowIndex,
+                  originTrackId,
+                  bpm: songBpm,
+                  origStartBeats: midiRegion.startBeats,
+                  origDurationBeats: midiRegion.durationBeats,
+                });
+              };
 
               // Adjacent overlapping pairs on this lane. Computed once and
               // used twice: the blocks need it to suppress the fade triangle
@@ -330,64 +485,39 @@ export function AudioTrackLanes({
                   style={{ left: segStart, width: segWidth }}
                 >
                   {midiRegions.map((midiRegion) => {
-                    const bpm = song.bpm > 0 ? song.bpm : 120;
-                    const startSeconds = (midiRegion.startBeats * 60) / bpm;
-                    const durationSeconds = Math.max(
-                      0.05,
-                      (midiRegion.durationBeats * 60) / bpm,
-                    );
-                    const width = Math.max(8, durationSeconds * pxPerSec);
-                    const pitches = midiRegion.notes.map((note) => note.pitch);
-                    const minPitch = pitches.length
-                      ? Math.min(...pitches)
-                      : 48;
-                    const maxPitch = pitches.length
-                      ? Math.max(...pitches)
-                      : 72;
-                    const pitchSpan = Math.max(12, maxPitch - minPitch + 4);
+                    const midiSelKey = regionSelKey(i, midiRegion.id);
+                    const midiGeomDraft = regionGeomDraft[midiSelKey];
                     return (
-                      <button
+                      <MidiRegionBlock
                         key={`midi:${midiRegion.id}`}
-                        type="button"
-                        className="absolute top-1 bottom-1 overflow-hidden rounded border border-violet-300/70 bg-violet-500/35 text-left shadow-sm hover:border-violet-200 focus-visible:outline-2 focus-visible:outline-accent"
-                        style={{
-                          left: startSeconds * pxPerSec,
-                          width,
-                          opacity:
-                            trackMuted || midiRegion.muted || soloDimmed
-                              ? 0.35
-                              : 1,
+                        midiRegion={midiRegion}
+                        songIndex={i}
+                        songBpm={song.bpm > 0 ? song.bpm : 120}
+                        rowName={row.name}
+                        rowColor={row.color}
+                        laneHeight={laneHeightPx(verticalZoom)}
+                        pxPerSec={pxPerSec}
+                        dimmed={trackMuted || midiRegion.muted || soloDimmed}
+                        isSelected={selectedRegionKeys.includes(midiSelKey)}
+                        readOnly={readOnly}
+                        tool={tool}
+                        tracks={state.tracks}
+                        geomDraft={midiGeomDraft}
+                        isDragging={regionDragKey === midiSelKey}
+                        onSelect={(e) => selectRegion(midiSelKey, e)}
+                        onBeginDrag={(e, mode) =>
+                          beginMidiDrag(midiRegion, e, mode)
+                        }
+                        onOpenPianoRoll={onOpenMidiRegion}
+                        onContextMenu={(e, region) => {
+                          setMidiContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            songIndex: i,
+                            region,
+                          });
                         }}
-                        title={`${midiRegion.name || "MIDI Region"} · Double-click to edit in Piano Roll`}
-                        onClick={(event) => event.stopPropagation()}
-                        onDoubleClick={(event) => {
-                          event.stopPropagation();
-                          onOpenMidiRegion?.(
-                            midiRegion.trackId,
-                            midiRegion.id,
-                          );
-                        }}
-                      >
-                        <span className="absolute left-1 top-0.5 z-10 max-w-[calc(100%-8px)] truncate text-[9px] font-semibold text-white/90">
-                          {midiRegion.name || "MIDI Region"}
-                        </span>
-                        {midiRegion.notes.map((note) => (
-                          <span
-                            key={`${note.id}:${note.pitch}:${note.startBeats}`}
-                            className="absolute rounded-[1px] bg-white/75"
-                            style={{
-                              left: `${Math.max(0, (note.startBeats / midiRegion.durationBeats) * 100)}%`,
-                              width: `${Math.max(0.6, (note.durationBeats / midiRegion.durationBeats) * 100)}%`,
-                              top: `${18 + ((maxPitch + 2 - note.pitch) / pitchSpan) * Math.max(1, laneHeightPx(verticalZoom) - 22)}px`,
-                              height: Math.max(
-                                2,
-                                (laneHeightPx(verticalZoom) - 22) / pitchSpan,
-                              ),
-                              opacity: 0.45 + note.velocity * 0.5,
-                            }}
-                          />
-                        ))}
-                      </button>
+                      />
                     );
                   })}
                   {trackRegions.map((songRegion) => {
@@ -445,11 +575,6 @@ export function AudioTrackLanes({
                       e.stopPropagation();
                       e.preventDefault();
 
-                      // The pencil places new material on empty lanes;
-                      // there is nothing for it to do on top of a region, and
-                      // dragging one around with it selected would contradict
-                      // the cursor.
-                      if (!readOnly && tool === "pencil") return;
                       if (!readOnly && tool === "eraser") {
                         void builder.regionRemove(i, songRegion.id);
                         return;
@@ -708,6 +833,95 @@ export function AudioTrackLanes({
           </div>
         );
       })}
+      {midiContextMenu && (
+        <ContextMenu
+          x={midiContextMenu.x}
+          y={midiContextMenu.y}
+          width={220}
+          onClose={() => setMidiContextMenu(null)}
+        >
+          <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-foreground/40 border-b border-default/20">
+            {midiContextMenu.region.name || "MIDI Region"}
+          </div>
+          <ContextMenuItem
+            onClick={() => {
+              const currentName = midiContextMenu.region.name || "MIDI Region";
+              const newName = window.prompt("Rename MIDI Region", currentName);
+              if (newName !== null && newName.trim()) {
+                void builder.midiRegionUpdate({
+                  songIndex: midiContextMenu.songIndex,
+                  regionId: midiContextMenu.region.id,
+                  name: newName.trim(),
+                });
+              }
+              setMidiContextMenu(null);
+            }}
+          >
+            Rename Region…
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              void builder.midiRegionAdd({
+                songIndex: midiContextMenu.songIndex,
+                trackId: midiContextMenu.region.trackId,
+                name: `${midiContextMenu.region.name || "MIDI"} (Copy)`,
+                startBeats:
+                  midiContextMenu.region.startBeats +
+                  midiContextMenu.region.durationBeats,
+                durationBeats: midiContextMenu.region.durationBeats,
+                clipOffsetBeats: midiContextMenu.region.clipOffsetBeats,
+                loop: midiContextMenu.region.loop,
+                loopLengthBeats: midiContextMenu.region.loopLengthBeats,
+                muted: Boolean(midiContextMenu.region.muted),
+                color: midiContextMenu.region.color,
+                notes: midiContextMenu.region.notes.map((note) => ({
+                  ...note,
+                })),
+              });
+              setMidiContextMenu(null);
+            }}
+          >
+            Duplicate Region
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              void builder.midiRegionUpdate({
+                songIndex: midiContextMenu.songIndex,
+                regionId: midiContextMenu.region.id,
+                muted: !midiContextMenu.region.muted,
+              });
+              setMidiContextMenu(null);
+            }}
+          >
+            {midiContextMenu.region.muted ? "Unmute Region" : "Mute Region"}
+          </ContextMenuItem>
+          <ContextMenuDivider />
+          <ContextMenuItem
+            onClick={() => {
+              onOpenMidiRegion?.(
+                midiContextMenu.region.trackId,
+                midiContextMenu.region.id,
+              );
+              setMidiContextMenu(null);
+            }}
+          >
+            Open in Piano Roll
+          </ContextMenuItem>
+          <ContextMenuDivider />
+          <ContextMenuItem
+            danger
+            onClick={() => {
+              void builder.midiRegionRemove(
+                midiContextMenu.songIndex,
+                midiContextMenu.region.id,
+              );
+              setMidiContextMenu(null);
+            }}
+          >
+            Delete Region
+          </ContextMenuItem>
+        </ContextMenu>
+      )}
     </>
   );
 }

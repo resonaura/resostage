@@ -62,6 +62,20 @@ desktop remote is the performance target. “Telemetry over UDP” means sampled
 latest-wins live state. Commands such as Stop, Save, routing edits, and fader
 changes intentionally use HTTP/TCP because delivery and ordering matter.
 
+On macOS the assembled Electron shell, nested Core app, helpers, frameworks,
+and native modules are signed bottom-up with one named identity. This stable
+designated requirement is required for persistent microphone/TCC consent;
+installer scripts must never re-sign the installed app. Publish/release probes
+the identity and fails if it cannot really sign or if deep verification fails.
+Local `app`/`dev` assembly first accepts the repo-private self-signed identity
+created by `pnpm codesign:setup-local`; its key and keychain remain under the
+ignored `.resostage-local-signing/` directory and require no Apple account.
+If neither that identity nor another usable identity exists, development
+falls back to ad-hoc signing with a visible warning; microphone consent is not
+expected to survive those ad-hoc rebuilds. Publish/release remains strict
+because a self-signed identity is not a distributable Gatekeeper identity.
+Setting `RESOSTAGE_CODESIGN_IDENTITY=-` requests the ad-hoc fallback explicitly.
+
 See `docs/REMOTE_CONTROL.md` for operator setup and the two-machine test.
 
 ## 2. Repository map

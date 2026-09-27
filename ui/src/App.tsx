@@ -1,4 +1,4 @@
-import { Spinner } from "@heroui/react";
+import { Spinner, Tooltip } from "@heroui/react";
 import {
   AlertTriangle,
   Gauge,
@@ -725,9 +725,11 @@ export default function App() {
 
         {/* Center transport: always mounted, fades out on Player tab. Hidden
             outright on phones -- it cannot fit beside the logo and the status
-            badge, and every screen that needs transport has its own. */}
+            badge, and every screen that needs transport has its own.
+            Positioned absolutely in the dead center of the header so
+            it remains mathematically centered regardless of asymmetric left/right items. */}
         <div
-          className={`pointer-events-none hidden md:flex flex-1 items-center justify-center min-w-0 transition-opacity duration-200 ease-out ${
+          className={`pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex items-center justify-center transition-opacity duration-200 ease-out z-20 ${
             tab !== "player" ? "opacity-100" : "opacity-0"
           }`}
         >
@@ -736,28 +738,24 @@ export default function App() {
           </div>
         </div>
 
-        <div className="z-10 flex shrink-0 items-center gap-2 sm:gap-3">
+        <div className="z-10 ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           {(!IS_EMBEDDED && !IS_ELECTRON) || remoteHost ? (
             <ProjectMenu state={state} onRender={openRender} />
           ) : null}
           {/* Musical Typing / Virtual MIDI Keyboard Toggle */}
-          <button
-            type="button"
-            onClick={toggleVirtualKeyboard}
-            title="Musical Typing / Virtual MIDI Keyboard (Cmd+K)"
-            aria-label="Musical Typing Keyboard"
-            className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-              isVirtualKeyboardOpen
-                ? "border-accent/60 bg-accent/20 text-accent shadow-[0_0_12px_var(--accent)]"
-                : "border-default/40 bg-default/10 text-foreground/70 hover:bg-default/20 hover:text-foreground"
-            }`}
-          >
-            <Keyboard
-              size={15}
-              className={isVirtualKeyboardOpen ? "text-accent" : ""}
-            />
-            <span className="hidden sm:inline">Keys</span>
-          </button>
+          <Tooltip>
+            <Button
+              isIconOnly
+              size="sm"
+              variant={isVirtualKeyboardOpen ? "accent-soft" : "default-soft"}
+              onPress={toggleVirtualKeyboard}
+              aria-label="Musical Typing Keyboard"
+              className={`h-8 w-8 ${isVirtualKeyboardOpen ? "text-accent" : "text-foreground/70 hover:text-foreground"}`}
+            >
+              <Keyboard size={15} />
+            </Button>
+            <Tooltip.Content>Musical Typing / Virtual MIDI Keyboard (Cmd+K)</Tooltip.Content>
+          </Tooltip>
 
           <ConnectionBadge
             status={status}

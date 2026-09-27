@@ -1,8 +1,8 @@
 import { builder } from "../../lib/state/api";
-import type { SongRow } from "../../lib/state/types";
+import type { MidiNoteRow, SongRow } from "../../lib/state/types";
 import {
   allRegionSelKeys,
-  lookupRegion,
+  lookupAnyRegion,
   type RegionClipboardEntry,
   type RegionSelKey,
 } from "./regionUtils";
@@ -13,10 +13,35 @@ export function resolveSelectedRegions(
 ): RegionClipboardEntry[] {
   const out: RegionClipboardEntry[] = [];
   for (const key of selectedRegionKeys) {
-    const hit = lookupRegion(songs, key);
+    const hit = lookupAnyRegion(songs, key);
     if (!hit) continue;
+    if (hit.kind === "midi") {
+      const r = hit.region;
+      const bpm = songs[hit.songIndex]?.bpm || 120;
+      out.push({
+        kind: "midi",
+        songIndex: hit.songIndex,
+        trackId: r.trackId,
+        startSeconds: (r.startBeats * 60) / bpm,
+        name: r.name,
+        durationBeats: r.durationBeats,
+        clipOffsetBeats: r.clipOffsetBeats,
+        loop: r.loop,
+        loopLengthBeats: r.loopLengthBeats,
+        muted: Boolean(r.muted),
+        color: r.color,
+        notes: r.notes.map((note) => ({ ...note })),
+        automationLanes: r.automationLanes?.map((lane) => ({
+          ...lane,
+          target: { ...lane.target },
+          points: lane.points.map((point) => ({ ...point })),
+        })),
+      });
+      continue;
+    }
     const r = hit.region;
     out.push({
+      kind: "audio",
       songIndex: hit.songIndex,
       trackId: r.trackId,
       file: r.source.file,
@@ -39,17 +64,40 @@ export function deleteSelectedRegions(
   // multi-region delete into ONE undo step instead of N.
   const gestureId = crypto.randomUUID();
   for (const key of selectedRegionKeys) {
-    const hit = lookupRegion(songs, key);
-    if (hit) void builder.regionRemove(hit.songIndex, hit.region.id, gestureId);
+    const hit = lookupAnyRegion(songs, key);
+    if (!hit) continue;
+    if (hit.kind === "midi")
+      void builder.midiRegionRemove(hit.songIndex, hit.region.id, gestureId);
+    else void builder.regionRemove(hit.songIndex, hit.region.id, gestureId);
   }
 }
 
 export async function addRegionEntries(
   entries: RegionClipboardEntry[],
+  songs: SongRow[],
 ): Promise<void> {
   if (entries.length === 0) return;
   const gestureId = crypto.randomUUID();
   for (const r of entries) {
+    if (r.kind === "midi") {
+      const bpm = songs[r.songIndex]?.bpm || 120;
+      await builder.midiRegionAdd({
+        songIndex: r.songIndex,
+        trackId: r.trackId,
+        name: r.name,
+        startBeats: (r.startSeconds * bpm) / 60,
+        durationBeats: r.durationBeats,
+        clipOffsetBeats: r.clipOffsetBeats,
+        loop: r.loop,
+        loopLengthBeats: r.loopLengthBeats,
+        muted: r.muted,
+        color: r.color,
+        notes: r.notes.map((note) => ({ ...note })),
+        automationLanes: r.automationLanes,
+        gestureId,
+      });
+      continue;
+    }
     await builder.regionAdd({
       songIndex: r.songIndex,
       trackId: r.trackId,
@@ -115,14 +163,50 @@ export async function splitRegionsAtPlayhead(
   // so the whole multi-region split collapses into ONE undo step.
   const gestureId = crypto.randomUUID();
   for (const key of selectedRegionKeys) {
-    const hit = lookupRegion(songs, key);
+    const hit = lookupAnyRegion(songs, key);
     if (!hit) continue;
-    const { songIndex, region: r } = hit;
+    const { songIndex } = hit;
     const songStart = songOffsets[songIndex] ?? 0;
     const songLen = songLengths[songIndex] ?? 0;
     const localPlayhead = playheadAbsoluteSec - songStart;
     if (localPlayhead < 0 || (songLen > 0 && localPlayhead > songLen)) continue;
 
+    if (hit.kind === "midi") {
+      const r = hit.region;
+      const bpm = songs[songIndex]?.bpm || 120;
+      const localBeat = (localPlayhead * bpm) / 60;
+      const splitBeats = localBeat - r.startBeats;
+      if (splitBeats <= 0.03125 || splitBeats >= r.durationBeats - 0.03125)
+        continue;
+
+      await builder.midiRegionUpdate({
+        songIndex,
+        regionId: r.id,
+        durationBeats: splitBeats,
+        gestureId,
+      });
+      await builder.midiRegionAdd({
+        songIndex,
+        trackId: r.trackId,
+        name: r.name,
+        startBeats: localBeat,
+        durationBeats: r.durationBeats - splitBeats,
+        clipOffsetBeats: r.clipOffsetBeats + splitBeats,
+        loop: r.loop,
+        loopLengthBeats: r.loopLengthBeats,
+        muted: Boolean(r.muted),
+        color: r.color,
+        // Both halves reference the same note source. clipOffsetBeats makes
+        // the right half start at the cut without losing tails or loop data.
+        notes: r.notes.map((note: MidiNoteRow) => ({ ...note })),
+        automationLanes: r.automationLanes,
+        gestureId,
+      });
+      splitCount += 1;
+      continue;
+    }
+
+    const r = hit.region;
     const regionStart = r.startSeconds;
     const regionDur =
       r.durationSeconds > 0

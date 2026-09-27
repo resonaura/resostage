@@ -2202,6 +2202,7 @@ ipcMain.on(
     // A native window can own only one active popup. Resolve a replaced menu
     // explicitly so the preload never retains an orphaned local Promise.
     if (activeContextMenuSession) {
+      activeContextMenuSession.menu.closePopup();
       activeContextMenuSession.finish(null);
       activeContextMenuSession = null;
     }

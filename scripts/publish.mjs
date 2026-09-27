@@ -6,10 +6,11 @@
  *
  * ## Why the mac path looks the way it does
  *
- * There is no Apple Developer ID here, so nothing can be notarized. That is
- * not a detail to paper over -- it decides the whole shape of the output:
+ * Local and release bundles must have one stable signing identity. That is
+ * not a detail to paper over: macOS TCC keys microphone consent to the
+ * bundle's designated requirement, which changes after an ad-hoc rebuild.
  *
- *  - The bundle is ad-hoc signed BOTTOM-UP before packaging. Any nested
+ *  - The bundle is signed BOTTOM-UP before packaging. Any nested
  *    Mach-O has to be signed before the thing containing it, or signing the
  *    parent invalidates the child. ResoStage nests a whole second .app (the
  *    JUCE core) plus two dylibs inside an Electron shell, which is exactly
@@ -18,15 +19,25 @@
  *    Electron binaries carry a real Team ID and the locally built JUCE core
  *    carries none; without that entitlement the loader refuses the mix with
  *    "different Team IDs" and the app dies on launch.
- *  - The .pkg gets a postinstall script that strips quarantine and re-signs
- *    in place. That is the step users otherwise have to be talked through in
- *    a terminal, and the one they get wrong.
+ *  - Installer scripts never re-sign the installed app. Doing that would
+ *    invalidate the stable identity and make TCC prompt again.
  *
  * Windows and Linux need none of that. Windows produces an Inno Setup script
  * (compiled here if `iscc` is on PATH, emitted for a Windows box if not) and
  * Linux an AppImage or a tarball, depending on what is installed.
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   BUILD_TYPE,
@@ -45,6 +56,13 @@ import {
 } from "./lib.mjs";
 
 const BUNDLE_ID = "com.resonaura.resostage";
+const localSigningPaths = () => {
+  const directory = join(ROOT, ".resostage-local-signing");
+  return {
+    keychain: join(directory, "resostage.keychain-db"),
+    password: join(directory, "keychain-password"),
+  };
+};
 // All publish outputs go into the platform build dir (build/mac/arm64/)
 // so everything stays in one place. entitlements.plist is written into the
 // bundle's Resources folder, not a separate file.
@@ -67,8 +85,16 @@ function have(tool) {
 function findIscc() {
   if (have("iscc")) return "iscc";
   const candidates = [
-    join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Inno Setup 6", "ISCC.exe"),
-    join(process.env["ProgramFiles"] || "C:\\Program Files", "Inno Setup 6", "ISCC.exe"),
+    join(
+      process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
+      "Inno Setup 6",
+      "ISCC.exe",
+    ),
+    join(
+      process.env["ProgramFiles"] || "C:\\Program Files",
+      "Inno Setup 6",
+      "ISCC.exe",
+    ),
     "C:\\ProgramData\\chocolatey\\bin\\ISCC.exe",
     "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe",
     "C:\\Program Files\\Inno Setup 6\\ISCC.exe",
@@ -113,27 +139,115 @@ const ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
  * installed Apple Development identity. Reusing the same certificate keeps
  * macOS TCC's designated requirement stable across C++/Electron rebuilds.
  */
-function resolveCodesignIdentity() {
+function resolveCodesignIdentity({
+  allowAdhocFallback = false,
+  allowLocalIdentity = false,
+} = {}) {
+  const localSigning = localSigningPaths();
   const explicit = String(process.env.RESOSTAGE_CODESIGN_IDENTITY || "").trim();
-  if (explicit) return explicit;
-  const found = runQuiet("security", ["find-identity", "-v", "-p", "codesigning"]);
-  if (found.status !== 0) return "-";
-  const identities = String(found.stdout || "")
-    .split("\n")
-    .map((line) => {
-      const match = line.match(/^\s*\d+\)\s+([0-9A-F]+)\s+"([^"]+)"/);
-      return match ? { hash: match[1], name: match[2] } : null;
-    })
-    .filter(Boolean);
+  const explicitKeychain = String(
+    process.env.RESOSTAGE_CODESIGN_KEYCHAIN || "",
+  ).trim();
+  if (explicit) {
+    return { identity: explicit, keychain: explicitKeychain || null };
+  }
+
+  const sources = [];
+  if (
+    allowLocalIdentity &&
+    existsSync(localSigning.keychain) &&
+    existsSync(localSigning.password)
+  ) {
+    const password = readFileSync(localSigning.password, "utf8").trim();
+    const unlocked = runQuiet("security", [
+      "unlock-keychain",
+      "-p",
+      password,
+      localSigning.keychain,
+    ]);
+    if (unlocked.status === 0) {
+      sources.push({ keychain: localSigning.keychain });
+    }
+  }
+  sources.push({ keychain: null });
+
+  const identities = sources.flatMap(({ keychain }) => {
+    const args = [
+      "find-identity",
+      ...(keychain === localSigning.keychain ? [] : ["-v"]),
+      "-p",
+      "codesigning",
+    ];
+    if (keychain) args.push(keychain);
+    const found = runQuiet("security", args);
+    if (found.status !== 0) return [];
+    return String(found.stdout || "")
+      .split("\n")
+      .map((line) => {
+        const match = line.match(/^\s*\d+\)\s+([0-9A-F]+)\s+"([^"]+)"/);
+        return match ? { hash: match[1], name: match[2], keychain } : null;
+      })
+      .filter(Boolean);
+  });
+  const ordered = [];
+  ordered.push(
+    ...identities.filter(
+      (identity) =>
+        allowLocalIdentity &&
+        identity.keychain === localSigning.keychain &&
+        identity.name === "ResoStage Local Development",
+    ),
+  );
   for (const prefix of [
     "Developer ID Application:",
     "Apple Distribution:",
     "Apple Development:",
   ]) {
-    const match = identities.find((identity) => identity.name.startsWith(prefix));
-    if (match) return match.hash;
+    ordered.push(
+      ...identities.filter((identity) => identity.name.startsWith(prefix)),
+    );
   }
-  return identities[0]?.hash || "-";
+  ordered.push(...identities.filter((identity) => !ordered.includes(identity)));
+
+  // `security find-identity` can list a certificate whose private key is
+  // missing or whose usage does not permit code signing. Probe candidates
+  // before claiming a stable signature; this machine has exhibited exactly
+  // that stale-keychain state.
+  const probeDir = mkdtempSync(join(tmpdir(), "resostage-codesign-"));
+  const probe = join(probeDir, "node-probe");
+  try {
+    copyFileSync(process.execPath, probe);
+    chmodSync(probe, 0o755);
+    for (const identity of ordered) {
+      const keychainArgs = identity.keychain
+        ? ["--keychain", identity.keychain]
+        : [];
+      const result = runQuiet("codesign", [
+        "--force",
+        "--timestamp=none",
+        ...keychainArgs,
+        "--sign",
+        identity.hash,
+        probe,
+      ]);
+      if (result.status === 0) {
+        return { identity: identity.hash, keychain: identity.keychain };
+      }
+    }
+  } finally {
+    rmSync(probeDir, { recursive: true, force: true });
+  }
+  if (allowAdhocFallback) {
+    log(
+      "Warning: no usable named macOS code-signing identity; using ad-hoc signing for this development build. " +
+        "Microphone consent may be requested again after rebuilding.",
+    );
+    return { identity: "-", keychain: null };
+  }
+  throw new Error(
+    "No usable named macOS code-signing identity. Install a certificate with its private key, " +
+      "or explicitly set RESOSTAGE_CODESIGN_IDENTITY=- for an ad-hoc build (microphone consent will not persist).",
+  );
 }
 
 /**
@@ -147,50 +261,109 @@ function resolveCodesignIdentity() {
 function machOTargetsDeepestFirst(bundle) {
   const found = runQuiet("find", [
     bundle,
-    "-type", "f",
-    "(", "-name", "*.dylib", "-o", "-name", "*.so", "-o", "-name", "*.node", ")",
+    "-type",
+    "f",
+    "(",
+    "-name",
+    "*.dylib",
+    "-o",
+    "-name",
+    "*.so",
+    "-o",
+    "-name",
+    "*.node",
+    ")",
   ]);
-  const files = String(found.stdout || "").split("\n").filter(Boolean);
+  const files = String(found.stdout || "")
+    .split("\n")
+    .filter(Boolean);
 
   const bundles = runQuiet("find", [
     bundle,
-    "-type", "d",
-    "(", "-name", "*.app", "-o", "-name", "*.framework", ")",
+    "-type",
+    "d",
+    "(",
+    "-name",
+    "*.app",
+    "-o",
+    "-name",
+    "*.framework",
+    ")",
   ]);
-  const dirs = String(bundles.stdout || "").split("\n").filter(Boolean);
+  const dirs = String(bundles.stdout || "")
+    .split("\n")
+    .filter(Boolean);
 
   const all = [...files, ...dirs].filter((p) => p !== bundle);
   all.sort((a, b) => b.split("/").length - a.split("/").length);
   return all;
 }
 
-function adhocSignBundle(bundle, entitlementsPath) {
-  const identity = resolveCodesignIdentity();
-  log(`${identity === "-" ? "Ad-hoc" : "Certificate"} signing, deepest first (${identity})...`);
-  const entArgs = entitlementsPath ? ["--entitlements", entitlementsPath, "--options", "runtime"] : [];
+function adhocSignBundle(bundle, entitlementsPath, options = {}) {
+  const { identity, keychain } = resolveCodesignIdentity(options);
+  log(
+    `${identity === "-" ? "Ad-hoc" : "Certificate"} signing, deepest first (${identity})...`,
+  );
+  const entArgs = entitlementsPath
+    ? ["--entitlements", entitlementsPath, "--options", "runtime"]
+    : [];
+  const keychainArgs = keychain ? ["--keychain", keychain] : [];
   for (const target of machOTargetsDeepestFirst(bundle)) {
-    // allowFail: a resource that merely looks like a Mach-O (a stray .so in a
-    // node_modules fixture) is not worth aborting a release for.
-    run("codesign", ["--force", "--timestamp=none", "--sign", identity, ...entArgs, target],
-      { allowFail: true });
+    const signed = runQuiet("codesign", [
+      "--force",
+      "--timestamp=none",
+      ...keychainArgs,
+      "--sign",
+      identity,
+      ...entArgs,
+      target,
+    ]);
+    if (signed.status !== 0)
+      throw new Error(
+        `codesign failed for ${target}: ${String(signed.stderr || "").trim()}`,
+      );
   }
-  run("codesign", ["--force", "--timestamp=none", "--sign", identity, ...entArgs, bundle],
-    { allowFail: true });
-  const verify = runQuiet("codesign", ["--verify", "--deep", "--strict", bundle]);
-  if (verify.status !== 0) {
-    log(`codesign --verify reported: ${String(verify.stderr || "").trim()}`);
-  }
-  ok(identity === "-" ? "Ad-hoc signed" : "Signed with stable certificate identity");
+  const rootSigned = runQuiet("codesign", [
+    "--force",
+    "--timestamp=none",
+    ...keychainArgs,
+    "--sign",
+    identity,
+    ...entArgs,
+    bundle,
+  ]);
+  if (rootSigned.status !== 0)
+    throw new Error(
+      `codesign failed for ${bundle}: ${String(rootSigned.stderr || "").trim()}`,
+    );
+  const verify = runQuiet("codesign", [
+    "--verify",
+    "--deep",
+    "--strict",
+    bundle,
+  ]);
+  if (verify.status !== 0)
+    throw new Error(
+      `codesign verification failed: ${String(verify.stderr || "").trim()}`,
+    );
+  ok(
+    identity === "-"
+      ? "Ad-hoc signed"
+      : "Signed with stable certificate identity",
+  );
 }
 
 function publishMac() {
   for (const tool of ["pkgbuild", "productbuild", "codesign", "hdiutil"]) {
-    if (!have(tool)) die(`Missing ${tool} -- install the Xcode command line tools`);
+    if (!have(tool))
+      die(`Missing ${tool} -- install the Xcode command line tools`);
   }
   const bundle = getShellAppBundle();
   if (!existsSync(bundle)) die(`No bundle at ${bundle}. Run: pnpm run rebuild`);
   if (!existsSync(getNestedCoreAppBundle(bundle))) {
-    die(`Shell bundle has no nested "${CORE_APP_NAME}.app" -- the build is incomplete`);
+    die(
+      `Shell bundle has no nested "${CORE_APP_NAME}.app" -- the build is incomplete`,
+    );
   }
 
   const version = appVersion();
@@ -205,18 +378,29 @@ function publishMac() {
   mkdirSync(join(stage, "scripts"), { recursive: true });
 
   // Write entitlements into bundle's Resources (so it travels with the app)
-  const entitlements = join(bundle, "Contents", "Resources", "entitlements.plist");
+  const entitlements = join(
+    bundle,
+    "Contents",
+    "Resources",
+    "entitlements.plist",
+  );
   writeFileSync(entitlements, ENTITLEMENTS);
   adhocSignBundle(bundle, entitlements);
 
   log("Staging payload...");
-  run("cp", ["-R", bundle, join(stage, "root", "Applications", `${SHELL_APP_NAME}.app`)]);
+  run("cp", [
+    "-R",
+    bundle,
+    join(stage, "root", "Applications", `${SHELL_APP_NAME}.app`),
+  ]);
 
   // Preserve the certificate signature produced above. Re-signing the
   // installed copy ad-hoc changes its designated requirement and makes TCC
   // ask for microphone access again after every update.
   const postinstall = join(stage, "scripts", "postinstall");
-  writeFileSync(postinstall, `#!/bin/bash
+  writeFileSync(
+    postinstall,
+    `#!/bin/bash
 # Installed-copy fixups. Both are things the user would otherwise be asked to
 # type into a terminal, which is where an install goes wrong.
 set -u
@@ -224,23 +408,31 @@ APP="/Applications/${SHELL_APP_NAME}.app"
 [ -d "$APP" ] || exit 0
 /usr/bin/xattr -cr "$APP" 2>/dev/null || true
 exit 0
-`);
+`,
+  );
   chmodSync(postinstall, 0o755);
 
   const component = join(publishDir, "ResoStage-component.pkg");
   log("pkgbuild...");
   run("pkgbuild", [
-    "--root", join(stage, "root"),
-    "--identifier", `${BUNDLE_ID}.app`,
-    "--version", version,
-    "--install-location", "/",
-    "--scripts", join(stage, "scripts"),
+    "--root",
+    join(stage, "root"),
+    "--identifier",
+    `${BUNDLE_ID}.app`,
+    "--version",
+    version,
+    "--install-location",
+    "/",
+    "--scripts",
+    join(stage, "scripts"),
     component,
   ]);
 
   const hostArch = process.arch === "x64" ? "x86_64" : process.arch;
   const distXml = join(stage, "distribution.xml");
-  writeFileSync(distXml, `<?xml version="1.0" encoding="utf-8"?>
+  writeFileSync(
+    distXml,
+    `<?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
   <title>ResoStage ${version}</title>
   <options customize="never" require-scripts="false" hostArchitectures="${hostArch}"/>
@@ -249,14 +441,17 @@ exit 0
   <choice id="app" title="ResoStage"><pkg-ref id="${BUNDLE_ID}.app"/></choice>
   <pkg-ref id="${BUNDLE_ID}.app" version="${version}">ResoStage-component.pkg</pkg-ref>
 </installer-gui-script>
-`);
+`,
+  );
 
   const pkgFilename = `ResoStage-${version}-mac-${process.arch}.pkg`;
   const pkg = join(publishDir, pkgFilename);
   log("productbuild...");
   run("productbuild", [
-    "--distribution", distXml,
-    "--package-path", publishDir,
+    "--distribution",
+    distXml,
+    "--package-path",
+    publishDir,
     pkg,
   ]);
   rmSync(component, { force: true });
@@ -276,11 +471,10 @@ exit 0
   ResoStage ${version} (${process.arch}) - macOS Installation Instructions
 ===================================================================
 
-Before running the installer, remove Apple quarantine and ad-hoc sign
-the installer package. Open Terminal and run:
+Before running the installer, remove Apple quarantine from the downloaded
+package. Open Terminal and run:
 
   xattr -cr "${pkgFilename}"
-  codesign --force --deep --sign - "${pkgFilename}"
 
 Then double-click "${pkgFilename}" to install.
 
@@ -288,7 +482,7 @@ Then double-click "${pkgFilename}" to install.
 (После завершения установки приложение ResoStage появится в папке
 Программы / Applications)
 ===================================================================
-`
+`,
   );
 
   log("hdiutil...");
@@ -309,7 +503,10 @@ Then double-click "${pkgFilename}" to install.
   run("cp", ["-R", bundle, join(publishDir, `${SHELL_APP_NAME}.app`)]);
 
   // Create portable macOS ZIP archive preserving code signature & attributes
-  const macZip = join(publishDir, `ResoStage-${version}-mac-${process.arch}.zip`);
+  const macZip = join(
+    publishDir,
+    `ResoStage-${version}-mac-${process.arch}.zip`,
+  );
   rmSync(macZip, { force: true });
   log("Compressing macOS application ZIP...");
   run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", bundle, macZip]);
@@ -333,7 +530,8 @@ function publishWindows() {
   rmSync(publishDir, { recursive: true, force: true });
   mkdirSync(publishDir, { recursive: true });
   const payload = PLATFORM_DIST_DIR;
-  if (!existsSync(payload)) die(`No build at ${payload}. Run: pnpm run rebuild`);
+  if (!existsSync(payload))
+    die(`No build at ${payload}. Run: pnpm run rebuild`);
 
   // Copy Windows .ico for installer + app executable icon
   const icoSrc = join(ROOT, "icons", "app.ico");
@@ -349,7 +547,9 @@ function publishWindows() {
   const setupBaseFilename = `ResoStage-${version}-win-${process.arch}-Setup`;
 
   const iss = join(publishDir, "resostage.iss");
-  writeFileSync(iss, `; Generated by scripts/publish.mjs -- edit the generator, not this file.
+  writeFileSync(
+    iss,
+    `; Generated by scripts/publish.mjs -- edit the generator, not this file.
 [Setup]
 AppId={{B7E4B1B0-4C2E-4E6B-9A2E-RESOSTAGE0001}
 AppName=ResoStage
@@ -415,7 +615,8 @@ begin
                         'Installed', Installed) then
     if Installed = 1 then Result := False;
 end;
-`);
+`,
+  );
   ok(`Inno Setup script: ${iss}`);
 
   const isccBin = findIscc();
@@ -424,19 +625,34 @@ end;
     run(isccBin, [iss], { cwd: publishDir });
     ok(`installer: ${join(publishDir, `${setupBaseFilename}.exe`)}`);
   } else {
-    log("iscc not on PATH or standard install locations -- compile it on a Windows box with Inno Setup 6");
+    log(
+      "iscc not on PATH or standard install locations -- compile it on a Windows box with Inno Setup 6",
+    );
   }
 
   // Always create portable application archive for Windows (excluding the publish subfolder itself)
-  const archivePath = join(publishDir, `ResoStage-${version}-win-${process.arch}.zip`);
+  const archivePath = join(
+    publishDir,
+    `ResoStage-${version}-win-${process.arch}.zip`,
+  );
   rmSync(archivePath, { force: true });
   if (have("tar")) {
     log("Compressing Windows portable ZIP...");
-    run("tar", ["-a", "-cf", archivePath, "--exclude=publish", "-C", payload, "."]);
+    run("tar", [
+      "-a",
+      "-cf",
+      archivePath,
+      "--exclude=publish",
+      "-C",
+      payload,
+      ".",
+    ]);
     ok(`Portable ZIP archive: ${archivePath}`);
   } else if (have("zip")) {
     log("Compressing Windows portable ZIP...");
-    run("zip", ["-r", "-q", archivePath, ".", "-x", "publish/*"], { cwd: payload });
+    run("zip", ["-r", "-q", archivePath, ".", "-x", "publish/*"], {
+      cwd: payload,
+    });
     ok(`Portable ZIP archive: ${archivePath}`);
   }
 
@@ -455,7 +671,8 @@ function publishLinux() {
   rmSync(publishDir, { recursive: true, force: true });
   mkdirSync(publishDir, { recursive: true });
   const payload = PLATFORM_DIST_DIR;
-  if (!existsSync(payload)) die(`No build at ${payload}. Run: pnpm run rebuild`);
+  if (!existsSync(payload))
+    die(`No build at ${payload}. Run: pnpm run rebuild`);
 
   // Copy Linux .png icon for AppImage / desktop entry
   const pngSrc = join(ROOT, "icons", "folder.png");
@@ -470,7 +687,10 @@ MimeType=application/x-resostage-project-file
 Comment=ResoStage Project File
 Icon=resostage
 `;
-  writeFileSync(join(payload, "application-x-resostage-project-link.desktop"), mimeDesktop);
+  writeFileSync(
+    join(payload, "application-x-resostage-project-link.desktop"),
+    mimeDesktop,
+  );
 
   // Application desktop entry with MimeType for .rsnrasetmeta
   const appDesktop = `[Desktop Entry]
@@ -483,30 +703,46 @@ MimeType=application/x-resostage-project-link;
 `;
   writeFileSync(join(payload, "resostage.desktop"), appDesktop);
 
-  const linuxArch = process.arch === "x64" ? "x86_64" : (process.arch === "arm64" ? "aarch64" : process.arch);
+  const linuxArch =
+    process.arch === "x64"
+      ? "x86_64"
+      : process.arch === "arm64"
+        ? "aarch64"
+        : process.arch;
   const appImageName = `ResoStage-${version}-linux-${linuxArch}.AppImage`;
 
   if (have("appimagetool")) {
     const appdir = join(publishDir, "ResoStage.AppDir");
     rmSync(appdir, { recursive: true, force: true });
     mkdirSync(join(appdir, "usr", "bin"), { recursive: true });
-    run("rsync", ["-a", "--exclude=publish", `${payload}/`, join(appdir, "usr", "bin")]);
+    run("rsync", [
+      "-a",
+      "--exclude=publish",
+      `${payload}/`,
+      join(appdir, "usr", "bin"),
+    ]);
     // Icon for AppImage / desktop integration
     if (existsSync(join(payload, "resostage.png"))) {
       cpSync(join(payload, "resostage.png"), join(appdir, "resostage.png"));
     }
-    writeFileSync(join(appdir, "resostage.desktop"), `[Desktop Entry]
+    writeFileSync(
+      join(appdir, "resostage.desktop"),
+      `[Desktop Entry]
 Type=Application
 Name=ResoStage
 Exec=ResoStage
 Icon=resostage
 Categories=AudioVideo;Audio;
-`);
+`,
+    );
     const apprun = join(appdir, "AppRun");
-    writeFileSync(apprun, `#!/bin/sh
+    writeFileSync(
+      apprun,
+      `#!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
 exec "$HERE/usr/bin/ResoStage" "$@"
-`);
+`,
+    );
     chmodSync(apprun, 0o755);
     log("appimagetool...");
     run("appimagetool", [appdir, join(publishDir, appImageName)], {
@@ -516,10 +752,15 @@ exec "$HERE/usr/bin/ResoStage" "$@"
   }
 
   // Create Linux portable tarball archive
-  const tar = join(publishDir, `ResoStage-${version}-linux-${process.arch}.tar.gz`);
+  const tar = join(
+    publishDir,
+    `ResoStage-${version}-linux-${process.arch}.tar.gz`,
+  );
   log("Compressing Linux tarball archive...");
   run("tar", ["-czf", tar, "--exclude=publish", "-C", payload, "."]);
-  writeFileSync(join(publishDir, "LINUX-DEPS.txt"), `ResoStage needs, at runtime:
+  writeFileSync(
+    join(publishDir, "LINUX-DEPS.txt"),
+    `ResoStage needs, at runtime:
 
   libasound2 (>= 1.0.25)   ALSA
   libpulse0                PulseAudio, when present
@@ -528,7 +769,8 @@ exec "$HERE/usr/bin/ResoStage" "$@"
 
 Install appimagetool and re-run \`pnpm run publish\` to get a self-contained
 AppImage instead of this tarball.
-`);
+`,
+  );
   ok(`tarball: ${tar}`);
 }
 
@@ -549,7 +791,12 @@ export function publish() {
   const pubDir = join(PLATFORM_DIST_DIR, "publish");
   if (existsSync(pubDir)) {
     try {
-      rmSync(pubDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      rmSync(pubDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 100,
+      });
     } catch {
       if (process.platform === "win32") {
         runQuiet("cmd.exe", ["/c", "rd", "/s", "/q", pubDir]);

@@ -134,6 +134,33 @@ export class SpatialNoteIndex {
     return null;
   }
 
+  /**
+   * Hit-tests the velocity stalk at a note's start without depending on the
+   * vertically virtualized piano-key window.
+   */
+  public hitTestStart(
+    beat: number,
+    toleranceBeats: number = 0.15,
+  ): MidiNoteRow | null {
+    const candidates = this.queryRange(
+      beat - toleranceBeats,
+      beat + toleranceBeats,
+      0,
+      127,
+    );
+
+    let closest: MidiNoteRow | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const note of candidates) {
+      const distance = Math.abs(note.startBeats - beat);
+      if (distance <= toleranceBeats && distance < closestDistance) {
+        closest = note;
+        closestDistance = distance;
+      }
+    }
+    return closest;
+  }
+
   /** Returns note by ID. */
   public get(noteId: number): MidiNoteRow | undefined {
     return this.noteMap.get(noteId);

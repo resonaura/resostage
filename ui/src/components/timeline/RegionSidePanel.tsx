@@ -14,7 +14,7 @@ import {
 } from "./crossfade";
 import { SidePanelShell } from "./SidePanelShell";
 import type { RegionSelKey } from "./regionUtils";
-import { lookupRegion } from "./regionUtils";
+import { lookupAnyRegion, lookupRegion } from "./regionUtils";
 
 const GAIN_MIN_DB = -24;
 const GAIN_MAX_DB = 12;
@@ -69,28 +69,32 @@ export function RegionSidePanel({
   // The last-clicked region is the primary, matching how the light panel
   // treats a multi-selection of cues.
   const primaryKey = selectedRegionKeys[selectedRegionKeys.length - 1] ?? null;
-  const hit = primaryKey ? lookupRegion(songs, primaryKey) : null;
-  const region = hit?.region ?? null;
+  const hit = primaryKey ? lookupAnyRegion(songs, primaryKey) : null;
+  const audioRegion = hit?.kind === "audio" ? hit.region : null;
+  const midiRegion = hit?.kind === "midi" ? hit.region : null;
+  const region = audioRegion;
   const songIndex = hit?.songIndex ?? 0;
 
   const activeTrack = useMemo(() => {
-    if (region) {
-      return tracks.find((t) => t.id === region.trackId) ?? null;
+    if (hit) {
+      return tracks.find((t) => t.id === hit.region.trackId) ?? null;
     }
     if (selectedTrackId) {
       return tracks.find((t) => t.id === selectedTrackId) ?? null;
     }
     return tracks[0] ?? null;
-  }, [region, selectedTrackId, tracks]);
+  }, [hit, selectedTrackId, tracks]);
 
   const activeTrackIndex = activeTrack ? tracks.indexOf(activeTrack) : -1;
   const activeTrackName = activeTrack?.name || activeTrack?.id || "Track";
 
-  const regionName = region?.source?.file
-    ? region.source.file.split(/[/\\]/).pop() || "Region"
-    : region?.id
-      ? (activeTrack?.kind === "instrument" ? "MIDI Pattern" : "Audio Region")
-      : "Region";
+  const regionName = audioRegion?.source?.file
+    ? audioRegion.source.file.split(/[/\\]/).pop() || "Region"
+    : midiRegion?.name
+      ? midiRegion.name
+      : activeTrack?.kind === "instrument"
+        ? "MIDI Pattern"
+        : "Region";
 
   /**
    * Every write from this panel, tagged so a slider drag is one undo step.
@@ -228,9 +232,9 @@ export function RegionSidePanel({
       title="Track & Region"
       icon={<AudioWaveform size={13} />}
       storageKey="resostage.timeline.regionPanelOpen"
-      hasSelection={Boolean(activeTrack || region)}
+      hasSelection={Boolean(activeTrack || audioRegion || midiRegion)}
       selectionLabel={
-        region
+        audioRegion || midiRegion
           ? `${activeTrackName} · ${regionName}`
           : activeTrack
             ? activeTrackName
@@ -238,7 +242,7 @@ export function RegionSidePanel({
       }
     >
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
-        {!activeTrack && !region ? (
+        {!activeTrack && !audioRegion && !midiRegion ? (
           <EmptyState className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center text-xs">
             <AudioWaveform size={28} strokeWidth={1} />
             <span>No track or region selected</span>
@@ -527,6 +531,61 @@ export function RegionSidePanel({
                 onChange={(loopLengthSeconds) => patch({ loopLengthSeconds })}
               />
             )}
+
+            <Separator />
+
+            <Button
+              size="sm"
+              variant="default-soft"
+              onPress={onClearSelection}
+              className="w-full"
+            >
+              Clear selection
+            </Button>
+          </>
+        ) : midiRegion ? (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Music size={13} className="text-purple-400" />
+                <span className="text-[11px] font-semibold">
+                  MIDI · {regionName}
+                </span>
+              </div>
+              <span className="text-[10px] text-muted">
+                {songs[songIndex]?.name ?? `Song ${songIndex + 1}`}
+              </span>
+            </div>
+
+            <div className="rounded border border-default/20 bg-default/5 p-3 flex flex-col gap-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted">Start</span>
+                <span className="font-mono">{midiRegion.startBeats.toFixed(2)} beats</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Length</span>
+                <span className="font-mono">{midiRegion.durationBeats.toFixed(2)} beats</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Notes</span>
+                <span className="font-mono">{midiRegion.notes.length} notes</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
+              Mute region
+              <Switch
+                aria-label="Mute MIDI region"
+                isSelected={midiRegion.muted ?? false}
+                onChange={(muted) =>
+                  void builder.midiRegionUpdate({
+                    songIndex,
+                    regionId: midiRegion.id,
+                    muted,
+                  })
+                }
+              />
+            </div>
 
             <Separator />
 

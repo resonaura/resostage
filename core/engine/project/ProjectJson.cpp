@@ -549,6 +549,7 @@ struct WProject {
     std::vector<WSong> songs;
     WCycle cycle;
     WMidi midi;
+    std::string activeTrackId;
 };
 
 double finiteOrZero(double v) {
@@ -1039,6 +1040,8 @@ WProject toWire(const Project& p) {
         w.midi.mappings.push_back(std::move(wm));
     }
 
+    w.activeTrackId = p.activeTrackId;
+
     return w;
 }
 
@@ -1407,6 +1410,8 @@ Project fromWire(const WProject& w) {
         mm.number = m.number;
         p.midi.mappings.push_back(std::move(mm));
     }
+
+    p.activeTrackId = w.activeTrackId;
 
     return p;
 }

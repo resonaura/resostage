@@ -1,6 +1,7 @@
 import { Plus, Music, Mic, Sliders } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "../ui";
+import { triggerHaptic } from "../../lib/interaction/haptics";
 import {
   ContextMenu,
   ContextMenuDivider,
@@ -51,6 +52,7 @@ export function TimelineSidebar({
   selectedTrackId,
   onSelectTrack,
   onWheel,
+  onAutoScroll,
 }: {
   state: WebUiState;
   rows: TimelineRow[];
@@ -68,6 +70,7 @@ export function TimelineSidebar({
   selectedTrackId?: string | null;
   onSelectTrack?: (id: string | null) => void;
   onWheel?: (e: React.WheelEvent) => void;
+  onAutoScroll?: (deltaY: number) => void;
 }) {
   const [addTrackMenu, setAddTrackMenu] = useState<{
     x: number;
@@ -100,6 +103,194 @@ export function TimelineSidebar({
     name: string;
   } | null>(null);
 
+  const [dragState, setDragState] = useState<{
+    index: number;
+    kind: "audio" | "light";
+    dropSlot: number;
+  } | null>(null);
+
+  const dragRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    index: number;
+    kind: "audio" | "light";
+    dropSlot: number;
+    lastY: number;
+    pointerId: number;
+  } | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (autoScrollRafRef.current) {
+        cancelAnimationFrame(autoScrollRafRef.current);
+      }
+    };
+  }, []);
+
+  const calculateSlot = useCallback(
+    (clientY: number, kind: "audio" | "light"): number => {
+      const selector =
+        kind === "audio" ? "[data-track-index]" : "[data-light-track-index]";
+      const els = Array.from(
+        sidebarContentRef.current?.querySelectorAll<HTMLElement>(selector) ?? [],
+      );
+      if (els.length === 0) return 0;
+      for (let i = 0; i < els.length; i++) {
+        const r = els[i].getBoundingClientRect();
+        const mid = r.top + r.height / 2;
+        if (clientY < mid) {
+          return i;
+        }
+      }
+      return els.length;
+    },
+    [sidebarContentRef],
+  );
+
+  const startAutoScrollLoop = useCallback(() => {
+    if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
+    const tick = () => {
+      const d = dragRef.current;
+      if (!d || !d.active) {
+        autoScrollRafRef.current = null;
+        return;
+      }
+      const container = containerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const y = d.lastY;
+        const EDGE = 65;
+        const MIN_SPEED = 2;
+        const MAX_SPEED = 28;
+        let speed = 0;
+
+        if (y < rect.top + EDGE && y >= rect.top - 30) {
+          const prox = Math.max(0, Math.min(1, (rect.top + EDGE - y) / EDGE));
+          speed = -(MIN_SPEED + (MAX_SPEED - MIN_SPEED) * (prox * prox));
+        } else if (y > rect.bottom - EDGE && y <= rect.bottom + 30) {
+          const prox = Math.max(0, Math.min(1, (y - (rect.bottom - EDGE)) / EDGE));
+          speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * (prox * prox);
+        }
+
+        if (speed !== 0) {
+          onAutoScroll?.(speed);
+          const slot = calculateSlot(y, d.kind);
+          if (slot !== d.dropSlot) {
+            d.dropSlot = slot;
+            triggerHaptic("alignment");
+            setDragState((prev) => (prev ? { ...prev, dropSlot: slot } : null));
+          }
+        }
+      }
+      autoScrollRafRef.current = requestAnimationFrame(tick);
+    };
+    autoScrollRafRef.current = requestAnimationFrame(tick);
+  }, [onAutoScroll, calculateSlot]);
+
+  const handleTrackPointerDown = (
+    e: React.PointerEvent,
+    index: number,
+    kind: "audio" | "light",
+  ) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(
+        "button, input, select, textarea, [role='slider'], [role='button']",
+      )
+    ) {
+      return;
+    }
+
+    dragRef.current = {
+      active: false,
+      startX: e.clientX,
+      startY: e.clientY,
+      index,
+      kind,
+      dropSlot: index,
+      lastY: e.clientY,
+      pointerId: e.pointerId,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handleTrackPointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    d.lastY = e.clientY;
+
+    if (!d.active) {
+      const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
+      if (dist > 5) {
+        d.active = true;
+        triggerHaptic("generic");
+        const slot = calculateSlot(e.clientY, d.kind);
+        d.dropSlot = slot;
+        setDragState({ index: d.index, kind: d.kind, dropSlot: slot });
+        startAutoScrollLoop();
+      }
+      return;
+    }
+
+    const slot = calculateSlot(e.clientY, d.kind);
+    if (slot !== d.dropSlot) {
+      d.dropSlot = slot;
+      triggerHaptic("alignment");
+      setDragState((prev) => (prev ? { ...prev, dropSlot: slot } : null));
+    }
+  };
+
+  const handleTrackPointerUp = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+
+    if (autoScrollRafRef.current) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+
+    if (d.active) {
+      const fromIndex = d.index;
+      const slotIndex = d.dropSlot;
+      const toIndex = slotIndex > fromIndex ? slotIndex - 1 : slotIndex;
+      if (toIndex !== fromIndex) {
+        triggerHaptic("generic");
+        if (d.kind === "audio") {
+          const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
+          void builder.trackMove(songIdx, fromIndex, { to: toIndex });
+        } else {
+          void lighting.trackMove(fromIndex, { to: toIndex });
+        }
+      }
+      setDragState(null);
+    }
+
+    dragRef.current = null;
+  };
+
+  const handleTrackPointerCancel = (e: React.PointerEvent) => {
+    if (autoScrollRafRef.current) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
+    dragRef.current = null;
+    setDragState(null);
+  };
+
   const handleAddTrack = async (kind: "audio" | "instrument", channels = 2) => {
     setAddTrackMenu(null);
     const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
@@ -122,7 +313,8 @@ export function TimelineSidebar({
 
   return (
     <div
-      className="shrink-0 flex flex-col border-r border-default/30 bg-background-secondary z-20 select-none"
+      ref={containerRef}
+      className="shrink-0 flex flex-col border-r border-default/30 bg-background-secondary z-20 select-none relative"
       style={{ width: SIDEBAR_WIDTH }}
       onWheel={onWheel}
     >
@@ -196,33 +388,69 @@ export function TimelineSidebar({
                 <span>Use the Track button above to add one</span>
               </div>
             ) : (
-              lightTracks.map((t, i) => (
-                <LightTrackHeader
-                  key={t.id}
-                  track={t}
-                  index={i}
-                  fixtures={lightFixtures}
-                  color={lightTrackColor(i)}
-                  height={laneH}
-                  selected={sidePanelTrackIndex === i}
-                  onSelect={() => {
-                    setSidePanelTrackIndex(i);
-                    setCueSelection(null);
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setSidePanelTrackIndex(i);
-                    setCueSelection(null);
-                    setLightTrackMenu({
-                      x: e.clientX,
-                      y: e.clientY,
-                      index: i,
-                      track: t,
-                    });
-                  }}
-                />
-              ))
+              lightTracks.map((t, i) => {
+                const isDraggingAny = dragState !== null;
+                const isDraggingThis =
+                  dragState?.kind === "light" && dragState.index === i;
+                const showDropAbove =
+                  dragState?.kind === "light" && dragState.dropSlot === i;
+                const showDropBelow =
+                  dragState?.kind === "light" &&
+                  dragState.dropSlot === lightTracks.length &&
+                  i === lightTracks.length - 1;
+
+                return (
+                  <div key={t.id} className="relative">
+                    {showDropAbove && (
+                      <div className="absolute top-0 left-1 right-1 z-40 -translate-y-1/2 h-1 rounded-full bg-accent shadow-[0_0_10px_var(--rs-accent)] animate-pulse" />
+                    )}
+                    <div
+                      data-light-track-index={i}
+                      onPointerDown={(e) => handleTrackPointerDown(e, i, "light")}
+                      onPointerMove={handleTrackPointerMove}
+                      onPointerUp={handleTrackPointerUp}
+                      onPointerCancel={handleTrackPointerCancel}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSidePanelTrackIndex(i);
+                        setCueSelection(null);
+                        setLightTrackMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          index: i,
+                          track: t,
+                        });
+                      }}
+                      className={`transition-all duration-150 relative ${
+                        isDraggingAny && !isDraggingThis
+                          ? "filter grayscale opacity-40 pointer-events-none"
+                          : ""
+                      } ${
+                        isDraggingThis
+                          ? "z-30 shadow-2xl ring-2 ring-accent scale-[1.01] bg-surface-elevated opacity-100 rounded-sm"
+                          : ""
+                      }`}
+                    >
+                      <LightTrackHeader
+                        track={t}
+                        index={i}
+                        fixtures={lightFixtures}
+                        color={lightTrackColor(i)}
+                        height={laneH}
+                        selected={sidePanelTrackIndex === i}
+                        onSelect={() => {
+                          setSidePanelTrackIndex(i);
+                          setCueSelection(null);
+                        }}
+                      />
+                    </div>
+                    {showDropBelow && (
+                      <div className="absolute bottom-0 left-1 right-1 z-40 translate-y-1/2 h-1 rounded-full bg-accent shadow-[0_0_10px_var(--rs-accent)] animate-pulse" />
+                    )}
+                  </div>
+                );
+              })
             )
           ) : rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-4 gap-2 text-center text-xs text-foreground/40">
@@ -242,56 +470,86 @@ export function TimelineSidebar({
               </Button>
             </div>
           ) : (
-            rows.map((row) =>
-              row.headerIndex !== null && state.tracks[row.headerIndex] ? (
-                <div
-                  key={row.name}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (row.headerIndex !== null) {
+            rows.map((row) => {
+              if (row.headerIndex === null || !state.tracks[row.headerIndex]) {
+                return (
+                  <TimelineRowLabel
+                    key={row.name}
+                    name={row.name}
+                    color={row.color}
+                    verticalZoom={verticalZoom}
+                  />
+                );
+              }
+
+              const trackIdx = row.headerIndex;
+              const isDraggingAny = dragState !== null;
+              const isDraggingThis =
+                dragState?.kind === "audio" && dragState.index === trackIdx;
+              const showDropAbove =
+                dragState?.kind === "audio" && dragState.dropSlot === trackIdx;
+              const showDropBelow =
+                dragState?.kind === "audio" &&
+                dragState.dropSlot === state.tracks.length &&
+                trackIdx === state.tracks.length - 1;
+
+              return (
+                <div key={row.name} className="relative">
+                  {showDropAbove && (
+                    <div className="absolute top-0 left-1 right-1 z-40 -translate-y-1/2 h-1 rounded-full bg-accent shadow-[0_0_10px_var(--rs-accent)] animate-pulse" />
+                  )}
+                  <div
+                    data-track-index={trackIdx}
+                    onPointerDown={(e) =>
+                      handleTrackPointerDown(e, trackIdx, "audio")
+                    }
+                    onPointerMove={handleTrackPointerMove}
+                    onPointerUp={handleTrackPointerUp}
+                    onPointerCancel={handleTrackPointerCancel}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
                       setTrackMenu({
                         x: e.clientX,
                         y: e.clientY,
-                        trackIndex: row.headerIndex,
-                        track: state.tracks[row.headerIndex] as TrackRow,
+                        trackIndex: trackIdx,
+                        track: state.tracks[trackIdx] as TrackRow,
                       });
-                      void mixer.setFocusedTrack(row.headerIndex);
-                      onSelectTrack?.(
-                        state.tracks[row.headerIndex]?.id ?? null,
-                      );
-                    }
-                  }}
-                >
-                  <TrackHeaderControl
-                    track={state.tracks[row.headerIndex] as TrackRow}
-                    index={row.headerIndex}
-                    color={row.color}
-                    verticalZoom={verticalZoom}
-                    anySolo={anySolo}
-                    isRecording={state.recording ?? false}
-                    isSelected={
-                      state.tracks[row.headerIndex]?.id === selectedTrackId
-                    }
-                    onSelect={() => {
-                      if (row.headerIndex !== null) {
-                        void mixer.setFocusedTrack(row.headerIndex);
-                        onSelectTrack?.(
-                          state.tracks[row.headerIndex]?.id ?? null,
-                        );
-                      }
+                      void mixer.setFocusedTrack(trackIdx);
+                      onSelectTrack?.(state.tracks[trackIdx]?.id ?? null);
                     }}
-                  />
+                    className={`transition-all duration-150 relative ${
+                      isDraggingAny && !isDraggingThis
+                        ? "filter grayscale opacity-40 pointer-events-none"
+                        : ""
+                    } ${
+                      isDraggingThis
+                        ? "z-30 shadow-2xl ring-2 ring-accent scale-[1.01] bg-surface-elevated opacity-100 rounded-sm"
+                        : ""
+                    }`}
+                  >
+                    <TrackHeaderControl
+                      track={state.tracks[trackIdx] as TrackRow}
+                      index={trackIdx}
+                      color={row.color}
+                      verticalZoom={verticalZoom}
+                      anySolo={anySolo}
+                      isRecording={state.recording ?? false}
+                      isSelected={
+                        state.tracks[trackIdx]?.id === selectedTrackId
+                      }
+                      onSelect={() => {
+                        void mixer.setFocusedTrack(trackIdx);
+                        onSelectTrack?.(state.tracks[trackIdx]?.id ?? null);
+                      }}
+                    />
+                  </div>
+                  {showDropBelow && (
+                    <div className="absolute bottom-0 left-1 right-1 z-40 translate-y-1/2 h-1 rounded-full bg-accent shadow-[0_0_10px_var(--rs-accent)] animate-pulse" />
+                  )}
                 </div>
-              ) : (
-                <TimelineRowLabel
-                  key={row.name}
-                  name={row.name}
-                  color={row.color}
-                  verticalZoom={verticalZoom}
-                />
-              ),
-            )
+              );
+            })
           )}
           <div className="shrink-0" style={{ height: laneH }} />
         </div>

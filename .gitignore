@@ -11,6 +11,7 @@ node_modules
 electron/node_modules
 electron/dist
 electron/dist-app
+.resostage-local-signing/
 
 # Local multi-device release configuration & dist artifacts
 devices.yaml

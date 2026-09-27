@@ -654,8 +654,17 @@ export const builder = {
   ) => post("/api/v1/builder/track/add", { songIndex, ...params }),
   trackRemove: (songIndex: number, index: number) =>
     post("/api/v1/builder/track/remove", { songIndex, index }),
-  trackMove: (songIndex: number, index: number, delta: number) =>
-    post("/api/v1/builder/track/move", { songIndex, index, delta }),
+  trackMove: (
+    songIndex: number,
+    index: number,
+    target: number | { delta?: number; to?: number },
+  ) =>
+    post(
+      "/api/v1/builder/track/move",
+      typeof target === "number"
+        ? { songIndex, index, delta: target }
+        : { songIndex, index, ...target },
+    ),
   trackUpdate: (patch: {
     songIndex?: number;
     index: number;
@@ -721,7 +730,10 @@ export const builder = {
     clipOffsetBeats?: number;
     loop?: boolean;
     loopLengthBeats?: number;
+    muted?: boolean;
     color?: string;
+    notes?: import("./types").MidiNoteRow[];
+    automationLanes?: import("./types").AutomationLaneRow[];
     gestureId?: string;
   }) => post("/api/v1/builder/midi-region/add", patch),
   midiRegionRemove: (songIndex: number, regionId: string, gestureId?: string) =>
@@ -743,6 +755,7 @@ export const builder = {
     muted?: boolean;
     color?: string;
     notes?: import("./types").MidiNoteRow[];
+    automationLanes?: import("./types").AutomationLaneRow[];
     gestureId?: string;
   }) => post("/api/v1/builder/midi-region/update", patch),
 
@@ -971,8 +984,16 @@ export const lighting = {
   trackAdd: () => post("/api/v1/lighting/track/add"),
   trackRemove: (index: number) =>
     post("/api/v1/lighting/track/remove", { index }),
-  trackMove: (index: number, delta: number) =>
-    post("/api/v1/lighting/track/move", { index, delta }),
+  trackMove: (
+    index: number,
+    target: number | { delta?: number; to?: number },
+  ) =>
+    post(
+      "/api/v1/lighting/track/move",
+      typeof target === "number"
+        ? { index, delta: target }
+        : { index, ...target },
+    ),
   trackUpdate: (patch: {
     index: number;
     name?: string;

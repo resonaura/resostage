@@ -805,6 +805,7 @@ struct Project {
     std::vector<SongDef> songs;
     ProjectCycle cycle; // single project-wide cycle zone, not per-song
     MidiConfig midi;
+    std::string activeTrackId;
     // Keybindings are no longer project data -- they're rig-wide, managed by
     // AppSettings (see core/app/config/AppSettings.cpp's keybindings map).
 };

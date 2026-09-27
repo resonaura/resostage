@@ -34,7 +34,7 @@ import { Timeline } from "../../components/timeline";
 import { PianoRoll } from "../../components/pianoroll";
 import { MidiRegionSidePanel } from "../../components/pianoroll/MidiRegionSidePanel";
 import { getTrackColor } from "../../components/timeline/constants";
-import { builder, mixer } from "../../lib/state/api";
+import { builder, mixer, transport } from "../../lib/state/api";
 import { useIsCompact } from "../../lib/interaction/useMediaQuery";
 import type {
   AllPeaksResponse,
@@ -341,6 +341,46 @@ export function EditorScreen({
     });
   }, []);
 
+  const lastProjectNameRef = useRef<string | null>(null);
+  const pendingUserTrackSelectRef = useRef<string | null>(null);
+
+  const handleSelectTrack = useCallback((trackId: string | null) => {
+    pendingUserTrackSelectRef.current = trackId;
+    setSelectedTrackId(trackId);
+  }, []);
+
+  useEffect(() => {
+    if (!state.projectName) return;
+    const isNewProject = lastProjectNameRef.current !== state.projectName;
+    if (isNewProject) {
+      lastProjectNameRef.current = state.projectName;
+      pendingUserTrackSelectRef.current = null;
+      if (
+        state.activeTrackId &&
+        state.tracks.some((t) => t.id === state.activeTrackId)
+      ) {
+        setSelectedTrackId(state.activeTrackId);
+      }
+      return;
+    }
+
+    if (
+      pendingUserTrackSelectRef.current &&
+      state.activeTrackId === pendingUserTrackSelectRef.current
+    ) {
+      pendingUserTrackSelectRef.current = null;
+    }
+
+    if (!pendingUserTrackSelectRef.current && state.activeTrackId) {
+      if (
+        state.activeTrackId !== selectedTrackId &&
+        state.tracks.some((t) => t.id === state.activeTrackId)
+      ) {
+        setSelectedTrackId(state.activeTrackId);
+      }
+    }
+  }, [state.activeTrackId, state.projectName, state.tracks, selectedTrackId]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "i" || e.key === "I") {
@@ -592,9 +632,9 @@ export function EditorScreen({
               pxPerSec={pxPerSec}
               setPxPerSec={setPxPerSec}
               selectedTrackId={selectedTrackId}
-              onSelectTrackId={setSelectedTrackId}
+              onSelectTrackId={handleSelectTrack}
               onOpenMidiRegion={(trackId, regionId) => {
-                setSelectedTrackId(trackId);
+                handleSelectTrack(trackId);
                 setSelectedMidiTrackId(trackId);
                 setSelectedMidiRegionId(regionId);
                 setVisibleMidiRegionIds([regionId]);
@@ -711,23 +751,22 @@ export function EditorScreen({
             const handleNotesChange = (updatedNotes: MidiNoteRow[]) => {
               const exists = midiRegions.some((r) => r.id === activeRegion.id);
               if (!exists) {
-                void builder
-                  .midiRegionAdd({
-                    songIndex: state.songIndex,
-                    trackId: activeRegion.trackId,
-                    name: activeRegion.name,
-                    startBeats: activeRegion.startBeats,
-                    durationBeats: activeRegion.durationBeats,
-                    loop: activeRegion.loop,
-                    loopLengthBeats: activeRegion.loopLengthBeats,
-                  })
-                  .then(() => {
-                    void builder.midiRegionUpdate({
-                      songIndex: state.songIndex,
-                      regionId: activeRegion.id,
-                      notes: updatedNotes,
-                    });
-                  });
+                // The placeholder id is UI-only; Core assigns the durable
+                // region id. Send its first notes in the create command so we
+                // never follow up by updating an id that cannot exist.
+                void builder.midiRegionAdd({
+                  songIndex: state.songIndex,
+                  trackId: activeRegion.trackId,
+                  name: activeRegion.name,
+                  startBeats: activeRegion.startBeats,
+                  durationBeats: activeRegion.durationBeats,
+                  clipOffsetBeats: activeRegion.clipOffsetBeats,
+                  loop: activeRegion.loop,
+                  loopLengthBeats: activeRegion.loopLengthBeats,
+                  muted: Boolean(activeRegion.muted),
+                  color: activeRegion.color,
+                  notes: updatedNotes,
+                });
               } else {
                 void builder.midiRegionUpdate({
                   songIndex: state.songIndex,
@@ -787,7 +826,29 @@ export function EditorScreen({
                 }}
                 trackColor={trackColor}
                 playheadBeats={playheadBeats - activeRegion.startBeats}
+                timeSignatureNumerator={currentSong.tsNum || 4}
+                isPlaying={state.playing}
+                onSeek={(regionRelativeBeats) => {
+                  const songBeats = Math.max(
+                    0,
+                    regionRelativeBeats + activeRegion.startBeats,
+                  );
+                  const bpm = currentSong.bpm > 0 ? currentSong.bpm : 120;
+                  const seekSec = (songBeats * 60.0) / bpm;
+                  void transport.seek(seekSec, state.songIndex);
+                }}
                 onNotesChange={handleNotesChange}
+                onRegionChange={(updated) => {
+                  if (!midiRegions.some((region) => region.id === updated.id))
+                    return;
+                  void builder.midiRegionUpdate({
+                    songIndex: state.songIndex,
+                    regionId: updated.id,
+                    loop: updated.loop,
+                    loopLengthBeats: updated.loopLengthBeats,
+                    automationLanes: updated.automationLanes,
+                  });
+                }}
               />
               <MidiRegionSidePanel
                 songIndex={state.songIndex}

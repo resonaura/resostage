@@ -34,6 +34,7 @@
     "lint:tailwind:fix": "node scripts/lint-tailwind.mjs --fix",
     "typecheck": "pnpm --dir ui exec tsc -b --pretty false",
     "configure": "node scripts/dev.mjs configure",
+    "codesign:setup-local": "node scripts/setup-local-codesign.mjs",
     "clean": "node scripts/dev.mjs clean",
     "clean:all": "node scripts/dev.mjs clean --ui",
     "migrate": "node scripts/migrate.mjs",
@@ -46,11 +47,5 @@
   "devDependencies": {
     "@tailwindcss/language-server": "^0.16.0",
     "resedit": "^1.7.2"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild"
-    ]
   }
 }

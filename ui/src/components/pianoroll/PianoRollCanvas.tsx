@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MidiNoteRow, MidiRegionRow } from "../../lib/state/types";
-import { paintBrushNote, sliceNote } from "./pianoRollModel";
+import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
+import {
+  canvasYToPitch,
+  generateNoteId,
+  paintBrushNote,
+  sliceNote,
+} from "./pianoRollModel";
 import {
   isBlackKey,
   isPitchInScale,
@@ -16,6 +22,8 @@ import type {
   PianoRollViewport,
   ScaleMode,
 } from "./types";
+
+const RULER_HEIGHT = 26;
 
 interface PianoRollCanvasProps {
   region: MidiRegionRow;
@@ -33,6 +41,14 @@ interface PianoRollCanvasProps {
   onRegionChange?: (region: MidiRegionRow) => void;
   bottomLane?: PianoRollBottomLane;
   playheadBeats?: number;
+  timeSignatureNumerator?: number;
+  isPlaying?: boolean;
+  onSeek?: (beats: number) => void;
+  viewport: PianoRollViewport;
+  onViewportChange: React.Dispatch<React.SetStateAction<PianoRollViewport>>;
+  followMode?: TimelineFollowMode;
+  catchOnPlay?: boolean;
+  catchOnSeek?: boolean;
 }
 
 function parseRgb(color?: string): [number, number, number] {
@@ -62,15 +78,6 @@ function parseRgb(color?: string): [number, number, number] {
   return [59, 130, 246];
 }
 
-const DEFAULT_VIEWPORT: PianoRollViewport = {
-  pixelsPerBeat: 80,
-  pixelsPerPitch: 18,
-  scrollBeats: 0,
-  scrollPitch: 48, // Start around C3 (pitch 48)
-  keyWidth: 54,
-  velocityLaneHeight: 90,
-};
-
 export function PianoRollCanvas({
   region,
   companionRegions = [],
@@ -87,19 +94,42 @@ export function PianoRollCanvas({
   onRegionChange,
   bottomLane = "velocity",
   playheadBeats,
+  timeSignatureNumerator = 4,
+  isPlaying = false,
+  onSeek,
+  viewport,
+  onViewportChange,
+  followMode = "snap",
+  catchOnPlay = true,
+  catchOnSeek = true,
 }: PianoRollCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const [viewport, setViewport] = useState<PianoRollViewport>(DEFAULT_VIEWPORT);
   const spatialIndex = useRef(new SpatialNoteIndex(4.0, 12));
   const draggingRef = useRef<DraggingState | null>(null);
   const [hoveredPitch, setHoveredPitch] = useState<number | null>(null);
 
-  // Sync spatial index whenever region notes change
+  // Local working copy of notes during interactive drag to provide 120 FPS feedback
+  // with zero network roundtrip latency or runaway accumulation.
+  const [localNotes, setLocalNotes] = useState<MidiNoteRow[] | null>(null);
+  const notesToRender = localNotes || region.notes;
+
+  // Auto-scroll loop state while dragging notes near canvas edges
+  const autoScrollRafRef = useRef<number | null>(null);
+  const lastPointerPosRef = useRef<{ clientX: number; clientY: number }>({
+    clientX: 0,
+    clientY: 0,
+  });
+
+  // Playhead autofollow suspension flag (suspended by manual scroll / pan gestures)
+  const isFollowSuspendedRef = useRef<boolean>(false);
+  const prevPlayingRef = useRef<boolean>(isPlaying);
+
+  // Sync spatial index whenever rendered notes change
   useEffect(() => {
-    spatialIndex.current.rebuild(region.notes);
-  }, [region.notes]);
+    spatialIndex.current.rebuild(notesToRender);
+  }, [notesToRender]);
 
   // Coordinate transforms
   const beatToX = useCallback(
@@ -123,10 +153,10 @@ export function PianoRollCanvas({
 
   const pitchToY = useCallback(
     (pitch: number, height: number) => {
-      const gridHeight = height - viewport.velocityLaneHeight;
+      const gridBottom = height - viewport.velocityLaneHeight;
       // High pitches at top, low pitches at bottom
       return (
-        gridHeight -
+        gridBottom -
         (pitch - viewport.scrollPitch + 1) * viewport.pixelsPerPitch
       );
     },
@@ -139,10 +169,15 @@ export function PianoRollCanvas({
 
   const yToPitch = useCallback(
     (y: number, height: number) => {
-      const gridHeight = height - viewport.velocityLaneHeight;
-      return (
-        viewport.scrollPitch +
-        Math.floor((gridHeight - y) / viewport.pixelsPerPitch)
+      const gridBottom = height - viewport.velocityLaneHeight;
+      // scrollPitch is intentionally fractional during smooth wheel/trackpad
+      // panning. Round the complete inverse transform, not just its delta;
+      // otherwise a visible note can hit-test as the adjacent semitone.
+      return canvasYToPitch(
+        y,
+        gridBottom,
+        viewport.scrollPitch,
+        viewport.pixelsPerPitch,
       );
     },
     [
@@ -161,22 +196,207 @@ export function PianoRollCanvas({
     [snap],
   );
 
-  // Render loop
+  // ── Edge Auto-Scroll Engine (Quadratic Acceleration) ────────────────────
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollRafRef.current !== null) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+  }, []);
+
+  const startAutoScroll = useCallback(() => {
+    stopAutoScroll();
+    const tick = () => {
+      const dragging = draggingRef.current;
+      const canvas = canvasRef.current;
+      if (
+        !dragging ||
+        !canvas ||
+        (dragging.type !== "move" && dragging.type !== "resize")
+      ) {
+        autoScrollRafRef.current = null;
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const { clientX, clientY } = lastPointerPosRef.current;
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const width = rect.width;
+      const gridBottom = rect.height - viewport.velocityLaneHeight;
+
+      const EDGE_X = 55;
+      const MIN_SPEED_X = 2;
+      const MAX_SPEED_X = 25;
+      let speedX = 0;
+
+      if (x > width - EDGE_X) {
+        const prox = Math.max(0, Math.min(1, (x - (width - EDGE_X)) / EDGE_X));
+        speedX = MIN_SPEED_X + (MAX_SPEED_X - MIN_SPEED_X) * (prox * prox);
+      } else if (
+        x < viewport.keyWidth + EDGE_X &&
+        x >= viewport.keyWidth - 20
+      ) {
+        const prox = Math.max(
+          0,
+          Math.min(1, (viewport.keyWidth + EDGE_X - x) / EDGE_X),
+        );
+        speedX = -(MIN_SPEED_X + (MAX_SPEED_X - MIN_SPEED_X) * (prox * prox));
+      }
+
+      const EDGE_Y = 45;
+      const MIN_SPEED_Y = 0.5;
+      const MAX_SPEED_Y = 10;
+      let speedY = 0;
+
+      if (y > gridBottom - EDGE_Y && y <= gridBottom + 30) {
+        const prox = Math.max(
+          0,
+          Math.min(1, (y - (gridBottom - EDGE_Y)) / EDGE_Y),
+        );
+        speedY = -(MIN_SPEED_Y + (MAX_SPEED_Y - MIN_SPEED_Y) * (prox * prox));
+      } else if (y < RULER_HEIGHT + EDGE_Y && y >= RULER_HEIGHT - 20) {
+        const prox = Math.max(
+          0,
+          Math.min(1, (RULER_HEIGHT + EDGE_Y - y) / EDGE_Y),
+        );
+        speedY = MIN_SPEED_Y + (MAX_SPEED_Y - MIN_SPEED_Y) * (prox * prox);
+      }
+
+      if (speedX !== 0 || speedY !== 0) {
+        onViewportChange((v) => {
+          const deltaBeats = speedX / v.pixelsPerBeat;
+          const nextBeats = Math.max(0, v.scrollBeats + deltaBeats);
+          const deltaPitch = speedY / v.pixelsPerPitch;
+          const nextPitch = Math.max(
+            0,
+            Math.min(127 - 5, v.scrollPitch + deltaPitch),
+          );
+          return {
+            ...v,
+            scrollBeats: nextBeats,
+            scrollPitch: nextPitch,
+          };
+        });
+      }
+
+      autoScrollRafRef.current = requestAnimationFrame(tick);
+    };
+
+    autoScrollRafRef.current = requestAnimationFrame(tick);
+  }, [
+    onViewportChange,
+    stopAutoScroll,
+    viewport.keyWidth,
+    viewport.velocityLaneHeight,
+  ]);
+
+  useEffect(() => {
+    return () => stopAutoScroll();
+  }, [stopAutoScroll]);
+
+  // ── Playhead Autofollow Management ──────────────────────────────────────
+  // Catch on playback start: reveal playhead and reset suspension
+  useEffect(() => {
+    if (isPlaying && !prevPlayingRef.current) {
+      if (catchOnPlay) {
+        isFollowSuspendedRef.current = false;
+        if (playheadBeats !== undefined) {
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const width = canvas.width / (window.devicePixelRatio || 1);
+            const viewBeats =
+              (width - viewport.keyWidth) / viewport.pixelsPerBeat;
+            onViewportChange((v) => ({
+              ...v,
+              scrollBeats: Math.max(0, playheadBeats - viewBeats * 0.25),
+            }));
+          }
+        }
+      }
+    }
+    prevPlayingRef.current = isPlaying;
+  }, [
+    isPlaying,
+    catchOnPlay,
+    playheadBeats,
+    viewport.keyWidth,
+    viewport.pixelsPerBeat,
+    onViewportChange,
+  ]);
+
+  // Autofollow frame update during playback
+  useEffect(() => {
+    if (!isPlaying || followMode === "off" || isFollowSuspendedRef.current) {
+      return;
+    }
+    if (playheadBeats === undefined) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const width = canvas.width / (window.devicePixelRatio || 1);
+    const viewBeats = (width - viewport.keyWidth) / viewport.pixelsPerBeat;
+    const minBeat = viewport.scrollBeats;
+    const maxBeat = minBeat + viewBeats;
+
+    if (followMode === "smooth") {
+      // Smooth continuous follow: keep playhead around ~35% of the visible window
+      const targetScroll = Math.max(0, playheadBeats - viewBeats * 0.35);
+      if (Math.abs(viewport.scrollBeats - targetScroll) > 0.05) {
+        onViewportChange((v) => ({
+          ...v,
+          scrollBeats: targetScroll,
+        }));
+      }
+    } else if (followMode === "snap") {
+      // Snap mode: page turn when playhead reaches near right edge
+      if (playheadBeats >= maxBeat - 0.75) {
+        onViewportChange((v) => ({
+          ...v,
+          scrollBeats: Math.max(0, playheadBeats - viewBeats * 0.15),
+        }));
+      } else if (playheadBeats < minBeat) {
+        // Rewind reveal
+        onViewportChange((v) => ({
+          ...v,
+          scrollBeats: Math.max(0, playheadBeats - viewBeats * 0.2),
+        }));
+      }
+    }
+  }, [
+    isPlaying,
+    followMode,
+    playheadBeats,
+    viewport.keyWidth,
+    viewport.pixelsPerBeat,
+    viewport.scrollBeats,
+    onViewportChange,
+  ]);
+
+  // ── Render Loop ────────────────────────────────────────────────────────
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const width = canvas.width / (window.devicePixelRatio || 1);
-    const height = canvas.height / (window.devicePixelRatio || 1);
-    const gridHeight = height - viewport.velocityLaneHeight;
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.width / dpr;
+    const height = canvas.height / dpr;
+    const gridTop = RULER_HEIGHT;
+    const gridBottom = height - viewport.velocityLaneHeight;
+    const gridHeight = gridBottom - gridTop;
 
     ctx.save();
-    ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+    ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
-    // ── 1. Background Grid & Semitones ─────────────────────────────────────
+    // ── 1. Background Grid & Semitones (Clipped to Note Grid) ──────────────
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(viewport.keyWidth, gridTop, width - viewport.keyWidth, gridHeight);
+    ctx.clip();
+
     const minPitch = Math.max(0, Math.floor(viewport.scrollPitch));
     const maxPitch = Math.min(
       127,
@@ -188,7 +408,6 @@ export function PianoRollCanvas({
       const isBlack = isBlackKey(p);
       const inScale = isPitchInScale(p, rootNote, scaleMode);
 
-      // Row background
       if (isBlack) {
         ctx.fillStyle = inScale
           ? "rgba(25, 27, 33, 0.95)"
@@ -205,7 +424,7 @@ export function PianoRollCanvas({
         viewport.pixelsPerPitch,
       );
 
-      // Pitch divider line
+      // Pitch horizontal divider line
       ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -214,39 +433,32 @@ export function PianoRollCanvas({
       ctx.stroke();
     }
 
-    // ── 2. Vertical Beat & Bar Dividers ────────────────────────────────────
+    // ── 2. Vertical Beat & Bar Dividers ──────────────────────────────────
     const minBeat = Math.max(0, xToBeat(viewport.keyWidth));
     const maxBeat = xToBeat(width);
-    const startBar = Math.floor(minBeat / 4.0);
-    const endBar = Math.ceil(maxBeat / 4.0);
+    const beatsPerBar = Math.max(1, Math.round(timeSignatureNumerator));
+    const startBar = Math.floor(minBeat / beatsPerBar);
+    const endBar = Math.ceil(maxBeat / beatsPerBar);
 
     for (let bar = startBar; bar <= endBar; ++bar) {
-      // 4 beats per bar in standard 4/4
-      for (let b = 0; b < 4; ++b) {
-        const beatNum = bar * 4 + b;
+      for (let b = 0; b < beatsPerBar; ++b) {
+        const beatNum = bar * beatsPerBar + b;
         const x = beatToX(beatNum);
         if (x < viewport.keyWidth || x > width) continue;
 
         const isBarLine = b === 0;
         ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, gridHeight);
+        ctx.moveTo(x, gridTop);
+        ctx.lineTo(x, gridBottom);
         ctx.strokeStyle = isBarLine
-          ? "rgba(255, 255, 255, 0.22)"
-          : "rgba(255, 255, 255, 0.08)";
+          ? "rgba(255, 255, 255, 0.18)"
+          : "rgba(255, 255, 255, 0.06)";
         ctx.lineWidth = isBarLine ? 1.5 : 1;
         ctx.stroke();
-
-        // Bar numbers along top header
-        if (isBarLine && yToPitch(0, height) <= 127) {
-          ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
-          ctx.font = "10px sans-serif";
-          ctx.fillText(`Bar ${bar + 1}`, x + 4, 12);
-        }
       }
     }
 
-    // ── 3. Ghost Notes (from companion tracks) ──────────────────────────────
+    // ── 3. Ghost Notes (from companion tracks) ────────────────────────────
     if (showGhostNotes && companionRegions.length > 0) {
       ctx.fillStyle = "rgba(160, 174, 192, 0.18)";
       ctx.strokeStyle = "rgba(160, 174, 192, 0.35)";
@@ -255,8 +467,6 @@ export function PianoRollCanvas({
       for (const comp of companionRegions) {
         for (const note of comp.notes) {
           if (note.pitch < minPitch || note.pitch > maxPitch) continue;
-          // Notes are stored region-local. Align companion content against
-          // the primary region's arrangement start before drawing ghosts.
           const relativeBeat =
             comp.startBeats - region.startBeats + note.startBeats;
           const x = beatToX(relativeBeat);
@@ -272,12 +482,21 @@ export function PianoRollCanvas({
       }
     }
 
-    // ── 4. Active MIDI Notes ───────────────────────────────────────────────
+    // ── 4. Active MIDI Notes (from notesToRender) ──────────────────────────
     const visibleNotes = spatialIndex.current.queryRange(
       minBeat,
       maxBeat,
       minPitch,
       maxPitch,
+    );
+    // Velocity is a time-domain lane. It must not inherit the pitch window
+    // used to virtualize note bodies, otherwise its stalks disappear as soon
+    // as the user scrolls those notes out of the vertical viewport.
+    const timeVisibleNotes = spatialIndex.current.queryRange(
+      minBeat,
+      maxBeat,
+      0,
+      127,
     );
     const [baseR, baseG, baseB] = parseRgb(trackColor);
 
@@ -288,7 +507,6 @@ export function PianoRollCanvas({
       const w = Math.max(4, note.durationBeats * viewport.pixelsPerBeat);
       const h = Math.max(4, viewport.pixelsPerPitch - 2);
 
-      // Track-color velocity modulation: dim at low velocity, vibrant at high velocity
       const vel = Math.max(0.1, Math.min(1.0, note.velocity));
       const factor = 0.5 + 0.5 * vel;
       const nr = Math.min(255, Math.round(baseR * factor));
@@ -296,10 +514,10 @@ export function PianoRollCanvas({
       const nb = Math.min(255, Math.round(baseB * factor));
 
       ctx.fillStyle = isSelected
-        ? "#ffd60a" // Logic Pro warm amber/gold for selected
+        ? "#ffd60a" // Logic Pro warm amber/gold for selected notes
         : `rgb(${nr}, ${ng}, ${nb})`;
 
-      // Note rounded rect body
+      // Rounded rect note body
       ctx.beginPath();
       ctx.roundRect(x, y + 1, w, h, 3);
       ctx.fill();
@@ -311,7 +529,7 @@ export function PianoRollCanvas({
       ctx.lineWidth = isSelected ? 2 : 1;
       ctx.stroke();
 
-      // Dynamic LOD: note pitch name and velocity inside note body
+      // Dynamic LOD: note pitch name and velocity
       if (w >= 24 && viewport.pixelsPerPitch >= 12) {
         ctx.fillStyle = isSelected ? "#000000" : "#ffffff";
         ctx.font = "bold 9px sans-serif";
@@ -325,7 +543,7 @@ export function PianoRollCanvas({
       }
     }
 
-    // ── 5. Marquee Selection Box ───────────────────────────────────────────
+    // ── 5. Marquee Selection Box ─────────────────────────────────────────
     if (
       draggingRef.current?.type === "marquee" &&
       draggingRef.current.marqueeBox
@@ -346,9 +564,16 @@ export function PianoRollCanvas({
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
     }
 
-    // ── 6. Piano Keyboard Margin (Left) ────────────────────────────────────
+    ctx.restore(); // Restore grid clipping
+
+    // ── 6. Piano Keyboard Margin (Left, Clipped to Keys) ─────────────────
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, gridTop, viewport.keyWidth, gridHeight);
+    ctx.clip();
+
     ctx.fillStyle = "#121418";
-    ctx.fillRect(0, 0, viewport.keyWidth, gridHeight);
+    ctx.fillRect(0, gridTop, viewport.keyWidth, gridHeight);
 
     for (let p = minPitch; p <= maxPitch; ++p) {
       const y = pitchToY(p, height);
@@ -366,7 +591,6 @@ export function PianoRollCanvas({
       ctx.lineWidth = 1;
       ctx.strokeRect(0, y, viewport.keyWidth - 1, viewport.pixelsPerPitch);
 
-      // Label octave on C keys (e.g. C3, C4)
       if (isC) {
         ctx.fillStyle = "#1e2128";
         ctx.font = "bold 9px sans-serif";
@@ -374,44 +598,94 @@ export function PianoRollCanvas({
       }
     }
 
+    ctx.restore(); // Restore keyboard clipping
+
     // Key / Grid vertical separator
     ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(viewport.keyWidth, 0);
-    ctx.lineTo(viewport.keyWidth, gridHeight);
+    ctx.moveTo(viewport.keyWidth - 0.5, 0);
+    ctx.lineTo(viewport.keyWidth - 0.5, gridBottom);
     ctx.stroke();
 
-    // ── 7. Playhead Line ───────────────────────────────────────────────────
-    if (
-      playheadBeats !== undefined &&
-      playheadBeats >= minBeat &&
-      playheadBeats <= maxBeat
-    ) {
-      const px = beatToX(playheadBeats);
-      ctx.strokeStyle = "#ef4444";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(px, 0);
-      ctx.lineTo(px, height);
-      ctx.stroke();
+    // ── 7. Timeline Ruler Header (Top Bar: 0 .. RULER_HEIGHT) ─────────────
+    ctx.fillStyle = "#14161c";
+    ctx.fillRect(viewport.keyWidth, 0, width - viewport.keyWidth, RULER_HEIGHT);
 
-      // Playhead triangle cap
-      ctx.fillStyle = "#ef4444";
-      ctx.beginPath();
-      ctx.moveTo(px - 5, 0);
-      ctx.lineTo(px + 5, 0);
-      ctx.lineTo(px, 8);
-      ctx.closePath();
-      ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(viewport.keyWidth, RULER_HEIGHT - 0.5);
+    ctx.lineTo(width, RULER_HEIGHT - 0.5);
+    ctx.stroke();
+
+    // Loop range indicator if region loops
+    if (region.loop && region.loopLengthBeats > 0) {
+      const loopStartX = Math.max(viewport.keyWidth, beatToX(0));
+      const loopEndX = Math.min(width, beatToX(region.loopLengthBeats));
+      if (loopEndX > loopStartX) {
+        ctx.fillStyle = "rgba(59, 130, 246, 0.14)";
+        ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, RULER_HEIGHT - 1);
+        ctx.fillStyle = "#3b82f6";
+        ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, 2);
+      }
     }
 
+    // Ruler bar and beat markings
+    for (let bar = startBar; bar <= endBar; ++bar) {
+      for (let b = 0; b < beatsPerBar; ++b) {
+        const beatNum = bar * beatsPerBar + b;
+        const x = beatToX(beatNum);
+        if (x < viewport.keyWidth || x > width) continue;
+
+        const isBar = b === 0;
+        if (isBar) {
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, RULER_HEIGHT);
+          ctx.stroke();
+
+          ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+          ctx.font = "bold 10px sans-serif";
+          ctx.fillText(`${bar + 1}`, x + 5, 14);
+        } else {
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(x, RULER_HEIGHT - 7);
+          ctx.lineTo(x, RULER_HEIGHT);
+          ctx.stroke();
+
+          if (viewport.pixelsPerBeat >= 70) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+            ctx.font = "9px sans-serif";
+            ctx.fillText(`${bar + 1}.${b + 1}`, x + 3, 13);
+          }
+        }
+      }
+    }
+
+    // Top-left corner cell (above piano keys)
+    ctx.fillStyle = "#101216";
+    ctx.fillRect(0, 0, viewport.keyWidth, RULER_HEIGHT);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, RULER_HEIGHT - 0.5);
+    ctx.lineTo(viewport.keyWidth, RULER_HEIGHT - 0.5);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.font = "bold 9px sans-serif";
+    ctx.fillText("KEYS", 8, 16);
+
     // ── 8. Bottom Lane (Velocity or CC Automation) ─────────────────────────
-    const laneY = gridHeight;
+    const laneY = gridBottom;
     ctx.fillStyle = "#0e1014";
     ctx.fillRect(0, laneY, width, viewport.velocityLaneHeight);
 
-    // Lane header divider
     ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -420,13 +694,11 @@ export function PianoRollCanvas({
     ctx.stroke();
 
     if (bottomLane === "velocity") {
-      // Lane title
       ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
       ctx.font = "9px sans-serif";
       ctx.fillText("VELOCITY", 8, laneY + 14);
 
-      // Render velocity lollipops for visible notes
-      for (const note of visibleNotes) {
+      for (const note of timeVisibleNotes) {
         const isSelected = selectedNoteIds.has(note.id);
         const x = beatToX(note.startBeats);
         const vel = Math.max(0.01, Math.min(1.0, note.velocity));
@@ -442,14 +714,12 @@ export function PianoRollCanvas({
         ctx.lineTo(x, stalkTop);
         ctx.stroke();
 
-        // Circular lollipop knob
         ctx.fillStyle = isSelected ? "#ffd60a" : velColor;
         ctx.beginPath();
         ctx.arc(x, stalkTop, 3.5, 0, Math.PI * 2);
         ctx.fill();
       }
     } else {
-      // CC Automation Lane
       const laneLabels: Record<string, string> = {
         cc1: "CC 1 · MODULATION",
         cc11: "CC 11 · EXPRESSION",
@@ -462,7 +732,6 @@ export function PianoRollCanvas({
       ctx.font = "9px sans-serif";
       ctx.fillText(title, 8, laneY + 14);
 
-      // Value grid lines: min, mid (dashed), max
       const isPB = bottomLane === "pitchBend";
       const topY = laneY + 18;
       const botY = height - 6;
@@ -477,7 +746,6 @@ export function PianoRollCanvas({
       ctx.lineTo(width, botY);
       ctx.stroke();
 
-      // Dotted mid line
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
       ctx.moveTo(viewport.keyWidth, midY);
@@ -485,14 +753,12 @@ export function PianoRollCanvas({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Margin scale labels
       ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
       ctx.font = "8px sans-serif";
       ctx.fillText(isPB ? "+8191" : "127", 6, topY + 4);
       ctx.fillText(isPB ? "0" : "64", 6, midY + 3);
       ctx.fillText(isPB ? "-8192" : "0", 6, botY - 1);
 
-      // Automation points if present
       const lane = region.automationLanes?.find(
         (l) =>
           l.target.parameterId === bottomLane ||
@@ -521,7 +787,6 @@ export function PianoRollCanvas({
         });
         ctx.stroke();
 
-        // Fill area under curve
         if (sorted.length > 1) {
           ctx.fillStyle = "rgba(56, 189, 248, 0.12)";
           ctx.beginPath();
@@ -536,7 +801,6 @@ export function PianoRollCanvas({
           ctx.fill();
         }
 
-        // Point knobs
         for (const pt of sorted) {
           const px = beatToX(pt.timeBeats);
           const py = valToY(pt.value);
@@ -553,6 +817,36 @@ export function PianoRollCanvas({
       }
     }
 
+    // ── 9. Playhead Line & Ruler Triangle Badge ────────────────────────────
+    if (playheadBeats !== undefined) {
+      const px = beatToX(playheadBeats);
+      if (px >= viewport.keyWidth - 6 && px <= width + 6) {
+        // Red vertical playhead line through grid and bottom lane
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(px, RULER_HEIGHT);
+        ctx.lineTo(px, height);
+        ctx.stroke();
+
+        // Ruler downward playhead badge
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.moveTo(px - 6, 2);
+        ctx.lineTo(px + 6, 2);
+        ctx.lineTo(px + 6, RULER_HEIGHT - 8);
+        ctx.lineTo(px, RULER_HEIGHT - 1);
+        ctx.lineTo(px - 6, RULER_HEIGHT - 8);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(px, 7, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
     ctx.restore();
   }, [
     viewport,
@@ -564,12 +858,12 @@ export function PianoRollCanvas({
     companionRegions,
     selectedNoteIds,
     playheadBeats,
+    timeSignatureNumerator,
     hoveredPitch,
     trackColor,
     beatToX,
     xToBeat,
     pitchToY,
-    yToPitch,
   ]);
 
   // Sync canvas size with device pixel ratio
@@ -595,7 +889,193 @@ export function PianoRollCanvas({
     render();
   }, [render]);
 
-  // Pointer interactions
+  // ── Non-Passive Wheel & Trackpad Gesture Listeners ────────────────────────
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    el.style.touchAction = "none";
+    el.style.overscrollBehavior = "contain";
+
+    let lastScale = 1.0;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      if (e.ctrlKey || e.metaKey) {
+        // Horizontal Zoom centered at cursor focus position
+        const base = 2;
+        const speed = e.deltaMode === 1 ? 0.14 : 0.005;
+        let factor = Math.pow(base, -e.deltaY * speed * 4);
+        factor = Math.max(0.3, Math.min(3.0, factor));
+
+        onViewportChange((v) => {
+          const oldPpb = v.pixelsPerBeat;
+          const nextPpb = Math.max(20, Math.min(400, oldPpb * factor));
+          if (Math.abs(nextPpb - oldPpb) < 0.01) return v;
+
+          const focusX = Math.max(v.keyWidth, Math.min(rect.width, mouseX));
+          const focusBeat = v.scrollBeats + (focusX - v.keyWidth) / oldPpb;
+          const nextScrollBeats = Math.max(
+            0,
+            focusBeat - (focusX - v.keyWidth) / nextPpb,
+          );
+
+          return {
+            ...v,
+            pixelsPerBeat: nextPpb,
+            scrollBeats: nextScrollBeats,
+          };
+        });
+      } else if (e.altKey) {
+        // Vertical Zoom centered at cursor focus pitch
+        const base = 2;
+        const speed = e.deltaMode === 1 ? 0.14 : 0.005;
+        let factor = Math.pow(base, -e.deltaY * speed * 4);
+        factor = Math.max(0.3, Math.min(3.0, factor));
+
+        onViewportChange((v) => {
+          const oldPpp = v.pixelsPerPitch;
+          const nextPpp = Math.max(10, Math.min(40, oldPpp * factor));
+          if (Math.abs(nextPpp - oldPpp) < 0.01) return v;
+
+          const gridBottom = rect.height - v.velocityLaneHeight;
+          const focusY = Math.max(RULER_HEIGHT, Math.min(gridBottom, mouseY));
+          const focusPitch = v.scrollPitch + (gridBottom - focusY) / oldPpp;
+          const nextScrollPitch = Math.max(
+            0,
+            Math.min(127 - 8, focusPitch - (gridBottom - focusY) / nextPpp),
+          );
+
+          return {
+            ...v,
+            pixelsPerPitch: nextPpp,
+            scrollPitch: nextScrollPitch,
+          };
+        });
+      } else {
+        // Natural 2D scroll (trackpad pan or mouse wheel)
+        if (isPlaying) {
+          isFollowSuspendedRef.current = true;
+        }
+
+        if (e.shiftKey) {
+          const delta = e.deltaY || e.deltaX;
+          onViewportChange((v) => ({
+            ...v,
+            scrollBeats: Math.max(0, v.scrollBeats + delta / v.pixelsPerBeat),
+          }));
+        } else {
+          const dX = e.deltaX;
+          const dY = e.deltaY;
+          onViewportChange((v) => {
+            const nextBeats =
+              dX !== 0
+                ? Math.max(0, v.scrollBeats + dX / v.pixelsPerBeat)
+                : v.scrollBeats;
+            const nextPitch =
+              dY !== 0
+                ? Math.max(
+                    0,
+                    Math.min(
+                      127 - 5,
+                      v.scrollPitch - dY / (v.pixelsPerPitch * 1.5),
+                    ),
+                  )
+                : v.scrollPitch;
+            return {
+              ...v,
+              scrollBeats: nextBeats,
+              scrollPitch: nextPitch,
+            };
+          });
+        }
+      }
+    };
+
+    const handleGestureStart = (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      lastScale = 1.0;
+    };
+
+    const handleGestureChange = (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.scale === "number" && e.scale > 0) {
+        const deltaScale = e.scale / lastScale;
+        lastScale = e.scale;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = Math.max(
+          viewport.keyWidth,
+          Math.min(rect.width, e.clientX - rect.left),
+        );
+
+        onViewportChange((v) => {
+          const oldPpb = v.pixelsPerBeat;
+          const nextPpb = Math.max(20, Math.min(400, oldPpb * deltaScale));
+          if (Math.abs(nextPpb - oldPpb) < 0.01) return v;
+          const focusBeat = v.scrollBeats + (mouseX - v.keyWidth) / oldPpb;
+          const nextScrollBeats = Math.max(
+            0,
+            focusBeat - (mouseX - v.keyWidth) / nextPpb,
+          );
+          return {
+            ...v,
+            pixelsPerBeat: nextPpb,
+            scrollBeats: nextScrollBeats,
+          };
+        });
+      }
+    };
+
+    const handleGestureEnd = (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      lastScale = 1.0;
+    };
+
+    el.addEventListener("wheel", handleNativeWheel, {
+      capture: true,
+      passive: false,
+    });
+    el.addEventListener("gesturestart", handleGestureStart as any, {
+      capture: true,
+      passive: false,
+    });
+    el.addEventListener("gesturechange", handleGestureChange as any, {
+      capture: true,
+      passive: false,
+    });
+    el.addEventListener("gestureend", handleGestureEnd as any, {
+      capture: true,
+      passive: false,
+    });
+
+    return () => {
+      el.removeEventListener("wheel", handleNativeWheel, { capture: true });
+      el.removeEventListener("gesturestart", handleGestureStart as any, {
+        capture: true,
+      });
+      el.removeEventListener("gesturechange", handleGestureChange as any, {
+        capture: true,
+      });
+      el.removeEventListener("gestureend", handleGestureEnd as any, {
+        capture: true,
+      });
+    };
+  }, [isPlaying, onViewportChange, viewport.keyWidth]);
+
+  // ── Pointer Down Interaction ───────────────────────────────────────────
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -603,18 +1083,36 @@ export function PianoRollCanvas({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const height = rect.height;
-    const gridHeight = height - viewport.velocityLaneHeight;
+    const gridBottom = height - viewport.velocityLaneHeight;
 
     canvas.setPointerCapture(e.pointerId);
+    lastPointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
 
-    // Click in bottom lane (velocity or CC automation)
-    if (y >= gridHeight) {
+    // ── A. Click in Ruler Header (Scrub Playhead) ─────────────────────────
+    if (y < RULER_HEIGHT && x >= viewport.keyWidth) {
+      const beat = Math.max(0, xToBeat(x));
+      const targetBeat = snap > 0 && !e.shiftKey ? snapBeat(beat) : beat;
+      if (onSeek) onSeek(targetBeat);
+      if (catchOnSeek) isFollowSuspendedRef.current = false;
+
+      draggingRef.current = {
+        type: "playhead",
+        startPointerX: x,
+        startPointerY: y,
+        startBeat: targetBeat,
+        startPitch: 0,
+        initialNotesSnapshot: new Map(),
+      };
+      return;
+    }
+
+    // ── B. Click in Bottom Lane (Velocity or CC Automation) ───────────────
+    if (y >= gridBottom) {
       if (bottomLane === "velocity") {
         const beat = xToBeat(x);
-        const hit = spatialIndex.current.hitTest(
+        const hit = spatialIndex.current.hitTestStart(
           beat,
-          Math.floor(viewport.scrollPitch + 12),
-          0.5,
+          Math.max(0.08, 8 / viewport.pixelsPerBeat),
         );
         if (hit) {
           const vel = Math.max(
@@ -622,7 +1120,7 @@ export function PianoRollCanvas({
             Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)),
           );
           const updated = region.notes.map((n) =>
-            n.id === hit.note.id ? { ...n, velocity: vel } : n,
+            n.id === hit.id ? { ...n, velocity: vel } : n,
           );
           onNotesChange(updated);
         }
@@ -635,9 +1133,8 @@ export function PianoRollCanvas({
           initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
         };
       } else {
-        // CC lane editing
         const beat = Math.max(0, snapBeat(xToBeat(x)));
-        const topY = gridHeight + 18;
+        const topY = gridBottom + 18;
         const botY = height - 6;
         const norm = Math.max(
           0,
@@ -707,18 +1204,53 @@ export function PianoRollCanvas({
       return;
     }
 
-    // Click in Piano keyboard margin (audition)
+    // ── C. Click in Piano Keyboard Margin (Audition Key) ──────────────────
     if (x < viewport.keyWidth) {
       const pitch = yToPitch(y, height);
       setHoveredPitch(pitch);
       return;
     }
 
+    // ── D. Note Grid Interaction ─────────────────────────────────────────
     const beat = xToBeat(x);
     const pitch = yToPitch(y, height);
 
-    // Check hit test on existing notes
-    const hit = spatialIndex.current.hitTest(beat, pitch, 0.15);
+    // Dynamic handle tolerance (8px converted to beats)
+    const handleTol = Math.max(0.08, 8 / viewport.pixelsPerBeat);
+    const hit = spatialIndex.current.hitTest(beat, pitch, handleTol);
+
+    const beginExistingNoteInteraction = (noteHit: NonNullable<typeof hit>) => {
+      let newSelection = new Set(selectedNoteIds);
+      if (e.shiftKey) {
+        if (newSelection.has(noteHit.note.id)) {
+          newSelection.delete(noteHit.note.id);
+        } else {
+          newSelection.add(noteHit.note.id);
+        }
+      } else if (!newSelection.has(noteHit.note.id)) {
+        newSelection = new Set([noteHit.note.id]);
+      }
+      onSelectionChange(newSelection);
+
+      // Shift-clicking the only selected note is a pure deselect operation.
+      if (!newSelection.has(noteHit.note.id)) return;
+
+      const initialMap = new Map<number, MidiNoteRow>();
+      for (const note of region.notes) {
+        if (newSelection.has(note.id)) initialMap.set(note.id, { ...note });
+      }
+
+      draggingRef.current = {
+        type: noteHit.isResizeHandle ? "resize" : "move",
+        startPointerX: x,
+        startPointerY: y,
+        startBeat: noteHit.note.startBeats,
+        startPitch: noteHit.note.pitch,
+        targetNoteIds: newSelection,
+        initialNotesSnapshot: initialMap,
+      };
+      startAutoScroll();
+    };
 
     if (tool === "erase") {
       if (hit) {
@@ -773,17 +1305,9 @@ export function PianoRollCanvas({
 
     if (tool === "draw") {
       if (hit) {
-        // Clicking note with draw tool selects it for moving
-        const newSel = new Set([hit.note.id]);
-        onSelectionChange(newSel);
-        draggingRef.current = {
-          type: "move",
-          startPointerX: x,
-          startPointerY: y,
-          startBeat: hit.note.startBeats,
-          startPitch: hit.note.pitch,
-          initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
-        };
+        // On existing material Pencil behaves exactly like Select, including
+        // Shift multi-selection and the right-edge resize handle.
+        beginExistingNoteInteraction(hit);
       } else {
         // Create new note
         const snappedBeat = snapBeat(beat);
@@ -793,7 +1317,7 @@ export function PianoRollCanvas({
         }
         const duration = snap > 0 ? snap : 1.0;
         const newNote: MidiNoteRow = {
-          id: Date.now() + Math.floor(Math.random() * 1000),
+          id: generateNoteId(),
           pitch: snappedPitch,
           startBeats: snappedBeat,
           durationBeats: duration,
@@ -804,7 +1328,11 @@ export function PianoRollCanvas({
 
         const updated = [...region.notes, newNote];
         onNotesChange(updated);
-        onSelectionChange(new Set([newNote.id]));
+        const targetIds = new Set([newNote.id]);
+        onSelectionChange(targetIds);
+
+        const initialMap = new Map<number, MidiNoteRow>();
+        initialMap.set(newNote.id, { ...newNote });
 
         draggingRef.current = {
           type: "resize",
@@ -812,32 +1340,17 @@ export function PianoRollCanvas({
           startPointerY: y,
           startBeat: snappedBeat,
           startPitch: snappedPitch,
-          initialNotesSnapshot: new Map(updated.map((n) => [n.id, n])),
+          targetNoteIds: targetIds,
+          initialNotesSnapshot: initialMap,
         };
+        startAutoScroll();
       }
       return;
     }
 
-    // Select Tool
+    // ── Select Tool ───────────────────────────────────────────────────────
     if (hit) {
-      const isShift = e.shiftKey;
-      let newSelection = new Set(selectedNoteIds);
-      if (isShift) {
-        if (newSelection.has(hit.note.id)) newSelection.delete(hit.note.id);
-        else newSelection.add(hit.note.id);
-      } else if (!newSelection.has(hit.note.id)) {
-        newSelection = new Set([hit.note.id]);
-      }
-      onSelectionChange(newSelection);
-
-      draggingRef.current = {
-        type: hit.isResizeHandle ? "resize" : "move",
-        startPointerX: x,
-        startPointerY: y,
-        startBeat: hit.note.startBeats,
-        startPitch: hit.note.pitch,
-        initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
-      };
+      beginExistingNoteInteraction(hit);
     } else {
       // Click on background: start marquee selection
       if (!e.shiftKey) {
@@ -860,40 +1373,80 @@ export function PianoRollCanvas({
     }
   };
 
+  // ── Pointer Move Interaction ───────────────────────────────────────────
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas || !draggingRef.current) return;
+    if (!canvas) return;
+
+    lastPointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
 
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const height = rect.height;
-    const gridHeight = height - viewport.velocityLaneHeight;
+    const gridBottom = height - viewport.velocityLaneHeight;
     const dragging = draggingRef.current;
 
+    // Hover cursor styling when not dragging
+    if (!dragging) {
+      if (y < RULER_HEIGHT && x >= viewport.keyWidth) {
+        canvas.style.cursor = "col-resize";
+      } else if (x < viewport.keyWidth) {
+        canvas.style.cursor = "pointer";
+      } else if (y >= gridBottom) {
+        canvas.style.cursor = "crosshair";
+      } else {
+        const beat = xToBeat(x);
+        const pitch = yToPitch(y, height);
+        const handleTol = Math.max(0.08, 8 / viewport.pixelsPerBeat);
+        const hit = spatialIndex.current.hitTest(beat, pitch, handleTol);
+        if (hit) {
+          canvas.style.cursor = hit.isResizeHandle ? "ew-resize" : "grab";
+        } else {
+          canvas.style.cursor =
+            tool === "draw" || tool === "brush"
+              ? "crosshair"
+              : tool === "slice"
+                ? "vertical-text"
+                : "default";
+        }
+      }
+      return;
+    }
+
+    // ── Dragging: Playhead Scrub ─────────────────────────────────────────
+    if (dragging.type === "playhead") {
+      canvas.style.cursor = "col-resize";
+      const beat = Math.max(0, xToBeat(x));
+      const targetBeat = snap > 0 && !e.shiftKey ? snapBeat(beat) : beat;
+      if (onSeek) onSeek(targetBeat);
+      return;
+    }
+
+    // ── Dragging: Velocity ───────────────────────────────────────────────
     if (dragging.type === "velocity") {
       const vel = Math.max(
         0.01,
         Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)),
       );
       const beat = xToBeat(x);
-      const hit = spatialIndex.current.hitTest(
+      const hit = spatialIndex.current.hitTestStart(
         beat,
-        Math.floor(viewport.scrollPitch + 12),
-        0.5,
+        Math.max(0.08, 8 / viewport.pixelsPerBeat),
       );
       if (hit) {
         const updated = region.notes.map((n) =>
-          n.id === hit.note.id ? { ...n, velocity: vel } : n,
+          n.id === hit.id ? { ...n, velocity: vel } : n,
         );
         onNotesChange(updated);
       }
       return;
     }
 
+    // ── Dragging: CC Automation ──────────────────────────────────────────
     if (dragging.type === "cc" && onRegionChange) {
       const curBeat = Math.max(0, snapBeat(xToBeat(x)));
-      const topY = gridHeight + 18;
+      const topY = gridBottom + 18;
       const botY = height - 6;
       const norm = Math.max(
         0,
@@ -932,6 +1485,7 @@ export function PianoRollCanvas({
       return;
     }
 
+    // ── Dragging: Brush ──────────────────────────────────────────────────
     if (dragging.type === "brush") {
       const curBeat = snapBeat(xToBeat(x));
       let curPitch = yToPitch(y, height);
@@ -947,37 +1501,48 @@ export function PianoRollCanvas({
       return;
     }
 
+    // ── Dragging: Move Notes (Accurate, Non-Accumulating) ─────────────────
     if (dragging.type === "move") {
+      canvas.style.cursor = "grabbing";
       const deltaX = x - dragging.startPointerX;
       const deltaY = y - dragging.startPointerY;
       const deltaBeats = deltaX / viewport.pixelsPerBeat;
       const deltaPitch = -Math.round(deltaY / viewport.pixelsPerPitch);
 
+      const snappedDeltaBeats =
+        snap > 0 ? Math.round(deltaBeats / snap) * snap : deltaBeats;
+
+      // Update local working state relative to initial snapshot
       const updated = region.notes.map((note) => {
-        if (!selectedNoteIds.has(note.id)) return note;
-        const initial = dragging.initialNotesSnapshot.get(note.id) || note;
-        const newBeat = snapBeat(Math.max(0, initial.startBeats + deltaBeats));
+        if (!dragging.targetNoteIds?.has(note.id)) return note;
+        const initial = dragging.initialNotesSnapshot.get(note.id);
+        if (!initial) return note;
+        const newBeat = Math.max(0, initial.startBeats + snappedDeltaBeats);
         const newPitch = Math.max(0, Math.min(127, initial.pitch + deltaPitch));
         return { ...note, startBeats: newBeat, pitch: newPitch };
       });
 
-      onNotesChange(updated);
+      setLocalNotes(updated);
+      render();
     } else if (dragging.type === "resize") {
+      canvas.style.cursor = "ew-resize";
       const deltaX = x - dragging.startPointerX;
       const deltaBeats = deltaX / viewport.pixelsPerBeat;
 
       const updated = region.notes.map((note) => {
-        if (!selectedNoteIds.has(note.id)) return note;
-        const initial = dragging.initialNotesSnapshot.get(note.id) || note;
+        if (!dragging.targetNoteIds?.has(note.id)) return note;
+        const initial = dragging.initialNotesSnapshot.get(note.id);
+        if (!initial) return note;
         const rawDuration = initial.durationBeats + deltaBeats;
         const snappedDuration =
           snap > 0
-            ? Math.max(snap, snapBeat(rawDuration))
+            ? Math.max(snap, Math.round(rawDuration / snap) * snap)
             : Math.max(0.125, rawDuration);
         return { ...note, durationBeats: snappedDuration };
       });
 
-      onNotesChange(updated);
+      setLocalNotes(updated);
+      render();
     } else if (dragging.type === "marquee" && dragging.marqueeBox) {
       const currentBeat = xToBeat(x);
       const currentPitch = yToPitch(y, height);
@@ -1000,58 +1565,29 @@ export function PianoRollCanvas({
     }
   };
 
+  // ── Pointer Up Interaction ─────────────────────────────────────────────
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    stopAutoScroll();
+
     const canvas = canvasRef.current;
     if (canvas && canvas.hasPointerCapture(e.pointerId)) {
       canvas.releasePointerCapture(e.pointerId);
     }
+
+    const dragging = draggingRef.current;
+    if (dragging) {
+      if (
+        (dragging.type === "move" || dragging.type === "resize") &&
+        localNotes
+      ) {
+        onNotesChange(localNotes);
+      }
+    }
+
+    setLocalNotes(null);
     draggingRef.current = null;
     setHoveredPitch(null);
     render();
-  };
-
-  // Zoom and pan via wheel
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
-      // Horizontal zoom
-      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
-      setViewport((v) => ({
-        ...v,
-        pixelsPerBeat: Math.max(
-          20,
-          Math.min(400, v.pixelsPerBeat * zoomFactor),
-        ),
-      }));
-    } else if (e.altKey) {
-      // Vertical zoom
-      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
-      setViewport((v) => ({
-        ...v,
-        pixelsPerPitch: Math.max(
-          10,
-          Math.min(40, v.pixelsPerPitch * zoomFactor),
-        ),
-      }));
-    } else if (e.shiftKey) {
-      // Horizontal scroll
-      setViewport((v) => ({
-        ...v,
-        scrollBeats: Math.max(
-          0,
-          v.scrollBeats + (e.deltaY || e.deltaX) / v.pixelsPerBeat,
-        ),
-      }));
-    } else {
-      // Vertical pitch scroll
-      setViewport((v) => ({
-        ...v,
-        scrollPitch: Math.max(
-          0,
-          Math.min(100, v.scrollPitch - e.deltaY / v.pixelsPerPitch),
-        ),
-      }));
-    }
   };
 
   return (
@@ -1064,8 +1600,7 @@ export function PianoRollCanvas({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onWheel={handleWheel}
-        className="block h-full w-full cursor-crosshair touch-none"
+        className="block h-full w-full touch-none"
       />
     </div>
   );

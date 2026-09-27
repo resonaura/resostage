@@ -751,6 +751,7 @@ struct WSettingsTelemetry {
 struct WEngineTelemetryPayload {
     std::string projectName;
     std::string songName;
+    std::string activeTrackId;
     double playheadSeconds = 0.0;
     double globalPlayheadSeconds = 0.0;
     double globalBeatsElapsed = 0.0;

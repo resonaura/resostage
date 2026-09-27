@@ -50,11 +50,13 @@ export interface DraggingState {
     | "draw"
     | "brush"
     | "slice"
-    | "cc";
+    | "cc"
+    | "playhead";
   startPointerX: number;
   startPointerY: number;
   startBeat: number;
   startPitch: number;
+  targetNoteIds?: Set<number>;
   initialNotesSnapshot: Map<number, MidiNoteRow>;
   marqueeBox?: {
     startBeat: number;
@@ -76,7 +78,9 @@ export interface PianoRollProps {
   onToggleRegionVisible?: (regionId: string, visible: boolean) => void;
   trackColor?: string;
   playheadBeats?: number;
+  timeSignatureNumerator?: number;
   isPlaying?: boolean;
+  onSeek?: (beats: number) => void;
   onNotesChange: (notes: MidiNoteRow[]) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
   className?: string;

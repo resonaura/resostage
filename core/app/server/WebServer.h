@@ -297,6 +297,7 @@ struct WebUiState {
     };
 
     std::string projectName;
+    std::string activeTrackId;
     // Project-global metronome (same for every song).
     bool click = false;
     std::string clickName = "Click";

@@ -1,4 +1,4 @@
-import type { RegionRow, SongRow } from "../../lib/state/types";
+import type { MidiRegionRow, RegionRow, SongRow } from "../../lib/state/types";
 
 // ── Region UI state (mute overlay; geometry lives in project RegionRow) ──
 export interface RegionUiState {
@@ -12,7 +12,8 @@ export const regionSelKey = (
   regionId: string,
 ): RegionSelKey => `${songIndex}:${regionId}`;
 
-export interface RegionClipboardEntry {
+export interface AudioRegionClipboardEntry {
+  kind: "audio";
   songIndex: number;
   trackId: string;
   file: string;
@@ -22,6 +23,50 @@ export interface RegionClipboardEntry {
   gainDb: number;
   fadeInSeconds: number;
   fadeOutSeconds: number;
+}
+
+export interface MidiRegionClipboardEntry {
+  kind: "midi";
+  songIndex: number;
+  trackId: string;
+  /** Song-local placement, normalized to seconds for mixed audio/MIDI paste. */
+  startSeconds: number;
+  name: string;
+  durationBeats: number;
+  clipOffsetBeats: number;
+  loop: boolean;
+  loopLengthBeats: number;
+  muted: boolean;
+  color?: string;
+  notes: MidiRegionRow["notes"];
+  automationLanes?: MidiRegionRow["automationLanes"];
+}
+
+export type RegionClipboardEntry =
+  | AudioRegionClipboardEntry
+  | MidiRegionClipboardEntry;
+
+export type AnyRegionHit =
+  | { kind: "audio"; songIndex: number; region: RegionRow }
+  | { kind: "midi"; songIndex: number; region: MidiRegionRow };
+
+export function lookupAnyRegion(
+  songs: SongRow[],
+  key: RegionSelKey,
+): AnyRegionHit | null {
+  const colon = key.indexOf(":");
+  if (colon < 0) return null;
+  const songIndex = Number(key.slice(0, colon));
+  const regionId = key.slice(colon + 1);
+  if (!Number.isFinite(songIndex) || songIndex < 0 || songIndex >= songs.length)
+    return null;
+  const song = songs[songIndex];
+  if (!song) return null;
+  const audioRegion = song.regions?.find((r) => r.id === regionId);
+  if (audioRegion) return { kind: "audio", songIndex, region: audioRegion };
+  const midiRegion = song.midiRegions?.find((r) => r.id === regionId);
+  if (midiRegion) return { kind: "midi", songIndex, region: midiRegion };
+  return null;
 }
 
 export function lookupRegion(
@@ -44,6 +89,9 @@ export function allRegionSelKeys(songs: SongRow[]): RegionSelKey[] {
   songs.forEach((song, si) => {
     for (const r of song.regions ?? []) {
       if (r.source.file && r.id) keys.push(regionSelKey(si, r.id));
+    }
+    for (const mr of song.midiRegions ?? []) {
+      if (mr.id) keys.push(regionSelKey(si, mr.id));
     }
   });
   return keys;

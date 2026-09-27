@@ -26,6 +26,94 @@ namespace resostage {
 
 using namespace builder_json;
 
+namespace {
+std::vector<MidiNote> parseMidiNotes(const glz::generic& doc) {
+    std::vector<MidiNote> notes;
+    if (!doc.contains("notes") || !doc["notes"].is_array())
+        return notes;
+
+    const auto& arr = doc["notes"].get_array();
+    notes.reserve(arr.size());
+    for (const auto& noteVal : arr) {
+        if (!noteVal.is_object()) continue;
+        MidiNote n;
+        uint64_t idVal = 0;
+        if (getUint64(noteVal, "id", idVal)) n.id = idVal;
+        int pitchInt = 60;
+        if (getInt(noteVal, "pitch", pitchInt))
+            n.pitch = static_cast<uint8_t>(std::clamp(pitchInt, 0, 127));
+        getDouble(noteVal, "startBeats", n.startBeats);
+        getDouble(noteVal, "durationBeats", n.durationBeats);
+        n.startBeats = std::max(0.0, n.startBeats);
+        n.durationBeats = std::max(0.03125, n.durationBeats);
+        double v = 0.8;
+        if (getDouble(noteVal, "velocity", v))
+            n.velocity = static_cast<float>(std::clamp(v, 0.0, 1.0));
+        double relV = 0.5;
+        if (getDouble(noteVal, "releaseVelocity", relV))
+            n.releaseVelocity = static_cast<float>(std::clamp(relV, 0.0, 1.0));
+        double prob = 1.0;
+        if (getDouble(noteVal, "probability", prob))
+            n.probability = static_cast<float>(std::clamp(prob, 0.0, 1.0));
+        int pan = -1;
+        if (getInt(noteVal, "pan", pan))
+            n.pan = static_cast<int8_t>(std::clamp(pan, -1, 127));
+        int tuning = 0;
+        if (getInt(noteVal, "tuningOffsetCents", tuning))
+            n.tuningOffsetCents = static_cast<int8_t>(std::clamp(tuning, -100, 100));
+        getBool(noteVal, "muted", n.muted);
+        notes.push_back(n);
+    }
+    std::stable_sort(notes.begin(), notes.end(), [](const MidiNote& a, const MidiNote& b) {
+        return a.startBeats < b.startBeats;
+    });
+    return notes;
+}
+
+std::vector<AutomationLane> parseAutomationLanes(const glz::generic& doc) {
+    std::vector<AutomationLane> lanes;
+    if (!doc.contains("automationLanes") || !doc["automationLanes"].is_array())
+        return lanes;
+    const auto& arr = doc["automationLanes"].get_array();
+    lanes.reserve(arr.size());
+    for (const auto& laneVal : arr) {
+        if (!laneVal.is_object()) continue;
+        AutomationLane lane;
+        getString(laneVal, "id", lane.id);
+        std::string text;
+        if (getString(laneVal, "scope", text)) lane.scope = automationScopeFromString(text);
+        if (getString(laneVal, "writeMode", text)) lane.writeMode = automationWriteModeFromString(text);
+        getBool(laneVal, "enabled", lane.enabled);
+        getBool(laneVal, "muted", lane.muted);
+
+        if (laneVal.contains("target") && laneVal["target"].is_object()) {
+            const auto& target = laneVal["target"];
+            if (getString(target, "domain", text)) lane.target.domain = automationDomainFromString(text);
+            getString(target, "entityId", lane.target.entityId);
+            getString(target, "parameterId", lane.target.parameterId);
+            if (getString(target, "valueType", text)) lane.target.valueType = parameterValueTypeFromString(text);
+            double number = 0.0;
+            if (getDouble(target, "defaultValue", number)) lane.target.defaultValue = static_cast<float>(number);
+            if (getDouble(target, "minValue", number)) lane.target.minValue = static_cast<float>(number);
+            if (getDouble(target, "maxValue", number)) lane.target.maxValue = static_cast<float>(number);
+        }
+        if (laneVal.contains("points") && laneVal["points"].is_array()) {
+            for (const auto& pointVal : laneVal["points"].get_array()) {
+                if (!pointVal.is_object()) continue;
+                AutomationPoint point;
+                double number = 0.0;
+                getDouble(pointVal, "timeBeats", point.timeBeats);
+                if (getDouble(pointVal, "value", number)) point.value = static_cast<float>(number);
+                if (getDouble(pointVal, "curve", number)) point.curve = static_cast<float>(std::clamp(number, -1.0, 1.0));
+                lane.points.push_back(point);
+            }
+        }
+        lanes.push_back(std::move(lane));
+    }
+    return lanes;
+}
+} // namespace
+
 void MainComponent::builderSongAdd(const std::string& json) {
     if (!engine.isProjectLoaded())
         return;
@@ -413,16 +501,24 @@ void MainComponent::builderTrackRemove(const std::string& json) {
 
 void MainComponent::builderTrackMove(const std::string& json) {
     glz::generic doc;
-    int index = -1, delta = 0;
-    if (!parseJson(json, doc) || !getInt(doc, "index", index) || !getInt(doc, "delta", delta) || !engine.isProjectLoaded())
+    int index = -1;
+    if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
         return;
     Project& proj = engine.project();
-    const int to = index + delta;
-    if (index < 0 || index >= static_cast<int>(proj.tracks.size()) || to < 0 || to >= static_cast<int>(proj.tracks.size()))
+    int to = -1;
+    if (!getInt(doc, "to", to)) {
+        int delta = 0;
+        if (getInt(doc, "delta", delta))
+            to = index + delta;
+    }
+    if (index < 0 || index >= static_cast<int>(proj.tracks.size())
+        || to < 0 || to >= static_cast<int>(proj.tracks.size()) || index == to)
         return;
 
     engine.projectHistoryBeginEdit("", "Move track");
-    std::swap(proj.tracks[static_cast<size_t>(index)], proj.tracks[static_cast<size_t>(to)]);
+    auto item = std::move(proj.tracks[static_cast<size_t>(index)]);
+    proj.tracks.erase(proj.tracks.begin() + index);
+    proj.tracks.insert(proj.tracks.begin() + to, std::move(item));
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
 }
@@ -641,6 +737,16 @@ void MainComponent::builderMidiRegionAdd(const std::string& json) {
     getDouble(doc, "loopLengthBeats", reg.loopLengthBeats);
     if (reg.loopLengthBeats <= 0.0) reg.loopLengthBeats = reg.durationBeats;
     getString(doc, "color", reg.color);
+    getBool(doc, "muted", reg.muted);
+    if (doc.contains("notes") && doc["notes"].is_array())
+        reg.notes = parseMidiNotes(doc);
+    if (doc.contains("automationLanes") && doc["automationLanes"].is_array()) {
+        reg.automationLanes = parseAutomationLanes(doc);
+        for (auto& lane : reg.automationLanes) {
+            if (lane.scope == AutomationScope::Region)
+                lane.target.entityId = reg.id;
+        }
+    }
 
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
@@ -714,31 +820,10 @@ void MainComponent::builderMidiRegionUpdate(const std::string& json) {
     if (getString(doc, "color", strVal)) regPtr->color = strVal;
 
     // Optional notes array update
-    if (doc.contains("notes") && doc["notes"].is_array()) {
-        const auto& arr = doc["notes"].get_array();
-        std::vector<MidiNote> updatedNotes;
-        updatedNotes.reserve(arr.size());
-        for (const auto& noteVal : arr) {
-            if (!noteVal.is_object()) continue;
-            MidiNote n;
-            int idInt = 0;
-            if (getInt(noteVal, "id", idInt)) n.id = static_cast<uint64_t>(idInt);
-            int pitchInt = 60;
-            if (getInt(noteVal, "pitch", pitchInt)) n.pitch = static_cast<uint8_t>(std::clamp(pitchInt, 0, 127));
-            getDouble(noteVal, "startBeats", n.startBeats);
-            getDouble(noteVal, "durationBeats", n.durationBeats);
-            double v = 0.8;
-            if (getDouble(noteVal, "velocity", v)) n.velocity = static_cast<float>(std::clamp(v, 0.0, 1.0));
-            double relV = 0.5;
-            if (getDouble(noteVal, "releaseVelocity", relV)) n.releaseVelocity = static_cast<float>(std::clamp(relV, 0.0, 1.0));
-            double prob = 1.0;
-            if (getDouble(noteVal, "probability", prob)) n.probability = static_cast<float>(std::clamp(prob, 0.0, 1.0));
-            bool m = false;
-            if (getBool(noteVal, "muted", m)) n.muted = m;
-            updatedNotes.push_back(n);
-        }
-        regPtr->notes = std::move(updatedNotes);
-    }
+    if (doc.contains("notes") && doc["notes"].is_array())
+        regPtr->notes = parseMidiNotes(doc);
+    if (doc.contains("automationLanes") && doc["automationLanes"].is_array())
+        regPtr->automationLanes = parseAutomationLanes(doc);
 
     engine.projectHistoryCommitEdit();
     engine.markDirty();

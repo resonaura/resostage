@@ -79,8 +79,11 @@ export type RegionGeomDraft = {
 export type RegionDragSession = {
   key: RegionSelKey;
   mode: RegionDragMode;
+  kind?: "audio" | "midi";
   startX: number;
   startY: number;
+  startScrollLeft?: number;
+  startScrollTop?: number;
   songIndex: number;
   regionId: string;
   origStart: number;
@@ -104,6 +107,10 @@ export type RegionDragSession = {
   targetRowIndex: number;
   /** Committed track id when the drag began (for returning mid-gesture). */
   originTrackId: string;
+  /** Optional song tempo and beat parameters for MIDI regions */
+  bpm?: number;
+  origStartBeats?: number;
+  origDurationBeats?: number;
 };
 
 export type RegionDragCtx = {
@@ -258,14 +265,6 @@ export function regionDraftMatchesCommitted(
     Math.abs(r.startSeconds - d.start) < eps &&
     Math.abs(r.source.offsetSeconds - d.sourceOffset) < eps &&
     Math.abs(dur - d.duration) < eps &&
-    (d.fadeIn === undefined ||
-      Math.abs((r.fade?.inSeconds ?? 0) - d.fadeIn) < eps) &&
-    (d.fadeOut === undefined ||
-      Math.abs((r.fade?.outSeconds ?? 0) - d.fadeOut) < eps) &&
-    (d.fadeInCurve === undefined ||
-      Math.abs((r.fade?.inCurve ?? 0) - d.fadeInCurve) < 0.05) &&
-    (d.fadeOutCurve === undefined ||
-      Math.abs((r.fade?.outCurve ?? 0) - d.fadeOutCurve) < 0.05) &&
     (d.loop === undefined || Boolean(r.loop?.enabled) === Boolean(d.loop)) &&
     (d.speed === undefined ||
       Math.abs((r.playback?.speed ?? 1) - d.speed) < 0.005) &&
@@ -282,13 +281,99 @@ export function computeRegionDragGeom(
   ctx: RegionDragCtx,
   clientX: number,
   clientY: number,
+  currentScrollLeft?: number,
+  currentScrollTop?: number,
 ): RegionGeom {
   const { pxPerSec: pps, verticalZoom: vz, snapToGrid: snapOn } = ctx;
   const song = ctx.songs[rd.songIndex];
   const snapSec = (sec: number) =>
     snapToGridSec(sec, pps, song?.bpm ?? 120, song?.tsNum ?? 4, snapOn);
-  const dSec = (clientX - rd.startX) / pps;
-  const dY = clientY - rd.startY;
+
+  const scrollDeltaX =
+    (currentScrollLeft ?? rd.startScrollLeft ?? 0) -
+    (rd.startScrollLeft ?? 0);
+  const scrollDeltaY =
+    (currentScrollTop ?? rd.startScrollTop ?? 0) - (rd.startScrollTop ?? 0);
+  const dPx = clientX - rd.startX + scrollDeltaX;
+  const dSec = dPx / pps;
+  const dY = clientY - rd.startY + scrollDeltaY;
+
+  // ── Unified MIDI Region drag handling ──
+  if (rd.kind === "midi") {
+    const bpm = rd.bpm ?? (song?.bpm > 0 ? song.bpm : 120);
+    let snapStep = 1.0;
+    if (pps > 160) snapStep = 0.25;
+    else if (pps > 80) snapStep = 0.5;
+    else if (pps < 30) snapStep = 4.0;
+
+    const snapBeats = (b: number) =>
+      snapOn
+        ? Math.max(0, Math.round(b / snapStep) * snapStep)
+        : Math.max(0, b);
+
+    const dBeats = (dSec * bpm) / 60;
+
+    if (rd.mode === "move") {
+      const rawBeats = Math.max(0, (rd.origStartBeats ?? 0) + dBeats);
+      const nextBeats = snapBeats(rawBeats);
+      const nextStart = (nextBeats * 60) / bpm;
+
+      const laneH = Math.max(1, laneHeightPx(vz));
+      const rowsCrossed = Math.round(dY / laneH);
+      const nextTargetRow = Math.max(
+        0,
+        Math.min(ctx.rows.length - 1, rd.originRowIndex + rowsCrossed),
+      );
+      rd.targetRowIndex = nextTargetRow;
+
+      let draftTrackId = rd.originTrackId;
+      if (nextTargetRow !== rd.originRowIndex) {
+        const targetRow = ctx.rows[nextTargetRow];
+        const targetTrack = targetRow
+          ? ctx.tracks.find(
+              (t) =>
+                (t.name || t.id) === targetRow.name || t.id === targetRow.name,
+            )
+          : undefined;
+        draftTrackId = targetTrack?.id ?? targetRow?.name ?? rd.originTrackId;
+      }
+
+      return {
+        ...baseRegionGeom(rd),
+        start: nextStart,
+        trackId: draftTrackId,
+      };
+    }
+
+    if (rd.mode === "trimStart") {
+      const rawBeats = Math.max(0, (rd.origStartBeats ?? 0) + dBeats);
+      const maxBeats =
+        (rd.origStartBeats ?? 0) + (rd.origDurationBeats ?? 1) - 0.25;
+      const snappedBeats = Math.min(maxBeats, snapBeats(rawBeats));
+      const deltaBeats = snappedBeats - (rd.origStartBeats ?? 0);
+      const nextDurBeats = Math.max(
+        0.25,
+        (rd.origDurationBeats ?? 1) - deltaBeats,
+      );
+      return {
+        ...baseRegionGeom(rd),
+        start: (snappedBeats * 60) / bpm,
+        duration: Math.max(0.05, (nextDurBeats * 60) / bpm),
+      };
+    }
+
+    if (rd.mode === "trimEnd") {
+      const rawDurBeats = Math.max(
+        0.25,
+        (rd.origDurationBeats ?? 1) + dBeats,
+      );
+      const nextDurBeats = Math.max(0.25, snapBeats(rawDurBeats));
+      return {
+        ...baseRegionGeom(rd),
+        duration: Math.max(0.05, (nextDurBeats * 60) / bpm),
+      };
+    }
+  }
 
   if (rd.mode === "crossfade") {
     // Horizontal only, and pinned to its own track.

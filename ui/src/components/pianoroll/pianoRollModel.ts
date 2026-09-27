@@ -5,6 +5,16 @@ export function generateNoteId(): number {
   return Date.now() * 1000 + (nextNoteCounter++ % 1000);
 }
 
+/** Inverse of the canvas pitch-to-Y transform, including fractional scroll. */
+export function canvasYToPitch(
+  y: number,
+  gridBottom: number,
+  scrollPitch: number,
+  pixelsPerPitch: number,
+): number {
+  return Math.floor(scrollPitch + (gridBottom - y) / pixelsPerPitch);
+}
+
 /**
  * Split a note at `cutBeat` into two consecutive notes.
  * Returns null if `cutBeat` is outside the note body.

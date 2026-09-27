@@ -38,6 +38,16 @@ inline bool getInt(const glz::generic& el, const char* key, int& out) {
     return true;
 }
 
+inline bool getUint64(const glz::generic& el, const char* key, uint64_t& out) {
+    if (!el.contains(key))
+        return false;
+    const glz::generic& v = el[key];
+    if (!v.is_number())
+        return false;
+    out = static_cast<uint64_t>(v.get_number());
+    return true;
+}
+
 inline bool getDouble(const glz::generic& el, const char* key, double& out) {
     if (!el.contains(key))
         return false;

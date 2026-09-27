@@ -1,4 +1,4 @@
-import { Separator, Toolbar } from "@heroui/react";
+import { Separator, Toolbar, Tooltip } from "@heroui/react";
 import {
   Circle,
   Pause,
@@ -7,6 +7,9 @@ import {
   SkipForward,
   Square,
 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FontIcon } from "../common/FontIcon";
+import { patchClickFields } from "../../screens/mixer/mixerUtils";
 import { transport } from "../../lib/state/api";
 import { useContinuousPlayhead } from "../../lib/state/optimistic";
 import type { WebUiState } from "../../lib/state/types";
@@ -15,7 +18,7 @@ import { ToggleButton, ToggleButtonGroup } from "../ui";
 
 /**
  * Compact transport for the app header (non-Player tabs): clock chip, song +
- * BPM, transport buttons. Parent owns center placement + show/hide fade.
+ * BPM, transport buttons, and metronome toggle. Parent owns center placement + show/hide fade.
  *
  * The clock and the icon buttons are DAW primitives now (see components/daw)
  * — this file is arrangement only.
@@ -28,6 +31,27 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
   const songTitle = state.songName || song?.name || "";
   const bpm = song && song.bpm > 0 ? song.bpm : (state.bpm ?? 0);
   const tsNum = song && song.tsNum > 0 ? song.tsNum : 4;
+
+  const [metronomeOverride, setMetronomeOverride] = useState<boolean | null>(
+    null,
+  );
+  const isMetronomeOn =
+    metronomeOverride ?? state.click?.enabled ?? song?.click ?? false;
+
+  useEffect(() => {
+    if (
+      metronomeOverride != null &&
+      (state.click?.enabled ?? song?.click) === metronomeOverride
+    ) {
+      setMetronomeOverride(null);
+    }
+  }, [state.click?.enabled, song?.click, metronomeOverride]);
+
+  const toggleMetronome = () => {
+    const nextState = !isMetronomeOn;
+    setMetronomeOverride(nextState);
+    patchClickFields(state, { click: nextState });
+  };
 
   // A local clock that keeps moving between telemetry frames, re-synced to
   // the engine whenever one arrives. `publishToReact: false` -- this bar has
@@ -126,7 +150,7 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
       <Separator orientation="vertical" />
       {/* Song + BPM chip */}
       <div
-        className="flex h-7 w-28 sm:w-36 shrink-0 flex-col justify-center pl-2"
+        className="flex h-7 w-28 sm:w-36 shrink-0 flex-col justify-center px-2"
         title={songTitle || undefined}
       >
         <div className="truncate text-center text-[11px] font-medium leading-tight text-foreground/80">
@@ -135,6 +159,28 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
         <div className="text-center font-mono text-[10px] tabular-nums leading-tight text-foreground/50">
           {bpm > 0 ? `${Number.isInteger(bpm) ? bpm : bpm.toFixed(1)} BPM` : "—"}
         </div>
+      </div>
+      <Separator orientation="vertical" />
+      {/* Metronome toggle */}
+      <div className="pl-1">
+        <Tooltip>
+          <ToggleButton
+            isIconOnly
+            size="sm"
+            isSelected={isMetronomeOn}
+            onPress={toggleMetronome}
+            aria-label="Metronome"
+            variant={isMetronomeOn ? "accent-soft" : "ghost"}
+            className={`h-7 w-7 ${
+              isMetronomeOn
+                ? "text-accent font-semibold"
+                : "text-foreground/70 hover:text-foreground"
+            }`}
+          >
+            <FontIcon name="metronome" size={15} />
+          </ToggleButton>
+          <Tooltip.Content>{`Metronome (${isMetronomeOn ? "On" : "Off"})`}</Tooltip.Content>
+        </Tooltip>
       </div>
     </Toolbar>
   );
