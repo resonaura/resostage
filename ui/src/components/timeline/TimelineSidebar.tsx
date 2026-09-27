@@ -274,6 +274,16 @@ export function TimelineSidebar({
         }
       }
       setDragState(null);
+    } else if (e.type === "pointerup") {
+      // Pointer capture suppresses the usual click path in some browsers;
+      // treat a sub-threshold gesture as selection, not as a no-op.
+      if (d.kind === "audio") {
+        void mixer.setFocusedTrack(d.index);
+        onSelectTrack?.(state.tracks[d.index]?.id ?? null);
+      } else {
+        setSidePanelTrackIndex(d.index);
+        setCueSelection(null);
+      }
     }
 
     dragRef.current = null;

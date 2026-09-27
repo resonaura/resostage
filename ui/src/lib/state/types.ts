@@ -961,6 +961,8 @@ export interface WebUiState {
   lowLatencyMonitoring?: boolean;
   lowLatencyLimitMs?: number;
   liveRecordings?: LiveRecordingRegion[];
+  /** Current notes routed to instrument strips (live MIDI and sequencer). */
+  activeMidiNotes?: Array<{ trackId: string; pitch: number }>;
   hardwareAlarm: boolean;
   /**
    * Action id last executed via native hotkey, MIDI, or the macOS menu bar

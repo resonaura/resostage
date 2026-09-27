@@ -1782,6 +1782,8 @@ void MainComponent::publishWebState() {
     state.lowLatencyMonitoring = engine.isLowLatencyMonitoring();
     state.lowLatencyLimitMs = engine.getLowLatencyLimitMs();
     state.liveRecordings = engine.getLiveRecordingRegions();
+    for (const auto& note : engine.getActiveMidiNotes())
+        state.activeMidiNotes.push_back({note.trackId, note.pitch});
     state.hardwareAlarm = transport.hardwareAlarm.load(std::memory_order_relaxed);
 
     const Project& proj = engine.project();

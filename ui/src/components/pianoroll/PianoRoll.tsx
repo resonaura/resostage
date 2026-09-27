@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PianoRollCanvas } from "./PianoRollCanvas";
 import { PianoRollToolbar } from "./PianoRollToolbar";
 import { applyLegato, applyOverlapTrim } from "./pianoRollModel";
 import { snapPitchToScale } from "./scales";
+import { getRegionActivePitches } from "../midi/activeMidiPitches";
 import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
 import type {
   GridSnapValue,
@@ -25,6 +26,7 @@ const DEFAULT_VIEWPORT: PianoRollViewport = {
 export function PianoRoll({
   region,
   companionRegions = [],
+  activeMidiNotes = [],
   track,
   tracks,
   onSelectTrack,
@@ -54,6 +56,9 @@ export function PianoRoll({
     new Set(),
   );
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
+  const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
+
+  useEffect(() => setLoopLengthDraft(null), [region.id, region.loopLengthBeats]);
 
   useEffect(() => {
     const available = new Set(region.notes.map((note) => note.id));
@@ -98,6 +103,27 @@ export function PianoRoll({
   }, []);
 
   const effectiveTrackColor = trackColor || "#0485f7";
+  const activeMidiPitches = useMemo(
+    () => new Set([
+      ...getRegionActivePitches(
+        region,
+        companionRegions,
+        playheadBeats ?? -1,
+        Boolean(isPlaying),
+      ),
+      ...activeMidiNotes
+        .filter((note) => note.trackId === region.trackId)
+        .map((note) => note.pitch),
+    ]),
+    [region, companionRegions, playheadBeats, isPlaying, activeMidiNotes],
+  );
+  const parsedLoopLength = loopLengthDraft === null ? null : Number(loopLengthDraft);
+  const previewLoopLength = parsedLoopLength !== null && Number.isFinite(parsedLoopLength) && parsedLoopLength > 0
+    ? parsedLoopLength
+    : region.loopLengthBeats;
+  const canvasRegion = loopLengthDraft === null
+    ? region
+    : { ...region, loopLengthBeats: previewLoopLength };
 
   // Delete selected notes
   const handleDeleteSelected = useCallback(() => {
@@ -208,6 +234,9 @@ export function PianoRoll({
 
   // Keyboard hotkeys
   useEffect(() => {
+    const usesMetaKey = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+    const hasPrimaryModifier = (event: KeyboardEvent) =>
+      usesMetaKey ? event.metaKey : event.ctrlKey;
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
       if (
@@ -237,15 +266,15 @@ export function PianoRoll({
       } else if (e.key === "q" || e.key === "Q") {
         e.preventDefault();
         handleQuantize();
-      } else if ((e.metaKey || e.ctrlKey) && (e.key === "a" || e.key === "A")) {
+      } else if (hasPrimaryModifier(e) && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
         setSelectedNoteIds(new Set(region.notes.map((n) => n.id)));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        handleTranspose(e.shiftKey ? 12 : 1);
+        handleTranspose(hasPrimaryModifier(e) || e.shiftKey ? 12 : 1);
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        handleTranspose(e.shiftKey ? -12 : -1);
+        handleTranspose(hasPrimaryModifier(e) || e.shiftKey ? -12 : -1);
       }
     };
 
@@ -407,13 +436,30 @@ export function PianoRoll({
         showGhostNotes={showGhostNotes}
         onShowGhostNotesChange={setShowGhostNotes}
         loopEnabled={region.loop}
+        loopLengthBeats={loopLengthDraft ?? String(region.loopLengthBeats || region.durationBeats)}
+        onLoopLengthBeatsChange={setLoopLengthDraft}
+        onLoopLengthBeatsCommit={() => {
+          if (loopLengthDraft === null) return;
+          const nextLoopLength = Number(loopLengthDraft);
+          if (!Number.isFinite(nextLoopLength) || nextLoopLength <= 0) {
+            setLoopLengthDraft(null);
+            return;
+          }
+          onRegionChange?.({
+            ...region,
+            loop: true,
+            loopLengthBeats: nextLoopLength,
+          });
+          if (nextLoopLength === region.loopLengthBeats)
+            setLoopLengthDraft(null);
+        }}
         onLoopEnabledChange={(enabled) =>
           onRegionChange?.({
             ...region,
             loop: enabled,
             loopLengthBeats:
-              region.loopLengthBeats > 0
-                ? region.loopLengthBeats
+            (previewLoopLength ?? region.loopLengthBeats) > 0
+                ? (previewLoopLength ?? region.loopLengthBeats)
                 : region.durationBeats,
           })
         }
@@ -457,7 +503,7 @@ export function PianoRoll({
       {/* Canvas Viewport */}
       <div className="relative flex-1 min-h-0 w-full">
         <PianoRollCanvas
-          region={region}
+          region={canvasRegion}
           companionRegions={companionRegions}
           trackColor={effectiveTrackColor}
           tool={tool}
@@ -472,6 +518,7 @@ export function PianoRoll({
           onRegionChange={onRegionChange}
           bottomLane={bottomLane}
           playheadBeats={playheadBeats}
+          activeMidiPitches={activeMidiPitches}
           timeSignatureNumerator={timeSignatureNumerator}
           isPlaying={isPlaying}
           onSeek={onSeek}
@@ -482,6 +529,11 @@ export function PianoRoll({
           catchOnSeek={catchOnSeek}
         />
       </div>
+      {loopLengthDraft !== null && (
+        <div className="sr-only" aria-live="polite">
+          Loop range preview: {previewLoopLength} beats. Confirm by leaving the field.
+        </div>
+      )}
     </div>
   );
 }

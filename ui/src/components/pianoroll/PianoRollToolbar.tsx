@@ -48,6 +48,9 @@ interface PianoRollToolbarProps {
   onShowGhostNotesChange: (show: boolean) => void;
   loopEnabled?: boolean;
   onLoopEnabledChange?: (enabled: boolean) => void;
+  loopLengthBeats?: string;
+  onLoopLengthBeatsChange?: (beats: string) => void;
+  onLoopLengthBeatsCommit?: () => void;
   selectedCount: number;
   onQuantize: () => void;
   onHumanize: () => void;
@@ -103,6 +106,9 @@ export function PianoRollToolbar({
   onShowGhostNotesChange,
   loopEnabled,
   onLoopEnabledChange,
+  loopLengthBeats,
+  onLoopLengthBeatsChange,
+  onLoopLengthBeatsCommit,
   selectedCount,
   onQuantize,
   onHumanize,
@@ -185,16 +191,41 @@ export function PianoRollToolbar({
       {/* Snap & Grid */}
       <div className="flex items-center gap-1.5">
         {onLoopEnabledChange && (
-          <ToggleButton
-            size="sm"
-            isSelected={Boolean(loopEnabled)}
-            onChange={onLoopEnabledChange}
-            aria-label="Loop MIDI region"
-            className="h-7 px-2"
-          >
-            <Repeat2 size={14} className="mr-1" />
-            Loop
-          </ToggleButton>
+          <>
+            <ToggleButton
+              size="sm"
+              isSelected={Boolean(loopEnabled)}
+              onChange={onLoopEnabledChange}
+              aria-label="Loop MIDI region"
+              className="h-7 px-2"
+            >
+              <Repeat2 size={14} className="mr-1" />
+              Loop
+            </ToggleButton>
+            {loopEnabled && onLoopLengthBeatsChange && (
+              <label className="flex items-center gap-1 text-[10px] text-foreground/60" title="Pattern repeat length in beats">
+                Length
+                <input
+                  aria-label="Loop length in beats"
+                  type="number"
+                  min={0.125}
+                  step={snap > 0 ? snap : 0.25}
+                  value={loopLengthBeats ?? "4"}
+                  onBlur={onLoopLengthBeatsCommit}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  onChange={(event) => {
+                    onLoopLengthBeatsChange(event.target.value);
+                  }}
+                  className="w-12 rounded border border-default/40 bg-default/20 px-1 py-0.5 text-center text-[11px] text-foreground outline-none focus:border-accent"
+                />
+                beats
+              </label>
+            )}
+          </>
         )}
         <Grid size={14} className="text-foreground/50" />
         <span className="text-[11px] font-medium text-foreground/70">

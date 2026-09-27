@@ -749,6 +749,10 @@ struct WSettingsTelemetry {
 };
 
 struct WEngineTelemetryPayload {
+    struct ActiveMidiNote {
+        std::string trackId;
+        int pitch = 0;
+    };
     std::string projectName;
     std::string songName;
     std::string activeTrackId;
@@ -767,6 +771,7 @@ struct WEngineTelemetryPayload {
     bool lowLatencyMonitoring = true;
     double lowLatencyLimitMs = 5.0;
     std::vector<WLiveRecordingRegion> liveRecordings;
+    std::vector<ActiveMidiNote> activeMidiNotes;
     bool hardwareAlarm = false;
     int songIndex = 0;
     int songCount = 0;

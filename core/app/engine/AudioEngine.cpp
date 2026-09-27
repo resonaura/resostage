@@ -760,6 +760,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                                      int numOutputChannels,
                                                      int numSamples,
                                                      const juce::AudioIODeviceCallbackContext& context) {
+    if (activeMidiNotesClearRequested.exchange(false, std::memory_order_acq_rel))
+        clearActiveMidiNotes();
+
     // Flush-to-zero for the whole callback. Everything downstream of a strip is
     // a recursive filter -- the fader/pan glide, the K-weighting stages, the six
     // band-pass biquads per meter point -- and every one of them decays into
@@ -1194,6 +1197,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                     if (!shouldDeliver) continue;
 
                     if (tDef->midiInputChannel == 0 || tDef->midiInputChannel == msgChannel) {
+                        if (acceptsMidiInput && (msg.isNoteOnOrOff())) {
+                            const bool noteOn = msg.isNoteOn() && msg.getVelocity() > 0;
+                            updateActiveMidiNote(t, msg.getNoteNumber(), noteOn);
+                        }
                         if (pluginProcessors.strips != nullptr && pluginPublication != nullptr && pluginPublication->bank != nullptr) {
                             pluginPublication->bank->addStripMidiEvent(static_cast<uint32_t>(t), msg, 0);
                         }

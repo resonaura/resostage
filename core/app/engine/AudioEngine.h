@@ -94,6 +94,11 @@ struct LoadedBus {
 // wait-for-trigger).
 class AudioEngine final : public juce::AudioIODeviceCallback, private juce::ChangeListener {
 public:
+    struct ActiveMidiNoteInfo {
+        std::string trackId;
+        int pitch = 0;
+    };
+
     AudioEngine();
 
     ~AudioEngine() override;

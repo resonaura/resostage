@@ -781,6 +781,7 @@ export function EditorScreen({
               <PianoRoll
                 region={activeRegion}
                 companionRegions={companionRegions}
+                activeMidiNotes={state.activeMidiNotes}
                 track={activeTrack}
                 tracks={state.tracks}
                 onSelectTrack={(trackId) => {
@@ -844,6 +845,7 @@ export function EditorScreen({
                   void builder.midiRegionUpdate({
                     songIndex: state.songIndex,
                     regionId: updated.id,
+                    durationBeats: updated.durationBeats,
                     loop: updated.loop,
                     loopLengthBeats: updated.loopLengthBeats,
                     automationLanes: updated.automationLanes,

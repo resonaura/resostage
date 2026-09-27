@@ -69,6 +69,7 @@ export interface DraggingState {
 export interface PianoRollProps {
   region: MidiRegionRow;
   companionRegions?: MidiRegionRow[];
+  activeMidiNotes?: Array<{ trackId: string; pitch: number }>;
   track?: import("../../lib/state/types").TrackRow | null;
   tracks?: import("../../lib/state/types").TrackRow[];
   onSelectTrack?: (trackId: string) => void;

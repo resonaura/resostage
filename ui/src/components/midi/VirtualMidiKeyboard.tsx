@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mixer, sendLiveMidi } from "../../lib/state/api";
 import type { WebUiState } from "../../lib/state/types";
+import { getActiveMidiPitches } from "./activeMidiPitches";
 import { Slider } from "../ui";
 
 // FL Studio / Logic Pro QWERTY typing keyboard mappings
@@ -124,6 +125,10 @@ export function VirtualMidiKeyboard({
   });
 
   const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
+  const visibleActiveNotes = useMemo(
+    () => new Set([...activeNotes, ...getActiveMidiPitches(state)]),
+    [activeNotes, state],
+  );
   const activeKeysRef = useRef<Map<string, number>>(new Map()); // code -> midiNote
   const mouseDownNotesRef = useRef<Set<number>>(new Set());
 
@@ -910,7 +915,7 @@ export function VirtualMidiKeyboard({
         {/* White keys container */}
         <div className="flex h-full w-full">
           {whiteKeys.map((k) => {
-            const isPressed = activeNotes.has(k.note);
+            const isPressed = visibleActiveNotes.has(k.note);
             const isC = k.offset % 12 === 0;
             return (
               <button
@@ -958,7 +963,7 @@ export function VirtualMidiKeyboard({
 
         {/* Black keys overlaid on top */}
         {blackKeys.map((k) => {
-          const isPressed = activeNotes.has(k.note);
+          const isPressed = visibleActiveNotes.has(k.note);
           const totalWhites = keysData.totalWhiteKeys;
           // Black key is positioned between whiteIndex and whiteIndex + 1
           const leftPercent = ((k.whiteIndex + 1) / totalWhites) * 100;

@@ -648,6 +648,20 @@
     std::atomic<uint64_t> liveMidiPreviewGeneration{0};
     void publishLiveMidiPreview(double bpm, int64_t playheadSample);
 
+    // UI key illumination is sampled telemetry, never read from the audio
+    // callback by React. Counts are audio-thread-owned; the compact mask is
+    // published only when a note's active/inactive state changes.
+    static constexpr size_t kMaxActiveMidiStrips = 256;
+    struct ActiveMidiNotesFrame {
+        std::array<std::array<uint64_t, 2>, kMaxActiveMidiStrips> masks{};
+    };
+    std::array<std::array<uint8_t, 128>, kMaxActiveMidiStrips> activeMidiNoteCounts{};
+    ActiveMidiNotesFrame activeMidiNotesWorkingFrame{};
+    SeqLock<ActiveMidiNotesFrame> activeMidiNotesFrame;
+    std::atomic<bool> activeMidiNotesClearRequested{false};
+    void updateActiveMidiNote(size_t strip, int pitch, bool noteOn);
+    void clearActiveMidiNotes();
+
     // Lock-free incoming MIDI queue for real-time instrument playback & MIDI recording
     struct QueuedMidiPacket {
         uint8_t data[4]{};

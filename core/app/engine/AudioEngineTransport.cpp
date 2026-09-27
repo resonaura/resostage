@@ -753,6 +753,7 @@ void AudioEngine::stop() {
     if (pluginPub != nullptr && pluginPub->bank != nullptr) {
         pluginPub->bank->requestAllNotesOff();
     }
+    activeMidiNotesClearRequested.store(true, std::memory_order_release);
     flushDeferredAutosave();
 }
 
@@ -1143,6 +1144,47 @@ std::vector<LiveRecordingRegionInfo> AudioEngine::getLiveRecordingRegions() cons
     return result;
 }
 
+std::vector<AudioEngine::ActiveMidiNoteInfo> AudioEngine::getActiveMidiNotes() const {
+    ActiveMidiNotesFrame frame;
+    (void)activeMidiNotesFrame.read(frame);
+    std::vector<ActiveMidiNoteInfo> result;
+    const size_t trackCount = std::min(trackIdByIndex.size(), kMaxActiveMidiStrips);
+    for (size_t track = 0; track < trackCount; ++track) {
+        for (int pitch = 0; pitch < 128; ++pitch) {
+            if ((frame.masks[track][static_cast<size_t>(pitch) / 64]
+                 & (uint64_t{1} << (static_cast<unsigned>(pitch) % 64))) != 0) {
+                result.push_back({trackIdByIndex[track], pitch});
+            }
+        }
+    }
+    return result;
+}
+
+void AudioEngine::updateActiveMidiNote(size_t strip, int pitch, bool noteOn) {
+    if (strip >= kMaxActiveMidiStrips || pitch < 0 || pitch > 127)
+        return;
+    auto& count = activeMidiNoteCounts[strip][static_cast<size_t>(pitch)];
+    const bool wasActive = count != 0;
+    if (noteOn) {
+        if (count < std::numeric_limits<uint8_t>::max()) ++count;
+    } else if (count != 0) {
+        --count;
+    }
+    if (wasActive == (count != 0)) return;
+
+    auto& mask = activeMidiNotesWorkingFrame.masks[strip][static_cast<size_t>(pitch) / 64];
+    const uint64_t bit = uint64_t{1} << (static_cast<unsigned>(pitch) % 64);
+    if (count != 0) mask |= bit;
+    else mask &= ~bit;
+    activeMidiNotesFrame.write(activeMidiNotesWorkingFrame);
+}
+
+void AudioEngine::clearActiveMidiNotes() {
+    for (auto& track : activeMidiNoteCounts) track.fill(0);
+    activeMidiNotesWorkingFrame = {};
+    activeMidiNotesFrame.write(activeMidiNotesWorkingFrame);
+}
+
 void AudioEngine::publishLiveMidiPreview(double bpm, int64_t playheadSample) {
     LiveMidiPreviewFrame frame;
     frame.generation = liveMidiPreviewGeneration.load(std::memory_order_relaxed);
@@ -1416,6 +1458,11 @@ void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds,
                 for (size_t s = 0; s < projectTracks.size(); ++s) {
                     if (pluginBank->stripHasInstrument(s)) {
                         pluginBank->addStripMidiEvent(s, msg, sampleOffset);
+                        if (ev.type == EventType::MidiNoteOn || ev.type == EventType::MidiNoteOff)
+                            updateActiveMidiNote(
+                                s,
+                                ev.midiNote,
+                                ev.type == EventType::MidiNoteOn && ev.midiVelocity > 0);
                     }
                 }
             }
@@ -1550,6 +1597,8 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                         if (canSendToPlugin) {
                             pluginBank->addStripMidiEvent(targetStripIndex, juce::MidiMessage::noteOn(ch, pitch, vel), sampleOffset);
                         }
+                        if (canSendToPlugin || canSendToExternalMidi)
+                            updateActiveMidiNote(targetStripIndex, pitch, true);
                         if (canSendToExternalMidi) {
                             const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
                             MidiCommand cmd;
@@ -1573,6 +1622,8 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                         if (canSendToPlugin) {
                             pluginBank->addStripMidiEvent(targetStripIndex, juce::MidiMessage::noteOff(ch, pitch, relVel), sampleOffset);
                         }
+                        if (canSendToPlugin || canSendToExternalMidi)
+                            updateActiveMidiNote(targetStripIndex, pitch, false);
                         if (canSendToExternalMidi) {
                             const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
                             MidiCommand cmd;

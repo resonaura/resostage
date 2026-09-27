@@ -366,6 +366,11 @@ struct WebUiState {
     bool lowLatencyMonitoring = true;
     double lowLatencyLimitMs = 5.0;
     std::vector<LiveRecordingRegionInfo> liveRecordings;
+    struct ActiveMidiNoteRow {
+        std::string trackId;
+        int pitch = 0;
+    };
+    std::vector<ActiveMidiNoteRow> activeMidiNotes;
     bool hardwareAlarm = false;
     int songIndex = -1;
     int songCount = 0;

@@ -51,6 +51,7 @@
     bool isRecording() const;
 
     std::vector<LiveRecordingRegionInfo> getLiveRecordingRegions() const;
+    std::vector<ActiveMidiNoteInfo> getActiveMidiNotes() const;
 
     std::vector<PeakPair16> getLiveRecordingPeaks(const std::string& trackId, size_t level, size_t first, size_t count) const;
 

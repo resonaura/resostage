@@ -1504,6 +1504,9 @@ std::string WebServer::buildStateJson(const char* view) const {
         }
         wire.liveRecordings.push_back(std::move(wr));
     }
+    wire.activeMidiNotes.reserve(snap.activeMidiNotes.size());
+    for (const auto& note : snap.activeMidiNotes)
+        wire.activeMidiNotes.push_back({note.trackId, note.pitch});
     wire.hardwareAlarm = snap.hardwareAlarm;
     wire.songIndex = snap.songIndex;
     wire.songCount = snap.songCount;
