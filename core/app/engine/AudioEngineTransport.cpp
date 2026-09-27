@@ -1188,7 +1188,7 @@ std::vector<PeakPair16> AudioEngine::getLiveRecordingPeaks(const std::string& tr
 }
 
 bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songIndex) {
-    if (!projectLoaded || currentSong == static_cast<size_t>(-1)) {
+    if (!projectLoaded || (currentSong == static_cast<size_t>(-1) && songIndex == static_cast<size_t>(-1))) {
         error = "No song selected";
         return false;
     }
@@ -1206,8 +1206,9 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
     // Same-song: hard-seek in place WITHOUT stop/play -- scrub used to call
     // selectSong (which stops) then restart, producing a one-buffer "blip
     // then silence then play" glitch on every drag.
-    if (!sameSong) {
-        if (!selectSong(targetSong, error, /*fireOnLoadEvents=*/false))
+    // If the active song was not yet staged into streaming, force restage even on sameSong.
+    if (!sameSong || !streaming.acquireActiveSong()) {
+        if (!selectSong(targetSong, error, /*fireOnLoadEvents=*/false, /*forceRestage=*/true))
             return false;
     }
 

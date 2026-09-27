@@ -245,6 +245,11 @@ void AudioEngine::newProject(const std::string& name) {
     publishRoutingSnapshot();
     midiClockEverStarted = false;
 
+    streaming.start(&loader,
+                    streamingIoThreadStart,
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
+
     if (!loader.project().songs.empty()) {
         std::string err;
         selectSong(0, err);
@@ -253,13 +258,8 @@ void AudioEngine::newProject(const std::string& name) {
         trackIdByIndex.clear();
         trackScratch.clear();
         trackMeters.clear();
-    trackBandMeters.clear();
+        trackBandMeters.clear();
     }
-
-    streaming.start(&loader,
-                    streamingIoThreadStart,
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
-                    residentIoYield);
     clearDirty();
     // Notify LightEngine (and re-apply the Art-Net target) for the new
     // (empty) project.

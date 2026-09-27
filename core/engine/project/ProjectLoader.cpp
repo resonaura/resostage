@@ -101,6 +101,10 @@ void ProjectLoader::newProject(const std::string& name) {
     SongDef defaultSong;
     defaultSong.id = "meta::song:1";
     defaultSong.name = "New Song";
+    defaultSong.bpm = 120.0;
+    // Default 64 bars (Logic Pro standard project start length: 64 * 4 * 60 / 120 = 128.0s)
+    constexpr double kDefaultBars = 64.0;
+    defaultSong.endSeconds = (kDefaultBars * 4.0 * 60.0) / 120.0;
     parsedProject.songs.push_back(std::move(defaultSong));
     parsedProject.cycle.songIndex = 0;
 }

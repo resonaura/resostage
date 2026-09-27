@@ -30,6 +30,7 @@ inline int64_t songLengthFramesFor(double endSeconds, int64_t contentFrames, dou
     if (contentFrames > 0)
         return contentFrames;
 
+    // Fallback 1 hour for unconstrained live songs without authored end or content
     constexpr double kEmptySongSeconds = 3600.0;
     return sampleRate > 0.0
                ? static_cast<int64_t>(std::llround(kEmptySongSeconds * sampleRate))

@@ -96,10 +96,10 @@ function jumpBar(
   const curBar = playhead / barSec;
   if (action === "bar_prev") {
     const prevBarSec = Math.max(0, Math.floor(curBar - 0.01) * barSec);
-    void transport.seek(prevBarSec);
+    void transport.seek(prevBarSec, songIndex);
   } else {
     const nextBarSec = Math.floor(curBar + 1.01) * barSec;
-    void transport.seek(nextBarSec);
+    void transport.seek(nextBarSec, songIndex);
   }
 }
 
@@ -117,7 +117,7 @@ function jumpSection(
 
   const eps = 0.05;
   if (action === "section_last") {
-    void transport.seek(sections[sections.length - 1].startSeconds);
+    void transport.seek(sections[sections.length - 1].startSeconds, songIndex);
     return;
   }
 
@@ -128,12 +128,12 @@ function jumpSection(
 
   if (action === "section_prev") {
     const target = at < 0 ? 0 : at - 1;
-    if (target >= 0) void transport.seek(sections[target].startSeconds);
+    if (target >= 0) void transport.seek(sections[target].startSeconds, songIndex);
     return;
   }
   if (action === "section_next") {
     const target = at + 1;
     if (target < sections.length)
-      void transport.seek(sections[target].startSeconds);
+      void transport.seek(sections[target].startSeconds, songIndex);
   }
 }

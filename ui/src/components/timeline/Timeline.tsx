@@ -1565,11 +1565,7 @@ export function Timeline({
     // to restage every 60ms and produced the "chirp then stop then play" glitch.
     if (!commit) return;
 
-    if (songIndex !== state.songIndex) {
-      void transport.seek(clampedLocal, songIndex);
-      return;
-    }
-    void transport.seek(clampedLocal);
+    void transport.seek(clampedLocal, songIndex);
   };
 
   /**
@@ -1582,11 +1578,7 @@ export function Timeline({
     const { songIndex, localSeconds } = resolveSong(clampedAbs);
     if (songIndex < 0) return;
     setPlayheadAbsoluteSec(clampedAbs, 800);
-    if (songIndex !== state.songIndex) {
-      void transport.seek(localSeconds, songIndex);
-      return;
-    }
-    void transport.seek(localSeconds);
+    void transport.seek(localSeconds, songIndex);
   };
 
   // Light-lane coordinate helpers (mirror seekFromClientX's math): absolute

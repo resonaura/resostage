@@ -415,3 +415,35 @@ TEST_CASE("StreamingEngine: a song with nothing staged is not treated as starvin
     CHECK(engine.ioPressure() == IoPressureLevel::Healthy);
     CHECK(engine.activeBufferHealth(48000.0).minRingFraction == doctest::Approx(1.0));
 }
+
+TEST_CASE("StreamingEngine: seekActiveSongTo requires staged song and succeeds for empty song") {
+    ProjectLoader loader;
+    StreamingEngine engine;
+    std::string err;
+
+    // Unstarted / unstaged engine: seek must fail with explicit error
+    CHECK_FALSE(engine.seekActiveSongTo(48000, err));
+    CHECK(err == "No active song to seek");
+
+    // Start engine with loader (must clear active)
+    engine.start(&loader);
+    CHECK_FALSE(engine.acquireActiveSong());
+    CHECK_FALSE(engine.seekActiveSongTo(48000, err));
+    CHECK(err == "No active song to seek");
+
+    // Stage empty song (e.g. newly created default project before audio stems are added)
+    SongDef song;
+    song.id = "meta::song:1";
+    song.bpm = 120.0;
+    song.endSeconds = 128.0;
+    REQUIRE(engine.stageSong(0, song, 8192, 48000.0, err));
+    CHECK(static_cast<bool>(engine.acquireActiveSong()));
+
+    // Now seekActiveSongTo must succeed with 0 errors
+    err.clear();
+    CHECK(engine.seekActiveSongTo(48000, err));
+    CHECK(err.empty());
+
+    engine.stop();
+}
+
