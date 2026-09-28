@@ -568,12 +568,13 @@ export function MixerScreen({
           open
           stripId={pluginTarget.stripId}
           stripName={pluginTarget.stripName}
+          track={state.tracks.find((track) => track.id === pluginTarget.stripId)}
           slots={
             pluginTarget.stripId === "audio::click"
               ? (state.click?.plugins ?? [])
               : (state.tracks
                   .find((track) => track.id === pluginTarget.stripId)
-                  ?.plugins?.filter((p) => !p.instrument) ??
+                  ?.plugins ??
                 state.busses.find((bus) => bus.id === pluginTarget.stripId)
                   ?.plugins ??
                 [])

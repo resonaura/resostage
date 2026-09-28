@@ -58,4 +58,22 @@ inline bool isKnownActionId(const std::string& action) {
     return false;
 }
 
+// MIDI learn is intentionally narrower than keyboard rebinds: performer
+// controls should trigger transport/navigation or continuous parameters, not
+// switch application modes or mutate edit history from a footswitch.
+inline bool isMidiMappableAction(const std::string& action) {
+    for (const char* a : {"play", "record", "stop", "stop_to_start", "next", "prev",
+                          "section_prev", "section_next", "section_last", "bar_prev", "bar_next"}) {
+        if (action == a)
+            return true;
+    }
+    return action.rfind("track_gain:", 0) == 0 ||
+           action.rfind("track_pan:", 0) == 0 ||
+           action == "master_gain" ||
+           action.rfind("send_level:", 0) == 0 ||
+           action.rfind("plugin_param:", 0) == 0 ||
+           action.rfind("track_arm:", 0) == 0 ||
+           action.rfind("track_monitor:", 0) == 0;
+}
+
 } // namespace resostage

@@ -481,3 +481,16 @@
 .rs-kbd-bare {
   gap: 0.125rem;
 }
+
+@keyframes rs-count-in-pop {
+  from { opacity: 0.4; transform: scale(1.35); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.rs-count-in-beat {
+  animation: rs-count-in-pop 280ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-count-in-beat { animation: none; }
+}

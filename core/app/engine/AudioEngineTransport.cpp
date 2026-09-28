@@ -638,6 +638,10 @@ void AudioEngine::play() {
     if (currentSong == static_cast<size_t>(-1))
         return;
 
+    const int64_t pendingCountInStart = pendingCountInStartSample.exchange(
+        std::numeric_limits<int64_t>::min(), std::memory_order_acq_rel);
+    const bool startingWithCountIn = pendingCountInStart != std::numeric_limits<int64_t>::min();
+
     // A trigger added to the song already open never fired.
     //
     // eventFiredFlags is sized when a song is STAGED, and fireDueEvents stops
@@ -650,7 +654,7 @@ void AudioEngine::play() {
     // Active loop cycle (project-wide): every Play jumps to the cycle's song
     // and left locator — even if the user is currently staged on another song.
     // Skip mode leaves the anchor alone (pass-through zone, not a loop).
-    if (projectLoaded) {
+    if (projectLoaded && !startingWithCountIn) {
         const ProjectCycle& c = loader.project().cycle;
         if (c.active && !c.skip && c.songIndex >= 0
             && static_cast<size_t>(c.songIndex) < loader.project().songs.size()) {
@@ -678,7 +682,8 @@ void AudioEngine::play() {
     // manifest as "Play does nothing audible" -- the render callback's
     // song-end check fires on the very first block and immediately stops
     // again before any audio is produced.
-    int64_t startSample = clock.currentSamplePosition();
+    int64_t startSample = startingWithCountIn
+        ? pendingCountInStart : clock.currentSamplePosition();
     if (currentSongLengthFrames > 0 && startSample >= currentSongLengthFrames)
         startSample = 0;
     // If starting from the beginning of a song, re-arm timeline events.
@@ -846,6 +851,20 @@ void AudioEngine::startRecording(int targetTrackIndex) {
     const int64_t captureStartPos = autoPunchEnabledState.load(std::memory_order_acquire)
         ? std::max(startPos, autoPunchStartSample.load(std::memory_order_acquire))
         : startPos;
+    const bool shouldCountIn = !playing.load(std::memory_order_acquire)
+        && countInBarsState.load(std::memory_order_acquire) > 0;
+    int64_t countInStartPos = captureStartPos;
+    if (shouldCountIn) {
+        const SongDef& song = loader.project().songs[currentSong];
+        const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
+        const int beatsPerBar = std::max(1, song.timeSignature.numerator);
+        const double samplesPerBeat = sr * 60.0 / bpm;
+        const double targetBeats = static_cast<double>(captureStartPos) / samplesPerBeat;
+        const int64_t targetBar = static_cast<int64_t>(std::floor(targetBeats / beatsPerBar));
+        const int bars = countInBarsState.load(std::memory_order_relaxed);
+        const double startBeats = static_cast<double>(targetBar - bars) * beatsPerBar;
+        countInStartPos = static_cast<int64_t>(std::llround(startBeats * samplesPerBeat));
+    }
 
     // Prepare recording output directory
     std::filesystem::path recPath;
@@ -918,15 +937,30 @@ void AudioEngine::startRecording(int targetTrackIndex) {
         audioRecordWorker.prepareRecording(recPath.string(), requestedSessions, sr, captureStartPos, err);
     }
 
+    if (shouldCountIn) {
+        // Negative count-in time has no source material before sample zero;
+        // positive anchors seek back to the bar where the count-in begins.
+        std::string seekError;
+        (void)streaming.seekActiveSongTo(
+            std::max<int64_t>(0, countInStartPos), seekError,
+            /*primeMaxWait=*/0.0);
+    }
+
     {
         std::lock_guard<std::recursive_mutex> lock(routingMutex);
         recordStartSamplePos.store(captureStartPos, std::memory_order_release);
+        if (shouldCountIn)
+            pendingCountInStartSample.store(countInStartPos, std::memory_order_release);
         isRecordingState.store(true, std::memory_order_release);
     }
 
     if (!playing.load(std::memory_order_acquire)) {
         play();
     }
+}
+
+void AudioEngine::setCountInBars(int bars) {
+    countInBarsState.store(std::clamp(bars, 0, 2), std::memory_order_release);
 }
 
 void AudioEngine::stopRecording() {
@@ -956,7 +990,7 @@ void AudioEngine::stopRecording() {
             rawEndSample,
             autoPunchStartSample.load(std::memory_order_acquire),
             autoPunchEndSample.load(std::memory_order_acquire))
-        : rawEndSample;
+        : std::max(startSample, rawEndSample);
     const double recordEndSeconds = static_cast<double>(endSample) / sr;
     const double bpm = song.bpm > 0.0 ? song.bpm : 120.0;
     const double recordStartBeats = (recordStartSeconds * bpm) / 60.0;
@@ -1111,6 +1145,23 @@ void AudioEngine::toggleRecording(int targetTrackIndex) {
 
 bool AudioEngine::isRecording() const {
     return isRecordingState.load(std::memory_order_acquire);
+}
+
+bool AudioEngine::isRecordingCountIn() const {
+    return isRecordingState.load(std::memory_order_acquire)
+        && playing.load(std::memory_order_acquire)
+        && clock.currentSamplePosition()
+            < recordStartSamplePos.load(std::memory_order_acquire);
+}
+
+int AudioEngine::recordingCountInBeatsRemaining() const {
+    if (!isRecordingCountIn() || !projectLoaded || currentSong >= loader.project().songs.size())
+        return 0;
+    const double bpm = std::max(1.0, loader.project().songs[currentSong].bpm);
+    const double samplesPerBeat = std::max(1.0, currentSampleRate * 60.0 / bpm);
+    const int64_t remaining = recordStartSamplePos.load(std::memory_order_acquire)
+        - clock.currentSamplePosition();
+    return std::max(0, static_cast<int>(std::ceil(static_cast<double>(remaining) / samplesPerBeat)));
 }
 
 std::vector<LiveRecordingRegionInfo> AudioEngine::getLiveRecordingRegions() const {

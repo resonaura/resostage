@@ -10,6 +10,9 @@ import {
 export function patchClickFields(
   state: WebUiState,
   partial: {
+    bpm?: number;
+    tsNum?: number;
+    tsDen?: number;
     click?: boolean;
     clickBusId?: string;
     clickGainDb?: number;
@@ -32,10 +35,10 @@ export function patchClickFields(
   void builder.songUpdate({
     index: hasSongs ? songIdx : -1,
     name: currentSong?.name ?? "",
-    bpm: currentSong?.bpm ?? 120,
+    bpm: partial.bpm ?? currentSong?.bpm ?? 120,
     mode: currentSong?.mode ?? "wait",
-    tsNum: currentSong?.tsNum ?? 4,
-    tsDen: currentSong?.tsDen ?? 4,
+    tsNum: partial.tsNum ?? currentSong?.tsNum ?? 4,
+    tsDen: partial.tsDen ?? currentSong?.tsDen ?? 4,
     click: partial.click ?? isMetronomeOn,
     clickBusId:
       partial.clickBusId !== undefined ? partial.clickBusId : currentClickBus,

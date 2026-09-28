@@ -49,6 +49,8 @@ struct WAppSettings {
     std::vector<int> activeInputChannels;
     std::unordered_map<std::string, std::string> keybindings;
     std::vector<WMidiMapping> midiMappings;
+    int countInBars = 1;
+    int countInPreferredBars = 1;
     std::vector<WRecentProject> recentProjects;
 };
 
@@ -258,6 +260,8 @@ struct WPluginSlotTelemetry {
     bool hasState = false;
     bool keepAwake = false;
     std::string powerState = "active";
+    std::string loadState = "loading";
+    std::string loadError;
 };
 
 // Project-global metronome, mirrored field-for-field from ClickChannel in
@@ -702,6 +706,7 @@ struct WHealthTelemetry {
 struct WKeybindingTelemetry {
     std::string action;
     std::string key;
+    bool midiAssignable = false;
 };
 
 struct WRecentProjectTelemetry {
@@ -738,9 +743,12 @@ struct WSettingsTelemetry {
     std::optional<double> roundtripLatencyMs;
     std::optional<std::vector<std::string>> midiOutputs;
     std::optional<std::vector<std::string>> midiInputs;
+    std::optional<std::string> currentMidiInput;
     std::optional<bool> virtualMidiPortEnabled;
     std::optional<std::string> uiRenderEngine;
     std::optional<std::string> theme;
+    std::optional<int> countInBars;
+    std::optional<int> countInPreferredBars;
 
     std::vector<WKeybindingTelemetry> keybindings;
     std::vector<WRecentProjectTelemetry> recentProjects;
@@ -764,6 +772,8 @@ struct WEngineTelemetryPayload {
     double bpm = 0.0;
     bool playing = false;
     bool recording = false;
+    bool recordingCountIn = false;
+    int recordingCountInBeatsRemaining = 0;
     bool autoInputMonitoring = true;
     bool autoPunchEnabled = false;
     int64_t punchStartSample = 0;

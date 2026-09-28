@@ -125,6 +125,47 @@ The intended priority order is audio first, then lighting/event scheduling, then
 UI/network/background work. Do not fix UI latency by moving work onto a
 real-time thread.
 
+### Keyboard and track-selection ownership
+
+`ui/src/lib/interaction/HotkeyManager.ts` is the renderer's single keyboard
+dispatcher. UI components register scoped commands there instead of installing
+independent application-level `keydown` listeners. The Electron main process
+may capture native window key events, but it forwards configured action IDs to
+the renderer; it does not execute those actions itself. Browser and Electron
+shortcuts therefore enter the same dispatcher. User-rebindable global actions
+remain persisted in Core `AppSettings` and are validated by
+`core/app/main/ActionCatalogue.h`. Fixed editor gestures are typed, scoped
+commands and are deliberately absent from the rebindable/MIDI action catalogue.
+While Settings learns a key, shortcut dispatch is suspended; while Musical
+Typing is active, bare keys are reserved for note input and modified commands
+remain available. MIDI learn is restricted to transport/navigation and
+continuous performance controls. Previous/next-bar defaults use comma/period,
+not the arrow keys used by note and editor navigation.
+
+Shared React context-menu items can declare the same scoped command or
+rebindable Core action as their keyboard shortcut; the menu shell displays that
+binding in DOM menus and sends a platform accelerator to Electron menus.
+Electron-native labels must escape literal ampersands because Electron treats
+single `&` characters as mnemonic markers on Windows/Linux.
+
+Core `TrackDef::recordArmed` and `TrackDef::inputMonitoring` are the authoritative
+R/I states shown by every surface. Selecting a track updates the focused track;
+an assigned focused audio input is monitored ephemerally, and focused MIDI
+input is auditioned, without changing either persisted R/I flag. Explicit
+monitor subscriptions on other tracks remain intact when focus changes. In the arrangement, Shift-click selects the
+contiguous range from the selection anchor; Command-click on macOS or
+Control-click elsewhere toggles an individual track.
+
+Recording count-in length is a device preference (`AppSettings`, 0–2 bars,
+defaulting to one), not project content. The last nonzero length is persisted so the
+transport Count-In toggle restores it after being switched off. The same Core
+setting is edited by Audio Settings and the transport button's context menu.
+When enabled and Record is pressed while stopped, Core
+starts transport at the preceding complete bar boundary (including negative
+sample positions before song start), but keeps audio/MIDI capture gated until
+the original cursor or auto-punch capture boundary. The callback applies that
+gate at sample offsets; file/session preparation remains on the message thread.
+
 ## 4. The real-time audio path
 
 `AudioEngine::audioDeviceIOCallbackWithContext()` is the deadline-critical
@@ -204,6 +245,10 @@ The design removes unbounded latency from the deadline path:
 - **Single-writer state exchange.** `SeqLock<T>` gives the audio writer a
   wait-free copy for multi-field telemetry; readers retry only a bounded four
   times and keep their previous sample on contention.
+- Resize, clear, or replace callback-read track state (including band-meter
+  processors and their filter vectors) only while holding `routingMutex`.
+  The callback's `try_lock` then sees a complete state or emits a bounded
+  silent block; never mutate these vectors beside it.
 - **Atomics for scalar telemetry and intent.** Playhead, running state, drift,
   pending actions, and health counters do not require a cross-thread lock.
 - **Bounded producer queues.** Audio and lighting enqueue network/event work;
@@ -289,8 +334,13 @@ Preserve these rules:
   state is read, so the audio thread never waits for serialization. User-originated
   parameter and program notifications mark the project dirty; host automation is
   suppressed from that dirty signal. Slot bypass is an atomic live-bank property:
-  toggling power calls `processBlockBypassed` without rebuilding the processor bank
-  or replacing the vendor instance. Intelligent power management (`PluginPowerManager`)
+  toggling power immediately calls `processBlockBypassed`; any latest-wins
+  publication needed to supersede an in-flight stale snapshot reuses the same
+  vendor instance. Asynchronous bank publications for chain or
+  routing edits reuse processor nodes whose stable slot ID and plug-in identity
+  are unchanged; only added/replaced slots instantiate new vendor processors,
+  and removed processors retire off the audio callback after older snapshots drain.
+  Intelligent power management (`PluginPowerManager`)
   monitors strip signal activity via preallocated envelope followers, automatically
   suspending processing during silence while preserving tail decay and waking up
   ahead of upcoming audio/MIDI regions. Software Instrument slot on instrument tracks
@@ -317,9 +367,12 @@ Preserve these rules:
   delay-bank generation.
 - Output lanes accumulate with `+=`; multiple valid sources may target the
   same lane.
-- Real-time audio and MIDI recording: tracks support input monitoring (`inputMonitoring`, Logic Pro 'I' button) and record arming (`recordArmed`, Logic Pro 'R' button) with configurable hardware input routing (`inputSource`). In the real-time audio callback, live monitored tracks process incoming hardware inputs through scratch memory and plug-in chains even when transport is stopped without blocking or allocating. Real-time audio recording writes planar frames via lock-free SPSC `AudioRingBuffer`s drained by the asynchronous `AudioRecordWorker`, which finalizes 24-bit PCM WAV files and creates timeline regions upon transport stop. Incoming hardware MIDI is routed to the focused MIDI/instrument track plus every explicitly armed or input-monitored MIDI/instrument track; virtual MIDI may target a track explicitly. Only armed tracks capture MIDI into sample-accurate timeline regions. Auto Input Monitoring (AIM) state machine (`MonitorSourceMux.h`) governs monitor source switching (`StoppedMonitoring` vs playback tape monitoring and sub-block punch switching). The dry record tap samples input audio before insert FX, trim, or phase inversion. Live peak pyramids (`PeakMipAccumulator`, L0..L5) are populated off-thread by `AudioRecordWorker` and served range-wise via `/api/v1/recording/{id}/peaks` for real-time waveform visualization in `LiveRecordingRegion`. MIDI capture publishes completed and currently-held notes through a fixed-capacity `SeqLock` snapshot; UI telemetry grows held note bodies without locking or allocating in the callback. MIDI note IDs are assigned monotonically per track during capture and stay stable after commit. Low-Latency Monitoring (`LowLatencyPlan.h`) selectively bypasses high-latency plug-ins and non-safe sends on armed strips.
+- Real-time audio and MIDI recording: tracks support input monitoring (`inputMonitoring`, Logic Pro 'I' button) and record arming (`recordArmed`, Logic Pro 'R' button) with configurable hardware input routing (`inputSource`). In the real-time audio callback, live monitored tracks process incoming hardware inputs through scratch memory and plug-in chains even when transport is stopped without blocking or allocating. For stereo tracks assigned an input pair, if the device exposes only one of those channels, the available mono input is copied to both sides; when both are available, their stereo image is preserved. Real-time audio recording writes planar frames via lock-free SPSC `AudioRingBuffer`s drained by the asynchronous `AudioRecordWorker`, which finalizes 24-bit PCM WAV files and creates timeline regions upon transport stop. Incoming hardware MIDI is routed to the focused MIDI/instrument track plus every explicitly armed or input-monitored MIDI/instrument track; virtual MIDI may target a track explicitly. Only armed tracks capture MIDI into sample-accurate timeline regions. Auto Input Monitoring (AIM) state machine (`MonitorSourceMux.h`) governs monitor source switching (`StoppedMonitoring` vs playback tape monitoring and sub-block punch switching). The dry record tap samples input audio before insert FX, trim, or phase inversion. Live peak pyramids (`PeakMipAccumulator`, L0..L5) are populated off-thread by `AudioRecordWorker` and served range-wise via `/api/v1/recording/{id}/peaks` for real-time waveform visualization in `LiveRecordingRegion`. MIDI capture publishes completed and currently-held notes through a fixed-capacity `SeqLock` snapshot; UI telemetry grows held note bodies without locking or allocating in the callback. MIDI note IDs are assigned monotonically per track during capture and stay stable after commit. Low-Latency Monitoring (`LowLatencyPlan.h`) selectively bypasses high-latency plug-ins and non-safe sends on armed strips.
 - Active MIDI key illumination (including non-recording MIDI monitor and sequenced notes) is separate from MIDI-capture preview: the callback owns fixed-capacity per-strip overlapping note counts and updates a compact `SeqLock` pitch mask only when a note becomes active/inactive. The JUCE message thread maps strip indices to stable track IDs and publishes `{trackId, pitch}` rows in web state for Piano Roll and virtual-keyboard feedback. UI polling must never read callback-owned counters directly; stop requests a callback-owned clear alongside all-notes-off.
   `I` is an independent per-track live-input subscription: several audio and MIDI/instrument tracks may monitor simultaneously. Software-instrument tracks also audition incoming MIDI by ephemeral controller focus without being armed, while `R` is still required to capture audio or MIDI. The global Record action auto-arms the focused recordable track when no track is armed. Audio tracks with `No Input`, plus folder, lighting, and bus-timeline rows, cannot be armed or monitored.
+  Hardware MIDI input is opt-in: an empty device preference opens no input on
+  startup. The selected source is persisted in device settings and published
+  back to controllers; choosing “All Inputs” is an explicit action.
 - If graph or block dimensions exceed prepared capacity, silence is safer
   than allocating or writing out of bounds.
 - Offline render must use the production graph and renderer. A second mixing
@@ -403,6 +456,11 @@ Electron binds an ephemeral UDP port and renews
 after fifteen seconds. The old fixed loopback `2898` lane remains for local
 compatibility, but remote sessions must use the subscriber-selected port so
 multiple shells cannot steal one socket. Discovery uses UDP `28991`.
+If Electron's UDP receive socket errors or closes, the shell rebinds an
+ephemeral port with bounded exponential backoff and advertises the new port
+through the normal subscription heartbeat. Embedded UI connection health uses
+fresh UDP telemetry when available and falls back to recent successful HTTP
+state polls while the UDP lane recovers.
 
 `UdpTelemetryTracker` rejects packets from any host except the resolved active
 Core, validates magic/version/length, applies wrap-safe sequence ordering, and
@@ -410,6 +468,12 @@ starts a fresh epoch after 1.5 seconds without telemetry. Keep the second
 sequence guard in React as defence in depth. Never display “connected” merely
 because discovery saw a host: command reachability and the UDP watchdog are
 separate signals.
+
+Track and bus peak measurements are Core-owned and included in live telemetry;
+the renderer resolves positional track meter rows through the latest stable
+track IDs before any view reads them. Meters and clip holds must not reuse a
+previous strip's values when an inspector changes identity or the active Core
+changes.
 
 WebSocket/JSON state remains useful for browsers and slower structural state.
 In Electron, high-rate telemetry is UDP while HTTP polling supplies structural

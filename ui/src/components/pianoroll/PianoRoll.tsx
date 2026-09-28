@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PianoRollCanvas } from "./PianoRollCanvas";
 import { PianoRollToolbar } from "./PianoRollToolbar";
+import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { applyLegato, applyOverlapTrim, generateNoteId, sliceNote } from "./pianoRollModel";
 import { snapPitchToScale } from "./scales";
 import { getRegionActivePitches } from "../midi/activeMidiPitches";
@@ -9,6 +10,7 @@ import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
 import { useCycleState } from "../timeline/useCycleState";
 import { timelineHistory } from "../../lib/state/api";
 import { getTrackColor } from "../timeline/constants";
+import { TrackStateButtons } from "../timeline/TrackStateButtons";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import type {
   GridSnapValue,
@@ -320,73 +322,59 @@ export function PianoRoll({
     onNotesChange(updated);
   }, [region.notes, selectedNoteIds, onNotesChange]);
 
-  // Keyboard hotkeys
+  // Register Piano Roll commands with the shared application hotkey manager.
   useEffect(() => {
-    const usesMetaKey = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
-    const hasPrimaryModifier = (event: KeyboardEvent) =>
-      usesMetaKey ? event.metaKey : event.ctrlKey;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      if (
-        activeEl &&
-        (activeEl.tagName === "INPUT" ||
-          activeEl.tagName === "TEXTAREA" ||
-          (activeEl as HTMLElement).isContentEditable)
-      ) {
-        return;
-      }
-
-      if (e.key === "Backspace" || e.key === "Delete") {
-        e.preventDefault();
-        handleDeleteSelected();
-      } else if (e.key === "v" || e.key === "V") {
-        setTool("select");
-      } else if (e.key === "b" || e.key === "B") {
-        setTool("draw");
-      } else if (e.key === "p" || e.key === "P") {
-        setTool("brush");
-      } else if (e.key === "s" || e.key === "S") {
-        if (!e.metaKey && !e.ctrlKey) {
-          setTool("slice");
-        }
-      } else if (e.key === "e" || e.key === "E") {
-        setTool("erase");
-      } else if (e.key === "q" || e.key === "Q") {
-        e.preventDefault();
-        handleQuantize();
-      } else if (hasPrimaryModifier(e) && (e.key === "a" || e.key === "A")) {
-        e.preventDefault();
-        setSelectedNoteIds(new Set(region.notes.map((n) => n.id)));
-      } else if (hasPrimaryModifier(e) && (e.key === "x" || e.key === "X")) {
-        e.preventDefault();
-        e.stopPropagation();
-        handleCutSelected();
-      } else if (hasPrimaryModifier(e) && (e.key === "c" || e.key === "C")) {
-        e.preventDefault();
-        e.stopPropagation();
-        setNoteClipboard(region.notes.filter((note) => selectedNoteIds.has(note.id)).map((note) => ({ ...note })));
-      } else if (hasPrimaryModifier(e) && (e.key === "v" || e.key === "V")) {
-        e.preventDefault();
-        e.stopPropagation();
-        handlePasteNotes();
-      } else if (e.altKey && e.key === "ArrowUp") {
-        e.preventDefault();
-        handleTranspose(e.shiftKey ? 12 : 1);
-      } else if (e.altKey && e.key === "ArrowDown") {
-        e.preventDefault();
-        handleTranspose(e.shiftKey ? -12 : -1);
-      } else if (e.altKey && e.key === "ArrowLeft") {
-        e.preventDefault();
-        handleNudge(-1);
-      } else if (e.altKey && e.key === "ArrowRight") {
-        e.preventDefault();
-        handleNudge(1);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleDeleteSelected, handleCutSelected, handlePasteNotes, handleQuantize, handleTranspose, handleNudge, region.notes, selectedNoteIds]);
+    const primary = /Mac|iPhone|iPad|iPod/i.test(navigator.platform)
+      ? "cmd"
+      : "ctrl";
+    const scope = HotkeyScope.PianoRoll;
+    const bind = (id: string, key: string, handler: (event?: KeyboardEvent) => void) =>
+      hotkeyManager.registerCommand(
+        `piano-roll.${id}`,
+        key,
+        { scope, priority: 100 },
+        handler,
+      );
+    const unregister = [
+      bind("delete", "delete", handleDeleteSelected),
+      bind("backspace", "backspace", handleDeleteSelected),
+      bind("tool-select", "v", () => setTool("select")),
+      bind("tool-draw", "b", () => setTool("draw")),
+      bind("tool-brush", "p", () => setTool("brush")),
+      bind("tool-slice", "s", () => setTool("slice")),
+      bind("tool-erase", "e", () => setTool("erase")),
+      bind("quantize", "q", handleQuantize),
+      bind("select-all-notes", `${primary} + a`, () =>
+        setSelectedNoteIds(new Set(region.notes.map((note) => note.id))),
+      ),
+      bind("cut-notes", `${primary} + x`, handleCutSelected),
+      bind("copy-notes", `${primary} + c`, () =>
+        setNoteClipboard(
+          region.notes
+            .filter((note) => selectedNoteIds.has(note.id))
+            .map((note) => ({ ...note })),
+        ),
+      ),
+      bind("paste-notes", `${primary} + v`, handlePasteNotes),
+      bind("transpose-up", "alt + up", (event) =>
+        handleTranspose(event?.shiftKey ? 12 : 1),
+      ),
+      bind("transpose-octave-up", "alt + shift + up", () =>
+        handleTranspose(12),
+      ),
+      bind("transpose-down", "alt + down", (event) =>
+        handleTranspose(event?.shiftKey ? -12 : -1),
+      ),
+      bind("transpose-octave-down", "alt + shift + down", () =>
+        handleTranspose(-12),
+      ),
+      bind("nudge-left", "alt + left", () => handleNudge(-1)),
+      bind("nudge-left-shift", "alt + shift + left", () => handleNudge(-1)),
+      bind("nudge-right", "alt + right", () => handleNudge(1)),
+      bind("nudge-right-shift", "alt + shift + right", () => handleNudge(1)),
+    ];
+    return () => unregister.forEach((dispose) => dispose());
+  }, [handleDeleteSelected, handleCutSelected, handlePasteNotes, handleQuantize, handleTranspose, handleNudge, region.notes, selectedNoteIds, setTool]);
 
   return (
     <div
@@ -413,7 +401,7 @@ export function PianoRoll({
                 onSelectTrack &&
                 (() => {
                   const instrumentTracks = tracks.filter(
-                    (tr) => tr.kind === "instrument" || tr.kind === "midi",
+                    (tr) => tr.kind === "instrument" || tr.kind === "midi" || tr.kind === "externalMidi",
                   );
                   if (instrumentTracks.length <= 1) return null;
                   return (
@@ -441,6 +429,10 @@ export function PianoRoll({
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
               <span className="text-foreground/70">Unlinked</span>
             </div>
+          )}
+
+          {track && trackColorIndex >= 0 && (
+            <TrackStateButtons track={track} index={trackColorIndex} focused compact />
           )}
 
           {/* Region selector or name */}

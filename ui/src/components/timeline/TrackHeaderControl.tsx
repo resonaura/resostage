@@ -1,12 +1,13 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Mic, Music } from "lucide-react";
 import { mixer } from "../../lib/state/api";
-import { getLiveLevels } from "../../lib/audio/liveLevels";
+import { getTrackLiveLevel } from "../../lib/audio/liveLevels";
 import { useLiveValue } from "../../lib/state/optimistic";
 import type { TrackRow } from "../../lib/state/types";
 import { Knob, LevelMeterBar, MeterFader } from "../daw";
 import { TOGGLE_BLINK_ACCENT, ToggleButton } from "../ui";
 import { laneHeightPx } from "./laneDimensions";
+import { trackSelectionGesture, type TrackSelectionGesture } from "./trackSelection";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with
 // waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ the combined
@@ -21,6 +22,7 @@ export const TrackHeaderControl = memo(
     anySolo = false,
     isRecording = false,
     isSelected = false,
+    isFocused = false,
     onSelect,
   }: {
     track: TrackRow;
@@ -30,7 +32,8 @@ export const TrackHeaderControl = memo(
     anySolo?: boolean;
     isRecording?: boolean;
     isSelected?: boolean;
-    onSelect?: (additive?: boolean) => void;
+    isFocused?: boolean;
+    onSelect?: (gesture?: TrackSelectionGesture) => void;
   }) {
     const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) =>
       mixer.setTrackGain(index, v),
@@ -192,7 +195,7 @@ export const TrackHeaderControl = memo(
         tone="danger-soft"
         isSelected={track.recordArmed ?? false}
         onChange={() => {
-          onSelect?.(false);
+          onSelect?.("replace");
           void mixer.setTrackRecordArm(index, !track.recordArmed);
         }}
         className={
@@ -200,7 +203,7 @@ export const TrackHeaderControl = memo(
             ? isRecording
               ? "bg-(--rs-record) text-white shadow-[0_0_8px_rgba(255,69,58,0.7)] font-black"
               : "rs-recording-blink font-black"
-            : isSelected
+            : isFocused
               ? "font-black"
               : undefined
         }
@@ -209,12 +212,12 @@ export const TrackHeaderControl = memo(
           width: btn,
           fontSize: btnFont,
           color:
-            isSelected && !track.recordArmed ? "var(--rs-record)" : undefined,
+            isFocused && !track.recordArmed ? "var(--rs-record)" : undefined,
         }}
         aria-label={
           track.recordArmed
             ? "Record armed"
-            : isSelected
+            : isFocused
               ? "Focused track — click to record-arm"
               : "Record arm"
         }
@@ -229,13 +232,13 @@ export const TrackHeaderControl = memo(
         tone="warning-soft"
         isSelected={track.inputMonitoring ?? false}
         onChange={() => {
-          onSelect?.(false);
+          onSelect?.("replace");
           void mixer.setTrackInputMonitor(index, !track.inputMonitoring);
         }}
         className={
           track.inputMonitoring
             ? "bg-(--rs-monitor) text-black font-black shadow-[0_0_8px_rgba(255,159,10,0.5)]"
-            : isSelected
+            : isFocused
               ? "font-black"
               : undefined
         }
@@ -244,18 +247,20 @@ export const TrackHeaderControl = memo(
           width: btn,
           fontSize: btnFont,
           color:
-            isSelected && !track.inputMonitoring
+            isFocused && !track.inputMonitoring
               ? "var(--rs-monitor)"
               : undefined,
         }}
         aria-label={
           track.inputMonitoring
             ? "Input monitoring enabled"
-            : isSelected && isMidiInputTrack
-              ? "Focused MIDI input is monitored automatically; click to keep monitoring with other tracks"
-              : isSelected
-                ? "Focused track — click to monitor input"
-                : "Input monitoring"
+            : isFocused && isMidiInputTrack
+              ? "Focused MIDI input is auditioned automatically; click I to monitor it alongside other tracks"
+              : isFocused && hasAudioInput
+                ? "Focused audio input is monitored automatically; click I to keep monitoring it after focus changes"
+                : isFocused
+                  ? "Focused track — click to monitor input"
+                  : "Input monitoring"
         }
       >
         I
@@ -293,24 +298,20 @@ export const TrackHeaderControl = memo(
             )
           )
             return;
-          onSelect?.(e.shiftKey);
+          onSelect?.(trackSelectionGesture(e));
         }}
-        className={`flex flex-col justify-center border-b border-default/15 select-none overflow-hidden transition-all duration-200 cursor-pointer ${
+        // Keep height changes synchronous with the corresponding timeline lane;
+        // transitioning `all` made the left rail visibly trail vertical zoom.
+        className={`flex flex-col justify-center border-b border-default/15 select-none overflow-hidden transition-colors duration-200 cursor-pointer ${
           isSelected
-            ? "border-l-[3px]"
+            ? "bg-surface/90 border-l-[3px] shadow-[inset_0_0_12px_rgba(255,255,255,0.04)]"
             : "bg-surface/40 hover:bg-surface/70 border-l-[3px] border-l-transparent"
         } ${isDimmed ? "opacity-35" : "opacity-100"}`}
         style={{
           height: h,
           padding: `${padY}px ${padX}px`,
           gap: showVol ? 3 : 0,
-          ...(isSelected
-            ? {
-                backgroundColor: `${color}24`,
-                borderLeftColor: color,
-                boxShadow: `inset 0 0 14px ${color}24`,
-              }
-            : {}),
+          ...(isSelected ? { borderLeftColor: color } : {}),
         }}
       >
         {showVol ? (
@@ -362,10 +363,10 @@ export const TrackHeaderControl = memo(
                   dbL={track.peakDbL ?? track.peakDb ?? -100}
                   dbR={track.peakDbR ?? track.peakDb ?? -100}
                   getLiveDbL={() =>
-                    getLiveLevels().tracks[index]?.peakDbL ?? -144
+                    getTrackLiveLevel(track.id)?.peakDbL ?? -144
                   }
                   getLiveDbR={() =>
-                    getLiveLevels().tracks[index]?.peakDbR ?? -144
+                    getTrackLiveLevel(track.id)?.peakDbR ?? -144
                   }
                   accent={color}
                   height={faderH}
@@ -445,10 +446,10 @@ export const TrackHeaderControl = memo(
                   dbL={track.peakDbL ?? track.peakDb ?? -100}
                   dbR={track.peakDbR ?? track.peakDb ?? -100}
                   getLiveDbL={() =>
-                    getLiveLevels().tracks[index]?.peakDbL ?? -144
+                    getTrackLiveLevel(track.id)?.peakDbL ?? -144
                   }
                   getLiveDbR={() =>
-                    getLiveLevels().tracks[index]?.peakDbR ?? -144
+                    getTrackLiveLevel(track.id)?.peakDbR ?? -144
                   }
                   accent={color}
                   vertical
@@ -480,6 +481,7 @@ export const TrackHeaderControl = memo(
     prev.verticalZoom === next.verticalZoom &&
     prev.anySolo === next.anySolo &&
     prev.isSelected === next.isSelected &&
+    prev.isFocused === next.isFocused &&
     prev.onSelect === next.onSelect &&
     prev.track.id === next.track.id &&
     prev.track.name === next.track.name &&

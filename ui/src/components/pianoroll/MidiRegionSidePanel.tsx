@@ -6,6 +6,8 @@ import { builder, mixer } from "../../lib/state/api";
 import type { MidiRegionRow, TrackRow } from "../../lib/state/types";
 import { LabeledSlider } from "../light/LightControls";
 import { SidePanelShell } from "../timeline/SidePanelShell";
+import { TrackStateButtons } from "../timeline/TrackStateButtons";
+import { Select } from "../ui";
 
 export function MidiRegionSidePanel({
   songIndex,
@@ -60,41 +62,30 @@ export function MidiRegionSidePanel({
         </span>
         {track && trackIndex >= 0 && (
           <>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                ["Mute", track.mute, mixer.setTrackMute],
-                ["Solo", track.solo, mixer.setTrackSolo],
-                ["Record", track.recordArmed ?? false, mixer.setTrackRecordArm],
-                [
-                  "Monitor",
-                  track.inputMonitoring ?? false,
-                  mixer.setTrackInputMonitor,
-                ],
-              ].map(([label, selected, setter]) => (
-                <div
-                  key={String(label)}
-                  className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold"
-                >
-                  {String(label)}
-                  <Switch
-                    aria-label={`${String(label)} MIDI track`}
-                    isSelected={Boolean(selected)}
-                    onChange={(value) =>
-                      void (setter as (index: number, value: boolean) => Promise<void>)(
-                        trackIndex,
-                        value,
-                      )
-                    }
-                  />
-                </div>
-              ))}
-            </div>
+            <TrackStateButtons track={track} index={trackIndex} focused />
             <div className="flex items-center justify-between text-[10px] text-muted">
               <span>MIDI input</span>
               <span className="text-foreground">
                 {track.midiInputDevice || "All"} · Ch {track.midiInputChannel || "All"}
               </span>
             </div>
+            <Select
+              aria-label="MIDI input channel"
+              options={[
+                { id: "0", label: "All channels" },
+                ...Array.from({ length: 16 }, (_, index) => ({
+                  id: String(index + 1),
+                  label: `Channel ${index + 1}`,
+                })),
+              ]}
+              value={String(track.midiInputChannel ?? 0)}
+              onChange={(value) => void mixer.setTrackInputSource(
+                trackIndex,
+                track.inputSource ?? "none",
+                Number(value),
+                track.midiInputDevice ?? "all",
+              )}
+            />
           </>
         )}
 

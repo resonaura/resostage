@@ -44,6 +44,7 @@ type BridgeWindow = typeof window & {
     sendMenuState: (state: ElectronMenuState) => void;
     sendAction: (action: string) => void;
     setTypingFocus?: (focused: boolean) => void;
+    setKeyCaptureActive?: (active: boolean) => void;
   };
 };
 
@@ -94,12 +95,18 @@ export function forwardMenuState(s: WebUiState): void {
 /**
  * Tell the shell whether a text field has focus.
  *
- * The shell dispatches keybindings itself (see installHotkeyHandler in
- * electron/src/main.mts) and cannot see focus inside the document, so without
- * this a binding on a bare letter would eat that letter in every name field
- * in the app.
+ * The shell captures configured keys and forwards their action IDs to the
+ * renderer's HotkeyManager (see installHotkeyHandler in electron/src/main.mts).
+ * It cannot see focus inside the document, so without this a bare-key action
+ * could consume input while somebody is naming a track.
  */
 export function sendTypingFocus(focused: boolean): void {
   if (!IS_ELECTRON) return;
   bridge()?.setTypingFocus?.(focused);
+}
+
+/** Keep native shortcut capture out of Settings' key-binding learn gesture. */
+export function sendKeyCaptureActive(active: boolean): void {
+  if (!IS_ELECTRON) return;
+  bridge()?.setKeyCaptureActive?.(active);
 }

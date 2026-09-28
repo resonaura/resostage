@@ -322,6 +322,8 @@ export const pluginCatalog = {
 export const pluginChains = {
   add: (stripId: string, pluginId: string) =>
     post("/api/v1/plugins/slot/add", { stripId, pluginId }),
+  replace: (stripId: string, slotId: string, pluginId: string) =>
+    post("/api/v1/plugins/slot/replace", { stripId, slotId, pluginId }),
   remove: (stripId: string, slotId: string) =>
     post("/api/v1/plugins/slot/remove", { stripId, slotId }),
   move: (stripId: string, slotId: string, toIndex: number, delta?: number) =>
@@ -333,6 +335,8 @@ export const pluginChains = {
     ),
   setBypassed: (stripId: string, slotId: string, bypassed: boolean) =>
     post("/api/v1/plugins/slot/bypass", { stripId, slotId, bypassed }),
+  retry: (stripId: string, slotId: string) =>
+    post("/api/v1/plugins/slot/retry", { stripId, slotId }),
   setKeepAwake: (stripId: string, slotId: string, keepAwake: boolean) =>
     post("/api/v1/plugins/slot/keep-awake", { stripId, slotId, keepAwake }),
   park: (stripId: string, slotId: string) =>
@@ -652,6 +656,8 @@ export const builder = {
       instrumentPluginId?: string;
     },
   ) => post("/api/v1/builder/track/add", { songIndex, ...params }),
+  trackDuplicate: (index: number, withContent = false) =>
+    post("/api/v1/builder/track/duplicate", { index, withContent }),
   trackRemove: (songIndex: number, index: number) =>
     post("/api/v1/builder/track/remove", { songIndex, index }),
   trackMove: (
@@ -1092,6 +1098,7 @@ export const timelineHistory = {
 // Settings parity -- mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent
 // callbacks and MIDI/keybinding row handlers. See MainComponentSettings.cpp.
 export const settings = {
+  setCountInBars: (bars: number) => post("/api/v1/settings/count-in", { bars }),
   setAudioOutputDevice: (name: string) =>
     post("/api/v1/settings/audio-device", { name }),
   setAudioInputDevice: (name: string) =>

@@ -77,13 +77,13 @@ export function LightTrackLanes({
   }
   return (
     <>
-      {lightTracks.map((t, i) => (
+      {lightTracks.map((t) => (
         <LightTrackLane
           key={t.id}
           track={t}
-          trackIndex={i}
+          trackIndex={lightTrackIds.indexOf(t.id)}
           trackIds={lightTrackIds}
-          color={lightTrackColor(i)}
+          color={lightTrackColor(lightTrackIds.indexOf(t.id))}
           songs={songs}
           songOffsets={songOffsets}
           songLengths={songLengths}

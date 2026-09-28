@@ -39,6 +39,7 @@
         std::string archivePath;
         double sampleRate = 48000.0;
         int maximumBlockSize = 512;
+        bool forceRecreate = false;
     };
 
     struct PublishedPluginBank {
@@ -489,7 +490,7 @@
     void ensureScratchSizes();
     void startPluginBankBuilder();
     void stopPluginBankBuilder();
-    void schedulePluginBankRebuild();
+    void schedulePluginBankRebuild(bool forceRecreate = false);
     void runPluginBankBuilder();
     // Derives the mixer's flat bus rail from a freshly built graph. Pure --
     // runs outside routingMutex on purpose (see publishRoutingSnapshot).
@@ -597,6 +598,8 @@
     std::atomic<int> focusedTrackIndex{-1};
     std::atomic<bool> focusedMidiMonitorActive{false};
     std::atomic<int64_t> recordStartSamplePos{0};
+    std::atomic<int> countInBarsState{0};
+    std::atomic<int64_t> pendingCountInStartSample{std::numeric_limits<int64_t>::min()};
     std::atomic<bool> autoInputMonitoringState{true};
     std::atomic<bool> autoPunchEnabledState{false};
     std::atomic<int64_t> autoPunchStartSample{0};

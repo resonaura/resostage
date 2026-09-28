@@ -41,6 +41,7 @@ export function SelectionContextMenu({
         {count} {noun} selected
       </div>
       <ContextMenuItem
+        shortcutCommand={kind === "cue" ? "timeline.copy-cue" : "timeline.copy-regions"}
         onClick={() => {
           onCopy();
           onClose();
@@ -60,6 +61,7 @@ export function SelectionContextMenu({
       )}
       <ContextMenuDivider />
       <ContextMenuItem
+        shortcutCommand={kind === "cue" ? "timeline.delete-cue" : "timeline.delete-regions"}
         danger
         onClick={() => {
           onDelete();

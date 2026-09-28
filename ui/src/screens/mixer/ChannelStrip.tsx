@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { Power } from "lucide-react";
 import { Knob, LevelMeterBar } from "../../components/daw";
 import {
   Button,
@@ -21,6 +20,7 @@ import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
 import { MonoStereoIcon } from "./MonoStereoIcon";
 import { PluginInsertSlots } from "./PluginInsertSlots";
+import { PluginSlotControl } from "./PluginSlotControl";
 import { SendKnobs } from "./SendKnobs";
 import { TrackOutputRouting } from "./TrackOutputRouting";
 import { RoutingSlotPlaceholder } from "./RoutingSlotPlaceholder";
@@ -191,6 +191,9 @@ export function ChannelStrip({
     instrumentName?: string | null;
     instrumentSlotId?: string;
     instrumentBypassed?: boolean;
+    instrumentLoadState?: PluginSlotRow["loadState"];
+    instrumentLoadError?: string;
+    onRetryInstrument?: () => void;
     onToggleInstrumentBypass?: () => void;
     onOpenInstrument?: () => void;
     onInstrumentMenu?: (pos: { x: number; y: number }) => void;
@@ -272,7 +275,10 @@ export function ChannelStrip({
   const stripRightDb = peakDbR ?? peakDb ?? -100;
   const liveLeft = () => getLiveDbL?.() ?? getLiveDb?.() ?? stripLeftDb;
   const liveRight = () => getLiveDbR?.() ?? getLiveDb?.() ?? stripRightDb;
-  const stripClip = useChannelClipHold(() => Math.max(liveLeft(), liveRight()));
+  const stripClip = useChannelClipHold(
+    () => Math.max(liveLeft(), liveRight()),
+    stripId,
+  );
 
   const isNarrow = density === "narrow";
   const isWide = density === "wide";
@@ -355,100 +361,55 @@ export function ChannelStrip({
           )}
 
           {inputRouting?.isInstrument ? (
-            <div
-              className={`flex h-5.5 w-full min-w-0 items-center justify-between overflow-hidden rounded border text-xs font-semibold transition-all ${
-                inputRouting.instrumentName
-                  ? inputRouting.instrumentBypassed
-                    ? "border-default/25 bg-default/10 text-foreground/35"
-                    : "text-foreground/85"
-                  : "border-dashed text-foreground/55 hover:text-foreground/80"
-              }`}
-              style={{
-                borderColor: inputRouting.instrumentName
-                  ? inputRouting.instrumentBypassed
-                    ? undefined
-                    : color
-                  : `color-mix(in srgb, ${color} 45%, transparent)`,
-                backgroundColor:
-                  inputRouting.instrumentName && !inputRouting.instrumentBypassed
-                    ? `color-mix(in srgb, ${color} 20%, var(--background))`
-                    : undefined,
-              }}
-            >
-              {inputRouting.instrumentSlotId && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    inputRouting.onToggleInstrumentBypass?.();
-                  }}
-                  title={
-                    inputRouting.instrumentBypassed
-                      ? `Enable ${inputRouting.instrumentName}`
-                      : `Bypass ${inputRouting.instrumentName}`
-                  }
-                  aria-label={
-                    inputRouting.instrumentBypassed
-                      ? `Enable ${inputRouting.instrumentName}`
-                      : `Bypass ${inputRouting.instrumentName}`
-                  }
-                  className="flex h-full w-5 shrink-0 items-center justify-center border-r border-default/30 transition-colors hover:bg-foreground/10"
-                  style={{
-                    color: inputRouting.instrumentBypassed
-                      ? "var(--muted)"
-                      : color,
-                  }}
-                >
-                  <Power size={10} strokeWidth={2.4} />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={(e) => {
-                  if (inputRouting.instrumentSlotId) {
-                    inputRouting.onOpenInstrument?.();
-                  } else {
-                    inputRouting.onInstrumentMenu?.({
-                      x: e.clientX,
-                      y: e.clientY,
-                    });
-                  }
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+            inputRouting.instrumentSlotId ? (
+              <PluginSlotControl
+                name={inputRouting.instrumentName || "Unknown instrument"}
+                bypassed={!!inputRouting.instrumentBypassed}
+                onOpen={() => inputRouting.onOpenInstrument?.()}
+                onToggle={() => inputRouting.onToggleInstrumentBypass?.()}
+                onSwap={(event) => {
                   inputRouting.onInstrumentMenu?.({
-                    x: e.clientX,
-                    y: e.clientY,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  inputRouting.onInstrumentMenu?.({
+                    x: event.clientX,
+                    y: event.clientY,
                   });
                 }}
                 title={
-                  inputRouting.instrumentName
-                    ? `Software Instrument: ${inputRouting.instrumentName} (Click to open UI, right-click to change)`
-                    : "Add Software Instrument (Click to choose)"
+                  inputRouting.instrumentLoadError ||
+                  `Software Instrument: ${inputRouting.instrumentName || "none"} · ${inputRouting.instrumentLoadState || "loading"}`
                 }
-                className="flex h-full flex-1 min-w-0 items-center px-1.5 truncate text-left"
-              >
-                <span className="truncate">
-                  {inputRouting.instrumentName ||
-                    (isNarrow ? "+ Inst" : "+ Instrument")}
-                </span>
-              </button>
+              />
+            ) : (
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
+                onClick={(event) =>
                   inputRouting.onInstrumentMenu?.({
-                    x: e.clientX,
-                    y: e.clientY,
+                    x: event.clientX,
+                    y: event.clientY,
+                  })
+                }
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  inputRouting.onInstrumentMenu?.({
+                    x: event.clientX,
+                    y: event.clientY,
                   });
                 }}
-                title="Choose Software Instrument"
-                className="flex h-full px-1 items-center justify-center opacity-60 hover:opacity-100 text-[10px] select-none"
+                className="flex h-5.5 w-full min-w-0 items-center rounded border border-dashed px-1.5 text-left text-xs font-semibold text-foreground/55 transition-colors hover:text-foreground/80"
+                style={{
+                  borderColor: `color-mix(in srgb, ${color} 55%, transparent)`,
+                }}
+                title="Add Software Instrument"
               >
-                ⇅
+                {isNarrow ? "+ Inst" : "+ Instrument"}
               </button>
-            </div>
+            )
           ) : inputRouting?.inputOptions && inputRouting.onInputChange ? (
             <div className="w-full min-w-0">
               <Select
@@ -514,11 +475,11 @@ export function ChannelStrip({
           stripId={stripId}
           stripName={name}
           slots={audioFxSlots}
+          slotIndexOffset={pluginSlots.some((slot) => slot.instrument) ? 1 : 0}
           catalog={pluginCatalog}
           density={density}
           targetSlotCount={targetPluginSlots}
           onOpenChain={onPlugins}
-          accentColor={color}
         />
       )}
 

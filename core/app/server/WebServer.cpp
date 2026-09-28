@@ -49,6 +49,8 @@ WPluginSlotTelemetry pluginSlotToWire(const WebUiState::PluginSlotRow& slot) {
     wire.hasState = slot.hasState;
     wire.keepAwake = slot.keepAwake;
     wire.powerState = slot.powerState;
+    wire.loadState = slot.loadState;
+    wire.loadError = slot.loadError;
     return wire;
 }
 
@@ -488,6 +490,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/song/update", WebCommandKind::BuilderSongUpdate},
     {"/api/v1/builder/song/end", WebCommandKind::BuilderSongEnd},
     {"/api/v1/builder/track/add", WebCommandKind::BuilderTrackAdd},
+    {"/api/v1/builder/track/duplicate", WebCommandKind::BuilderTrackDuplicate},
     {"/api/v1/builder/track/remove", WebCommandKind::BuilderTrackRemove},
     {"/api/v1/builder/track/move", WebCommandKind::BuilderTrackMove},
     {"/api/v1/builder/track/update", WebCommandKind::BuilderTrackUpdate},
@@ -543,6 +546,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/settings/ui-render-engine", WebCommandKind::SetUiRenderEngine},
     {"/api/v1/settings/theme", WebCommandKind::SetTheme},
     {"/api/v1/settings/keybinding", WebCommandKind::SetKeybinding},
+    {"/api/v1/settings/count-in", WebCommandKind::SetCountInBars},
     {"/api/v1/settings/output-channels", WebCommandKind::SetOutputChannels},
     {"/api/v1/settings/input-channels", WebCommandKind::SetInputChannels},
     {"/api/v1/settings/midi-learn", WebCommandKind::MidiLearn},
@@ -1475,6 +1479,8 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.bpm = finiteOrZero(snap.bpm);
     wire.playing = snap.playing;
     wire.recording = snap.recording;
+    wire.recordingCountIn = snap.recordingCountIn;
+    wire.recordingCountInBeatsRemaining = snap.recordingCountInBeatsRemaining;
     wire.autoInputMonitoring = snap.autoInputMonitoring;
     wire.autoPunchEnabled = snap.autoPunchEnabled;
     wire.punchStartSample = snap.punchStartSample;
@@ -2024,9 +2030,12 @@ std::string WebServer::buildStateJson(const char* view) const {
 
         wire.settings.midiOutputs = s.midiOutputs;
         wire.settings.midiInputs = s.midiInputs;
+        wire.settings.currentMidiInput = s.currentMidiInput;
         wire.settings.virtualMidiPortEnabled = s.virtualMidiPortEnabled;
         wire.settings.uiRenderEngine = s.uiRenderEngine;
         wire.settings.theme = s.theme;
+        wire.settings.countInBars = s.countInBars;
+        wire.settings.countInPreferredBars = s.countInPreferredBars;
     }
 
     wire.settings.keybindings.reserve(s.keybindings.size());
@@ -2034,6 +2043,7 @@ std::string WebServer::buildStateJson(const char* view) const {
         WKeybindingTelemetry wKb;
         wKb.action = kb.action;
         wKb.key = kb.key;
+        wKb.midiAssignable = kb.midiAssignable;
         wire.settings.keybindings.push_back(std::move(wKb));
     }
 
@@ -2059,6 +2069,8 @@ std::string WebServer::buildStateJson(const char* view) const {
     }
 
     wire.settings.midiLearnAction = s.midiLearnAction;
+        wire.settings.countInBars = s.countInBars;
+        wire.settings.countInPreferredBars = s.countInPreferredBars;
 
     std::string json;
     (void)glz::write_json(wire, json);
@@ -2177,12 +2189,16 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::PluginSetEnabled, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/add") == 0) {
         cmd = {WebCommandKind::PluginSlotAdd, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/replace") == 0) {
+        cmd = {WebCommandKind::PluginSlotReplace, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/remove") == 0) {
         cmd = {WebCommandKind::PluginSlotRemove, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/move") == 0) {
         cmd = {WebCommandKind::PluginSlotMove, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/bypass") == 0) {
         cmd = {WebCommandKind::PluginSlotBypass, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/retry") == 0) {
+        cmd = {WebCommandKind::PluginSlotRetry, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/editor") == 0) {
         cmd = {WebCommandKind::PluginSlotOpenEditor, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/keep-awake") == 0) {

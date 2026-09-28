@@ -35,6 +35,25 @@ function isPrimaryModifier(event: Pick<PointerEvent, "metaKey" | "ctrlKey">) {
   return usesMetaKey ? event.metaKey : event.ctrlKey;
 }
 
+function noteTextColor(fill: string, background: string, opacity: number): string {
+  const parse = (value: string): [number, number, number] | null => {
+    const match = /^#([\da-f]{6})$/i.exec(value);
+    if (!match) return null;
+    return [0, 2, 4].map((offset) => parseInt(match[1].slice(offset, offset + 2), 16)) as [number, number, number];
+  };
+  const foreground = parse(fill);
+  const behind = parse(background);
+  if (!foreground || !behind) return "#fff";
+  const mixed = foreground.map((component, index) =>
+    (component * opacity + behind[index] * (1 - opacity)) / 255,
+  );
+  const linear = mixed.map((component) => component <= 0.04045
+    ? component / 12.92
+    : ((component + 0.055) / 1.055) ** 2.4);
+  const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  return luminance > 0.179 ? "#111" : "#fff";
+}
+
 interface PianoRollCanvasProps {
   region: MidiRegionRow;
   companionRegions?: MidiRegionRow[];
@@ -125,6 +144,11 @@ export function PianoRollCanvas({
   const [localNotes, setLocalNotes] = useState<MidiNoteRow[] | null>(null);
   const notesToRender = localNotes || region.notes;
   const pendingCommitRef = useRef<MidiNoteRow[] | null>(null);
+  const velocityPaintRef = useRef<{
+    lastBeat: number;
+    notes: MidiNoteRow[];
+    noteById: Map<number, MidiNoteRow>;
+  } | null>(null);
 
   // Keep the optimistic canvas image until Core's authoritative region catches
   // up. Clearing it on pointer-up used to flash the old note positions while
@@ -374,6 +398,7 @@ export function PianoRollCanvas({
   ]);
 
   // Autofollow frame update during playback
+  const followScrollBeats = followMode === "snap" ? viewport.scrollBeats : 0;
   useEffect(() => {
     if (!isPlaying || followMode === "off" || isFollowSuspendedRef.current) {
       return;
@@ -384,19 +409,31 @@ export function PianoRollCanvas({
     if (!canvas) return;
     const width = canvas.width / (window.devicePixelRatio || 1);
     const viewBeats = (width - viewport.keyWidth) / viewport.pixelsPerBeat;
-    const minBeat = viewport.scrollBeats;
-    const maxBeat = minBeat + viewBeats;
-
     if (followMode === "smooth") {
-      // Smooth continuous follow: keep playhead around ~35% of the visible window
-      const targetScroll = Math.max(0, playheadBeats - viewBeats * 0.35);
-      if (Math.abs(viewport.scrollBeats - targetScroll) > 0.05) {
-        onViewportChange((v) => ({
-          ...v,
-          scrollBeats: targetScroll,
-        }));
-      }
-    } else if (followMode === "snap") {
+      // Telemetry is sampled below display refresh. Project from its latest
+      // position for at most one short packet interval, then ease the viewport
+      // on animation frames like the main timeline.
+      const receivedAt = performance.now();
+      const beatsPerMs = (projectSong?.bpm || 120) / 60_000;
+      let frame = 0;
+      const tick = (now: number) => {
+        if (isFollowSuspendedRef.current) return;
+        const projectedBeat = playheadBeats + Math.min(now - receivedAt, 120) * beatsPerMs;
+        const target = Math.max(0, projectedBeat - viewBeats * 0.35);
+        onViewportChange((current) => {
+          const next = current.scrollBeats + (target - current.scrollBeats) * 0.28;
+          return Math.abs(next - current.scrollBeats) < 0.001
+            ? current
+            : { ...current, scrollBeats: next };
+        });
+        frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(frame);
+    }
+    if (followMode === "snap") {
+      const minBeat = followScrollBeats;
+      const maxBeat = minBeat + viewBeats;
       // Snap mode: page turn when playhead reaches near right edge
       if (playheadBeats >= maxBeat - 0.75) {
         onViewportChange((v) => ({
@@ -417,7 +454,8 @@ export function PianoRollCanvas({
     playheadBeats,
     viewport.keyWidth,
     viewport.pixelsPerBeat,
-    viewport.scrollBeats,
+    followScrollBeats,
+    projectSong?.bpm,
     onViewportChange,
   ]);
 
@@ -604,15 +642,16 @@ export function PianoRollCanvas({
     const timeVisibleNotes = expandLoopViews(sourceTimeVisibleNotes);
     for (const { note, beat: noteBeat } of visibleNotes) {
       const isSelected = selectedNoteIds.has(note.id);
+      const noteOpacity = isSelected ? 1 : 0.3 + 0.7 * Math.max(0, Math.min(1, note.velocity));
+      const noteFill = isSelected ? theme.accent : (trackColor || theme.accent);
       const x = beatToX(noteBeat);
       const y = pitchToY(note.pitch, height);
       const w = Math.max(4, note.durationBeats * viewport.pixelsPerBeat);
       const h = Math.max(4, viewport.pixelsPerPitch - 2);
 
       ctx.save();
-      ctx.fillStyle = isSelected
-        ? theme.accent
-        : (trackColor || theme.accent);
+      ctx.fillStyle = noteFill;
+      ctx.globalAlpha = noteOpacity;
 
       // Rounded rect note body
       ctx.beginPath();
@@ -623,10 +662,11 @@ export function PianoRollCanvas({
       ctx.strokeStyle = isSelected ? theme.accentForeground : theme.border;
       ctx.lineWidth = isSelected ? 2 : 1;
       ctx.stroke();
+      ctx.globalAlpha = 1;
 
       // Dynamic LOD: note pitch name and velocity
       if (w >= 24 && viewport.pixelsPerPitch >= 12) {
-        ctx.fillStyle = isSelected ? theme.accentForeground : theme.foreground;
+        ctx.fillStyle = noteTextColor(noteFill, theme.background, noteOpacity);
         ctx.font = "bold 9px sans-serif";
         const name = pitchToName(note.pitch);
         if (w >= 54 && viewport.pixelsPerPitch >= 15) {
@@ -871,7 +911,6 @@ export function PianoRollCanvas({
     showGhostNotes,
     companionRegions,
     selectedNoteIds,
-    playheadBeats,
     activeMidiPitches,
     timeSignatureNumerator,
     hoveredPitch,
@@ -1132,16 +1171,21 @@ export function PianoRollCanvas({
           beat,
           Math.max(0.08, 8 / viewport.pixelsPerBeat),
         );
+        const workingNotes = region.notes.map((note) => ({ ...note }));
         if (hit) {
           const vel = Math.max(
             0.01,
             Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)),
           );
-          const updated = region.notes.map((n) =>
-            n.id === hit.id ? { ...n, velocity: vel } : n,
-          );
-          onNotesChange(updated);
+          const target = workingNotes.find((note) => note.id === hit.id);
+          if (target) target.velocity = vel;
+          setLocalNotes(workingNotes);
         }
+        velocityPaintRef.current = {
+          lastBeat: beat,
+          notes: workingNotes,
+          noteById: new Map(workingNotes.map((note) => [note.id, note])),
+        };
         draggingRef.current = {
           type: "velocity",
           startPointerX: x,
@@ -1458,15 +1502,24 @@ export function PianoRollCanvas({
         Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)),
       );
       const beat = sourceBeatAt(xToBeat(x));
-      const hit = spatialIndex.current.hitTestStart(
-        beat,
-        Math.max(0.08, 8 / viewport.pixelsPerBeat),
-      );
-      if (hit) {
-        const updated = region.notes.map((n) =>
-          n.id === hit.id ? { ...n, velocity: vel } : n,
-        );
-        onNotesChange(updated);
+      const paint = velocityPaintRef.current;
+      if (paint) {
+        // Sweep the interval, not just the current pointer sample: fast mouse
+        // movement must not skip notes between two pointer events.
+        const tolerance = Math.max(0.08, 8 / viewport.pixelsPerBeat);
+        const lo = Math.min(paint.lastBeat, beat) - tolerance;
+        const hi = Math.max(paint.lastBeat, beat) + tolerance;
+        let changed = false;
+        for (const candidate of spatialIndex.current.queryRange(lo, hi, 0, 127)) {
+          const note = paint.noteById.get(candidate.id);
+          if (!note) continue;
+          if (note.startBeats >= lo && note.startBeats <= hi && note.velocity !== vel) {
+            note.velocity = vel;
+            changed = true;
+          }
+        }
+        paint.lastBeat = beat;
+        if (changed) setLocalNotes(paint.notes.map((note) => ({ ...note })));
       }
       return;
     }
@@ -1628,12 +1681,15 @@ export function PianoRollCanvas({
 
     const dragging = draggingRef.current;
     if (dragging) {
+      const finalNotes = dragging.type === "velocity"
+        ? velocityPaintRef.current?.notes ?? null
+        : localNotes;
       if (
-        (dragging.type === "move" || dragging.type === "resize") &&
-        localNotes
+        (dragging.type === "move" || dragging.type === "resize" || dragging.type === "velocity") &&
+        finalNotes
       ) {
-        pendingCommitRef.current = localNotes;
-        onNotesChange(localNotes);
+        pendingCommitRef.current = finalNotes;
+        onNotesChange(finalNotes);
         triggerHaptic("generic");
       } else {
         pendingCommitRef.current = null;
@@ -1641,6 +1697,7 @@ export function PianoRollCanvas({
       }
     }
     draggingRef.current = null;
+    velocityPaintRef.current = null;
     setHoveredPitch(null);
     render();
   };
@@ -1657,6 +1714,7 @@ export function PianoRollCanvas({
     setLocalNotes(null);
     pendingCommitRef.current = null;
     draggingRef.current = null;
+    velocityPaintRef.current = null;
     lastDragDetentRef.current = null;
     render();
   };

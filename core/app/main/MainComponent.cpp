@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "ActionCatalogue.h"
 #include "engine/AudioEngineInternal.h"
 #include "lighting/LightOutputResolver.h"
 #include "platform/PlatformShellMode.h"
@@ -132,6 +133,7 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     // here, before anything below needs them -- see AppSettings.h for why
     // these live outside the project file.
     appSettings = loadAppSettings();
+    engine.setCountInBars(appSettings.countInBars);
 
     engine.initialiseDefaultDevices(2, 2);
     {
@@ -199,16 +201,14 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
         });
     };
 
-    // Restore saved MIDI in/out/virtual-port preference (defaults to "All Inputs"
-    // so any connected or hotplugged keyboard works out-of-the-box).
+    // MIDI input is opt-in. An empty persisted name means no hardware source.
     if (!appSettings.midiOutputName.empty()) {
         std::string err;
         (void)engine.midi().openDestination(appSettings.midiOutputName, err);
     }
-    {
-        const std::string inputToOpen = appSettings.midiInputName.empty() ? "All Inputs" : appSettings.midiInputName;
+    if (!appSettings.midiInputName.empty()) {
         std::string err;
-        (void)midiInput.openSource(inputToOpen, err);
+        (void)midiInput.openSource(appSettings.midiInputName, err);
     }
     if (appSettings.virtualMidiPortEnabled) {
         std::string err;
@@ -1398,9 +1398,11 @@ void MainComponent::drainWebCommands() {
                 break;
             }
             case WebCommandKind::PluginSlotAdd: pluginSlotAdd(cmd.json); break;
+            case WebCommandKind::PluginSlotReplace: pluginSlotReplace(cmd.json); break;
             case WebCommandKind::PluginSlotRemove: pluginSlotRemove(cmd.json); break;
             case WebCommandKind::PluginSlotMove: pluginSlotMove(cmd.json); break;
             case WebCommandKind::PluginSlotBypass: pluginSlotBypass(cmd.json); break;
+            case WebCommandKind::PluginSlotRetry: pluginSlotRetry(cmd.json); break;
             case WebCommandKind::PluginSlotOpenEditor: pluginSlotOpenEditor(cmd.json); break;
             case WebCommandKind::PluginSlotKeepAwake: pluginSlotKeepAwake(cmd.json); break;
             case WebCommandKind::PluginSlotPark: pluginSlotPark(cmd.json); break;
@@ -1412,6 +1414,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderSongEnd: builderSongEnd(cmd.json); break;
             case WebCommandKind::BuilderSongUpdate: builderSongUpdate(cmd.json); break;
             case WebCommandKind::BuilderTrackAdd: builderTrackAdd(cmd.json); break;
+            case WebCommandKind::BuilderTrackDuplicate: builderTrackDuplicate(cmd.json); break;
             case WebCommandKind::BuilderTrackRemove: builderTrackRemove(cmd.json); break;
             case WebCommandKind::BuilderTrackMove: builderTrackMove(cmd.json); break;
             case WebCommandKind::BuilderTrackUpdate: builderTrackUpdate(cmd.json); break;
@@ -1471,6 +1474,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::SetUiRenderEngine: settingsSetUiRenderEngine(cmd.json); break;
             case WebCommandKind::SetTheme: settingsSetTheme(cmd.json); break;
             case WebCommandKind::SetKeybinding: settingsSetKeybinding(cmd.json); break;
+            case WebCommandKind::SetCountInBars: settingsSetCountInBars(cmd.json); break;
             case WebCommandKind::SetOutputChannels: settingsSetOutputChannels(cmd.json); break;
             case WebCommandKind::SetInputChannels: settingsSetInputChannels(cmd.json); break;
             case WebCommandKind::MidiLearn: settingsMidiLearn(cmd.json); break;
@@ -1777,6 +1781,8 @@ void MainComponent::publishWebState() {
     state.driftFactor = transport.driftFactor.load(std::memory_order_relaxed);
     state.playing = transport.running.load(std::memory_order_relaxed);
     state.recording = engine.isRecording();
+    state.recordingCountIn = engine.isRecordingCountIn();
+    state.recordingCountInBeatsRemaining = engine.recordingCountInBeatsRemaining();
     state.autoInputMonitoring = engine.isAutoInputMonitoring();
     state.autoPunchEnabled = engine.isAutoPunchEnabled();
     state.lowLatencyMonitoring = engine.isLowLatencyMonitoring();
@@ -1804,8 +1810,11 @@ void MainComponent::publishWebState() {
             row.keepAwake = slot.keepAwake;
             if (activeBank != nullptr) {
                 row.powerState = pluginPowerStateToString(activeBank->getSlotPowerState(slot.id));
+                row.loadState = activeBank->getSlotLoadState(slot.id);
+                row.loadError = activeBank->getSlotLoadError(slot.id);
             } else {
                 row.powerState = "active";
+                row.loadState = "loading";
             }
             rows.push_back(std::move(row));
         }
@@ -2548,8 +2557,26 @@ void MainComponent::publishWebState() {
 void MainComponent::applyGlobalBindings() {
     // Global (Application Support), not per-project -- see AppSettings.h.
     // Backfill missing actions with compiled-in defaults; saved settings win.
+    bool migratedLegacyBarKeys = false;
+    if (const auto previous = appSettings.keybindings.find("bar_prev");
+        previous != appSettings.keybindings.end() && previous->second == "left") {
+        previous->second = ",";
+        migratedLegacyBarKeys = true;
+    }
+    if (const auto next = appSettings.keybindings.find("bar_next");
+        next != appSettings.keybindings.end() && next->second == "right") {
+        next->second = ".";
+        migratedLegacyBarKeys = true;
+    }
     for (const auto& [action, description] : keyBindings)
         appSettings.keybindings.try_emplace(action, description);
+
+    const auto oldMappingCount = appSettings.midiMappings.size();
+    std::erase_if(appSettings.midiMappings, [](const MidiMapping& mapping) {
+        return !isMidiMappableAction(mapping.action);
+    });
+    if (migratedLegacyBarKeys || oldMappingCount != appSettings.midiMappings.size())
+        saveAppSettingsToDisk();
 
     for (const auto& [action, description] : appSettings.keybindings)
         keyBindings[action] = description;

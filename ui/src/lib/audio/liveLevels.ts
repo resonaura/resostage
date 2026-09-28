@@ -54,7 +54,7 @@ export type LiveLevels = {
   clickPeakDbR: number;
   clickNeedleDbL: number;
   clickNeedleDbR: number;
-  tracks: { peakDb: number; peakDbL: number; peakDbR: number }[];
+  tracks: { id: string; peakDb: number; peakDbL: number; peakDbR: number }[];
   meters: LiveMeter[];
   seq: number;
 };
@@ -81,8 +81,10 @@ let displayClickL = FLOOR;
 let displayClickR = FLOOR;
 
 let tracks: LiveLevels["tracks"] = [];
+let trackLevelsById = new Map<string, LiveLevels["tracks"][number]>();
 let meters: LiveMeter[] = [];
 let meterIds: string[] = [];
+let trackIds: string[] = [];
 let seq = 0;
 
 export type LiveLedColor = { r: number; g: number; b: number };
@@ -128,6 +130,37 @@ const lightListeners = new Set<Listener>();
 
 export function setMeterIds(ids: string[]) {
   meterIds = ids;
+}
+
+/** Keep high-rate positional track rows tied to Core's stable track identity. */
+export function setTrackIds(ids: string[]) {
+  trackIds = ids;
+}
+
+/** Resolve a live meter by identity so a strip can never inherit another row's peak. */
+export function getTrackLiveLevel(id: string) {
+  return trackLevelsById.get(id);
+}
+
+/** Drop readings immediately when the active Core/backend changes. */
+export function resetLiveLevels(): void {
+  latestClick = FLOOR;
+  latestClickL = FLOOR;
+  latestClickR = FLOOR;
+  clickNeedleL = FLOOR;
+  clickNeedleR = FLOOR;
+  pendingClickMax = FLOOR;
+  pendingClickMaxL = FLOOR;
+  pendingClickMaxR = FLOOR;
+  displayClick = FLOOR;
+  displayClickL = FLOOR;
+  displayClickR = FLOOR;
+  tracks = [];
+  trackLevelsById = new Map();
+  meters = [];
+  meterIds = [];
+  trackIds = [];
+  seq += 1;
 }
 
 export function getLiveLedOutputs(): LiveLedOutput[] {
@@ -202,7 +235,12 @@ export function pushLiveLevels(frame: {
   clickPeakDbR?: number;
   clickIntervalPeakDbL?: number;
   clickIntervalPeakDbR?: number;
-  tracks?: { peakDb?: number; peakDbL?: number; peakDbR?: number }[];
+  tracks?: {
+    id?: string;
+    peakDb?: number;
+    peakDbL?: number;
+    peakDbR?: number;
+  }[];
   meters?: {
     id: string;
     peakDb?: number;
@@ -247,11 +285,13 @@ export function pushLiveLevels(frame: {
     changed = true;
   }
   if (frame.tracks) {
-    tracks = frame.tracks.map((t) => ({
+    tracks = frame.tracks.map((t, index) => ({
+      id: t.id ?? trackIds[index] ?? `track-${index}`,
       peakDb: t.peakDb ?? FLOOR,
       peakDbL: t.peakDbL ?? t.peakDb ?? FLOOR,
       peakDbR: t.peakDbR ?? t.peakDb ?? FLOOR,
     }));
+    trackLevelsById = new Map(tracks.map((track) => [track.id, track]));
     changed = true;
   }
   if (frame.meters) {
@@ -587,8 +627,14 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     const pL = view.getFloat32(offset, true);
     const pR = view.getFloat32(offset + 4, true);
     offset += 8;
-    nextTracks.push({ peakDb: Math.max(pL, pR), peakDbL: pL, peakDbR: pR });
+    nextTracks.push({
+      id: trackIds[i] ?? `track-${i}`,
+      peakDb: Math.max(pL, pR),
+      peakDbL: pL,
+      peakDbR: pR,
+    });
   }
+  trackLevelsById = new Map(nextTracks.map((track) => [track.id, track]));
   tracks = nextTracks;
 
   const meterRowBytes = hasIntervalPeak ? 16 : 8;

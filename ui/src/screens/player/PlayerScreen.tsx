@@ -59,6 +59,7 @@ import {
   type WebUiState,
 } from "../../lib/state/types";
 import { useIsCompact } from "../../lib/interaction/useMediaQuery";
+import { CountInControl } from "../../components/transport/CountInControl";
 
 import {
   busCycleColor,
@@ -1449,6 +1450,19 @@ export function PlayerScreen({
               </Popover.Dialog>
             </Popover.Content>
           </Popover>
+          <CountInControl state={state} />
+          {state.recordingCountIn && (
+            <span
+              role="status"
+              aria-live="polite"
+              aria-label={`Count-in: ${state.recordingCountInBeatsRemaining ?? 0} beats remaining`}
+              className="flex h-9 min-w-10 items-center justify-center rounded-md bg-(--rs-record)/15 px-2 font-mono text-(--rs-record)"
+            >
+              <strong key={state.recordingCountInBeatsRemaining} className="rs-count-in-beat text-2xl tabular-nums">
+                {((Math.max(1, state.recordingCountInBeatsRemaining ?? 1) - 1) % Math.max(1, song?.tsNum ?? 4)) + 1}
+              </strong>
+            </span>
+          )}
         </div>
 
         {/* Dual sparkline graphs: CPU & RAM */}

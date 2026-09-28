@@ -725,23 +725,32 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
 
-            currentSong = static_cast<size_t>(-1);
-            trackIdByIndex.clear();
-            trackScratch.clear();
-            // Drop every gain/pan glide: the strip layout is about to change, so
-            // gliding from the old coefficients would be an artefact, not a de-click.
-            mixRenderer.resetSmoothing();
-            trackMeters.clear();
-    trackBandMeters.clear();
-            const auto& projTracks = loader.project().tracks;
-            if (!projTracks.empty()) {
-                for (const auto& t : projTracks)
-                    trackIdByIndex.push_back(t.id);
-                trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
-                ensureTrackMeters(trackIdByIndex.size());
-                ensureScratchSizes();
-                publishRoutingSnapshot();
+            {
+                // The callback reads these vectors while holding the same
+                // mutex with a non-blocking try_lock. Keep reset/reprepare
+                // under it: clearing BandEnergyMeter while currentLevels()
+                // runs caused an observed Core SIGSEGV during save/reopen.
+                std::lock_guard<std::recursive_mutex> routeLock(routingMutex);
+                currentSong = static_cast<size_t>(-1);
+                trackIdByIndex.clear();
+                trackScratch.clear();
+                // Drop every gain/pan glide: the strip layout is about to
+                // change, so gliding from the old coefficients would be an
+                // artefact, not a de-click.
+                mixRenderer.resetSmoothing();
+                trackMeters.clear();
+                trackBandMeters.clear();
+                const auto& projTracks = loader.project().tracks;
+                if (!projTracks.empty()) {
+                    for (const auto& t : projTracks)
+                        trackIdByIndex.push_back(t.id);
+                    trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
+                    ensureTrackMeters(trackIdByIndex.size());
+                    ensureScratchSizes();
+                }
             }
+            if (!trackIdByIndex.empty())
+                publishRoutingSnapshot();
 
             if (songToRestore != static_cast<size_t>(-1)
                 && songToRestore < loader.project().songs.size()) {

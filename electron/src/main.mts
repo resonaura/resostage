@@ -161,14 +161,31 @@ function waitForIpcReady(timeoutMs = 15_000): Promise<void> {
 
 let udpTelemetrySocket: dgram.Socket | null = null;
 let udpTelemetryPort = 0;
+let udpTelemetryRestartTimer: NodeJS.Timeout | null = null;
+let udpTelemetryRestartDelayMs = 500;
 let acceptedTelemetrySources = new Set<string>();
 const udpTelemetryTracker = new UdpTelemetryTracker();
+
+function scheduleUdpTelemetryRestart(reason: string): void {
+  if (udpTelemetryRestartTimer) return;
+  const delayMs = udpTelemetryRestartDelayMs;
+  udpTelemetryRestartDelayMs = Math.min(udpTelemetryRestartDelayMs * 2, 10_000);
+  console.warn(
+    `[resostage] UDP telemetry listener restarting in ${delayMs}ms (${reason})`,
+  );
+  udpTelemetryRestartTimer = setTimeout(() => {
+    udpTelemetryRestartTimer = null;
+    setupUdpTelemetry();
+  }, delayMs);
+  udpTelemetryRestartTimer.unref?.();
+}
 
 function setupUdpTelemetry(): void {
   try {
     if (udpTelemetrySocket) return;
-    udpTelemetrySocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
-    udpTelemetrySocket.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+    const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+    udpTelemetrySocket = socket;
+    socket.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
       // In remote session: accept remote LAN packets from activeRemoteHost only
       if (isRemoteSession) {
         if (rinfo.address === "127.0.0.1" || rinfo.address === "localhost") {
@@ -204,20 +221,42 @@ function setupUdpTelemetry(): void {
     // user/session on the same workstation from receiving anything and made
     // an unrelated process able to black-hole telemetry. The selected port
     // is advertised to Core by the subscription heartbeat below.
-    udpTelemetrySocket.bind(0, "0.0.0.0", () => {
-      const address = udpTelemetrySocket?.address();
+    socket.on("error", (err) => {
+      console.warn("[resostage] UDP telemetry socket error:", err);
+      if (udpTelemetrySocket !== socket) return;
+      udpTelemetrySocket = null;
+      udpTelemetryPort = 0;
+      udpTelemetryTracker.reset();
+      try {
+        socket.close();
+      } catch {}
+      scheduleUdpTelemetryRestart(err.message);
+    });
+    socket.on("close", () => {
+      if (udpTelemetrySocket !== socket) return;
+      udpTelemetrySocket = null;
+      udpTelemetryPort = 0;
+      udpTelemetryTracker.reset();
+      scheduleUdpTelemetryRestart("socket closed");
+    });
+    socket.bind(0, "0.0.0.0", () => {
+      if (udpTelemetrySocket !== socket) return;
+      const address = socket.address();
       udpTelemetryPort = typeof address === "object" ? address.port : 0;
       udpTelemetryTracker.setLocalPort(udpTelemetryPort);
+      udpTelemetryRestartDelayMs = 500;
       console.log(
         `[resostage] UDP Telemetry listener bound to 0.0.0.0:${udpTelemetryPort}`,
       );
       startUdpSubscription();
     });
-    udpTelemetrySocket.on("error", (err) => {
-      console.warn("[resostage] UDP telemetry socket error:", err);
-    });
   } catch (err) {
+    udpTelemetrySocket = null;
+    udpTelemetryPort = 0;
     console.warn("[resostage] UDP telemetry listener failed:", err);
+    scheduleUdpTelemetryRestart(
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 
@@ -737,30 +776,57 @@ function spawnBackend(): void {
     stdio: "pipe",
   });
   backendProcess.stdout?.on("data", (d) =>
-    console.log(`[core stdout] ${d.toString().trim()}`),
+    {
+      const output = d.toString();
+      console.log(`[core stdout] ${output.trim()}`);
+      try {
+        appendFileSync(path.join(app.getPath("logs"), "resostage-core.log"),
+          `${new Date().toISOString()} [stdout] ${output}`);
+      } catch (error) {
+        console.error("[resostage] Could not persist Core stdout:", error);
+      }
+    },
   );
   backendProcess.stderr?.on("data", (d) =>
-    console.error(`[core stderr] ${d.toString().trim()}`),
+    {
+      const output = d.toString();
+      console.error(`[core stderr] ${output.trim()}`);
+      try {
+        appendFileSync(path.join(app.getPath("logs"), "resostage-core.log"),
+          `${new Date().toISOString()} [stderr] ${output}`);
+      } catch (error) {
+        console.error("[resostage] Could not persist Core stderr:", error);
+      }
+    },
   );
   backendProcess.on("error", (err) => {
     console.error("[resostage] backendProcess error:", err);
   });
   backendProcess.on("exit", (code, signal) => {
+    const logPath = path.join(app.getPath("logs"), "resostage-core.log");
     console.warn(
       `[resostage] Core process exited (code=${code}, signal=${signal})`,
     );
+    try {
+      appendFileSync(logPath,
+        `${new Date().toISOString()} [shell] Core exited (code=${code}, signal=${signal})\n`);
+    } catch (error) {
+      console.error("[resostage] Could not persist Core exit status:", error);
+    }
     const bPid = backendProcess?.pid;
     backendProcess = null;
-    isQuitting = true;
     if (mainWindow && !mainWindow.isDestroyed()) {
       try {
-        mainWindow.destroy();
+        mainWindow.webContents.send("core-process-exit", {
+          code,
+          signal,
+          logPath,
+          occurredAt: new Date().toISOString(),
+        });
       } catch {
-        /* ignore */
+        /* renderer may already be shutting down */
       }
-      mainWindow = null;
     }
-    app.quit();
     setTimeout(() => platform.forceKillSelfTree(bPid), 150);
   });
 }
@@ -1293,6 +1359,7 @@ const NAMED_KEYS: Record<string, string> = {
  * unusable in every name field in the app.
  */
 let typingFocus = false;
+let keyCaptureActive = false;
 
 /**
  * Electron's `input.key` for a binding token, lowercased.
@@ -1385,19 +1452,43 @@ function installHotkeyHandler(win: BrowserWindow): void {
       if (!hasModifier) return;
     }
     if (!win.isFocused()) return;
+    // Let Settings receive every key while it is learning a new binding.
+    if (keyCaptureActive) return;
 
     const bindings = menuModel?.keybindings ?? {};
     for (const [action, binding] of Object.entries(bindings)) {
       if (!inputMatchesBinding(input, binding)) continue;
       event.preventDefault();
-      void postAction(action);
+      // The renderer's HotkeyManager is the single action dispatcher. The
+      // shell captures the key only because it owns the native window events.
+      win.webContents.send("dispatch-hotkey", { action });
       return;
+    }
+    const keyboardBinding = fixedMenuKeybindingFor("toggle_musical_typing");
+    if (
+      !typingFocus &&
+      keyboardBinding &&
+      inputMatchesBinding(input, keyboardBinding)
+    ) {
+      event.preventDefault();
+      win.webContents.send("dispatch-hotkey", {
+        action: "toggle_musical_typing",
+      });
     }
   });
 }
 
 function keybindingFor(action: string): string {
   return menuModel?.keybindings?.[action] ?? "";
+}
+
+function fixedMenuKeybindingFor(action: string): string {
+  for (const menu of menuModel?.menus ?? []) {
+    for (const item of menu.items) {
+      if (item.actionId === action) return item.key ?? "";
+    }
+  }
+  return "";
 }
 
 function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
@@ -1431,6 +1522,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
     return {
       label: item.title ?? "Show Musical Typing",
       accelerator: acceleratorFor(item.key),
+      registerAccelerator: false,
       click: () => {
         toggleKeyboardWindow();
       },
@@ -2083,6 +2175,9 @@ ipcMain.handle("keyboard-window:is-open", () => {
 ipcMain.on("typing-focus", (_event, focused: boolean) => {
   typingFocus = Boolean(focused);
 });
+ipcMain.on("key-capture", (_event, active: boolean) => {
+  keyCaptureActive = Boolean(active);
+});
 
 ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
   if (s && typeof s === "object") {
@@ -2164,6 +2259,33 @@ let activeContextMenuSession: {
   finish: (id: string | null) => void;
 } | null = null;
 
+/** Electron treats a single ampersand as a Windows/Linux mnemonic marker. */
+function escapeNativeMenuLabel(label: string): string {
+  return label.replace(/&/g, "&&");
+}
+
+/** Convert the Core/UI key-description syntax into an Electron accelerator. */
+function nativeAccelerator(description: string): string | undefined {
+  const parts = description.split("+").map((part) => part.trim().toLowerCase()).filter(Boolean);
+  if (parts.length === 0) return undefined;
+  const aliases: Record<string, string> = {
+    cmd: "Command", command: "Command", meta: "Command",
+    ctrl: "Control", control: "Control", alt: "Alt", option: "Alt", shift: "Shift",
+    space: "Space", enter: "Enter", return: "Enter", escape: "Escape",
+    delete: "Delete", backspace: "Backspace", tab: "Tab",
+    up: "Up", down: "Down", left: "Left", right: "Right",
+    home: "Home", end: "End", comma: "Comma", period: "Period",
+  };
+  const converted = parts.map((part) => {
+    if (aliases[part]) return aliases[part];
+    if (/^[a-z0-9]$/.test(part)) return part.toUpperCase();
+    if (part === ",") return "Comma";
+    if (part === ".") return "Period";
+    return "";
+  });
+  return converted.every(Boolean) ? converted.join("+") : undefined;
+}
+
 // SPA → native context menu. This is deliberately send/on rather than
 // invoke/handle: NSMenu runs a modal tracking loop on macOS, so an invoke
 // promise couples renderer progress to that loop and used to require racy
@@ -2182,8 +2304,11 @@ ipcMain.on(
             label: string;
             danger?: boolean;
             disabled?: boolean;
+            accelerator?: string;
             /** When boolean, render as a native checkbox menu item. */
             checked?: boolean;
+            /** Render as a mutually-exclusive native radio menu item. */
+            radio?: boolean;
           }
         | {
             type: "submenu";
@@ -2226,18 +2351,23 @@ ipcMain.on(
         if (it.type === "separator") return { type: "separator" as const };
         if (it.type === "submenu") {
           return {
-            label: it.label,
+            label: escapeNativeMenuLabel(it.label),
             enabled: !it.disabled,
             submenu: toTemplate(it.items as typeof items),
           };
         }
-        const isCheckbox = typeof it.checked === "boolean";
+        const isCheckbox = typeof it.checked === "boolean" && !it.radio;
         return {
-          label: it.label,
+          label: escapeNativeMenuLabel(it.label),
           enabled: !it.disabled,
-          ...(isCheckbox
-            ? { type: "checkbox" as const, checked: it.checked }
+          ...(it.accelerator && nativeAccelerator(it.accelerator)
+            ? { accelerator: nativeAccelerator(it.accelerator) }
             : {}),
+          ...(it.radio && typeof it.checked === "boolean"
+            ? { type: "radio" as const, checked: it.checked }
+            : isCheckbox
+              ? { type: "checkbox" as const, checked: it.checked }
+              : {}),
           click: () => {
             selectedId = it.id;
           },

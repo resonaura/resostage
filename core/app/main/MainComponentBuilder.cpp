@@ -499,6 +499,111 @@ void MainComponent::builderTrackRemove(const std::string& json) {
     setStatus("Track removed");
 }
 
+void MainComponent::builderTrackDuplicate(const std::string& json) {
+    glz::generic doc;
+    int index = -1;
+    bool withContent = false;
+    if (!parseJson(json, doc) || !getInt(doc, "index", index) || !engine.isProjectLoaded())
+        return;
+    getBool(doc, "withContent", withContent);
+    Project& proj = engine.project();
+    if (index < 0 || index >= static_cast<int>(proj.tracks.size()))
+        return;
+
+    std::vector<std::string> usedTrackIds;
+    usedTrackIds.reserve(proj.tracks.size());
+    for (const auto& existing : proj.tracks)
+        usedTrackIds.push_back(existing.id);
+    const TrackDef& original = proj.tracks[static_cast<size_t>(index)];
+    size_t pluginCount = proj.main.plugins.size() + proj.click.plugins.size();
+    for (const auto& track : proj.tracks) pluginCount += track.plugins.size();
+    for (const auto& send : proj.sends) pluginCount += send.plugins.size();
+    if (pluginCount + original.plugins.size() > 128) {
+        setStatus("Could not duplicate track: plug-in limit reached");
+        return;
+    }
+    TrackDef duplicate = original;
+    duplicate.id = makeUniqueId("trk", usedTrackIds);
+    // A duplicate is a new signal strip, even when the original aliases one.
+    duplicate.stripId.reset();
+    duplicate.recordArmed = false;
+    duplicate.inputMonitoring = false;
+    std::vector<std::pair<std::string, std::string>> pluginIdRemap;
+    for (auto& slot : duplicate.plugins) {
+        const std::string newId = generateUuidV7();
+        pluginIdRemap.emplace_back(slot.id, newId);
+        slot.id = newId;
+    }
+    const auto remapAutomationTarget = [&](AutomationLane& lane,
+                                           const std::string& oldRegionId = {},
+                                           const std::string& newRegionId = {}) {
+        lane.id = generateUuidV7();
+        if (lane.target.entityId == original.id)
+            lane.target.entityId = duplicate.id;
+        else if (!oldRegionId.empty() && lane.target.entityId == oldRegionId)
+            lane.target.entityId = newRegionId;
+        else for (const auto& [oldId, newId] : pluginIdRemap)
+            if (lane.target.entityId == oldId) {
+                lane.target.entityId = newId;
+                break;
+            }
+    };
+    const std::string baseName = original.name + " copy";
+    duplicate.name = baseName;
+    for (int suffix = 2; std::any_of(proj.tracks.begin(), proj.tracks.end(), [&](const TrackDef& t) {
+             return t.name == duplicate.name;
+         }); ++suffix)
+        duplicate.name = baseName + " " + std::to_string(suffix);
+
+    engine.projectHistoryBeginEdit("", withContent ? "Duplicate track with content" : "Duplicate track");
+    if (withContent) {
+        for (auto& song : proj.songs) {
+            std::vector<std::string> usedAudioIds;
+            for (const auto& region : song.regions) usedAudioIds.push_back(region.id);
+            const size_t audioCount = song.regions.size();
+            for (size_t i = 0; i < audioCount; ++i) {
+                if (song.regions[i].trackId != original.id) continue;
+                Region copy = song.regions[i];
+                copy.id = makeUniqueId("reg", usedAudioIds);
+                usedAudioIds.push_back(copy.id);
+                copy.trackId = duplicate.id;
+                for (auto& lane : copy.automationLanes)
+                    remapAutomationTarget(lane, song.regions[i].id, copy.id);
+                song.regions.push_back(std::move(copy));
+            }
+            std::vector<std::string> usedMidiIds;
+            for (const auto& region : song.midiRegions) usedMidiIds.push_back(region.id);
+            const size_t midiCount = song.midiRegions.size();
+            for (size_t i = 0; i < midiCount; ++i) {
+                if (song.midiRegions[i].trackId != original.id) continue;
+                MidiRegion copy = song.midiRegions[i];
+                copy.id = makeUniqueId("midi_reg", usedMidiIds);
+                usedMidiIds.push_back(copy.id);
+                copy.trackId = duplicate.id;
+                for (auto& lane : copy.automationLanes)
+                    remapAutomationTarget(lane, song.midiRegions[i].id, copy.id);
+                song.midiRegions.push_back(std::move(copy));
+            }
+            const size_t automationCount = song.automationLanes.size();
+            for (size_t i = 0; i < automationCount; ++i) {
+                const auto& lane = song.automationLanes[i];
+                const bool belongsToTrack = lane.target.entityId == original.id
+                    || std::any_of(pluginIdRemap.begin(), pluginIdRemap.end(), [&](const auto& pair) {
+                           return pair.first == lane.target.entityId;
+                       });
+                if (!belongsToTrack) continue;
+                AutomationLane copy = lane;
+                remapAutomationTarget(copy);
+                song.automationLanes.push_back(std::move(copy));
+            }
+        }
+    }
+    proj.tracks.insert(proj.tracks.begin() + index + 1, std::move(duplicate));
+    engine.projectHistoryCommitEdit();
+    notifyProjectStructureChanged();
+    setStatus(withContent ? "Track and content duplicated" : "Track duplicated");
+}
+
 void MainComponent::builderTrackMove(const std::string& json) {
     glz::generic doc;
     int index = -1;

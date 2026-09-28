@@ -3,6 +3,7 @@ import type { SongRow } from "../../lib/state/types";
 import type { CueSelKey } from "../light/LightTimeline";
 import { allRegionSelKeys, type RegionSelKey } from "./regionUtils";
 import type { TimelineViewMode } from "./TimelineToolbar";
+import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 
 type Actions = {
   // light
@@ -47,76 +48,42 @@ export function useTimelineKeyboard({
 }) {
   useEffect(() => {
     if (readOnly) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      // Piano Roll owns note-level copy/cut/paste and selection shortcuts.
-      // Do not also apply arrangement-region commands to its focused canvas.
-      if (t?.closest("[data-pianoroll]")) return;
-      if (
-        t &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.isContentEditable)
-      )
-        return;
-      const mod = e.metaKey || e.ctrlKey;
-
-      if (effectiveViewMode === "light") {
-        if (mod && e.key === "a") {
-          e.preventDefault();
-          actions.selectAllCues();
-        } else if (mod && e.key === "c") {
-          e.preventDefault();
-          actions.copySelectedCue();
-        } else if (mod && e.key === "x") {
-          e.preventDefault();
-          actions.cutSelectedCues();
-        } else if (mod && e.key === "v") {
-          e.preventDefault();
-          void actions.pasteClipboardCues();
-        } else if (mod && e.key === "d") {
-          e.preventDefault();
-          void actions.duplicateSelectedCue();
-        } else if (mod && e.key === "t") {
-          e.preventDefault();
-          void actions.splitSelectedCueAtPlayhead();
-        } else if (e.key === "Backspace" || e.key === "Delete") {
-          if (!hasCueSelection) return;
-          e.preventDefault();
-          actions.deleteSelectedCue();
-        } else if (e.key === "Escape") {
-          actions.setCueSelection(null);
-        }
-      } else {
-        if (mod && e.key === "a") {
-          e.preventDefault();
-          actions.setSelectedRegionKeys(allRegionSelKeys(songs));
-        } else if (mod && e.key === "c") {
-          e.preventDefault();
-          actions.copySelectedRegions();
-        } else if (mod && e.key === "x") {
-          e.preventDefault();
-          actions.cutSelectedRegions();
-        } else if (mod && e.key === "v") {
-          e.preventDefault();
-          void actions.pasteClipboardRegions();
-        } else if (mod && e.key === "d") {
-          e.preventDefault();
-          void actions.duplicateSelectedRegions();
-        } else if (mod && e.key === "t") {
-          e.preventDefault();
-          void actions.splitSelectedAtPlayhead();
-        } else if (e.key === "Backspace" || e.key === "Delete") {
-          if (selectedRegionKeys.length === 0) return;
-          e.preventDefault();
-          actions.deleteSelectedRegions();
-        } else if (e.key === "Escape") {
-          actions.setSelectedRegionKeys([]);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const mod = /Mac|iPhone|iPad|iPod/i.test(navigator.platform)
+      ? "cmd"
+      : "ctrl";
+    const scope = HotkeyScope.Timeline;
+    const commands: Array<[string, string, () => void]> =
+      effectiveViewMode === "light"
+        ? [
+            ["select-all-cues", `${mod} + a`, () => actions.selectAllCues()],
+            ["copy-cue", `${mod} + c`, () => actions.copySelectedCue()],
+            ["cut-cue", `${mod} + x`, () => actions.cutSelectedCues()],
+            ["paste-cue", `${mod} + v`, () => void actions.pasteClipboardCues()],
+            ["duplicate-cue", `${mod} + d`, () => actions.duplicateSelectedCue()],
+            ["split-cue", `${mod} + t`, () => void actions.splitSelectedCueAtPlayhead()],
+            ["delete-cue", "delete", () => { if (hasCueSelection) actions.deleteSelectedCue(); }],
+            ["delete-cue-backspace", "backspace", () => { if (hasCueSelection) actions.deleteSelectedCue(); }],
+            ["deselect-cue", "escape", () => actions.setCueSelection(null)],
+          ]
+        : [
+            ["select-all-regions", `${mod} + a`, () => actions.setSelectedRegionKeys(allRegionSelKeys(songs))],
+            ["copy-regions", `${mod} + c`, () => actions.copySelectedRegions()],
+            ["cut-regions", `${mod} + x`, () => actions.cutSelectedRegions()],
+            ["paste-regions", `${mod} + v`, () => void actions.pasteClipboardRegions()],
+            ["duplicate-regions", `${mod} + d`, () => actions.duplicateSelectedRegions()],
+            ["split-regions", `${mod} + t`, () => void actions.splitSelectedAtPlayhead()],
+            ["delete-regions", "delete", () => { if (selectedRegionKeys.length) actions.deleteSelectedRegions(); }],
+            ["delete-regions-backspace", "backspace", () => { if (selectedRegionKeys.length) actions.deleteSelectedRegions(); }],
+            ["deselect-regions", "escape", () => actions.setSelectedRegionKeys([])],
+          ];
+    return commands.map(([id, key, handler]) =>
+      hotkeyManager.registerCommand(
+        `timeline.${id}`,
+        key,
+        { scope, priority: 100 },
+        handler,
+      ),
+    ).reduce((disposeAll, dispose) => () => { dispose(); disposeAll(); }, () => {});
   }, [
     readOnly,
     effectiveViewMode,

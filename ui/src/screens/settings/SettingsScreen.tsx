@@ -106,6 +106,8 @@ function Field({
 }
 
 import { keyEventToDescription } from "../../lib/interaction/keyEvents";
+import { hotkeyManager } from "../../lib/interaction/HotkeyManager";
+import { sendKeyCaptureActive } from "../../lib/platform/electronBridge";
 
 /** Human labels for the action catalogue (transport / mode / sections). */
 const ACTION_LABELS: Record<string, string> = {
@@ -144,6 +146,7 @@ function BindingRow({
   action,
   currentKey,
   midi,
+  midiAssignable = false,
   learning,
   lastAction,
   lastActionNonce,
@@ -151,6 +154,7 @@ function BindingRow({
   action: string;
   currentKey: string;
   midi?: MidiBindingRow;
+  midiAssignable?: boolean;
   learning: boolean;
   lastAction: string;
   lastActionNonce: number;
@@ -159,6 +163,8 @@ function BindingRow({
 
   useEffect(() => {
     if (!listening) return;
+    const releaseHotkeyCapture = hotkeyManager.beginKeyCapture();
+    sendKeyCaptureActive(true);
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -168,8 +174,11 @@ function BindingRow({
         void settingsApi.setKeybinding(action, desc);
     };
     window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () =>
+    return () => {
       window.removeEventListener("keydown", onKeyDown, { capture: true });
+      releaseHotkeyCapture();
+      sendKeyCaptureActive(false);
+    };
   }, [listening, action]);
 
   // Flash only on a *new* nonce for this action — not when Settings mounts
@@ -225,7 +234,7 @@ function BindingRow({
             Click, then press a key (Esc cancels)
           </Tooltip.Content>
         </Tooltip>
-        <Tooltip>
+        {midiAssignable && <Tooltip>
           <ToggleButton
             size="sm"
             tone="accent-soft"
@@ -249,8 +258,8 @@ function BindingRow({
           <Tooltip.Content>
             Arm MIDI learn — press a pad or CC on the remote input
           </Tooltip.Content>
-        </Tooltip>
-        {midiBound && !learning && (
+        </Tooltip>}
+        {midiAssignable && midiBound && !learning && (
           <Button
             size="sm"
             variant="ghost"
@@ -402,6 +411,27 @@ function AudioTab({ state }: { state: WebUiState }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <Section
+        title="Recording Count-In"
+        description="Play complete bars of the song's click before recording begins. The timeline counts in from the previous bar line and captures at the original cursor position."
+      >
+        <Field label="Count-in length">
+          <Select
+            aria-label="Recording count-in length"
+            options={[
+              { id: "0", label: "Off" },
+              { id: "1", label: "1 bar" },
+              { id: "2", label: "2 bars" },
+            ]}
+            value={String(s.countInBars ?? 0)}
+            onChange={(value) => void settingsApi.setCountInBars(Number(value))}
+          />
+          <div className="mt-1 text-xs text-foreground/45">
+            Uses the active song's tempo, meter, and click routing; enable the metronome to hear the count. Saved on this device.
+          </div>
+        </Field>
+      </Section>
+
       {devicesEmpty && (
         <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
           Waiting for audio/MIDI device list from the app… If this stays empty,
@@ -665,17 +695,14 @@ function LongImportSection() {
 function MidiTab({ state }: { state: WebUiState }) {
   const s = state.settings;
   const keyByAction = new Map(s.keybindings.map((kb) => [kb.action, kb.key]));
+  const keybindingByAction = new Map(s.keybindings.map((kb) => [kb.action, kb]));
   const midiByAction = new Map(
     (s.midiBindings ?? []).map((mb) => [mb.action, mb]),
   );
   const learningAction = s.midiLearnAction ?? "";
 
-  // The engine reports which ports EXIST but not which one it has open, so
-  // these two pickers remember the session's choice locally. That is exactly
-  // what the uncontrolled `<select defaultValue="">` they replace did -- the
-  // difference is that the state is now visible rather than living in the DOM.
+  // Output is session-local for now; input is authoritative Core preference.
   const [midiOutValue, setMidiOutValue] = useState("");
-  const [midiInValue, setMidiInValue] = useState("");
 
   return (
     <div className="flex flex-col gap-4">
@@ -692,15 +719,17 @@ function MidiTab({ state }: { state: WebUiState }) {
             }}
           />
         </Field>
-        <Field label="MIDI remote input (footswitch / pads)">
+        <Field label="MIDI input device">
           <Select
-            aria-label="MIDI remote input"
-            placeholder="Select MIDI remote…"
-            options={s.midiInputs.map((m) => ({ id: m, label: m }))}
-            value={midiInValue}
+            aria-label="MIDI input device"
+            options={[
+              { id: "none", label: "None (default)" },
+              { id: "All Inputs", label: "All Inputs" },
+              ...s.midiInputs.filter((name) => name !== "All Inputs").map((name) => ({ id: name, label: name })),
+            ]}
+            value={s.currentMidiInput || "none"}
             onChange={(m) => {
-              setMidiInValue(m);
-              void settingsApi.setMidiInput(m);
+              void settingsApi.setMidiInput(m === "none" ? "" : m);
             }}
           />
         </Field>
@@ -728,7 +757,7 @@ function MidiTab({ state }: { state: WebUiState }) {
 
       <Section
         title="Keyboard & MIDI Shortcuts"
-        description="Click a key binding and press a key (Esc cancels). Click a MIDI binding, then press a pad/CC on the remote input to learn."
+        description="Global actions can be rebound and are saved in app settings. Editor selection and note-editing gestures stay fixed and context-scoped. MIDI Learn is limited to transport, navigation, and performance controls."
       >
         <div className="flex flex-col gap-4">
           {ACTION_GROUPS.map((group) => (
@@ -741,6 +770,7 @@ function MidiTab({ state }: { state: WebUiState }) {
                   key={action}
                   action={action}
                   currentKey={keyByAction.get(action) ?? ""}
+                  midiAssignable={keybindingByAction.get(action)?.midiAssignable}
                   midi={midiByAction.get(action)}
                   learning={learningAction === action}
                   lastAction={state.lastAction}
@@ -759,6 +789,7 @@ function MidiTab({ state }: { state: WebUiState }) {
                 key={kb.action}
                 action={kb.action}
                 currentKey={kb.key}
+                midiAssignable={kb.midiAssignable}
                 midi={midiByAction.get(kb.action)}
                 learning={learningAction === kb.action}
                 lastAction={state.lastAction}

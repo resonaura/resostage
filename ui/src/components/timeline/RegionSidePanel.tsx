@@ -13,6 +13,7 @@ import {
   type CrossfadeShape,
 } from "./crossfade";
 import { SidePanelShell } from "./SidePanelShell";
+import { TrackStateButtons } from "./TrackStateButtons";
 import type { RegionSelKey } from "./regionUtils";
 import { lookupAnyRegion, lookupRegion } from "./regionUtils";
 
@@ -269,48 +270,11 @@ export function RegionSidePanel({
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
-                    Mute
-                    <Switch
-                      aria-label="Mute track"
-                      isSelected={activeTrack.mute}
-                      onChange={(value) =>
-                        void mixer.setTrackMute(activeTrackIndex, value)
-                      }
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
-                    Solo
-                    <Switch
-                      aria-label="Solo track"
-                      isSelected={activeTrack.solo}
-                      onChange={(value) =>
-                        void mixer.setTrackSolo(activeTrackIndex, value)
-                      }
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
-                    Record
-                    <Switch
-                      aria-label="Record-enable track"
-                      isSelected={activeTrack.recordArmed ?? false}
-                      onChange={(value) =>
-                        void mixer.setTrackRecordArm(activeTrackIndex, value)
-                      }
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded border border-default/25 px-2 py-1.5 text-[10px] font-semibold">
-                    Monitor
-                    <Switch
-                      aria-label="Monitor track input"
-                      isSelected={activeTrack.inputMonitoring ?? false}
-                      onChange={(value) =>
-                        void mixer.setTrackInputMonitor(activeTrackIndex, value)
-                      }
-                    />
-                  </div>
-                </div>
+                <TrackStateButtons
+                  track={activeTrack}
+                  index={activeTrackIndex}
+                  focused={activeTrack.id === selectedTrackId}
+                />
 
                 {activeTrack.inputSource && (
                   <div className="flex items-center justify-between text-[10px] text-muted">

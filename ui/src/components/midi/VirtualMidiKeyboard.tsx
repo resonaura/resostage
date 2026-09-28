@@ -13,6 +13,7 @@ import type { WebUiState } from "../../lib/state/types";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { getTrackColor } from "../timeline/constants";
 import { getActiveMidiPitches } from "./activeMidiPitches";
+import { TrackStateButtons } from "../timeline/TrackStateButtons";
 import { Slider } from "../ui";
 
 // FL Studio / Logic Pro QWERTY typing keyboard mappings
@@ -350,7 +351,7 @@ export function VirtualMidiKeyboard({
           ? getActiveMidiPitches(state, activeInstrument.id)
           : []),
       ]),
-    [activeNotes, state, activeInstrument?.id],
+    [activeNotes, state, activeInstrument],
   );
 
   // Track has instrument plugin loaded
@@ -780,49 +781,12 @@ export function VirtualMidiKeyboard({
                   {activeInstrument.name}
                 </span>
               )}
-              <button
-                type="button"
-                onClick={() =>
-                  void mixer.setTrackRecordArm(
-                    activeInstrumentIndex,
-                    !activeInstrument.recordArmed,
-                  )
-                }
-                title={
-                  activeInstrument.recordArmed
-                    ? "Armed for record/input"
-                    : "Click to Record Arm"
-                }
-                className={`flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold transition-colors ${
-                  activeInstrument.recordArmed
-                    ? "bg-(--rs-record,#ff3b30) text-white shadow-[0_0_8px_rgba(255,59,48,0.6)]"
-                    : "bg-default/30 text-foreground/50 hover:bg-default/50"
-                }`}
-              >
-                R
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void mixer.setTrackInputMonitor(
-                    activeInstrumentIndex,
-                    !activeInstrument.inputMonitoring,
-                  )
-                }
-                title={
-                  activeInstrument.inputMonitoring
-                    ? "Stop monitoring this instrument"
-                    : "Monitor this instrument alongside the focused track"
-                }
-                className={`flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold transition-colors ${
-                  activeInstrument.inputMonitoring
-                    ? "bg-(--rs-monitor,#ff9500) text-neutral-950 shadow-[0_0_8px_rgba(255,149,0,0.6)]"
-                    : "bg-default/30 text-foreground/50 hover:bg-default/50"
-                }`}
-                aria-label="Input Monitoring"
-              >
-                I
-              </button>
+              <TrackStateButtons
+                track={activeInstrument}
+                index={activeInstrumentIndex}
+                focused
+                compact
+              />
               {!hasInstrumentPlugin && (
                 <span
                   className="text-[9px] text-warning/80 font-mono hidden sm:inline ml-1"

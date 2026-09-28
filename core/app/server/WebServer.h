@@ -113,9 +113,11 @@ enum class WebCommandKind : uint8_t {
     PluginScanCancel,
     PluginSetEnabled,
     PluginSlotAdd,
+    PluginSlotReplace,
     PluginSlotRemove,
     PluginSlotMove,
     PluginSlotBypass,
+    PluginSlotRetry,
     PluginSlotOpenEditor,
     PluginSlotKeepAwake,
     PluginSlotPark,
@@ -150,6 +152,7 @@ enum class WebCommandKind : uint8_t {
     BuilderSongUpdate,
     BuilderSongEnd,
     BuilderTrackAdd,
+    BuilderTrackDuplicate,
     BuilderTrackRemove,
     BuilderTrackMove,
     BuilderTrackUpdate,
@@ -241,6 +244,7 @@ enum class WebCommandKind : uint8_t {
     SetUiRenderEngine,
     SetTheme,
     SetKeybinding,
+    SetCountInBars,
     SetOutputChannels,
     SetInputChannels,
     // MIDI learn / clear for a named action (see Project::midiMappings).
@@ -294,6 +298,8 @@ struct WebUiState {
         bool hasState = false;
         bool keepAwake = false;
         std::string powerState = "active";
+        std::string loadState = "loading";
+        std::string loadError;
     };
 
     std::string projectName;
@@ -359,6 +365,8 @@ struct WebUiState {
     double bpm = 0.0;
     bool playing = false;
     bool recording = false;
+    bool recordingCountIn = false;
+    int recordingCountInBeatsRemaining = 0;
     bool autoInputMonitoring = true;
     bool autoPunchEnabled = false;
     int64_t punchStartSample = 0;
@@ -950,6 +958,7 @@ struct WebUiState {
         double roundtripLatencyMs = 0.0;
         std::vector<std::string> midiOutputs;
         std::vector<std::string> midiInputs;
+        std::string currentMidiInput;
         // Whether CoreMidiDispatcher's "ResoStage Sync" virtual source (see
         // CoreMidiDispatcher::hasVirtualSource()) is currently enabled --
         // lets a DAW pick it as a MIDI In to test clock/transport sync
@@ -957,9 +966,12 @@ struct WebUiState {
         bool virtualMidiPortEnabled = false;
         std::string uiRenderEngine = "wkwebview";
         std::string theme = "default";
+        int countInBars = 1;
+        int countInPreferredBars = 1;
         struct Keybinding {
             std::string action;
             std::string key;
+            bool midiAssignable = false;
         };
         std::vector<Keybinding> keybindings;
         // Per-action MIDI remote bindings (Project::midiMappings, keyed by

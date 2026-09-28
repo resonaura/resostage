@@ -68,6 +68,9 @@ export interface PluginSlotRow {
   hasState: boolean;
   keepAwake?: boolean;
   powerState?: "active" | "quiescent" | "suspended" | "parked";
+  /** Runtime processor state; never persisted in the project. */
+  loadState?: "loading" | "loaded" | "missing" | "failed";
+  loadError?: string;
 }
 
 export interface Click {
@@ -774,6 +777,7 @@ export interface HealthState {
 export interface KeybindingRow {
   action: string;
   key: string;
+  midiAssignable?: boolean;
 }
 
 export interface MidiBindingRow {
@@ -813,12 +817,15 @@ export interface SettingsState {
   roundtripLatencyMs?: number;
   midiOutputs: string[];
   midiInputs: string[];
+  currentMidiInput?: string;
   /** Whether the "AboutStage Sync" virtual MIDI source is enabled (see settings.setMidiVirtualPort). */
   virtualMidiPortEnabled: boolean;
   /** "browser" = open the SPA in the system browser (default), "electron" = Electron shell. */
   uiRenderEngine?: "browser" | "electron";
   /** Active UI theme name ("default", "sunset", "forest", "purple", "pinky", "sky", "blue", "mono"). */
   theme?: string;
+  countInBars?: number;
+  countInPreferredBars?: number;
   /** Whether advanced send tap routing (Pre-Fader / Post-Fader / Post-Pan) is shown in the mixer. */
   advancedSendRouting?: boolean;
   keybindings: KeybindingRow[];
@@ -954,6 +961,8 @@ export interface WebUiState {
   bpm: number;
   playing: boolean;
   recording?: boolean;
+  recordingCountIn?: boolean;
+  recordingCountInBeatsRemaining?: number;
   autoInputMonitoring?: boolean;
   autoPunchEnabled?: boolean;
   punchStartSample?: number;
@@ -1029,6 +1038,8 @@ export const emptyState: WebUiState = {
   bpm: 0,
   playing: false,
   recording: false,
+  recordingCountIn: false,
+  recordingCountInBeatsRemaining: 0,
   hardwareAlarm: false,
   lastAction: "",
   lastActionNonce: 0,
@@ -1120,7 +1131,10 @@ export const emptyState: WebUiState = {
     roundtripLatencyMs: 0,
     midiOutputs: [],
     midiInputs: [],
+    currentMidiInput: "",
     virtualMidiPortEnabled: false,
+    countInBars: 1,
+    countInPreferredBars: 1,
     advancedSendRouting:
       typeof localStorage !== "undefined"
         ? localStorage.getItem("resostage:advanced-send-routing") === "true"

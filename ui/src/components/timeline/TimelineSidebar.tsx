@@ -2,6 +2,7 @@ import { Plus, Music, Mic, Sliders } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "../ui";
 import { triggerHaptic } from "../../lib/interaction/haptics";
+import { beginCancellableDrag, type CancellableDrag } from "../../lib/interaction/dragCancel";
 import {
   ContextMenu,
   ContextMenuDivider,
@@ -31,6 +32,7 @@ import type { TimelineRow } from "./rows";
 import { TimelineRowLabel } from "./TimelineRowLabel";
 import type { TimelineViewMode } from "./TimelineToolbar";
 import { TrackHeaderControl } from "./TrackHeaderControl";
+import { trackSelectionGesture, type TrackSelectionGesture } from "./trackSelection";
 
 const laneHeaderCls =
   "shrink-0 border-b border-default/30 px-2.5 font-bold uppercase flex items-center bg-background-tertiary";
@@ -54,6 +56,7 @@ export function TimelineSidebar({
   onSelectTrack,
   onWheel,
   onAutoScroll,
+  onTrackReorderPreview,
 }: {
   state: WebUiState;
   rows: TimelineRow[];
@@ -70,9 +73,14 @@ export function TimelineSidebar({
   sidebarContentRef: React.RefObject<HTMLDivElement | null>;
   selectedTrackId?: string | null;
   selectedTrackIds?: string[];
-  onSelectTrack?: (id: string | null, additive?: boolean) => void;
+  onSelectTrack?: (id: string | null, gesture?: TrackSelectionGesture) => void;
   onWheel?: (e: React.WheelEvent) => void;
   onAutoScroll?: (deltaY: number) => void;
+  onTrackReorderPreview?: (preview: {
+    index: number;
+    kind: "audio" | "light";
+    dropSlot: number;
+  } | null) => void;
 }) {
   const [addTrackMenu, setAddTrackMenu] = useState<{
     x: number;
@@ -105,12 +113,6 @@ export function TimelineSidebar({
     name: string;
   } | null>(null);
 
-  const [dragState, setDragState] = useState<{
-    index: number;
-    kind: "audio" | "light";
-    dropSlot: number;
-  } | null>(null);
-
   const dragRef = useRef<{
     active: boolean;
     startX: number;
@@ -124,14 +126,32 @@ export function TimelineSidebar({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRafRef = useRef<number | null>(null);
+  const cancellableDragRef = useRef<CancellableDrag | null>(null);
+
+  const clearDrag = useCallback(() => {
+    if (autoScrollRafRef.current !== null) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+    cancellableDragRef.current?.end();
+    cancellableDragRef.current = null;
+    dragRef.current = null;
+    onTrackReorderPreview?.(null);
+  }, [onTrackReorderPreview]);
 
   useEffect(() => {
-    return () => {
-      if (autoScrollRafRef.current) {
-        cancelAnimationFrame(autoScrollRafRef.current);
-      }
+    const cancel = () => cancellableDragRef.current?.cancel();
+    window.addEventListener("blur", cancel);
+    const onVisibilityChange = () => {
+      if (document.hidden) cancel();
     };
-  }, []);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", cancel);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      clearDrag();
+    };
+  }, [clearDrag]);
 
   const calculateSlot = useCallback(
     (clientY: number, kind: "audio" | "light"): number => {
@@ -141,14 +161,11 @@ export function TimelineSidebar({
         sidebarContentRef.current?.querySelectorAll<HTMLElement>(selector) ?? [],
       );
       if (els.length === 0) return 0;
-      for (let i = 0; i < els.length; i++) {
-        const r = els[i].getBoundingClientRect();
-        const mid = r.top + r.height / 2;
-        if (clientY < mid) {
-          return i;
-        }
-      }
-      return els.length;
+      // Rows move during preview, but their slots stay on a fixed grid. Use
+      // geometry rather than row identity to avoid preview oscillation.
+      const first = els[0].getBoundingClientRect();
+      return Math.max(0, Math.min(els.length,
+        Math.floor((clientY - first.top) / first.height + 0.5)));
     },
     [sidebarContentRef],
   );
@@ -184,14 +201,14 @@ export function TimelineSidebar({
           if (slot !== d.dropSlot) {
             d.dropSlot = slot;
             triggerHaptic("alignment");
-            setDragState((prev) => (prev ? { ...prev, dropSlot: slot } : null));
+            onTrackReorderPreview?.({ index: d.index, kind: d.kind, dropSlot: slot });
           }
         }
       }
       autoScrollRafRef.current = requestAnimationFrame(tick);
     };
     autoScrollRafRef.current = requestAnimationFrame(tick);
-  }, [onAutoScroll, calculateSlot]);
+  }, [onAutoScroll, calculateSlot, onTrackReorderPreview]);
 
   const handleTrackPointerDown = (
     e: React.PointerEvent,
@@ -219,11 +236,20 @@ export function TimelineSidebar({
       pointerId: e.pointerId,
     };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    cancellableDragRef.current?.end();
+    const captureTarget = e.currentTarget as HTMLElement;
+    cancellableDragRef.current = beginCancellableDrag(() => {
+      try {
+        if (captureTarget.hasPointerCapture(e.pointerId))
+          captureTarget.releasePointerCapture(e.pointerId);
+      } catch { /* Pointer capture may already be gone. */ }
+      clearDrag();
+    });
   };
 
   const handleTrackPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
-    if (!d) return;
+    if (!d || d.pointerId !== e.pointerId) return;
     d.lastY = e.clientY;
 
     if (!d.active) {
@@ -233,7 +259,7 @@ export function TimelineSidebar({
         triggerHaptic("generic");
         const slot = calculateSlot(e.clientY, d.kind);
         d.dropSlot = slot;
-        setDragState({ index: d.index, kind: d.kind, dropSlot: slot });
+        onTrackReorderPreview?.({ index: d.index, kind: d.kind, dropSlot: slot });
         startAutoScrollLoop();
       }
       return;
@@ -243,13 +269,13 @@ export function TimelineSidebar({
     if (slot !== d.dropSlot) {
       d.dropSlot = slot;
       triggerHaptic("alignment");
-      setDragState((prev) => (prev ? { ...prev, dropSlot: slot } : null));
+      onTrackReorderPreview?.({ index: d.index, kind: d.kind, dropSlot: slot });
     }
   };
 
   const handleTrackPointerUp = (e: React.PointerEvent) => {
     const d = dragRef.current;
-    if (!d) return;
+    if (!d || d.pointerId !== e.pointerId) return;
 
     if (autoScrollRafRef.current) {
       cancelAnimationFrame(autoScrollRafRef.current);
@@ -275,32 +301,26 @@ export function TimelineSidebar({
           void lighting.trackMove(fromIndex, { to: toIndex });
         }
       }
-      setDragState(null);
     } else if (e.type === "pointerup") {
       // Pointer capture suppresses the usual click path in some browsers;
       // treat a sub-threshold gesture as selection, not as a no-op.
       if (d.kind === "audio") {
-        void mixer.setFocusedTrack(d.index);
-        onSelectTrack?.(state.tracks[d.index]?.id ?? null, e.shiftKey);
+        onSelectTrack?.(state.tracks[d.index]?.id ?? null, trackSelectionGesture(e));
       } else {
         setSidePanelTrackIndex(d.index);
         setCueSelection(null);
       }
     }
 
-    dragRef.current = null;
+    clearDrag();
   };
 
   const handleTrackPointerCancel = (e: React.PointerEvent) => {
-    if (autoScrollRafRef.current) {
-      cancelAnimationFrame(autoScrollRafRef.current);
-      autoScrollRafRef.current = null;
-    }
+    if (dragRef.current?.pointerId !== e.pointerId) return;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {}
-    dragRef.current = null;
-    setDragState(null);
+    clearDrag();
   };
 
   const handleAddTrack = async (kind: "audio" | "instrument", channels = 2) => {
@@ -414,28 +434,18 @@ export function TimelineSidebar({
                 <span>Use the Track button above to add one</span>
               </div>
             ) : (
-              lightTracks.map((t, i) => {
-                const isDraggingAny = dragState !== null;
-                const isDraggingThis =
-                  dragState?.kind === "light" && dragState.index === i;
-                const showDropAbove =
-                  dragState?.kind === "light" && dragState.dropSlot === i;
-                const showDropBelow =
-                  dragState?.kind === "light" &&
-                  dragState.dropSlot === lightTracks.length &&
-                  i === lightTracks.length - 1;
+              lightTracks.map((t) => {
+                const i = state.lighting.tracks?.findIndex((track) => track.id === t.id) ?? 0;
 
                 return (
                   <div key={t.id} className="relative">
-                    {showDropAbove && (
-                      <div className="absolute top-0 left-1 right-1 z-40 -translate-y-1/2 h-1 rounded-full bg-accent shadow-[0_0_10px_var(--rs-accent)] animate-pulse" />
-                    )}
                     <div
                       data-light-track-index={i}
                       onPointerDown={(e) => handleTrackPointerDown(e, i, "light")}
                       onPointerMove={handleTrackPointerMove}
                       onPointerUp={handleTrackPointerUp}
                       onPointerCancel={handleTrackPointerCancel}
+                      onLostPointerCapture={handleTrackPointerCancel}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -448,15 +458,7 @@ export function TimelineSidebar({
                           track: t,
                         });
                       }}
-                      className={`transition-all duration-150 relative ${
-                        isDraggingAny && !isDraggingThis
-                          ? "filter grayscale opacity-40 pointer-events-none"
-                          : ""
-                      } ${
-                        isDraggingThis
-                          ? "z-30 shadow-2xl ring-2 ring-accent scale-[1.01] bg-surface-elevated opacity-100 rounded-sm"
-                          : ""
-                      }`}
+                      className="relative"
                     >
                       <LightTrackHeader
                         track={t}
@@ -471,9 +473,6 @@ export function TimelineSidebar({
                         }}
                       />
                     </div>
-                    {showDropBelow && (
-                      <div className="absolute bottom-0 left-1 right-1 z-40 translate-y-1/2 h-1 rounded-full bg-accent shadow-[0_0_10px_var(--rs-accent)] animate-pulse" />
-                    )}
                   </div>
                 );
               })
@@ -509,21 +508,8 @@ export function TimelineSidebar({
               }
 
               const trackIdx = row.headerIndex;
-              const isDraggingAny = dragState !== null;
-              const isDraggingThis =
-                dragState?.kind === "audio" && dragState.index === trackIdx;
-              const showDropAbove =
-                dragState?.kind === "audio" && dragState.dropSlot === trackIdx;
-              const showDropBelow =
-                dragState?.kind === "audio" &&
-                dragState.dropSlot === state.tracks.length &&
-                trackIdx === state.tracks.length - 1;
-
               return (
                 <div key={row.name} className="relative">
-                  {showDropAbove && (
-                    <div className="absolute top-0 left-1 right-1 z-40 -translate-y-1/2 h-1 rounded-full bg-accent shadow-[0_0_10px_var(--rs-accent)] animate-pulse" />
-                  )}
                   <div
                     data-track-index={trackIdx}
                     onPointerDown={(e) =>
@@ -532,6 +518,7 @@ export function TimelineSidebar({
                     onPointerMove={handleTrackPointerMove}
                     onPointerUp={handleTrackPointerUp}
                     onPointerCancel={handleTrackPointerCancel}
+                    onLostPointerCapture={handleTrackPointerCancel}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -541,22 +528,16 @@ export function TimelineSidebar({
                         trackIndex: trackIdx,
                         track: state.tracks[trackIdx] as TrackRow,
                       });
-                      void mixer.setFocusedTrack(trackIdx);
                       const trackId = state.tracks[trackIdx]?.id ?? null;
-                      onSelectTrack?.(
-                        trackId,
-                        Boolean(trackId && selectedAudioTrackIdSet.has(trackId)),
-                      );
+                      if (
+                        !trackId ||
+                        !selectedAudioTrackIdSet.has(trackId) ||
+                        e.shiftKey ||
+                        e.metaKey ||
+                        e.ctrlKey
+                      ) onSelectTrack?.(trackId, trackSelectionGesture(e));
                     }}
-                    className={`transition-all duration-150 relative ${
-                      isDraggingAny && !isDraggingThis
-                        ? "filter grayscale opacity-40 pointer-events-none"
-                        : ""
-                    } ${
-                      isDraggingThis
-                        ? "z-30 shadow-2xl ring-2 ring-accent scale-[1.01] bg-surface-elevated opacity-100 rounded-sm"
-                        : ""
-                    }`}
+                    className="relative"
                   >
                     <TrackHeaderControl
                       track={state.tracks[trackIdx] as TrackRow}
@@ -568,18 +549,17 @@ export function TimelineSidebar({
                       isSelected={
                         selectedAudioTrackIdSet.has(state.tracks[trackIdx]?.id)
                       }
-                      onSelect={(additive) => {
-                        void mixer.setFocusedTrack(trackIdx);
+                      isFocused={
+                        state.tracks[trackIdx]?.id === state.activeTrackId
+                      }
+                      onSelect={(gesture) => {
                         onSelectTrack?.(
                           state.tracks[trackIdx]?.id ?? null,
-                          additive,
+                          gesture,
                         );
                       }}
                     />
                   </div>
-                  {showDropBelow && (
-                    <div className="absolute bottom-0 left-1 right-1 z-40 translate-y-1/2 h-1 rounded-full bg-accent shadow-[0_0_10px_var(--rs-accent)] animate-pulse" />
-                  )}
                 </div>
               );
             })
@@ -653,6 +633,24 @@ export function TimelineSidebar({
             }}
           >
             Rename…
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={contextTrackIndices.length > 1}
+            onClick={() => {
+              void builder.trackDuplicate(trackMenu.trackIndex, false);
+              setTrackMenu(null);
+            }}
+          >
+            Duplicate Track
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={contextTrackIndices.length > 1}
+            onClick={() => {
+              void builder.trackDuplicate(trackMenu.trackIndex, true);
+              setTrackMenu(null);
+            }}
+          >
+            Duplicate Track with Content
           </ContextMenuItem>
           <ContextMenuDivider />
           <ContextMenuItem

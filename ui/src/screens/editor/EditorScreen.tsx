@@ -31,7 +31,12 @@ import {
   executeStemImport,
 } from "../../lib/audio/stemImport";
 import { Timeline } from "../../components/timeline";
+import {
+  resolveTrackSelection,
+  type TrackSelectionGesture,
+} from "../../components/timeline/trackSelection";
 import { PianoRoll } from "../../components/pianoroll";
+import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { MidiRegionSidePanel } from "../../components/pianoroll/MidiRegionSidePanel";
 import { getTrackColor } from "../../components/timeline/constants";
 import { songDurationSeconds } from "../../components/timeline/rows";
@@ -332,6 +337,16 @@ export function EditorScreen({
       return true;
     }
   });
+  const trackSelectionAnchorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    hotkeyManager.setScopeActive(HotkeyScope.Timeline, !compact && tab === "timeline");
+    hotkeyManager.setScopeActive(HotkeyScope.PianoRoll, !compact && tab === "pianoroll");
+    return () => {
+      hotkeyManager.setScopeActive(HotkeyScope.Timeline, false);
+      hotkeyManager.setScopeActive(HotkeyScope.PianoRoll, false);
+    };
+  }, [compact, tab]);
 
   const toggleInspector = useCallback(() => {
     setShowInspector((v) => {
@@ -348,16 +363,31 @@ export function EditorScreen({
 
   const handleSelectTrack = useCallback((
     trackId: string | null,
-    additive = false,
+    gesture: TrackSelectionGesture = "replace",
   ) => {
-    pendingUserTrackSelectRef.current = trackId;
-    setSelectedTrackId(trackId);
-    setSelectedTrackIds((current) => {
-      if (!trackId) return [];
-      if (!additive) return [trackId];
-      return current.includes(trackId) ? current : [...current, trackId];
-    });
-  }, []);
+    const next = resolveTrackSelection(
+      {
+        selectedIds: selectedTrackIds,
+        primaryId: selectedTrackId,
+        anchorId: trackSelectionAnchorRef.current,
+      },
+      state.tracks.map((track) => track.id),
+      trackId,
+      gesture,
+    );
+    pendingUserTrackSelectRef.current =
+      next.primaryId && next.primaryId !== state.activeTrackId
+        ? next.primaryId
+        : null;
+    trackSelectionAnchorRef.current = next.anchorId;
+    setSelectedTrackId(next.primaryId);
+    setSelectedTrackIds(next.selectedIds);
+    const focusedIndex = state.tracks.findIndex(
+      (track) => track.id === next.primaryId,
+    );
+    if (focusedIndex >= 0) void mixer.setFocusedTrack(focusedIndex);
+    else if (gesture === "toggle") void mixer.setFocusedTrack(-1);
+  }, [selectedTrackId, selectedTrackIds, state.activeTrackId, state.tracks]);
 
   useEffect(() => {
     if (!state.projectName) return;
@@ -365,6 +395,7 @@ export function EditorScreen({
     if (isNewProject) {
       lastProjectNameRef.current = state.projectName;
       pendingUserTrackSelectRef.current = null;
+      trackSelectionAnchorRef.current = state.activeTrackId || null;
       if (
         state.activeTrackId &&
         state.tracks.some((t) => t.id === state.activeTrackId)
@@ -389,6 +420,7 @@ export function EditorScreen({
       ) {
         setSelectedTrackId(state.activeTrackId);
         setSelectedTrackIds([state.activeTrackId]);
+        trackSelectionAnchorRef.current = state.activeTrackId;
       }
     }
   }, [state.activeTrackId, state.projectName, state.tracks, selectedTrackId]);
@@ -402,23 +434,15 @@ export function EditorScreen({
     );
   }, [state.tracks]);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "i" || e.key === "I") {
-        if (e.defaultPrevented) return;
-        const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-        if (tag === "input" || tag === "textarea") return;
-        if (
-          document.querySelector('[aria-label="Musical Typing"]') ||
-          document.querySelector('[aria-label="Virtual MIDI Keyboard"]')
-        )
-          return;
-        toggleInspector();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [toggleInspector]);
+  useEffect(
+    () => hotkeyManager.registerCommand(
+      "editor.toggle-inspector",
+      "i",
+      { scope: HotkeyScope.Timeline, priority: 100 },
+      toggleInspector,
+    ),
+    [toggleInspector],
+  );
 
   const [selectedMidiTrackId, setSelectedMidiTrackId] = useState<string | null>(
     null,
@@ -759,8 +783,9 @@ export function EditorScreen({
             }
 
             const activeTrack =
-              availableTracks.find((t) => t.id === state.activeTrackId) ||
+              availableTracks.find((t) => t.id === selectedTrackId) ||
               availableTracks.find((t) => t.id === selectedMidiTrackId) ||
+              availableTracks.find((t) => t.id === state.activeTrackId) ||
               availableTracks[0];
 
             const trackIndex = state.tracks.findIndex(
@@ -841,11 +866,7 @@ export function EditorScreen({
                 tracks={state.tracks}
                 onSelectTrack={(trackId) => {
                   setSelectedMidiTrackId(trackId);
-                  const focusedIndex = state.tracks.findIndex(
-                    (track) => track.id === trackId,
-                  );
-                  if (focusedIndex >= 0)
-                    void mixer.setFocusedTrack(focusedIndex);
+                  handleSelectTrack(trackId);
                   const firstRegion = midiRegions.find(
                     (r) => r.trackId === trackId,
                   );

@@ -1,8 +1,8 @@
-import { withHexAlpha } from "../../lib/theme/cssColor";
 import type { PeakLevelData, RegionRow } from "../../lib/state/types";
 import { TrackWaveformLane } from "../audio/TrackWaveformLane";
-import { dimHexColor } from "./colors";
 import { FadeCurveOverlay } from "./FadeCurveOverlay";
+import { RegionLoopBoundaries } from "./RegionLoopBoundaries";
+import { TimelineRegionFrame } from "./TimelineRegionFrame";
 import { isCompactLane, laneHeightPx } from "./laneDimensions";
 import type { RegionDragMode, RegionGeom } from "./regionDrag";
 import {
@@ -144,7 +144,12 @@ export function AudioRegionBlock({
 
   return (
     <div key={songRegion.id}>
-      <div
+      <TimelineRegionFrame
+        color={rowColor}
+        compact={compactLane}
+        selected={isRegionSelected}
+        muted={regionUi.muted}
+        dimmed={dimmed}
         className={`absolute overflow-hidden transition-opacity duration-300 ease-out ${
           compactLane
             ? // flex + items-center: real vertical centering (top% + translate
@@ -155,36 +160,11 @@ export function AudioRegionBlock({
         style={{
           left: leftPx,
           width: regionWidth,
-          border: compactLane
-            ? isRegionSelected
-              ? "2px solid #fff"
-              : `1px solid ${dimHexColor(rowColor, regionUi.muted ? 0.52 : 0.68, 1.2)}`
-            : isRegionSelected
-              ? `2px solid ${rowColor}`
-              : `1.5px solid ${withHexAlpha(rowColor, "55")}`,
-          background: compactLane
-            ? dimHexColor(
-                rowColor,
-                regionUi.muted ? 0.48 : 0.64,
-                regionUi.muted ? 1.05 : 1.22,
-              )
-            : isRegionSelected
-              ? withHexAlpha(rowColor, "30")
-              : withHexAlpha(rowColor, "12"),
-          boxShadow:
-            isRegionSelected && !compactLane
-              ? `0 0 0 1px ${withHexAlpha(rowColor, "aa")}, 0 0 10px ${withHexAlpha(rowColor, "44")}`
-              : isRegionSelected && compactLane
-                ? "0 0 0 1px rgba(255,255,255,0.5)"
-                : undefined,
           cursor: readOnly
             ? "default"
             : tool === "stretch"
               ? "default"
               : "grab",
-          // Dim the WHOLE region chrome (border/fill/label/waveform), not just
-          // the peaks canvas — mute + solo-isolate both go through here.
-          opacity: dimmed ? 0.35 : 1,
           zIndex: isRegionSelected ? 2 : 1,
         }}
         title={`${rowName} – Song ${songIndex + 1}: ${songName}${geom.loop ? " [loop]" : ""}`}
@@ -309,57 +289,17 @@ export function AudioRegionBlock({
           />
         )}
 
-        {geom.loop &&
-          (() => {
-            const cycleLen =
-              geom.loopLengthSeconds && geom.loopLengthSeconds > 0
-                ? geom.loopLengthSeconds
-                : maxSourceDur;
-            if (cycleLen <= 0.05 || geom.duration <= cycleLen + 0.01)
-              return null;
-            return Array.from({
-              length: Math.floor(geom.duration / cycleLen),
-            }).map((_, li) => {
-              const x = (li + 1) * cycleLen * pxPerSec;
-              if (x <= 2 || x >= regionWidth - 2) return null;
-              return (
-                <div
-                  key={`loop-${li}`}
-                  className="pointer-events-none absolute top-0 bottom-0 z-3"
-                  style={{ left: x }}
-                  title="Loop boundary"
-                >
-                  <div
-                    className="absolute left-1/2 top-0 -translate-x-1/2"
-                    style={{
-                      width: 0,
-                      height: 0,
-                      borderLeft: "4px solid transparent",
-                      borderRight: "4px solid transparent",
-                      borderTop: `6px solid ${rowColor}`,
-                      opacity: 0.9,
-                    }}
-                  />
-                  <div
-                    className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2"
-                    style={{ background: rowColor, opacity: 0.4 }}
-                  />
-                  <div
-                    className="absolute left-1/2 bottom-0 -translate-x-1/2"
-                    style={{
-                      width: 0,
-                      height: 0,
-                      borderLeft: "4px solid transparent",
-                      borderRight: "4px solid transparent",
-                      borderBottom: `6px solid ${rowColor}`,
-                      opacity: 0.9,
-                    }}
-                  />
-                </div>
-              );
-            });
-          })()}
-      </div>
+        <RegionLoopBoundaries
+          enabled={geom.loop}
+          durationPx={regionWidth}
+          loopLengthPx={
+            (geom.loopLengthSeconds && geom.loopLengthSeconds > 0
+              ? geom.loopLengthSeconds
+              : maxSourceDur) * pxPerSec
+          }
+          color={rowColor}
+        />
+      </TimelineRegionFrame>
     </div>
   );
 }

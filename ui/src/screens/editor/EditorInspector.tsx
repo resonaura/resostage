@@ -294,9 +294,10 @@ export function EditorInspector({
           open
           stripId={pluginTarget.stripId}
           stripName={pluginTarget.stripName}
+          track={selectedTrack?.id === pluginTarget.stripId ? selectedTrack : undefined}
           slots={
             selectedTrack && selectedTrack.id === pluginTarget.stripId
-              ? (selectedTrack.plugins?.filter((p) => !p.instrument) ?? [])
+              ? (selectedTrack.plugins ?? [])
               : (state.busses.find((b) => b.id === pluginTarget.stripId)
                   ?.plugins ?? [])
           }

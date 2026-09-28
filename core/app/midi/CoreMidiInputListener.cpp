@@ -67,7 +67,7 @@ void CoreMidiInputListener::notifyProc(const MIDINotification* message, void* re
         message->messageID == kMIDIMsgSetupChanged) {
         {
             std::lock_guard<std::mutex> lock(self->sourceMutex);
-            if (self->currentSourceName == "All Inputs" || self->currentSourceName.empty()) {
+            if (self->currentSourceName == "All Inputs") {
                 // Reconnect all available sources
                 for (MIDIEndpointRef src : self->connectedSources) {
                     if (self->inputPort != 0 && src != 0) {
@@ -170,6 +170,7 @@ void CoreMidiInputListener::closeSourceInternal() {
     }
     connectedSources.clear();
     source = 0;
+    currentSourceName.clear();
 }
 
 void CoreMidiInputListener::setMappings(std::vector<MidiMapping> newMappings) {

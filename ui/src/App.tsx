@@ -35,7 +35,7 @@ import { IS_ELECTRON } from "./lib/platform/electron";
 import { sendTypingFocus } from "./lib/platform/electronBridge";
 import { forwardMenuState } from "./lib/platform/electronBridge";
 import { IS_EMBEDDED } from "./lib/platform/embedded";
-import { keyEventToDescription } from "./lib/interaction/keyEvents";
+import { hotkeyManager, HotkeyScope } from "./lib/interaction/HotkeyManager";
 import type {
   AllPeaksResponse,
   PeaksResponse,
@@ -58,50 +58,38 @@ interface ToastNotification {
   message: string;
 }
 
-/** Match a key event against a juce-style description ("space", "cmd + p", "f1"). */
-function eventMatchesBinding(e: KeyboardEvent, description: string): boolean {
-  if (!description) return false;
-  // During capture, Escape is reported as __cancel__ -- for live matching
-  // treat plain Escape as the "escape" binding instead.
-  let desc = keyEventToDescription(e);
-  if (desc === "__cancel__") desc = "escape";
-  if (!desc) return false;
-  return desc === description.toLowerCase();
-}
-
 function useGlobalHotkeys(
   state: WebUiState,
   setTab: (tab: string) => void,
   isVirtualKeyboardOpen: boolean,
 ) {
-  const isVirtualKeyboardOpenRef = useRef(isVirtualKeyboardOpen);
-  isVirtualKeyboardOpenRef.current = isVirtualKeyboardOpen;
   const playingRef = useRef(state.playing);
   playingRef.current = state.playing;
   const playheadRef = useRef(state.playheadSeconds);
   playheadRef.current = state.playheadSeconds;
-  const bindingsRef = useRef(state.settings.keybindings);
-  bindingsRef.current = state.settings.keybindings;
   const songsRef = useRef(state.songs);
   songsRef.current = state.songs;
   const songIndexRef = useRef(state.songIndex);
   songIndexRef.current = state.songIndex;
   const lastSpaActionRef = useRef("");
   const lastSpaActionAtRef = useRef(0);
+  const bindingSignature = state.settings.keybindings
+    .map((binding) => `${binding.action}:${binding.key}`)
+    .join("|");
 
-  // When embedded in the native app, the MacKeyMonitor NSEvent handler
-  // processes all key bindings natively (play/stop/next/prev/mode/section/
-  // undo/redo). The frontend only handles hard-coded conveniences (digit
-  // song pick, arrow seek, Home) and sends the text-field focus signal so
-  // the native monitor can suppress hotkeys while the user types.
-  //
-  // In the Electron shell the native monitor belongs to a different (and
-  // inactive) process, so the SPA takes over ALL bindings -- exactly like a
-  // plain browser tab, except the shell also owns the native menu bar.
-  // Under the Electron shell, keep the shell told whether a text field has
-  // focus -- it dispatches the bindings itself and cannot see into the
-  // document, so without this a binding on a bare letter would eat that
-  // letter while someone is naming a track.
+  useEffect(() => hotkeyManager.mount(), []);
+  useEffect(() => {
+    hotkeyManager.setConfiguredBindings(state.settings.keybindings);
+  }, [bindingSignature]);
+  useEffect(() => {
+    hotkeyManager.setMusicalTypingActive(isVirtualKeyboardOpen);
+  }, [isVirtualKeyboardOpen]);
+
+  // Native hosts retain the OS-level capture adapter. In Electron, the shell
+  // forwards captured global actions to HotkeyManager; in a browser,
+  // HotkeyManager matches the persisted binding snapshot itself. In both
+  // cases action handlers and scoped editor commands have one renderer owner.
+  // The shell cannot inspect DOM focus, so keep its typing guard synchronized.
   useEffect(() => {
     if (!IS_ELECTRON) return;
     const update = () => {
@@ -111,7 +99,11 @@ function useGlobalHotkeys(
         (el.tagName === "INPUT" ||
           el.tagName === "TEXTAREA" ||
           el.isContentEditable);
-      sendTypingFocus(isInput || isVirtualKeyboardOpen);
+      sendTypingFocus(
+        isInput ||
+          el?.tagName === "SELECT" ||
+          isVirtualKeyboardOpen,
+      );
     };
     update();
     document.addEventListener("focusin", update);
@@ -124,126 +116,56 @@ function useGlobalHotkeys(
   }, [isVirtualKeyboardOpen]);
 
   useEffect(() => {
-    // Who owns the configurable bindings:
-    //
-    //   Electron shell  -> the shell's main process (before-input-event), so
-    //                      a shortcut and a menu click take the identical
-    //                      path and the menu-bar flash cannot go missing.
-    //   plain browser   -> here, because there is no shell to ask.
-    //
-    // The built-in conveniences (song digits, arrows, Home) are NOT in the
-    // binding table and run in BOTH modes -- the listener is always
-    // installed, and only the binding loop inside it is gated.
-    {
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.repeat) return;
-        const target = e.target as HTMLElement | null;
+    const unbind = state.settings.keybindings.map(({ action }) =>
+      hotkeyManager.registerActionHandler(action, (event) => {
+        const now = Date.now();
         if (
-          target &&
-          (target.tagName === "INPUT" ||
-            target.tagName === "TEXTAREA" ||
-            target.tagName === "SELECT" ||
-            target.isContentEditable)
-        ) {
-          return;
+          action === lastSpaActionRef.current &&
+          now - lastSpaActionAtRef.current < 120
+        ) return true;
+        lastSpaActionRef.current = action;
+        lastSpaActionAtRef.current = now;
+
+        void apiFetch("/api/v1/action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        }).catch(() => {
+          performAction(
+            action as ActionId,
+            songsRef.current,
+            songIndexRef.current,
+            playheadRef.current,
+            setTab,
+            playingRef.current,
+          );
+        });
+        if (action.startsWith("mode_")) {
+          const tabId = action.replace("mode_", "");
+          if (["player", "mixer", "editor", "light", "settings"].includes(tabId))
+            setTab(tabId);
         }
-
-        const hasModifier = e.metaKey || e.ctrlKey || e.altKey;
-        if (isVirtualKeyboardOpenRef.current && !hasModifier) {
-          // Virtual keyboard is active: ignore all un-modified hotkeys
-          // (song jumping digits 1-9, stop 0, transport space, arrows, etc.)
-          return;
-        }
-
-        // Space belongs to the transport, not to the browser.
-        //
-        // Left alone it does two things nobody wants here: it scrolls
-        // whatever is under the pointer, and it "clicks" whichever control
-        // happens to have focus -- so hitting play right after touching a
-        // mute button toggles that button instead. Suppressing the default
-        // outside text fields fixes both, and does not touch the binding: it
-        // is still a normal rebindable key, dispatched below (or by the shell
-        // under Electron), and the user can point it anywhere they like.
-        //
-        // The cost is that Space no longer toggles a focused checkbox or
-        // switch. Enter still does, and on a stage surface a stray Space
-        // toggling a control you cannot see is the worse failure.
-        if (e.code === "Space" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-          e.preventDefault();
-        }
-
-        // Configurable project keybindings (transport / mode / sections /
-        // bar_prev/bar_next / undo/redo). Route through the backend action
-        // endpoint so lastAction/nonce updates (native menu flash + settings
-        // dots). Mode switches also update the SPA tab optimistically.
-        // Anything in the binding table is the shell's under Electron.
-        // Bailing here rather than just skipping the loop is what stops the
-        // conveniences below from acting on a key the shell has already
-        // handled -- left/right are bound to bar_prev/bar_next, so without
-        // this every arrow press would seek twice.
-        const isBound = bindingsRef.current.some(
-          (kb) => kb.key && eventMatchesBinding(e, kb.key),
-        );
-        if (IS_ELECTRON && isBound) return;
-
-        for (const kb of bindingsRef.current) {
-          if (IS_ELECTRON) break;
-          if (!eventMatchesBinding(e, kb.key)) continue;
-          e.preventDefault();
-          e.stopPropagation();
-          const action = kb.action as ActionId;
-          const now = Date.now();
-          if (
-            action === lastSpaActionRef.current &&
-            now - lastSpaActionAtRef.current < 120
-          ) {
-            return;
-          }
-          lastSpaActionRef.current = action;
-          lastSpaActionAtRef.current = now;
-
-          void apiFetch("/api/v1/action", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action }),
-          }).catch(() => {
-            // Backend unreachable -- fall back to local handling.
-            performAction(
-              action,
-              songsRef.current,
-              songIndexRef.current,
-              playheadRef.current,
-              setTab,
-              playingRef.current,
-            );
-          });
-          if (action.startsWith("mode_")) {
-            const tabId = action.replace("mode_", "");
-            if (
-              tabId === "player" ||
-              tabId === "mixer" ||
-              tabId === "editor" ||
-              tabId === "light" ||
-              tabId === "settings"
-            )
-              setTab(tabId);
-          }
-          return;
-        }
-
-        // Built-in conveniences that aren't rebindable yet.
-        const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
-        if (e.key >= "1" && e.key <= "9" && plain) {
-          const songIdx = parseInt(e.key, 10) - 1;
-          e.preventDefault();
-          e.stopPropagation();
-          void transport.select(songIdx);
-        } else if (e.key === "0" && plain) {
-          // 0 sits at the end of the song-picker row and means "back to the
-          // top", which is the same thing the Stop button does -- the one
-          // key you want under your hand when a cue goes wrong.
-          e.preventDefault();
-          e.stopPropagation();
+        if (event?.code === "Space") event.preventDefault();
+        return true;
+      }),
+    );
+    const unbindBuiltins = [
+      ...Array.from({ length: 9 }, (_, index) =>
+        hotkeyManager.registerCommand(
+          `song-select-${index + 1}`,
+          String(index + 1),
+          { scope: HotkeyScope.Global, priority: 0 },
+          () => {
+            void transport.select(index);
+            return true;
+          },
+        ),
+      ),
+      hotkeyManager.registerCommand(
+        "stop-and-rewind",
+        "0",
+        { scope: HotkeyScope.Global, priority: 0 },
+        () => {
           void apiFetch("/api/v1/action", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -252,38 +174,30 @@ function useGlobalHotkeys(
             void transport.stop();
             void transport.seek(0);
           });
-        } else if (e.code === "ArrowLeft") {
-          e.preventDefault();
-          performAction(
-            "bar_prev",
-            songsRef.current,
-            songIndexRef.current,
-            playheadRef.current,
-            setTab,
-            playingRef.current,
-          );
-        } else if (e.code === "ArrowRight") {
-          e.preventDefault();
-          performAction(
-            "bar_next",
-            songsRef.current,
-            songIndexRef.current,
-            playheadRef.current,
-            setTab,
-            playingRef.current,
-          );
-        } else if (e.code === "Home") {
-          e.preventDefault();
+          return true;
+        },
+      ),
+      hotkeyManager.registerCommand(
+        "seek-to-start",
+        "home",
+        { scope: HotkeyScope.Global, priority: 0 },
+        () => {
           void transport.seek(0);
-        }
-      };
-
-      window.addEventListener("keydown", handleKeyDown, { capture: true });
-      return () => {
-        window.removeEventListener("keydown", handleKeyDown, { capture: true });
-      };
-    }
-  }, [setTab]);
+          return true;
+        },
+      ),
+    ];
+    const onShellHotkey = (event: Event) => {
+      const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+      if (action) hotkeyManager.dispatchAction(action);
+    };
+    window.addEventListener("resostage-hotkey", onShellHotkey);
+    return () => {
+      unbind.forEach((dispose) => dispose());
+      unbindBuiltins.forEach((dispose) => dispose());
+      window.removeEventListener("resostage-hotkey", onShellHotkey);
+    };
+  }, [bindingSignature, setTab]);
 
   // Text-field focus signal: tell the native side when an editable element
   // is focused so MacKeyMonitor suppresses hotkeys (embedded only).
@@ -352,25 +266,23 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() =>
+    hotkeyManager.registerActionHandler("toggle_musical_typing", () => {
+      toggleVirtualKeyboard();
+      return true;
+    }), [toggleVirtualKeyboard]);
+
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
-        const activeEl = document.activeElement as HTMLElement | null;
-        if (
-          activeEl &&
-          (activeEl.tagName === "INPUT" ||
-            activeEl.tagName === "TEXTAREA" ||
-            activeEl.tagName === "SELECT" ||
-            activeEl.isContentEditable)
-        ) {
-          return;
-        }
-        e.preventDefault();
+    const mod = /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ? "cmd" : "ctrl";
+    return hotkeyManager.registerCommand(
+      "keyboard.toggle-musical-typing",
+      `${mod} + k`,
+      { scope: HotkeyScope.Global, priority: 100 },
+      () => {
         toggleVirtualKeyboard();
-      }
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+        return true;
+      },
+    );
   }, [toggleVirtualKeyboard]);
 
   useEffect(() => {
@@ -428,6 +340,20 @@ export default function App() {
     sendTelemetryHz,
     hasLiveSnapshot,
   } = useLiveState(tab);
+  const [coreExit, setCoreExit] = useState<{
+    code: number | null;
+    signal: string | null;
+    logPath: string;
+    occurredAt: string;
+  } | null>(null);
+  useEffect(() => {
+    const onCoreExit = (event: Event) => {
+      const detail = (event as CustomEvent<typeof coreExit>).detail;
+      if (detail) setCoreExit(detail);
+    };
+    window.addEventListener("resostage-core-process-exit", onCoreExit);
+    return () => window.removeEventListener("resostage-core-process-exit", onCoreExit);
+  }, []);
 
   useGlobalHotkeys(state, setTab, isVirtualKeyboardOpen);
   // One frame budget for the whole UI -- see usePerformanceMode. Mounted here
@@ -764,6 +690,30 @@ export default function App() {
           />
         </div>
       </header>
+
+      {coreExit || (hasLiveSnapshot && status !== "live") ? (
+        <div
+          role="alert"
+          className="flex shrink-0 items-start gap-3 border-b border-danger/35 bg-danger/10 px-4 py-2.5 text-xs text-foreground"
+        >
+          <AlertTriangle size={15} className="mt-0.5 shrink-0 text-danger" />
+          <div className="min-w-0">
+            <p className="font-semibold text-danger">
+              {coreExit ? "ResoStage Core stopped unexpectedly" : "Backend connection lost — reconnecting…"}
+            </p>
+            <p className="mt-0.5 text-foreground/70">
+              {coreExit
+                ? `Exit code ${coreExit.code ?? "unknown"}${coreExit.signal ? ` · ${coreExit.signal}` : ""}. The interface is still open; project/audio state may be unavailable.`
+                : "The interface is still running, but live control and playback state are unavailable until the backend returns."}
+            </p>
+            {coreExit?.logPath && (
+              <p className="mt-0.5 break-all font-mono text-[10px] text-foreground/50">
+                Core log: {coreExit.logPath}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <Tabs
         variant="nav"
@@ -1114,30 +1064,31 @@ function ProjectMenu({
     else void project.exportAndDownload();
   };
 
-  // ⌘S / Ctrl+S → Save, ⇧⌘S → Save As (skip when typing in inputs).
+  // Save shortcuts are immutable File commands routed through HotkeyManager.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.tagName === "SELECT" ||
-          t.isContentEditable)
-      )
-        return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-      if (e.key === "s" || e.key === "S") {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.shiftKey) handleSaveAs();
-        else handleSave();
-      }
-    };
-    window.addEventListener("keydown", onKey, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", onKey, { capture: true });
+    const mod = /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ? "cmd" : "ctrl";
+    const unregister = [
+      hotkeyManager.registerCommand(
+        "file.save",
+        `${mod} + s`,
+        { scope: HotkeyScope.Global, priority: 100, allowInTextInput: true },
+        (event) => {
+          if (event?.shiftKey) return false;
+          handleSave();
+          return true;
+        },
+      ),
+      hotkeyManager.registerCommand(
+        "file.save-as",
+        `${mod} + shift + s`,
+        { scope: HotkeyScope.Global, priority: 100, allowInTextInput: true },
+        () => {
+          handleSaveAs();
+          return true;
+        },
+      ),
+    ];
+    return () => unregister.forEach((dispose) => dispose());
   }, []);
 
   return (

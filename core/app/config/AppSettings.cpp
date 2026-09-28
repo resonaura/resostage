@@ -2,6 +2,8 @@
 
 #include "server/WireTypes.h"
 
+#include <algorithm>
+
 namespace resostage {
 
 using namespace wire;
@@ -64,6 +66,10 @@ AppSettings loadAppSettings() {
         settings.deviceProfiles.emplace(name, std::move(profile));
     }
     settings.keybindings = std::move(wire.keybindings);
+    settings.countInBars = std::clamp(wire.countInBars, 0, 2);
+    settings.countInPreferredBars = settings.countInBars > 0
+        ? settings.countInBars
+        : std::clamp(wire.countInPreferredBars, 1, 2);
 
     for (auto& mm : wire.midiMappings) {
         if (mm.action.empty())
@@ -127,6 +133,8 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
         wire.deviceProfiles.emplace(name, std::move(wp));
     }
     wire.keybindings = settings.keybindings;
+    wire.countInBars = std::clamp(settings.countInBars, 0, 2);
+    wire.countInPreferredBars = std::clamp(settings.countInPreferredBars, 1, 2);
 
     for (const auto& m : settings.midiMappings) {
         WMidiMapping mm;

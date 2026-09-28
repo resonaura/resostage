@@ -133,7 +133,7 @@ const FaderScale = memo(function FaderScale({
 });
 
 /**
- * Track rail slot, fill, 0 dB unity detent tick, and styled fader cap.
+ * Track rail slot, fill, and styled fader cap.
  * Uses HeroUI theme design tokens (surface, default, border, foreground, accent).
  */
 const FaderVisuals = memo(function FaderVisuals({
@@ -143,21 +143,13 @@ const FaderVisuals = memo(function FaderVisuals({
   normalized: number;
   density?: "narrow" | "standard" | "wide";
 }) {
-  const zeroPos = FaderLaw.unityPosition; // 0.80
   const isNarrow = density === "narrow";
   const isWide = density === "wide";
 
   return (
     <>
       {/* Slot: cut INTO the strip */}
-      <div className="absolute inset-y-0 left-1/2 w-0.75 -translate-x-1/2 rounded-full bg-background border border-default/30 shadow-inner" />
-
-      {/* 0 dB unity detent mark on rail */}
-      <div
-        className="pointer-events-none absolute left-1/2 -translate-x-1/2 h-[1.5px] w-3.5 bg-foreground/60 rounded-full shadow-[0_0_2px_rgba(255,255,255,0.2)]"
-        style={{ top: `${(1 - zeroPos) * 100}%` }}
-        title="0 dB Unity Detent"
-      />
+      <div className="absolute inset-y-0 left-1/2 w-0.75 -translate-x-1/2 rounded-md bg-black/50" />
 
       {/* Travelled part of the throw */}
       <div

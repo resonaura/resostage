@@ -49,6 +49,7 @@ export function RegionContextMenu({
     <ContextMenu x={menu.x} y={menu.y} width={180} onClose={onClose}>
       {onCut && (
         <ContextMenuItem
+          shortcutCommand="timeline.cut-regions"
           onClick={() => {
             onCut();
             onClose();
@@ -59,6 +60,7 @@ export function RegionContextMenu({
       )}
       {onCopy && (
         <ContextMenuItem
+          shortcutCommand="timeline.copy-regions"
           onClick={() => {
             onCopy();
             onClose();
@@ -69,6 +71,7 @@ export function RegionContextMenu({
       )}
       {onPaste && (
         <ContextMenuItem
+          shortcutCommand="timeline.paste-regions"
           disabled={!canPaste}
           onClick={() => {
             if (!canPaste) return;
@@ -83,6 +86,7 @@ export function RegionContextMenu({
         <>
           <ContextMenuDivider />
           <ContextMenuItem
+            shortcutCommand="timeline.split-regions"
             onClick={() => {
               onSplit();
               onClose();
@@ -122,6 +126,7 @@ export function RegionContextMenu({
       <ContextMenuDivider />
 
       <ContextMenuItem
+        shortcutCommand="timeline.delete-regions"
         danger
         onClick={() => {
           void builder.regionRemove(menu.songIndex, menu.regionId);

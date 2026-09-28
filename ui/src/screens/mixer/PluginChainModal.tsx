@@ -3,6 +3,7 @@ import {
   ChevronUp,
   ExternalLink,
   Plus,
+  RotateCw,
   Power,
   Search,
   Trash2,
@@ -14,7 +15,7 @@ import {
   pluginChains,
   type PluginCatalogResponse,
 } from "../../lib/state/api";
-import type { PluginSlotRow } from "../../lib/state/types";
+import type { PluginSlotRow, TrackRow } from "../../lib/state/types";
 import { Alert, Button, Modal } from "../../components/ui";
 import {
   deduplicatePlugins,
@@ -26,17 +27,22 @@ export function PluginChainModal({
   stripId,
   stripName,
   slots,
+  track,
   onClose,
 }: {
   open: boolean;
   stripId: string;
   stripName: string;
   slots: PluginSlotRow[];
+  track?: TrackRow;
   onClose: () => void;
 }) {
   const [catalog, setCatalog] = useState<PluginCatalogResponse | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
+  const [draggedSlotId, setDraggedSlotId] = useState<string | null>(null);
+  const effects = slots.filter((slot) => !slot.instrument);
+  const instrument = slots.find((slot) => slot.instrument);
 
   useEffect(() => {
     if (!open) return;
@@ -123,24 +129,56 @@ export function PluginChainModal({
                     Chain
                   </h3>
                   <span className="text-[10px] text-foreground/40">
-                    {slots.length}/32 audio effects
+                    {effects.length}/32 audio effects
                   </span>
                 </div>
-                {slots.length === 0 ? (
+                {track && (
+                  <div className="mb-3 space-y-2 text-xs">
+                    <div className="rounded-lg border border-default/30 bg-surface-secondary px-3 py-2">
+                      Input · {track.kind === "audio" ? (track.inputSource || "No Input") : (track.midiInputDevice || "MIDI inputs")}
+                    </div>
+                    {track.kind === "instrument" && (
+                      <div className="rounded-lg border border-default/30 bg-surface-secondary px-3 py-2">
+                        Instrument · {instrument?.name || "No instrument"}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {effects.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-default/35 px-4 py-10 text-center text-sm text-foreground/45">
                     No effects. Choose one from the catalog.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {slots.map((slot, index) => {
+                    {effects.map((slot, index) => {
                       const missing = !knownIds.has(slot.pluginId);
                       return (
                         <div
                           key={slot.id}
+                          draggable
+                          onDragStart={(event) => {
+                            setDraggedSlotId(slot.id);
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", slot.id);
+                          }}
+                          onDragOver={(event) => {
+                            if (!draggedSlotId || draggedSlotId === slot.id) return;
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const sourceId = draggedSlotId;
+                            setDraggedSlotId(null);
+                            if (!sourceId || sourceId === slot.id) return;
+                            // Slot zero is the generator on instrument tracks.
+                            void pluginChains.move(stripId, sourceId, index + (instrument ? 1 : 0));
+                          }}
+                          onDragEnd={() => setDraggedSlotId(null)}
                           className={`flex items-center gap-2 rounded-lg border p-2.5 ${
                             slot.bypassed
                               ? "border-default/20 bg-default/5 opacity-60"
-                              : "border-default/30 bg-surface-secondary"
+                              : "border-foreground/55 bg-foreground/12"
                           }`}
                         >
                           <span className="w-5 shrink-0 text-center font-mono text-[10px] text-foreground/35">
@@ -160,10 +198,28 @@ export function PluginChainModal({
                               {slot.manufacturer || "Unknown vendor"} ·{" "}
                               {displayFormat(slot.format)}
                               {missing ? " · unavailable on this Core" : ""}
+                              {slot.loadState === "loading" ? " · loading…" : ""}
+                              {slot.loadState === "failed" ? " · failed to load" : ""}
                               {slot.hasState ? " · state saved" : ""}
                             </div>
+                            {slot.loadError && slot.loadState !== "loaded" && (
+                              <div className="mt-1 line-clamp-2 text-[10px] text-danger/80" title={slot.loadError}>
+                                {slot.loadError}
+                              </div>
+                            )}
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
+                            {(slot.loadState === "failed" || slot.loadState === "missing") && (
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="outline"
+                                aria-label={`Retry loading ${slot.name}`}
+                                onPress={() => void pluginChains.retry(stripId, slot.id)}
+                              >
+                                <RotateCw size={14} />
+                              </Button>
+                            )}
                             <Button
                               isIconOnly
                               size="sm"
@@ -185,7 +241,7 @@ export function PluginChainModal({
                                 void pluginChains.move(
                                   stripId,
                                   slot.id,
-                                  index - 1,
+                                  index - 1 + (instrument ? 1 : 0),
                                   -1,
                                 )
                               }
@@ -197,12 +253,12 @@ export function PluginChainModal({
                               size="sm"
                               variant="ghost"
                               aria-label={`Move ${slot.name} down`}
-                              isDisabled={index === slots.length - 1}
+                              isDisabled={index === effects.length - 1}
                               onPress={() =>
                                 void pluginChains.move(
                                   stripId,
                                   slot.id,
-                                  index + 1,
+                                  index + 1 + (instrument ? 1 : 0),
                                   1,
                                 )
                               }
@@ -241,6 +297,13 @@ export function PluginChainModal({
                         </div>
                       );
                     })}
+                  </div>
+                )}
+                {track && (
+                  <div className="mt-3 rounded-lg border border-default/30 bg-surface-secondary px-3 py-2 text-xs">
+                    Output · {track.output.type === "main" ? "Main" :
+                      track.output.type === "sends-only" ? "Sends only" :
+                      `${track.output.type === "bus" ? "Bus" : "External"}: ${track.output.target || "—"}`}
                   </div>
                 )}
               </section>

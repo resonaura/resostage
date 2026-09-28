@@ -247,6 +247,61 @@ void MainComponent::pluginSlotAdd(const std::string& json) {
     publishWebState();
 }
 
+void MainComponent::pluginSlotReplace(const std::string& json) {
+    glz::generic doc;
+    std::string stripId;
+    std::string slotId;
+    std::string pluginId;
+    if (!builder_json::parseJson(json, doc)
+        || !builder_json::getString(doc, "stripId", stripId)
+        || !builder_json::getString(doc, "slotId", slotId)
+        || !builder_json::getString(doc, "pluginId", pluginId)) {
+        setStatus("Could not swap plug-in: invalid request");
+        return;
+    }
+
+    auto* chain = pluginChainFor(engine.project(), stripId);
+    if (chain == nullptr) {
+        setStatus("Could not swap plug-in: strip no longer exists");
+        return;
+    }
+    const auto slot = std::find_if(chain->begin(), chain->end(),
+        [&slotId](const PluginSlot& candidate) { return candidate.id == slotId; });
+    if (slot == chain->end()) {
+        setStatus("Could not swap plug-in: slot no longer exists");
+        return;
+    }
+    const auto replacement = pluginCatalog.findPlugin(pluginId);
+    if (!replacement.has_value()) {
+        setStatus("Could not swap plug-in: rescan or choose an available item");
+        return;
+    }
+    if (replacement->instrument != slot->plugin.instrument) {
+        setStatus("Could not swap plug-in: choose the same plug-in type");
+        return;
+    }
+    if (replacement->instrument) {
+        const bool isTrack = std::any_of(engine.project().tracks.begin(),
+            engine.project().tracks.end(),
+            [&stripId](const auto& track) { return track.id == stripId; });
+        if (!isTrack) {
+            setStatus("Instruments can only be placed on tracks");
+            return;
+        }
+    }
+    if (slot->plugin.identifier == replacement->identifier) return;
+
+    closePluginEditor(slotId);
+    const juce::String replacementName(replacement->name);
+    engine.projectHistoryBeginEdit("", "Swap plug-in");
+    slot->plugin = *replacement;
+    slot->stateResource.reset();
+    engine.projectHistoryCommitEdit();
+    engine.notifyPluginChainsChanged();
+    setStatus("Plug-in swapped: " + replacementName);
+    publishWebState();
+}
+
 void MainComponent::pluginSlotRemove(const std::string& json) {
     glz::generic doc;
     std::string stripId;
@@ -332,6 +387,26 @@ void MainComponent::pluginSlotBypass(const std::string& json) {
     engine.projectHistoryCommitEdit();
     engine.markDirty();
     engine.setPluginSlotBypassed(slotId, bypassed);
+    publishWebState();
+}
+
+void MainComponent::pluginSlotRetry(const std::string& json) {
+    glz::generic doc;
+    std::string stripId;
+    std::string slotId;
+    if (!parseSlotTarget(json, doc, stripId, slotId)) return;
+    const auto* chain = pluginChainFor(engine.project(), stripId);
+    if (chain == nullptr) return;
+    const auto found = std::find_if(chain->begin(), chain->end(),
+        [&slotId](const PluginSlot& slot) { return slot.id == slotId; });
+    if (found == chain->end()) return;
+    if (!engine.retryPluginSlot(slotId)) {
+        setStatus("Plug-in is already loaded");
+        return;
+    }
+    // Rebuild off the message/audio threads and snapshot healthy peers first,
+    // so retrying a failed insert does not discard their current parameters.
+    setStatus("Retrying plug-in load: " + juce::String(found->plugin.name));
     publishWebState();
 }
 

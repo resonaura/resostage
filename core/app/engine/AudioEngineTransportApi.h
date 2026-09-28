@@ -43,12 +43,15 @@
     void stopToStart();
 
     void startRecording(int targetTrackIndex = -1);
+    void setCountInBars(int bars);
 
     void stopRecording();
 
     void toggleRecording(int targetTrackIndex = -1);
 
     bool isRecording() const;
+    bool isRecordingCountIn() const;
+    int recordingCountInBeatsRemaining() const;
 
     std::vector<LiveRecordingRegionInfo> getLiveRecordingRegions() const;
     std::vector<ActiveMidiNoteInfo> getActiveMidiNotes() const;

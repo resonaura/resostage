@@ -22,7 +22,7 @@ const HELD_PEAK_EPSILON_DB = 0.1;
  * `getMaxDb` should return max(L, R): either channel clipping counts. It is
  * read through a ref, so callers may pass a fresh closure every render.
  */
-export function useChannelClipHold(getMaxDb: () => number): {
+export function useChannelClipHold(getMaxDb: () => number, identity?: string): {
   clipped: boolean;
   heldPeakDb: number;
   clear: () => void;
@@ -37,6 +37,7 @@ export function useChannelClipHold(getMaxDb: () => number): {
   // so it cannot read the latch back out of state without racing itself.
   const clippedRef = useRef(false);
   const heldRef = useRef(FLOOR_DB);
+  const identityRef = useRef(identity);
 
   useEffect(
     () =>
@@ -65,6 +66,18 @@ export function useChannelClipHold(getMaxDb: () => number): {
     setClipped(false);
     setHeldPeakDb(FLOOR_DB);
   }, []);
+
+  // ChannelStrip instances are reused when the editor inspector changes its
+  // selected track. A clip/peak hold belongs to a strip, not to the React
+  // component instance, so never carry it over to the newly selected strip.
+  useEffect(() => {
+    if (identityRef.current === identity) return;
+    identityRef.current = identity;
+    clippedRef.current = false;
+    heldRef.current = FLOOR_DB;
+    setClipped(false);
+    setHeldPeakDb(FLOOR_DB);
+  }, [identity]);
 
   return { clipped, heldPeakDb, clear };
 }

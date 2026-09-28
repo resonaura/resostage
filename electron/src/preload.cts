@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld("resostageElectron", {
   /** Text field focused / blurred -- suppresses bare-key hotkeys in the shell. */
   setTypingFocus: (focused: boolean) =>
     ipcRenderer.send("typing-focus", focused),
+  setKeyCaptureActive: (active: boolean) =>
+    ipcRenderer.send("key-capture", active),
   /** Native OS context menu. Event-driven internally: the Promise is local to
    * the preload and never blocks on an ipcRenderer.invoke round trip. */
   showContextMenu: (
@@ -101,6 +103,19 @@ ipcRenderer.on("shell-idle", (_event, detail: { reason?: string }) => {
 });
 ipcRenderer.on("shell-active", (_event, detail: { reason?: string }) => {
   emit("resoshell-active", detail ?? { reason: "shell" });
+});
+
+// Keep the renderer alive when the supervised Core exits so the SPA can show
+// diagnostics instead of disappearing with its backend.
+ipcRenderer.on("core-process-exit", (_event, detail: unknown) => {
+  emit("resostage-core-process-exit", detail);
+});
+
+// Native-window shortcut capture is forwarded into the same typed renderer
+// HotkeyManager used by browser events and editor-local command registrations.
+ipcRenderer.on("dispatch-hotkey", (_event, detail: { action?: string }) => {
+  if (typeof detail?.action === "string")
+    emit("resostage-hotkey", { action: detail.action });
 });
 
 // Shell → SPA: battery / Low Power Mode / thermal pressure. The renderer has

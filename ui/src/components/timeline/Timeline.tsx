@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { builder, mixer, transport } from "../../lib/state/api";
+import { builder, transport } from "../../lib/state/api";
 import {
   beginCancellableDrag,
   type CancellableDrag,
@@ -123,7 +123,9 @@ import { useRegionDrag } from "./useRegionDrag";
 import { useLongImportGuard } from "./useLongImportGuard";
 import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./useTimelineKeyboard";
+import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { useTimelinePrefs } from "./useTimelinePrefs";
+import { trackSelectionGesture, type TrackSelectionGesture } from "./trackSelection";
 
 // ------- Timeline (continuous multi-song arrangement) -------------------
 
@@ -160,7 +162,7 @@ export function Timeline({
   readOnly?: boolean;
   selectedTrackId?: string | null;
   selectedTrackIds?: string[];
-  onSelectTrackId?: (id: string | null, additive?: boolean) => void;
+  onSelectTrackId?: (id: string | null, gesture?: TrackSelectionGesture) => void;
   onOpenMidiRegion?: (trackId: string, regionId: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -659,7 +661,7 @@ export function Timeline({
     setSelectedCueKeys([]);
     const found = lookupAnyRegion(state.songs, key);
     if (found?.region?.trackId) {
-      onSelectTrackId?.(found.region.trackId, Boolean(e.shiftKey));
+      onSelectTrackId?.(found.region.trackId, trackSelectionGesture(e));
     }
   };
 
@@ -912,31 +914,24 @@ export function Timeline({
     wasPlayingRef.current = state.playing;
   }, [state.playing, catchFollowOnPlay]);
 
-  // Tool hotkeys (V/B/E) — plain keys only, never with mod keys (⌘C copy etc.).
+  // Register editor-tool commands with the application hotkey owner.
   useEffect(() => {
     if (readOnly) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.tagName === "SELECT" ||
-          t.isContentEditable)
-      )
-        return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "v") setTool("pointer");
-      else if (k === "b") setTool("pencil");
-      else if (k === "e") setTool("eraser");
-      // Scissors: bare "x" (Logic uses scissors tool; avoid bare "c" vs copy).
-      else if (k === "x") setTool("scissors");
-      // Stretch: "t" for time, since "s" is taken by solo everywhere else.
-      else if (k === "t") setTool("stretch");
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const toolBindings: Array<[Parameters<typeof setTool>[0], string]> = [
+      ["pointer", "v"],
+      ["pencil", "b"],
+      ["eraser", "e"],
+      ["scissors", "x"],
+      ["stretch", "t"],
+    ];
+    return toolBindings.map(([tool, key]) =>
+      hotkeyManager.registerCommand(
+        `timeline.tool.${tool}`,
+        key,
+        { scope: HotkeyScope.Timeline, priority: 100 },
+        () => setTool(tool),
+      ),
+    ).reduce((disposeAll, dispose) => () => { dispose(); disposeAll(); }, () => {});
   }, [readOnly, setTool]);
 
   /** Split selected region(s) at the absolute playhead (Logic-style ⌘T). */
@@ -997,6 +992,21 @@ export function Timeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.tracks, songs, themeVersion],
   );
+  const [trackReorderPreview, setTrackReorderPreview] = useState<{
+    index: number;
+    kind: "audio" | "light";
+    dropSlot: number;
+  } | null>(null);
+  const previewRows = useMemo(() => {
+    if (trackReorderPreview?.kind !== "audio") return rows;
+    const { index, dropSlot } = trackReorderPreview;
+    const to = dropSlot > index ? dropSlot - 1 : dropSlot;
+    if (to === index || index < 0 || index >= state.tracks.length) return rows;
+    const next = [...rows];
+    const [moved] = next.splice(index, 1);
+    next.splice(to, 0, moved);
+    return next;
+  }, [rows, state.tracks.length, trackReorderPreview]);
 
   // Drag & drop audio-file ghost preview (audio view only). While a file is
   // dragged over the lanes, AudioDropGhost shows a fake region -- waveform +
@@ -1179,6 +1189,16 @@ export function Timeline({
     () => state.lighting.tracks ?? [],
     [state.lighting.tracks],
   );
+  const previewLightTracks = useMemo(() => {
+    if (trackReorderPreview?.kind !== "light") return lightTracks;
+    const { index, dropSlot } = trackReorderPreview;
+    const to = dropSlot > index ? dropSlot - 1 : dropSlot;
+    if (to === index || index < 0 || index >= lightTracks.length) return lightTracks;
+    const next = [...lightTracks];
+    const [moved] = next.splice(index, 1);
+    next.splice(to, 0, moved);
+    return next;
+  }, [lightTracks, trackReorderPreview]);
   const lightTrackIds = useMemo(
     () => lightTracks.map((t) => t.id),
     [lightTracks],
@@ -1925,7 +1945,6 @@ export function Timeline({
       const newTrackIdx = state.tracks.length - 1;
       const newTrack = state.tracks[newTrackIdx];
       if (newTrack) {
-        void mixer.setFocusedTrack(newTrackIdx);
         onSelectTrackId?.(newTrack.id);
         scrollToTrackIndex(newTrackIdx);
       }
@@ -2483,10 +2502,10 @@ export function Timeline({
           {!readOnly && (
             <TimelineSidebar
               state={state}
-              rows={rows}
+              rows={previewRows}
               verticalZoom={verticalZoom}
               effectiveViewMode={effectiveViewMode}
-              lightTracks={lightTracks}
+              lightTracks={previewLightTracks}
               lightFixtures={lightFixtures}
               lightEnabled={lightEnabled}
               lightTrackColor={lightTrackColor}
@@ -2497,12 +2516,13 @@ export function Timeline({
               sidebarContentRef={sidebarContentRef}
               selectedTrackId={selectedTrackId}
               selectedTrackIds={selectedTrackIds}
-              onSelectTrack={(id, additive) => {
+              onSelectTrack={(id, gesture) => {
                 setSelectedRegionKeys([]);
-                onSelectTrackId?.(id, additive);
+                onSelectTrackId?.(id, gesture);
               }}
               onWheel={handleSidebarWheel}
               onAutoScroll={handleAutoScroll}
+              onTrackReorderPreview={setTrackReorderPreview}
             />
           )}
 
@@ -2723,7 +2743,7 @@ export function Timeline({
                   {effectiveViewMode === "light" ? (
                     <LightTrackLanes
                       lightEnabled={lightEnabled}
-                      lightTracks={lightTracks}
+                      lightTracks={previewLightTracks}
                       lightTrackIds={lightTrackIds}
                       lightTrackColor={lightTrackColor}
                       lightTrueColors={lightTrueColors}
@@ -2751,7 +2771,7 @@ export function Timeline({
                     <AudioTrackLanes
                       writeGeomDraft={writeGeomDraft}
                       state={state}
-                      rows={rows}
+                      rows={previewRows}
                       songs={songs}
                       songOffsets={songOffsets}
                       songLengths={songLengths}

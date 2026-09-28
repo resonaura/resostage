@@ -26,6 +26,11 @@ using KeyBindingMap = std::unordered_map<std::string, std::string>;
 struct AppSettings {
     KeyBindingMap keybindings;
     std::vector<MidiMapping> midiMappings;
+    // Count-in is a rig-wide recording preference, not musical project data.
+    // Zero disables it; one or two bars are the supported count-in lengths.
+    // Keep the last enabled length so the transport toggle can restore it.
+    int countInBars = 1;
+    int countInPreferredBars = 1;
 
     // Audio device setup. Empty/zero fields mean "no saved preference yet"
     // -- callers fall back to JUCE's own default-device selection.

@@ -135,8 +135,8 @@ private:
         {"section_prev", "["},
         {"section_next", "]"},
         {"section_last", "end"},
-        {"bar_prev", "left"},
-        {"bar_next", "right"},
+        {"bar_prev", ","},
+        {"bar_next", "."},
 #if JUCE_MAC
         {"undo", "cmd + z"},
         {"redo", "cmd + shift + z"},
@@ -182,9 +182,11 @@ private:
     void drainWebCommands();
     void startAudioRender(const std::string& json);
     void pluginSlotAdd(const std::string& json);
+    void pluginSlotReplace(const std::string& json);
     void pluginSlotRemove(const std::string& json);
     void pluginSlotMove(const std::string& json);
     void pluginSlotBypass(const std::string& json);
+    void pluginSlotRetry(const std::string& json);
     void pluginSlotKeepAwake(const std::string& json);
     void pluginSlotPark(const std::string& json);
     void pluginSlotUnpark(const std::string& json);
@@ -213,6 +215,7 @@ private:
     void builderSongEnd(const std::string& json);
     void builderSongUpdate(const std::string& json);
     void builderTrackAdd(const std::string& json);
+    void builderTrackDuplicate(const std::string& json);
     void builderTrackRemove(const std::string& json);
     void builderTrackMove(const std::string& json);
     void builderTrackUpdate(const std::string& json);
@@ -275,6 +278,7 @@ private:
     void settingsSetUiRenderEngine(const std::string& json);
     void settingsSetTheme(const std::string& json);
     void settingsSetKeybinding(const std::string& json);
+    void settingsSetCountInBars(const std::string& json);
     void settingsSetOutputChannels(const std::string& json);
     void settingsSetInputChannels(const std::string& json);
     void settingsMidiLearn(const std::string& json);
@@ -308,6 +312,7 @@ private:
         double roundtripLatencyMs = 0.0;
         std::vector<std::string> midiOutputs;
         std::vector<std::string> midiInputs;
+        std::string currentMidiInput;
         bool virtualMidiPortEnabled = false;
     };
     HardwareSettingsCache hardwareSettingsCache;

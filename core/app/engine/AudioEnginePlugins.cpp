@@ -32,7 +32,7 @@ void AudioEngine::stopPluginBankBuilder() {
     retiredPluginBanks.clear();
 }
 
-void AudioEngine::schedulePluginBankRebuild() {
+void AudioEngine::schedulePluginBankRebuild(bool forceRecreate) {
     if (!projectLoaded)
         return;
 
@@ -54,6 +54,7 @@ void AudioEngine::schedulePluginBankRebuild() {
     request.sampleRate = currentSampleRate;
     request.maximumBlockSize =
         std::max({currentBlockSize, 512, mixRenderer.maxBlockSize()});
+    request.forceRecreate = forceRecreate;
 
     {
         std::lock_guard lock(pluginBankMutex);
@@ -86,13 +87,21 @@ std::shared_ptr<PluginProcessorBank> AudioEngine::activePluginProcessorBank() co
     return publication != nullptr ? publication->bank : nullptr;
 }
 
+bool AudioEngine::retryPluginSlot(const std::string& slotId) {
+    const auto bank = activePluginProcessorBank();
+    if (bank != nullptr && bank->getSlotLoadState(slotId) == "loaded")
+        return false;
+    schedulePluginBankRebuild(true);
+    return true;
+}
+
 void AudioEngine::setPluginSlotBypassed(const std::string& slotId,
                                         bool bypassed) {
     if (auto bank = activePluginProcessorBank())
         bank->setSlotBypassed(slotId, bypassed);
-    // Supersede a build that may already have snapshotted the previous bypass
-    // value (for example Add Instrument followed immediately by Power Off).
-    // Identical layouts reuse the live processor instances.
+    // Supersede any chain build that may have captured the previous value.
+    // The stable slot IDs are reconciled by the worker, so this publication
+    // reuses existing processor instances rather than reloading them.
     schedulePluginBankRebuild();
 }
 
@@ -121,7 +130,7 @@ void AudioEngine::runPluginBankBuilder() {
         PluginProcessorBank::BuildResult result;
         const auto current = std::atomic_load_explicit(
             &activePluginBank, std::memory_order_acquire);
-        const bool canReuseProcessors = current != nullptr
+        const bool canReuseProcessors = !request.forceRecreate && current != nullptr
             && current->bank != nullptr
             && current->processorLayoutKey
                    == request.graph->processorLayoutKey
@@ -135,10 +144,16 @@ void AudioEngine::runPluginBankBuilder() {
                 *request.graph, currentLatencies,
                 request.sampleRate, result.warnings);
         } else {
+            std::vector<PluginProcessorBank::StateBlob> transientStates;
+            if (request.forceRecreate && current != nullptr && current->bank != nullptr)
+                transientStates = current->bank->snapshotStates().blobs;
             result = PluginProcessorBank::build(
                 request.project, *request.graph, resources,
                 pluginRegistryFile(), request.sampleRate,
-                request.maximumBlockSize, /*nonRealtime=*/false);
+                request.maximumBlockSize, /*nonRealtime=*/false,
+                request.forceRecreate || current == nullptr
+                    ? nullptr : current->bank.get(),
+                request.forceRecreate ? &transientStates : nullptr);
         }
 
         for (const auto& warning : result.warnings) {

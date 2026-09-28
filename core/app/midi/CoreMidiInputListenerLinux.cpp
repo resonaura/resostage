@@ -78,6 +78,7 @@ void CoreMidiInputListener::closeSourceInternal() {
         client = 0;
         source = 0;
     }
+    currentSourceName.clear();
 }
 
 void CoreMidiInputListener::setMappings(std::vector<MidiMapping> newMappings) {

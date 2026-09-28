@@ -1333,14 +1333,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     const uint32_t midiWritePos = midiInputQueueWrite.load(std::memory_order_acquire);
     const uint32_t availablePktCount = midiWritePos - midiReadPos;
     const bool isRec = isRecordingState.load(std::memory_order_acquire);
+    const int64_t recordCaptureStart = recordStartSamplePos.load(std::memory_order_relaxed);
     const bool autoPunch = autoPunchEnabledState.load(std::memory_order_relaxed);
     const int64_t punchStart = autoPunchStartSample.load(std::memory_order_relaxed);
     const int64_t punchEnd = autoPunchEndSample.load(std::memory_order_relaxed);
     const TransportMonitorPhase monitorPhase = resolveTransportMonitorPhase(
         isPlaying, isRec, autoPunch, playheadSample, playheadSample + numSamples,
         punchStart, punchEnd);
-    const bool midiCaptureActive = isRec && (!autoPunch
-        || (playheadSample >= punchStart && playheadSample < punchEnd));
+    const bool captureWindowOpen = playheadSample + numSamples > recordCaptureStart
+        && (!autoPunch || playheadSample < punchEnd);
+    const bool midiCaptureActive = isRec && captureWindowOpen;
+    const int64_t midiCaptureSample = std::max(playheadSample, recordCaptureStart);
 
     if (availablePktCount > 0) {
         for (uint32_t i = 0; i < availablePktCount; ++i) {
@@ -1411,7 +1414,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                             completed.pitch = static_cast<uint8_t>(pitch);
                                             completed.velocity = note.velocity;
                                             const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
-                                            const double durSec = static_cast<double>(playheadSample - note.startSample) / currentSampleRate;
+                                            const double durSec = static_cast<double>(midiCaptureSample - note.startSample) / currentSampleRate;
                                             const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
                                             completed.startBeats = (noteStartSec * bpm) / 60.0;
                                             completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
@@ -1420,7 +1423,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                         note.pitch = static_cast<uint8_t>(pitch);
                                         note.id = session.nextNoteId++;
                                         note.velocity = vel;
-                                        note.startSample = playheadSample;
+                                        note.startSample = midiCaptureSample;
                                         note.channel = msgChannel;
                                         note.active = true;
                                         break;
@@ -1438,7 +1441,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                             completed.velocity = note.velocity;
                                             completed.releaseVelocity = static_cast<float>(msg.getVelocity()) / 127.0f;
                                             const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
-                                            const double durSec = static_cast<double>(playheadSample - note.startSample) / currentSampleRate;
+                                            const double durSec = static_cast<double>(midiCaptureSample - note.startSample) / currentSampleRate;
                                             const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
                                             completed.startBeats = (noteStartSec * bpm) / 60.0;
                                             completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
@@ -1613,6 +1616,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     // flashed meters. Fades + region gain are applied sample-accurately here.
     // (Mute/solo for bus routing lives in Pass 2 via snap->routes; strip
     // meters below always show post-fader/pan regardless of mute/solo.)
+    const int focusedAudioInputTrack = focusedTrackIndex.load(std::memory_order_relaxed);
     for (size_t t = 0; t < trackIdByIndex.size(); ++t) {
         if (t >= trackScratch.size())
             break;
@@ -1624,7 +1628,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         const TrackDef* tDef = trackDefAt(t);
         const bool isArmed = tDef != nullptr && tDef->recordArmed;
         const bool isAudio = tDef != nullptr && tDef->kind == TrackKind::Audio;
-        const bool isMonitored = isAudio && tDef->inputMonitoring;
+        const bool hasConfiguredInput = tDef != nullptr
+            && !tDef->inputSource.empty() && tDef->inputSource != "none";
+        // The focused audio track is the implicit monitor target when it has
+        // an assigned input. Explicit I remains independent and can pin any
+        // additional tracks without focus changes clearing those subscriptions.
+        const bool isFocusMonitored = isAudio && hasConfiguredInput
+            && static_cast<int>(t) == focusedAudioInputTrack;
+        const bool isMonitored = isAudio && (tDef->inputMonitoring || isFocusMonitored);
         const MonitorSource monitorSource = isAudio
             ? computeEffectiveMonitorSource(
                 monitorPhase, isArmed, isMonitored,
@@ -1636,7 +1647,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         const bool useTimeline = monitorSource == MonitorSource::Timeline
             || monitorSource == MonitorSource::TimelinePlusInput;
         const int64_t captureBegin = autoPunch
-            ? std::max<int64_t>(playheadSample, punchStart) : playheadSample;
+            ? std::max<int64_t>(std::max(playheadSample, recordCaptureStart), punchStart)
+            : std::max(playheadSample, recordCaptureStart);
         const int64_t captureEnd = autoPunch
             ? std::min<int64_t>(playheadSample + numSamples, punchEnd)
             : playheadSample + numSamples;
@@ -1658,11 +1670,25 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                         }
                     }
                 } else {
-                    if (chL >= 0 && chL < numInputChannels && inputChannelData[chL] != nullptr) {
+                    const bool haveLeft = chL >= 0 && chL < numInputChannels
+                        && inputChannelData[chL] != nullptr;
+                    const bool haveRight = chR >= 0 && chR < numInputChannels
+                        && inputChannelData[chR] != nullptr;
+                    if (haveLeft) {
                         scratch.copyFrom(0, 0, inputChannelData[chL], numSamples);
                     }
-                    if (chR >= 0 && chR < numInputChannels && inputChannelData[chR] != nullptr && scratch.getNumChannels() > 1) {
+                    if (haveRight && scratch.getNumChannels() > 1) {
                         scratch.copyFrom(1, 0, inputChannelData[chR], numSamples);
+                    }
+                    // A stereo track can keep a stereo input assignment (1+2)
+                    // even when the selected device only exposes input 1. In
+                    // that case preserve the available mono signal in both
+                    // sides instead of silently producing left-only audio.
+                    if (scratch.getNumChannels() > 1 && haveLeft != haveRight) {
+                        if (haveLeft)
+                            scratch.copyFrom(1, 0, inputChannelData[chL], numSamples);
+                        else
+                            scratch.copyFrom(0, 0, inputChannelData[chR], numSamples);
                     }
                 }
             if (captureInput && t < trackToAudioRecordSession.size()) {

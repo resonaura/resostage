@@ -153,6 +153,7 @@ void CoreMidiInputListener::closeSourceInternal() {
         midiInClose(handle);
         source = 0;
     }
+    currentSourceName.clear();
 }
 
 void CoreMidiInputListener::setMappings(std::vector<MidiMapping> newMappings) {

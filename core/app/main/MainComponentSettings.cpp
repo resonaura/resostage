@@ -11,6 +11,7 @@
 #include "server/BuilderJson.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace resostage {
@@ -64,10 +65,13 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
     out.roundtripLatencyMs = hardwareSettingsCache.roundtripLatencyMs;
     out.midiOutputs = hardwareSettingsCache.midiOutputs;
     out.midiInputs = hardwareSettingsCache.midiInputs;
+    out.currentMidiInput = appSettings.midiInputName;
     out.virtualMidiPortEnabled = hardwareSettingsCache.virtualMidiPortEnabled;
 
     out.uiRenderEngine = appSettings.uiRenderEngine;
     out.theme = appSettings.theme;
+    out.countInBars = appSettings.countInBars;
+    out.countInPreferredBars = appSettings.countInPreferredBars;
 
     const auto& bindings = appSettings.keybindings;
     for (const char* action : kActionIds) {
@@ -75,6 +79,7 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
         kb.action = action;
         const auto it = bindings.find(action);
         kb.key = (it != bindings.end()) ? it->second : "";
+        kb.midiAssignable = isMidiMappableAction(action);
         out.keybindings.push_back(std::move(kb));
     }
 
@@ -599,14 +604,21 @@ void MainComponent::settingsSetMidiInput(const std::string& json) {
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
 
+    const std::string previousName = appSettings.midiInputName;
     std::string error;
-    if (!midiInput.openSource(name, error)) {
+    if (name.empty()) {
+        midiInput.closeSource();
+    } else if (!midiInput.openSource(name, error)) {
+        if (!previousName.empty()) {
+            std::string restoreError;
+            (void)midiInput.openSource(previousName, restoreError);
+        }
         setStatus("MIDI input failed: " + juce::String(error));
-    } else {
-        appSettings.midiInputName = name;
-        saveAppSettingsToDisk();
-        setStatus("MIDI input: " + juce::String(name));
+        return;
     }
+    appSettings.midiInputName = name;
+    saveAppSettingsToDisk();
+    setStatus(name.empty() ? "MIDI input: None" : "MIDI input: " + juce::String(name));
 }
 
 void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
@@ -750,10 +762,41 @@ void MainComponent::settingsSetKeybinding(const std::string& json) {
     if (action.empty() || key.empty() || !isKnownActionId(action))
         return;
 
+    const auto normalized = [](std::string value) {
+        value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
+            return std::isspace(c) != 0;
+        }), value.end());
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return value;
+    };
+    const std::string normalizedKey = normalized(key);
+    for (const auto& [otherAction, otherKey] : appSettings.keybindings) {
+        if (otherAction != action && normalized(otherKey) == normalizedKey) {
+            setStatus("Shortcut is already assigned to " + juce::String(otherAction));
+            publishWebState();
+            return;
+        }
+    }
+
     appSettings.keybindings[action] = key;
     applyGlobalBindings();
     saveAppSettingsToDisk();
     setStatus("Keybinding: " + juce::String(action) + " -> " + juce::String(key));
+}
+
+void MainComponent::settingsSetCountInBars(const std::string& json) {
+    glz::generic doc;
+    int bars = 0;
+    if (!parseJson(json, doc) || !getInt(doc, "bars", bars))
+        return;
+    appSettings.countInBars = std::clamp(bars, 0, 2);
+    if (appSettings.countInBars > 0)
+        appSettings.countInPreferredBars = appSettings.countInBars;
+    engine.setCountInBars(appSettings.countInBars);
+    saveAppSettingsToDisk();
+    publishWebState();
 }
 
 void MainComponent::settingsMidiLearn(const std::string& json) {
@@ -761,7 +804,7 @@ void MainComponent::settingsMidiLearn(const std::string& json) {
     std::string action;
     if (!parseJson(json, doc) || !getString(doc, "action", action))
         return;
-    if (!isKnownActionId(action))
+    if (!isMidiMappableAction(action))
         return;
     midiLearnAction = action;
     setStatus("MIDI learn armed: " + juce::String(action) + " -- press a pad/CC");

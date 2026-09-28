@@ -14,6 +14,7 @@ import {
 import { createPortal } from "react-dom";
 import { IS_ELECTRON } from "../../lib/platform/electron";
 import { IS_EMBEDDED } from "../../lib/platform/embedded";
+import { hotkeyManager } from "../../lib/interaction/HotkeyManager";
 
 /**
  * Wire format for Electron's native Menu (see electron main
@@ -29,6 +30,10 @@ export type NativeMenuItem =
       disabled?: boolean;
       /** When set, item is a checkbox (native checkmark in Electron). */
       checked?: boolean;
+      /** Render as a native radio item; radio items close after selection. */
+      radio?: boolean;
+      /** Optional native Electron accelerator, e.g. "CommandOrControl+X". */
+      accelerator?: string;
     }
   | {
       type: "submenu";
@@ -60,6 +65,18 @@ function extractLabel(node: ReactNode): string {
     return extractLabel(props.children);
   }
   return "";
+}
+
+function formatShortcut(shortcut: string): string {
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+  return shortcut.split("+").map((part) => {
+    const key = part.trim().toLowerCase();
+    if (key === "cmd" || key === "meta") return isMac ? "⌘" : "Ctrl+";
+    if (key === "ctrl" || key === "control") return isMac ? "⌃" : "Ctrl+";
+    if (key === "alt" || key === "option") return isMac ? "⌥" : "Alt+";
+    if (key === "shift") return isMac ? "⇧" : "Shift+";
+    return key.length === 1 ? key.toUpperCase() : key.replace(/^./, (c) => c.toUpperCase());
+  }).join("");
 }
 
 function collectNativeItems(children: ReactNode): {
@@ -100,6 +117,10 @@ function collectNativeItems(children: ReactNode): {
           danger?: boolean;
           disabled?: boolean;
           checked?: boolean;
+          radio?: boolean;
+          shortcut?: string;
+          shortcutAction?: string;
+          shortcutCommand?: string;
           onClick: () => void;
         };
         const id = `item-${n++}`;
@@ -109,10 +130,17 @@ function collectNativeItems(children: ReactNode): {
           label: extractLabel(props.children) || "…",
           danger: props.danger,
           disabled: props.disabled,
+          accelerator: props.shortcut ??
+            (props.shortcutAction
+              ? hotkeyManager.getShortcutForAction(props.shortcutAction)
+              : props.shortcutCommand
+                ? hotkeyManager.getShortcutForCommand(props.shortcutCommand)
+                : undefined),
         };
         if (typeof props.checked === "boolean") {
           item.checked = props.checked;
         }
+        if (props.radio) item.radio = true;
         items.push(item);
         handlers.set(id, props.onClick);
         return;
@@ -226,7 +254,8 @@ export function ContextMenu({
           const isCheckbox =
             chosen &&
             chosen.type === "item" &&
-            typeof chosen.checked === "boolean";
+            typeof chosen.checked === "boolean" &&
+            !chosen.radio;
           // Check freshest handlers first, falling back to initial render map
           const fn = handlersRef.current.get(id) ?? handlers.get(id);
           if (isCheckbox) {
@@ -327,6 +356,10 @@ export function ContextMenuItem({
   danger = false,
   disabled = false,
   checked,
+  radio = false,
+  shortcut,
+  shortcutAction,
+  shortcutCommand,
   onClick,
 }: {
   children: React.ReactNode;
@@ -339,13 +372,28 @@ export function ContextMenuItem({
    * Omit for ordinary action items.
    */
   checked?: boolean;
+  /** Use with checked for a single-choice menu group. */
+  radio?: boolean;
+  /** Show the same shortcut hint in the DOM menu and native menu. */
+  shortcut?: string;
+  /** Look up and display the user's current binding for a Core action. */
+  shortcutAction?: string;
+  /** Look up and display a fixed scoped command's current keystroke. */
+  shortcutCommand?: string;
   onClick: () => void;
 }) {
   const isCheckable = typeof checked === "boolean";
+  const resolvedShortcut =
+    shortcut ??
+    (shortcutAction
+      ? hotkeyManager.getShortcutForAction(shortcutAction)
+      : shortcutCommand
+        ? hotkeyManager.getShortcutForCommand(shortcutCommand)
+        : undefined);
   return (
     <button
       type="button"
-      role={isCheckable ? "menuitemcheckbox" : "menuitem"}
+      role={isCheckable ? (radio ? "menuitemradio" : "menuitemcheckbox") : "menuitem"}
       aria-checked={isCheckable ? checked : undefined}
       disabled={disabled}
       onClick={onClick}
@@ -364,6 +412,11 @@ export function ContextMenuItem({
         </span>
       )}
       <span className="min-w-0 flex-1 truncate">{children}</span>
+      {resolvedShortcut && (
+        <span className="shrink-0 pl-4 text-[11px] text-foreground/45" aria-hidden>
+          {formatShortcut(resolvedShortcut)}
+        </span>
+      )}
     </button>
   );
 }

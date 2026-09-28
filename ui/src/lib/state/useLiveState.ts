@@ -4,6 +4,9 @@ import { wsUrl, onBackendChange, apiFetch } from "./backend";
 import {
   pushLiveLevels,
   pushLiveBinaryFrame,
+  resetLiveLevels,
+  resetLiveTelemetrySequence,
+  setTrackIds,
   setMeterIds,
   subscribeLiveTransport,
   subscribeLiveMixerFlags,
@@ -155,6 +158,8 @@ function buildMergedState(
           midiInputs: next.settings.midiInputs?.length
             ? next.settings.midiInputs
             : prev.settings.midiInputs,
+          currentMidiInput:
+            next.settings.currentMidiInput ?? prev.settings.currentMidiInput,
           virtualMidiPortEnabled:
             next.settings.virtualMidiPortEnabled ??
             prev.settings.virtualMidiPortEnabled,
@@ -382,6 +387,10 @@ export function useLiveState(view: string = "player") {
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    // In Electron, Core state is available over both UDP telemetry and the
+    // reliable HTTP control API. A healthy HTTP poll is a valid degraded-mode
+    // connection when the optional UDP subscription/receive lane goes stale.
+    let lastHttpStateSuccessAt = 0;
 
     const isEmbeddedMode =
       IS_EMBEDDED || IS_ELECTRON || "resostageElectron" in window;
@@ -397,7 +406,9 @@ export function useLiveState(view: string = "player") {
       try {
         const res = await apiFetch("/api/v1/state");
         if (res.ok) {
+          lastHttpStateSuccessAt = Date.now();
           const data = (await res.json()) as Partial<WebUiState>;
+          if (data.tracks) setTrackIds(data.tracks.map((t) => t.id));
           if (data.meters) setMeterIds(data.meters.map((m) => m.id));
 
           const isUdpLive =
@@ -535,6 +546,9 @@ export function useLiveState(view: string = "player") {
               if (parsed.meters) {
                 setMeterIds(parsed.meters.map((m) => m.id));
               }
+              if (parsed.tracks) {
+                setTrackIds(parsed.tracks.map((t) => t.id));
+              }
               if (parsed.playing !== undefined)
                 setTransportPlaying(parsed.playing);
               pushLiveLevels({
@@ -665,6 +679,8 @@ export function useLiveState(view: string = "player") {
     const unsubBackend = onBackendChange(() => {
       pendingStateRef.current = {};
       setState(emptyState);
+      resetLiveLevels();
+      resetLiveTelemetrySequence();
       clearApiCaches();
       setupConnection();
       void fetchState();
@@ -674,8 +690,8 @@ export function useLiveState(view: string = "player") {
     void fetchState();
     const statePollInterval = setInterval(fetchState, 1000);
     // Embedded mode has no WebSocket lifecycle to drive the connection dot.
-    // Follow the shell's receive-side UDP watchdog so a dead/firewalled lane
-    // becomes visible within one packet timeout.
+    // UDP is the low-latency path, but successful HTTP state polls keep the
+    // app connected in degraded mode if UDP is delayed, filtered, or stale.
     const udpStatusInterval =
       isEmbeddedMode && window.resostageElectron?.getRemoteStatus
         ? setInterval(() => {
@@ -684,16 +700,26 @@ export function useLiveState(view: string = "player") {
               .then((remote) => {
                 if (cancelled) return;
                 const udpState = remote.telemetry?.state;
-                if (remote.controlReachable === false || udpState === "stale") {
-                  setStatus("reconnecting");
-                } else if (udpState === "live") {
+                const httpStateIsFresh =
+                  Date.now() - lastHttpStateSuccessAt < 3_500;
+                if (udpState === "live" || httpStateIsFresh) {
                   setStatus("live");
+                } else if (
+                  remote.controlReachable === false ||
+                  udpState === "stale"
+                ) {
+                  setStatus("reconnecting");
                 } else {
                   setStatus("connecting");
                 }
               })
               .catch(() => {
-                if (!cancelled) setStatus("reconnecting");
+                if (cancelled) return;
+                setStatus(
+                  Date.now() - lastHttpStateSuccessAt < 3_500
+                    ? "live"
+                    : "reconnecting",
+                );
               });
           }, 500)
         : null;

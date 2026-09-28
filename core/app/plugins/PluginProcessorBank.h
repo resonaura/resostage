@@ -111,7 +111,9 @@ public:
                              const ProjectLoader* resources,
                              const juce::File& registryFile,
                              double sampleRate, int maximumBlockSize,
-                             bool nonRealtime);
+                             bool nonRealtime,
+                             const PluginProcessorBank* previousBank = nullptr,
+                             const std::vector<StateBlob>* transientStates = nullptr);
 
     ~PluginProcessorBank() override;
     PluginProcessorBank(const PluginProcessorBank&) = delete;
@@ -170,6 +172,8 @@ public:
 
     /** Power management inspection and control (Phase 5). */
     PluginPowerState getSlotPowerState(const std::string& slotId) const noexcept;
+    std::string getSlotLoadState(const std::string& slotId) const;
+    std::string getSlotLoadError(const std::string& slotId) const;
     void setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept;
     void prewarmStrip(size_t stripIndex) noexcept;
     void prewarmSlot(const std::string& slotId) noexcept;

@@ -98,11 +98,19 @@ PluginPlayHead::getPosition() const {
 }
 
 struct PluginProcessorBank::Node {
+    ~Node() {
+        if (instance != nullptr)
+            instance->releaseResources();
+    }
+
     std::string slotId;
+    std::string pluginIdentifier;
     std::unique_ptr<juce::AudioPluginInstance> instance;
     std::atomic<bool> bypassed{false};
     bool instrument = false;
     bool missingInstrument = false;
+    std::string loadState = "loading";
+    std::string loadError;
     std::atomic<bool> faulted{false};
     // A save worker raises stateCaptureRequested and waits only for an
     // already-running processBlock call to leave. The callback re-checks the
@@ -121,7 +129,7 @@ struct PluginProcessorBank::StripChain {
         midi.ensureSize(4096);
     }
 
-    std::vector<std::unique_ptr<Node>> nodes;
+    std::vector<std::shared_ptr<Node>> nodes;
     juce::AudioBuffer<float> audio;
     juce::MidiBuffer midi;
     int latencySamples = 0;
@@ -226,10 +234,8 @@ PluginProcessorBank::~PluginProcessorBank() {
     for (auto& chain : chains)
         if (chain != nullptr)
             for (auto& node : chain->nodes)
-                if (node->instance != nullptr) {
+                if (node->instance != nullptr)
                     node->instance->removeListener(this);
-                    node->instance->releaseResources();
-                }
 }
 
 void PluginProcessorBank::audioProcessorChanged(
@@ -470,7 +476,8 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
 PluginProcessorBank::BuildResult PluginProcessorBank::build(
     const Project& project, const MixGraph& graph, const ProjectLoader* resources,
     const juce::File& registryFile, double sampleRate, int maximumBlockSize,
-    bool nonRealtime) {
+    bool nonRealtime, const PluginProcessorBank* previousBank,
+    const std::vector<StateBlob>* transientStates) {
     BuildResult result;
     auto bank = std::shared_ptr<PluginProcessorBank>(new PluginProcessorBank());
     bank->chains.resize(graph.strips.size());
@@ -496,8 +503,46 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 result.warnings.push_back("Plug-in bank exceeds 128 slots; remaining inserts were skipped");
                 break;
             }
-            auto node = std::make_unique<Node>();
+            std::shared_ptr<Node> reusableNode;
+            if (previousBank != nullptr) {
+                for (const auto& previousChain : previousBank->chains) {
+                    if (previousChain == nullptr) continue;
+                    const auto previous = std::find_if(
+                        previousChain->nodes.begin(), previousChain->nodes.end(),
+                        [&slot](const auto& candidate) {
+                            return candidate != nullptr
+                                && candidate->slotId == slot.id
+                                && candidate->pluginIdentifier == slot.plugin.identifier
+                                && candidate->instrument == slot.plugin.instrument;
+                        });
+                    if (previous != previousChain->nodes.end()) {
+                        reusableNode = *previous;
+                        break;
+                    }
+                }
+            }
+
+            if (reusableNode != nullptr) {
+                reusableNode->bypassed.store(slot.bypassed,
+                                              std::memory_order_relaxed);
+                chain->latencySamples = static_cast<int>(std::min<uint64_t>(
+                    static_cast<uint64_t>(chain->latencySamples)
+                        + static_cast<uint32_t>(reusableNode->instance != nullptr
+                            ? std::max(0, reusableNode->instance->getLatencySamples())
+                            : 0),
+                    static_cast<uint64_t>(INT_MAX)));
+                if (reusableNode->instance != nullptr) {
+                    const double tail = reusableNode->instance->getTailLengthSeconds();
+                    if (std::isfinite(tail) && tail > 0.0)
+                        chain->tailSeconds += tail;
+                }
+                chain->nodes.push_back(std::move(reusableNode));
+                continue;
+            }
+
+            auto node = std::make_shared<Node>();
             node->slotId = slot.id;
+            node->pluginIdentifier = slot.plugin.identifier;
             node->bypassed.store(slot.bypassed, std::memory_order_relaxed);
             node->instrument = slot.plugin.instrument;
             PluginPowerFlags pflags;
@@ -507,6 +552,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             const auto* description = findDescription(descriptions, slot.plugin.identifier);
             if (description == nullptr) {
                 node->missingInstrument = slot.plugin.instrument;
+                node->loadState = "missing";
+                node->loadError = "Plug-in is not present in the scanned catalog";
                 node->powerTracker.prepare(slot.id, sampleRate, 0.0, pflags);
                 result.warnings.push_back("Missing plug-in: " + slot.plugin.name);
                 chain->nodes.push_back(std::move(node));
@@ -518,6 +565,9 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 *description, sampleRate, maximumBlockSize, error);
             if (node->instance == nullptr) {
                 node->missingInstrument = slot.plugin.instrument;
+                node->loadState = "failed";
+                node->loadError = error.isNotEmpty()
+                    ? error.toStdString() : "JUCE could not create the plug-in instance";
                 node->powerTracker.prepare(slot.id, sampleRate, 0.0, pflags);
                 result.warnings.push_back("Could not create " + slot.plugin.name + ": "
                                           + error.toStdString());
@@ -529,6 +579,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             node->instance->setPlayConfigDetails(slot.plugin.instrument ? 0 : 2, 2,
                                                   sampleRate, maximumBlockSize);
             node->instance->prepareToPlay(sampleRate, maximumBlockSize);
+            node->loadState = "loaded";
 
             const int ins = node->instance->getTotalNumInputChannels();
             const int outs = node->instance->getTotalNumOutputChannels();
@@ -538,7 +589,18 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 node->buffer.clear();
             }
 
-            if (resources != nullptr && slot.stateResource.has_value()) {
+            const StateBlob* transientState = nullptr;
+            if (transientStates != nullptr) {
+                const auto saved = std::find_if(
+                    transientStates->begin(), transientStates->end(),
+                    [&slot](const StateBlob& state) { return state.slotId == slot.id; });
+                if (saved != transientStates->end()) transientState = &*saved;
+            }
+            if (transientState != nullptr) {
+                node->instance->setStateInformation(
+                    transientState->data.data(),
+                    static_cast<int>(transientState->data.size()));
+            } else if (resources != nullptr && slot.stateResource.has_value()) {
                 std::vector<uint8_t> state;
                 std::string stateError;
                 if (resources->extractFile(*slot.stateResource, state, stateError)) {
@@ -727,6 +789,31 @@ PluginPowerState PluginProcessorBank::getSlotPowerState(const std::string& slotI
         }
     }
     return PluginPowerState::Active;
+}
+
+std::string PluginProcessorBank::getSlotLoadState(const std::string& slotId) const {
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes) {
+            if (node == nullptr || node->slotId != slotId) continue;
+            if (node->faulted.load(std::memory_order_relaxed)) return "failed";
+            return node->loadState;
+        }
+    }
+    return "loading";
+}
+
+std::string PluginProcessorBank::getSlotLoadError(const std::string& slotId) const {
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes) {
+            if (node == nullptr || node->slotId != slotId) continue;
+            if (node->faulted.load(std::memory_order_relaxed))
+                return "Plug-in raised an exception while processing audio";
+            return node->loadError;
+        }
+    }
+    return {};
 }
 
 void PluginProcessorBank::setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept {

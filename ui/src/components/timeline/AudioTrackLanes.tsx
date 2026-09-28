@@ -496,6 +496,7 @@ export function AudioTrackLanes({
                         rowName={row.name}
                         rowColor={row.color}
                         laneHeight={laneHeightPx(verticalZoom)}
+                        verticalZoom={verticalZoom}
                         pxPerSec={pxPerSec}
                         dimmed={trackMuted || midiRegion.muted || soloDimmed}
                         isSelected={selectedRegionKeys.includes(midiSelKey)}

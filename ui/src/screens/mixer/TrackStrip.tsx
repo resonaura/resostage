@@ -14,7 +14,7 @@ import {
   rowsSameExceptLevels,
   sameExceptLevels,
 } from "../../lib/audio/levelFields";
-import { getLiveLevels } from "../../lib/audio/liveLevels";
+import { getTrackLiveLevel } from "../../lib/audio/liveLevels";
 import { deduplicatePlugins } from "../../lib/plugins/pluginCategories";
 import {
   outputSendsToClickRows,
@@ -203,6 +203,11 @@ function TrackStripInner({
           instrumentName,
           instrumentSlotId: instrumentSlot?.id,
           instrumentBypassed: instrumentSlot?.bypassed,
+          instrumentLoadState: instrumentSlot?.loadState,
+          instrumentLoadError: instrumentSlot?.loadError,
+          onRetryInstrument: instrumentSlot
+            ? () => void pluginChains.retry(t.id, instrumentSlot.id)
+            : undefined,
           onToggleInstrumentBypass: instrumentSlot
             ? () =>
                 void pluginChains.setBypassed(
@@ -275,8 +280,8 @@ function TrackStripInner({
         peakDb={peakDb}
         peakDbL={peakDbL}
         peakDbR={peakDbR}
-        getLiveDbL={() => getLiveLevels().tracks[index]?.peakDbL ?? -144}
-        getLiveDbR={() => getLiveLevels().tracks[index]?.peakDbR ?? -144}
+        getLiveDbL={() => getTrackLiveLevel(t.id)?.peakDbL ?? -144}
+        getLiveDbR={() => getTrackLiveLevel(t.id)?.peakDbR ?? -144}
         mute={t.mute}
         solo={t.solo}
         soloSafe={t.soloSafe}
@@ -372,6 +377,17 @@ function TrackStripInner({
               >
                 Open {instrumentName}
               </ContextMenuItem>
+              {(instrumentSlot.loadState === "failed" ||
+                instrumentSlot.loadState === "missing") && (
+                <ContextMenuItem
+                  onClick={() => {
+                    void pluginChains.retry(t.id, instrumentSlot.id);
+                    setInstrumentMenu(null);
+                  }}
+                >
+                  Retry loading
+                </ContextMenuItem>
+              )}
               <ContextMenuItem
                 danger
                 onClick={() => {
@@ -397,7 +413,10 @@ function TrackStripInner({
                     key={plugin.id}
                     checked={instrumentSlot?.pluginId === plugin.id}
                     onClick={() => {
-                      void pluginChains.add(t.id, plugin.id);
+                      if (instrumentSlot)
+                        void pluginChains.replace(t.id, instrumentSlot.id, plugin.id);
+                      else
+                        void pluginChains.add(t.id, plugin.id);
                       setInstrumentMenu(null);
                     }}
                   >
