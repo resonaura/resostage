@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "./components/dialogs/ConfirmDialog";
+import { ExportMidiDialog, type MidiExportIntent } from "./components/dialogs/ExportMidiDialog";
+import { parseStandardMidiFile } from "./lib/midi/standardMidiFile";
 import {
   ContextMenu,
   ContextMenuDivider,
@@ -24,7 +26,7 @@ import {
 import { VirtualMidiKeyboard } from "./components/midi/VirtualMidiKeyboard";
 import { Button, Tabs } from "./components/ui";
 import { performAction, type ActionId } from "./lib/state/actions";
-import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/state/api";
+import { builder, fetchAllPeaks, fetchPeaks, project, transport } from "./lib/state/api";
 import {
   apiFetch,
   getRemoteBackend,
@@ -307,6 +309,29 @@ export default function App() {
     intent: RenderDialogIntent;
     id: number;
   }>({ open: false, intent: { kind: "generic" }, id: 0 });
+  const [midiExport, setMidiExport] = useState<{ open: boolean; intent: MidiExportIntent }>({
+    open: false, intent: { kind: "all-midi" },
+  });
+  const midiImportInput = useRef<HTMLInputElement>(null);
+  const audioImportInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const midi = () => midiImportInput.current?.click();
+    const audio = () => audioImportInput.current?.click();
+    window.addEventListener("resostage-open-midi-import", midi);
+    window.addEventListener("resostage-open-audio-import", audio);
+    return () => {
+      window.removeEventListener("resostage-open-midi-import", midi);
+      window.removeEventListener("resostage-open-audio-import", audio);
+    };
+  }, []);
+  useEffect(() => {
+    const handle = (event: Event) => {
+      const intent = (event as CustomEvent<MidiExportIntent>).detail;
+      setMidiExport({ open: true, intent: intent?.kind ? intent : { kind: "all-midi" } });
+    };
+    window.addEventListener("resostage-open-midi-export", handle);
+    return () => window.removeEventListener("resostage-open-midi-export", handle);
+  }, []);
   const openRender = useCallback((intent: RenderDialogIntent) => {
     setRenderRequest((current) => ({
       open: true,
@@ -854,6 +879,67 @@ export default function App() {
         onClose={() =>
           setRenderRequest((current) => ({ ...current, open: false }))
         }
+      />
+      <ExportMidiDialog
+        open={midiExport.open}
+        state={state}
+        intent={midiExport.intent}
+        onClose={() => setMidiExport((current) => ({ ...current, open: false }))}
+      />
+      <input
+        ref={midiImportInput}
+        type="file"
+        accept=".mid,.midi,audio/midi"
+        className="hidden"
+        aria-label="Import MIDI file"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (!file) return;
+          if (file.size > 32 * 1024 * 1024) {
+            window.alert("MIDI file exceeds 32 MiB limit.");
+            return;
+          }
+          const track = state.tracks.find((item) => item.id === state.activeTrackId &&
+            ["instrument", "midi", "externalMidi"].includes(item.kind ?? ""));
+          if (!track) {
+            window.alert("Select an instrument or MIDI track before importing MIDI.");
+            return;
+          }
+          void file.arrayBuffer().then((buffer) => {
+            const imported = parseStandardMidiFile(new Uint8Array(buffer));
+            const sourceTracks = imported.tracks.filter((item) => item.notes.length > 0);
+            if (!sourceTracks.length) throw new Error("MIDI file has no notes");
+            let id = 1;
+            return builder.midiRegionAdd({
+              songIndex: state.songIndex,
+              trackId: track.id,
+              name: file.name.replace(/\.(mid|midi)$/i, ""),
+              startBeats: 0,
+              durationBeats: Math.max(1, ...sourceTracks.map((item) => item.durationBeats)),
+              notes: sourceTracks.flatMap((item) => item.notes.map((note) => ({ ...note, id: id++ }))),
+            });
+          }).catch((cause: unknown) => window.alert(cause instanceof Error ? cause.message : "MIDI import failed"));
+        }}
+      />
+      <input
+        ref={audioImportInput}
+        type="file"
+        accept="audio/wav,.wav,.wave"
+        className="hidden"
+        aria-label="Import audio file"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (!file) return;
+          const index = state.tracks.findIndex((track) => track.id === state.activeTrackId && track.kind === "audio");
+          if (index < 0) {
+            window.alert("Select an audio track before importing audio.");
+            return;
+          }
+          void builder.trackImportWav(state.songIndex, index, file)
+            .catch((cause: unknown) => window.alert(cause instanceof Error ? cause.message : "Audio import failed"));
+        }}
       />
 
       {!window.resostageElectron?.isElectron && (

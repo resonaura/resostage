@@ -871,6 +871,7 @@ struct WMenuItem {
     std::optional<std::string> actionId;
     std::optional<bool> dynamicKey;
     std::optional<std::string> key;
+    std::vector<WMenuItem> children;
 };
 
 struct WTouchBarTab {

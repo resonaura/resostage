@@ -93,6 +93,32 @@ private:
     int* updates;
 };
 
+class MidiCaptureSession final : public OfflineProcessorSession {
+public:
+    struct Event { int64_t sample; uint8_t pitch; uint8_t velocity;
+                   uint8_t releaseVelocity; bool noteOn; };
+    MidiCaptureSession(uint32_t instrumentStrip, std::vector<Event>* captured,
+                       double* bpm)
+        : strip(instrumentStrip), observedBpm(bpm), events(captured) {}
+    MixProcessorView processorView() const noexcept override { return {}; }
+    void publishTransport(const OfflineProcessorTransport& value) noexcept override {
+        transportSample = value.sample;
+        *observedBpm = value.bpm;
+    }
+    bool stripHasInstrument(uint32_t value) const noexcept override { return value == strip; }
+    void queueMidiNote(uint32_t value, uint8_t pitch, uint8_t velocity,
+                       uint8_t releaseVelocity, bool noteOn,
+                       int samplePosition) noexcept override {
+        if (value == strip)
+            events->push_back({transportSample + samplePosition, pitch, velocity,
+                               releaseVelocity, noteOn});
+    }
+    uint32_t strip;
+    int64_t transportSample = 0;
+    double* observedBpm;
+    std::vector<Event>* events;
+};
+
 class LatencyProcessorSession final : public OfflineProcessorSession {
 public:
     explicit LatencyProcessorSession(const MixGraph& graph)
@@ -419,6 +445,71 @@ TEST_CASE("OfflineRenderer creates private processor sessions and runs their str
     CHECK(blocks > 0);
     CHECK(transportUpdates == blocks);
     CHECK(maxPcm24Amplitude(path) == doctest::Approx(0.0));
+
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+}
+
+TEST_CASE("OfflineRenderer sends song-tempo MIDI to the private instrument processor") {
+    Project project;
+    TrackDef instrument;
+    instrument.id = "audio::track:instrument";
+    instrument.name = "Synth";
+    instrument.kind = TrackKind::Instrument;
+    project.tracks.push_back(instrument);
+
+    SongDef song;
+    song.id = "meta::song:1";
+    song.name = "MIDI";
+    song.bpm = 120.0;
+    song.endSeconds = 1.5;
+    song.tempoPoints = {
+        TempoPoint{.beat = 0.0, .bpm = 120.0, .curve = 0.0},
+        TempoPoint{.beat = 1.0, .bpm = 60.0, .curve = 0.0},
+    };
+    MidiRegion region;
+    region.id = "midi-region";
+    region.trackId = instrument.id;
+    region.startBeats = 0.0;
+    region.durationBeats = 4.0;
+    MidiNote note;
+    note.id = 1;
+    note.pitch = 64;
+    note.startBeats = 0.5;
+    note.durationBeats = 1.0;
+    note.velocity = 0.75f;
+    note.releaseVelocity = 0.25f;
+    region.notes.push_back(note);
+    song.midiRegions.push_back(region);
+    project.songs.push_back(song);
+
+    const auto path = temporaryWavPath("-midi-instrument");
+    OfflineRenderRequest request;
+    request.songIndex = 0;
+    request.targetKind = RenderTargetKind::Track;
+    request.targetId = instrument.id;
+    request.outputPath = path.string();
+    request.sampleRate = 48000;
+
+    std::vector<MidiCaptureSession::Event> capturedEvents;
+    double observedBpm = 0.0;
+    const OfflineRenderer::ProcessorFactory factory =
+        [&capturedEvents, &observedBpm](const Project&, const MixGraph& graph, double, int,
+                   std::string&) -> std::unique_ptr<OfflineProcessorSession> {
+            return std::make_unique<MidiCaptureSession>(
+                graph.find("audio::track:instrument"), &capturedEvents, &observedBpm);
+        };
+    const auto result = OfflineRenderer{}.render(project, {}, request, {}, nullptr, factory);
+    REQUIRE(result.ok);
+    REQUIRE(capturedEvents.size() == 2);
+    CHECK(capturedEvents[0].noteOn);
+    CHECK(capturedEvents[0].sample == 12000);
+    CHECK(capturedEvents[0].pitch == 64);
+    CHECK(capturedEvents[0].velocity == 95);
+    CHECK_FALSE(capturedEvents[1].noteOn);
+    CHECK(capturedEvents[1].sample == 48000);
+    CHECK(capturedEvents[1].releaseVelocity == 32);
+    CHECK(observedBpm == doctest::Approx(60.0));
 
     std::error_code ignored;
     std::filesystem::remove(path, ignored);

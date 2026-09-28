@@ -398,6 +398,7 @@ interface MenuItemModel {
   actionId?: string;
   dynamicKey?: boolean;
   key?: string;
+  children?: MenuItemModel[];
 }
 
 interface MenuSectionModel {
@@ -975,6 +976,7 @@ let isSaveDialogActive = false;
 // updates, and (2) always fire the flash on the next macrotask.
 let lastFlashedAction = "";
 let lastFlashAt = 0;
+let pendingShellActionEcho: { action: string; at: number } | null = null;
 let pendingFlashTitle: string | null = null;
 let pendingFlashItem: string | null = null;
 let pendingFlashTimer: ReturnType<typeof setTimeout> | null = null;
@@ -984,11 +986,17 @@ function menuLocationForAction(
   action: string,
 ): { section: string; item: string } | null {
   if (!menuModel) return null;
-  for (const section of menuModel.menus ?? []) {
-    for (const it of section.items ?? []) {
-      if (it.actionId === action && it.title)
-        return { section: section.title, item: it.title };
+  const find = (items: MenuItemModel[]): string | null => {
+    for (const item of items) {
+      if (item.actionId === action && item.title) return item.title;
+      const nested = find(item.children ?? []);
+      if (nested) return nested;
     }
+    return null;
+  };
+  for (const section of menuModel.menus ?? []) {
+    const item = find(section.items);
+    if (item) return { section: section.title, item };
   }
   return null;
 }
@@ -1248,7 +1256,10 @@ async function handleFileDialogAction(action: string): Promise<boolean> {
 let lastPostedAction = "";
 let lastPostedActionAt = 0;
 
-async function postAction(action: string): Promise<boolean> {
+async function postAction(
+  action: string,
+  feedback: "custom" | "native" = "custom",
+): Promise<boolean> {
   const now = Date.now();
   // Debounce identical back-to-back actions within 120ms (e.g. Cocoa NSMenuItem keyEquivalent click + webContents before-input-event)
   if (action === lastPostedAction && now - lastPostedActionAt < 120) {
@@ -1257,10 +1268,13 @@ async function postAction(action: string): Promise<boolean> {
   lastPostedAction = action;
   lastPostedActionAt = now;
 
-  // Flash for menu-click / shell-originated actions (don't wait for the
-  // SPA's WebSocket round-trip of lastActionNonce). Deferred so it lands
-  // after any concurrent refreshMenu from menu-state.
-  flashMenuAction(action);
+  // UI-originated actions get one custom flash immediately; native menu clicks
+  // already receive AppKit's click animation, so consume their telemetry echo.
+  if (feedback === "native") pendingShellActionEcho = { action, at: Date.now() };
+  else {
+    flashMenuAction(action);
+    pendingShellActionEcho = { action, at: Date.now() };
+  }
 
   if (action === "toggle_musical_typing") {
     toggleKeyboardWindow();
@@ -1273,7 +1287,11 @@ async function postAction(action: string): Promise<boolean> {
     action === "import_song_folder"
   ) {
     const handled = await handleFileDialogAction(action);
-    if (handled) return true;
+    if (handled) {
+      if (pendingShellActionEcho?.action === action)
+        pendingShellActionEcho = null;
+      return true;
+    }
   }
 
   try {
@@ -1483,35 +1501,33 @@ function keybindingFor(action: string): string {
 }
 
 function fixedMenuKeybindingFor(action: string): string {
-  for (const menu of menuModel?.menus ?? []) {
-    for (const item of menu.items) {
+  const find = (items: MenuItemModel[]): string | undefined => {
+    for (const item of items) {
       if (item.actionId === action) return item.key ?? "";
+      const child = find(item.children ?? []);
+      if (child !== undefined) return child;
     }
+    return undefined;
+  };
+  for (const menu of menuModel?.menus ?? []) {
+    const key = find(menu.items);
+    if (key !== undefined) return key;
   }
   return "";
 }
 
 function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
   if (item.separator) return { type: "separator" };
+  if (item.children?.length)
+    return { label: item.title ?? "", submenu: item.children.map(buildMenuItem) };
   if (item.kind === "open-recent") {
-    const recents = menuState.recentProjects ?? [];
-    const items: MenuItemConstructorOptions[] = recents.length
-      ? [
-          ...recents.map(
-            (rp): MenuItemConstructorOptions => ({
-              label: rp.displayName || rp.path,
-              click: () => void postAction(`open_recent:${rp.path}`),
-            }),
-          ),
-          { type: "separator" },
-          {
-            label: "Clear Menu",
-            click: () => void postAction("clear_recent_projects"),
-          },
-        ]
-      : [{ label: "No Recent Projects", enabled: false }];
-    return { label: item.title, submenu: items };
+    return {
+      id: "open_recent",
+      label: item.title,
+      submenu: buildRecentMenuItems(),
+    };
   }
+
   if (item.role === "about") return { role: "about", label: item.title };
   if (item.role === "minimize") return { role: "minimize", label: item.title };
   if (item.role === "zoom") return { role: "zoom", label: item.title };
@@ -1537,6 +1553,17 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
         mainWindow.webContents.send("open-audio-render", {
           kind: action === "show_render_all_tracks" ? "all-tracks" : "generic",
         });
+      },
+    };
+  }
+  if (action === "show_midi_export" || action === "import_midi_file" || action === "import_audio_file") {
+    return {
+      label: item.title ?? "",
+      click: () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.webContents.send(action === "show_midi_export" ? "open-midi-export" :
+          action === "import_audio_file" ? "open-audio-import" : "open-midi-import",
+          action === "show_midi_export" ? { kind: "all-midi" } : undefined);
       },
     };
   }
@@ -1566,6 +1593,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
     // menu clicks via POST /api/v1/action.
     const binding = keybindingFor(action);
     return {
+      id: action,
       label: item.title ?? "",
       accelerator: acceleratorFor(binding),
       registerAccelerator: false,
@@ -1575,7 +1603,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
           : action === "redo"
             ? menuState.canRedo
             : true,
-      click: () => void postAction(action),
+      click: () => void postAction(action, "native"),
     };
   }
   // Fixed app shortcuts (New / Open / Save / Save As / Minimize …): safe to
@@ -1583,8 +1611,36 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
   return {
     label: item.title ?? "",
     accelerator: acceleratorFor(item.key),
-    click: () => postAction(action),
+    click: () => postAction(action, "native"),
   };
+}
+
+function buildRecentMenuItems(): MenuItemConstructorOptions[] {
+  const recents = menuState.recentProjects ?? [];
+  return recents.length
+    ? [
+        ...recents.map(
+          (rp): MenuItemConstructorOptions => ({
+            label: rp.displayName || rp.path,
+            click: () => void postAction(`open_recent:${rp.path}`),
+          }),
+        ),
+        { type: "separator" },
+        {
+          label: "Clear Menu",
+          click: () => void postAction("clear_recent_projects"),
+        },
+      ]
+    : [{ label: "No Recent Projects", enabled: false }];
+}
+
+function updateRecentMenuInPlace(): void {
+  const item = Menu.getApplicationMenu()?.getMenuItemById("open_recent");
+  if (!item) {
+    refreshMenu();
+    return;
+  }
+  item.submenu = Menu.buildFromTemplate(buildRecentMenuItems());
 }
 
 /** Shell-only Dev menu (not in backend MenuModel) — DevTools / reload / recover. */
@@ -2199,14 +2255,18 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
     // Rebuild the NSMenu only when something that *appears* in it changes.
     // lastAction/nonce alone must NOT call setApplicationMenu — that tears
     // down the menu hierarchy and kills the native bar flash mid-paint.
-    const needsMenuRebuild =
-      prev.canUndo !== menuState.canUndo ||
-      prev.canRedo !== menuState.canRedo ||
-      prev.undoLabel !== menuState.undoLabel ||
-      prev.redoLabel !== menuState.redoLabel ||
-      JSON.stringify(prev.recentProjects) !==
-        JSON.stringify(menuState.recentProjects);
-    if (needsMenuRebuild) refreshMenu();
+    const liveMenu = Menu.getApplicationMenu();
+    if (prev.canUndo !== menuState.canUndo) {
+      const undo = liveMenu?.getMenuItemById("undo");
+      if (undo) undo.enabled = menuState.canUndo;
+    }
+    if (prev.canRedo !== menuState.canRedo) {
+      const redo = liveMenu?.getMenuItemById("redo");
+      if (redo) redo.enabled = menuState.canRedo;
+    }
+    const recentProjectsChanged = JSON.stringify(prev.recentProjects) !==
+      JSON.stringify(menuState.recentProjects);
+    if (recentProjectsChanged) updateRecentMenuInPlace();
 
     if (
       menuState.lastActionNonce !== prevNonce &&
@@ -2216,7 +2276,11 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
       // SPA / MIDI / backend-originated actions (hotkeys that never hit
       // postAction() in this process). Menu-click paths already flashed
       // optimistically in postAction — debounced inside flashMenuAction.
-      flashMenuAction(menuState.lastAction);
+      const shellEcho = pendingShellActionEcho;
+      const alreadyFlashed = shellEcho?.action === menuState.lastAction &&
+        Date.now() - shellEcho.at < 1500;
+      if (shellEcho) pendingShellActionEcho = null;
+      if (!alreadyFlashed) flashMenuAction(menuState.lastAction);
     }
     if (menuState.saveAsPending && !isSaveDialogActive) {
       isSaveDialogActive = true;

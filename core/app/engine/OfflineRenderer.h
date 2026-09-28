@@ -101,6 +101,14 @@ public:
     virtual MixProcessorView processorView() const noexcept = 0;
     virtual void publishTransport(
         const OfflineProcessorTransport& transport) noexcept = 0;
+    /** Timestamped sequenced MIDI for a private instrument strip. */
+    virtual bool stripHasInstrument(uint32_t strip) const noexcept { (void)strip; return false; }
+    virtual void queueMidiNote(uint32_t strip, uint8_t pitch, uint8_t velocity,
+                               uint8_t releaseVelocity, bool noteOn,
+                               int samplePosition) noexcept {
+        (void)strip; (void)pitch; (void)velocity; (void)releaseVelocity;
+        (void)noteOn; (void)samplePosition;
+    }
     /** Conservative serial-path tail used as a Leave minimum, in seconds. */
     virtual double declaredTailSeconds() const noexcept { return 0.0; }
     virtual std::vector<std::string> warnings() const { return {}; }

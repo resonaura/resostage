@@ -134,6 +134,15 @@ ipcRenderer.on("udp-telemetry", (_event, buffer: unknown) => {
 ipcRenderer.on("open-audio-render", (_event, detail: unknown) => {
   emit("resostage-open-audio-render", detail);
 });
+ipcRenderer.on("open-midi-export", (_event, detail: unknown) => {
+  emit("resostage-open-midi-export", detail);
+});
+ipcRenderer.on("open-midi-import", () => {
+  emit("resostage-open-midi-import");
+});
+ipcRenderer.on("open-audio-import", () => {
+  emit("resostage-open-audio-import");
+});
 
 // Floating Musical Typing window open/close state sync
 ipcRenderer.on("keyboard-window:state-changed", (_event, isOpen: boolean) => {

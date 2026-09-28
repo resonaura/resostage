@@ -67,6 +67,21 @@ public:
         bank->publishTransport(state);
     }
 
+    bool stripHasInstrument(uint32_t strip) const noexcept override {
+        return bank != nullptr && bank->stripHasInstrument(strip);
+    }
+
+    void queueMidiNote(uint32_t strip, uint8_t pitch, uint8_t velocity,
+                       uint8_t releaseVelocity, bool noteOn,
+                       int samplePosition) noexcept override {
+        if (bank == nullptr || !bank->stripHasInstrument(strip))
+            return;
+        const auto message = noteOn
+            ? juce::MidiMessage::noteOn(1, pitch, velocity)
+            : juce::MidiMessage::noteOff(1, pitch, releaseVelocity);
+        bank->addStripMidiEvent(strip, message, samplePosition);
+    }
+
     double declaredTailSeconds() const noexcept override {
         return bank != nullptr ? bank->tailSeconds() : 0.0;
     }

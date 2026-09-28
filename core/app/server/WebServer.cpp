@@ -2523,36 +2523,41 @@ std::string WebServer::buildMenuModelJson() const {
     const auto& menus = menuModel();
     wire.menus.reserve(menus.size());
 
+    const auto convertItem = [&](const auto& self, const MenuItemModel& item) -> WMenuItem {
+        WMenuItem wItem;
+        switch (item.kind) {
+        case MenuItemModel::Kind::Separator:
+            wItem.separator = true;
+            break;
+        case MenuItemModel::Kind::OpenRecent:
+            wItem.kind = "open-recent";
+            wItem.title = item.title;
+            break;
+        case MenuItemModel::Kind::Item:
+            wItem.title = item.title;
+            if (!item.role.empty()) {
+                wItem.role = item.role;
+            } else if (!item.actionId.empty()) {
+                wItem.actionId = item.actionId;
+                if (item.dynamicKey)
+                    wItem.dynamicKey = true;
+                else if (!item.key.empty())
+                    wItem.key = item.key;
+            }
+            break;
+        }
+        for (const auto& child : item.children)
+            wItem.children.push_back(self(self, child));
+        return wItem;
+    };
+
     for (const auto& menu : menus) {
         WMenu wMenu;
         wMenu.title = menu.title;
         wMenu.items.reserve(menu.items.size());
 
-        for (const auto& item : menu.items) {
-            WMenuItem wItem;
-            switch (item.kind) {
-            case MenuItemModel::Kind::Separator:
-                wItem.separator = true;
-                break;
-            case MenuItemModel::Kind::OpenRecent:
-                wItem.kind = "open-recent";
-                wItem.title = item.title;
-                break;
-            case MenuItemModel::Kind::Item:
-                wItem.title = item.title;
-                if (!item.role.empty()) {
-                    wItem.role = item.role;
-                } else {
-                    wItem.actionId = item.actionId;
-                    if (item.dynamicKey)
-                        wItem.dynamicKey = true;
-                    else if (!item.key.empty())
-                        wItem.key = item.key;
-                }
-                break;
-            }
-            wMenu.items.push_back(std::move(wItem));
-        }
+        for (const auto& item : menu.items)
+            wMenu.items.push_back(convertItem(convertItem, item));
         wire.menus.push_back(std::move(wMenu));
     }
 

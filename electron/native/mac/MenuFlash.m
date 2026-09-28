@@ -86,6 +86,11 @@ static NSMenuItem *FindLeafItem(NSMenu *SubMenu, NSString *ItemTitle) {
     if (It.title.length > ItemTitle.length &&
         [It.title hasPrefix:ItemTitle])
       return It;
+    // File > Import/Export are nested; find the actual action leaf without
+    // opening and closing a submenu just to animate its menu-bar feedback.
+    NSMenuItem *Nested = FindLeafItem(It.submenu, ItemTitle);
+    if (Nested != nil)
+      return Nested;
   }
   return nil;
 }

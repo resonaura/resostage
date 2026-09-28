@@ -652,6 +652,16 @@ export function TimelineSidebar({
           >
             Duplicate Track with Content
           </ContextMenuItem>
+          {["instrument", "midi", "externalMidi"].includes(trackMenu.track.kind ?? "") && (
+            <ContextMenuItem onClick={() => {
+              window.dispatchEvent(new CustomEvent("resostage-open-midi-export", {
+                detail: { kind: "track", trackId: trackMenu.track.id },
+              }));
+              setTrackMenu(null);
+            }}>
+              Export Track as MIDI…
+            </ContextMenuItem>
+          )}
           <ContextMenuDivider />
           <ContextMenuItem
             disabled={

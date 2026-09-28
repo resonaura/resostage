@@ -12,6 +12,7 @@ import {
   type AudioRenderStatus,
 } from "../../lib/state/api";
 import type { WebUiState } from "../../lib/state/types";
+import { songSecondsAtBeat } from "../../lib/midi/standardMidiFile";
 import { Button, Modal, Select, Switch } from "../ui";
 
 type Scope = "song" | "project" | "cycle" | "custom";
@@ -856,10 +857,11 @@ function songDuration(song: WebUiState["songs"][number] | undefined): number {
   if ((song.endSeconds ?? 0) > 0) return song.endSeconds ?? 0;
   return Math.max(
     0,
-    ...(song.regions ?? []).map(
-      (region) => region.startSeconds + region.durationSeconds,
-    ),
+    ...(song.regions ?? []).map((region) => region.startSeconds + region.durationSeconds),
     ...song.events.map((event) => event.timeSeconds),
+    ...((song.midiRegions ?? []).map((region) => songSecondsAtBeat(
+      song, region.startBeats + region.durationBeats,
+    ))),
   );
 }
 

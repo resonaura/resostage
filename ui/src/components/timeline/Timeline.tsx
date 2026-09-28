@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { builder, transport } from "../../lib/state/api";
+import { parseStandardMidiFile } from "../../lib/midi/standardMidiFile";
 import {
   beginCancellableDrag,
   type CancellableDrag,
@@ -1018,6 +1019,7 @@ export function Timeline({
     file: File;
     name: string;
   } | null>(null);
+  const [midiDropName, setMidiDropName] = useState<string | null>(null);
   const [audioDropPreview, setAudioDropPreview] = useState<{
     duration: number;
     min: number[];
@@ -1034,6 +1036,7 @@ export function Timeline({
     audioDropFileRef.current = null;
     audioDropEntryResolvedRef.current = null;
     setAudioDropFile(null);
+    setMidiDropName(null);
     setAudioDropPreview(null);
     setAudioDropPos(null);
   };
@@ -1104,6 +1107,13 @@ export function Timeline({
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
 
+    const midiName = /\.(mid|midi)$/i.test(info.name) ? info.name : null;
+    setMidiDropName(midiName);
+    if (midiName && audioDropFile) {
+      audioDropFileRef.current = null;
+      setAudioDropFile(null);
+      setAudioDropPreview(null);
+    }
     if (info.audio) {
       // Grab the File for the preview: sync when available, else async via
       // the drop-entry (one resolution attempt per dragged filename).
@@ -1124,7 +1134,7 @@ export function Timeline({
           }
         });
       }
-    } else if (audioDropFile || audioDropPos) {
+    } else if (!midiName && (audioDropFile || audioDropPos)) {
       // A file we couldn't identify as audio -- hide any stale ghost.
       clearAudioDrop();
     }
@@ -1148,7 +1158,9 @@ export function Timeline({
 
   const onTracksDrop = (e: React.DragEvent) => {
     if (readOnly || effectiveViewMode !== "audio") return;
-    const file = audioFileDropEvent(e);
+    const dropped = e.dataTransfer.files?.[0] ?? null;
+    const isMidi = Boolean(dropped && /\.(mid|midi)$/i.test(dropped.name));
+    const file = isMidi ? dropped : audioFileDropEvent(e);
     if (!file) {
       clearAudioDrop();
       return;
@@ -1164,6 +1176,47 @@ export function Timeline({
     }
     clearAudioDrop();
     if (!pos) return;
+    if (isMidi) {
+      const track = state.tracks[pos.trackIndex];
+      if (!track || !["instrument", "midi", "externalMidi"].includes(track.kind ?? "")) {
+        showToast("Drop MIDI on an instrument or MIDI track");
+        return;
+      }
+      if (file.size > 32 * 1024 * 1024) {
+        showToast("MIDI file exceeds 32 MiB limit");
+        return;
+      }
+      const song = songs[pos.songIndex];
+      const startSeconds = Math.max(0, pos.startPx / pxPerSec - (songOffsets[pos.songIndex] ?? 0));
+      const rawStartBeats = startSeconds * (song?.bpm || 120) / 60;
+      const startBeats = snapToGrid ? Math.round(rawStartBeats * 4) / 4 : rawStartBeats;
+      void file.arrayBuffer().then((buffer) => {
+        const imported = parseStandardMidiFile(new Uint8Array(buffer));
+        const noteTracks = imported.tracks.filter((item) => item.notes.length > 0);
+        if (!noteTracks.length) throw new Error("MIDI file has no note events");
+        let nextId = 1;
+        const notes = noteTracks.flatMap((item) => item.notes.map((note) => ({ ...note, id: nextId++ })));
+        const durationBeats = Math.max(1, ...noteTracks.map((item) => item.durationBeats));
+        return builder.midiRegionAdd({
+          songIndex: pos.songIndex,
+          trackId: track.id,
+          name: file.name.replace(/\.(mid|midi)$/i, ""),
+          startBeats,
+          durationBeats,
+          loop: false,
+          loopLengthBeats: durationBeats,
+          color: rows[pos.rowIndex]?.color,
+          notes,
+        }).then(() => {
+          showToast(noteTracks.length > 1
+            ? `Imported ${noteTracks.length} MIDI tracks into ${track.name}`
+            : `Imported MIDI into ${track.name}`);
+        });
+      }).catch((reason: unknown) => {
+        showToast(reason instanceof Error ? reason.message : "MIDI import failed");
+      });
+      return;
+    }
     void builder.trackImportWav(pos.songIndex, pos.trackIndex, file);
   };
 
@@ -2714,6 +2767,18 @@ export function Timeline({
                       )}
                       laneH={laneHeightPx(verticalZoom)}
                     />
+                  )}
+                  {midiDropName && audioDropPos && (
+                    <div
+                      className="pointer-events-none absolute z-40 flex items-center rounded-md border border-foreground/60 bg-surface/85 px-2 text-xs font-semibold text-foreground shadow-lg"
+                      style={{
+                        left: audioDropPos.startPx,
+                        top: audioDropPos.rowIndex * laneHeightPx(verticalZoom) + 3,
+                        height: Math.max(20, laneHeightPx(verticalZoom) - 6),
+                      }}
+                    >
+                      MIDI · {midiDropName}
+                    </div>
                   )}
                   {/* Beat/bar vertical grid canvas, per song (Viewport Sliced) */}
                   {songs.map((song, i) => (

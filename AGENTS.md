@@ -583,6 +583,13 @@ separate WAV files in one graph sweep. Never implement stem export by
 repeatedly changing Solo and rerendering: that changes shared-bus/send
 semantics and repeats the expensive mix work.
 
+Each rendered song gets a private processor bank built from the snapshot and
+saved plug-in states. Processors are marked non-realtime before
+`prepareToPlay`, so JUCE signals offline mode to VST3 and Audio Unit hosts.
+MIDI regions are converted through the song `TempoMap` to sample-positioned
+events for software-instrument strips in that same graph pass; never route
+offline MIDI through the live dispatcher or share live processor instances.
+
 When several taps are exported together, shorter tap paths are delayed to the
 slowest selected tap so every WAV shares one compensated sample origin. These
 offline tap delays are bounded to 64 MiB and a job fails cleanly before
@@ -669,6 +676,14 @@ security-sensitive and OS-sensitive work there: process lifecycle, native file
 dialogs, project upload/download, remote target selection, UDP source
 validation, menus, tray, and Touch Bar. Keep the preload surface narrow and
 typed; do not expose raw Node or Electron APIs to React.
+
+Application menus have one source of truth in `core/app/platform/MenuModel`.
+`MenuItemModel::children` is recursively serialized by the UI menu endpoint and
+recursively materialized by Electron; submenu placement, labels, and shortcut
+metadata belong in that model. High-rate undo/redo availability is applied to
+the existing native menu items in place, and Open Recent contents update
+inside their existing submenu. Menu-state updates must not rebuild the
+application menu for either kind of change.
 
 `useLiveState.ts` merges two classes of data:
 

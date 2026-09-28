@@ -5,6 +5,7 @@
 #include "audio/graph/MixRenderer.h"
 #include "audio/streaming/WavStreamDecoder.h"
 #include "project/ProjectLoader.h"
+#include "timing/TempoMap.h"
 #include "signalsmith-stretch/signalsmith-stretch.h"
 
 #include <algorithm>
@@ -142,6 +143,119 @@ struct RegionReader {
         pitchReady = true;
     }
 };
+
+struct OfflineMidiEvent {
+    int64_t sample = 0;
+    uint32_t strip = MixGraph::kNoStrip;
+    uint8_t pitch = 0;
+    uint8_t velocity = 0;
+    uint8_t releaseVelocity = 0;
+    bool noteOn = false;
+};
+
+bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
+                            const MixGraph& graph, const TempoMap& tempoMap,
+                            const OfflineProcessorSession* processors,
+                            double sampleRate, int64_t renderStartSample,
+                            int64_t renderEndSample,
+                            std::vector<OfflineMidiEvent>& events,
+                            std::string& error) {
+    constexpr size_t kMaximumEvents = 1'000'000;
+    events.clear();
+    if (processors == nullptr)
+        return true;
+    for (const auto& region : song.midiRegions) {
+        if (region.muted || region.notes.empty() || !std::isfinite(region.startBeats)
+            || !std::isfinite(region.durationBeats) || region.durationBeats <= 0.0)
+            continue;
+        const TrackDef* targetTrack = nullptr;
+        for (const auto& track : project.tracks) {
+            if (track.id == region.trackId) { targetTrack = &track; break; }
+        }
+        if (targetTrack == nullptr)
+            continue;
+        const uint32_t strip = graph.find(targetTrack->effectiveStripId());
+        if (strip == MixGraph::kNoStrip || !processors->stripHasInstrument(strip))
+            continue;
+
+        const double loopLength = region.loop && std::isfinite(region.loopLengthBeats)
+            && region.loopLengthBeats > 1.0e-4
+            ? region.loopLengthBeats : region.durationBeats;
+        const double clipOffset = std::isfinite(region.clipOffsetBeats)
+            ? std::max(0.0, region.clipOffsetBeats) : 0.0;
+        const int repeatCount = region.loop && loopLength > 1.0e-4
+            ? static_cast<int>(std::clamp(std::ceil(
+                (region.durationBeats + clipOffset) / loopLength),
+                1.0, 100'000.0))
+            : 1;
+        const double regionEndBeat = region.startBeats + region.durationBeats;
+        for (int repeat = 0; repeat < repeatCount; ++repeat) {
+            const double iterationOffset = region.startBeats - clipOffset
+                + (region.loop ? repeat * loopLength : 0.0);
+            for (const auto& note : region.notes) {
+                if (note.muted || !std::isfinite(note.startBeats)
+                    || !std::isfinite(note.durationBeats) || note.durationBeats <= 0.0)
+                    continue;
+                const double noteOnBeat = iterationOffset + note.startBeats;
+                if (noteOnBeat >= regionEndBeat)
+                    continue;
+                const double noteOffBeat = std::min(
+                    noteOnBeat + note.durationBeats, regionEndBeat);
+                if (noteOffBeat <= region.startBeats)
+                    continue;
+                const int64_t onSample = tempoMap.beatsToSamples(noteOnBeat, sampleRate);
+                const int64_t offSample = tempoMap.beatsToSamples(noteOffBeat, sampleRate);
+                const int64_t regionStartSample = tempoMap.beatsToSamples(region.startBeats, sampleRate);
+                const int64_t effectiveOnSample = std::max({
+                    onSample, renderStartSample, regionStartSample});
+                const int64_t effectiveOffSample = std::min(offSample, renderEndSample);
+                if (effectiveOnSample >= renderEndSample
+                    || effectiveOffSample <= effectiveOnSample)
+                    continue;
+                const uint8_t pitch = static_cast<uint8_t>(std::clamp(
+                    static_cast<int>(note.pitch), 0, 127));
+                const float safeVelocity = std::isfinite(note.velocity)
+                    ? std::clamp(note.velocity, 0.0f, 1.0f) : 0.0f;
+                const float safeReleaseVelocity = std::isfinite(note.releaseVelocity)
+                    ? std::clamp(note.releaseVelocity, 0.0f, 1.0f) : 0.0f;
+                const uint8_t velocity = static_cast<uint8_t>(std::clamp(
+                    static_cast<int>(std::llround(safeVelocity * 127.0f)), 1, 127));
+                const uint8_t releaseVelocity = static_cast<uint8_t>(std::clamp(
+                    static_cast<int>(std::llround(safeReleaseVelocity * 127.0f)), 0, 127));
+                events.push_back({effectiveOnSample, strip, pitch,
+                                  velocity, releaseVelocity, true});
+                events.push_back({effectiveOffSample, strip, pitch, velocity,
+                                  releaseVelocity, false});
+                if (events.size() > kMaximumEvents) {
+                    error = "MIDI arrangement exceeds the offline render event limit";
+                    return false;
+                }
+            }
+        }
+    }
+    std::stable_sort(events.begin(), events.end(), [](const auto& a, const auto& b) {
+        if (a.sample != b.sample) return a.sample < b.sample;
+        if (a.noteOn != b.noteOn) return !a.noteOn; // release before retrigger
+        return a.strip < b.strip;
+    });
+    return true;
+}
+
+double tempoAtBeat(const TempoMap& tempoMap, double beat) noexcept {
+    const auto& points = tempoMap.points();
+    if (points.empty()) return 120.0;
+    size_t index = 0;
+    for (size_t i = 1; i < points.size() && points[i].beat <= beat; ++i)
+        index = i;
+    const auto& point = points[index];
+    if (index + 1 >= points.size() || std::abs(point.curve) < 1.0e-9)
+        return point.bpm;
+    const auto& next = points[index + 1];
+    if (next.beat <= point.beat)
+        return next.bpm;
+    const double t = std::clamp((beat - point.beat) / (next.beat - point.beat), 0.0, 1.0);
+    return point.bpm + (next.bpm - point.bpm) * t;
+}
 
 class WavWriter {
 public:
@@ -374,6 +488,10 @@ double songDuration(const SongDef& song, const std::vector<RegionReader>& reader
     for (const auto& reader : readers)
         end = std::max(end, reader.region->startSeconds + regionDuration(reader));
     for (const auto& event : song.events) end = std::max(end, event.timeSeconds);
+    const TempoMap tempoMap(song.bpm, song.tempoPoints);
+    for (const auto& region : song.midiRegions)
+        end = std::max(end, tempoMap.beatsToSeconds(
+            region.startBeats + region.durationBeats));
     return end;
 }
 
@@ -466,6 +584,7 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         if (d <= 0.0) {
             for (const auto& region : song.regions)
                 d = std::max(d, region.startSeconds + std::max(0.0, region.durationSeconds));
+            d = std::max(d, songDuration(song, {}));
         }
         const double rangeStart = songIndices.size() == 1
             ? std::clamp(request.rangeStartSeconds, 0.0, std::max(0.0, d)) : 0.0;
@@ -616,11 +735,20 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         ClickGenerator click;
         click.prepare(request.sampleRate, song.bpm, song.timeSignature.numerator,
                       song.timeSignature.denominator);
+        const TempoMap tempoMap(song.bpm, song.tempoPoints);
+        std::vector<OfflineMidiEvent> midiEvents;
+        const int64_t sourceStartFrame = static_cast<int64_t>(std::llround(rangeStart * request.sampleRate));
+        const int64_t renderContentEndFrame = sourceStartFrame + contentFrames;
+        if (!buildOfflineMidiEvents(project, song, graph, tempoMap,
+                                    processorSession.get(),
+                                    request.sampleRate, sourceStartFrame,
+                                    renderContentEndFrame,
+                                    midiEvents, result.error))
+            return fail(result.error);
 
         std::vector<float> regionL(kBlockSize), regionR(kBlockSize);
         std::vector<float> pitchL(kBlockSize), pitchR(kBlockSize);
         std::vector<float> clickMono(kBlockSize);
-        const int64_t sourceStartFrame = static_cast<int64_t>(std::llround(rangeStart * request.sampleRate));
         const int64_t outputEndFrame =
             contentFrames + fixedTailFrames + maxTailFrames;
         const int64_t trimLatencyFrames =
@@ -633,6 +761,11 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         for (int pass = 0; pass < passCount; ++pass) {
           const bool recordPass = pass == passCount - 1;
           int64_t renderFrame = 0;
+          size_t midiEventIndex = static_cast<size_t>(std::lower_bound(
+              midiEvents.begin(), midiEvents.end(), sourceStartFrame,
+              [](const OfflineMidiEvent& event, int64_t sample) {
+                  return event.sample < sample;
+              }) - midiEvents.begin());
           int64_t quietFrames = 0;
           float tailEnvelope = 0.0f;
           while (renderFrame < renderEndFrame) {
@@ -719,13 +852,26 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                 OfflineProcessorTransport transport;
                 transport.sample = sourceFrameBase;
                 transport.sampleRate = request.sampleRate;
-                transport.bpm = song.bpm;
+                transport.bpm = tempoAtBeat(
+                    tempoMap, tempoMap.samplesToBeats(sourceFrameBase, request.sampleRate));
                 transport.numerator = song.timeSignature.numerator;
                 transport.denominator = song.timeSignature.denominator;
                 transport.looping = request.tailPolicy == RenderTailPolicy::Wrap;
                 transport.loopStartSample = sourceStartFrame;
                 transport.loopEndSample = sourceStartFrame + contentFrames;
                 processorSession->publishTransport(transport);
+                while (midiEventIndex < midiEvents.size()
+                       && midiEvents[midiEventIndex].sample < sourceFrameBase + count) {
+                    const auto& event = midiEvents[midiEventIndex++];
+                    if (event.sample < sourceFrameBase
+                        || event.sample > renderContentEndFrame
+                        || (event.noteOn && event.sample == renderContentEndFrame))
+                        continue;
+                    processorSession->queueMidiNote(
+                        event.strip, event.pitch, event.velocity,
+                        event.releaseVelocity, event.noteOn,
+                        static_cast<int>(event.sample - sourceFrameBase));
+                }
             }
             mixer.process(graph, count, processors);
             float blockPeak = 0.0f;

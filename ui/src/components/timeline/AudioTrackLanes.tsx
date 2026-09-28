@@ -899,6 +899,17 @@ export function AudioTrackLanes({
           <ContextMenuDivider />
           <ContextMenuItem
             onClick={() => {
+              window.dispatchEvent(new CustomEvent("resostage-open-midi-export", {
+                detail: { kind: "region", songIndex: midiContextMenu.songIndex,
+                  trackId: midiContextMenu.region.trackId, regionId: midiContextMenu.region.id },
+              }));
+              setMidiContextMenu(null);
+            }}
+          >
+            Export Region as MIDI…
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
               onOpenMidiRegion?.(
                 midiContextMenu.region.trackId,
                 midiContextMenu.region.id,
